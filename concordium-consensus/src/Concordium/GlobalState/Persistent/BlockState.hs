@@ -1050,7 +1050,7 @@ doAddBaker pbs ai BakerAdd{..} = do
 
 doConfigureBaker
     :: forall pv m.
-    (SupportsPersistentState pv m, SupportsDelegation pv, ChainParametersVersionFor pv ~ 'ChainParametersV1)
+    (SupportsPersistentState pv m, SupportsDelegation pv)
     => PersistentBlockState pv
     -> AccountIndex
     -> BakerConfigure
@@ -1062,7 +1062,8 @@ doConfigureBaker pbs ai BakerConfigureAdd{..} = do
             -- Cannot resolve the account
             Nothing -> return (BCInvalidAccount, pbs)
             Just PersistentAccount{} -> do
-                chainParams <- doGetChainParameters pbs
+                chainParams <- case delegationChainParameters @pv of
+                    DelegationChainParametersV1 -> doGetChainParameters pbs
                 let poolParams = chainParams ^. cpPoolParameters
                 let capitalMin = poolParams ^. ppMinimumEquityCapital
                 let ranges = poolParams ^. ppCommissionBounds
@@ -1120,7 +1121,8 @@ doConfigureBaker pbs ai BakerConfigureAdd{..} = do
                             }
 doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
         origBSP <- loadPBS pbs
-        cp <- doGetChainParameters pbs
+        cp <- case delegationChainParameters @pv of
+            DelegationChainParametersV1 -> doGetChainParameters pbs
         res <- MTL.runExceptT $ MTL.runWriterT $ flip MTL.execStateT origBSP $ do
                 updateKeys
                 updateRestakeEarnings
@@ -1144,7 +1146,7 @@ doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
                 Nothing -> MTL.throwError BCInvalidAccount
                 Just PersistentAccount{_accountStake = PersistentAccountStakeBaker ab} -> liftBSO $ refLoad ab
                 Just PersistentAccount{} -> MTL.throwError BCInvalidBaker
-        modifyAccount (updAcc :: PersistentAccount (AccountVersionFor pv) -> m ((), PersistentAccount (AccountVersionFor pv))) = do
+        modifyAccount updAcc = do
             bsp <- MTL.get
             (_, newAccounts) <- liftBSO $ Accounts.updateAccountsAtIndex updAcc ai (bspAccounts bsp)
             MTL.put bsp{bspAccounts = newAccounts}
@@ -1365,7 +1367,7 @@ delegationCheckTargetOpen bsp (Transactions.DelegateToBaker bid@(BakerId baid)) 
 
 doConfigureDelegation
     :: forall pv m
-     . (SupportsPersistentState pv m, SupportsDelegation pv, ChainParametersVersionFor pv ~ 'ChainParametersV1)
+     . (SupportsPersistentState pv m, SupportsDelegation pv)
     => PersistentBlockState pv
     -> AccountIndex
     -> DelegationConfigure
@@ -1373,7 +1375,8 @@ doConfigureDelegation
 doConfigureDelegation pbs ai DelegationConfigureAdd{..} = do
         -- It is assumed here that this account is NOT a baker and NOT a delegator.
         bsp <- loadPBS pbs
-        poolParams <- _cpPoolParameters <$> lookupCurrentParameters (bspUpdates bsp)
+        poolParams <- case delegationChainParameters @pv of
+            DelegationChainParametersV1 -> _cpPoolParameters <$> lookupCurrentParameters (bspUpdates bsp)
         result <- MTL.runExceptT $ do
             newBSP <- updateBlockState bsp
             delegationConfigureDisallowOverdelegation newBSP poolParams dcaDelegationTarget
@@ -1421,7 +1424,8 @@ doConfigureDelegation pbs ai DelegationConfigureAdd{..} = do
                     return $! bspBirkParameters bsp & birkActiveBakers .~ newpabref
 doConfigureDelegation pbs ai DelegationConfigureUpdate{..} = do
         origBSP <- loadPBS pbs
-        cp <- lookupCurrentParameters (bspUpdates origBSP)
+        cp <- case delegationChainParameters @pv of
+            DelegationChainParametersV1 -> lookupCurrentParameters (bspUpdates origBSP)
         res <- MTL.runExceptT $ MTL.runWriterT $ flip MTL.execStateT origBSP $ do
                 oldTarget <- updateDelegationTarget
                 updateRestakeEarnings
@@ -2140,11 +2144,11 @@ doGetPoolStatus pbs (Just psBakerId@(BakerId aid)) = case delegationChainParamet
         bsp <- loadPBS pbs
         Accounts.indexedAccount aid (bspAccounts bsp) >>= \case
             Nothing -> return Nothing
-            Just (acct :: PersistentAccount (AccountVersionFor pv)) -> do
+            Just acct -> do
                 case acct ^. accountBaker of
                     Null -> return Nothing
                     Some bkrRef -> do
-                        (baker :: PersistentAccountBaker (AccountVersionFor pv)) <- refLoad bkrRef
+                        baker <- refLoad bkrRef
                         let psBakerEquityCapital = baker ^. stakedAmount
                         psDelegatedCapital <- poolDelegatorCapital bsp psBakerId
                         poolParameters <- _cpPoolParameters <$> lookupCurrentParameters (bspUpdates bsp)

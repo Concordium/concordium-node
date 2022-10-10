@@ -877,7 +877,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   --
   -- Note: in the case of an early return (i.e. not @BCSuccess@), the state is not updated.
   bsoConfigureBaker
-    :: (SupportsDelegation (MPV m), ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1)
+    :: (SupportsDelegation (MPV m))
     => UpdatableBlockState m
     -> AccountIndex
     -> BakerConfigure
@@ -967,7 +967,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- However, this behaviour is not guaranteed, and could result in violations of the state
   -- invariants.
   bsoConfigureDelegation
-    :: (SupportsDelegation (MPV m), ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1)
+    :: (SupportsDelegation (MPV m))
     => UpdatableBlockState m
     -> AccountIndex
     -> DelegationConfigure

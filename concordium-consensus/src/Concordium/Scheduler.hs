@@ -280,28 +280,23 @@ dispatch (msg, mVerRes) = do
                      handleUpdateContract (mkWTC TTUpdate) uAmount uAddress uReceiveName uMessage
 
                    AddBaker{..} ->
-                     onlyAccountVersion SAccountV0 $
-                     onlyChainParametersVersion SCPV0 $
+                     onlyWithoutDelegation $
                      handleAddBaker (mkWTC TTAddBaker) abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyKey abProofSig abProofElection abProofAggregation abBakingStake abRestakeEarnings
 
                    RemoveBaker ->
-                     onlyAccountVersion SAccountV0 $
-                     onlyChainParametersVersion SCPV0 $
+                     onlyWithoutDelegation $
                      handleRemoveBaker (mkWTC TTRemoveBaker)
 
                    UpdateBakerStake{..} ->
-                     onlyAccountVersion SAccountV0 $
-                     onlyChainParametersVersion SCPV0 $
+                     onlyWithoutDelegation $
                      handleUpdateBakerStake (mkWTC TTUpdateBakerStake) ubsStake
 
                    UpdateBakerRestakeEarnings{..} ->
-                     onlyAccountVersion SAccountV0 $
-                     onlyChainParametersVersion SCPV0 $
+                     onlyWithoutDelegation $
                      handleUpdateBakerRestakeEarnings (mkWTC TTUpdateBakerRestakeEarnings) ubreRestakeEarnings
 
                    UpdateBakerKeys{..} ->
-                     onlyAccountVersion SAccountV0 $
-                     onlyChainParametersVersion SCPV0 $
+                     onlyWithoutDelegation $
                      handleUpdateBakerKeys (mkWTC TTUpdateBakerKeys) ubkElectionVerifyKey ubkSignatureVerifyKey ubkAggregationVerifyKey ubkProofSig ubkProofElection ubkProofAggregation
 
                    UpdateCredentialKeys{..} ->
@@ -335,13 +330,11 @@ dispatch (msg, mVerRes) = do
                      handleTransferWithSchedule (mkWTC TTTransferWithScheduleAndMemo) twswmTo twswmSchedule $ Just twswmMemo
 
                    ConfigureBaker{..} ->
-                     onlyAccountVersion SAccountV1 $
-                     onlyChainParametersVersion SCPV1 $
+                     onlyWithDelegation $
                      handleConfigureBaker (mkWTC TTConfigureBaker) cbCapital cbRestakeEarnings cbOpenForDelegation cbKeysWithProofs cbMetadataURL cbTransactionFeeCommission cbBakingRewardCommission cbFinalizationRewardCommission
 
                    ConfigureDelegation{..} ->
-                     onlyAccountVersion SAccountV1 $
-                     onlyChainParametersVersion SCPV1 $
+                     onlyWithDelegation $
                      handleConfigureDelegation (mkWTC TTConfigureDelegation) cdCapital cdRestakeEarnings cdDelegationTarget
 
           case res of
@@ -349,22 +342,26 @@ dispatch (msg, mVerRes) = do
             Nothing -> return Nothing
             Just summary -> return $ Just $ TxValid summary
   where
-    -- Function 'onlyAccountVersion' @sav@ @k@ fails if account version for @MPV m@ is not that of @sav@,
-    -- and continues with @k@ if they are the same.
-    onlyAccountVersion :: SAccountVersion av -> ((AccountVersionFor (MPV m) ~ av) => a) -> a
-    onlyAccountVersion sav c =
-        case (sav, accountVersionFor (protocolVersion @(MPV m))) of
-            (SAccountV0, SAccountV0) -> c
-            (SAccountV1, SAccountV1) -> c
-            _ -> error "Operation unsupported for this protocol version."
-    -- Function 'onlyChainParametersVersion' @scpv@ @k@ fails if chain parameters version for @MPV m@ is
-    -- not that of @sav@, and continues with @k@ if they are the same.
-    onlyChainParametersVersion :: SChainParametersVersion cpv -> ((ChainParametersVersionFor (MPV m) ~ cpv) => a) -> a
-    onlyChainParametersVersion scpv c =
-        case (scpv, chainParametersVersionFor (protocolVersion @(MPV m))) of
-            (SCPV0, SCPV0) -> c
-            (SCPV1, SCPV1) -> c
-            _ -> error "Operation unsupported for this chain parameter version."
+    -- Function @onlyWithoutDelegation k@ fails if the protocol version @MPV m@ supports
+    -- delegation. Otherwise, it continues with @k@, which may assume the chain parameters version
+    -- is 'ChainParametersV0' and the account version is 'AccountV0'.
+    onlyWithoutDelegation :: (
+        (
+          ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0,
+          AccountVersionFor (MPV m) ~ 'AccountV0
+        ) => a)
+        -> a
+    onlyWithoutDelegation c = case protocolVersion @(MPV m) of
+      SP1 -> c
+      SP2 -> c
+      SP3 -> c
+      _ -> error "Operation unsupported at this prtocol version."
+    -- Function @onlyWithDelegation k@ fails if the protocol version @MPV m@ does not support
+    -- delegation. Otherwise, it continues with @k@, which may assume that delegation is supported.
+    onlyWithDelegation :: (SupportsDelegation (MPV m) => a) -> a
+    onlyWithDelegation c = case delegationSupport @(AccountVersionFor (MPV m)) of
+        SAVDelegationNotSupported -> error "Operation unsupported at this protocol version."
+        SAVDelegationSupported -> c
 
 handleTransferWithSchedule :: forall m .
   SchedulerMonad m
@@ -1492,8 +1489,7 @@ data ConfigureDelegationCont =
   | ConfigureUpdateDelegationCont
 
 handleConfigureBaker ::
-    ( AccountVersionFor (MPV m) ~ 'AccountV1,
-      ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
+    ( SupportsDelegation (MPV m),
       SchedulerMonad m
     ) =>
     WithDepositContext m ->
@@ -1685,7 +1681,7 @@ handleConfigureBaker
             return (TxReject (NotABaker senderAddress), energyCost, usedEnergy)
 
 handleConfigureDelegation
-    :: (AccountVersionFor (MPV m) ~ 'AccountV1, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1, SchedulerMonad m)
+    :: (SupportsDelegation (MPV m), SchedulerMonad m)
     => WithDepositContext m
     -> Maybe Amount
     -> Maybe Bool

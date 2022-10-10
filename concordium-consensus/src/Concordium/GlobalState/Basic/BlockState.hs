@@ -1306,7 +1306,8 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
 
     bsoConfigureBaker bs ai BakerConfigureAdd{..} = do
       -- It is assumed here that this account is NOT a baker and NOT a delegator.
-      chainParams <- BS.bsoGetChainParameters bs
+      chainParams <- case delegationChainParameters @pv of
+        DelegationChainParametersV1 -> BS.bsoGetChainParameters bs
       let poolParams = chainParams ^. cpPoolParameters
       let capitalMin = poolParams ^. ppMinimumEquityCapital
       let ranges = poolParams ^. ppCommissionBounds
@@ -1371,6 +1372,8 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             Right (newBS, changes) -> (BCSuccess changes bid, newBS)
       where
         bid = BakerId ai
+        currentChainParameters = case delegationChainParameters @pv of
+                    DelegationChainParametersV1 -> (^. blockUpdates . currentParameters)
         getAccount = do
             s <- MTL.get
             case s ^? blockAccounts . Accounts.indexedAccount ai of
@@ -1418,7 +1421,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             MTL.tell [BakerConfigureMetadataURL metadataURL]
         updateTransactionFeeCommission = forM_ bcuTransactionFeeCommission $ \tfc -> do
             bs <- MTL.get
-            let cp = bs ^. blockUpdates . currentParameters
+            let cp = currentChainParameters bs
             let range = cp ^. cpPoolParameters . ppCommissionBounds . transactionCommissionRange
             unless (isInRange tfc range) (MTL.throwError BCTransactionFeeCommissionNotInRange)
             ab <- getAccount
@@ -1427,7 +1430,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             MTL.tell [BakerConfigureTransactionFeeCommission tfc]
         updateBakingRewardCommission = forM_ bcuBakingRewardCommission $ \brc -> do
             bs <- MTL.get
-            let cp = bs ^. blockUpdates . currentParameters
+            let cp = currentChainParameters bs
             let range = cp ^. cpPoolParameters . ppCommissionBounds . bakingCommissionRange
             unless (isInRange brc range) (MTL.throwError BCBakingRewardCommissionNotInRange)
             ab <- getAccount
@@ -1436,7 +1439,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             MTL.tell [BakerConfigureBakingRewardCommission brc]
         updateFinalizationRewardCommission = forM_ bcuFinalizationRewardCommission $ \frc -> do
             bs <- MTL.get
-            let cp = bs ^. blockUpdates . currentParameters
+            let cp = currentChainParameters bs
             let range = cp ^. cpPoolParameters . ppCommissionBounds . finalizationCommissionRange
             unless (isInRange frc range) (MTL.throwError BCFinalizationRewardCommissionNotInRange)
             ab <- getAccount
@@ -1447,9 +1450,9 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             ab <- getAccount
             when (_bakerPendingChange ab /= NoChange) (MTL.throwError BCChangePending)
             bs <- MTL.get
-            let cp = bs ^. blockUpdates . currentParameters
+            let cp = currentChainParameters bs
             let capitalMin = cp ^. cpPoolParameters . ppMinimumEquityCapital
-            let cooldownDuration = origBS ^. blockUpdates . currentParameters . cpCooldownParameters . cpPoolOwnerCooldown
+            let cooldownDuration = cp ^. cpCooldownParameters . cpPoolOwnerCooldown
                 cooldownElapsed = addDurationSeconds bcuSlotTimestamp cooldownDuration
             if capital == 0 then do
                 let bpc = RemoveStake (PendingChangeEffectiveV1 cooldownElapsed)
@@ -1486,7 +1489,8 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
 
     bsoConfigureDelegation bs ai DelegationConfigureAdd{..} = do
         -- It is assumed here that this account is NOT a baker and NOT a delegator.
-        poolParams <- _cpPoolParameters <$> BS.bsoGetChainParameters bs
+        poolParams <- case delegationChainParameters @pv of
+                DelegationChainParametersV1 -> _cpPoolParameters <$> BS.bsoGetChainParameters bs
         let result = MTL.runExcept $ do
                 newBS <- updateBlockState
                 delegationConfigureDisallowOverdelegation newBS poolParams dcaDelegationTarget
@@ -1538,7 +1542,8 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                                 & totalActiveCapital +~ dcaCapital
                     return $! _blockBirkParameters bs & birkActiveBakers .~ newAB
     bsoConfigureDelegation origBS ai DelegationConfigureUpdate{..} = do
-        poolParams <- _cpPoolParameters <$> BS.bsoGetChainParameters origBS
+        poolParams <- case delegationChainParameters @pv of
+            DelegationChainParametersV1 -> _cpPoolParameters <$> BS.bsoGetChainParameters origBS
         let res = MTL.runExcept $ MTL.runWriterT $ flip MTL.execStateT origBS $ do
                 oldTarget <- updateDelegationTarget
                 updateRestakeEarnings
@@ -1565,14 +1570,16 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             forM_ dcuCapital $ \capital -> do
                 when (_delegationPendingChange ad /= NoChange) (MTL.throwError DCChangePending)
                 if capital == 0 then do
-                    let cooldownDuration = origBS ^. blockUpdates . currentParameters . cpCooldownParameters . cpDelegatorCooldown
+                    let cooldownDuration = case delegationChainParameters @pv of
+                            DelegationChainParametersV1 -> origBS ^. blockUpdates . currentParameters . cpCooldownParameters . cpDelegatorCooldown
                         cooldownElapsed = addDurationSeconds dcuSlotTimestamp cooldownDuration
                         dpc = RemoveStake (PendingChangeEffectiveV1 cooldownElapsed)
                     modifyAccount (delegationPendingChange .~ dpc)
                     MTL.tell [DelegationConfigureStakeReduced capital]
                 else case compare capital (ad ^. delegationStakedAmount) of
                     LT -> do
-                        let cooldownDuration = origBS ^. blockUpdates . currentParameters . cpCooldownParameters . cpDelegatorCooldown
+                        let cooldownDuration = case delegationChainParameters @pv of
+                                DelegationChainParametersV1 -> origBS ^. blockUpdates . currentParameters . cpCooldownParameters . cpDelegatorCooldown
                             cooldownElapsed = addDurationSeconds dcuSlotTimestamp cooldownDuration
                         let dpc = ReduceStake capital (PendingChangeEffectiveV1 cooldownElapsed)
                         modifyAccount (delegationPendingChange .~ dpc)

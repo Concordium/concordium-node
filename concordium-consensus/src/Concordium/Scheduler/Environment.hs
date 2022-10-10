@@ -188,7 +188,7 @@ class (Monad m, StaticInformation m, AccountOperations m, ContractStateOperation
   -- For details of the behaviour and return values, see
   -- 'Concordium.GlobalState.BlockState.bsoConfigureBaker'.
   configureBaker
-    :: (AccountVersionFor (MPV m) ~ 'AccountV1, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1)
+    :: (SupportsDelegation (MPV m))
     => AccountIndex
     -> BakerConfigure
     -> m BakerConfigureResult
@@ -197,7 +197,7 @@ class (Monad m, StaticInformation m, AccountOperations m, ContractStateOperation
   -- For details of the behaviour and return values, see
   -- 'Concordium.GlobalState.BlockState.bsoConfigureDelegation'.
   configureDelegation
-    :: (AccountVersionFor (MPV m) ~ 'AccountV1, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1)
+    :: (SupportsDelegation (MPV m))
     => AccountIndex
     -> DelegationConfigure
     -> m DelegationConfigureResult

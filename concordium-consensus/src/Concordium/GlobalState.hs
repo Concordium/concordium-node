@@ -5,9 +5,6 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
--- FIXME: This is to suppress compiler warnings for derived instances of BlockStateOperations.
--- This may be fixed in GHC 9.0.1.
-{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 -- |This module lifts the abstractions declared in the globalstate package to an
 -- abstracted new type `GlobalStateM` that inherits all the monad behaviors defined
 -- in this package.
@@ -166,7 +163,6 @@ deriving via PersistentBlockStateMonad pv
               (PersistentBlockStateContext pv)
               (FocusGlobalStateM (PersistentBlockStateContext pv) g m)
     instance (MonadIO m,
-              IsProtocolVersion pv,
               BlockStateQuery (PersistentBlockStateMonad pv
                                 (PersistentBlockStateContext pv)
                                 (FocusGlobalStateM (PersistentBlockStateContext pv) g m)))
@@ -185,7 +181,6 @@ deriving via PersistentBlockStateMonad pv
               (PersistentBlockStateContext pv)
               (FocusGlobalStateM (PersistentBlockStateContext pv) g m)
     instance (MonadIO m,
-              IsProtocolVersion pv,
               ContractStateOperations (PersistentBlockStateMonad pv
                                         (PersistentBlockStateContext pv)
                                         (FocusGlobalStateM (PersistentBlockStateContext pv) g m)))
@@ -195,7 +190,6 @@ deriving via PersistentBlockStateMonad pv
               (PersistentBlockStateContext pv)
               (FocusGlobalStateM (PersistentBlockStateContext pv) g m)
     instance (MonadIO m,
-              IsProtocolVersion pv,
               ModuleQuery (PersistentBlockStateMonad pv
                                         (PersistentBlockStateContext pv)
                                         (FocusGlobalStateM (PersistentBlockStateContext pv) g m)))
@@ -206,7 +200,6 @@ deriving via PersistentBlockStateMonad pv
               (PersistentBlockStateContext pv)
               (FocusGlobalStateM (PersistentBlockStateContext pv) g m)
     instance (MonadIO m,
-              IsProtocolVersion pv,
               BlockStateOperations (PersistentBlockStateMonad pv
                                      (PersistentBlockStateContext pv)
                                      (FocusGlobalStateM (PersistentBlockStateContext pv) g m)))
@@ -216,7 +209,6 @@ deriving via PersistentBlockStateMonad pv
               (PersistentBlockStateContext pv)
               (FocusGlobalStateM (PersistentBlockStateContext pv) g m)
     instance (MonadIO m,
-              IsProtocolVersion pv,
               BlockStateStorage (PersistentBlockStateMonad pv
                                   (PersistentBlockStateContext pv)
                                   (FocusGlobalStateM (PersistentBlockStateContext pv) g m)))
@@ -227,8 +219,7 @@ instance
       c ~ PersistentBlockStateContext pv,
       HasGlobalStateContext c r,
       AccountVersionFor pv ~ av,
-      MonadReader r m,
-      HasCache (Accounts.AccountCache av) c
+      MonadReader r m
     ) =>
     MonadCache (Accounts.AccountCache av) (PersistentBlockStateM pv r g s m)
     where
@@ -238,8 +229,7 @@ instance
     ( MonadIO m,
       c ~ PersistentBlockStateContext pv,
       HasGlobalStateContext c r,
-      MonadReader r m,
-      HasCache Modules.ModuleCache c
+      MonadReader r m
     ) =>
     MonadCache Modules.ModuleCache (PersistentBlockStateM pv r g s m)
     where
