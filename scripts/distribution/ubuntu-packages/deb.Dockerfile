@@ -26,6 +26,7 @@ ARG build_env_name_lower=testnet
 ARG build_genesis_hash=b6078154d6717e909ce0da4a45a25151b592824f31624b755900a74429e3073d
 ARG build_collector_backend_url=https://dashboard.testnet.concordium.com/nodes/post
 ARG build_rpc_server_port=10001
+ARG build_grpc2_listen_port=20001
 ARG build_listen_port=8889
 ARG build_bootstrap=bootstrap.testnet.concordium.com:8888
 

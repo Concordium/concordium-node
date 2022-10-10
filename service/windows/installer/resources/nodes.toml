@@ -28,6 +28,15 @@ rpc.port = 10000
 # It is not recommended to allow connections on a public address.
 # 127.0.0.1 will only allow connections on the local machine.
 rpc.ip = "127.0.0.1"
+# Port to listen for GRPC V2 requests
+grpc2.port = 20000
+# IP address to listen for GRPC V2 requests on.
+# It is not recommended to allow connections on a public address without
+# restricting the set of endpoints, which can be done by
+# setting `node.env.CONCORDIUM_NODE_GRPC2_ENDPOINT_CONFIG`. See https://github.com/Concordium/concordium-node/blob/main/docs/grpc2.md
+# for details.
+# 127.0.0.1 will only allow connections on the local machine.
+grpc2.ip = "127.0.0.1"
 # The lowest severity level of log events to include in the logs.
 # From highest to lowest, the options are: "error", "warn", "info", "debug", "trace".
 log.level = "warn"
@@ -68,6 +77,15 @@ rpc.port = 10001
 # It is not recommended to allow connections on a public address.
 # 127.0.0.1 will only allow connections on the local machine.
 rpc.ip = "127.0.0.1"
+# Port to listen for GRPC V2 requests
+grpc2.port = 20001
+# IP address to listen for GRPC V2 requests on.
+# It is not recommended to allow connections on a public address without
+# restricting the set of endpoints, which can be done by
+# setting `node.env.CONCORDIUM_NODE_GRPC2_ENDPOINT_CONFIG`. See https://github.com/Concordium/concordium-node/blob/main/docs/grpc2.md
+# for details.
+# 127.0.0.1 will only allow connections on the local machine.
+grpc2.ip = "127.0.0.1"
 # The lowest severity level of log events to include in the logs.
 # From highest to lowest, the options are: "error", "warn", "info", "debug", "trace".
 log.level = "warn"
