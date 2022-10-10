@@ -8,8 +8,9 @@
   only blockstate usable.
 - Fix a memory leak that could occur in certain usage scenarios involving smart
   contracts.
-- Implementation of the the V2 GRPC API. This adds a number of new configuration
-  options for the node. These are detailed in [grpc2.md](https://github.com/Concordium/concordium-node/blob/main/docs/grpc2.md)
+- Support for a new GRPC API which uses typed proto definitions. This adds a
+  number of new configuration options for the node. These are detailed in
+  [grpc2.md](https://github.com/Concordium/concordium-node/blob/main/docs/grpc2.md)
 
 ## 4.4.4
 
