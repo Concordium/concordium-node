@@ -621,6 +621,8 @@ struct ServiceConfig {
     send_block_item: bool,
     #[serde(default)]
     get_account_transaction_sign_hash: bool,
+    #[serde(default)]
+    get_block_items: bool,
 }
 
 impl ServiceConfig {
@@ -675,6 +677,7 @@ impl ServiceConfig {
             get_node_info: true,
             send_block_item: true,
             get_account_transaction_sign_hash: true,
+            get_block_items: true,
         }
     }
 
@@ -2227,6 +2230,11 @@ pub mod server {
             &self,
             request: tonic::Request<crate::grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Self::GetBlockItemsStream>, tonic::Status> {
+            if !self.service_config.get_block_items {
+                return Err(tonic::Status::unimplemented(
+                    "`GetBlockItems` is not enabled.",
+                ));
+            }
             let (sender, receiver) = futures::channel::mpsc::channel(100);
             let hash = self.consensus.get_block_items_v2(request.get_ref(), sender)?;
             let mut response = tonic::Response::new(receiver);
