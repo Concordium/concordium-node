@@ -22,12 +22,20 @@ pipeline {
     stages {
         stage('Precheck') {
             steps {
+                // Fail the job if the TAG does not start with a number.
+                sh '''\
+                    re='^[0-9]'
+                    if ! [[ $TAG =~ $re ]] ; then
+                        echo "error: VERSION must start with a number, currently: $TAG"
+                        false
+                    fi
+                '''.stripIndent()
                 // Fail the job if the OUTFILE already exists in S3.
                 sh '''\
                     # Fail if file already exists
                     totalFoundObjects=$(aws s3 ls "$OUTFILE" --summarize | grep "Total Objects: " | sed "s/[^0-9]*//g")
                     if [ "$totalFoundObjects" -ne "0" ]; then
-                        echo "$OUTFILE already exists"
+                        echo "error: $OUTFILE already exists"
                         false
                     fi
                 '''.stripIndent()
