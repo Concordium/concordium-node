@@ -9,7 +9,6 @@ set -euxo pipefail
 
 version="${VERSION}"
 
-flatbuffers_tag=v2.0.0
 rust_toolchain_version=1.62
 protoc_version=3.15.3
 
@@ -17,12 +16,10 @@ protoc_version=3.15.3
 
 apt-get update && \
 	DEBIAN_FRONTEND=noninteractive apt-get -y install \
-		git \
 		curl \
 		libunbound-dev \
 		libprotobuf-dev \
 		libssl-dev \
-		cmake \
 		pkg-config \
 		libnuma-dev \
 		libgmp-dev \
@@ -48,14 +45,6 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 source "$HOME/.cargo/env"
 rustup set profile minimal
 rustup default "$rust_toolchain_version"
-
-# Install flatbuffers.
-
-# Must be kept in sync with 'base-images/base.Dockerfile'.
-# See 'https://gitlab.com/Concordium/devops/-/commit/f41ac413c3583ec53d06a2c0fe5c8795e35f1a46'.
-git clone --branch="${flatbuffers_tag}" --depth=1 https://github.com/google/flatbuffers.git
-( cd flatbuffers && cmake -G "Unix Makefiles" . && make -j"$(nproc)" && make install )
-rm -rf flatbuffers
 
 # - 'database-exporter'
 
