@@ -79,7 +79,7 @@ delegatedCapitalCap poolParams totalCap bakerCap delCap = min leverageCap boundC
 
 -- |Process a set of bakers and delegators to apply pending changes that are effective.
 applyPendingChanges ::
-    (PendingChangeEffective 'AccountV1 -> Bool) ->
+    (Timestamp -> Bool) ->
     ([ActiveBakerInfo' bakerInfoRef], [ActiveDelegatorInfo]) ->
     ([ActiveBakerInfo' bakerInfoRef], [ActiveDelegatorInfo])
 applyPendingChanges isEffective (bakers0, passive0) =
@@ -134,15 +134,15 @@ effectiveTest ::
     (TreeStateMonad m) =>
     -- |Payday epoch
     Epoch ->
-    m (PendingChangeEffective 'AccountV1 -> Bool)
+    m (Timestamp -> Bool)
 effectiveTest paydayEpoch = do
     genData <- getGenesisData
     return (effectiveTest' genData paydayEpoch)
 
 -- |Determine whether a pending change is effective at a payday based
 -- on the epoch of the payday.
-effectiveTest' :: GenesisConfiguration -> Epoch -> PendingChangeEffective 'AccountV1 -> Bool
-effectiveTest' genData paydayEpoch = \(PendingChangeEffectiveV1 t) -> t <= paydayEpochTime
+effectiveTest' :: GenesisConfiguration -> Epoch -> Timestamp -> Bool
+effectiveTest' genData paydayEpoch = (<= paydayEpochTime)
     where
         paydayEpochTime = epochTimestamp genData paydayEpoch
 
@@ -198,7 +198,7 @@ computeBakerStakesAndCapital poolParams activeBakers passiveDelegators = BakerSt
 -- |Generate and set the next epoch bakers and next capital based on the current active bakers.
 generateNextBakers ::
     ( TreeStateMonad m,
-      AccountVersionFor (MPV m) ~ 'AccountV1,
+      SupportsDelegation (MPV m),
       ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1
     ) =>
     -- |The payday epoch
@@ -307,7 +307,7 @@ timeParametersAtSlot targetSlot tp0 upds =
 getSlotBakersP4 ::
     forall m.
     ( BlockStateQuery m,
-      AccountVersionFor (MPV m) ~ 'AccountV1,
+      SupportsDelegation (MPV m),
       ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1
     ) =>
     GenesisConfiguration ->
@@ -394,6 +394,7 @@ getSlotBakers genData = case protocolVersion @(MPV m) of
     SP2 -> getSlotBakersP1
     SP3 -> getSlotBakersP1
     SP4 -> getSlotBakersP4 genData
+    SP5 -> getSlotBakersP4 genData
 
 -- |Determine the bakers that apply to a future slot, given the state at a particular block.
 -- This will return 'Nothing' if the projected bakers could change before then (depending on
@@ -406,7 +407,7 @@ getSlotBakers genData = case protocolVersion @(MPV m) of
 -- If the slot is in an epoch further in the future, this returns 'Nothing'.
 -- (If the slot is in the past, the current epoch bakers will be returned, but the function should
 -- not be called with a historical slot.)
-getDefiniteSlotBakersP1 :: forall m. 
+getDefiniteSlotBakersP1 :: forall m.
     ( BlockStateQuery m,
       AccountVersionFor (MPV m) ~ 'AccountV0
     ) =>
@@ -418,7 +419,7 @@ getDefiniteSlotBakersP1 bs slot = do
     let slotEpoch = fromIntegral $ slot `quot` epochLength
     if slotEpoch <= epoch + 1 then
         Just <$> getSlotBakersP1 bs slot
-    else 
+    else
         return Nothing
 
 -- |Determine the bakers that apply to a future slot, given the state at a particular block.
@@ -437,7 +438,7 @@ getDefiniteSlotBakersP1 bs slot = do
 getDefiniteSlotBakersP4 ::
     forall m.
     ( BlockStateQuery m,
-      AccountVersionFor (MPV m) ~ 'AccountV1,
+      AVSupportsDelegation (AccountVersionFor (MPV m)),
       ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1
     ) =>
     GenesisConfiguration ->
@@ -488,3 +489,4 @@ getDefiniteSlotBakers genData = case protocolVersion @(MPV m) of
     SP2 -> getDefiniteSlotBakersP1
     SP3 -> getDefiniteSlotBakersP1
     SP4 -> getDefiniteSlotBakersP4 genData
+    SP5 -> getDefiniteSlotBakersP4 genData

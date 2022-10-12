@@ -300,6 +300,7 @@ instance ToProto ProtocolVersion where
     toProto P2 = Proto.PROTOCOL_VERSION_2
     toProto P3 = Proto.PROTOCOL_VERSION_3
     toProto P4 = Proto.PROTOCOL_VERSION_4
+    toProto P5 = Proto.PROTOCOL_VERSION_5
 
 instance ToProto QueryTypes.NextAccountNonce where
     type Output QueryTypes.NextAccountNonce = Proto.NextAccountSequenceNumber
@@ -421,10 +422,10 @@ instance ToProto (StakePendingChange' UTCTime) where
     toProto (RemoveStake effectiveTime) =
         Just . Proto.make $ (ProtoFields.remove .= toProto effectiveTime)
 
-instance ToProto (StakePendingChange 'AccountV1) where
-    type Output (StakePendingChange 'AccountV1) = Maybe Proto.StakePendingChange
+instance ToProto (StakePendingChange' Timestamp) where
+    type Output (StakePendingChange' Timestamp) = Maybe Proto.StakePendingChange
     toProto NoChange = Nothing
-    toProto (ReduceStake newStake (PendingChangeEffectiveV1 effectiveTime)) =
+    toProto (ReduceStake newStake effectiveTime) =
         Just $ Proto.make
             ( ProtoFields.reduce
                 .= Proto.make
@@ -433,7 +434,7 @@ instance ToProto (StakePendingChange 'AccountV1) where
                         ProtoFields.effectiveTime .= toProto effectiveTime
                     )
             )
-    toProto (RemoveStake (PendingChangeEffectiveV1 effectiveTime)) =
+    toProto (RemoveStake effectiveTime) =
         Just $ Proto.make (ProtoFields.remove .= toProto effectiveTime)
 
 instance ToProto BakerInfo where

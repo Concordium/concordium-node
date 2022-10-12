@@ -416,7 +416,7 @@ doBlockReward transFees FreeTransactionCounts{..} (BakerId aid) foundationAddr b
     }
 
 -- |Accrue the rewards for a block to the relevant pool, the passive delegators, and the foundation.
-doBlockRewardP4 :: forall m. (BlockStateOperations m, MonadProtocolVersion m, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1, AccountVersionFor (MPV m) ~ 'AccountV1)
+doBlockRewardP4 :: forall m. (BlockStateOperations m, MonadProtocolVersion m, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1, SupportsDelegation (MPV m))
   => Amount
   -- ^Transaction fees paid
   -> FreeTransactionCounts
@@ -536,7 +536,7 @@ makeLenses ''DelegatorRewardOutcomes
 -- Where the reward would be 0, no reward is paid, and no outcome is generated.
 rewardDelegators ::
     forall m.
-    ( AccountVersionFor (MPV m) ~ 'AccountV1,
+    ( SupportsDelegation (MPV m),
       ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
       BlockStateOperations m
     ) =>
@@ -601,7 +601,7 @@ makeLenses ''BakerRewardOutcomes
 -- |Distribute the rewards for a reward period to the baker pools.
 rewardBakers ::
     forall m.
-    ( AccountVersionFor (MPV m) ~ 'AccountV1,
+    ( SupportsDelegation (MPV m),
       ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
       BlockStateOperations m
     ) =>
@@ -736,7 +736,7 @@ rewardBakers bs bakers bakerTotalBakingRewards bakerTotalFinalizationRewards bcs
 -- |Distribute the rewards that have accrued as part of a payday.
 distributeRewards
   :: forall m
-   . (AccountVersionFor (MPV m) ~ 'AccountV1,
+   . (SupportsDelegation (MPV m),
       ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
       BlockStateOperations m,
       TreeStateMonad m)
@@ -869,7 +869,7 @@ mintForSkippedPaydays newEpoch payday oldChainParameters foundationAccount updat
 
 -- |Find committee signers in 'FinalizerInfo' and mark them as awake finalizers.
 addAwakeFinalizers
-    :: (BlockStateOperations m, AccountVersionFor (MPV m) ~ 'AccountV1)
+    :: (BlockStateOperations m, SupportsDelegation (MPV m))
     => Maybe FinalizerInfo
     -> UpdatableBlockState m
     -> m (UpdatableBlockState m)
@@ -985,6 +985,7 @@ mintAndReward bshandle blockParent slotNumber bid newEpoch mintParams mfinInfo t
     SP2 -> mintAndRewardCPV0AccountV0
     SP3 -> mintAndRewardCPV0AccountV0
     SP4 -> mintAndRewardCPV1AccountV1
+    SP5 -> mintAndRewardCPV1AccountV1
   where
     mintAndRewardCPV0AccountV0
         :: (AccountVersionFor (MPV m) ~ 'AccountV0,
@@ -1013,7 +1014,7 @@ mintAndReward bshandle blockParent slotNumber bid newEpoch mintParams mfinInfo t
       doBlockReward transFees freeCounts bid foundationAccount bshandleFinRew
 
     mintAndRewardCPV1AccountV1
-        :: (AccountVersionFor (MPV m) ~ 'AccountV1,
+        :: (SupportsDelegation (MPV m),
             ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1)
         => m (UpdatableBlockState m)
     mintAndRewardCPV1AccountV1 = do
@@ -1078,6 +1079,7 @@ updateBirkParameters newSeedState bs0 oldChainParameters updates = case protocol
   SP2 -> updateCPV0AccountV0
   SP3 -> updateCPV0AccountV0
   SP4 -> updateCPV1AccountV1
+  SP5 -> updateCPV1AccountV1
   where
     updateCPV0AccountV0 :: AccountVersionFor (MPV m) ~ 'AccountV0
         => m (MintRewardParams 'ChainParametersV0, UpdatableBlockState m)
@@ -1093,7 +1095,7 @@ updateBirkParameters newSeedState bs0 oldChainParameters updates = case protocol
         else
           return bs0
       (MintRewardParamsV0 isNewEpoch,) <$> bsoSetSeedState bs1 newSeedState
-    updateCPV1AccountV1 :: (AccountVersionFor (MPV m) ~ 'AccountV1, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1)
+    updateCPV1AccountV1 :: (SupportsDelegation (MPV m), ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1)
         => m (MintRewardParams 'ChainParametersV1, UpdatableBlockState m)
     updateCPV1AccountV1 = do
       oldSeedState <- bsoGetSeedState bs0
@@ -1169,14 +1171,16 @@ countFreeTransactions bis hasFinRec = foldl' cft f0 bis
 -- |Given 'CommissionRanges' and a 'BakerId', update the baker's commission rates to fall within
 -- the ranges (at the closest rate to the existing rate).
 putBakerCommissionsInRange ::
+    forall m.
     (ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
-    AccountVersionFor (MPV m) ~ 'AccountV1,
-    BlockStateOperations m) =>
+    BlockStateOperations m, IsProtocolVersion (MPV m)) =>
     CommissionRanges ->
     UpdatableBlockState m ->
     BakerId ->
     m (UpdatableBlockState m)
-putBakerCommissionsInRange ranges bs (BakerId ai) = bsoConstrainBakerCommission bs ai ranges
+putBakerCommissionsInRange ranges bs (BakerId ai) = case protocolVersion @(MPV m) of
+  SP4 -> bsoConstrainBakerCommission bs ai ranges
+  SP5 -> bsoConstrainBakerCommission bs ai ranges
 
 -- |The result of executing the block prologue.
 data PrologueResult m = PrologueResult {
@@ -1227,10 +1231,10 @@ executeBlockPrologue slotTime newSeedState oldChainParameters bsStart = do
     ab <- bsoGetActiveBakers bsDoneUpdates
     -- for each pool parameter update, go over all bakers and put their commissions inside
     -- the new commission ranges.
-    bsDoneCommissions <- foldM (\bs uv -> case uv of
-      UVPoolParameters PoolParametersV1{..} -> case protocolVersion @(MPV m) of
-          SP4 -> foldM (putBakerCommissionsInRange _ppCommissionBounds) bs ab
-      _ -> return bs) bsDoneUpdates (snd <$> prologueUpdates)
+    let applyCommissionBounds bs (UVPoolParameters PoolParametersV1{..}) =
+            foldM (putBakerCommissionsInRange _ppCommissionBounds) bs ab
+        applyCommissionBounds bs _ = return bs
+    bsDoneCommissions <- foldM applyCommissionBounds bsDoneUpdates (snd <$> prologueUpdates)
     -- unlock the scheduled releases that have expired
     bsDoneReleases <- bsoProcessReleaseSchedule bsDoneCommissions slotTime
     -- update the bakers and seed state

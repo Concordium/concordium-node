@@ -30,7 +30,7 @@ import qualified Concordium.Wasm as Wasm
 import qualified Concordium.GlobalState.Wasm as GSWasm
 import Concordium.Scheduler.Types
 import qualified Concordium.Cost as Cost
-import Concordium.Types.Accounts hiding (getAccountBaker)
+import Concordium.Types.Accounts
 import Concordium.GlobalState.Types
 import Concordium.GlobalState.Classes (MGSTrans(..))
 import Concordium.GlobalState.Account (EncryptedAmountUpdate(..), AccountUpdate(..), auAmount, auEncrypted, auReleaseSchedule, emptyAccountUpdate)
@@ -188,7 +188,7 @@ class (Monad m, StaticInformation m, AccountOperations m, ContractStateOperation
   -- For details of the behaviour and return values, see
   -- 'Concordium.GlobalState.BlockState.bsoConfigureBaker'.
   configureBaker
-    :: (AccountVersionFor (MPV m) ~ 'AccountV1, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1)
+    :: (SupportsDelegation (MPV m))
     => AccountIndex
     -> BakerConfigure
     -> m BakerConfigureResult
@@ -197,7 +197,7 @@ class (Monad m, StaticInformation m, AccountOperations m, ContractStateOperation
   -- For details of the behaviour and return values, see
   -- 'Concordium.GlobalState.BlockState.bsoConfigureDelegation'.
   configureDelegation
-    :: (AccountVersionFor (MPV m) ~ 'AccountV1, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1)
+    :: (SupportsDelegation (MPV m))
     => AccountIndex
     -> DelegationConfigure
     -> m DelegationConfigureResult
