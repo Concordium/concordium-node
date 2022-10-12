@@ -61,7 +61,8 @@ foreign import ccall unsafe "&box_vec_u8_free" freeReturnValue :: FunPtr (Ptr Re
 foreign import ccall unsafe "&receive_interrupted_state_free" freeReceiveInterruptedState :: FunPtr (Ptr (Ptr ReceiveInterruptedState) -> IO ())
 
 foreign import ccall "validate_and_process_v1"
-   validate_and_process :: Ptr Word8 -- ^Pointer to the Wasm module source.
+   validate_and_process :: Word32 -- ^The current protocol version.
+                        -> Ptr Word8 -- ^Pointer to the Wasm module source.
                         -> CSize -- ^Length of the module source.
                         -> Ptr CSize -- ^Total length of the output.
                         -> Ptr CSize -- ^Length of the artifact.
@@ -592,7 +593,8 @@ processModule modl = do
               alloca $ \outputLenPtr ->
                 alloca $ \artifactLenPtr ->
                   alloca $ \outputModuleArtifactPtr -> do
-                    outPtr <- validate_and_process (castPtr wasmBytesPtr) (fromIntegral wasmBytesLen) outputLenPtr artifactLenPtr outputModuleArtifactPtr
+                    -- TODO: FILL in the current protocol version.
+                    outPtr <- validate_and_process undefined (castPtr wasmBytesPtr) (fromIntegral wasmBytesLen) outputLenPtr artifactLenPtr outputModuleArtifactPtr
                     if outPtr == nullPtr then return Nothing
                     else do
                       len <- peek outputLenPtr
