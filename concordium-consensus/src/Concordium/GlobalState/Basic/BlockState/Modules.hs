@@ -78,7 +78,8 @@ instance Serialize Module where
           Nothing -> fail "Invalid V0 module"
           Just moduleVInterface -> return (ModuleV0 ModuleV {..})
       WasmModuleV1 moduleVSource ->
-        case V1.processModule moduleVSource of
+        -- TODO: Pass in the protocol version.
+        case V1.processModule undefined moduleVSource of
           Nothing -> fail "Invalid V1 module"
           Just moduleVInterface -> return (ModuleV1 ModuleV {..})
 

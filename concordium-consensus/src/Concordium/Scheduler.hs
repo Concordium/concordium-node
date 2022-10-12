@@ -652,7 +652,8 @@ handleDeployModule wtc mod =
                 return (Left (iface, moduleV0), mhash)
         Wasm.WasmModuleV1 moduleV1 | demoteProtocolVersion (protocolVersion @(MPV m)) >= P4 -> do
           tickEnergy (Cost.deployModuleCost (Wasm.moduleSourceLength (Wasm.wmvSource moduleV1)))
-          case WasmV1.processModule moduleV1 of
+          -- TODO: pass in the protocol version.
+          case WasmV1.processModule undefined moduleV1 of
               Nothing -> rejectTransaction ModuleNotWF
               Just iface -> do
                 let mhash = GSWasm.moduleReference iface
