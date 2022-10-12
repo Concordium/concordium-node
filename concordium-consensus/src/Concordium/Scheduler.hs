@@ -1151,6 +1151,24 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                 resumeState <- getRuntimeReprV1 newState
                                 newBalance <- getCurrentContractAmount Wasm.SV1 istance
                                 go (resumeEvent True:callEvents ++ interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig resumeState stateChanged newBalance WasmV1.Success (Just rVal))
+                  WasmV1.Upgrade{..} -> do
+                    newModule <- getModuleInterfaces imuModRef
+                    case newModule of
+                      -- The module could not be found.
+                      Nothing -> go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.Error (WasmV1.EnvFailure (WasmV1.UpgradeInvalidModuleRef imuModRef))) Nothing)
+                      Just mi -> case mi of
+                        -- We do not support upgrades to V0 contracts.
+                        GSWasm.ModuleInterfaceV0 _ -> go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.Error (WasmV1.EnvFailure (WasmV1.UpgradeInvalidVersion imuModRef undefined))) Nothing)
+                        GSWasm.ModuleInterfaceV1 mia ->
+                            -- The contract must exist in the new module.
+                            -- I.e. It must be the case that there exists an init function for the new module that matches the caller.
+                            if not (Set.member undefined (GSWasm.miExposedInit mia)) then
+                                go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.Error (WasmV1.EnvFailure (WasmV1.UpgradeInvalidContractName imuModRef undefined))) Nothing)
+                            else
+                            -- Now we carry out the upgrade.
+                            return undefined
+                              
+
 
       -- start contract execution.
       -- transfer the amount from the sender to the contract at the start. This is so that the contract may immediately use it
@@ -1178,7 +1196,6 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                 -- Add the transfer to the current changeset and return the corresponding event.
                 lift (withContractToAccountAmountV1 (instanceAddress senderInstance) targetAccount tAmount $
                       return [Transferred addr tAmount (AddressAccount accAddr)])
-
 
 -- | Invoke a V0 contract and process any generated messages.
 -- This includes the transfer of an amount from the sending account or instance.

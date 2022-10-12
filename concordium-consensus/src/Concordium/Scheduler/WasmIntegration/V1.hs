@@ -89,7 +89,7 @@ instance Show ReturnValue where
   show = BS8.unpack . BS16.encode . returnValueToByteString
 
 -- |State of the Wasm module when a host operation is invoked (a host operation
--- is either a transfer to an account, or a contract call, at present). This can
+-- is either a transfer to an account, a contract call, or an upgrade at present). This can
 -- only be resumed once. Calling resume on this twice will lead to unpredictable
 -- behaviour, including the possibility of segmentation faults.
 newtype ReceiveInterruptedState = ReceiveInterruptedState { risPtr :: ForeignPtr (Ptr ReceiveInterruptedState) }
@@ -133,6 +133,9 @@ data EnvFailure =
   | MissingAccount !AccountAddress
   | MissingContract !ContractAddress
   | InvalidEntrypoint !ModuleRef !ReceiveName -- Attempting to invoke a non-existing entrypoint.
+  | UpgradeInvalidModuleRef !ModuleRef -- ^Attempt to upgrade to a non existent module.
+  | UpgradeInvalidContractName !ModuleRef !InitName -- ^Attempt to upgrade to a module where the contract name did not match.
+  | UpgradeInvalidVersion !ModuleRef !WasmVersion -- ^Attempt to upgrade to a non-supported module version.
   deriving (Show)
 
 -- |Encode the response into 64 bits. This is necessary since Wasm only allows
@@ -152,6 +155,10 @@ invokeResponseToWord64 (Error (EnvFailure e)) =
     MissingAccount _ -> 0xffff_ff02_0000_0000
     MissingContract _ -> 0xffff_ff03_0000_0000
     InvalidEntrypoint _ _ -> 0xffff_ff04_0000_0000
+    -- TODO: Consolidate on the error codes.
+    UpgradeInvalidModuleRef _ -> 1
+    UpgradeInvalidContractName _ _ -> 2
+    UpgradeInvalidVersion _ _ -> 3
 invokeResponseToWord64 MessageSendFailed = 0xffff_ff05_0000_0000
 invokeResponseToWord64 (Error (ExecutionReject Trap)) = 0xffff_ff06_0000_0000
 invokeResponseToWord64 (Error (ExecutionReject LogicReject{..})) =
@@ -279,11 +286,16 @@ data InvokeMethod =
     imcName :: !EntrypointName,
     imcAmount :: !Amount
     }
+  -- |Upgrade a smart contract such that it uses the new 'ModuleRef' for execution.
+  | Upgrade {
+      imuModRef :: !ModuleRef
+    }
 
 getInvokeMethod :: Get InvokeMethod
 getInvokeMethod = getWord8 >>= \case
   0 -> Transfer <$> get <*> get
   1 -> Call <$> get <*> get <*> get <*> get
+  2 -> Upgrade <$> get
   n -> fail $ "Unsupported invoke method tag: " ++ show n
 
 -- |Data return from the contract in case of successful initialization.
@@ -393,6 +405,9 @@ cerToRejectReasonReceive _ _ _ (EnvFailure e) = case e of
   MissingAccount aref -> Exec.InvalidAccountReference aref
   MissingContract cref -> Exec.InvalidContractAddress cref
   InvalidEntrypoint mref rn -> Exec.InvalidReceiveMethod mref rn
+  UpgradeInvalidModuleRef modRef -> Exec.UpgradeInvalidModuleReference modRef
+  UpgradeInvalidContractName modRef initName -> Exec.UpgradeInvalidContractName modRef initName
+  UpgradeInvalidVersion modRef v -> Exec.UpgradeInvalidVersion modRef v
 
 -- |Parse the response from invoking either a @call_receive_v1@ or
 -- @resume_receive_v1@ method. This attempts to parse the returned byte array
