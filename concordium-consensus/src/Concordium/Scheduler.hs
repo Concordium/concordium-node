@@ -93,6 +93,7 @@ import Concordium.Types.Accounts
 import Concordium.Scheduler.WasmIntegration.V1 (ReceiveResultData(rrdCurrentState))
 import Concordium.Wasm (IsWasmVersion)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
+import qualified Concordium.Wasm as GSWasm
 
 
 -- |The function asserts the following
@@ -638,6 +639,7 @@ handleDeployModule wtc mod =
   where
     senderAccount = wtc ^. wtcSenderAccount
     meta = wtc ^. wtcTransactionHeader
+    currentProtocolVersion = demoteProtocolVersion (protocolVersion @(MPV m))
 
     c = do
       case mod of
@@ -650,10 +652,9 @@ handleDeployModule wtc mod =
                 exists <- isJust <$> getModuleInterfaces mhash
                 when exists $ rejectTransaction (ModuleHashAlreadyExists mhash)
                 return (Left (iface, moduleV0), mhash)
-        Wasm.WasmModuleV1 moduleV1 | demoteProtocolVersion (protocolVersion @(MPV m)) >= P4 -> do
+        Wasm.WasmModuleV1 moduleV1 | currentProtocolVersion >= P4 -> do
           tickEnergy (Cost.deployModuleCost (Wasm.moduleSourceLength (Wasm.wmvSource moduleV1)))
-          -- TODO: pass in the protocol version.
-          case WasmV1.processModule undefined moduleV1 of
+          case WasmV1.processModule currentProtocolVersion moduleV1 of
               Nothing -> rejectTransaction ModuleNotWF
               Just iface -> do
                 let mhash = GSWasm.moduleReference iface
@@ -1159,16 +1160,24 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                       Nothing -> go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.Error (WasmV1.EnvFailure (WasmV1.UpgradeInvalidModuleRef imuModRef))) Nothing)
                       Just mi -> case mi of
                         -- We do not support upgrades to V0 contracts.
-                        GSWasm.ModuleInterfaceV0 _ -> go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.Error (WasmV1.EnvFailure (WasmV1.UpgradeInvalidVersion imuModRef undefined))) Nothing)
+                        GSWasm.ModuleInterfaceV0 _ -> go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.Error (WasmV1.EnvFailure (WasmV1.UpgradeInvalidVersion imuModRef GSWasm.V0))) Nothing)
                         GSWasm.ModuleInterfaceV1 mia ->
                             -- The contract must exist in the new module.
                             -- I.e. It must be the case that there exists an init function for the new module that matches the caller.
-                            if not (Set.member undefined (GSWasm.miExposedInit mia)) then
-                                go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.Error (WasmV1.EnvFailure (WasmV1.UpgradeInvalidContractName imuModRef undefined))) Nothing)
+                            if not (Set.member (instanceInitName iParams) (GSWasm.miExposedInit mia)) then
+                                go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.Error (WasmV1.EnvFailure (WasmV1.UpgradeInvalidContractName imuModRef (instanceInitName iParams)))) Nothing)
                             else
                             -- Now we carry out the upgrade.
-                            return undefined
-                              
+                            -- The upgrade must preserve the following properties:
+                            -- 1. Subsequent operations in the receive function must be executed via the 'old' artifact.
+                            -- I.e. If some code is followed by the upgrade function the this must be run on the existing artifact code.
+                            -- 2. Reentrant contract calls must be executed on the new artifact.
+                            -- In order to fulfill the two above properties we add the actual state change to the 'ChangeSet' so that
+                            -- the 'resume' will execute on the 'old' version of the artifact. This solves (1).
+                            -- In order to fulfil (2) we will need to lookup the 'ChangeSet' whenever we get interrupted (with a call) to see
+                            -- if the code should be run on the old or the new artifact. I.e. if a pending upgrade exists in the
+                            -- in the 'ChangeSet' we will need to use the new module artifact.
+                            return undefined                              
 
 
       -- start contract execution.
