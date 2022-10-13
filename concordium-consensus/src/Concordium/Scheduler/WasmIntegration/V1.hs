@@ -156,10 +156,9 @@ invokeResponseToWord64 (Error (EnvFailure e)) =
     MissingAccount _ -> 0xffff_ff02_0000_0000
     MissingContract _ -> 0xffff_ff03_0000_0000
     InvalidEntrypoint _ _ -> 0xffff_ff04_0000_0000
-    -- TODO: Consolidate on the error codes.
-    UpgradeInvalidModuleRef _ -> 1
-    UpgradeInvalidContractName _ _ -> 2
-    UpgradeInvalidVersion _ _ -> 3
+    UpgradeInvalidModuleRef _ -> 0xffff_ff07_0000_0000
+    UpgradeInvalidContractName _ _ -> 0xffff_ff08_0000_0000
+    UpgradeInvalidVersion _ _ -> 0xffff_ff07_0009_0000
 invokeResponseToWord64 MessageSendFailed = 0xffff_ff05_0000_0000
 invokeResponseToWord64 (Error (ExecutionReject Trap)) = 0xffff_ff06_0000_0000
 invokeResponseToWord64 (Error (ExecutionReject LogicReject{..})) =
