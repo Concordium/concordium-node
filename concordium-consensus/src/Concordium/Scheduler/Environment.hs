@@ -488,6 +488,14 @@ class (StaticInformation m, ContractStateOperations m, MonadProtocolVersion m) =
   rejectingWith' !c reason = c >>= \case Right b -> return b
                                          Left a -> rejectTransaction (reason a)
 
+  -- |Add a contract upgrade to the 'ChangeSet'
+  addContractUpgrade :: ContractAddress
+                     -- ^The instance that should be upgraded.
+                     -> ModuleRef 
+                     -- ^The new 'ModuleRef' for the instance
+                     -> m ()
+                                         
+
 -- |Index that keeps track of modifications of smart contracts inside a single
 -- transaction. This is used to cheaply detect whether a contract state has
 -- changed or not when a contract calls another.
@@ -505,12 +513,17 @@ data ChangeSet = ChangeSet
     ,_instanceInits :: !(HSet.HashSet ContractAddress) -- ^Contracts that were initialized.
     ,_encryptedChange :: !AmountDelta -- ^Change in the encrypted balance of the system as a result of this contract's execution.
     ,_addedReleaseSchedules :: !(Map.Map AccountAddress Timestamp) -- ^The release schedules added to accounts on this block, to be added on the per block map.
+    -- |Contract upgrades pending.
+    -- Contract upgrades are only supported for V1 contracts and from protocol version 5 and onwards.
+    -- We only care about the most recent upgrade wrt. the artifact for execution. Hence we do not keep track of
+    -- reentrant upgrades execept for the last upgrade.
+    ,_contractUpgrades :: !(Map.Map ContractAddress ModuleRef)
     }
 
 makeLenses ''ChangeSet
 
 emptyCS :: ChangeSet
-emptyCS = ChangeSet HMap.empty HMap.empty HMap.empty HSet.empty 0 Map.empty
+emptyCS = ChangeSet HMap.empty HMap.empty HMap.empty HSet.empty 0 Map.empty Map.empty
 
 -- |Record an addition to the amount of the given account in the changeset.
 {-# INLINE addAmountToCS #-}
@@ -591,6 +604,15 @@ addContractAmountToCSV1 addr amnt cs =
 addContractInitToCS :: ContractAddress -> ChangeSet -> ChangeSet
 addContractInitToCS addr cs =
     cs { _instanceInits = HSet.insert addr (cs ^. instanceInits) }
+
+
+-- |Add the contract upgrade to the 'ChangeSet'.
+-- We only care about the most recent contract upgrade so we do not keep
+-- track of intermediate upgrades caused by reentrant upgrades.
+{-# INLINE addContractUpgradeToCS #-}
+addContractUpgradeToCS :: ContractAddress -> ModuleRef -> ChangeSet -> ChangeSet
+addContractUpgradeToCS cAddr modRef cs =
+  cs { _contractUpgrades = Map.insert cAddr modRef (cs ^. contractUpgrades) }
 
 -- |Whether the transaction energy limit is reached because of transaction max energy limit,
 -- or because of block energy limit
@@ -950,6 +972,8 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
     changeSet . accountUpdates . at' ai . non (emptyAccountUpdate ai addr) . auEncrypted ?= AddSelf{..}
     changeSet . encryptedChange += amountToDelta transferredAmount
 
+  -- TODO: Use the changeset of upgrades to check whether an instance is affected by a pending 'upgrade'.
+  -- If it is then the instance must be returned with the updated artifact pointer.
   getCurrentContractInstance addr = do
     mistance <- getContractInstance addr
     case mistance of
@@ -1093,6 +1117,12 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
 
   {-# INLINE outOfBlockEnergy #-}
   outOfBlockEnergy = LocalT (ContT (\_ -> return (Left Nothing)))
+
+  {-# INLINE addContractUpgrade #-}
+  addContractUpgrade cAddr modRef = do
+      cs <- use changeSet
+      let cs' = addContractUpgradeToCS cAddr modRef cs
+      changeSet .= cs'
 
 -- |Call an external method that can fail with running out of energy.
 -- Depending on what is the current limit, either remaining transaction energy,

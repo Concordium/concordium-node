@@ -1166,18 +1166,25 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                             -- I.e. It must be the case that there exists an init function for the new module that matches the caller.
                             if not (Set.member (instanceInitName iParams) (GSWasm.miExposedInit mia)) then
                                 go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.Error (WasmV1.EnvFailure (WasmV1.UpgradeInvalidContractName imuModRef (instanceInitName iParams)))) Nothing)
-                            else
-                            -- Now we carry out the upgrade.
-                            -- The upgrade must preserve the following properties:
-                            -- 1. Subsequent operations in the receive function must be executed via the 'old' artifact.
-                            -- I.e. If some code is followed by the upgrade function the this must be run on the existing artifact code.
-                            -- 2. Reentrant contract calls must be executed on the new artifact.
-                            -- In order to fulfill the two above properties we add the actual state change to the 'ChangeSet' so that
-                            -- the 'resume' will execute on the 'old' version of the artifact. This solves (1).
-                            -- In order to fulfil (2) we will need to lookup the 'ChangeSet' whenever we get interrupted (with a call) to see
-                            -- if the code should be run on the old or the new artifact. I.e. if a pending upgrade exists in the
-                            -- in the 'ChangeSet' we will need to use the new module artifact.
-                            return undefined                              
+                            else do
+                                -- Now we carry out the upgrade.
+                                -- The upgrade must preserve the following properties:
+                                -- 1. Subsequent operations in the receive function must be executed via the 'old' artifact.
+                                -- I.e. If some code is followed by the upgrade function the this must be run on the existing artifact code.
+                                -- 2. Reentrant contract calls must be executed on the new artifact.
+                                -- In order to fulfill the two above properties we add the actual state change to the 'ChangeSet' so that
+                                -- the 'resume' will execute on the 'old' version of the artifact. This solves (1).
+                                -- In order to fulfil (2) we will need to lookup the 'ChangeSet' whenever we get interrupted (with a call) to see
+                                -- if the code should be run on the old or the new artifact i.e., if a pending upgrade exists in the
+                                -- in the 'ChangeSet' we will need to use the new module artifact. See 'getCurrentContractInstance'.
+                                -- If the upgrade or subsequent actions fails then the transaction must be rolled back.
+                                -- Finally 'commitChanges' will commit the changeset upon a succesfull transaction.
+                                runExceptT (handleContractUpgrade undefined (GSWasm.miModuleRef mia)) >>= \case
+                                    Left errCode -> do
+                                        go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.Error (WasmV1.EnvFailure errCode)) Nothing)
+                                    Right transferEvents -> do
+                                        newBalance <- getCurrentContractAmount Wasm.SV1 istance
+                                        go (resumeEvent True:transferEvents ++ interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False newBalance WasmV1.Success Nothing)
 
 
       -- start contract execution.
@@ -1206,6 +1213,16 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                 -- Add the transfer to the current changeset and return the corresponding event.
                 lift (withContractToAccountAmountV1 (instanceAddress senderInstance) targetAccount tAmount $
                       return [Transferred addr tAmount (AddressAccount accAddr)])
+          handleContractUpgrade :: ContractAddress
+                                -- ^The address of the instance to update.
+                                -> ModuleRef
+                                -- ^The new module that the instance should be using for execution.
+                                -> ExceptT WasmV1.EnvFailure (LocalT r m) [Event] -- ^The events resulting from the transfer.
+                                -- ^The events resulting from the upgrade.
+          handleContractUpgrade cAddr modRef = do
+              -- Add the upgrade to the 'ChangeSet'.
+              lift $! addContractUpgrade cAddr modRef
+              return [Updated cAddr undefined undefined undefined undefined undefined []]
 
 -- | Invoke a V0 contract and process any generated messages.
 -- This includes the transfer of an amount from the sending account or instance.
