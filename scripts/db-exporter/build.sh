@@ -83,7 +83,7 @@ Version: $version
 Section: extra
 Priority: optional
 Architecture: amd64
-Depends: debconf ( >= 1.5.73 ), debhelper ( >= 10 ), libunbound2 ( >= 1.6.7 ) | libunbound8 ( >= 1.9.4 ), openssl ( >= 1.1.1 ), libgmp10 ( >= 6.1.2 ), libpq-dev ( >= 9.5.19)
+Depends: debconf ( >= 1.5.73 ), debhelper ( >= 10 ), libgmp10 ( >= 6.1.2 ), libpq-dev ( >= 9.5.19)
 Maintainer: Concordium Foundation <developers@concordium.com>
 Description: Concordium Database Exporter
 EOF
