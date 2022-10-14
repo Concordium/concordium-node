@@ -1088,7 +1088,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
           Nothing -> (False, bs)
           Just mods' -> (True, bs & blockModules .~ mods')
 
-    bsoModifyInstance bs caddr delta model = return $!
+    bsoModifyInstance bs caddr delta model newModule = return $!
         bs & blockInstances %~ Instances.updateInstanceAt caddr delta (snd . freeze <$> model)
 
     bsoModifyAccount bs accountUpdates = return $!

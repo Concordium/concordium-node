@@ -75,6 +75,7 @@ instance HashableTo H.Hash (InstanceParameters im) where
 -- Wasm module that is associated with it.
 data InstanceV instrumentedModule (v :: Wasm.WasmVersion) = InstanceV {
   -- |The fixed parameters of the instance
+  -- These can be changed with the 'Upgrade' feature introduced in PV5.
   _instanceVParameters :: !(InstanceParameters instrumentedModule),
   -- |The current local state of the instance
   _instanceVModel :: !(InstanceStateV v),
@@ -211,18 +212,21 @@ makeInstance instanceInitName instanceReceiveFuns instanceModuleInterface _insta
     where instanceV = makeInstanceV instanceInitName instanceReceiveFuns instanceModuleInterface _instanceVModel _instanceVAmount instanceOwner _instanceAddress
 
 -- |Update a given smart contract instance.
-updateInstanceV :: AmountDelta -> Maybe (InstanceStateV v) -> InstanceV im v -> InstanceV im v
-updateInstanceV delta val i = updateInstanceV' amnt val i
+updateInstanceV :: AmountDelta -> Maybe (InstanceStateV v) -> Maybe (InstanceParameters im) -> InstanceV im v -> InstanceV im v
+updateInstanceV delta val params i = updateInstanceV' amnt val params i
   where amnt = applyAmountDelta delta (_instanceVAmount i)
 
--- |Update a given smart contract instance with exactly the given amount and state.
-updateInstanceV' :: Amount -> Maybe (InstanceStateV v) -> InstanceV im v -> InstanceV im v
-updateInstanceV' amnt val i =  i {
+-- |Update a given smart contract instance with exactly the given amount, state and possibly upgrade.
+updateInstanceV' :: Amount -> Maybe (InstanceStateV v) -> Maybe (InstanceParameters im) -> InstanceV im v -> InstanceV im v
+updateInstanceV' amnt val maybeNewParams i =  i {
                                 _instanceVModel = newVal,
                                 _instanceVAmount = amnt,
-                                _instanceVHash = makeInstanceHash ( _instanceVParameters i) newVal amnt
+                                _instanceVHash = makeInstanceHash ( _instanceVParameters i) newVal amnt,
+                                _instanceVParameters = newParams
                             }
-  where newVal = fromMaybe (_instanceVModel i) val
+  where 
+      newVal = fromMaybe (_instanceVModel i) val
+      newParams = fromMaybe (_instanceVParameters i) maybeNewParams
 
 -- |Serialize a V0 smart contract instance in V0 format.
 putV0InstanceV0 :: Putter (InstanceV im GSWasm.V0)

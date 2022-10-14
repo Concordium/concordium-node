@@ -691,6 +691,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
                     -> ContractAddress
                     -> AmountDelta
                     -> Maybe (UpdatableContractState v)
+                    -> Maybe (GSWasm.ModuleInterfaceA (InstrumentedModuleRef m GSWasm.V1))
                     -> m (UpdatableBlockState m)
 
   -- |Notify that some amount was transferred from/to encrypted balance of some account.
@@ -1385,7 +1386,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoModifyAccount s = lift . bsoModifyAccount s
   bsoSetAccountCredentialKeys s aa ci pk = lift $ bsoSetAccountCredentialKeys s aa ci pk
   bsoUpdateAccountCredentials s aa remove add thrsh = lift $ bsoUpdateAccountCredentials s aa remove add thrsh
-  bsoModifyInstance s caddr amount model = lift $ bsoModifyInstance s caddr amount model
+  bsoModifyInstance s caddr amount model newModule = lift $ bsoModifyInstance s caddr amount model newModule
   bsoNotifyEncryptedBalanceChange s = lift . bsoNotifyEncryptedBalanceChange s
   bsoGetSeedState = lift . bsoGetSeedState
   bsoSetSeedState s ss = lift $ bsoSetSeedState s ss

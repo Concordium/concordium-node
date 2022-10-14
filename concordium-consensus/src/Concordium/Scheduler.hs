@@ -1154,6 +1154,8 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                 newBalance <- getCurrentContractAmount Wasm.SV1 istance
                                 go (resumeEvent True:callEvents ++ interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig resumeState stateChanged newBalance WasmV1.Success (Just rVal))
                   WasmV1.Upgrade{..} -> do
+                    -- charge for base administrative cost.                                        
+                    tickEnergy Cost.initializeContractInstanceBaseCost
                     newModule <- getModuleInterfaces imuModRef
                     case newModule of
                       -- The module could not be found.
@@ -1167,6 +1169,9 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                             if not (Set.member (instanceInitName iParams) (GSWasm.miExposedInit mia)) then
                                 go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.Error (WasmV1.EnvFailure (WasmV1.UpgradeInvalidContractName imuModRef (instanceInitName iParams)))) Nothing)
                             else do
+                                -- Charge for the lookup of the new module.
+                                let iSize = GSWasm.miModuleSize iface
+                                tickEnergy $ Cost.lookupModule iSize
                                 -- Now we carry out the upgrade.
                                 -- The upgrade must preserve the following properties:
                                 -- 1. Subsequent operations in the receive function must be executed via the 'old' artifact.
@@ -1178,13 +1183,16 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                 -- if the code should be run on the old or the new artifact i.e., if a pending upgrade exists in the
                                 -- in the 'ChangeSet' we will need to use the new module artifact. See 'getCurrentContractInstance'.
                                 -- If the upgrade or subsequent actions fails then the transaction must be rolled back.
-                                -- Finally 'commitChanges' will commit the changeset upon a succesfull transaction.
-                                runExceptT (handleContractUpgrade undefined (GSWasm.miModuleRef mia)) >>= \case
+                                -- Finally 'commitChanges' will commit the changeset upon a succesfull transaction.                                
+                                runExceptT (handleContractUpgrade cref imuModRef mia) >>= \case
                                     Left errCode -> do
                                         go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.Error (WasmV1.EnvFailure errCode)) Nothing)
-                                    Right transferEvents -> do
+                                    Right upgradeEvents -> do
                                         newBalance <- getCurrentContractAmount Wasm.SV1 istance
-                                        go (resumeEvent True:transferEvents ++ interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False newBalance WasmV1.Success Nothing)
+                                        -- Charge for updating the pointer in the instance to the new module.
+                                        -- TODO: This is rather conservative and could probably be cheaper.
+                                        tickEnergy Cost.initializeContractInstanceCreateCost
+                                        go (resumeEvent True:upgradeEvents ++ interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False newBalance WasmV1.Success Nothing)
 
 
       -- start contract execution.
@@ -1216,13 +1224,15 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
           handleContractUpgrade :: ContractAddress
                                 -- ^The address of the instance to update.
                                 -> ModuleRef
+                                -- ^The old module ref used for the emitted event.
+                                -> GSWasm.ModuleInterfaceA (InstrumentedModuleRef m GSWasm.V1)
                                 -- ^The new module that the instance should be using for execution.
                                 -> ExceptT WasmV1.EnvFailure (LocalT r m) [Event] -- ^The events resulting from the transfer.
                                 -- ^The events resulting from the upgrade.
-          handleContractUpgrade cAddr modRef = do
-              -- Add the upgrade to the 'ChangeSet'.
-              lift $! addContractUpgrade cAddr modRef
-              return [Updated cAddr undefined undefined undefined undefined undefined []]
+          handleContractUpgrade cAddr oldModRef newMod = do
+              -- Add the upgrade to the 'ChangeSet' and add the 'Upgrade' event to the stack of events.
+              lift $! addContractUpgrade cAddr newMod
+              return [Upgraded oldModRef (GSWasm.miModuleRef newMod)]
 
 -- | Invoke a V0 contract and process any generated messages.
 -- This includes the transfer of an amount from the sending account or instance.
