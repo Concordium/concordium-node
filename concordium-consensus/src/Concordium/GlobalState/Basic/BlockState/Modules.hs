@@ -67,10 +67,12 @@ instance GSWasm.HasModuleRef Module where
 instance HashableTo Hash Module where
   getHash = moduleRef . GSWasm.moduleReference
 
-instance Serialize Module where
-  put (ModuleV0 ModuleV{..}) = put moduleVSource
-  put (ModuleV1 ModuleV{..}) = put moduleVSource
-  get = do
+putModule :: Module -> Put
+putModule (ModuleV0 ModuleV{..}) = put moduleVSource
+putModule (ModuleV1 ModuleV{..}) = put moduleVSource
+
+deserialModule :: forall pv . SProtocolVersion pv -> Get Module
+deserialModule spv = do
     wasmModule <- get
     case wasmModule of
       WasmModuleV0 moduleVSource ->
@@ -78,8 +80,7 @@ instance Serialize Module where
           Nothing -> fail "Invalid V0 module"
           Just moduleVInterface -> return (ModuleV0 ModuleV {..})
       WasmModuleV1 moduleVSource ->
-        -- TODO: Pass in the protocol version.
-        case V1.processModule undefined moduleVSource of
+        case V1.processModule (demoteProtocolVersion spv) moduleVSource of
           Nothing -> fail "Invalid V1 module"
           Just moduleVInterface -> return (ModuleV1 ModuleV {..})
 
@@ -153,13 +154,13 @@ moduleList mods = LFMB.toAscPairList (_modulesTable mods)
 putModulesV0 :: Putter Modules
 putModulesV0 mods = do
     putWord64be (LFMB.size (_modulesTable mods))
-    mapM_ put (_modulesTable mods)
+    mapM_ putModule (_modulesTable mods)
 
 -- |Deserialize modules in V0 format
-getModulesV0 :: Get Modules
-getModulesV0 = do
+getModulesV0 :: SProtocolVersion pv -> Get Modules
+getModulesV0 spv = do
     mtSize <- getWord64be
-    _modulesTable <- LFMB.fromList <$> replicateM (fromIntegral mtSize) get
+    _modulesTable <- LFMB.fromList <$> replicateM (fromIntegral mtSize) (deserialModule spv)
     let _modulesMap = Map.fromList
             [(GSWasm.moduleReference iface, idx)
               | (idx, iface) <- LFMB.toAscPairList _modulesTable]

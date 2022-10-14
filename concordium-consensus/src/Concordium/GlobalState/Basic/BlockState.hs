@@ -425,7 +425,7 @@ getBlockState migration = do
     -- AnonymityRevokers
     _blockAnonymityRevokers <- makeHashed <$> label "identity providers" get
     -- Modules
-    _blockModules <- label "modules" Modules.getModulesV0
+    _blockModules <- label "modules" (Modules.getModulesV0 (protocolVersion @oldpv))
     -- BankStatus
     _blockBank <- makeHashed <$> label "bank status" get
     (_blockAccounts :: Accounts.Accounts pv) <- label "accounts" $ Accounts.deserializeAccounts migration cryptoParams
