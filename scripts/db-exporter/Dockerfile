@@ -1,3 +1,4 @@
+ARG ubuntu_version
 # Build static libraries
 FROM concordium/static-libraries:latest as static-builder
 COPY . /build
@@ -7,7 +8,6 @@ RUN GHC_VERSION="${ghc_version}" \
       /build/scripts/static-libraries/build-static-libraries.sh
 
 # Build Debian packages.
-ARG ubuntu_version
 FROM ubuntu:${ubuntu_version}
 COPY --from=static-builder "/build/static-consensus-binaries-${ghc_version}.tar.gz" /tmp/static-consensus-binaries.tar.gz
 RUN tar -C /tmp -xf /tmp/static-consensus-binaries.tar.gz && \
