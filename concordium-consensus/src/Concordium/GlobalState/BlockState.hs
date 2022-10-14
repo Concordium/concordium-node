@@ -681,9 +681,9 @@ class (BlockStateQuery m) => BlockStateOperations m where
     -- ^New account threshold
     -> m (UpdatableBlockState m)
 
-  -- |Replace the instance with given change in owned amount, and potentially
-  -- new state. The rest of the instance data
-  -- (instance parameters) stays the same. This method is only called when it is
+  -- |Replace the instance with given change in owned amount, potentially
+  -- a new state and maybe new instance parameters depending on whether the contract has been upgraded.
+  -- This method is only called when it is
   -- known the instance exists, and is of the version specified by the type
   -- parameter v. These preconditions can thus be assumed by any implementor.
   bsoModifyInstance :: forall v. Wasm.IsWasmVersion v =>

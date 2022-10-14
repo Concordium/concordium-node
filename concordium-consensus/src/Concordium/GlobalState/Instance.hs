@@ -213,16 +213,16 @@ makeInstance instanceInitName instanceReceiveFuns instanceModuleInterface _insta
 
 -- |Update a given smart contract instance.
 updateInstanceV :: AmountDelta -> Maybe (InstanceStateV v) -> Maybe (GSWasm.ModuleInterfaceA im) -> InstanceV im v -> InstanceV im v
-updateInstanceV delta val params i = updateInstanceV' amnt val params i
+updateInstanceV delta val maybeNewModule i = updateInstanceV' amnt val maybeNewModule i
   where amnt = applyAmountDelta delta (_instanceVAmount i)
 
--- |Update a given smart contract instance with exactly the given amount, state and possibly upgrade.
+-- |Update a given smart contract instance with exactly the given amount, state and possibly upgrade the module.
 updateInstanceV' :: Amount -> Maybe (InstanceStateV v) -> Maybe (GSWasm.ModuleInterfaceA im) -> InstanceV im v -> InstanceV im v
 updateInstanceV' amnt val maybeNewMod i =  i {
                                 _instanceVModel = newVal,
                                 _instanceVAmount = amnt,
-                                _instanceVHash = makeInstanceHash newParams newVal amnt,
-                                _instanceVParameters = newParams
+                                _instanceVParameters = newParams,
+                                _instanceVHash = makeInstanceHash newParams newVal amnt
                             }
   where 
       newVal = fromMaybe (_instanceVModel i) val
