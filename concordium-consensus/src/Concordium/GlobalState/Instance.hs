@@ -212,21 +212,21 @@ makeInstance instanceInitName instanceReceiveFuns instanceModuleInterface _insta
     where instanceV = makeInstanceV instanceInitName instanceReceiveFuns instanceModuleInterface _instanceVModel _instanceVAmount instanceOwner _instanceAddress
 
 -- |Update a given smart contract instance.
-updateInstanceV :: AmountDelta -> Maybe (InstanceStateV v) -> Maybe (InstanceParameters im) -> InstanceV im v -> InstanceV im v
+updateInstanceV :: AmountDelta -> Maybe (InstanceStateV v) -> Maybe (GSWasm.ModuleInterfaceA im) -> InstanceV im v -> InstanceV im v
 updateInstanceV delta val params i = updateInstanceV' amnt val params i
   where amnt = applyAmountDelta delta (_instanceVAmount i)
 
 -- |Update a given smart contract instance with exactly the given amount, state and possibly upgrade.
-updateInstanceV' :: Amount -> Maybe (InstanceStateV v) -> Maybe (InstanceParameters im) -> InstanceV im v -> InstanceV im v
-updateInstanceV' amnt val maybeNewParams i =  i {
+updateInstanceV' :: Amount -> Maybe (InstanceStateV v) -> Maybe (GSWasm.ModuleInterfaceA im) -> InstanceV im v -> InstanceV im v
+updateInstanceV' amnt val maybeNewMod i =  i {
                                 _instanceVModel = newVal,
                                 _instanceVAmount = amnt,
-                                _instanceVHash = makeInstanceHash ( _instanceVParameters i) newVal amnt,
+                                _instanceVHash = makeInstanceHash newParams newVal amnt,
                                 _instanceVParameters = newParams
                             }
   where 
       newVal = fromMaybe (_instanceVModel i) val
-      newParams = fromMaybe (_instanceVParameters i) maybeNewParams
+      newParams = maybe (_instanceVParameters i) (\nm -> (_instanceVParameters i) { instanceModuleInterface = nm }) maybeNewMod
 
 -- |Serialize a V0 smart contract instance in V0 format.
 putV0InstanceV0 :: Putter (InstanceV im GSWasm.V0)

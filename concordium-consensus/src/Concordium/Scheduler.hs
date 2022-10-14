@@ -94,6 +94,7 @@ import Concordium.Scheduler.WasmIntegration.V1 (ReceiveResultData(rrdCurrentStat
 import Concordium.Wasm (IsWasmVersion)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import qualified Concordium.Wasm as GSWasm
+import Data.Proxy
 
 
 -- |The function asserts the following
@@ -827,7 +828,7 @@ handleInitContract wtc initAmount modref initName param =
             newInstanceAddr <- putNewInstance ins
 
             -- add the contract initialization to the change set and commit the changes
-            commitChanges $ addContractInitToCS newInstanceAddr cs'
+            commitChanges $ addContractInitToCS (Proxy @m) newInstanceAddr cs'
 
             return (TxSuccess [ContractInitialized{ecRef=modref,
                                                    ecAddress=newInstanceAddr,
@@ -857,7 +858,7 @@ handleInitContract wtc initAmount modref initName param =
             newInstanceAddr <- putNewInstance ins
 
             -- add the contract initialization to the change set and commit the changes
-            commitChanges $ addContractInitToCS newInstanceAddr cs'
+            commitChanges $ addContractInitToCS (Proxy @m) newInstanceAddr cs'
 
             return (TxSuccess [ContractInitialized{ecRef=modref,
                                                    ecAddress=newInstanceAddr,

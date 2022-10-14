@@ -46,6 +46,7 @@ import qualified Concordium.ID.Types as ID
 import Concordium.Wasm (IsWasmVersion)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import qualified Concordium.Wasm as GSWasm
+import Data.Proxy
 
 -- |An account index together with the canonical address. Sometimes it is
 -- difficult to pass an IndexedAccount and we only need the addresses. That is
@@ -502,7 +503,7 @@ class (StaticInformation m, ContractStateOperations m, MonadProtocolVersion m) =
 type ModificationIndex = Word
 
 -- |A pending update for v1 instances.
-data InstanceV1Update m = InstanceV1Update {
+data InstanceV1Update' mr = InstanceV1Update {
     -- |The modification index.
     index:: ModificationIndex,
     -- |Amount changed
@@ -511,27 +512,31 @@ data InstanceV1Update m = InstanceV1Update {
     newState :: Maybe (UpdatableContractState GSWasm.V1),
     -- |Present if the contract has been upgraded.
     -- Contract upgrades are only supported from PV 5 and onwards.    
-    newModule  :: Maybe (GSWasm.ModuleInterfaceA (InstrumentedModuleRef m GSWasm.V1))
+    newModule  :: Maybe (GSWasm.ModuleInterfaceA (mr GSWasm.V1))
 }
 
+type InstanceV1Update m = InstanceV1Update' (InstrumentedModuleRef m)
+
+type ChangeSet m = ChangeSet' (InstrumentedModuleRef m)
+
 -- |The set of changes to be committed on a successful transaction.
-data ChangeSet m = ChangeSet
+data ChangeSet' mr = ChangeSet
     {_accountUpdates :: !(HMap.HashMap AccountIndex AccountUpdate) -- ^Accounts whose states changed.
     -- |V0 contracts whose states changed. Any time we are updating a contract we know which version it is.
     -- We thus know where to look.
     ,_instanceV0Updates :: !(HMap.HashMap ContractAddress (ModificationIndex, AmountDelta, Maybe (UpdatableContractState GSWasm.V0)))
     -- |V1 contracts whose state changed (and/or) has been upgraded. Any time we are updating a contract we know which version it is.
     -- We thus know where to look.
-    ,_instanceV1Updates :: !(HMap.HashMap ContractAddress (InstanceV1Update m))
+    ,_instanceV1Updates :: !(HMap.HashMap ContractAddress (InstanceV1Update' mr))
     ,_instanceInits :: !(HSet.HashSet ContractAddress) -- ^Contracts that were initialized.
     ,_encryptedChange :: !AmountDelta -- ^Change in the encrypted balance of the system as a result of this contract's execution.
     ,_addedReleaseSchedules :: !(Map.Map AccountAddress Timestamp) -- ^The release schedules added to accounts on this block, to be added on the per block map.    
     }
 
-makeLenses ''ChangeSet
+makeLenses ''ChangeSet'
 
-emptyCS :: ChangeSet m
-emptyCS = ChangeSet HMap.empty HMap.empty HMap.empty HSet.empty 0 Map.empty
+emptyCS :: Proxy m -> ChangeSet m
+emptyCS Proxy = ChangeSet HMap.empty HMap.empty HMap.empty HSet.empty 0 Map.empty
 
 -- |Record an addition to the amount of the given account in the changeset.
 {-# INLINE addAmountToCS #-}
@@ -569,22 +574,22 @@ addScheduledAmountToCS (ai, acc) rel@(((fstRel, _):_), _) !cs = do
 -- It is assumed that the account is already in the changeset and that its balance
 -- is already affected (the auAmount field is set).
 {-# INLINE modifyAmountCS #-}
-modifyAmountCS :: AccountIndex -> AmountDelta -> ChangeSet m -> ChangeSet m
-modifyAmountCS ai !amnt !cs = cs & (accountUpdates . ix ai . auAmount ) %~ upd
+modifyAmountCS :: Proxy m -> AccountIndex -> AmountDelta -> ChangeSet m -> ChangeSet m
+modifyAmountCS Proxy ai !amnt !cs = cs & (accountUpdates . ix ai . auAmount ) %~ upd
   where upd (Just a) = Just (a + amnt)
         upd Nothing = error "modifyAmountCS precondition violated."
 
 
 -- |Add or update the contract state in the changeset with the new state.
-addContractStatesToCSV0 :: HasInstanceAddress a => a -> ModificationIndex -> UpdatableContractState GSWasm.V0 -> ChangeSet m -> ChangeSet m
-addContractStatesToCSV0 istance curIdx newState =
+addContractStatesToCSV0 :: HasInstanceAddress a => Proxy m -> a -> ModificationIndex -> UpdatableContractState GSWasm.V0 -> ChangeSet m -> ChangeSet m
+addContractStatesToCSV0 Proxy istance curIdx newState =
   instanceV0Updates . at addr %~ \case Just (_, amnt, _) -> Just (curIdx, amnt, Just newState)
                                        Nothing -> Just (curIdx, 0, Just newState)
   where addr = instanceAddress istance
 
 -- |Add or update the contract state in the changeset with the new state.
-addContractStatesToCSV1 :: HasInstanceAddress a => a -> ModificationIndex -> UpdatableContractState GSWasm.V1 -> ChangeSet m -> ChangeSet m
-addContractStatesToCSV1 istance curIdx stateUpdate =
+addContractStatesToCSV1 :: HasInstanceAddress a => Proxy m -> a -> ModificationIndex -> UpdatableContractState GSWasm.V1 -> ChangeSet m -> ChangeSet m
+addContractStatesToCSV1 Proxy istance curIdx stateUpdate =
   instanceV1Updates . at addr %~ 
       \case Just InstanceV1Update{..} -> Just $! InstanceV1Update index amountChange (Just stateUpdate) newModule
             Nothing -> Just $! InstanceV1Update curIdx 0 (Just stateUpdate) Nothing
@@ -612,8 +617,8 @@ addContractAmountToCSV1 addr amnt cs =
 -- we just log the contract address as we don't need to modify the blockstate with
 -- the information we add to the change set.
 {-# INLINE addContractInitToCS #-}
-addContractInitToCS :: ContractAddress -> ChangeSet m -> ChangeSet m
-addContractInitToCS addr cs =
+addContractInitToCS :: Proxy m -> ContractAddress -> ChangeSet m -> ChangeSet m
+addContractInitToCS Proxy addr cs =
     cs { _instanceInits = HSet.insert addr (cs ^. instanceInits) }
 
 
@@ -621,8 +626,8 @@ addContractInitToCS addr cs =
 -- We only care about the most recent contract upgrade so we do not keep
 -- track of intermediate upgrades caused by reentrant upgrades.
 {-# INLINE addContractUpgradeToCS #-}
-addContractUpgradeToCS :: ContractAddress -> GSWasm.ModuleInterfaceA (InstrumentedModuleRef m GSWasm.V1) -> ChangeSet m -> ChangeSet m
-addContractUpgradeToCS addr updatedMod cs = do  
+addContractUpgradeToCS :: Proxy m -> ContractAddress -> GSWasm.ModuleInterfaceA (InstrumentedModuleRef m GSWasm.V1) -> ChangeSet m -> ChangeSet m
+addContractUpgradeToCS Proxy addr updatedMod cs = do  
     cs & instanceV1Updates . at addr %~ \case 
                                           Just InstanceV1Update{..} -> Just $! InstanceV1Update index amountChange newState (Just updatedMod)
                                           Nothing -> Just $! InstanceV1Update 0 0 Nothing (Just updatedMod)
@@ -683,7 +688,7 @@ runRST rst r s = flip runStateT s . flip runReaderT r $ rst
 newtype LocalT r m a = LocalT { _runLocalT :: ContT (Either (Maybe RejectReason) r) (RST TransactionContext (LocalState m) m) a }
   deriving(Functor, Applicative, Monad, MonadState (LocalState m), MonadReader TransactionContext)
 
-runLocalT :: Monad m
+runLocalT :: forall m a . Monad m
           => LocalT a m a
           -> Amount
           -> AccountIndex
@@ -693,7 +698,7 @@ runLocalT :: Monad m
 runLocalT (LocalT st) _tcDepositedAmount _tcTxSender _energyLeft _blockEnergyLeft = do
   -- The initial contract modification index must start at 1 since 0 is the
   -- "initial state" of all contracts (as recorded in the changeset).
-  let s = LocalState{_changeSet = emptyCS,_nextContractModificationIndex = 1,..}
+  let s = LocalState{_changeSet = emptyCS (Proxy @m),_nextContractModificationIndex = 1,..}
   (a, s') <- runRST (runContT st (return . Right)) ctx s
   return (a, s')
 
@@ -738,7 +743,7 @@ chargeExecutionCost :: forall m . (AccountOperations m) => SchedulerMonad m => I
 chargeExecutionCost (ai, acc) amnt = do
     balance <- getAccountAmount acc
     addr <- getAccountCanonicalAddress acc
-    let csWithAccountDelta = emptyCS & accountUpdates . at ai ?~ (emptyAccountUpdate ai addr & auAmount ?~ amountDiff 0 amnt)
+    let csWithAccountDelta = emptyCS (Proxy @m) & accountUpdates . at ai ?~ (emptyAccountUpdate ai addr & auAmount ?~ amountDiff 0 amnt)
     assert (balance >= amnt) $
           commitChanges csWithAccountDelta
     notifyExecutionCost amnt
@@ -895,14 +900,14 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
   withInstanceStateV0 istance val cont = do
     nextModificationIndex <- use nextContractModificationIndex
     nextContractModificationIndex += 1
-    changeSet %= addContractStatesToCSV0 istance nextModificationIndex val
+    changeSet %= addContractStatesToCSV0 (Proxy @m) istance nextModificationIndex val
     cont 
 
   {-# INLINE withInstanceStateV1 #-}
   withInstanceStateV1 istance val cont = do
     nextModificationIndex <- use nextContractModificationIndex
     nextContractModificationIndex += 1
-    changeSet %= addContractStatesToCSV1 istance nextModificationIndex val
+    changeSet %= addContractStatesToCSV1 (Proxy @m) istance nextModificationIndex val
     cont nextModificationIndex
 
   {-# INLINE withAccountToAccountAmount #-}
@@ -1167,7 +1172,7 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
   {-# INLINE addContractUpgrade #-}
   addContractUpgrade cAddr newMod = do
       cs <- use changeSet
-      let cs' = addContractUpgradeToCS cAddr newMod cs
+      let cs' = addContractUpgradeToCS (Proxy @m) cAddr newMod cs
       changeSet .= cs'
 
 -- |Call an external method that can fail with running out of energy.

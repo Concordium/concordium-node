@@ -691,7 +691,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
                     -> ContractAddress
                     -> AmountDelta
                     -> Maybe (UpdatableContractState v)
-                    -> Maybe (GSWasm.ModuleInterfaceA (InstrumentedModuleRef m GSWasm.V1))
+                    -> Maybe (GSWasm.ModuleInterfaceA (InstrumentedModuleRef m v))
                     -> m (UpdatableBlockState m)
 
   -- |Notify that some amount was transferred from/to encrypted balance of some account.

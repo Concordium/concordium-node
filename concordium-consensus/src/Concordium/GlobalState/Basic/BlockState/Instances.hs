@@ -45,24 +45,24 @@ getInstance addr (Instances iss) = iss ^? ix addr
 -- is not changed. If there is no instance with the given address, this does
 -- nothing. If the instance at the given address has a different version than
 -- given this function raises an exception.
-updateInstanceAt :: forall v .Wasm.IsWasmVersion v => ContractAddress -> AmountDelta -> Maybe (InstanceStateV v) -> Instances -> Instances
-updateInstanceAt ca amt val (Instances iss) = Instances (iss & ix ca %~ updateOnlyV)
+updateInstanceAt :: forall v .Wasm.IsWasmVersion v => ContractAddress -> AmountDelta -> Maybe (InstanceStateV v) -> Maybe (GSWasm.ModuleInterfaceV v) -> Instances -> Instances
+updateInstanceAt ca amt val params (Instances iss) = Instances (iss & ix ca %~ updateOnlyV)
     where
         -- only update if the instance matches the state version. Otherwise raise an exception.
         updateOnlyV = case Wasm.getWasmVersion @v of
                           Wasm.SV0 -> \case
-                            InstanceV0 i -> InstanceV0 $ updateInstanceV amt val i
+                            InstanceV0 i -> InstanceV0 $ updateInstanceV amt val Nothing i
                             InstanceV1 _ -> error "Expected a V0 instance, but got V1."
                           Wasm.SV1 -> \case
                             InstanceV0 _ -> error "Expected a V1 instance, but got V0"
-                            InstanceV1 i -> InstanceV1 $ updateInstanceV amt val i
+                            InstanceV1 i -> InstanceV1 $ updateInstanceV amt val params i
 
 -- |Update the instance at the specified address with a __new amount__ and
 -- potentially new state. If new state is not provided the state of the instance
 -- is not changed. If there is no instance with the given address, this does
 -- nothing. If the instance at the given address has a different version than
 -- given this function raises an exception.
-updateInstanceAt' :: forall v . Wasm.IsWasmVersion v => ContractAddress -> Amount -> Maybe (InstanceStateV v) -> Maybe (InstanceParameters im)-> Instances -> Instances
+updateInstanceAt' :: forall v . Wasm.IsWasmVersion v => ContractAddress -> Amount -> Maybe (InstanceStateV v) -> Maybe (GSWasm.ModuleInterfaceV v) -> Instances -> Instances
 updateInstanceAt' ca amt val params (Instances iss) = Instances (iss & ix ca %~ updateOnlyV)
     where
         -- only update if the instance matches the state version. Otherwise raise an exception.
