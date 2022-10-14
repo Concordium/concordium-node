@@ -1,6 +1,7 @@
 // Parameters:
 // - VERSION
 // - UBUNTU_VERSION (default: "20.04")
+// - GHC_VERSION (default: "9.0.2")
 
 pipeline {
     agent any
@@ -47,8 +48,10 @@ pipeline {
                    docker build \
                         --build-arg ubuntu_version="${UBUNTU_VERSION}" \
                         --build-arg version="${TAG}" \
+                        --build-arg ghc_version="${GHC_VERSION}" \
                         --label ubuntu_version="${UBUNTU_VERSION}" \
                         --label version="${TAG}" \
+                        --label ghc_version="${GHC_VERSION}" \
                         -f "scripts/db-exporter/Dockerfile" \
                         -t build-deb:${BUILD_TAG} \
                         --no-cache \

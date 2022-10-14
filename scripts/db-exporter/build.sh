@@ -9,51 +9,9 @@ set -euxo pipefail
 
 version="${VERSION}"
 
-rust_toolchain_version=1.62
-protoc_version=3.15.3
-
 # Install dependencies.
 
-apt-get update && \
-	DEBIAN_FRONTEND=noninteractive apt-get -y install \
-		curl \
-		libunbound-dev \
-		libprotobuf-dev \
-		libssl-dev \
-		pkg-config \
-		libnuma-dev \
-		libgmp-dev \
-		liblmdb0 \
-		postgresql-server-dev-all \
-		locales \
-        unzip \
-		liblmdb-dev
-
-# Install protobuf
-
-curl -L https://github.com/protocolbuffers/protobuf/releases/download/v${protoc_version}/protoc-${protoc_version}-linux-x86_64.zip -o protoc.zip
-unzip protoc.zip bin/protoc -d /usr/
-rm protoc.zip
-
-# Install Haskell.
-
-curl -sSL https://get.haskellstack.org/ | sh
-
-# Install Rust.
-
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-source "$HOME/.cargo/env"
-rustup set profile minimal
-rustup default "$rust_toolchain_version"
-
-# - 'database-exporter'
-
-stack build \
-	--stack-yaml=./concordium-consensus/stack.yaml \
-	--flag=concordium-consensus:-dynamic \
-	--copy-bins \
-	--local-bin-path=. \
-	concordium-consensus:database-exporter
+apt-get update && DEBIAN_FRONTEND=noninteractive apt-get -y install pkg-config
 
 # Build Debian packages.
 
@@ -173,9 +131,9 @@ OnCalendar=daily
 WantedBy=timers.target
 EOF
 
-cp "$OLDPWD"/database-exporter usr/bin/database-exporter
-cp "$OLDPWD"/concordium-base/rust-src/target/release/*.so usr/lib/
-cp "$OLDPWD"/concordium-base/smart-contracts/wasm-chain-integration/target/release/*.so usr/lib
+cp /database-exporter usr/bin/database-exporter
+# cp "$OLDPWD"/concordium-base/rust-src/target/release/*.so usr/lib/
+# cp "$OLDPWD"/concordium-base/smart-contracts/wasm-chain-integration/target/release/*.so usr/lib
 cp /database-exporter-publish.sh usr/bin/database-exporter-publish.sh
 
 )
