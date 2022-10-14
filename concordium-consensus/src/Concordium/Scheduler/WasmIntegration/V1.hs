@@ -158,7 +158,7 @@ invokeResponseToWord64 (Error (EnvFailure e)) =
     InvalidEntrypoint _ _ -> 0xffff_ff04_0000_0000
     UpgradeInvalidModuleRef _ -> 0xffff_ff07_0000_0000
     UpgradeInvalidContractName _ _ -> 0xffff_ff08_0000_0000
-    UpgradeInvalidVersion _ _ -> 0xffff_ff07_0009_0000
+    UpgradeInvalidVersion _ _ -> 0xffff_ff09_0000_0000
 invokeResponseToWord64 MessageSendFailed = 0xffff_ff05_0000_0000
 invokeResponseToWord64 (Error (ExecutionReject Trap)) = 0xffff_ff06_0000_0000
 invokeResponseToWord64 (Error (ExecutionReject LogicReject{..})) =

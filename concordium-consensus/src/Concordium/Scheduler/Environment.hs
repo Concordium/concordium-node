@@ -623,8 +623,7 @@ addContractInitToCS Proxy addr cs =
 
 
 -- |Add the contract upgrade to the 'ChangeSet'.
--- We only care about the most recent contract upgrade so we do not keep
--- track of intermediate upgrades caused by reentrant upgrades.
+-- We only care about the most recent contract upgrade.
 {-# INLINE addContractUpgradeToCS #-}
 addContractUpgradeToCS :: Proxy m -> ContractAddress -> GSWasm.ModuleInterfaceA (InstrumentedModuleRef m GSWasm.V1) -> ChangeSet m -> ChangeSet m
 addContractUpgradeToCS Proxy addr updatedMod cs = do  
@@ -1173,7 +1172,7 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
   addContractUpgrade cAddr newMod = do
       cs <- use changeSet
       let cs' = addContractUpgradeToCS (Proxy @m) cAddr newMod cs
-      changeSet .= cs'
+      changeSet .=! cs'
 
 -- |Call an external method that can fail with running out of energy.
 -- Depending on what is the current limit, either remaining transaction energy,
