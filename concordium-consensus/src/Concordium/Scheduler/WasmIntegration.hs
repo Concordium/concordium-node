@@ -187,6 +187,7 @@ processModule modl = do
     Left _ -> Nothing
     Right (miExposedInit, miExposedReceive) ->
       let miModuleRef = getModuleRef modl
+          miUpgradable = False -- V0 contracts are never upgradable.
       in Just ModuleInterface{miModuleSize = moduleSourceLength (wmvSource modl),..}
 
   where ffiResult = unsafePerformIO $ do

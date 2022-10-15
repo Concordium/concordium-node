@@ -110,7 +110,9 @@ data ModuleInterfaceA instrumentedModule = ModuleInterface {
   -- For details see "Artifact" in smart-contracts/wasm-chain-integration
   miModule :: !instrumentedModule,
   -- |Size of the module as deployed in the transaction.
-  miModuleSize :: !Word64
+  miModuleSize :: !Word64,
+  -- |Whether the contract supports native upgrading or not.
+  miUpgradable :: !Bool
   } deriving(Eq, Show, Functor, Foldable, Traversable)
 
 -- |A Wasm module interface, parametrised by the version of the instrumented module @v@.
@@ -145,6 +147,8 @@ instance Serialize im => Serialize (ModuleInterfaceA im) where
     miExposedReceive <- getSafeMapOf get (getSafeSetOf get)
     miModule <- get
     miModuleSize <- getWord64be
+    metaByte <- getWord8
+    let miUpgradable = metaByte == 1
     return ModuleInterface{..}
   put ModuleInterface{..} = do
     put miModuleRef
@@ -152,6 +156,8 @@ instance Serialize im => Serialize (ModuleInterfaceA im) where
     putSafeMapOf put (putSafeSetOf put) miExposedReceive
     put miModule
     putWord64be miModuleSize
+    putWord8 upgradable
+    where upgradable = if miUpgradable then 0x1 else 0x0
 
 -- |A module interface in either version 0 or 1. This is generally only used
 -- when looking up a module before an instance is created. Afterwards an
@@ -186,10 +192,13 @@ instance Serialize BasicModuleInterface where
       V0 -> do
         miModule <- InstrumentedWasmModuleV0 <$> get
         miModuleSize <- getWord64be
+        let miUpgradable = False
         return (ModuleInterfaceV0 ModuleInterface{..})
       V1 -> do
         miModule <- InstrumentedWasmModuleV1 <$> get
         miModuleSize <- getWord64be
+        supportsUpgrade <- getWord8
+        let miUpgradable = supportsUpgrade == 1
         return (ModuleInterfaceV1 ModuleInterface{..})
   put (ModuleInterfaceV0 ModuleInterface{..}) = do
     put miModuleRef

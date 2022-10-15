@@ -581,9 +581,9 @@ resumeReceiveFun is currentState stateChanged amnt statusCode rVal remainingEner
 processModule :: ProtocolVersion -> WasmModuleV V1 -> Maybe (ModuleInterfaceV V1)
 processModule pv modl = do
   (bs, miModule) <- ffiResult
-  case getExports bs of
+  case getExportsAndUpgradeInfo bs of
     Left _ -> Nothing
-    Right (miExposedInit, miExposedReceive) ->
+    Right ((miExposedInit, miExposedReceive), miUpgradable) ->
       let miModuleRef = getModuleRef modl
       in Just ModuleInterface{miModuleSize = moduleSourceLength (wmvSource modl),..}
 
@@ -606,10 +606,12 @@ processModule pv modl = do
                           (rs_free_array_len artifactPtr (fromIntegral artifactLen))
                       return (Just (bs, instrumentedModuleFromBytes SV1 moduleArtifact))
 
-        getExports bs =
+        getExportsAndUpgradeInfo bs =
           flip runGet bs $ do
             len <- fromIntegral <$> getWord16be
             namesByteStrings <- replicateM len getByteStringWord16
+            upgradableByte <- getWord8
+            let upgradable = upgradableByte == 1
             let names = foldM (\(inits, receives) name -> do
                           case Text.decodeUtf8' name of
                             Left _ -> Nothing
@@ -623,5 +625,5 @@ processModule pv modl = do
                           ) (Set.empty, Map.empty) namesByteStrings
             case names of
               Nothing -> fail "Incorrect response from FFI call."
-              Just x@(exposedInits, exposedReceives) ->
-                if Map.keysSet exposedReceives `Set.isSubsetOf` exposedInits then return x else fail "Receive functions that do not correspond to any contract."
+              Just x@(exposedInits, exposedReceives) -> -- If the last byte is 1 then the module supports native upgrade. If it is 0 then it does not support native upgrade.
+                if Map.keysSet exposedReceives `Set.isSubsetOf` exposedInits then return (x, upgradable) else fail "Receive functions that do not correspond to any contract."

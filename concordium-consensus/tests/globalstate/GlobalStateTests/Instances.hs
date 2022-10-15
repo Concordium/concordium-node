@@ -34,7 +34,7 @@ import qualified Data.ByteString as BS
 import Test.QuickCheck
 import Test.Hspec
 
-PV' :: ProtocolVersion
+PV' :: PV.ProtocolVersion
 PV' = PV.P5
 
 contractSourcesV0 :: [(FilePath, BS.ByteString)]
