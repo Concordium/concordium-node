@@ -699,7 +699,7 @@ instance ToProto RejectReason where
                                                             ProtoFields.initName .= toProto cInitName)
     UpgradeInvalidVersion modRef wasmV -> Proto.make $ 
             ProtoFields.upgradeInvalidVersion .= Proto.make (do 
-                                                            ProtoFields.moduleRef .= toProto moduleRef
+                                                            ProtoFields.moduleRef .= toProto modRef
                                                             ProtoFields.version .= toProto wasmV)
 
 -- |Attempt to convert the node's TransactionStatus type into the protobuf BlockItemStatus type.
