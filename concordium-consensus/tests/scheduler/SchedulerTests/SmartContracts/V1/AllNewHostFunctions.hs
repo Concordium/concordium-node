@@ -26,6 +26,19 @@ testModule1 = do
     Nothing -> assertFailure "Invalid caller module."
     Just GSWasm.ModuleInterface{} -> return ()
 
+-- |A V1 module with extra exports.
+-- This should not pass the processing as the module
+-- contains 'upgrade' and this is only allowed for P5 and 
+-- onwards.
+testModule2 :: Assertion
+testModule2 = do
+  ws <- BS.readFile "./testdata/contracts/v1/all-new-host-functions.wasm"
+  let wm1 = WasmModuleV (ModuleSource ws)
+  case WasmV1.processModule PV.P4 wm1 of
+    Nothing -> return ()
+    Just GSWasm.ModuleInterface{} -> assertFailure "Caller module contains 'upgrade' in unsupported PV."
+
 tests :: Spec
 tests = describe "V1: Process modules" $ do
-  specify "All new host functiosn" testModule1
+  specify "All new host functions" testModule1
+  specify "Host fn 'upgrade' in < P5 fails" testModule2
