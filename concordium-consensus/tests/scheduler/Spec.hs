@@ -80,5 +80,6 @@ main = hspec $ do
          SchedulerTests.SmartContracts.V1.Fallback.tests
          SchedulerTests.SmartContracts.V1.Checkpointing.tests
          SchedulerTests.SmartContracts.V1.AllNewHostFunctions.tests
+         -- SchedulerTests.SmartCOntracts.V1.Upgrading.tests
          SchedulerTests.Payday.tests
          SchedulerTests.Delegation.tests
