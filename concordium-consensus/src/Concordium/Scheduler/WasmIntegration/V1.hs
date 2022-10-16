@@ -583,7 +583,7 @@ processModule pv modl = do
   (bs, miModule) <- ffiResult
   case getExportsAndUpgradeInfo bs of
     Left _ -> Nothing
-    Right ((miExposedInit, miExposedReceive), miUpgradable) ->
+    Right (miExposedInit, miExposedReceive) ->
       let miModuleRef = getModuleRef modl
       in Just ModuleInterface{miModuleSize = moduleSourceLength (wmvSource modl),..}
 
@@ -609,9 +609,7 @@ processModule pv modl = do
         getExportsAndUpgradeInfo bs =
           flip runGet bs $ do
             len <- fromIntegral <$> getWord16be
-            namesByteStrings <- replicateM len getByteStringWord16
-            upgradableByte <- getWord8
-            let upgradable = upgradableByte == 1
+            namesByteStrings <- replicateM len getByteStringWord16                        
             let names = foldM (\(inits, receives) name -> do
                           case Text.decodeUtf8' name of
                             Left _ -> Nothing
@@ -626,4 +624,4 @@ processModule pv modl = do
             case names of
               Nothing -> fail "Incorrect response from FFI call."
               Just x@(exposedInits, exposedReceives) -> -- If the last byte is 1 then the module supports native upgrade. If it is 0 then it does not support native upgrade.
-                if Map.keysSet exposedReceives `Set.isSubsetOf` exposedInits then return (x, upgradable) else fail "Receive functions that do not correspond to any contract."
+                if Map.keysSet exposedReceives `Set.isSubsetOf` exposedInits then return x else fail "Receive functions that do not correspond to any contract."

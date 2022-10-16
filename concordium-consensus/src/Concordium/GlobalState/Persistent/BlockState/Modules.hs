@@ -53,7 +53,6 @@ import Data.Serialize
 import Data.Word
 import Control.Monad.Trans
 import Lens.Micro.Platform
-import Concordium.GlobalState.Wasm (ModuleInterfaceA(miUpgradable))
 
 -- |Index of the module in the module table. Reflects when the module was added
 -- to the table.
@@ -154,8 +153,7 @@ instance MonadBlobStore m => DirectBlobStorable m Module where
           -- Offset of the start of the module
           startOffset <- fromIntegral <$> bytesRead
           -- Header
-          miModuleRef <- get
-          miUpgradable <- get
+          miModuleRef <- get          
           miExposedInit <- getSafeSetOf get
           miExposedReceive <- getSafeMapOf get (getSafeSetOf get)
           -- Artifact is serialized as @InstrumentedModule v@.
@@ -212,8 +210,7 @@ instance MonadBlobStore m => DirectBlobStorable m Module where
                 putWord32be (fromIntegral (BS.length artifact))
                 putByteString artifact
           let headerBytes = runPut $ do
-                put miModuleRef
-                put miUpgradable
+                put miModuleRef                
                 putSafeSetOf put miExposedInit
                 putSafeMapOf put (putSafeSetOf put) miExposedReceive
               footerBytes = runPut $ do
