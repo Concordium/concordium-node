@@ -1020,9 +1020,9 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
                     in return (Just . InstanceInfoV1 $ inst {
                             iiBalance = amnt,
                             iiState = maybe (Frozen (iiState inst)) Thawed newState,
-                            iiParameters = maybe (iiParameters inst) (updateParams (instanceAddress inst) (iiParameters inst)) newModule})
+                            iiParameters = maybe (iiParameters inst) (updateParams (iiParameters inst)) newModule})
     where      
-      updateParams cAddr params newMod =
+      updateParams params newMod =
           InstanceParameters {
               _instanceAddress = _instanceAddress params,
               instanceOwner = instanceOwner params,
@@ -1030,7 +1030,7 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
               instanceReceiveFuns = instanceReceiveFuns params,
               instanceModuleInterface = newMod,
               instanceParameterHash = makeInstanceParameterHash 
-                                      cAddr
+                                      addr
                                       (instanceOwner params) 
                                       (GSWasm.miModuleRef newMod) 
                                       (instanceInitName params)}
