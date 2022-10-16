@@ -153,7 +153,7 @@ instance MonadBlobStore m => DirectBlobStorable m Module where
           -- Offset of the start of the module
           startOffset <- fromIntegral <$> bytesRead
           -- Header
-          miModuleRef <- get          
+          miModuleRef <- get
           miExposedInit <- getSafeSetOf get
           miExposedReceive <- getSafeMapOf get (getSafeSetOf get)
           -- Artifact is serialized as @InstrumentedModule v@.
@@ -164,7 +164,7 @@ instance MonadBlobStore m => DirectBlobStorable m Module where
           -- Skip the actual body of the artifact; we deserialize as a 'BlobPtr' instead.
           skip (fromIntegral artLen)
           -- Footer
-          miModuleSize <- getWord64be
+          miModuleSize <- ge3tWord64be
           let miModule :: PersistentInstrumentedModuleV v
               miModule = PIMVPtr BlobPtr {
                   theBlobPtr =
@@ -210,7 +210,7 @@ instance MonadBlobStore m => DirectBlobStorable m Module where
                 putWord32be (fromIntegral (BS.length artifact))
                 putByteString artifact
           let headerBytes = runPut $ do
-                put miModuleRef                
+                put miModuleRef 
                 putSafeSetOf put miExposedInit
                 putSafeMapOf put (putSafeSetOf put) miExposedReceive
               footerBytes = runPut $ do

@@ -1190,8 +1190,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                         go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.Error (WasmV1.EnvFailure errCode)) Nothing)
                                     Right upgradeEvents -> do
                                         newBalance <- getCurrentContractAmount Wasm.SV1 istance
-                                        -- Charge for updating the pointer in the instance to the new module.
-                                        -- TODO: This is rather conservative and could probably be cheaper.
+                                        -- Charge for updating the pointer in the instance to the new module.                                        
                                         tickEnergy Cost.initializeContractInstanceCreateCost
                                         go (resumeEvent True:upgradeEvents ++ interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False newBalance WasmV1.Success Nothing)
 

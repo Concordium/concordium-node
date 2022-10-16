@@ -247,8 +247,7 @@ instance (MonadReader ContextState m,
                   s2
                   (cs ^. accountUpdates))
     s4 <- lift (bsoAddReleaseSchedule s3 (OrdMap.toList $ cs ^. addedReleaseSchedules))
-    schedulerBlockState .= s4
-    -- TODO: Modify instances based on contract upgrades.
+    schedulerBlockState .= s4    
 
   {-# INLINE energyToGtu #-}
   energyToGtu v = do

@@ -186,7 +186,7 @@ processModule modl = do
   case getExports bs of
     Left _ -> Nothing
     Right (miExposedInit, miExposedReceive) ->
-      let miModuleRef = getModuleRef modl          
+      let miModuleRef = getModuleRef modl
       in Just ModuleInterface{miModuleSize = moduleSourceLength (wmvSource modl),..}
 
   where ffiResult = unsafePerformIO $ do
