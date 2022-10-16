@@ -15,13 +15,14 @@ import qualified Data.ByteString as BS
 import Concordium.Wasm
 import qualified Concordium.GlobalState.Wasm as GSWasm
 import qualified Concordium.Scheduler.WasmIntegration.V1 as WasmV1
+import qualified Concordium.Types.ProtocolVersion as PV
 
 -- |A V1 module with extra exports.
 testModule1 :: Assertion
 testModule1 = do
   ws <- BS.readFile "./testdata/contracts/v1/all-new-host-functions.wasm"
   let wm1 = WasmModuleV (ModuleSource ws)
-  case WasmV1.processModule wm1 of
+  case WasmV1.processModule PV.P5 wm1 of
     Nothing -> assertFailure "Invalid caller module."
     Just GSWasm.ModuleInterface{} -> return ()
 

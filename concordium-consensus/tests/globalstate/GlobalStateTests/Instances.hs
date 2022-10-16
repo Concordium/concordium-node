@@ -34,9 +34,6 @@ import qualified Data.ByteString as BS
 import Test.QuickCheck
 import Test.Hspec
 
-PV' :: PV.ProtocolVersion
-PV' = PV.P5
-
 contractSourcesV0 :: [(FilePath, BS.ByteString)]
 contractSourcesV0 = $(makeRelativeToProject "testdata/contracts/" >>= embedDir)
 
@@ -46,7 +43,7 @@ validContractArtifactsV0 :: [(Wasm.ModuleSource GSWasm.V0, GSWasm.ModuleInterfac
 validContractArtifactsV0 = mapMaybe packModule contractSourcesV0
     where packModule (_, sourceBytes) =
             let source = Wasm.ModuleSource sourceBytes
-            in (source,) <$> PV' WasmV0.processModule (Wasm.WasmModuleV source)
+            in (source,) <$> WasmV0.processModule (Wasm.WasmModuleV source)
 
 contractSourcesV1 :: [(FilePath, BS.ByteString)]
 contractSourcesV1 = $(makeRelativeToProject "testdata/contracts/v1" >>= embedDir)
@@ -57,7 +54,7 @@ validContractArtifactsV1 :: [(Wasm.ModuleSource GSWasm.V1, GSWasm.ModuleInterfac
 validContractArtifactsV1 = mapMaybe packModule contractSourcesV1
     where packModule (_, sourceBytes) =
             let source = Wasm.ModuleSource sourceBytes
-            in (source,) <$> PV' WasmV1.processModule (Wasm.WasmModuleV source)
+            in (source,) <$> WasmV1.processModule PV.P5 (Wasm.WasmModuleV source)
 
 checkBinary :: Show a => (a -> a -> Bool) -> a -> a -> String -> String -> String -> Either String ()
 checkBinary bop x y sbop sx sy = unless (bop x y) $ Left $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"
@@ -354,7 +351,7 @@ testUpdates n0 = if n0 <= 0 then return (property True) else tu n0 emptyInstance
                         let
                             ca = ContractAddress ci csi
                             insts' = updateInstanceAt' ca a (Just v) Nothing insts
-                            model' = modelUpdateInstanceAt ca a v Nothing model
+                            model' = modelUpdateInstanceAt ca a v model
                         tu (n-1) insts' model'
                       InstanceDataV1 v a -> do
                         let
