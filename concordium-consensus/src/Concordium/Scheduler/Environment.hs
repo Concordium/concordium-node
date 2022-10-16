@@ -1016,31 +1016,23 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
             case  updates ^. at' addr of
               Nothing -> return $ Just (InstanceInfoV1 inst {iiState = Frozen (iiState inst)})
               Just InstanceV1Update{..} -> 
-                    let !amnt = applyAmountDelta amountChange (iiBalance inst)                    
-                    in case newModule of 
-                        Nothing -> 
-                            return (Just . InstanceInfoV1 $ inst { 
-                            iiBalance = amnt, 
-                            iiState = maybe (Frozen (iiState inst)) Thawed newState})
-                        Just modChange ->
-                          let params' = updatedParams inst modChange
-                          in return (Just . InstanceInfoV1 $ inst {
+                    let !amnt = applyAmountDelta amountChange (iiBalance inst)
+                    in return (Just . InstanceInfoV1 $ inst {
                             iiBalance = amnt,
-                            iiState = Frozen (iiState inst),
-                            iiParameters = params'})
+                            iiState = maybe (Frozen (iiState inst)) Thawed newState,
+                            iiParameters = maybe (iiParameters inst) (updateParams (instanceAddress inst) (iiParameters inst)) newModule})
     where      
-      updatedParams inst m =        
-          let params = iiParameters inst
-          in InstanceParameters {
+      updateParams cAddr params newMod =
+          InstanceParameters {
               _instanceAddress = _instanceAddress params,
               instanceOwner = instanceOwner params,
               instanceInitName = instanceInitName params,
               instanceReceiveFuns = instanceReceiveFuns params,
-              instanceModuleInterface = m,
+              instanceModuleInterface = newMod,
               instanceParameterHash = makeInstanceParameterHash 
-                                      (instanceAddress inst) 
+                                      cAddr
                                       (instanceOwner params) 
-                                      (GSWasm.miModuleRef m) 
+                                      (GSWasm.miModuleRef newMod) 
                                       (instanceInitName params)}
 
   chargeV1Storage = do

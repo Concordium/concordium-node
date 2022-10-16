@@ -164,7 +164,7 @@ instance MonadBlobStore m => DirectBlobStorable m Module where
           -- Skip the actual body of the artifact; we deserialize as a 'BlobPtr' instead.
           skip (fromIntegral artLen)
           -- Footer
-          miModuleSize <- ge3tWord64be
+          miModuleSize <- getWord64be
           let miModule :: PersistentInstrumentedModuleV v
               miModule = PIMVPtr BlobPtr {
                   theBlobPtr =
