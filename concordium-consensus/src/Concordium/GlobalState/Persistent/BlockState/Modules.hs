@@ -210,7 +210,7 @@ instance MonadBlobStore m => DirectBlobStorable m Module where
                 putWord32be (fromIntegral (BS.length artifact))
                 putByteString artifact
           let headerBytes = runPut $ do
-                put miModuleRef 
+                put miModuleRef
                 putSafeSetOf put miExposedInit
                 putSafeMapOf put (putSafeSetOf put) miExposedReceive
               footerBytes = runPut $ do
