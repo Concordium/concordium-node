@@ -1,8 +1,8 @@
 ARG ubuntu_version
+ARG ghc_version
 # Build static libraries
 FROM concordium/static-libraries:latest as static-builder
 COPY . /build
-ARG ghc_version
 WORKDIR /build
 RUN GHC_VERSION="${ghc_version}" \
       /build/scripts/static-libraries/build-static-libraries.sh
