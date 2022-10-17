@@ -505,14 +505,14 @@ type ModificationIndex = Word
 -- |A pending update for v1 instances.
 data InstanceV1Update' mr = InstanceV1Update {
     -- |The modification index.
-    index:: ModificationIndex,
+    index :: !ModificationIndex,
     -- |Amount changed
-    amountChange :: AmountDelta,
+    amountChange :: !AmountDelta,
     -- |Present if a state change has ocurred.
-    newState :: Maybe (UpdatableContractState GSWasm.V1),
+    newState :: !(Maybe (UpdatableContractState GSWasm.V1)),
     -- |Present if the contract has been upgraded.
     -- Contract upgrades are only supported from PV 5 and onwards.    
-    newModule  :: Maybe (GSWasm.ModuleInterfaceA (mr GSWasm.V1))
+    newModule  :: !(Maybe (GSWasm.ModuleInterfaceA (mr GSWasm.V1)))
 }
 
 type InstanceV1Update m = InstanceV1Update' (InstrumentedModuleRef m)
@@ -591,7 +591,7 @@ addContractStatesToCSV0 Proxy istance curIdx newState =
 addContractStatesToCSV1 :: HasInstanceAddress a => Proxy m -> a -> ModificationIndex -> UpdatableContractState GSWasm.V1 -> ChangeSet m -> ChangeSet m
 addContractStatesToCSV1 Proxy istance curIdx stateUpdate =
   instanceV1Updates . at addr %~ 
-      \case Just InstanceV1Update{..} -> Just $! InstanceV1Update index amountChange (Just stateUpdate) newModule
+      \case Just InstanceV1Update{..} -> Just $! InstanceV1Update curIdx amountChange (Just stateUpdate) newModule
             Nothing -> Just $! InstanceV1Update curIdx 0 (Just stateUpdate) Nothing
   where addr = instanceAddress istance
 
@@ -934,14 +934,14 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
   withContractToAccountAmountV0 fromAcc toAcc amount cont = do
     cs <- use changeSet
     changeSet <~ liftLocal (addAmountToCS toAcc (amountToDelta amount) cs >>= 
-                                addContractAmountToCSV0 fromAcc (amountDiff 0 amount))    
+                                addContractAmountToCSV0 fromAcc (amountDiff 0 amount))
     cont
 
   {-# INLINE withContractToAccountAmountV1 #-}
   withContractToAccountAmountV1 fromAcc toAcc amount cont = do
     cs <- use changeSet
     changeSet <~ liftLocal (addAmountToCS toAcc (amountToDelta amount) cs >>= 
-                                addContractAmountToCSV1 fromAcc (amountDiff 0 amount))    
+                                addContractAmountToCSV1 fromAcc (amountDiff 0 amount))
     cont
 
   {-# INLINE withContractToContractAmountV0 #-}
@@ -994,8 +994,8 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
 
   addSelfEncryptedAmount iacc@(ai, acc) transferredAmount newAmount = do
     addr <- getAccountCanonicalAddress acc
-    cs <- use changeSet    
-    changeSet <~ liftLocal (addAmountToCS iacc (amountDiff 0 transferredAmount) cs)                                
+    cs <- use changeSet
+    changeSet <~ liftLocal (addAmountToCS iacc (amountDiff 0 transferredAmount) cs)
     changeSet . accountUpdates . at' ai . non (emptyAccountUpdate ai addr) . auEncrypted ?= AddSelf{..}
     changeSet . encryptedChange += amountToDelta transferredAmount
 
@@ -1043,8 +1043,8 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
         Just ms -> tickEnergy (Cost.toEnergy (Wasm.ByteSize (StateV1.getNewStateSize ms)))
 
   getCurrentContractInstanceState istance = do
-    newStates <- use (changeSet . instanceV1Updates)
-    case newStates ^. at (instanceAddress (iiParameters istance)) of
+    updates <- use (changeSet . instanceV1Updates)
+    case updates ^. at (instanceAddress (iiParameters istance)) of
       Just InstanceV1Update{..} -> case newState of 
                                       Just s -> return (index, Thawed s)
                                       Nothing -> return (0, iiState istance)
@@ -1055,8 +1055,7 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
     newStates <- use (changeSet . instanceV1Updates)
     case newStates ^. at (instanceAddress (iiParameters istance)) of
       Just InstanceV1Update{..} -> return index
-      Nothing -> do
-        return 0
+      Nothing -> return 0
 
   getCurrentAccountTotalAmount (ai, acc) = do
     oldTotal <- getAccountAmount acc
