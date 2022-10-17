@@ -144,14 +144,14 @@ instance Serialize im => Serialize (ModuleInterfaceA im) where
     miExposedInit <- getSafeSetOf get
     miExposedReceive <- getSafeMapOf get (getSafeSetOf get)
     miModule <- get
-    miModuleSize <- getWord64be    
+    miModuleSize <- getWord64be
     return ModuleInterface{..}
   put ModuleInterface{..} = do
     put miModuleRef
     putSafeSetOf put miExposedInit
     putSafeMapOf put (putSafeSetOf put) miExposedReceive
     put miModule
-    putWord64be miModuleSize    
+    putWord64be miModuleSize
 
 -- |A module interface in either version 0 or 1. This is generally only used
 -- when looking up a module before an instance is created. Afterwards an
@@ -185,11 +185,11 @@ instance Serialize BasicModuleInterface where
     get >>= \case
       V0 -> do
         miModule <- InstrumentedWasmModuleV0 <$> get
-        miModuleSize <- getWord64be        
+        miModuleSize <- getWord64be
         return (ModuleInterfaceV0 ModuleInterface{..})
       V1 -> do
         miModule <- InstrumentedWasmModuleV1 <$> get
-        miModuleSize <- getWord64be                
+        miModuleSize <- getWord64be
         return (ModuleInterfaceV1 ModuleInterface{..})
   put (ModuleInterfaceV0 ModuleInterface{..}) = do
     put miModuleRef
