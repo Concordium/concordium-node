@@ -23,6 +23,7 @@ import qualified Data.ByteString as BS
 import Control.Monad
 import Data.Serialize(runPut, putWord64le, putByteString, putWord16le, encode, Serialize (put))
 import qualified Data.Text as T
+import qualified Data.List as List
 
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Crypto.SHA256 as Hash
@@ -40,6 +41,7 @@ import Concordium.Types.DummyData
 import Concordium.Crypto.DummyData
 
 import SchedulerTests.TestUtils
+import Concordium.Scheduler.Types (Event(..))
 
 
 initialBlockState :: BlockState PV5
@@ -88,13 +90,27 @@ testCase1IO = do
     ]
   }
   where
-
     ensureSuccess :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
     ensureSuccess _ summary = case Types.tsResult summary of
       Types.TxReject {..} -> assertFailure $ "Update failed with " ++ show vrRejectReason
-      Types.TxSuccess {..} -> if length vrEvents == 7
-        then return ()
-        else assertFailure $ "Update succeeded but with unexpected number of events: " ++ show (length vrEvents)
+      Types.TxSuccess {..} -> do
+        -- Check the number of events:
+        -- - 3 events from invoking another contract ('contract.name').
+        -- - 3 events from upgrading.
+        -- - 3 events from invoking again  ('contract.name').
+        -- - 1 event for a succesful update to the contract ('contract.upgrade').
+        unless (length vrEvents == 10) $ assertFailure $ "Update succeeded but with unexpected number of events: " ++ show (length vrEvents)
+        -- Find and check the upgrade event
+        case List.find isUpgradeEvent vrEvents of
+          Nothing -> assertFailure "Missing event: Upgraded"
+          Just Upgraded{..} | euFrom /= euTo -> assertFailure "Event Upgraded is incorrect"
+          Just _ -> return ()
+        -- Ensure only one upgrade event
+        unless (List.length (filter isUpgradeEvent vrEvents) == 1) $ assertFailure "Multiple events: Upgraded"
+
+    isUpgradeEvent event = case event of
+      Upgraded{} -> True
+      _ -> False
 
 -- This only checks that the cost of initialization is correct.
 -- If the state was not set up correctly the latter tests in the suite will fail.
