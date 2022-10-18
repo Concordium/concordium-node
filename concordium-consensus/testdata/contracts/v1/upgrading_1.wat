@@ -2,7 +2,8 @@
 ;; This module defines a function 'new' for contract 'a' which is not 
 ;; available in the module upgrade from (upgrading_0.wat).
 
-(module         
+(module
+    
     ;; Helper functions
     (func $assert_eq_64 (param $actual i64) (param $expected i64)
     (if (i64.eq (local.get $actual) (local.get $expected))
@@ -15,7 +16,7 @@
     )
 
     ;; new simply returns 0. 
-    (func $a_new (export "a.new") (result i32)        
+    (func $new (export "a.new") (param i64) (result i32)        
         ;; Simply return success.
         (return (i32.const 0))
     )

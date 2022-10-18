@@ -92,7 +92,7 @@ testCases =
       ,      
         -- Invoke the `upgrade` by calling 'a.upgrade' with the resulting 'ModuleRef' of 
         -- deploying upgrade_1.wasm.
-        ( TJSON { payload = Update 1 (Types.ContractAddress 0 0) "a.upgrade" parameters
+        ( TJSON { payload = Update 1 (Types.ContractAddress 0 0) "a.bump" parameters
                 , metadata = makeDummyHeader alesAccount 4 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
@@ -116,9 +116,9 @@ testCases =
     ensureSuccess :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
     ensureSuccess _ Types.TransactionSummary{..} = checkSuccess "Update failed" tsResult
     checkSuccess msg Types.TxReject{..} = assertFailure $ msg ++ show vrRejectReason
-    checkSuccess msg Types.TxSuccess{..} = if length vrEvents == 3
+    checkSuccess msg Types.TxSuccess{..} = if length vrEvents == 1
       then return ()
-      else assertFailure $ msg ++ " unexepcted no. of events " ++ show (length vrEvents) ++ " expected 3."
+      else assertFailure $ msg ++ " unexepcted no. of events " ++ show (length vrEvents) ++ " expected 1."
 
 -- |Get a 'ModuleRef' from a given 'Module' specified via the 
 -- 'FilePath'.
@@ -156,7 +156,7 @@ deploymentCostCheck sourceFile _ Types.TransactionSummary{..} = do
   moduleSource <- BS.readFile sourceFile
   let len = fromIntegral $ BS.length moduleSource
       -- size of the module deploy payload
-      payloadSize = Types.payloadSize (Types.encodePayload (Types.DeployModule (WasmModuleV0 (WasmModuleV ModuleSource{..}))))
+      payloadSize = Types.payloadSize (Types.encodePayload (Types.DeployModule (WasmModuleV1 (WasmModuleV ModuleSource{..}))))
       -- size of the transaction minus the signatures.
       txSize = Types.transactionHeaderSize + fromIntegral payloadSize
       -- transaction is signed with 1 signature

@@ -3,11 +3,17 @@
 (module 
     ;; Imports
     (import "concordium" "upgrade" (func $upgrade (param $module_ptr i32) (result i64)))
-    (import "concordium" "get_parameter_section" (func $get_parameter_section (param $write_location i32) (param $length i32) (param $offset i32) (result i32)))    
+    (import "concordium" "get_parameter_section" (func $get_parameter_section (param $index i32) (param $write_location i32) (param $length i32) (param $offset i32) (result i32)))
+    (import "concordium" "get_parameter_size" (func $get_parameter_size (param $index i32) (result i32)))
 
     ;; Helper functions
     (func $assert_eq_64 (param $actual i64) (param $expected i64)
     (if (i64.eq (local.get $actual) (local.get $expected))
+      (then nop)
+      (else unreachable)))
+
+    (func $assert_eq_32 (param $actual i32) (param $expected i32)
+    (if (i32.eq (local.get $actual) (local.get $expected))
       (then nop)
       (else unreachable)))
 
@@ -17,16 +23,20 @@
     )
 
     ;; Upgrade
-    (func $a_upgrade (export "a.upgrade")  (param i64) (result i32)
-        (local $rv i64)
+    (func $bump (export "a.bump")  (param i64) (result i32)
         ;; Here we carry out the upgrade with the parameters we're called with.
         ;; That is, we're called with a module reference to the module we want to upgrade to.
         ;; Module references are always 32 bytes long as they consist simply of a SHA256 hash.
-        (call $get_parameter_section (i32.const 0) (i32.const 0) (i32.const 32) (i32.const 0))
-        ;; We store the upgrade return value in $rv.
-        (local.set $rv (call $upgrade (i32.const 0)))
-        ;; We assert that the upgrade was successful.
-        (call $assert_eq_64 (i64.const 0) (local.get $rv))
+        (call $assert_eq_32 (i32.const 32)(call $get_parameter_size (i32.const 0)))
+        (call $assert_eq_32
+                (call $get_parameter_section
+                    (i32.const 0)
+                    (i32.const 0)
+                    (i32.const 32)
+                    (i32.const 0))
+                (i32.const 32))
+        ;; Carry out the upgrade and ensure it was successful.
+        (call $assert_eq_64 (i64.const 0) (call $upgrade (i32.const 0)))
         ;; And now we simply return 0 for success.
         (return (i32.const 0))
     )
