@@ -116,16 +116,16 @@ testCases =
     ensureSuccess :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
     ensureSuccess _ Types.TransactionSummary{..} = checkSuccess "Update failed" tsResult
     checkSuccess msg Types.TxReject{..} = assertFailure $ msg ++ show vrRejectReason
-    checkSuccess msg Types.TxSuccess{..} = if length vrEvents == 1
+    checkSuccess msg Types.TxSuccess{..} = if length vrEvents == 5
       then return ()
-      else assertFailure $ msg ++ " unexepcted no. of events " ++ show (length vrEvents) ++ " expected 1."
+      else assertFailure $ msg ++ " unexepcted no. of events " ++ show (length vrEvents) ++ " expected 5."
 
 -- |Get a 'ModuleRef' from a given 'Module' specified via the 
 -- 'FilePath'.
 getModRefFromFile :: FilePath -> Types.ModuleRef
 getModRefFromFile f = unsafePerformIO $ do
-        moduleSource <- BS.readFile f
-        return $! Types.ModuleRef $! Hash.hash moduleSource
+        getModuleRef @V1 . WasmModuleV . ModuleSource <$> BS.readFile f
+        
 
 -- This only checks that the cost of initialization is correct.
 -- If the state was not set up correctly the latter tests in the suite will fail.

@@ -15,6 +15,7 @@ module Concordium.Scheduler.Environment where
 import qualified Data.HashMap.Strict as HMap
 import qualified Data.HashSet as HSet
 import qualified Data.Map as Map
+import qualified Data.Map.Strict as SMap
 import Data.Foldable
 
 import Control.Monad.Cont hiding (cont)
@@ -47,6 +48,7 @@ import Concordium.Wasm (IsWasmVersion)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import qualified Concordium.Wasm as GSWasm
 import Data.Proxy
+import Data.Maybe (fromMaybe)
 
 -- |An account index together with the canonical address. Sometimes it is
 -- difficult to pass an IndexedAccount and we only need the addresses. That is
@@ -1021,19 +1023,20 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
                             iiBalance = amnt,
                             iiState = maybe (Frozen (iiState inst)) Thawed newState,
                             iiParameters = maybe (iiParameters inst) (updateParams (iiParameters inst)) newModule})
-    where      
+    where
       updateParams params newMod =
           InstanceParameters {
               _instanceAddress = _instanceAddress params,
               instanceOwner = instanceOwner params,
               instanceInitName = instanceInitName params,
-              instanceReceiveFuns = instanceReceiveFuns params,
+              instanceReceiveFuns = newReceiveFuns params newMod,
               instanceModuleInterface = newMod,
               instanceParameterHash = makeInstanceParameterHash 
                                       addr
                                       (instanceOwner params) 
                                       (GSWasm.miModuleRef newMod) 
                                       (instanceInitName params)}
+      newReceiveFuns params newMod = fromMaybe (instanceReceiveFuns params) (SMap.lookup (instanceInitName params) (GSWasm.miExposedReceive newMod))
 
   chargeV1Storage = do
     xs <- use (changeSet . instanceV1Updates)
