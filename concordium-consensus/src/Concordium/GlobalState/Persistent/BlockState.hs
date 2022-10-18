@@ -46,6 +46,7 @@ import Data.Word
 import Lens.Micro.Platform
 import qualified Data.Vector as Vec
 import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 import qualified Data.Sequence as Seq
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
@@ -1999,9 +2000,16 @@ doModifyInstance pbs caddr deltaAmnt val newModule = do
           case newModule of
             Nothing -> return (params, newParamsRef)
             Just nm -> do
-              let newParams' = params {pinstanceContractModule = GSWasm.miModuleRef nm }
-              let newHash = Instances.makeInstanceParameterHash (pinstanceAddress newParams') (pinstanceOwner newParams') (pinstanceContractModule newParams') (pinstanceInitName newParams')
-              let newParams = newParams {pinstanceParameterHash = newHash}
+              let newParams' = params {
+                    pinstanceContractModule = GSWasm.miModuleRef nm,
+                    -- TODO: We return Set.empty here in case that the set of receive functions cannot be looked up
+                    -- on the module. However the 'Scheduler' already looked up that the 'InitName' exists on the new module,
+                    -- (hence the 'InitName' was added to the 'miExposedReceive' of the deployed 'ModuleInterfaceA) so it should never return 'Nothing',
+                    -- but it should be safe to return 'Set.empty' here.
+                    pinstanceReceiveFuns = fromMaybe Set.empty (Map.lookup (pinstanceInitName params) (GSWasm.miExposedReceive nm))
+                    }
+                  newHash = Instances.makeInstanceParameterHash (pinstanceAddress newParams') (pinstanceOwner newParams') (pinstanceContractModule newParams') (pinstanceInitName newParams')
+                  newParams = newParams {pinstanceParameterHash = newHash}
               (newParams,) <$> makeBufferedRef newParams
         upd :: PersistentInstance pv -> m ((), PersistentInstance pv)
         upd (PersistentInstanceV0 oldInst) = case Wasm.getWasmVersion @v of

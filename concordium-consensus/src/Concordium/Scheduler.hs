@@ -1029,12 +1029,13 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
         | Set.member (Wasm.makeFallbackReceiveName receiveName) receiveFuns = (False, True)
         | otherwise = (False, False)
   let ownerAccountAddress = instanceOwner iParams
+  let currentModRef = GSWasm.miModuleRef . instanceModuleInterface $ iParams
   -- The invariants maintained by global state should ensure that an owner account always exists.
   -- However we are defensive here and reject the transaction instead of panicking in case it does not.
   ownerCheck <- getStateAccount ownerAccountAddress
   senderCheck <- checkAndGetSender transferAmount
   case (checkValidEntrypoint || useFallback, ownerCheck, senderCheck) of
-    (False, _, _) -> return (Left (WasmV1.EnvFailure (WasmV1.InvalidEntrypoint (GSWasm.miModuleRef . instanceModuleInterface $ iParams) receiveName)))
+    (False, _, _) -> return (Left (WasmV1.EnvFailure (WasmV1.InvalidEntrypoint currentModRef receiveName)))
     (_, Nothing, _) -> return (Left (WasmV1.EnvFailure (WasmV1.MissingAccount ownerAccountAddress)))
     (_, _, Left err) -> return (Left err)
     (True, Just ownerAccount, Right (senderAddr, senderCredentials, sender)) -> do
@@ -1184,8 +1185,8 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                 -- if the code should be run on the old or the new artifact i.e., if a pending upgrade exists in the
                                 -- in the 'ChangeSet' we will need to use the new module artifact. See 'getCurrentContractInstance'.
                                 -- If the upgrade or subsequent actions fails then the transaction must be rolled back.
-                                -- Finally 'commitChanges' will commit the changeset upon a succesfull transaction.                                
-                                runExceptT (handleContractUpgrade cref imuModRef mia) >>= \case
+                                -- Finally 'commitChanges' will commit the changeset upon a succesfull transaction.
+                                runExceptT (handleContractUpgrade cref currentModRef mia) >>= \case
                                     Left errCode -> do
                                         go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.Error (WasmV1.EnvFailure errCode)) Nothing)
                                     Right upgradeEvents -> do

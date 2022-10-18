@@ -14,6 +14,7 @@ module Concordium.GlobalState.Instance where
 import Data.Maybe
 import Data.Serialize
 import qualified Data.Set as Set
+import qualified Data.Map.Strict as Map
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
 import Concordium.Types.HashableTo
@@ -226,7 +227,12 @@ updateInstanceV' amnt val maybeNewMod i =  i {
                             }
   where 
       newVal = fromMaybe (_instanceVModel i) val
-      newParams = maybe (_instanceVParameters i) (\nm -> (_instanceVParameters i) { instanceModuleInterface = nm }) maybeNewMod
+      newParams = maybe (_instanceVParameters i) (\nm -> (_instanceVParameters i) { instanceModuleInterface = nm, instanceReceiveFuns = newReceiveFuns nm}) maybeNewMod
+      -- TODO: We return Set.empty here in case that the set of receive functions cannot be looked up
+      -- on the module. However the 'Scheduler' already looked up that the 'InitName' exists on the new module,
+      -- (hence the 'InitName' was added to the 'miExposedReceive' of the deployed 'ModuleInterfaceA) so it should never return 'Nothing',
+      -- but it should be safe to return 'Set.empty' here.
+      newReceiveFuns mia = fromMaybe Set.empty (Map.lookup (instanceInitName $ _instanceVParameters i) (GSWasm.miExposedReceive mia))
 
 -- |Serialize a V0 smart contract instance in V0 format.
 putV0InstanceV0 :: Putter (InstanceV im GSWasm.V0)

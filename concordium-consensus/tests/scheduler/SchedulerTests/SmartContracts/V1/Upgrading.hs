@@ -92,33 +92,33 @@ testCases =
       ,      
         -- Invoke the `upgrade` by calling 'a.upgrade' with the resulting 'ModuleRef' of 
         -- deploying upgrade_1.wasm.
-        ( TJSON { payload = Update 1 (Types.ContractAddress 0 0) "a.bump" parameters
+        ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "a.bump" parameters
                 , metadata = makeDummyHeader alesAccount 4 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
-        , (SuccessWithSummary ensureSuccess, emptySpec)
+        , (SuccessWithSummary (ensureSuccess 4), emptySpec)
         )
       ,
         -- Invoke `new` which is only accessible after the module upgrade
-        ( TJSON { payload = Update 1 (Types.ContractAddress 0 0) "a.new" BSS.empty
+        ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "a.newfun" BSS.empty
                 , metadata = makeDummyHeader alesAccount 5 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
-        , (SuccessWithSummary ensureSuccess, emptySpec)
+        , (SuccessWithSummary (ensureSuccess 1), emptySpec)
         )
       ]
     }  
   where
     parameters = BSS.toShort $ runPut $ do        
         -- The 'ModuleRef' to the desired module to upgrade to.
-        put $! getModRefFromFile upgrading0SourceFile
-    -- ensure the test case is successful        
-    ensureSuccess :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
-    ensureSuccess _ Types.TransactionSummary{..} = checkSuccess "Update failed" tsResult
-    checkSuccess msg Types.TxReject{..} = assertFailure $ msg ++ show vrRejectReason
-    checkSuccess msg Types.TxSuccess{..} = if length vrEvents == 5
+        put $! getModRefFromFile upgrading1SourceFile
+    -- ensure the test case is successful
+    ensureSuccess :: Int -> TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
+    ensureSuccess noOfEvents _ Types.TransactionSummary{..} = checkSuccess noOfEvents "Update failed" tsResult
+    checkSuccess _ msg Types.TxReject{..} = assertFailure $ msg ++ show vrRejectReason
+    checkSuccess noOfEvents msg Types.TxSuccess{..} = if length vrEvents == noOfEvents
       then return ()
-      else assertFailure $ msg ++ " unexepcted no. of events " ++ show (length vrEvents) ++ " expected 5."
+      else assertFailure $ msg ++ " unexepcted no. of events " ++ show (length vrEvents) ++ " expected " ++ show noOfEvents
 
 -- |Get a 'ModuleRef' from a given 'Module' specified via the 
 -- 'FilePath'.

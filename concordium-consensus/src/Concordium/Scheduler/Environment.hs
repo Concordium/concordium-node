@@ -16,6 +16,7 @@ import qualified Data.HashMap.Strict as HMap
 import qualified Data.HashSet as HSet
 import qualified Data.Map as Map
 import qualified Data.Map.Strict as SMap
+import qualified Data.Set as Set
 import Data.Foldable
 
 import Control.Monad.Cont hiding (cont)
@@ -1036,7 +1037,11 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
                                       (instanceOwner params) 
                                       (GSWasm.miModuleRef newMod) 
                                       (instanceInitName params)}
-      newReceiveFuns params newMod = fromMaybe (instanceReceiveFuns params) (SMap.lookup (instanceInitName params) (GSWasm.miExposedReceive newMod))
+      -- TODO: We return Set.empty here in case that the set of receive functions cannot be looked up
+      -- on the module. However the 'Scheduler' already looked up that the 'InitName' exists on the new module,
+      -- (hence the 'InitName' was added to the 'miExposedReceive' of the deployed 'ModuleInterfaceA) so it should never return 'Nothing',
+      -- but it should be safe to return 'Set.empty' here.
+      newReceiveFuns params newMod = fromMaybe Set.empty (SMap.lookup (instanceInitName params) (GSWasm.miExposedReceive newMod))
 
   chargeV1Storage = do
     xs <- use (changeSet . instanceV1Updates)
