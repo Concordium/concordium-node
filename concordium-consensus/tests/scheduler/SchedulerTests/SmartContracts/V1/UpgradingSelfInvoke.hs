@@ -59,7 +59,7 @@ wasmModVersion = V1
 
 testCase1IO :: IO (TestCase PV5)
 testCase1IO = do
-  moduleRef <- Types.ModuleRef . Hash.hash <$> BS.readFile sourceFile1
+  moduleRef <- getModuleRef @V1 . WasmModuleV . ModuleSource <$> BS.readFile sourceFile0
   let upgradeParameters = BSS.toShort $ runPut $ put moduleRef
   return $ TestCase { tcName = "Upgrading self invoke"
   , tcParameters = (defaultParams @PV5) {tpInitialBlockState=initialBlockState}
