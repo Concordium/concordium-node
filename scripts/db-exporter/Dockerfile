@@ -12,7 +12,7 @@ FROM ubuntu:${ubuntu_version}
 COPY --from=static-builder "/build/static-consensus-binaries-${ghc_version}.tar.gz" /tmp/static-consensus-binaries.tar.gz
 RUN tar -C /tmp -xf /tmp/static-consensus-binaries.tar.gz && \
     mv /tmp/binaries/bin/database-exporter /database-exporter && \
-    rm /tmp/static-consensus.tar.gz
+    rm /tmp/static-consensus-binaries.tar.gz
 
 COPY scripts/db-exporter/build.sh /build.sh
 COPY scripts/db-exporter/copy.sh /copy.sh
