@@ -49,38 +49,38 @@ initialBlockState = blockStateWithAlesAccount
     100000000
     (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 100000000) Acc.emptyAccounts)
 
-sourceFile0 :: FilePath
-sourceFile0 = "./testdata/contracts/v1/upgrading-self-invoke0.wasm"
+selfInvokeSourceFile0 :: FilePath
+selfInvokeSourceFile0 = "./testdata/contracts/v1/upgrading-self-invoke0.wasm"
 
-sourceFile1 :: FilePath
-sourceFile1 = "./testdata/contracts/v1/upgrading-self-invoke1.wasm"
+selfInvokeSourceFile1 :: FilePath
+selfInvokeSourceFile1 = "./testdata/contracts/v1/upgrading-self-invoke1.wasm"
 
 -- Tests in this module use version 1, creating V1 instances.
 wasmModVersion :: WasmVersion
 wasmModVersion = V1
 
-testCase1IO :: IO (TestCase PV5)
-testCase1IO = do
-  moduleRef <- getModuleRef @V1 . WasmModuleV . ModuleSource <$> BS.readFile sourceFile0
+selfInvokeTestCaseIO :: IO (TestCase PV5)
+selfInvokeTestCaseIO = do
+  moduleRef <- getModuleRef @V1 . WasmModuleV . ModuleSource <$> BS.readFile selfInvokeSourceFile0
   let upgradeParameters = BSS.toShort $ runPut $ put moduleRef
   return $ TestCase { tcName = "Upgrading self invoke"
   , tcParameters = (defaultParams @PV5) {tpInitialBlockState=initialBlockState}
   , tcTransactions =
-    [ ( TJSON { payload = DeployModule wasmModVersion sourceFile0
+    [ ( TJSON { payload = DeployModule wasmModVersion selfInvokeSourceFile0
               , metadata = makeDummyHeader alesAccount 1 100000
               , keys = [(0,[(0, alesKP)])]
               }
-      , (SuccessWithSummary (deploymentCostCheck sourceFile0), emptySpec))
-    , ( TJSON { payload = InitContract 0 wasmModVersion sourceFile0 "init_contract" ""
+      , (SuccessWithSummary (deploymentCostCheck selfInvokeSourceFile0), emptySpec))
+    , ( TJSON { payload = InitContract 0 wasmModVersion selfInvokeSourceFile0 "init_contract" ""
               , metadata = makeDummyHeader alesAccount 2 100000
               , keys = [(0,[(0, alesKP)])]
               }
-      , (SuccessWithSummary (initializationCostCheck sourceFile0 "init_contract"), emptySpec))
-    , ( TJSON { payload = DeployModule wasmModVersion sourceFile1
+      , (SuccessWithSummary (initializationCostCheck selfInvokeSourceFile0 "init_contract"), emptySpec))
+    , ( TJSON { payload = DeployModule wasmModVersion selfInvokeSourceFile1
               , metadata = makeDummyHeader alesAccount 3 100000
               , keys = [(0,[(0, alesKP)])]
               }
-      , (SuccessWithSummary (deploymentCostCheck sourceFile1), emptySpec))
+      , (SuccessWithSummary (deploymentCostCheck selfInvokeSourceFile1), emptySpec))
 
     , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "contract.upgrade" upgradeParameters
               , metadata = makeDummyHeader alesAccount 4 100000
@@ -108,9 +108,97 @@ testCase1IO = do
         -- Ensure only one upgrade event
         unless (List.length (filter isUpgradeEvent vrEvents) == 1) $ assertFailure "Multiple events: Upgraded"
 
-    isUpgradeEvent event = case event of
-      Upgraded{} -> True
-      _ -> False
+missingModuleSourceFile :: FilePath
+missingModuleSourceFile = "./testdata/contracts/v1/upgrading-missing-module.wasm"
+
+missingModuleTestCase :: TestCase PV5
+missingModuleTestCase = TestCase { tcName = "Upgrading to a missing module fails"
+  , tcParameters = (defaultParams @PV5) {tpInitialBlockState=initialBlockState}
+  , tcTransactions =
+    [ ( TJSON { payload = DeployModule wasmModVersion missingModuleSourceFile
+              , metadata = makeDummyHeader alesAccount 1 100000
+              , keys = [(0,[(0, alesKP)])]
+              }
+      , (SuccessWithSummary (deploymentCostCheck missingModuleSourceFile), emptySpec))
+    , ( TJSON { payload = InitContract 0 wasmModVersion missingModuleSourceFile "init_contract" ""
+              , metadata = makeDummyHeader alesAccount 2 100000
+              , keys = [(0,[(0, alesKP)])]
+              }
+      , (SuccessWithSummary (initializationCostCheck missingModuleSourceFile "init_contract"), emptySpec))
+
+    , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "contract.upgrade" ""
+              , metadata = makeDummyHeader alesAccount 3 100000
+              , keys = [(0,[(0, alesKP)])]
+              }
+      , (SuccessWithSummary ensureSuccess, emptySpec))
+    ]
+  }
+  where
+    ensureSuccess :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
+    ensureSuccess _ summary = case Types.tsResult summary of
+      Types.TxReject {..} -> assertFailure $ "Update failed with " ++ show vrRejectReason
+      Types.TxSuccess {..} -> do
+        -- Check the number of events:
+        -- - 2 events from upgrading (interrupt and resume).
+        -- - 1 event for a succesful update to the contract ('contract.upgrade').
+        unless (length vrEvents == 3) $ assertFailure $ "Update succeeded but with unexpected number of events: " ++ show (length vrEvents)
+        -- Find and check for upgrade events
+        unless (List.any isUpgradeEvent vrEvents) $ assertFailure "Found unexpected event: Upgraded"
+
+missingContractSourceFile0 :: FilePath
+missingContractSourceFile0 = "./testdata/contracts/v1/upgrading-missing-contract0.wasm"
+
+missingContractSourceFile1 :: FilePath
+missingContractSourceFile1 = "./testdata/contracts/v1/upgrading-missing-contract1.wasm"
+
+
+missingContractTestCaseIO :: IO (TestCase PV5)
+missingContractTestCaseIO = do
+  moduleRef <- getModuleRef @V1 . WasmModuleV . ModuleSource <$> BS.readFile missingContractSourceFile1
+  let upgradeParameters = BSS.toShort $ runPut $ put moduleRef
+  return $ TestCase { tcName = "Upgrading to a module without matching contract fails"
+  , tcParameters = (defaultParams @PV5) {tpInitialBlockState=initialBlockState}
+  , tcTransactions =
+    [ ( TJSON { payload = DeployModule wasmModVersion missingContractSourceFile0
+              , metadata = makeDummyHeader alesAccount 1 100000
+              , keys = [(0,[(0, alesKP)])]
+              }
+      , (SuccessWithSummary (deploymentCostCheck missingContractSourceFile0), emptySpec))
+    , ( TJSON { payload = InitContract 0 wasmModVersion missingContractSourceFile0 "init_contract" ""
+              , metadata = makeDummyHeader alesAccount 2 100000
+              , keys = [(0,[(0, alesKP)])]
+              }
+      , (SuccessWithSummary (initializationCostCheck missingContractSourceFile0 "init_contract"), emptySpec))
+    , ( TJSON { payload = DeployModule wasmModVersion missingContractSourceFile1
+              , metadata = makeDummyHeader alesAccount 3 100000
+              , keys = [(0,[(0, alesKP)])]
+              }
+      , (SuccessWithSummary (deploymentCostCheck missingContractSourceFile1), emptySpec))
+
+    , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "contract.upgrade" upgradeParameters
+              , metadata = makeDummyHeader alesAccount 4 100000
+              , keys = [(0,[(0, alesKP)])]
+              }
+      , (SuccessWithSummary ensureSuccess, emptySpec))
+    ]
+  }
+  where
+    ensureSuccess :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
+    ensureSuccess _ summary = case Types.tsResult summary of
+      Types.TxReject {..} -> assertFailure $ "Update failed with " ++ show vrRejectReason
+      Types.TxSuccess {..} -> do
+        -- Check the number of events:
+        -- - 2 events from upgrading (interrupt and resume).
+        -- - 1 event for a succesful update to the contract ('contract.upgrade').
+        unless (length vrEvents == 3) $ assertFailure $ "Update succeeded but with unexpected number of events: " ++ show (length vrEvents)
+        -- Find and check for upgrade events
+        unless (List.any isUpgradeEvent vrEvents) $ assertFailure "Found unexpected event: Upgraded"
+
+-- | Check if some event is the Upgraded event.
+isUpgradeEvent :: Event -> Bool
+isUpgradeEvent event = case event of
+  Upgraded{} -> True
+  _ -> False
 
 -- This only checks that the cost of initialization is correct.
 -- If the state was not set up correctly the latter tests in the suite will fail.
@@ -153,6 +241,11 @@ deploymentCostCheck sourceFile _ Types.TransactionSummary{..} = do
 
 tests :: IO Spec
 tests = do
-  testCase1 <- testCase1IO
+  selfInvokeTestCase <- selfInvokeTestCaseIO
+  missingContractTestCase <- missingContractTestCaseIO
   return $ describe "V1: Upgrade" $ do
-    mkSpecs [testCase1]
+    mkSpecs [
+       selfInvokeTestCase
+      , missingModuleTestCase
+      , missingContractTestCase
+      ]
