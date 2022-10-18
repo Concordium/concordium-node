@@ -15,7 +15,7 @@
        ;; Write 0 to memory.
        (i32.store
         (i32.const 0) ;; Write offset
-        (i32.const 1)) ;; Value to write
+        (i32.const 1234)) ;; Value to write
        ;; Output 4 bytes from linear memory
        (call $host_write_output (i32.const 0) (i32.const 4) (i32.const 0))
        (drop)

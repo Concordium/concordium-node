@@ -126,10 +126,10 @@
              (i64.const 0)
              (call $host_upgrade (i32.const 0)))
 
-       ;; ;; Invoke its own 'contract.name' again to check the module have changed.
-       ;; (call $assert_eq
-       ;;       (i32.const 1)
-       ;;       (call $invoke_contact_name))
+       ;; Invoke its own 'contract.name' again to check the module have changed.
+       (call $assert_eq
+             (i32.const 1234)
+             (call $invoke_contact_name))
 
        ;; Return success
        (return (i32.const 0)))
