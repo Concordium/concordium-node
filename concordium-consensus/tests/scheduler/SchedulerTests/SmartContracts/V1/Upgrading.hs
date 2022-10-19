@@ -259,6 +259,54 @@ missingContractTestCase =
         -- Find and check for upgrade events
         when (List.any isUpgradeEvent vrEvents) $ assertFailure "Found unexpected event: Upgraded"
 
+unsupportedVersionSourceFile0 :: FilePath
+unsupportedVersionSourceFile0 = "./testdata/contracts/v1/upgrading-unsupported-version0.wasm"
+
+unsupportedVersionSourceFile1 :: FilePath
+unsupportedVersionSourceFile1 = "./testdata/contracts/v1/upgrading-unsupported-version1.wasm"
+
+unsupportedVersionTestCase :: TestCase PV5
+unsupportedVersionTestCase =
+  TestCase { tcName = "Upgrading to a module with an unsupported version"
+  , tcParameters = (defaultParams @PV5) {tpInitialBlockState=initialBlockState}
+  , tcTransactions =
+    [ ( TJSON { payload = DeployModule V1 unsupportedVersionSourceFile0
+              , metadata = makeDummyHeader alesAccount 1 100000
+              , keys = [(0,[(0, alesKP)])]
+              }
+      , (SuccessWithSummary (deploymentCostCheck unsupportedVersionSourceFile0), emptySpec))
+    , ( TJSON { payload = InitContract 0 V1 unsupportedVersionSourceFile0 "init_contract" ""
+              , metadata = makeDummyHeader alesAccount 2 100000
+              , keys = [(0,[(0, alesKP)])]
+              }
+      , (SuccessWithSummary (initializationCostCheck unsupportedVersionSourceFile0 "init_contract"), emptySpec))
+    , ( TJSON { payload = DeployModule V0 unsupportedVersionSourceFile1
+              , metadata = makeDummyHeader alesAccount 3 100000
+              , keys = [(0,[(0, alesKP)])]
+              }
+      , (SuccessWithSummary (deploymentCostCheck unsupportedVersionSourceFile1), emptySpec))
+
+    , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "contract.upgrade" upgradeParameters
+              , metadata = makeDummyHeader alesAccount 4 100000
+              , keys = [(0,[(0, alesKP)])]
+              }
+      , (SuccessWithSummary ensureSuccess, emptySpec))
+    ]
+  }
+  where
+    upgradeParameters = BSS.toShort $ runPut $ put $ getModuleRefFromV0File unsupportedVersionSourceFile1
+
+    ensureSuccess :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
+    ensureSuccess _ summary = case Types.tsResult summary of
+      Types.TxReject {..} -> assertFailure $ "Update failed with " ++ show vrRejectReason
+      Types.TxSuccess {..} -> do
+        -- Check the number of events:
+        -- - 1 event for a succesful update to the contract ('contract.upgrade').
+        unless (length vrEvents == 1) $ assertFailure $ "Update succeeded but with unexpected number of events: " ++ show (length vrEvents)
+        -- Find and check for upgrade events
+        when (List.any isUpgradeEvent vrEvents) $ assertFailure "Found unexpected event: Upgraded"
+
+
 -- | Check if some event is the Upgraded event.
 isUpgradeEvent :: Types.Event -> Bool
 isUpgradeEvent event = case event of
@@ -269,6 +317,11 @@ isUpgradeEvent event = case event of
 getModuleRefFromV1File :: FilePath -> Types.ModuleRef
 getModuleRefFromV1File f = unsafePerformIO $ do
         getModuleRef @V1 . WasmModuleV . ModuleSource <$> BS.readFile f
+
+-- |Get a 'ModuleRef' from a given V1 'Module' specified via the 'FilePath'.
+getModuleRefFromV0File :: FilePath -> Types.ModuleRef
+getModuleRefFromV0File f = unsafePerformIO $ do
+        getModuleRef @V0 . WasmModuleV . ModuleSource <$> BS.readFile f
 
 -- This only checks that the cost of initialization is correct.
 -- If the state was not set up correctly the latter tests in the suite will fail.
@@ -315,5 +368,6 @@ tests = describe "V1: Upgrade" $ mkSpecs [
   , selfInvokeTestCase
   , missingModuleTestCase
   , missingContractTestCase
+  , unsupportedVersionTestCase
   ]
 
