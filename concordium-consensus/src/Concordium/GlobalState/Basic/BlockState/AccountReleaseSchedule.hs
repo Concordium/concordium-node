@@ -167,7 +167,7 @@ instance Serialize AccountReleaseSchedule where
 -- λ: hashOfHashes h1 h2
 -- 5473ef105c995db8d8dfe75881d8a2018bb12eaeef32032569edfff6814f1b50
 
-newtype AccountReleaseScheduleHash = AccountReleaseScheduleHash Hash
+newtype AccountReleaseScheduleHash = AccountReleaseScheduleHash {theReleaseScheduleHash :: Hash}
     deriving (Serialize, Eq, Ord, Show)
 
 emptyAccountReleaseScheduleHash :: AccountReleaseScheduleHash

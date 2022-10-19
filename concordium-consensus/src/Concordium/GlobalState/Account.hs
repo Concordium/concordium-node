@@ -101,7 +101,8 @@ data PersistingAccountData = PersistingAccountData {
 
 makeClassy ''PersistingAccountData
 
-type PersistingAccountDataHash = Hash.Hash
+newtype PersistingAccountDataHash = PersistingAccountDataHash {thePersistingAccountDataHash :: Hash.Hash}
+  deriving (Eq, Ord, Show, Serialize)
 
 -- |Hashing of 'PersistingAccountData'.
 -- 
@@ -109,7 +110,7 @@ type PersistingAccountDataHash = Hash.Hash
 --   this is sufficient to recover it from '_accountCredentials'.
 --
 instance HashableTo PersistingAccountDataHash PersistingAccountData where
-  getHash PersistingAccountData{..} = Hash.hashLazy $ runPutLazy $ do
+  getHash PersistingAccountData{..} = PersistingAccountDataHash $ Hash.hashLazy $ runPutLazy $ do
     put _accountAddress
     put _accountEncryptionKey
     put (aiThreshold _accountVerificationKeys)
@@ -174,6 +175,19 @@ replaceUpTo newIndex newAmount AccountEncryptedAmount{..} =
 addToSelfEncryptedAmount :: EncryptedAmount -> AccountEncryptedAmount -> AccountEncryptedAmount
 addToSelfEncryptedAmount newAmount = selfAmount %~ (<> newAmount)
 
+newtype EncryptedAmountHash = EncryptedAmountHash {theEncryptedAmountHash :: Hash.Hash}
+  deriving newtype (Eq, Ord, Show, Serialize)
+
+instance HashableTo EncryptedAmountHash AccountEncryptedAmount where
+  getHash = EncryptedAmountHash . getHash . encode
+
+instance Monad m => MHashableTo m EncryptedAmountHash AccountEncryptedAmount
+
+-- |The 'EncryptedAmountHash' of 'initialAccountEncryptedAmount'.
+initialAccountEncryptedAmountHash :: EncryptedAmountHash
+{-# NOINLINE initialAccountEncryptedAmountHash #-}
+initialAccountEncryptedAmountHash = getHash initialAccountEncryptedAmount
+
 -- |Serialization for 'PersistingAccountData'. This is mainly to support
 -- the (derived) 'BlobStorable' instance.
 -- Account serialization does not use this.
@@ -199,25 +213,78 @@ newtype AccountHash (av :: AccountVersion) = AccountHash {theAccountHash :: Hash
   deriving newtype (Eq, Ord, Show, Serialize)
 
 -- |Inputs for computing the hash of an account.
-data AccountHashInputs (av :: AccountVersion) where
-  AccountHashInputs :: {
+data AccountHashInputsV0 (av :: AccountVersion) =
+  AccountHashInputsV0 {
     ahiNextNonce :: !Nonce,
     ahiAccountAmount :: !Amount,
     ahiAccountEncryptedAmount :: !AccountEncryptedAmount,
     ahiAccountReleaseScheduleHash :: !AccountReleaseScheduleHash,
     ahiPersistingAccountDataHash :: !PersistingAccountDataHash,
     ahiAccountStakeHash :: !(AccountStakeHash av)
-  } -> AccountHashInputs av
+  }
 
--- |Generate the 'AccountHash' for an account, given the 'AccountHashInputs'.
-makeAccountHash :: AccountHashInputs av -> AccountHash av
-makeAccountHash AccountHashInputs{..} = AccountHash $ Hash.hashLazy $ runPutLazy $ do
+-- |Generate the hash for an account (for 'AccountV0' or 'AccountV1'), given the
+-- 'AccountHashInputsV0'. 'makeAccountHash' should be used in preference to this function.
+makeAccountHashV0 :: AccountHashInputsV0 av -> Hash.Hash
+makeAccountHashV0 AccountHashInputsV0{..} = Hash.hashLazy $ runPutLazy $ do
   put ahiNextNonce
   put ahiAccountAmount
   put ahiAccountEncryptedAmount
   put ahiAccountReleaseScheduleHash
   put ahiPersistingAccountDataHash
   put ahiAccountStakeHash
+
+data AccountMerkleHashInputs (av :: AccountVersion) where
+  AccountMerkleHashInputsV2 :: {
+    amhi2PersistingAccountDataHash :: !PersistingAccountDataHash,
+    amhi2AccountStakeHash :: !(AccountStakeHash av),
+    amhi2EncryptedAmountHash :: !EncryptedAmountHash,
+    amhi2AccountReleaseScheduleHash :: !AccountReleaseScheduleHash
+  } -> AccountMerkleHashInputs 'AccountV2
+
+newtype AccountMerkleHash (av :: AccountVersion) = AccountMerkleHash {theMerkleHash :: Hash.Hash}
+  deriving (Eq, Ord, Show, Serialize)
+
+instance HashableTo (AccountMerkleHash av) (AccountMerkleHashInputs av) where
+  getHash AccountMerkleHashInputsV2{..} =
+    AccountMerkleHash $ Hash.hashOfHashes
+      (Hash.hashOfHashes
+        (thePersistingAccountDataHash amhi2PersistingAccountDataHash)
+        (theAccountStakeHash amhi2AccountStakeHash))
+      (Hash.hashOfHashes
+        (theEncryptedAmountHash amhi2EncryptedAmountHash)
+        (theReleaseScheduleHash amhi2AccountReleaseScheduleHash))
+
+
+data AccountHashInputsV2 (av :: AccountVersion) =
+  AccountHashInputsV2 {
+    ahi2NextNonce :: !Nonce,
+    ahi2AccountBalance :: !Amount,
+    ahi2StakedBalance :: !Amount,
+    ahi2MerkleHash :: !(AccountMerkleHash av)
+  }
+
+-- |Generate the hash for an account (for 'AccountV2'), given the
+-- 'AccountHashInputsV2'. 'makeAccountHash' should be used in preference to this function.
+makeAccountHashV2 :: AccountHashInputsV2 av -> Hash.Hash
+makeAccountHashV2 AccountHashInputsV2{..} = Hash.hashLazy $ runPutLazy $ do
+  putShortByteString "AC02"
+  put ahi2NextNonce
+  put ahi2AccountBalance
+  put ahi2StakedBalance
+  put ahi2MerkleHash
+
+-- |Inputs for computing the 'AccountHash' for an account.
+data AccountHashInputs (av :: AccountVersion) where
+  AHIV0 :: AccountHashInputsV0 'AccountV0 -> AccountHashInputs 'AccountV0
+  AHIV1 :: AccountHashInputsV0 'AccountV1 -> AccountHashInputs 'AccountV1
+  AHIV2 :: AccountHashInputsV2 'AccountV2 -> AccountHashInputs 'AccountV2
+
+makeAccountHash :: AccountHashInputs av -> AccountHash av
+{-# INLINE makeAccountHash #-}
+makeAccountHash (AHIV0 ahi) = AccountHash $ makeAccountHashV0 ahi
+makeAccountHash (AHIV1 ahi) = AccountHash $ makeAccountHashV0 ahi
+makeAccountHash (AHIV2 ahi) = AccountHash $ makeAccountHashV2 ahi
 
 data EncryptedAmountUpdate =
   -- |Replace encrypted amounts less than the given index,
@@ -252,7 +319,8 @@ data AccountUpdate = AccountUpdate {
   ,_auAmount :: !(Maybe AmountDelta)
   -- |Optionally an update the encrypted amount.
   ,_auEncrypted :: !(Maybe EncryptedAmountUpdate)
-  -- |Optionally update the locked stake on the account.
+  -- |Optionally update the locked stake on the account by adding scheduled releases.
+  -- Each entry in the list MUST have a non-empty list of releases.
   ,_auReleaseSchedule :: !(Maybe [([(Timestamp, Amount)], TransactionHash)])
 } deriving (Eq, Show)
 makeLenses ''AccountUpdate

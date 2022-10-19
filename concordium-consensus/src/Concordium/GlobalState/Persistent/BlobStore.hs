@@ -74,6 +74,8 @@ module Concordium.GlobalState.Persistent.BlobStore(
     uncacheBufferedRef,
     -- ** 'EagerBufferedRef'
     EagerBufferedRef,
+    eagerBufferedDeref,
+    eagerBufferedRefFromBufferedRef,
     migrateEagerBufferedRef,
     -- ** 'HashedBufferedRef'
     HashedBufferedRef',
@@ -718,6 +720,8 @@ data Nullable v = Null | Some !v
 class HasNull ref where
     refNull :: ref
     isNull :: ref -> Bool
+    isNotNull :: ref -> Bool
+    isNotNull = not . isNull
 
 instance HasNull (BlobRef a) where
     refNull = BlobRef maxBound
@@ -727,6 +731,8 @@ instance HasNull (Nullable a) where
     refNull = Null
     isNull Null = True
     isNull _ = False
+    isNotNull Null = False
+    isNotNull _ = True
 
 -- | Serialization is equivalent to that of the @ref@ as there
 -- is a special value for a null reference, i.e. @ref@ is @HasNull@
@@ -969,6 +975,24 @@ data EagerBufferedRef a = EagerBufferedRef
       ebrValue :: !a
     }
 
+-- |Directly get the value in an 'EagerBufferedRef'.
+eagerBufferedDeref :: EagerBufferedRef a -> a
+{-# INLINE eagerBufferedDeref #-}
+eagerBufferedDeref = ebrValue
+
+-- |Make an 'EagerBufferedRef' from a 'BufferedRef'.
+-- Note: if the 'BufferedRef' is not already flushed to the disk, then the association between the
+-- old and new reference is lost, so they will not share the same underlying 'BlobRef' once flushed.
+eagerBufferedRefFromBufferedRef :: (DirectBlobStorable m a) => BufferedRef a -> m (EagerBufferedRef a)
+eagerBufferedRefFromBufferedRef (BRBlobbed r) = do
+    v <- loadDirect r
+    makeEagerBufferedRef r v
+eagerBufferedRefFromBufferedRef (BRMemory ior v) = do
+    liftIO (readIORef ior) >>= \case
+        Null -> refMake v
+        Some br' -> eagerBufferedRefFromBufferedRef br'
+eagerBufferedRefFromBufferedRef (BRBoth r v) = makeEagerBufferedRef r v
+
 -- |Migrate the reference from one context to another, using the provided
 -- callback to migrate the value.
 migrateEagerBufferedRef ::
@@ -1033,6 +1057,9 @@ instance (Monad m, DirectBlobStorable m a) => Reference m EagerBufferedRef a whe
     {-# INLINE refMake #-}
     {-# INLINE refCache #-}
     {-# INLINE refUncache #-}
+
+instance (HashableTo h a) => HashableTo h (EagerBufferedRef a) where
+    getHash = getHash . ebrValue
 
 instance (MHashableTo m h a) => MHashableTo m h (EagerBufferedRef a) where
     getHashM = getHashM . ebrValue
@@ -1231,6 +1258,7 @@ instance MonadBlobStore m => BlobStorable m Amount
 instance MonadBlobStore m => BlobStorable m BakerId
 instance MonadBlobStore m => BlobStorable m BakerInfo
 instance MonadBlobStore m => BlobStorable m BakerPoolInfo
+instance (MonadBlobStore m, IsAccountVersion av) => BlobStorable m (BakerInfoEx av)
 instance MonadBlobStore m => BlobStorable m AccountIndex
 instance MonadBlobStore m => BlobStorable m BS.ByteString
 instance MonadBlobStore m => BlobStorable m EncryptedAmount
@@ -1524,7 +1552,7 @@ instance (Monad m, BlobStorable m a, MHashableTo m h a) => Reference m (EagerlyH
     {-# INLINE refCache #-}
     {-# INLINE refUncache #-}
 
-instance Show a => Show (EagerlyHashedBufferedRef a) where
+instance (Show h, Show a) => Show (EagerlyHashedBufferedRef' h a) where
   show ref = show (ehbrReference ref) ++ " with hash: " ++ show (ehbrHash ref)
 
 -- |This class abstracts values that can be cached in some monad.

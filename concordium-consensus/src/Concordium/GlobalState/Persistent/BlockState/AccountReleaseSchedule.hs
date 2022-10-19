@@ -61,6 +61,8 @@ suppose now that we unlock @s1@ and @s2@, the new layout would be:
 module Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule (
   -- * Account Release Schedule type
   AccountReleaseSchedule,
+  -- * Query
+  isEmptyAccountReleaseSchedule,
   -- * Construction
   emptyAccountReleaseSchedule,
   addReleases,
@@ -69,7 +71,9 @@ module Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule (
   -- * Conversions
   loadPersistentAccountReleaseSchedule,
   storePersistentAccountReleaseSchedule,
-  migratePersistentAccountReleaseSchedule
+  migratePersistentAccountReleaseSchedule,
+  -- * Queries
+  releaseScheduleLockedBalance,
   ) where
 
 import Concordium.Crypto.SHA256
@@ -201,6 +205,10 @@ instance MonadBlobStore m => Cacheable m AccountReleaseSchedule where
 emptyAccountReleaseSchedule :: AccountReleaseSchedule
 emptyAccountReleaseSchedule = AccountReleaseSchedule Vector.empty Map.empty 0
 
+-- | Returns 'True' if the account release schedule contains no releases.
+isEmptyAccountReleaseSchedule :: AccountReleaseSchedule -> Bool
+isEmptyAccountReleaseSchedule = Map.null . _arsPrioQueue
+
 -- | Insert a new schedule in the structure.
 --
 -- Precondition: The given list of timestamps and amounts MUST NOT be empty.
@@ -319,3 +327,7 @@ loadPersistentAccountReleaseSchedule AccountReleaseSchedule{..} = do
   _totalLockedUpBalance = _arsTotalLockedUpBalance,
   ..
   }
+
+-- |Get the total locked up balance on an 'AccountReleaseSchedule'.
+releaseScheduleLockedBalance :: AccountReleaseSchedule -> Amount
+releaseScheduleLockedBalance = _arsTotalLockedUpBalance

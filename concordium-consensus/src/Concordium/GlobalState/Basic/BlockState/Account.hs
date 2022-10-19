@@ -38,7 +38,7 @@ import Concordium.Genesis.Data
 
 -- |Type for how a 'PersistingAccountData' value is stored as part of
 -- an account. This is stored with its hash.
-type AccountPersisting = Hashed PersistingAccountData
+type AccountPersisting = Hashed' PersistingAccountDataHash PersistingAccountData
 
 -- |Make an 'AccountPersisting' value from a 'PersistingAccountData' value.
 makeAccountPersisting :: PersistingAccountData -> AccountPersisting
@@ -184,14 +184,18 @@ deserializeAccount migration cryptoParams = do
     return Account{..}
 
 instance IsAccountVersion av => HashableTo (AccountHash av) (Account av) where
-  getHash Account{..} = makeAccountHash $ AccountHashInputs {
-      ahiNextNonce = _accountNonce,
-      ahiAccountAmount = _accountAmount,
-      ahiAccountEncryptedAmount = _accountEncryptedAmount,
-      ahiAccountReleaseScheduleHash = getHash _accountReleaseSchedule,
-      ahiPersistingAccountDataHash = getHash _accountPersisting,
-      ahiAccountStakeHash = getAccountStakeHash _accountStaking
-    }
+  getHash Account{..} = makeAccountHash $ case accountVersion @av of
+      SAccountV0 -> AHIV0 v0Inputs
+      SAccountV1 -> AHIV1 v0Inputs
+    where
+      v0Inputs = AccountHashInputsV0 {
+          ahiNextNonce = _accountNonce,
+          ahiAccountAmount = _accountAmount,
+          ahiAccountEncryptedAmount = _accountEncryptedAmount,
+          ahiAccountReleaseScheduleHash = getHash _accountReleaseSchedule,
+          ahiPersistingAccountDataHash = getHash _accountPersisting,
+          ahiAccountStakeHash = getAccountStakeHash _accountStaking
+        }
 
 instance forall av. IsAccountVersion av => HashableTo Hash.Hash (Account av) where
   getHash = coerce @(AccountHash av) . getHash
