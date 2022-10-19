@@ -306,6 +306,67 @@ unsupportedVersionTestCase =
         -- Find and check for upgrade events
         when (List.any isUpgradeEvent vrEvents) $ assertFailure "Found unexpected event: Upgraded"
 
+twiceSourceFile0 :: FilePath
+twiceSourceFile0 = "./testdata/contracts/v1/upgrading-twice0.wasm"
+
+twiceSourceFile1 :: FilePath
+twiceSourceFile1 = "./testdata/contracts/v1/upgrading-twice1.wasm"
+
+twiceSourceFile2 :: FilePath
+twiceSourceFile2 = "./testdata/contracts/v1/upgrading-twice2.wasm"
+
+twiceTestCase :: TestCase PV5
+twiceTestCase =
+  TestCase { tcName = "Upgrading twice in the same invocation"
+  , tcParameters = (defaultParams @PV5) {tpInitialBlockState=initialBlockState}
+  , tcTransactions =
+    [ ( TJSON { payload = DeployModule V1 twiceSourceFile0
+              , metadata = makeDummyHeader alesAccount 1 100000
+              , keys = [(0,[(0, alesKP)])]
+              }
+      , (SuccessWithSummary (deploymentCostCheck twiceSourceFile0), emptySpec))
+    , ( TJSON { payload = InitContract 0 V1 twiceSourceFile0 "init_contract" ""
+              , metadata = makeDummyHeader alesAccount 2 100000
+              , keys = [(0,[(0, alesKP)])]
+              }
+      , (SuccessWithSummary (initializationCostCheck twiceSourceFile0 "init_contract"), emptySpec))
+    , ( TJSON { payload = DeployModule V1 twiceSourceFile1
+              , metadata = makeDummyHeader alesAccount 3 100000
+              , keys = [(0,[(0, alesKP)])]
+              }
+      , (SuccessWithSummary (deploymentCostCheck twiceSourceFile1), emptySpec))
+    , ( TJSON { payload = DeployModule V1 twiceSourceFile2
+              , metadata = makeDummyHeader alesAccount 4 100000
+              , keys = [(0,[(0, alesKP)])]
+              }
+      , (SuccessWithSummary (deploymentCostCheck twiceSourceFile2), emptySpec))
+
+    , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "contract.upgrade" upgradeParameters
+              , metadata = makeDummyHeader alesAccount 5 100000
+              , keys = [(0,[(0, alesKP)])]
+              }
+      , (SuccessWithSummary ensureSuccess, emptySpec))
+    ]
+  }
+  where
+    upgradeParameters = BSS.toShort $ runPut $ do
+      put $ getModuleRefFromV1File twiceSourceFile1
+      put $ getModuleRefFromV1File twiceSourceFile2
+
+    ensureSuccess :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
+    ensureSuccess _ summary = case Types.tsResult summary of
+      Types.TxReject {..} -> assertFailure $ "Update failed with " ++ show vrRejectReason
+      Types.TxSuccess {..} -> do
+        -- Check the number of events:
+        -- - 3 events for invoking self.
+        -- - 3 events for upgrading.
+        -- - 3 events for invoking again.
+        -- - 3 events for upgrading again.
+        -- - 3 events for invoking again.
+        -- - 1 event for a succesful update to the contract ('contract.upgrade').
+        unless (length vrEvents == 16) $ assertFailure $ "Update succeeded but with unexpected number of events: " ++ show (length vrEvents)
+        -- Find and check for upgrade events
+        unless (List.length (filter isUpgradeEvent vrEvents) == 2) $ assertFailure "Expected two Upgraded events"
 
 -- | Check if some event is the Upgraded event.
 isUpgradeEvent :: Types.Event -> Bool
@@ -369,5 +430,6 @@ tests = describe "V1: Upgrade" $ mkSpecs [
   , missingModuleTestCase
   , missingContractTestCase
   , unsupportedVersionTestCase
+  , twiceTestCase
   ]
 

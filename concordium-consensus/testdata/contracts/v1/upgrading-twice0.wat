@@ -103,7 +103,7 @@
              (i32.const 0)
              (call $invoke_contact_name))
 
-       ;; Read the parameter into the first part of the memory.
+       ;; Read the first module reference from the parameter into the first part of the memory.
        (call $host_get_parameter_section
              (i32.const 0) ;; index.
              (i32.const 0) ;; starting write offset in memory.
@@ -119,6 +119,24 @@
        ;; Invoke its own 'contract.name' again to check the module have changed.
        (call $assert_eq
              (i32.const 1234)
+             (call $invoke_contact_name))
+
+       ;; Read the second module from the parameter into the first part of the memory.
+       (call $host_get_parameter_section
+             (i32.const 0) ;; index.
+             (i32.const 0) ;; starting write offset in memory.
+             (i32.const 32) ;; number of bytes to read (32 bytes for the module reference).
+             (i32.const 32)) ;; starting offset in parameter.
+       (drop)
+
+       ;; Trigger the upgrade and check the result of upgrading was successful.
+       (call $assert_eq_64
+             (i64.const 0)
+             (call $host_upgrade (i32.const 0)))
+
+       ;; Invoke its own 'contract.name' again to check the module have changed.
+       (call $assert_eq
+             (i32.const 5678)
              (call $invoke_contact_name))
 
        ;; Return success
