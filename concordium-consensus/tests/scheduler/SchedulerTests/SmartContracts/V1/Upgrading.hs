@@ -156,7 +156,7 @@ selfInvokeTestCase =
              ]
            }
   where
-    upgradeParameters = BSS.toShort $ runPut $ put $ getModuleRefFromV1File selfInvokeSourceFile0
+    upgradeParameters = BSS.toShort $ runPut $ put $ getModuleRefFromV1File selfInvokeSourceFile1
 
     ensureSuccess :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
     ensureSuccess _ summary = case Types.tsResult summary of
@@ -171,7 +171,7 @@ selfInvokeTestCase =
         -- Find and check the upgrade event
         case List.find isUpgradeEvent vrEvents of
           Nothing -> assertFailure "Missing event: Upgraded"
-          Just Types.Upgraded{..} | euFrom /= euTo -> assertFailure "Event Upgraded is incorrect"
+          Just Types.Upgraded{..} | euFrom == euTo -> assertFailure "Event Upgraded is incorrect"
           Just _ -> return ()
         -- Ensure only one upgrade event
         unless (List.length (filter isUpgradeEvent vrEvents) == 1) $ assertFailure "Multiple events: Upgraded"
@@ -207,11 +207,10 @@ missingModuleTestCase = TestCase { tcName = "Upgrading to a missing module fails
       Types.TxReject {..} -> assertFailure $ "Update failed with " ++ show vrRejectReason
       Types.TxSuccess {..} -> do
         -- Check the number of events:
-        -- - 2 events from upgrading (interrupt and resume).
         -- - 1 event for a succesful update to the contract ('contract.upgrade').
-        unless (length vrEvents == 3) $ assertFailure $ "Update succeeded but with unexpected number of events: " ++ show (length vrEvents)
+        unless (length vrEvents == 1) $ assertFailure $ "Update succeeded but with unexpected number of events: " ++ show (length vrEvents)
         -- Find and check for upgrade events
-        unless (List.any isUpgradeEvent vrEvents) $ assertFailure "Found unexpected event: Upgraded"
+        when (List.any isUpgradeEvent vrEvents) $ assertFailure "Found unexpected event: Upgraded"
 
 missingContractSourceFile0 :: FilePath
 missingContractSourceFile0 = "./testdata/contracts/v1/upgrading-missing-contract0.wasm"
@@ -255,11 +254,10 @@ missingContractTestCase =
       Types.TxReject {..} -> assertFailure $ "Update failed with " ++ show vrRejectReason
       Types.TxSuccess {..} -> do
         -- Check the number of events:
-        -- - 2 events from upgrading (interrupt and resume).
         -- - 1 event for a succesful update to the contract ('contract.upgrade').
-        unless (length vrEvents == 3) $ assertFailure $ "Update succeeded but with unexpected number of events: " ++ show (length vrEvents)
+        unless (length vrEvents == 1) $ assertFailure $ "Update succeeded but with unexpected number of events: " ++ show (length vrEvents)
         -- Find and check for upgrade events
-        unless (List.any isUpgradeEvent vrEvents) $ assertFailure "Found unexpected event: Upgraded"
+        when (List.any isUpgradeEvent vrEvents) $ assertFailure "Found unexpected event: Upgraded"
 
 -- | Check if some event is the Upgraded event.
 isUpgradeEvent :: Types.Event -> Bool
