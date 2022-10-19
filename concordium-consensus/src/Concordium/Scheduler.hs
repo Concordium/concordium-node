@@ -1109,7 +1109,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                         go (resumeEvent True:transferEvents ++ interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False newBalance WasmV1.Success Nothing)
                   WasmV1.Call{..} -> do
                     -- the operation is a call to another contract. There is a bit of complication because the contract could be a V0
-                    -- or V1 one, and the behaviour is different depending on which one it is.
+                    -- or V1 one, and the behaviour is different depending on which one it is.-
                     -- First, commit the current state of the contract.
                     let maybeCommitState :: (ModificationIndex -> LocalT r m a) -> LocalT r m a
                         maybeCommitState f =
@@ -1156,24 +1156,24 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                 newBalance <- getCurrentContractAmount Wasm.SV1 istance
                                 go (resumeEvent True:callEvents ++ interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig resumeState stateChanged newBalance WasmV1.Success (Just rVal))
                   WasmV1.Upgrade{..} -> do
-                    -- charge for base administrative cost.                                        
+                    -- charge for base administrative cost.
                     tickEnergy Cost.initializeContractInstanceBaseCost
                     newModule <- getModuleInterfaces imuModRef
                     case newModule of
                       -- The module could not be found.
                       Nothing -> go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.Error (WasmV1.EnvFailure (WasmV1.UpgradeInvalidModuleRef imuModRef))) Nothing)
-                      Just mi -> case mi of
+                      Just newModuleInterface -> case newModuleInterface of
                         -- We do not support upgrades to V0 contracts.
                         GSWasm.ModuleInterfaceV0 _ -> go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.Error (WasmV1.EnvFailure (WasmV1.UpgradeInvalidVersion imuModRef GSWasm.V0))) Nothing)
-                        GSWasm.ModuleInterfaceV1 mia ->
-                            -- The contract must exist in the new module.
-                            -- I.e. It must be the case that there exists an init function for the new module that matches the caller.
-                            if not (Set.member (instanceInitName iParams) (GSWasm.miExposedInit mia)) then
-                                go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.Error (WasmV1.EnvFailure (WasmV1.UpgradeInvalidContractName imuModRef (instanceInitName iParams)))) Nothing)
-                            else do
-                                -- Charge for the lookup of the new module.
-                                let iSize = GSWasm.miModuleSize iface
-                                tickEnergy $ Cost.lookupModule iSize
+                        GSWasm.ModuleInterfaceV1 newModuleInterfaceAV1 -> do
+                           -- Charge for the lookup of the new module.
+                           tickEnergy $ Cost.lookupModule $ GSWasm.miModuleSize newModuleInterfaceAV1
+
+                           -- The contract must exist in the new module.
+                           -- I.e. It must be the case that there exists an init function for the new module that matches the caller.
+                           if not (Set.member (instanceInitName iParams) (GSWasm.miExposedInit newModuleInterfaceAV1)) then
+                             go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.Error (WasmV1.EnvFailure (WasmV1.UpgradeInvalidContractName imuModRef (instanceInitName iParams)))) Nothing)
+                           else
                                 -- Now we carry out the upgrade.
                                 -- The upgrade must preserve the following properties:
                                 -- 1. Subsequent operations in the receive function must be executed via the 'old' artifact.
@@ -1186,12 +1186,12 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                 -- in the 'ChangeSet' we will need to use the new module artifact. See 'getCurrentContractInstance'.
                                 -- If the upgrade or subsequent actions fails then the transaction must be rolled back.
                                 -- Finally 'commitChanges' will commit the changeset upon a succesfull transaction.
-                                runExceptT (handleContractUpgrade cref currentModRef mia) >>= \case
+                                runExceptT (handleContractUpgrade cref currentModRef newModuleInterfaceAV1) >>= \case
                                     Left errCode -> do
                                         go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.Error (WasmV1.EnvFailure errCode)) Nothing)
                                     Right upgradeEvents -> do
                                         newBalance <- getCurrentContractAmount Wasm.SV1 istance
-                                        -- Charge for updating the pointer in the instance to the new module.                                        
+                                        -- Charge for updating the pointer in the instance to the new module.
                                         tickEnergy Cost.initializeContractInstanceCreateCost
                                         go (resumeEvent True:upgradeEvents ++ interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False newBalance WasmV1.Success Nothing)
 
