@@ -40,14 +40,11 @@ import qualified SchedulerTests.SmartContracts.V1.Fallback (tests)
 import qualified SchedulerTests.SmartContracts.V1.Checkpointing (tests)
 import qualified SchedulerTests.SmartContracts.V1.AllNewHostFunctions (tests)
 import qualified SchedulerTests.SmartContracts.V1.Upgrading (tests)
-import qualified SchedulerTests.SmartContracts.V1.UpgradingSelfInvoke (tests)
 
 import Test.Hspec
 
 main :: IO ()
-main = do
-  upgradingSelfInvokeTests <- SchedulerTests.SmartContracts.V1.UpgradingSelfInvoke.tests
-  hspec $ do
+main = hspec $ do
          SchedulerTests.InitPoliciesTest.tests
          SchedulerTests.SimpleTransfersTest.tests
          SchedulerTests.ChainMetatest.tests
@@ -85,6 +82,5 @@ main = do
          SchedulerTests.SmartContracts.V1.Checkpointing.tests
          SchedulerTests.SmartContracts.V1.AllNewHostFunctions.tests
          SchedulerTests.SmartContracts.V1.Upgrading.tests
-         upgradingSelfInvokeTests
          SchedulerTests.Payday.tests
          SchedulerTests.Delegation.tests
