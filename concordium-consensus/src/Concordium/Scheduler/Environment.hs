@@ -498,7 +498,7 @@ class (StaticInformation m, ContractStateOperations m, MonadProtocolVersion m) =
                      -> GSWasm.ModuleInterfaceA (InstrumentedModuleRef m GSWasm.V1)
                      -- ^The new module to use for execution.
                      -> m ()
-                                         
+
 
 -- |Index that keeps track of modifications of smart contracts inside a single
 -- transaction. This is used to cheaply detect whether a contract state has
@@ -514,7 +514,7 @@ data InstanceV1Update' mr = InstanceV1Update {
     -- |Present if a state change has ocurred.
     newState :: !(Maybe (UpdatableContractState GSWasm.V1)),
     -- |Present if the contract has been upgraded.
-    -- Contract upgrades are only supported from PV 5 and onwards.    
+    -- Contract upgrades are only supported from PV 5 and onwards.
     newModule  :: !(Maybe (GSWasm.ModuleInterfaceA (mr GSWasm.V1)))
 }
 
@@ -629,8 +629,8 @@ addContractInitToCS Proxy addr cs =
 -- We only care about the most recent contract upgrade.
 {-# INLINE addContractUpgradeToCS #-}
 addContractUpgradeToCS :: Proxy m -> ContractAddress -> GSWasm.ModuleInterfaceA (InstrumentedModuleRef m GSWasm.V1) -> ChangeSet m -> ChangeSet m
-addContractUpgradeToCS Proxy addr updatedMod cs = do  
-    cs & instanceV1Updates . at addr %~ \case 
+addContractUpgradeToCS Proxy addr updatedMod cs = do
+    cs & instanceV1Updates . at addr %~ \case
                                           Just InstanceV1Update{..} -> Just $! InstanceV1Update index amountChange newState (Just updatedMod)
                                           Nothing -> Just $! InstanceV1Update 0 0 Nothing (Just updatedMod)
 
@@ -987,7 +987,7 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
   addAmountFromEncrypted acc amount aggIndex newAmount = do
     replaceEncryptedAmount acc aggIndex newAmount
     cs <- use changeSet
-    changeSet <~ liftLocal (addAmountToCS acc (amountToDelta amount) cs)      
+    changeSet <~ liftLocal (addAmountToCS acc (amountToDelta amount) cs)
     changeSet . encryptedChange += amountDiff 0 amount
 
   addEncryptedAmount (ai, acc) newAmount = do
@@ -1018,7 +1018,7 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
             updates <- use (changeSet . instanceV1Updates)
             case  updates ^. at' addr of
               Nothing -> return $ Just (InstanceInfoV1 inst {iiState = Frozen (iiState inst)})
-              Just InstanceV1Update{..} -> 
+              Just InstanceV1Update{..} ->
                     let !amnt = applyAmountDelta amountChange (iiBalance inst)
                     in return (Just . InstanceInfoV1 $ inst {
                             iiBalance = amnt,
@@ -1032,10 +1032,10 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
               instanceInitName = instanceInitName params,
               instanceReceiveFuns = newReceiveFuns params newMod,
               instanceModuleInterface = newMod,
-              instanceParameterHash = makeInstanceParameterHash 
+              instanceParameterHash = makeInstanceParameterHash
                                       addr
-                                      (instanceOwner params) 
-                                      (GSWasm.miModuleRef newMod) 
+                                      (instanceOwner params)
+                                      (GSWasm.miModuleRef newMod)
                                       (instanceInitName params)}
       -- TODO: We return Set.empty here in case that the set of receive functions cannot be looked up
       -- on the module. However the 'Scheduler' already looked up that the 'InitName' exists on the new module,

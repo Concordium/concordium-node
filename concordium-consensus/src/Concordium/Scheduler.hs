@@ -1029,7 +1029,8 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
         | Set.member (Wasm.makeFallbackReceiveName receiveName) receiveFuns = (False, True)
         | otherwise = (False, False)
   let ownerAccountAddress = instanceOwner iParams
-  let currentModRef = GSWasm.miModuleRef . instanceModuleInterface $ iParams
+  let moduleInterface = instanceModuleInterface iParams
+  let currentModRef = GSWasm.miModuleRef moduleInterface
   -- The invariants maintained by global state should ensure that an owner account always exists.
   -- However we are defensive here and reject the transaction instead of panicking in case it does not.
   ownerCheck <- getStateAccount ownerAccountAddress
@@ -1054,9 +1055,9 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
             rcSenderPolicies = map Wasm.mkSenderPolicy senderCredentials
             }
       -- Now run the receive function on the message. This ticks energy during execution, failing when running out of energy.
-      let iface = instanceModuleInterface iParams
-      -- charge for looking up the module
-      tickEnergy $ Cost.lookupModule (GSWasm.miModuleSize iface)
+
+      -- Charge for looking up the module.
+      tickEnergy $ Cost.lookupModule (GSWasm.miModuleSize moduleInterface)
 
       -- we've covered basic administrative costs now.
       -- The @go@ function iterates until the end of execution, handling any interrupts by dispatching
@@ -1109,7 +1110,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                         go (resumeEvent True:transferEvents ++ interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False newBalance WasmV1.Success Nothing)
                   WasmV1.Call{..} -> do
                     -- the operation is a call to another contract. There is a bit of complication because the contract could be a V0
-                    -- or V1 one, and the behaviour is different depending on which one it is.-
+                    -- or V1 one, and the behaviour is different depending on which one it is.
                     -- First, commit the current state of the contract.
                     let maybeCommitState :: (ModificationIndex -> LocalT r m a) -> LocalT r m a
                         maybeCommitState f =
@@ -1189,11 +1190,11 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                 runExceptT (handleContractUpgrade cref currentModRef newModuleInterfaceAV1) >>= \case
                                     Left errCode -> do
                                         go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.Error (WasmV1.EnvFailure errCode)) Nothing)
-                                    Right upgradeEvents -> do
+                                    Right upgradeEvent -> do
                                         newBalance <- getCurrentContractAmount Wasm.SV1 istance
                                         -- Charge for updating the pointer in the instance to the new module.
                                         tickEnergy Cost.initializeContractInstanceCreateCost
-                                        go (resumeEvent True:upgradeEvents ++ interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False newBalance WasmV1.Success Nothing)
+                                        go (resumeEvent True:upgradeEvent:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False newBalance WasmV1.Success Nothing)
 
 
       -- start contract execution.
@@ -1201,7 +1202,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
       -- for, e.g., forwarding.
       withToContractAmountV1 sender istance transferAmount $ do
         foreignModel <- getRuntimeReprV1 model
-        artifact <- liftLocal $ getModuleArtifact (GSWasm.miModule iface)
+        artifact <- liftLocal $ getModuleArtifact (GSWasm.miModule moduleInterface)
         go [] =<< runInterpreter (return . WasmV1.applyReceiveFun artifact cm receiveCtx receiveName useFallback parameter transferAmount foreignModel)
    where  transferAccountSync :: AccountAddress -- ^The target account address.
                               -> UInstanceInfoV m GSWasm.V1 -- ^The sender of this transfer.
@@ -1223,17 +1224,17 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                 lift (withContractToAccountAmountV1 (instanceAddress senderInstance) targetAccount tAmount $
                       return [Transferred addr tAmount (AddressAccount accAddr)])
           handleContractUpgrade :: ContractAddress
-                                -- ^The address of the instance to update.
+                                -- ^The address of the instance to upgrade.
                                 -> ModuleRef
                                 -- ^The old module ref used for the emitted event.
                                 -> GSWasm.ModuleInterfaceA (InstrumentedModuleRef m GSWasm.V1)
                                 -- ^The new module that the instance should be using for execution.
-                                -> ExceptT WasmV1.EnvFailure (LocalT r m) [Event] -- ^The events resulting from the transfer.
+                                -> ExceptT WasmV1.EnvFailure (LocalT r m) Event -- ^The event resulting from the upgrade.
                                 -- ^The events resulting from the upgrade.
           handleContractUpgrade cAddr oldModRef newMod = do
               -- Add the upgrade to the 'ChangeSet' and add the 'Upgrade' event to the stack of events.
               lift $! addContractUpgrade cAddr newMod
-              return [Upgraded oldModRef (GSWasm.miModuleRef newMod)]
+              return $ Upgraded oldModRef (GSWasm.miModuleRef newMod)
 
 -- | Invoke a V0 contract and process any generated messages.
 -- This includes the transfer of an amount from the sending account or instance.
