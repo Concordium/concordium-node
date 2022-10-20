@@ -190,7 +190,7 @@ makeInstanceV instanceInitName instanceReceiveFuns instanceModuleInterface _inst
         instanceParameterHash = makeInstanceParameterHash _instanceAddress instanceOwner instanceContractModule instanceInitName
         _instanceVParameters = InstanceParameters {..}
 
-makeInstance :: 
+makeInstance ::
     Wasm.InitName
     -- ^Name of the init method used to initialize the contract.
     -> Set.Set Wasm.ReceiveName
@@ -225,7 +225,7 @@ updateInstanceV' amnt val maybeNewMod i =  i {
                                 _instanceVParameters = newParams,
                                 _instanceVHash = makeInstanceHash newParams newVal amnt
                             }
-  where 
+  where
       newVal = fromMaybe (_instanceVModel i) val
       newParams = maybe (_instanceVParameters i) (\nm -> (_instanceVParameters i) { instanceModuleInterface = nm, instanceReceiveFuns = newReceiveFuns nm}) maybeNewMod
       -- TODO: We return Set.empty here in case that the set of receive functions cannot be looked up

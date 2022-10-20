@@ -41,7 +41,8 @@ getInstance :: ContractAddress -> Instances -> Maybe BasicInstance
 getInstance addr (Instances iss) = iss ^? ix addr
 
 -- |Update the instance at the specified address with an amount delta and
--- potentially new state. If new state is not provided the state of the instance
+-- potentially new state and module. If new state is not provided the state of the instance
+-- is not changed. If a new module is not provided the module of the instance
 -- is not changed. If there is no instance with the given address, this does
 -- nothing. If the instance at the given address has a different version than
 -- given this function raises an exception.
@@ -63,7 +64,7 @@ updateInstanceAt ca amt val maybeModule (Instances iss) = Instances (iss & ix ca
 -- nothing. If the instance at the given address has a different version than
 -- given this function raises an exception.
 updateInstanceAt' :: forall v . Wasm.IsWasmVersion v => ContractAddress -> Amount -> Maybe (InstanceStateV v) -> Maybe (GSWasm.ModuleInterfaceV v) -> Instances -> Instances
-updateInstanceAt' ca amt val params (Instances iss) = Instances (iss & ix ca %~ updateOnlyV)
+updateInstanceAt' ca amt val maybeModule (Instances iss) = Instances (iss & ix ca %~ updateOnlyV)
     where
         -- only update if the instance matches the state version. Otherwise raise an exception.
         updateOnlyV = case Wasm.getWasmVersion @v of
@@ -72,7 +73,7 @@ updateInstanceAt' ca amt val params (Instances iss) = Instances (iss & ix ca %~ 
                             InstanceV1 _ -> error "Expected a V0 instance, but got V1."
                           Wasm.SV1 -> \case
                             InstanceV0 _ -> error "Expected a V1 instance, but got V0"
-                            InstanceV1 i -> InstanceV1 $ updateInstanceV' amt val params i
+                            InstanceV1 i -> InstanceV1 $ updateInstanceV' amt val maybeModule i
 
 -- |Create a new smart contract instance.
 createInstance :: (ContractAddress -> BasicInstance) -> Instances -> (BasicInstance, Instances)

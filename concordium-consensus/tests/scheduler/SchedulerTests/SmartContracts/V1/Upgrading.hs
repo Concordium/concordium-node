@@ -97,7 +97,7 @@ upgradingTestCase =
                 , metadata = makeDummyHeader alesAccount 4 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
-        , (SuccessWithSummary (ensureSuccess 4), emptySpec)
+        , (SuccessWithSummary (successWithEventsCheck bumpEventsCheck), emptySpec)
         )
       ,
         -- Invoke `new` which is only accessible after the module upgrade
@@ -105,7 +105,7 @@ upgradingTestCase =
                 , metadata = makeDummyHeader alesAccount 5 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
-        , (SuccessWithSummary (ensureSuccess 1), emptySpec)
+        , (SuccessWithSummary (successWithEventsCheck newFunEventsCheck), emptySpec)
         )
       ]
     }
@@ -113,13 +113,20 @@ upgradingTestCase =
     parameters = BSS.toShort $ runPut $ do
         -- The 'ModuleRef' to the desired module to upgrade to.
         put $! getModuleRefFromV1File upgrading1SourceFile
-    -- ensure the test case is successful
-    ensureSuccess :: Int -> TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
-    ensureSuccess noOfEvents _ Types.TransactionSummary{..} = checkSuccess noOfEvents "Update failed" tsResult
-    checkSuccess _ msg Types.TxReject{..} = assertFailure $ msg ++ show vrRejectReason
-    checkSuccess noOfEvents msg Types.TxSuccess{..} = if length vrEvents == noOfEvents
-      then return ()
-      else assertFailure $ msg ++ " unexepcted no. of events " ++ show (length vrEvents) ++ " expected " ++ show noOfEvents
+
+    bumpEventsCheck :: [Types.Event] -> Expectation
+    bumpEventsCheck events = do
+      -- Check the number of events:
+      -- - 3 events from upgrading.
+      -- - 1 event for a succesful update to the contract.
+      eventsLengthCheck 4 events
+
+    newFunEventsCheck :: [Types.Event] -> Expectation
+    newFunEventsCheck events = do
+      -- Check the number of events:
+      -- - 1 event for a succesful update to the contract.
+      eventsLengthCheck 1 events
+
 
 selfInvokeSourceFile0 :: FilePath
 selfInvokeSourceFile0 = "./testdata/contracts/v1/upgrading-self-invoke0.wasm"
@@ -152,29 +159,28 @@ selfInvokeTestCase =
                        , metadata = makeDummyHeader alesAccount 4 100000
                        , keys = [(0,[(0, alesKP)])]
                        }
-               , (SuccessWithSummary ensureSuccess, emptySpec))
+               , (SuccessWithSummary (successWithEventsCheck eventsCheck), emptySpec))
              ]
            }
   where
     upgradeParameters = BSS.toShort $ runPut $ put $ getModuleRefFromV1File selfInvokeSourceFile1
 
-    ensureSuccess :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
-    ensureSuccess _ summary = case Types.tsResult summary of
-      Types.TxReject {..} -> assertFailure $ "Update failed with " ++ show vrRejectReason
-      Types.TxSuccess {..} -> do
+    eventsCheck :: [Types.Event] -> Expectation
+    eventsCheck events = do
         -- Check the number of events:
         -- - 3 events from invoking another contract ('contract.name').
         -- - 3 events from upgrading.
         -- - 3 events from invoking again  ('contract.name').
         -- - 1 event for a succesful update to the contract ('contract.upgrade').
-        unless (length vrEvents == 10) $ assertFailure $ "Update succeeded but with unexpected number of events: " ++ show (length vrEvents)
+        eventsLengthCheck 10 events
+
         -- Find and check the upgrade event
-        case List.find isUpgradeEvent vrEvents of
+        case List.find isUpgradeEvent events of
           Nothing -> assertFailure "Missing event: Upgraded"
           Just Types.Upgraded{..} | euFrom == euTo -> assertFailure "Event Upgraded is incorrect"
           Just _ -> return ()
         -- Ensure only one upgrade event
-        unless (List.length (filter isUpgradeEvent vrEvents) == 1) $ assertFailure "Multiple events: Upgraded"
+        unless (List.length (filter isUpgradeEvent events) == 1) $ assertFailure "Multiple events: Upgraded"
 
 missingModuleSourceFile :: FilePath
 missingModuleSourceFile = "./testdata/contracts/v1/upgrading-missing-module.wasm"
@@ -198,19 +204,17 @@ missingModuleTestCase = TestCase { tcName = "Upgrading to a missing module fails
               , metadata = makeDummyHeader alesAccount 3 100000
               , keys = [(0,[(0, alesKP)])]
               }
-      , (SuccessWithSummary ensureSuccess, emptySpec))
+      , (SuccessWithSummary (successWithEventsCheck eventsCheck), emptySpec))
     ]
   }
   where
-    ensureSuccess :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
-    ensureSuccess _ summary = case Types.tsResult summary of
-      Types.TxReject {..} -> assertFailure $ "Update failed with " ++ show vrRejectReason
-      Types.TxSuccess {..} -> do
+    eventsCheck :: [Types.Event] -> Expectation
+    eventsCheck events = do
         -- Check the number of events:
         -- - 1 event for a succesful update to the contract ('contract.upgrade').
-        unless (length vrEvents == 1) $ assertFailure $ "Update succeeded but with unexpected number of events: " ++ show (length vrEvents)
+        eventsLengthCheck 1 events
         -- Find and check for upgrade events
-        when (List.any isUpgradeEvent vrEvents) $ assertFailure "Found unexpected event: Upgraded"
+        when (List.any isUpgradeEvent events) $ assertFailure "Found unexpected event: Upgraded"
 
 missingContractSourceFile0 :: FilePath
 missingContractSourceFile0 = "./testdata/contracts/v1/upgrading-missing-contract0.wasm"
@@ -243,21 +247,19 @@ missingContractTestCase =
               , metadata = makeDummyHeader alesAccount 4 100000
               , keys = [(0,[(0, alesKP)])]
               }
-      , (SuccessWithSummary ensureSuccess, emptySpec))
+      , (SuccessWithSummary (successWithEventsCheck eventsCheck), emptySpec))
     ]
   }
   where
     upgradeParameters = BSS.toShort $ runPut $ put $ getModuleRefFromV1File missingContractSourceFile1
 
-    ensureSuccess :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
-    ensureSuccess _ summary = case Types.tsResult summary of
-      Types.TxReject {..} -> assertFailure $ "Update failed with " ++ show vrRejectReason
-      Types.TxSuccess {..} -> do
+    eventsCheck :: [Types.Event] -> Expectation
+    eventsCheck events = do
         -- Check the number of events:
         -- - 1 event for a succesful update to the contract ('contract.upgrade').
-        unless (length vrEvents == 1) $ assertFailure $ "Update succeeded but with unexpected number of events: " ++ show (length vrEvents)
+        eventsLengthCheck 1 events
         -- Find and check for upgrade events
-        when (List.any isUpgradeEvent vrEvents) $ assertFailure "Found unexpected event: Upgraded"
+        when (List.any isUpgradeEvent events) $ assertFailure "Found unexpected event: Upgraded"
 
 unsupportedVersionSourceFile0 :: FilePath
 unsupportedVersionSourceFile0 = "./testdata/contracts/v1/upgrading-unsupported-version0.wasm"
@@ -290,21 +292,19 @@ unsupportedVersionTestCase =
               , metadata = makeDummyHeader alesAccount 4 100000
               , keys = [(0,[(0, alesKP)])]
               }
-      , (SuccessWithSummary ensureSuccess, emptySpec))
+      , (SuccessWithSummary (successWithEventsCheck eventsCheck), emptySpec))
     ]
   }
   where
     upgradeParameters = BSS.toShort $ runPut $ put $ getModuleRefFromV0File unsupportedVersionSourceFile1
 
-    ensureSuccess :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
-    ensureSuccess _ summary = case Types.tsResult summary of
-      Types.TxReject {..} -> assertFailure $ "Update failed with " ++ show vrRejectReason
-      Types.TxSuccess {..} -> do
+    eventsCheck :: [Types.Event] -> Expectation
+    eventsCheck events = do
         -- Check the number of events:
         -- - 1 event for a succesful update to the contract ('contract.upgrade').
-        unless (length vrEvents == 1) $ assertFailure $ "Update succeeded but with unexpected number of events: " ++ show (length vrEvents)
+        eventsLengthCheck 1 events
         -- Find and check for upgrade events
-        when (List.any isUpgradeEvent vrEvents) $ assertFailure "Found unexpected event: Upgraded"
+        when (List.any isUpgradeEvent events) $ assertFailure "Found unexpected event: Upgraded"
 
 twiceSourceFile0 :: FilePath
 twiceSourceFile0 = "./testdata/contracts/v1/upgrading-twice0.wasm"
@@ -345,7 +345,7 @@ twiceTestCase =
               , metadata = makeDummyHeader alesAccount 5 100000
               , keys = [(0,[(0, alesKP)])]
               }
-      , (SuccessWithSummary ensureSuccess, emptySpec))
+      , (SuccessWithSummary (successWithEventsCheck eventsCheck), emptySpec))
     ]
   }
   where
@@ -353,10 +353,8 @@ twiceTestCase =
       put $ getModuleRefFromV1File twiceSourceFile1
       put $ getModuleRefFromV1File twiceSourceFile2
 
-    ensureSuccess :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
-    ensureSuccess _ summary = case Types.tsResult summary of
-      Types.TxReject {..} -> assertFailure $ "Update failed with " ++ show vrRejectReason
-      Types.TxSuccess {..} -> do
+    eventsCheck :: [Types.Event] -> Expectation
+    eventsCheck events = do
         -- Check the number of events:
         -- - 3 events for invoking self.
         -- - 3 events for upgrading.
@@ -364,9 +362,9 @@ twiceTestCase =
         -- - 3 events for upgrading again.
         -- - 3 events for invoking again.
         -- - 1 event for a succesful update to the contract ('contract.upgrade').
-        unless (length vrEvents == 16) $ assertFailure $ "Update succeeded but with unexpected number of events: " ++ show (length vrEvents)
+        eventsLengthCheck 16 events
         -- Find and check for upgrade events
-        unless (List.length (filter isUpgradeEvent vrEvents) == 2) $ assertFailure "Expected two Upgraded events"
+        unless (List.length (filter isUpgradeEvent events) == 2) $ assertFailure "Expected two Upgraded events"
 
 chainedSourceFile0 :: FilePath
 chainedSourceFile0 = "./testdata/contracts/v1/upgrading-chained0.wasm"
@@ -391,7 +389,7 @@ chainedTestCase =
               , metadata = makeDummyHeader alesAccount 3 100000
               , keys = [(0,[(0, alesKP)])]
               }
-      , (SuccessWithSummary ensureSuccess, emptySpec))
+      , (SuccessWithSummary (successWithEventsCheck eventsCheck), emptySpec))
     ]
   }
   where
@@ -401,20 +399,149 @@ chainedTestCase =
       putWord32le $ fromIntegral chainLength
       put $ getModuleRefFromV1File chainedSourceFile0
 
-    ensureSuccess :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
-    ensureSuccess _ summary = do
-     putStrLn $ "Cost " ++ show (Types.tsEnergyCost summary)
-     case Types.tsResult summary of
-      Types.TxReject {..} -> assertFailure $ "Update failed with " ++ show vrRejectReason
-      Types.TxSuccess {..} -> do
+    eventsCheck :: [Types.Event] -> Expectation
+    eventsCheck events = do
         -- Check the number of events:
         -- - chainLength x 3 events for upgrading and 3 events for invoking.
         -- - 3 events for upgrading.
         -- - 1 event for a succesful update to the contract ('contract.upgrade').
-        unless (length vrEvents == 6 * chainLength + 4) $ assertFailure $ "Update succeeded but with unexpected number of events: " ++ show (length vrEvents)
+        eventsLengthCheck (6 * chainLength + 4) events
         -- Find and check for upgrade events
-        let upgradedEvents = List.length (filter isUpgradeEvent vrEvents)
+        let upgradedEvents = List.length (filter isUpgradeEvent events)
         unless (upgradedEvents == chainLength + 1) $ assertFailure $ "Unexpected number of Upgraded events: " ++ show upgradedEvents
+
+
+rejectSourceFile0 :: FilePath
+rejectSourceFile0 = "./testdata/contracts/v1/upgrading-reject0.wasm"
+
+rejectSourceFile1 :: FilePath
+rejectSourceFile1 = "./testdata/contracts/v1/upgrading-reject1.wasm"
+
+rejectTestCase :: TestCase PV5
+rejectTestCase =
+  TestCase { tcName = "Upgrading reject"
+           , tcParameters = (defaultParams @PV5) {tpInitialBlockState=initialBlockState}
+           , tcTransactions =
+             [ ( TJSON { payload = DeployModule V1 rejectSourceFile0
+                       , metadata = makeDummyHeader alesAccount 1 100000
+                       , keys = [(0,[(0, alesKP)])]
+                       }
+               , (SuccessWithSummary (deploymentCostCheck rejectSourceFile0), emptySpec))
+             , ( TJSON { payload = InitContract 0 V1 rejectSourceFile0 "init_contract" ""
+                       , metadata = makeDummyHeader alesAccount 2 100000
+                       , keys = [(0,[(0, alesKP)])]
+                       }
+               , (SuccessWithSummary (initializationCostCheck rejectSourceFile0 "init_contract"), emptySpec))
+             , ( TJSON { payload = DeployModule V1 rejectSourceFile1
+                       , metadata = makeDummyHeader alesAccount 3 100000
+                       , keys = [(0,[(0, alesKP)])]
+                       }
+               , (SuccessWithSummary (deploymentCostCheck rejectSourceFile1), emptySpec))
+             , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "contract.upgrade" upgradeParameters
+                       , metadata = makeDummyHeader alesAccount 4 100000
+                       , keys = [(0,[(0, alesKP)])]
+                       }
+               , (SuccessWithSummary (rejectWithReasonCheck rejectReasonCheck), emptySpec))
+
+             , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "contract.new_feature" ""
+                       , metadata = makeDummyHeader alesAccount 5 100000
+                       , keys = [(0,[(0, alesKP)])]
+                       }
+               , (SuccessWithSummary rejectInvalidReceiveMethodCheck, emptySpec))
+             ]
+           }
+  where
+    upgradeParameters = BSS.toShort $ runPut $ put $ getModuleRefFromV1File rejectSourceFile1
+
+    rejectReasonCheck :: Types.RejectReason -> Expectation
+    rejectReasonCheck reason =
+      case reason of
+          Types.RejectedReceive {..} ->
+            unless (rejectReason == -1) $ assertFailure $ "Unexpected receive reject reason " ++ show rejectReason
+          other -> assertFailure $ "Unexpected reject reason " ++ show other
+
+changingEntrypointsSourceFile0 :: FilePath
+changingEntrypointsSourceFile0 = "./testdata/contracts/v1/upgrading-changing-entrypoints0.wasm"
+
+changingEntrypointsSourceFile1 :: FilePath
+changingEntrypointsSourceFile1 = "./testdata/contracts/v1/upgrading-changing-entrypoints1.wasm"
+
+changingEntrypointsTestCase :: TestCase PV5
+changingEntrypointsTestCase =
+  TestCase { tcName = "Check added and removed entrypoints of a contract"
+           , tcParameters = (defaultParams @PV5) {tpInitialBlockState=initialBlockState}
+           , tcTransactions =
+             [ ( TJSON { payload = DeployModule V1 changingEntrypointsSourceFile0
+                       , metadata = makeDummyHeader alesAccount 1 100000
+                       , keys = [(0,[(0, alesKP)])]
+                       }
+               , (SuccessWithSummary (deploymentCostCheck changingEntrypointsSourceFile0), emptySpec))
+             , ( TJSON { payload = InitContract 0 V1 changingEntrypointsSourceFile0 "init_contract" ""
+                       , metadata = makeDummyHeader alesAccount 2 100000
+                       , keys = [(0,[(0, alesKP)])]
+                       }
+               , (SuccessWithSummary (initializationCostCheck changingEntrypointsSourceFile0 "init_contract"), emptySpec))
+             , ( TJSON { payload = DeployModule V1 changingEntrypointsSourceFile1
+                       , metadata = makeDummyHeader alesAccount 3 100000
+                       , keys = [(0,[(0, alesKP)])]
+                       }
+               , (SuccessWithSummary (deploymentCostCheck changingEntrypointsSourceFile1), emptySpec))
+
+             , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "contract.old_feature" ""
+                       , metadata = makeDummyHeader alesAccount 4 100000
+                       , keys = [(0,[(0, alesKP)])]
+                       }
+               , (SuccessWithSummary (successWithEventsCheck contractOldFeatureEventsCheck), emptySpec))
+             , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "contract.new_feature" ""
+                       , metadata = makeDummyHeader alesAccount 5 100000
+                       , keys = [(0,[(0, alesKP)])]
+                       }
+               , (SuccessWithSummary rejectInvalidReceiveMethodCheck, emptySpec))
+
+             , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "contract.upgrade" upgradeParameters
+                       , metadata = makeDummyHeader alesAccount 6 100000
+                       , keys = [(0,[(0, alesKP)])]
+                       }
+               , (SuccessWithSummary (successWithEventsCheck contractUpgradeEventsCheck), emptySpec))
+
+             , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "contract.new_feature" ""
+                       , metadata = makeDummyHeader alesAccount 7 100000
+                       , keys = [(0,[(0, alesKP)])]
+                       }
+               , (SuccessWithSummary (successWithEventsCheck contractNewFeatureEventsCheck), emptySpec))
+
+               , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "contract.old_feature" ""
+                       , metadata = makeDummyHeader alesAccount 8 100000
+                       , keys = [(0,[(0, alesKP)])]
+                       }
+               , (SuccessWithSummary rejectInvalidReceiveMethodCheck, emptySpec))
+             ]
+           }
+  where
+    upgradeParameters = BSS.toShort $ runPut $ put $ getModuleRefFromV1File changingEntrypointsSourceFile1
+
+    contractOldFeatureEventsCheck :: [Types.Event] -> Expectation
+    contractOldFeatureEventsCheck events =
+      -- Check the number of events:
+      -- - 1 event for a succesful update to the contract ('contract.upgrade').
+      eventsLengthCheck 1 events
+
+    contractUpgradeEventsCheck :: [Types.Event] -> Expectation
+    contractUpgradeEventsCheck events = do
+      -- Check the number of events:
+      -- - 3 events for upgrading.
+      -- - 1 event for a succesful update to the contract ('contract.upgrade').
+      eventsLengthCheck 4 events
+      -- Find and check for upgrade events
+      let upgradedEvents = List.length (filter isUpgradeEvent events)
+      unless (upgradedEvents == 1) $
+        assertFailure $ "Unexpected number of Upgraded events: " ++ show upgradedEvents
+
+    contractNewFeatureEventsCheck :: [Types.Event] -> Expectation
+    contractNewFeatureEventsCheck events =
+      -- Check the number of events:
+      -- - 1 event for a succesful update to the contract ('contract.upgrade').
+      eventsLengthCheck 1 events
 
 -- | Check if some event is the Upgraded event.
 isUpgradeEvent :: Types.Event -> Bool
@@ -470,6 +597,28 @@ deploymentCostCheck sourceFile _ Types.TransactionSummary{..} = do
     checkSuccess msg Types.TxReject{..} = assertFailure $ msg ++ show vrRejectReason
     checkSuccess _ _ = return ()
 
+rejectInvalidReceiveMethodCheck :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
+rejectInvalidReceiveMethodCheck _ summary = case Types.tsResult summary of
+      Types.TxReject {..} ->
+        case vrRejectReason of
+          Types.InvalidReceiveMethod _ _ -> return ()
+          other -> assertFailure $ "Unexpected reject reason" ++ show other
+      Types.TxSuccess {} -> assertFailure "Update should reject with InvalidReceiveMethod"
+
+successWithEventsCheck :: ([Types.Event] -> Expectation) -> TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
+successWithEventsCheck checkEvents _ summary = case Types.tsResult summary of
+  Types.TxReject {..} -> assertFailure $ "Transaction rejected unexpectedly with " ++ show vrRejectReason
+  Types.TxSuccess {..} -> checkEvents vrEvents
+
+rejectWithReasonCheck :: (Types.RejectReason -> Expectation) -> TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
+rejectWithReasonCheck checkReason _ summary = case Types.tsResult summary of
+  Types.TxReject {..} -> checkReason vrRejectReason
+  Types.TxSuccess {} -> assertFailure $ "Transaction succeeded unexpectedly"
+
+eventsLengthCheck :: Int -> [Types.Event] -> Expectation
+eventsLengthCheck expected events = unless (length events == expected) $
+  assertFailure $ "Unexpected number of events produced: " ++ show (length events) ++ " where the expected was " ++ show expected
+
 
 tests :: Spec
 tests = describe "V1: Upgrade" $ mkSpecs [
@@ -480,5 +629,7 @@ tests = describe "V1: Upgrade" $ mkSpecs [
   , unsupportedVersionTestCase
   , twiceTestCase
   , chainedTestCase
+  , rejectTestCase
+  , changingEntrypointsTestCase
   ]
 
