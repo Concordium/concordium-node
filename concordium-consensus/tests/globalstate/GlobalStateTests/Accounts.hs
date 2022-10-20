@@ -14,7 +14,6 @@ import qualified Concordium.GlobalState.Basic.BlockState.AccountTable as BAT
 import qualified Concordium.GlobalState.Basic.BlockState.Accounts as B
 import qualified Concordium.GlobalState.AccountMap as AccountMap
 import qualified Concordium.GlobalState.Persistent.Account as PA
-import qualified Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule as PA
 import qualified Concordium.GlobalState.Persistent.Accounts as P
 import qualified Concordium.GlobalState.Persistent.BlockState.Modules as M
 import qualified Concordium.GlobalState.Persistent.LFMBTree as L
@@ -61,30 +60,19 @@ checkBinaryM bop x y sbop sx sy = do
 -- | Check that a 'B.Accounts' and a 'P.Accounts' are equivalent.
 --  That is, they have the same account map, account table, and set of
 --  use registration ids.
-checkEquivalent :: (MonadBlobStore m, MonadFail m, MonadCache (P.AccountCache (AccountVersionFor PV)) m) => B.Accounts PV -> P.Accounts PV -> m ()
+checkEquivalent :: (MonadBlobStore m, MonadFail m, MonadCache (PA.AccountCache (AccountVersionFor PV)) m) => B.Accounts PV -> P.Accounts PV -> m ()
 checkEquivalent ba pa = do
   pam <- AccountMap.toMap (P.accountMap pa)
   checkBinary (==) (AccountMap.toMapPure (B.accountMap ba)) pam "==" "Basic account map" "Persistent account map"
   let bat = BAT.toList (B.accountTable ba)
   pat <- L.toAscPairList (P.accountTable pa)
-  checkBinaryM sameAccList bat pat "==" "Basic account table (as list)" "Persistent account table (as list)"
+  bpat <- mapM (_2 PA.toTransientAccount) pat
+  checkBinary (==) bat bpat "==" "Basic account table (as list)" "Persistent account table (as list)"
   let bath = getHash (B.accountTable ba) :: H.Hash
   path <- getHashM (P.accountTable pa)
   checkBinary (==) bath path "==" "Basic account table hash" "Persistent account table hash"
   pregids <- P.loadRegIds pa
   checkBinary (==) (B.accountRegIds ba) pregids "==" "Basic registration ids" "Persistent registration ids"
-  where
-    -- Check whether an in-memory account-index and account pair is equivalent to a persistent account-index and account pair
-    sameAccPair ::
-      (MonadBlobStore m) =>
-      Bool -> -- accumulator for the fold in 'sameAccList'
-      ((AccountIndex, BA.Account (AccountVersionFor PV)), (AccountIndex, PA.PersistentAccount (AccountVersionFor PV))) -> -- the pairs to be compared
-      m Bool
-    sameAccPair b ((bInd, bAcc), (pInd, pAcc)) = do
-      sameAcc <- PA.sameAccount bAcc pAcc
-      return $ b && bInd == pInd && sameAcc
-    -- Check whether a list of in-memory account-index and account pairs is equivalent to a persistent list of account-index and account pairs
-    sameAccList l1 l2 = foldM sameAccPair True $ zip l1 l2
 
 data AccountAction
   = PutAccount (Account (AccountVersionFor PV))
@@ -189,15 +177,7 @@ randomActions = sized (ra Set.empty Map.empty)
           (rid, ai) <- elements (Map.toList rids)
           (RecordRegId rid ai :) <$> ra s rids (n -1)
 
-makePureAccount :: forall m av. (MonadBlobStore m, IsAccountVersion av) => PA.PersistentAccount av -> m (Account av)
-makePureAccount PA.PersistentAccount {..} = do
-  (_accountPersisting :: AccountPersisting) <- makeHashed <$> refLoad _persistingData
-  _accountEncryptedAmount <- PA.loadPersistentAccountEncryptedAmount =<< refLoad _accountEncryptedAmount
-  _accountReleaseSchedule <- PA.loadPersistentAccountReleaseSchedule =<< refLoad _accountReleaseSchedule
-  _accountStaking <- PA.loadAccountStake _accountStake
-  return Account {..}
-
-runAccountAction :: (MonadBlobStore m, MonadIO m, MonadCache (P.AccountCache (AccountVersionFor PV)) m) => AccountAction -> (B.Accounts PV, P.Accounts PV) -> m (B.Accounts PV, P.Accounts PV)
+runAccountAction :: (MonadBlobStore m, MonadIO m, MonadCache (PA.AccountCache (AccountVersionFor PV)) m) => AccountAction -> (B.Accounts PV, P.Accounts PV) -> m (B.Accounts PV, P.Accounts PV)
 runAccountAction (PutAccount acct) (ba, pa) = do
   let ba' = B.putNewAccount acct ba
   pAcct <- PA.makePersistentAccount acct
@@ -211,24 +191,23 @@ runAccountAction (Exists addr) (ba, pa) = do
 runAccountAction (GetAccount addr) (ba, pa) = do
   let bacct = B.getAccount addr ba
   pacct <- P.getAccount addr pa
-  let sameAcc (Just bac) (Just pac) = PA.sameAccount bac pac
-      sameAcc Nothing Nothing = return True
-      sameAcc _ _ = return False
-  checkBinaryM sameAcc bacct pacct "==" "account in basic" "account in persistent"
+  bpacct <- mapM PA.toTransientAccount pacct
+  checkBinary (==) bacct bpacct "==" "account in basic" "account in persistent"
   return (ba, pa)
 runAccountAction (UpdateAccount addr upd) (ba, pa) = do
   let ba' = ba & ix addr %~ upd
       -- Transform a function that updates in-memory accounts into a function that updates persistent accounts
       liftP :: (MonadBlobStore m) => (Account (AccountVersionFor PV) -> Account (AccountVersionFor PV)) -> PA.PersistentAccount (AccountVersionFor PV) -> m (PA.PersistentAccount (AccountVersionFor PV))
       liftP f pAcc = do
-        bAcc <- makePureAccount pAcc
+        bAcc <- PA.toTransientAccount pAcc
         PA.makePersistentAccount $ f bAcc
   (_, pa') <- P.updateAccounts (fmap ((),) . liftP upd) addr pa
   return (ba', pa')
 runAccountAction (UnsafeGetAccount addr) (ba, pa) = do
   let bacct = B.unsafeGetAccount addr ba
   pacct <- P.unsafeGetAccount addr pa
-  checkBinaryM PA.sameAccount bacct pacct "==" "account in basic" "account in persistent"
+  bpacct <- PA.toTransientAccount pacct
+  checkBinary (==) bacct bpacct "==" "account in basic" "account in persistent"
   return (ba, pa)
 runAccountAction FlushPersistent (ba, pa) = do
   (_, pa') <- storeUpdate pa
@@ -266,7 +245,7 @@ tests lvl = describe "GlobalStateTests.Accounts" $
                       withTempDirectory "." "blockstate" $ \dir -> bracket
                         (do
                           pbscBlobStore <- createBlobStore (dir </> "blockstate.dat")
-                          pbscAccountCache <- P.newAccountCache 100
+                          pbscAccountCache <- PA.newAccountCache 100
                           pbscModuleCache <- M.newModuleCache 100
                           return PersistentBlockStateContext {..}
                         )

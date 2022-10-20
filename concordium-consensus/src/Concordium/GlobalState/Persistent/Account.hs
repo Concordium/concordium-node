@@ -407,6 +407,17 @@ unlockAccountReleases ts (PAV2 acc) = second PAV2 <$> V1.unlockReleases ts acc
 
 -- * Creation
 
+-- |Make a persistent account from a transient account.
+makePersistentAccount ::
+    forall m av.
+    (MonadBlobStore m, IsAccountVersion av) =>
+    Transient.Account av ->
+    m (PersistentAccount av)
+makePersistentAccount tacc = case accountVersion @av of
+    SAccountV0 -> PAV0 <$> V0.makePersistentAccount tacc
+    SAccountV1 -> PAV1 <$> V0.makePersistentAccount tacc
+    SAccountV2 -> PAV2 <$> V1.makePersistentAccount tacc
+
 -- |Make a persistent account reference from a hashed transient account.
 makePersistentAccountRef ::
     forall m av.
@@ -414,10 +425,7 @@ makePersistentAccountRef ::
     Hashed' (AccountHash av) (Transient.Account av) ->
     m (AccountRef av)
 makePersistentAccountRef (Hashed tacc acctHash) = do
-    pacc <- case accountVersion @av of
-        SAccountV0 -> PAV0 <$> V0.makePersistentAccount tacc
-        SAccountV1 -> PAV1 <$> V0.makePersistentAccount tacc
-        SAccountV2 -> PAV2 <$> V1.makePersistentAccount tacc
+    pacc <- makePersistentAccount tacc
     makeHashedCachedRef pacc (theAccountHash acctHash)
 
 -- |Create an empty account with the given public key, address and credential.
@@ -499,3 +507,10 @@ makePersistentBakerInfoRef = case accountVersion @av of
     SAccountV0 -> fmap PBIRV0 . V0.makePersistentBakerInfoEx
     SAccountV1 -> fmap PBIRV1 . V0.makePersistentBakerInfoEx
     SAccountV2 -> fmap PBIRV2 . V1.makePersistentBakerInfoEx
+
+
+-- |Converts an account to a transient (i.e. in memory) account. (Used for testing.)
+toTransientAccount :: (MonadBlobStore m) => PersistentAccount av -> m (Transient.Account av)
+toTransientAccount (PAV0 acc) = V0.toTransientAccount acc
+toTransientAccount (PAV1 acc) = V0.toTransientAccount acc
+toTransientAccount (PAV2 acc) = V1.toTransientAccount acc

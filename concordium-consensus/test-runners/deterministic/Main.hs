@@ -42,6 +42,7 @@ import Concordium.Types.IdentityProviders
 import Concordium.Types.AnonymityRevokers
 import Concordium.GlobalState.Block
 import Concordium.GlobalState
+import Concordium.GlobalState.Paired
 import qualified Concordium.GlobalState.TreeState as TS
 
 import Concordium.Skov.Monad
@@ -64,20 +65,24 @@ import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Serialize as S
 
 -- |Protocol version
-type PV = 'P4
+type PV = 'P5
 
+{-
 type TreeConfig = DiskTreeDiskBlockConfig
 
 -- |Construct the global state configuration.
 -- Can be customised if changing the configuration.
 makeGlobalStateConfig :: RuntimeParameters -> FilePath -> FilePath -> IO TreeConfig
 makeGlobalStateConfig rt treeStateDir blockStateFile = return $ DTDBConfig rt treeStateDir blockStateFile
-
-{-
-type TreeConfig = PairGSConfig MemoryTreeMemoryBlockConfig DiskTreeDiskBlockConfig
-makeGlobalStateConfig rp treeStateDir blockStateFile genData =
-   return $ PairGSConfig (MTMBConfig rp genData, DTDBConfig rp treeStateDir blockStateFile genData)
 -}
+
+type TreeConfig = PairGSConfig MemoryTreeMemoryBlockConfig DiskTreeDiskBlockConfig
+
+-- |Construct the global state configuration.
+-- Can be customised if changing the configuration.
+makeGlobalStateConfig :: RuntimeParameters -> FilePath -> FilePath -> IO TreeConfig
+makeGlobalStateConfig rp treeStateDir blockStateFile =
+   return $ PairGSConfig (MTMBConfig rp, DTDBConfig rp treeStateDir blockStateFile)
 
 -- |A timer is represented as an integer identifier.
 -- Timers are issued with increasing identifiers.
@@ -362,8 +367,8 @@ displayBakerEvent :: (MonadIO m) => Int -> Event -> m ()
 displayBakerEvent i ev = liftIO $ putStrLn $ show i ++ "> " ++ show ev
 
 bpBlock :: TS.BlockPointerType BakerM -> Block PV
--- bpBlock (PairBlockData (l, _)) = BS._bpBlock l
-bpBlock = BS._bpBlock
+bpBlock (PairBlockData (l, _)) = BS._bpBlock l
+-- bpBlock = BS._bpBlock
 
 -- |Run a step of the consensus. This takes the next event and
 -- executes that.

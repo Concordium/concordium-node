@@ -663,9 +663,9 @@ setPersistentAccountStake ::
 setPersistentAccountStake pac newStake = do
     return $! pac{_accountStake = newStake}
 
--- |Checks whether the two arguments represent the same account. (Used for testing.)
-sameAccount :: forall m av. (MonadBlobStore m, IsAccountVersion av) => Transient.Account av -> PersistentAccount av -> m Bool
-sameAccount bAcc PersistentAccount{..} = do
+-- |Converts an account to a transient (i.e. in memory) account. (Used for testing.)
+toTransientAccount :: forall m av. (MonadBlobStore m, IsAccountVersion av) => PersistentAccount av -> m (Transient.Account av)
+toTransientAccount PersistentAccount{..} = do
     _accountPersisting <- Transient.makeAccountPersisting <$> refLoad _persistingData
     _accountEncryptedAmount <- loadPersistentAccountEncryptedAmount =<< refLoad _accountEncryptedAmount
     _accountReleaseSchedule <- loadPersistentAccountReleaseSchedule =<< refLoad _accountReleaseSchedule
@@ -673,7 +673,7 @@ sameAccount bAcc PersistentAccount{..} = do
         PersistentAccountStakeNone -> return AccountStakeNone
         PersistentAccountStakeBaker bkr -> AccountStakeBaker <$> (loadPersistentAccountBaker =<< refLoad bkr)
         PersistentAccountStakeDelegate dlg -> AccountStakeDelegate <$> refLoad dlg
-    return $ Transient.Account{..} == bAcc
+    return $ Transient.Account{..}
 
 -- |Load a field from an account's 'PersistingAccountData' pointer. E.g., @acc ^^. accountAddress@ returns the account's address.
 (^^.) ::

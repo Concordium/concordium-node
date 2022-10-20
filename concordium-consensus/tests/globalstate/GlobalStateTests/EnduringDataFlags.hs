@@ -3,7 +3,7 @@ module GlobalStateTests.EnduringDataFlags where
 import Test.Hspec
 import Test.QuickCheck
 
-import Concordium.GlobalState.Persistent.Account
+import Concordium.GlobalState.Persistent.Account.StructureV1
 
 genPendingChangeFlags :: Gen PendingChangeFlags
 genPendingChangeFlags = elements [PendingChangeNone, PendingChangeReduce, PendingChangeRemove]
