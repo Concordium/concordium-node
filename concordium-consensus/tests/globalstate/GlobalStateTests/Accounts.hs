@@ -43,7 +43,7 @@ import Prelude hiding (fail)
 
 import Control.Monad.IO.Class
 
-type PV = 'P1
+type PV = 'P5
 
 assertRight :: Either String a -> Assertion
 assertRight (Left e) = assertFailure e

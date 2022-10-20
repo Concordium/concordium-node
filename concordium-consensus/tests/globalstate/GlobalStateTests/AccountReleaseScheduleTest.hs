@@ -53,7 +53,7 @@ import Test.QuickCheck
 --------------------------------- Monad Types ----------------------------------
 
 -- |Protocol version.
-type PV = 'P1
+type PV = 'P5
 
 type PairedGSContext = PairGSContext () (PBS.PersistentBlockStateContext PV)
 
@@ -100,7 +100,7 @@ createGS dbDir = do
   now <- utcTimeToTimestamp <$> getCurrentTime
   let
     n = 3
-    genesis = makeTestingGenesisDataP1 now n 1 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters emptyIdentityProviders emptyAnonymityRevokers maxBound dummyKeyCollection dummyChainParameters
+    genesis = makeTestingGenesisDataP5 now n 1 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters emptyIdentityProviders emptyAnonymityRevokers maxBound dummyKeyCollection dummyChainParameters
     rp = defaultRuntimeParameters
     config = PairGSConfig (MTMBConfig rp, DTDBConfig rp dbDir (dbDir </> "blockstate" <.> "dat"))
   (x, y) <- runSilentLogger $ initialiseGlobalState genesis config
@@ -123,7 +123,7 @@ testing = do
   let [(accA, aiA), (accB, aiB)] = take 2 $ map (\(ai, ac) -> (ac ^. accountAddress, ai)) $ AT.toList $ accountTable (bs1 ^. blockAccounts)
   b' <- bsoAddReleaseSchedule (bs1, bs2) [(accA, head timestampsA), (accB, head timestampsB)]
   checkEqualBlockReleaseSchedule b'
-  bs'' <- foldlM (\b e@((acc, ai), rels) -> do
+  bs'' <- foldlM (\b e@((_, ai), rels) -> do
                      newB <- bsoModifyAccount b ((emptyAccountUpdate ai) { _auReleaseSchedule = Just [(rels, dummyTransactionHash)] })
                      checkCorrectAccountReleaseSchedule newB b e
                      return newB

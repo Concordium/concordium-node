@@ -46,6 +46,7 @@ import Concordium.ID.DummyData
 import Concordium.Types.DummyData
 import qualified Concordium.Genesis.Data as GenesisData
 import qualified Concordium.Genesis.Data.P1 as P1
+import qualified Concordium.Genesis.Data.P5 as P5
 
 cryptoParamsFileContents :: BS.ByteString
 cryptoParamsFileContents = $(makeRelativeToProject "testdata/global.json" >>= embedFile)
@@ -205,6 +206,51 @@ makeTestingGenesisDataP1
          }
         genesisAccounts = Vec.fromList $ makeFakeBakers nBakers
 
+{-# WARNING makeTestingGenesisDataP5 "Do not use in production" #-}
+makeTestingGenesisDataP5 ::
+    Timestamp -- ^Genesis time
+    -> Word  -- ^Initial number of bakers.
+    -> Duration  -- ^Slot duration in seconds.
+    -> BlockHeight -- ^Minimum finalization interval - 1
+    -> FinalizationCommitteeSize -- ^Maximum number of parties in the finalization committee
+    -> CryptographicParameters -- ^Initial cryptographic parameters.
+    -> IdentityProviders   -- ^List of initial identity providers.
+    -> AnonymityRevokers -- ^Initial anonymity revokers.
+    -> Energy  -- ^Maximum limit on the total stated energy of the transactions in a block
+    -> UpdateKeysCollection 'ChainParametersV1 -- ^Initial update authorizations
+    -> ChainParameters 'P5 -- ^Initial chain parameters
+    -> GenesisData 'P5
+makeTestingGenesisDataP5
+  genesisTime
+  nBakers
+  genesisSlotDuration
+  finalizationMinimumSkip
+  finalizationCommitteeMaxSize
+  genesisCryptographicParameters
+  genesisIdentityProviders
+  genesisAnonymityRevokers
+  genesisMaxBlockEnergy
+  genesisUpdateKeys
+  genesisChainParameters
+    = GDP5 P5.GDP5Initial {
+        genesisCore=GenesisData.CoreGenesisParameters{..},
+        genesisInitialState=GenesisData.GenesisState{..}
+      }
+    where
+        -- todo hardcoded epoch length (and initial seed)
+        genesisEpochLength = 10
+        genesisLeadershipElectionNonce = Hash.hash "LeadershipElectionNonce"
+        genesisFinalizationParameters =
+          FinalizationParameters {
+           finalizationWaitingTime = 100,
+           finalizationSkipShrinkFactor = 0.8,
+           finalizationSkipGrowFactor = 2,
+           finalizationDelayShrinkFactor = 0.8,
+           finalizationDelayGrowFactor = 2,
+           finalizationAllowZeroDelay = False,
+           ..
+         }
+        genesisAccounts = Vec.fromList $ makeFakeBakers nBakers
 
 {-# WARNING emptyBirkParameters "Do not use in production." #-}
 emptyBirkParameters :: IsProtocolVersion pv => Accounts pv -> BasicBirkParameters (AccountVersionFor pv)

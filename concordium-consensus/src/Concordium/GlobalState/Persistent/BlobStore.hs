@@ -129,6 +129,7 @@ import Data.Map (Map)
 import Foreign.Ptr
 import Foreign.ForeignPtr (finalizeForeignPtr)
 import System.IO.MMap
+import System.Mem
 
 import Concordium.GlobalState.Persistent.MonadicRecursive
 import Concordium.GlobalState.ContractStateFFIHelpers
@@ -263,6 +264,7 @@ closeBlobStore BlobStore{..} = do
 destroyBlobStore :: BlobStore -> IO ()
 destroyBlobStore bs@BlobStore{..} = do
     closeBlobStore bs
+    performGC
     -- Removing the file may fail (e.g. on Windows) if the handle is kept open.
     -- This could be due to the finalizer on the memory map not being run, but my attempts
     -- to force it have not proved successful.
@@ -278,7 +280,8 @@ runBlobStoreTemp dir a = bracket openf closef usef
         openf = openBinaryTempFile dir "blb.dat"
         closef (tempFP, h) = do
             hClose h
-            removeFile tempFP
+            performGC
+            removeFile tempFP `catch` (\(_ :: IOException) -> return ())
         usef (fp, h) = do
             mv <- newMVar (BlobHandle h True 0)
             mmap <- newIORef BS.empty
@@ -286,6 +289,7 @@ runBlobStoreTemp dir a = bracket openf closef usef
             (bscLoadCallback, bscStoreCallback) <- mkCallbacksFromBlobStore bscBlobStore
             res <- runBlobStoreM a BlobStore{..}
             _ <- takeMVar mv
+            writeIORef mmap BS.empty
             freeCallbacks bscLoadCallback bscStoreCallback
             return res
 

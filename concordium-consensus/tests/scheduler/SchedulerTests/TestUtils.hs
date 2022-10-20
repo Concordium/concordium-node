@@ -40,6 +40,7 @@ type PV1 = 'P1
 type PV2 = 'P2
 type PV3 = 'P3
 type PV4 = 'P4
+type PV5 = 'P5
 
 
 -- | Specification on the expected result of executing a transaction and the resulting block state.

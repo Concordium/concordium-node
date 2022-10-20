@@ -924,7 +924,7 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
     changeSet .= cs''
     cont
 
-  replaceEncryptedAmount (ai, acc) aggIndex newAmount = do
+  replaceEncryptedAmount (ai, _) aggIndex newAmount = do
     changeSet . accountUpdates . at' ai . non (emptyAccountUpdate ai) . auEncrypted ?= ReplaceUpTo{..}
 
   addAmountFromEncrypted acc amount aggIndex newAmount = do
@@ -938,7 +938,7 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
     changeSet . accountUpdates . at' ai . non (emptyAccountUpdate ai) . auEncrypted ?= Add{..}
     getAccountEncryptedAmountNextIndex acc
 
-  addSelfEncryptedAmount iacc@(ai, acc) transferredAmount newAmount = do
+  addSelfEncryptedAmount iacc@(ai, _) transferredAmount newAmount = do
     cs <- use changeSet
     changeSet <~ addAmountToCS iacc (amountDiff 0 transferredAmount) cs
     changeSet . accountUpdates . at' ai . non (emptyAccountUpdate ai) . auEncrypted ?= AddSelf{..}
