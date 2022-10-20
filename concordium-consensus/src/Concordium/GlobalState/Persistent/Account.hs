@@ -6,16 +6,15 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
+-- |This module provides an interface for operating on peristent accounts.
 module Concordium.GlobalState.Persistent.Account where
 
 import Control.Arrow
 import Control.Monad
-import Control.Monad.IO.Class
 import qualified Data.Map.Strict as Map
 
 import Concordium.ID.Parameters
 import Concordium.ID.Types
-import Concordium.Logger
 import Concordium.Types
 import Concordium.Types.Accounts
 import Concordium.Types.HashableTo
@@ -34,9 +33,11 @@ import qualified Concordium.GlobalState.Persistent.Account.StructureV1 as V1
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.Cache
 import Concordium.GlobalState.Persistent.CachedRef
-import Concordium.GlobalState.Types
 import Concordium.Types.Execution
 
+-- * Account types
+
+-- |A persistent account at a particular 'AccountVersion'.
 data PersistentAccount (av :: AccountVersion) where
     PAV0 :: !(V0.PersistentAccount 'AccountV0) -> PersistentAccount 'AccountV0
     PAV1 :: !(V0.PersistentAccount 'AccountV1) -> PersistentAccount 'AccountV1
@@ -61,6 +62,10 @@ instance (IsAccountVersion av, MonadBlobStore m) => BlobStorable m (PersistentAc
         SAccountV1 -> fmap PAV1 <$> load
         SAccountV2 -> fmap PAV2 <$> load
 
+-- |Type of references to persistent accounts.
+type AccountRef (av :: AccountVersion) = HashedCachedRef (AccountCache av) (PersistentAccount av)
+
+-- |A reference to persistent baker info.
 data PersistentBakerInfoRef (av :: AccountVersion) where
     PBIRV0 :: !(V0.PersistentBakerInfoEx 'AccountV0) -> PersistentBakerInfoRef 'AccountV0
     PBIRV1 :: !(V0.PersistentBakerInfoEx 'AccountV1) -> PersistentBakerInfoRef 'AccountV1
@@ -71,19 +76,23 @@ instance Show (PersistentBakerInfoRef av) where
     show (PBIRV1 pibr) = show pibr
     show (PBIRV2 pibr) = show pibr
 
+instance (IsAccountVersion av, MonadBlobStore m) => BlobStorable m (PersistentBakerInfoRef av) where
+    storeUpdate (PBIRV0 bir) = second PBIRV0 <$!> storeUpdate bir
+    storeUpdate (PBIRV1 bir) = second PBIRV1 <$!> storeUpdate bir
+    storeUpdate (PBIRV2 bir) = second PBIRV2 <$!> storeUpdate bir
+    load = case accountVersion @av of
+        SAccountV0 -> fmap PBIRV0 <$!> load
+        SAccountV1 -> fmap PBIRV1 <$!> load
+        SAccountV2 -> fmap PBIRV2 <$!> load
+
+-- * Account cache
+
 -- |Type alias for the cache to use for accounts.
 type AccountCache (av :: AccountVersion) = FIFOCache (PersistentAccount av)
 
 -- |Construct a new 'AccountCache' with the given size.
 newAccountCache :: Int -> IO (AccountCache av)
 newAccountCache = newCache
-
-type AccountRef (av :: AccountVersion) = HashedCachedRef (AccountCache av) (PersistentAccount av)
-
-newtype AccountOperationsMixin m a = AccountOperationsMixin {runAccountOperationsMixin :: m a}
-    deriving (Functor, Applicative, Monad, MonadIO, MonadLogger, MonadBlobStore, BlockStateTypes)
-
-deriving instance MonadProtocolVersion m => MonadProtocolVersion (AccountOperationsMixin m)
 
 -- * Queries
 
@@ -208,11 +217,25 @@ accountHash (PAV0 acc) = getHashM acc
 accountHash (PAV1 acc) = getHashM acc
 accountHash (PAV2 acc) = getHashM acc
 
+-- ** 'PersistentBakerInfoRef' queries
+
 -- |Load 'BakerInfo' from a 'PersistentBakerInfoRef'.
 loadBakerInfo :: (MonadBlobStore m) => PersistentBakerInfoRef av -> m BakerInfo
 loadBakerInfo (PBIRV0 bir) = V0.loadBakerInfo bir
 loadBakerInfo (PBIRV1 bir) = V0.loadBakerInfo bir
 loadBakerInfo (PBIRV2 bir) = V1.loadBakerInfo bir
+
+-- |Load 'BakerInfoEx' from a 'PersistentBakerInfoRef'.
+loadPersistentBakerInfoRef :: (MonadBlobStore m) => PersistentBakerInfoRef av -> m (BakerInfoEx av)
+loadPersistentBakerInfoRef (PBIRV0 bir) = V0.loadPersistentBakerInfoEx bir
+loadPersistentBakerInfoRef (PBIRV1 bir) = V0.loadPersistentBakerInfoEx bir
+loadPersistentBakerInfoRef (PBIRV2 bir) = V1.loadPersistentBakerInfoEx bir
+
+-- |Load the 'BakerId' from a 'PersistentBakerInfoRef'.
+loadBakerId :: (MonadBlobStore m) => PersistentBakerInfoRef av -> m BakerId
+loadBakerId (PBIRV0 bir) = V0.loadBakerId bir
+loadBakerId (PBIRV1 bir) = V0.loadBakerId bir
+loadBakerId (PBIRV2 bir) = V1.loadBakerId bir
 
 -- * Updates
 
@@ -441,13 +464,33 @@ newAccount = case accountVersion @av of
     SAccountV1 -> \ctx addr cred -> PAV1 <$> V0.newAccount ctx addr cred
     SAccountV2 -> \ctx addr cred -> PAV2 <$> V1.newAccount ctx addr cred
 
+-- ** 'PersistentBakerInfoRef' creation
+
+-- |Create a 'PersistentBakerInfoRef' from a 'BakerInfoEx'.
+makePersistentBakerInfoRef ::
+    forall av m.
+    (IsAccountVersion av, MonadBlobStore m) =>
+    BakerInfoEx av ->
+    m (PersistentBakerInfoRef av)
+makePersistentBakerInfoRef = case accountVersion @av of
+    SAccountV0 -> fmap PBIRV0 . V0.makePersistentBakerInfoEx
+    SAccountV1 -> fmap PBIRV1 . V0.makePersistentBakerInfoEx
+    SAccountV2 -> fmap PBIRV2 . V1.makePersistentBakerInfoEx
+
 -- * Migration
 
+-- |Serialize an account. The serialization format may depend on the protocol version.
+--
+-- This format allows accounts to be stored in a reduced format by
+-- eliding (some) data that can be inferred from context, or is
+-- the default value.  Note that there can be multiple representations
+-- of the same account.
 serializeAccount :: (MonadBlobStore m, MonadPut m) => GlobalContext -> PersistentAccount av -> m ()
 serializeAccount gc (PAV0 acc) = V0.serializeAccount gc acc
 serializeAccount gc (PAV1 acc) = V0.serializeAccount gc acc
 serializeAccount gc (PAV2 acc) = V1.serializeAccount gc acc
 
+-- |Migrate a 'PersistentAccount' between protocol versions according to a state migration.
 migratePersistentAccount ::
     forall oldpv pv t m.
     ( IsProtocolVersion oldpv,
@@ -465,6 +508,7 @@ migratePersistentAccount m@StateMigrationParametersP2P3 (PAV0 acc) = PAV0 <$> V0
 migratePersistentAccount m@StateMigrationParametersP3ToP4{} (PAV0 acc) = PAV1 <$> V0.migratePersistentAccount m acc
 migratePersistentAccount m@StateMigrationParametersP4ToP5{} (PAV1 acc) = PAV2 <$> V1.migratePersistentAccountFromV0 m acc
 
+-- |Migrate a 'PersistentBakerInfoRef' between protocol versions according to a state migration.
 migratePersistentBakerInfoRef ::
     forall oldpv pv t m.
     (IsProtocolVersion pv, SupportMigration m t) =>
@@ -479,35 +523,7 @@ migratePersistentBakerInfoRef m@StateMigrationParametersP2P3 (PBIRV0 bir) = PBIR
 migratePersistentBakerInfoRef m@StateMigrationParametersP3ToP4{} (PBIRV0 bir) = PBIRV1 <$> V0.migratePersistentBakerInfoEx m bir
 migratePersistentBakerInfoRef m@StateMigrationParametersP4ToP5{} (PBIRV1 bir) = PBIRV2 <$> V1.migratePersistentBakerInfoExFromV0 m bir
 
-loadPersistentBakerInfoRef :: (MonadBlobStore m) => PersistentBakerInfoRef av -> m (BakerInfoEx av)
-loadPersistentBakerInfoRef (PBIRV0 bir) = V0.loadPersistentBakerInfoEx bir
-loadPersistentBakerInfoRef (PBIRV1 bir) = V0.loadPersistentBakerInfoEx bir
-loadPersistentBakerInfoRef (PBIRV2 bir) = V1.loadPersistentBakerInfoEx bir
-
-loadBakerId :: (MonadBlobStore m) => PersistentBakerInfoRef av -> m BakerId
-loadBakerId (PBIRV0 bir) = V0.loadBakerId bir
-loadBakerId (PBIRV1 bir) = V0.loadBakerId bir
-loadBakerId (PBIRV2 bir) = V1.loadBakerId bir
-
-instance (IsAccountVersion av, MonadBlobStore m) => BlobStorable m (PersistentBakerInfoRef av) where
-    storeUpdate (PBIRV0 bir) = second PBIRV0 <$!> storeUpdate bir
-    storeUpdate (PBIRV1 bir) = second PBIRV1 <$!> storeUpdate bir
-    storeUpdate (PBIRV2 bir) = second PBIRV2 <$!> storeUpdate bir
-    load = case accountVersion @av of
-        SAccountV0 -> fmap PBIRV0 <$!> load
-        SAccountV1 -> fmap PBIRV1 <$!> load
-        SAccountV2 -> fmap PBIRV2 <$!> load
-
-makePersistentBakerInfoRef ::
-    forall av m.
-    (IsAccountVersion av, MonadBlobStore m) =>
-    BakerInfoEx av ->
-    m (PersistentBakerInfoRef av)
-makePersistentBakerInfoRef = case accountVersion @av of
-    SAccountV0 -> fmap PBIRV0 . V0.makePersistentBakerInfoEx
-    SAccountV1 -> fmap PBIRV1 . V0.makePersistentBakerInfoEx
-    SAccountV2 -> fmap PBIRV2 . V1.makePersistentBakerInfoEx
-
+-- * Conversion
 
 -- |Converts an account to a transient (i.e. in memory) account. (Used for testing.)
 toTransientAccount :: (MonadBlobStore m) => PersistentAccount av -> m (Transient.Account av)

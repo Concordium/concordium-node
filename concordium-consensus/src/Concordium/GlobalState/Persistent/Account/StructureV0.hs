@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -15,7 +16,9 @@ module Concordium.GlobalState.Persistent.Account.StructureV0 where
 
 import Control.Arrow
 import Control.Monad
+import Data.Foldable
 import qualified Data.Map.Strict as Map
+import Data.Maybe (isNothing)
 import Data.Serialize
 import Lens.Micro.Platform
 
@@ -23,9 +26,11 @@ import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Genesis.Data.P4 as P4
 import Concordium.ID.Parameters
 import Concordium.ID.Types hiding (values)
+import qualified Concordium.ID.Types as ID
 import Concordium.Types
 import Concordium.Types.Accounts hiding (accountBakerInfo, bakerPendingChange, stakeEarnings, stakedAmount, _bakerPendingChange, _stakedAmount)
 import qualified Concordium.Types.Accounts as BaseAccount hiding (bakerPendingChange, stakeEarnings)
+import Concordium.Types.Execution
 import Concordium.Types.HashableTo
 import qualified Concordium.Types.Migration as Migration
 import Concordium.Utils.Serialization
@@ -43,10 +48,6 @@ import Concordium.GlobalState.Persistent.Account.Structure
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule
 import Concordium.GlobalState.Persistent.CachedRef
-import qualified Concordium.ID.Types as ID
-import Concordium.Types.Execution
-import Data.Foldable
-import Data.Maybe (isNothing)
 
 -- * A note on 'Cacheable' instances for persistent accounts
 
@@ -66,14 +67,23 @@ import Data.Maybe (isNothing)
 -- having just the hash available is sufficient, but at present we retain the data instead of the
 -- hash.)
 
--- * Staking information
+-- * Account structure constraints
+
+-- |Constrain the account structure version for an account version to 'AccountStructureV0'.
+type AVStructureV0 (av :: AccountVersion) = AccountStructureVersionFor av ~ 'AccountStructureV0
+
+-- |Constrain the account structure version for a protocol version to 'AccountStructureV0'.
+type StructureV0 (pv :: ProtocolVersion) = AVStructureV0 (AccountVersionFor pv)
+
+-- * 'PersistentExtraBakerInfo'
 
 -- |Extra info (beyond 'BakerInfo') associated with a baker.
+-- Before delegation ('AccountV0'), there is no extra info.
+-- With delegation, this consists of (a reference to) the 'BakerPoolInfo'.
 -- (This type is always fully cached in memory. See $PersistentAccountCacheable for details.)
 type family PersistentExtraBakerInfo' (av :: AccountVersion) where
     PersistentExtraBakerInfo' 'AccountV0 = ()
     PersistentExtraBakerInfo' 'AccountV1 = EagerBufferedRef BakerPoolInfo
-    PersistentExtraBakerInfo' 'AccountV2 = EagerBufferedRef BakerPoolInfo
 
 -- |Extra info (beyond 'BakerInfo') associated with a baker.
 -- (This structure is always fully cached in memory. See $PersistentAccountCacheable for details.)
@@ -83,42 +93,39 @@ newtype PersistentExtraBakerInfo (av :: AccountVersion) = PersistentExtraBakerIn
 
 makeLenses ''PersistentExtraBakerInfo
 
-instance forall av. IsAccountVersion av => Show (PersistentExtraBakerInfo av) where
+instance forall av. (IsAccountVersion av, AVStructureV0 av) => Show (PersistentExtraBakerInfo av) where
     show = case accountVersion @av of
         SAccountV0 -> show . _theExtraBakerInfo
         SAccountV1 -> show . _theExtraBakerInfo
-        SAccountV2 -> show . _theExtraBakerInfo
 
 instance forall av m. (Applicative m) => Cacheable m (PersistentExtraBakerInfo av)
 
-instance forall av m. (IsAccountVersion av, MonadBlobStore m) => BlobStorable m (PersistentExtraBakerInfo av) where
+instance forall av m. (IsAccountVersion av, AVStructureV0 av, MonadBlobStore m) => BlobStorable m (PersistentExtraBakerInfo av) where
     storeUpdate =
         fmap (second PersistentExtraBakerInfo)
             . ( case accountVersion @av of
                     SAccountV0 -> storeUpdate
                     SAccountV1 -> storeUpdate
-                    SAccountV2 -> storeUpdate
               )
             . _theExtraBakerInfo
     load =
         fmap PersistentExtraBakerInfo <$> case accountVersion @av of
             SAccountV0 -> load
             SAccountV1 -> load
-            SAccountV2 -> load
 
 makePersistentExtraBakerInfoV1 ::
     forall av.
-    (IsAccountVersion av, AVSupportsDelegation av) =>
+    (IsAccountVersion av, AVStructureV0 av, AVSupportsDelegation av) =>
     EagerBufferedRef BakerPoolInfo ->
     PersistentExtraBakerInfo av
 makePersistentExtraBakerInfoV1 = case accountVersion @av of
     SAccountV1 -> PersistentExtraBakerInfo
-    SAccountV2 -> PersistentExtraBakerInfo
 
 -- |See documentation of @migratePersistentBlockState@.
 migratePersistentExtraBakerInfo' ::
     forall oldpv pv t m.
     ( IsProtocolVersion pv,
+      StructureV0 pv,
       SupportMigration m t
     ) =>
     StateMigrationParameters oldpv pv ->
@@ -130,19 +137,18 @@ migratePersistentExtraBakerInfo' migration bi = do
             case accountVersion @(AccountVersionFor oldpv) of
                 SAccountV0 -> return ()
                 SAccountV1 -> migrateEagerBufferedRef return bi
-                SAccountV2 -> migrateEagerBufferedRef return bi
         StateMigrationParametersP1P2 -> return ()
         StateMigrationParametersP2P3 -> return ()
         StateMigrationParametersP3ToP4 migrationData -> do
             let bpi = P4.defaultBakerPoolInfo migrationData
             (!newRef, _) <- refFlush =<< refMake bpi
             return newRef
-        StateMigrationParametersP4ToP5{} -> migrateEagerBufferedRef return bi
 
 -- |See documentation of @migratePersistentBlockState@.
 migratePersistentExtraBakerInfo ::
     forall oldpv pv t m.
     ( IsProtocolVersion pv,
+      StructureV0 pv,
       SupportMigration m t
     ) =>
     StateMigrationParameters oldpv pv ->
@@ -153,66 +159,18 @@ migratePersistentExtraBakerInfo migration =
         . migratePersistentExtraBakerInfo' migration
         . _theExtraBakerInfo
 
+-- * 'PersistentBakerInfoEx'
+
 -- |A persistent version of 'BakerInfoEx'.
 -- (This structure is always fully cached in memory. See $PersistentAccountCacheable for details.)
 data PersistentBakerInfoEx av = PersistentBakerInfoEx
     { bakerInfoRef :: !(EagerBufferedRef BakerInfo),
       bakerInfoExtra :: !(PersistentExtraBakerInfo av)
     }
-    deriving (Show)
 
--- |Load the baker id from the 'PersistentBakerInfoEx' structure.
-loadBakerId :: MonadBlobStore m => PersistentBakerInfoEx av -> m BakerId
-loadBakerId PersistentBakerInfoEx{..} = do
-    bi <- refLoad bakerInfoRef
-    return (_bakerIdentity bi)
+deriving instance (IsAccountVersion av, AVStructureV0 av) => Show (PersistentBakerInfoEx av)
 
--- |See documentation of @migratePersistentBlockState@.
-migratePersistentBakerInfoEx ::
-    forall oldpv pv t m.
-    ( IsProtocolVersion pv,
-      SupportMigration m t
-    ) =>
-    StateMigrationParameters oldpv pv ->
-    PersistentBakerInfoEx (AccountVersionFor oldpv) ->
-    t m (PersistentBakerInfoEx (AccountVersionFor pv))
-migratePersistentBakerInfoEx migration PersistentBakerInfoEx{..} = do
-    newBakerInfoRef <- migrateEagerBufferedRef return bakerInfoRef
-    newBakerInfoExtra <- migratePersistentExtraBakerInfo migration bakerInfoExtra
-    return
-        PersistentBakerInfoEx
-            { bakerInfoRef = newBakerInfoRef,
-              bakerInfoExtra = newBakerInfoExtra
-            }
-
--- |Load a 'BakerInfoEx' from a 'PersistentBakerInfoEx'.
-loadPersistentBakerInfoEx ::
-    forall av m.
-    (IsAccountVersion av, MonadBlobStore m) =>
-    PersistentBakerInfoEx av ->
-    m (BakerInfoEx av)
-loadPersistentBakerInfoEx PersistentBakerInfoEx{..} = do
-    bkrInfo <- refLoad bakerInfoRef
-    case accountVersion @av of
-        SAccountV0 -> return $ BakerInfoExV0 bkrInfo
-        SAccountV1 -> do
-            bkrInfoEx <- refLoad (bakerInfoExtra ^. theExtraBakerInfo)
-            return $ BakerInfoExV1 bkrInfo bkrInfoEx
-        SAccountV2 -> do
-            bkrInfoEx <- refLoad (bakerInfoExtra ^. theExtraBakerInfo)
-            return $ BakerInfoExV1 bkrInfo bkrInfoEx
-
--- |Construct a 'PersistentBakerInfoEx' from a 'BakerInfoEx'.
-makePersistentBakerInfoEx :: (IsAccountVersion av, MonadBlobStore m) => BakerInfoEx av -> m (PersistentBakerInfoEx av)
-makePersistentBakerInfoEx (BakerInfoExV0 bi) = do
-    bakerInfoRef <- refMake bi
-    return PersistentBakerInfoEx{bakerInfoExtra = PersistentExtraBakerInfo (), ..}
-makePersistentBakerInfoEx (BakerInfoExV1 bi ebi) = do
-    bakerInfoRef <- refMake bi
-    bakerInfoExtra <- makePersistentExtraBakerInfoV1 <$> refMake ebi
-    return PersistentBakerInfoEx{..}
-
-instance forall m av. (IsAccountVersion av, MonadBlobStore m) => BlobStorable m (PersistentBakerInfoEx av) where
+instance forall m av. (IsAccountVersion av, AVStructureV0 av, MonadBlobStore m) => BlobStorable m (PersistentBakerInfoEx av) where
     storeUpdate PersistentBakerInfoEx{..} = do
         (pBakerInfo, newBakerInfo) <- storeUpdate bakerInfoRef
         (pExtraBakerInfo, newExtraBakerInfo) <- storeUpdate bakerInfoExtra
@@ -235,6 +193,67 @@ instance forall m av. (IsAccountVersion av, MonadBlobStore m) => BlobStorable m 
 
 instance (Applicative m) => Cacheable m (PersistentBakerInfoEx av)
 
+-- ** Query
+
+-- |Load 'BakerInfo' from a 'PersistentBakerInfoEx'.
+loadBakerInfo :: MonadBlobStore m => PersistentBakerInfoEx av -> m BakerInfo
+loadBakerInfo = refLoad . bakerInfoRef
+
+-- |Load a 'BakerInfoEx' from a 'PersistentBakerInfoEx'.
+loadPersistentBakerInfoEx ::
+    forall av m.
+    (IsAccountVersion av, AVStructureV0 av, MonadBlobStore m) =>
+    PersistentBakerInfoEx av ->
+    m (BakerInfoEx av)
+loadPersistentBakerInfoEx PersistentBakerInfoEx{..} = do
+    bkrInfo <- refLoad bakerInfoRef
+    case accountVersion @av of
+        SAccountV0 -> return $ BakerInfoExV0 bkrInfo
+        SAccountV1 -> do
+            bkrInfoEx <- refLoad (bakerInfoExtra ^. theExtraBakerInfo)
+            return $ BakerInfoExV1 bkrInfo bkrInfoEx
+
+-- |Load the baker id from the 'PersistentBakerInfoEx' structure.
+loadBakerId :: MonadBlobStore m => PersistentBakerInfoEx av -> m BakerId
+loadBakerId PersistentBakerInfoEx{..} = do
+    bi <- refLoad bakerInfoRef
+    return (_bakerIdentity bi)
+
+-- ** Construction
+
+-- |Construct a 'PersistentBakerInfoEx' from a 'BakerInfoEx'.
+makePersistentBakerInfoEx :: (IsAccountVersion av, AVStructureV0 av, MonadBlobStore m) => BakerInfoEx av -> m (PersistentBakerInfoEx av)
+makePersistentBakerInfoEx (BakerInfoExV0 bi) = do
+    bakerInfoRef <- refMake bi
+    return PersistentBakerInfoEx{bakerInfoExtra = PersistentExtraBakerInfo (), ..}
+makePersistentBakerInfoEx (BakerInfoExV1 bi ebi) = do
+    bakerInfoRef <- refMake bi
+    bakerInfoExtra <- makePersistentExtraBakerInfoV1 <$> refMake ebi
+    return PersistentBakerInfoEx{..}
+
+-- ** Migration
+
+-- |See documentation of @migratePersistentBlockState@.
+migratePersistentBakerInfoEx ::
+    forall oldpv pv t m.
+    ( IsProtocolVersion pv,
+      StructureV0 pv,
+      SupportMigration m t
+    ) =>
+    StateMigrationParameters oldpv pv ->
+    PersistentBakerInfoEx (AccountVersionFor oldpv) ->
+    t m (PersistentBakerInfoEx (AccountVersionFor pv))
+migratePersistentBakerInfoEx migration PersistentBakerInfoEx{..} = do
+    newBakerInfoRef <- migrateEagerBufferedRef return bakerInfoRef
+    newBakerInfoExtra <- migratePersistentExtraBakerInfo migration bakerInfoExtra
+    return
+        PersistentBakerInfoEx
+            { bakerInfoRef = newBakerInfoRef,
+              bakerInfoExtra = newBakerInfoExtra
+            }
+
+-- * Persistent account baker
+
 -- |A baker associated with an account.
 -- (This structure is always fully cached in memory. See $PersistentAccountCacheable for details.)
 data PersistentAccountBaker (av :: AccountVersion) = PersistentAccountBaker
@@ -245,84 +264,11 @@ data PersistentAccountBaker (av :: AccountVersion) = PersistentAccountBaker
       _bakerPendingChange :: !(StakePendingChange av)
     }
 
-deriving instance (IsAccountVersion av) => Show (PersistentAccountBaker av)
-
--- |See documentation of @migratePersistentBlockState@.
-migratePersistentAccountBaker ::
-    forall oldpv pv t m.
-    ( IsProtocolVersion pv,
-      SupportMigration m t
-    ) =>
-    StateMigrationParameters oldpv pv ->
-    PersistentAccountBaker (AccountVersionFor oldpv) ->
-    t m (PersistentAccountBaker (AccountVersionFor pv))
-migratePersistentAccountBaker migration PersistentAccountBaker{..} = do
-    newAccountBakerInfo <- migrateEagerBufferedRef return _accountBakerInfo
-    newExtraBakerInfo <- migratePersistentExtraBakerInfo migration _extraBakerInfo
-    return
-        PersistentAccountBaker
-            { _stakedAmount = _stakedAmount,
-              _stakeEarnings = _stakeEarnings,
-              _accountBakerInfo = newAccountBakerInfo,
-              _extraBakerInfo = newExtraBakerInfo,
-              _bakerPendingChange = Migration.migrateStakePendingChange migration _bakerPendingChange
-            }
+deriving instance (IsAccountVersion av, AVStructureV0 av) => Show (PersistentAccountBaker av)
 
 makeLenses ''PersistentAccountBaker
 
--- |Getter for accessing the 'PersistentBakerInfoEx' of a 'PersistentAccountBaker'.
-accountBakerInfoEx :: Getting r (PersistentAccountBaker av) (PersistentBakerInfoEx av)
-accountBakerInfoEx = to (\PersistentAccountBaker{..} -> PersistentBakerInfoEx _accountBakerInfo _extraBakerInfo)
-
--- |Lens for accessing the reference to the 'BakerPoolInfo' of a 'PersistentAccountBaker'.
-bakerPoolInfoRef :: forall av. (IsAccountVersion av, AVSupportsDelegation av) => Lens' (PersistentAccountBaker av) (EagerBufferedRef BakerPoolInfo)
-bakerPoolInfoRef = case accountVersion @av of
-    SAccountV1 -> extraBakerInfo . theExtraBakerInfo
-    SAccountV2 -> extraBakerInfo . theExtraBakerInfo
-
--- |Load a 'PersistentAccountBaker' to an 'AccountBaker'.
-loadPersistentAccountBaker ::
-    forall av m.
-    (IsAccountVersion av, MonadBlobStore m) =>
-    PersistentAccountBaker av ->
-    m (AccountBaker av)
-loadPersistentAccountBaker PersistentAccountBaker{..} = do
-    _accountBakerInfo <-
-        loadPersistentBakerInfoEx $
-            PersistentBakerInfoEx _accountBakerInfo _extraBakerInfo
-    return AccountBaker{..}
-
-makePersistentAccountBaker ::
-    forall av m.
-    (IsAccountVersion av, MonadBlobStore m) =>
-    AccountBaker av ->
-    m (PersistentAccountBaker av)
-makePersistentAccountBaker AccountBaker{..} = do
-    case accountVersion @av of
-        SAccountV0 -> do
-            _accountBakerInfo <- refMake (_accountBakerInfo ^. bakerInfo)
-            let _extraBakerInfo = PersistentExtraBakerInfo ()
-            return PersistentAccountBaker{..}
-        SAccountV1 -> do
-            abi <- refMake (_accountBakerInfo ^. bakerInfo)
-            ebi <- refMake (_bieBakerPoolInfo _accountBakerInfo)
-            return
-                PersistentAccountBaker
-                    { _accountBakerInfo = abi,
-                      _extraBakerInfo = PersistentExtraBakerInfo ebi,
-                      ..
-                    }
-        SAccountV2 -> do
-            abi <- refMake (_accountBakerInfo ^. bakerInfo)
-            ebi <- refMake (_bieBakerPoolInfo _accountBakerInfo)
-            return
-                PersistentAccountBaker
-                    { _accountBakerInfo = abi,
-                      _extraBakerInfo = PersistentExtraBakerInfo ebi,
-                      ..
-                    }
-
-instance forall m av. (IsAccountVersion av, MonadBlobStore m) => BlobStorable m (PersistentAccountBaker av) where
+instance forall m av. (IsAccountVersion av, AVStructureV0 av, MonadBlobStore m) => BlobStorable m (PersistentAccountBaker av) where
     storeUpdate PersistentAccountBaker{..} = do
         (pBakerInfo, newBakerInfo) <- storeUpdate _accountBakerInfo
         (pExtraBakerInfo, newExtraBakerInfo) <- storeUpdate _extraBakerInfo
@@ -351,10 +297,53 @@ instance forall m av. (IsAccountVersion av, MonadBlobStore m) => BlobStorable m 
 
 instance (Applicative m) => Cacheable m (PersistentAccountBaker av)
 
+-- |Getter for accessing the 'PersistentBakerInfoEx' of a 'PersistentAccountBaker'.
+accountBakerInfoEx :: Getting r (PersistentAccountBaker av) (PersistentBakerInfoEx av)
+accountBakerInfoEx = to (\PersistentAccountBaker{..} -> PersistentBakerInfoEx _accountBakerInfo _extraBakerInfo)
+
+-- |Lens for accessing the reference to the 'BakerPoolInfo' of a 'PersistentAccountBaker'.
+bakerPoolInfoRef :: forall av. (IsAccountVersion av, AVStructureV0 av, AVSupportsDelegation av) => Lens' (PersistentAccountBaker av) (EagerBufferedRef BakerPoolInfo)
+bakerPoolInfoRef = case accountVersion @av of
+    SAccountV1 -> extraBakerInfo . theExtraBakerInfo
+
+-- |Load a 'PersistentAccountBaker' to an 'AccountBaker'.
+loadPersistentAccountBaker ::
+    forall av m.
+    (IsAccountVersion av, AVStructureV0 av, MonadBlobStore m) =>
+    PersistentAccountBaker av ->
+    m (AccountBaker av)
+loadPersistentAccountBaker PersistentAccountBaker{..} = do
+    _accountBakerInfo <-
+        loadPersistentBakerInfoEx $
+            PersistentBakerInfoEx _accountBakerInfo _extraBakerInfo
+    return AccountBaker{..}
+
+-- |Make a 'PersistentAccountBaker' from an 'AccountBaker'.
+makePersistentAccountBaker ::
+    forall av m.
+    (IsAccountVersion av, AVStructureV0 av, MonadBlobStore m) =>
+    AccountBaker av ->
+    m (PersistentAccountBaker av)
+makePersistentAccountBaker AccountBaker{..} = do
+    case accountVersion @av of
+        SAccountV0 -> do
+            _accountBakerInfo <- refMake (_accountBakerInfo ^. bakerInfo)
+            let _extraBakerInfo = PersistentExtraBakerInfo ()
+            return PersistentAccountBaker{..}
+        SAccountV1 -> do
+            abi <- refMake (_accountBakerInfo ^. bakerInfo)
+            ebi <- refMake (_bieBakerPoolInfo _accountBakerInfo)
+            return
+                PersistentAccountBaker
+                    { _accountBakerInfo = abi,
+                      _extraBakerInfo = PersistentExtraBakerInfo ebi,
+                      ..
+                    }
+
 -- |Serialize a 'PersistentAccountBaker'.
 putAccountBaker ::
     forall m av.
-    (IsAccountVersion av, MonadBlobStore m, MonadPut m) =>
+    (IsAccountVersion av, AVStructureV0 av, MonadBlobStore m, MonadPut m) =>
     PersistentAccountBaker av ->
     m ()
 putAccountBaker PersistentAccountBaker{..} = do
@@ -366,6 +355,32 @@ putAccountBaker PersistentAccountBaker{..} = do
         put _stakeEarnings
         put abie
         put _bakerPendingChange
+
+-- ** Migration
+
+-- |See documentation of @migratePersistentBlockState@.
+migratePersistentAccountBaker ::
+    forall oldpv pv t m.
+    ( IsProtocolVersion pv,
+      StructureV0 pv,
+      SupportMigration m t
+    ) =>
+    StateMigrationParameters oldpv pv ->
+    PersistentAccountBaker (AccountVersionFor oldpv) ->
+    t m (PersistentAccountBaker (AccountVersionFor pv))
+migratePersistentAccountBaker migration PersistentAccountBaker{..} = do
+    newAccountBakerInfo <- migrateEagerBufferedRef return _accountBakerInfo
+    newExtraBakerInfo <- migratePersistentExtraBakerInfo migration _extraBakerInfo
+    return
+        PersistentAccountBaker
+            { _stakedAmount = _stakedAmount,
+              _stakeEarnings = _stakeEarnings,
+              _accountBakerInfo = newAccountBakerInfo,
+              _extraBakerInfo = newExtraBakerInfo,
+              _bakerPendingChange = Migration.migrateStakePendingChange migration _bakerPendingChange
+            }
+
+-- * Persistent account stake
 
 -- |Staking information associated with an account.
 -- IMPORTANT NOTE: The 'Cacheable' instance relies on the fact that no recursive caching is
@@ -381,46 +396,12 @@ data PersistentAccountStake (av :: AccountVersion) where
         !(EagerBufferedRef (AccountDelegation av)) ->
         PersistentAccountStake av
 
-deriving instance (IsAccountVersion av) => Show (PersistentAccountStake av)
+deriving instance (IsAccountVersion av, AVStructureV0 av) => Show (PersistentAccountStake av)
 
--- |See documentation of @migratePersistentBlockState@.
-migratePersistentAccountStake ::
-    forall oldpv pv t m.
-    ( IsProtocolVersion oldpv,
-      IsProtocolVersion pv,
-      SupportMigration m t
-    ) =>
-    StateMigrationParameters oldpv pv ->
-    PersistentAccountStake (AccountVersionFor oldpv) ->
-    t m (PersistentAccountStake (AccountVersionFor pv))
-migratePersistentAccountStake _ PersistentAccountStakeNone = return PersistentAccountStakeNone
-migratePersistentAccountStake migration (PersistentAccountStakeBaker r) = PersistentAccountStakeBaker <$!> migrateEagerBufferedRef (migratePersistentAccountBaker migration) r
-migratePersistentAccountStake migration (PersistentAccountStakeDelegate r) =
-    case migration of
-        StateMigrationParametersTrivial ->
-            PersistentAccountStakeDelegate
-                <$!> migrateEagerBufferedRef return r
-        StateMigrationParametersP4ToP5 ->
-            PersistentAccountStakeDelegate
-                <$!> migrateEagerBufferedRef
-                    ( \AccountDelegationV1{_delegationPendingChange = pc, ..} ->
-                        return
-                            ( AccountDelegationV1
-                                { _delegationPendingChange =
-                                    Migration.migrateStakePendingChange migration pc,
-                                  ..
-                                }
-                            )
-                    )
-                    r
-
--- the other cases are impossible at the moment since protocols <= 3 do not have delegation.
-
-instance forall m av. (MonadBlobStore m, IsAccountVersion av) => BlobStorable m (PersistentAccountStake av) where
+instance forall m av. (MonadBlobStore m, IsAccountVersion av, AVStructureV0 av) => BlobStorable m (PersistentAccountStake av) where
     storeUpdate = case accountVersion @av of
         SAccountV0 -> su0
         SAccountV1 -> su1
-        SAccountV2 -> su1
       where
         su0 :: PersistentAccountStake 'AccountV0 -> m (Put, PersistentAccountStake 'AccountV0)
         su0 pas@PersistentAccountStakeNone = return (put (refNull :: BlobRef (PersistentAccountBaker av)), pas)
@@ -438,7 +419,6 @@ instance forall m av. (MonadBlobStore m, IsAccountVersion av) => BlobStorable m 
     load = case accountVersion @av of
         SAccountV0 -> l0
         SAccountV1 -> l1
-        SAccountV2 -> l1
       where
         l0 :: Get (m (PersistentAccountStake av))
         l0 = do
@@ -453,23 +433,38 @@ instance forall m av. (MonadBlobStore m, IsAccountVersion av) => BlobStorable m 
                 2 -> fmap PersistentAccountStakeDelegate <$> load
                 _ -> fail "Invalid staking type"
 
--- |Load a 'PersistentAccountStake'.
-loadAccountStake :: (MonadBlobStore m, IsAccountVersion av) => PersistentAccountStake av -> m (AccountStake av)
-loadAccountStake PersistentAccountStakeNone = return AccountStakeNone
-loadAccountStake (PersistentAccountStakeBaker bkr) = AccountStakeBaker <$> (loadPersistentAccountBaker =<< refLoad bkr)
-loadAccountStake (PersistentAccountStakeDelegate dlg) = AccountStakeDelegate <$> refLoad dlg
-
 instance (Applicative m) => Cacheable m (PersistentAccountStake av)
 
-instance (MonadBlobStore m, IsAccountVersion av) => MHashableTo m (AccountStakeHash av) (PersistentAccountStake av) where
+instance (MonadBlobStore m, IsAccountVersion av, AVStructureV0 av) => MHashableTo m (AccountStakeHash av) (PersistentAccountStake av) where
     getHashM PersistentAccountStakeNone = return $ getAccountStakeHash AccountStakeNone
     getHashM (PersistentAccountStakeBaker bkrref) =
         getAccountStakeHash . AccountStakeBaker <$> (loadPersistentAccountBaker =<< refLoad bkrref)
     getHashM (PersistentAccountStakeDelegate dlgref) =
         getAccountStakeHash . AccountStakeDelegate <$> refLoad dlgref
 
--- |Type for a reference to an account's persisting data.
-type AccountPersisting = EagerlyHashedBufferedRef' PersistingAccountDataHash PersistingAccountData
+-- |Load a 'PersistentAccountStake'.
+loadAccountStake :: (MonadBlobStore m, IsAccountVersion av, AVStructureV0 av) => PersistentAccountStake av -> m (AccountStake av)
+loadAccountStake PersistentAccountStakeNone = return AccountStakeNone
+loadAccountStake (PersistentAccountStakeBaker bkr) = AccountStakeBaker <$> (loadPersistentAccountBaker =<< refLoad bkr)
+loadAccountStake (PersistentAccountStakeDelegate dlg) = AccountStakeDelegate <$> refLoad dlg
+
+-- |See documentation of @migratePersistentBlockState@.
+migratePersistentAccountStake ::
+    forall oldpv pv t m.
+    ( IsProtocolVersion oldpv,
+      IsProtocolVersion pv,
+      StructureV0 oldpv,
+      StructureV0 pv,
+      SupportMigration m t
+    ) =>
+    StateMigrationParameters oldpv pv ->
+    PersistentAccountStake (AccountVersionFor oldpv) ->
+    t m (PersistentAccountStake (AccountVersionFor pv))
+migratePersistentAccountStake _ PersistentAccountStakeNone = return PersistentAccountStakeNone
+migratePersistentAccountStake migration (PersistentAccountStakeBaker r) = PersistentAccountStakeBaker <$!> migrateEagerBufferedRef (migratePersistentAccountBaker migration) r
+migratePersistentAccountStake StateMigrationParametersTrivial (PersistentAccountStakeDelegate r) =
+    PersistentAccountStakeDelegate
+        <$!> migrateEagerBufferedRef return r
 
 -- * Persistent account
 
@@ -487,37 +482,12 @@ data PersistentAccount (av :: AccountVersion) = PersistentAccount
       -- |Schedule of releases on the account.
       _accountReleaseSchedule :: !(EagerBufferedRef AccountReleaseSchedule),
       -- |A pointer to account data that changes rarely
-      _persistingData :: !AccountPersisting,
+      _persistingData :: !(EagerlyHashedBufferedRef' PersistingAccountDataHash PersistingAccountData),
       -- |The baker info
       _accountStake :: !(PersistentAccountStake av)
     }
 
 makeLenses ''PersistentAccount
-
--- |See documentation of @migratePersistentBlockState@.
-migratePersistentAccount ::
-    forall oldpv pv t m.
-    ( IsProtocolVersion oldpv,
-      IsProtocolVersion pv,
-      SupportMigration m t
-    ) =>
-    StateMigrationParameters oldpv pv ->
-    PersistentAccount (AccountVersionFor oldpv) ->
-    t m (PersistentAccount (AccountVersionFor pv))
-migratePersistentAccount migration PersistentAccount{..} = do
-    !newAccountEncryptedAmount <- migrateEagerBufferedRef migratePersistentEncryptedAmount _accountEncryptedAmount
-    !newAccountReleaseSchedule <- migrateEagerBufferedRef migratePersistentAccountReleaseSchedule _accountReleaseSchedule
-    !newPersistingData <- migrateEagerlyHashedBufferedRefKeepHash return _persistingData
-    !newAccountStake <- migratePersistentAccountStake migration _accountStake
-    return
-        PersistentAccount
-            { _accountNonce = _accountNonce,
-              _accountAmount = _accountAmount,
-              _accountEncryptedAmount = newAccountEncryptedAmount,
-              _accountReleaseSchedule = newAccountReleaseSchedule,
-              _persistingData = newPersistingData,
-              _accountStake = newAccountStake
-            }
 
 accountBaker :: SimpleGetter (PersistentAccount av) (Nullable (EagerBufferedRef (PersistentAccountBaker av)))
 accountBaker = to g
@@ -525,14 +495,9 @@ accountBaker = to g
     g PersistentAccount{_accountStake = PersistentAccountStakeBaker bkr} = Some bkr
     g _ = Null
 
--- |Get the 'AccountDelegation' on an account if present.
-loadAccountDelegator :: (MonadBlobStore m, IsAccountVersion av) => PersistentAccount av -> m (Maybe (AccountDelegation av))
-loadAccountDelegator PersistentAccount{_accountStake = PersistentAccountStakeDelegate del} = Just <$> refLoad del
-loadAccountDelegator _ = return Nothing
+deriving instance (IsAccountVersion av, AVStructureV0 av) => Show (PersistentAccount av)
 
-deriving instance (IsAccountVersion av, Show (PersistentExtraBakerInfo av)) => Show (PersistentAccount av)
-
-instance (MonadBlobStore m, IsAccountVersion av) => BlobStorable m (PersistentAccount av) where
+instance (MonadBlobStore m, IsAccountVersion av, AVStructureV0 av) => BlobStorable m (PersistentAccount av) where
     storeUpdate PersistentAccount{..} = do
         (pAccData :: Put, accData) <- storeUpdate _persistingData
         (pEnc, encData) <- storeUpdate _accountEncryptedAmount
@@ -573,7 +538,7 @@ instance (MonadBlobStore m, IsAccountVersion av) => BlobStorable m (PersistentAc
 instance (Applicative m) => Cacheable m (PersistentAccount av)
 
 -- |Generate the inputs for computing the account hash at V0.
-hashInputsV0 :: (MonadBlobStore m, IsAccountVersion av) => PersistentAccount av -> m (AccountHashInputsV0 av)
+hashInputsV0 :: (MonadBlobStore m, IsAccountVersion av, AVStructureV0 av) => PersistentAccount av -> m (AccountHashInputsV0 av)
 hashInputsV0 PersistentAccount{..} = do
     eData <- refLoad _accountEncryptedAmount
     eData' <- loadPersistentAccountEncryptedAmount eData
@@ -601,79 +566,6 @@ instance (MonadBlobStore m) => MHashableTo m Hash.Hash (PersistentAccount 'Accou
 
 instance (MonadBlobStore m) => MHashableTo m Hash.Hash (PersistentAccount 'AccountV1) where
     getHashM = fmap (theAccountHash @'AccountV1) . getHashM
-
-
--- |Create an empty account with the given public key, address and credential.
-newAccount ::
-    forall m av.
-    (MonadBlobStore m) =>
-    GlobalContext ->
-    AccountAddress ->
-    AccountCredential ->
-    m (PersistentAccount av)
-newAccount cryptoParams _accountAddress credential = do
-    let creds = Map.singleton initialCredentialIndex credential
-    let newPData =
-            PersistingAccountData
-                { _accountEncryptionKey = toRawEncryptionKey (makeEncryptionKey cryptoParams (credId credential)),
-                  _accountCredentials = toRawAccountCredential <$> creds,
-                  _accountVerificationKeys = getAccountInformation 1 creds,
-                  _accountRemovedCredentials = emptyHashedRemovedCredentials,
-                  ..
-                } ::
-                PersistingAccountData
-    _persistingData <- refMake newPData
-    let _accountNonce = minNonce
-        _accountAmount = 0
-        _accountStake = PersistentAccountStakeNone @av
-    accountEncryptedAmountData <- initialPersistentAccountEncryptedAmount
-    _accountEncryptedAmount <- refMake accountEncryptedAmountData
-    let relSched = emptyAccountReleaseSchedule
-    _accountReleaseSchedule <- refMake relSched
-    return PersistentAccount{..}
-
--- |Make a 'PersistentAccount' from an 'Transient.Account'.
-makePersistentAccount :: (MonadBlobStore m, IsAccountVersion av) => Transient.Account av -> m (PersistentAccount av)
-makePersistentAccount tacc@Transient.Account{..} = do
-    _persistingData <- refMake (tacc ^. persistingAccountData)
-    _accountEncryptedAmount' <- refMake =<< storePersistentAccountEncryptedAmount _accountEncryptedAmount
-    _accountReleaseSchedule' <- refMake =<< storePersistentAccountReleaseSchedule _accountReleaseSchedule
-    _accountStake <- case _accountStaking of
-        AccountStakeNone -> return PersistentAccountStakeNone
-        AccountStakeBaker ab -> PersistentAccountStakeBaker <$> (refMake =<< makePersistentAccountBaker ab)
-        AccountStakeDelegate ad@AccountDelegationV1{} -> PersistentAccountStakeDelegate <$> refMake ad
-    return PersistentAccount{_accountEncryptedAmount = _accountEncryptedAmount', _accountReleaseSchedule = _accountReleaseSchedule', ..}
-
--- |Make a 'PersistentAccount' reference from a hashed 'Transient.Account'.
-makePersistentAccountRef ::
-    (MonadBlobStore m, IsAccountVersion av) =>
-    Hashed' (AccountHash av) (Transient.Account av) ->
-    m (HashedCachedRef c (PersistentAccount av))
-makePersistentAccountRef (Hashed tacc acctHash) = do
-    pacc <- makePersistentAccount tacc
-    makeHashedCachedRef pacc (theAccountHash acctHash)
-
--- |Set the baker of an account.
-setPersistentAccountStake ::
-    forall m av.
-    (Monad m) =>
-    PersistentAccount av ->
-    PersistentAccountStake av ->
-    m (PersistentAccount av)
-setPersistentAccountStake pac newStake = do
-    return $! pac{_accountStake = newStake}
-
--- |Converts an account to a transient (i.e. in memory) account. (Used for testing.)
-toTransientAccount :: forall m av. (MonadBlobStore m, IsAccountVersion av) => PersistentAccount av -> m (Transient.Account av)
-toTransientAccount PersistentAccount{..} = do
-    _accountPersisting <- Transient.makeAccountPersisting <$> refLoad _persistingData
-    _accountEncryptedAmount <- loadPersistentAccountEncryptedAmount =<< refLoad _accountEncryptedAmount
-    _accountReleaseSchedule <- loadPersistentAccountReleaseSchedule =<< refLoad _accountReleaseSchedule
-    _accountStaking <- case _accountStake of
-        PersistentAccountStakeNone -> return AccountStakeNone
-        PersistentAccountStakeBaker bkr -> AccountStakeBaker <$> (loadPersistentAccountBaker =<< refLoad bkr)
-        PersistentAccountStakeDelegate dlg -> AccountStakeDelegate <$> refLoad dlg
-    return $ Transient.Account{..}
 
 -- |Load a field from an account's 'PersistingAccountData' pointer. E.g., @acc ^^. accountAddress@ returns the account's address.
 (^^.) ::
@@ -727,62 +619,7 @@ infixr 4 .~~
 
 infixr 4 %~~
 
--- * Serialization
-
--- |Serialize an account. The serialization format may depend on the protocol version.
---
--- This format allows accounts to be stored in a reduced format by
--- eliding (some) data that can be inferred from context, or is
--- the default value.  Note that there can be multiple representations
--- of the same account.
-serializeAccount :: forall m av. (MonadBlobStore m, MonadPut m, IsAccountVersion av) => GlobalContext -> PersistentAccount av -> m ()
-serializeAccount cryptoParams PersistentAccount{..} = do
-    PersistingAccountData{..} <- refLoad _persistingData
-    let initialCredId =
-            credId
-                ( Map.findWithDefault
-                    (error "Account missing initial credential")
-                    initialCredentialIndex
-                    _accountCredentials
-                )
-        asfExplicitAddress = _accountAddress /= addressFromRegIdRaw initialCredId
-        -- There is an opportunity for improvement here. There is no need to go
-        -- through the deserialized key. The way the encryption key is formed is
-        -- that the first half is the generator, the second half is the credId.
-        -- So we could just concatenate them. This requires a bit of scaffolding
-        -- to get the right component out of cryptoParams, so it is not yet
-        -- done.
-        asfExplicitEncryptionKey = _accountEncryptionKey /= toRawEncryptionKey (makeEncryptionKey cryptoParams (unsafeCredIdFromRaw initialCredId))
-        (asfMultipleCredentials, putCredentials) = case Map.toList _accountCredentials of
-            [(i, cred)] | i == initialCredentialIndex -> (False, put cred)
-            _ -> (True, putSafeMapOf put put _accountCredentials)
-        asfThresholdIsOne = aiThreshold _accountVerificationKeys == 1
-        asfHasRemovedCredentials = _accountRemovedCredentials ^. unhashed /= EmptyRemovedCredentials
-    aea <- refLoad _accountEncryptedAmount
-    (asfExplicitEncryptedAmount, putEA) <-
-        putAccountEncryptedAmountV0 aea <&> \case
-            Nothing -> (False, return ())
-            Just p -> (True, p)
-    arSched <- loadPersistentAccountReleaseSchedule =<< refLoad _accountReleaseSchedule
-    let asfExplicitReleaseSchedule = arSched /= Transient.emptyAccountReleaseSchedule
-        asfHasBakerOrDelegation = case _accountStake of
-            PersistentAccountStakeNone -> False
-            _ -> True
-    stake <- loadAccountStake _accountStake
-    liftPut $ do
-        put AccountSerializationFlags{..}
-        when asfExplicitAddress $ put _accountAddress
-        when asfExplicitEncryptionKey $ put _accountEncryptionKey
-        unless asfThresholdIsOne $ put (aiThreshold _accountVerificationKeys)
-        putCredentials
-        when asfHasRemovedCredentials $ put (_accountRemovedCredentials ^. unhashed)
-        put _accountNonce
-        put _accountAmount
-        putEA
-        when asfExplicitReleaseSchedule $ put arSched
-        when asfHasBakerOrDelegation $ serializeAccountStake stake
-
--- * Operations
+-- ** Queries
 
 -- |Get the canonical address of the account.
 getCanonicalAddress :: (MonadBlobStore m) => PersistentAccount av -> m AccountAddress
@@ -795,7 +632,7 @@ getAmount = pure . view accountAmount
 -- | Get the current public account available balance.
 -- This accounts for lock-up and staked amounts.
 -- @available = total - max locked staked@
-getAvailableAmount :: (MonadBlobStore m, IsAccountVersion av) => PersistentAccount av -> m Amount
+getAvailableAmount :: (MonadBlobStore m, IsAccountVersion av, AVStructureV0 av) => PersistentAccount av -> m Amount
 getAvailableAmount acc = do
     total <- getAmount acc
     lockedUp <- Transient._totalLockedUpBalance <$> getReleaseSchedule acc
@@ -849,7 +686,7 @@ getReleaseSchedule :: MonadBlobStore m => PersistentAccount av -> m Transient.Ac
 getReleaseSchedule acc = loadPersistentAccountReleaseSchedule =<< refLoad (acc ^. accountReleaseSchedule)
 
 -- |Get the baker and baker info reference (if any) attached to the account.
-getBakerAndInfoRef :: forall m av. (MonadBlobStore m, IsAccountVersion av) => PersistentAccount av -> m (Maybe (AccountBaker av, PersistentBakerInfoEx av))
+getBakerAndInfoRef :: forall m av. (MonadBlobStore m, IsAccountVersion av, AVStructureV0 av) => PersistentAccount av -> m (Maybe (AccountBaker av, PersistentBakerInfoEx av))
 getBakerAndInfoRef acc = case acc ^. accountBaker of
     Null -> return Nothing
     Some bref -> do
@@ -877,12 +714,12 @@ getBakerAndInfoRef acc = case acc ^. accountBaker of
                         )
 
 -- |Get the baker (if any) attached to an account.
-getBaker :: forall m av. (MonadBlobStore m, IsAccountVersion av) => PersistentAccount av -> m (Maybe (AccountBaker av))
+getBaker :: forall m av. (MonadBlobStore m, IsAccountVersion av, AVStructureV0 av) => PersistentAccount av -> m (Maybe (AccountBaker av))
 getBaker acc = fmap fst <$> getBakerAndInfoRef acc
 
 -- |Get the baker and baker info reference (if any) attached to the account.
 getBakerInfoRef ::
-    (MonadBlobStore m, IsAccountVersion av) =>
+    (MonadBlobStore m, IsAccountVersion av, AVStructureV0 av) =>
     PersistentAccount av ->
     m (Maybe (PersistentBakerInfoEx av))
 getBakerInfoRef acc = case acc ^. accountBaker of
@@ -893,10 +730,11 @@ getBakerInfoRef acc = case acc ^. accountBaker of
 
 -- |Get the delegator (if any) attached to the account.
 getDelegator :: (MonadBlobStore m, IsAccountVersion av) => PersistentAccount av -> m (Maybe (AccountDelegation av))
-getDelegator = loadAccountDelegator
+getDelegator PersistentAccount{_accountStake = PersistentAccountStakeDelegate del} = Just <$> refLoad del
+getDelegator _ = return Nothing
 
 -- |Get the baker or stake delegation information attached to an account.
-getStake :: (MonadBlobStore m, IsAccountVersion av) => PersistentAccount av -> m (AccountStake av)
+getStake :: (MonadBlobStore m, IsAccountVersion av, AVStructureV0 av) => PersistentAccount av -> m (AccountStake av)
 getStake acc = loadAccountStake (acc ^. accountStake)
 
 -- |Determine if an account has stake as a baker or delegator.
@@ -906,7 +744,7 @@ hasStake acc = case acc ^. accountStake of
     _ -> True
 
 -- |Get details about an account's stake.
-getStakeDetails :: (MonadBlobStore m, IsAccountVersion av) => PersistentAccount av -> m (StakeDetails av)
+getStakeDetails :: (MonadBlobStore m, IsAccountVersion av, AVStructureV0 av) => PersistentAccount av -> m (StakeDetails av)
 getStakeDetails acc = case acc ^. accountStake of
     PersistentAccountStakeNone -> return StakeDetailsNone
     PersistentAccountStakeBaker bkrRef -> do
@@ -928,20 +766,16 @@ getStakeDetails acc = case acc ^. accountStake of
                 }
 
 -- |Gets the amount of a baker's stake, or 'Nothing' if the account is not a baker.
-getBakerStakeAmount :: (MonadBlobStore m, IsAccountVersion av) => PersistentAccount av -> m (Maybe Amount)
+getBakerStakeAmount :: (MonadBlobStore m, IsAccountVersion av, AVStructureV0 av) => PersistentAccount av -> m (Maybe Amount)
 getBakerStakeAmount acc = case acc ^. accountBaker of
     Null -> return Nothing
     Some bref -> do
         bkr <- refLoad bref
         return . Just $! bkr ^. stakedAmount
 
--- |Load 'BakerInfo' from a 'PersistentBakerInfoEx'.
-loadBakerInfo :: MonadBlobStore m => PersistentBakerInfoEx av -> m BakerInfo
-loadBakerInfo = refLoad . bakerInfoRef
-
 -- |Apply account updates to an account. It is assumed that the address in
 -- account updates and account are the same.
-updateAccount :: forall m av. (MonadBlobStore m) => AccountUpdate -> PersistentAccount av -> m (PersistentAccount av)
+updateAccount :: forall m av. (MonadBlobStore m, AVStructureV0 av) => AccountUpdate -> PersistentAccount av -> m (PersistentAccount av)
 updateAccount !upd !acc = do
     releaseScheduleUpdate <- case upd ^. auReleaseSchedule of
         Just l -> do
@@ -973,6 +807,8 @@ updateAccount !upd !acc = do
   where
     setMaybe (Just x) _ = x
     setMaybe Nothing y = y
+
+-- ** Updates
 
 -- |Add or remove credentials on an account.
 -- The caller must ensure the following, which are not checked:
@@ -1012,7 +848,7 @@ updateAccountCredentialKeys credIndex credKeys = setPAD (updateCredentialKeys cr
 addAmount :: (MonadBlobStore m) => Amount -> PersistentAccount av -> m (PersistentAccount av)
 addAmount !amt acc = return $! acc & accountAmount +~ amt
 
-applyPendingStakeChange :: (MonadBlobStore m, IsAccountVersion av) => PersistentAccount av -> m (PersistentAccount av)
+applyPendingStakeChange :: (MonadBlobStore m, IsAccountVersion av, AVStructureV0 av) => PersistentAccount av -> m (PersistentAccount av)
 applyPendingStakeChange acc = case acc ^. accountStake of
     PersistentAccountStakeNone -> noPendingChange
     PersistentAccountStakeBaker ebr -> do
@@ -1060,7 +896,7 @@ addBakerV0 bid BakerAdd{..} acc = do
 -- |Add a baker to an account for account version 1.
 -- This will replace any existing staking information on the account.
 addBakerV1 ::
-    (MonadBlobStore m, IsAccountVersion av, AVSupportsDelegation av) =>
+    (MonadBlobStore m, IsAccountVersion av, AVStructureV0 av, AVSupportsDelegation av) =>
     -- |Extended baker info
     BakerInfoEx av ->
     -- |Baker's equity capital
@@ -1098,7 +934,7 @@ addDelegator del acc = do
 -- |Update the pool info on a baker account.
 -- This MUST only be called with an account that is a baker.
 updateBakerPoolInfo ::
-    (MonadBlobStore m, IsAccountVersion av, AVSupportsDelegation av) =>
+    (MonadBlobStore m, IsAccountVersion av, AVStructureV0 av, AVSupportsDelegation av) =>
     BakerPoolInfoUpdate ->
     PersistentAccount av ->
     m (PersistentAccount av)
@@ -1115,7 +951,7 @@ updateBakerPoolInfo _ _ = error "updateBakerPoolInfo invariant violation: accoun
 -- |Set the baker keys on a baker account.
 -- This MUST only be called with an account that is a baker.
 setBakerKeys ::
-    (MonadBlobStore m, IsAccountVersion av) =>
+    (MonadBlobStore m, IsAccountVersion av, AVStructureV0 av) =>
     BakerKeyUpdate ->
     PersistentAccount av ->
     m (PersistentAccount av)
@@ -1138,7 +974,7 @@ setBakerKeys _ _ = error "setBakerKeys invariant violation: account is not a bak
 -- This MUST only be called with an account that is either a baker or delegator.
 -- This does no check that the staked amount is sensible, and has no effect on pending changes.
 setStake ::
-    (MonadBlobStore m, IsAccountVersion av) =>
+    (MonadBlobStore m, IsAccountVersion av, AVStructureV0 av) =>
     Amount ->
     PersistentAccount av ->
     m (PersistentAccount av)
@@ -1155,7 +991,7 @@ setStake _ _ = error "setStake invariant violation: account is not a baker or de
 -- |Set whether a baker or delegator account restakes its earnings.
 -- This MUST only be called with an account that is either a baker or delegator.
 setRestakeEarnings ::
-    (MonadBlobStore m, IsAccountVersion av) =>
+    (MonadBlobStore m, IsAccountVersion av, AVStructureV0 av) =>
     Bool ->
     PersistentAccount av ->
     m (PersistentAccount av)
@@ -1172,7 +1008,7 @@ setRestakeEarnings _ _ = error "setRestakeEarnings invariant violation: account 
 -- |Set the pending change on baker or delegator account.
 -- This MUST only be called with an account that is either a baker or delegator.
 setStakePendingChange ::
-    (MonadBlobStore m, IsAccountVersion av) =>
+    (MonadBlobStore m, IsAccountVersion av, AVStructureV0 av) =>
     StakePendingChange av ->
     PersistentAccount av ->
     m (PersistentAccount av)
@@ -1209,7 +1045,7 @@ removeStaking acc = return $! acc{_accountStake = PersistentAccountStakeNone}
 -- |Set the commission rates on a baker account.
 -- This MUST only be called with an account that is a baker.
 setCommissionRates ::
-    (MonadBlobStore m, IsAccountVersion av, AVSupportsDelegation av) =>
+    (MonadBlobStore m, IsAccountVersion av, AVStructureV0 av, AVSupportsDelegation av) =>
     CommissionRates ->
     PersistentAccount av ->
     m (PersistentAccount av)
@@ -1231,3 +1067,153 @@ unlockReleases ts acc = do
     rDataRef <- refMake rData'
     let !acc' = acc & accountReleaseSchedule .~ rDataRef
     return (nextTs, acc')
+
+-- ** Creation
+
+-- |Create an empty account with the given public key, address and credential.
+newAccount ::
+    forall m av.
+    (MonadBlobStore m) =>
+    GlobalContext ->
+    AccountAddress ->
+    AccountCredential ->
+    m (PersistentAccount av)
+newAccount cryptoParams _accountAddress credential = do
+    let creds = Map.singleton initialCredentialIndex credential
+    let newPData =
+            PersistingAccountData
+                { _accountEncryptionKey = toRawEncryptionKey (makeEncryptionKey cryptoParams (credId credential)),
+                  _accountCredentials = toRawAccountCredential <$> creds,
+                  _accountVerificationKeys = getAccountInformation 1 creds,
+                  _accountRemovedCredentials = emptyHashedRemovedCredentials,
+                  ..
+                } ::
+                PersistingAccountData
+    _persistingData <- refMake newPData
+    let _accountNonce = minNonce
+        _accountAmount = 0
+        _accountStake = PersistentAccountStakeNone @av
+    accountEncryptedAmountData <- initialPersistentAccountEncryptedAmount
+    _accountEncryptedAmount <- refMake accountEncryptedAmountData
+    let relSched = emptyAccountReleaseSchedule
+    _accountReleaseSchedule <- refMake relSched
+    return PersistentAccount{..}
+
+-- |Make a 'PersistentAccount' from an 'Transient.Account'.
+makePersistentAccount :: (MonadBlobStore m, IsAccountVersion av, AVStructureV0 av) => Transient.Account av -> m (PersistentAccount av)
+makePersistentAccount tacc@Transient.Account{..} = do
+    _persistingData <- refMake (tacc ^. persistingAccountData)
+    _accountEncryptedAmount' <- refMake =<< storePersistentAccountEncryptedAmount _accountEncryptedAmount
+    _accountReleaseSchedule' <- refMake =<< storePersistentAccountReleaseSchedule _accountReleaseSchedule
+    _accountStake <- case _accountStaking of
+        AccountStakeNone -> return PersistentAccountStakeNone
+        AccountStakeBaker ab -> PersistentAccountStakeBaker <$> (refMake =<< makePersistentAccountBaker ab)
+        AccountStakeDelegate ad@AccountDelegationV1{} -> PersistentAccountStakeDelegate <$> refMake ad
+    return PersistentAccount{_accountEncryptedAmount = _accountEncryptedAmount', _accountReleaseSchedule = _accountReleaseSchedule', ..}
+
+-- |Make a 'PersistentAccount' reference from a hashed 'Transient.Account'.
+makePersistentAccountRef ::
+    (MonadBlobStore m, IsAccountVersion av, AVStructureV0 av) =>
+    Hashed' (AccountHash av) (Transient.Account av) ->
+    m (HashedCachedRef c (PersistentAccount av))
+makePersistentAccountRef (Hashed tacc acctHash) = do
+    pacc <- makePersistentAccount tacc
+    makeHashedCachedRef pacc (theAccountHash acctHash)
+
+-- ** Migration
+
+-- |See documentation of @migratePersistentBlockState@.
+migratePersistentAccount ::
+    forall oldpv pv t m.
+    ( IsProtocolVersion oldpv,
+      IsProtocolVersion pv,
+      StructureV0 oldpv,
+      StructureV0 pv,
+      SupportMigration m t
+    ) =>
+    StateMigrationParameters oldpv pv ->
+    PersistentAccount (AccountVersionFor oldpv) ->
+    t m (PersistentAccount (AccountVersionFor pv))
+migratePersistentAccount migration PersistentAccount{..} = do
+    !newAccountEncryptedAmount <- migrateEagerBufferedRef migratePersistentEncryptedAmount _accountEncryptedAmount
+    !newAccountReleaseSchedule <- migrateEagerBufferedRef migratePersistentAccountReleaseSchedule _accountReleaseSchedule
+    !newPersistingData <- migrateEagerlyHashedBufferedRefKeepHash return _persistingData
+    !newAccountStake <- migratePersistentAccountStake migration _accountStake
+    return
+        PersistentAccount
+            { _accountNonce = _accountNonce,
+              _accountAmount = _accountAmount,
+              _accountEncryptedAmount = newAccountEncryptedAmount,
+              _accountReleaseSchedule = newAccountReleaseSchedule,
+              _persistingData = newPersistingData,
+              _accountStake = newAccountStake
+            }
+
+-- ** Serialization
+
+-- |Serialize an account. The serialization format may depend on the protocol version.
+--
+-- This format allows accounts to be stored in a reduced format by
+-- eliding (some) data that can be inferred from context, or is
+-- the default value.  Note that there can be multiple representations
+-- of the same account.
+serializeAccount :: forall m av. (MonadBlobStore m, MonadPut m, IsAccountVersion av, AVStructureV0 av) => GlobalContext -> PersistentAccount av -> m ()
+serializeAccount cryptoParams PersistentAccount{..} = do
+    PersistingAccountData{..} <- refLoad _persistingData
+    let initialCredId =
+            credId
+                ( Map.findWithDefault
+                    (error "Account missing initial credential")
+                    initialCredentialIndex
+                    _accountCredentials
+                )
+        asfExplicitAddress = _accountAddress /= addressFromRegIdRaw initialCredId
+        -- There is an opportunity for improvement here. There is no need to go
+        -- through the deserialized key. The way the encryption key is formed is
+        -- that the first half is the generator, the second half is the credId.
+        -- So we could just concatenate them. This requires a bit of scaffolding
+        -- to get the right component out of cryptoParams, so it is not yet
+        -- done.
+        asfExplicitEncryptionKey = _accountEncryptionKey /= toRawEncryptionKey (makeEncryptionKey cryptoParams (unsafeCredIdFromRaw initialCredId))
+        (asfMultipleCredentials, putCredentials) = case Map.toList _accountCredentials of
+            [(i, cred)] | i == initialCredentialIndex -> (False, put cred)
+            _ -> (True, putSafeMapOf put put _accountCredentials)
+        asfThresholdIsOne = aiThreshold _accountVerificationKeys == 1
+        asfHasRemovedCredentials = _accountRemovedCredentials ^. unhashed /= EmptyRemovedCredentials
+    aea <- refLoad _accountEncryptedAmount
+    (asfExplicitEncryptedAmount, putEA) <-
+        putAccountEncryptedAmountV0 aea <&> \case
+            Nothing -> (False, return ())
+            Just p -> (True, p)
+    arSched <- loadPersistentAccountReleaseSchedule =<< refLoad _accountReleaseSchedule
+    let asfExplicitReleaseSchedule = arSched /= Transient.emptyAccountReleaseSchedule
+        asfHasBakerOrDelegation = case _accountStake of
+            PersistentAccountStakeNone -> False
+            _ -> True
+    stake <- loadAccountStake _accountStake
+    liftPut $ do
+        put AccountSerializationFlags{..}
+        when asfExplicitAddress $ put _accountAddress
+        when asfExplicitEncryptionKey $ put _accountEncryptionKey
+        unless asfThresholdIsOne $ put (aiThreshold _accountVerificationKeys)
+        putCredentials
+        when asfHasRemovedCredentials $ put (_accountRemovedCredentials ^. unhashed)
+        put _accountNonce
+        put _accountAmount
+        putEA
+        when asfExplicitReleaseSchedule $ put arSched
+        when asfHasBakerOrDelegation $ serializeAccountStake stake
+
+-- ** Conversion
+
+-- |Converts an account to a transient (i.e. in memory) account. (Used for testing.)
+toTransientAccount :: forall m av. (MonadBlobStore m, IsAccountVersion av, AVStructureV0 av) => PersistentAccount av -> m (Transient.Account av)
+toTransientAccount PersistentAccount{..} = do
+    _accountPersisting <- Transient.makeAccountPersisting <$> refLoad _persistingData
+    _accountEncryptedAmount <- loadPersistentAccountEncryptedAmount =<< refLoad _accountEncryptedAmount
+    _accountReleaseSchedule <- loadPersistentAccountReleaseSchedule =<< refLoad _accountReleaseSchedule
+    _accountStaking <- case _accountStake of
+        PersistentAccountStakeNone -> return AccountStakeNone
+        PersistentAccountStakeBaker bkr -> AccountStakeBaker <$> (loadPersistentAccountBaker =<< refLoad bkr)
+        PersistentAccountStakeDelegate dlg -> AccountStakeDelegate <$> refLoad dlg
+    return $ Transient.Account{..}

@@ -6,6 +6,7 @@ import Concordium.Types
 import Concordium.Types.Accounts
 import Concordium.Types.Execution
 
+-- |An update to a 'BakerPool', indicating the components that are to be replaced.
 data BakerPoolInfoUpdate = BakerPoolInfoUpdate
     { updOpenForDelegation :: !(Maybe OpenStatus),
       updMetadataURL :: !(Maybe UrlText),
@@ -15,6 +16,7 @@ data BakerPoolInfoUpdate = BakerPoolInfoUpdate
     }
     deriving (Eq)
 
+-- |A 'BakerPoolInfoUpdate' that makes no changes.
 emptyBakerPoolInfoUpdate :: BakerPoolInfoUpdate
 emptyBakerPoolInfoUpdate =
     BakerPoolInfoUpdate
@@ -25,6 +27,7 @@ emptyBakerPoolInfoUpdate =
           updFinalizationRewardCommission = Nothing
         }
 
+-- |Use a 'BakerPoolInfoUpdate' to update a 'BakerPoolInfo'.
 applyBakerPoolInfoUpdate :: BakerPoolInfoUpdate -> BakerPoolInfo -> BakerPoolInfo
 applyBakerPoolInfoUpdate
     BakerPoolInfoUpdate{..}
@@ -40,6 +43,9 @@ applyBakerPoolInfoUpdate
                     }
             }
 
+-- |Details about the stake associated with an account.
+-- Compared to 'AccountStake' this omits the 'BakerInfoEx' and the 'DelegatorId'.
+-- It is expected that it should be relatively efficient to query these details.
 data StakeDetails av
     = StakeDetailsNone
     | StakeDetailsBaker
