@@ -311,8 +311,6 @@ data EncryptedAmountUpdate =
 data AccountUpdate = AccountUpdate {
   -- |Index of the affected account.
   _auIndex :: !AccountIndex
-  -- |Canonical address of the affected account.
-  ,_auAddress :: !AccountAddress
   -- |Optionally a new account nonce.
   ,_auNonce :: !(Maybe Nonce)
   -- |Optionally an update to the account amount.
@@ -325,8 +323,8 @@ data AccountUpdate = AccountUpdate {
 } deriving (Eq, Show)
 makeLenses ''AccountUpdate
 
-emptyAccountUpdate :: AccountIndex -> AccountAddress -> AccountUpdate
-emptyAccountUpdate ai addr = AccountUpdate ai addr Nothing Nothing Nothing Nothing
+emptyAccountUpdate :: AccountIndex ->  AccountUpdate
+emptyAccountUpdate ai = AccountUpdate ai Nothing Nothing Nothing Nothing
 
 updateAccountInformation :: AccountThreshold -> Map.Map CredentialIndex AccountCredential -> [CredentialIndex] -> AccountInformation -> AccountInformation
 updateAccountInformation threshold addCreds remove (AccountInformation oldCredKeys _) =

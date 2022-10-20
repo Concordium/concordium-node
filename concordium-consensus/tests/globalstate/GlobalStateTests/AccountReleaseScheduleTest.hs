@@ -124,7 +124,7 @@ testing = do
   b' <- bsoAddReleaseSchedule (bs1, bs2) [(accA, head timestampsA), (accB, head timestampsB)]
   checkEqualBlockReleaseSchedule b'
   bs'' <- foldlM (\b e@((acc, ai), rels) -> do
-                     newB <- bsoModifyAccount b ((emptyAccountUpdate ai acc) { _auReleaseSchedule = Just [(rels, dummyTransactionHash)] })
+                     newB <- bsoModifyAccount b ((emptyAccountUpdate ai) { _auReleaseSchedule = Just [(rels, dummyTransactionHash)] })
                      checkCorrectAccountReleaseSchedule newB b e
                      return newB
                  ) b' (map ((accA, aiA),) txsA ++ map ((accB, aiB),) txsB)
@@ -167,7 +167,7 @@ checkEqualAccountReleaseSchedule (blockStateBasic, blockStatePersistent) acc = d
                                                   blockStatePersistent' <- loadBufferedRef =<< liftIO (readIORef  blockStatePersistent)
                                                   Concordium.GlobalState.Persistent.Accounts.getAccount acc (PBS.bspAccounts blockStatePersistent') >>= \case
                                                     Nothing -> return Nothing
-                                                    Just a -> Just <$> (refLoad (Concordium.GlobalState.Persistent.Account._accountReleaseSchedule a) >>= getHashM)) ctx :: ThisMonadConcrete (Maybe AccountReleaseScheduleHash)
+                                                    Just a -> Just . getHash <$> Concordium.GlobalState.Persistent.Account.accountReleaseSchedule a) ctx :: ThisMonadConcrete (Maybe AccountReleaseScheduleHash)
   assert (Just (getHash (newBasicAccount ^. accountReleaseSchedule)) == newPersistentAccountReleaseScheduleHash) $ return ()
 
 -- | Check that an an account was correctly updated in the two blockstates with the given release schedule

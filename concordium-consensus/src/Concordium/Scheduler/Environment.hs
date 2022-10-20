@@ -515,21 +515,19 @@ emptyCS = ChangeSet HMap.empty HMap.empty HMap.empty HSet.empty 0 Map.empty
 -- |Record an addition to the amount of the given account in the changeset.
 {-# INLINE addAmountToCS #-}
 addAmountToCS :: AccountOperations m => IndexedAccount m -> AmountDelta -> ChangeSet -> m ChangeSet
-addAmountToCS (ai, acc) !amnt !cs = do
-  addr <- getAccountCanonicalAddress acc
-  addAmountToCS' (ai, addr) amnt cs
+addAmountToCS = addAmountToCS' . fst
 
 -- |Record an addition to the amount of the given account in the changeset.
 {-# INLINE addAmountToCS' #-}
-addAmountToCS' :: Monad m => IndexedAccountAddress -> AmountDelta -> ChangeSet -> m ChangeSet
-addAmountToCS' (ai, addr) !amnt !cs =
+addAmountToCS' :: Monad m => AccountIndex -> AmountDelta -> ChangeSet -> m ChangeSet
+addAmountToCS' ai !amnt !cs =
   -- Check whether there already is an 'AccountUpdate' for the given account in the changeset.
   -- If so, modify it accordingly, otherwise add a new entry.
   return $ cs & accountUpdates . at ai %~ (\case Just upd -> Just (upd & auAmount %~ \case
                                                                      Just x -> Just (x + amnt)
                                                                      Nothing -> Just amnt
                                                                  )
-                                                 Nothing -> Just (emptyAccountUpdate ai addr & auAmount ?~ amnt))
+                                                 Nothing -> Just (emptyAccountUpdate ai & auAmount ?~ amnt))
 
 
 -- |Record a list of scheduled releases that has to be pushed into the global map and into the map of the account.
@@ -539,7 +537,7 @@ addScheduledAmountToCS _ ([], _) cs = return cs
 addScheduledAmountToCS (ai, acc) rel@(((fstRel, _):_), _) !cs = do
   addr <- getAccountCanonicalAddress acc
   return $ cs & accountUpdates . at ai %~ (\case Just upd -> Just (upd & auReleaseSchedule %~ Just . maybe [rel] (rel :))
-                                                 Nothing -> Just (emptyAccountUpdate ai addr & auReleaseSchedule ?~ [rel]))
+                                                 Nothing -> Just (emptyAccountUpdate ai & auReleaseSchedule ?~ [rel]))
               & addedReleaseSchedules %~ (Map.alter (\case
                                                         Nothing -> Just fstRel
                                                         Just rel' -> Just $ min fstRel rel') addr)
@@ -702,8 +700,7 @@ computeExecutionCharge meta energy =
 chargeExecutionCost :: forall m . (AccountOperations m) => SchedulerMonad m => IndexedAccount m -> Amount -> m ()
 chargeExecutionCost (ai, acc) amnt = do
     balance <- getAccountAmount acc
-    addr <- getAccountCanonicalAddress acc
-    let csWithAccountDelta = emptyCS & accountUpdates . at ai ?~ (emptyAccountUpdate ai addr & auAmount ?~ amountDiff 0 amnt)
+    let csWithAccountDelta = emptyCS & accountUpdates . at ai ?~ (emptyAccountUpdate ai & auAmount ?~ amountDiff 0 amnt)
     assert (balance >= amnt) $
           commitChanges csWithAccountDelta
     notifyExecutionCost amnt
@@ -880,13 +877,13 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
   {-# INLINE withAccountToContractAmountV0 #-}
   withAccountToContractAmountV0 fromAcc toAcc amount cont = do
     cs <- changeSet <%= addContractAmountToCSV0 (instanceAddress toAcc) (amountToDelta amount)
-    changeSet <~ addAmountToCS' fromAcc (amountDiff 0 amount) cs
+    changeSet <~ addAmountToCS' (fst fromAcc) (amountDiff 0 amount) cs
     cont
 
   {-# INLINE withAccountToContractAmountV1 #-}
   withAccountToContractAmountV1 fromAcc toAcc amount cont = do
     cs <- changeSet <%= addContractAmountToCSV1 (instanceAddress toAcc) (amountToDelta amount)
-    changeSet <~ addAmountToCS' fromAcc (amountDiff 0 amount) cs
+    changeSet <~ addAmountToCS' (fst fromAcc) (amountDiff 0 amount) cs
     cont
 
   {-# INLINE withContractToAccountAmountV0 #-}
@@ -928,8 +925,7 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
     cont
 
   replaceEncryptedAmount (ai, acc) aggIndex newAmount = do
-    addr <- getAccountCanonicalAddress acc
-    changeSet . accountUpdates . at' ai . non (emptyAccountUpdate ai addr) . auEncrypted ?= ReplaceUpTo{..}
+    changeSet . accountUpdates . at' ai . non (emptyAccountUpdate ai) . auEncrypted ?= ReplaceUpTo{..}
 
   addAmountFromEncrypted acc amount aggIndex newAmount = do
     replaceEncryptedAmount acc aggIndex newAmount
@@ -939,15 +935,13 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
     changeSet . encryptedChange += amountDiff 0 amount
 
   addEncryptedAmount (ai, acc) newAmount = do
-    addr <- getAccountCanonicalAddress acc
-    changeSet . accountUpdates . at' ai . non (emptyAccountUpdate ai addr) . auEncrypted ?= Add{..}
+    changeSet . accountUpdates . at' ai . non (emptyAccountUpdate ai) . auEncrypted ?= Add{..}
     getAccountEncryptedAmountNextIndex acc
 
   addSelfEncryptedAmount iacc@(ai, acc) transferredAmount newAmount = do
-    addr <- getAccountCanonicalAddress acc
     cs <- use changeSet
     changeSet <~ addAmountToCS iacc (amountDiff 0 transferredAmount) cs
-    changeSet . accountUpdates . at' ai . non (emptyAccountUpdate ai addr) . auEncrypted ?= AddSelf{..}
+    changeSet . accountUpdates . at' ai . non (emptyAccountUpdate ai) . auEncrypted ?= AddSelf{..}
     changeSet . encryptedChange += amountToDelta transferredAmount
 
   getCurrentContractInstance addr = do

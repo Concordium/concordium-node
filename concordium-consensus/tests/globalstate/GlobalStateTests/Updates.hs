@@ -156,7 +156,7 @@ createAccountWith a bs = do
                                                 (YearMonth 2021 01)
                                                 (YearMonth 2021 12))
   ~(Just ai) <- bsoGetAccountIndex bs' thomasAccount
-  (, ai) <$> bsoModifyAccount bs' (emptyAccountUpdate ai thomasAccount & auAmount ?~ a)
+  (, ai) <$> bsoModifyAccount bs' (emptyAccountUpdate ai & auAmount ?~ a)
 
 -- | Add a baker with the given staked amount.
 addBakerWith :: Amount -> (TheBlockStates, AccountIndex) -> ThisMonadConcrete (BakerAddResult, (TheBlockStates, AccountIndex))

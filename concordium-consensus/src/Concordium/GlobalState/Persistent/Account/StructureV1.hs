@@ -1073,6 +1073,8 @@ migratePersistentAccount StateMigrationParametersTrivial acc = do
               ..
             }
 
+-- |Migration for 'PersistentAccount' from 'V0.PersistentAccount'. This supports migration from
+-- 'P4' to 'P5'.
 migratePersistentAccountFromV0 ::
     ( SupportMigration m t,
       AccountVersionFor oldpv ~ 'AccountV1,
@@ -1202,3 +1204,19 @@ serializeAccount cryptoParams acc@PersistentAccount{..} = do
         putEA
         putRS
         when asfHasBakerOrDelegation $ serializeAccountStake stake
+
+-- * Testing
+
+-- |Converts an account to a transient (i.e. in memory) account. (Used for testing.)
+toTransientAccount :: (MonadBlobStore m, IsAccountVersion av, AVSupportsDelegation av) => PersistentAccount av -> m (Transient.Account av)
+toTransientAccount acc = do
+    let _accountPersisting = makeHashed $ persistingData acc
+    _accountEncryptedAmount <- getEncryptedAmount acc
+    _accountReleaseSchedule <- getReleaseSchedule acc
+    _accountStaking <- getStake acc
+    return $
+        Transient.Account
+            { _accountNonce = accountNonce acc,
+              _accountAmount = accountAmount acc,
+              ..
+            }
