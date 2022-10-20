@@ -132,7 +132,7 @@ WantedBy=timers.target
 EOF
 
 cp /database-exporter usr/bin/database-exporter
-# cp "$OLDPWD"/concordium-base/rust-src/target/release/*.so usr/lib/
+cp /lib/*.so usr/lib/
 # cp "$OLDPWD"/concordium-base/smart-contracts/wasm-chain-integration/target/release/*.so usr/lib
 cp /database-exporter-publish.sh usr/bin/database-exporter-publish.sh
 
