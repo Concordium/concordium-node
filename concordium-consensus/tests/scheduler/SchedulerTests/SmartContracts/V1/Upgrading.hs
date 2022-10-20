@@ -21,7 +21,7 @@ import Test.HUnit(assertFailure, assertEqual)
 import qualified Data.ByteString.Short as BSS
 import qualified Data.ByteString as BS
 import Control.Monad
-import Data.Serialize(runPut, Serialize (put))
+import Data.Serialize(runPut, Serialize (put), putWord32le)
 import qualified Data.Text as T
 import qualified Data.List as List
 
@@ -368,6 +368,54 @@ twiceTestCase =
         -- Find and check for upgrade events
         unless (List.length (filter isUpgradeEvent vrEvents) == 2) $ assertFailure "Expected two Upgraded events"
 
+chainedSourceFile0 :: FilePath
+chainedSourceFile0 = "./testdata/contracts/v1/upgrading-chained0.wasm"
+
+chainedTestCase :: TestCase PV5
+chainedTestCase =
+  TestCase { tcName = "Upgrading chained"
+  , tcParameters = (defaultParams @PV5) {tpInitialBlockState=initialBlockState}
+  , tcTransactions =
+    [ ( TJSON { payload = DeployModule V1 chainedSourceFile0
+              , metadata = makeDummyHeader alesAccount 1 100000
+              , keys = [(0,[(0, alesKP)])]
+              }
+      , (SuccessWithSummary (deploymentCostCheck chainedSourceFile0), emptySpec))
+    , ( TJSON { payload = InitContract 0 V1 chainedSourceFile0 "init_contract" ""
+              , metadata = makeDummyHeader alesAccount 2 100000
+              , keys = [(0,[(0, alesKP)])]
+              }
+      , (SuccessWithSummary (initializationCostCheck chainedSourceFile0 "init_contract"), emptySpec))
+
+    , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "contract.upgrade" upgradeParameters
+              , metadata = makeDummyHeader alesAccount 3 100000
+              , keys = [(0,[(0, alesKP)])]
+              }
+      , (SuccessWithSummary ensureSuccess, emptySpec))
+    ]
+  }
+  where
+    chainLength = 100
+
+    upgradeParameters = BSS.toShort $ runPut $ do
+      putWord32le $ fromIntegral chainLength
+      put $ getModuleRefFromV1File chainedSourceFile0
+
+    ensureSuccess :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
+    ensureSuccess _ summary = do
+     putStrLn $ "Cost " ++ show (Types.tsEnergyCost summary)
+     case Types.tsResult summary of
+      Types.TxReject {..} -> assertFailure $ "Update failed with " ++ show vrRejectReason
+      Types.TxSuccess {..} -> do
+        -- Check the number of events:
+        -- - chainLength x 3 events for upgrading and 3 events for invoking.
+        -- - 3 events for upgrading.
+        -- - 1 event for a succesful update to the contract ('contract.upgrade').
+        unless (length vrEvents == 6 * chainLength + 4) $ assertFailure $ "Update succeeded but with unexpected number of events: " ++ show (length vrEvents)
+        -- Find and check for upgrade events
+        let upgradedEvents = List.length (filter isUpgradeEvent vrEvents)
+        unless (upgradedEvents == chainLength + 1) $ assertFailure $ "Unexpected number of Upgraded events: " ++ show upgradedEvents
+
 -- | Check if some event is the Upgraded event.
 isUpgradeEvent :: Types.Event -> Bool
 isUpgradeEvent event = case event of
@@ -431,5 +479,6 @@ tests = describe "V1: Upgrade" $ mkSpecs [
   , missingContractTestCase
   , unsupportedVersionTestCase
   , twiceTestCase
+  , chainedTestCase
   ]
 
