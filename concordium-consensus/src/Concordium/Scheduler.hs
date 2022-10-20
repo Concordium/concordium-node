@@ -355,7 +355,7 @@ dispatch (msg, mVerRes) = do
       SP1 -> c
       SP2 -> c
       SP3 -> c
-      _ -> error "Operation unsupported at this prtocol version."
+      _ -> error "Operation unsupported at this protocol version."
     -- Function @onlyWithDelegation k@ fails if the protocol version @MPV m@ does not support
     -- delegation. Otherwise, it continues with @k@, which may assume that delegation is supported.
     onlyWithDelegation :: (SupportsDelegation (MPV m) => a) -> a

@@ -897,7 +897,7 @@ doGetActiveBakersAndDelegators pbs = do
                     activeBakerInfoRef = binfoRef,
                     activeBakerEquityCapital = theBaker ^. BaseAccounts.stakedAmount,
                     activeBakerPendingChange =
-                        BaseAccounts.stakePendingChangeTimestamp $ theBaker ^. BaseAccounts.bakerPendingChange,
+                        BaseAccounts.pendingChangeEffectiveTimestamp <$> theBaker ^. BaseAccounts.bakerPendingChange,
                     activeBakerDelegators = abd
                 }
             mkActiveDelegatorInfo :: BlockStatePointers pv -> DelegatorId -> m ActiveDelegatorInfo
@@ -908,7 +908,7 @@ doGetActiveBakersAndDelegators pbs = do
                 return ActiveDelegatorInfo{
                     activeDelegatorStake = theDelegator ^. BaseAccounts.delegationStakedAmount,
                     activeDelegatorPendingChange =
-                        BaseAccounts.stakePendingChangeTimestamp $
+                        BaseAccounts.pendingChangeEffectiveTimestamp <$>
                             theDelegator ^. BaseAccounts.delegationPendingChange,
                     ..
                 }
@@ -948,7 +948,7 @@ doGetActiveDelegators pbs mPoolId = do
                 return (addr, ActiveDelegatorInfo{
                     activeDelegatorStake = theDelegator ^. BaseAccounts.delegationStakedAmount,
                     activeDelegatorPendingChange =
-                        BaseAccounts.stakePendingChangeTimestamp $
+                        BaseAccounts.pendingChangeEffectiveTimestamp <$>
                             theDelegator ^. BaseAccounts.delegationPendingChange,
                     ..
                 })
@@ -2106,7 +2106,7 @@ doGetPoolStatus pbs (Just psBakerId@(BakerId aid)) = case delegationChainParamet
                         psBakerAddress <- accountCanonicalAddress acct
                         let psPoolInfo = baker ^. BaseAccounts.bakerPoolInfo
                         let psBakerStakePendingChange =
-                                makePoolPendingChange $ BaseAccounts.stakePendingChangeTimestamp (baker ^. BaseAccounts.bakerPendingChange)
+                                makePoolPendingChange $ BaseAccounts.pendingChangeEffectiveTimestamp <$> (baker ^. BaseAccounts.bakerPendingChange)
                         epochBakers <- refLoad (_birkCurrentEpochBakers $ bspBirkParameters bsp)
                         mepochBaker <- epochBaker psBakerId epochBakers
                         psCurrentPaydayStatus <- case mepochBaker of
@@ -2522,7 +2522,7 @@ doProcessPendingChanges persistentBS isEffective = do
         -> PersistentAccount (AccountVersionFor pv) -> MTL.WriterT Amount (MTL.StateT (Accounts.Accounts pv) m) Bool
       updateAccountDelegator accId acct = accountDelegator acct >>= \case
         Just BaseAccounts.AccountDelegationV1{..} -> do
-            case BaseAccounts.stakePendingChangeTimestamp _delegationPendingChange of
+            case BaseAccounts.pendingChangeEffectiveTimestamp <$> _delegationPendingChange of
                 BaseAccounts.RemoveStake pet | isEffective pet -> do
                     lift $ removeDelegatorStake accId
                     return False
@@ -2599,8 +2599,7 @@ doProcessPendingChanges persistentBS isEffective = do
           Accounts.indexedAccount accId accts1 >>= \case
             Just acct -> accountStakeDetails acct >>= \case
                 StakeDetailsBaker{..} -> do
-                    --acctBkr@PersistentAccountBaker{..} <- refLoad acctBkrRef
-                    case BaseAccounts.stakePendingChangeTimestamp sdPendingChange of
+                    case BaseAccounts.pendingChangeEffectiveTimestamp <$> sdPendingChange of
                         BaseAccounts.RemoveStake pet | isEffective pet -> do
                             -- This will not fail, since we know the account is a baker
                             acctBkr <- fromJust <$> accountBaker acct

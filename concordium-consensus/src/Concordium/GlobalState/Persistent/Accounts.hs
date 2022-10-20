@@ -23,17 +23,14 @@ import qualified Concordium.GlobalState.Persistent.Trie as Trie
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.CachedRef
 import Concordium.GlobalState.Persistent.Cache
-import Concordium.GlobalState.Account hiding (replaceUpTo, addIncomingEncryptedAmount, addToSelfEncryptedAmount)
 import qualified Concordium.GlobalState.Basic.BlockState.Accounts as Transient
 
-import Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.GlobalState.Basic.BlockState.AccountTable as Transient
 import qualified Concordium.GlobalState.AccountMap as AccountMap
 import Concordium.GlobalState.Persistent.LFMBTree (LFMBTree')
 import qualified Concordium.GlobalState.Persistent.LFMBTree as L
 import Concordium.Types.HashableTo
-import Data.Foldable (foldl', foldlM)
 import Concordium.ID.Parameters
 import Concordium.GlobalState.Parameters
 

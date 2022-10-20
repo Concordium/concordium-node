@@ -547,7 +547,7 @@ doGetActiveBakersAndDelegators bs = return (bakers, passiveDelegatorInfos)
         BS.ActiveBakerInfo
             { activeBakerInfoRef = theBaker ^. accountBakerInfo,
               activeBakerEquityCapital = theBaker ^. stakedAmount,
-              activeBakerPendingChange = stakePendingChangeTimestamp $ theBaker ^. bakerPendingChange,
+              activeBakerPendingChange = pendingChangeEffectiveTimestamp <$> theBaker ^. bakerPendingChange,
               activeBakerDelegators = mkActiveDelegatorInfo <$> Set.toAscList (_apDelegators dlgs)
             }
       where
@@ -556,7 +556,7 @@ doGetActiveBakersAndDelegators bs = return (bakers, passiveDelegatorInfos)
     mkActiveDelegatorInfo activeDelegatorId@(DelegatorId acct) =
         BS.ActiveDelegatorInfo
             { activeDelegatorStake = theDelegator ^. delegationStakedAmount,
-              activeDelegatorPendingChange = stakePendingChangeTimestamp $ theDelegator ^. delegationPendingChange,
+              activeDelegatorPendingChange = pendingChangeEffectiveTimestamp <$> theDelegator ^. delegationPendingChange,
               ..
             }
       where
@@ -584,7 +584,7 @@ doGetActiveDelegators bs mPoolId =
     mkActiveDelegatorInfo activeDelegatorId@(DelegatorId acct) =
         (addr, BS.ActiveDelegatorInfo
             { activeDelegatorStake = theDelegator ^. delegationStakedAmount,
-              activeDelegatorPendingChange = stakePendingChangeTimestamp $ theDelegator ^. delegationPendingChange,
+              activeDelegatorPendingChange = pendingChangeEffectiveTimestamp <$> theDelegator ^. delegationPendingChange,
               ..
             })
       where
@@ -901,7 +901,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
             psBakerId = bid,
             psBakerAddress = account ^. accountAddress,
             psPoolInfo = baker ^. accountBakerInfo . bieBakerPoolInfo,
-            psBakerStakePendingChange = makePoolPendingChange (stakePendingChangeTimestamp $ baker ^. bakerPendingChange),
+            psBakerStakePendingChange = makePoolPendingChange (pendingChangeEffectiveTimestamp <$> baker ^. bakerPendingChange),
             psAllPoolTotalCapital = totalCapital bs,
             ..
         }
@@ -1157,7 +1157,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                     Nothing -> error "Invariant violation: active delegator account was not found"
             updateAccountDelegator :: AccountIndex -> Account (AccountVersionFor pv) -> MTL.WriterT Amount (MTL.State (BlockState pv)) Bool
             updateAccountDelegator accId acct = case acct ^? accountDelegator of
-                Just acctDel@AccountDelegationV1{..} -> case stakePendingChangeTimestamp _delegationPendingChange of
+                Just acctDel@AccountDelegationV1{..} -> case pendingChangeEffectiveTimestamp <$> _delegationPendingChange of
                     RemoveStake pet | isEffective pet -> MTL.lift $ removeDelegatorStake accId
                     ReduceStake newAmt pet | isEffective pet -> do
                         MTL.tell newAmt
@@ -1200,7 +1200,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                 newDelegators <- processDelegators oldDelegators
                 preuse (blockAccounts . Accounts.indexedAccount accId) >>= \case
                     Just acct -> case acct ^? accountBaker of
-                        Just acctBkr@AccountBaker{..} -> case stakePendingChangeTimestamp _bakerPendingChange of
+                        Just acctBkr@AccountBaker{..} -> case pendingChangeEffectiveTimestamp <$> _bakerPendingChange of
                             RemoveStake pet | isEffective pet -> do
                                 removeBaker accId _accountBakerInfo newDelegators
                                 let !accumCapital' = accumCapital + newDelegators ^. apDelegatorTotalCapital
@@ -1984,7 +1984,7 @@ initialState seedState cryptoParams genesisAccounts ips anonymityRevokers keysCo
 -- The accounts must be in ascending order (of account ID).
 -- The resulting bakers and delegators will also be in ascending order.
 collateBakersAndDelegators ::
-    (IsAccountVersion av, AVSupportsDelegation av) =>
+    (AVSupportsDelegation av) =>
     [Account av] ->
     ([BS.ActiveBakerInfo' (BakerInfoEx av)], [BS.ActiveDelegatorInfo])
 collateBakersAndDelegators accounts = (bakers, passiveDelegatorInfos)
@@ -2000,7 +2000,7 @@ collateBakersAndDelegators accounts = (bakers, passiveDelegatorInfos)
                 BS.ActiveBakerInfo
                     { activeBakerInfoRef = bkr ^. accountBakerInfo,
                       activeBakerEquityCapital = bkr ^. stakedAmount,
-                      activeBakerPendingChange = stakePendingChangeTimestamp $ bkr ^. bakerPendingChange,
+                      activeBakerPendingChange = pendingChangeEffectiveTimestamp <$> bkr ^. bakerPendingChange,
                       activeBakerDelegators = []
                     }
          in (Map.insert bid abi bkrs, dlgs, passive)
@@ -2009,7 +2009,7 @@ collateBakersAndDelegators accounts = (bakers, passiveDelegatorInfos)
                 BS.ActiveDelegatorInfo
                     { activeDelegatorId = dlg ^. delegationIdentity,
                       activeDelegatorStake = dlg ^. delegationStakedAmount,
-                      activeDelegatorPendingChange = stakePendingChangeTimestamp $ dlg ^. delegationPendingChange
+                      activeDelegatorPendingChange = pendingChangeEffectiveTimestamp <$> dlg ^. delegationPendingChange
                     }
          in case dlg ^. delegationTarget of
                 DelegatePassive -> (bkrs, dlgs, adi : passive)
