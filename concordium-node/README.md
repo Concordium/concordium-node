@@ -8,7 +8,7 @@
 - cmake >= 3.8.0
 - [flatc](http://google.github.io/flatbuffers/flatbuffers_guide_building.html)
   v2.0.0 is what we currently use. Either build from the v2.0.0 tag of the repository using CMake and copy the `flatc` binary somewhere in your PATH, or download a released binary from <https://github.com/google/flatbuffers/releases/tag/v2.0.0> and place it somewhere in your PATH.
-- protobuf >= 3.7.1
+- protobuf >= 3.15
 - LLVM and Clang >= 3.9
 
 ### Optional dependencies
