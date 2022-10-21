@@ -60,6 +60,7 @@ updateInstanceAt ca amt val maybeModule (Instances iss) = Instances (iss & ix ca
 
 -- |Update the instance at the specified address with a __new amount__ and
 -- potentially new state. If new state is not provided the state of the instance
+-- is not changed. If a new module is not provided the module of the instance
 -- is not changed. If there is no instance with the given address, this does
 -- nothing. If the instance at the given address has a different version than
 -- given this function raises an exception.

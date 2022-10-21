@@ -496,6 +496,8 @@ class (StaticInformation m, ContractStateOperations m, MonadProtocolVersion m) =
   addContractUpgrade :: ContractAddress
                      -- ^The instance that should be upgraded.
                      -> GSWasm.ModuleInterfaceA (InstrumentedModuleRef m GSWasm.V1)
+                     -- ^The set of receive names exposed by this new module for the instance.
+                     -> Set.Set GSWasm.ReceiveName
                      -- ^The new module to use for execution.
                      -> m ()
 
@@ -515,7 +517,7 @@ data InstanceV1Update' mr = InstanceV1Update {
     newState :: !(Maybe (UpdatableContractState GSWasm.V1)),
     -- |Present if the contract has been upgraded.
     -- Contract upgrades are only supported from PV 5 and onwards.
-    newModule  :: !(Maybe (GSWasm.ModuleInterfaceA (mr GSWasm.V1)))
+    newModule  :: !(Maybe (GSWasm.ModuleInterfaceA (mr GSWasm.V1), Set.Set GSWasm.ReceiveName))
 }
 
 type InstanceV1Update m = InstanceV1Update' (InstrumentedModuleRef m)
@@ -533,7 +535,7 @@ data ChangeSet' mr = ChangeSet
     ,_instanceV1Updates :: !(HMap.HashMap ContractAddress (InstanceV1Update' mr))
     ,_instanceInits :: !(HSet.HashSet ContractAddress) -- ^Contracts that were initialized.
     ,_encryptedChange :: !AmountDelta -- ^Change in the encrypted balance of the system as a result of this contract's execution.
-    ,_addedReleaseSchedules :: !(Map.Map AccountAddress Timestamp) -- ^The release schedules added to accounts on this block, to be added on the per block map.    
+    ,_addedReleaseSchedules :: !(Map.Map AccountAddress Timestamp) -- ^The release schedules added to accounts on this block, to be added on the per block map.
     }
 
 makeLenses ''ChangeSet'
@@ -628,11 +630,11 @@ addContractInitToCS Proxy addr cs =
 -- |Add the contract upgrade to the 'ChangeSet'.
 -- We only care about the most recent contract upgrade.
 {-# INLINE addContractUpgradeToCS #-}
-addContractUpgradeToCS :: Proxy m -> ContractAddress -> GSWasm.ModuleInterfaceA (InstrumentedModuleRef m GSWasm.V1) -> ChangeSet m -> ChangeSet m
-addContractUpgradeToCS Proxy addr updatedMod cs = do
+addContractUpgradeToCS :: Proxy m -> ContractAddress -> GSWasm.ModuleInterfaceA (InstrumentedModuleRef m GSWasm.V1) -> Set.Set GSWasm.ReceiveName -> ChangeSet m -> ChangeSet m
+addContractUpgradeToCS Proxy addr updatedMod updatedReceiveNames cs = do
     cs & instanceV1Updates . at addr %~ \case
-                                          Just InstanceV1Update{..} -> Just $! InstanceV1Update index amountChange newState (Just updatedMod)
-                                          Nothing -> Just $! InstanceV1Update 0 0 Nothing (Just updatedMod)
+                                          Just InstanceV1Update{..} -> Just $! InstanceV1Update index amountChange newState (Just (updatedMod, updatedReceiveNames))
+                                          Nothing -> Just $! InstanceV1Update 0 0 Nothing (Just (updatedMod, updatedReceiveNames))
 
 -- |Whether the transaction energy limit is reached because of transaction max energy limit,
 -- or because of block energy limit
@@ -1025,23 +1027,18 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
                             iiState = maybe (Frozen (iiState inst)) Thawed newState,
                             iiParameters = maybe (iiParameters inst) (updateParams (iiParameters inst)) newModule})
     where
-      updateParams params newMod =
+      updateParams params (newMod, newReceiveNames) =
           InstanceParameters {
               _instanceAddress = _instanceAddress params,
               instanceOwner = instanceOwner params,
               instanceInitName = instanceInitName params,
-              instanceReceiveFuns = newReceiveFuns params newMod,
+              instanceReceiveFuns = newReceiveNames,
               instanceModuleInterface = newMod,
               instanceParameterHash = makeInstanceParameterHash
                                       addr
                                       (instanceOwner params)
                                       (GSWasm.miModuleRef newMod)
                                       (instanceInitName params)}
-      -- TODO: We return Set.empty here in case that the set of receive functions cannot be looked up
-      -- on the module. However the 'Scheduler' already looked up that the 'InitName' exists on the new module,
-      -- (hence the 'InitName' was added to the 'miExposedReceive' of the deployed 'ModuleInterfaceA) so it should never return 'Nothing',
-      -- but it should be safe to return 'Set.empty' here.
-      newReceiveFuns params newMod = fromMaybe Set.empty (SMap.lookup (instanceInitName params) (GSWasm.miExposedReceive newMod))
 
   chargeV1Storage = do
     xs <- use (changeSet . instanceV1Updates)
@@ -1168,9 +1165,9 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
   outOfBlockEnergy = LocalT (ContT (\_ -> return (Left Nothing)))
 
   {-# INLINE addContractUpgrade #-}
-  addContractUpgrade cAddr newMod = do
+  addContractUpgrade cAddr newMod newReceiveNames = do
       cs <- use changeSet
-      let cs' = addContractUpgradeToCS (Proxy @m) cAddr newMod cs
+      let cs' = addContractUpgradeToCS (Proxy @m) cAddr newMod newReceiveNames cs
       changeSet .=! cs'
 
 -- |Call an external method that can fail with running out of energy.

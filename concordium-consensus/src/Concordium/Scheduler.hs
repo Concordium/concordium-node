@@ -81,6 +81,7 @@ import qualified Data.Map.Strict as OrdMap
 import Data.Maybe
 import Data.Ord
 import qualified Data.Set as Set
+import qualified Data.Map.Strict as Map
 
 import qualified Concordium.Crypto.Proofs as Proofs
 import qualified Concordium.Crypto.BlsSignature as Bls
@@ -1172,9 +1173,9 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
 
                            -- The contract must exist in the new module.
                            -- I.e. It must be the case that there exists an init function for the new module that matches the caller.
-                           if not (Set.member (instanceInitName iParams) (GSWasm.miExposedInit newModuleInterfaceAV1)) then
-                             go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.Error (WasmV1.EnvFailure (WasmV1.UpgradeInvalidContractName imuModRef (instanceInitName iParams)))) Nothing)
-                           else
+                           case Map.lookup (instanceInitName iParams) (GSWasm.miExposedReceive newModuleInterfaceAV1) of
+                             Nothing -> go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.Error (WasmV1.EnvFailure (WasmV1.UpgradeInvalidContractName imuModRef (instanceInitName iParams)))) Nothing)
+                             Just newReceiveNames ->
                                 -- Now we carry out the upgrade.
                                 -- The upgrade must preserve the following properties:
                                 -- 1. Subsequent operations in the receive function must be executed via the 'old' artifact.
@@ -1187,7 +1188,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                 -- in the 'ChangeSet' we will need to use the new module artifact. See 'getCurrentContractInstance'.
                                 -- If the upgrade or subsequent actions fails then the transaction must be rolled back.
                                 -- Finally 'commitChanges' will commit the changeset upon a succesfull transaction.
-                                runExceptT (handleContractUpgrade cref currentModRef newModuleInterfaceAV1) >>= \case
+                                runExceptT (handleContractUpgrade cref currentModRef newModuleInterfaceAV1 newReceiveNames) >>= \case
                                     Left errCode -> do
                                         go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.Error (WasmV1.EnvFailure errCode)) Nothing)
                                     Right upgradeEvent -> do
@@ -1229,11 +1230,13 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                 -- ^The old module ref used for the emitted event.
                                 -> GSWasm.ModuleInterfaceA (InstrumentedModuleRef m GSWasm.V1)
                                 -- ^The new module that the instance should be using for execution.
+                                -> Set.Set GSWasm.ReceiveName
+                                -- ^The set of receive names for the instance exposed in the new module.
                                 -> ExceptT WasmV1.EnvFailure (LocalT r m) Event -- ^The event resulting from the upgrade.
                                 -- ^The events resulting from the upgrade.
-          handleContractUpgrade cAddr oldModRef newMod = do
+          handleContractUpgrade cAddr oldModRef newMod newReceiveNames = do
               -- Add the upgrade to the 'ChangeSet' and add the 'Upgrade' event to the stack of events.
-              lift $! addContractUpgrade cAddr newMod
+              lift $! addContractUpgrade cAddr newMod newReceiveNames
               return $ Upgraded oldModRef (GSWasm.miModuleRef newMod)
 
 -- | Invoke a V0 contract and process any generated messages.
