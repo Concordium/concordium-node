@@ -23,7 +23,7 @@ testModule1 :: Assertion
 testModule1 = do
   ws <- BS.readFile "./testdata/contracts/v1/extra-exports.wasm"
   let wm1 = WasmModuleV (ModuleSource ws)
-  case WasmV1.processModule PV.P5 wm1 of
+  case WasmV1.processModule True wm1 of
     Nothing -> assertFailure "Invalid caller module."
     Just GSWasm.ModuleInterface{..} -> do
       assertEqual "Only valid init functions should be exposed" (Set.singleton (InitName "init_contract")) miExposedInit

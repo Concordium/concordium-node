@@ -80,7 +80,7 @@ deserialModule spv = do
           Nothing -> fail "Invalid V0 module"
           Just moduleVInterface -> return (ModuleV0 ModuleV {..})
       WasmModuleV1 moduleVSource ->
-        case V1.processModule (demoteProtocolVersion spv) moduleVSource of
+        case V1.processModule (supportsUpgradableContracts spv) moduleVSource of
           Nothing -> fail "Invalid V1 module"
           Just moduleVInterface -> return (ModuleV1 ModuleV {..})
 

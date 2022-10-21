@@ -61,7 +61,7 @@ foreign import ccall unsafe "&box_vec_u8_free" freeReturnValue :: FunPtr (Ptr Re
 foreign import ccall unsafe "&receive_interrupted_state_free" freeReceiveInterruptedState :: FunPtr (Ptr (Ptr ReceiveInterruptedState) -> IO ())
 
 foreign import ccall "validate_and_process_v1"
-   validate_and_process :: Word64 -- ^The current protocol version.
+   validate_and_process :: Word8 -- ^Whether the current protocol version supports smart contract upgrades.
                         -> Ptr Word8 -- ^Pointer to the Wasm module source.
                         -> CSize -- ^Length of the module source.
                         -> Ptr CSize -- ^Total length of the output.
@@ -578,8 +578,8 @@ resumeReceiveFun is currentState stateChanged amnt statusCode rVal remainingEner
 -- - checks the module is well-formed, and has the right imports and exports for a V1 module.
 -- - makes a module artifact and allocates it on the Rust side, returning a pointer and a finalizer.
 {-# NOINLINE processModule #-}
-processModule :: ProtocolVersion -> WasmModuleV V1 -> Maybe (ModuleInterfaceV V1)
-processModule pv modl = do
+processModule :: Bool -> WasmModuleV V1 -> Maybe (ModuleInterfaceV V1)
+processModule supportUpgrade modl = do
   (bs, miModule) <- ffiResult
   case getExports bs of
     Left _ -> Nothing
@@ -592,7 +592,7 @@ processModule pv modl = do
               alloca $ \outputLenPtr ->
                 alloca $ \artifactLenPtr ->
                   alloca $ \outputModuleArtifactPtr -> do
-                    outPtr <- validate_and_process (protocolVersionToWord64 pv) (castPtr wasmBytesPtr) (fromIntegral wasmBytesLen) outputLenPtr artifactLenPtr outputModuleArtifactPtr
+                    outPtr <- validate_and_process (if supportUpgrade then 1 else 0) (castPtr wasmBytesPtr) (fromIntegral wasmBytesLen) outputLenPtr artifactLenPtr outputModuleArtifactPtr
                     if outPtr == nullPtr then return Nothing
                     else do
                       len <- peek outputLenPtr

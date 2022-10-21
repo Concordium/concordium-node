@@ -22,7 +22,7 @@ testModule1 :: Assertion
 testModule1 = do
   ws <- BS.readFile "./testdata/contracts/v1/all-new-host-functions.wasm"
   let wm1 = WasmModuleV (ModuleSource ws)
-  case WasmV1.processModule PV.P5 wm1 of
+  case WasmV1.processModule True wm1 of
     Nothing -> assertFailure "Invalid caller module."
     Just GSWasm.ModuleInterface{} -> return ()
 
@@ -34,7 +34,7 @@ testModule2 :: Assertion
 testModule2 = do
   ws <- BS.readFile "./testdata/contracts/v1/all-new-host-functions.wasm"
   let wm1 = WasmModuleV (ModuleSource ws)
-  case WasmV1.processModule PV.P4 wm1 of
+  case WasmV1.processModule False wm1 of
     Nothing -> return ()
     Just GSWasm.ModuleInterface{} -> assertFailure "Caller module contains 'upgrade' in unsupported PV."
 

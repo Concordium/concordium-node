@@ -23,7 +23,6 @@ import Concordium.Wasm
 import qualified Concordium.Scheduler.WasmIntegration as WasmV0
 import qualified Concordium.Scheduler.WasmIntegration.V1 as WasmV1
 import qualified Concordium.GlobalState.Wasm as GSWasm
-import qualified Concordium.Types.ProtocolVersion as PV
 
 import Concordium.Types.DummyData
 import Concordium.Crypto.DummyData
@@ -60,7 +59,7 @@ deployModuleV1 :: FilePath -- ^Source file.
 deployModuleV1 sourceFile bs = do
   ws <- liftIO $ BS.readFile sourceFile
   let wm = WasmModuleV (ModuleSource ws)
-  case WasmV1.processModule PV.P5 wm of
+  case WasmV1.processModule True wm of
     Nothing -> liftIO $ assertFailure "Invalid module."
     Just miv -> do
       (_, modState) <- bsoPutNewModule bs (miv, wm)

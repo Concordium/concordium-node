@@ -17,7 +17,6 @@ import Data.FileEmbed
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
-import Concordium.Types.ProtocolVersion as PV
 import qualified Concordium.Wasm as Wasm
 import qualified Concordium.Scheduler.WasmIntegration as WasmV0
 import qualified Concordium.Scheduler.WasmIntegration.V1 as WasmV1
@@ -54,7 +53,7 @@ validContractArtifactsV1 :: [(Wasm.ModuleSource GSWasm.V1, GSWasm.ModuleInterfac
 validContractArtifactsV1 = mapMaybe packModule contractSourcesV1
     where packModule (_, sourceBytes) =
             let source = Wasm.ModuleSource sourceBytes
-            in (source,) <$> WasmV1.processModule PV.P5 (Wasm.WasmModuleV source)
+            in (source,) <$> WasmV1.processModule True (Wasm.WasmModuleV source)
 
 checkBinary :: Show a => (a -> a -> Bool) -> a -> a -> String -> String -> String -> Either String ()
 checkBinary bop x y sbop sx sy = unless (bop x y) $ Left $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"
