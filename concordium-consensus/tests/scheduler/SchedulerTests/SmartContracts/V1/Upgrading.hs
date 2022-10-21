@@ -538,10 +538,72 @@ changingEntrypointsTestCase =
         assertFailure $ "Unexpected number of Upgraded events: " ++ show upgradedEvents
 
     contractNewFeatureEventsCheck :: [Types.Event] -> Expectation
-    contractNewFeatureEventsCheck events =
+    contractNewFeatureEventsCheck =
       -- Check the number of events:
       -- - 1 event for a succesful update to the contract ('contract.upgrade').
-      eventsLengthCheck 1 events
+      eventsLengthCheck 1
+
+persistingStateSourceFile0 :: FilePath
+persistingStateSourceFile0 = "./testdata/contracts/v1/upgrading-persisting-state0.wasm"
+
+persistingStateSourceFile1 :: FilePath
+persistingStateSourceFile1 = "./testdata/contracts/v1/upgrading-persisting-state1.wasm"
+
+persistingStateTestCase :: TestCase PV5
+persistingStateTestCase =
+  TestCase { tcName = "Check writing to state before and after calling the upgrade contract"
+           , tcParameters = (defaultParams @PV5) {tpInitialBlockState=initialBlockState}
+           , tcTransactions =
+             [ ( TJSON { payload = DeployModule V1 persistingStateSourceFile0
+                       , metadata = makeDummyHeader alesAccount 1 100000
+                       , keys = [(0,[(0, alesKP)])]
+                       }
+               , (SuccessWithSummary (deploymentCostCheck persistingStateSourceFile0), emptySpec))
+             , ( TJSON { payload = InitContract 0 V1 persistingStateSourceFile0 "init_contract" ""
+                       , metadata = makeDummyHeader alesAccount 2 100000
+                       , keys = [(0,[(0, alesKP)])]
+                       }
+               , (SuccessWithSummary (initializationCostCheck persistingStateSourceFile0 "init_contract"), emptySpec))
+             , ( TJSON { payload = DeployModule V1 persistingStateSourceFile1
+                       , metadata = makeDummyHeader alesAccount 3 100000
+                       , keys = [(0,[(0, alesKP)])]
+                       }
+               , (SuccessWithSummary (deploymentCostCheck persistingStateSourceFile1), emptySpec))
+
+             , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "contract.upgrade" upgradeParameters
+                       , metadata = makeDummyHeader alesAccount 4 100000
+                       , keys = [(0,[(0, alesKP)])]
+                       }
+               , (SuccessWithSummary (successWithEventsCheck contractUpgradeEventsCheck), emptySpec))
+
+             , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "contract.check" ""
+                       , metadata = makeDummyHeader alesAccount 5 100000
+                       , keys = [(0,[(0, alesKP)])]
+                       }
+               , (SuccessWithSummary (successWithEventsCheck contractCheckEventsCheck), emptySpec))
+             ]
+           }
+  where
+    upgradeParameters = BSS.toShort $ runPut $ put $ getModuleRefFromV1File persistingStateSourceFile1
+
+    contractUpgradeEventsCheck :: [Types.Event] -> Expectation
+    contractUpgradeEventsCheck events = do
+      -- Check the number of events:
+      -- - 3 events for upgrading.
+      -- - 1 event for a succesful update to the contract ('contract.upgrade').
+      eventsLengthCheck 4 events
+      -- Find and check for upgrade events
+      let upgradedEvents = List.length (filter isUpgradeEvent events)
+      unless (upgradedEvents == 1) $
+        assertFailure $ "Unexpected number of Upgraded events: " ++ show upgradedEvents
+
+    contractCheckEventsCheck :: [Types.Event] -> Expectation
+    contractCheckEventsCheck =
+      -- Check the number of events:
+      -- - 1 event for a succesful update to the contract ('contract.upgrade').
+      eventsLengthCheck 1
+
+
 
 -- | Check if some event is the Upgraded event.
 isUpgradeEvent :: Types.Event -> Bool
@@ -631,5 +693,6 @@ tests = describe "V1: Upgrade" $ mkSpecs [
   , chainedTestCase
   , rejectTestCase
   , changingEntrypointsTestCase
+  , persistingStateTestCase
   ]
 
