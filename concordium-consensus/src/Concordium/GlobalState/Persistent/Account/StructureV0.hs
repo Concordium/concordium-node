@@ -340,22 +340,6 @@ makePersistentAccountBaker AccountBaker{..} = do
                       ..
                     }
 
--- |Serialize a 'PersistentAccountBaker'.
-putAccountBaker ::
-    forall m av.
-    (IsAccountVersion av, AVStructureV0 av, MonadBlobStore m, MonadPut m) =>
-    PersistentAccountBaker av ->
-    m ()
-putAccountBaker PersistentAccountBaker{..} = do
-    abie <-
-        loadPersistentBakerInfoEx $
-            PersistentBakerInfoEx _accountBakerInfo _extraBakerInfo
-    liftPut $ do
-        put _stakedAmount
-        put _stakeEarnings
-        put abie
-        put _bakerPendingChange
-
 -- ** Migration
 
 -- |See documentation of @migratePersistentBlockState@.
@@ -628,6 +612,18 @@ getCanonicalAddress = (^^. accountAddress)
 -- |Get the current public account balance.
 getAmount :: (Applicative m) => PersistentAccount av -> m Amount
 getAmount = pure . view accountAmount
+
+-- |Get the amount that is staked on the account.
+getStakedAmount :: (MonadBlobStore m, IsAccountVersion av, AVStructureV0 av) => PersistentAccount av -> m Amount
+getStakedAmount acc =
+    getStakeDetails acc <&> \case
+        StakeDetailsBaker{..} -> sdStakedCapital
+        StakeDetailsDelegator{..} -> sdStakedCapital
+        _ -> 0
+
+-- |Get the amount that is locked in scheduled releases on the account.
+getLockedAmount :: (MonadBlobStore m, IsAccountVersion av, AVStructureV0 av) => PersistentAccount av -> m Amount
+getLockedAmount acc = Transient._totalLockedUpBalance <$> getReleaseSchedule acc
 
 -- | Get the current public account available balance.
 -- This accounts for lock-up and staked amounts.

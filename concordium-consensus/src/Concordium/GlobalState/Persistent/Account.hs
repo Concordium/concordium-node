@@ -114,6 +114,18 @@ accountBakerStakeAmount (PAV0 acc) = V0.getBakerStakeAmount acc
 accountBakerStakeAmount (PAV1 acc) = V0.getBakerStakeAmount acc
 accountBakerStakeAmount (PAV2 acc) = V1.getBakerStakeAmount acc
 
+-- |Get the amount that is staked on the account.
+accountStakedAmount :: (MonadBlobStore m) => PersistentAccount av -> m Amount
+accountStakedAmount (PAV0 acc) = V0.getStakedAmount acc
+accountStakedAmount (PAV1 acc) = V0.getStakedAmount acc
+accountStakedAmount (PAV2 acc) = V1.getStakedAmount acc
+
+-- |Get the amount that is locked in scheduled releases on the account.
+accountLockedAmount :: (MonadBlobStore m) => PersistentAccount av -> m Amount
+accountLockedAmount (PAV0 acc) = V0.getLockedAmount acc
+accountLockedAmount (PAV1 acc) = V0.getLockedAmount acc
+accountLockedAmount (PAV2 acc) = V1.getLockedAmount acc
+
 -- | Get the current public account available balance.
 -- This accounts for lock-up and staked amounts.
 -- @available = total - max locked staked@

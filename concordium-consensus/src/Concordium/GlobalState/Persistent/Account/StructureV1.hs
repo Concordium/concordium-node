@@ -487,6 +487,7 @@ data PersistentAccount av = PersistentAccount
       -- |The total balance of the account.
       accountAmount :: !Amount,
       -- |The staked balance of the account.
+      -- INVARIANT: This is 0 if the account is not a baker or delegator.
       accountStakedAmount :: !Amount,
       -- |The enduring account data.
       accountEnduringData :: !(EagerBufferedRef (PersistentAccountEnduringData av))
@@ -555,6 +556,16 @@ getBakerStakeAmount acc = do
     return $! case paedStake ed of
       PersistentAccountStakeEnduringBaker{} -> Just $! accountStakedAmount acc
       _ -> Nothing
+
+-- |Get the amount that is staked on the account.
+getStakedAmount :: (Monad m) => PersistentAccount av -> m Amount
+getStakedAmount acc = return $! accountStakedAmount acc
+
+-- |Get the amount that is locked in scheduled releases on the account.
+getLockedAmount :: (Monad m) => PersistentAccount av -> m Amount
+getLockedAmount acc = do
+    let ed = enduringData acc
+    return $! paedLockedAmount ed
 
 -- | Get the current public account available balance.
 -- This accounts for lock-up and staked amounts.
@@ -773,7 +784,8 @@ updateAccount !upd !acc0 = do
         applyAmountDelta (additionalLocked + upd ^. auAmount . non 0) (accountAmount acc2)}
     return acc3
 
--- |Apply an update to the 'PersistentAccountEnduringData' on an account, recomputing the hash.
+-- |Helper function. Apply an update to the 'PersistentAccountEnduringData' on an account,
+-- recomputing the hash.
 updateEnduringData ::
     (MonadBlobStore m) =>
     (PersistentAccountEnduringData 'AccountV2 -> m (PersistentAccountEnduringData 'AccountV2)) ->
@@ -795,7 +807,7 @@ updatePersistingData f = updateEnduringData $ \ed -> do
     newPersisting <- refMake $! f pd
     return $! ed{paedPersistingData = newPersisting}
 
--- |Update the 'PersistentAccountStakeEnduring' component of an account.
+-- |Helper function. Update the 'PersistentAccountStakeEnduring' component of an account.
 updateStake ::
     (MonadBlobStore m) =>
     (PersistentAccountStakeEnduring 'AccountV2 -> m (PersistentAccountStakeEnduring 'AccountV2)) ->
@@ -995,7 +1007,9 @@ removeStaking ::
     (MonadBlobStore m) =>
     PersistentAccount 'AccountV2 ->
     m (PersistentAccount 'AccountV2)
-removeStaking = updateStake $ const $ return PersistentAccountStakeEnduringNone
+removeStaking acc0 = do
+    acc1 <- updateStake (const $ return PersistentAccountStakeEnduringNone) acc0
+    return $! acc1{accountStakedAmount = 0}
 
 -- |Set the commission rates on a baker account.
 -- This MUST only be called with an account that is a baker.

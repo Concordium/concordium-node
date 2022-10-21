@@ -2789,6 +2789,12 @@ instance (PersistentState av pv r m, IsProtocolVersion pv) => AccountOperations 
 
   getAccountAmount = accountAmount
 
+  getAccountStakedAmount = accountStakedAmount
+
+  getAccountLockedAmount = accountLockedAmount
+
+  getAccountAvailableAmount = accountAvailableAmount
+
   getAccountNonce = accountNonce
 
   checkAccountIsAllowed = accountIsAllowed

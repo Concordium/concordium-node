@@ -30,13 +30,11 @@ import qualified Concordium.Wasm as Wasm
 import qualified Concordium.GlobalState.Wasm as GSWasm
 import Concordium.Scheduler.Types
 import qualified Concordium.Cost as Cost
-import Concordium.Types.Accounts
 import Concordium.GlobalState.Types
 import Concordium.GlobalState.Classes (MGSTrans(..))
 import Concordium.GlobalState.Account (EncryptedAmountUpdate(..), AccountUpdate(..), auAmount, auEncrypted, auReleaseSchedule, emptyAccountUpdate)
 import Concordium.GlobalState.BlockState (AccountOperations(..), NewInstanceData, ContractStateOperations (..), ModuleQuery(..), InstanceInfo, InstanceInfoType (..), InstanceInfoTypeV (iiState, iiParameters), iiBalance, UpdatableContractState)
 import Concordium.GlobalState.BakerInfo
-import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as ARS
 
 import qualified Concordium.TransactionVerification as TVer
 
@@ -1005,14 +1003,8 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
 
   getCurrentAccountAvailableAmount (ai, acc) = do
     oldTotal <- getAccountAmount acc
-    oldLockedUp <- ARS._totalLockedUpBalance <$> getAccountReleaseSchedule acc
-    -- An account can have a baker or delegator, but not both.
-    mbkr <- getAccountBaker acc
-    staked <- case mbkr of
-      Just bkr -> return (bkr ^. stakedAmount)
-      Nothing -> do
-        mdel <- getAccountDelegator acc
-        return $ maybe 0 (\AccountDelegationV1{..} -> _delegationStakedAmount) mdel
+    oldLockedUp <- getAccountLockedAmount acc
+    staked <- getAccountStakedAmount acc
     !txCtx <- ask
     -- If the account is the sender, subtract the deposit
     let netDeposit = if txCtx ^. tcTxSender == ai
