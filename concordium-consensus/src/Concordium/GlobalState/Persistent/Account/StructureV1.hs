@@ -45,7 +45,7 @@ import Control.Monad.Trans
 
 -- |A reference to a 'BakerInfoEx'. These references are shared between baker accounts
 -- and the current/next epoch bakers.
-type PersistentBakerInfoEx av = EagerBufferedRef (BakerInfoEx av)
+type PersistentBakerInfoEx av = LazyBufferedRef (BakerInfoEx av)
 
 -- ** Query
 
@@ -78,7 +78,7 @@ migratePersistentBakerInfoEx ::
     StateMigrationParameters oldpv pv ->
     PersistentBakerInfoEx (AccountVersionFor oldpv) ->
     t m (PersistentBakerInfoEx (AccountVersionFor pv))
-migratePersistentBakerInfoEx StateMigrationParametersTrivial = migrateEagerBufferedRef return
+migratePersistentBakerInfoEx StateMigrationParametersTrivial = migrateReference return
 
 -- |Migrate a 'V0.PersistentBakerInfoEx' to a 'PersistentBakerInfoEx'.
 -- See documentation of @migratePersistentBlockState@.
@@ -104,13 +104,13 @@ migratePersistentBakerInfoExFromV0 StateMigrationParametersP4ToP5{} V0.Persisten
 -- amount. The staked amount is excluded as it expected to change commonly for accounts that
 -- restake their earnings.
 --
--- Note, only the baker info is stored under a reference. The reference is a 'BufferedRef'
+-- Note, only the baker info is stored under a reference. The reference is a 'LazyBufferedRef'
 -- rather than an 'EagerBufferedRef', as it will often be unnecessary to load the baker info.
 data PersistentAccountStakeEnduring av where
     PersistentAccountStakeEnduringNone :: PersistentAccountStakeEnduring av
     PersistentAccountStakeEnduringBaker ::
         { paseBakerRestakeEarnings :: !Bool,
-          paseBakerInfo :: !(BufferedRef (BakerInfoEx av)),
+          paseBakerInfo :: !(LazyBufferedRef (BakerInfoEx av)),
           paseBakerPendingChange :: !(StakePendingChange' Timestamp)
         } ->
         PersistentAccountStakeEnduring av
@@ -183,12 +183,12 @@ instance (MonadBlobStore m) => MHashableTo m (AccountStakeHash 'AccountV2) (Pers
 -- eagerly.
 --
 -- The encrypted amount is 'Nullable' so that accounts with no encrypted balance can be represented
--- succinctly.  The encrypted balance is stored as a 'BufferedRef', which is not automatically
+-- succinctly.  The encrypted balance is stored as a 'LazyBufferedRef', which is not automatically
 -- cached with the account, since loading the encrypted balance is relatively expensive and likely
 -- not necessary for many operations.
 --
--- The release schedule is likewise 'Nullable' and stored under a 'BufferedRef' for similar reasons.
--- However, as well as the 'BufferedRef', we store the locked balance (if it is non-trivial).
+-- The release schedule is likewise 'Nullable' and stored under a 'LazyBufferedRef' for similar reasons.
+-- However, as well as the 'LazyBufferedRef', we store the locked balance (if it is non-trivial).
 -- This is because we typically require ready access to the locked balance so that we can compute
 -- the available balance.
 --
@@ -201,10 +201,10 @@ data PersistentAccountEnduringData (av :: AccountVersion) = PersistentAccountEnd
       paedPersistingData :: !(EagerBufferedRef PersistingAccountData),
       -- |The encrypted amount. Invariant: if this is present, it will not satisfy
       -- 'isZeroAccountEncryptedAmount'.
-      paedEncryptedAmount :: !(Nullable (BufferedRef PersistentAccountEncryptedAmount)),
+      paedEncryptedAmount :: !(Nullable (LazyBufferedRef PersistentAccountEncryptedAmount)),
       -- |The release schedule and total locked amount. Invariant: if this is present,
       -- there will be scheduled releases, and the amount will be the total of them.
-      paedReleaseSchedule :: !(Nullable (BufferedRef AccountReleaseSchedule, Amount)),
+      paedReleaseSchedule :: !(Nullable (LazyBufferedRef AccountReleaseSchedule, Amount)),
       -- |The staking details associated with the account.
       paedStake :: !(PersistentAccountStakeEnduring av)
     }
@@ -223,8 +223,8 @@ makeAccountEnduringData ::
     ( MonadBlobStore m
     ) =>
     EagerBufferedRef PersistingAccountData ->
-    Nullable (BufferedRef PersistentAccountEncryptedAmount) ->
-    Nullable (BufferedRef AccountReleaseSchedule, Amount) ->
+    Nullable (LazyBufferedRef PersistentAccountEncryptedAmount) ->
+    Nullable (LazyBufferedRef AccountReleaseSchedule, Amount) ->
     PersistentAccountStakeEnduring 'AccountV2 ->
     m (PersistentAccountEnduringData 'AccountV2)
 makeAccountEnduringData paedPersistingData paedEncryptedAmount paedReleaseSchedule paedStake = do
@@ -650,15 +650,13 @@ getBaker acc = do
         _ -> return Nothing
 
 -- |Get a reference to the baker info (if any) attached to an account.
-getBakerInfoRef :: (MonadBlobStore m, IsAccountVersion av) =>
+getBakerInfoRef :: (MonadBlobStore m) =>
     PersistentAccount av
-    -> m (Maybe (EagerBufferedRef (BakerInfoEx av)))
+    -> m (Maybe (PersistentBakerInfoEx av))
 getBakerInfoRef acc = do
     let ed = enduringData acc
     case paedStake ed of
-        PersistentAccountStakeEnduringBaker{..} -> do
-            ebi <- eagerBufferedRefFromBufferedRef paseBakerInfo
-            return $ Just ebi
+        PersistentAccountStakeEnduringBaker{..} -> return $ Just paseBakerInfo
         _ -> return Nothing
 
 -- |Get the baker and baker info reference (if any) attached to the account.
@@ -667,14 +665,14 @@ getBakerAndInfoRef acc = do
     let ed = enduringData acc
     case paedStake ed of
         PersistentAccountStakeEnduringBaker{..} -> do
-            ebi <- eagerBufferedRefFromBufferedRef paseBakerInfo
+            bi <- refLoad paseBakerInfo
             let !bkr = AccountBaker {
                         _stakedAmount = accountStakedAmount acc,
                         _stakeEarnings = paseBakerRestakeEarnings,
-                        _accountBakerInfo = eagerBufferedDeref ebi,
+                        _accountBakerInfo = bi,
                         _bakerPendingChange = PendingChangeEffectiveV1 <$> paseBakerPendingChange
                     }
-            return $ Just (bkr, ebi)
+            return $ Just (bkr, paseBakerInfo)
         _ -> return Nothing
 
 -- |Get the delegator (if any) attached to the account.

@@ -77,6 +77,8 @@ module Concordium.GlobalState.Persistent.BlobStore(
     eagerBufferedDeref,
     eagerBufferedRefFromBufferedRef,
     migrateEagerBufferedRef,
+    -- ** 'LazyBufferedRef'
+    LazyBufferedRef,
     -- ** 'HashedBufferedRef'
     HashedBufferedRef',
     HashedBufferedRef,
@@ -1083,6 +1085,92 @@ instance DirectBlobStorable m a => BlobStorable m (Nullable (EagerBufferedRef a)
 
 instance (Applicative m, Cacheable m a) => Cacheable m (EagerBufferedRef a) where
     cache (EagerBufferedRef ioref v) = EagerBufferedRef ioref <$> cache v
+
+-- |Contents of a 'LazyBufferedRef'.
+data LBR a
+    = LBRBlobbed !(BlobRef a)
+    | LBRMemory !a
+    | LBRBoth !(BlobRef a) !a
+
+-- |A 'LazyBufferedRef' is not read from the blob store when it is initially loaded.
+-- However, after the first time it is loaded, it does not need to be read from disk again.
+newtype LazyBufferedRef a = LazyBufferedRef (IORef (LBR a))
+
+instance Show (LazyBufferedRef a) where
+    show _ = "LazyBufferedRef"
+
+-- |Make a 'LazyBufferedRef' from a value.
+makeLazyBufferedRef :: MonadIO m => a -> m (LazyBufferedRef a)
+makeLazyBufferedRef val = liftIO $ LazyBufferedRef <$!> newIORef (LBRMemory val)
+
+instance DirectBlobStorable m a => Reference m LazyBufferedRef a where
+    refMake = makeLazyBufferedRef
+
+    refLoad (LazyBufferedRef ior) = liftIO (readIORef ior) >>= \case
+        LBRBlobbed br -> do
+            !val <- loadDirect br
+            liftIO $ writeIORef ior (LBRBoth br val)
+            return val
+        LBRMemory val -> return val
+        LBRBoth _ val -> return val
+    
+    refCache r = (, r) <$!> refLoad r
+
+    refFlush r@(LazyBufferedRef ior) = liftIO (readIORef ior) >>= \case
+        LBRBlobbed br -> return (r, br)
+        LBRMemory val -> do
+            (!br, !val') <- storeUpdateDirect val
+            liftIO $ writeIORef ior (LBRBoth br val')
+            return (r, br)
+        LBRBoth br _ -> return (r, br)
+    
+    refUncache r@(LazyBufferedRef ior) = liftIO (readIORef ior) >>= \case
+        LBRBlobbed _ -> return r
+        LBRMemory val -> do
+            (!br, _) <- storeUpdateDirect val
+            liftIO $ writeIORef ior (LBRBlobbed br)
+            return r
+        LBRBoth br _ -> do
+            liftIO $ writeIORef ior (LBRBlobbed br)
+            return r
+
+instance DirectBlobStorable m a => BlobStorable m (LazyBufferedRef a) where
+    load = do
+        br <- get
+        return $ liftIO $ LazyBufferedRef <$!> newIORef (LBRBlobbed br)
+    storeUpdate lbr = do
+        (_, !r) <- refFlush lbr
+        return (put r, lbr)
+
+instance DirectBlobStorable m a => BlobStorable m (Nullable (LazyBufferedRef a)) where
+    load = do
+        br <- get
+        if isNull br then
+            return (pure Null)
+        else
+            return $ liftIO $ Some . LazyBufferedRef <$!> newIORef (LBRBlobbed br)
+    storeUpdate n@Null = return (put (refNull :: BlobRef a), n)
+    storeUpdate m@(Some lbr) = do
+        (!r, _) <- storeUpdate lbr
+        return (r, m)
+
+instance (DirectBlobStorable m a, BlobStorable m b) => BlobStorable m (Nullable (LazyBufferedRef a, b)) where
+    load = do
+        br <- get
+        if isNull br then
+            return (pure Null)
+        else do
+            bval <- load
+            return $ do
+                binner <- bval
+                liftIO $ Some . (,binner) . LazyBufferedRef <$!> newIORef (LBRBlobbed br)
+    storeUpdate n@Null = return (put (refNull :: BlobRef a), n)
+    storeUpdate (Some p) = do
+        (!r, !p') <- storeUpdate p
+        return (r, Some p')
+
+instance (MHashableTo m h a, DirectBlobStorable m a) => MHashableTo m h (LazyBufferedRef a) where
+    getHashM = getHashM <=< refLoad
 
 -- |A reference that is generally not retained in memory once it has been written to disk, unless
 -- it is retained by a copy of the reference. (Once all copies are flushed or dropped, the in-memory
