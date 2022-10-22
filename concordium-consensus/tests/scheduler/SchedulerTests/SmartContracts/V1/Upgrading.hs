@@ -4,23 +4,17 @@
     In particular it tests that an initialized instance which has been deployed
     in P5 can upgrade it's underlying module i.e. the artifact via the host function
     'upgrade'
-
-    * Test case 1
-        The scenario checks that a contract A which is initialized with some state can
-        be upgraded to a new module. The new module contains a view function that returns
-        the state stored in the prior version is still available.
-
-    * Test case 2.. todo.
-
 -}
 module SchedulerTests.SmartContracts.V1.Upgrading (tests) where
 
 import Test.Hspec
-import Test.HUnit(assertFailure, assertEqual)
+import Test.HUnit(assertFailure, assertEqual, assertBool)
 
+import Lens.Micro.Platform
 import qualified Data.ByteString.Short as BSS
 import qualified Data.ByteString as BS
 import Control.Monad
+import qualified Data.Set as Set
 import Data.Serialize(runPut, Serialize (put), putWord32le)
 import qualified Data.Text as T
 import qualified Data.List as List
@@ -32,6 +26,7 @@ import qualified Concordium.TransactionVerification as TVer
 
 import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
 import Concordium.GlobalState.Basic.BlockState
+import qualified Concordium.GlobalState.Wasm as GSWasm
 import Concordium.Wasm
 import qualified Concordium.Cost as Cost
 
@@ -63,6 +58,8 @@ upgrading1SourceFile = "./testdata/contracts/v1/upgrading_1.wasm"
 wasmModVersion1 :: WasmVersion
 wasmModVersion1 = V1
 
+-- |The simple case, upgrading is intended to succeed, changes the module, and
+-- changes the set of entrypoints.
 upgradingTestCase :: TestCase PV5
 upgradingTestCase =
     TestCase
@@ -93,7 +90,7 @@ upgradingTestCase =
       ,
         -- Invoke the `upgrade` by calling 'a.upgrade' with the resulting 'ModuleRef' of
         -- deploying upgrade_1.wasm.
-        ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "a.bump" parameters
+        ( TJSON { payload = Update 0 instanceAddr "a.bump" parameters
                 , metadata = makeDummyHeader alesAccount 4 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
@@ -101,19 +98,21 @@ upgradingTestCase =
         )
       ,
         -- Invoke `new` which is only accessible after the module upgrade
-        ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "a.newfun" BSS.empty
+        ( TJSON { payload = Update 0 instanceAddr "a.newfun" BSS.empty
                 , metadata = makeDummyHeader alesAccount 5 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
-        , (SuccessWithSummary (successWithEventsCheck newFunEventsCheck), emptySpec)
+        , (SuccessWithSummary (successWithEventsCheck newFunEventsCheck), finalStateSpec)
         )
       ]
     }
   where
+    lastModuleRef = getModuleRefFromV1File upgrading1SourceFile
     parameters = BSS.toShort $ runPut $ do
         -- The 'ModuleRef' to the desired module to upgrade to.
-        put $! getModuleRefFromV1File upgrading1SourceFile
+        put lastModuleRef
 
+    instanceAddr = Types.ContractAddress 0 0
     bumpEventsCheck :: [Types.Event] -> Expectation
     bumpEventsCheck events = do
       -- Check the number of events:
@@ -126,6 +125,16 @@ upgradingTestCase =
       -- Check the number of events:
       -- - 1 event for a succesful update to the contract.
       eventsLengthCheck 1 events
+
+    finalStateSpec bs = specify "The new instance has correct module and entrypoint." $ 
+      case bs ^? blockInstances . ix instanceAddr of
+        Nothing -> assertFailure "Instance does not exist."
+        Just (Types.InstanceV0 _) -> assertFailure "Instance should be a V1 instance."
+        Just (Types.InstanceV1 Types.InstanceV{..}) -> do
+          let curModuleRef = GSWasm.moduleReference . Types.instanceModuleInterface $ _instanceVParameters
+          assertEqual "New module reference" lastModuleRef curModuleRef
+          assertBool "Instance has new entrypoint." (Set.member (ReceiveName "a.newfun") (Types.instanceReceiveFuns _instanceVParameters))
+          assertBool "Instance does not have the old entrypoint." (Set.notMember (ReceiveName "a.bump") (Types.instanceReceiveFuns _instanceVParameters))
 
 
 selfInvokeSourceFile0 :: FilePath
@@ -185,6 +194,7 @@ selfInvokeTestCase =
 missingModuleSourceFile :: FilePath
 missingModuleSourceFile = "./testdata/contracts/v1/upgrading-missing-module.wasm"
 
+-- |Upgrading to a missing module fails with the correct error code.
 missingModuleTestCase :: TestCase PV5
 missingModuleTestCase = TestCase { tcName = "Upgrading to a missing module fails"
   , tcParameters = (defaultParams @PV5) {tpInitialBlockState=initialBlockState}
@@ -222,6 +232,8 @@ missingContractSourceFile0 = "./testdata/contracts/v1/upgrading-missing-contract
 missingContractSourceFile1 :: FilePath
 missingContractSourceFile1 = "./testdata/contracts/v1/upgrading-missing-contract1.wasm"
 
+-- |Upgrading to a module which does not have the required contract fails with
+-- the correct error code.
 missingContractTestCase :: TestCase PV5
 missingContractTestCase =
   TestCase { tcName = "Upgrading to a module without matching contract fails"
@@ -267,6 +279,8 @@ unsupportedVersionSourceFile0 = "./testdata/contracts/v1/upgrading-unsupported-v
 unsupportedVersionSourceFile1 :: FilePath
 unsupportedVersionSourceFile1 = "./testdata/contracts/v1/upgrading-unsupported-version1.wasm"
 
+-- |Attempt to upgrade to a V0 module. This should fail with a specific error
+-- code.
 unsupportedVersionTestCase :: TestCase PV5
 unsupportedVersionTestCase =
   TestCase { tcName = "Upgrading to a module with an unsupported version"
@@ -315,6 +329,8 @@ twiceSourceFile1 = "./testdata/contracts/v1/upgrading-twice1.wasm"
 twiceSourceFile2 :: FilePath
 twiceSourceFile2 = "./testdata/contracts/v1/upgrading-twice2.wasm"
 
+-- |Upgrading twice in the same transaction. The effect of the second upgrade
+-- should be in effect at the end.
 twiceTestCase :: TestCase PV5
 twiceTestCase =
   TestCase { tcName = "Upgrading twice in the same invocation"
@@ -341,17 +357,21 @@ twiceTestCase =
               }
       , (SuccessWithSummary (deploymentCostCheck twiceSourceFile2), emptySpec))
 
-    , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "contract.upgrade" upgradeParameters
+    , ( TJSON { payload = Update 0 instanceAddr "contract.upgrade" upgradeParameters
               , metadata = makeDummyHeader alesAccount 5 100000
               , keys = [(0,[(0, alesKP)])]
               }
-      , (SuccessWithSummary (successWithEventsCheck eventsCheck), emptySpec))
+      , (SuccessWithSummary (successWithEventsCheck eventsCheck), finalStateSpec))
     ]
   }
   where
+    lastModuleRef = getModuleRefFromV1File twiceSourceFile2
+    
     upgradeParameters = BSS.toShort $ runPut $ do
       put $ getModuleRefFromV1File twiceSourceFile1
-      put $ getModuleRefFromV1File twiceSourceFile2
+      put lastModuleRef
+
+    instanceAddr = Types.ContractAddress 0 0
 
     eventsCheck :: [Types.Event] -> Expectation
     eventsCheck events = do
@@ -365,6 +385,14 @@ twiceTestCase =
         eventsLengthCheck 16 events
         -- Find and check for upgrade events
         unless (List.length (filter isUpgradeEvent events) == 2) $ assertFailure "Expected two Upgraded events"
+
+    finalStateSpec bs = specify "The new instance has correct module." $ 
+      case bs ^? blockInstances . ix instanceAddr of
+        Nothing -> assertFailure "Instance does not exist."
+        Just (Types.InstanceV0 _) -> assertFailure "Instance should be a V1 instance."
+        Just (Types.InstanceV1 Types.InstanceV{..}) -> do
+          let curModuleRef = GSWasm.moduleReference . Types.instanceModuleInterface $ _instanceVParameters
+          assertEqual "New module reference" lastModuleRef curModuleRef
 
 chainedSourceFile0 :: FilePath
 chainedSourceFile0 = "./testdata/contracts/v1/upgrading-chained0.wasm"
@@ -675,7 +703,7 @@ successWithEventsCheck checkEvents _ summary = case Types.tsResult summary of
 rejectWithReasonCheck :: (Types.RejectReason -> Expectation) -> TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
 rejectWithReasonCheck checkReason _ summary = case Types.tsResult summary of
   Types.TxReject {..} -> checkReason vrRejectReason
-  Types.TxSuccess {} -> assertFailure $ "Transaction succeeded unexpectedly"
+  Types.TxSuccess {} -> assertFailure "Transaction succeeded unexpectedly"
 
 eventsLengthCheck :: Int -> [Types.Event] -> Expectation
 eventsLengthCheck expected events = unless (length events == expected) $
