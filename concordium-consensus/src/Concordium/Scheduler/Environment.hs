@@ -15,7 +15,6 @@ module Concordium.Scheduler.Environment where
 import qualified Data.HashMap.Strict as HMap
 import qualified Data.HashSet as HSet
 import qualified Data.Map as Map
-import qualified Data.Map.Strict as SMap
 import qualified Data.Set as Set
 import Data.Foldable
 
@@ -49,7 +48,6 @@ import Concordium.Wasm (IsWasmVersion)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import qualified Concordium.Wasm as GSWasm
 import Data.Proxy
-import Data.Maybe (fromMaybe)
 
 -- |An account index together with the canonical address. Sometimes it is
 -- difficult to pass an IndexedAccount and we only need the addresses. That is

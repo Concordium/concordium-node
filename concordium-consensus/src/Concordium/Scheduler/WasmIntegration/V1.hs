@@ -127,6 +127,9 @@ data InvokeResponseCode =
   Success
   | Error !ContractCallFailure
   | MessageSendFailed
+  | UpgradeInvalidModuleRef !ModuleRef -- ^Attempt to upgrade to a non existent module.
+  | UpgradeInvalidContractName !ModuleRef !InitName -- ^Attempt to upgrade to a module where the contract name did not match.
+  | UpgradeInvalidVersion !ModuleRef !WasmVersion -- ^Attempt to upgrade to a non-supported module version.
 
 -- |Possible reasons why invocation failed that are not directly logic failure of a V1 call.
 data EnvFailure =
@@ -134,9 +137,6 @@ data EnvFailure =
   | MissingAccount !AccountAddress
   | MissingContract !ContractAddress
   | InvalidEntrypoint !ModuleRef !ReceiveName -- Attempting to invoke a non-existing entrypoint.
-  | UpgradeInvalidModuleRef !ModuleRef -- ^Attempt to upgrade to a non existent module.
-  | UpgradeInvalidContractName !ModuleRef !InitName -- ^Attempt to upgrade to a module where the contract name did not match.
-  | UpgradeInvalidVersion !ModuleRef !WasmVersion -- ^Attempt to upgrade to a non-supported module version.
   deriving (Show)
 
 -- |Encode the response into 64 bits. This is necessary since Wasm only allows
@@ -156,16 +156,15 @@ invokeResponseToWord64 (Error (EnvFailure e)) =
     MissingAccount _ -> 0xffff_ff02_0000_0000
     MissingContract _ -> 0xffff_ff03_0000_0000
     InvalidEntrypoint _ _ -> 0xffff_ff04_0000_0000
-    UpgradeInvalidModuleRef _ -> 0xffff_ff07_0000_0000
-    UpgradeInvalidContractName _ _ -> 0xffff_ff08_0000_0000
-    UpgradeInvalidVersion _ _ -> 0xffff_ff09_0000_0000
 invokeResponseToWord64 MessageSendFailed = 0xffff_ff05_0000_0000
+invokeResponseToWord64 (UpgradeInvalidModuleRef _) = 0xffff_ff07_0000_0000
+invokeResponseToWord64 (UpgradeInvalidContractName _ _) = 0xffff_ff08_0000_0000
+invokeResponseToWord64 (UpgradeInvalidVersion _ _) = 0xffff_ff09_0000_0000
 invokeResponseToWord64 (Error (ExecutionReject Trap)) = 0xffff_ff06_0000_0000
 invokeResponseToWord64 (Error (ExecutionReject LogicReject{..})) =
   -- make the last 32 bits the value of the rejection reason
   let unsigned = fromIntegral cerRejectReason :: Word32 -- reinterpret the bits
   in 0xffff_ff00_0000_0000 .|. fromIntegral unsigned -- and cut away the upper 32 bits
-
 
 foreign import ccall "call_init_v1"
    call_init :: LoadCallback -- Callbacks for loading state. Not needed in reality, but the way things are set it is. It does not hurt to pass.
@@ -405,9 +404,6 @@ cerToRejectReasonReceive _ _ _ (EnvFailure e) = case e of
   MissingAccount aref -> Exec.InvalidAccountReference aref
   MissingContract cref -> Exec.InvalidContractAddress cref
   InvalidEntrypoint mref rn -> Exec.InvalidReceiveMethod mref rn
-  UpgradeInvalidModuleRef modRef -> Exec.UpgradeInvalidModuleReference modRef
-  UpgradeInvalidContractName modRef initName -> Exec.UpgradeInvalidContractName modRef initName
-  UpgradeInvalidVersion modRef v -> Exec.UpgradeInvalidVersion modRef v
 
 -- |Parse the response from invoking either a @call_receive_v1@ or
 -- @resume_receive_v1@ method. This attempts to parse the returned byte array

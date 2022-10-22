@@ -690,17 +690,6 @@ instance ToProto RejectReason where
     StakeOverMaximumThresholdForPool -> Proto.make $ ProtoFields.stakeOverMaximumThresholdForPool .= Proto.defMessage
     PoolWouldBecomeOverDelegated -> Proto.make $ ProtoFields.poolWouldBecomeOverDelegated .= Proto.defMessage
     PoolClosed -> Proto.make $ ProtoFields.poolClosed .= Proto.defMessage
-    UpgradeInvalidModuleReference modRef -> Proto.make $ 
-            ProtoFields.upgradeInvalidModuleReference .= Proto.make (do 
-                                                            ProtoFields.moduleRef .= toProto modRef)
-    UpgradeInvalidContractName modRef cInitName -> Proto.make $ 
-            ProtoFields.upgradeInvalidContractName .= Proto.make (do 
-                                                            ProtoFields.moduleRef .= toProto modRef
-                                                            ProtoFields.initName .= toProto cInitName)
-    UpgradeInvalidVersion modRef wasmV -> Proto.make $ 
-            ProtoFields.upgradeInvalidVersion .= Proto.make (do 
-                                                            ProtoFields.moduleRef .= toProto modRef
-                                                            ProtoFields.version .= toProto wasmV)
 
 -- |Attempt to convert the node's TransactionStatus type into the protobuf BlockItemStatus type.
 --  The protobuf type is better structured and removes the need for handling impossible cases.
