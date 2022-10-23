@@ -239,7 +239,7 @@ instance (MonadReader ContextState m,
                       (Map.toList (cs ^. instanceV0Updates)))
     -- since V0 and V1 instances are disjoint, the order in which we do updates does not matter.
     s2 <- lift (foldM (\s' (addr, InstanceV1Update{..}) ->
-                          bsoModifyInstance s' addr amountChange newState (fst <$> newModule))
+                          bsoModifyInstance s' addr amountChange newState newInterface)
                       s1
                       (Map.toList (cs ^. instanceV1Updates)))
     -- Notify account transfers.

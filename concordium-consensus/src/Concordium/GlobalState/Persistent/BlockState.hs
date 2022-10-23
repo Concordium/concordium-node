@@ -1985,7 +1985,13 @@ doPutNewInstance pbs NewInstanceData{..} = do
                   ..
                   })
 
-doModifyInstance :: forall pv m v . (SupportsPersistentState pv m, Wasm.IsWasmVersion v) => PersistentBlockState pv -> ContractAddress -> AmountDelta -> Maybe (UpdatableContractState v) -> Maybe (GSWasm.ModuleInterfaceA (Modules.PersistentInstrumentedModuleV v)) -> m (PersistentBlockState pv)
+doModifyInstance :: forall pv m v . (SupportsPersistentState pv m, Wasm.IsWasmVersion v) =>
+    PersistentBlockState pv ->
+    ContractAddress ->
+    AmountDelta ->
+    Maybe (UpdatableContractState v) ->
+    Maybe (GSWasm.ModuleInterfaceA (Modules.PersistentInstrumentedModuleV v), Set.Set Wasm.ReceiveName) ->
+    m (PersistentBlockState pv)
 doModifyInstance pbs caddr deltaAmnt val newModule = do
         bsp <- loadPBS pbs
         -- Update the instance
@@ -1999,14 +2005,10 @@ doModifyInstance pbs caddr deltaAmnt val newModule = do
           (params, newParamsRef) <- cacheBufferedRef piRef
           case newModule of
             Nothing -> return (params, newParamsRef)
-            Just nm -> do
+            Just (nm, newEntryPoints) -> do
               let newParams' = params {
                     pinstanceContractModule = GSWasm.miModuleRef nm,
-                    -- TODO: We return Set.empty here in case that the set of receive functions cannot be looked up
-                    -- on the module. However the 'Scheduler' already looked up that the 'InitName' exists on the new module,
-                    -- (hence the 'InitName' was added to the 'miExposedReceive' of the deployed 'ModuleInterfaceA) so it should never return 'Nothing',
-                    -- but it should be safe to return 'Set.empty' here.
-                    pinstanceReceiveFuns = fromMaybe Set.empty (Map.lookup (pinstanceInitName params) (GSWasm.miExposedReceive nm))
+                    pinstanceReceiveFuns = newEntryPoints
                     }
                   newHash = Instances.makeInstanceParameterHash (pinstanceAddress newParams') (pinstanceOwner newParams') (pinstanceContractModule newParams') (pinstanceInitName newParams')
                   newParams = newParams {pinstanceParameterHash = newHash}

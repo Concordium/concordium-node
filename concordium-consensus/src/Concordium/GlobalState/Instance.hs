@@ -14,7 +14,6 @@ module Concordium.GlobalState.Instance where
 import Data.Maybe
 import Data.Serialize
 import qualified Data.Set as Set
-import qualified Data.Map.Strict as Map
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
 import Concordium.Types.HashableTo
@@ -213,12 +212,12 @@ makeInstance instanceInitName instanceReceiveFuns instanceModuleInterface _insta
     where instanceV = makeInstanceV instanceInitName instanceReceiveFuns instanceModuleInterface _instanceVModel _instanceVAmount instanceOwner _instanceAddress
 
 -- |Update a given smart contract instance.
-updateInstanceV :: AmountDelta -> Maybe (InstanceStateV v) -> Maybe (GSWasm.ModuleInterfaceA im) -> InstanceV im v -> InstanceV im v
+updateInstanceV :: AmountDelta -> Maybe (InstanceStateV v) -> Maybe (GSWasm.ModuleInterfaceA im, Set.Set Wasm.ReceiveName) -> InstanceV im v -> InstanceV im v
 updateInstanceV delta val maybeNewModule i = updateInstanceV' amnt val maybeNewModule i
   where amnt = applyAmountDelta delta (_instanceVAmount i)
 
 -- |Update a given smart contract instance with exactly the given amount, state and possibly upgrade the module.
-updateInstanceV' :: Amount -> Maybe (InstanceStateV v) -> Maybe (GSWasm.ModuleInterfaceA im) -> InstanceV im v -> InstanceV im v
+updateInstanceV' :: Amount -> Maybe (InstanceStateV v) -> Maybe (GSWasm.ModuleInterfaceA im, Set.Set Wasm.ReceiveName) -> InstanceV im v -> InstanceV im v
 updateInstanceV' amnt val maybeNewMod i =  i {
                                 _instanceVModel = newVal,
                                 _instanceVAmount = amnt,
@@ -227,12 +226,7 @@ updateInstanceV' amnt val maybeNewMod i =  i {
                             }
   where
       newVal = fromMaybe (_instanceVModel i) val
-      newParams = maybe (_instanceVParameters i) (\nm -> (_instanceVParameters i) { instanceModuleInterface = nm, instanceReceiveFuns = newReceiveFuns nm}) maybeNewMod
-      -- TODO: We return Set.empty here in case that the set of receive functions cannot be looked up
-      -- on the module. However the 'Scheduler' already looked up that the 'InitName' exists on the new module,
-      -- (hence the 'InitName' was added to the 'miExposedReceive' of the deployed 'ModuleInterfaceA) so it should never return 'Nothing',
-      -- but it should be safe to return 'Set.empty' here.
-      newReceiveFuns mia = fromMaybe Set.empty (Map.lookup (instanceInitName $ _instanceVParameters i) (GSWasm.miExposedReceive mia))
+      newParams = maybe (_instanceVParameters i) (\(nm, newEntrypoints) -> (_instanceVParameters i) { instanceModuleInterface = nm, instanceReceiveFuns = newEntrypoints}) maybeNewMod
 
 -- |Serialize a V0 smart contract instance in V0 format.
 putV0InstanceV0 :: Putter (InstanceV im GSWasm.V0)

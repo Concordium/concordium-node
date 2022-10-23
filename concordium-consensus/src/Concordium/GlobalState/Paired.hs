@@ -726,9 +726,9 @@ instance
         bs1' <- coerceBSML $ bsoModifyInstance bs1 caddr delta model Nothing
         bs2' <- coerceBSMR $ bsoModifyInstance bs2 caddr delta model Nothing
         return (bs1', bs2')
-    bsoModifyInstance (bs1, bs2) caddr delta model (Just GSWasm.ModuleInterface{miModule=PIMR l r,..}) = do
-        bs1' <- coerceBSML $ bsoModifyInstance bs1 caddr delta model (Just GSWasm.ModuleInterface{miModule=l,..})
-        bs2' <- coerceBSMR $ bsoModifyInstance bs2 caddr delta model (Just GSWasm.ModuleInterface{miModule=r,..})
+    bsoModifyInstance (bs1, bs2) caddr delta model (Just (GSWasm.ModuleInterface{miModule=PIMR l r,..}, nr)) = do
+        bs1' <- coerceBSML $ bsoModifyInstance bs1 caddr delta model (Just (GSWasm.ModuleInterface{miModule=l,..}, nr))
+        bs2' <- coerceBSMR $ bsoModifyInstance bs2 caddr delta model (Just (GSWasm.ModuleInterface{miModule=r,..}, nr))
         return (bs1', bs2')
     bsoNotifyEncryptedBalanceChange (bs1, bs2) amt = do
         bs1' <- coerceBSML $ bsoNotifyEncryptedBalanceChange bs1 amt

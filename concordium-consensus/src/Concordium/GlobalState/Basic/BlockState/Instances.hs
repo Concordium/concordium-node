@@ -46,7 +46,13 @@ getInstance addr (Instances iss) = iss ^? ix addr
 -- is not changed. If there is no instance with the given address, this does
 -- nothing. If the instance at the given address has a different version than
 -- given this function raises an exception.
-updateInstanceAt :: forall v .Wasm.IsWasmVersion v => ContractAddress -> AmountDelta -> Maybe (InstanceStateV v) -> Maybe (GSWasm.ModuleInterfaceV v) -> Instances -> Instances
+updateInstanceAt :: forall v .Wasm.IsWasmVersion v =>
+    ContractAddress ->
+    AmountDelta ->
+    Maybe (InstanceStateV v) ->
+    Maybe (GSWasm.ModuleInterfaceV v, Set.Set Wasm.ReceiveName) ->
+    Instances ->
+    Instances
 updateInstanceAt ca amt val maybeModule (Instances iss) = Instances (iss & ix ca %~ updateOnlyV)
     where
         -- only update if the instance matches the state version. Otherwise raise an exception.
@@ -64,7 +70,7 @@ updateInstanceAt ca amt val maybeModule (Instances iss) = Instances (iss & ix ca
 -- is not changed. If there is no instance with the given address, this does
 -- nothing. If the instance at the given address has a different version than
 -- given this function raises an exception.
-updateInstanceAt' :: forall v . Wasm.IsWasmVersion v => ContractAddress -> Amount -> Maybe (InstanceStateV v) -> Maybe (GSWasm.ModuleInterfaceV v) -> Instances -> Instances
+updateInstanceAt' :: forall v . Wasm.IsWasmVersion v => ContractAddress -> Amount -> Maybe (InstanceStateV v) -> Maybe (GSWasm.ModuleInterfaceV v, Set.Set Wasm.ReceiveName) -> Instances -> Instances
 updateInstanceAt' ca amt val maybeModule (Instances iss) = Instances (iss & ix ca %~ updateOnlyV)
     where
         -- only update if the instance matches the state version. Otherwise raise an exception.

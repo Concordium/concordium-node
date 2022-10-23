@@ -505,7 +505,27 @@ class (StaticInformation m, ContractStateOperations m, MonadProtocolVersion m) =
 -- changed or not when a contract calls another.
 type ModificationIndex = Word
 
--- |A pending update for v1 instances.
+-- |A modified state of a V1 instance. This is the state that is maintained
+-- during the execution of a transaction.
+--
+-- The type parameter `mr` is a technical necessity since we have to maintain a
+-- new module interface. Since modules are parametrized by the monad (i.e.,
+-- either persistent or basic) we need to parametrize this state update as well,
+-- seeing that the scheduler works with any state. On top of this, we often have
+-- "newtype wrappers" @t m@ around a monad @m@ but with the property that
+-- @InstrumentedModuleRef (t m) ~ InstrumentedModuleRef m@. In order for this to
+-- work we actually need to parametrize the @InstanceV1Update'@ by a type
+-- function @mr@ so that the typechecker can see the property that if
+--
+-- @InstrumentedModuleRef (t m) ~ InstrumentedModuleRef m@
+--
+-- then also
+--
+-- @InstanceV1Update (t m) ~ InstanceV1Update m@.
+--
+-- That is why we have the auxiliary type definition @InstanceV1Update'@
+-- parametrized by the type function @mr@ and then a simplified type alias
+-- @InstanceV1Update@ on top.
 data InstanceV1Update' mr = InstanceV1Update {
     -- |The modification index.
     index :: !ModificationIndex,
@@ -515,7 +535,7 @@ data InstanceV1Update' mr = InstanceV1Update {
     newState :: !(Maybe (UpdatableContractState GSWasm.V1)),
     -- |Present if the contract has been upgraded.
     -- Contract upgrades are only supported from PV 5 and onwards.
-    newModule  :: !(Maybe (GSWasm.ModuleInterfaceA (mr GSWasm.V1), Set.Set GSWasm.ReceiveName))
+    newInterface  :: !(Maybe (GSWasm.ModuleInterfaceA (mr GSWasm.V1), Set.Set GSWasm.ReceiveName))
 }
 
 type InstanceV1Update m = InstanceV1Update' (InstrumentedModuleRef m)
@@ -523,6 +543,9 @@ type InstanceV1Update m = InstanceV1Update' (InstrumentedModuleRef m)
 type ChangeSet m = ChangeSet' (InstrumentedModuleRef m)
 
 -- |The set of changes to be committed on a successful transaction.
+--
+-- The reason for parametrizing by a type function @mr@ is the same as for
+-- @InstanceV1Update@.
 data ChangeSet' mr = ChangeSet
     {_accountUpdates :: !(HMap.HashMap AccountIndex AccountUpdate) -- ^Accounts whose states changed.
     -- |V0 contracts whose states changed. Any time we are updating a contract we know which version it is.
@@ -594,7 +617,7 @@ addContractStatesToCSV0 Proxy istance curIdx newState =
 addContractStatesToCSV1 :: HasInstanceAddress a => Proxy m -> a -> ModificationIndex -> UpdatableContractState GSWasm.V1 -> ChangeSet m -> ChangeSet m
 addContractStatesToCSV1 Proxy istance curIdx stateUpdate =
   instanceV1Updates . at addr %~ 
-      \case Just InstanceV1Update{..} -> Just $! InstanceV1Update curIdx amountChange (Just stateUpdate) newModule
+      \case Just InstanceV1Update{..} -> Just $! InstanceV1Update curIdx amountChange (Just stateUpdate) newInterface
             Nothing -> Just $! InstanceV1Update curIdx 0 (Just stateUpdate) Nothing
   where addr = instanceAddress istance
 
@@ -612,7 +635,7 @@ addContractAmountToCSV1 :: (Monad m) => ContractAddress -> AmountDelta -> Change
 addContractAmountToCSV1 addr amnt cs =
     -- updating amounts does not update the modification index. Only state updates do.
     pure $ cs & instanceV1Updates . at addr %~ \case 
-                                            Just InstanceV1Update{..} -> Just $! InstanceV1Update index (amountChange + amnt) newState newModule
+                                            Just InstanceV1Update{..} -> Just $! InstanceV1Update index (amountChange + amnt) newState newInterface
                                             Nothing -> Just $! InstanceV1Update 0 amnt Nothing Nothing
 
 -- |Add the given contract address to the set of initialized contract instances.
@@ -1023,7 +1046,7 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
                     in return (Just . InstanceInfoV1 $ inst {
                             iiBalance = amnt,
                             iiState = maybe (Frozen (iiState inst)) Thawed newState,
-                            iiParameters = maybe (iiParameters inst) (updateParams (iiParameters inst)) newModule})
+                            iiParameters = maybe (iiParameters inst) (updateParams (iiParameters inst)) newInterface})
     where
       updateParams params (newMod, newReceiveNames) =
           InstanceParameters {
