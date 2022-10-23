@@ -1054,12 +1054,7 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
               instanceOwner = instanceOwner params,
               instanceInitName = instanceInitName params,
               instanceReceiveFuns = newReceiveNames,
-              instanceModuleInterface = newMod,
-              instanceParameterHash = makeInstanceParameterHash
-                                      addr
-                                      (instanceOwner params)
-                                      (GSWasm.miModuleRef newMod)
-                                      (instanceInitName params)}
+              instanceModuleInterface = newMod}
 
   chargeV1Storage = do
     xs <- use (changeSet . instanceV1Updates)

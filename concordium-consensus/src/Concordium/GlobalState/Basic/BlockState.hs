@@ -1056,8 +1056,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
               instanceOwner = nidOwner,
               instanceInitName = nidInitName,
               instanceReceiveFuns = nidEntrypoints,
-              instanceModuleInterface = nidInterface,
-              instanceParameterHash = Instance.makeInstanceParameterHash addr nidOwner (GSWasm.miModuleRef nidInterface) nidInitName 
+              instanceModuleInterface = nidInterface
               }
             mkInstance addr = case Wasm.getWasmVersion @v of
                 Wasm.SV0 ->
