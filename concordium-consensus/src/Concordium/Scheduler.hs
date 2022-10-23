@@ -1237,7 +1237,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
           handleContractUpgrade cAddr oldModRef newMod newReceiveNames = do
               -- Add the upgrade to the 'ChangeSet' and add the 'Upgrade' event to the stack of events.
               lift $! addContractUpgrade cAddr newMod newReceiveNames
-              return $ Upgraded oldModRef (GSWasm.miModuleRef newMod)
+              return $ Upgraded cAddr oldModRef (GSWasm.miModuleRef newMod)
 
 -- | Invoke a V0 contract and process any generated messages.
 -- This includes the transfer of an amount from the sending account or instance.
