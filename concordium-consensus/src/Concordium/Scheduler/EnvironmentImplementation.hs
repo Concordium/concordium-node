@@ -242,10 +242,10 @@ instance (MonadReader ContextState m,
                       s1
                       (Map.toList (cs ^. instanceV1Updates)))
     -- Notify account transfers.
+    -- This also updates the release schedule.
     s3 <- lift (foldM bsoModifyAccount
                   s2
                   (cs ^. accountUpdates))
-    s4 <- lift (bsoAddReleaseSchedule s3 (OrdMap.toList $ cs ^. addedReleaseSchedules))
     schedulerBlockState .= s4
 
   {-# INLINE energyToGtu #-}

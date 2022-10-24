@@ -681,6 +681,10 @@ getEncryptionKey acc = ID.unsafeEncryptionKeyFromRaw <$> acc ^^. accountEncrypti
 getReleaseSchedule :: MonadBlobStore m => PersistentAccount av -> m Transient.AccountReleaseSchedule
 getReleaseSchedule acc = loadPersistentAccountReleaseSchedule =<< refLoad (acc ^. accountReleaseSchedule)
 
+-- |Get the timestamp at which the next scheduled release will occur (if any).
+getNextReleaseTimestamp :: MonadBlobStore m => PersistentAccount av -> m (Maybe Timestamp)
+getNextReleaseTimestamp acc = nextReleaseTimestamp <$!> refLoad (acc ^. accountReleaseSchedule)
+
 -- |Get the baker and baker info reference (if any) attached to the account.
 getBakerAndInfoRef :: forall m av. (MonadBlobStore m, IsAccountVersion av, AVStructureV0 av) => PersistentAccount av -> m (Maybe (AccountBaker av, PersistentBakerInfoEx av))
 getBakerAndInfoRef acc = case acc ^. accountBaker of
