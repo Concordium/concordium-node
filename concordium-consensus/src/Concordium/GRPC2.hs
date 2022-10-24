@@ -1086,6 +1086,11 @@ convertContractRelatedEvents event = case event of
     Resumed{..} -> Right . Proto.make $ ProtoFields.resumed .= Proto.make (do
       ProtoFields.address .= toProto rAddress
       ProtoFields.success .= rSuccess)
+    Upgraded{..} -> Right . Proto.make $ ProtoFields.upgraded .= Proto.make (do
+      ProtoFields.address .= toProto euAddress
+      ProtoFields.from .= toProto euFrom
+      ProtoFields.to .= toProto euTo
+     )
     _ -> Left CEInvalidTransactionResult
 
 -- |Attempt to construct the protobuf type AccounTransactionType.

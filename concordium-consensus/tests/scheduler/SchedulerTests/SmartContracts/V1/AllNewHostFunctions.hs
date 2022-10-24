@@ -15,16 +15,30 @@ import qualified Data.ByteString as BS
 import Concordium.Wasm
 import qualified Concordium.GlobalState.Wasm as GSWasm
 import qualified Concordium.Scheduler.WasmIntegration.V1 as WasmV1
+import qualified Concordium.Types.ProtocolVersion as PV
 
 -- |A V1 module with extra exports.
 testModule1 :: Assertion
 testModule1 = do
   ws <- BS.readFile "./testdata/contracts/v1/all-new-host-functions.wasm"
   let wm1 = WasmModuleV (ModuleSource ws)
-  case WasmV1.processModule wm1 of
+  case WasmV1.processModule True wm1 of
     Nothing -> assertFailure "Invalid caller module."
     Just GSWasm.ModuleInterface{} -> return ()
 
+-- |A V1 module with extra exports.
+-- This should not pass the processing as the module
+-- contains 'upgrade' and this is only allowed for P5 and 
+-- onwards.
+testModule2 :: Assertion
+testModule2 = do
+  ws <- BS.readFile "./testdata/contracts/v1/all-new-host-functions.wasm"
+  let wm1 = WasmModuleV (ModuleSource ws)
+  case WasmV1.processModule False wm1 of
+    Nothing -> return ()
+    Just GSWasm.ModuleInterface{} -> assertFailure "Caller module contains 'upgrade' in unsupported PV."
+
 tests :: Spec
 tests = describe "V1: Process modules" $ do
-  specify "All new host functiosn" testModule1
+  specify "All new host functions" testModule1
+  specify "Host fn 'upgrade' in < P5 fails" testModule2

@@ -425,7 +425,7 @@ getBlockState migration = do
     -- AnonymityRevokers
     _blockAnonymityRevokers <- makeHashed <$> label "identity providers" get
     -- Modules
-    _blockModules <- label "modules" Modules.getModulesV0
+    _blockModules <- label "modules" (Modules.getModulesV0 (protocolVersion @oldpv))
     -- BankStatus
     _blockBank <- makeHashed <$> label "bank status" get
     (_blockAccounts :: Accounts.Accounts pv) <- label "accounts" $ Accounts.deserializeAccounts migration cryptoParams
@@ -1056,8 +1056,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
               instanceOwner = nidOwner,
               instanceInitName = nidInitName,
               instanceReceiveFuns = nidEntrypoints,
-              instanceModuleInterface = nidInterface,
-              instanceParameterHash = Instance.makeInstanceParameterHash addr nidOwner (GSWasm.miModuleRef nidInterface) nidInitName 
+              instanceModuleInterface = nidInterface
               }
             mkInstance addr = case Wasm.getWasmVersion @v of
                 Wasm.SV0 ->
@@ -1088,8 +1087,8 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
           Nothing -> (False, bs)
           Just mods' -> (True, bs & blockModules .~ mods')
 
-    bsoModifyInstance bs caddr delta model = return $!
-        bs & blockInstances %~ Instances.updateInstanceAt caddr delta (snd . freeze <$> model)
+    bsoModifyInstance bs caddr delta model newModule = return $!
+        bs & blockInstances %~ Instances.updateInstanceAt caddr delta (snd . freeze <$> model) newModule
 
     bsoModifyAccount bs accountUpdates = return $!
         -- Update the account

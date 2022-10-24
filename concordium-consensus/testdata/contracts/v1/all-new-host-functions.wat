@@ -43,4 +43,7 @@
   (import "concordium" "hash_sha2_256" (func $hash_sha2_256 (param $data i32) (param $data_len i32) (param $output i32)))
   (import "concordium" "hash_sha3_256" (func $hash_sha3_256 (param $data i32) (param $data_len i32) (param $output i32)))
   (import "concordium" "hash_keccak_256" (func $hash_keccak_256 (param $data i32) (param $data_len i32) (param $output i32)))
+
+  ;; upgrade
+  (import "concordium" "upgrade" (func $upgrade (param $module_ptr i32) (result i64)))
 )

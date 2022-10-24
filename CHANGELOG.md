@@ -2,6 +2,9 @@
 
 ## Unreleased changes
 
+- Add support for protocol version 5. This adds the following features
+  - support for smart contract upgradability
+
 ## 4.5.0
 
 - The node is now able to recover after crashes which leave only treestate or

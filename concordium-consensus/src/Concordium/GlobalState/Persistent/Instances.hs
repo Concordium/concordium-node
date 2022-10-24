@@ -335,8 +335,7 @@ mkInstanceInfoV PersistentInstanceV{..} = do
         instanceOwner = pinstanceOwner,
         instanceInitName = pinstanceInitName,
         instanceReceiveFuns = pinstanceReceiveFuns,
-        instanceModuleInterface = instanceModuleInterface,
-        instanceParameterHash = pinstanceParameterHash
+        instanceModuleInterface = instanceModuleInterface
         }
   return InstanceInfoV{
     iiState = pinstanceModel,
@@ -743,14 +742,14 @@ makePersistent mods (Transient.Instances (Transient.Tree s t)) = InstancesTree s
             membed (Branch lvl fll vac hsh l' r')
         conv (Transient.Leaf i) = convInst i >>= membed . Leaf
         conv (Transient.VacantLeaf si) = membed (VacantLeaf si)
-        convInst (Instance.InstanceV0 Instance.InstanceV {_instanceVParameters=Instance.InstanceParameters{..},
+        convInst (Instance.InstanceV0 Instance.InstanceV {_instanceVParameters=params@Instance.InstanceParameters{..},
                                                             _instanceVModel=Instance.InstanceStateV0 transientModel,..}) = do
             pIParams <- makeBufferedRef $ PersistentInstanceParameters{
                 pinstanceAddress = _instanceAddress,
                 pinstanceOwner = instanceOwner,
                 pinstanceContractModule = GSWasm.miModuleRef instanceModuleInterface,
                 pinstanceInitName = instanceInitName,
-                pinstanceParameterHash = instanceParameterHash,
+                pinstanceParameterHash = getHash params,
                 pinstanceReceiveFuns = instanceReceiveFuns
             }
             -- This pattern is irrefutable because if the instance exists in the Basic version,
@@ -765,14 +764,14 @@ makePersistent mods (Transient.Instances (Transient.Tree s t)) = InstancesTree s
                 pinstanceAmount = _instanceVAmount,
                 pinstanceHash = _instanceVHash
             }
-        convInst (Instance.InstanceV1 Instance.InstanceV {_instanceVParameters=Instance.InstanceParameters{..}, 
+        convInst (Instance.InstanceV1 Instance.InstanceV {_instanceVParameters=params@Instance.InstanceParameters{..}, 
                                                             _instanceVModel=Instance.InstanceStateV1 transientModel,..}) = do
             pIParams <- makeBufferedRef $ PersistentInstanceParameters{
                 pinstanceAddress = _instanceAddress,
                 pinstanceOwner = instanceOwner,
                 pinstanceContractModule = GSWasm.miModuleRef instanceModuleInterface,
                 pinstanceInitName = instanceInitName,
-                pinstanceParameterHash = instanceParameterHash,
+                pinstanceParameterHash = getHash params,
                 pinstanceReceiveFuns = instanceReceiveFuns
             }
             -- This pattern is irrefutable because if the instance exists in the Basic version,

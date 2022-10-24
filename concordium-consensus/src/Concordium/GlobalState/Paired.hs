@@ -32,6 +32,7 @@ import Concordium.Types
 import qualified Concordium.Wasm as Wasm
 
 import Concordium.GlobalState.Instance
+import qualified Concordium.GlobalState.Wasm as GSWasm
 import qualified Concordium.GlobalState.Classes as C
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockMonads
@@ -721,9 +722,13 @@ instance
         bs1' <- coerceBSML $ bsoUpdateAccountCredentials bs1 aaddr remove add thrsh
         bs2' <- coerceBSMR $ bsoUpdateAccountCredentials bs2 aaddr remove add thrsh
         return (bs1', bs2')
-    bsoModifyInstance (bs1, bs2) caddr delta model = do
-        bs1' <- coerceBSML $ bsoModifyInstance bs1 caddr delta model
-        bs2' <- coerceBSMR $ bsoModifyInstance bs2 caddr delta model
+    bsoModifyInstance (bs1, bs2) caddr delta model Nothing = do
+        bs1' <- coerceBSML $ bsoModifyInstance bs1 caddr delta model Nothing
+        bs2' <- coerceBSMR $ bsoModifyInstance bs2 caddr delta model Nothing
+        return (bs1', bs2')
+    bsoModifyInstance (bs1, bs2) caddr delta model (Just (GSWasm.ModuleInterface{miModule=PIMR l r,..}, nr)) = do
+        bs1' <- coerceBSML $ bsoModifyInstance bs1 caddr delta model (Just (GSWasm.ModuleInterface{miModule=l,..}, nr))
+        bs2' <- coerceBSMR $ bsoModifyInstance bs2 caddr delta model (Just (GSWasm.ModuleInterface{miModule=r,..}, nr))
         return (bs1', bs2')
     bsoNotifyEncryptedBalanceChange (bs1, bs2) amt = do
         bs1' <- coerceBSML $ bsoNotifyEncryptedBalanceChange bs1 amt

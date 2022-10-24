@@ -46,6 +46,7 @@ import Data.Word
 import Lens.Micro.Platform
 import qualified Data.Vector as Vec
 import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 import qualified Data.Sequence as Seq
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
@@ -1984,8 +1985,14 @@ doPutNewInstance pbs NewInstanceData{..} = do
                   ..
                   })
 
-doModifyInstance :: forall pv m v . (SupportsPersistentState pv m, Wasm.IsWasmVersion v) => PersistentBlockState pv -> ContractAddress -> AmountDelta -> Maybe (UpdatableContractState v) -> m (PersistentBlockState pv)
-doModifyInstance pbs caddr deltaAmnt val = do
+doModifyInstance :: forall pv m v . (SupportsPersistentState pv m, Wasm.IsWasmVersion v) =>
+    PersistentBlockState pv ->
+    ContractAddress ->
+    AmountDelta ->
+    Maybe (UpdatableContractState v) ->
+    Maybe (GSWasm.ModuleInterfaceA (Modules.PersistentInstrumentedModuleV v), Set.Set Wasm.ReceiveName) ->
+    m (PersistentBlockState pv)
+doModifyInstance pbs caddr deltaAmnt val newModule = do
         bsp <- loadPBS pbs
         -- Update the instance
         Instances.updateContractInstance upd caddr (bspInstances bsp) >>= \case
@@ -1993,10 +2000,23 @@ doModifyInstance pbs caddr deltaAmnt val = do
             Just (_, insts) ->
                 storePBS pbs bsp{bspInstances = insts}
     where
+        makeParams :: BufferedRef PersistentInstanceParameters -> m (PersistentInstanceParameters, BufferedRef PersistentInstanceParameters)
+        makeParams piRef = do
+          (params, newParamsRef) <- cacheBufferedRef piRef
+          case newModule of
+            Nothing -> return (params, newParamsRef)
+            Just (nm, newEntryPoints) -> do
+              let newParams' = params {
+                    pinstanceContractModule = GSWasm.miModuleRef nm,
+                    pinstanceReceiveFuns = newEntryPoints
+                    }
+                  newHash = Instances.makeInstanceParameterHash (pinstanceAddress newParams') (pinstanceOwner newParams') (pinstanceContractModule newParams') (pinstanceInitName newParams')
+                  newParams = newParams {pinstanceParameterHash = newHash}
+              (newParams,) <$> makeBufferedRef newParams
         upd :: PersistentInstance pv -> m ((), PersistentInstance pv)
         upd (PersistentInstanceV0 oldInst) = case Wasm.getWasmVersion @v of
             Wasm.SV0 -> do
-              (piParams, newParamsRef) <- cacheBufferedRef (pinstanceParameters oldInst)
+              (piParams, newParamsRef) <- makeParams (pinstanceParameters oldInst)
               if deltaAmnt == 0 then
                   case val of
                       Nothing -> return ((), PersistentInstanceV0 oldInst {pinstanceParameters = newParamsRef})
@@ -2028,7 +2048,7 @@ doModifyInstance pbs caddr deltaAmnt val = do
         upd (PersistentInstanceV1 oldInst) = case Wasm.getWasmVersion @v of
             Wasm.SV0 -> error "Expected V1 contract instance, got V0."
             Wasm.SV1 -> do
-                (piParams, newParamsRef) <- cacheBufferedRef (pinstanceParameters oldInst)
+                (piParams, newParamsRef) <- makeParams (pinstanceParameters oldInst)
                 if deltaAmnt == 0 then
                     case val of
                         Nothing -> return ((), PersistentInstanceV1 oldInst {pinstanceParameters = newParamsRef})

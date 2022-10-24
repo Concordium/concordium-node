@@ -52,9 +52,7 @@ data InstanceParameters instrumentedModule = InstanceParameters {
     -- receive methods of the module.
     instanceReceiveFuns :: !(Set.Set Wasm.ReceiveName),
     -- |The interface of 'instanceContractModule'
-    instanceModuleInterface :: !(GSWasm.ModuleInterfaceA instrumentedModule),
-    -- |Hash of the fixed parameters
-    instanceParameterHash :: !H.Hash
+    instanceModuleInterface :: !(GSWasm.ModuleInterfaceA instrumentedModule)
 } deriving(Eq, Functor)
 
 class HasInstanceAddress a where
@@ -69,12 +67,18 @@ instance Show (InstanceParameters im) where
 
 
 instance HashableTo H.Hash (InstanceParameters im) where
-    getHash = instanceParameterHash
+    getHash InstanceParameters{..} =
+      makeInstanceParameterHash
+        _instanceAddress
+        instanceOwner
+        (GSWasm.miModuleRef instanceModuleInterface)
+        instanceInitName
 
 -- |A versioned basic in-memory instance, parametrized by the version of the
 -- Wasm module that is associated with it.
 data InstanceV instrumentedModule (v :: Wasm.WasmVersion) = InstanceV {
   -- |The fixed parameters of the instance
+  -- These can be changed with the 'Upgrade' feature introduced in PV5.
   _instanceVParameters :: !(InstanceParameters instrumentedModule),
   -- |The current local state of the instance
   _instanceVModel :: !(InstanceStateV v),
@@ -138,7 +142,7 @@ makeInstanceHashV0' paramHash (InstanceStateV0 conState) a = H.hashLazy $ runPut
 
 -- |Construct the hash of a basic instance from the instance parameters, the state, and amount for a V0 instance.
 makeInstanceHashV0 :: InstanceParameters v -> InstanceStateV GSWasm.V0 -> Amount -> H.Hash
-makeInstanceHashV0 = makeInstanceHashV0' . instanceParameterHash
+makeInstanceHashV0 = makeInstanceHashV0' . getHash
 
 -- |Construct the hash of a basic instance from the __hash of the parameters__,
 -- the state, and amount for a V1 instance. Note that V1 and V0 instance hashes
@@ -153,14 +157,14 @@ makeInstanceHashV1' paramHash (InstanceStateV1 conState) a = H.hashLazy $ runPut
 
 -- |Construct the hash of a basic instance from the instance parameters, the state, and amount for a V1 instance.
 makeInstanceHashV1 :: InstanceParameters im -> InstanceStateV GSWasm.V1 -> Amount -> H.Hash
-makeInstanceHashV1 = makeInstanceHashV1' . instanceParameterHash
+makeInstanceHashV1 = makeInstanceHashV1' . getHash
 
 -- |Compute the hash of either a V0 or V1 instance. The version is determined by the type parameter.
 makeInstanceHash :: InstanceParameters im -> InstanceStateV v -> Amount -> H.Hash
 makeInstanceHash params state =
     case state of
-      InstanceStateV0 _ -> makeInstanceHashV0' (instanceParameterHash params) state
-      InstanceStateV1 _ -> makeInstanceHashV1' (instanceParameterHash params) state
+      InstanceStateV0 _ -> makeInstanceHashV0' (getHash params) state
+      InstanceStateV1 _ -> makeInstanceHashV1' (getHash params) state
 
 makeInstanceV :: 
     Wasm.InitName
@@ -184,11 +188,9 @@ makeInstanceV instanceInitName instanceReceiveFuns instanceModuleInterface _inst
             ..
           }
     where
-        instanceContractModule = GSWasm.miModuleRef instanceModuleInterface
-        instanceParameterHash = makeInstanceParameterHash _instanceAddress instanceOwner instanceContractModule instanceInitName
         _instanceVParameters = InstanceParameters {..}
 
-makeInstance :: 
+makeInstance ::
     Wasm.InitName
     -- ^Name of the init method used to initialize the contract.
     -> Set.Set Wasm.ReceiveName
@@ -211,18 +213,21 @@ makeInstance instanceInitName instanceReceiveFuns instanceModuleInterface _insta
     where instanceV = makeInstanceV instanceInitName instanceReceiveFuns instanceModuleInterface _instanceVModel _instanceVAmount instanceOwner _instanceAddress
 
 -- |Update a given smart contract instance.
-updateInstanceV :: AmountDelta -> Maybe (InstanceStateV v) -> InstanceV im v -> InstanceV im v
-updateInstanceV delta val i = updateInstanceV' amnt val i
+updateInstanceV :: AmountDelta -> Maybe (InstanceStateV v) -> Maybe (GSWasm.ModuleInterfaceA im, Set.Set Wasm.ReceiveName) -> InstanceV im v -> InstanceV im v
+updateInstanceV delta val maybeNewModule i = updateInstanceV' amnt val maybeNewModule i
   where amnt = applyAmountDelta delta (_instanceVAmount i)
 
--- |Update a given smart contract instance with exactly the given amount and state.
-updateInstanceV' :: Amount -> Maybe (InstanceStateV v) -> InstanceV im v -> InstanceV im v
-updateInstanceV' amnt val i =  i {
+-- |Update a given smart contract instance with exactly the given amount, state and possibly upgrade the module.
+updateInstanceV' :: Amount -> Maybe (InstanceStateV v) -> Maybe (GSWasm.ModuleInterfaceA im, Set.Set Wasm.ReceiveName) -> InstanceV im v -> InstanceV im v
+updateInstanceV' amnt val maybeNewMod i =  i {
                                 _instanceVModel = newVal,
                                 _instanceVAmount = amnt,
-                                _instanceVHash = makeInstanceHash ( _instanceVParameters i) newVal amnt
+                                _instanceVParameters = newParams,
+                                _instanceVHash = makeInstanceHash newParams newVal amnt
                             }
-  where newVal = fromMaybe (_instanceVModel i) val
+  where
+      newVal = fromMaybe (_instanceVModel i) val
+      newParams = maybe (_instanceVParameters i) (\(nm, newEntrypoints) -> (_instanceVParameters i) { instanceModuleInterface = nm, instanceReceiveFuns = newEntrypoints}) maybeNewMod
 
 -- |Serialize a V0 smart contract instance in V0 format.
 putV0InstanceV0 :: Putter (InstanceV im GSWasm.V0)
