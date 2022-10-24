@@ -1,3 +1,4 @@
+;; See 'upgrading-reject0.wat' for the description.
 (module
  ;; Initialize contract.
  (func $init (export "init_contract") (param i64) (result i32)

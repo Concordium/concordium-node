@@ -1,6 +1,6 @@
 ;; A module that tests the upgrading functionality introduced as part of P5.
 ;; It is intended that contract A upgrades to contract A in ./upgrading_1.wat.
-(module 
+(module
     ;; Imports
     (import "concordium" "upgrade" (func $upgrade (param $module_ptr i32) (result i64)))
     (import "concordium" "get_parameter_section" (func $get_parameter_section (param $index i32) (param $write_location i32) (param $length i32) (param $offset i32) (result i32)))
@@ -18,7 +18,7 @@
       (else unreachable)))
 
     ;; Init a
-    (func $init_a (export "init_a") (param i64) (result i32)                        
+    (func $init_a (export "init_a") (param i64) (result i32)
         (return (i32.const 0)) ;; Successful init
     )
 

@@ -143,6 +143,8 @@ selfInvokeSourceFile0 = "./testdata/contracts/v1/upgrading-self-invoke0.wasm"
 selfInvokeSourceFile1 :: FilePath
 selfInvokeSourceFile1 = "./testdata/contracts/v1/upgrading-self-invoke1.wasm"
 
+-- | The contract in this test, triggers an upgrade and then in the same invocation, calls a function in the upgraded module.
+-- Checking the new module is being used.
 selfInvokeTestCase :: TestCase PV5
 selfInvokeTestCase =
   TestCase { tcName = "Upgrading self invoke"
@@ -366,7 +368,7 @@ twiceTestCase =
   }
   where
     lastModuleRef = getModuleRefFromV1File twiceSourceFile2
-    
+
     upgradeParameters = BSS.toShort $ runPut $ do
       put $ getModuleRefFromV1File twiceSourceFile1
       put lastModuleRef
@@ -397,6 +399,8 @@ twiceTestCase =
 chainedSourceFile0 :: FilePath
 chainedSourceFile0 = "./testdata/contracts/v1/upgrading-chained0.wasm"
 
+-- | The contract in this test exposes an 'upgrade' entrypoint, triggering an upgrade to the same module and then invokes 'upgrade' again until a counter (provided as the parameter) is 0.
+-- This is to trigger a large number of upgrade events in the same transaction.
 chainedTestCase :: TestCase PV5
 chainedTestCase =
   TestCase { tcName = "Upgrading chained"
@@ -445,6 +449,7 @@ rejectSourceFile0 = "./testdata/contracts/v1/upgrading-reject0.wasm"
 rejectSourceFile1 :: FilePath
 rejectSourceFile1 = "./testdata/contracts/v1/upgrading-reject1.wasm"
 
+-- | Tests whether a contract which triggers a succesful upgrade, but rejects the transaction from another cause, rollbacks the upgrade as well.
 rejectTestCase :: TestCase PV5
 rejectTestCase =
   TestCase { tcName = "Upgrading reject"
@@ -494,6 +499,7 @@ changingEntrypointsSourceFile0 = "./testdata/contracts/v1/upgrading-changing-ent
 changingEntrypointsSourceFile1 :: FilePath
 changingEntrypointsSourceFile1 = "./testdata/contracts/v1/upgrading-changing-entrypoints1.wasm"
 
+-- | Tests calling an entrypoint introduced by an upgrade of the module can be called and whether an entrypoint removed by an upgrade fail with the appropriate reject reason.
 changingEntrypointsTestCase :: TestCase PV5
 changingEntrypointsTestCase =
   TestCase { tcName = "Check added and removed entrypoints of a contract"
@@ -577,6 +583,7 @@ persistingStateSourceFile0 = "./testdata/contracts/v1/upgrading-persisting-state
 persistingStateSourceFile1 :: FilePath
 persistingStateSourceFile1 = "./testdata/contracts/v1/upgrading-persisting-state1.wasm"
 
+-- | Tests wether state changes, during an invocation triggering an upgrade, persists when using the upgraded instance.
 persistingStateTestCase :: TestCase PV5
 persistingStateTestCase =
   TestCase { tcName = "Check writing to state before and after calling the upgrade contract"
@@ -687,6 +694,7 @@ deploymentCostCheck sourceFile _ Types.TransactionSummary{..} = do
     checkSuccess msg Types.TxReject{..} = assertFailure $ msg ++ show vrRejectReason
     checkSuccess _ _ = return ()
 
+-- | Check the transaction failed because of invalid receive method.
 rejectInvalidReceiveMethodCheck :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
 rejectInvalidReceiveMethodCheck _ summary = case Types.tsResult summary of
       Types.TxReject {..} ->
@@ -695,16 +703,19 @@ rejectInvalidReceiveMethodCheck _ summary = case Types.tsResult summary of
           other -> assertFailure $ "Unexpected reject reason" ++ show other
       Types.TxSuccess {} -> assertFailure "Update should reject with InvalidReceiveMethod"
 
+-- | Check the transaction succeeded, taking a function to check the events.
 successWithEventsCheck :: ([Types.Event] -> Expectation) -> TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
 successWithEventsCheck checkEvents _ summary = case Types.tsResult summary of
   Types.TxReject {..} -> assertFailure $ "Transaction rejected unexpectedly with " ++ show vrRejectReason
   Types.TxSuccess {..} -> checkEvents vrEvents
 
+-- | Check the transaction rejected, taking a function to check the reason.
 rejectWithReasonCheck :: (Types.RejectReason -> Expectation) -> TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
 rejectWithReasonCheck checkReason _ summary = case Types.tsResult summary of
   Types.TxReject {..} -> checkReason vrRejectReason
   Types.TxSuccess {} -> assertFailure "Transaction succeeded unexpectedly"
 
+-- | Check the number of events is as expected.
 eventsLengthCheck :: Int -> [Types.Event] -> Expectation
 eventsLengthCheck expected events = unless (length events == expected) $
   assertFailure $ "Unexpected number of events produced: " ++ show (length events) ++ " where the expected was " ++ show expected

@@ -1,3 +1,4 @@
+;; See 'upgrading-persisting-state0.wat' for the description.
 (module
 
  ;; Imports

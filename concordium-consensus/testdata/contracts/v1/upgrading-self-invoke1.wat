@@ -1,3 +1,4 @@
+;; See 'upgrading-self-invoke0.wat' for the description.
 (module
 
  ;; Imports

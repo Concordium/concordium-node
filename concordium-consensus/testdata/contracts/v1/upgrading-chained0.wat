@@ -1,9 +1,7 @@
-;; This module contains a single contract with two receive functions 'upgrade' and 'name'. Initializing is always successful and a NOP.
+;; This module contains a single contract with one receive function 'upgrade'. Initializing is always successful and a NOP.
 ;;
-;; - The receive function 'contract.name' returns a constant u32 value and is used to identify this module before upgrading.
-;; - The receive function 'contract.upgrade' calls the name function ensuring the module matches some identifier.
-;; Then is triggers the upgrade of the module, checks whether it is successful and calls the name function checking that the identifier have changed.
-
+;; The 'upgrade' entrypoint takes a parameter containing 4 bytes for the counter and a module reference to upgrade to.
+;; It will trigger an upgrade to the provided module, decrement the counter and if the counter is not 0 it will invoke 'upgrade' on itself with the decremented counter.
 (module
 
  ;; Imports

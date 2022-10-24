@@ -2,8 +2,7 @@
 ;;
 ;; - The receive function 'contract.name' returns a constant u32 value and is used to identify this module before upgrading.
 ;; - The receive function 'contract.upgrade' calls the name function ensuring the module matches some identifier.
-;; Then is triggers the upgrade of the module, checks whether it is successful and calls the name function checking that the identifier have changed.
-
+;; Then is triggers two upgrades of the module, checks whether it is successful and calls the name function in between upgraing checking that the identifier have changed as expected.
 (module
 
  ;; Imports
@@ -96,7 +95,7 @@
        (return (i32.const 0)))
 
  ;; Receive function for triggering an upgrade.
- ;; Takes the smart contract module to upgrade to as the parameter (32 bytes).
+ ;; Takes the smart contract two modules to upgrade to as the parameter (2 * 32 bytes).
  (func $receive_upgrade (export "contract.upgrade") (param $amount i64) (result i32)
        ;; Invoke its own 'contract.name' to check the module is the same.
        (call $assert_eq

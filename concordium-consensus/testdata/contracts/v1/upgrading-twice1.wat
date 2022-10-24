@@ -1,3 +1,4 @@
+;; See 'upgrading-twice0.wat' for the description.
 (module
 
  ;; Imports

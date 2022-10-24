@@ -3,7 +3,6 @@
 ;; - The receive function 'contract.name' returns a constant u32 value and is used to identify this module before upgrading.
 ;; - The receive function 'contract.upgrade' calls the name function ensuring the module matches some identifier.
 ;; Then is triggers the upgrade of the module, checks whether it is successful and calls the name function checking that the identifier have changed.
-
 (module
 
  ;; Imports

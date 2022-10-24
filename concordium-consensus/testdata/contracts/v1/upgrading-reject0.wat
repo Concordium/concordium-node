@@ -1,3 +1,6 @@
+;; Contains a contract with an entrypoint 'upgrade', which triggers an upgrade to 'upgrading-reject0.wasm' (module reference is provided as the parameter).
+;; The entrypoint then rejects the update which should cause the upgrade to rollback.
+;; This is testet by calling the 'new_feature' entrypoint, which only exists in the upgraded module.
 (module
 
  ;; Imports

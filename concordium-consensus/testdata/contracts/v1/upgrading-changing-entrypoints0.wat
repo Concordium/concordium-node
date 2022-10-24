@@ -1,3 +1,8 @@
+;; Exposes a contract with two entrypoints 'upgrade' and 'old_feature'.
+;; 'upgrade' triggers an upgrade to 'upgrading-changing-entrypoints0.wasm' (provided as the parameters).
+;; 'old_feature' is an entrypoint which always succeeds. But is not present in the upgraded module.
+;; The upgraded module will have a 'new_feature' entrypoint.
+;; This is used to test both removing and adding entrypoints behaves as expected.
 (module
 
  ;; Imports
