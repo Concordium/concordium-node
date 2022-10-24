@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-| This module tests the upgrading feature which was implemented as part of P5.
     In particular it tests that an initialized instance which has been deployed
-    in P5 can upgrade it's underlying module i.e. the artifact via the host function
+    in P5 can upgrade its underlying module i.e. the artifact via the host function
     'upgrade'
 -}
 module SchedulerTests.SmartContracts.V1.Upgrading (tests) where

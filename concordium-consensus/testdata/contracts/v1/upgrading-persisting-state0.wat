@@ -1,5 +1,5 @@
 ;; Contains a smart contract with an 'upgrade' entrypoint, which triggers an upgrade to 'upgrading-persisting-state1.wasm' (provided as a parameter).
-;; The contracts create and writes to an entry in the state, before and after the triggering the upgrade.
+;; The contracts create and write to an entry in the state, before and after the triggering the upgrade.
 ;; The upgraded module contains an entrypoint for verifying the state persisted the upgrade.
 (module
 

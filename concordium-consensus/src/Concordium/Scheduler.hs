@@ -1179,12 +1179,12 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                 -- Now we carry out the upgrade.
                                 -- The upgrade must preserve the following properties:
                                 -- 1. Subsequent operations in the receive function must be executed via the 'old' artifact.
-                                -- I.e. If some code is followed by the upgrade function the this must be run on the existing artifact code.
+                                -- I.e. If some code is followed by the upgrade function this must be run on the existing artifact code.
                                 -- 2. Reentrant contract calls must be executed on the new artifact.
                                 -- In order to fulfill the two above properties we add the actual state change to the 'ChangeSet' so that
                                 -- the 'resume' will execute on the 'old' version of the artifact. This solves (1).
-                                -- In order to fulfil (2) we will need to lookup the 'ChangeSet' whenever we get interrupted (with a call) to see
-                                -- if the code should be run on the old or the new artifact i.e., if a pending upgrade exists in the
+                                -- In order to fulfill (2) we will need to lookup the 'ChangeSet' whenever we get interrupted (with a call) to see
+                                -- if the code should be run on the old or the new artifact i.e., if a pending upgrade exists
                                 -- in the 'ChangeSet' we will need to use the new module artifact. See 'getCurrentContractInstance'.
                                 -- If the upgrade or subsequent actions fails then the transaction must be rolled back.
                                 -- Finally 'commitChanges' will commit the changeset upon a succesfull transaction.
@@ -1208,7 +1208,8 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
    where  transferAccountSync :: AccountAddress -- ^The target account address.
                               -> UInstanceInfoV m GSWasm.V1 -- ^The sender of this transfer.
                               -> Amount -- ^The amount to transfer.
-                              -> ExceptT WasmV1.EnvFailure (LocalT r m) [Event] -- ^The events resulting from the transfer.
+                              -> ExceptT WasmV1.EnvFailure (LocalT r m) [Event]
+                              -- ^The events resulting from the transfer.
           transferAccountSync accAddr senderInstance tAmount = do
             -- charge at the beginning, successful and failed transfers will have the same cost.
             -- Check whether the sender has the amount to be transferred and reject the transaction if not.
@@ -1232,7 +1233,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                 -- ^The new module that the instance should be using for execution.
                                 -> Set.Set GSWasm.ReceiveName
                                 -- ^The set of receive names for the instance exposed in the new module.
-                                -> ExceptT WasmV1.EnvFailure (LocalT r m) Event -- ^The event resulting from the upgrade.
+                                -> ExceptT WasmV1.EnvFailure (LocalT r m) Event
                                 -- ^The events resulting from the upgrade.
           handleContractUpgrade cAddr oldModRef newMod newReceiveNames = do
               -- Add the upgrade to the 'ChangeSet' and add the 'Upgrade' event to the stack of events.
