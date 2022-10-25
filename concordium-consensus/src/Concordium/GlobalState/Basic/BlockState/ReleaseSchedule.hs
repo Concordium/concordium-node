@@ -51,7 +51,9 @@ updateAccountRelease oldReleaseTime newReleaseTime ai ReleaseSchedule{..} =
     addAcc Nothing = Just $! Set.singleton ai
     addAcc (Just accs) = Just $! Set.insert ai accs
     remAcc Nothing = Nothing
-    remAcc (Just accs) = Just $! Set.delete ai accs
+    remAcc (Just accs) =
+        let s' = Set.delete ai accs
+         in if Set.null s' then Nothing else Just s'
 
 -- |Remove all releases from the schedule up to and including the provided timestamp,
 -- returning a list of the accounts with removed releases.

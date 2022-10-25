@@ -248,11 +248,11 @@ instance (MonadBlobStore m, IsProtocolVersion pv) => BlobStorable m (ReleaseSche
     storeUpdate (ReleaseScheduleP0 rs) = second ReleaseScheduleP0 <$> storeUpdate rs
     storeUpdate (ReleaseScheduleP5 rs) = second ReleaseScheduleP5 <$> storeUpdate rs
     load = case protocolVersion @pv of
-      SP1 -> fmap ReleaseScheduleP0 <$> load
-      SP2 -> fmap ReleaseScheduleP0 <$> load
-      SP3 -> fmap ReleaseScheduleP0 <$> load
-      SP4 -> fmap ReleaseScheduleP0 <$> load
-      SP5 -> fmap ReleaseScheduleP5 <$> load
+        SP1 -> fmap ReleaseScheduleP0 <$> load
+        SP2 -> fmap ReleaseScheduleP0 <$> load
+        SP3 -> fmap ReleaseScheduleP0 <$> load
+        SP4 -> fmap ReleaseScheduleP0 <$> load
+        SP5 -> fmap ReleaseScheduleP5 <$> load
 
 instance (MonadBlobStore m) => Cacheable m (ReleaseSchedule pv) where
     cache (ReleaseScheduleP0 rs) = ReleaseScheduleP0 <$> cache rs
@@ -400,3 +400,16 @@ makePersistentReleaseSchedule getAddr tRS = case protocolVersion @pv of
                     { rs5FirstTimestamp = Transient.rsFirstTimestamp tRS,
                       ..
                     }
+
+-- |(For testing purposes) get the map of the earliest scheduled releases of each account.
+releasesMap ::
+    (MonadBlobStore m) =>
+    (AccountAddress -> m AccountIndex) ->
+    ReleaseSchedule pv ->
+    m (Map.Map Timestamp (Set.Set AccountIndex))
+releasesMap resolveAddr (ReleaseScheduleP0 rsRef) = do
+    LegacyReleaseSchedule{..} <- refLoad rsRef
+    forM rsMap $ fmap Set.fromList . mapM resolveAddr . Set.toList
+releasesMap _ (ReleaseScheduleP5 rs) = do
+    m <- Trie.toMap (rs5Map rs)
+    return (theAccountSet <$> m)
