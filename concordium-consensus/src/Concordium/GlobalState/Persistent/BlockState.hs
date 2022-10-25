@@ -39,7 +39,6 @@ import Control.Monad.Reader
 import qualified Control.Monad.State.Strict as MTL
 import qualified Control.Monad.Except as MTL
 import qualified Control.Monad.Writer.Strict as MTL
-import Data.Foldable
 import Data.Maybe
 import Data.Proxy
 import Data.Word
@@ -82,6 +81,7 @@ import qualified Concordium.GlobalState.Persistent.LFMBTree as LFMBT
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import qualified Concordium.Crypto.SHA256 as SHA256
 import qualified Concordium.GlobalState.Basic.BlockState.Account as TransientAccount
+import qualified Concordium.GlobalState.Basic.BlockState.Accounts as TransientAccounts
 import qualified Concordium.Types.UpdateQueues as UQ
 import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
@@ -570,7 +570,8 @@ makePersistent Basic.BlockState{..} = do
   cryptographicParameters <- bufferHashed _blockCryptographicParameters
   blockAccounts <- Accounts.makePersistent _blockAccounts
   updates <- makeBufferedRef =<< makePersistentUpdates _blockUpdates
-  rels <- makeBufferedRef _blockReleaseSchedule
+  let accAddr ai = _blockAccounts ^. TransientAccounts.unsafeIndexedAccount ai . accountAddress
+  rels <- makePersistentReleaseSchedule accAddr _blockReleaseSchedule
   red <- makePersistentBlockRewardDetails _blockRewardDetails
   bsp <-
     makeBufferedRef $
@@ -619,7 +620,7 @@ emptyBlockState bspBirkParameters cryptParams keysCollection chainParams = do
   anonymityRevokers <- refMake ARS.emptyAnonymityRevokers
   cryptographicParameters <- refMake cryptParams
   bspUpdates <- refMake =<< initialUpdates keysCollection chainParams
-  bspReleaseSchedule <- refMake Map.empty
+  bspReleaseSchedule <- emptyReleaseSchedule
   bspRewardDetails <- emptyBlockRewardDetails
   bsp <- makeBufferedRef $ BlockStatePointers
           { bspAccounts = Accounts.emptyAccounts,
@@ -3022,6 +3023,18 @@ migrateBlockPointers ::
     BlockStatePointers oldpv ->
     t m (BlockStatePointers pv)
 migrateBlockPointers migration BlockStatePointers {..} = do
+    -- We migrate the release schedule first because we may need to access the
+    -- accounts in the process.
+    let rsMigration = case migration of
+          StateMigrationParametersTrivial -> trivialReleaseScheduleMigration
+          StateMigrationParametersP1P2 -> RSMLegacyToLegacy
+          StateMigrationParametersP2P3 -> RSMLegacyToLegacy
+          StateMigrationParametersP3ToP4{} -> RSMLegacyToLegacy
+          StateMigrationParametersP4ToP5{} -> RSMLegacyToNew $ \addr ->
+            Accounts.getAccountIndex addr bspAccounts <&> \case
+                Nothing -> error "Account with release schedule does not exist"
+                Just ai -> ai
+    newReleaseSchedule <- migrateReleaseSchedule rsMigration bspReleaseSchedule
     newAccounts <- Accounts.migrateAccounts migration bspAccounts
     newModules <- migrateHashedBufferedRef Modules.migrateModules bspModules
     modules <- refLoad newModules
@@ -3032,7 +3045,6 @@ migrateBlockPointers migration BlockStatePointers {..} = do
     newBirkParameters <- migratePersistentBirkParameters migration newAccounts bspBirkParameters
     newCryptographicParameters <- migrateHashedBufferedRefKeepHash bspCryptographicParameters
     newUpdates <- migrateReference (migrateUpdates migration) bspUpdates
-    newReleaseSchedule <- migrateReference return bspReleaseSchedule
     curBakers <- extractBakerStakes =<< refLoad (_birkCurrentEpochBakers newBirkParameters)
     nextBakers <- extractBakerStakes =<< refLoad (_birkNextEpochBakers newBirkParameters)
     -- clear transaction outcomes.
