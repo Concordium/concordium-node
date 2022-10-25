@@ -156,7 +156,7 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
   getAccountAvailableAmount acc = do
     total <- getAccountAmount acc
     lockedUp <- getAccountLockedAmount acc
-    staked <- getAccountLockedAmount acc
+    staked <- getAccountStakedAmount acc
     return $ total - max lockedUp staked
 
   -- |Get the next available nonce for this account
