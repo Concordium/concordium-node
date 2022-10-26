@@ -343,11 +343,11 @@ class (StaticInformation m, ContractStateOperations m, MonadProtocolVersion m) =
 
   -- |Transfer amount from the first address to the second and run the
   -- computation in the modified environment.
-  withAccountToContractAmountV0 :: IndexedAccountAddress -> UInstanceInfoV m GSWasm.V0 -> Amount -> m a -> m a
+  withAccountToContractAmountV0 :: AccountIndex -> UInstanceInfoV m GSWasm.V0 -> Amount -> m a -> m a
 
   -- |Transfer amount from the first address to the second and run the
   -- computation in the modified environment.
-  withAccountToContractAmountV1 :: IndexedAccountAddress -> UInstanceInfoV m GSWasm.V1 -> Amount -> m a -> m a
+  withAccountToContractAmountV1 :: AccountIndex -> UInstanceInfoV m GSWasm.V1 -> Amount -> m a -> m a
 
   -- |Transfer an amount from the first account to the second and run the
   -- computation in the modified environment.
@@ -400,12 +400,12 @@ class (StaticInformation m, ContractStateOperations m, MonadProtocolVersion m) =
   -- |Transfer an amount from the first given instance or account to the instance in the second
   -- parameter and run the computation in the modified environment.
   {-# INLINE withToContractAmountV0 #-}
-  withToContractAmountV0 :: Either (Wasm.WasmVersion, ContractAddress) IndexedAccountAddress -> UInstanceInfoV m GSWasm.V0 -> Amount -> m a -> m a
+  withToContractAmountV0 :: Either (Wasm.WasmVersion, ContractAddress) AccountIndex -> UInstanceInfoV m GSWasm.V0 -> Amount -> m a -> m a
   withToContractAmountV0 (Left i) = withContractToContractAmountV0 i
   withToContractAmountV0 (Right a) = withAccountToContractAmountV0 a
 
   {-# INLINE withToContractAmountV1 #-}
-  withToContractAmountV1 :: Either (Wasm.WasmVersion, ContractAddress) IndexedAccountAddress -> UInstanceInfoV m GSWasm.V1 -> Amount -> m a -> m a
+  withToContractAmountV1 :: Either (Wasm.WasmVersion, ContractAddress) AccountIndex -> UInstanceInfoV m GSWasm.V1 -> Amount -> m a -> m a
   withToContractAmountV1 (Left i) = withContractToContractAmountV1 i
   withToContractAmountV1 (Right a) = withAccountToContractAmountV1 a
 
@@ -875,13 +875,13 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
   {-# INLINE withAccountToContractAmountV0 #-}
   withAccountToContractAmountV0 fromAcc toAcc amount cont = do
     cs <- changeSet <%= addContractAmountToCSV0 (instanceAddress toAcc) (amountToDelta amount)
-    changeSet <~ addAmountToCS' (fst fromAcc) (amountDiff 0 amount) cs
+    changeSet <~ addAmountToCS' fromAcc (amountDiff 0 amount) cs
     cont
 
   {-# INLINE withAccountToContractAmountV1 #-}
   withAccountToContractAmountV1 fromAcc toAcc amount cont = do
     cs <- changeSet <%= addContractAmountToCSV1 (instanceAddress toAcc) (amountToDelta amount)
-    changeSet <~ addAmountToCS' (fst fromAcc) (amountDiff 0 amount) cs
+    changeSet <~ addAmountToCS' fromAcc (amountDiff 0 amount) cs
     cont
 
   {-# INLINE withContractToAccountAmountV0 #-}

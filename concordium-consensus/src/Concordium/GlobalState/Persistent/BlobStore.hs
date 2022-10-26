@@ -1100,6 +1100,8 @@ instance Show (LazyBufferedRef a) where
     show _ = "LazyBufferedRef"
 
 -- |Make a 'LazyBufferedRef' from a value.
+-- The value is not persisted to the store until the reference is flushed (e.g. with 'refFlush' or
+-- 'storeUpdate').
 makeLazyBufferedRef :: MonadIO m => a -> m (LazyBufferedRef a)
 makeLazyBufferedRef val = liftIO $ LazyBufferedRef <$!> newIORef (LBRMemory val)
 

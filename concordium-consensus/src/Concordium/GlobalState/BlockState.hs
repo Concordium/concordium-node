@@ -144,9 +144,11 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
   checkAccountIsAllowed :: Account m -> AccountAllowance -> m Bool
 
   -- |Get the amount that is staked on the account.
+  -- This is 0 if the account is not staking or delegating.
   getAccountStakedAmount :: Account m -> m Amount
 
   -- |Get the amount that is locked in scheduled releases on the account.
+  -- This is 0 if there are no pending releases on the account.
   getAccountLockedAmount :: Account m -> m Amount
 
   -- | Get the current public account available balance.

@@ -12,13 +12,16 @@
 -- for pattern matching. (See: https://gitlab.haskell.org/ghc/ghc/-/issues/20896)
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
+-- |This module implements accounts for account versions 'AccountV0' (protocol 'P1' to 'P3') and
+-- 'AccountV1' (protocol 'P4').
+-- It should not be necessary to use this module directly, but instead through the interface
+-- provided by 'Concordium.GlobalState.Persistent.Account'.
 module Concordium.GlobalState.Persistent.Account.StructureV0 where
 
 import Control.Arrow
 import Control.Monad
 import Data.Foldable
 import qualified Data.Map.Strict as Map
-import Data.Maybe (isNothing)
 import Data.Serialize
 import Lens.Micro.Platform
 
@@ -36,7 +39,6 @@ import qualified Concordium.Types.Migration as Migration
 import Concordium.Utils.Serialization
 import Concordium.Utils.Serialization.Put
 
-import Concordium.Crypto.EncryptedTransfers
 import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount, replaceUpTo)
 import Concordium.GlobalState.BakerInfo (BakerAdd (..), BakerKeyUpdate (..), bakerKeyUpdateToInfo)
 import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
@@ -44,7 +46,6 @@ import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule 
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.Account.EncryptedAmount
-import Concordium.GlobalState.Persistent.Account.Structure
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule
 import Concordium.GlobalState.Persistent.CachedRef
@@ -651,14 +652,11 @@ isAllowed :: MonadBlobStore m => PersistentAccount av -> AccountAllowance -> m B
 isAllowed acc AllowedEncryptedTransfers = do
     creds <- getCredentials acc
     return $! Map.size creds == 1
-isAllowed acc AllowedMultipleCredentials = do
-    PersistentAccountEncryptedAmount{..} <- refLoad (acc ^. accountEncryptedAmount)
-    if null _incomingEncryptedAmounts && isNothing _aggregatedAmount
-        then isZeroEncryptedAmount <$> refLoad _selfAmount
-        else return False
+isAllowed acc AllowedMultipleCredentials =
+    isZeroPersistentAccountEncryptedAmount =<< refLoad (acc ^. accountEncryptedAmount)
 
--- |Get the list of credentials deployed on the account, ordered from most
--- recently deployed.  The list should be non-empty.
+-- |Get the credentials deployed on the account. This map is always non-empty and (presently)
+-- will have a credential at index 'initialCredentialIndex' (0) that cannot be changed.
 getCredentials :: (MonadBlobStore m) => PersistentAccount av -> m (Map.Map CredentialIndex RawAccountCredential)
 getCredentials = (^^. accountCredentials)
 
@@ -810,6 +808,7 @@ updateAccount !upd !acc = do
 -- The caller must ensure the following, which are not checked:
 --
 -- * Any credential index that is removed must already exist.
+-- * The credential with index 0 must not be removed.
 -- * Any credential index that is added must not exist after the removals take effect.
 -- * At least one credential remains after all removals and additions.
 -- * Any new threshold is at most the number of accounts remaining (and at least 1).

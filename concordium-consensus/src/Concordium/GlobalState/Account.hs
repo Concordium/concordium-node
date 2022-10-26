@@ -25,6 +25,7 @@ import Concordium.Crypto.EncryptedTransfers
 import Concordium.ID.Types
 import Concordium.Types
 import Concordium.Types.Accounts
+import Concordium.Types.Execution
 import Concordium.Constants
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
@@ -234,14 +235,24 @@ makeAccountHashV0 AccountHashInputsV0{..} = Hash.hashLazy $ runPutLazy $ do
   put ahiPersistingAccountDataHash
   put ahiAccountStakeHash
 
+-- |This comprises the hashes of the seldom-updated parts of an account that are used to compute an
+-- 'AccountMerkleHash', namely the hashes of the persisting account data, account stake,
+-- encrypted amount, and account release schedule.
 data AccountMerkleHashInputs (av :: AccountVersion) where
   AccountMerkleHashInputsV2 :: {
+    -- |Hash of the persisting account data.
     amhi2PersistingAccountDataHash :: !PersistingAccountDataHash,
+    -- |Hash of the account stake.
     amhi2AccountStakeHash :: !(AccountStakeHash av),
+    -- |Hash of the account's encrypted amount.
     amhi2EncryptedAmountHash :: !EncryptedAmountHash,
+    -- |Hash of the account's release schedule.
     amhi2AccountReleaseScheduleHash :: !AccountReleaseScheduleHash
   } -> AccountMerkleHashInputs 'AccountV2
 
+-- |The Merkle hash derived from the seldom-updated parts of an account, namely the persisting
+-- account data, account stake, encrypted amount, and account release schedule.
+-- This is used to derive the hash of an account for 'AccountV2'.
 newtype AccountMerkleHash (av :: AccountVersion) = AccountMerkleHash {theMerkleHash :: Hash.Hash}
   deriving (Eq, Ord, Show, Serialize)
 
@@ -428,3 +439,60 @@ instance Serialize AccountSerializationFlags where
         asfThresholdIsOne = testBit flags 6
         asfHasRemovedCredentials = testBit flags 7
     return AccountSerializationFlags{..}
+
+-- * Account update and query structures
+
+-- |An update to a 'BakerPool', indicating the components that are to be replaced.
+data BakerPoolInfoUpdate = BakerPoolInfoUpdate
+    { updOpenForDelegation :: !(Maybe OpenStatus),
+      updMetadataURL :: !(Maybe UrlText),
+      updTransactionFeeCommission :: !(Maybe AmountFraction),
+      updBakingRewardCommission :: !(Maybe AmountFraction),
+      updFinalizationRewardCommission :: !(Maybe AmountFraction)
+    }
+    deriving (Eq)
+
+-- |A 'BakerPoolInfoUpdate' that makes no changes.
+emptyBakerPoolInfoUpdate :: BakerPoolInfoUpdate
+emptyBakerPoolInfoUpdate =
+    BakerPoolInfoUpdate
+        { updOpenForDelegation = Nothing,
+          updMetadataURL = Nothing,
+          updTransactionFeeCommission = Nothing,
+          updBakingRewardCommission = Nothing,
+          updFinalizationRewardCommission = Nothing
+        }
+
+-- |Use a 'BakerPoolInfoUpdate' to update a 'BakerPoolInfo'.
+applyBakerPoolInfoUpdate :: BakerPoolInfoUpdate -> BakerPoolInfo -> BakerPoolInfo
+applyBakerPoolInfoUpdate
+    BakerPoolInfoUpdate{..}
+    BakerPoolInfo{_poolCommissionRates = CommissionRates{..}, ..} =
+        BakerPoolInfo
+            { _poolOpenStatus = fromMaybe _poolOpenStatus updOpenForDelegation,
+              _poolMetadataUrl = fromMaybe _poolMetadataUrl updMetadataURL,
+              _poolCommissionRates =
+                CommissionRates
+                    { _finalizationCommission = fromMaybe _finalizationCommission updFinalizationRewardCommission,
+                      _bakingCommission = fromMaybe _bakingCommission updBakingRewardCommission,
+                      _transactionCommission = fromMaybe _transactionCommission updTransactionFeeCommission
+                    }
+            }
+
+-- |Details about the stake associated with an account.
+-- Compared to 'AccountStake' this omits the 'BakerInfoEx' and the 'DelegatorId'.
+-- It is more efficient to query these details on an account than to get the full baker on
+-- an account, as it avoids loading the baker keys and pool parameters where possible.
+data StakeDetails av
+    = StakeDetailsNone
+    | StakeDetailsBaker
+        { sdStakedCapital :: !Amount,
+          sdRestakeEarnings :: !Bool,
+          sdPendingChange :: !(StakePendingChange av)
+        }
+    | StakeDetailsDelegator
+        { sdStakedCapital :: !Amount,
+          sdRestakeEarnings :: !Bool,
+          sdPendingChange :: !(StakePendingChange av),
+          sdDelegationTarget :: !DelegationTarget
+        }

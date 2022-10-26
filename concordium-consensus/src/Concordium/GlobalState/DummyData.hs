@@ -191,7 +191,6 @@ makeTestingGenesisDataP1
         genesisInitialState=GenesisData.GenesisState{..}
       }
     where
-        -- todo hardcoded epoch length (and initial seed)
         genesisEpochLength = 10
         genesisLeadershipElectionNonce = Hash.hash "LeadershipElectionNonce"
         genesisFinalizationParameters =

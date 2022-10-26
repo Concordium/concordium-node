@@ -96,7 +96,6 @@ import Concordium.Kontrol.Bakers
 import qualified Concordium.GlobalState.Persistent.Cache as Cache
 import qualified Concordium.GlobalState.TransactionTable as TransactionTable
 import Concordium.Types.Accounts (AccountBaker(..))
-import Concordium.GlobalState.Persistent.Account.Structure
 
 -- * Birk parameters
 
@@ -705,6 +704,35 @@ totalCapital bsp = do
     pab <- refLoad (bspBirkParameters bsp ^. birkActiveBakers)
     return $! pab ^. totalActiveCapitalV1
 
+-- |Look up an account by index and run an operation on it.
+-- This returns 'Nothing' if the account is not present or the operation returns 'Nothing'.
+onAccount ::
+    (SupportsPersistentAccount pv m) =>
+    -- |Account index to resolve
+    AccountIndex ->
+    -- |Block state
+    BlockStatePointers pv ->
+    -- |Operation to apply to the account
+    (PersistentAccount (AccountVersionFor pv) -> m (Maybe a)) ->
+    m (Maybe a)
+onAccount ai bsp f =
+    Accounts.indexedAccount ai (bspAccounts bsp) >>= \case
+        Nothing -> return Nothing
+        Just acc -> f acc
+
+-- |Look up an account by index and run an operation on it.
+-- This returns 'Nothing' if the account is not present.
+onAccount' ::
+    (SupportsPersistentAccount pv m) =>
+    -- |Account index to resolve
+    AccountIndex ->
+    -- |Block state
+    BlockStatePointers pv ->
+    -- |Operation to apply to the account
+    (PersistentAccount (AccountVersionFor pv) -> m a) ->
+    m (Maybe a)
+onAccount' ai bsp f = Accounts.indexedAccount ai (bspAccounts bsp) >>= mapM f
+
 doGetModule :: (SupportsPersistentState pv m) => PersistentBlockState pv -> ModuleRef -> m (Maybe (GSWasm.ModuleInterface Modules.PersistentInstrumentedModuleV))
 doGetModule s modRef = do
     bsp <- loadPBS s
@@ -778,16 +806,15 @@ doGetSlotBakersP1 pbs slot = do
             EQ -> epochToFullBakers =<< refLoad (bps ^. birkNextEpochBakers)
             GT -> do
                 activeBids <- Trie.keysAsc . _activeBakers =<< refLoad (bps ^. birkActiveBakers)
-                let resolveBaker (BakerId aid) = do
-                        let myFromJust = fromMaybe (error "Persistent.getSlotBakers invariant violation: active baker account not a valid baker")
-                        theAcct <- myFromJust <$> Accounts.indexedAccount aid (bspAccounts bs)
-                        pab <- myFromJust <$> accountBaker theAcct
-                        return $ case _bakerPendingChange pab of
+                let resolveBaker (BakerId aid) = onAccount' aid bs accountBaker <&> \case
+                        Just (Just pab) -> case _bakerPendingChange pab of
                             BaseAccounts.RemoveStake (BaseAccounts.PendingChangeEffectiveV0 remEpoch)
                                 | remEpoch < slotEpoch -> Nothing
                             BaseAccounts.ReduceStake newAmt (BaseAccounts.PendingChangeEffectiveV0 redEpoch)
-                                | redEpoch < slotEpoch -> Just (FullBakerInfo (pab ^. BaseAccounts.bakerInfo) newAmt)
-                            _ -> Just (FullBakerInfo (pab ^. BaseAccounts.bakerInfo) (pab ^. BaseAccounts.stakedAmount))
+                                | redEpoch < slotEpoch -> Just $! FullBakerInfo (pab ^. BaseAccounts.bakerInfo) newAmt
+                            _ -> Just $! FullBakerInfo (pab ^. BaseAccounts.bakerInfo) (pab ^. BaseAccounts.stakedAmount)
+                        Just Nothing -> error "Persistent.getSlotBakers invariant violation: active baker account not a valid baker"
+                        Nothing -> error "Persistent.getSlotBakers invariant violation: active baker account does not exist"
                 futureBakers <- Vec.fromList . catMaybes <$> mapM resolveBaker activeBids
                 return FullBakers {
                     fullBakerInfos = futureBakers,
@@ -799,51 +826,52 @@ doGetBakerAccount pbs (BakerId ai) = do
         bsp <- loadPBS pbs
         Accounts.indexedAccount ai (bspAccounts bsp)
 
-doTransitionEpochBakers :: (SupportsPersistentState pv m, AccountVersionFor pv ~ 'AccountV0) => PersistentBlockState pv -> Epoch -> m (PersistentBlockState pv)
+doTransitionEpochBakers :: forall m pv. (SupportsPersistentState pv m, AccountVersionFor pv ~ 'AccountV0) => PersistentBlockState pv -> Epoch -> m (PersistentBlockState pv)
 doTransitionEpochBakers pbs newEpoch = do
         bsp <- loadPBS pbs
         let oldBPs = bspBirkParameters bsp
         curActiveBIDs <- Trie.keysAsc . _activeBakers =<< refLoad (_birkActiveBakers oldBPs)
-        -- Retrieve/update the baker info
-        let accumBakers (bs0, bkrs0) bkr@(BakerId aid) = do
-                let myFromJust = fromMaybe (error "Persistent.bsoTransitionEpochBakers invariant violation: active baker account not a valid baker")
-                acct <- myFromJust <$> Accounts.indexedAccount aid (bspAccounts bsp)
-                (acctBkr, binfoRef) <- myFromJust <$> accountBakerAndInfoRef acct
-                case _bakerPendingChange acctBkr of
-                    BaseAccounts.RemoveStake (BaseAccounts.PendingChangeEffectiveV0 remEpoch)
-                        -- Removal takes effect next epoch, so exclude it from the list of bakers
-                        | remEpoch == newEpoch + 1 -> return (bs0, bkrs0)
-                        -- Removal complete, so update the active bakers and account as well
-                        | remEpoch <= newEpoch -> do
-                            -- Remove the baker from the active bakers
-                            curABs <- refLoad (_birkActiveBakers (bspBirkParameters bs0))
-                            newAB <- Trie.delete bkr (_activeBakers curABs)
-                            let abi = acctBkr ^. BaseAccounts.bakerInfo
-                            newAK <- Trie.delete (BaseAccounts._bakerAggregationVerifyKey abi) (_aggregationKeys curABs)
-                            newABs <- refMake $ PersistentActiveBakers {
-                                    _activeBakers = newAB,
-                                    _aggregationKeys = newAK,
-                                    _passiveDelegators = curABs ^. passiveDelegators,
-                                    _totalActiveCapital = TotalActiveCapitalV0
-                                }
-                            -- Remove the baker from the account by applying the change
-                            newAccounts <- Accounts.updateAccountsAtIndex' applyPendingStakeChange aid (bspAccounts bs0)
-                            -- The baker is not included for this epoch
-                            return (bs0 {
-                                    bspBirkParameters = (bspBirkParameters bs0) {_birkActiveBakers = newABs},
-                                    bspAccounts = newAccounts
-                                }, bkrs0)
-                    BaseAccounts.ReduceStake newAmt (BaseAccounts.PendingChangeEffectiveV0 redEpoch)
-                        -- Reduction takes effect next epoch, so apply it in the generated list
-                        | redEpoch == newEpoch + 1 -> do
-                            return (bs0, (binfoRef, newAmt) : bkrs0)
-                        -- Reduction complete, so update the account as well
-                        | redEpoch <= newEpoch -> do
-                            -- Reduce the baker's stake on the account by applying the change
-                            newAccounts <- Accounts.updateAccountsAtIndex' applyPendingStakeChange aid (bspAccounts bs0)
-                            -- The baker is included with the revised stake
-                            return (bs0 {bspAccounts = newAccounts}, (binfoRef, newAmt) : bkrs0)
-                    _ -> return (bs0, (binfoRef, _stakedAmount acctBkr) : bkrs0)
+        -- Retrieve/update the baker info, accumulating the baker info to the list if it is still a
+        -- baker after updating to account for any elapsed pending update.
+        let accumBakers :: (BlockStatePointers pv, [(PersistentBakerInfoRef 'AccountV0, Amount)]) -> BakerId -> m (BlockStatePointers pv, [(PersistentBakerInfoRef 'AccountV0, Amount)])
+            accumBakers (bs0, bkrs0) bkr@(BakerId aid) = onAccount aid bsp accountBakerAndInfoRef >>= \case
+                Just (acctBkr, binfoRef) ->
+                    case _bakerPendingChange acctBkr of
+                        BaseAccounts.RemoveStake (BaseAccounts.PendingChangeEffectiveV0 remEpoch)
+                            -- Removal takes effect next epoch, so exclude it from the list of bakers
+                            | remEpoch == newEpoch + 1 -> return (bs0, bkrs0)
+                            -- Removal complete, so update the active bakers and account as well
+                            | remEpoch <= newEpoch -> do
+                                -- Remove the baker from the active bakers
+                                curABs <- refLoad (_birkActiveBakers (bspBirkParameters bs0))
+                                newAB <- Trie.delete bkr (_activeBakers curABs)
+                                let abi = acctBkr ^. BaseAccounts.bakerInfo
+                                newAK <- Trie.delete (BaseAccounts._bakerAggregationVerifyKey abi) (_aggregationKeys curABs)
+                                newABs <- refMake $ PersistentActiveBakers {
+                                        _activeBakers = newAB,
+                                        _aggregationKeys = newAK,
+                                        _passiveDelegators = curABs ^. passiveDelegators,
+                                        _totalActiveCapital = TotalActiveCapitalV0
+                                    }
+                                -- Remove the baker from the account by applying the change
+                                newAccounts <- Accounts.updateAccountsAtIndex' applyPendingStakeChange aid (bspAccounts bs0)
+                                -- The baker is not included for this epoch
+                                return (bs0 {
+                                        bspBirkParameters = (bspBirkParameters bs0) {_birkActiveBakers = newABs},
+                                        bspAccounts = newAccounts
+                                    }, bkrs0)
+                        BaseAccounts.ReduceStake newAmt (BaseAccounts.PendingChangeEffectiveV0 redEpoch)
+                            -- Reduction takes effect next epoch, so apply it in the generated list
+                            | redEpoch == newEpoch + 1 -> do
+                                return (bs0, (binfoRef, newAmt) : bkrs0)
+                            -- Reduction complete, so update the account as well
+                            | redEpoch <= newEpoch -> do
+                                -- Reduce the baker's stake on the account by applying the change
+                                newAccounts <- Accounts.updateAccountsAtIndex' applyPendingStakeChange aid (bspAccounts bs0)
+                                -- The baker is included with the revised stake
+                                return (bs0 {bspAccounts = newAccounts}, (binfoRef, newAmt) : bkrs0)
+                        _ -> return (bs0, (binfoRef, _stakedAmount acctBkr) : bkrs0)
+                Nothing -> error "Persistent.bsoTransitionEpochBakers invariant violation: active baker account not a valid baker"
         -- Get the baker info. The list of baker ids is reversed in the input so the accumulated list
         -- is in ascending order.
         (bsp', bkrs) <- foldM accumBakers (bsp, []) (reverse curActiveBIDs)
@@ -887,31 +915,31 @@ doGetActiveBakersAndDelegators pbs = do
     lps <- Trie.keys dset >>= mapM (mkActiveDelegatorInfo bsp)
     return (abis, lps)
       where
-            mkActiveBakerInfo bsp (BakerId acct, PersistentActiveDelegatorsV1 dlgs _) = do
-                let myFromJust = fromMaybe (error "Invariant violation: active baker is not a baker account")
-                theAcct <- myFromJust <$> Accounts.indexedAccount acct (bspAccounts bsp)
-                (theBaker, binfoRef) <- myFromJust <$> accountBakerAndInfoRef theAcct
-                dlglist <- Trie.keysAsc dlgs
-                abd <- mapM (mkActiveDelegatorInfo bsp) dlglist
-                return ActiveBakerInfo {
-                    activeBakerInfoRef = binfoRef,
-                    activeBakerEquityCapital = theBaker ^. BaseAccounts.stakedAmount,
-                    activeBakerPendingChange =
-                        BaseAccounts.pendingChangeEffectiveTimestamp <$> theBaker ^. BaseAccounts.bakerPendingChange,
-                    activeBakerDelegators = abd
-                }
+            mkActiveBakerInfo bsp (BakerId acct, PersistentActiveDelegatorsV1 dlgs _) =
+                onAccount acct bsp accountBakerAndInfoRef >>= \case 
+                    Nothing -> error "Invariant violation: active baker is not a baker account"
+                    Just (theBaker, binfoRef) -> do
+                        dlglist <- Trie.keysAsc dlgs
+                        abd <- mapM (mkActiveDelegatorInfo bsp) dlglist
+                        return ActiveBakerInfo {
+                            activeBakerInfoRef = binfoRef,
+                            activeBakerEquityCapital = theBaker ^. BaseAccounts.stakedAmount,
+                            activeBakerPendingChange =
+                                BaseAccounts.pendingChangeEffectiveTimestamp <$> theBaker ^. BaseAccounts.bakerPendingChange,
+                            activeBakerDelegators = abd
+                        }
             mkActiveDelegatorInfo :: BlockStatePointers pv -> DelegatorId -> m ActiveDelegatorInfo
-            mkActiveDelegatorInfo bsp activeDelegatorId@(DelegatorId acct) = do
-                let myFromJust = fromMaybe (error "Invariant violation: active delegator is not a delegator account")
-                theAcct <- myFromJust <$> Accounts.indexedAccount acct (bspAccounts bsp)
-                theDelegator@BaseAccounts.AccountDelegationV1{} <- myFromJust <$> accountDelegator theAcct
-                return ActiveDelegatorInfo{
-                    activeDelegatorStake = theDelegator ^. BaseAccounts.delegationStakedAmount,
-                    activeDelegatorPendingChange =
-                        BaseAccounts.pendingChangeEffectiveTimestamp <$>
-                            theDelegator ^. BaseAccounts.delegationPendingChange,
-                    ..
-                }
+            mkActiveDelegatorInfo bsp activeDelegatorId@(DelegatorId acct) = 
+                onAccount acct bsp accountDelegator >>= \case
+                    Nothing -> error "Invariant violation: active delegator is not a delegator account"
+                    Just theDelegator@BaseAccounts.AccountDelegationV1{} -> do
+                        return ActiveDelegatorInfo{
+                            activeDelegatorStake = theDelegator ^. BaseAccounts.delegationStakedAmount,
+                            activeDelegatorPendingChange =
+                                BaseAccounts.pendingChangeEffectiveTimestamp <$>
+                                    theDelegator ^. BaseAccounts.delegationPendingChange,
+                            ..
+                        }
 
 -- |Get the registered delegators of a pool. Changes are reflected immediately here and will be effective in the next reward period.
 -- The baker id is used to identify the pool and Nothing is used for the passive delegators.
@@ -1028,16 +1056,6 @@ doAddBaker pbs ai ba@BakerAdd{..} = do
                                 bspAccounts = newAccounts
                             }
 
--- |'KleisliEndo' provides a semigroup instance for functions of type @a -> m a@ where @m@ is
--- a 'Monad'. The semigroup operator is '>=>'. In jargon, @KleisliEndo m a@ is the monoid of
--- endomorphisms on @a@ in the Kleisli category of @m@.
-newtype KleisliEndo m a = KleisliEndo { runKleisliEndo :: a -> m a }
-
-instance Monad m => Semigroup (KleisliEndo m a) where
-    KleisliEndo f <> KleisliEndo g = KleisliEndo (f >=> g)
-instance Monad m => Monoid (KleisliEndo m a) where
-    mempty = KleisliEndo return
-
 -- |Update an account's delegation to passive delegation. This only updates the account table,
 -- and does not update the active baker index, which must be handled separately.
 -- The account __must__ be an active delegator.
@@ -1132,7 +1150,8 @@ doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
                 uPoolInfo <- updateBakerPoolInfo baker cp
                 uCapital <- updateCapital baker cp
                 -- Compose together the transformations and apply them to the account.
-                forM_ (uKeys <> uRestake <> uPoolInfo <> uCapital) (modifyAccount' . runKleisliEndo)
+                let updAcc = uKeys >=> uRestake >=> uPoolInfo >=> uCapital
+                modifyAccount' updAcc
         case res of
             Left errorRes -> return (errorRes, pbs)
             Right (newBSP, changes) -> (BCSuccess changes bid,) <$> storePBS pbs newBSP
@@ -1152,7 +1171,9 @@ doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
             bsp <- MTL.get
             newAccounts <- liftBSO $ Accounts.updateAccountsAtIndex' updAcc ai (bspAccounts bsp)
             MTL.put bsp{bspAccounts = newAccounts}
-        updateKeys oldBkr = forM bcuKeys $ \keys -> do
+        ifPresent Nothing _ = return return
+        ifPresent (Just v) k = k v
+        updateKeys oldBkr = ifPresent bcuKeys $ \keys -> do
             bsp <- MTL.get
             pab <- liftBSO $ refLoad (_birkActiveBakers (bspBirkParameters bsp))
             let key = oldBkr ^. BaseAccounts.bakerAggregationVerifyKey
@@ -1174,20 +1195,20 @@ doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
             MTL.modify' $ \s -> s{bspBirkParameters = newBirkParams}
             MTL.tell [BakerConfigureUpdateKeys keys]
             -- Update the account with the new keys
-            return $ KleisliEndo (setAccountBakerKeys keys)
-        updateRestakeEarnings oldBkr = forM bcuRestakeEarnings $ \restakeEarnings -> do
+            return (setAccountBakerKeys keys)
+        updateRestakeEarnings oldBkr = ifPresent bcuRestakeEarnings $ \restakeEarnings -> do
             MTL.tell [BakerConfigureRestakeEarnings restakeEarnings]
             if oldBkr ^. BaseAccounts.stakeEarnings == restakeEarnings then
-                return mempty
+                return return
             else
-                return $ KleisliEndo $ setAccountRestakeEarnings restakeEarnings
+                return $ setAccountRestakeEarnings restakeEarnings
         updateBakerPoolInfo :: AccountBaker (AccountVersionFor pv)
             -> ChainParameters' 'ChainParametersV1
             -> MTL.StateT
                 (BlockStatePointers pv)
                 (MTL.WriterT
                     [BakerConfigureUpdateChange] (MTL.ExceptT BakerConfigureResult m))
-                    (Maybe (KleisliEndo m (PersistentAccount (AccountVersionFor pv))))
+                    (PersistentAccount (AccountVersionFor pv) -> m (PersistentAccount (AccountVersionFor pv)))
         updateBakerPoolInfo oldBkr cp = do
             let pu0 = emptyBakerPoolInfoUpdate
             pu1 <- condPoolInfoUpdate bcuOpenForDelegation (updateOpenForDelegation oldBkr) pu0
@@ -1195,7 +1216,7 @@ doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
             pu3 <- condPoolInfoUpdate bcuTransactionFeeCommission (updateTransactionFeeCommission oldBkr cp) pu2
             pu4 <- condPoolInfoUpdate bcuBakingRewardCommission (updateBakingRewardCommission oldBkr cp) pu3
             pu5 <- condPoolInfoUpdate bcuFinalizationRewardCommission (updateFinalizationRewardCommission oldBkr cp) pu4
-            return $ Just $ KleisliEndo (updateAccountBakerPoolInfo pu5)
+            return $ updateAccountBakerPoolInfo pu5
         condPoolInfoUpdate Nothing _ pu = return pu
         condPoolInfoUpdate (Just x) a pu = a x pu
         updateOpenForDelegation oldBkr openForDelegation pu = do
@@ -1246,7 +1267,7 @@ doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
                 return pu
             else
                 return $! pu{updFinalizationRewardCommission = Just frc}
-        updateCapital oldBkr cp = forM bcuCapital $ \capital -> do
+        updateCapital oldBkr cp = ifPresent bcuCapital $ \capital -> do
             when (_bakerPendingChange oldBkr /= BaseAccounts.NoChange) (MTL.throwError BCChangePending)
             let capitalMin = cp ^. cpPoolParameters . ppMinimumEquityCapital
             let cooldownDuration = cp ^. cpCooldownParameters . cpPoolOwnerCooldown
@@ -1254,17 +1275,17 @@ doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
             if capital == 0 then do
                 let bpc = BaseAccounts.RemoveStake (BaseAccounts.PendingChangeEffectiveV1 cooldownElapsed)
                 MTL.tell [BakerConfigureStakeReduced capital]
-                return $ KleisliEndo (setAccountStakePendingChange bpc)
+                return $ setAccountStakePendingChange bpc
             else do
                 when (capital < capitalMin) (MTL.throwError BCStakeUnderThreshold)
                 case compare capital (_stakedAmount oldBkr) of
                     LT -> do
                         let bpc = BaseAccounts.ReduceStake capital (BaseAccounts.PendingChangeEffectiveV1 cooldownElapsed)
                         MTL.tell [BakerConfigureStakeReduced capital]
-                        return $ KleisliEndo (setAccountStakePendingChange bpc)
+                        return $ setAccountStakePendingChange bpc
                     EQ -> do
                         MTL.tell [BakerConfigureStakeIncreased capital]
-                        return mempty
+                        return return
                     GT -> do
                         birkParams <- MTL.gets bspBirkParameters
                         activeBkrs <- liftBSO $ refLoad (birkParams ^. birkActiveBakers)
@@ -1272,7 +1293,7 @@ doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
                             totalActiveCapital %~ addActiveCapital (capital - _stakedAmount oldBkr)
                         MTL.modify' $ \bsp -> bsp{bspBirkParameters = birkParams & birkActiveBakers .~ newActiveBkrs}
                         MTL.tell [BakerConfigureStakeIncreased capital]
-                        return $ KleisliEndo (setAccountStake capital)
+                        return $ setAccountStake capital
 
 doConstrainBakerCommission :: (SupportsPersistentState pv m, SupportsDelegation pv)
     => PersistentBlockState pv -> AccountIndex -> CommissionRanges -> m (PersistentBlockState pv)
@@ -1296,15 +1317,6 @@ doConstrainBakerCommission pbs ai ranges = do
             bakingCommission %~ (`closestInRange` (ranges ^. bakingCommissionRange))
         updateFinalizationRewardCommission =
             finalizationCommission %~ (`closestInRange` (ranges ^. finalizationCommissionRange))
-
-onAccount :: (SupportsPersistentAccount pv m) => AccountIndex -> BlockStatePointers pv -> (PersistentAccount (AccountVersionFor pv) -> m (Maybe a)) -> m (Maybe a)
-onAccount ai bsp f = Accounts.indexedAccount ai (bspAccounts bsp) >>= \case
-    Nothing -> return Nothing
-    Just acc -> f acc
-
-onAccount' :: (SupportsPersistentAccount pv m) => AccountIndex -> BlockStatePointers pv -> (PersistentAccount (AccountVersionFor pv) -> m a) -> m (Maybe a)
-onAccount' ai bsp f = Accounts.indexedAccount ai (bspAccounts bsp) >>= mapM f
-
 
 -- |Checks that the delegation target is not over-delegated.
 -- This can throw one of the following 'DelegationConfigureResult's, in order:
@@ -1340,7 +1352,6 @@ delegationCheckTargetOpen
     -> m ()
 delegationCheckTargetOpen _ Transactions.DelegatePassive = return ()
 delegationCheckTargetOpen bsp (Transactions.DelegateToBaker bid@(BakerId baid)) = do
-    -- This may load more of the baker information than is actually required
     onAccount baid bsp accountBaker >>= \case
         Just baker -> do
             case baker ^. BaseAccounts.poolOpenStatus of

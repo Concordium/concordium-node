@@ -934,13 +934,12 @@ checkAndGetBalanceAccountV1 :: (TransactionMonad m, AccountOperations m)
     => AccountAddress -- ^Used address
     -> IndexedAccount m
     -> Amount
-    -> m (Either WasmV1.ContractCallFailure (Address, [ID.RawAccountCredential], Either (Wasm.WasmVersion, ContractAddress) IndexedAccountAddress))
+    -> m (Either WasmV1.ContractCallFailure (Address, [ID.RawAccountCredential], Either (Wasm.WasmVersion, ContractAddress) AccountIndex))
 checkAndGetBalanceAccountV1 usedAddress senderAccount transferAmount = do
   (senderAddr, senderCredentials) <- mkSenderAddrCredentials (Right (usedAddress, senderAccount))
   senderamount <- getCurrentAccountAvailableAmount senderAccount
   if senderamount >= transferAmount then do
-    canonicalAddr <- getAccountCanonicalAddress (snd senderAccount)
-    return (Right (senderAddr, senderCredentials, Right (fst senderAccount, canonicalAddr)))
+    return (Right (senderAddr, senderCredentials, Right (fst senderAccount)))
   else
     return (Left (WasmV1.EnvFailure (WasmV1.AmountTooLarge senderAddr transferAmount)))
 
@@ -951,13 +950,12 @@ checkAndGetBalanceAccountV0 :: (TransactionMonad m, AccountOperations m)
     => AccountAddress -- ^Used address
     -> IndexedAccount m
     -> Amount
-    -> m (Address, [ID.RawAccountCredential], (Either (Wasm.WasmVersion, ContractAddress) IndexedAccountAddress))
+    -> m (Address, [ID.RawAccountCredential], (Either (Wasm.WasmVersion, ContractAddress) AccountIndex))
 checkAndGetBalanceAccountV0 usedAddress senderAccount transferAmount = do
   (senderAddr, senderCredentials) <- mkSenderAddrCredentials (Right (usedAddress, senderAccount))
   senderamount <- getCurrentAccountAvailableAmount senderAccount
   if senderamount >= transferAmount then do
-    canonicalAddr <- getAccountCanonicalAddress (snd senderAccount)
-    return (senderAddr, senderCredentials, Right (fst senderAccount, canonicalAddr))
+    return (senderAddr, senderCredentials, Right (fst senderAccount))
   else
     rejectTransaction (AmountTooLarge senderAddr transferAmount)
 
@@ -967,7 +965,7 @@ checkAndGetBalanceInstanceV1 :: forall m vOrigin . (TransactionMonad m, AccountO
     => IndexedAccount m
     -> UInstanceInfoV m vOrigin
     -> Amount
-    -> m (Either WasmV1.ContractCallFailure (Address, [ID.RawAccountCredential], (Either (Wasm.WasmVersion, ContractAddress) IndexedAccountAddress)))
+    -> m (Either WasmV1.ContractCallFailure (Address, [ID.RawAccountCredential], (Either (Wasm.WasmVersion, ContractAddress) AccountIndex)))
 checkAndGetBalanceInstanceV1 ownerAccount istance transferAmount = do
   (senderAddr, senderCredentials) <- mkSenderAddrCredentials (Left (ownerAccount, instanceAddress istance))
   senderamount <- getCurrentContractAmount (Wasm.getWasmVersion @vOrigin) istance
@@ -983,7 +981,7 @@ checkAndGetBalanceInstanceV0 :: forall m vOrigin . (TransactionMonad m, AccountO
     => IndexedAccount m
     -> UInstanceInfoV m vOrigin
     -> Amount
-    -> m (Address, [ID.RawAccountCredential], Either (Wasm.WasmVersion, ContractAddress) IndexedAccountAddress)
+    -> m (Address, [ID.RawAccountCredential], Either (Wasm.WasmVersion, ContractAddress) AccountIndex)
 checkAndGetBalanceInstanceV0 ownerAccount istance transferAmount = do
   (senderAddr, senderCredentials) <- mkSenderAddrCredentials (Left (ownerAccount, instanceAddress istance))
   senderamount <- getCurrentContractAmount (Wasm.getWasmVersion @vOrigin) istance
@@ -1001,7 +999,7 @@ handleContractUpdateV1 :: forall r m.
   (StaticInformation m, AccountOperations m, ContractStateOperations m, ModuleQuery m, MonadProtocolVersion m)
   => AccountAddress -- ^The address that was used to send the top-level transaction.
   -> UInstanceInfoV m GSWasm.V1 -- ^The current state of the target contract of the transaction, which must exist.
-  -> (Amount -> LocalT r m (Either WasmV1.ContractCallFailure (Address, [ID.RawAccountCredential], Either (Wasm.WasmVersion, ContractAddress) IndexedAccountAddress)))
+  -> (Amount -> LocalT r m (Either WasmV1.ContractCallFailure (Address, [ID.RawAccountCredential], Either (Wasm.WasmVersion, ContractAddress) AccountIndex)))
   -- ^Check that the sender has sufficient amount to cover the given amount and return a triple of
   -- - used address
   -- - credentials of the address, either account or owner of the contract
@@ -1188,7 +1186,7 @@ handleContractUpdateV0 :: forall r m.
   (StaticInformation m, AccountOperations m, ContractStateOperations m, ModuleQuery m, MonadProtocolVersion m)
   => AccountAddress -- ^The address that was used to send the top-level transaction.
   -> UInstanceInfoV m GSWasm.V0 -- ^The current state of the target contract of the transaction, which must exist.
-  -> (Amount -> LocalT r m (Address, [ID.RawAccountCredential], (Either (Wasm.WasmVersion, ContractAddress) IndexedAccountAddress)))
+  -> (Amount -> LocalT r m (Address, [ID.RawAccountCredential], (Either (Wasm.WasmVersion, ContractAddress) AccountIndex)))
   -- ^The sender of the message (contract instance or account). In case this is
   -- a contract the first parameter is the owner account of the instance. In case this is an account
   -- (i.e., this is called from a top-level transaction) the value is a pair of the address that was used
