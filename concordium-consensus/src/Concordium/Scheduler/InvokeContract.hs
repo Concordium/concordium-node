@@ -107,7 +107,7 @@ invokeContract ContractContext{..} cm bs = do
                    (Either
                      (Maybe RejectReason) -- Invocation failed because the relevant contract/account does not exist.
                      ( -- Check that the requested account or contract has enough balance.
-                       Amount -> LocalT r (InvokeContractMonad m) (Address, [ID.RawAccountCredential], Either (Wasm.WasmVersion, ContractAddress) IndexedAccountAddress),
+                       Amount -> LocalT r (InvokeContractMonad m) (Address, [ID.RawAccountCredential], Either (Wasm.WasmVersion, ContractAddress) AccountIndex),
                        AccountAddress, -- Address of the invoker account, or of its owner if the invoker is a contract.
                        AccountIndex -- And its index.
                      ))
@@ -116,7 +116,7 @@ invokeContract ContractContext{..} cm bs = do
           Nothing -> -- if the invoker is not supplied create a dummy one with no credentials
             let zeroAddress = AccountAddress . FBS.pack . replicate 32 $ 0
                 maxIndex = maxBound
-            in return (Right (const (return (AddressAccount zeroAddress, [], Right (maxIndex, zeroAddress))), zeroAddress, maxIndex))
+            in return (Right (const (return (AddressAccount zeroAddress, [], Right maxIndex)), zeroAddress, maxIndex))
           -- if the invoker is an address make sure it exists
           Just (AddressAccount accInvoker) -> getStateAccount accInvoker >>= \case
             Nothing -> return (Left (Just (InvalidAccountReference accInvoker)))

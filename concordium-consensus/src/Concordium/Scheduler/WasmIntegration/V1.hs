@@ -61,7 +61,8 @@ foreign import ccall unsafe "&box_vec_u8_free" freeReturnValue :: FunPtr (Ptr Re
 foreign import ccall unsafe "&receive_interrupted_state_free" freeReceiveInterruptedState :: FunPtr (Ptr (Ptr ReceiveInterruptedState) -> IO ())
 
 foreign import ccall "validate_and_process_v1"
-   validate_and_process :: Ptr Word8 -- ^Pointer to the Wasm module source.
+   validate_and_process :: Word8 -- ^Whether the current protocol version supports smart contract upgrades.
+                        -> Ptr Word8 -- ^Pointer to the Wasm module source.
                         -> CSize -- ^Length of the module source.
                         -> Ptr CSize -- ^Total length of the output.
                         -> Ptr CSize -- ^Length of the artifact.
@@ -89,7 +90,7 @@ instance Show ReturnValue where
   show = BS8.unpack . BS16.encode . returnValueToByteString
 
 -- |State of the Wasm module when a host operation is invoked (a host operation
--- is either a transfer to an account, or a contract call, at present). This can
+-- is either a transfer to an account, a contract call, or an upgrade at present). This can
 -- only be resumed once. Calling resume on this twice will lead to unpredictable
 -- behaviour, including the possibility of segmentation faults.
 newtype ReceiveInterruptedState = ReceiveInterruptedState { risPtr :: ForeignPtr (Ptr ReceiveInterruptedState) }
@@ -126,6 +127,9 @@ data InvokeResponseCode =
   Success
   | Error !ContractCallFailure
   | MessageSendFailed
+  | UpgradeInvalidModuleRef !ModuleRef -- ^Attempt to upgrade to a non existent module.
+  | UpgradeInvalidContractName !ModuleRef !InitName -- ^Attempt to upgrade to a module where the contract name did not match.
+  | UpgradeInvalidVersion !ModuleRef !WasmVersion -- ^Attempt to upgrade to a non-supported module version.
 
 -- |Possible reasons why invocation failed that are not directly logic failure of a V1 call.
 data EnvFailure =
@@ -153,12 +157,14 @@ invokeResponseToWord64 (Error (EnvFailure e)) =
     MissingContract _ -> 0xffff_ff03_0000_0000
     InvalidEntrypoint _ _ -> 0xffff_ff04_0000_0000
 invokeResponseToWord64 MessageSendFailed = 0xffff_ff05_0000_0000
+invokeResponseToWord64 (UpgradeInvalidModuleRef _) = 0xffff_ff07_0000_0000
+invokeResponseToWord64 (UpgradeInvalidContractName _ _) = 0xffff_ff08_0000_0000
+invokeResponseToWord64 (UpgradeInvalidVersion _ _) = 0xffff_ff09_0000_0000
 invokeResponseToWord64 (Error (ExecutionReject Trap)) = 0xffff_ff06_0000_0000
 invokeResponseToWord64 (Error (ExecutionReject LogicReject{..})) =
   -- make the last 32 bits the value of the rejection reason
   let unsigned = fromIntegral cerRejectReason :: Word32 -- reinterpret the bits
   in 0xffff_ff00_0000_0000 .|. fromIntegral unsigned -- and cut away the upper 32 bits
-
 
 foreign import ccall "call_init_v1"
    call_init :: LoadCallback -- Callbacks for loading state. Not needed in reality, but the way things are set it is. It does not hurt to pass.
@@ -279,11 +285,16 @@ data InvokeMethod =
     imcName :: !EntrypointName,
     imcAmount :: !Amount
     }
+  -- |Upgrade a smart contract such that it uses the new 'ModuleRef' for execution.
+  | Upgrade {
+      imuModRef :: !ModuleRef
+    }
 
 getInvokeMethod :: Get InvokeMethod
 getInvokeMethod = getWord8 >>= \case
   0 -> Transfer <$> get <*> get
   1 -> Call <$> get <*> get <*> get <*> get
+  2 -> Upgrade <$> get
   n -> fail $ "Unsupported invoke method tag: " ++ show n
 
 -- |Data return from the contract in case of successful initialization.
@@ -563,8 +574,8 @@ resumeReceiveFun is currentState stateChanged amnt statusCode rVal remainingEner
 -- - checks the module is well-formed, and has the right imports and exports for a V1 module.
 -- - makes a module artifact and allocates it on the Rust side, returning a pointer and a finalizer.
 {-# NOINLINE processModule #-}
-processModule :: WasmModuleV V1 -> Maybe (ModuleInterfaceV V1)
-processModule modl = do
+processModule :: Bool -> WasmModuleV V1 -> Maybe (ModuleInterfaceV V1)
+processModule supportUpgrade modl = do
   (bs, miModule) <- ffiResult
   case getExports bs of
     Left _ -> Nothing
@@ -577,7 +588,7 @@ processModule modl = do
               alloca $ \outputLenPtr ->
                 alloca $ \artifactLenPtr ->
                   alloca $ \outputModuleArtifactPtr -> do
-                    outPtr <- validate_and_process (castPtr wasmBytesPtr) (fromIntegral wasmBytesLen) outputLenPtr artifactLenPtr outputModuleArtifactPtr
+                    outPtr <- validate_and_process (if supportUpgrade then 1 else 0) (castPtr wasmBytesPtr) (fromIntegral wasmBytesLen) outputLenPtr artifactLenPtr outputModuleArtifactPtr
                     if outPtr == nullPtr then return Nothing
                     else do
                       len <- peek outputLenPtr

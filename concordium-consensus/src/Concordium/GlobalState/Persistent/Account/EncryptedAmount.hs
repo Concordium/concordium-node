@@ -1,3 +1,5 @@
+{-# LANGUAGE BangPatterns #-}
+
 module Concordium.GlobalState.Persistent.Account.EncryptedAmount where
 
 import Control.Monad
@@ -11,6 +13,7 @@ import Concordium.Types (
     AccountEncryptedAmount (AccountEncryptedAmount),
  )
 import qualified Concordium.Types as Types
+import Concordium.Utils
 
 import Concordium.Constants
 import Concordium.GlobalState.Persistent.BlobStore
@@ -46,11 +49,12 @@ data PersistentAccountEncryptedAmount = PersistentAccountEncryptedAmount
     }
     deriving (Show)
 
--- | Create an empty PersistentAccountEncryptedAmount
+-- | Create a PersistentAccountEncryptedAmount with the initial, 0 encrypted balance (with
+-- randomness 0) and no incoming amounts.
 initialPersistentAccountEncryptedAmount :: MonadBlobStore m => m PersistentAccountEncryptedAmount
 initialPersistentAccountEncryptedAmount = do
     _selfAmount <- refMake mempty
-    return
+    return $!
         PersistentAccountEncryptedAmount
             { _startIndex = 0,
               _incomingEncryptedAmounts = Seq.Empty,
@@ -58,7 +62,23 @@ initialPersistentAccountEncryptedAmount = do
               ..
             }
 
--- |Serialize a 'PersistentAccountEncryptedAmount' if it is not the empty
+-- |Check whether the account encrypted amount is identically the initial encrypted amount.
+isInitialPersistentAccountEncryptedAmount :: MonadBlobStore m => PersistentAccountEncryptedAmount -> m Bool
+isInitialPersistentAccountEncryptedAmount PersistentAccountEncryptedAmount{..} =
+    if _startIndex == 0 && Seq.null _incomingEncryptedAmounts && isNothing _aggregatedAmount
+        then isZeroEncryptedAmount <$> refLoad _selfAmount
+        else return False
+
+-- Checks whether the account encrypted amount is zero. This checks that there
+-- are no incoming amounts, and that the self amount is a specific encryption of
+-- 0, with randomness 0.
+isZeroPersistentAccountEncryptedAmount :: MonadBlobStore m => PersistentAccountEncryptedAmount -> m Bool
+isZeroPersistentAccountEncryptedAmount PersistentAccountEncryptedAmount{..} =
+    if Seq.null _incomingEncryptedAmounts && isNothing _aggregatedAmount
+        then isZeroEncryptedAmount <$> refLoad _selfAmount
+        else return False
+
+-- |Serialize a 'PersistentAccountEncryptedAmount' if it is not the initial
 -- encrypted amount (in which case, @Nothing@ is returned).
 --
 -- This should match the serialization format of 'AccountEncryptedAmount' exactly.
@@ -66,14 +86,12 @@ putAccountEncryptedAmountV0 ::
     (MonadBlobStore m) =>
     PersistentAccountEncryptedAmount ->
     m (Maybe Put)
-putAccountEncryptedAmountV0 PersistentAccountEncryptedAmount{..} = do
-    sAmt <- refLoad _selfAmount
-    if isZeroEncryptedAmount sAmt
-        && _startIndex == 0
-        && Seq.null _incomingEncryptedAmounts
-        && isNothing _aggregatedAmount
+putAccountEncryptedAmountV0 ea@PersistentAccountEncryptedAmount{..} = do
+    isInitial <- isInitialPersistentAccountEncryptedAmount ea
+    if isInitial
         then return Nothing
         else do
+            sAmt <- refLoad _selfAmount
             ieas <- mapM refLoad _incomingEncryptedAmounts
             putAgg <- case _aggregatedAmount of
                 Nothing -> return $ putWord32be 0
@@ -99,8 +117,8 @@ storePersistentAccountEncryptedAmount AccountEncryptedAmount{..} = do
     _incomingEncryptedAmounts <- mapM refMake _incomingEncryptedAmounts
     _aggregatedAmount <- case _aggregatedAmount of
         Nothing -> return Nothing
-        Just (e, n) -> Just . (,n) <$> refMake e
-    return PersistentAccountEncryptedAmount{..}
+        Just (e, n) -> Just . (,n) <$!> refMake e
+    return $! PersistentAccountEncryptedAmount{..}
 
 -- | Given a PersistentAccountEncryptedAmount, load its equivalent AccountEncryptedAmount
 loadPersistentAccountEncryptedAmount ::
@@ -113,16 +131,7 @@ loadPersistentAccountEncryptedAmount PersistentAccountEncryptedAmount{..} = do
     _aggregatedAmount <- case _aggregatedAmount of
         Nothing -> return Nothing
         Just (e, n) -> Just . (,n) <$> refLoad e
-    return AccountEncryptedAmount{..}
-
--- |Check whether the account encrypted amount is zero. This checks that there
--- are no incoming amounts, and that the self amount is a specific encryption of
--- 0, with randomness 0.
-isInitialPersistentAccountEncryptedAmount :: MonadBlobStore m => PersistentAccountEncryptedAmount -> m Bool
-isInitialPersistentAccountEncryptedAmount PersistentAccountEncryptedAmount{..} =
-    if _startIndex == 0 && Seq.null _incomingEncryptedAmounts && isNothing _aggregatedAmount
-        then isZeroEncryptedAmount <$> refLoad _selfAmount
-        else return False
+    return $! AccountEncryptedAmount{..}
 
 instance MonadBlobStore m => BlobStorable m PersistentAccountEncryptedAmount where
     storeUpdate PersistentAccountEncryptedAmount{..} = do
@@ -172,8 +181,8 @@ addIncomingEncryptedAmount ::
     EncryptedAmount ->
     PersistentAccountEncryptedAmount ->
     m PersistentAccountEncryptedAmount
-addIncomingEncryptedAmount newAmount old = do
-    newAmountRef <- refMake newAmount
+addIncomingEncryptedAmount !newAmount old = do
+    !newAmountRef <- refMake newAmount
     case _aggregatedAmount old of
         Nothing ->
             -- we need to aggregate if we have 'maxNumIncoming' or more incoming amounts
@@ -184,7 +193,7 @@ addIncomingEncryptedAmount newAmount old = do
                     xVal <- refLoad x
                     yVal <- refLoad y
                     xPlusY <- refMake (xVal <> yVal)
-                    return
+                    return $!
                         old
                             { _incomingEncryptedAmounts = rest Seq.|> newAmountRef,
                               _aggregatedAmount = Just (xPlusY, 2),
@@ -198,10 +207,10 @@ addIncomingEncryptedAmount newAmount old = do
             xVal <- refLoad x
             aggVal <- refLoad e
             xPlusY <- refMake (aggVal <> xVal)
-            return
+            return $!
                 old
                     { _incomingEncryptedAmounts = rest Seq.|> newAmountRef,
-                      _aggregatedAmount = Just (xPlusY, n + 1),
+                      _aggregatedAmount = Just $!! (xPlusY, n + 1),
                       _startIndex = _startIndex old + 1
                     }
 
@@ -219,7 +228,7 @@ replaceUpTo ::
     m PersistentAccountEncryptedAmount
 replaceUpTo newIndex newAmount PersistentAccountEncryptedAmount{..} = do
     _selfAmount <- refMake newAmount
-    return
+    return $!
         PersistentAccountEncryptedAmount
             { _startIndex = newStartIndex,
               _incomingEncryptedAmounts = newEncryptedAmounts,
@@ -246,7 +255,7 @@ addToSelfEncryptedAmount ::
     m PersistentAccountEncryptedAmount
 addToSelfEncryptedAmount newAmount old@PersistentAccountEncryptedAmount{..} = do
     newSelf <- refMake . (<> newAmount) =<< refLoad _selfAmount
-    return old{_selfAmount = newSelf}
+    return $! old{_selfAmount = newSelf}
 
 -- |See documentation of @migratePersistentBlockState@.
 migratePersistentEncryptedAmount ::
@@ -257,11 +266,10 @@ migratePersistentEncryptedAmount PersistentAccountEncryptedAmount{..} = do
     newSelfAmount <- migrateEagerBufferedRef return _selfAmount
     newIncomingEncryptedAmounts <- mapM (migrateEagerBufferedRef return) _incomingEncryptedAmounts
     newAggregatedAmount <- mapM (\(ea, numAgg) -> (,numAgg) <$> migrateEagerBufferedRef return ea) _aggregatedAmount
-    return
+    return $!
         PersistentAccountEncryptedAmount
             { _selfAmount = newSelfAmount,
               _startIndex = _startIndex,
               _incomingEncryptedAmounts = newIncomingEncryptedAmounts,
               _aggregatedAmount = newAggregatedAmount
             }
-

@@ -144,9 +144,11 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
   checkAccountIsAllowed :: Account m -> AccountAllowance -> m Bool
 
   -- |Get the amount that is staked on the account.
+  -- This is 0 if the account is not staking or delegating.
   getAccountStakedAmount :: Account m -> m Amount
 
   -- |Get the amount that is locked in scheduled releases on the account.
+  -- This is 0 if there are no pending releases on the account.
   getAccountLockedAmount :: Account m -> m Amount
 
   -- | Get the current public account available balance.
@@ -684,9 +686,9 @@ class (BlockStateQuery m) => BlockStateOperations m where
     -- ^New account threshold
     -> m (UpdatableBlockState m)
 
-  -- |Replace the instance with given change in owned amount, and potentially
-  -- new state. The rest of the instance data
-  -- (instance parameters) stays the same. This method is only called when it is
+  -- |Replace the instance with given change in owned amount, potentially
+  -- a new state and maybe new instance parameters depending on whether the contract has been upgraded.
+  -- This method is only called when it is
   -- known the instance exists, and is of the version specified by the type
   -- parameter v. These preconditions can thus be assumed by any implementor.
   bsoModifyInstance :: forall v. Wasm.IsWasmVersion v =>
@@ -694,6 +696,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
                     -> ContractAddress
                     -> AmountDelta
                     -> Maybe (UpdatableContractState v)
+                    -> Maybe (GSWasm.ModuleInterfaceA (InstrumentedModuleRef m v), Set.Set Wasm.ReceiveName)
                     -> m (UpdatableBlockState m)
 
   -- |Notify that some amount was transferred from/to encrypted balance of some account.
@@ -1386,7 +1389,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoModifyAccount s = lift . bsoModifyAccount s
   bsoSetAccountCredentialKeys s aa ci pk = lift $ bsoSetAccountCredentialKeys s aa ci pk
   bsoUpdateAccountCredentials s aa remove add thrsh = lift $ bsoUpdateAccountCredentials s aa remove add thrsh
-  bsoModifyInstance s caddr amount model = lift $ bsoModifyInstance s caddr amount model
+  bsoModifyInstance s caddr amount model newModule = lift $ bsoModifyInstance s caddr amount model newModule
   bsoNotifyEncryptedBalanceChange s = lift . bsoNotifyEncryptedBalanceChange s
   bsoGetSeedState = lift . bsoGetSeedState
   bsoSetSeedState s ss = lift $ bsoSetSeedState s ss

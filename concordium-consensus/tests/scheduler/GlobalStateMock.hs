@@ -71,6 +71,8 @@ data AccountOperationsAction (pv :: ProtocolVersion) a where
     GetAccountCanonicalAddress :: MockAccount -> AccountOperationsAction pv AccountAddress
     GetAccountAmount :: MockAccount -> AccountOperationsAction pv Amount
     CheckAccountIsAllowed :: MockAccount -> AccountAllowance -> AccountOperationsAction pv Bool
+    GetAccountStakedAmount :: MockAccount -> AccountOperationsAction pv Amount
+    GetAccountLockedAmount :: MockAccount -> AccountOperationsAction pv Amount
     GetAccountAvailableAmount :: MockAccount -> AccountOperationsAction pv Amount
     GetAccountNonce :: MockAccount -> AccountOperationsAction pv Nonce
     GetAccountCredentials :: MockAccount -> AccountOperationsAction pv (Map.Map ID.CredentialIndex ID.RawAccountCredential)

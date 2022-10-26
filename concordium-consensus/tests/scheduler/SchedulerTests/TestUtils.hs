@@ -13,7 +13,7 @@ Also checks invariants on the block state after each processed transaction.
 NOTE: This processes each transaction individually - for testing grouped transactions, see
       'SchedulerTests.TransactionGroupingSpec' and 'SchedulerTests.TransactionGroupingSpec2'.
 -}
-module SchedulerTests.TestUtils(PV1, PV2, PV3, PV4, ResultSpec,TResultSpec(..),emptySpec,emptyExpect,TestCase(..),
+module SchedulerTests.TestUtils(PV1, PV2, PV3, PV4, PV5, ResultSpec,TResultSpec(..),emptySpec,emptyExpect,TestCase(..),
                                 TestParameters(..),defaultParams, mkSpec,mkSpecs, createAlias) where
 
 import Test.Hspec

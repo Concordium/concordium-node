@@ -232,12 +232,12 @@ instance (MonadReader ContextState m,
     -- changed instance must exist in the global state and moreover all instances
     -- are distinct by the virtue of a HashMap being a function
     s1 <- lift (foldM (\s' (addr, (_, amnt, val)) ->
-                          bsoModifyInstance s' addr amnt val)
+                          bsoModifyInstance s' addr amnt val Nothing)
                       s
                       (Map.toList (cs ^. instanceV0Updates)))
     -- since V0 and V1 instances are disjoint, the order in which we do updates does not matter.
-    s2 <- lift (foldM (\s' (addr, (_, amnt, val)) ->
-                          bsoModifyInstance s' addr amnt val)
+    s2 <- lift (foldM (\s' (addr, InstanceV1Update{..}) ->
+                          bsoModifyInstance s' addr amountChange newState newInterface)
                       s1
                       (Map.toList (cs ^. instanceV1Updates)))
     -- Notify account transfers.

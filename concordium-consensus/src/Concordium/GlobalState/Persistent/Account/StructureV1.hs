@@ -7,6 +7,9 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
+-- |This module implements accounts for account versions 'AccountV2' (protocol 'P5').
+-- It should not be necessary to use this module directly, but instead through the interface
+-- provided by 'Concordium.GlobalState.Persistent.Account'.
 module Concordium.GlobalState.Persistent.Account.StructureV1 where
 
 import Control.Monad
@@ -30,7 +33,6 @@ import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
 import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as Transient
 import Concordium.GlobalState.BlockState (AccountAllowance (..))
 import Concordium.GlobalState.Persistent.Account.EncryptedAmount
-import Concordium.GlobalState.Persistent.Account.Structure
 import qualified Concordium.GlobalState.Persistent.Account.StructureV0 as V0
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule
@@ -41,10 +43,24 @@ import Concordium.Utils.Serialization.Put
 import Concordium.Utils.Serialization
 import Control.Monad.Trans
 
+-- * Terminology
+-- $Terminology
+--
+-- The terms "persistent", "persisting" and "enduring" have separate meanings in our nomenclature:
+-- 
+-- * "Persistent" is used to make explicit that the datastructure is persisted in the blob store.
+--
+-- * "Persisting" is used specifically to refer to 'PersistingAccountData'.
+--
+-- * "Enduring" is used to refer to that data encapsulated by 'PersistentAccountEnduringData',
+--   which consists of all account data except nonce, current balance, and staked balance.
+
 -- * 'PersistentBakerInfoEx'
 
 -- |A reference to a 'BakerInfoEx'. These references are shared between baker accounts
--- and the current/next epoch bakers.
+-- and the current/next epoch bakers. We use a 'LazyBufferedRef' so that the reference does not
+-- need to be loaded whenever the account is loaded, but once it is loaded, copies of the reference
+-- (e.g. in the account cache) will also be loaded.
 type PersistentBakerInfoEx av = LazyBufferedRef (BakerInfoEx av)
 
 -- ** Query
@@ -123,6 +139,7 @@ data PersistentAccountStakeEnduring av where
         PersistentAccountStakeEnduring av
 
 -- |Convert a 'PersistentAccountStakeEnduring' to an 'AccountStake' given the amount of the stake.
+-- This is used to implement 'getStake', and is also used in computing the stake hash.
 persistentToAccountStake ::
     (MonadBlobStore m, IsAccountVersion av, AVSupportsDelegation av) =>
     PersistentAccountStakeEnduring av ->
@@ -200,10 +217,10 @@ data PersistentAccountEnduringData (av :: AccountVersion) = PersistentAccountEnd
       -- |A reference to the persisting account data.
       paedPersistingData :: !(EagerBufferedRef PersistingAccountData),
       -- |The encrypted amount. Invariant: if this is present, it will not satisfy
-      -- 'isZeroAccountEncryptedAmount'.
+      -- 'isInitialPersistentAccountEncryptedAmount'.
       paedEncryptedAmount :: !(Nullable (LazyBufferedRef PersistentAccountEncryptedAmount)),
       -- |The release schedule and total locked amount. Invariant: if this is present,
-      -- there will be scheduled releases, and the amount will be the total of them.
+      -- it does not satisfy 'isEmptyAccountReleaseSchedule', and the amount will be the total of them.
       paedReleaseSchedule :: !(Nullable (LazyBufferedRef AccountReleaseSchedule, Amount)),
       -- |The staking details associated with the account.
       paedStake :: !(PersistentAccountStakeEnduring av)
@@ -219,6 +236,12 @@ instance HashableTo (AccountMerkleHash av) (PersistentAccountEnduringData av) wh
     getHash = paedHash
 
 -- |Construct a 'PersistentAccountEnduringData' from the components by computing the hash.
+--
+-- Precondition: if the 'PersistentAccountEncryptedAmount' is present then it must not satisfy
+-- 'isInitialPersistentAccountEncryptedAmount'.
+--
+-- Precondition: if the 'AccountReleaseSchedule' is present, then it must have some releases
+-- and the total amount of the releases must be the provided amount.
 makeAccountEnduringData ::
     ( MonadBlobStore m
     ) =>
@@ -241,7 +264,7 @@ makeAccountEnduringData paedPersistingData paedEncryptedAmount paedReleaseSchedu
         !paedHash = getHash hashInputs
     return $! PersistentAccountEnduringData{..}
 
--- |[For internal use.] Recompute the Merkle hash of the enduring account data.
+-- |[For internal use in this module.] Recompute the Merkle hash of the enduring account data.
 rehashAccountEnduringData :: (MonadBlobStore m) => PersistentAccountEnduringData 'AccountV2 -> m (PersistentAccountEnduringData 'AccountV2)
 rehashAccountEnduringData ed = do
     amhi2PersistingAccountDataHash <- getHashM (paedPersistingData ed)
@@ -268,10 +291,20 @@ enduringDataFlags PersistentAccountEnduringData{..} =
 
 -- |The nature of a pending stake change, abstracting the details.
 -- This is stored as the low-order 2 bits of a 'Word8'.
+-- The encoding is as follows:
+--
+-- - Bits 1 and 0 are both unset if there is no pending change.
+--
+-- - Bit 1 is unset and bit 0 is set if the stake is being reduced.
+--
+-- - Bit 1 is set and bit 0 is unset if the stake is being removed.
 data PendingChangeFlags
-    = PendingChangeNone -- ^No change is pending
-    | PendingChangeReduce -- ^A stake reduction is pending
-    | PendingChangeRemove -- ^Removal of stake is pending
+    = -- |No change is pending
+      PendingChangeNone
+    | -- |A stake reduction is pending
+      PendingChangeReduce
+    | -- |Removal of stake is pending
+      PendingChangeRemove
     deriving (Eq, Ord, Show)
 
 -- |Get the 'PendingChangeFlags' for a 'StakePendingChange''.
@@ -296,10 +329,46 @@ pendingChangeFlagsFromBits _ = Left "Invalid pending change type"
 
 -- |Flags that represent the nature of the stake on an account.
 -- These are stored as the low-order 6 bits of a 'Word8'.
+-- The encoding is as follows:
+--
+-- - Bits 5 and 4 indicate the staking status of the account:
+--
+--   - If bits 5 and 4 are unset, there is no staking. The remaining bit are also unset.
+--
+--   - If bit 5 is unset and bit 4 is set, the account is a baker. In this case
+--
+--     - Bit 3 is unset.
+-- 
+--     - Bit 2 is set if earnings are restaked.
+--
+--     - Bits 1 and 0 indicate the pending change as described in 'PendingChangeFlags'.
+--
+--    - If bit 5 is set and bit 4 is unset, the account is a delegator. In this case
+--
+--      - Bit 3 is set if the delegation is passive.
+-- 
+--     - Bit 2 is set if earnings are restaked.
+--
+--     - Bits 1 and 0 indicate the pending change as described in 'PendingChangeFlags'.
 data StakeFlags
-    = StakeFlagsNone
-    | StakeFlagsBaker {sfRestake :: !Bool, sfChangeType :: !PendingChangeFlags}
-    | StakeFlagsDelegator {sfPassive :: !Bool, sfRestake :: !Bool, sfChangeType :: !PendingChangeFlags}
+    = -- |The account is not staking
+      StakeFlagsNone
+    | -- |The account is a baker
+      StakeFlagsBaker
+        { -- |Whether earnings are restaked
+          sfRestake :: !Bool,
+          -- |The pending stake change, if any
+          sfChangeType :: !PendingChangeFlags
+        }
+    | -- |The account is a delegator
+      StakeFlagsDelegator
+        { -- |Whether delegation is passive
+          sfPassive :: !Bool,
+          -- |Whether earnings are restaked
+          sfRestake :: !Bool,
+          -- |The pending stake change, if any
+          sfChangeType :: !PendingChangeFlags
+        }
     deriving (Eq, Ord, Show)
 
 -- |Get the 'StakeFlags' from a 'PersistentAccountStakeEnduring'.
@@ -349,10 +418,19 @@ stakeFlagsFromBits bs = case bs .&. 0b11_0000 of
     sfPassive = testBit bs 3
 
 -- |Flags that represent the nature of enduring account data.
--- These are stored as a 'Word8'.
+-- These are stored as a 'Word8', in the following format:
+--
+-- - Bit 7 is set if the account has a (non-initial) encrypted amount.
+--
+-- - Bit 6 is set if the account has a (non-empty) release schedule.
+--
+-- - The remaining bits indicate the staking status of the account, in accordance with 'StakeFlags'.
 data EnduringDataFlags = EnduringDataFlags
-    { edHasEncryptedAmount :: !Bool,
+    { -- |Whether the enduring data includes a (non-initial) encrypted amount.
+      edHasEncryptedAmount :: !Bool,
+      -- |Whether the enduring data includes a (non-empty) release schedule.
       edHasReleaseSchedule :: !Bool,
+      -- |Flags describing the stake (if any).
       edStakeFlags :: !StakeFlags
     }
     deriving (Eq, Ord, Show)
@@ -584,19 +662,19 @@ getNonce = pure . accountNonce
 -- * For 'AllowedEncryptedTransfers' the account may only have 1 credential.
 --
 -- * For 'AllowedMultipleCredentials' the account must have the empty encrypted balance.
-isAllowed :: Monad m => PersistentAccount av -> AccountAllowance -> m Bool
+isAllowed :: MonadBlobStore m => PersistentAccount av -> AccountAllowance -> m Bool
 isAllowed acc AllowedEncryptedTransfers = do
     creds <- getCredentials acc
     return $! Map.size creds == 1
 isAllowed acc AllowedMultipleCredentials = do
     let ed = enduringData acc
     -- We use the invariant that if the encrypted amount is present then it will be non-empty.
-    return $! case paedEncryptedAmount ed of
-      Null -> True
-      Some _ -> False
+    case paedEncryptedAmount ed of
+      Null -> return True
+      Some eaRef -> isZeroPersistentAccountEncryptedAmount =<< refLoad eaRef
 
--- |Get the list of credentials deployed on the account, ordered from most
--- recently deployed.  The list should be non-empty.
+-- |Get the credentials deployed on the account. This map is always non-empty and (presently)
+-- will have a credential at index 'initialCredentialIndex' (0) that cannot be changed.
 getCredentials :: (Monad m) => PersistentAccount av -> m (Map.Map CredentialIndex RawAccountCredential)
 getCredentials acc = do
     let pd = persistingData acc
@@ -827,6 +905,7 @@ updateStake f = updateEnduringData $ \ed -> do
 -- The caller must ensure the following, which are not checked:
 --
 -- * Any credential index that is removed must already exist.
+-- * The credential with index 0 must not be removed.
 -- * Any credential index that is added must not exist after the removals take effect.
 -- * At least one credential remains after all removals and additions.
 -- * Any new threshold is at most the number of accounts remaining (and at least 1).

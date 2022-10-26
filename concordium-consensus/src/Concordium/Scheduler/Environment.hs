@@ -15,6 +15,7 @@ module Concordium.Scheduler.Environment where
 import qualified Data.HashMap.Strict as HMap
 import qualified Data.HashSet as HSet
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 import Data.Foldable
 
 import Control.Monad.Cont hiding (cont)
@@ -44,6 +45,7 @@ import qualified Concordium.ID.Types as ID
 import Concordium.Wasm (IsWasmVersion)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import qualified Concordium.Wasm as GSWasm
+import Data.Proxy
 
 -- |An account index together with the canonical address. Sometimes it is
 -- difficult to pass an IndexedAccount and we only need the addresses. That is
@@ -93,7 +95,7 @@ class (Monad m, StaticInformation m, AccountOperations m, ContractStateOperation
   -- other purposes.
   -- Precondition: Each account affected in the change set must exist in the
   -- block state.
-  commitChanges :: ChangeSet -> m ()
+  commitChanges :: ChangeSet m -> m ()
 
   -- |Commit a module interface and module value to global state. Returns @True@
   -- if this was successful, and @False@ if a module with the given Hash already
@@ -343,11 +345,11 @@ class (StaticInformation m, ContractStateOperations m, MonadProtocolVersion m) =
 
   -- |Transfer amount from the first address to the second and run the
   -- computation in the modified environment.
-  withAccountToContractAmountV0 :: IndexedAccountAddress -> UInstanceInfoV m GSWasm.V0 -> Amount -> m a -> m a
+  withAccountToContractAmountV0 :: AccountIndex -> UInstanceInfoV m GSWasm.V0 -> Amount -> m a -> m a
 
   -- |Transfer amount from the first address to the second and run the
   -- computation in the modified environment.
-  withAccountToContractAmountV1 :: IndexedAccountAddress -> UInstanceInfoV m GSWasm.V1 -> Amount -> m a -> m a
+  withAccountToContractAmountV1 :: AccountIndex -> UInstanceInfoV m GSWasm.V1 -> Amount -> m a -> m a
 
   -- |Transfer an amount from the first account to the second and run the
   -- computation in the modified environment.
@@ -400,12 +402,12 @@ class (StaticInformation m, ContractStateOperations m, MonadProtocolVersion m) =
   -- |Transfer an amount from the first given instance or account to the instance in the second
   -- parameter and run the computation in the modified environment.
   {-# INLINE withToContractAmountV0 #-}
-  withToContractAmountV0 :: Either (Wasm.WasmVersion, ContractAddress) IndexedAccountAddress -> UInstanceInfoV m GSWasm.V0 -> Amount -> m a -> m a
+  withToContractAmountV0 :: Either (Wasm.WasmVersion, ContractAddress) AccountIndex -> UInstanceInfoV m GSWasm.V0 -> Amount -> m a -> m a
   withToContractAmountV0 (Left i) = withContractToContractAmountV0 i
   withToContractAmountV0 (Right a) = withAccountToContractAmountV0 a
 
   {-# INLINE withToContractAmountV1 #-}
-  withToContractAmountV1 :: Either (Wasm.WasmVersion, ContractAddress) IndexedAccountAddress -> UInstanceInfoV m GSWasm.V1 -> Amount -> m a -> m a
+  withToContractAmountV1 :: Either (Wasm.WasmVersion, ContractAddress) AccountIndex -> UInstanceInfoV m GSWasm.V1 -> Amount -> m a -> m a
   withToContractAmountV1 (Left i) = withContractToContractAmountV1 i
   withToContractAmountV1 (Right a) = withAccountToContractAmountV1 a
 
@@ -486,38 +488,88 @@ class (StaticInformation m, ContractStateOperations m, MonadProtocolVersion m) =
   rejectingWith' !c reason = c >>= \case Right b -> return b
                                          Left a -> rejectTransaction (reason a)
 
+  -- |Add a contract upgrade to the 'ChangeSet'
+  addContractUpgrade :: ContractAddress
+                     -- ^The instance that should be upgraded.
+                     -> GSWasm.ModuleInterfaceA (InstrumentedModuleRef m GSWasm.V1)
+                     -- ^The set of receive names exposed by this new module for the instance.
+                     -> Set.Set GSWasm.ReceiveName
+                     -- ^The new module to use for execution.
+                     -> m ()
+
+
 -- |Index that keeps track of modifications of smart contracts inside a single
 -- transaction. This is used to cheaply detect whether a contract state has
 -- changed or not when a contract calls another.
 type ModificationIndex = Word
 
+-- |A modified state of a V1 instance. This is the state that is maintained
+-- during the execution of a transaction.
+--
+-- The type parameter `mr` is a technical necessity since we have to maintain a
+-- new module interface. Since modules are parametrized by the monad (i.e.,
+-- either persistent or basic) we need to parametrize this state update as well,
+-- seeing that the scheduler works with any state. On top of this, we often have
+-- "newtype wrappers" @t m@ around a monad @m@ but with the property that
+-- @InstrumentedModuleRef (t m) ~ InstrumentedModuleRef m@. In order for this to
+-- work we actually need to parametrize the @InstanceV1Update'@ by a type
+-- function @mr@ so that the typechecker can see the property that if
+--
+-- @InstrumentedModuleRef (t m) ~ InstrumentedModuleRef m@
+--
+-- then also
+--
+-- @InstanceV1Update (t m) ~ InstanceV1Update m@.
+--
+-- That is why we have the auxiliary type definition @InstanceV1Update'@
+-- parametrized by the type function @mr@ and then a simplified type alias
+-- @InstanceV1Update@ on top.
+data InstanceV1Update' mr = InstanceV1Update {
+    -- |The modification index.
+    index :: !ModificationIndex,
+    -- |Amount changed
+    amountChange :: !AmountDelta,
+    -- |Present if a state change has ocurred.
+    newState :: !(Maybe (UpdatableContractState GSWasm.V1)),
+    -- |Present if the contract has been upgraded.
+    -- Contract upgrades are only supported from PV 5 and onwards.
+    newInterface  :: !(Maybe (GSWasm.ModuleInterfaceA (mr GSWasm.V1), Set.Set GSWasm.ReceiveName))
+}
+
+type InstanceV1Update m = InstanceV1Update' (InstrumentedModuleRef m)
+
+type ChangeSet m = ChangeSet' (InstrumentedModuleRef m)
+
 -- |The set of changes to be committed on a successful transaction.
-data ChangeSet = ChangeSet
+--
+-- The reason for parametrizing by a type function @mr@ is the same as for
+-- @InstanceV1Update@.
+data ChangeSet' mr = ChangeSet
     {_accountUpdates :: !(HMap.HashMap AccountIndex AccountUpdate) -- ^Accounts whose states changed.
     -- |V0 contracts whose states changed. Any time we are updating a contract we know which version it is.
     -- We thus know where to look.
     ,_instanceV0Updates :: !(HMap.HashMap ContractAddress (ModificationIndex, AmountDelta, Maybe (UpdatableContractState GSWasm.V0)))
-    -- |V1 contracts whose states changed. Any time we are updating a contract we know which version it is.
+    -- |V1 contracts whose state changed (and/or) has been upgraded. Any time we are updating a contract we know which version it is.
     -- We thus know where to look.
-    ,_instanceV1Updates :: !(HMap.HashMap ContractAddress (ModificationIndex, AmountDelta, Maybe (UpdatableContractState GSWasm.V1)))
+    ,_instanceV1Updates :: !(HMap.HashMap ContractAddress (InstanceV1Update' mr))
     ,_instanceInits :: !(HSet.HashSet ContractAddress) -- ^Contracts that were initialized.
     ,_encryptedChange :: !AmountDelta -- ^Change in the encrypted balance of the system as a result of this contract's execution.
     ,_addedReleaseSchedules :: !(Map.Map AccountAddress Timestamp) -- ^The release schedules added to accounts on this block, to be added on the per block map.
     }
 
-makeLenses ''ChangeSet
+makeLenses ''ChangeSet'
 
-emptyCS :: ChangeSet
-emptyCS = ChangeSet HMap.empty HMap.empty HMap.empty HSet.empty 0 Map.empty
+emptyCS :: Proxy m -> ChangeSet m
+emptyCS Proxy = ChangeSet HMap.empty HMap.empty HMap.empty HSet.empty 0 Map.empty
 
 -- |Record an addition to the amount of the given account in the changeset.
 {-# INLINE addAmountToCS #-}
-addAmountToCS :: AccountOperations m => IndexedAccount m -> AmountDelta -> ChangeSet -> m ChangeSet
+addAmountToCS :: AccountOperations m => IndexedAccount m -> AmountDelta -> ChangeSet m -> m (ChangeSet m)
 addAmountToCS = addAmountToCS' . fst
 
 -- |Record an addition to the amount of the given account in the changeset.
 {-# INLINE addAmountToCS' #-}
-addAmountToCS' :: Monad m => AccountIndex -> AmountDelta -> ChangeSet -> m ChangeSet
+addAmountToCS' :: Monad m => AccountIndex -> AmountDelta -> ChangeSet m -> m (ChangeSet m)
 addAmountToCS' ai !amnt !cs =
   -- Check whether there already is an 'AccountUpdate' for the given account in the changeset.
   -- If so, modify it accordingly, otherwise add a new entry.
@@ -530,7 +582,7 @@ addAmountToCS' ai !amnt !cs =
 
 -- |Record a list of scheduled releases that has to be pushed into the global map and into the map of the account.
 {-# INLINE addScheduledAmountToCS #-}
-addScheduledAmountToCS :: AccountOperations m => IndexedAccount m -> ([(Timestamp, Amount)], TransactionHash) -> ChangeSet -> m ChangeSet
+addScheduledAmountToCS :: AccountOperations m => IndexedAccount m -> ([(Timestamp, Amount)], TransactionHash) -> ChangeSet m -> m (ChangeSet m)
 addScheduledAmountToCS _ ([], _) cs = return cs
 addScheduledAmountToCS (ai, acc) rel@(((fstRel, _):_), _) !cs = do
   addr <- getAccountCanonicalAddress acc
@@ -544,59 +596,72 @@ addScheduledAmountToCS (ai, acc) rel@(((fstRel, _):_), _) !cs = do
 -- It is assumed that the account is already in the changeset and that its balance
 -- is already affected (the auAmount field is set).
 {-# INLINE modifyAmountCS #-}
-modifyAmountCS :: AccountIndex -> AmountDelta -> ChangeSet -> ChangeSet
-modifyAmountCS ai !amnt !cs = cs & (accountUpdates . ix ai . auAmount ) %~ upd
+modifyAmountCS :: Proxy m -> AccountIndex -> AmountDelta -> ChangeSet m -> ChangeSet m
+modifyAmountCS Proxy ai !amnt !cs = cs & (accountUpdates . ix ai . auAmount ) %~ upd
   where upd (Just a) = Just (a + amnt)
         upd Nothing = error "modifyAmountCS precondition violated."
 
 
 -- |Add or update the contract state in the changeset with the new state.
-addContractStatesToCSV0 :: HasInstanceAddress a => a -> ModificationIndex -> UpdatableContractState GSWasm.V0 -> ChangeSet -> ChangeSet
-addContractStatesToCSV0 istance curIdx newState =
+addContractStatesToCSV0 :: HasInstanceAddress a => Proxy m -> a -> ModificationIndex -> UpdatableContractState GSWasm.V0 -> ChangeSet m -> ChangeSet m
+addContractStatesToCSV0 Proxy istance curIdx newState =
   instanceV0Updates . at addr %~ \case Just (_, amnt, _) -> Just (curIdx, amnt, Just newState)
                                        Nothing -> Just (curIdx, 0, Just newState)
   where addr = instanceAddress istance
 
 -- |Add or update the contract state in the changeset with the new state.
-addContractStatesToCSV1 :: HasInstanceAddress a => a -> ModificationIndex -> UpdatableContractState GSWasm.V1 -> ChangeSet -> ChangeSet
-addContractStatesToCSV1 istance curIdx newState =
-  instanceV1Updates . at addr %~ \case Just (_, amnt, _) -> Just (curIdx, amnt, Just newState)
-                                       Nothing -> Just (curIdx, 0, Just newState)
+addContractStatesToCSV1 :: HasInstanceAddress a => Proxy m -> a -> ModificationIndex -> UpdatableContractState GSWasm.V1 -> ChangeSet m -> ChangeSet m
+addContractStatesToCSV1 Proxy istance curIdx stateUpdate =
+  instanceV1Updates . at addr %~ 
+      \case Just InstanceV1Update{..} -> Just $! InstanceV1Update curIdx amountChange (Just stateUpdate) newInterface
+            Nothing -> Just $! InstanceV1Update curIdx 0 (Just stateUpdate) Nothing
   where addr = instanceAddress istance
 
 -- |Add the given delta to the change set for the given contract instance.
 -- NB: If the contract is not yet in the changeset it is added.
-addContractAmountToCSV0 :: ContractAddress -> AmountDelta -> ChangeSet -> ChangeSet
+addContractAmountToCSV0 :: (Monad m) => ContractAddress -> AmountDelta -> ChangeSet m -> m (ChangeSet m)
 addContractAmountToCSV0 addr amnt cs =
     -- updating amounts does not update the modification index. Only state updates do.
-    cs & instanceV0Updates . at addr %~ \case Just (idx, d, v) -> Just (idx, d + amnt, v)
+    pure $ cs & instanceV0Updates . at addr %~ \case 
+                                              Just (idx, d, v) -> Just (idx, d + amnt, v)
                                               Nothing -> Just (0, amnt, Nothing)
 
 -- |Add the given delta to the change set for the given contract instance.
-addContractAmountToCSV1 :: ContractAddress -> AmountDelta -> ChangeSet -> ChangeSet
+addContractAmountToCSV1 :: (Monad m) => ContractAddress -> AmountDelta -> ChangeSet m -> m (ChangeSet m)
 addContractAmountToCSV1 addr amnt cs =
     -- updating amounts does not update the modification index. Only state updates do.
-    cs & instanceV1Updates . at addr %~ \case Just (idx, d, v) -> Just (idx, d + amnt, v)
-                                              Nothing -> Just (0, amnt, Nothing)
+    pure $ cs & instanceV1Updates . at addr %~ \case 
+                                            Just InstanceV1Update{..} -> Just $! InstanceV1Update index (amountChange + amnt) newState newInterface
+                                            Nothing -> Just $! InstanceV1Update 0 amnt Nothing Nothing
 
 -- |Add the given contract address to the set of initialized contract instances.
 -- As the changes on the blockstate are already performed in the handler for this operation,
 -- we just log the contract address as we don't need to modify the blockstate with
 -- the information we add to the change set.
 {-# INLINE addContractInitToCS #-}
-addContractInitToCS :: ContractAddress -> ChangeSet -> ChangeSet
-addContractInitToCS addr cs =
+addContractInitToCS :: Proxy m -> ContractAddress -> ChangeSet m -> ChangeSet m
+addContractInitToCS Proxy addr cs =
     cs { _instanceInits = HSet.insert addr (cs ^. instanceInits) }
+
+
+-- |Add the contract upgrade to the 'ChangeSet'.
+-- We only care about the most recent contract upgrade.
+{-# INLINE addContractUpgradeToCS #-}
+addContractUpgradeToCS :: Proxy m -> ContractAddress -> GSWasm.ModuleInterfaceA (InstrumentedModuleRef m GSWasm.V1) -> Set.Set GSWasm.ReceiveName -> ChangeSet m -> ChangeSet m
+addContractUpgradeToCS Proxy addr updatedMod updatedReceiveNames cs = do
+    cs & instanceV1Updates . at addr %~ \case
+                                          Just InstanceV1Update{..} -> Just $! InstanceV1Update index amountChange newState (Just (updatedMod, updatedReceiveNames))
+                                          Nothing -> Just $! InstanceV1Update 0 0 Nothing (Just (updatedMod, updatedReceiveNames))
 
 -- |Whether the transaction energy limit is reached because of transaction max energy limit,
 -- or because of block energy limit
 data LimitReason = TransactionHeader | BlockEnergyLimit
 
-data LocalState = LocalState{
+data LocalState m = LocalState{
   -- |Energy left for the computation.
   _energyLeft :: !Energy,
   -- |Changes accumulated thus far.
-  _changeSet :: !ChangeSet,
+  _changeSet :: !(ChangeSet m),
   -- |Maximum number of modified contract instances. This is an implementation
   -- detail and is not directly exposed to contracts, or anywhere else. What
   -- this supports is keeping track of whether a V1 contract has been modified
@@ -641,20 +706,20 @@ runRST rst r s = flip runStateT s . flip runReaderT r $ rst
 -- order to avoid expensive bind operation of the latter. The bind operation is
 -- expensive because it needs to check at each step whether the result is @Left@
 -- or @Right@.
-newtype LocalT r m a = LocalT { _runLocalT :: ContT (Either (Maybe RejectReason) r) (RST TransactionContext LocalState m) a }
-  deriving(Functor, Applicative, Monad, MonadState LocalState, MonadReader TransactionContext)
+newtype LocalT r m a = LocalT { _runLocalT :: ContT (Either (Maybe RejectReason) r) (RST TransactionContext (LocalState m) m) a }
+  deriving(Functor, Applicative, Monad, MonadState (LocalState m), MonadReader TransactionContext)
 
-runLocalT :: Monad m
+runLocalT :: forall m a . Monad m
           => LocalT a m a
           -> Amount
           -> AccountIndex
           -> Energy -- Energy limit by the transaction header.
           -> Energy -- remaining block energy
-          -> m (Either (Maybe RejectReason) a, LocalState)
+          -> m (Either (Maybe RejectReason) a, LocalState m)
 runLocalT (LocalT st) _tcDepositedAmount _tcTxSender _energyLeft _blockEnergyLeft = do
   -- The initial contract modification index must start at 1 since 0 is the
   -- "initial state" of all contracts (as recorded in the changeset).
-  let s = LocalState{_changeSet = emptyCS,_nextContractModificationIndex = 1,..}
+  let s = LocalState{_changeSet = emptyCS (Proxy @m),_nextContractModificationIndex = 1,..}
   (a, s') <- runRST (runContT st (return . Right)) ctx s
   return (a, s')
 
@@ -698,7 +763,7 @@ computeExecutionCharge meta energy =
 chargeExecutionCost :: forall m . (AccountOperations m) => SchedulerMonad m => IndexedAccount m -> Amount -> m ()
 chargeExecutionCost (ai, acc) amnt = do
     balance <- getAccountAmount acc
-    let csWithAccountDelta = emptyCS & accountUpdates . at ai ?~ (emptyAccountUpdate ai & auAmount ?~ amountDiff 0 amnt)
+    let csWithAccountDelta = emptyCS (Proxy @m) & accountUpdates . at ai ?~ (emptyAccountUpdate ai & auAmount ?~ amountDiff 0 amnt)
     assert (balance >= amnt) $
           commitChanges csWithAccountDelta
     notifyExecutionCost amnt
@@ -737,7 +802,7 @@ withDeposit ::
   => WithDepositContext m
   -> LocalT a m a
   -- ^The computation to run in the modified environment with reduced amount on the initial account.
-  -> (LocalState -> a -> m (ValidResult, Amount, Energy))
+  -> (LocalState m -> a -> m (ValidResult, Amount, Energy))
   -- ^Continuation for the successful branch of the computation.
   -- It gets the result of the previous computation as input, in particular the
   -- remaining energy and the ChangeSet. It should return the result, and the amount that was charged
@@ -789,7 +854,7 @@ withDeposit wtc comp k = do
 -- from the current changeset and returns the recorded events, the amount corresponding to the
 -- used energy and the used energy.
 defaultSuccess ::
-  SchedulerMonad m => WithDepositContext m -> LocalState -> [Event] -> m (ValidResult, Amount, Energy)
+  SchedulerMonad m => WithDepositContext m -> LocalState m -> [Event] -> m (ValidResult, Amount, Energy)
 defaultSuccess wtc = \ls events -> do
   let meta = wtc ^. wtcTransactionHeader
       senderAccount = wtc ^. wtcSenderAccount
@@ -855,71 +920,82 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
   withInstanceStateV0 istance val cont = do
     nextModificationIndex <- use nextContractModificationIndex
     nextContractModificationIndex += 1
-    changeSet %= addContractStatesToCSV0 istance nextModificationIndex val
+    changeSet %= addContractStatesToCSV0 (Proxy @m) istance nextModificationIndex val
     cont 
 
   {-# INLINE withInstanceStateV1 #-}
   withInstanceStateV1 istance val cont = do
     nextModificationIndex <- use nextContractModificationIndex
     nextContractModificationIndex += 1
-    changeSet %= addContractStatesToCSV1 istance nextModificationIndex val
+    changeSet %= addContractStatesToCSV1 (Proxy @m) istance nextModificationIndex val
     cont nextModificationIndex
 
   {-# INLINE withAccountToAccountAmount #-}
   withAccountToAccountAmount fromAcc toAcc amount cont = do
     cs <- use changeSet
-    changeSet <~ (addAmountToCS toAcc (amountToDelta amount) cs >>=
-                  addAmountToCS fromAcc (amountDiff 0 amount))
+    changeSet <~ liftLocal (addAmountToCS toAcc (amountToDelta amount) cs >>=
+                              addAmountToCS fromAcc (amountDiff 0 amount))
     cont
 
   {-# INLINE withAccountToContractAmountV0 #-}
   withAccountToContractAmountV0 fromAcc toAcc amount cont = do
-    cs <- changeSet <%= addContractAmountToCSV0 (instanceAddress toAcc) (amountToDelta amount)
-    changeSet <~ addAmountToCS' (fst fromAcc) (amountDiff 0 amount) cs
+    cs <- use changeSet
+    changeSet <~ liftLocal (addContractAmountToCSV0 (instanceAddress toAcc) (amountToDelta amount) cs >>= 
+                                addAmountToCS' fromAcc (amountDiff 0 amount))    
     cont
 
   {-# INLINE withAccountToContractAmountV1 #-}
   withAccountToContractAmountV1 fromAcc toAcc amount cont = do
-    cs <- changeSet <%= addContractAmountToCSV1 (instanceAddress toAcc) (amountToDelta amount)
-    changeSet <~ addAmountToCS' (fst fromAcc) (amountDiff 0 amount) cs
+    cs <- use changeSet
+    changeSet <~ liftLocal (addContractAmountToCSV1 (instanceAddress toAcc) (amountToDelta amount) cs >>=
+                                addAmountToCS' fromAcc (amountDiff 0 amount))    
     cont
 
   {-# INLINE withContractToAccountAmountV0 #-}
   withContractToAccountAmountV0 fromAcc toAcc amount cont = do
     cs <- use changeSet
-    cs' <- addAmountToCS toAcc (amountToDelta amount) cs
-    changeSet .= addContractAmountToCSV0 fromAcc (amountDiff 0 amount) cs'
+    changeSet <~ liftLocal (addAmountToCS toAcc (amountToDelta amount) cs >>= 
+                                addContractAmountToCSV0 fromAcc (amountDiff 0 amount))
     cont
 
   {-# INLINE withContractToAccountAmountV1 #-}
   withContractToAccountAmountV1 fromAcc toAcc amount cont = do
     cs <- use changeSet
-    cs' <- addAmountToCS toAcc (amountToDelta amount) cs
-    changeSet .= addContractAmountToCSV1 fromAcc (amountDiff 0 amount) cs'
+    changeSet <~ liftLocal (addAmountToCS toAcc (amountToDelta amount) cs >>= 
+                                addContractAmountToCSV1 fromAcc (amountDiff 0 amount))
     cont
 
   {-# INLINE withContractToContractAmountV0 #-}
   withContractToContractAmountV0 (wv, fromAcc) toAcc amount cont = do
-    changeSet %= addContractAmountToCSV0 (instanceAddress toAcc) (amountToDelta amount)
+    cs <- use changeSet
+    changeSet <~ liftLocal (addContractAmountToCSV0 (instanceAddress toAcc) (amountToDelta amount) cs)
     case wv of
-      GSWasm.V0 -> changeSet %= addContractAmountToCSV0 fromAcc (amountDiff 0 amount)
-      GSWasm.V1 -> changeSet %= addContractAmountToCSV1 fromAcc (amountDiff 0 amount)
+      GSWasm.V0 -> do 
+            cs' <-  use changeSet 
+            changeSet <~ liftLocal (addContractAmountToCSV0 fromAcc (amountDiff 0 amount) cs')
+      GSWasm.V1 -> do 
+            cs' <-  use changeSet 
+            changeSet <~ liftLocal (addContractAmountToCSV1 fromAcc (amountDiff 0 amount) cs')        
     cont
 
   {-# INLINE withContractToContractAmountV1 #-}
   withContractToContractAmountV1 (wv, fromAcc) toAcc amount cont = do
-    changeSet %= addContractAmountToCSV1 (instanceAddress toAcc) (amountToDelta amount)
+    cs <- use changeSet
+    changeSet <~ liftLocal (addContractAmountToCSV1 (instanceAddress toAcc) (amountToDelta amount) cs)
     case wv of
-      GSWasm.V0 -> changeSet %= addContractAmountToCSV0 fromAcc (amountDiff 0 amount)
-      GSWasm.V1 -> changeSet %= addContractAmountToCSV1 fromAcc (amountDiff 0 amount)
+      GSWasm.V0 -> do 
+          cs' <- use changeSet
+          changeSet <~ liftLocal (addContractAmountToCSV0 fromAcc (amountDiff 0 amount) cs')
+      GSWasm.V1 -> do 
+          cs' <- use changeSet
+          changeSet <~ liftLocal (addContractAmountToCSV1 fromAcc (amountDiff 0 amount) cs')
     cont
 
   {-# INLINE withScheduledAmount #-}
   withScheduledAmount fromAcc toAcc sentAmount releases txh cont = do
     cs <- use changeSet
-    cs' <- addAmountToCS fromAcc (amountDiff 0 sentAmount) cs
-    cs'' <- addScheduledAmountToCS toAcc (releases, txh) cs'
-    changeSet .= cs''
+    changeSet <~ liftLocal (addAmountToCS fromAcc (amountDiff 0 sentAmount) cs >>= 
+                                addScheduledAmountToCS toAcc (releases, txh))    
     cont
 
   replaceEncryptedAmount (ai, _) aggIndex newAmount = do
@@ -928,8 +1004,7 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
   addAmountFromEncrypted acc amount aggIndex newAmount = do
     replaceEncryptedAmount acc aggIndex newAmount
     cs <- use changeSet
-    cs' <- addAmountToCS acc (amountToDelta amount) cs
-    changeSet .= cs'
+    changeSet <~ liftLocal (addAmountToCS acc (amountToDelta amount) cs)
     changeSet . encryptedChange += amountDiff 0 amount
 
   addEncryptedAmount (ai, acc) newAmount = do
@@ -938,51 +1013,62 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
 
   addSelfEncryptedAmount iacc@(ai, _) transferredAmount newAmount = do
     cs <- use changeSet
-    changeSet <~ addAmountToCS iacc (amountDiff 0 transferredAmount) cs
+    changeSet <~ liftLocal (addAmountToCS iacc (amountDiff 0 transferredAmount) cs)
     changeSet . accountUpdates . at' ai . non (emptyAccountUpdate ai) . auEncrypted ?= AddSelf{..}
     changeSet . encryptedChange += amountToDelta transferredAmount
 
   getCurrentContractInstance addr = do
     mistance <- getContractInstance addr
     case mistance of
-       Nothing -> return Nothing
-       Just (InstanceInfoV0 inst) -> do
-         newStates <- use (changeSet . instanceV0Updates)
-         case newStates ^. at addr of
-           Nothing -> do
-             return $ Just (InstanceInfoV0 inst {iiState = Frozen (iiState inst)})
-           Just (_, delta, newmodel) ->
-             let amnt = applyAmountDelta delta (iiBalance inst)
-             in return (Just . InstanceInfoV0 $ inst {iiBalance = amnt, iiState = maybe (Frozen (iiState inst)) Thawed newmodel})
-       Just (InstanceInfoV1 inst) -> do
-         newStates <- use (changeSet . instanceV1Updates)
-         case newStates ^. at addr of
-           Nothing -> do
-             return $ Just (InstanceInfoV1 inst {iiState = Frozen (iiState inst)})
-           Just (_, delta, newmodel) ->
-             let amnt = applyAmountDelta delta (iiBalance inst)
-             in return (Just . InstanceInfoV1 $ inst {iiBalance = amnt, iiState = maybe (Frozen (iiState inst)) Thawed newmodel})
+        Nothing -> return Nothing
+        Just (InstanceInfoV0 inst) -> do
+            newStates <- use (changeSet . instanceV0Updates)
+            case newStates ^. at addr of
+                Nothing -> do
+                    return $ Just (InstanceInfoV0 inst {iiState = Frozen (iiState inst)})
+                Just (_, delta, newmodel) ->
+                    let !amnt = applyAmountDelta delta (iiBalance inst)
+                    in return (Just . InstanceInfoV0 $ inst {iiBalance = amnt, iiState = maybe (Frozen (iiState inst)) Thawed newmodel})
+        Just (InstanceInfoV1 inst) -> do
+            updates <- use (changeSet . instanceV1Updates)
+            case  updates ^. at' addr of
+              Nothing -> return $ Just (InstanceInfoV1 inst {iiState = Frozen (iiState inst)})
+              Just InstanceV1Update{..} ->
+                    let !amnt = applyAmountDelta amountChange (iiBalance inst)
+                    in return (Just . InstanceInfoV1 $ inst {
+                            iiBalance = amnt,
+                            iiState = maybe (Frozen (iiState inst)) Thawed newState,
+                            iiParameters = maybe (iiParameters inst) (updateParams (iiParameters inst)) newInterface})
+    where
+      updateParams params (newMod, newReceiveNames) =
+          InstanceParameters {
+              _instanceAddress = _instanceAddress params,
+              instanceOwner = instanceOwner params,
+              instanceInitName = instanceInitName params,
+              instanceReceiveFuns = newReceiveNames,
+              instanceModuleInterface = newMod}
 
   chargeV1Storage = do
     xs <- use (changeSet . instanceV1Updates)
-    forM_ xs $ \(_, _, mms) ->
-      case mms of
+    forM_ xs $ \InstanceV1Update{..} ->
+      case newState of
         Nothing -> return ()
         Just ms -> tickEnergy (Cost.toEnergy (Wasm.ByteSize (StateV1.getNewStateSize ms)))
 
   getCurrentContractInstanceState istance = do
-    newStates <- use (changeSet . instanceV1Updates)
-    case newStates ^. at (instanceAddress (iiParameters istance)) of
-      Just (idx, _, Just s) -> return (idx, Thawed s)
-      _ -> do
-        return (0, iiState istance)
+    updates <- use (changeSet . instanceV1Updates)
+    case updates ^. at (instanceAddress (iiParameters istance)) of
+      Just InstanceV1Update{..} -> case newState of 
+                                      Just s -> return (index, Thawed s)
+                                      Nothing -> return (0, iiState istance)
+      Nothing -> return (0, iiState istance)
+        
 
   getCurrentModificationIndex istance = do
     newStates <- use (changeSet . instanceV1Updates)
     case newStates ^. at (instanceAddress (iiParameters istance)) of
-      Just (idx, _, Just _) -> return idx
-      _ -> do
-        return 0
+      Just InstanceV1Update{..} -> return index
+      Nothing -> return 0
 
   getCurrentAccountTotalAmount (ai, acc) = do
     oldTotal <- getAccountAmount acc
@@ -1079,6 +1165,12 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
 
   {-# INLINE outOfBlockEnergy #-}
   outOfBlockEnergy = LocalT (ContT (\_ -> return (Left Nothing)))
+
+  {-# INLINE addContractUpgrade #-}
+  addContractUpgrade cAddr newMod newReceiveNames = do
+      cs <- use changeSet
+      let cs' = addContractUpgradeToCS (Proxy @m) cAddr newMod newReceiveNames cs
+      changeSet .=! cs'
 
 -- |Call an external method that can fail with running out of energy.
 -- Depending on what is the current limit, either remaining transaction energy,

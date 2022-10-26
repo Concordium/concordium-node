@@ -27,7 +27,6 @@ import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule (AccountReleaseSchedule (..))
 import Concordium.GlobalState.BlockState (AccountAllowance)
-import Concordium.GlobalState.Persistent.Account.Structure
 import qualified Concordium.GlobalState.Persistent.Account.StructureV0 as V0
 import qualified Concordium.GlobalState.Persistent.Account.StructureV1 as V1
 import Concordium.GlobalState.Persistent.BlobStore
@@ -150,8 +149,8 @@ accountIsAllowed (PAV0 acc) = V0.isAllowed acc
 accountIsAllowed (PAV1 acc) = V0.isAllowed acc
 accountIsAllowed (PAV2 acc) = V1.isAllowed acc
 
--- |Get the list of credentials deployed on the account, ordered from most
--- recently deployed.  The list should be non-empty.
+-- |Get the credentials deployed on the account. This map is always non-empty and (presently)
+-- will have a credential at index 'initialCredentialIndex' (0) that cannot be changed.
 accountCredentials :: (MonadBlobStore m) => PersistentAccount av -> m (Map.Map CredentialIndex RawAccountCredential)
 accountCredentials (PAV0 acc) = V0.getCredentials acc
 accountCredentials (PAV1 acc) = V0.getCredentials acc
@@ -267,6 +266,7 @@ updateAccount upd (PAV2 acc) = PAV2 <$> V1.updateAccount upd acc
 -- The caller must ensure the following, which are not checked:
 --
 -- * Any credential index that is removed must already exist.
+-- * The credential with index 0 must not be removed.
 -- * Any credential index that is added must not exist after the removals take effect.
 -- * At least one credential remains after all removals and additions.
 -- * Any new threshold is at most the number of accounts remaining (and at least 1).
