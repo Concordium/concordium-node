@@ -93,6 +93,12 @@ instance (Monad m, BS.BlockStateQuery m) => StaticInformation (InvokeContractMon
   {-# INLINE getStateAccount #-}
   getStateAccount !addr = lift . flip BS.getAccount addr =<< view _2
 
+  {-# INLINE getEuroPerEnergy #-}
+  getEuroPerEnergy = lift . BS.getEuroPerEnergy =<< view _2
+
+  {-# INLINE getAmountPerEuro #-}
+  getAmountPerEuro = lift . BS.getAmountPerEuro =<< view _2
+
 -- |Invoke the contract in the given context.
 invokeContract :: forall m . (MonadProtocolVersion m, BS.BlockStateQuery m)
     => ContractContext -- ^Context in which to invoke the contract.

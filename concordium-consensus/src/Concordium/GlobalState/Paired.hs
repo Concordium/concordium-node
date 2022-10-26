@@ -232,6 +232,16 @@ instance
     ) =>
     BlockStateQuery (BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m)
     where
+    getEuroPerEnergy (ls, rs) = do
+        m1 <- coerceBSML (getEuroPerEnergy ls)
+        m2 <- coerceBSMR (getEuroPerEnergy rs)
+        assertEq m1 m2 $ return m1
+
+    getAmountPerEuro (ls, rs) = do
+        m1 <- coerceBSML (getAmountPerEuro ls)
+        m2 <- coerceBSMR (getAmountPerEuro rs)
+        assertEq m1 m2 $ return m1
+
     getModule (ls, rs) modRef = do
         m1 <- coerceBSML (getModule ls modRef)
         m2 <- coerceBSMR (getModule rs modRef)

@@ -667,13 +667,25 @@ doGetUpdateKeysCollection :: (Monad m, HasBlockState s pv, IsProtocolVersion pv)
 doGetUpdateKeysCollection bs = return $! bs ^. blockUpdates . currentKeyCollection . unhashed
 
 doGetEnergyRate :: (Monad m, HasBlockState s pv) => s -> m EnergyRate
-doGetEnergyRate bs = return $! bs ^. blockUpdates . currentParameters . energyRate  
+doGetEnergyRate bs = return $! bs ^. blockUpdates . currentParameters . energyRate
+
+doGetEuroPerEnergy :: (Monad m, HasBlockState s pv) => s -> m ExchangeRate
+doGetEuroPerEnergy bs = return $! bs ^. blockUpdates . currentParameters . euroPerEnergy
+
+doGetAmountPerEuro :: (Monad m, HasBlockState s pv) => s -> m ExchangeRate
+doGetAmountPerEuro bs = return $! bs ^. blockUpdates . currentParameters . microGTUPerEuro
 
 instance (Monad m) => BS.ModuleQuery (PureBlockStateMonad pv m) where
     {-# INLINE getModuleArtifact #-}
     getModuleArtifact = return
 
 instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMonad pv m) where
+    {-# INLINE getEuroPerEnergy #-}
+    getEuroPerEnergy = doGetEuroPerEnergy
+
+    {-# INLINE getAmountPerEuro #-}
+    getAmountPerEuro = doGetAmountPerEuro
+
     {-# INLINE getModule #-}
     getModule bs mref =
         return $ bs ^. blockModules . to (Modules.getSource mref)

@@ -2363,6 +2363,16 @@ doGetEnergyRate pbs = do
     bsp <- loadPBS pbs
     lookupEnergyRate (bspUpdates bsp)
 
+doGetEuroPerEnergy :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m ExchangeRate
+doGetEuroPerEnergy pbs = do
+    bsp <- loadPBS pbs
+    lookupEuroPerEnergy (bspUpdates bsp)
+
+doGetAmountPerEuro :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m ExchangeRate
+doGetAmountPerEuro pbs = do
+    bsp <- loadPBS pbs
+    lookupAmountPerEuro (bspUpdates bsp)
+
 doGetChainParameters :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m (ChainParameters pv)
 doGetChainParameters pbs = do
         bsp <- loadPBS pbs
@@ -2870,6 +2880,8 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateQuery (P
     getAnonymityRevokers =  doGetAnonymityRevokers . hpbsPointers
     getUpdateKeysCollection = doGetUpdateKeyCollection . hpbsPointers
     getEnergyRate = doGetEnergyRate . hpbsPointers
+    getEuroPerEnergy = doGetEuroPerEnergy . hpbsPointers
+    getAmountPerEuro = doGetAmountPerEuro . hpbsPointers
     getPaydayEpoch = doGetPaydayEpoch . hpbsPointers
     getPoolStatus = doGetPoolStatus . hpbsPointers
 

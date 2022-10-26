@@ -1196,7 +1196,53 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                         -- Charge for updating the pointer in the instance to the new module.
                                         tickEnergy Cost.initializeContractInstanceCreateCost
                                         go (resumeEvent True:upgradeEvent:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False newBalance WasmV1.Success Nothing)
-
+                  WasmV1.QueryAccountBalance {..}  -> do
+                    newBalance <- getCurrentContractAmount Wasm.SV1 istance
+                    -- TODO Charge query cost or maybe not
+                    -- Lookup account
+                    maybeAccount <- getStateAccount imqabAddress
+                    case maybeAccount of
+                      Nothing ->
+                        go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False
+                             newBalance (WasmV1.Error $ WasmV1.EnvFailure $ WasmV1.MissingAccount imqabAddress) Nothing)
+                      Just (_accountIndex, account) -> do
+                        -- Lookup account balance
+                        balance <- getAccountAmount account
+                        stake <- getAccountStake account
+                        let returnValue = WasmV1.byteStringToReturnValue $ S.runPut $ do
+                             S.put balance
+                             -- TODO Add the right stake
+                        go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False
+                             newBalance WasmV1.Success (Just returnValue))
+                  WasmV1.QueryContractBalance {..}  -> do
+                    newBalance <- getCurrentContractAmount Wasm.SV1 istance
+                    -- TODO Charge query cost or maybe not
+                    -- Lookup contract balances
+                    maybeInstanceInfo <- getCurrentContractInstance imqcbAddress
+                    case maybeInstanceInfo of
+                      Nothing ->
+                        go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False
+                             newBalance (WasmV1.Error $ WasmV1.EnvFailure $ WasmV1.MissingContract imqcbAddress) Nothing)
+                      Just instanceInfo -> do
+                        -- Lookup contract balance
+                        balance <- case instanceInfo of
+                                     InstanceInfoV0 _ -> getCurrentContractAmount Wasm.SV0 istance
+                                     InstanceInfoV1 _ -> getCurrentContractAmount Wasm.SV1 istance
+                        let returnValue = WasmV1.byteStringToReturnValue $ S.runPut $ do
+                             S.put balance
+                        go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False
+                             newBalance WasmV1.Success (Just returnValue))
+                  WasmV1.QueryExchangeRates -> do
+                    newBalance <- getCurrentContractAmount Wasm.SV1 istance
+                    -- TODO Charge query cost or maybe not
+                    -- Lookup exchange rates
+                    euroPerNRG <- getEuroPerEnergy
+                    amountPerEuro <- getAmountPerEuro
+                    let returnValue = WasmV1.byteStringToReturnValue $ S.runPut $ do
+                          S.put euroPerNRG
+                          S.put amountPerEuro
+                    go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False
+                          newBalance WasmV1.Success (Just returnValue))
 
       -- start contract execution.
       -- transfer the amount from the sender to the contract at the start. This is so that the contract may immediately use it
@@ -1204,7 +1250,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
       withToContractAmountV1 sender istance transferAmount $ do
         foreignModel <- getRuntimeReprV1 model
         artifact <- liftLocal $ getModuleArtifact (GSWasm.miModule moduleInterface)
-        go [] =<< runInterpreter (return . WasmV1.applyReceiveFun artifact cm receiveCtx receiveName useFallback parameter transferAmount foreignModel)
+        go [] =<< runInterpreter (return . WasmV1.applyReceiveFun artifact cm receiveCtx receiveName useFallback parameter transferAmount foreignModel (supportsChainQueryContracts $ protocolVersion @(MPV m)))
    where  transferAccountSync :: AccountAddress -- ^The target account address.
                               -> UInstanceInfoV m GSWasm.V1 -- ^The sender of this transfer.
                               -> Amount -- ^The amount to transfer.

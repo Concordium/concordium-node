@@ -120,6 +120,13 @@ instance (MonadReader ContextState m,
   {-# INLINE getStateAccount #-}
   getStateAccount !addr = lift . flip bsoGetAccount addr =<< use schedulerBlockState
 
+  {-# INLINE getEuroPerEnergy #-}
+  getEuroPerEnergy = undefined
+
+  {-# INLINE getAmountPerEuro #-}
+  getAmountPerEuro = undefined
+
+
 instance (SS state ~ UpdatableBlockState m,
           HasSchedulerState state,
           MonadState state m,

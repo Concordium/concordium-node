@@ -517,6 +517,12 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
     -- |Get the current energy to microCCD exchange rate
     getEnergyRate :: BlockState m -> m EnergyRate
 
+    -- |Get the current exchange rate for Euro per NRG.
+    getEuroPerEnergy :: BlockState m -> m ExchangeRate
+
+    -- |Get the current exchange rate for micro CCD per Euro.
+    getAmountPerEuro :: BlockState m -> m ExchangeRate
+
     -- |Get the epoch time of the next scheduled payday.
     getPaydayEpoch :: (SupportsDelegation (MPV m)) => BlockState m -> m Epoch
 
@@ -1295,6 +1301,8 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   getAnonymityRevokers s = lift . getAnonymityRevokers s
   getUpdateKeysCollection s = lift $ getUpdateKeysCollection s
   getEnergyRate s = lift $ getEnergyRate s
+  getEuroPerEnergy s = lift $ getEuroPerEnergy s
+  getAmountPerEuro s = lift $ getAmountPerEuro s
   getPaydayEpoch = lift . getPaydayEpoch
   getPoolStatus s = lift . getPoolStatus s
   {-# INLINE getModule #-}

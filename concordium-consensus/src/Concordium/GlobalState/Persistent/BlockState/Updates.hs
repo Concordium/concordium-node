@@ -1180,6 +1180,27 @@ lookupEnergyRate uref = do
         StoreSerialized ChainParameters{..} <- refLoad currentParameters
         return (_cpExchangeRates ^. energyRate)
 
+-- |Get the current Euro per energy exchange rate.
+lookupEuroPerEnergy
+    :: (MonadBlobStore m, IsChainParametersVersion cpv)
+    => BufferedRef (Updates' cpv)
+    -> m ExchangeRate
+lookupEuroPerEnergy uref = do
+        Updates{..} <- refLoad uref
+        StoreSerialized ChainParameters{..} <- refLoad currentParameters
+        return (_cpExchangeRates ^. euroPerEnergy)
+
+-- |Get the current micro CCD per Euro exchange rate.
+lookupAmountPerEuro
+    :: (MonadBlobStore m, IsChainParametersVersion cpv)
+    => BufferedRef (Updates' cpv)
+    -> m ExchangeRate
+lookupAmountPerEuro uref = do
+        Updates{..} <- refLoad uref
+        StoreSerialized ChainParameters{..} <- refLoad currentParameters
+        return (_cpExchangeRates ^. microGTUPerEuro)
+
+
 -- |Look up the current chain parameters.
 lookupCurrentParameters
     :: (MonadBlobStore m, IsChainParametersVersion cpv)
