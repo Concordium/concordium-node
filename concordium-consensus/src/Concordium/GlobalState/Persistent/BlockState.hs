@@ -2254,20 +2254,6 @@ doProcessReleaseSchedule pbs ts = do
             (newAccs, newRS) <- foldM processAccount (bspAccounts bsp, remRS) affectedAccounts
             storePBS pbs (bsp{bspAccounts = newAccs, bspReleaseSchedule = newRS})
 
-        -- releaseSchedule <- refLoad (bspReleaseSchedule bsp)
-        -- if Map.null releaseSchedule
-        --   then return pbs
-        --   else do
-        --   let (accountsToRemove, blockReleaseSchedule') = Map.partition (<= ts) releaseSchedule
-        --       f (ba, readded) addr = do
-        --         (toRead, ba') <- Accounts.updateAccounts (unlockAccountReleases ts) addr ba
-        --         return (ba', case snd =<< toRead of
-        --                        Just t -> (addr, t) : readded
-        --                        Nothing -> readded)
-        --   (bspAccounts', accsToReadd) <- foldlM f (bspAccounts bsp, []) (Map.keys accountsToRemove)
-        --   bspReleaseSchedule' <- refMake $ foldl' (\b (a, t) -> Map.insert a t b) blockReleaseSchedule' accsToReadd
-        --   storePBS pbs (bsp {bspAccounts = bspAccounts', bspReleaseSchedule = bspReleaseSchedule'})
-
 doGetUpdateKeyCollection
     :: (SupportsPersistentState pv m)
     => PersistentBlockState pv
