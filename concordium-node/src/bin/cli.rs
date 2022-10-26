@@ -608,6 +608,7 @@ async fn import_missing_blocks(
         genesis_hash
     );
 
+    let mut mayskip = true;
     let mut chunk_records = csv_async::AsyncReaderBuilder::new()
         .comment(Some(b'#'))
         .has_headers(false)
@@ -621,8 +622,9 @@ async fn import_missing_blocks(
 
         let block_chunk_data: BlockChunkData = result?;
         // no need to reimport blocks that are present in the database
-        if block_chunk_data.genesis_index < current_genesis_index
-            || block_chunk_data.last_block_height <= last_finalized_block_height
+        if mayskip
+            && (block_chunk_data.genesis_index < current_genesis_index
+                || block_chunk_data.last_block_height <= last_finalized_block_height)
         {
             trace!(
                 "Skipping chunk {}: no blocks above last finalized block height",
@@ -630,6 +632,7 @@ async fn import_missing_blocks(
             );
             continue;
         }
+        mayskip = false;
         let block_chunk_url = index_url.join(&block_chunk_data.filename)?;
         let path = download_chunk(http_client.clone(), block_chunk_url, data_dir_path).await?;
         let import_result = consensus.import_blocks(&path);
