@@ -918,6 +918,14 @@ instance
         r1 <- coerceBSML $ bsoGetEnergyRate bs1
         r2 <- coerceBSMR $ bsoGetEnergyRate bs2
         assertEq r1 r2 $ return r1
+    bsoGetEuroPerEnergy (bs1, bs2) = do
+        r1 <- coerceBSML $ bsoGetEuroPerEnergy bs1
+        r2 <- coerceBSMR $ bsoGetEuroPerEnergy bs2
+        assertEq r1 r2 $ return r1
+    bsoGetAmountPerEuro (bs1, bs2) = do
+        r1 <- coerceBSML $ bsoGetAmountPerEuro bs1
+        r2 <- coerceBSMR $ bsoGetAmountPerEuro bs2
+        assertEq r1 r2 $ return r1
     bsoGetChainParameters (bs1, bs2) = do
         r1 <- coerceBSML $ bsoGetChainParameters bs1
         r2 <- coerceBSMR $ bsoGetChainParameters bs2

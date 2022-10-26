@@ -96,6 +96,7 @@ import Concordium.Wasm (IsWasmVersion)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import qualified Concordium.Wasm as GSWasm
 import Data.Proxy
+import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule (totalLockedUpBalance)
 
 
 -- |The function asserts the following
@@ -1206,12 +1207,20 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                         go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False
                              newBalance (WasmV1.Error $ WasmV1.EnvFailure $ WasmV1.MissingAccount imqabAddress) Nothing)
                       Just (_accountIndex, account) -> do
-                        -- Lookup account balance
+                        -- Lookup account balances
                         balance <- getAccountAmount account
-                        stake <- getAccountStake account
+                        accountStake <- getAccountStake account
+                        let stake = case accountStake of
+                              AccountStakeNone -> 0
+                              AccountStakeBaker bkr -> bkr ^. stakedAmount
+                              AccountStakeDelegate del -> del ^. delegationStakedAmount
+                        lockedAmount <- do schedule <- getAccountReleaseSchedule account
+                                           return $ schedule ^. totalLockedUpBalance
+                        -- Construct the return value
                         let returnValue = WasmV1.byteStringToReturnValue $ S.runPut $ do
                              S.put balance
-                             -- TODO Add the right stake
+                             S.put stake
+                             S.put lockedAmount
                         go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False
                              newBalance WasmV1.Success (Just returnValue))
                   WasmV1.QueryContractBalance {..}  -> do
@@ -1228,6 +1237,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                         balance <- case instanceInfo of
                                      InstanceInfoV0 _ -> getCurrentContractAmount Wasm.SV0 istance
                                      InstanceInfoV1 _ -> getCurrentContractAmount Wasm.SV1 istance
+                        -- Construct the return value
                         let returnValue = WasmV1.byteStringToReturnValue $ S.runPut $ do
                              S.put balance
                         go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False
@@ -1238,6 +1248,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                     -- Lookup exchange rates
                     euroPerNRG <- getEuroPerEnergy
                     amountPerEuro <- getAmountPerEuro
+                    -- Construct the return value
                     let returnValue = WasmV1.byteStringToReturnValue $ S.runPut $ do
                           S.put euroPerNRG
                           S.put amountPerEuro

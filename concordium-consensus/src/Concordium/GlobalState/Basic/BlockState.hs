@@ -1896,6 +1896,12 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
     {-# INLINE bsoGetEnergyRate #-}
     bsoGetEnergyRate = doGetEnergyRate
 
+    {-# INLINE bsoGetEuroPerEnergy #-}
+    bsoGetEuroPerEnergy = doGetEuroPerEnergy
+
+    {-# INLINE bsoGetAmountPerEuro #-}
+    bsoGetAmountPerEuro = doGetAmountPerEuro
+
     bsoGetChainParameters bs = return $! bs ^. blockUpdates . currentParameters
 
     bsoGetEpochBlocksBaked bs = return $! case delegationSupport @(AccountVersionFor pv) of

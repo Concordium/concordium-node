@@ -1172,6 +1172,12 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- |Get the current energy rate.
   bsoGetEnergyRate :: UpdatableBlockState m -> m EnergyRate
 
+  -- |Get the current exchange rate for Euro per NRG.
+  bsoGetEuroPerEnergy :: UpdatableBlockState m -> m ExchangeRate
+
+  -- |Get the current exchange rate for micro CCD per Euro.
+  bsoGetAmountPerEuro :: UpdatableBlockState m -> m ExchangeRate
+
   -- |Get the current chain parameters.
   bsoGetChainParameters :: UpdatableBlockState m -> m (ChainParameters (MPV m))
 
@@ -1443,6 +1449,8 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoClearProtocolUpdate = lift . bsoClearProtocolUpdate
   bsoAddReleaseSchedule s l = lift $ bsoAddReleaseSchedule s l
   bsoGetEnergyRate = lift . bsoGetEnergyRate
+  bsoGetEuroPerEnergy = lift . bsoGetEuroPerEnergy
+  bsoGetAmountPerEuro = lift . bsoGetAmountPerEuro
   bsoGetChainParameters = lift . bsoGetChainParameters
   bsoGetEpochBlocksBaked = lift . bsoGetEpochBlocksBaked
   bsoNotifyBlockBaked s = lift . bsoNotifyBlockBaked s
