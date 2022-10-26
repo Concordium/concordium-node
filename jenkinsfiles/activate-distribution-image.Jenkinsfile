@@ -27,11 +27,6 @@ node {
     def destination_image_name = "${docker_repo}:${destination_image_tag}"
     def latest_image_name = "${docker_repo}:latest"
 
-    def latest_image_command = ""
-    if (params.set_latest) {
-        latest_image_command = "--tag ${docker_repo}:latest"
-    }
-
     stage('verify') {
         // Verify existence of source image
         try {
@@ -55,7 +50,10 @@ node {
     }
     stage('update') {
         // Use buildx to push destination tags. Docker doesen't recognise that buildx is installed, so invoking buildx directly.
-        sh "/usr/libexec/docker/cli-plugins/buildx imagetools create ${source_image_name} --tag ${destination_image_name} ${latest_image_command}"
+        sh "/usr/libexec/docker/cli-plugins/buildx imagetools create ${source_image_name} --tag ${destination_image_name}"
+        if (params.set_latest) {
+            sh "/usr/libexec/docker/cli-plugins/buildx imagetools create ${source_image_name} --tag ${docker_repo}:latest"
+        }
     }
     if (params.delete_source) {
         stage('cleanup') {
