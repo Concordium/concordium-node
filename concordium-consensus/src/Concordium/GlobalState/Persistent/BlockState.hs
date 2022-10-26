@@ -50,7 +50,7 @@ import qualified Data.Set as Set
 import qualified Data.Sequence as Seq
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
-import Concordium.Types.Execution ( TransactionSummary, DelegationTarget )
+import Concordium.Types.Execution ( TransactionSummary, DelegationTarget, TransactionSummaryV1 )
 import qualified Concordium.Wasm as Wasm
 import qualified Concordium.GlobalState.Wasm as GSWasm
 import qualified Concordium.ID.Types as ID
@@ -427,6 +427,17 @@ emptyBlockRewardDetails =
 -- disk.
 type PersistentBlockState (pv :: ProtocolVersion) = IORef (BufferedRef (BlockStatePointers pv))
 
+-- |todo DOC
+data MerkleTransactionOutcomes = MerkleTransactionOutcomes {
+    mtoOutcomes :: LFMBT.LFMBTree Word64 TransactionSummaryV1,
+    mtoSpecials :: LFMBT.LFMBTree Word64 Transactions.SpecialTransactionOutcome
+} deriving (Show)
+
+-- |todo doc
+data PersistentTransactionOutcomes (tov :: Transactions.TransactionOutcomesVersion) where
+    PTOV0 :: Transactions.TransactionOutcomes -> PersistentTransactionOutcomes 'TOV0
+    PTOV1 :: MerkleTransactionOutcomes -> PersistentTransactionOutcomes 'TOV1
+
 -- |References to the components that make up the block state.
 --
 -- This type is parametric in the protocol version (as opposed to defined
@@ -445,8 +456,7 @@ data BlockStatePointers (pv :: ProtocolVersion) = BlockStatePointers {
     bspCryptographicParameters :: !(HashedBufferedRef CryptographicParameters),
     bspUpdates :: !(BufferedRef (Updates pv)),
     bspReleaseSchedule :: !(BufferedRef (Map.Map AccountAddress Timestamp)),
-    -- FIXME: Store transaction outcomes in a way that allows for individual indexing.
-    bspTransactionOutcomes :: !Transactions.TransactionOutcomes,
+    bspTransactionOutcomes :: !(PersistentTransactionOutcomes (Transactions.TransactionOutcomesVersionFor pv)),
     -- |Details of bakers that baked blocks in the current epoch. This is
     -- used for rewarding bakers at the end of epochs.
     bspRewardDetails :: !(BlockRewardDetails (AccountVersionFor pv))

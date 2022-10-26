@@ -24,6 +24,7 @@ import Data.Foldable
 import Data.Functor.Identity
 import Data.Serialize
 import qualified Data.Sequence as Seq
+import Data.Word
 import Control.Monad.IO.Class
 import qualified Control.Monad.State.Strict as MTL
 import qualified Control.Monad.Except as MTL
@@ -278,6 +279,17 @@ getBlockRewardDetails = case delegationSupport @av of
     SAVDelegationNotSupported -> BlockRewardDetailsV0 <$> getHashedEpochBlocksV0
     SAVDelegationSupported -> BlockRewardDetailsV1 . makeHashed <$> PoolRewards.getPoolRewards
 
+-- |todo DOC
+data MerkleTransactionOutcomes = MerkleTransactionOutcomes {
+    mtoOutcomes :: LFMBT.LFMBTree Word64 TransactionSummaryV1,
+    mtoSpecials :: LFMBT.LFMBTree Word64 Transactions.SpecialTransactionOutcome
+} deriving (Show)
+
+-- |todo doc
+data BasicTransactionOutcomes (tov :: Transactions.TransactionOutcomesVersion) where
+    PTOV0 :: Transactions.TransactionOutcomes -> BasicTransactionOutcomes 'Transactions.TOV0
+    PTOV1 :: MerkleTransactionOutcomes -> BasicTransactionOutcomes 'Transactions.TOV1
+
 data BlockState (pv :: ProtocolVersion) = BlockState {
     _blockAccounts :: !(Accounts.Accounts pv),
     _blockInstances :: !Instances.Instances,
@@ -289,7 +301,7 @@ data BlockState (pv :: ProtocolVersion) = BlockState {
     _blockCryptographicParameters :: !(Hashed CryptographicParameters),
     _blockUpdates :: !(Updates pv),
     _blockReleaseSchedule :: !(LazyMap.Map AccountAddress Timestamp), -- ^Contains an entry for each account that has pending releases and the first timestamp for said account
-    _blockTransactionOutcomes :: !Transactions.TransactionOutcomes,
+    _blockTransactionOutcomes :: !(BasicTransactionOutcomes (Transactions.TransactionOutcomesVersionFor pv)),
     _blockRewardDetails :: !(BlockRewardDetails (AccountVersionFor pv))
 } deriving (Show)
 
