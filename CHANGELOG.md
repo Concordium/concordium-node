@@ -5,6 +5,7 @@
 - Add support for protocol version 5. This adds the following features
   - support for smart contract upgradability
   - a new representation of accounts that is better optimised for common operations
+- More efficient indexing of accounts with scheduled releases.
 
 ## 4.5.0
 
