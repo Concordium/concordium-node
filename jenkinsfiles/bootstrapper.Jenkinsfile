@@ -61,7 +61,7 @@ pipeline {
                         --label ubuntu_version="${UBUNTU_VERSION}" \
                         --label version="${TAG}" \
                         --label static_binaries_image_tag="${STATIC_BINARIES_IMAGE_TAG}" \
-                        -f "scripts/db-exporter/Dockerfile" \
+                        -f "scripts/bootstrapper/Dockerfile" \
                         -t build-deb:${BUILD_TAG} \
                         --no-cache \
                         .
