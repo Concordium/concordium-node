@@ -569,7 +569,7 @@ addAmountToCS = addAmountToCS' . fst
 
 -- |Record an addition to the amount of the given account in the changeset.
 {-# INLINE addAmountToCS' #-}
-addAmountToCS' :: Monad m => AccountIndex -> AmountDelta -> ChangeSet -> m (ChangeSet m)
+addAmountToCS' :: Monad m => AccountIndex -> AmountDelta -> ChangeSet m -> m (ChangeSet m)
 addAmountToCS' ai !amnt !cs =
   -- Check whether there already is an 'AccountUpdate' for the given account in the changeset.
   -- If so, modify it accordingly, otherwise add a new entry.
