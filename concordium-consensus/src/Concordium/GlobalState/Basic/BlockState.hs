@@ -354,7 +354,7 @@ instance HashableTo StateHash (HashedBlockState pv) where
 -- |Construct a block state that is empty, except for the supplied 'BirkParameters',
 -- 'CryptographicParameters', 'Authorizations' and 'ChainParameters'.
 emptyBlockState
-    :: (IsProtocolVersion pv) =>
+    :: forall pv . (IsProtocolVersion pv) =>
     BasicBirkParameters (AccountVersionFor pv) ->
     BlockRewardDetails (AccountVersionFor pv) ->
     CryptographicParameters ->
@@ -363,7 +363,7 @@ emptyBlockState
     BlockState pv
 {-# WARNING emptyBlockState "should only be used for testing" #-}
 emptyBlockState _blockBirkParameters _blockRewardDetails cryptographicParameters keysCollection chainParams = BlockState
-          { _blockTransactionOutcomes = emptyTransactionOutcomes,
+          { _blockTransactionOutcomes = emptyTransactionOutcomes @pv,
             ..
           }
     where
@@ -522,7 +522,7 @@ getBlockState migration = do
     (_blockReleaseSchedule, preActBkrs) <- foldM processBakerAccount (Map.empty, _birkActiveBakers preBirkParameters) (Accounts.accountList _blockAccounts)
     actBkrs <- foldM processDelegatorAccount preActBkrs (Accounts.accountList _blockAccounts)
     let _blockBirkParameters = preBirkParameters {_birkActiveBakers = actBkrs}
-    let _blockTransactionOutcomes = emptyTransactionOutcomes
+    let _blockTransactionOutcomes = emptyTransactionOutcomes @pv
     return BlockState{..}
 
 -- | Get total delegated pool capital, sum of delegator stakes,
@@ -822,8 +822,10 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
                 }
 
     {-# INLINE getTransactionOutcome #-}
-    getTransactionOutcome bs trh =
-        return $ bs ^? blockTransactionOutcomes . ix trh
+    getTransactionOutcome bs trh = do
+        case Transactions.transactionOutcomesVersion @(Transactions.TransactionOutcomesVersionFor pv) of
+            Transactions.STOV0 -> return $! bs ^? blockTransactionOutcomes . outcomeValues . ix trh
+            Transactions.STOV1 -> return $! bs ^? blockTransactionOutcomes . mtoOutcomes . LFMBT.lookup (ix trh)
 
     {-# INLINE getTransactionOutcomesHash #-}
     getTransactionOutcomesHash bs = return (getHash $ bs ^. blockTransactionOutcomes)
@@ -832,13 +834,17 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
     getStateHash = return . view blockStateHash
 
     {-# INLINE getOutcomes #-}
-    getOutcomes bs =
-        return $ bs ^. blockTransactionOutcomes . to Transactions.outcomeValues
+    getOutcomes bs = do
+        case Transactions.transactionOutcomesVersion @(Transactions.TransactionOutcomesVersionFor pv) of
+          Transactions.STOV0 -> return $ bs ^. blockTransactionOutcomes . to Transactions.outcomeValues
+          Transactions.STOV1 -> return $ bs ^. blockTransactionOutcomes . to (LFMBT.toAscList . mtoOutcomes)
 
     {-# INLINE getSpecialOutcomes #-}
-    getSpecialOutcomes bs =
-        return $ bs ^. blockTransactionOutcomes . Transactions.outcomeSpecial
-
+    getSpecialOutcomes bs = do
+        case Transactions.transactionOutcomesVersion @(Transactions.TransactionOutcomesVersionFor pv) of
+            Transactions.STOV0 -> return $ bs ^. blockTransactionOutcomes . Transactions.outcomeSpecial
+            Transactions.STOV1 -> return $ bs ^. blockTransactionOutcomes . to LFMBT.toAscList . mtoSpecials
+        
     {-# INLINE getAllIdentityProviders #-}
     getAllIdentityProviders bs =
       return $! bs ^. blockIdentityProviders . unhashed . to (Map.elems . IPS.idProviders)
@@ -1850,18 +1856,18 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
 
     bsoSetTransactionOutcomes bs l = do
         case Transactions.transactionOutcomesVersion @(Transactions.TransactionOutcomesVersionFor pv) of 
-          Transactions.STOV0 -> return $! bs & blockTransactionOutcomes .~ BTOV0 $! Transactions.transactionOutcomesV0FromList l
+          Transactions.STOV0 -> return $! (bs & (blockTransactionOutcomes .~ BTOV0 (Transactions.transactionOutcomesV0FromList l)))
           Transactions.STOV1 -> 
-              return $! bs & blockTransactionOutcomes .~ BTOV1 $! MerkleTransactionOutcomes {
-                  mtoOutcomes = LFMBT.fromList l,
+              return $! (bs & (blockTransactionOutcomes .~ BTOV1  (MerkleTransactionOutcomes {
+                  mtoOutcomes = LFMBT.fromList (map TransactionSummaryV1 l),
                   mtoSpecials = LFMBT.empty
-              }
+              })))
 
 
     bsoAddSpecialTransactionOutcome bs o = do
-        case Transactions.transactionOutcomesVersion of
-            Transactions.STOV0 -> return $! bs & blockTransactionOutcomes . Transactions.outcomeSpecial %~ (Seq.|> o)
-            Transactions.STOV1 -> return undefined
+        case Transactions.transactionOutcomesVersion @(Transactions.TransactionOutcomesVersionFor pv) of
+            Transactions.STOV0 -> return $! (bs & (blockTransactionOutcomes . Transactions.outcomeSpecial %~ (Seq.|> o)))
+            Transactions.STOV1 -> undefined -- todo
 
     {-# INLINE bsoProcessUpdateQueues #-}
     bsoProcessUpdateQueues bs ts = return (changes, bs & blockUpdates .~ newBlockUpdates
@@ -2003,7 +2009,7 @@ initialState seedState cryptoParams genesisAccounts ips anonymityRevokers keysCo
     _blockBank = makeHashed $ Rewards.makeGenesisBankStatus initialAmount
     _blockIdentityProviders = makeHashed ips
     _blockAnonymityRevokers = makeHashed anonymityRevokers
-    _blockTransactionOutcomes = emptyTransactionOutcomes
+    _blockTransactionOutcomes = emptyTransactionOutcomes @pv
     _blockUpdates = initialUpdates keysCollection chainParams
     _blockReleaseSchedule = Map.empty
     _blockRewardDetails = emptyBlockRewardDetails
@@ -2197,7 +2203,7 @@ genesisState gd = case protocolVersion @pv of
                   _blockModules = Modules.emptyModules
                   _blockIdentityProviders = makeHashed genesisIdentityProviders
                   _blockAnonymityRevokers = makeHashed genesisAnonymityRevokers
-                  _blockTransactionOutcomes = emptyTransactionOutcomes
+                  _blockTransactionOutcomes = emptyTransactionOutcomes @pv
                   _blockUpdates = initialUpdates genesisUpdateKeys genesisChainParameters
                   _blockReleaseSchedule = Map.empty
 

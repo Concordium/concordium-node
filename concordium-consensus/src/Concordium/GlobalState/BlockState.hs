@@ -466,7 +466,7 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
     getRewardStatus :: BlockState m -> m (RewardStatus' Epoch)
 
     -- |Get the outcome of a transaction in the given block.
-    getTransactionOutcome :: BlockState m -> TransactionIndex -> m (Maybe TransactionSummary)
+    getTransactionOutcome :: (SupportsTransactionOutcomes (MPV m)) => BlockState m -> TransactionIndex -> m (Maybe TransactionSummary)
 
     -- |Get the transactionOutcomesHash of a given block.
     getTransactionOutcomesHash :: BlockState m -> m TransactionOutcomesHash
@@ -475,11 +475,11 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
     getStateHash :: BlockState m -> m StateHash
 
     -- |Get all transaction outcomes for this block.
-    getOutcomes :: BlockState m -> m (Vec.Vector TransactionSummary)
+    getOutcomes :: (SupportsTransactionOutcomes (MPV m)) => BlockState m -> m (Vec.Vector TransactionSummary)
 
     -- |Get special transactions outcomes (for administrative transactions, e.g., baker reward)
     -- They should be returned in the order that they were emitted.
-    getSpecialOutcomes :: BlockState m -> m (Seq.Seq SpecialTransactionOutcome)
+    getSpecialOutcomes :: (SupportsTransactionOutcomes (MPV m)) => BlockState m -> m (Seq.Seq SpecialTransactionOutcome)
 
     -- |Get the identity provider info for a given block given by its id.
     getIdentityProvider :: BlockState m -> ID.IdentityProviderIdentity -> m (Maybe IpInfo)
