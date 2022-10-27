@@ -2,8 +2,9 @@
 
 ## Unreleased changes
 
-- Add support for protocol version 5. This adds the following features
-  - support for smart contract upgradability
+- Add support for protocol version 5. This adds the following features:
+  - Support for smart contract upgradability
+  - Query the current exchange rates, account balances and contract balances from a smart contract.
 
 ## 4.5.0
 
