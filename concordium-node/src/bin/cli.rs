@@ -608,6 +608,9 @@ async fn import_missing_blocks(
         genesis_hash
     );
 
+    // We skip chunks until the first chunk that is at least at the current genesis
+    // index and finalized height relative to genesis. Once we have found one
+    // such chunk, we do not skip any further chunks.
     let mut mayskip = true;
     let mut chunk_records = csv_async::AsyncReaderBuilder::new()
         .comment(Some(b'#'))
