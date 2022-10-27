@@ -10,9 +10,9 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
-{-# LANGUAGE AllowAmbiguousTypes #-}
 module Concordium.GlobalState.Basic.BlockState where
 
+import Data.Proxy
 import qualified Data.Map as LazyMap
 import Lens.Micro.Platform
 import Data.Maybe
@@ -310,8 +310,8 @@ instance HashableTo Transactions.TransactionOutcomesHash (BasicTransactionOutcom
 
 -- |Create an empty 'BasicTransactionOutcomes' based on the 'ProtocolVersion'.
 emptyTransactionOutcomes :: forall pv. (Transactions.IsTransactionOutcomesVersion (Transactions.TransactionOutcomesVersionFor pv))
-                                  => BasicTransactionOutcomes (Transactions.TransactionOutcomesVersionFor pv)
-emptyTransactionOutcomes = case Transactions.transactionOutcomesVersion @(Transactions.TransactionOutcomesVersionFor pv) of
+                                  => Proxy pv -> BasicTransactionOutcomes (Transactions.TransactionOutcomesVersionFor pv)
+emptyTransactionOutcomes Proxy = case Transactions.transactionOutcomesVersion @(Transactions.TransactionOutcomesVersionFor pv) of
   Transactions.STOV0 -> BTOV0 Transactions.emptyTransactionOutcomesV0
   Transactions.STOV1 -> BTOV1 emptyMerkleTransactionOutcomes
     
@@ -373,7 +373,7 @@ emptyBlockState
     BlockState pv
 {-# WARNING emptyBlockState "should only be used for testing" #-}
 emptyBlockState _blockBirkParameters _blockRewardDetails cryptographicParameters keysCollection chainParams = BlockState
-          { _blockTransactionOutcomes = emptyTransactionOutcomes @pv,
+          { _blockTransactionOutcomes = emptyTransactionOutcomes (Proxy @pv),
             ..
           }
     where
@@ -532,7 +532,7 @@ getBlockState migration = do
     (_blockReleaseSchedule, preActBkrs) <- foldM processBakerAccount (Map.empty, _birkActiveBakers preBirkParameters) (Accounts.accountList _blockAccounts)
     actBkrs <- foldM processDelegatorAccount preActBkrs (Accounts.accountList _blockAccounts)
     let _blockBirkParameters = preBirkParameters {_birkActiveBakers = actBkrs}
-    let _blockTransactionOutcomes = emptyTransactionOutcomes @pv
+    let _blockTransactionOutcomes = emptyTransactionOutcomes (Proxy @pv)
     return BlockState{..}
 
 -- | Get total delegated pool capital, sum of delegator stakes,
@@ -2031,7 +2031,7 @@ initialState seedState cryptoParams genesisAccounts ips anonymityRevokers keysCo
     _blockBank = makeHashed $ Rewards.makeGenesisBankStatus initialAmount
     _blockIdentityProviders = makeHashed ips
     _blockAnonymityRevokers = makeHashed anonymityRevokers
-    _blockTransactionOutcomes = emptyTransactionOutcomes @pv
+    _blockTransactionOutcomes = emptyTransactionOutcomes (Proxy @pv)
     _blockUpdates = initialUpdates keysCollection chainParams
     _blockReleaseSchedule = Map.empty
     _blockRewardDetails = emptyBlockRewardDetails
@@ -2225,7 +2225,7 @@ genesisState gd = case protocolVersion @pv of
                   _blockModules = Modules.emptyModules
                   _blockIdentityProviders = makeHashed genesisIdentityProviders
                   _blockAnonymityRevokers = makeHashed genesisAnonymityRevokers
-                  _blockTransactionOutcomes = emptyTransactionOutcomes @pv
+                  _blockTransactionOutcomes = emptyTransactionOutcomes (Proxy @pv)
                   _blockUpdates = initialUpdates genesisUpdateKeys genesisChainParameters
                   _blockReleaseSchedule = Map.empty
 

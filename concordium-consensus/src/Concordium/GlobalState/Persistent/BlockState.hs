@@ -457,9 +457,9 @@ data PersistentTransactionOutcomes (tov :: Transactions.TransactionOutcomesVersi
     PTOV1 :: MerkleTransactionOutcomes -> PersistentTransactionOutcomes 'Transactions.TOV1
 
 -- |Create an empty 'PersistentTransactionOutcomes' based on the 'ProtocolVersion'.
-emptyTransactionOutcomes :: forall pv. (Transactions.IsTransactionOutcomesVersion (Transactions.TransactionOutcomesVersionFor pv))
-                                  => PersistentTransactionOutcomes (Transactions.TransactionOutcomesVersionFor pv)
-emptyTransactionOutcomes = case Transactions.transactionOutcomesVersion @(Transactions.TransactionOutcomesVersionFor pv) of
+emptyTransactionOutcomes :: forall pv. (SupportsTransactionOutcomes pv)
+                                  => Proxy pv -> PersistentTransactionOutcomes (Transactions.TransactionOutcomesVersionFor pv)
+emptyTransactionOutcomes Proxy = case Transactions.transactionOutcomesVersion @(Transactions.TransactionOutcomesVersionFor pv) of
   Transactions.STOV0 -> PTOV0 Transactions.emptyTransactionOutcomesV0
   Transactions.STOV1 -> PTOV1 emptyMerkleTransactionOutcomes
 
@@ -533,6 +533,15 @@ instance (SupportsPersistentState pv m) => BlobStorable m (BlockStatePointers pv
         (pars, bspAnonymityRevokers') <- storeUpdate bspAnonymityRevokers
         (pbps, bspBirkParameters') <- storeUpdate bspBirkParameters
         (pcryptps, bspCryptographicParameters') <- storeUpdate bspCryptographicParameters
+        (poutcomes, bspTransactionOutcomes') <-
+          case Transactions.transactionOutcomesVersion @(Transactions.TransactionOutcomesVersionFor pv) of
+            Transactions.STOV0 ->
+              let PTOV0 pto = bspTransactionOutcomes
+              in return (Transactions.putTransactionOutcomes pto, bspTransactionOutcomes)
+            Transactions.STOV1 ->
+              let PTOV1 pto = bspTransactionOutcomes
+              in do (p, pto') <- storeUpdate pto
+                    return (p :: Put, PTOV1 pto')
         (pupdates, bspUpdates') <- storeUpdate bspUpdates
         (preleases, bspReleaseSchedule') <- storeUpdate bspReleaseSchedule
         (pRewardDetails, bspRewardDetails') <- storeUpdate bspRewardDetails
@@ -545,7 +554,7 @@ instance (SupportsPersistentState pv m) => BlobStorable m (BlockStatePointers pv
                 pars
                 pbps
                 pcryptps
-                Transactions.putTransactionOutcomes bspTransactionOutcomes
+                poutcomes
                 pupdates
                 preleases
                 pRewardDetails
@@ -557,6 +566,7 @@ instance (SupportsPersistentState pv m) => BlobStorable m (BlockStatePointers pv
                     bspAnonymityRevokers = bspAnonymityRevokers',
                     bspBirkParameters = bspBirkParameters',
                     bspCryptographicParameters = bspCryptographicParameters',
+                    bspTransactionOutcomes = bspTransactionOutcomes',
                     bspUpdates = bspUpdates',
                     bspReleaseSchedule = bspReleaseSchedule',
                     bspRewardDetails = bspRewardDetails'
@@ -664,7 +674,7 @@ emptyBlockState bspBirkParameters cryptParams keysCollection chainParams = do
             bspIdentityProviders = identityProviders,
             bspAnonymityRevokers = anonymityRevokers,
             bspCryptographicParameters = cryptographicParameters,
-            bspTransactionOutcomes = emptyTransactionOutcomes @pv,
+            bspTransactionOutcomes = emptyTransactionOutcomes (Proxy @pv),
             ..
           }
   liftIO $ newIORef $! bsp
@@ -2242,7 +2252,10 @@ doGetPoolStatus pbs (Just psBakerId@(BakerId aid)) = case delegationChainParamet
 doGetTransactionOutcome :: forall pv m. (SupportsPersistentState pv m, SupportsTransactionOutcomes pv) => PersistentBlockState pv -> Transactions.TransactionIndex -> m (Maybe TransactionSummary)
 doGetTransactionOutcome pbs transHash = do
         bsp <- loadPBS pbs
-        return $! bspTransactionOutcomes bsp ^? ix transHash
+        case bspTransactionOutcomes bsp of
+          PTOV0 bto -> return $! bto ^? ix transHash
+          PTOV1 bto -> do
+            fmap Transactions._transactionSummaryV1 <$> LFMBT.lookup transHash (mtoOutcomes bto)
 
 doGetTransactionOutcomesHash :: forall pv m. (SupportsPersistentState pv m, SupportsTransactionOutcomes pv) => PersistentBlockState pv -> m Transactions.TransactionOutcomesHash
 doGetTransactionOutcomesHash pbs =  do
@@ -2252,7 +2265,13 @@ doGetTransactionOutcomesHash pbs =  do
 doSetTransactionOutcomes :: forall pv m. (SupportsPersistentState pv m, SupportsTransactionOutcomes pv) => PersistentBlockState pv -> [TransactionSummary] -> m (PersistentBlockState pv)
 doSetTransactionOutcomes pbs transList = do
         bsp <- loadPBS pbs
-        storePBS pbs bsp {bspTransactionOutcomes = Transactions.transactionOutcomesV0FromList transList}
+        case bspTransactionOutcomes bsp of
+          PTOV0 _ -> 
+            storePBS pbs bsp {bspTransactionOutcomes = PTOV0 (Transactions.transactionOutcomesV0FromList transList)}
+          PTOV1 _ -> do
+            mtoOutcomes <- LFMBT.fromAscList . map Transactions.TransactionSummaryV1 $ transList
+            let mtoSpecials = LFMBT.empty
+            storePBS pbs bsp {bspTransactionOutcomes = PTOV1 MerkleTransactionOutcomes{..}}
 
 doNotifyEncryptedBalanceChange :: (SupportsPersistentState pv m) => PersistentBlockState pv -> AmountDelta -> m (PersistentBlockState pv)
 doNotifyEncryptedBalanceChange pbs amntDiff = do
@@ -2260,15 +2279,28 @@ doNotifyEncryptedBalanceChange pbs amntDiff = do
         storePBS pbs bsp{bspBank = bspBank bsp & unhashed . Rewards.totalEncryptedGTU %~ applyAmountDelta amntDiff}
 
 doGetSpecialOutcomes :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m (Seq.Seq Transactions.SpecialTransactionOutcome)
-doGetSpecialOutcomes pbs = (^. to bspTransactionOutcomes . Transactions.outcomeSpecial) <$> loadPBS pbs
+doGetSpecialOutcomes pbs = do
+  bsp <- loadPBS pbs
+  case bspTransactionOutcomes bsp of
+    PTOV0 bto -> return (bto ^. Transactions.outcomeSpecial)
+    PTOV1 bto -> Seq.fromList <$> LFMBT.toAscList (mtoSpecials bto)
 
 doGetOutcomes :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m (Vec.Vector TransactionSummary)
-doGetOutcomes pbs = (^. to bspTransactionOutcomes . to Transactions.outcomeValues) <$> loadPBS pbs
+doGetOutcomes pbs = do
+  bsp <- loadPBS pbs
+  case bspTransactionOutcomes bsp of
+    PTOV0 bto -> return (Transactions.outcomeValues bto)
+    PTOV1 bto -> Vec.fromList . map Transactions._transactionSummaryV1 <$> LFMBT.toAscList (mtoOutcomes bto)
 
 doAddSpecialTransactionOutcome :: (SupportsPersistentState pv m) => PersistentBlockState pv -> Transactions.SpecialTransactionOutcome -> m (PersistentBlockState pv)
 doAddSpecialTransactionOutcome pbs !o = do
         bsp <- loadPBS pbs
-        storePBS pbs $! bsp {bspTransactionOutcomes = bspTransactionOutcomes bsp & Transactions.outcomeSpecial %~ (Seq.|> o)}
+        case bspTransactionOutcomes bsp of
+          PTOV0 bto -> 
+            storePBS pbs $! bsp {bspTransactionOutcomes = PTOV0 (bto & Transactions.outcomeSpecial %~ (Seq.|> o))}
+          PTOV1 bto -> do
+            (_, newSpecials) <- LFMBT.append o (mtoSpecials bto)
+            storePBS pbs $! bsp {bspTransactionOutcomes = PTOV1 (bto {mtoSpecials = newSpecials})}
 
 doGetElectionDifficulty :: (SupportsPersistentState pv m) => PersistentBlockState pv -> Timestamp -> m ElectionDifficulty
 doGetElectionDifficulty pbs ts = do
@@ -3149,7 +3181,7 @@ migrateBlockPointers migration BlockStatePointers {..} = do
     curBakers <- extractBakerStakes =<< refLoad (_birkCurrentEpochBakers newBirkParameters)
     nextBakers <- extractBakerStakes =<< refLoad (_birkNextEpochBakers newBirkParameters)
     -- clear transaction outcomes.
-    let newTransactionOutcomes = emptyTransactionOutcomes @pv
+    let newTransactionOutcomes = emptyTransactionOutcomes (Proxy @pv)
     chainParams <- refLoad . currentParameters =<< refLoad newUpdates
     let timeParams = _cpTimeParameters . unStoreSerialized $ chainParams
     newRewardDetails <- migrateBlockRewardDetails migration curBakers nextBakers timeParams bspRewardDetails
