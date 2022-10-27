@@ -1849,7 +1849,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
     bsoGetAccruedTransactionFeesFoundationAccount bs = return $! PoolRewards.foundationTransactionRewards (bs ^. blockPoolRewards)
 
     bsoSetTransactionOutcomes bs l = do
-        case Transactions.transactionOutcomesVersion of 
+        case Transactions.transactionOutcomesVersion @(Transactions.TransactionOutcomesVersionFor pv) of 
           Transactions.STOV0 -> return $! bs & blockTransactionOutcomes .~ BTOV0 $! Transactions.transactionOutcomesV0FromList l
           Transactions.STOV1 -> 
               return $! bs & blockTransactionOutcomes .~ BTOV1 $! MerkleTransactionOutcomes {
