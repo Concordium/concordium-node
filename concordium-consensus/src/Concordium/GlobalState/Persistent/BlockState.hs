@@ -456,6 +456,35 @@ data PersistentTransactionOutcomes (tov :: Transactions.TransactionOutcomesVersi
     PTOV0 :: Transactions.TransactionOutcomes -> PersistentTransactionOutcomes 'Transactions.TOV0
     PTOV1 :: MerkleTransactionOutcomes -> PersistentTransactionOutcomes 'Transactions.TOV1
 
+instance BlobStorable m TransactionSummaryV1 => MHashableTo m Transactions.TransactionOutcomesHash (PersistentTransactionOutcomes tov) where
+  getHashM (PTOV0 bto) = return (getHash bto)
+  getHashM (PTOV1 MerkleTransactionOutcomes{..}) = do
+    l <- getHashM mtoOutcomes
+    r <- getHashM mtoSpecials
+    return $! (Transactions.TransactionOutcomesHash (H.hashOfHashes l r))
+
+storeUpdateOutcomes :: (Transactions.IsTransactionOutcomesVersion tov, MonadBlobStore m) => PersistentTransactionOutcomes tov -> m (Put, PersistentTransactionOutcomes tov)
+storeUpdateOutcomes out@(PTOV0 bto) = return (Transactions.putTransactionOutcomes bto, out)
+storeUpdateOutcomes (PTOV1 MerkleTransactionOutcomes{..}) = do
+    (pout, mtoOutcomes') <- storeUpdate mtoOutcomes
+    (pspecial, mtoSpecials') <- storeUpdate mtoSpecials
+    return (pout <> pspecial, PTOV1 MerkleTransactionOutcomes{mtoOutcomes = mtoOutcomes', mtoSpecials = mtoSpecials'})
+
+loadOutcomes :: forall pv m. (IsProtocolVersion pv, MonadBlobStore m, SupportsTransactionOutcomes pv) => Proxy pv -> Get (m (PersistentTransactionOutcomes (Transactions.TransactionOutcomesVersionFor pv)))
+loadOutcomes Proxy = do
+    case Transactions.transactionOutcomesVersion @(Transactions.TransactionOutcomesVersionFor pv) of
+      Transactions.STOV0 -> do
+        out <- PTOV0 <$!> Transactions.getTransactionOutcomes (protocolVersion @pv)
+        pure . pure $! out
+      Transactions.STOV1 -> do
+        mout <- load
+        mspecials <- load
+        return $! do
+          mtoOutcomes <- mout
+          mtoSpecials <- mspecials
+          return $! PTOV1 MerkleTransactionOutcomes{..}
+  
+
 -- |Create an empty 'PersistentTransactionOutcomes' based on the 'ProtocolVersion'.
 emptyTransactionOutcomes :: forall pv. (SupportsTransactionOutcomes pv)
                                   => Proxy pv -> PersistentTransactionOutcomes (Transactions.TransactionOutcomesVersionFor pv)
@@ -524,7 +553,7 @@ instance (SupportsPersistentState pv m) => MHashableTo m StateHash (BlockStatePo
         bshBlockRewardDetails <- getHashM bspRewardDetails
         return $ makeBlockStateHash @pv BlockStateHashInputs{..}
 
-instance (SupportsPersistentState pv m) => BlobStorable m (BlockStatePointers pv) where
+instance (SupportsPersistentState pv m, SupportsTransactionOutcomes pv) => BlobStorable m (BlockStatePointers pv) where
     storeUpdate bsp0@BlockStatePointers{..} = do
         (paccts, bspAccounts') <- storeUpdate bspAccounts
         (pinsts, bspInstances') <- storeUpdate bspInstances
@@ -533,15 +562,7 @@ instance (SupportsPersistentState pv m) => BlobStorable m (BlockStatePointers pv
         (pars, bspAnonymityRevokers') <- storeUpdate bspAnonymityRevokers
         (pbps, bspBirkParameters') <- storeUpdate bspBirkParameters
         (pcryptps, bspCryptographicParameters') <- storeUpdate bspCryptographicParameters
-        (poutcomes, bspTransactionOutcomes') <-
-          case Transactions.transactionOutcomesVersion @(Transactions.TransactionOutcomesVersionFor pv) of
-            Transactions.STOV0 ->
-              let PTOV0 pto = bspTransactionOutcomes
-              in return (Transactions.putTransactionOutcomes pto, bspTransactionOutcomes)
-            Transactions.STOV1 ->
-              let PTOV1 pto = bspTransactionOutcomes
-              in do (p, pto') <- storeUpdate pto
-                    return (p :: Put, PTOV1 pto')
+        (poutcomes, bspTransactionOutcomes') <- storeUpdateOutcomes bspTransactionOutcomes
         (pupdates, bspUpdates') <- storeUpdate bspUpdates
         (preleases, bspReleaseSchedule') <- storeUpdate bspReleaseSchedule
         (pRewardDetails, bspRewardDetails') <- storeUpdate bspRewardDetails
@@ -580,8 +601,7 @@ instance (SupportsPersistentState pv m) => BlobStorable m (BlockStatePointers pv
         mars <- label "Anonymity revokers" load
         mbps <- label "Birk parameters" load
         mcryptps <- label "Cryptographic parameters" load
-        bspTransactionOutcomes <- label "Transaction outcomes" $
-            Transactions.getTransactionOutcomes (protocolVersion @pv)
+        moutcomes <- label "Transaction outcomes" (loadOutcomes (Proxy @pv))
         mUpdates <- label "Updates" load
         mReleases <- label "Release schedule" load
         mRewardDetails <- label "Epoch blocks" load
@@ -593,6 +613,7 @@ instance (SupportsPersistentState pv m) => BlobStorable m (BlockStatePointers pv
             bspAnonymityRevokers <- mars
             bspBirkParameters <- mbps
             bspCryptographicParameters <- mcryptps
+            bspTransactionOutcomes <- moutcomes
             bspUpdates <- mUpdates
             bspReleaseSchedule <- mReleases
             bspRewardDetails <- mRewardDetails
@@ -628,7 +649,7 @@ makePersistent Basic.BlockState{..} = do
           bspAnonymityRevokers = anonymityRevokers,
           bspBirkParameters = persistentBirkParameters,
           bspCryptographicParameters = cryptographicParameters,
-          bspTransactionOutcomes = _blockTransactionOutcomes,
+          bspTransactionOutcomes = undefined, -- _blockTransactionOutcomes,
           bspUpdates = updates,
           bspReleaseSchedule = rels,
           bspRewardDetails = red
