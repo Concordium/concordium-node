@@ -514,7 +514,7 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
     -- |Get the block's UpdateKeysCollection
     getUpdateKeysCollection :: BlockState m -> m (UpdateKeysCollection (ChainParametersVersionFor (MPV m)))
 
-    -- |Get the current exchange rates, that is the Euro per NRG, micro CCD per Euro and the derived energy to microCCD rate.
+    -- |Get the current exchange rates, which are the Euro per NRG, micro CCD per Euro and the derived energy to microCCD rate.
     getExchangeRates :: BlockState m -> m ExchangeRates
 
     -- |Get the epoch time of the next scheduled payday.
@@ -1163,7 +1163,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- PRECONDITION: The given timestamp must be the first timestamp for a release for the given account.
   bsoAddReleaseSchedule :: UpdatableBlockState m -> [(AccountAddress, Timestamp)] -> m (UpdatableBlockState m)
 
-  -- |Get the current exchange rates, that is the Euro per NRG, micro CCD per Euro and the energy rate.
+  -- |Get the current exchange rates, which are the Euro per NRG, micro CCD per Euro and the energy rate.
   bsoGetExchangeRates :: UpdatableBlockState m -> m ExchangeRates
 
   -- |Get the current chain parameters.

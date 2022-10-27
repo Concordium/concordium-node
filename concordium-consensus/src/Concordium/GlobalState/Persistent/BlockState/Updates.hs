@@ -1170,7 +1170,7 @@ clearProtocolUpdate uref = do
     newPendingUpdates <- clearQueue pProtocolQueue <&> \newQ -> p{pProtocolQueue=newQ}
     refMake u{currentProtocolUpdate = Null, pendingUpdates = newPendingUpdates}
 
--- |Get the current exchange rates, that is the Euro per NRG, micro CCD per Euro and the energy rate.
+-- |Get the current exchange rates, which are the Euro per NRG, micro CCD per Euro and the energy rate.
 lookupExchangeRates
     :: (MonadBlobStore m, IsChainParametersVersion cpv)
     => BufferedRef (Updates' cpv)

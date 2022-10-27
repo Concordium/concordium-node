@@ -86,7 +86,7 @@ returnValueToByteString rv = unsafePerformIO $
     BSU.unsafePackCStringFinalizer rp (fromIntegral len) (rs_free_array_len rp (fromIntegral len))
 
 -- | Constructs a ReturnValue from a bytestring.
--- More specifically it copies the bytestring to a Vec<u8> in Rust and which returns a pointer used for the ReturnValue.
+-- More specifically it copies the bytestring to a Vec<u8> in Rust, which returns a pointer used for the ReturnValue.
 byteStringToReturnValue :: BS.ByteString -> ReturnValue
 byteStringToReturnValue bs = unsafePerformIO $ do
   returnValuePtr <- BSU.unsafeUseAsCStringLen bs $ \(charPtr, len) -> createReturnValue (castPtr charPtr) (fromIntegral len)
