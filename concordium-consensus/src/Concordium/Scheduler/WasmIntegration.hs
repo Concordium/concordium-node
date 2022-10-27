@@ -22,7 +22,6 @@ import Concordium.Types
 import Concordium.Wasm
 import Concordium.GlobalState.Wasm
 import Concordium.Utils.Serialization
-import Foreign.Marshal.Utils (fromBool)
 
 foreign import ccall "validate_and_process_v0"
    validate_and_process :: Ptr Word8 -- ^Pointer to the Wasm module source.
@@ -92,7 +91,7 @@ applyInitFun miface cm initCtx iName param limitLogsAndRvs amnt iEnergy = proces
                                            amountWord
                                            (castPtr nameBytesPtr) (fromIntegral nameBytesLen)
                                            (castPtr paramBytesPtr) (fromIntegral paramBytesLen)
-                                           (fromBool limitLogsAndRvs)
+                                           (if limitLogsAndRvs then 1 else 0)
                                            energy
                                            outputLenPtr
                         if outPtr == nullPtr then return Nothing
@@ -167,7 +166,7 @@ applyReceiveFun miface cm receiveCtx rName param maxParamLen limitLogsAndRvs amn
                                                  (castPtr stateBytesPtr) (fromIntegral stateBytesLen)
                                                  (castPtr paramBytesPtr) (fromIntegral paramBytesLen)
                                                  (fromIntegral maxParamLen)
-                                                 (fromBool limitLogsAndRvs)
+                                                 (if limitLogsAndRvs then 1 else 0)
                                                  energy
                                                  outputLenPtr
                           if outPtr == nullPtr then return Nothing

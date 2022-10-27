@@ -75,9 +75,12 @@ class (Monad m) => StaticInformation m where
 
   -- |Return a contract instance if it exists at the given address.
   getContractInstance :: ContractAddress -> m (Maybe (InstanceInfo m))
- 
+
   -- |Get the amount of funds at the particular account address at the start of a transaction.
   getStateAccount :: AccountAddress -> m (Maybe (IndexedAccount m))
+
+  -- |Get the current exchange rates, that is the Euro per NRG, micro CCD per Euro and the energy rate.
+  getExchangeRates :: m ExchangeRates
 
 -- |Information needed to execute transactions in the form that is easy to use.
 class (Monad m, StaticInformation m, AccountOperations m, ContractStateOperations m, ModuleQuery m, MonadLogger m, MonadProtocolVersion m, TVer.TransactionVerifier m)
@@ -893,9 +896,13 @@ instance StaticInformation m => StaticInformation (LocalT r m) where
 
   {-# INLINE getContractInstance #-}
   getContractInstance = liftLocal . getContractInstance
- 
+
   {-# INLINE getStateAccount #-}
   getStateAccount = liftLocal . getStateAccount
+
+  {-# INLINE getExchangeRates #-}
+  getExchangeRates = liftLocal getExchangeRates
+
 
 deriving via (MGSTrans (LocalT r) m) instance AccountOperations m => AccountOperations (LocalT r m)
 deriving via (MGSTrans (LocalT r) m) instance ContractStateOperations m => ContractStateOperations (LocalT r m)

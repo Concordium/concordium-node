@@ -147,7 +147,7 @@ data BlockStateQueryAction (pv :: ProtocolVersion) a where
     GetProtocolUpdateStatus :: MockBlockState -> BlockStateQueryAction pv UQ.ProtocolUpdateStatus
     GetCryptographicParameters :: MockBlockState -> BlockStateQueryAction pv CryptographicParameters
     GetUpdateKeysCollection :: MockBlockState -> BlockStateQueryAction pv (UpdateKeysCollection (ChainParametersVersionFor pv))
-    GetEnergyRate :: MockBlockState -> BlockStateQueryAction pv EnergyRate
+    GetExchangeRates :: MockBlockState -> BlockStateQueryAction pv ExchangeRates
     GetPaydayEpoch :: (SupportsDelegation pv) => MockBlockState -> BlockStateQueryAction pv Epoch
     GetPoolStatus :: (SupportsDelegation pv) => MockBlockState -> Maybe BakerId -> BlockStateQueryAction pv (Maybe PoolStatus)
 
@@ -218,7 +218,7 @@ data BlockStateOperationsAction pv a where
     BsoOverwriteElectionDifficulty :: MockUpdatableBlockState -> ElectionDifficulty -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoClearProtocolUpdate :: MockUpdatableBlockState -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoAddReleaseSchedule :: MockUpdatableBlockState -> [(AccountAddress, Timestamp)] -> BlockStateOperationsAction pv MockUpdatableBlockState
-    BsoGetEnergyRate :: MockUpdatableBlockState -> BlockStateOperationsAction pv EnergyRate
+    BsoGetExchangeRates :: MockUpdatableBlockState -> BlockStateOperationsAction pv ExchangeRates
     BsoGetChainParameters :: MockUpdatableBlockState -> BlockStateOperationsAction pv (ChainParameters pv)
     BsoGetEpochBlocksBaked :: MockUpdatableBlockState -> BlockStateOperationsAction pv (Word64, [(BakerId, Word64)])
     BsoNotifyBlockBaked :: MockUpdatableBlockState -> BakerId -> BlockStateOperationsAction pv MockUpdatableBlockState

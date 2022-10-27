@@ -666,14 +666,24 @@ doGetAnonymityRevokers bs arIds = return $!
 doGetUpdateKeysCollection :: (Monad m, HasBlockState s pv, IsProtocolVersion pv) => s -> m (UpdateKeysCollection (ChainParametersVersionFor pv))
 doGetUpdateKeysCollection bs = return $! bs ^. blockUpdates . currentKeyCollection . unhashed
 
-doGetEnergyRate :: (Monad m, HasBlockState s pv) => s -> m EnergyRate
-doGetEnergyRate bs = return $! bs ^. blockUpdates . currentParameters . energyRate  
+doGetExchangeRates :: (Monad m, HasBlockState s pv) => s -> m ExchangeRates
+doGetExchangeRates bs =
+  let p = bs ^. blockUpdates . currentParameters
+  in return
+    ExchangeRates {
+      _erEuroPerEnergy = p ^. euroPerEnergy,
+      _erEnergyRate = p ^. energyRate,
+      _erMicroGTUPerEuro = p ^. microGTUPerEuro
+      }
 
 instance (Monad m) => BS.ModuleQuery (PureBlockStateMonad pv m) where
     {-# INLINE getModuleArtifact #-}
     getModuleArtifact = return
 
 instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMonad pv m) where
+    {-# INLINE getExchangeRates #-}
+    getExchangeRates = doGetExchangeRates
+
     {-# INLINE getModule #-}
     getModule bs mref =
         return $ bs ^. blockModules . to (Modules.getSource mref)
@@ -851,10 +861,6 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
 
     {-# INLINE getUpdateKeysCollection #-}
     getUpdateKeysCollection = doGetUpdateKeysCollection
-
-    {-# INLINE getEnergyRate #-}
-    getEnergyRate = doGetEnergyRate
-
 
     {-# INLINE getPaydayEpoch #-}
     getPaydayEpoch bs =
@@ -1881,8 +1887,8 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
           updateBRS brs = foldl' f brs rel
       return $! bs & blockReleaseSchedule %~ updateBRS
 
-    {-# INLINE bsoGetEnergyRate #-}
-    bsoGetEnergyRate = doGetEnergyRate
+    {-# INLINE bsoGetExchangeRates #-}
+    bsoGetExchangeRates = doGetExchangeRates
 
     bsoGetChainParameters bs = return $! bs ^. blockUpdates . currentParameters
 
