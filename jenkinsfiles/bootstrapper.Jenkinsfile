@@ -19,7 +19,7 @@ pipeline {
             )}""".trim()
         BUILD_FILE = "p2p-bootstrapper_${TAG}.deb"
         OUTFILE = "s3://distribution.concordium.software/tools/linux/${BUILD_FILE}"
-        STATIC_BINARIES_IMAGE_TAG = "latest"
+        STATIC_BINARIES_IMAGE_TAG = "${BUILD_TAG}"
     }
     stages {
         stage('Precheck') {
