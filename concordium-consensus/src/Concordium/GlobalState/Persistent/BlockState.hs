@@ -98,6 +98,8 @@ import Concordium.Utils.BinarySearch
 import Concordium.Kontrol.Bakers
 import qualified Concordium.GlobalState.Persistent.Cache as Cache
 import qualified Concordium.GlobalState.TransactionTable as TransactionTable
+import qualified Concordium.GlobalState.Persistent.LFMBTree as LMFBT
+import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as BasicLFMBT
 
 -- * Birk parameters
 
@@ -401,6 +403,19 @@ makePersistentBlockRewardDetails (Basic.BlockRewardDetailsV0 heb) =
 makePersistentBlockRewardDetails (Basic.BlockRewardDetailsV1 pre) =
     BlockRewardDetailsV1 <$> (makerPersistentPoolRewards (_unhashed pre) >>= refMake)
 
+makePersistentTransactionOutcomes
+    :: MonadBlobStore m
+    => Basic.BasicTransactionOutcomes tov
+    -> m (PersistentTransactionOutcomes tov)
+makePersistentTransactionOutcomes (Basic.BTOV0 outcomes) = return $! PTOV0 outcomes
+makePersistentTransactionOutcomes (Basic.BTOV1 Basic.MerkleTransactionOutcomes{..}) = do
+    normals <- LMFBT.fromAscList $! BasicLFMBT.toAscList mtoOutcomes
+    specials <- LMFBT.fromAscList $! BasicLFMBT.toAscList mtoSpecials
+    return $! PTOV1 MerkleTransactionOutcomes {
+        mtoOutcomes = normals,
+        mtoSpecials = specials
+        }
+
 -- |Extend a 'BlockRewardDetails' ''AccountV0' with an additional baker.
 consBlockRewardDetails
     :: MonadBlobStore m
@@ -638,6 +653,7 @@ makePersistent Basic.BlockState{..} = do
   updates <- makeBufferedRef =<< makePersistentUpdates _blockUpdates
   rels <- makeBufferedRef _blockReleaseSchedule
   red <- makePersistentBlockRewardDetails _blockRewardDetails
+  tos <- makePersistentTransactionOutcomes _blockTransactionOutcomes
   bsp <-
     makeBufferedRef $
       BlockStatePointers
@@ -649,7 +665,7 @@ makePersistent Basic.BlockState{..} = do
           bspAnonymityRevokers = anonymityRevokers,
           bspBirkParameters = persistentBirkParameters,
           bspCryptographicParameters = cryptographicParameters,
-          bspTransactionOutcomes = undefined, -- _blockTransactionOutcomes,
+          bspTransactionOutcomes = tos,
           bspUpdates = updates,
           bspReleaseSchedule = rels,
           bspRewardDetails = red
