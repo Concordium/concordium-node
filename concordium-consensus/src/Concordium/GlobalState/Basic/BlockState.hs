@@ -282,8 +282,8 @@ getBlockRewardDetails = case delegationSupport @av of
 
 -- |todo DOC
 data MerkleTransactionOutcomes = MerkleTransactionOutcomes {
-    mtoOutcomes :: LFMBT.LFMBTree Word64 TransactionSummaryV1,
-    mtoSpecials :: LFMBT.LFMBTree Word64 Transactions.SpecialTransactionOutcome
+    mtoOutcomes :: LFMBT.LFMBTree TransactionIndex TransactionSummaryV1,
+    mtoSpecials :: LFMBT.LFMBTree TransactionIndex Transactions.SpecialTransactionOutcome
 } deriving (Show)
 
 -- |Create an empty 'MerkleTransactionOutcomes'
@@ -824,8 +824,12 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
     {-# INLINE getTransactionOutcome #-}
     getTransactionOutcome bs trh = do
         case Transactions.transactionOutcomesVersion @(Transactions.TransactionOutcomesVersionFor pv) of
-            Transactions.STOV0 -> return $! bs ^? blockTransactionOutcomes . outcomeValues . ix trh
-            Transactions.STOV1 -> return $! bs ^? blockTransactionOutcomes . mtoOutcomes . LFMBT.lookup (ix trh)
+            Transactions.STOV0 -> return $! bs ^? blockTransactionOutcomes . Transactions.outcomeValues . ix trh
+            Transactions.STOV1 -> 
+                let (BTOV1 outcomes) = bs ^. blockTransactionOutcomes
+                in case LFMBT.lookup trh (mtoOutcomes outcomes) of
+                    Nothing -> return Nothing
+                    Just (TransactionSummaryV1 v) -> return $ Just v
 
     {-# INLINE getTransactionOutcomesHash #-}
     getTransactionOutcomesHash bs = return (getHash $ bs ^. blockTransactionOutcomes)
@@ -836,7 +840,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
     {-# INLINE getOutcomes #-}
     getOutcomes bs = do
         case Transactions.transactionOutcomesVersion @(Transactions.TransactionOutcomesVersionFor pv) of
-          Transactions.STOV0 -> return $ bs ^. blockTransactionOutcomes . to Transactions.outcomeValues
+          Transactions.STOV0 -> return $ bs ^. blockTransactionOutcomes . Transactions.outcomeValues
           Transactions.STOV1 -> return $ bs ^. blockTransactionOutcomes . to (LFMBT.toAscList . mtoOutcomes)
 
     {-# INLINE getSpecialOutcomes #-}
