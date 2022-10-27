@@ -293,10 +293,20 @@ emptyMerkleTransactionOutcomes = MerkleTransactionOutcomes {
   mtoSpecials = LFMBT.empty
 }
 
+instance HashableTo Transactions.TransactionOutcomesHash MerkleTransactionOutcomes where
+  getHash MerkleTransactionOutcomes{..} =
+    let out = getHash mtoOutcomes 
+        special = getHash mtoSpecials
+    in Transactions.TransactionOutcomesHash (H.hashOfHashes out special)
+
 -- |todo doc
 data BasicTransactionOutcomes (tov :: Transactions.TransactionOutcomesVersion) where
     BTOV0 :: Transactions.TransactionOutcomes -> BasicTransactionOutcomes 'Transactions.TOV0
     BTOV1 :: MerkleTransactionOutcomes -> BasicTransactionOutcomes 'Transactions.TOV1
+
+instance HashableTo Transactions.TransactionOutcomesHash (BasicTransactionOutcomes tov) where
+  getHash (BTOV0 bto) = getHash bto
+  getHash (BTOV1 bto) = getHash bto
 
 -- |Create an empty 'BasicTransactionOutcomes' based on the 'ProtocolVersion'.
 emptyTransactionOutcomes :: forall pv. (Transactions.IsTransactionOutcomesVersion (Transactions.TransactionOutcomesVersionFor pv))
@@ -354,7 +364,7 @@ instance HashableTo StateHash (HashedBlockState pv) where
 -- |Construct a block state that is empty, except for the supplied 'BirkParameters',
 -- 'CryptographicParameters', 'Authorizations' and 'ChainParameters'.
 emptyBlockState
-    :: forall pv . (IsProtocolVersion pv) =>
+    :: forall pv . (IsProtocolVersion pv, BS.SupportsTransactionOutcomes pv) =>
     BasicBirkParameters (AccountVersionFor pv) ->
     BlockRewardDetails (AccountVersionFor pv) ->
     CryptographicParameters ->
@@ -444,7 +454,7 @@ putBlockState bs = do
 --    timestamp for every account with a scheduled release.
 --
 -- Note that the transaction outcomes will always be empty.
-getBlockState :: forall oldpv pv. (IsProtocolVersion oldpv, IsProtocolVersion pv)
+getBlockState :: forall oldpv pv. (IsProtocolVersion oldpv, IsProtocolVersion pv, BS.SupportsTransactionOutcomes pv)
     => StateMigrationParameters oldpv pv -> Get (BlockState pv)
 getBlockState migration = do
     -- BirkParameters
@@ -824,7 +834,9 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
     {-# INLINE getTransactionOutcome #-}
     getTransactionOutcome bs trh = do
         case Transactions.transactionOutcomesVersion @(Transactions.TransactionOutcomesVersionFor pv) of
-            Transactions.STOV0 -> return $! bs ^? blockTransactionOutcomes . Transactions.outcomeValues . ix trh
+            Transactions.STOV0 ->
+              let BTOV0 inner = bs ^. blockTransactionOutcomes
+              in return $! inner ^? to Transactions.outcomeValues . ix (fromIntegral trh)
             Transactions.STOV1 -> 
                 let (BTOV1 outcomes) = bs ^. blockTransactionOutcomes
                 in case LFMBT.lookup trh (mtoOutcomes outcomes) of
@@ -840,14 +852,18 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
     {-# INLINE getOutcomes #-}
     getOutcomes bs = do
         case Transactions.transactionOutcomesVersion @(Transactions.TransactionOutcomesVersionFor pv) of
-          Transactions.STOV0 -> return $ bs ^. blockTransactionOutcomes . Transactions.outcomeValues
-          Transactions.STOV1 -> return $ bs ^. blockTransactionOutcomes . to (LFMBT.toAscList . mtoOutcomes)
+          Transactions.STOV0 ->
+            let BTOV0 inner = bs ^. blockTransactionOutcomes
+            in return (Transactions.outcomeValues inner)
+          Transactions.STOV1 ->
+            let BTOV1 inner = bs ^. blockTransactionOutcomes
+            in return $! Vec.fromList . map _transactionSummaryV1 $ (LFMBT.toAscList (mtoOutcomes inner))
 
     {-# INLINE getSpecialOutcomes #-}
-    getSpecialOutcomes bs = do
-        case Transactions.transactionOutcomesVersion @(Transactions.TransactionOutcomesVersionFor pv) of
-            Transactions.STOV0 -> return $ bs ^. blockTransactionOutcomes . Transactions.outcomeSpecial
-            Transactions.STOV1 -> return $ bs ^. blockTransactionOutcomes . to LFMBT.toAscList . mtoSpecials
+    getSpecialOutcomes bs =
+        case bs ^. blockTransactionOutcomes of
+            BTOV0 bto -> return $! Transactions._outcomeSpecial bto
+            BTOV1 bto -> return $ Seq.fromList $ LFMBT.toAscList . mtoSpecials $ bto
         
     {-# INLINE getAllIdentityProviders #-}
     getAllIdentityProviders bs =
@@ -1869,9 +1885,11 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
 
 
     bsoAddSpecialTransactionOutcome bs o = do
-        case Transactions.transactionOutcomesVersion @(Transactions.TransactionOutcomesVersionFor pv) of
-            Transactions.STOV0 -> return $! (bs & (blockTransactionOutcomes . Transactions.outcomeSpecial %~ (Seq.|> o)))
-            Transactions.STOV1 -> undefined -- todo
+        case bs ^. blockTransactionOutcomes of
+            BTOV0 bto -> return $! (bs & (blockTransactionOutcomes .~ BTOV0 (bto & Transactions.outcomeSpecial %~ (Seq.|> o))))
+            BTOV1 bto ->
+               let (_, newSpecials) = LFMBT.append o (mtoSpecials bto)
+               in return (bs & (blockTransactionOutcomes .~ BTOV1 (bto { mtoSpecials = newSpecials })))
 
     {-# INLINE bsoProcessUpdateQueues #-}
     bsoProcessUpdateQueues bs ts = return (changes, bs & blockUpdates .~ newBlockUpdates
@@ -1992,7 +2010,7 @@ instance (IsProtocolVersion pv, MonadIO m) => BS.BlockStateStorage (PureBlockSta
 
 -- |Initial block state.
 initialState :: forall pv
-              . IsProtocolVersion pv
+              . (IsProtocolVersion pv, BS.SupportsTransactionOutcomes pv)
              => SeedState
              -> CryptographicParameters
              -> [Account (AccountVersionFor pv)]
@@ -2163,7 +2181,7 @@ genesisBakerInfo spv cp GenesisBaker{..} = AccountBaker{..}
 
 -- |Initial block state based on 'GenesisData', for a given protocol version.
 -- This also returns the transaction table.
-genesisState :: forall pv . IsProtocolVersion pv
+genesisState :: forall pv . (IsProtocolVersion pv, BS.SupportsTransactionOutcomes pv)
              => GenesisData pv
              -> Either String (BlockState pv, TransactionTable.TransactionTable)
 genesisState gd = case protocolVersion @pv of
@@ -2218,7 +2236,7 @@ genesisState gd = case protocolVersion @pv of
 -- This function should only fail if there is a bug in state deserialization.
 migrateBlockState ::
     forall oldpv pv.
-    (IsProtocolVersion oldpv, IsProtocolVersion pv) =>
+    (IsProtocolVersion oldpv, IsProtocolVersion pv, BS.SupportsTransactionOutcomes pv) =>
     StateMigrationParameters oldpv pv ->
     BlockState oldpv ->
     Either String (BlockState pv)
