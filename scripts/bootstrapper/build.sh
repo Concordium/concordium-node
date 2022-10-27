@@ -75,4 +75,4 @@ cp /tmp/p2p_bootstrapper-cli usr/bin/p2p-bootstrapper
 
 )
 
-dpkg-deb --build "$database_exporter_build_dir"
+dpkg-deb --build "$p2p_bootstrapper_build_dir"
