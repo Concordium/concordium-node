@@ -97,6 +97,7 @@ import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import qualified Concordium.Wasm as GSWasm
 import Data.Proxy
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule (totalLockedUpBalance)
+import Debug.Trace (trace)
 
 
 -- |The function asserts the following
@@ -1206,9 +1207,9 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                       Nothing ->
                         go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False
                              newBalance (WasmV1.Error $ WasmV1.EnvFailure $ WasmV1.MissingAccount imqabAddress) Nothing)
-                      Just (_accountIndex, account) -> do
+                      Just indexedAccount@(_accountIndex, account) -> do
                         -- Lookup account balances
-                        balance <- getAccountAmount account
+                        balance <- getCurrentAccountTotalAmount indexedAccount
                         accountStake <- getAccountStake account
                         let stake = case accountStake of
                               AccountStakeNone -> 0
