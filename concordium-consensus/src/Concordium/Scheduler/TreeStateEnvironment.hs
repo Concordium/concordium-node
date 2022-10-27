@@ -143,7 +143,7 @@ runBSM m cm s = do
 -- |Distribute the baking rewards for the last epoch to the bakers of
 -- blocks in that epoch. This should be called in the first block of
 -- a new epoch. This resets the list of blocks baked in the epoch.
-rewardLastEpochBakers :: (BlockStateOperations m, AccountVersionFor (MPV m) ~ 'AccountV0)
+rewardLastEpochBakers :: (SupportsTransactionOutcomes (MPV m), BlockStateOperations m, AccountVersionFor (MPV m) ~ 'AccountV0)
   => UpdatableBlockState m
   -> m (UpdatableBlockState m)
 rewardLastEpochBakers bs0 = do
@@ -250,7 +250,7 @@ calculatePaydayMintAmounts md mr ps updates amt =
 
 -- |Mint for all slots since the last block, recording a
 -- special transaction outcome for the minting.
-doMinting :: (ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0, BlockStateOperations m, BlockPointerMonad m)
+doMinting :: (ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0, BlockStateOperations m, BlockPointerMonad m, SupportsTransactionOutcomes (MPV m))
   => BlockPointerType m
   -- ^Parent block
   -> Slot
@@ -281,7 +281,7 @@ doMinting blockParent slotNumber foundationAddr mintUpds bs0 = do
 
 -- |Mint for the given payday, recording a
 -- special transaction outcome for the minting.
-doMintingP4 :: (ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1, BlockStateOperations m)
+doMintingP4 :: (ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1, BlockStateOperations m, SupportsTransactionOutcomes (MPV m))
   => ChainParameters (MPV m)
   -- ^Chain parameters
   -> Epoch
@@ -325,7 +325,7 @@ data FinalizerInfo = FinalizerInfo {
 -- |Distribute the finalization rewards to the finalizers
 -- in proportion to their voting weight. This also adds a
 -- special transaction outcome recording the reward.
-doFinalizationRewards :: (BlockStateOperations m)
+doFinalizationRewards :: (BlockStateOperations m, SupportsTransactionOutcomes (MPV m))
   => FinalizerInfo
   -> UpdatableBlockState m
   -> m (UpdatableBlockState m)
@@ -368,7 +368,7 @@ data FreeTransactionCounts = FreeTransactionCounts {
 -- of the GAS account is paid to the baker, consisting of a
 -- base fraction and additional fractions for the 'free'
 -- transactions in the block.
-doBlockReward :: forall m. (BlockStateOperations m, MonadProtocolVersion m, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0, AccountVersionFor (MPV m) ~ 'AccountV0)
+doBlockReward :: forall m. (BlockStateOperations m, MonadProtocolVersion m, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0, AccountVersionFor (MPV m) ~ 'AccountV0, SupportsTransactionOutcomes (MPV m))
   => Amount
   -- ^Transaction fees paid
   -> FreeTransactionCounts
@@ -416,7 +416,7 @@ doBlockReward transFees FreeTransactionCounts{..} (BakerId aid) foundationAddr b
     }
 
 -- |Accrue the rewards for a block to the relevant pool, the passive delegators, and the foundation.
-doBlockRewardP4 :: forall m. (BlockStateOperations m, MonadProtocolVersion m, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1, SupportsDelegation (MPV m))
+doBlockRewardP4 :: forall m. (BlockStateOperations m, MonadProtocolVersion m, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1, SupportsDelegation (MPV m), SupportsTransactionOutcomes (MPV m))
   => Amount
   -- ^Transaction fees paid
   -> FreeTransactionCounts
@@ -739,7 +739,8 @@ distributeRewards
    . (SupportsDelegation (MPV m),
       ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
       BlockStateOperations m,
-      TreeStateMonad m)
+      TreeStateMonad m,
+      SupportsTransactionOutcomes (MPV m))
   => AccountAddress -- ^Foundation account address
   -> CapitalDistribution
   -> BI.FullBakersEx
@@ -840,7 +841,7 @@ updatedTimeParameters targetSlot tp0 upds =
 --   - Otherwise, return the payday and mint rate.
 mintForSkippedPaydays
   :: (ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
-      BlockStateOperations m)
+      BlockStateOperations m, SupportsTransactionOutcomes (MPV m))
   => Epoch
   -- ^Epoch of the current block
   -> Epoch
@@ -957,7 +958,7 @@ data MintRewardParams (cpv :: ChainParametersVersion) where
 --    rewards, baker pool accrued transaction rewards and passive delegation accrued transaction rewards.
 --    Additionally, a fraction of the old GAS account accrues to the baker pool transaction rewards,
 --    including incentives for including the 'free' transaction types.
-mintAndReward :: forall m. (BlockStateOperations m, TreeStateMonad m, MonadProtocolVersion m)
+mintAndReward :: forall m. (BlockStateOperations m, TreeStateMonad m, MonadProtocolVersion m, SupportsTransactionOutcomes (MPV m))
     => UpdatableBlockState m
     -- ^Block state
     -> BlockPointerType m
@@ -1249,7 +1250,7 @@ executeBlockPrologue slotTime newSeedState oldChainParameters bsStart = do
 -- The slot number must exceed the slot of the parent block, and the seed state
 -- must indicate the correct epoch of the block.
 executeFrom :: forall m.
-  (BlockPointerMonad m, TreeStateMonad m, MonadLogger m)
+  (BlockPointerMonad m, TreeStateMonad m, MonadLogger m, SupportsTransactionOutcomes (MPV m))
   => BlockHash -- ^Hash of the block we are executing. Used only for committing transactions.
   -> Slot -- ^Slot number of the block being executed.
   -> Timestamp -- ^Unix timestamp of the beginning of the slot.
@@ -1311,7 +1312,7 @@ executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSee
 -- POSTCONDITION: The function always returns a list of transactions which make a valid block in `ftAdded`,
 -- and also returns a list of transactions which failed, and a list of those which were not processed.
 constructBlock :: forall m.
-  (BlockPointerMonad m, TreeStateMonad m, MonadLogger m, TimeMonad m)
+  (BlockPointerMonad m, TreeStateMonad m, MonadLogger m, TimeMonad m, SupportsTransactionOutcomes (MPV m))
   => Slot -- ^Slot number of the block to bake
   -> Timestamp -- ^Unix timestamp of the beginning of the slot.
   -> BlockPointerType m -- ^Parent pointer from which to start executing
