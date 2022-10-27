@@ -50,7 +50,7 @@ import qualified Data.Set as Set
 import qualified Data.Sequence as Seq
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
-import Concordium.Types.Execution ( TransactionSummary, DelegationTarget, TransactionSummaryV1 )
+import Concordium.Types.Execution ( TransactionSummary, DelegationTarget, TransactionSummaryV1, TransactionIndex)
 import qualified Concordium.Wasm as Wasm
 import qualified Concordium.GlobalState.Wasm as GSWasm
 import qualified Concordium.ID.Types as ID
@@ -427,16 +427,41 @@ emptyBlockRewardDetails =
 -- disk.
 type PersistentBlockState (pv :: ProtocolVersion) = IORef (BufferedRef (BlockStatePointers pv))
 
--- |todo DOC
+-- |Transaction outcomes stored in a merkle binary tree.
 data MerkleTransactionOutcomes = MerkleTransactionOutcomes {
-    mtoOutcomes :: LFMBT.LFMBTree Word64 TransactionSummaryV1,
-    mtoSpecials :: LFMBT.LFMBTree Word64 Transactions.SpecialTransactionOutcome
+    -- |Normal transaction outcomes
+    mtoOutcomes :: LFMBT.LFMBTree TransactionIndex HashedBufferedRef TransactionSummaryV1,
+    -- |Special transaction outcomes
+    mtoSpecials :: LFMBT.LFMBTree TransactionIndex HashedBufferedRef Transactions.SpecialTransactionOutcome
 } deriving (Show)
 
--- |todo doc
+-- |Create an empty 'MerkleTransactionOutcomes'
+emptyMerkleTransactionOutcomes :: MerkleTransactionOutcomes
+emptyMerkleTransactionOutcomes = MerkleTransactionOutcomes {
+  mtoOutcomes = LFMBT.empty,
+  mtoSpecials = LFMBT.empty
+}
+
+-- |Transaction outcomes stored in the 'Persistent' block state.
+-- From PV1 to PV4 transaction outcomes are stored within a list 'Transactions.TransactionOutcomes'.
+-- From PV5 and onwards the transaction outcomes are stored in a binary merkle tree.
+-- Note. There are no difference in the actual stored 'TransactionSummary' however there
+-- is a difference in the hashing scheme.
+-- In PV1 to PV4 the transaction outcomes are hashed as a list based on all of the data
+-- in the 'TransactionSummary'.
+-- In PV5 and onwards the exact 'RejectReason's are omitted from the computed hash and moreover
+-- the hashing scheme is not a hash list but a merkle tree, so it is the root hash that is
+-- used in the final 'BlockHash'.
 data PersistentTransactionOutcomes (tov :: Transactions.TransactionOutcomesVersion) where
-    PTOV0 :: Transactions.TransactionOutcomes -> PersistentTransactionOutcomes 'TOV0
-    PTOV1 :: MerkleTransactionOutcomes -> PersistentTransactionOutcomes 'TOV1
+    PTOV0 :: Transactions.TransactionOutcomes -> PersistentTransactionOutcomes 'Transactions.TOV0
+    PTOV1 :: MerkleTransactionOutcomes -> PersistentTransactionOutcomes 'Transactions.TOV1
+
+-- |Create an empty 'PersistentTransactionOutcomes' based on the 'ProtocolVersion'.
+emptyTransactionOutcomes :: forall pv. (Transactions.IsTransactionOutcomesVersion (Transactions.TransactionOutcomesVersionFor pv))
+                                  => PersistentTransactionOutcomes (Transactions.TransactionOutcomesVersionFor pv)
+emptyTransactionOutcomes = case Transactions.transactionOutcomesVersion @(Transactions.TransactionOutcomesVersionFor pv) of
+  Transactions.STOV0 -> PTOV0 Transactions.emptyTransactionOutcomesV0
+  Transactions.STOV1 -> PTOV1 emptyMerkleTransactionOutcomes
 
 -- |References to the components that make up the block state.
 --
@@ -616,7 +641,7 @@ initialPersistentState ss cps accts ips ars keysCollection chainParams = makePer
 -- |A mostly empty block state, but with the given birk parameters, 
 -- cryptographic parameters, update authorizations and chain parameters.
 emptyBlockState
-    :: (SupportsPersistentState pv m)
+    :: forall pv m. (SupportsPersistentState pv m)
     => PersistentBirkParameters (AccountVersionFor pv)
     -> CryptographicParameters
     -> UpdateKeysCollection (ChainParametersVersionFor pv)
@@ -639,7 +664,7 @@ emptyBlockState bspBirkParameters cryptParams keysCollection chainParams = do
             bspIdentityProviders = identityProviders,
             bspAnonymityRevokers = anonymityRevokers,
             bspCryptographicParameters = cryptographicParameters,
-            bspTransactionOutcomes = Transactions.emptyTransactionOutcomes,
+            bspTransactionOutcomes = emptyTransactionOutcomes @pv,
             ..
           }
   liftIO $ newIORef $! bsp
@@ -2214,20 +2239,20 @@ doGetPoolStatus pbs (Just psBakerId@(BakerId aid)) = case delegationChainParamet
                                             }
                         return $ Just BakerPoolStatus{..}
 
-doGetTransactionOutcome :: (SupportsPersistentState pv m) => PersistentBlockState pv -> Transactions.TransactionIndex -> m (Maybe TransactionSummary)
+doGetTransactionOutcome :: forall pv m. (SupportsPersistentState pv m, SupportsTransactionOutcomes pv) => PersistentBlockState pv -> Transactions.TransactionIndex -> m (Maybe TransactionSummary)
 doGetTransactionOutcome pbs transHash = do
         bsp <- loadPBS pbs
         return $! bspTransactionOutcomes bsp ^? ix transHash
 
-doGetTransactionOutcomesHash :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m TransactionOutcomesHash
+doGetTransactionOutcomesHash :: forall pv m. (SupportsPersistentState pv m, SupportsTransactionOutcomes pv) => PersistentBlockState pv -> m Transactions.TransactionOutcomesHash
 doGetTransactionOutcomesHash pbs =  do
     bsp <- loadPBS pbs
     return $! getHash (bspTransactionOutcomes bsp)
 
-doSetTransactionOutcomes :: (SupportsPersistentState pv m) => PersistentBlockState pv -> [TransactionSummary] -> m (PersistentBlockState pv)
+doSetTransactionOutcomes :: forall pv m. (SupportsPersistentState pv m, SupportsTransactionOutcomes pv) => PersistentBlockState pv -> [TransactionSummary] -> m (PersistentBlockState pv)
 doSetTransactionOutcomes pbs transList = do
         bsp <- loadPBS pbs
-        storePBS pbs bsp {bspTransactionOutcomes = Transactions.transactionOutcomesFromList transList}
+        storePBS pbs bsp {bspTransactionOutcomes = Transactions.transactionOutcomesV0FromList transList}
 
 doNotifyEncryptedBalanceChange :: (SupportsPersistentState pv m) => PersistentBlockState pv -> AmountDelta -> m (PersistentBlockState pv)
 doNotifyEncryptedBalanceChange pbs amntDiff = do
@@ -3124,7 +3149,7 @@ migrateBlockPointers migration BlockStatePointers {..} = do
     curBakers <- extractBakerStakes =<< refLoad (_birkCurrentEpochBakers newBirkParameters)
     nextBakers <- extractBakerStakes =<< refLoad (_birkNextEpochBakers newBirkParameters)
     -- clear transaction outcomes.
-    let newTransactionOutcomes = Transactions.emptyTransactionOutcomes
+    let newTransactionOutcomes = emptyTransactionOutcomes @pv
     chainParams <- refLoad . currentParameters =<< refLoad newUpdates
     let timeParams = _cpTimeParameters . unStoreSerialized $ chainParams
     newRewardDetails <- migrateBlockRewardDetails migration curBakers nextBakers timeParams bspRewardDetails
