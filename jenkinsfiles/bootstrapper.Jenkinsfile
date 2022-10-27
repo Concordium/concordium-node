@@ -17,7 +17,7 @@ pipeline {
                     fi
                 '''
             )}""".trim()
-        BUILD_FILE = "bootstrapper_${TAG}.deb"
+        BUILD_FILE = "p2p-bootstrapper_${TAG}.deb"
         OUTFILE = "s3://distribution.concordium.software/tools/linux/${BUILD_FILE}"
         STATIC_BINARIES_IMAGE_TAG = "latest"
     }
