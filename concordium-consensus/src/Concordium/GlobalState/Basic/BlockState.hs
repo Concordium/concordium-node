@@ -10,6 +10,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
 module Concordium.GlobalState.Basic.BlockState where
 
 import qualified Data.Map as LazyMap
@@ -285,11 +286,30 @@ data MerkleTransactionOutcomes = MerkleTransactionOutcomes {
     mtoSpecials :: LFMBT.LFMBTree Word64 Transactions.SpecialTransactionOutcome
 } deriving (Show)
 
+-- |Create an empty 'MerkleTransactionOutcomes'
+emptyMerkleTransactionOutcomes :: MerkleTransactionOutcomes
+emptyMerkleTransactionOutcomes = MerkleTransactionOutcomes {
+  mtoOutcomes = LFMBT.empty,
+  mtoSpecials = LFMBT.empty
+}
+
 -- |todo doc
 data BasicTransactionOutcomes (tov :: Transactions.TransactionOutcomesVersion) where
-    PTOV0 :: Transactions.TransactionOutcomes -> BasicTransactionOutcomes 'Transactions.TOV0
-    PTOV1 :: MerkleTransactionOutcomes -> BasicTransactionOutcomes 'Transactions.TOV1
+    BTOV0 :: Transactions.TransactionOutcomes -> BasicTransactionOutcomes 'Transactions.TOV0
+    BTOV1 :: MerkleTransactionOutcomes -> BasicTransactionOutcomes 'Transactions.TOV1
 
+-- |Create an empty 'BasicTransactionOutcomes' based on the 'ProtocolVersion'.
+emptyTransactionOutcomes :: forall pv. (Transactions.IsTransactionOutcomesVersion (Transactions.TransactionOutcomesVersionFor pv))
+                                  => BasicTransactionOutcomes (Transactions.TransactionOutcomesVersionFor pv)
+emptyTransactionOutcomes = case Transactions.transactionOutcomesVersion @(Transactions.TransactionOutcomesVersionFor pv) of
+  Transactions.STOV0 -> BTOV0 Transactions.emptyTransactionOutcomesV0
+  Transactions.STOV1 -> BTOV1 emptyMerkleTransactionOutcomes
+    
+-- |TODO fix.
+instance Show (BasicTransactionOutcomes tov) where
+  show (BTOV0 a) = show a
+  show (BTOV1 a) = show a
+    
 data BlockState (pv :: ProtocolVersion) = BlockState {
     _blockAccounts :: !(Accounts.Accounts pv),
     _blockInstances :: !Instances.Instances,
@@ -334,7 +354,7 @@ instance HashableTo StateHash (HashedBlockState pv) where
 -- |Construct a block state that is empty, except for the supplied 'BirkParameters',
 -- 'CryptographicParameters', 'Authorizations' and 'ChainParameters'.
 emptyBlockState
-    :: IsProtocolVersion pv =>
+    :: (IsProtocolVersion pv) =>
     BasicBirkParameters (AccountVersionFor pv) ->
     BlockRewardDetails (AccountVersionFor pv) ->
     CryptographicParameters ->
@@ -343,7 +363,7 @@ emptyBlockState
     BlockState pv
 {-# WARNING emptyBlockState "should only be used for testing" #-}
 emptyBlockState _blockBirkParameters _blockRewardDetails cryptographicParameters keysCollection chainParams = BlockState
-          { _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes,
+          { _blockTransactionOutcomes = emptyTransactionOutcomes,
             ..
           }
     where
@@ -502,7 +522,7 @@ getBlockState migration = do
     (_blockReleaseSchedule, preActBkrs) <- foldM processBakerAccount (Map.empty, _birkActiveBakers preBirkParameters) (Accounts.accountList _blockAccounts)
     actBkrs <- foldM processDelegatorAccount preActBkrs (Accounts.accountList _blockAccounts)
     let _blockBirkParameters = preBirkParameters {_birkActiveBakers = actBkrs}
-    let _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes
+    let _blockTransactionOutcomes = emptyTransactionOutcomes
     return BlockState{..}
 
 -- | Get total delegated pool capital, sum of delegator stakes,
@@ -1828,11 +1848,20 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
 
     bsoGetAccruedTransactionFeesFoundationAccount bs = return $! PoolRewards.foundationTransactionRewards (bs ^. blockPoolRewards)
 
-    bsoSetTransactionOutcomes bs l =
-      return $! bs & blockTransactionOutcomes .~ Transactions.transactionOutcomesFromList l
+    bsoSetTransactionOutcomes bs l = do
+        case Transactions.transactionOutcomesVersion of 
+          Transactions.STOV0 -> return $! bs & blockTransactionOutcomes .~ BTOV0 $! Transactions.transactionOutcomesV0FromList l
+          Transactions.STOV1 -> 
+              return $! bs & blockTransactionOutcomes .~ BTOV1 $! MerkleTransactionOutcomes {
+                  mtoOutcomes = LFMBT.fromList l,
+                  mtoSpecials = LFMBT.empty
+              }
 
-    bsoAddSpecialTransactionOutcome bs o =
-      return $! bs & blockTransactionOutcomes . Transactions.outcomeSpecial %~ (Seq.|> o)
+
+    bsoAddSpecialTransactionOutcome bs o = do
+        case Transactions.transactionOutcomesVersion of
+            Transactions.STOV0 -> return $! bs & blockTransactionOutcomes . Transactions.outcomeSpecial %~ (Seq.|> o)
+            Transactions.STOV1 -> return undefined
 
     {-# INLINE bsoProcessUpdateQueues #-}
     bsoProcessUpdateQueues bs ts = return (changes, bs & blockUpdates .~ newBlockUpdates
@@ -1974,7 +2003,7 @@ initialState seedState cryptoParams genesisAccounts ips anonymityRevokers keysCo
     _blockBank = makeHashed $ Rewards.makeGenesisBankStatus initialAmount
     _blockIdentityProviders = makeHashed ips
     _blockAnonymityRevokers = makeHashed anonymityRevokers
-    _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes
+    _blockTransactionOutcomes = emptyTransactionOutcomes
     _blockUpdates = initialUpdates keysCollection chainParams
     _blockReleaseSchedule = Map.empty
     _blockRewardDetails = emptyBlockRewardDetails
@@ -2168,7 +2197,7 @@ genesisState gd = case protocolVersion @pv of
                   _blockModules = Modules.emptyModules
                   _blockIdentityProviders = makeHashed genesisIdentityProviders
                   _blockAnonymityRevokers = makeHashed genesisAnonymityRevokers
-                  _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes
+                  _blockTransactionOutcomes = emptyTransactionOutcomes
                   _blockUpdates = initialUpdates genesisUpdateKeys genesisChainParameters
                   _blockReleaseSchedule = Map.empty
 

@@ -5,6 +5,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE ConstraintKinds #-}
 -- FIXME: This is to suppress compiler warnings for derived instances of BlockStateOperations.
 -- This may be fixed in GHC 9.0.1.
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
@@ -126,6 +127,9 @@ makeBlockStateHash BlockStateHashInputs{..} = StateHashV0 $
     (H.hashOfHashes
       bshUpdates
       (brdHash bshBlockRewardDetails))
+
+-- |Constraint that a protocol version supports transaction outcomes.
+type SupportsTransactionOutcomes (pv :: ProtocolVersion) = (IsTransactionOutcomesVersion (TransactionOutcomesVersionFor pv))
 
 -- |An auxiliary data type to express restrictions on an account.
 -- Currently an account that has more than one credential is not allowed to handle encrypted transfers,
@@ -1119,11 +1123,11 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- |Set the mint rate of the next scheduled payday.
   bsoSetPaydayMintRate :: (SupportsDelegation (MPV m)) => UpdatableBlockState m -> MintRate -> m (UpdatableBlockState m)
 
-  -- |Set the list of transaction outcomes for the block.
-  bsoSetTransactionOutcomes :: UpdatableBlockState m -> [TransactionSummary] -> m (UpdatableBlockState m)
+  -- |Set the transaction outcomes for the block.
+  bsoSetTransactionOutcomes :: (SupportsTransactionOutcomes (MPV m)) => UpdatableBlockState m -> [TransactionSummary] -> m (UpdatableBlockState m)
 
   -- |Add a special transaction outcome.
-  bsoAddSpecialTransactionOutcome :: UpdatableBlockState m -> SpecialTransactionOutcome -> m (UpdatableBlockState m)
+  bsoAddSpecialTransactionOutcome :: (SupportsTransactionOutcomes (MPV m)) => UpdatableBlockState m -> SpecialTransactionOutcome -> m (UpdatableBlockState m)
 
   -- |Process queued updates.
   bsoProcessUpdateQueues
