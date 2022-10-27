@@ -2358,20 +2358,10 @@ doAddReleaseSchedule pbs rel = do
         bspReleaseSchedule' <- makeBufferedRef $ foldl' f releaseSchedule rel
         storePBS pbs bsp {bspReleaseSchedule = bspReleaseSchedule'}
 
-doGetEnergyRate :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m EnergyRate
-doGetEnergyRate pbs = do
+doGetExchangeRates :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m ExchangeRates
+doGetExchangeRates pbs = do
     bsp <- loadPBS pbs
-    lookupEnergyRate (bspUpdates bsp)
-
-doGetEuroPerEnergy :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m ExchangeRate
-doGetEuroPerEnergy pbs = do
-    bsp <- loadPBS pbs
-    lookupEuroPerEnergy (bspUpdates bsp)
-
-doGetAmountPerEuro :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m ExchangeRate
-doGetAmountPerEuro pbs = do
-    bsp <- loadPBS pbs
-    lookupAmountPerEuro (bspUpdates bsp)
+    lookupExchangeRates (bspUpdates bsp)
 
 doGetChainParameters :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m (ChainParameters pv)
 doGetChainParameters pbs = do
@@ -2879,9 +2869,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateQuery (P
     getIdentityProvider = doGetIdentityProvider . hpbsPointers
     getAnonymityRevokers =  doGetAnonymityRevokers . hpbsPointers
     getUpdateKeysCollection = doGetUpdateKeyCollection . hpbsPointers
-    getEnergyRate = doGetEnergyRate . hpbsPointers
-    getEuroPerEnergy = doGetEuroPerEnergy . hpbsPointers
-    getAmountPerEuro = doGetAmountPerEuro . hpbsPointers
+    getExchangeRates = doGetExchangeRates . hpbsPointers
     getPaydayEpoch = doGetPaydayEpoch . hpbsPointers
     getPoolStatus = doGetPoolStatus . hpbsPointers
 
@@ -3013,9 +3001,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperatio
     bsoSetNextCapitalDistribution = doSetNextCapitalDistribution
     bsoRotateCurrentCapitalDistribution = doRotateCurrentCapitalDistribution
     bsoAddReleaseSchedule = doAddReleaseSchedule
-    bsoGetEnergyRate = doGetEnergyRate
-    bsoGetEuroPerEnergy = doGetEuroPerEnergy
-    bsoGetAmountPerEuro = doGetAmountPerEuro
+    bsoGetExchangeRates = doGetExchangeRates
     bsoGetChainParameters = doGetChainParameters
     bsoGetEpochBlocksBaked = doGetEpochBlocksBaked
     bsoNotifyBlockBaked = doNotifyBlockBaked

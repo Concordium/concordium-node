@@ -232,15 +232,6 @@ instance
     ) =>
     BlockStateQuery (BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m)
     where
-    getEuroPerEnergy (ls, rs) = do
-        m1 <- coerceBSML (getEuroPerEnergy ls)
-        m2 <- coerceBSMR (getEuroPerEnergy rs)
-        assertEq m1 m2 $ return m1
-
-    getAmountPerEuro (ls, rs) = do
-        m1 <- coerceBSML (getAmountPerEuro ls)
-        m2 <- coerceBSMR (getAmountPerEuro rs)
-        assertEq m1 m2 $ return m1
 
     getModule (ls, rs) modRef = do
         m1 <- coerceBSML (getModule ls modRef)
@@ -479,9 +470,9 @@ instance
         r1 <- coerceBSML $ getUpdateKeysCollection bs1
         r2 <- coerceBSMR $ getUpdateKeysCollection bs2
         assertEq r1 r2 $ return r1
-    getEnergyRate (bs1, bs2) = do
-        r1 <- coerceBSML $ getEnergyRate bs1
-        r2 <- coerceBSMR $ getEnergyRate bs2
+    getExchangeRates (bs1, bs2) = do
+        r1 <- coerceBSML $ getExchangeRates bs1
+        r2 <- coerceBSMR $ getExchangeRates bs2
         assertEq r1 r2 $ return r1
     getNextEpochBakers (bps1, bps2) = do
         n1 <- coerceBSML (getNextEpochBakers bps1)
@@ -914,17 +905,9 @@ instance
         bs1' <- coerceBSML $ bsoAddReleaseSchedule bs1 tt
         bs2' <- coerceBSMR $ bsoAddReleaseSchedule bs2 tt
         return (bs1', bs2')
-    bsoGetEnergyRate (bs1, bs2) = do
-        r1 <- coerceBSML $ bsoGetEnergyRate bs1
-        r2 <- coerceBSMR $ bsoGetEnergyRate bs2
-        assertEq r1 r2 $ return r1
-    bsoGetEuroPerEnergy (bs1, bs2) = do
-        r1 <- coerceBSML $ bsoGetEuroPerEnergy bs1
-        r2 <- coerceBSMR $ bsoGetEuroPerEnergy bs2
-        assertEq r1 r2 $ return r1
-    bsoGetAmountPerEuro (bs1, bs2) = do
-        r1 <- coerceBSML $ bsoGetAmountPerEuro bs1
-        r2 <- coerceBSMR $ bsoGetAmountPerEuro bs2
+    bsoGetExchangeRates (bs1, bs2) = do
+        r1 <- coerceBSML $ bsoGetExchangeRates bs1
+        r2 <- coerceBSMR $ bsoGetExchangeRates bs2
         assertEq r1 r2 $ return r1
     bsoGetChainParameters (bs1, bs2) = do
         r1 <- coerceBSML $ bsoGetChainParameters bs1

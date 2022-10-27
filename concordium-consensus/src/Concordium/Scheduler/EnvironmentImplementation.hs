@@ -120,12 +120,8 @@ instance (MonadReader ContextState m,
   {-# INLINE getStateAccount #-}
   getStateAccount !addr = lift . flip bsoGetAccount addr =<< use schedulerBlockState
 
-  {-# INLINE getEuroPerEnergy #-}
-  getEuroPerEnergy = lift . bsoGetEuroPerEnergy =<< use schedulerBlockState
-
-  {-# INLINE getAmountPerEuro #-}
-  getAmountPerEuro = lift . bsoGetAmountPerEuro =<< use schedulerBlockState
-
+  {-# INLINE getExchangeRates #-}
+  getExchangeRates = lift . bsoGetExchangeRates =<< use schedulerBlockState
 
 
 instance (SS state ~ UpdatableBlockState m,
@@ -166,7 +162,7 @@ instance (SS state ~ UpdatableBlockState m,
   {-# INLINE energyToCcd #-}
   energyToCcd v =  do
     s <- use schedulerBlockState
-    rate <- lift (bsoGetEnergyRate s)
+    rate <- lift $ _erEnergyRate <$> bsoGetExchangeRates s
     return (computeCost rate v)
   {-# INLINE getMaxBlockEnergy #-}
   getMaxBlockEnergy = do
@@ -260,7 +256,7 @@ instance (MonadReader ContextState m,
   {-# INLINE energyToGtu #-}
   energyToGtu v = do
     s <- use schedulerBlockState
-    rate <- lift (bsoGetEnergyRate s)
+    rate <- lift $ _erEnergyRate <$> bsoGetExchangeRates s
     return (computeCost rate v)
 
   {-# INLINE notifyExecutionCost #-}

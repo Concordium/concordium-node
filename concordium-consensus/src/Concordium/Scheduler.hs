@@ -1246,12 +1246,10 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                     newBalance <- getCurrentContractAmount Wasm.SV1 istance
                     -- TODO Charge query cost or maybe not
                     -- Lookup exchange rates
-                    euroPerNRG <- getEuroPerEnergy
-                    amountPerEuro <- getAmountPerEuro
+                    currentExchangeRates <- getExchangeRates
                     -- Construct the return value
                     let returnValue = WasmV1.byteStringToReturnValue $ S.runPut $ do
-                          S.put euroPerNRG
-                          S.put amountPerEuro
+                          S.put currentExchangeRates
                     go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False
                           newBalance WasmV1.Success (Just returnValue))
 
