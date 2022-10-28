@@ -52,6 +52,10 @@ pipeline {
             }
         }
         stage('Build debian package') {
+            environment {
+                EXTERNAL_UID = "${sh(script: 'id -u', returnStdout: true)}"
+                EXTERNAL_GID = "${sh(script: 'id -g', returnStdout: true)}"
+            }
             steps {
                sh '''\
                    docker build \
@@ -66,7 +70,7 @@ pipeline {
                         --no-cache \
                         .
                '''
-               sh 'docker run -v "${OUT_DIR}":/out build-deb:${BUILD_TAG}'
+               sh 'docker run --env EXTERNAL_UID --env EXTERNAL_GID -v "${OUT_DIR}":/out build-deb:${BUILD_TAG}'
             }
         }
         stage('push') {
