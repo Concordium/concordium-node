@@ -5,12 +5,16 @@ module Concordium.GlobalState.Basic.BlockState.AccountReleaseScheduleV1 where
 
 import Data.List.NonEmpty (NonEmpty ((:|)))
 import qualified Data.List.NonEmpty as NE
+import qualified Data.Map.Strict as Map
 import Data.Serialize
+import qualified Data.Vector as Vector
 
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Types
 
+import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as ARSV0
 import Concordium.Types.HashableTo
+import Data.List (sortOn)
 
 newtype Releases = Releases {relReleases :: NonEmpty (Timestamp, Amount)}
 
@@ -59,14 +63,18 @@ newtype AccountReleaseScheduleHashV1 = AccountReleaseScheduleHashV1
     }
     deriving (Eq, Ord, Show, Serialize)
 
-arshV1Empty :: AccountReleaseScheduleHashV1
-arshV1Empty = AccountReleaseScheduleHashV1 (Hash.hash "")
+emptyAccountReleaseScheduleHashV1 :: AccountReleaseScheduleHashV1
+emptyAccountReleaseScheduleHashV1 = AccountReleaseScheduleHashV1 (Hash.hash "")
 
-arshV1Cons :: Hash.Hash -> AccountReleaseScheduleHashV1 -> AccountReleaseScheduleHashV1
-arshV1Cons h arsh = AccountReleaseScheduleHashV1 . Hash.hashLazy . runPutLazy $ put h >> put arsh
+consAccountReleaseScheduleHashV1 :: Hash.Hash -> AccountReleaseScheduleHashV1 -> AccountReleaseScheduleHashV1
+consAccountReleaseScheduleHashV1 h arsh = AccountReleaseScheduleHashV1 . Hash.hashLazy . runPutLazy $ put h >> put arsh
 
 instance HashableTo AccountReleaseScheduleHashV1 AccountReleaseSchedule where
-    getHash AccountReleaseSchedule{..} = foldr (arshV1Cons . rseReleasesHash) arshV1Empty arsReleases
+    getHash AccountReleaseSchedule{..} =
+        foldr
+            (consAccountReleaseScheduleHashV1 . rseReleasesHash)
+            emptyAccountReleaseScheduleHashV1
+            arsReleases
 
 -- | The empty account release schedule.
 emptyAccountReleaseSchedule :: AccountReleaseSchedule
@@ -112,3 +120,20 @@ unlockAmountsUntil ts ars0 = (relAmt, nextReleaseTimestamp newArs, newArs)
         (!am, Just !e') -> (am + accumAmt, insertEntry e' ars)
         (!am, Nothing) -> (am + accumAmt, ars)
     (!relAmt, !newArs) = foldr updateEntry (0, AccountReleaseSchedule staticReleases) elapsedReleases
+
+fromAccountReleaseScheduleV0 :: ARSV0.AccountReleaseSchedule -> AccountReleaseSchedule
+fromAccountReleaseScheduleV0 ARSV0.AccountReleaseSchedule{..} = AccountReleaseSchedule newReleases
+  where
+    pendRels = Map.toList _pendingReleases
+    mkEntry i = case _values Vector.! i of
+        Just (r0 : rs, th) ->
+            ReleaseScheduleEntry
+                { rseReleases = rels,
+                  rseReleasesHash = hashReleases rels,
+                  rseTransactionHash = th
+                }
+          where
+            rels = Releases $ fmap (\(ARSV0.Release a b) -> (a, b)) (r0 :| rs)
+        _ -> error "fromAccountReleaseScheduleV0: missing release"
+    mkEntries (_, is) = map mkEntry is
+    newReleases = sortOn rseSortKey $ concatMap mkEntries pendRels

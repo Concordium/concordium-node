@@ -29,8 +29,8 @@ module Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule (
   values,
   pendingReleases,
   emptyAccountReleaseSchedule,
-  AccountReleaseScheduleHash(..),
-  emptyAccountReleaseScheduleHash,
+  AccountReleaseScheduleHashV0(..),
+  emptyAccountReleaseScheduleHashV0,
   addReleases,
   unlockAmountsUntil,
   nextReleaseTimestamp,
@@ -168,18 +168,18 @@ instance Serialize AccountReleaseSchedule where
 -- λ: hashOfHashes h1 h2
 -- 5473ef105c995db8d8dfe75881d8a2018bb12eaeef32032569edfff6814f1b50
 
-newtype AccountReleaseScheduleHash = AccountReleaseScheduleHash {theReleaseScheduleHash :: Hash}
+newtype AccountReleaseScheduleHashV0 = AccountReleaseScheduleHashV0 {theReleaseScheduleHashV0 :: Hash}
     deriving (Serialize, Eq, Ord, Show)
 
-emptyAccountReleaseScheduleHash :: AccountReleaseScheduleHash
-emptyAccountReleaseScheduleHash = AccountReleaseScheduleHash (hash "EmptyAccountReleaseSchedule")
+emptyAccountReleaseScheduleHashV0 :: AccountReleaseScheduleHashV0
+emptyAccountReleaseScheduleHashV0 = AccountReleaseScheduleHashV0 (hash "EmptyAccountReleaseSchedule")
 
-instance HashableTo AccountReleaseScheduleHash AccountReleaseSchedule where
+instance HashableTo AccountReleaseScheduleHashV0 AccountReleaseSchedule where
     getHash AccountReleaseSchedule{..} =
         if _totalLockedUpBalance == 0
-            then emptyAccountReleaseScheduleHash
+            then emptyAccountReleaseScheduleHashV0
             else
-                AccountReleaseScheduleHash $
+                AccountReleaseScheduleHashV0 $
                     hash $
                         Vector.foldl'
                             ( \prevB -> \case

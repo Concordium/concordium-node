@@ -30,12 +30,13 @@ import Concordium.Utils
 import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount, replaceUpTo)
 import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
-import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as Transient
+import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseScheduleV1 as Transient
 import Concordium.GlobalState.BlockState (AccountAllowance (..))
 import Concordium.GlobalState.Persistent.Account.EncryptedAmount
 import qualified Concordium.GlobalState.Persistent.Account.StructureV0 as V0
 import Concordium.GlobalState.Persistent.BlobStore
-import Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule
+import qualified Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule as ARSV0
+import Concordium.GlobalState.Persistent.BlockState.AccountReleaseScheduleV1
 import qualified Data.Map.Strict as Map
 import Concordium.ID.Parameters
 import Concordium.Genesis.Data
@@ -257,7 +258,7 @@ makeAccountEnduringData paedPersistingData paedEncryptedAmount paedReleaseSchedu
         Null -> return initialAccountEncryptedAmountHash
         Some e -> getHash <$> (loadPersistentAccountEncryptedAmount =<< refLoad e)
     amhi2AccountReleaseScheduleHash <- case paedReleaseSchedule of
-        Null -> return Transient.emptyAccountReleaseScheduleHash
+        Null -> return Transient.emptyAccountReleaseScheduleHashV1
         Some (rs, _) -> getHashM rs
     let hashInputs :: AccountMerkleHashInputs 'AccountV2
         hashInputs = AccountMerkleHashInputsV2{..}
@@ -273,7 +274,7 @@ rehashAccountEnduringData ed = do
         Null -> return initialAccountEncryptedAmountHash
         Some e -> getHash <$> (loadPersistentAccountEncryptedAmount =<< refLoad e)
     amhi2AccountReleaseScheduleHash <- case paedReleaseSchedule ed of
-        Null -> return Transient.emptyAccountReleaseScheduleHash
+        Null -> return Transient.emptyAccountReleaseScheduleHashV1
         Some (rs, _) -> getHashM rs
     let hashInputs :: AccountMerkleHashInputs 'AccountV2
         hashInputs = AccountMerkleHashInputsV2{..}
@@ -1226,7 +1227,7 @@ migrateEnduringData ed = do
     paedPersistingData <- migrateEagerBufferedRef return (paedPersistingData ed)
     paedEncryptedAmount <- forM (paedEncryptedAmount ed) $ migrateReference migratePersistentEncryptedAmount
     paedReleaseSchedule <- forM (paedReleaseSchedule ed) $ \(oldRSRef, lockedAmt) -> do
-        newRSRef <- migrateReference migratePersistentAccountReleaseSchedule oldRSRef
+        newRSRef <- migrateReference migrateAccountReleaseSchedule oldRSRef
         return (newRSRef, lockedAmt)
     paedStake <- migratePersistentAccountStakeEnduring (paedStake ed)
     return $!
@@ -1302,9 +1303,9 @@ migratePersistentAccountFromV0 StateMigrationParametersP4ToP5{} V0.PersistentAcc
     paedReleaseSchedule <- do
         mrs <- lift $ do
             rs <- refLoad _accountReleaseSchedule
-            return $ if isEmptyAccountReleaseSchedule rs then Null else Some rs
+            return $ if ARSV0.isEmptyAccountReleaseSchedule rs then Null else Some rs
         forM mrs $ \rs -> do
-            newRS <- migratePersistentAccountReleaseSchedule rs
+            newRS <- migrateAccountReleaseSchedule rs
             rsRef <- refMake $! newRS
             return (rsRef, releaseScheduleLockedBalance rs)
     (accountEnduringData, _) <-

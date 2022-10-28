@@ -4,6 +4,8 @@
 module Concordium.GlobalState.Persistent.BlockState.AccountReleaseScheduleV1 where
 
 import Control.Monad
+import Control.Monad.Trans
+import Data.Foldable
 import Data.Serialize
 import Data.Vector (Vector)
 import qualified Data.Vector as Vector
@@ -14,8 +16,11 @@ import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Types
 import Concordium.Utils.Serialization
 
+import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseScheduleV1 as Transient
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.Types.HashableTo
+import qualified Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule as ARSV0
+import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as TARSV0
 
 data Releases = Releases
     { relTransactionHash :: !TransactionHash,
@@ -164,3 +169,24 @@ migrateAccountReleaseSchedule AccountReleaseSchedule{..} = AccountReleaseSchedul
         -- For now, we opt for simplicity instead.
         newReleasesRef <- migrateReference return rseReleasesRef
         return $! ReleaseScheduleEntry{rseReleasesRef = newReleasesRef, ..}
+
+migrateAccountReleaseScheduleFromV0 :: SupportMigration m t => ARSV0.AccountReleaseSchedule -> t m AccountReleaseSchedule
+migrateAccountReleaseScheduleFromV0 ars = do
+    TARSV0.AccountReleaseSchedule{..} <- lift $ ARSV0.loadPersistentAccountReleaseSchedule ars
+    undefined
+
+
+makePersistentAccountReleaseSchedule :: MonadBlobStore m => Transient.AccountReleaseSchedule -> m AccountReleaseSchedule
+makePersistentAccountReleaseSchedule tars = do
+    AccountReleaseSchedule . Vector.fromList <$> mapM mpEntry (Transient.arsReleases tars)
+  where
+    mpEntry rse@Transient.ReleaseScheduleEntry{..} = do
+        let rseNextTimestamp = Transient.rseNextTimestamp rse
+        let rseNextReleaseIndex = 0
+        rseReleasesRef <-
+            refMake $!
+                Releases
+                    { relTransactionHash = rseTransactionHash,
+                      relReleases = Vector.fromList (toList (Transient.relReleases rseReleases))
+                    }
+        return $! ReleaseScheduleEntry{..}

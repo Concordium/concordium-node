@@ -29,7 +29,8 @@ import Concordium.ID.Types
 import Concordium.ID.Parameters
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Account
-import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
+import  qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as ARSV0
+import  qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseScheduleV1 as ARSV1
 
 import Concordium.Types
 import Concordium.Types.Accounts
