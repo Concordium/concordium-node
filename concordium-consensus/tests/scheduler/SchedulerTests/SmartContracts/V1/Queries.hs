@@ -136,7 +136,7 @@ accountBalanceTransferTestCase =
                        , keys = [(0,[(0, alesKP)])]
                        }
                , (SuccessWithSummary (deploymentCostCheck accountBalanceTransferSourceFile), emptySpec))
-             , ( TJSON { payload = InitContract 0 V1 accountBalanceTransferSourceFile "init_contract" ""
+             , ( TJSON { payload = InitContract 123 V1 accountBalanceTransferSourceFile "init_contract" ""
                        , metadata = makeDummyHeader alesAccount 2 100000
                        , keys = [(0,[(0, alesKP)])]
                        }
@@ -171,16 +171,16 @@ accountBalanceMissingAccountTestCase =
   TestCase { tcName = "Query the balance of a missing account"
            , tcParameters = (defaultParams @PV5) {tpInitialBlockState=initialBlockState}
            , tcTransactions =
-             [ ( TJSON { payload = DeployModule V1 accountBalanceTransferSourceFile
+             [ ( TJSON { payload = DeployModule V1 accountBalanceMissingAccountSourceFile
                        , metadata = makeDummyHeader alesAccount 1 100000
                        , keys = [(0,[(0, alesKP)])]
                        }
-               , (SuccessWithSummary (deploymentCostCheck accountBalanceTransferSourceFile), emptySpec))
-             , ( TJSON { payload = InitContract 0 V1 accountBalanceTransferSourceFile "init_contract" ""
+               , (SuccessWithSummary (deploymentCostCheck accountBalanceMissingAccountSourceFile), emptySpec))
+             , ( TJSON { payload = InitContract 123 V1 accountBalanceMissingAccountSourceFile "init_contract" ""
                        , metadata = makeDummyHeader alesAccount 2 100000
                        , keys = [(0,[(0, alesKP)])]
                        }
-               , (SuccessWithSummary (initializationCostCheck accountBalanceTransferSourceFile "init_contract"), emptySpec))
+               , (SuccessWithSummary (initializationCostCheck accountBalanceMissingAccountSourceFile "init_contract"), emptySpec))
              , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "contract.query" parameters
                        , metadata = makeDummyHeader alesAccount 3 100000
                        , keys = [(0,[(0, alesKP)])]
@@ -191,15 +191,13 @@ accountBalanceMissingAccountTestCase =
   where
     parameters = BSS.toShort $ runPut $ do
       put $ accountAddressFrom 3
-      put (123 :: Types.Amount)
-      put (thomasBalance + 123) -- expected public balance
 
     eventsCheck :: [Types.Event] -> Expectation
     eventsCheck events = do
         -- Check the number of events:
         -- - 3 events for the transfer.
         -- - 1 event for a succesful update to the contract.
-        eventsLengthCheck 4 events
+        eventsLengthCheck 1 events
 
 -- This only checks that the cost of initialization is correct.
 -- If the state was not set up correctly the latter tests in the suite will fail.
