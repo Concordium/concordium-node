@@ -11,7 +11,7 @@ import qualified Data.ByteString.Short as BSS
 import qualified Data.ByteString as BS
 import Control.Monad
 import qualified Data.Set as Set
-import Data.Serialize(runPut, Serialize (put), putWord32le, putWord64be)
+import Data.Serialize(runPut, Serialize (put), putWord32le, putWord64le)
 import qualified Data.Text as T
 import qualified Data.List as List
 
@@ -73,7 +73,7 @@ accountBalanceTestCase =
   where
     parameters = BSS.toShort $ runPut $ do
       put thomasAccount
-      put thomasBalance -- expected public balance
+      putWord64le (fromIntegral thomasBalance) -- expected public balance
       put (0 :: Types.Amount) -- expected staked amount
       put (0 :: Types.Amount) -- expected locked amount
 
@@ -111,7 +111,7 @@ accountBalanceInvokerTestCase =
 
     parameters = BSS.toShort $ runPut $ do
       put thomasAccount
-      put $ thomasBalance - costUpperBound - updateAmount -- expected public balance
+      putWord64le . fromIntegral $ thomasBalance - costUpperBound - updateAmount -- expected public balance
       put (0 :: Types.Amount) -- expected staked amount
       put (0 :: Types.Amount)  -- expected locked amount
 
@@ -151,16 +151,17 @@ accountBalanceTransferTestCase =
   where
     parameters = BSS.toShort $ runPut $ do
       put thomasAccount
-      put (123 :: Types.Amount)
-      put (thomasBalance + 123) -- expected public balance
+      putWord64le 123
+      putWord64le (fromIntegral (thomasBalance + 123)) -- expected public balance
+      put (0 :: Types.Amount) -- expected staked amount
+      put (0 :: Types.Amount) -- expected locked amount
 
     eventsCheck :: [Types.Event] -> Expectation
     eventsCheck events = do
         -- Check the number of events:
         -- - 3 events for the transfer.
         -- - 1 event for a succesful update to the contract.
-        eventsLengthCheck 3 events
-
+        eventsLengthCheck 4 events
 
 accountBalanceMissingAccountSourceFile :: FilePath
 accountBalanceMissingAccountSourceFile = "./testdata/contracts/v1/queries-account-balance-missing-account.wasm"
@@ -198,8 +199,7 @@ accountBalanceMissingAccountTestCase =
         -- Check the number of events:
         -- - 3 events for the transfer.
         -- - 1 event for a succesful update to the contract.
-        eventsLengthCheck 3 events
-
+        eventsLengthCheck 4 events
 
 -- This only checks that the cost of initialization is correct.
 -- If the state was not set up correctly the latter tests in the suite will fail.
