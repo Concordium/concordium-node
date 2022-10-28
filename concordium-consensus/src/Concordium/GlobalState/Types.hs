@@ -18,7 +18,6 @@ import Concordium.Wasm (WasmVersion)
 import Concordium.GlobalState.Classes
 import Concordium.Types
 import Concordium.Genesis.Data
-import Concordium.GlobalState.Persistent.BlobStore
 
 class (IsProtocolVersion (MPV m)) => MonadProtocolVersion (m :: Type -> Type) where
     type MPV m :: ProtocolVersion

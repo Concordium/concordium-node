@@ -20,7 +20,6 @@ import Concordium.Crypto.SignatureScheme as SigScheme
 import Concordium.ID.Types
 import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.BakerInfo
-import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Accounts
 import qualified Concordium.GlobalState.Basic.BlockState.AccountTable as AT

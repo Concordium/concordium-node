@@ -144,7 +144,6 @@ import Concordium.Types
 import Concordium.Types.Accounts
 import Concordium.Types.Updates
 import Concordium.Types.Transactions
-import Concordium.Types.Execution
 import Concordium.Wasm
 
 import qualified Concordium.Crypto.SHA256 as H

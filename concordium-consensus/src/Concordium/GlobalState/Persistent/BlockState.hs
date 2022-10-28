@@ -403,6 +403,11 @@ makePersistentBlockRewardDetails (Basic.BlockRewardDetailsV0 heb) =
 makePersistentBlockRewardDetails (Basic.BlockRewardDetailsV1 pre) =
     BlockRewardDetailsV1 <$> (makerPersistentPoolRewards (_unhashed pre) >>= refMake)
 
+-- |Convert a 'Basic.TransactionOutcomes' to the persistent one ie. 'PersistentTransactionOutcomes'.
+-- Theere are two versions of the transaction outcomes that must be handled i.e. 'PTOV0' and 'PTOV1'
+-- In the former case the conversion is straight forward as they are stored as 'Transactions.TransactionOutcomes'
+-- in both block states. In the latter case we need to convert the transient LMFB trees to  persistent ones.
+-- (There's a LMFB tree each for normal outcomes and special outcomes.)
 makePersistentTransactionOutcomes
     :: (MonadBlobStore m, MonadProtocolVersion m)
     => Basic.BasicTransactionOutcomes tov

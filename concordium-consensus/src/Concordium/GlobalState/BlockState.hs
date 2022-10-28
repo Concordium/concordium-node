@@ -395,18 +395,26 @@ newtype TransactionSummaryV1 = TransactionSummaryV1 {_transactionSummaryV1 :: Tr
 -- |A 'HashableTo' instance for a 'TransactionSummary'' which
 -- omits the exact reject reason.
 -- Failures are simply tagged with a '0x1' byte.
+-- Note. The hash is computed lazily on purpose as the summary can be large
+-- i.e., the resulting events.
 instance HashableTo H.Hash TransactionSummaryV1 where
-  -- TODO: We should use runPutLazy here since a summary can be quite long
-  getHash (TransactionSummaryV1 summary) = H.hash $! S.runPut $!
+  getHash (TransactionSummaryV1 summary) = H.hashLazy $! S.runPutLazy $!
       putMaybe S.put (tsSender summary) <>
       S.put (tsHash summary) <>
       S.put (tsCost summary) <>
       S.put (tsEnergyCost summary) <>
       S.put (tsType summary) <>
-      -- TODO: This is wrong, we only do this for failure, not for all summaries.
-      -- |We simply put a '1' indicating a failure.
-      S.putWord8 1 <>
+      encodeValidResult (tsResult summary) <>
       S.put (tsIndex summary)
+    where
+      -- |Encode the 'ValidResult' omitting the exact 'RejectReason' if the
+      -- transaction failed. Otherwise we encode the resulting events in the
+      -- resulting outcome hash.
+      encodeValidResult :: S.Putter ValidResult
+      encodeValidResult (TxSuccess events) = S.putWord8 0 <> putListOf putEvent events
+      -- We omit the exact 'RejectReason'.
+      encodeValidResult (TxReject _) = S.putWord8 1
+
 
 
 instance (MonadBlobStore m, MonadProtocolVersion m) => BlobStorable m TransactionSummaryV1 where

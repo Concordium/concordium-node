@@ -25,7 +25,6 @@ import Data.Foldable
 import Data.Functor.Identity
 import Data.Serialize
 import qualified Data.Sequence as Seq
-import Data.Word
 import Control.Monad.IO.Class
 import qualified Control.Monad.State.Strict as MTL
 import qualified Control.Monad.Except as MTL
@@ -315,7 +314,6 @@ emptyTransactionOutcomes Proxy = case transactionOutcomesVersion @(TransactionOu
   STOV0 -> BTOV0 Transactions.emptyTransactionOutcomesV0
   STOV1 -> BTOV1 emptyMerkleTransactionOutcomes
     
--- |TODO fix.
 instance Show (BasicTransactionOutcomes tov) where
   show (BTOV0 a) = show a
   show (BTOV1 a) = show a
