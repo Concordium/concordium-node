@@ -279,7 +279,11 @@ getBlockRewardDetails = case delegationSupport @av of
     SAVDelegationNotSupported -> BlockRewardDetailsV0 <$> getHashedEpochBlocksV0
     SAVDelegationSupported -> BlockRewardDetailsV1 . makeHashed <$> PoolRewards.getPoolRewards
 
--- |todo DOC
+-- |Transaction outcomes in PV5 ('TOV1') are stored in one of two merkle trees,
+-- depending whether the associated transaction was a 'normal' transaction or
+-- a 'special' transaction.
+-- The resulting 'TransactionOutcomesHash' is then computed by hashing the root
+-- of each tree.
 data MerkleTransactionOutcomes = MerkleTransactionOutcomes {
     mtoOutcomes :: LFMBT.LFMBTree TransactionIndex BS.TransactionSummaryV1,
     mtoSpecials :: LFMBT.LFMBTree TransactionIndex Transactions.SpecialTransactionOutcome
@@ -298,7 +302,9 @@ instance HashableTo Transactions.TransactionOutcomesHash MerkleTransactionOutcom
         special = getHash mtoSpecials
     in Transactions.TransactionOutcomesHash (H.hashOfHashes out special)
 
--- |todo doc
+-- |Transaction outcomes are kept in this gadt based on the 'TransactionOutcomesVersion'.
+-- The surjective type family 'TransactionOutcomesVersionFor' (From 'ProtocolVersion' to 'TransactionOutcomesVersion')
+-- is holding onto the concrete mapping based on contextual protocol version.
 data BasicTransactionOutcomes (tov :: TransactionOutcomesVersion) where
     BTOV0 :: Transactions.TransactionOutcomes -> BasicTransactionOutcomes 'TOV0
     BTOV1 :: MerkleTransactionOutcomes -> BasicTransactionOutcomes 'TOV1
