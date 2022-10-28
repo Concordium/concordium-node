@@ -261,10 +261,12 @@ type PersistentTreeStateM pv bs m = TreeStateM (SkovPersistentData pv bs) m
 -- ** Memory implementations
 
 deriving via Basic.PureTreeStateMonad bs m
-    instance GlobalStateTypes (MemoryTreeStateM pv bs m)
+    instance (IsProtocolVersion pv, pv ~ MPV m) => GlobalStateTypes (MemoryTreeStateM pv bs m)
 
 deriving via Basic.PureTreeStateMonad bs m
     instance (Monad m,
+              IsProtocolVersion pv,
+              pv ~ MPV m,
               BlockPointerMonad (Basic.PureTreeStateMonad bs m))
              => BlockPointerMonad (MemoryTreeStateM pv bs m)
 
@@ -278,10 +280,11 @@ deriving via Basic.PureTreeStateMonad bs m
 -- ** Disk implementations
 
 deriving via PersistentTreeStateMonad bs m
-    instance GlobalStateTypes (PersistentTreeStateM pv bs m)
+    instance (IsProtocolVersion pv, pv ~ MPV m) =>  GlobalStateTypes (PersistentTreeStateM pv bs m)
 
 deriving via PersistentTreeStateMonad bs m
     instance (Monad m,
+              IsProtocolVersion pv,
               BlockPointerMonad (PersistentTreeStateMonad bs m),
               MPV m ~ pv)
              => BlockPointerMonad (PersistentTreeStateM pv bs m)
