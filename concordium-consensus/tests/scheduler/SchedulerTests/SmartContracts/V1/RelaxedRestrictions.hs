@@ -11,7 +11,7 @@
         - Of size <= 1kb: base cost + 1NRG / 1 *kilobyte* (same as before P5)
         - Of size > 1 kb: base cost + 1NRG / 1 *byte*
 -}
-module SchedulerTests.SmartContracts.V1.RelaxedRestrictions (testsPV4, testsPV5) where
+module SchedulerTests.SmartContracts.V1.RelaxedRestrictions (tests) where
 
 import Test.Hspec
 import Test.HUnit(assertFailure, assertEqual)
@@ -316,10 +316,9 @@ checkSuccess :: [Char] -> Types.ValidResult -> IO ()
 checkSuccess msg Types.TxReject{..} = assertFailure $ msg ++ show vrRejectReason
 checkSuccess _ _ = return ()
 
-testsPV4 :: Spec
-testsPV4 = describe "V1: Relax restrictions. Test in PV4." $
+tests :: Spec
+tests = do
+  describe "V1: Relax restrictions. Test in PV4." $
     mkSpecs testCasesPV4
-
-testsPV5 :: Spec
-testsPV5 = describe "V1: Relax restrictions. Test in PV5." $
+  describe "V1: Relax restrictions. Test in PV5." $
     mkSpecs testCasesPV5

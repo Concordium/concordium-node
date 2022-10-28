@@ -41,7 +41,7 @@ import qualified SchedulerTests.SmartContracts.V1.Checkpointing (tests)
 import qualified SchedulerTests.SmartContracts.V1.AllNewHostFunctions (tests)
 import qualified SchedulerTests.SmartContracts.V1.Upgrading (tests)
 import qualified SchedulerTests.SmartContracts.V1.Queries (tests)
-import qualified SchedulerTests.SmartContracts.V1.RelaxedRestrictions (testsPV4, testsPV5)
+import qualified SchedulerTests.SmartContracts.V1.RelaxedRestrictions (tests)
 
 import Test.Hspec
 
@@ -85,7 +85,6 @@ main = hspec $ do
          SchedulerTests.SmartContracts.V1.AllNewHostFunctions.tests
          SchedulerTests.SmartContracts.V1.Upgrading.tests
          SchedulerTests.SmartContracts.V1.Queries.tests
-         SchedulerTests.SmartContracts.V1.RelaxedRestrictions.testsPV4
-         SchedulerTests.SmartContracts.V1.RelaxedRestrictions.testsPV5
+         SchedulerTests.SmartContracts.V1.RelaxedRestrictions.tests
          SchedulerTests.Payday.tests
          SchedulerTests.Delegation.tests
