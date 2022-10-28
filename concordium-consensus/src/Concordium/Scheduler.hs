@@ -1222,9 +1222,9 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                            return $ schedule ^. totalLockedUpBalance
                         -- Construct the return value.
                         let returnValue = WasmV1.byteStringToReturnValue $ S.runPut $ do
-                             S.put balance
-                             S.put stake
-                             S.put lockedAmount
+                             Wasm.putAmountLE balance
+                             Wasm.putAmountLE stake
+                             Wasm.putAmountLE lockedAmount
                         go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False
                              newBalance WasmV1.Success (Just returnValue))
                   WasmV1.QueryContractBalance {..}  -> do
@@ -1244,7 +1244,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                      InstanceInfoV1 _ -> getCurrentContractAmount Wasm.SV1 istance
                         -- Construct the return value.
                         let returnValue = WasmV1.byteStringToReturnValue $ S.runPut $ do
-                             S.put balance
+                             Wasm.putAmountLE balance
                         go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False
                              newBalance WasmV1.Success (Just returnValue))
                   WasmV1.QueryExchangeRates -> do
@@ -1255,7 +1255,8 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                     currentExchangeRates <- getExchangeRates
                     -- Construct the return value.
                     let returnValue = WasmV1.byteStringToReturnValue $ S.runPut $ do
-                          S.put currentExchangeRates
+                          Wasm.putExchangeRateLE $ currentExchangeRates ^. euroPerEnergy
+                          Wasm.putExchangeRateLE $ currentExchangeRates ^. microGTUPerEuro
                     go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False
                           newBalance WasmV1.Success (Just returnValue))
 
