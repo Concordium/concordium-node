@@ -53,7 +53,7 @@ import Test.QuickCheck
 --------------------------------- Monad Types ----------------------------------
 
 -- |Protocol version.
-type PV = 'P1
+type PV = 'P5
 
 type PairedGSContext = PairGSContext () (PBS.PersistentBlockStateContext PV)
 
@@ -100,7 +100,7 @@ createGS dbDir = do
   now <- utcTimeToTimestamp <$> getCurrentTime
   let
     n = 3
-    genesis = makeTestingGenesisDataP1 now n 1 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters emptyIdentityProviders emptyAnonymityRevokers maxBound dummyKeyCollection dummyChainParameters
+    genesis = makeTestingGenesisDataP5 now n 1 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters emptyIdentityProviders emptyAnonymityRevokers maxBound dummyKeyCollection dummyChainParameters
     rp = defaultRuntimeParameters
     config = PairGSConfig (MTMBConfig rp, DTDBConfig rp dbDir (dbDir </> "blockstate" <.> "dat"))
   (x, y) <- runSilentLogger $ initialiseGlobalState genesis config
@@ -123,8 +123,8 @@ testing = do
   let [(accA, aiA), (accB, aiB)] = take 2 $ map (\(ai, ac) -> (ac ^. accountAddress, ai)) $ AT.toList $ accountTable (bs1 ^. blockAccounts)
   b' <- bsoAddReleaseSchedule (bs1, bs2) [(accA, head timestampsA), (accB, head timestampsB)]
   checkEqualBlockReleaseSchedule b'
-  bs'' <- foldlM (\b e@((acc, ai), rels) -> do
-                     newB <- bsoModifyAccount b ((emptyAccountUpdate ai acc) { _auReleaseSchedule = Just [(rels, dummyTransactionHash)] })
+  bs'' <- foldlM (\b e@((_, ai), rels) -> do
+                     newB <- bsoModifyAccount b ((emptyAccountUpdate ai) { _auReleaseSchedule = Just [(rels, dummyTransactionHash)] })
                      checkCorrectAccountReleaseSchedule newB b e
                      return newB
                  ) b' (map ((accA, aiA),) txsA ++ map ((accB, aiB),) txsB)
@@ -167,7 +167,7 @@ checkEqualAccountReleaseSchedule (blockStateBasic, blockStatePersistent) acc = d
                                                   blockStatePersistent' <- loadBufferedRef =<< liftIO (readIORef  blockStatePersistent)
                                                   Concordium.GlobalState.Persistent.Accounts.getAccount acc (PBS.bspAccounts blockStatePersistent') >>= \case
                                                     Nothing -> return Nothing
-                                                    Just a -> Just <$> (refLoad (Concordium.GlobalState.Persistent.Account._accountReleaseSchedule a) >>= getHashM)) ctx :: ThisMonadConcrete (Maybe AccountReleaseScheduleHash)
+                                                    Just a -> Just . getHash <$> Concordium.GlobalState.Persistent.Account.accountReleaseSchedule a) ctx :: ThisMonadConcrete (Maybe AccountReleaseScheduleHash)
   assert (Just (getHash (newBasicAccount ^. accountReleaseSchedule)) == newPersistentAccountReleaseScheduleHash) $ return ()
 
 -- | Check that an an account was correctly updated in the two blockstates with the given release schedule

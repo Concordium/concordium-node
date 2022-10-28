@@ -48,7 +48,6 @@ module Concordium.GlobalState.BlockState where
 import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Except
-import Data.Functor
 import qualified Data.Vector as Vec
 import Data.Serialize(Serialize)
 import qualified Data.Serialize as S
@@ -153,20 +152,23 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
   -- |Check whether an account is allowed to perform the given action.
   checkAccountIsAllowed :: Account m -> AccountAllowance -> m Bool
 
+  -- |Get the amount that is staked on the account.
+  -- This is 0 if the account is not staking or delegating.
+  getAccountStakedAmount :: Account m -> m Amount
+
+  -- |Get the amount that is locked in scheduled releases on the account.
+  -- This is 0 if there are no pending releases on the account.
+  getAccountLockedAmount :: Account m -> m Amount
+
   -- | Get the current public account available balance.
   -- This accounts for lock-up and staked amounts.
   -- @available = total - max locked staked@
   getAccountAvailableAmount :: Account m -> m Amount
   getAccountAvailableAmount acc = do
     total <- getAccountAmount acc
-    lockedUp <- _totalLockedUpBalance <$> getAccountReleaseSchedule acc
-    stakedBkr <- getAccountBaker acc <&> \case
-      Nothing -> 0
-      Just bkr -> _stakedAmount bkr
-    stakedDel <- getAccountDelegator acc <&> \case
-      Nothing -> 0
-      Just AccountDelegationV1{..} -> _delegationStakedAmount
-    return $ total - max lockedUp (max stakedBkr stakedDel)
+    lockedUp <- getAccountLockedAmount acc
+    staked <- getAccountStakedAmount acc
+    return $ total - max lockedUp staked
 
   -- |Get the next available nonce for this account
   getAccountNonce :: Account m -> m Nonce
@@ -1381,6 +1383,8 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
   getAccountCanonicalAddress = lift . getAccountCanonicalAddress
   getAccountAmount = lift. getAccountAmount
   checkAccountIsAllowed acc = lift . checkAccountIsAllowed acc
+  getAccountStakedAmount = lift . getAccountStakedAmount
+  getAccountLockedAmount = lift . getAccountLockedAmount
   getAccountAvailableAmount = lift . getAccountAvailableAmount
   getAccountNonce = lift . getAccountNonce
   getAccountCredentials = lift . getAccountCredentials

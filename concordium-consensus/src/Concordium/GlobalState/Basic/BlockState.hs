@@ -973,6 +973,13 @@ instance (Monad m, IsProtocolVersion pv) => BS.AccountOperations (PureBlockState
 
   getAccountAmount acc = return $ acc ^. accountAmount
 
+  getAccountStakedAmount acc = return $! case acc ^. accountStaking of
+    AccountStakeNone -> 0
+    AccountStakeBaker bkr -> bkr ^. stakedAmount
+    AccountStakeDelegate del -> del ^. delegationStakedAmount
+
+  getAccountLockedAmount acc = return $! acc ^. accountReleaseSchedule . totalLockedUpBalance
+
   getAccountNonce acc = return $ acc ^. accountNonce
 
   checkAccountIsAllowed acc BS.AllowedEncryptedTransfers = return (Map.size (acc ^. accountCredentials) == 1)

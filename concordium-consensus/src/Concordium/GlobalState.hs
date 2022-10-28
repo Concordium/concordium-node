@@ -29,6 +29,7 @@ import qualified Concordium.GlobalState.Basic.TreeState as Basic
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.Persistent.Account (AccountCache, newAccountCache)
 import Concordium.GlobalState.Persistent.BlobStore (closeBlobStore, createBlobStore, destroyBlobStore, loadBlobStore, BlobStoreT (runBlobStoreT))
 import Concordium.GlobalState.Persistent.BlockState
 import Concordium.GlobalState.Persistent.TreeState
@@ -37,7 +38,6 @@ import Concordium.Logger
 import Concordium.Types.Block (AbsoluteBlockHeight)
 
 import Concordium.GlobalState.Persistent.Cache
-import qualified Concordium.GlobalState.Persistent.Accounts as Accounts
 import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
 
 -- For the avid reader.
@@ -221,7 +221,7 @@ instance
       AccountVersionFor pv ~ av,
       MonadReader r m
     ) =>
-    MonadCache (Accounts.AccountCache av) (PersistentBlockStateM pv r g s m)
+    MonadCache (AccountCache av) (PersistentBlockStateM pv r g s m)
     where
     getCache = projectCache <$> ask
 
@@ -519,7 +519,7 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
     migrateExistingState MTDBConfig{..} oldPbsc oldState migration genData = do
         pbsc <- liftIO $ do
             pbscBlobStore <- createBlobStore mtdbBlockStateFile
-            pbscAccountCache <- Accounts.newAccountCache (rpAccountsCacheSize mtdbRuntimeParameters)
+            pbscAccountCache <- newAccountCache (rpAccountsCacheSize mtdbRuntimeParameters)
             pbscModuleCache <- Modules.newModuleCache (rpModulesCacheSize mtdbRuntimeParameters)
             return PersistentBlockStateContext{..}
         newInitialBlockState <- flip runBlobStoreT oldPbsc . flip runBlobStoreT pbsc $ do
@@ -556,7 +556,7 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
             Right genState -> return genState
         liftIO $ do
             pbscBlobStore <- createBlobStore mtdbBlockStateFile
-            pbscAccountCache <- Accounts.newAccountCache (rpAccountsCacheSize mtdbRuntimeParameters)
+            pbscAccountCache <- newAccountCache (rpAccountsCacheSize mtdbRuntimeParameters)
             pbscModuleCache <- Modules.newModuleCache (rpModulesCacheSize mtdbRuntimeParameters)
             let pbsc = PersistentBlockStateContext {..}
             let initState = do
@@ -581,7 +581,7 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
       if existingDB then do
         logm <- ask
         liftIO $ do
-          pbscAccountCache <- Accounts.newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
+          pbscAccountCache <- newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
           pbscModuleCache <- Modules.newModuleCache (rpModulesCacheSize dtdbRuntimeParameters)
           pbscBlobStore <- loadBlobStore dtdbBlockStateFile
           let pbsc = PersistentBlockStateContext{..}
@@ -592,7 +592,7 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
 
     migrateExistingState DTDBConfig{..} oldPbsc oldState migration genData = do
       pbscBlobStore <- liftIO $ createBlobStore dtdbBlockStateFile
-      pbscAccountCache <- liftIO $ Accounts.newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
+      pbscAccountCache <- liftIO $ newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
       pbscModuleCache <- liftIO $ Modules.newModuleCache (rpModulesCacheSize dtdbRuntimeParameters)
       let pbsc = PersistentBlockStateContext {..}
       newInitialBlockState <- flip runBlobStoreT oldPbsc . flip runBlobStoreT pbsc $ do
@@ -617,7 +617,7 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
 
     initialiseNewGlobalState genData DTDBConfig{..} = do
       pbscBlobStore <- liftIO $ createBlobStore dtdbBlockStateFile
-      pbscAccountCache <- liftIO $ Accounts.newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
+      pbscAccountCache <- liftIO $ newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
       pbscModuleCache <- liftIO $ Modules.newModuleCache (rpModulesCacheSize dtdbRuntimeParameters)
       let pbsc = PersistentBlockStateContext{..}
       let initGS = do

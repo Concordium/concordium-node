@@ -64,7 +64,7 @@ import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Serialize as S
 
 -- |Protocol version
-type PV = 'P4
+type PV = 'P5
 
 type TreeConfig = DiskTreeDiskBlockConfig
 
@@ -75,8 +75,12 @@ makeGlobalStateConfig rt treeStateDir blockStateFile = return $ DTDBConfig rt tr
 
 {-
 type TreeConfig = PairGSConfig MemoryTreeMemoryBlockConfig DiskTreeDiskBlockConfig
-makeGlobalStateConfig rp treeStateDir blockStateFile genData =
-   return $ PairGSConfig (MTMBConfig rp genData, DTDBConfig rp treeStateDir blockStateFile genData)
+
+-- |Construct the global state configuration.
+-- Can be customised if changing the configuration.
+makeGlobalStateConfig :: RuntimeParameters -> FilePath -> FilePath -> IO TreeConfig
+makeGlobalStateConfig rp treeStateDir blockStateFile =
+   return $ PairGSConfig (MTMBConfig rp, DTDBConfig rp treeStateDir blockStateFile)
 -}
 
 -- |A timer is represented as an integer identifier.

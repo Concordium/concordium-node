@@ -15,7 +15,6 @@ import qualified Data.ByteString as BS
 import Concordium.Wasm
 import qualified Concordium.GlobalState.Wasm as GSWasm
 import qualified Concordium.Scheduler.WasmIntegration.V1 as WasmV1
-import qualified Concordium.Types.ProtocolVersion as PV
 
 -- |A V1 module with extra exports.
 testModule1 :: Assertion

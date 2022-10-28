@@ -217,8 +217,7 @@ instance (MonadReader ContextState m,
   increaseAccountNonce (ai, acc) = do
     s <- use schedulerBlockState
     nonce <- getAccountNonce acc
-    addr <- getAccountCanonicalAddress acc
-    s' <- lift (bsoModifyAccount s (emptyAccountUpdate ai addr & auNonce ?~ (nonce + 1)))
+    s' <- lift (bsoModifyAccount s (emptyAccountUpdate ai & auNonce ?~ (nonce + 1)))
     schedulerBlockState .= s'
 
   {-# INLINE updateAccountCredentials #-}

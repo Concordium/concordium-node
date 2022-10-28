@@ -7,7 +7,10 @@
   Only V1 smart contracts supports upgrading.
 - Revised the hashing scheme for transaction outcomes in protocol version 5.
   In particular the exact reject reasons are no longer part of the computed hash.
-  Further the transaction outcomes are being stored in a merkle tree for P5.
+  Further the transaction outcomes are being stored in a merkle tree for P5 resulting 
+  in some queries being faster.
+- a new representation of accounts that is better optimised for common operations
+- Fix an issue where the catch-up downloader would fail at a protocol update.
 
 ## 4.5.0
 
