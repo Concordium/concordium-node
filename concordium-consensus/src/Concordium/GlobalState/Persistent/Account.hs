@@ -180,6 +180,12 @@ accountReleaseSchedule (PAV0 acc) = V0.getReleaseSchedule acc
 accountReleaseSchedule (PAV1 acc) = V0.getReleaseSchedule acc
 accountReleaseSchedule (PAV2 acc) = V1.getReleaseSchedule acc
 
+-- |Get the timestamp at which the next scheduled release will occur (if any).
+accountNextReleaseTimestamp :: (MonadBlobStore m) => PersistentAccount av -> m (Maybe Timestamp)
+accountNextReleaseTimestamp (PAV0 acc) = V0.getNextReleaseTimestamp acc
+accountNextReleaseTimestamp (PAV1 acc) = V0.getNextReleaseTimestamp acc
+accountNextReleaseTimestamp (PAV2 acc) = V1.getNextReleaseTimestamp acc
+
 -- |Get the baker (if any) attached to an account.
 accountBaker :: (MonadBlobStore m) => PersistentAccount av -> m (Maybe (AccountBaker av))
 accountBaker (PAV0 acc) = V0.getBaker acc

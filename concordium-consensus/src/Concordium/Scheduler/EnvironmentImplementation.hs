@@ -14,7 +14,6 @@ import Concordium.Scheduler.Environment
 
 import qualified Data.Kind as DK
 import Data.HashMap.Strict as Map
-import qualified Data.Map.Strict as OrdMap
 import Data.Functor.Identity
 
 import Concordium.TimeMonad
@@ -242,11 +241,11 @@ instance (MonadReader ContextState m,
                       s1
                       (Map.toList (cs ^. instanceV1Updates)))
     -- Notify account transfers.
+    -- This also updates the release schedule.
     s3 <- lift (foldM bsoModifyAccount
                   s2
                   (cs ^. accountUpdates))
-    s4 <- lift (bsoAddReleaseSchedule s3 (OrdMap.toList $ cs ^. addedReleaseSchedules))
-    schedulerBlockState .= s4
+    schedulerBlockState .= s3
 
   {-# INLINE energyToGtu #-}
   energyToGtu v = do

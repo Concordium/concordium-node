@@ -74,6 +74,7 @@ module Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule (
   migratePersistentAccountReleaseSchedule,
   -- * Queries
   releaseScheduleLockedBalance,
+  nextReleaseTimestamp,
   ) where
 
 import Concordium.Crypto.SHA256
@@ -331,3 +332,7 @@ loadPersistentAccountReleaseSchedule AccountReleaseSchedule{..} = do
 -- |Get the total locked up balance on an 'AccountReleaseSchedule'.
 releaseScheduleLockedBalance :: AccountReleaseSchedule -> Amount
 releaseScheduleLockedBalance = _arsTotalLockedUpBalance
+
+-- |Get the timestamp at which the next scheduled release will occur (if any).
+nextReleaseTimestamp :: AccountReleaseSchedule -> Maybe Timestamp
+nextReleaseTimestamp = fmap fst . Map.lookupMin . _arsPrioQueue

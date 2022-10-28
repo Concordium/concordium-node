@@ -219,7 +219,6 @@ data BlockStateOperationsAction pv a where
     BsoEnqueueUpdate :: MockUpdatableBlockState -> TransactionTime -> UpdateValue (ChainParametersVersionFor pv) -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoOverwriteElectionDifficulty :: MockUpdatableBlockState -> ElectionDifficulty -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoClearProtocolUpdate :: MockUpdatableBlockState -> BlockStateOperationsAction pv MockUpdatableBlockState
-    BsoAddReleaseSchedule :: MockUpdatableBlockState -> [(AccountAddress, Timestamp)] -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoGetEnergyRate :: MockUpdatableBlockState -> BlockStateOperationsAction pv EnergyRate
     BsoGetChainParameters :: MockUpdatableBlockState -> BlockStateOperationsAction pv (ChainParameters pv)
     BsoGetEpochBlocksBaked :: MockUpdatableBlockState -> BlockStateOperationsAction pv (Word64, [(BakerId, Word64)])

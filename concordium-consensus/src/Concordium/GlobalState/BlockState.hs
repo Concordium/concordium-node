@@ -644,6 +644,9 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- NB: In case we are adding a credential to an account this method __must__ also
   -- update the global set of known credentials.
   --
+  -- If the update adds scheduled releases to the account, this will also update the release
+  -- schedule index to record the next scheduled release time for the account.
+  --
   -- It is the responsibility of the caller to ensure that the change does not lead to a
   -- negative account balance or a situation where the staked or locked balance
   -- exceeds the total balance on the account.
@@ -1161,10 +1164,6 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- This does not affect the next sequence number for protocol updates.
   bsoClearProtocolUpdate :: UpdatableBlockState m -> m (UpdatableBlockState m)
 
-  -- |Add the given accounts and timestamps to the per-block account release schedule.
-  -- PRECONDITION: The given timestamp must be the first timestamp for a release for the given account.
-  bsoAddReleaseSchedule :: UpdatableBlockState m -> [(AccountAddress, Timestamp)] -> m (UpdatableBlockState m)
-
   -- |Get the current energy rate.
   bsoGetEnergyRate :: UpdatableBlockState m -> m EnergyRate
 
@@ -1437,7 +1436,6 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoEnqueueUpdate s tt payload = lift $ bsoEnqueueUpdate s tt payload
   bsoOverwriteElectionDifficulty s = lift . bsoOverwriteElectionDifficulty s
   bsoClearProtocolUpdate = lift . bsoClearProtocolUpdate
-  bsoAddReleaseSchedule s l = lift $ bsoAddReleaseSchedule s l
   bsoGetEnergyRate = lift . bsoGetEnergyRate
   bsoGetChainParameters = lift . bsoGetChainParameters
   bsoGetEpochBlocksBaked = lift . bsoGetEpochBlocksBaked
@@ -1487,7 +1485,6 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoEnqueueUpdate #-}
   {-# INLINE bsoOverwriteElectionDifficulty #-}
   {-# INLINE bsoClearProtocolUpdate #-}
-  {-# INLINE bsoAddReleaseSchedule #-}
   {-# INLINE bsoGetEnergyRate #-}
   {-# INLINE bsoGetChainParameters #-}
   {-# INLINE bsoGetEpochBlocksBaked #-}

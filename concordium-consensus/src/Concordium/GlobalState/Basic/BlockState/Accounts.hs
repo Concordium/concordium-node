@@ -190,9 +190,9 @@ instance IsProtocolVersion pv => Ixed (Accounts pv) where
        Nothing -> pure acc
        Just i -> (\atable -> acc { accountTable = atable }) <$> ix i f accountTable
 
--- |Convert an 'Accounts' to a list of 'Account's.
-accountList :: Accounts pv -> [Account (AccountVersionFor pv)]
-accountList = fmap snd . AT.toList . accountTable
+-- |Convert an 'Accounts' to a list of 'Account's with their indexes.
+accountList :: Accounts pv -> [(AccountIndex, Account (AccountVersionFor pv))]
+accountList = AT.toList . accountTable
 
 -- |Fold over the account table in ascending order of account index.
 foldAccounts :: (a -> Account (AccountVersionFor pv) -> a) -> a -> Accounts pv -> a

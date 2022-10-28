@@ -915,10 +915,6 @@ instance
         liftM2 (,)
             (coerceBSML $ bsoProcessPendingChanges bs1 ch)
             (coerceBSMR $ bsoProcessPendingChanges bs2 ch)
-    bsoAddReleaseSchedule (bs1, bs2) tt = do
-        bs1' <- coerceBSML $ bsoAddReleaseSchedule bs1 tt
-        bs2' <- coerceBSMR $ bsoAddReleaseSchedule bs2 tt
-        return (bs1', bs2')
     bsoGetEnergyRate (bs1, bs2) = do
         r1 <- coerceBSML $ bsoGetEnergyRate bs1
         r2 <- coerceBSMR $ bsoGetEnergyRate bs2
