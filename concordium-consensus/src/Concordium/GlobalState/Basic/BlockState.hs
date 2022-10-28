@@ -364,7 +364,7 @@ instance HashableTo StateHash (HashedBlockState pv) where
 -- |Construct a block state that is empty, except for the supplied 'BirkParameters',
 -- 'CryptographicParameters', 'Authorizations' and 'ChainParameters'.
 emptyBlockState
-    :: forall pv . (IsProtocolVersion pv, BS.SupportsTransactionOutcomes pv) =>
+    :: forall pv . (IsProtocolVersion pv) =>
     BasicBirkParameters (AccountVersionFor pv) ->
     BlockRewardDetails (AccountVersionFor pv) ->
     CryptographicParameters ->
@@ -454,7 +454,7 @@ putBlockState bs = do
 --    timestamp for every account with a scheduled release.
 --
 -- Note that the transaction outcomes will always be empty.
-getBlockState :: forall oldpv pv. (IsProtocolVersion oldpv, IsProtocolVersion pv, BS.SupportsTransactionOutcomes pv)
+getBlockState :: forall oldpv pv. (IsProtocolVersion oldpv, IsProtocolVersion pv)
     => StateMigrationParameters oldpv pv -> Get (BlockState pv)
 getBlockState migration = do
     -- BirkParameters
@@ -2010,7 +2010,7 @@ instance (IsProtocolVersion pv, MonadIO m) => BS.BlockStateStorage (PureBlockSta
 
 -- |Initial block state.
 initialState :: forall pv
-              . (IsProtocolVersion pv, BS.SupportsTransactionOutcomes pv)
+              . (IsProtocolVersion pv)
              => SeedState
              -> CryptographicParameters
              -> [Account (AccountVersionFor pv)]
@@ -2181,7 +2181,7 @@ genesisBakerInfo spv cp GenesisBaker{..} = AccountBaker{..}
 
 -- |Initial block state based on 'GenesisData', for a given protocol version.
 -- This also returns the transaction table.
-genesisState :: forall pv . (IsProtocolVersion pv, BS.SupportsTransactionOutcomes pv)
+genesisState :: forall pv . (IsProtocolVersion pv)
              => GenesisData pv
              -> Either String (BlockState pv, TransactionTable.TransactionTable)
 genesisState gd = case protocolVersion @pv of
@@ -2236,7 +2236,7 @@ genesisState gd = case protocolVersion @pv of
 -- This function should only fail if there is a bug in state deserialization.
 migrateBlockState ::
     forall oldpv pv.
-    (IsProtocolVersion oldpv, IsProtocolVersion pv, BS.SupportsTransactionOutcomes pv) =>
+    (IsProtocolVersion oldpv, IsProtocolVersion pv) =>
     StateMigrationParameters oldpv pv ->
     BlockState oldpv ->
     Either String (BlockState pv)

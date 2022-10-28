@@ -419,7 +419,7 @@ class GlobalStateConfig (c :: Type) where
     -- Note that even if the state is successfully loaded it is not in a usable
     -- state for an active consensus and must be activated before. Use
     -- 'activateGlobalState' for that.
-    initialiseExistingGlobalState :: forall pv . (IsProtocolVersion pv, SupportsTransactionOutcomes pv) => SProtocolVersion pv -> c -> LogIO (Maybe (GSContext c pv, GSState c pv))
+    initialiseExistingGlobalState :: forall pv . IsProtocolVersion pv => SProtocolVersion pv -> c -> LogIO (Maybe (GSContext c pv, GSState c pv))
 
     -- |Migrate an existing global state. This is only intended to be used on a
     -- protocol update and requires that the initial state for the new protocol
@@ -437,7 +437,7 @@ class GlobalStateConfig (c :: Type) where
     -- but future protocol updates might need to do some migration of these as
     -- well.
     migrateExistingState ::
-      (IsProtocolVersion pv, IsProtocolVersion oldpv, SupportsTransactionOutcomes pv, SupportsTransactionOutcomes oldpv) =>
+      (IsProtocolVersion pv, IsProtocolVersion oldpv) =>
       -- |The configuration.
       c ->
       -- |Global state context for the state we are migrating from.
@@ -454,17 +454,17 @@ class GlobalStateConfig (c :: Type) where
     -- |Initialise new global state with the given genesis. If the state already
     -- exists this will raise an exception. It is not necessary to call 'activateGlobalState'
     -- on the generated state, as this will establish the necessary invariants.
-    initialiseNewGlobalState :: (IsProtocolVersion pv, SupportsTransactionOutcomes pv) => GenesisData pv -> c -> LogIO (GSContext c pv, GSState c pv)
+    initialiseNewGlobalState :: IsProtocolVersion pv => GenesisData pv -> c -> LogIO (GSContext c pv, GSState c pv)
 
     -- |Either initialise an existing state, or if it does not exist, initialise a new one with the given genesis.
-    initialiseGlobalState :: forall pv . (IsProtocolVersion pv, SupportsTransactionOutcomes pv) => GenesisData pv -> c -> LogIO (GSContext c pv, GSState c pv)
+    initialiseGlobalState :: forall pv . IsProtocolVersion pv => GenesisData pv -> c -> LogIO (GSContext c pv, GSState c pv)
     initialiseGlobalState gd cfg = initialiseExistingGlobalState (protocolVersion @pv) cfg >>= \case
       Nothing -> initialiseNewGlobalState gd cfg
       Just config -> return config
 
     -- |Establish all the necessary invariants so that the state can be used by
     -- consensus. This should only be called once per initialised state.
-    activateGlobalState :: (IsProtocolVersion pv, SupportsTransactionOutcomes pv) => Proxy c -> Proxy pv -> GSContext c pv -> GSState c pv -> LogIO (GSState c pv)
+    activateGlobalState :: IsProtocolVersion pv => Proxy c -> Proxy pv -> GSContext c pv -> GSState c pv -> LogIO (GSState c pv)
 
     -- |Shutdown the global state.
     shutdownGlobalState :: SProtocolVersion pv -> Proxy c -> GSContext c pv -> GSState c pv -> IO ()

@@ -503,7 +503,7 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
     getRewardStatus :: BlockState m -> m (RewardStatus' Epoch)
 
     -- |Get the outcome of a transaction in the given block.
-    getTransactionOutcome :: (SupportsTransactionOutcomes (MPV m)) => BlockState m -> TransactionIndex -> m (Maybe TransactionSummary)
+    getTransactionOutcome :: BlockState m -> TransactionIndex -> m (Maybe TransactionSummary)
 
     -- |Get the transactionOutcomesHash of a given block.
     getTransactionOutcomesHash :: BlockState m -> m TransactionOutcomesHash
@@ -512,11 +512,11 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
     getStateHash :: BlockState m -> m StateHash
 
     -- |Get all transaction outcomes for this block.
-    getOutcomes :: (SupportsTransactionOutcomes (MPV m)) => BlockState m -> m (Vec.Vector TransactionSummary)
+    getOutcomes :: BlockState m -> m (Vec.Vector TransactionSummary)
 
     -- |Get special transactions outcomes (for administrative transactions, e.g., baker reward)
     -- They should be returned in the order that they were emitted.
-    getSpecialOutcomes :: (SupportsTransactionOutcomes (MPV m)) => BlockState m -> m (Seq.Seq SpecialTransactionOutcome)
+    getSpecialOutcomes :: BlockState m -> m (Seq.Seq SpecialTransactionOutcome)
 
     -- |Get the identity provider info for a given block given by its id.
     getIdentityProvider :: BlockState m -> ID.IdentityProviderIdentity -> m (Maybe IpInfo)
@@ -1161,10 +1161,10 @@ class (BlockStateQuery m) => BlockStateOperations m where
   bsoSetPaydayMintRate :: (SupportsDelegation (MPV m)) => UpdatableBlockState m -> MintRate -> m (UpdatableBlockState m)
 
   -- |Set the transaction outcomes for the block.
-  bsoSetTransactionOutcomes :: (SupportsTransactionOutcomes (MPV m)) => UpdatableBlockState m -> [TransactionSummary] -> m (UpdatableBlockState m)
+  bsoSetTransactionOutcomes :: UpdatableBlockState m -> [TransactionSummary] -> m (UpdatableBlockState m)
 
   -- |Add a special transaction outcome.
-  bsoAddSpecialTransactionOutcome :: (SupportsTransactionOutcomes (MPV m)) => UpdatableBlockState m -> SpecialTransactionOutcome -> m (UpdatableBlockState m)
+  bsoAddSpecialTransactionOutcome :: UpdatableBlockState m -> SpecialTransactionOutcome -> m (UpdatableBlockState m)
 
   -- |Process queued updates.
   bsoProcessUpdateQueues

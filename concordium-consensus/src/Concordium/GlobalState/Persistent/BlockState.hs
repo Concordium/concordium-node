@@ -485,7 +485,7 @@ storeUpdateOutcomes (PTOV1 MerkleTransactionOutcomes{..}) = do
     (pspecial, mtoSpecials') <- storeUpdate mtoSpecials
     return (pout <> pspecial, PTOV1 MerkleTransactionOutcomes{mtoOutcomes = mtoOutcomes', mtoSpecials = mtoSpecials'})
 
-loadOutcomes :: forall pv m. (IsProtocolVersion pv, MonadBlobStore m, SupportsTransactionOutcomes pv, MonadProtocolVersion m) => Proxy pv -> Get (m (PersistentTransactionOutcomes (TransactionOutcomesVersionFor pv)))
+loadOutcomes :: forall pv m. (IsProtocolVersion pv, MonadBlobStore m, MonadProtocolVersion m) => Proxy pv -> Get (m (PersistentTransactionOutcomes (TransactionOutcomesVersionFor pv)))
 loadOutcomes Proxy = do
     case transactionOutcomesVersion @(TransactionOutcomesVersionFor pv) of
       STOV0 -> do
@@ -543,11 +543,11 @@ data HashedPersistentBlockState pv = HashedPersistentBlockState {
 }
 
 -- |Constraint for ensuring that @m@ supports both persistent accounts and persistent modules.
-type SupportsPersistentState pv m = (MonadProtocolVersion m, SupportsTransactionOutcomes pv, MPV m ~ pv, SupportsPersistentAccount pv m, Modules.SupportsPersistentModule m)
+type SupportsPersistentState pv m = (MonadProtocolVersion m, MPV m ~ pv, SupportsPersistentAccount pv m, Modules.SupportsPersistentModule m)
 
 -- |Convert a 'PersistentBlockState' to a 'HashedPersistentBlockState' by computing
 -- the state hash.
-hashBlockState :: (SupportsPersistentState pv m, SupportsTransactionOutcomes pv, MonadProtocolVersion m, MPV m ~ pv) => PersistentBlockState pv -> m (HashedPersistentBlockState pv)
+hashBlockState :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m (HashedPersistentBlockState pv)
 hashBlockState hpbsPointers = do
         rbsp <- liftIO $ readIORef hpbsPointers
         bsp <- refLoad rbsp
@@ -568,7 +568,7 @@ instance (SupportsPersistentState pv m) => MHashableTo m StateHash (BlockStatePo
         bshBlockRewardDetails <- getHashM bspRewardDetails
         return $ makeBlockStateHash @pv BlockStateHashInputs{..}
 
-instance (SupportsPersistentState pv m, SupportsTransactionOutcomes pv, MonadProtocolVersion m, MPV m ~ pv) => BlobStorable m (BlockStatePointers pv) where
+instance (SupportsPersistentState pv m) => BlobStorable m (BlockStatePointers pv) where
     storeUpdate bsp0@BlockStatePointers{..} = do
         (paccts, bspAccounts') <- storeUpdate bspAccounts
         (pinsts, bspInstances') <- storeUpdate bspInstances
@@ -2282,7 +2282,7 @@ doGetPoolStatus pbs (Just psBakerId@(BakerId aid)) = case delegationChainParamet
                                             }
                         return $ Just BakerPoolStatus{..}
 
-doGetTransactionOutcome :: forall pv m. (MonadProtocolVersion m, SupportsPersistentState pv m, SupportsTransactionOutcomes pv) => PersistentBlockState pv -> Transactions.TransactionIndex -> m (Maybe TransactionSummary)
+doGetTransactionOutcome :: forall pv m. (SupportsPersistentState pv m) => PersistentBlockState pv -> Transactions.TransactionIndex -> m (Maybe TransactionSummary)
 doGetTransactionOutcome pbs transHash = do
         bsp <- loadPBS pbs
         case bspTransactionOutcomes bsp of
@@ -2290,12 +2290,12 @@ doGetTransactionOutcome pbs transHash = do
           PTOV1 bto -> do
             fmap _transactionSummaryV1 <$> LFMBT.lookup transHash (mtoOutcomes bto)
 
-doGetTransactionOutcomesHash :: forall pv m. (SupportsPersistentState pv m, SupportsTransactionOutcomes pv, MonadProtocolVersion m) => PersistentBlockState pv -> m Transactions.TransactionOutcomesHash
+doGetTransactionOutcomesHash :: forall pv m. (SupportsPersistentState pv m) => PersistentBlockState pv -> m Transactions.TransactionOutcomesHash
 doGetTransactionOutcomesHash pbs =  do
     bsp <- loadPBS pbs
     getHashM (bspTransactionOutcomes bsp)
 
-doSetTransactionOutcomes :: forall pv m. (SupportsPersistentState pv m, SupportsTransactionOutcomes pv, MonadProtocolVersion m) => PersistentBlockState pv -> [TransactionSummary] -> m (PersistentBlockState pv)
+doSetTransactionOutcomes :: forall pv m. (SupportsPersistentState pv m) => PersistentBlockState pv -> [TransactionSummary] -> m (PersistentBlockState pv)
 doSetTransactionOutcomes pbs transList = do
         bsp <- loadPBS pbs
         case bspTransactionOutcomes bsp of
@@ -2933,7 +2933,7 @@ instance BlockStateTypes (PersistentBlockStateMonad pv r m) where
 instance (PersistentState av pv r m) => ModuleQuery (PersistentBlockStateMonad pv r m) where
     getModuleArtifact = doGetModuleArtifact
 
-instance (IsProtocolVersion pv, PersistentState av pv r m, SupportsTransactionOutcomes pv) => BlockStateQuery (PersistentBlockStateMonad pv r m) where
+instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateQuery (PersistentBlockStateMonad pv r m) where
     getModule = doGetModuleSource . hpbsPointers
     getModuleInterface pbs mref = doGetModule (hpbsPointers pbs) mref
     getAccount = doGetAccount . hpbsPointers
