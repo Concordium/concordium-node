@@ -13,3 +13,5 @@ extra-deps:
 extra-lib-dirs:
 - ./concordium-base/lib
 - ./concordium-base/smart-contracts/lib
+
+system-ghc: true

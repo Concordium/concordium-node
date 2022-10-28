@@ -1252,7 +1252,8 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                     currentExchangeRates <- getExchangeRates
                     -- Construct the return value.
                     let returnValue = WasmV1.byteStringToReturnValue $ S.runPut $ do
-                          S.put currentExchangeRates
+                          Wasm.putExchangeRateLE $ currentExchangeRates ^. euroPerEnergy
+                          Wasm.putExchangeRateLE $ currentExchangeRates ^. microGTUPerEuro
                     go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False
                           newBalance WasmV1.Success (Just returnValue))
 

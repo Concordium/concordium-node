@@ -4,16 +4,14 @@
 module SchedulerTests.SmartContracts.V1.Queries (tests) where
 
 import Test.Hspec
-import Test.HUnit(assertFailure, assertEqual, assertBool)
+import Test.HUnit(assertFailure, assertEqual)
 
 import Lens.Micro.Platform
 import qualified Data.ByteString.Short as BSS
 import qualified Data.ByteString as BS
 import Control.Monad
-import qualified Data.Set as Set
-import Data.Serialize(runPut, Serialize (put), putWord32le, putWord64le)
+import Data.Serialize(runPut, Serialize (put), putWord64le)
 import qualified Data.Text as T
-import qualified Data.List as List
 
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Crypto.SHA256 as Hash
@@ -22,7 +20,6 @@ import qualified Concordium.TransactionVerification as TVer
 
 import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
 import Concordium.GlobalState.Basic.BlockState
-import qualified Concordium.GlobalState.Wasm as GSWasm
 import Concordium.Wasm
 import qualified Concordium.Cost as Cost
 
@@ -33,6 +30,7 @@ import Concordium.Crypto.DummyData
 
 import SchedulerTests.TestUtils
 import Concordium.Types.UpdateQueues (currentParameters)
+import qualified Concordium.Wasm as Wasm
 
 thomasBalance :: Types.Amount
 thomasBalance = 100000000
@@ -111,9 +109,9 @@ accountBalanceInvokerTestCase =
 
     parameters = BSS.toShort $ runPut $ do
       put thomasAccount
-      putWord64le . fromIntegral $ thomasBalance - costUpperBound - updateAmount -- expected public balance
-      putWord64le 0 -- expected staked amount
-      putWord64le 0 -- expected locked amount
+      Wasm.putAmountLE $ thomasBalance - costUpperBound - updateAmount -- expected public balance
+      Wasm.putAmountLE 0 -- expected staked amount
+      Wasm.putAmountLE 0 -- expected locked amount
 
     costUpperBound = Types.computeCost blockEnergyRate energyLimit
 
@@ -151,10 +149,10 @@ accountBalanceTransferTestCase =
   where
     parameters = BSS.toShort $ runPut $ do
       put thomasAccount
-      putWord64le 123
-      putWord64le (fromIntegral (thomasBalance + 123)) -- expected public balance
-      put (0 :: Types.Amount) -- expected staked amount
-      put (0 :: Types.Amount) -- expected locked amount
+      Wasm.putAmountLE 123
+      Wasm.putAmountLE $ thomasBalance + 123 -- expected public balance
+      Wasm.putAmountLE 0 -- expected staked amount
+      Wasm.putAmountLE 0 -- expected locked amount
 
     eventsCheck :: [Types.Event] -> Expectation
     eventsCheck events = do
@@ -230,13 +228,133 @@ contractBalanceTestCase =
     parameters = BSS.toShort $ runPut $ do
       putWord64le 0 -- Index of the contract address.
       putWord64le 0 -- Subindex of the contract address.
-      putWord64le $ fromIntegral $ initAmount + updateAmount -- Expected balance.
+      Wasm.putAmountLE $ initAmount + updateAmount -- Expected balance.
 
     eventsCheck :: [Types.Event] -> Expectation
     eventsCheck events = do
         -- Check the number of events:
         -- - 1 event for a succesful update to the contract.
         eventsLengthCheck 1 events
+
+contractBalanceTransferSourceFile :: FilePath
+contractBalanceTransferSourceFile = "./testdata/contracts/v1/queries-contract-balance-transfer.wasm"
+
+contractBalanceTransferTestCase :: TestCase PV5
+contractBalanceTransferTestCase =
+  TestCase { tcName = "Query the balance a contract"
+           , tcParameters = (defaultParams @PV5) {tpInitialBlockState=initialBlockState}
+           , tcTransactions =
+             [ ( TJSON { payload = DeployModule V1 contractBalanceTransferSourceFile
+                       , metadata = makeDummyHeader alesAccount 1 100000
+                       , keys = [(0,[(0, alesKP)])]
+                       }
+               , (SuccessWithSummary (deploymentCostCheck contractBalanceTransferSourceFile), emptySpec))
+             , ( TJSON { payload = InitContract initAmount V1 contractBalanceTransferSourceFile "init_contract" ""
+                       , metadata = makeDummyHeader alesAccount 2 100000
+                       , keys = [(0,[(0, alesKP)])]
+                       }
+               , (SuccessWithSummary (initializationCostCheck contractBalanceTransferSourceFile "init_contract"), emptySpec))
+             , ( TJSON { payload = Update updateAmount (Types.ContractAddress 0 0) "contract.query" parameters
+                       , metadata = makeDummyHeader alesAccount 3 100000
+                       , keys = [(0,[(0, alesKP)])]
+                       }
+               , (SuccessWithSummary (successWithEventsCheck eventsCheck), emptySpec))
+             ]
+           }
+  where
+    initAmount = 123
+    updateAmount = 456
+    transferAmount = 78
+
+    parameters = BSS.toShort $ runPut $ do
+      put thomasAccount
+      Wasm.putAmountLE transferAmount
+      putWord64le 0 -- Index of the contract address.
+      putWord64le 0 -- Subindex of the contract address.
+      Wasm.putAmountLE $ initAmount + updateAmount - transferAmount -- Expected balance.
+
+    eventsCheck :: [Types.Event] -> Expectation
+    eventsCheck events = do
+        -- Check the number of events:
+        -- - 3 events for transfering
+        -- - 1 event for a succesful update to the contract.
+        eventsLengthCheck 4 events
+
+contractBalanceMissingContractSourceFile :: FilePath
+contractBalanceMissingContractSourceFile = "./testdata/contracts/v1/queries-contract-balance-missing-contract.wasm"
+
+contractBalanceMissingContractTestCase :: TestCase PV5
+contractBalanceMissingContractTestCase =
+  TestCase { tcName = "Query the balance of a missing contract"
+           , tcParameters = (defaultParams @PV5) {tpInitialBlockState=initialBlockState}
+           , tcTransactions =
+             [ ( TJSON { payload = DeployModule V1 contractBalanceMissingContractSourceFile
+                       , metadata = makeDummyHeader alesAccount 1 100000
+                       , keys = [(0,[(0, alesKP)])]
+                       }
+               , (SuccessWithSummary (deploymentCostCheck contractBalanceMissingContractSourceFile), emptySpec))
+             , ( TJSON { payload = InitContract 123 V1 contractBalanceMissingContractSourceFile "init_contract" ""
+                       , metadata = makeDummyHeader alesAccount 2 100000
+                       , keys = [(0,[(0, alesKP)])]
+                       }
+               , (SuccessWithSummary (initializationCostCheck contractBalanceMissingContractSourceFile "init_contract"), emptySpec))
+             , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "contract.query" parameters
+                       , metadata = makeDummyHeader alesAccount 3 100000
+                       , keys = [(0,[(0, alesKP)])]
+                       }
+               , (SuccessWithSummary (successWithEventsCheck eventsCheck), emptySpec))
+             ]
+           }
+  where
+    parameters = BSS.toShort $ runPut $ do
+      putWord64le 1 -- Contract address index
+      putWord64le 0 -- Contract address subindex
+
+    eventsCheck :: [Types.Event] -> Expectation
+    eventsCheck events = do
+        -- Check the number of events:
+        -- - 1 event for a succesful update to the contract.
+        eventsLengthCheck 1 events
+
+exchangeRatesSourceFile :: FilePath
+exchangeRatesSourceFile = "./testdata/contracts/v1/queries-exchange-rates.wasm"
+
+exchangeRatesTestCase :: TestCase PV5
+exchangeRatesTestCase =
+  TestCase { tcName = "Query the exchange rates"
+           , tcParameters = (defaultParams @PV5) {tpInitialBlockState=initialBlockState}
+           , tcTransactions =
+             [ ( TJSON { payload = DeployModule V1 exchangeRatesSourceFile
+                       , metadata = makeDummyHeader alesAccount 1 100000
+                       , keys = [(0,[(0, alesKP)])]
+                       }
+               , (SuccessWithSummary (deploymentCostCheck exchangeRatesSourceFile), emptySpec))
+             , ( TJSON { payload = InitContract 0 V1 exchangeRatesSourceFile "init_contract" ""
+                       , metadata = makeDummyHeader alesAccount 2 100000
+                       , keys = [(0,[(0, alesKP)])]
+                       }
+               , (SuccessWithSummary (initializationCostCheck exchangeRatesSourceFile "init_contract"), emptySpec))
+             , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "contract.query" parameters
+                       , metadata = makeDummyHeader alesAccount 3 100000
+                       , keys = [(0,[(0, alesKP)])]
+                       }
+               , (SuccessWithSummary (successWithEventsCheck eventsCheck), emptySpec))
+             ]
+           }
+  where
+    parameters = BSS.toShort $ runPut $ do
+      Wasm.putExchangeRateLE currentEuroPerEnergy
+      Wasm.putExchangeRateLE currentAmountPerEnergy
+
+    currentEuroPerEnergy = initialBlockState ^. blockUpdates . currentParameters . Types.euroPerEnergy
+    currentAmountPerEnergy = initialBlockState ^. blockUpdates . currentParameters . Types.microGTUPerEuro
+
+    eventsCheck :: [Types.Event] -> Expectation
+    eventsCheck events = do
+        -- Check the number of events:
+        -- - 1 event for a succesful update to the contract.
+        eventsLengthCheck 1 events
+
 
 -- This only checks that the cost of initialization is correct.
 -- If the state was not set up correctly the latter tests in the suite will fail.
@@ -282,12 +400,6 @@ successWithEventsCheck checkEvents _ summary = case Types.tsResult summary of
   Types.TxReject {..} -> assertFailure $ "Transaction rejected unexpectedly with " ++ show vrRejectReason
   Types.TxSuccess {..} -> checkEvents vrEvents
 
--- | Check the transaction rejected, taking a function to check the reason.
-rejectWithReasonCheck :: (Types.RejectReason -> Expectation) -> TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
-rejectWithReasonCheck checkReason _ summary = case Types.tsResult summary of
-  Types.TxReject {..} -> checkReason vrRejectReason
-  Types.TxSuccess {} -> assertFailure "Transaction succeeded unexpectedly"
-
 -- | Check the number of events is as expected.
 eventsLengthCheck :: Int -> [Types.Event] -> Expectation
 eventsLengthCheck expected events = unless (length events == expected) $
@@ -300,5 +412,8 @@ tests = describe "V1: Queries" $ mkSpecs [
     accountBalanceInvokerTestCase,
     accountBalanceTransferTestCase,
     accountBalanceMissingAccountTestCase,
-    contractBalanceTestCase
+    contractBalanceTestCase,
+    contractBalanceTransferTestCase,
+    contractBalanceMissingContractTestCase,
+    exchangeRatesTestCase
   ]
