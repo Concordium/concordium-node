@@ -6,6 +6,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE TypeApplications #-}
 -- FIXME: This is to suppress compiler warnings for derived instances of BlockStateOperations.
 -- This may be fixed in GHC 9.0.1.
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
@@ -50,6 +51,7 @@ import Control.Monad.Trans.Except
 import Data.Functor
 import qualified Data.Vector as Vec
 import Data.Serialize(Serialize)
+import qualified Data.Serialize as S
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Sequence as Seq
@@ -60,12 +62,15 @@ import Data.Kind (Type)
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
+import Concordium.Types.HashableTo
 import Concordium.Types.Execution
+import Concordium.Utils.Serialization
 import Concordium.Types.Updates hiding (getUpdateKeysCollection)
 import qualified Concordium.Wasm as Wasm
 import qualified Concordium.GlobalState.Wasm as GSWasm
 import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Account
+import Concordium.GlobalState.Persistent.BlobStore
 
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 import Concordium.GlobalState.Basic.BlockState.PoolRewards
@@ -380,6 +385,38 @@ type InstanceInfo m = InstanceInfoType (InstrumentedModuleRef m) (ContractState 
 class (Monad m, BlockStateTypes m) => ModuleQuery m where
     -- |Get a module artifact from an 'InstrumentedModuleRef'.
     getModuleArtifact :: Wasm.IsWasmVersion v => InstrumentedModuleRef m v -> m (GSWasm.InstrumentedModuleV v)
+
+-- |We create a wrapper here so we can
+-- derive another 'HashableTo' instance which omits
+-- the exact 'RejectReason' in the resulting hash.
+newtype TransactionSummaryV1 = TransactionSummaryV1 {_transactionSummaryV1 :: TransactionSummary' ValidResult}
+    deriving(Eq, Show)
+
+-- |A 'HashableTo' instance for a 'TransactionSummary'' which
+-- omits the exact reject reason.
+-- Failures are simply tagged with a '0x1' byte.
+instance HashableTo H.Hash TransactionSummaryV1 where
+  -- TODO: We should use runPutLazy here since a summary can be quite long
+  getHash (TransactionSummaryV1 summary) = H.hash $! S.runPut $!
+      putMaybe S.put (tsSender summary) <>
+      S.put (tsHash summary) <>
+      S.put (tsCost summary) <>
+      S.put (tsEnergyCost summary) <>
+      S.put (tsType summary) <>
+      -- TODO: This is wrong, we only do this for failure, not for all summaries.
+      -- |We simply put a '1' indicating a failure.
+      S.putWord8 1 <>
+      S.put (tsIndex summary)
+
+
+instance (MonadBlobStore m, MonadProtocolVersion m) => BlobStorable m TransactionSummaryV1 where
+  storeUpdate s@(TransactionSummaryV1 ts) = return (putTransactionSummary ts, s)
+  load = do
+    s <- getTransactionSummary (protocolVersion @(MPV m))
+    return . return $! TransactionSummaryV1 s
+
+-- Generic instance based on the HashableTo instance
+instance Monad m => MHashableTo m H.Hash TransactionSummaryV1 where
 
 -- |The block query methods can query block state. They are needed by
 -- consensus itself to compute stake, get a list of and information about

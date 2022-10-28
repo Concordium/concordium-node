@@ -372,7 +372,7 @@ checkExistingDatabase treeStateDir blockStateFile = do
 -- The reason for the split design is that activating the state is very time
 -- consuming, and it is not needed when starting a node on a chain which had
 -- multiple protocol updates.
-loadSkovPersistentData :: forall pv. (IsProtocolVersion pv)
+loadSkovPersistentData :: forall pv. (IsProtocolVersion pv, SupportsTransactionOutcomes pv)
                        => RuntimeParameters
                        -> FilePath -- ^Tree state directory
                        -> PBS.PersistentBlockStateContext pv
@@ -442,7 +442,7 @@ loadSkovPersistentData rp _treeStateDirectory pbsc = do
 --
 -- This function will raise an IO exception in the following scenarios
 -- * in the block state, an account which is listed cannot be loaded
-activateSkovPersistentData :: forall pv. (IsProtocolVersion pv)
+activateSkovPersistentData :: forall pv. (IsProtocolVersion pv, SupportsTransactionOutcomes pv)
                            => PBS.PersistentBlockStateContext pv
                            -> SkovPersistentData pv (PBS.HashedPersistentBlockState pv)
                            -> LogIO (SkovPersistentData pv (PBS.HashedPersistentBlockState pv))
@@ -550,7 +550,8 @@ instance (MonadLogger (PersistentTreeStateMonad bs m),
           BlockState (PersistentTreeStateMonad bs m) ~ bs,
           BlockStateStorage (PersistentTreeStateMonad bs m),
           MonadState (SkovPersistentData (MPV m) bs) m,
-          MonadProtocolVersion m)
+          MonadProtocolVersion m,
+          SupportsTransactionOutcomes (MPV m))
          => TS.TreeStateMonad (PersistentTreeStateMonad bs m) where
     makePendingBlock key slot parent bid pf n lastFin trs stateHash transactionOutcomesHash time = do
         return $! makePendingBlock (signBlock key slot parent bid pf n lastFin trs stateHash transactionOutcomesHash) time

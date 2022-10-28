@@ -154,7 +154,7 @@ instance (bs ~ BlockState m, BlockStateTypes m, Monad m, MonadState (SkovData pv
     bpParent = return . runIdentity . _bpParent
     bpLastFinalized = return . runIdentity . _bpLastFinalized
 
-instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadState (SkovData (MPV m) bs) m, MonadProtocolVersion m)
+instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadState (SkovData (MPV m) bs) m, MonadProtocolVersion m, BS.SupportsTransactionOutcomes (MPV m))
           => TS.TreeStateMonad (PureTreeStateMonad bs m) where
     makePendingBlock key slot parent bid pf n lastFin trs statehash transactionOutcomesHash time = do
         return $ makePendingBlock (signBlock key slot parent bid pf n lastFin trs statehash transactionOutcomesHash) time

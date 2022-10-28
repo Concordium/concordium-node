@@ -20,6 +20,7 @@ import Concordium.Crypto.SignatureScheme as SigScheme
 import Concordium.ID.Types
 import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.BakerInfo
+import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Accounts
 import qualified Concordium.GlobalState.Basic.BlockState.AccountTable as AT
@@ -321,7 +322,7 @@ createRewardDetails accounts = case accountVersion @(AccountVersionFor pv) of
   SAccountV2 -> BlockRewardDetailsV1 $ makeHashed $ createPoolRewards accounts
 
 {-# WARNING createBlockState "Do not use in production" #-}
-createBlockState :: (IsProtocolVersion pv) => Accounts pv -> BlockState pv
+createBlockState :: (IsProtocolVersion pv, SupportsTransactionOutcomes pv) => Accounts pv -> BlockState pv
 createBlockState accounts =
     emptyBlockState (emptyBirkParameters accounts) (createRewardDetails accounts) dummyCryptographicParameters dummyKeyCollection dummyChainParameters &
       (blockAccounts .~ accounts) .
@@ -330,7 +331,7 @@ createBlockState accounts =
       (blockAnonymityRevokers . unhashed .~ dummyArs)
 
 {-# WARNING blockStateWithAlesAccount "Do not use in production" #-}
-blockStateWithAlesAccount :: (IsProtocolVersion pv) => Amount -> Accounts pv -> BlockState pv
+blockStateWithAlesAccount :: (IsProtocolVersion pv, SupportsTransactionOutcomes pv) => Amount -> Accounts pv -> BlockState pv
 blockStateWithAlesAccount alesAmount otherAccounts =
     createBlockState $ putAccountWithRegIds (mkAccount alesVK alesAccount alesAmount) otherAccounts
 

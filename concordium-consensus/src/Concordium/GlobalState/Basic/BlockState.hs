@@ -282,7 +282,7 @@ getBlockRewardDetails = case delegationSupport @av of
 
 -- |todo DOC
 data MerkleTransactionOutcomes = MerkleTransactionOutcomes {
-    mtoOutcomes :: LFMBT.LFMBTree TransactionIndex TransactionSummaryV1,
+    mtoOutcomes :: LFMBT.LFMBTree TransactionIndex BS.TransactionSummaryV1,
     mtoSpecials :: LFMBT.LFMBTree TransactionIndex Transactions.SpecialTransactionOutcome
 } deriving (Show)
 
@@ -300,20 +300,20 @@ instance HashableTo Transactions.TransactionOutcomesHash MerkleTransactionOutcom
     in Transactions.TransactionOutcomesHash (H.hashOfHashes out special)
 
 -- |todo doc
-data BasicTransactionOutcomes (tov :: Transactions.TransactionOutcomesVersion) where
-    BTOV0 :: Transactions.TransactionOutcomes -> BasicTransactionOutcomes 'Transactions.TOV0
-    BTOV1 :: MerkleTransactionOutcomes -> BasicTransactionOutcomes 'Transactions.TOV1
+data BasicTransactionOutcomes (tov :: TransactionOutcomesVersion) where
+    BTOV0 :: Transactions.TransactionOutcomes -> BasicTransactionOutcomes 'TOV0
+    BTOV1 :: MerkleTransactionOutcomes -> BasicTransactionOutcomes 'TOV1
 
 instance HashableTo Transactions.TransactionOutcomesHash (BasicTransactionOutcomes tov) where
   getHash (BTOV0 bto) = getHash bto
   getHash (BTOV1 bto) = getHash bto
 
 -- |Create an empty 'BasicTransactionOutcomes' based on the 'ProtocolVersion'.
-emptyTransactionOutcomes :: forall pv. (Transactions.IsTransactionOutcomesVersion (Transactions.TransactionOutcomesVersionFor pv))
-                                  => Proxy pv -> BasicTransactionOutcomes (Transactions.TransactionOutcomesVersionFor pv)
-emptyTransactionOutcomes Proxy = case Transactions.transactionOutcomesVersion @(Transactions.TransactionOutcomesVersionFor pv) of
-  Transactions.STOV0 -> BTOV0 Transactions.emptyTransactionOutcomesV0
-  Transactions.STOV1 -> BTOV1 emptyMerkleTransactionOutcomes
+emptyTransactionOutcomes :: forall pv. (IsTransactionOutcomesVersion (TransactionOutcomesVersionFor pv))
+                                  => Proxy pv -> BasicTransactionOutcomes (TransactionOutcomesVersionFor pv)
+emptyTransactionOutcomes Proxy = case transactionOutcomesVersion @(TransactionOutcomesVersionFor pv) of
+  STOV0 -> BTOV0 Transactions.emptyTransactionOutcomesV0
+  STOV1 -> BTOV1 emptyMerkleTransactionOutcomes
     
 -- |TODO fix.
 instance Show (BasicTransactionOutcomes tov) where
@@ -331,7 +331,7 @@ data BlockState (pv :: ProtocolVersion) = BlockState {
     _blockCryptographicParameters :: !(Hashed CryptographicParameters),
     _blockUpdates :: !(Updates pv),
     _blockReleaseSchedule :: !(LazyMap.Map AccountAddress Timestamp), -- ^Contains an entry for each account that has pending releases and the first timestamp for said account
-    _blockTransactionOutcomes :: !(BasicTransactionOutcomes (Transactions.TransactionOutcomesVersionFor pv)),
+    _blockTransactionOutcomes :: !(BasicTransactionOutcomes (TransactionOutcomesVersionFor pv)),
     _blockRewardDetails :: !(BlockRewardDetails (AccountVersionFor pv))
 } deriving (Show)
 
@@ -833,15 +833,15 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
 
     {-# INLINE getTransactionOutcome #-}
     getTransactionOutcome bs trh = do
-        case Transactions.transactionOutcomesVersion @(Transactions.TransactionOutcomesVersionFor pv) of
-            Transactions.STOV0 ->
+        case transactionOutcomesVersion @(TransactionOutcomesVersionFor pv) of
+            STOV0 ->
               let BTOV0 inner = bs ^. blockTransactionOutcomes
               in return $! inner ^? to Transactions.outcomeValues . ix (fromIntegral trh)
-            Transactions.STOV1 -> 
+            STOV1 -> 
                 let (BTOV1 outcomes) = bs ^. blockTransactionOutcomes
                 in case LFMBT.lookup trh (mtoOutcomes outcomes) of
                     Nothing -> return Nothing
-                    Just (TransactionSummaryV1 v) -> return $ Just v
+                    Just (BS.TransactionSummaryV1 v) -> return $ Just v
 
     {-# INLINE getTransactionOutcomesHash #-}
     getTransactionOutcomesHash bs = return (getHash $ bs ^. blockTransactionOutcomes)
@@ -851,13 +851,13 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
 
     {-# INLINE getOutcomes #-}
     getOutcomes bs = do
-        case Transactions.transactionOutcomesVersion @(Transactions.TransactionOutcomesVersionFor pv) of
-          Transactions.STOV0 ->
+        case transactionOutcomesVersion @(TransactionOutcomesVersionFor pv) of
+          STOV0 ->
             let BTOV0 inner = bs ^. blockTransactionOutcomes
             in return (Transactions.outcomeValues inner)
-          Transactions.STOV1 ->
+          STOV1 ->
             let BTOV1 inner = bs ^. blockTransactionOutcomes
-            in return $! Vec.fromList . map _transactionSummaryV1 $ (LFMBT.toAscList (mtoOutcomes inner))
+            in return $! Vec.fromList . map BS._transactionSummaryV1 $ (LFMBT.toAscList (mtoOutcomes inner))
 
     {-# INLINE getSpecialOutcomes #-}
     getSpecialOutcomes bs =
@@ -1875,11 +1875,11 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
     bsoGetAccruedTransactionFeesFoundationAccount bs = return $! PoolRewards.foundationTransactionRewards (bs ^. blockPoolRewards)
 
     bsoSetTransactionOutcomes bs l = do
-        case Transactions.transactionOutcomesVersion @(Transactions.TransactionOutcomesVersionFor pv) of 
-          Transactions.STOV0 -> return $! (bs & (blockTransactionOutcomes .~ BTOV0 (Transactions.transactionOutcomesV0FromList l)))
-          Transactions.STOV1 -> 
+        case transactionOutcomesVersion @(TransactionOutcomesVersionFor pv) of 
+          STOV0 -> return $! (bs & (blockTransactionOutcomes .~ BTOV0 (Transactions.transactionOutcomesV0FromList l)))
+          STOV1 -> 
               return $! (bs & (blockTransactionOutcomes .~ BTOV1  (MerkleTransactionOutcomes {
-                  mtoOutcomes = LFMBT.fromList (map TransactionSummaryV1 l),
+                  mtoOutcomes = LFMBT.fromList (map BS.TransactionSummaryV1 l),
                   mtoSpecials = LFMBT.empty
               })))
 
