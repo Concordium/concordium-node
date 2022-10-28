@@ -97,7 +97,6 @@ import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import qualified Concordium.Wasm as GSWasm
 import Data.Proxy
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule (totalLockedUpBalance)
-import Debug.Trace (trace)
 
 
 -- |The function asserts the following
@@ -1220,9 +1219,9 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                            return $ schedule ^. totalLockedUpBalance
                         -- Construct the return value.
                         let returnValue = WasmV1.byteStringToReturnValue $ S.runPut $ do
-                             S.putWord64le (fromIntegral balance)
-                             S.putWord64le (fromIntegral stake)
-                             S.putWord64le (fromIntegral lockedAmount)
+                             Wasm.putAmountLE balance
+                             Wasm.putAmountLE stake
+                             Wasm.putAmountLE lockedAmount
                         go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False
                              newBalance WasmV1.Success (Just returnValue))
                   WasmV1.QueryContractBalance {..}  -> do
@@ -1242,7 +1241,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                      InstanceInfoV1 _ -> getCurrentContractAmount Wasm.SV1 istance
                         -- Construct the return value.
                         let returnValue = WasmV1.byteStringToReturnValue $ S.runPut $ do
-                             S.put balance
+                             Wasm.putAmountLE balance
                         go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False
                              newBalance WasmV1.Success (Just returnValue))
                   WasmV1.QueryExchangeRates -> do
