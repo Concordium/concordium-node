@@ -148,8 +148,12 @@ data NewReleaseSchedule = NewReleaseSchedule
       -- no releases are scheduled). This MUST NOT be used to infer that the release schedule is
       -- empty, since there can be a release at the maximum timestamp.
       nrsFirstTimestamp :: !Timestamp,
-      -- |A map recording the first release time for each account with a pending release.
-      -- An account should occur at most once in the map.
+      -- |A map recording the first release time for each account with a pending
+      -- release. An account should occur at most once in the map. We make
+      -- crucial use of the lexicographic ordering on the serialization of
+      -- Timestamp which is the natural ordering due to big-endian
+      -- serialization. This allows us to also use the Trie to find the release
+      -- with minimal timestamp.
       nrsMap :: !(Trie.TrieN BufferedFix Timestamp AccountSet)
     }
 

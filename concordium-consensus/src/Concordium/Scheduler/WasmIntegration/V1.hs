@@ -22,7 +22,8 @@ module Concordium.Scheduler.WasmIntegration.V1(
   ContractExecutionReject(..),
   ContractCallFailure(..),
   ccfToReturnValue,
-  returnValueToByteString
+  returnValueToByteString,
+  byteStringToReturnValue
   ) where
 
 import Foreign.C.Types
@@ -59,6 +60,8 @@ import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 foreign import ccall unsafe "return_value_to_byte_array" return_value_to_byte_array :: Ptr ReturnValue -> Ptr CSize -> IO (Ptr Word8)
 foreign import ccall unsafe "&box_vec_u8_free" freeReturnValue :: FunPtr (Ptr ReturnValue -> IO ())
 foreign import ccall unsafe "&receive_interrupted_state_free" freeReceiveInterruptedState :: FunPtr (Ptr (Ptr ReceiveInterruptedState) -> IO ())
+-- |Allocate and return a Rust vector that contains the given data.
+foreign import ccall "copy_to_vec_ffi" createReturnValue :: Ptr Word8 -> CSize -> IO (Ptr ReturnValue)
 
 foreign import ccall "validate_and_process_v1"
    validate_and_process :: Word8 -- ^Whether the current protocol version supports smart contract upgrades.
@@ -81,6 +84,14 @@ returnValueToByteString rv = unsafePerformIO $
     rp <- return_value_to_byte_array p outputLenPtr
     len <- peek outputLenPtr
     BSU.unsafePackCStringFinalizer rp (fromIntegral len) (rs_free_array_len rp (fromIntegral len))
+
+-- | Constructs a ReturnValue from a bytestring.
+-- More specifically it copies the bytestring to a Vec<u8> in Rust, which returns a pointer used for the ReturnValue.
+byteStringToReturnValue :: BS.ByteString -> ReturnValue
+byteStringToReturnValue bs = unsafePerformIO $ do
+  returnValuePtr <- BSU.unsafeUseAsCStringLen bs $ \(charPtr, len) -> createReturnValue (castPtr charPtr) (fromIntegral len)
+  returnValueForeignPtr <- newForeignPtr freeReturnValue returnValuePtr
+  return ReturnValue { rvPtr = returnValueForeignPtr }
 
 -- json instance based on hex
 instance AE.ToJSON ReturnValue where
@@ -204,6 +215,7 @@ foreign import ccall "call_receive_v1"
              -> Ptr (Ptr ReturnValue) -- ^Location where the pointer to the return value will be written.
              -> Ptr (Ptr ReceiveInterruptedState) -- ^Location where the pointer to interrupted config will be stored.
              -> Ptr CSize -- ^Length of the output byte array, if non-null.
+             -> Word8 -- ^Non-zero to enable support of chain queries.
              -> IO (Ptr Word8) -- ^New state, logs, and actions, if applicable, or null, signalling out-of-energy.
 
 
@@ -289,12 +301,25 @@ data InvokeMethod =
   | Upgrade {
       imuModRef :: !ModuleRef
     }
+  -- |Query the balance and staked balance of an account.
+  | QueryAccountBalance {
+      imqabAddress:: !AccountAddress
+    }
+  -- |Query the balance of a contract.
+  | QueryContractBalance {
+      imqcbAddress:: !ContractAddress
+    }
+  -- |Query the CCD/EUR and EUR/NRG exchange rates.
+  | QueryExchangeRates
 
 getInvokeMethod :: Get InvokeMethod
 getInvokeMethod = getWord8 >>= \case
   0 -> Transfer <$> get <*> get
   1 -> Call <$> get <*> get <*> get <*> get
   2 -> Upgrade <$> get
+  3 -> QueryAccountBalance <$> get
+  4 -> QueryContractBalance <$> get
+  5 -> return QueryExchangeRates
   n -> fail $ "Unsupported invoke method tag: " ++ show n
 
 -- |Data return from the contract in case of successful initialization.
@@ -488,11 +513,12 @@ applyReceiveFun
     -> Parameter -- ^Parameters available to the method.
     -> Amount  -- ^Amount the contract is initialized with.
     -> StateV1.MutableState -- ^State of the contract to start in, and a way to use it.
+    -> Bool -- ^ Enable support of chain queries.
     -> InterpreterEnergy  -- ^Amount of energy available for execution.
     -> Maybe (Either ContractExecutionReject ReceiveResultData, InterpreterEnergy)
     -- ^Nothing if execution used up all the energy, and otherwise the result
     -- of execution with the amount of energy remaining.
-applyReceiveFun miface cm receiveCtx rName useFallback param amnt initialState initialEnergy = unsafePerformIO $ do
+applyReceiveFun miface cm receiveCtx rName useFallback param amnt initialState supportChainQueries initialEnergy = unsafePerformIO $ do
               BSU.unsafeUseAsCStringLen wasmArtifact $ \(wasmArtifactPtr, wasmArtifactLen)  ->
                 BSU.unsafeUseAsCStringLen initCtxBytes $ \(initCtxBytesPtr, initCtxBytesLen) ->
                   BSU.unsafeUseAsCStringLen nameBytes $ \(nameBytesPtr, nameBytesLen) ->
@@ -512,6 +538,7 @@ applyReceiveFun miface cm receiveCtx rName useFallback param amnt initialState i
                                                 outputReturnValuePtrPtr
                                                 outputInterruptedConfigPtrPtr
                                                 outputLenPtr
+                                                (if supportChainQueries then 1 else 0)
                           if outPtr == nullPtr then return (Just (Left Trap, 0)) -- this case should not happen
                           else do
                             len <- peek outputLenPtr

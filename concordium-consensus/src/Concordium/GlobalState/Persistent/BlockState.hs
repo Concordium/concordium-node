@@ -2348,10 +2348,10 @@ doRotateCurrentCapitalDistribution pbs = do
         BlockRewardDetailsV1 hpr -> BlockRewardDetailsV1 <$> rotateCapitalDistribution hpr
     storePBS pbs bsp{bspRewardDetails = newRewardDetails}
 
-doGetEnergyRate :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m EnergyRate
-doGetEnergyRate pbs = do
+doGetExchangeRates :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m ExchangeRates
+doGetExchangeRates pbs = do
     bsp <- loadPBS pbs
-    lookupEnergyRate (bspUpdates bsp)
+    lookupExchangeRates (bspUpdates bsp)
 
 doGetChainParameters :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m (ChainParameters pv)
 doGetChainParameters pbs = do
@@ -2836,7 +2836,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateQuery (P
     getIdentityProvider = doGetIdentityProvider . hpbsPointers
     getAnonymityRevokers =  doGetAnonymityRevokers . hpbsPointers
     getUpdateKeysCollection = doGetUpdateKeyCollection . hpbsPointers
-    getEnergyRate = doGetEnergyRate . hpbsPointers
+    getExchangeRates = doGetExchangeRates . hpbsPointers
     getPaydayEpoch = doGetPaydayEpoch . hpbsPointers
     getPoolStatus = doGetPoolStatus . hpbsPointers
 
@@ -2947,7 +2947,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperatio
     bsoClearProtocolUpdate = doClearProtocolUpdate
     bsoSetNextCapitalDistribution = doSetNextCapitalDistribution
     bsoRotateCurrentCapitalDistribution = doRotateCurrentCapitalDistribution
-    bsoGetEnergyRate = doGetEnergyRate
+    bsoGetExchangeRates = doGetExchangeRates
     bsoGetChainParameters = doGetChainParameters
     bsoGetEpochBlocksBaked = doGetEpochBlocksBaked
     bsoNotifyBlockBaked = doNotifyBlockBaked
