@@ -1242,7 +1242,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                      InstanceInfoV1 _ -> getCurrentContractAmount Wasm.SV1 istance
                         -- Construct the return value.
                         let returnValue = WasmV1.byteStringToReturnValue $ S.runPut $ do
-                             S.put balance
+                             S.putWord64le $ fromIntegral balance
                         go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False
                              newBalance WasmV1.Success (Just returnValue))
                   WasmV1.QueryExchangeRates -> do
