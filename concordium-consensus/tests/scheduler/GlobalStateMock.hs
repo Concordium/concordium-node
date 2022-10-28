@@ -27,7 +27,6 @@ import Type.Reflection
 
 import Concordium.Crypto.EncryptedTransfers
 import Concordium.GlobalState.BakerInfo
-import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.CapitalDistribution
 import Concordium.GlobalState.Types
@@ -35,6 +34,7 @@ import qualified Concordium.GlobalState.Wasm as GSWasm
 import qualified Concordium.ID.Types as ID
 import Concordium.Scheduler.Types
 import Concordium.Types.Accounts
+import Concordium.Types.Accounts.Releases
 import Concordium.Types.Queries
 import Concordium.Types.SeedState
 import qualified Concordium.Types.UpdateQueues as UQ
@@ -81,7 +81,7 @@ data AccountOperationsAction (pv :: ProtocolVersion) a where
     GetAccountEncryptionKey :: MockAccount -> AccountOperationsAction pv ID.AccountEncryptionKey
     GetAccountEncryptedAmountNextIndex :: MockAccount -> AccountOperationsAction pv EncryptedAmountIndex
     GetAccountEncryptedAmountAtIndex :: MockAccount -> EncryptedAmountAggIndex -> AccountOperationsAction pv (Maybe EncryptedAmount)
-    GetAccountReleaseSchedule :: MockAccount -> AccountOperationsAction pv AccountReleaseSchedule
+    GetAccountReleaseSummary :: MockAccount -> AccountOperationsAction pv AccountReleaseSummary
     GetAccountBaker :: MockAccount -> AccountOperationsAction pv (Maybe (AccountBaker (AccountVersionFor pv)))
     GetAccountBakerInfoRef :: MockAccount -> AccountOperationsAction pv (Maybe MockBakerInfoRef)
     GetAccountDelegator :: MockAccount -> AccountOperationsAction pv (Maybe (AccountDelegation (AccountVersionFor pv)))
