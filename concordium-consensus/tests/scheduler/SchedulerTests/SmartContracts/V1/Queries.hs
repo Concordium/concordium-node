@@ -45,7 +45,6 @@ initialBlockState = blockStateWithAlesAccount
 blockEnergyRate :: Types.EnergyRate
 blockEnergyRate = initialBlockState ^. blockUpdates . currentParameters . Types.energyRate
 
--- |A module that is used as a base for upgrading.
 accountBalanceSourceFile :: FilePath
 accountBalanceSourceFile = "./testdata/contracts/v1/queries-account-balance.wasm"
 
@@ -124,6 +123,84 @@ accountBalanceInvokerTestCase =
         -- - 1 event for a succesful update to the contract ('contract.upgrade').
         eventsLengthCheck 1 events
 
+accountBalanceTransferSourceFile :: FilePath
+accountBalanceTransferSourceFile = "./testdata/contracts/v1/queries-account-balance-transfer.wasm"
+
+accountBalanceTransferTestCase :: TestCase PV5
+accountBalanceTransferTestCase =
+  TestCase { tcName = "Contracts transfers to an account and then queries"
+           , tcParameters = (defaultParams @PV5) {tpInitialBlockState=initialBlockState}
+           , tcTransactions =
+             [ ( TJSON { payload = DeployModule V1 accountBalanceTransferSourceFile
+                       , metadata = makeDummyHeader alesAccount 1 100000
+                       , keys = [(0,[(0, alesKP)])]
+                       }
+               , (SuccessWithSummary (deploymentCostCheck accountBalanceTransferSourceFile), emptySpec))
+             , ( TJSON { payload = InitContract 0 V1 accountBalanceTransferSourceFile "init_contract" ""
+                       , metadata = makeDummyHeader alesAccount 2 100000
+                       , keys = [(0,[(0, alesKP)])]
+                       }
+               , (SuccessWithSummary (initializationCostCheck accountBalanceTransferSourceFile "init_contract"), emptySpec))
+             , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "contract.query" parameters
+                       , metadata = makeDummyHeader alesAccount 3 100000
+                       , keys = [(0,[(0, alesKP)])]
+                       }
+               , (SuccessWithSummary (successWithEventsCheck eventsCheck), emptySpec))
+             ]
+           }
+  where
+    parameters = BSS.toShort $ runPut $ do
+      put thomasAccount
+      put (123 :: Types.Amount)
+      put (thomasBalance + 123) -- expected public balance
+
+    eventsCheck :: [Types.Event] -> Expectation
+    eventsCheck events = do
+        -- Check the number of events:
+        -- - 3 events for the transfer.
+        -- - 1 event for a succesful update to the contract.
+        eventsLengthCheck 3 events
+
+
+accountBalanceMissingAccountSourceFile :: FilePath
+accountBalanceMissingAccountSourceFile = "./testdata/contracts/v1/queries-account-balance-missing-account.wasm"
+
+accountBalanceMissingAccountTestCase :: TestCase PV5
+accountBalanceMissingAccountTestCase =
+  TestCase { tcName = "Query the balance of a missing account"
+           , tcParameters = (defaultParams @PV5) {tpInitialBlockState=initialBlockState}
+           , tcTransactions =
+             [ ( TJSON { payload = DeployModule V1 accountBalanceTransferSourceFile
+                       , metadata = makeDummyHeader alesAccount 1 100000
+                       , keys = [(0,[(0, alesKP)])]
+                       }
+               , (SuccessWithSummary (deploymentCostCheck accountBalanceTransferSourceFile), emptySpec))
+             , ( TJSON { payload = InitContract 0 V1 accountBalanceTransferSourceFile "init_contract" ""
+                       , metadata = makeDummyHeader alesAccount 2 100000
+                       , keys = [(0,[(0, alesKP)])]
+                       }
+               , (SuccessWithSummary (initializationCostCheck accountBalanceTransferSourceFile "init_contract"), emptySpec))
+             , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "contract.query" parameters
+                       , metadata = makeDummyHeader alesAccount 3 100000
+                       , keys = [(0,[(0, alesKP)])]
+                       }
+               , (SuccessWithSummary (successWithEventsCheck eventsCheck), emptySpec))
+             ]
+           }
+  where
+    parameters = BSS.toShort $ runPut $ do
+      put $ accountAddressFrom 3
+      put (123 :: Types.Amount)
+      put (thomasBalance + 123) -- expected public balance
+
+    eventsCheck :: [Types.Event] -> Expectation
+    eventsCheck events = do
+        -- Check the number of events:
+        -- - 3 events for the transfer.
+        -- - 1 event for a succesful update to the contract.
+        eventsLengthCheck 3 events
+
+
 -- This only checks that the cost of initialization is correct.
 -- If the state was not set up correctly the latter tests in the suite will fail.
 initializationCostCheck :: FilePath -> T.Text -> (TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation)
@@ -183,5 +260,7 @@ eventsLengthCheck expected events = unless (length events == expected) $
 tests :: Spec
 tests = describe "V1: Queries" $ mkSpecs [
     accountBalanceTestCase,
-    accountBalanceInvokerTestCase
+    accountBalanceInvokerTestCase,
+    accountBalanceTransferTestCase,
+    accountBalanceMissingAccountTestCase
   ]
