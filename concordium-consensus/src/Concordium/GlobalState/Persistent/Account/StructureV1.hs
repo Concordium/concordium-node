@@ -711,6 +711,14 @@ getReleaseSchedule acc = do
         Null -> return Transient.emptyAccountReleaseSchedule
         Some (rsRef, _) -> loadPersistentAccountReleaseSchedule =<< refLoad rsRef
 
+-- |Get the timestamp at which the next scheduled release will occur (if any).
+getNextReleaseTimestamp :: MonadBlobStore m => PersistentAccount av -> m (Maybe Timestamp)
+getNextReleaseTimestamp acc = do
+    let ed = enduringData acc
+    case paedReleaseSchedule ed of
+        Null -> return Nothing
+        Some (rsRef, _) -> nextReleaseTimestamp <$!> refLoad rsRef
+
 -- |Get the baker (if any) attached to an account.
 getBaker :: (MonadBlobStore m, IsAccountVersion av, AVSupportsDelegation av) => PersistentAccount av -> m (Maybe (AccountBaker av))
 getBaker acc = do

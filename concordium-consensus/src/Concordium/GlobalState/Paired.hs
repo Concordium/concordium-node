@@ -232,6 +232,7 @@ instance
     ) =>
     BlockStateQuery (BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m)
     where
+
     getModule (ls, rs) modRef = do
         m1 <- coerceBSML (getModule ls modRef)
         m2 <- coerceBSMR (getModule rs modRef)
@@ -469,9 +470,9 @@ instance
         r1 <- coerceBSML $ getUpdateKeysCollection bs1
         r2 <- coerceBSMR $ getUpdateKeysCollection bs2
         assertEq r1 r2 $ return r1
-    getEnergyRate (bs1, bs2) = do
-        r1 <- coerceBSML $ getEnergyRate bs1
-        r2 <- coerceBSMR $ getEnergyRate bs2
+    getExchangeRates (bs1, bs2) = do
+        r1 <- coerceBSML $ getExchangeRates bs1
+        r2 <- coerceBSMR $ getExchangeRates bs2
         assertEq r1 r2 $ return r1
     getNextEpochBakers (bps1, bps2) = do
         n1 <- coerceBSML (getNextEpochBakers bps1)
@@ -915,13 +916,9 @@ instance
         liftM2 (,)
             (coerceBSML $ bsoProcessPendingChanges bs1 ch)
             (coerceBSMR $ bsoProcessPendingChanges bs2 ch)
-    bsoAddReleaseSchedule (bs1, bs2) tt = do
-        bs1' <- coerceBSML $ bsoAddReleaseSchedule bs1 tt
-        bs2' <- coerceBSMR $ bsoAddReleaseSchedule bs2 tt
-        return (bs1', bs2')
-    bsoGetEnergyRate (bs1, bs2) = do
-        r1 <- coerceBSML $ bsoGetEnergyRate bs1
-        r2 <- coerceBSMR $ bsoGetEnergyRate bs2
+    bsoGetExchangeRates (bs1, bs2) = do
+        r1 <- coerceBSML $ bsoGetExchangeRates bs1
+        r2 <- coerceBSMR $ bsoGetExchangeRates bs2
         assertEq r1 r2 $ return r1
     bsoGetChainParameters (bs1, bs2) = do
         r1 <- coerceBSML $ bsoGetChainParameters bs1

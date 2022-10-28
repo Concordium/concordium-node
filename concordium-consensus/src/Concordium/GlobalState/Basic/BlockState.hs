@@ -13,7 +13,6 @@
 module Concordium.GlobalState.Basic.BlockState where
 
 import Data.Proxy
-import qualified Data.Map as LazyMap
 import Lens.Micro.Platform
 import Data.Maybe
 import qualified Data.Map.Strict as Map
@@ -57,6 +56,7 @@ import qualified Concordium.GlobalState.Basic.BlockState.Instances as Instances
 import qualified Concordium.GlobalState.Instance as Instance
 import qualified Concordium.GlobalState.Basic.BlockState.PoolRewards as PoolRewards
 import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as LFMBT
+import qualified Concordium.GlobalState.Basic.BlockState.ReleaseSchedule as RS
 import Concordium.GlobalState.CapitalDistribution
 
 import qualified Concordium.GlobalState.AccountMap as AccountMap
@@ -338,7 +338,7 @@ data BlockState (pv :: ProtocolVersion) = BlockState {
     _blockBirkParameters :: !(BasicBirkParameters (AccountVersionFor pv)),
     _blockCryptographicParameters :: !(Hashed CryptographicParameters),
     _blockUpdates :: !(Updates pv),
-    _blockReleaseSchedule :: !(LazyMap.Map AccountAddress Timestamp), -- ^Contains an entry for each account that has pending releases and the first timestamp for said account
+    _blockReleaseSchedule :: !RS.ReleaseSchedule, -- ^Contains an entry for each account that has pending releases and the first timestamp for said account
     _blockTransactionOutcomes :: !(BasicTransactionOutcomes (TransactionOutcomesVersionFor pv)),
     _blockRewardDetails :: !(BlockRewardDetails (AccountVersionFor pv))
 } deriving (Show)
@@ -393,7 +393,7 @@ emptyBlockState _blockBirkParameters _blockRewardDetails cryptographicParameters
       _blockIdentityProviders = makeHashed IPS.emptyIdentityProviders
       _blockAnonymityRevokers = makeHashed ARS.emptyAnonymityRevokers
       _blockUpdates = initialUpdates keysCollection chainParams
-      _blockReleaseSchedule = Map.empty
+      _blockReleaseSchedule = RS.emptyReleaseSchedule
 
 
 hashBlockState :: forall pv. IsProtocolVersion pv => BlockState pv -> HashedBlockState pv
@@ -504,11 +504,11 @@ getBlockState migration = do
                 BlockRewardDetailsV1 brd -> BlockRewardDetailsV1 brd
 
     -- Construct the release schedule and active bakers from the accounts
-    let processBakerAccount (rs,bkrs) account = do
+    let processBakerAccount (rs,bkrs) (aid, account) = do
           let rs' = case Map.minViewWithKey (account ^. accountReleaseSchedule . pendingReleases) of
                   Nothing -> rs
-                  Just ((ts, _), _) -> Map.insert (account ^. accountAddress) ts rs
-          bkrs' <-case account ^. accountStaking of
+                  Just ((ts, _), _) -> RS.addAccountRelease ts aid rs
+          bkrs' <- case account ^. accountStaking of
             AccountStakeBaker AccountBaker {_accountBakerInfo = abi, _stakedAmount = stake} -> do
                 when ((abi ^. bakerAggregationVerifyKey) `Set.member` _aggregationKeys bkrs) $
                   fail "Duplicate baker aggregation key"
@@ -537,8 +537,8 @@ getBlockState migration = do
                       return $! bkrs & activeBakers %~ Map.insert bid newDels
                                     & totalActiveCapital +~ _delegationStakedAmount
             _ -> return bkrs
-    (_blockReleaseSchedule, preActBkrs) <- foldM processBakerAccount (Map.empty, _birkActiveBakers preBirkParameters) (Accounts.accountList _blockAccounts)
-    actBkrs <- foldM processDelegatorAccount preActBkrs (Accounts.accountList _blockAccounts)
+    (_blockReleaseSchedule, preActBkrs) <- foldM processBakerAccount (RS.emptyReleaseSchedule, _birkActiveBakers preBirkParameters) (Accounts.accountList _blockAccounts)
+    actBkrs <- foldM processDelegatorAccount preActBkrs (snd <$> Accounts.accountList _blockAccounts)
     let _blockBirkParameters = preBirkParameters {_birkActiveBakers = actBkrs}
     let _blockTransactionOutcomes = emptyTransactionOutcomes (Proxy @pv)
     return BlockState{..}
@@ -716,14 +716,24 @@ doGetAnonymityRevokers bs arIds = return $!
 doGetUpdateKeysCollection :: (Monad m, HasBlockState s pv, IsProtocolVersion pv) => s -> m (UpdateKeysCollection (ChainParametersVersionFor pv))
 doGetUpdateKeysCollection bs = return $! bs ^. blockUpdates . currentKeyCollection . unhashed
 
-doGetEnergyRate :: (Monad m, HasBlockState s pv) => s -> m EnergyRate
-doGetEnergyRate bs = return $! bs ^. blockUpdates . currentParameters . energyRate  
+doGetExchangeRates :: (Monad m, HasBlockState s pv) => s -> m ExchangeRates
+doGetExchangeRates bs =
+  let p = bs ^. blockUpdates . currentParameters
+  in return
+    ExchangeRates {
+      _erEuroPerEnergy = p ^. euroPerEnergy,
+      _erEnergyRate = p ^. energyRate,
+      _erMicroGTUPerEuro = p ^. microGTUPerEuro
+      }
 
 instance (Monad m) => BS.ModuleQuery (PureBlockStateMonad pv m) where
     {-# INLINE getModuleArtifact #-}
     getModuleArtifact = return
 
 instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMonad pv m) where
+    {-# INLINE getExchangeRates #-}
+    getExchangeRates = doGetExchangeRates
+
     {-# INLINE getModule #-}
     getModule bs mref =
         return $ bs ^. blockModules . to (Modules.getSource mref)
@@ -912,10 +922,6 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
 
     {-# INLINE getUpdateKeysCollection #-}
     getUpdateKeysCollection = doGetUpdateKeysCollection
-
-    {-# INLINE getEnergyRate #-}
-    getEnergyRate = doGetEnergyRate
-
 
     {-# INLINE getPaydayEpoch #-}
     getPaydayEpoch bs =
@@ -1160,10 +1166,19 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
 
     bsoModifyAccount bs accountUpdates = return $!
         -- Update the account
-        bs & blockAccounts %~ Accounts.putAccount updatedAccount
+        bs & (blockAccounts %~ Accounts.putAccount updatedAccount)
+        -- Update the top-level release schedule (if necessary)
+           & updateReleases
         where
             account = bs ^. blockAccounts . singular (Accounts.indexedAccount (accountUpdates ^. auIndex))
             updatedAccount = Accounts.updateAccount accountUpdates account
+            updateReleases
+                | isNothing (_auReleaseSchedule accountUpdates) = id
+                | otherwise = case (nextReleaseTimestamp (account ^. accountReleaseSchedule), nextReleaseTimestamp (updatedAccount ^. accountReleaseSchedule)) of
+                    (Nothing, Just ts) -> blockReleaseSchedule %~ RS.addAccountRelease ts (accountUpdates ^. auIndex)
+                    (Just oldts, Just newts)
+                        | newts < oldts -> blockReleaseSchedule %~ RS.updateAccountRelease oldts newts (accountUpdates ^. auIndex)
+                    _ -> id
 
     bsoSetAccountCredentialKeys bs accIndex credIx newKeys = return $! bs & blockAccounts %~ Accounts.putAccount updatedAccount
         where
@@ -1911,22 +1926,22 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
 
     {-# INLINE bsoProcessReleaseSchedule #-}
     bsoProcessReleaseSchedule bs ts = do
-      let (accountsToRemove, blockReleaseSchedule') = Map.partition (<= ts) $ bs ^. blockReleaseSchedule
-      if Map.null accountsToRemove
+      let (accountsToRemove, blockReleaseSchedule') = RS.processReleasesUntil ts $ bs ^. blockReleaseSchedule
+      if null accountsToRemove
         then return bs
         else
-        let f (ba, brs) addr =
-              let mUnlocked = unlockAmountsUntil ts <$> (ba ^? ix addr . accountReleaseSchedule)
+        let f (ba, brs) aid =
+              let mUnlocked = unlockAmountsUntil ts <$> (ba ^? Accounts.indexedAccount aid . accountReleaseSchedule)
               in
                 case mUnlocked of
                   Nothing -> (ba, brs)
                   Just (_, newTs, ars') ->
-                    let ba' = ba & ix addr . accountReleaseSchedule .~ ars'
+                    let ba' = ba & Accounts.indexedAccount aid . accountReleaseSchedule .~ ars'
                         brs' = case newTs of
-                                 Just k -> Map.insert addr k brs
+                                 Just k -> RS.addAccountRelease k aid brs
                                  Nothing -> brs
                     in (ba', brs')
-            (blockAccounts', blockReleaseSchedule'') = foldl' f (bs ^. blockAccounts, blockReleaseSchedule') (Map.keys accountsToRemove)
+            (blockAccounts', blockReleaseSchedule'') = foldl' f (bs ^. blockAccounts, blockReleaseSchedule') accountsToRemove
         in
           return $! bs & blockAccounts .~ blockAccounts'
                        & blockReleaseSchedule .~ blockReleaseSchedule''
@@ -1952,16 +1967,8 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
     bsoRotateCurrentCapitalDistribution bs =
         return $! bs & blockPoolRewards %~ PoolRewards.rotateCapitalDistribution
 
-    {-# INLINE bsoAddReleaseSchedule #-}
-    bsoAddReleaseSchedule bs rel = do
-      let f relSchedule (addr, t) = Map.alter (\case
-                                                  Nothing -> Just t
-                                                  Just t' -> Just $ min t' t) addr relSchedule
-          updateBRS brs = foldl' f brs rel
-      return $! bs & blockReleaseSchedule %~ updateBRS
-
-    {-# INLINE bsoGetEnergyRate #-}
-    bsoGetEnergyRate = doGetEnergyRate
+    {-# INLINE bsoGetExchangeRates #-}
+    bsoGetExchangeRates = doGetExchangeRates
 
     bsoGetChainParameters bs = return $! bs ^. blockUpdates . currentParameters
 
@@ -2043,7 +2050,7 @@ initialState seedState cryptoParams genesisAccounts ips anonymityRevokers keysCo
     _blockAnonymityRevokers = makeHashed anonymityRevokers
     _blockTransactionOutcomes = emptyTransactionOutcomes (Proxy @pv)
     _blockUpdates = initialUpdates keysCollection chainParams
-    _blockReleaseSchedule = Map.empty
+    _blockReleaseSchedule = RS.emptyReleaseSchedule
     _blockRewardDetails = emptyBlockRewardDetails
     _blockStateHash = BS.makeBlockStateHash @pv BS.BlockStateHashInputs {
               bshBirkParameters = getHash _blockBirkParameters,
@@ -2237,7 +2244,7 @@ genesisState gd = case protocolVersion @pv of
                   _blockAnonymityRevokers = makeHashed genesisAnonymityRevokers
                   _blockTransactionOutcomes = emptyTransactionOutcomes (Proxy @pv)
                   _blockUpdates = initialUpdates genesisUpdateKeys genesisChainParameters
-                  _blockReleaseSchedule = Map.empty
+                  _blockReleaseSchedule = RS.emptyReleaseSchedule
 
 -- |Migrate block state from the representation used by protocol version @oldpv@
 -- to the one used by protocol version @pv@. The @StateMigrationParameters@

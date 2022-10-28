@@ -2,14 +2,19 @@
 
 ## Unreleased changes
 
-- Add support for protocol version 5. This adds the following features
-- Support for smart contract upgradability via a native host function 'upgrade'.
-  Only V1 smart contracts supports upgrading.
-- Revised the hashing scheme for transaction outcomes in protocol version 5.
-  In particular the exact reject reasons are no longer part of the computed hash.
-  Further the transaction outcomes are being stored in a merkle tree for P5 resulting 
-  in some queries being faster.
-- a new representation of accounts that is better optimised for common operations
+- Add support for protocol version 5. This adds the following features:
+  - Support for smart contract upgradability.
+  - Query the current exchange rates, account balances and contract balances from a smart contract.
+  - Relax restrictions on smart contracts
+    - Parameter size limit: 1kiB -> 65kiB
+    - Return value size limit: 16kiB -> no limit (apart from energy)
+    - Number of logs per invocation: 64 -> no limit (apart from energy)
+  - A new representation of accounts that is better optimised for common operations.
+  - Revised the hashing scheme for transaction outcomes in protocol version 5.
+    In particular the exact reject reasons are no longer part of the computed hash.
+    Further the transaction outcomes are being stored in a merkle tree for P5 resulting 
+    in some queries being faster.
+- More efficient indexing of accounts with scheduled releases.
 - Fix an issue where the catch-up downloader would fail at a protocol update.
 
 ## 4.5.0

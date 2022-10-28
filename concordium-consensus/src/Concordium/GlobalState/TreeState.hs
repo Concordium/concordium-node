@@ -568,7 +568,7 @@ instance (Monad m,
   {-# INLINE energyToCcd #-}
   energyToCcd v = do
     ctx <- ask
-    rate <- lift (getEnergyRate (ctx ^. ctxBs))
+    rate <- lift $ _erEnergyRate <$> getExchangeRates (ctx ^. ctxBs)
     return (computeCost rate v)
   {-# INLINE getMaxBlockEnergy #-}
   getMaxBlockEnergy = do

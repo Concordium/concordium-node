@@ -39,7 +39,6 @@ import Control.Monad.Reader
 import qualified Control.Monad.State.Strict as MTL
 import qualified Control.Monad.Except as MTL
 import qualified Control.Monad.Writer.Strict as MTL
-import Data.Foldable
 import Data.Maybe
 import Data.Proxy
 import Data.Word
@@ -78,10 +77,12 @@ import Concordium.GlobalState.Persistent.Instances(PersistentInstance(..), Persi
 import Concordium.GlobalState.Persistent.Account
 import Concordium.GlobalState.Persistent.BlockState.Updates
 import Concordium.GlobalState.Persistent.PoolRewards
+import Concordium.GlobalState.Persistent.ReleaseSchedule
 import qualified Concordium.GlobalState.Persistent.LFMBTree as LFMBT
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import qualified Concordium.Crypto.SHA256 as SHA256
 import qualified Concordium.GlobalState.Basic.BlockState.Account as TransientAccount
+import qualified Concordium.GlobalState.Basic.BlockState.Accounts as TransientAccounts
 import qualified Concordium.Types.UpdateQueues as UQ
 import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
@@ -529,7 +530,7 @@ data BlockStatePointers (pv :: ProtocolVersion) = BlockStatePointers {
     bspBirkParameters :: !(PersistentBirkParameters (AccountVersionFor pv)),
     bspCryptographicParameters :: !(HashedBufferedRef CryptographicParameters),
     bspUpdates :: !(BufferedRef (Updates pv)),
-    bspReleaseSchedule :: !(BufferedRef (Map.Map AccountAddress Timestamp)),
+    bspReleaseSchedule :: !(ReleaseSchedule pv),
     bspTransactionOutcomes :: !(PersistentTransactionOutcomes (TransactionOutcomesVersionFor pv)),
     -- |Details of bakers that baked blocks in the current epoch. This is
     -- used for rewarding bakers at the end of epochs.
@@ -656,7 +657,8 @@ makePersistent Basic.BlockState{..} = do
   cryptographicParameters <- bufferHashed _blockCryptographicParameters
   blockAccounts <- Accounts.makePersistent _blockAccounts
   updates <- makeBufferedRef =<< makePersistentUpdates _blockUpdates
-  rels <- makeBufferedRef _blockReleaseSchedule
+  let accAddr ai = _blockAccounts ^. TransientAccounts.unsafeIndexedAccount ai . accountAddress
+  rels <- makePersistentReleaseSchedule accAddr _blockReleaseSchedule
   red <- makePersistentBlockRewardDetails _blockRewardDetails
   tos <- makePersistentTransactionOutcomes _blockTransactionOutcomes
   bsp <-
@@ -706,7 +708,7 @@ emptyBlockState bspBirkParameters cryptParams keysCollection chainParams = do
   anonymityRevokers <- refMake ARS.emptyAnonymityRevokers
   cryptographicParameters <- refMake cryptParams
   bspUpdates <- refMake =<< initialUpdates keysCollection chainParams
-  bspReleaseSchedule <- refMake Map.empty
+  bspReleaseSchedule <- emptyReleaseSchedule
   bspRewardDetails <- emptyBlockRewardDetails
   bsp <- makeBufferedRef $ BlockStatePointers
           { bspAccounts = Accounts.emptyAccounts,
@@ -1920,12 +1922,36 @@ doCreateAccount pbs cryptoParams acctAddr credential = do
           Nothing -> -- the account was not created
             return (Nothing, pbs)
 
-doModifyAccount :: (SupportsPersistentState pv m) => PersistentBlockState pv -> AccountUpdate -> m (PersistentBlockState pv)
+doModifyAccount :: forall m pv. (SupportsPersistentState pv m) => PersistentBlockState pv -> AccountUpdate -> m (PersistentBlockState pv)
 doModifyAccount pbs aUpd@AccountUpdate{..} = do
         bsp <- loadPBS pbs
-        -- Do the update to the account
-        accts1 <- Accounts.updateAccountsAtIndex' (updateAccount aUpd) _auIndex (bspAccounts bsp)
-        storePBS pbs (bsp {bspAccounts = accts1})
+        -- Do the update to the account. The first component of the return value is a @Just@ when
+        -- the release schedule for the account is updated. This is a triple of: the reference
+        -- to the account (used by the release schedule index), the former first release timestamp
+        -- (or @Nothing@ if there was none), and the new first release timestamp (or @Nothing@ if
+        -- there is none). These are used to update the release schedule index as necessary.
+        let doUpd :: PersistentAccount (AccountVersionFor pv)
+                -> m (Maybe (RSAccountRef pv, Maybe Timestamp, Maybe Timestamp), PersistentAccount (AccountVersionFor pv))
+            doUpd acc = do
+                acc' <- updateAccount aUpd acc
+                releaseChange <- forM _auReleaseSchedule $ \_ -> do
+                    acctRef <- case protocolVersion @pv of
+                        SP1 -> accountCanonicalAddress acc'
+                        SP2 -> accountCanonicalAddress acc'
+                        SP3 -> accountCanonicalAddress acc'
+                        SP4 -> accountCanonicalAddress acc'
+                        SP5 -> return _auIndex
+                    !oldRel <- accountNextReleaseTimestamp acc
+                    !newRel <- accountNextReleaseTimestamp acc'
+                    return (acctRef :: RSAccountRef pv, oldRel, newRel)
+                return (releaseChange, acc')
+        (releaseChange, accts1) <- Accounts.updateAccountsAtIndex doUpd _auIndex (bspAccounts bsp)
+        newRS <- case releaseChange of
+            Just (Just (aref, Nothing, Just ts)) -> addAccountRelease ts aref (bspReleaseSchedule bsp)
+            Just (Just (aref, Just oldts, Just newts))
+                | newts < oldts -> updateAccountRelease oldts newts aref (bspReleaseSchedule bsp)
+            _ -> return $ bspReleaseSchedule bsp
+        storePBS pbs (bsp {bspAccounts = accts1, bspReleaseSchedule = newRS})
 
 doSetAccountCredentialKeys :: (SupportsPersistentState pv m) => PersistentBlockState pv -> AccountIndex -> ID.CredentialIndex -> ID.CredentialPublicKeys -> m (PersistentBlockState pv)
 doSetAccountCredentialKeys pbs accIndex credIx credKeys = do
@@ -2330,22 +2356,46 @@ doProcessUpdateQueues pbs ts = do
         (changes, (u', ars', ips')) <- processUpdateQueues ts (u, ars, ips)
         (changes,) <$> storePBS pbs bsp{bspUpdates = u', bspAnonymityRevokers = ars', bspIdentityProviders = ips'}
 
-doProcessReleaseSchedule :: (SupportsPersistentState pv m) => PersistentBlockState pv -> Timestamp -> m (PersistentBlockState pv)
+doProcessReleaseSchedule :: forall m pv. (SupportsPersistentState pv m) => PersistentBlockState pv -> Timestamp -> m (PersistentBlockState pv)
 doProcessReleaseSchedule pbs ts = do
-        bsp <- loadPBS pbs
-        releaseSchedule <- refLoad (bspReleaseSchedule bsp)
-        if Map.null releaseSchedule
-          then return pbs
-          else do
-          let (accountsToRemove, blockReleaseSchedule') = Map.partition (<= ts) releaseSchedule
-              f (ba, readded) addr = do
-                (toRead, ba') <- Accounts.updateAccounts (unlockAccountReleases ts) addr ba
-                return (ba', case snd =<< toRead of
-                               Just t -> (addr, t) : readded
-                               Nothing -> readded)
-          (bspAccounts', accsToReadd) <- foldlM f (bspAccounts bsp, []) (Map.keys accountsToRemove)
-          bspReleaseSchedule' <- refMake $ foldl' (\b (a, t) -> Map.insert a t b) blockReleaseSchedule' accsToReadd
-          storePBS pbs (bsp {bspAccounts = bspAccounts', bspReleaseSchedule = bspReleaseSchedule'})
+    bsp <- loadPBS pbs
+    (affectedAccounts, remRS) <- processReleasesUntil ts (bspReleaseSchedule bsp)
+    if null affectedAccounts
+        then return pbs
+        else do
+            let processAccountP1 ::
+                    (RSAccountRef pv ~ AccountAddress) =>
+                    (Accounts.Accounts pv, ReleaseSchedule pv) ->
+                    RSAccountRef pv ->
+                    m (Accounts.Accounts pv, ReleaseSchedule pv)
+                processAccountP1 (accs, rs) addr = do
+                    (reAdd, accs') <- Accounts.updateAccounts (unlockAccountReleases ts) addr accs
+                    rs' <- case reAdd of
+                        Just (_, Just nextTS) -> addAccountRelease nextTS addr rs
+                        Just (_, Nothing) -> return rs
+                        Nothing -> error "processReleaseSchedule: scheduled release for invalid account address"
+                    return (accs', rs')
+                processAccountP5 ::
+                    (RSAccountRef pv ~ AccountIndex) =>
+                    (Accounts.Accounts pv, ReleaseSchedule pv) ->
+                    RSAccountRef pv ->
+                    m (Accounts.Accounts pv, ReleaseSchedule pv)
+                processAccountP5 (accs, rs) ai = do
+                    (reAdd, accs') <- Accounts.updateAccountsAtIndex (unlockAccountReleases ts) ai accs
+                    rs' <- case reAdd of
+                        Just (Just nextTS) -> addAccountRelease nextTS ai rs
+                        Just Nothing -> return rs
+                        Nothing -> error "processReleaseSchedule: scheduled release for invalid account index"
+                    return (accs', rs')
+                processAccount :: (Accounts.Accounts pv, ReleaseSchedule pv) -> RSAccountRef pv -> m (Accounts.Accounts pv, ReleaseSchedule pv)
+                processAccount = case protocolVersion @pv of
+                    SP1 -> processAccountP1
+                    SP2 -> processAccountP1
+                    SP3 -> processAccountP1
+                    SP4 -> processAccountP1
+                    SP5 -> processAccountP5
+            (newAccs, newRS) <- foldM processAccount (bspAccounts bsp, remRS) affectedAccounts
+            storePBS pbs (bsp{bspAccounts = newAccs, bspReleaseSchedule = newRS})
 
 doGetUpdateKeyCollection
     :: (SupportsPersistentState pv m)
@@ -2404,20 +2454,10 @@ doRotateCurrentCapitalDistribution pbs = do
         BlockRewardDetailsV1 hpr -> BlockRewardDetailsV1 <$> rotateCapitalDistribution hpr
     storePBS pbs bsp{bspRewardDetails = newRewardDetails}
 
-doAddReleaseSchedule :: (SupportsPersistentState pv m) => PersistentBlockState pv -> [(AccountAddress, Timestamp)] -> m (PersistentBlockState pv)
-doAddReleaseSchedule pbs rel = do
-        bsp <- loadPBS pbs
-        releaseSchedule <- loadBufferedRef (bspReleaseSchedule bsp)
-        let f relSchedule (addr, t) = Map.alter (\case
-                                                    Nothing -> Just t
-                                                    Just t' -> Just $ min t' t) addr relSchedule
-        bspReleaseSchedule' <- makeBufferedRef $ foldl' f releaseSchedule rel
-        storePBS pbs bsp {bspReleaseSchedule = bspReleaseSchedule'}
-
-doGetEnergyRate :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m EnergyRate
-doGetEnergyRate pbs = do
+doGetExchangeRates :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m ExchangeRates
+doGetExchangeRates pbs = do
     bsp <- loadPBS pbs
-    lookupEnergyRate (bspUpdates bsp)
+    lookupExchangeRates (bspUpdates bsp)
 
 doGetChainParameters :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m (ChainParameters pv)
 doGetChainParameters pbs = do
@@ -2905,7 +2945,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateQuery (P
     getIdentityProvider = doGetIdentityProvider . hpbsPointers
     getAnonymityRevokers =  doGetAnonymityRevokers . hpbsPointers
     getUpdateKeysCollection = doGetUpdateKeyCollection . hpbsPointers
-    getEnergyRate = doGetEnergyRate . hpbsPointers
+    getExchangeRates = doGetExchangeRates . hpbsPointers
     getPaydayEpoch = doGetPaydayEpoch . hpbsPointers
     getPoolStatus = doGetPoolStatus . hpbsPointers
 
@@ -3016,8 +3056,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m, SupportsTransactionOu
     bsoClearProtocolUpdate = doClearProtocolUpdate
     bsoSetNextCapitalDistribution = doSetNextCapitalDistribution
     bsoRotateCurrentCapitalDistribution = doRotateCurrentCapitalDistribution
-    bsoAddReleaseSchedule = doAddReleaseSchedule
-    bsoGetEnergyRate = doGetEnergyRate
+    bsoGetExchangeRates = doGetExchangeRates
     bsoGetChainParameters = doGetChainParameters
     bsoGetEpochBlocksBaked = doGetEpochBlocksBaked
     bsoNotifyBlockBaked = doNotifyBlockBaked
@@ -3124,6 +3163,18 @@ migrateBlockPointers ::
     BlockStatePointers oldpv ->
     t m (BlockStatePointers pv)
 migrateBlockPointers migration BlockStatePointers {..} = do
+    -- We migrate the release schedule first because we may need to access the
+    -- accounts in the process.
+    let rsMigration = case migration of
+          StateMigrationParametersTrivial -> trivialReleaseScheduleMigration
+          StateMigrationParametersP1P2 -> RSMLegacyToLegacy
+          StateMigrationParametersP2P3 -> RSMLegacyToLegacy
+          StateMigrationParametersP3ToP4{} -> RSMLegacyToLegacy
+          StateMigrationParametersP4ToP5{} -> RSMLegacyToNew $ \addr ->
+            Accounts.getAccountIndex addr bspAccounts <&> \case
+                Nothing -> error "Account with release schedule does not exist"
+                Just ai -> ai
+    newReleaseSchedule <- migrateReleaseSchedule rsMigration bspReleaseSchedule
     newAccounts <- Accounts.migrateAccounts migration bspAccounts
     newModules <- migrateHashedBufferedRef Modules.migrateModules bspModules
     modules <- refLoad newModules
@@ -3134,7 +3185,6 @@ migrateBlockPointers migration BlockStatePointers {..} = do
     newBirkParameters <- migratePersistentBirkParameters migration newAccounts bspBirkParameters
     newCryptographicParameters <- migrateHashedBufferedRefKeepHash bspCryptographicParameters
     newUpdates <- migrateReference (migrateUpdates migration) bspUpdates
-    newReleaseSchedule <- migrateReference return bspReleaseSchedule
     curBakers <- extractBakerStakes =<< refLoad (_birkCurrentEpochBakers newBirkParameters)
     nextBakers <- extractBakerStakes =<< refLoad (_birkNextEpochBakers newBirkParameters)
     -- clear transaction outcomes.

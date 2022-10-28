@@ -14,7 +14,6 @@ import Concordium.Scheduler.Environment
 
 import qualified Data.Kind as DK
 import Data.HashMap.Strict as Map
-import qualified Data.Map.Strict as OrdMap
 import Data.Functor.Identity
 
 import Concordium.TimeMonad
@@ -120,6 +119,10 @@ instance (MonadReader ContextState m,
   {-# INLINE getStateAccount #-}
   getStateAccount !addr = lift . flip bsoGetAccount addr =<< use schedulerBlockState
 
+  {-# INLINE getExchangeRates #-}
+  getExchangeRates = lift . bsoGetExchangeRates =<< use schedulerBlockState
+
+
 instance (SS state ~ UpdatableBlockState m,
           HasSchedulerState state,
           MonadState state m,
@@ -158,7 +161,7 @@ instance (SS state ~ UpdatableBlockState m,
   {-# INLINE energyToCcd #-}
   energyToCcd v =  do
     s <- use schedulerBlockState
-    rate <- lift (bsoGetEnergyRate s)
+    rate <- lift $ _erEnergyRate <$> bsoGetExchangeRates s
     return (computeCost rate v)
   {-# INLINE getMaxBlockEnergy #-}
   getMaxBlockEnergy = do
@@ -242,17 +245,17 @@ instance (MonadReader ContextState m,
                       s1
                       (Map.toList (cs ^. instanceV1Updates)))
     -- Notify account transfers.
+    -- This also updates the release schedule.
     s3 <- lift (foldM bsoModifyAccount
                   s2
                   (cs ^. accountUpdates))
-    s4 <- lift (bsoAddReleaseSchedule s3 (OrdMap.toList $ cs ^. addedReleaseSchedules))
-    schedulerBlockState .= s4
+    schedulerBlockState .= s3
 
   {-# INLINE energyToGtu #-}
   energyToGtu v = do
     s <- use schedulerBlockState
-    rate <- lift (bsoGetEnergyRate s)
-    return (computeCost rate v)
+    rate <- lift $ _erEnergyRate <$> bsoGetExchangeRates s
+    return $! computeCost rate v
 
   {-# INLINE notifyExecutionCost #-}
   notifyExecutionCost !amnt = schedulerExecutionCosts += amnt

@@ -37,7 +37,7 @@ testNoAttributes = do
         initOrigin = alesAccount,
         icSenderPolicies = []
         }
-  let res1 = applyInitFun artifact dummyChainMeta initCtx1 (InitName "init_context_test") (Parameter mempty) 0 100000
+  let res1 = applyInitFun artifact dummyChainMeta initCtx1 (InitName "init_context_test") (Parameter mempty) False 0 100000
   case res1 of
     Nothing -> assertFailure "Initialization failed due to out of energy."
     Just (Left execFailure, _) -> assertFailure $ "Initalizatio failed due to " ++ show execFailure
@@ -56,7 +56,7 @@ testNoAttributes = do
                 }
             ]
         }
-  let res2 = applyInitFun artifact dummyChainMeta initCtx2 (InitName "init_context_test") (Parameter mempty) 0 100000
+  let res2 = applyInitFun artifact dummyChainMeta initCtx2 (InitName "init_context_test") (Parameter mempty) False 0 100000
   case res2 of
     Nothing -> assertFailure "Initialization failed due to out of energy."
     Just (Left execFailure, _) -> assertFailure $ "Initalizatio failed due to " ++ show execFailure
@@ -83,7 +83,7 @@ testSingleAttribute = do
                 }
             ]
         }
-  let res3 = applyInitFun artifact dummyChainMeta initCtx3 (InitName "init_context_test_2") (Parameter mempty) 0 100000
+  let res3 = applyInitFun artifact dummyChainMeta initCtx3 (InitName "init_context_test_2") (Parameter mempty) False 0 100000
   case res3 of
     Nothing -> assertFailure "Initialization failed due to out of energy."
     Just (Left execFailure, _) -> assertFailure $ "Initalizatio failed due to " ++ show execFailure
@@ -124,7 +124,7 @@ testTwoPoliciesTwoAttributes = do
                 }
             ]
         }
-  let res4 = applyInitFun artifact dummyChainMeta initCtx4 (InitName "init_context_test_3") (Parameter mempty) 0 1000000
+  let res4 = applyInitFun artifact dummyChainMeta initCtx4 (InitName "init_context_test_3") (Parameter mempty) False 0 1000000
   case res4 of
     Nothing -> assertFailure "Initialization failed due to out of energy."
     Just (Left execFailure, _) -> assertFailure $ "Initalizatio failed due to " ++ show execFailure
