@@ -56,6 +56,7 @@ import Concordium.GlobalState.Wasm
 import Concordium.Utils.Serialization
 import Concordium.GlobalState.ContractStateFFIHelpers (LoadCallback)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
+import qualified Concordium.Wasm as Wasm
 
 foreign import ccall unsafe "return_value_to_byte_array" return_value_to_byte_array :: Ptr ReturnValue -> Ptr CSize -> IO (Ptr Word8)
 foreign import ccall unsafe "&box_vec_u8_free" freeReturnValue :: FunPtr (Ptr ReturnValue -> IO ())
@@ -188,6 +189,7 @@ foreign import ccall "call_init_v1"
              -> CSize -- ^Length of the name.
              -> Ptr Word8 -- ^Pointer to the parameter.
              -> CSize -- ^Length of the parameter bytes.
+             -> Word8 -- ^Limit number of logs and size of return value.
              -> Word64 -- ^Available energy.
              -> Ptr (Ptr ReturnValue) -- ^Location where the pointer to the return value will be written.
              -> Ptr CSize -- ^Length of the output byte array, if non-null.
@@ -211,6 +213,8 @@ foreign import ccall "call_receive_v1"
              -- If the state has not been modified then a null pointer is written here.
              -> Ptr Word8 -- ^Pointer to the parameter.
              -> CSize -- ^Length of the parameter bytes.
+             -> CSize -- ^Max parameter size.
+             -> Word8 -- ^Limit number of logs and size of return value.
              -> Word64 -- ^Available energy.
              -> Ptr (Ptr ReturnValue) -- ^Location where the pointer to the return value will be written.
              -> Ptr (Ptr ReceiveInterruptedState) -- ^Location where the pointer to interrupted config will be stored.
@@ -246,12 +250,13 @@ applyInitFun
                   -- available to the init method.
     -> InitName -- ^Which method to invoke.
     -> Parameter -- ^User-provided parameter to the init method.
+    -> Bool -- ^Limit number of logs and size of return values.
     -> Amount -- ^Amount the contract is going to be initialized with.
     -> InterpreterEnergy -- ^Maximum amount of energy that can be used by the interpreter.
     -> Maybe (Either ContractExecutionReject InitResultData, InterpreterEnergy)
     -- ^Nothing if execution ran out of energy.
     -- Just (result, remainingEnergy) otherwise, where @remainingEnergy@ is the amount of energy that is left from the amount given.
-applyInitFun cbk miface cm initCtx iName param amnt iEnergy = unsafePerformIO $ do
+applyInitFun cbk miface cm initCtx iName param limitLogsAndRvs amnt iEnergy = unsafePerformIO $ do
               BSU.unsafeUseAsCStringLen wasmArtifactBytes $ \(wasmArtifactPtr, wasmArtifactLen)  ->
                 BSU.unsafeUseAsCStringLen initCtxBytes $ \(initCtxBytesPtr, initCtxBytesLen) ->
                   BSU.unsafeUseAsCStringLen nameBytes $ \(nameBytesPtr, nameBytesLen) ->
@@ -263,6 +268,7 @@ applyInitFun cbk miface cm initCtx iName param amnt iEnergy = unsafePerformIO $ 
                                            amountWord
                                            (castPtr nameBytesPtr) (fromIntegral nameBytesLen)
                                            (castPtr paramBytesPtr) (fromIntegral paramBytesLen)
+                                           (if limitLogsAndRvs then 1 else 0)
                                            energy
                                            returnValuePtrPtr
                                            outputLenPtr
@@ -315,7 +321,7 @@ data InvokeMethod =
 getInvokeMethod :: Get InvokeMethod
 getInvokeMethod = getWord8 >>= \case
   0 -> Transfer <$> get <*> get
-  1 -> Call <$> get <*> get <*> get <*> get
+  1 -> Call <$> get <*> Wasm.getParameterUnchecked <*> get <*> get
   2 -> Upgrade <$> get
   3 -> QueryAccountBalance <$> get
   4 -> QueryContractBalance <$> get
@@ -511,6 +517,8 @@ applyReceiveFun
     -> ReceiveName  -- ^The method that was named
     -> Bool -- ^Whether to invoke the default method instead of the named one.
     -> Parameter -- ^Parameters available to the method.
+    -> Word16 -- ^Max parameter size.
+    -> Bool -- ^Limit number of logs and size of return value.
     -> Amount  -- ^Amount the contract is initialized with.
     -> StateV1.MutableState -- ^State of the contract to start in, and a way to use it.
     -> Bool -- ^ Enable support of chain queries.
@@ -518,7 +526,7 @@ applyReceiveFun
     -> Maybe (Either ContractExecutionReject ReceiveResultData, InterpreterEnergy)
     -- ^Nothing if execution used up all the energy, and otherwise the result
     -- of execution with the amount of energy remaining.
-applyReceiveFun miface cm receiveCtx rName useFallback param amnt initialState supportChainQueries initialEnergy = unsafePerformIO $ do
+applyReceiveFun miface cm receiveCtx rName useFallback param maxParamLen limitLogsAndRvs amnt initialState supportChainQueries initialEnergy = unsafePerformIO $ do
               BSU.unsafeUseAsCStringLen wasmArtifact $ \(wasmArtifactPtr, wasmArtifactLen)  ->
                 BSU.unsafeUseAsCStringLen initCtxBytes $ \(initCtxBytesPtr, initCtxBytesLen) ->
                   BSU.unsafeUseAsCStringLen nameBytes $ \(nameBytesPtr, nameBytesLen) ->
@@ -534,6 +542,8 @@ applyReceiveFun miface cm receiveCtx rName useFallback param amnt initialState s
                                                 (if useFallback then 1 else 0)
                                                 statePtrPtr
                                                 (castPtr paramBytesPtr) (fromIntegral paramBytesLen)
+                                                (fromIntegral maxParamLen)
+                                                (if limitLogsAndRvs then 1 else 0)
                                                 energy
                                                 outputReturnValuePtrPtr
                                                 outputInterruptedConfigPtrPtr

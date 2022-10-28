@@ -415,8 +415,6 @@ allTestCase =
              ]
            }
   where
-    eventsCheck :: [Types.Event] -> Expectation
-
     initialBlockStateP4 :: BlockState PV4
     initialBlockStateP4 = blockStateWithAlesAccount
       100000000

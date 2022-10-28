@@ -41,6 +41,7 @@ foreign import ccall "call_init_v0"
              -> CSize -- ^Length of the name.
              -> Ptr Word8 -- ^Pointer to the parameter.
              -> CSize -- ^Length of the parameter bytes.
+             -> Word8 -- ^Limit the number of logs and size of return values.
              -> Word64 -- ^Available energy.
              -> Ptr CSize -- ^Length of the output byte array, if non-null.
              -> IO (Ptr Word8) -- ^New state and logs, if applicable, or null, signalling out-of-energy.
@@ -58,6 +59,8 @@ foreign import ccall "call_receive_v0"
              -> CSize -- ^Length of the state.
              -> Ptr Word8 -- ^Pointer to the parameter.
              -> CSize -- ^Length of the parameter bytes.
+             -> CSize -- ^Max parameter size.
+             -> Word8 -- ^Limit the number of logs and size of return values.
              -> Word64 -- ^Available energy.
              -> Ptr CSize -- ^Length of the output byte array, if non-null.
              -> IO (Ptr Word8) -- ^New state, logs, and actions, if applicable, or null, signalling out-of-energy.
@@ -70,12 +73,13 @@ applyInitFun
                   -- available to the init method.
     -> InitName -- ^Which method to invoke.
     -> Parameter -- ^User-provided parameter to the init method.
+    -> Bool -- ^Limit the number of logs and size of return values.
     -> Amount -- ^Amount the contract is going to be initialized with.
     -> InterpreterEnergy -- ^Maximum amount of energy that can be used by the interpreter.
     -> Maybe (Either ContractExecutionFailure (SuccessfulResultData ()), InterpreterEnergy)
     -- ^Nothing if execution ran out of energy.
     -- Just (result, remainingEnergy) otherwise, where @remainingEnergy@ is the amount of energy that is left from the amount given.
-applyInitFun miface cm initCtx iName param amnt iEnergy = processInterpreterResult (get :: Get ()) result
+applyInitFun miface cm initCtx iName param limitLogsAndRvs amnt iEnergy = processInterpreterResult (get :: Get ()) result
   where result = unsafePerformIO $ do
               BSU.unsafeUseAsCStringLen wasmArtifact $ \(wasmArtifactPtr, wasmArtifactLen) ->
                 BSU.unsafeUseAsCStringLen initCtxBytes $ \(initCtxBytesPtr, initCtxBytesLen) ->
@@ -87,6 +91,7 @@ applyInitFun miface cm initCtx iName param amnt iEnergy = processInterpreterResu
                                            amountWord
                                            (castPtr nameBytesPtr) (fromIntegral nameBytesLen)
                                            (castPtr paramBytesPtr) (fromIntegral paramBytesLen)
+                                           (if limitLogsAndRvs then 1 else 0)
                                            energy
                                            outputLenPtr
                         if outPtr == nullPtr then return Nothing
@@ -138,13 +143,15 @@ applyReceiveFun
                      -- available to the receive method.
     -> ReceiveName  -- ^Which method to invoke.
     -> Parameter -- ^Parameters available to the method.
+    -> Word16 -- ^Max parameter size.
+    -> Bool -- ^Limit the number of logs and size of return values.
     -> Amount  -- ^Amount the contract is initialized with.
     -> ContractState -- ^State of the contract to start in.
     -> InterpreterEnergy  -- ^Amount of energy available for execution.
     -> Maybe (Either ContractExecutionFailure (SuccessfulResultData ActionsTree), InterpreterEnergy)
     -- ^Nothing if execution used up all the energy, and otherwise the result
     -- of execution with the amount of energy remaining.
-applyReceiveFun miface cm receiveCtx rName param amnt cs initialEnergy = processInterpreterResult getActionsTree result
+applyReceiveFun miface cm receiveCtx rName param maxParamLen limitLogsAndRvs amnt cs initialEnergy = processInterpreterResult getActionsTree result
   where result = unsafePerformIO $ do
               BSU.unsafeUseAsCStringLen wasmArtifact $ \(wasmArtifactPtr, wasmArtifactLen) ->
                 BSU.unsafeUseAsCStringLen initCtxBytes $ \(initCtxBytesPtr, initCtxBytesLen) ->
@@ -158,6 +165,8 @@ applyReceiveFun miface cm receiveCtx rName param amnt cs initialEnergy = process
                                                  (castPtr nameBytesPtr) (fromIntegral nameBytesLen)
                                                  (castPtr stateBytesPtr) (fromIntegral stateBytesLen)
                                                  (castPtr paramBytesPtr) (fromIntegral paramBytesLen)
+                                                 (fromIntegral maxParamLen)
+                                                 (if limitLogsAndRvs then 1 else 0)
                                                  energy
                                                  outputLenPtr
                           if outPtr == nullPtr then return Nothing

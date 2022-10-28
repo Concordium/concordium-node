@@ -743,6 +743,9 @@ handleInitContract wtc initAmount modref initName param =
             -- with. Note that the deposit is already deducted at this point.
             senderAmount <- getCurrentAccountAvailableAmount senderAccount
 
+            -- Check whether the number of logs and the size of return values are limited in the current protocol version.
+            let limitLogsAndRvs = Wasm.limitLogsAndReturnValues $ protocolVersion @(MPV m)
+
             unless (senderAmount >= initAmount) $! rejectTransaction (AmountTooLarge (AddressAccount (thSender meta)) initAmount)
 
             -- First try to get the module interface of the parent module of the contract.
@@ -768,7 +771,7 @@ handleInitContract wtc initAmount modref initName param =
                     icSenderPolicies = map (Wasm.mkSenderPolicy . snd) (OrdMap.toAscList senderCredentials)
                 }
                 artifact <- liftLocal $ getModuleArtifact (GSWasm.miModule iface)
-                result <- runInterpreter (return . WasmV0.applyInitFun artifact cm initCtx initName param initAmount)
+                result <- runInterpreter (return . WasmV0.applyInitFun artifact cm initCtx initName param limitLogsAndRvs initAmount)
                         `rejectingWith'` wasmRejectToRejectReasonInit
 
                 -- Charge for storing the contract state.
@@ -799,7 +802,7 @@ handleInitContract wtc initAmount modref initName param =
                    }
                 stateContext <- getV1StateContext
                 artifact <- liftLocal $ getModuleArtifact (GSWasm.miModule iface)
-                result <- runInterpreter (return . WasmV1.applyInitFun stateContext artifact cm initCtx initName param initAmount)
+                result <- runInterpreter (return . WasmV1.applyInitFun stateContext artifact cm initCtx initName param limitLogsAndRvs initAmount)
                            `rejectingWith'` WasmV1.cerToRejectReasonInit
 
                 -- Charge for storing the contract state.
@@ -1258,7 +1261,10 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
         foreignModel <- getRuntimeReprV1 model
         artifact <- liftLocal $ getModuleArtifact (GSWasm.miModule moduleInterface)
         let supportsChainQueries = supportsChainQueryContracts $ protocolVersion @(MPV m)
-        go [] =<< runInterpreter (return . WasmV1.applyReceiveFun artifact cm receiveCtx receiveName useFallback parameter transferAmount foreignModel supportsChainQueries)
+        let maxParameterLen = Wasm.maxParameterLen $ protocolVersion @(MPV m)
+        -- Check whether the number of logs and the size of return values are limited in the current protocol version.
+        let limitLogsAndRvs = Wasm.limitLogsAndReturnValues $ protocolVersion @(MPV m)
+        go [] =<< runInterpreter (return . WasmV1.applyReceiveFun artifact cm receiveCtx receiveName useFallback parameter maxParameterLen limitLogsAndRvs transferAmount foreignModel supportsChainQueries)
    where  transferAccountSync :: AccountAddress -- ^The target account address.
                               -> UInstanceInfoV m GSWasm.V1 -- ^The sender of this transfer.
                               -> Amount -- ^The amount to transfer.
@@ -1352,7 +1358,10 @@ handleContractUpdateV0 originAddr istance checkAndGetSender transferAmount recei
 
   model <- getRuntimeReprV0 (iiState istance)
   artifact <- liftLocal $ getModuleArtifact (GSWasm.miModule iface)
-  result <- runInterpreter (return . WasmV0.applyReceiveFun artifact cm receiveCtx receiveName parameter transferAmount model)
+  let maxParameterLen = Wasm.maxParameterLen $ protocolVersion @(MPV m)
+  -- Check whether the number of logs and the size of return values are limited in the current protocol version.
+  let limitLogsAndRvs = Wasm.limitLogsAndReturnValues $ protocolVersion @(MPV m)
+  result <- runInterpreter (return . WasmV0.applyReceiveFun artifact cm receiveCtx receiveName parameter maxParameterLen limitLogsAndRvs transferAmount model)
              `rejectingWith'` wasmRejectToRejectReasonReceive cref receiveName parameter
 
   -- If we reach here the contract accepted the message and returned a new state as well as outgoing messages.
