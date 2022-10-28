@@ -1840,8 +1840,14 @@ doCreateAccount pbs cryptoParams acctAddr credential = do
 doModifyAccount :: forall m pv. (SupportsPersistentState pv m) => PersistentBlockState pv -> AccountUpdate -> m (PersistentBlockState pv)
 doModifyAccount pbs aUpd@AccountUpdate{..} = do
         bsp <- loadPBS pbs
-        -- Do the update to the account
-        let doUpd acc = do
+        -- Do the update to the account. The first component of the return value is a @Just@ when
+        -- the release schedule for the account is updated. This is a triple of: the reference
+        -- to the account (used by the release schedule index), the former first release timestamp
+        -- (or @Nothing@ if there was none), and the new first release timestamp (or @Nothing@ if
+        -- there is none). These are used to update the release schedule index as necessary.
+        let doUpd :: PersistentAccount (AccountVersionFor pv)
+                -> m (Maybe (RSAccountRef pv, Maybe Timestamp, Maybe Timestamp), PersistentAccount (AccountVersionFor pv))
+            doUpd acc = do
                 acc' <- updateAccount aUpd acc
                 releaseChange <- forM _auReleaseSchedule $ \_ -> do
                     acctRef <- case protocolVersion @pv of

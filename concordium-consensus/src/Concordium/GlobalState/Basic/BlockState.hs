@@ -1099,7 +1099,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
 
     bsoModifyAccount bs accountUpdates = return $!
         -- Update the account
-        bs & blockAccounts %~ Accounts.putAccount updatedAccount
+        bs & (blockAccounts %~ Accounts.putAccount updatedAccount)
         -- Update the top-level release schedule (if necessary)
            & updateReleases
         where
