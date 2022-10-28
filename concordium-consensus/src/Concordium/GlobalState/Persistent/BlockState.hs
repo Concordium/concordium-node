@@ -481,7 +481,7 @@ instance BlobStorable m TransactionSummaryV1 => MHashableTo m Transactions.Trans
   getHashM (PTOV1 MerkleTransactionOutcomes{..}) = do
     l <- getHashM mtoOutcomes
     r <- getHashM mtoSpecials
-    return $! (Transactions.TransactionOutcomesHash (H.hashOfHashes l r))
+    return $! Transactions.TransactionOutcomesHash (H.hashOfHashes l r)
 
 storeUpdateOutcomes :: (IsTransactionOutcomesVersion tov, MonadBlobStore m, MonadProtocolVersion m) => PersistentTransactionOutcomes tov -> m (Put, PersistentTransactionOutcomes tov)
 storeUpdateOutcomes out@(PTOV0 bto) = return (Transactions.putTransactionOutcomes bto, out)

@@ -305,6 +305,10 @@ instance HashableTo Transactions.TransactionOutcomesHash MerkleTransactionOutcom
 -- |Transaction outcomes are kept in this gadt based on the 'TransactionOutcomesVersion'.
 -- The surjective type family 'TransactionOutcomesVersionFor' (From 'ProtocolVersion' to 'TransactionOutcomesVersion')
 -- is holding onto the concrete mapping based on contextual protocol version.
+-- The contents of the actual transaction summary does not differ between the two
+-- however the 'HashableTo' instances does.
+-- 'BTOV0' computes the hash on all of the contents of the individual transaction summaries.
+-- 'BTOV1' omits the exact reject reasons from the computed hash.
 data BasicTransactionOutcomes (tov :: TransactionOutcomesVersion) where
     BTOV0 :: Transactions.TransactionOutcomes -> BasicTransactionOutcomes 'TOV0
     BTOV1 :: MerkleTransactionOutcomes -> BasicTransactionOutcomes 'TOV1
@@ -837,15 +841,14 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
 
     {-# INLINE getTransactionOutcome #-}
     getTransactionOutcome bs trh = do
-        case transactionOutcomesVersion @(TransactionOutcomesVersionFor pv) of
-            STOV0 ->
-              let BTOV0 inner = bs ^. blockTransactionOutcomes
-              in return $! inner ^? to Transactions.outcomeValues . ix (fromIntegral trh)
-            STOV1 -> 
-                let (BTOV1 outcomes) = bs ^. blockTransactionOutcomes
-                in case LFMBT.lookup trh (mtoOutcomes outcomes) of
-                    Nothing -> return Nothing
-                    Just (BS.TransactionSummaryV1 v) -> return $ Just v
+        case bs ^. blockTransactionOutcomes of
+          BTOV0 outcomes -> return $! outcomes ^? ix (fromIntegral trh)
+          BTOV1 mto ->
+              case LFMBT.lookup trh (mtoOutcomes mto) of
+                  Nothing -> return Nothing
+                  Just (BS.TransactionSummaryV1 v) -> return $ Just v
+          
+                    
 
     {-# INLINE getTransactionOutcomesHash #-}
     getTransactionOutcomesHash bs = return (getHash $ bs ^. blockTransactionOutcomes)
@@ -855,13 +858,9 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
 
     {-# INLINE getOutcomes #-}
     getOutcomes bs = do
-        case transactionOutcomesVersion @(TransactionOutcomesVersionFor pv) of
-          STOV0 ->
-            let BTOV0 inner = bs ^. blockTransactionOutcomes
-            in return (Transactions.outcomeValues inner)
-          STOV1 ->
-            let BTOV1 inner = bs ^. blockTransactionOutcomes
-            in return $! Vec.fromList . map BS._transactionSummaryV1 $ (LFMBT.toAscList (mtoOutcomes inner))
+        case bs ^. blockTransactionOutcomes of
+          BTOV0 outcomes -> return (Transactions.outcomeValues outcomes)
+          BTOV1 mto -> return $! Vec.fromList . map BS._transactionSummaryV1 $! LFMBT.toAscList (mtoOutcomes mto)
 
     {-# INLINE getSpecialOutcomes #-}
     getSpecialOutcomes bs =
@@ -1882,7 +1881,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
         case transactionOutcomesVersion @(TransactionOutcomesVersionFor pv) of 
           STOV0 -> return $! (bs & (blockTransactionOutcomes .~ BTOV0 (Transactions.transactionOutcomesV0FromList l)))
           STOV1 -> 
-              return $! (bs & (blockTransactionOutcomes .~ BTOV1  (MerkleTransactionOutcomes {
+              return $! (bs & (blockTransactionOutcomes .~ BTOV1 (MerkleTransactionOutcomes {
                   mtoOutcomes = LFMBT.fromList (map BS.TransactionSummaryV1 l),
                   mtoSpecials = LFMBT.empty
               })))
