@@ -514,6 +514,21 @@ instance
         amnt2 <- coerceBSMR (getAccountAmount acc2)
         assertEq amnt1 amnt2 $ return amnt1
 
+    getAccountStakedAmount (acc1, acc2) = do
+        amnt1 <- coerceBSML (getAccountStakedAmount acc1)
+        amnt2 <- coerceBSMR (getAccountStakedAmount acc2)
+        assertEq amnt1 amnt2 $ return amnt1
+
+    getAccountLockedAmount (acc1, acc2) = do
+        amnt1 <- coerceBSML (getAccountLockedAmount acc1)
+        amnt2 <- coerceBSMR (getAccountLockedAmount acc2)
+        assertEq amnt1 amnt2 $ return amnt1
+
+    getAccountAvailableAmount (acc1, acc2) = do
+        amnt1 <- coerceBSML (getAccountAvailableAmount acc1)
+        amnt2 <- coerceBSMR (getAccountAvailableAmount acc2)
+        assertEq amnt1 amnt2 $ return amnt1
+
     getAccountNonce (acc1, acc2) = do
         n1 <- coerceBSML (getAccountNonce acc1)
         n2 <- coerceBSMR (getAccountNonce acc2)

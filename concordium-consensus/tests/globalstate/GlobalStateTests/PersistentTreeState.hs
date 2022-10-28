@@ -52,7 +52,7 @@ import Test.Hspec
 import Test.QuickCheck
 
 -- |Protocol version.
-type PV = 'P1
+type PV = 'P5
 
 type GlobalStateIO c g = GlobalStateM PV c c g g (RWST c () g LogIO)
 
@@ -71,7 +71,7 @@ createGlobalState dbDir = do
   now <- utcTimeToTimestamp <$> getCurrentTime
   let
     n = 3
-    genesis = makeTestingGenesisDataP1 now n 1 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters emptyIdentityProviders emptyAnonymityRevokers maxBound dummyKeyCollection dummyChainParameters
+    genesis = makeTestingGenesisDataP5 now n 1 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters emptyIdentityProviders emptyAnonymityRevokers maxBound dummyKeyCollection dummyChainParameters
     config = DTDBConfig defaultRuntimeParameters dbDir (dbDir </> "blockstate" <.> "dat")
   (x, y) <- runSilentLogger $ initialiseGlobalState genesis config
   return (x, y)

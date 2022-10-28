@@ -31,13 +31,11 @@ import qualified Concordium.Wasm as Wasm
 import qualified Concordium.GlobalState.Wasm as GSWasm
 import Concordium.Scheduler.Types
 import qualified Concordium.Cost as Cost
-import Concordium.Types.Accounts
 import Concordium.GlobalState.Types
 import Concordium.GlobalState.Classes (MGSTrans(..))
 import Concordium.GlobalState.Account (EncryptedAmountUpdate(..), AccountUpdate(..), auAmount, auEncrypted, auReleaseSchedule, emptyAccountUpdate)
 import Concordium.GlobalState.BlockState (AccountOperations(..), NewInstanceData, ContractStateOperations (..), ModuleQuery(..), InstanceInfo, InstanceInfoType (..), InstanceInfoTypeV (iiState, iiParameters), iiBalance, UpdatableContractState)
 import Concordium.GlobalState.BakerInfo
-import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as ARS
 
 import qualified Concordium.TransactionVerification as TVer
 
@@ -347,11 +345,11 @@ class (StaticInformation m, ContractStateOperations m, MonadProtocolVersion m) =
 
   -- |Transfer amount from the first address to the second and run the
   -- computation in the modified environment.
-  withAccountToContractAmountV0 :: IndexedAccountAddress -> UInstanceInfoV m GSWasm.V0 -> Amount -> m a -> m a
+  withAccountToContractAmountV0 :: AccountIndex -> UInstanceInfoV m GSWasm.V0 -> Amount -> m a -> m a
 
   -- |Transfer amount from the first address to the second and run the
   -- computation in the modified environment.
-  withAccountToContractAmountV1 :: IndexedAccountAddress -> UInstanceInfoV m GSWasm.V1 -> Amount -> m a -> m a
+  withAccountToContractAmountV1 :: AccountIndex -> UInstanceInfoV m GSWasm.V1 -> Amount -> m a -> m a
 
   -- |Transfer an amount from the first account to the second and run the
   -- computation in the modified environment.
@@ -404,12 +402,12 @@ class (StaticInformation m, ContractStateOperations m, MonadProtocolVersion m) =
   -- |Transfer an amount from the first given instance or account to the instance in the second
   -- parameter and run the computation in the modified environment.
   {-# INLINE withToContractAmountV0 #-}
-  withToContractAmountV0 :: Either (Wasm.WasmVersion, ContractAddress) IndexedAccountAddress -> UInstanceInfoV m GSWasm.V0 -> Amount -> m a -> m a
+  withToContractAmountV0 :: Either (Wasm.WasmVersion, ContractAddress) AccountIndex -> UInstanceInfoV m GSWasm.V0 -> Amount -> m a -> m a
   withToContractAmountV0 (Left i) = withContractToContractAmountV0 i
   withToContractAmountV0 (Right a) = withAccountToContractAmountV0 a
 
   {-# INLINE withToContractAmountV1 #-}
-  withToContractAmountV1 :: Either (Wasm.WasmVersion, ContractAddress) IndexedAccountAddress -> UInstanceInfoV m GSWasm.V1 -> Amount -> m a -> m a
+  withToContractAmountV1 :: Either (Wasm.WasmVersion, ContractAddress) AccountIndex -> UInstanceInfoV m GSWasm.V1 -> Amount -> m a -> m a
   withToContractAmountV1 (Left i) = withContractToContractAmountV1 i
   withToContractAmountV1 (Right a) = withAccountToContractAmountV1 a
 
@@ -567,21 +565,19 @@ emptyCS Proxy = ChangeSet HMap.empty HMap.empty HMap.empty HSet.empty 0 Map.empt
 -- |Record an addition to the amount of the given account in the changeset.
 {-# INLINE addAmountToCS #-}
 addAmountToCS :: AccountOperations m => IndexedAccount m -> AmountDelta -> ChangeSet m -> m (ChangeSet m)
-addAmountToCS (ai, acc) !amnt !cs = do
-  addr <- getAccountCanonicalAddress acc
-  addAmountToCS' (ai, addr) amnt cs
+addAmountToCS = addAmountToCS' . fst
 
 -- |Record an addition to the amount of the given account in the changeset.
 {-# INLINE addAmountToCS' #-}
-addAmountToCS' :: Monad m => IndexedAccountAddress -> AmountDelta -> ChangeSet m -> m (ChangeSet m)
-addAmountToCS' (ai, addr) !amnt !cs =
+addAmountToCS' :: Monad m => AccountIndex -> AmountDelta -> ChangeSet m -> m (ChangeSet m)
+addAmountToCS' ai !amnt !cs =
   -- Check whether there already is an 'AccountUpdate' for the given account in the changeset.
   -- If so, modify it accordingly, otherwise add a new entry.
   return $ cs & accountUpdates . at ai %~ (\case Just upd -> Just (upd & auAmount %~ \case
                                                                      Just x -> Just (x + amnt)
                                                                      Nothing -> Just amnt
                                                                  )
-                                                 Nothing -> Just (emptyAccountUpdate ai addr & auAmount ?~ amnt))
+                                                 Nothing -> Just (emptyAccountUpdate ai & auAmount ?~ amnt))
 
 
 -- |Record a list of scheduled releases that has to be pushed into the global map and into the map of the account.
@@ -591,7 +587,7 @@ addScheduledAmountToCS _ ([], _) cs = return cs
 addScheduledAmountToCS (ai, acc) rel@(((fstRel, _):_), _) !cs = do
   addr <- getAccountCanonicalAddress acc
   return $ cs & accountUpdates . at ai %~ (\case Just upd -> Just (upd & auReleaseSchedule %~ Just . maybe [rel] (rel :))
-                                                 Nothing -> Just (emptyAccountUpdate ai addr & auReleaseSchedule ?~ [rel]))
+                                                 Nothing -> Just (emptyAccountUpdate ai & auReleaseSchedule ?~ [rel]))
               & addedReleaseSchedules %~ (Map.alter (\case
                                                         Nothing -> Just fstRel
                                                         Just rel' -> Just $ min fstRel rel') addr)
@@ -767,8 +763,7 @@ computeExecutionCharge meta energy =
 chargeExecutionCost :: forall m . (AccountOperations m) => SchedulerMonad m => IndexedAccount m -> Amount -> m ()
 chargeExecutionCost (ai, acc) amnt = do
     balance <- getAccountAmount acc
-    addr <- getAccountCanonicalAddress acc
-    let csWithAccountDelta = emptyCS (Proxy @m) & accountUpdates . at ai ?~ (emptyAccountUpdate ai addr & auAmount ?~ amountDiff 0 amnt)
+    let csWithAccountDelta = emptyCS (Proxy @m) & accountUpdates . at ai ?~ (emptyAccountUpdate ai & auAmount ?~ amountDiff 0 amnt)
     assert (balance >= amnt) $
           commitChanges csWithAccountDelta
     notifyExecutionCost amnt
@@ -1003,9 +998,8 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
                                 addScheduledAmountToCS toAcc (releases, txh))    
     cont
 
-  replaceEncryptedAmount (ai, acc) aggIndex newAmount = do
-    addr <- getAccountCanonicalAddress acc
-    changeSet . accountUpdates . at' ai . non (emptyAccountUpdate ai addr) . auEncrypted ?= ReplaceUpTo{..}
+  replaceEncryptedAmount (ai, _) aggIndex newAmount = do
+    changeSet . accountUpdates . at' ai . non (emptyAccountUpdate ai) . auEncrypted ?= ReplaceUpTo{..}
 
   addAmountFromEncrypted acc amount aggIndex newAmount = do
     replaceEncryptedAmount acc aggIndex newAmount
@@ -1014,15 +1008,13 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
     changeSet . encryptedChange += amountDiff 0 amount
 
   addEncryptedAmount (ai, acc) newAmount = do
-    addr <- getAccountCanonicalAddress acc
-    changeSet . accountUpdates . at' ai . non (emptyAccountUpdate ai addr) . auEncrypted ?= Add{..}
+    changeSet . accountUpdates . at' ai . non (emptyAccountUpdate ai) . auEncrypted ?= Add{..}
     getAccountEncryptedAmountNextIndex acc
 
-  addSelfEncryptedAmount iacc@(ai, acc) transferredAmount newAmount = do
-    addr <- getAccountCanonicalAddress acc
+  addSelfEncryptedAmount iacc@(ai, _) transferredAmount newAmount = do
     cs <- use changeSet
     changeSet <~ liftLocal (addAmountToCS iacc (amountDiff 0 transferredAmount) cs)
-    changeSet . accountUpdates . at' ai . non (emptyAccountUpdate ai addr) . auEncrypted ?= AddSelf{..}
+    changeSet . accountUpdates . at' ai . non (emptyAccountUpdate ai) . auEncrypted ?= AddSelf{..}
     changeSet . encryptedChange += amountToDelta transferredAmount
 
   getCurrentContractInstance addr = do
@@ -1097,14 +1089,8 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
 
   getCurrentAccountAvailableAmount (ai, acc) = do
     oldTotal <- getAccountAmount acc
-    oldLockedUp <- ARS._totalLockedUpBalance <$> getAccountReleaseSchedule acc
-    -- An account can have a baker or delegator, but not both.
-    mbkr <- getAccountBaker acc
-    staked <- case mbkr of
-      Just bkr -> return (bkr ^. stakedAmount)
-      Nothing -> do
-        mdel <- getAccountDelegator acc
-        return $ maybe 0 (\AccountDelegationV1{..} -> _delegationStakedAmount) mdel
+    oldLockedUp <- getAccountLockedAmount acc
+    staked <- getAccountStakedAmount acc
     !txCtx <- ask
     -- If the account is the sender, subtract the deposit
     let netDeposit = if txCtx ^. tcTxSender == ai

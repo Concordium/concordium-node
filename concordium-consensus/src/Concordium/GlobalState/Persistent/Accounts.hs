@@ -23,26 +23,16 @@ import qualified Concordium.GlobalState.Persistent.Trie as Trie
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.CachedRef
 import Concordium.GlobalState.Persistent.Cache
-import Concordium.GlobalState.Account hiding (replaceUpTo, addIncomingEncryptedAmount, addToSelfEncryptedAmount)
 import qualified Concordium.GlobalState.Basic.BlockState.Accounts as Transient
 
-import Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.GlobalState.Basic.BlockState.AccountTable as Transient
 import qualified Concordium.GlobalState.AccountMap as AccountMap
 import Concordium.GlobalState.Persistent.LFMBTree (LFMBTree')
 import qualified Concordium.GlobalState.Persistent.LFMBTree as L
 import Concordium.Types.HashableTo
-import Data.Foldable (foldl', foldlM)
 import Concordium.ID.Parameters
 import Concordium.GlobalState.Parameters
-
--- |Type alias for the cache to use for accounts.
-type AccountCache (av :: AccountVersion) = FIFOCache (PersistentAccount av)
-
--- |Construct a new 'AccountCache' with the given size.
-newAccountCache :: Int -> IO (AccountCache av)
-newAccountCache = newCache
 
 -- |Representation of the set of accounts on the chain.
 -- Each account has an 'AccountIndex' which is the order
@@ -80,7 +70,7 @@ data Accounts (pv :: ProtocolVersion) = Accounts {
     -- |Unique index of accounts by 'AccountAddress'
     accountMap :: !(AccountMap.PersistentAccountMap pv),
     -- |Hashed Merkle-tree of the accounts
-    accountTable :: !(LFMBTree' AccountIndex HashedBufferedRef (HashedCachedRef (AccountCache (AccountVersionFor pv)) (PersistentAccount (AccountVersionFor pv)))),
+    accountTable :: !(LFMBTree' AccountIndex HashedBufferedRef (AccountRef (AccountVersionFor pv))),
     -- |Persisted representation of the map from registration ids to account indices.
     accountRegIdHistory :: !(Trie.TrieN UnbufferedFix ID.RawCredentialRegistrationID AccountIndex)
 }
@@ -147,7 +137,7 @@ emptyAccounts = Accounts AccountMap.empty L.empty Trie.empty
 -- or @Nothing@ in case the account already exists. In the latter case there is no change to the accounts structure.
 putNewAccount :: SupportsPersistentAccount pv m => PersistentAccount (AccountVersionFor pv) -> Accounts pv -> m (Maybe AccountIndex, Accounts pv)
 putNewAccount !acct accts0 = do
-        addr <- acct ^^. accountAddress
+        addr <- accountCanonicalAddress acct
         (existingAccountId, newAccountMap) <- AccountMap.maybeInsert addr acctIndex (accountMap accts0)
         if isNothing existingAccountId then do
             (_, newAccountTable) <- L.append acct (accountTable accts0)
@@ -249,36 +239,14 @@ updateAccountsAtIndex fupd ai a0@Accounts{..} = L.update fupd ai accountTable >>
         Nothing -> return (Nothing, a0)
         Just (res, act') -> return (Just res, a0 {accountTable = act'})
 
--- |Apply account updates to an account. It is assumed that the address in
--- account updates and account are the same.
-updateAccount :: forall m av. (MonadBlobStore m) => AccountUpdate -> PersistentAccount av -> m (PersistentAccount av)
-updateAccount !upd !acc = do
-  releaseScheduleUpdate <- case upd ^. auReleaseSchedule of
-        Just l -> do
-            rData <- refLoad (acc ^. accountReleaseSchedule)
-            let newLockedFunds = amountToDelta $ foldl' (+) 0 (concatMap (\(values, _) -> map snd values) l)
-            newReleaseSchedule <- foldlM (flip addReleases) rData l
-            releaseScheduleRef <- refMake newReleaseSchedule
-            return $ (accountAmount %~ applyAmountDelta newLockedFunds) . (accountReleaseSchedule .~ releaseScheduleRef)
-        Nothing -> return id
-  encryptedAmountUpdate <- case upd ^. auEncrypted of
-        Just encUpd -> do
-            encAmount <- refLoad (acc ^. accountEncryptedAmount)
-            newEncryptedAmount <- (case encUpd of
-                Add{..} -> addIncomingEncryptedAmount newAmount
-                ReplaceUpTo{..} -> replaceUpTo aggIndex newAmount
-                AddSelf{..} -> addToSelfEncryptedAmount newAmount)
-                    encAmount
-            encryptedAmountRef <- refMake newEncryptedAmount
-            return (accountEncryptedAmount .~ encryptedAmountRef)
-        Nothing -> return id
-  return $! acc
-            & accountNonce %~ setMaybe (upd ^. auNonce)
-            & accountAmount %~ applyAmountDelta (upd ^. auAmount . non 0)
-            & releaseScheduleUpdate
-            & encryptedAmountUpdate
-  where setMaybe (Just x) _ = x
-        setMaybe Nothing y = y
+-- |Perform an update to an account with the given index.
+-- Does nothing if the account does not exist.
+-- This should not be used to alter the address of an account (which is
+-- disallowed).
+updateAccountsAtIndex' :: SupportsPersistentAccount pv m => (PersistentAccount (AccountVersionFor pv) -> m (PersistentAccount (AccountVersionFor pv))) -> AccountIndex -> Accounts pv -> m (Accounts pv)
+updateAccountsAtIndex' fupd ai = fmap snd . updateAccountsAtIndex fupd' ai
+    where
+        fupd' = fmap ((),) . fupd
 
 -- |Get a list of all account addresses.
 accountAddresses :: MonadBlobStore m => Accounts pv -> m [AccountAddress]

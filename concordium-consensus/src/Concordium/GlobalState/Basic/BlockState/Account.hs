@@ -38,7 +38,7 @@ import Concordium.Genesis.Data
 
 -- |Type for how a 'PersistingAccountData' value is stored as part of
 -- an account. This is stored with its hash.
-type AccountPersisting = Hashed PersistingAccountData
+type AccountPersisting = Hashed' PersistingAccountDataHash PersistingAccountData
 
 -- |Make an 'AccountPersisting' value from a 'PersistingAccountData' value.
 makeAccountPersisting :: PersistingAccountData -> AccountPersisting
@@ -183,15 +183,46 @@ deserializeAccount migration cryptoParams = do
     let _accountPersisting = makeAccountPersisting PersistingAccountData {..}
     return Account{..}
 
+-- |Generate hash inputs from an account for 'AccountV0' and 'AccountV1'.
+accountHashInputsV0 :: IsAccountVersion av => Account av -> AccountHashInputsV0 av
+accountHashInputsV0 Account{..} =
+    AccountHashInputsV0
+        { ahiNextNonce = _accountNonce,
+          ahiAccountAmount = _accountAmount,
+          ahiAccountEncryptedAmount = _accountEncryptedAmount,
+          ahiAccountReleaseScheduleHash = getHash _accountReleaseSchedule,
+          ahiPersistingAccountDataHash = getHash _accountPersisting,
+          ahiAccountStakeHash = getAccountStakeHash _accountStaking
+        }
+
+-- |Generate hash inputs from an account for 'AccountV2'.
+accountHashInputsV2 :: Account 'AccountV2 -> AccountHashInputsV2 'AccountV2
+accountHashInputsV2 Account{..} =
+    AccountHashInputsV2
+        { ahi2NextNonce = _accountNonce,
+          ahi2AccountBalance = _accountAmount,
+          ahi2StakedBalance = stakedBalance,
+          ahi2MerkleHash = getHash merkleInputs
+        }
+  where
+    stakedBalance = case _accountStaking of
+        AccountStakeNone -> 0
+        AccountStakeBaker AccountBaker{..} -> _stakedAmount
+        AccountStakeDelegate AccountDelegationV1{..} -> _delegationStakedAmount
+    merkleInputs :: AccountMerkleHashInputs 'AccountV2
+    merkleInputs =
+        AccountMerkleHashInputsV2
+            { amhi2PersistingAccountDataHash = getHash _accountPersisting,
+              amhi2AccountStakeHash = getHash _accountStaking :: AccountStakeHash 'AccountV2,
+              amhi2EncryptedAmountHash = getHash _accountEncryptedAmount,
+              amhi2AccountReleaseScheduleHash = getHash _accountReleaseSchedule
+            }
+
 instance IsAccountVersion av => HashableTo (AccountHash av) (Account av) where
-  getHash Account{..} = makeAccountHash $ AccountHashInputs {
-      ahiNextNonce = _accountNonce,
-      ahiAccountAmount = _accountAmount,
-      ahiAccountEncryptedAmount = _accountEncryptedAmount,
-      ahiAccountReleaseScheduleHash = getHash _accountReleaseSchedule,
-      ahiPersistingAccountDataHash = getHash _accountPersisting,
-      ahiAccountStakeHash = getAccountStakeHash _accountStaking
-    }
+  getHash acc = makeAccountHash $ case accountVersion @av of
+      SAccountV0 -> AHIV0 (accountHashInputsV0 acc)
+      SAccountV1 -> AHIV1 (accountHashInputsV0 acc)
+      SAccountV2 -> AHIV2 (accountHashInputsV2 acc)
 
 instance forall av. IsAccountVersion av => HashableTo Hash.Hash (Account av) where
   getHash = coerce @(AccountHash av) . getHash
