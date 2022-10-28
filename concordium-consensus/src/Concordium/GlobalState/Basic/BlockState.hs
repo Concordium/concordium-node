@@ -455,9 +455,9 @@ getBlockState migration = do
 
     -- Construct the release schedule and active bakers from the accounts
     let processBakerAccount (rs,bkrs) (aid, account) = do
-          let rs' = case Map.minViewWithKey (account ^. accountReleaseSchedule . pendingReleases) of
+          let rs' = case account ^. accountReleaseSchedule . to nextReleaseTimestamp of
                   Nothing -> rs
-                  Just ((ts, _), _) -> RS.addAccountRelease ts aid rs
+                  Just ts -> RS.addAccountRelease ts aid rs
           bkrs' <- case account ^. accountStaking of
             AccountStakeBaker AccountBaker {_accountBakerInfo = abi, _stakedAmount = stake} -> do
                 when ((abi ^. bakerAggregationVerifyKey) `Set.member` _aggregationKeys bkrs) $
@@ -932,7 +932,7 @@ instance (Monad m, IsProtocolVersion pv) => BS.AccountOperations (PureBlockState
 
   getAccountEncryptionKey acc = return $ unsafeEncryptionKeyFromRaw (acc ^. accountEncryptionKey)
 
-  getAccountReleaseSchedule acc = return $ acc ^. accountReleaseSchedule
+  getAccountReleaseSummary acc = return $ acc ^. accountReleaseSchedule . to toAccountReleaseSummary
 
   getAccountBaker acc = return $ acc ^? accountBaker
 

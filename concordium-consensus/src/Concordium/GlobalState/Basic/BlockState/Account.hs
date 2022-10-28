@@ -29,8 +29,7 @@ import Concordium.ID.Types
 import Concordium.ID.Parameters
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Account
-import  qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as ARSV0
-import  qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseScheduleV1 as ARSV1
+import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 
 import Concordium.Types
 import Concordium.Types.Accounts
@@ -59,7 +58,7 @@ data Account (av :: AccountVersion) = Account {
   -- @accountAmount - totalLockedUpBalance accountReleaseSchedule@.
   ,_accountEncryptedAmount :: !AccountEncryptedAmount
   -- ^The encrypted amount
-  ,_accountReleaseSchedule :: !AccountReleaseSchedule
+  ,_accountReleaseSchedule :: !(AccountReleaseSchedule av)
   -- ^Locked-up amounts and their release schedule.
   ,_accountStaking :: !(AccountStake av)
   -- ^The baker or delegation associated with the account (if any).
@@ -116,7 +115,7 @@ serializeAccount cryptoParams acct@Account{..} = do
     S.put _accountNonce
     S.put _accountAmount
     when asfExplicitEncryptedAmount $ S.put _accountEncryptedAmount
-    when asfExplicitReleaseSchedule $ S.put _accountReleaseSchedule
+    when asfExplicitReleaseSchedule $ serializeAccountReleaseSchedule _accountReleaseSchedule
     when asfHasBakerOrDelegation $ serializeAccountStake _accountStaking
   where
     PersistingAccountData {..} = acct ^. persistingAccountData
@@ -145,7 +144,7 @@ serializeAccount cryptoParams acct@Account{..} = do
 -- |Deserialize an account.
 -- The serialization format may depend on the protocol version, and maybe migrated from one version
 -- to another, using the 'StateMigrationParameters' provided.
-deserializeAccount :: forall oldpv pv. IsProtocolVersion oldpv
+deserializeAccount :: forall oldpv pv. (IsProtocolVersion oldpv, IsProtocolVersion pv)
     => StateMigrationParameters oldpv pv
     -> GlobalContext
     -> S.Get (Account (AccountVersionFor pv))
@@ -174,8 +173,12 @@ deserializeAccount migration cryptoParams = do
         _accountEncryptionKey = fromMaybe (toRawEncryptionKey (makeEncryptionKey cryptoParams (unsafeCredIdFromRaw initialCredId))) preEncryptionKey
     _accountNonce <- S.get
     _accountAmount <- S.get
-    _accountEncryptedAmount <- if asfExplicitEncryptedAmount then S.get else return initialAccountEncryptedAmount
-    _accountReleaseSchedule <- if asfExplicitReleaseSchedule then S.get else return emptyAccountReleaseSchedule
+    _accountEncryptedAmount <- if asfExplicitEncryptedAmount
+        then S.get
+        else return initialAccountEncryptedAmount
+    _accountReleaseSchedule <- if asfExplicitReleaseSchedule
+        then deserializeAccountReleaseSchedule (accountVersion @(AccountVersionFor oldpv))
+        else return emptyAccountReleaseSchedule
     _accountStaking <- if asfHasBakerOrDelegation
       then
         migrateAccountStake migration <$> deserializeAccountStake
@@ -185,7 +188,7 @@ deserializeAccount migration cryptoParams = do
     return Account{..}
 
 -- |Generate hash inputs from an account for 'AccountV0' and 'AccountV1'.
-accountHashInputsV0 :: IsAccountVersion av => Account av -> AccountHashInputsV0 av
+accountHashInputsV0 :: (IsAccountVersion av, AccountStructureVersionFor av ~ 'AccountStructureV0) => Account av -> AccountHashInputsV0 av
 accountHashInputsV0 Account{..} =
     AccountHashInputsV0
         { ahiNextNonce = _accountNonce,

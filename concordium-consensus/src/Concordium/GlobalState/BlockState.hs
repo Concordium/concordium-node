@@ -65,11 +65,11 @@ import qualified Concordium.GlobalState.Wasm as GSWasm
 import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Account
 
-import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 import Concordium.GlobalState.Basic.BlockState.PoolRewards
 import Concordium.GlobalState.BakerInfo
 import qualified Concordium.Types.UpdateQueues as UQ
 import Concordium.Types.Accounts
+import Concordium.Types.Accounts.Releases
 import Concordium.GlobalState.CapitalDistribution
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Rewards
@@ -204,7 +204,7 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
     else return Nothing
 
   -- |Get the release schedule for an account.
-  getAccountReleaseSchedule :: Account m -> m AccountReleaseSchedule
+  getAccountReleaseSummary :: Account m -> m AccountReleaseSummary
 
   -- |Get the baker info (if any) attached to an account.
   getAccountBaker :: Account m -> m (Maybe (AccountBaker (AccountVersionFor (MPV m))))
@@ -1341,7 +1341,7 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
   getAccountVerificationKeys = lift . getAccountVerificationKeys
   getAccountEncryptedAmount = lift . getAccountEncryptedAmount
   getAccountEncryptionKey = lift . getAccountEncryptionKey
-  getAccountReleaseSchedule = lift . getAccountReleaseSchedule
+  getAccountReleaseSummary = lift . getAccountReleaseSummary
   getAccountBaker = lift . getAccountBaker
   getAccountDelegator = lift . getAccountDelegator
   getAccountStake = lift . getAccountStake
@@ -1356,7 +1356,7 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
   {-# INLINE getAccountNonce #-}
   {-# INLINE getAccountVerificationKeys #-}
   {-# INLINE getAccountEncryptedAmount #-}
-  {-# INLINE getAccountReleaseSchedule #-}
+  {-# INLINE getAccountReleaseSummary #-}
   {-# INLINE getAccountBaker #-}
   {-# INLINE getAccountStake #-}
   {-# INLINE getAccountBakerInfoRef #-}

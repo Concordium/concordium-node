@@ -79,7 +79,7 @@ module Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule (
 
 import Concordium.Crypto.SHA256
 import Concordium.GlobalState.Persistent.BlobStore
-import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as Transient
+import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseScheduleV0 as Transient
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Control.Monad

@@ -128,7 +128,7 @@ unsafeIndexedAccount ai = singular (indexedAccount ai)
 
 -- |Apply account updates to an account. It is assumed that the address in
 -- account updates and account are the same.
-updateAccount :: AccountUpdate -> Account av -> Account av
+updateAccount :: IsAccountVersion av => AccountUpdate -> Account av -> Account av
 updateAccount !upd
     = updateNonce
       . updateReleaseSchedule

@@ -30,7 +30,8 @@ import Concordium.Utils
 import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount, replaceUpTo)
 import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
-import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseScheduleV1 as Transient
+import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseScheduleV1 as TARSV1
+import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as TARS
 import Concordium.GlobalState.BlockState (AccountAllowance (..))
 import Concordium.GlobalState.Persistent.Account.EncryptedAmount
 import qualified Concordium.GlobalState.Persistent.Account.StructureV0 as V0
@@ -43,6 +44,7 @@ import Concordium.Genesis.Data
 import Concordium.Utils.Serialization.Put
 import Concordium.Utils.Serialization
 import Control.Monad.Trans
+import Concordium.Types.Accounts.Releases
 
 -- * Terminology
 -- $Terminology
@@ -258,7 +260,7 @@ makeAccountEnduringData paedPersistingData paedEncryptedAmount paedReleaseSchedu
         Null -> return initialAccountEncryptedAmountHash
         Some e -> getHash <$> (loadPersistentAccountEncryptedAmount =<< refLoad e)
     amhi2AccountReleaseScheduleHash <- case paedReleaseSchedule of
-        Null -> return Transient.emptyAccountReleaseScheduleHashV1
+        Null -> return TARSV1.emptyAccountReleaseScheduleHashV1
         Some (rs, _) -> getHashM rs
     let hashInputs :: AccountMerkleHashInputs 'AccountV2
         hashInputs = AccountMerkleHashInputsV2{..}
@@ -274,7 +276,7 @@ rehashAccountEnduringData ed = do
         Null -> return initialAccountEncryptedAmountHash
         Some e -> getHash <$> (loadPersistentAccountEncryptedAmount =<< refLoad e)
     amhi2AccountReleaseScheduleHash <- case paedReleaseSchedule ed of
-        Null -> return Transient.emptyAccountReleaseScheduleHashV1
+        Null -> return TARSV1.emptyAccountReleaseScheduleHashV1
         Some (rs, _) -> getHashM rs
     let hashInputs :: AccountMerkleHashInputs 'AccountV2
         hashInputs = AccountMerkleHashInputsV2{..}
@@ -705,12 +707,20 @@ getEncryptionKey acc = do
     return $! unsafeEncryptionKeyFromRaw (pd ^. accountEncryptionKey)
 
 -- |Get the release schedule for an account.
-getReleaseSchedule :: MonadBlobStore m => PersistentAccount av -> m Transient.AccountReleaseSchedule
-getReleaseSchedule acc = do
+getReleaseSummary :: MonadBlobStore m => PersistentAccount av -> m AccountReleaseSummary
+getReleaseSummary acc = do
     let ed = enduringData acc
     case paedReleaseSchedule ed of
-        Null -> return Transient.emptyAccountReleaseSchedule
-        Some (rsRef, _) -> loadPersistentAccountReleaseSchedule =<< refLoad rsRef
+        Null -> return (AccountReleaseSummary 0 [])
+        Some (rsRef, _) -> toAccountReleaseSummary =<< refLoad rsRef
+
+-- |Get the release schedule for an account.
+getReleaseSchedule :: (MonadBlobStore m) => PersistentAccount 'AccountV2 -> m (TARS.AccountReleaseSchedule 'AccountV2)
+getReleaseSchedule acc = do
+    let ed = enduringData acc
+    TARS.fromAccountReleaseScheduleV1 <$> case paedReleaseSchedule ed of
+        Null -> return TARSV1.emptyAccountReleaseSchedule
+        Some (rsRef, total) -> getAccountReleaseSchedule total =<< refLoad rsRef
 
 -- |Get the timestamp at which the next scheduled release will occur (if any).
 getNextReleaseTimestamp :: MonadBlobStore m => PersistentAccount av -> m (Maybe Timestamp)
@@ -1166,12 +1176,12 @@ makePersistentAccount Transient.Account{..} = do
             then return Null
             else Some <$!> refMake ea
     paedReleaseSchedule <- do
-        rs <- storePersistentAccountReleaseSchedule _accountReleaseSchedule
+        rs <- makePersistentAccountReleaseSchedule (TARS.theAccountReleaseSchedule _accountReleaseSchedule)
         if isEmptyAccountReleaseSchedule rs
             then return Null
             else do
                 rsRef <- refMake $! rs
-                let !lockedBal = releaseScheduleLockedBalance rs
+                let !lockedBal = _accountReleaseSchedule ^. TARS.totalLockedUpBalance
                 return (Some (rsRef, lockedBal))
     accountEnduringData <-
         refMake
@@ -1305,9 +1315,9 @@ migratePersistentAccountFromV0 StateMigrationParametersP4ToP5{} V0.PersistentAcc
             rs <- refLoad _accountReleaseSchedule
             return $ if ARSV0.isEmptyAccountReleaseSchedule rs then Null else Some rs
         forM mrs $ \rs -> do
-            newRS <- migrateAccountReleaseSchedule rs
+            newRS <- migrateAccountReleaseScheduleFromV0 rs
             rsRef <- refMake $! newRS
-            return (rsRef, releaseScheduleLockedBalance rs)
+            return (rsRef, ARSV0.releaseScheduleLockedBalance rs)
     (accountEnduringData, _) <-
         refFlush =<< refMake
             =<< makeAccountEnduringData
@@ -1366,10 +1376,10 @@ serializeAccount cryptoParams acc@PersistentAccount{..} = do
         case paedReleaseSchedule ed of
             Null -> return (False, return ())
             Some (rsRef, _) -> do
-                arSched <- loadPersistentAccountReleaseSchedule =<< refLoad rsRef
-                if arSched /= Transient.emptyAccountReleaseSchedule
-                    then return (True, put arSched)
-                    else return (False, return ())
+                rs <- refLoad rsRef
+                if isEmptyAccountReleaseSchedule rs
+                    then return (False, return ())
+                    else (True, ) <$> serializeAccountReleaseSchedule rs
     let asfHasBakerOrDelegation = hasStake acc
     stake <- getStake acc
     liftPut $ do
@@ -1388,7 +1398,7 @@ serializeAccount cryptoParams acc@PersistentAccount{..} = do
 -- ** Conversion
 
 -- |Converts an account to a transient (i.e. in memory) account. (Used for testing.)
-toTransientAccount :: (MonadBlobStore m, IsAccountVersion av, AVSupportsDelegation av) => PersistentAccount av -> m (Transient.Account av)
+toTransientAccount :: (MonadBlobStore m) => PersistentAccount 'AccountV2 -> m (Transient.Account 'AccountV2)
 toTransientAccount acc = do
     let _accountPersisting = makeHashed $ persistingData acc
     _accountEncryptedAmount <- getEncryptedAmount acc

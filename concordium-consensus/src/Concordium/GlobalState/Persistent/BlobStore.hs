@@ -141,7 +141,6 @@ import Concordium.GlobalState.Account
 import qualified Concordium.Types.IdentityProviders as IPS
 import qualified Concordium.Types.AnonymityRevokers as ARS
 import qualified Concordium.GlobalState.Parameters as Parameters
-import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 import Concordium.GlobalState.Basic.BlockState.PoolRewards
 import Concordium.GlobalState.CapitalDistribution
 import Concordium.Logger (MonadLogger)
@@ -1370,7 +1369,6 @@ instance MonadBlobStore m => BlobStorable m (HigherLevelKeys a)
 instance MonadBlobStore m => BlobStorable m ProtocolUpdate
 instance MonadBlobStore m => BlobStorable m ExchangeRate
 instance MonadBlobStore m => BlobStorable m ElectionDifficulty
-instance MonadBlobStore m => BlobStorable m AccountReleaseSchedule
 instance MonadBlobStore m => BlobStorable m MintRate
 instance (MonadBlobStore m, IsChainParametersVersion cpv) => BlobStorable m (Parameters.MintDistribution cpv)
 instance MonadBlobStore m => BlobStorable m Parameters.TransactionFeeDistribution
@@ -1696,7 +1694,6 @@ instance Applicative m => Cacheable m () where
 
 -- Required for caching PersistentAccount
 instance (Applicative m) => Cacheable m EncryptedAmount
-instance (Applicative m) => Cacheable m AccountReleaseSchedule
 instance (Applicative m) => Cacheable m (Map AccountAddress Timestamp)
 instance (Applicative m) => Cacheable m WasmModule
 instance (Applicative m) => Cacheable m PersistingAccountData

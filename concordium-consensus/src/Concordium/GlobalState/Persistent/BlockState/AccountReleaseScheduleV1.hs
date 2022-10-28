@@ -1,11 +1,14 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Concordium.GlobalState.Persistent.BlockState.AccountReleaseScheduleV1 where
 
 import Control.Monad
 import Control.Monad.Trans
 import Data.Foldable
+import qualified Data.List.NonEmpty as NE
+import qualified Data.Map.Strict as Map
 import Data.Serialize
 import Data.Vector (Vector)
 import qualified Data.Vector as Vector
@@ -14,13 +17,13 @@ import Data.Word
 
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Types
+import Concordium.Types.Accounts.Releases
 import Concordium.Utils.Serialization
 
-import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseScheduleV1 as Transient
+import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseScheduleV1 as TARSV1
 import Concordium.GlobalState.Persistent.BlobStore
-import Concordium.Types.HashableTo
 import qualified Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule as ARSV0
-import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as TARSV0
+import Concordium.Types.HashableTo
 
 data Releases = Releases
     { relTransactionHash :: !TransactionHash,
@@ -61,6 +64,24 @@ data ReleaseScheduleEntry = ReleaseScheduleEntry
       rseNextReleaseIndex :: !Word64
     }
 
+instance (MonadBlobStore m) => BlobStorable m ReleaseScheduleEntry where
+    storeUpdate ReleaseScheduleEntry{..} = do
+        (pReleases, newReleasesRef) <- storeUpdate rseReleasesRef
+        let !p = do
+                put rseNextTimestamp
+                put rseReleasesHash
+                pReleases
+                put rseNextReleaseIndex
+        return (p, ReleaseScheduleEntry{rseReleasesRef = newReleasesRef, ..})
+    load = do
+        rseNextTimestamp <- get
+        rseReleasesHash <- get
+        mReleases <- load
+        rseNextReleaseIndex <- get
+        return $! do
+            rseReleasesRef <- mReleases
+            return $! ReleaseScheduleEntry{..}
+
 rseSortKey :: ReleaseScheduleEntry -> (Timestamp, Hash.Hash)
 rseSortKey ReleaseScheduleEntry{..} = (rseNextTimestamp, rseReleasesHash)
 
@@ -69,19 +90,22 @@ newtype AccountReleaseSchedule = AccountReleaseSchedule
       arsReleases :: Vector ReleaseScheduleEntry
     }
 
-newtype AccountReleaseScheduleHashV1 = AccountReleaseScheduleHashV1
-    { theAccountReleaseScheduleHashV1 :: Hash.Hash
-    }
-    deriving (Eq, Ord, Show, Serialize)
+instance (MonadBlobStore m) => BlobStorable m AccountReleaseSchedule where
+    storeUpdate AccountReleaseSchedule{..} = do
+        storeReleases <- mapM storeUpdate arsReleases
+        let p = do
+                putLength (Vector.length arsReleases)
+                sequence_ (fst <$> storeReleases)
+        return (p, AccountReleaseSchedule $! snd <$!> storeReleases)
+    load = do
+        len <- getLength
+        loads <- Vector.replicateM len load
+        return $! AccountReleaseSchedule <$> Vector.sequence loads
 
-arshV1Empty :: AccountReleaseScheduleHashV1
-arshV1Empty = AccountReleaseScheduleHashV1 (Hash.hash "")
+instance HashableTo TARSV1.AccountReleaseScheduleHashV1 AccountReleaseSchedule where
+    getHash AccountReleaseSchedule{..} = Vector.foldr' (TARSV1.consAccountReleaseScheduleHashV1 . rseReleasesHash) TARSV1.emptyAccountReleaseScheduleHashV1 arsReleases
 
-arshV1Cons :: Hash.Hash -> AccountReleaseScheduleHashV1 -> AccountReleaseScheduleHashV1
-arshV1Cons h arsh = AccountReleaseScheduleHashV1 . Hash.hashLazy . runPutLazy $ put h >> put arsh
-
-instance HashableTo AccountReleaseScheduleHashV1 AccountReleaseSchedule where
-    getHash AccountReleaseSchedule{..} = Vector.foldr' (arshV1Cons . rseReleasesHash) arshV1Empty arsReleases
+instance (Monad m) => MHashableTo m TARSV1.AccountReleaseScheduleHashV1 AccountReleaseSchedule
 
 -- | The empty account release schedule.
 emptyAccountReleaseSchedule :: AccountReleaseSchedule
@@ -149,8 +173,8 @@ unlockAmountsUntil ts ars = do
                             then go (n + 1) (accum + amt)
                             else
                                 ( accum + relAmtAcc,
-                                  insert upds $!
-                                    ReleaseScheduleEntry
+                                  insert upds
+                                    $! ReleaseScheduleEntry
                                         { rseNextReleaseIndex = n,
                                           rseNextTimestamp = relts,
                                           rseReleasesHash = hashReleasesFrom n rels,
@@ -172,21 +196,78 @@ migrateAccountReleaseSchedule AccountReleaseSchedule{..} = AccountReleaseSchedul
 
 migrateAccountReleaseScheduleFromV0 :: SupportMigration m t => ARSV0.AccountReleaseSchedule -> t m AccountReleaseSchedule
 migrateAccountReleaseScheduleFromV0 ars = do
-    TARSV0.AccountReleaseSchedule{..} <- lift $ ARSV0.loadPersistentAccountReleaseSchedule ars
-    undefined
+    tarsV0 <- lift $ ARSV0.loadPersistentAccountReleaseSchedule ars
+    makePersistentAccountReleaseSchedule $ TARSV1.fromAccountReleaseScheduleV0 tarsV0
 
-
-makePersistentAccountReleaseSchedule :: MonadBlobStore m => Transient.AccountReleaseSchedule -> m AccountReleaseSchedule
-makePersistentAccountReleaseSchedule tars = do
-    AccountReleaseSchedule . Vector.fromList <$> mapM mpEntry (Transient.arsReleases tars)
+-- |Serialize an 'AccountReleaseSchedule' in the serialization format for
+-- 'TARSV1.AccountReleaseSchedule'.
+serializeAccountReleaseSchedule :: forall m. (MonadBlobStore m) => AccountReleaseSchedule -> m Put
+serializeAccountReleaseSchedule AccountReleaseSchedule{..} = do
+    foldlM putEntry putLen arsReleases
   where
-    mpEntry rse@Transient.ReleaseScheduleEntry{..} = do
-        let rseNextTimestamp = Transient.rseNextTimestamp rse
+    putLen = putLength (Vector.length arsReleases)
+    putEntry :: Put -> ReleaseScheduleEntry -> m Put
+    putEntry put0 ReleaseScheduleEntry{..} = do
+        Releases{..} <- refLoad rseReleasesRef
+        let start = fromIntegral rseNextReleaseIndex
+        return $ do
+            put0
+            put relTransactionHash
+            putLength (Vector.length relReleases - start)
+            mapM_ put (Vector.drop start relReleases)
+
+makePersistentAccountReleaseSchedule :: MonadBlobStore m => TARSV1.AccountReleaseSchedule -> m AccountReleaseSchedule
+makePersistentAccountReleaseSchedule tars = do
+    AccountReleaseSchedule . Vector.fromList <$> mapM mpEntry (TARSV1.arsReleases tars)
+  where
+    mpEntry rse@TARSV1.ReleaseScheduleEntry{..} = do
+        let rseNextTimestamp = TARSV1.rseNextTimestamp rse
         let rseNextReleaseIndex = 0
         rseReleasesRef <-
-            refMake $!
-                Releases
+            refMake
+                $! Releases
                     { relTransactionHash = rseTransactionHash,
-                      relReleases = Vector.fromList (toList (Transient.relReleases rseReleases))
+                      relReleases = Vector.fromList (toList (TARSV1.relReleases rseReleases))
                     }
         return $! ReleaseScheduleEntry{..}
+
+-- |Convert an 'AccountReleaseSchedule' to a  transient 'TARSV1.AccountReleaseSchedule', given
+-- the total locked amount on the account.
+getAccountReleaseSchedule ::
+    MonadBlobStore m =>
+    -- |Total locked amount
+    Amount ->
+    AccountReleaseSchedule ->
+    m TARSV1.AccountReleaseSchedule
+getAccountReleaseSchedule arsTotalLockedAmount AccountReleaseSchedule{..} = do
+    releases <- foldrM processEntry [] arsReleases
+    return $! TARSV1.AccountReleaseSchedule{arsReleases = releases, ..}
+  where
+    processEntry ReleaseScheduleEntry{..} entries = do
+        Releases{..} <- refLoad rseReleasesRef
+        let releases = NE.fromList $ Vector.toList $ Vector.drop (fromIntegral rseNextReleaseIndex) relReleases
+        let entry =
+                TARSV1.ReleaseScheduleEntry
+                    { rseReleases = TARSV1.Releases releases,
+                      rseReleasesHash = rseReleasesHash,
+                      rseTransactionHash = relTransactionHash
+                    }
+        return $ entry : entries
+
+-- |Get the 'AccountReleaseSummary' describing the releases in the 'AccountReleaseSchedule'.
+toAccountReleaseSummary :: MonadBlobStore m => AccountReleaseSchedule -> m AccountReleaseSummary
+toAccountReleaseSummary AccountReleaseSchedule{..} = do
+    (releaseMap, releaseTotal) <- foldlM processEntry (Map.empty, 0) arsReleases
+    let releaseSchedule = makeSR <$> Map.toList releaseMap
+    return $! AccountReleaseSummary{..}
+  where
+    agg (amt1, ths1) (amt2, ths2) = (amt, ths)
+      where
+        !amt = amt1 + amt2
+        ths = ths1 ++ ths2
+    processRelease th (!m, !acc) (ts, amt) = (Map.insertWith agg ts (amt, [th]) m, acc + amt)
+    processEntry acc ReleaseScheduleEntry{..} = do
+        Releases{..} <- refLoad rseReleasesRef
+        let rels = Vector.drop (fromIntegral rseNextReleaseIndex) relReleases
+        return $! foldl' (processRelease relTransactionHash) acc rels
+    makeSR (releaseTimestamp, (releaseAmount, releaseTransactions)) = ScheduledRelease{..}

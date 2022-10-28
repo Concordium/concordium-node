@@ -2872,7 +2872,7 @@ instance (PersistentState av pv r m, IsProtocolVersion pv) => AccountOperations 
 
   getAccountEncryptionKey = Concordium.GlobalState.Persistent.Account.accountEncryptionKey
 
-  getAccountReleaseSchedule = accountReleaseSchedule
+  getAccountReleaseSummary = accountReleaseSummary
 
   getAccountBaker = accountBaker
 

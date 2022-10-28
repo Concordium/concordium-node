@@ -3,6 +3,9 @@
 
 module Concordium.GlobalState.Basic.BlockState.AccountReleaseScheduleV1 where
 
+import Control.Monad
+import Data.Foldable
+import Data.List (sortOn)
 import Data.List.NonEmpty (NonEmpty ((:|)))
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as Map
@@ -11,12 +14,27 @@ import qualified Data.Vector as Vector
 
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Types
-
-import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as ARSV0
+import Concordium.Types.Accounts.Releases
 import Concordium.Types.HashableTo
-import Data.List (sortOn)
+import Concordium.Utils.Serialization
+
+import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseScheduleV0 as ARSV0
 
 newtype Releases = Releases {relReleases :: NonEmpty (Timestamp, Amount)}
+    deriving (Eq, Show)
+
+instance Serialize Releases where
+    put Releases{..} = do
+        putLength (NE.length relReleases)
+        mapM_ put relReleases
+    get = do
+        len <- getLength
+        if len < 1
+            then fail "Releases must me non-empty"
+            else do
+                h <- get
+                t <- replicateM (len - 1) get
+                return $! Releases (h :| t)
 
 hashReleases :: Releases -> Hash.Hash
 hashReleases Releases{..} = hshRels relReleases
@@ -30,6 +48,17 @@ data ReleaseScheduleEntry = ReleaseScheduleEntry
       rseReleasesHash :: !Hash.Hash,
       rseTransactionHash :: !TransactionHash
     }
+    deriving (Eq, Show)
+
+instance Serialize ReleaseScheduleEntry where
+    put ReleaseScheduleEntry{..} = do
+        put rseTransactionHash
+        put rseReleases
+    get = do
+        rseTransactionHash <- get
+        rseReleases <- get
+        let rseReleasesHash = hashReleases rseReleases
+        return $! ReleaseScheduleEntry{..}
 
 rseNextTimestamp :: ReleaseScheduleEntry -> Timestamp
 rseNextTimestamp = fst . NE.head . relReleases . rseReleases
@@ -53,10 +82,23 @@ unlockEntryUntil ts ReleaseScheduleEntry{..} = (sum (snd <$> lapsed), mrse)
           where
             newReleases = Releases (h :| t)
 
-newtype AccountReleaseSchedule = AccountReleaseSchedule
+data AccountReleaseSchedule = AccountReleaseSchedule
     { -- |The release entries ordered on 'rseSortKey'.
-      arsReleases :: [ReleaseScheduleEntry]
+      arsReleases :: ![ReleaseScheduleEntry],
+      -- |The total locked amount of all releases.
+      arsTotalLockedAmount :: !Amount
     }
+    deriving (Eq, Show)
+
+instance Serialize AccountReleaseSchedule where
+    put AccountReleaseSchedule{..} = do
+        putLength (length arsReleases)
+        mapM_ put arsReleases
+    get = do
+        relsLength <- getLength
+        arsReleases <- replicateM relsLength get
+        let arsTotalLockedAmount = sum [sum (snd <$> relReleases (rseReleases rse))| rse <- arsReleases]
+        return $! AccountReleaseSchedule{..}
 
 newtype AccountReleaseScheduleHashV1 = AccountReleaseScheduleHashV1
     { theAccountReleaseScheduleHashV1 :: Hash.Hash
@@ -78,7 +120,7 @@ instance HashableTo AccountReleaseScheduleHashV1 AccountReleaseSchedule where
 
 -- | The empty account release schedule.
 emptyAccountReleaseSchedule :: AccountReleaseSchedule
-emptyAccountReleaseSchedule = AccountReleaseSchedule []
+emptyAccountReleaseSchedule = AccountReleaseSchedule [] 0
 
 -- | Returns 'True' if the account release schedule contains no releases.
 isEmptyAccountReleaseSchedule :: AccountReleaseSchedule -> Bool
@@ -90,8 +132,10 @@ nextReleaseTimestamp ars = case arsReleases ars of
     [] -> Nothing
     (h : _) -> Just $! rseNextTimestamp h
 
-insertEntry :: ReleaseScheduleEntry -> AccountReleaseSchedule -> AccountReleaseSchedule
-insertEntry entry ars = AccountReleaseSchedule (ins (arsReleases ars))
+-- |Insert an entry in an ordered list of entries at the first point that preserves the ordering.
+-- The ordering is defined by 'rseSortKey'.
+insertEntry :: ReleaseScheduleEntry -> [ReleaseScheduleEntry] -> [ReleaseScheduleEntry]
+insertEntry entry = ins
   where
     ins [] = [entry]
     ins (h : t)
@@ -102,12 +146,13 @@ insertEntry entry ars = AccountReleaseSchedule (ins (arsReleases ars))
 --
 -- Precondition: The given list of timestamps and amounts MUST NOT be empty.
 addReleases :: ([(Timestamp, Amount)], TransactionHash) -> AccountReleaseSchedule -> AccountReleaseSchedule
-addReleases (h : t, rseTransactionHash) = insertEntry entry
+addReleases (l@(h : t), rseTransactionHash) AccountReleaseSchedule{..} =
+    AccountReleaseSchedule (insertEntry entry arsReleases) (arsTotalLockedAmount + sum (snd <$> l))
   where
     rseReleases = Releases (h :| t)
     rseReleasesHash = hashReleases rseReleases
     entry = ReleaseScheduleEntry{..}
-addReleases _ = error "addReleases: Empty list of timestamps and amounts."
+addReleases _ _ = error "addReleases: Empty list of timestamps and amounts."
 
 -- | Returns the amount that was unlocked, the next timestamp for this account
 -- (if there is one) and the new account release schedule after removing the
@@ -119,10 +164,11 @@ unlockAmountsUntil ts ars0 = (relAmt, nextReleaseTimestamp newArs, newArs)
     updateEntry e (!accumAmt, !ars) = case unlockEntryUntil ts e of
         (!am, Just !e') -> (am + accumAmt, insertEntry e' ars)
         (!am, Nothing) -> (am + accumAmt, ars)
-    (!relAmt, !newArs) = foldr updateEntry (0, AccountReleaseSchedule staticReleases) elapsedReleases
+    (!relAmt, !newEntries) = foldr updateEntry (0, staticReleases) elapsedReleases
+    newArs = AccountReleaseSchedule newEntries (arsTotalLockedAmount ars0 - relAmt)
 
 fromAccountReleaseScheduleV0 :: ARSV0.AccountReleaseSchedule -> AccountReleaseSchedule
-fromAccountReleaseScheduleV0 ARSV0.AccountReleaseSchedule{..} = AccountReleaseSchedule newReleases
+fromAccountReleaseScheduleV0 ARSV0.AccountReleaseSchedule{..} = AccountReleaseSchedule newReleases _totalLockedUpBalance
   where
     pendRels = Map.toList _pendingReleases
     mkEntry i = case _values Vector.! i of
@@ -137,3 +183,23 @@ fromAccountReleaseScheduleV0 ARSV0.AccountReleaseSchedule{..} = AccountReleaseSc
         _ -> error "fromAccountReleaseScheduleV0: missing release"
     mkEntries (_, is) = map mkEntry is
     newReleases = sortOn rseSortKey $ concatMap mkEntries pendRels
+
+toAccountReleaseSummary :: AccountReleaseSchedule -> AccountReleaseSummary
+toAccountReleaseSummary AccountReleaseSchedule{..} = AccountReleaseSummary{..}
+  where
+    agg (amt1, ths1) (amt2, ths2) = (amt, ths)
+      where
+        !amt = amt1 + amt2
+        ths = ths1 ++ ths2
+    processRelease th (!m, !acc) (ts, amt) = (Map.insertWith agg ts (amt, [th]) m, acc + amt)
+    processEntry acc ReleaseScheduleEntry{..} = foldl' (processRelease rseTransactionHash) acc (relReleases rseReleases)
+    releaseMap :: Map.Map Timestamp (Amount, [TransactionHash])
+    (releaseMap, releaseTotal) = foldl' processEntry (Map.empty, 0) arsReleases
+    makeSR (releaseTimestamp, (releaseAmount, releaseTransactions)) = ScheduledRelease{..}
+    releaseSchedule = makeSR <$> Map.toList releaseMap
+
+-- |Compute the sum of releases in the release schedule.
+-- This should produce the same result as 'arsTotalLockedAmount', and is provided for testing
+-- purposes.
+sumOfReleases :: AccountReleaseSchedule -> Amount
+sumOfReleases ars = sum [sum (snd <$> relReleases (rseReleases rse))| rse <- arsReleases ars]

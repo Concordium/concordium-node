@@ -47,7 +47,6 @@ import Concordium.Afgjort.Finalize.Types (FinalizationCommittee (..), PartyInfo 
 import Concordium.Afgjort.Monad
 import Concordium.Birk.Bake
 import Concordium.GlobalState.BakerInfo
-import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule (toAccountReleaseSummary)
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer
@@ -759,7 +758,7 @@ getAccountInfo blockHashInput acct = do
                 forM macc $ \(aiAccountIndex, acc) -> do
                     aiAccountNonce <- BS.getAccountNonce acc
                     aiAccountAmount <- BS.getAccountAmount acc
-                    aiAccountReleaseSchedule <- toAccountReleaseSummary <$> BS.getAccountReleaseSchedule acc
+                    aiAccountReleaseSchedule <- BS.getAccountReleaseSummary acc
                     aiAccountCredentials <- fmap (Versioned 0) <$> BS.getAccountCredentials acc
                     aiAccountThreshold <- aiThreshold <$> BS.getAccountVerificationKeys acc
                     aiAccountEncryptedAmount <- BS.getAccountEncryptedAmount acc

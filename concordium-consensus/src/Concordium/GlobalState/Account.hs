@@ -28,7 +28,7 @@ import Concordium.Types.Accounts
 import Concordium.Types.Execution
 import Concordium.Constants
 import Concordium.Types.HashableTo
-import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as ARSV0
+import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseScheduleV0 as ARSV0
 import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseScheduleV1 as ARSV1
 
 -- |A list of credential IDs that have been removed from an account.
