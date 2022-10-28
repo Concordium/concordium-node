@@ -71,6 +71,8 @@ data AccountOperationsAction (pv :: ProtocolVersion) a where
     GetAccountCanonicalAddress :: MockAccount -> AccountOperationsAction pv AccountAddress
     GetAccountAmount :: MockAccount -> AccountOperationsAction pv Amount
     CheckAccountIsAllowed :: MockAccount -> AccountAllowance -> AccountOperationsAction pv Bool
+    GetAccountStakedAmount :: MockAccount -> AccountOperationsAction pv Amount
+    GetAccountLockedAmount :: MockAccount -> AccountOperationsAction pv Amount
     GetAccountAvailableAmount :: MockAccount -> AccountOperationsAction pv Amount
     GetAccountNonce :: MockAccount -> AccountOperationsAction pv Nonce
     GetAccountCredentials :: MockAccount -> AccountOperationsAction pv (Map.Map ID.CredentialIndex ID.RawAccountCredential)
@@ -217,7 +219,6 @@ data BlockStateOperationsAction pv a where
     BsoEnqueueUpdate :: MockUpdatableBlockState -> TransactionTime -> UpdateValue (ChainParametersVersionFor pv) -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoOverwriteElectionDifficulty :: MockUpdatableBlockState -> ElectionDifficulty -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoClearProtocolUpdate :: MockUpdatableBlockState -> BlockStateOperationsAction pv MockUpdatableBlockState
-    BsoAddReleaseSchedule :: MockUpdatableBlockState -> [(AccountAddress, Timestamp)] -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoGetExchangeRates :: MockUpdatableBlockState -> BlockStateOperationsAction pv ExchangeRates
     BsoGetChainParameters :: MockUpdatableBlockState -> BlockStateOperationsAction pv (ChainParameters pv)
     BsoGetEpochBlocksBaked :: MockUpdatableBlockState -> BlockStateOperationsAction pv (Word64, [(BakerId, Word64)])

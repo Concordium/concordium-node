@@ -515,6 +515,21 @@ instance
         amnt2 <- coerceBSMR (getAccountAmount acc2)
         assertEq amnt1 amnt2 $ return amnt1
 
+    getAccountStakedAmount (acc1, acc2) = do
+        amnt1 <- coerceBSML (getAccountStakedAmount acc1)
+        amnt2 <- coerceBSMR (getAccountStakedAmount acc2)
+        assertEq amnt1 amnt2 $ return amnt1
+
+    getAccountLockedAmount (acc1, acc2) = do
+        amnt1 <- coerceBSML (getAccountLockedAmount acc1)
+        amnt2 <- coerceBSMR (getAccountLockedAmount acc2)
+        assertEq amnt1 amnt2 $ return amnt1
+
+    getAccountAvailableAmount (acc1, acc2) = do
+        amnt1 <- coerceBSML (getAccountAvailableAmount acc1)
+        amnt2 <- coerceBSMR (getAccountAvailableAmount acc2)
+        assertEq amnt1 amnt2 $ return amnt1
+
     getAccountNonce (acc1, acc2) = do
         n1 <- coerceBSML (getAccountNonce acc1)
         n2 <- coerceBSMR (getAccountNonce acc2)
@@ -901,10 +916,6 @@ instance
         liftM2 (,)
             (coerceBSML $ bsoProcessPendingChanges bs1 ch)
             (coerceBSMR $ bsoProcessPendingChanges bs2 ch)
-    bsoAddReleaseSchedule (bs1, bs2) tt = do
-        bs1' <- coerceBSML $ bsoAddReleaseSchedule bs1 tt
-        bs2' <- coerceBSMR $ bsoAddReleaseSchedule bs2 tt
-        return (bs1', bs2')
     bsoGetExchangeRates (bs1, bs2) = do
         r1 <- coerceBSML $ bsoGetExchangeRates bs1
         r2 <- coerceBSMR $ bsoGetExchangeRates bs2

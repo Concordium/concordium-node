@@ -32,7 +32,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.FixedByteString as FBS
 import qualified Data.Primitive.Array as Array
 
-import Concordium.Types (AccountAddress, BakerId(..), DelegatorId(..), AccountIndex(..), ModuleRef(..))
+import Concordium.Types (AccountAddress, BakerId(..), DelegatorId(..), AccountIndex(..), ModuleRef(..), Timestamp(..))
 import Concordium.Utils
 import Concordium.Utils.BinarySearch
 import qualified Concordium.Crypto.SHA256 as SHA256
@@ -67,6 +67,7 @@ deriving via SHA256.Hash instance FixedTrieKey ModuleRef
 deriving via (FBS.FixedByteString IDTypes.AccountAddressSize) instance FixedTrieKey AccountAddress
 deriving via Word64 instance FixedTrieKey BakerId
 deriving via Word64 instance FixedTrieKey DelegatorId
+deriving via Word64 instance FixedTrieKey Timestamp
 instance FixedTrieKey Bls.PublicKey -- FIXME: This is a bad instance. Serialization of these is expensive.
 
 instance FixedTrieKey IDTypes.RawCredentialRegistrationID where
@@ -80,6 +81,7 @@ instance OrdFixedTrieKey Word64
 instance OrdFixedTrieKey Word32
 deriving via Word64 instance OrdFixedTrieKey BakerId
 deriving via Word64 instance OrdFixedTrieKey DelegatorId
+deriving via Word64 instance OrdFixedTrieKey Timestamp
 
 -- |A pair of an index and a sub-trie.
 -- Branching in the Trie is on a 'Word8' in the key, which is referred to here as the index of
@@ -294,6 +296,16 @@ lookupF k = lu (unpackKey k) <=< mproject
             Null -> return Nothing
             Some r -> mproject r >>= lu key'
 
+-- |Find the entry in the trie with the minimal key, returning the key and value.
+findMinF :: (MRecursive m t, Base t ~ TrieF k v, OrdFixedTrieKey k) => t -> m (k, v)
+findMinF = fm [] <=< mproject
+    where
+        fm k (Tip v) = return $!! (packKey k, v)
+        fm k (Stem pref r) = fm (k <> SBS.unpack pref) =<< mproject r
+        fm k (Branch vec) = case branchesToPairs vec of
+            (i, r) : _ -> fm (k <> [i]) =<< mproject r
+            _ -> error "findMin: Empty branches in trie"
+
 -- |An auxiliary datatype used by lookupPrefix.
 data FollowStemResult =
   Equal -- ^ The key and the stem are equal.
@@ -430,13 +442,10 @@ alterM k upd pt0 = do
                     myremove res = do
                         let
                             vec' = updateBranch kw Null vec
-                            nobranches _ [] = remove res
-                            nobranches i (Null:vv) = nobranches (i+1) vv
-                            nobranches i (Some x:vv) = onebranch i x vv
-                            onebranch i x [] = update res [i] x
-                            onebranch i x (Null:vv) = onebranch i x vv
-                            onebranch _ _ (Some _:_) = membed (Branch vec') >>= update res []
-                        nobranches 0 (branchesToList vec')
+                            updateBranches [] = remove res
+                            updateBranches [(i, x)] = update res [i] x
+                            updateBranches _ = membed (Branch vec') >>= update res []
+                        updateBranches (branchesToPairs vec')
                 aM key' b nochange myremove myupdate
         aM key (Stem pref r) nochange remove update = case commonPrefix key (SBS.unpack pref) of
                 (_, key', []) -> do
@@ -648,6 +657,12 @@ keys (TrieN _ t) = mapReduceF (\k _ -> pure [k]) t
 -- |Get the list of keys of a trie in ascending order.
 keysAsc :: (MRecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, OrdFixedTrieKey k) => TrieN fix k v -> m [k]
 keysAsc = keys
+
+-- |Find the entry in the trie with the minimal key, returning the key and value. Returns 'Nothing'
+-- if the trie is empty.
+findMin :: (MRecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, OrdFixedTrieKey k) => TrieN fix k v -> m (Maybe (k, v))
+findMin EmptyTrieN = return Nothing
+findMin (TrieN _ t) = Just <$!> findMinF t
 
 -- |Get the list of keys and values in the trie.
 toList :: (MRecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, FixedTrieKey k) => TrieN fix k v -> m [(k, v)]

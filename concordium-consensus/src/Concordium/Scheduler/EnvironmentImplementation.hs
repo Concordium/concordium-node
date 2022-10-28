@@ -14,7 +14,6 @@ import Concordium.Scheduler.Environment
 
 import qualified Data.Kind as DK
 import Data.HashMap.Strict as Map
-import qualified Data.Map.Strict as OrdMap
 import Data.Functor.Identity
 
 import Concordium.TimeMonad
@@ -221,8 +220,7 @@ instance (MonadReader ContextState m,
   increaseAccountNonce (ai, acc) = do
     s <- use schedulerBlockState
     nonce <- getAccountNonce acc
-    addr <- getAccountCanonicalAddress acc
-    s' <- lift (bsoModifyAccount s (emptyAccountUpdate ai addr & auNonce ?~ (nonce + 1)))
+    s' <- lift (bsoModifyAccount s (emptyAccountUpdate ai & auNonce ?~ (nonce + 1)))
     schedulerBlockState .= s'
 
   {-# INLINE updateAccountCredentials #-}
@@ -247,17 +245,17 @@ instance (MonadReader ContextState m,
                       s1
                       (Map.toList (cs ^. instanceV1Updates)))
     -- Notify account transfers.
+    -- This also updates the release schedule.
     s3 <- lift (foldM bsoModifyAccount
                   s2
                   (cs ^. accountUpdates))
-    s4 <- lift (bsoAddReleaseSchedule s3 (OrdMap.toList $ cs ^. addedReleaseSchedules))
-    schedulerBlockState .= s4
+    schedulerBlockState .= s3
 
   {-# INLINE energyToGtu #-}
   energyToGtu v = do
     s <- use schedulerBlockState
     rate <- lift $ _erEnergyRate <$> bsoGetExchangeRates s
-    return (computeCost rate v)
+    return $! computeCost rate v
 
   {-# INLINE notifyExecutionCost #-}
   notifyExecutionCost !amnt = schedulerExecutionCosts += amnt
