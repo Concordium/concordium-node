@@ -3001,7 +3001,7 @@ instance (PersistentState av pv r m, IsProtocolVersion pv) => AccountOperations 
 
   getAccountHash = accountHash
 
-instance (IsProtocolVersion pv, PersistentState av pv r m, SupportsTransactionOutcomes pv) => BlockStateOperations (PersistentBlockStateMonad pv r m) where
+instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperations (PersistentBlockStateMonad pv r m) where
     bsoGetModule pbs mref = doGetModule pbs mref
     bsoGetAccount bs = doGetAccount bs
     bsoGetAccountIndex = doGetAccountIndex
@@ -3073,7 +3073,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m, SupportsTransactionOu
     bsoGetBankStatus = doGetBankStatus
     bsoSetRewardAccounts = doSetRewardAccounts
 
-instance (IsProtocolVersion pv, PersistentState av pv r m, SupportsTransactionOutcomes pv) => BlockStateStorage (PersistentBlockStateMonad pv r m) where
+instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage (PersistentBlockStateMonad pv r m) where
     thawBlockState HashedPersistentBlockState{..} =
             liftIO $ newIORef =<< readIORef hpbsPointers
 
@@ -3135,8 +3135,6 @@ migratePersistentBlockState ::
      SupportsPersistentAccount pv (t m),
      Modules.SupportsPersistentModule m,
      Modules.SupportsPersistentModule (t m),
-     SupportsTransactionOutcomes oldpv,
-     SupportsTransactionOutcomes pv,
      MonadProtocolVersion (t m),
      MPV (t m) ~ pv,
      MonadProtocolVersion m,
@@ -3157,8 +3155,7 @@ migrateBlockPointers ::
      SupportsPersistentAccount oldpv m,
      SupportsPersistentAccount pv (t m),
      Modules.SupportsPersistentModule m,
-     Modules.SupportsPersistentModule (t m),
-     SupportsTransactionOutcomes pv) =>
+     Modules.SupportsPersistentModule (t m)) =>
     StateMigrationParameters oldpv pv ->
     BlockStatePointers oldpv ->
     t m (BlockStatePointers pv)

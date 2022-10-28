@@ -104,8 +104,7 @@ class (Eq (BlockPointerType m),
        BlockPointerMonad m,
        B.EncodeBlock (MPV m) (BlockPointerType m),
        Monad m,
-       MonadProtocolVersion m,
-       SupportsTransactionOutcomes (MPV m))
+       MonadProtocolVersion m)
       => TreeStateMonad m where
 
     -- * 'PendingBlock' operations

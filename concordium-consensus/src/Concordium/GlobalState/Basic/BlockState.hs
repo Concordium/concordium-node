@@ -280,10 +280,10 @@ getBlockRewardDetails = case delegationSupport @av of
     SAVDelegationSupported -> BlockRewardDetailsV1 . makeHashed <$> PoolRewards.getPoolRewards
 
 -- |Transaction outcomes in PV5 ('TOV1') are stored in one of two merkle trees,
--- depending whether the associated transaction was a 'normal' transaction or
--- a 'special' transaction.
--- The resulting 'TransactionOutcomesHash' is then computed by hashing the root
--- of each tree.
+-- depending whether the associated transaction was a user transaction or
+-- a protocol defined outcome, e.g., reward.
+-- The resulting 'TransactionOutcomesHash' is then computed by concatenating
+-- the hashes of each of the subtrees and hashing the result.
 data MerkleTransactionOutcomes = MerkleTransactionOutcomes {
     mtoOutcomes :: LFMBT.LFMBTree TransactionIndex BS.TransactionSummaryV1,
     mtoSpecials :: LFMBT.LFMBTree TransactionIndex Transactions.SpecialTransactionOutcome
