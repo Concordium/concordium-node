@@ -1,5 +1,8 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TypeApplications #-}
 {-| This module tests the chain queries which were implemented as part of P5. -}
 module SchedulerTests.SmartContracts.V1.Queries (tests) where
 
@@ -17,9 +20,12 @@ import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Scheduler.Runner
 import qualified Concordium.TransactionVerification as TVer
+import Concordium.Types.Accounts
 
 import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
 import Concordium.GlobalState.Basic.BlockState
+import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
+import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.Wasm
 import qualified Concordium.Cost as Cost
 
@@ -40,6 +46,21 @@ initialBlockState = blockStateWithAlesAccount
     100000000
     (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount thomasBalance) Acc.emptyAccounts)
 
+initialBlockStateWithStakeAndSchedule :: BlockState PV5
+initialBlockStateWithStakeAndSchedule = blockStateWithAlesAccount
+    100000000
+    (Acc.putAccountWithRegIds extra Acc.emptyAccounts)
+    where extra = (mkAccount @'AccountV2 thomasVK thomasAccount thomasBalance) {
+            _accountReleaseSchedule = addReleases ([(Types.Timestamp maxBound, 123)], Types.TransactionHashV0 (Hash.hash "")) emptyAccountReleaseSchedule,
+            _accountStaking = AccountStakeDelegate AccountDelegationV1 {
+                _delegationIdentity = 1,
+                _delegationStakedAmount = 234,
+                _delegationStakeEarnings = False,
+                _delegationTarget = Types.DelegatePassive,
+                _delegationPendingChange = NoChange
+                }
+            }
+
 blockEnergyRate :: Types.EnergyRate
 blockEnergyRate = initialBlockState ^. blockUpdates . currentParameters . Types.energyRate
 
@@ -49,7 +70,7 @@ accountBalanceSourceFile = "./testdata/contracts/v1/queries-account-balance.wasm
 accountBalanceTestCase :: TestCase PV5
 accountBalanceTestCase =
   TestCase { tcName = "Simple account balance query"
-           , tcParameters = (defaultParams @PV5) {tpInitialBlockState=initialBlockState}
+           , tcParameters = (defaultParams @PV5) {tpInitialBlockState=initialBlockStateWithStakeAndSchedule}
            , tcTransactions =
              [ ( TJSON { payload = DeployModule V1 accountBalanceSourceFile
                        , metadata = makeDummyHeader alesAccount 1 100000
@@ -72,8 +93,8 @@ accountBalanceTestCase =
     parameters = BSS.toShort $ runPut $ do
       put thomasAccount
       putWord64le (fromIntegral thomasBalance) -- expected public balance
-      putWord64le 0
-      putWord64le 0
+      putWord64le 234 -- expected staked balance
+      putWord64le 123 -- expected locked balance
 
     eventsCheck :: [Types.Event] -> Expectation
     eventsCheck events = do
@@ -395,10 +416,6 @@ allTestCase =
            }
   where
     eventsCheck :: [Types.Event] -> Expectation
-    eventsCheck events = do
-        -- Check the number of events:
-        -- - 1 event for a succesful update to the contract.
-        eventsLengthCheck 1 events
 
     initialBlockStateP4 :: BlockState PV4
     initialBlockStateP4 = blockStateWithAlesAccount
