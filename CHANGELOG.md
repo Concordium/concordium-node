@@ -6,6 +6,7 @@
   - support for smart contract upgradability
   - a new representation of accounts that is better optimised for common operations
 - More efficient indexing of accounts with scheduled releases.
+- Fix an issue where the catch-up downloader would fail at a protocol update.
 
 ## 4.5.0
 
