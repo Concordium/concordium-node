@@ -96,7 +96,6 @@ import Concordium.Wasm (IsWasmVersion)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import qualified Concordium.Wasm as GSWasm
 import Data.Proxy
-import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule (totalLockedUpBalance)
 
 
 -- |The function asserts the following
@@ -1208,13 +1207,10 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                       Just indexedAccount@(_accountIndex, account) -> do
                         -- Lookup account balances.
                         balance <- getCurrentAccountTotalAmount indexedAccount
-                        accountStake <- getAccountStake account
-                        let stake = case accountStake of
-                              AccountStakeNone -> 0
-                              AccountStakeBaker bkr -> bkr ^. stakedAmount
-                              AccountStakeDelegate del -> del ^. delegationStakedAmount
-                        lockedAmount <- do schedule <- getAccountReleaseSchedule account
-                                           return $ schedule ^. totalLockedUpBalance
+                        -- During this transaction the staked and locked amount could not have been affected.
+                        -- Hence we can simply take the relevant balance from the "state account".
+                        stake <- getAccountStakedAmount account
+                        lockedAmount <- getAccountLockedAmount account
                         -- Construct the return value.
                         let returnValue = WasmV1.byteStringToReturnValue $ S.runPut $ do
                              Wasm.putAmountLE balance

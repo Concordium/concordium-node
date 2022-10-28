@@ -255,7 +255,7 @@ instance (MonadReader ContextState m,
   energyToGtu v = do
     s <- use schedulerBlockState
     rate <- lift $ _erEnergyRate <$> bsoGetExchangeRates s
-    return (computeCost rate v)
+    return $! computeCost rate v
 
   {-# INLINE notifyExecutionCost #-}
   notifyExecutionCost !amnt = schedulerExecutionCosts += amnt

@@ -1,6 +1,6 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-| This module tests the chain queries which was implemented as part of P5. -}
+{-| This module tests the chain queries which were implemented as part of P5. -}
 module SchedulerTests.SmartContracts.V1.Queries (tests) where
 
 import Test.Hspec
