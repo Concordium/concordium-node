@@ -308,7 +308,7 @@ addAccountAmount amt (PAV2 acc) = PAV2 <$> V1.addAmount amt acc
 
 -- |Applies a pending stake change to an account. The account MUST have a pending stake change.
 -- If the account does not have a pending stake change, or is not staking, then this will raise
--- and error.
+-- an error.
 applyPendingStakeChange :: (MonadBlobStore m) => PersistentAccount 'AccountV0 -> m (PersistentAccount 'AccountV0)
 applyPendingStakeChange (PAV0 acc) = PAV0 <$> V0.applyPendingStakeChange acc
 
