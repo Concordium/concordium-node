@@ -4,6 +4,13 @@
 
 - Add support for protocol version 5. This adds the following features
   - support for smart contract upgradability
+  - Relax restrictions on smart contracts
+    - Parameter size limit: 1kb -> 65kb
+    - Return value size limit: 16kb -> no limit (apart from energy)
+    - Number of logs per invocation: 64 -> no limit (apart from energy)
+    - Cost of parameters:
+      - Of size <= 1kb: base cost + 1NRG / 1 *kilobyte* (same as prior to PV5)
+      - Of size > 1kb: base cost + 1NRG / *byte*
 
 ## 4.5.0
 
