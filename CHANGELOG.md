@@ -3,7 +3,11 @@
 ## Unreleased changes
 
 - Add support for protocol version 5. This adds the following features
-  - support for smart contract upgradability
+- Support for smart contract upgradability via a native host function 'upgrade'.
+  Only V1 smart contracts supports upgrading.
+- Revised the hashing scheme for transaction outcomes in protocol version 5.
+  In particular the exact reject reasons are no longer part of the computed hash.
+  Further the transaction outcomes are being stored in a merkle tree for P5.
 
 ## 4.5.0
 
