@@ -15,6 +15,7 @@ import Concordium.GlobalState.Basic.BlockState as BS
 import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 import qualified Concordium.GlobalState.Basic.BlockState.AccountTable as AT
+import qualified Concordium.GlobalState.Basic.BlockState.ReleaseSchedule as BRS
 import Concordium.GlobalState.Basic.BlockState.Accounts
 import Concordium.GlobalState.Basic.TreeState
 import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
@@ -26,6 +27,7 @@ import Concordium.GlobalState.Parameters
 import qualified Concordium.GlobalState.Persistent.Accounts
 import qualified Concordium.GlobalState.Persistent.Account
 import Concordium.GlobalState.Persistent.BlobStore
+import qualified Concordium.GlobalState.Persistent.ReleaseSchedule as PRS
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import Concordium.GlobalState.Persistent.TreeState
 import Concordium.Logger
@@ -41,19 +43,22 @@ import Data.Foldable
 import Data.IORef
 import Data.List (nub, sort)
 import qualified Data.Map.Strict as OrdMap
+import Data.Maybe
 import Data.Proxy
+import qualified Data.Set as Set
 import Data.Time.Clock.POSIX
 import qualified Data.Vector as Vector
 import Lens.Micro.Platform
 import System.FilePath
 import System.IO.Temp
 import Test.Hspec
+import Test.HUnit
 import Test.QuickCheck
 
 --------------------------------- Monad Types ----------------------------------
 
 -- |Protocol version.
-type PV = 'P1
+type PV = 'P5
 
 type PairedGSContext = PairGSContext () (PBS.PersistentBlockStateContext PV)
 
@@ -100,7 +105,7 @@ createGS dbDir = do
   now <- utcTimeToTimestamp <$> getCurrentTime
   let
     n = 3
-    genesis = makeTestingGenesisDataP1 now n 1 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters emptyIdentityProviders emptyAnonymityRevokers maxBound dummyKeyCollection dummyChainParameters
+    genesis = makeTestingGenesisDataP5 now n 1 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters emptyIdentityProviders emptyAnonymityRevokers maxBound dummyKeyCollection dummyChainParameters
     rp = defaultRuntimeParameters
     config = PairGSConfig (MTMBConfig rp, DTDBConfig rp dbDir (dbDir </> "blockstate" <.> "dat"))
   (x, y) <- runSilentLogger $ initialiseGlobalState genesis config
@@ -121,14 +126,15 @@ testing = do
       bs2 = PBS.hpbsPointers $ _bpState (bs ^. pairStateRight . Concordium.GlobalState.Persistent.TreeState.focusBlock)
 
   let [(accA, aiA), (accB, aiB)] = take 2 $ map (\(ai, ac) -> (ac ^. accountAddress, ai)) $ AT.toList $ accountTable (bs1 ^. blockAccounts)
-  b' <- bsoAddReleaseSchedule (bs1, bs2) [(accA, head timestampsA), (accB, head timestampsB)]
-  checkEqualBlockReleaseSchedule b'
-  bs'' <- foldlM (\b e@((acc, ai), rels) -> do
-                     newB <- bsoModifyAccount b ((emptyAccountUpdate ai acc) { _auReleaseSchedule = Just [(rels, dummyTransactionHash)] })
+  bs'' <- foldlM (\b e@((_, ai), rels) -> do
+                     newB <- bsoModifyAccount b ((emptyAccountUpdate ai) { _auReleaseSchedule = Just [(rels, dummyTransactionHash)] })
                      checkCorrectAccountReleaseSchedule newB b e
                      return newB
-                 ) b' (map ((accA, aiA),) txsA ++ map ((accB, aiB),) txsB)
-  checkEqualBlockReleaseSchedule bs''
+                 ) (bs1, bs2) (map ((accA, aiA),) txsA ++ map ((accB, aiB),) txsB)
+  let expectedRS = OrdMap.unionWith (<>)
+        (OrdMap.singleton (head timestampsA) (Set.singleton aiA))
+        (OrdMap.singleton (head timestampsB) (Set.singleton aiB))
+  checkEqualBlockReleaseSchedule expectedRS bs''
   let taggedAmounts = OrdMap.toAscList $ OrdMap.unionWith (++) (OrdMap.map ((:[]) . (accA,)) amountsA) (OrdMap.map ((:[]) . (accB,)) amountsB)
   _ <- foldlM (\b (ts, accs) -> do
             newB <- bsoProcessReleaseSchedule b ts
@@ -148,16 +154,21 @@ tests = do
 
 ------------------------------------ Checks ------------------------------------
 
--- | Check that the two implementations of blockstate have the same Block release schedule
-checkEqualBlockReleaseSchedule :: (BS.BlockState PV, PBS.PersistentBlockState PV) -> ThisMonadConcrete ()
-checkEqualBlockReleaseSchedule (blockstateBasic, blockStatePersistent) = do
-  let brs = _blockReleaseSchedule blockstateBasic
+-- | Check that the two implementations of blockstate have the same Block release schedule,
+-- and that this is the same as the expected schedule.
+checkEqualBlockReleaseSchedule :: OrdMap.Map Timestamp (Set.Set AccountIndex) -> (BS.BlockState PV, PBS.PersistentBlockState PV) -> ThisMonadConcrete ()
+checkEqualBlockReleaseSchedule expected (blockstateBasic, blockStatePersistent) = do
+  let brs = BRS.rsMap (_blockReleaseSchedule blockstateBasic)
   ctx <- _pairContextRight <$> R.ask
   brsP <- liftIO $ runBlobStoreM (do
                                  blockStatePersistent' <- loadBufferedRef =<< liftIO (readIORef  blockStatePersistent)
-                                 loadBufferedRef $ PBS.bspReleaseSchedule  blockStatePersistent') ctx
-  assert (brs == brsP) $ return ()
-
+                                 let resolveAcc addr = do
+                                        fromJust <$> Concordium.GlobalState.Persistent.Accounts.getAccountIndex addr (PBS.bspAccounts blockStatePersistent')
+                                 PRS.releasesMap resolveAcc (PBS.bspReleaseSchedule blockStatePersistent')
+                                 ) ctx
+  liftIO $ assertEqual "Basic & expected release schedules" brs expected
+  liftIO $ assertEqual "Basic & persitent release schedules" brs brsP
+  
 -- | Check that an account has the same Account release schedule in the two implementations of the blockstate
 checkEqualAccountReleaseSchedule :: (BS.BlockState PV, PBS.PersistentBlockState PV) -> AccountAddress -> ThisMonadConcrete ()
 checkEqualAccountReleaseSchedule (blockStateBasic, blockStatePersistent) acc = do
@@ -167,8 +178,10 @@ checkEqualAccountReleaseSchedule (blockStateBasic, blockStatePersistent) acc = d
                                                   blockStatePersistent' <- loadBufferedRef =<< liftIO (readIORef  blockStatePersistent)
                                                   Concordium.GlobalState.Persistent.Accounts.getAccount acc (PBS.bspAccounts blockStatePersistent') >>= \case
                                                     Nothing -> return Nothing
-                                                    Just a -> Just <$> (refLoad (Concordium.GlobalState.Persistent.Account._accountReleaseSchedule a) >>= getHashM)) ctx :: ThisMonadConcrete (Maybe AccountReleaseScheduleHash)
-  assert (Just (getHash (newBasicAccount ^. accountReleaseSchedule)) == newPersistentAccountReleaseScheduleHash) $ return ()
+                                                    Just a -> Just . getHash <$> Concordium.GlobalState.Persistent.Account.accountReleaseSchedule a) ctx :: ThisMonadConcrete (Maybe AccountReleaseScheduleHash)
+  liftIO $ assertEqual "Basic & persistent account release schedule hashes"
+      (Just (getHash (newBasicAccount ^. accountReleaseSchedule)))
+      newPersistentAccountReleaseScheduleHash
 
 -- | Check that an an account was correctly updated in the two blockstates with the given release schedule
 checkCorrectAccountReleaseSchedule :: (BS.BlockState PV, PBS.PersistentBlockState PV) -> (BS.BlockState PV, PBS.PersistentBlockState PV) -> ((AccountAddress, AccountIndex), [(Timestamp, Amount)]) -> ThisMonadConcrete ()
@@ -176,10 +189,12 @@ checkCorrectAccountReleaseSchedule (blockStateBasic, blockStatePersistent) (oldB
   let Just newBasicAccount = Concordium.GlobalState.Basic.BlockState.Accounts.getAccount acc (blockStateBasic ^. blockAccounts)
   let Just oldBasicAccount = Concordium.GlobalState.Basic.BlockState.Accounts.getAccount acc (oldBlockStateBasic ^. blockAccounts)
   checkEqualAccountReleaseSchedule (blockStateBasic, blockStatePersistent) acc
-  assert (oldBasicAccount ^. accountAmount + sum (map snd rel) == newBasicAccount ^. accountAmount) $ return ()
+  liftIO $ assertEqual "Old amount + sum of new releases == new amount"
+      (oldBasicAccount ^. accountAmount + sum (map snd rel)) (newBasicAccount ^. accountAmount)
   let oldReleaseSchedule = oldBasicAccount ^. accountReleaseSchedule
   let newReleaseSchedule = newBasicAccount ^. accountReleaseSchedule
-  assert (newReleaseSchedule ^. values == Vector.snoc (oldReleaseSchedule ^. values) (Just (map (uncurry Release) rel, dummyTransactionHash))) $ return ()
+  liftIO $ assertEqual "New release schedule == old schedule + new releases"
+    (newReleaseSchedule ^. values) (Vector.snoc (oldReleaseSchedule ^. values) (Just (map (uncurry Release) rel, dummyTransactionHash)))
 
 -- | Check that the implementations have the same data and that the difference between the old state and the new state after unlocking amounts at the given timestamp is the amount given in the last argument
 -- also check that all the timestamps for this account are over the unlocked timestamps.
@@ -189,12 +204,16 @@ checkCorrectShrinkingAccountReleaseSchedule (blockStateBasic, blockStatePersiste
         let Just newBasicAccount = Concordium.GlobalState.Basic.BlockState.Accounts.getAccount acc (blockStateBasic ^. blockAccounts)
         let Just oldBasicAccount = Concordium.GlobalState.Basic.BlockState.Accounts.getAccount acc (oldBlockStateBasic ^. blockAccounts)
         checkEqualAccountReleaseSchedule (blockStateBasic, blockStatePersistent) acc
-        assert (newBasicAccount ^. accountReleaseSchedule . totalLockedUpBalance + rel == oldBasicAccount ^. accountReleaseSchedule . totalLockedUpBalance) $ return ()
-        assert (Vector.foldl (\accum -> \case
+        liftIO $ assertEqual "New locked balance + released amount == old locked balance"
+          (newBasicAccount ^. accountReleaseSchedule . totalLockedUpBalance + rel)
+          (oldBasicAccount ^. accountReleaseSchedule . totalLockedUpBalance)
+        liftIO $ assertEqual "Sum of releases == locked balance"
+          (Vector.foldl (\accum -> \case
                                  Nothing -> accum
-                                 Just (rels, _) -> sum (map (\(Release _ x) -> x) rels) + accum) 0 (newBasicAccount ^. accountReleaseSchedule . values) == newBasicAccount ^. accountReleaseSchedule . totalLockedUpBalance) $ return ()
-        assert (Vector.all (\case
+                                 Just (rels, _) -> sum (map (\(Release _ x) -> x) rels) + accum) 0 (newBasicAccount ^. accountReleaseSchedule . values))
+          (newBasicAccount ^. accountReleaseSchedule . totalLockedUpBalance)
+        liftIO $ assertBool "Remaining releases are after release time" (Vector.all (\case
                                Nothing -> True
-                               Just (rels, _) -> any (\(Release t _) -> t > ts) rels) (newBasicAccount ^. accountReleaseSchedule . values)) $ return ()
+                               Just (rels, _) -> any (\(Release t _) -> t > ts) rels) (newBasicAccount ^. accountReleaseSchedule . values))
   in
     mapM_ f accs

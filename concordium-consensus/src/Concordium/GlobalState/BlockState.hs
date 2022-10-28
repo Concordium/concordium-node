@@ -46,7 +46,6 @@ module Concordium.GlobalState.BlockState where
 import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Except
-import Data.Functor
 import qualified Data.Vector as Vec
 import Data.Serialize(Serialize)
 import qualified Data.Map as Map
@@ -144,20 +143,23 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
   -- |Check whether an account is allowed to perform the given action.
   checkAccountIsAllowed :: Account m -> AccountAllowance -> m Bool
 
+  -- |Get the amount that is staked on the account.
+  -- This is 0 if the account is not staking or delegating.
+  getAccountStakedAmount :: Account m -> m Amount
+
+  -- |Get the amount that is locked in scheduled releases on the account.
+  -- This is 0 if there are no pending releases on the account.
+  getAccountLockedAmount :: Account m -> m Amount
+
   -- | Get the current public account available balance.
   -- This accounts for lock-up and staked amounts.
   -- @available = total - max locked staked@
   getAccountAvailableAmount :: Account m -> m Amount
   getAccountAvailableAmount acc = do
     total <- getAccountAmount acc
-    lockedUp <- _totalLockedUpBalance <$> getAccountReleaseSchedule acc
-    stakedBkr <- getAccountBaker acc <&> \case
-      Nothing -> 0
-      Just bkr -> _stakedAmount bkr
-    stakedDel <- getAccountDelegator acc <&> \case
-      Nothing -> 0
-      Just AccountDelegationV1{..} -> _delegationStakedAmount
-    return $ total - max lockedUp (max stakedBkr stakedDel)
+    lockedUp <- getAccountLockedAmount acc
+    staked <- getAccountStakedAmount acc
+    return $ total - max lockedUp staked
 
   -- |Get the next available nonce for this account
   getAccountNonce :: Account m -> m Nonce
@@ -641,6 +643,9 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- This method is only called when an account exists and can thus assume this.
   -- NB: In case we are adding a credential to an account this method __must__ also
   -- update the global set of known credentials.
+  --
+  -- If the update adds scheduled releases to the account, this will also update the release
+  -- schedule index to record the next scheduled release time for the account.
   --
   -- It is the responsibility of the caller to ensure that the change does not lead to a
   -- negative account balance or a situation where the staked or locked balance
@@ -1159,10 +1164,6 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- This does not affect the next sequence number for protocol updates.
   bsoClearProtocolUpdate :: UpdatableBlockState m -> m (UpdatableBlockState m)
 
-  -- |Add the given accounts and timestamps to the per-block account release schedule.
-  -- PRECONDITION: The given timestamp must be the first timestamp for a release for the given account.
-  bsoAddReleaseSchedule :: UpdatableBlockState m -> [(AccountAddress, Timestamp)] -> m (UpdatableBlockState m)
-
   -- |Get the current exchange rates, which are the Euro per NRG, micro CCD per Euro and the energy rate.
   bsoGetExchangeRates :: UpdatableBlockState m -> m ExchangeRates
 
@@ -1332,6 +1333,8 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
   getAccountCanonicalAddress = lift . getAccountCanonicalAddress
   getAccountAmount = lift. getAccountAmount
   checkAccountIsAllowed acc = lift . checkAccountIsAllowed acc
+  getAccountStakedAmount = lift . getAccountStakedAmount
+  getAccountLockedAmount = lift . getAccountLockedAmount
   getAccountAvailableAmount = lift . getAccountAvailableAmount
   getAccountNonce = lift . getAccountNonce
   getAccountCredentials = lift . getAccountCredentials
@@ -1433,7 +1436,6 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoEnqueueUpdate s tt payload = lift $ bsoEnqueueUpdate s tt payload
   bsoOverwriteElectionDifficulty s = lift . bsoOverwriteElectionDifficulty s
   bsoClearProtocolUpdate = lift . bsoClearProtocolUpdate
-  bsoAddReleaseSchedule s l = lift $ bsoAddReleaseSchedule s l
   bsoGetExchangeRates = lift . bsoGetExchangeRates
   bsoGetChainParameters = lift . bsoGetChainParameters
   bsoGetEpochBlocksBaked = lift . bsoGetEpochBlocksBaked
@@ -1483,7 +1485,6 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoEnqueueUpdate #-}
   {-# INLINE bsoOverwriteElectionDifficulty #-}
   {-# INLINE bsoClearProtocolUpdate #-}
-  {-# INLINE bsoAddReleaseSchedule #-}
   {-# INLINE bsoGetExchangeRates #-}
   {-# INLINE bsoGetChainParameters #-}
   {-# INLINE bsoGetEpochBlocksBaked #-}

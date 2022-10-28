@@ -45,7 +45,7 @@ import Concordium.Utils.Serialization.Put
 -- (This structure is always fully cached in memory, so the 'Cacheable' instance is trivial. See
 -- $Concordium.GlobalState.Persistent.Account.PersistentAccountCacheable for details.)
 newtype BakerInfos (av :: AccountVersion)
-    = BakerInfos (Vec.Vector (PersistentBakerInfoEx av))
+    = BakerInfos (Vec.Vector (PersistentBakerInfoRef av))
     deriving (Show)
 
 -- |See documentation of @migratePersistentBlockState@.
@@ -54,7 +54,7 @@ migrateBakerInfos ::
     ( IsProtocolVersion pv
     , SupportMigration m t
     ) => StateMigrationParameters oldpv pv -> BakerInfos (AccountVersionFor oldpv) -> t m (BakerInfos (AccountVersionFor pv))
-migrateBakerInfos migration (BakerInfos inner) = BakerInfos <$> mapM (migratePersistentBakerInfoEx migration) inner
+migrateBakerInfos migration (BakerInfos inner) = BakerInfos <$> mapM (migratePersistentBakerInfoRef migration) inner
 
 instance (IsAccountVersion av, MonadBlobStore m) => BlobStorable m (BakerInfos av) where
     storeUpdate (BakerInfos v) = do
@@ -71,7 +71,7 @@ instance (IsAccountVersion av, MonadBlobStore m) => BlobStorable m (BakerInfos a
 -- |This hashing should match (part of) the hashing for 'Basic.EpochBakers'.
 instance (IsAccountVersion av, MonadBlobStore m) => MHashableTo m H.Hash (BakerInfos av) where
     getHashM (BakerInfos v) = do
-      v' <- mapM loadPersistentBakerInfoEx v
+      v' <- mapM loadPersistentBakerInfoRef v
       return $ H.hashLazy $ runPutLazy $ mapM_ put v'
 
 instance (Applicative m) => Cacheable m (BakerInfos av)
@@ -143,7 +143,6 @@ migratePersistentEpochBakers migration PersistentEpochBakers {..} = do
 epochBaker :: forall m av. (IsAccountVersion av, MonadBlobStore m) => BakerId -> PersistentEpochBakers av -> m (Maybe (BaseAccounts.BakerInfo, Amount))
 epochBaker bid PersistentEpochBakers{..} = do
     (BakerInfos infoVec) <- refLoad _bakerInfos
-    let loadBakerInfo = refLoad . bakerInfoRef
     minfo <- binarySearchIM loadBakerInfo BaseAccounts._bakerIdentity infoVec bid
     forM minfo $ \(idx, binfo) -> do
         (BakerStakes stakeVec) <- refLoad _bakerStakes
@@ -153,7 +152,7 @@ epochBaker bid PersistentEpochBakers{..} = do
 putEpochBakers :: (IsAccountVersion av, MonadBlobStore m, MonadPut m) => PersistentEpochBakers av -> m ()
 putEpochBakers peb = do
         BakerInfos bi <- refLoad (peb ^. bakerInfos)
-        bInfos <- mapM (refLoad . bakerInfoRef) bi
+        bInfos <- mapM loadBakerInfo bi
         BakerStakes bStakes <- refLoad (peb ^. bakerStakes)
         assert (Vec.length bInfos == Vec.length bStakes) $
             liftPut $ putLength (Vec.length bInfos)
@@ -194,7 +193,7 @@ instance (IsAccountVersion av, MonadBlobStore m) => Cacheable m (PersistentEpoch
 epochToFullBakers :: (IsAccountVersion av, MonadBlobStore m) => PersistentEpochBakers av -> m FullBakers
 epochToFullBakers PersistentEpochBakers{..} = do
     BakerInfos infoRefs <- refLoad _bakerInfos
-    infos <- mapM (refLoad . bakerInfoRef) infoRefs
+    infos <- mapM loadBakerInfo infoRefs
     BakerStakes stakes <- refLoad _bakerStakes
     return FullBakers{
             fullBakerInfos = Vec.zipWith mkFullBakerInfo infos stakes,
@@ -211,7 +210,7 @@ epochToFullBakersEx ::
     m FullBakersEx
 epochToFullBakersEx PersistentEpochBakers{..} = do
     BakerInfos infoRefs <- refLoad _bakerInfos
-    infos <- mapM loadPersistentBakerInfoEx infoRefs
+    infos <- mapM loadPersistentBakerInfoRef infoRefs
     BakerStakes stakes <- refLoad _bakerStakes
     return FullBakersEx{
             bakerInfoExs = Vec.zipWith mkFullBakerInfoEx infos stakes,
@@ -225,7 +224,7 @@ epochToFullBakersEx PersistentEpochBakers{..} = do
 -- |Derive a 'PersistentEpochBakers' from a 'Basic.EpochBakers'.
 makePersistentEpochBakers :: (IsAccountVersion av, MonadBlobStore m) => Basic.EpochBakers av -> m (PersistentEpochBakers av)
 makePersistentEpochBakers ebs = do
-    _bakerInfos <- refMake . BakerInfos =<< mapM makePersistentBakerInfoEx (Basic._bakerInfos ebs)
+    _bakerInfos <- refMake . BakerInfos =<< mapM makePersistentBakerInfoRef (Basic._bakerInfos ebs)
     _bakerStakes <- refMake $ BakerStakes (Basic._bakerStakes ebs)
     let _bakerTotalStake = Basic._bakerTotalStake ebs
     return PersistentEpochBakers{..}
@@ -372,11 +371,10 @@ migratePersistentActiveBakers migration accounts PersistentActiveBakers{..} = do
   totalStakedAmount <- foldM (\acc (BakerId aid) ->
     Accounts.indexedAccount aid accounts >>= \case
       Nothing -> error "Baker account does not exist."
-      Just pa -> case pa ^. accountBaker of
-        Null -> error "Baker account not a baker."
-        Some bref -> do
-            bkr <- refLoad bref
-            return $! (acc + _stakedAmount bkr)) 0 bakerIds
+      Just pa -> accountBakerStakeAmount pa >>= \case
+        Nothing -> error "Baker account not a baker."
+        Just amt -> return $! (acc + amt)
+    ) 0 bakerIds
   let newTotalActiveCapital = migrateTotalActiveCapital migration totalStakedAmount _totalActiveCapital
   return PersistentActiveBakers {
     _activeBakers = newActiveBakers,

@@ -23,6 +23,7 @@ import Concordium.GlobalState.Basic.TreeState
 import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.DummyData
+import Concordium.Types.Execution
 import Concordium.Types.IdentityProviders
 import Concordium.GlobalState.Paired
 import Concordium.GlobalState.Parameters
@@ -61,7 +62,7 @@ import qualified Concordium.Types.UpdateQueues as UQ
 --                                                                            --
 --------------------------------------------------------------------------------
 
-type PV = 'P1
+type PV = 'P5
 
 type PairedGSContext = PairGSContext () (PBS.PersistentBlockStateContext PV)
 
@@ -91,7 +92,7 @@ createGS dbDir = do
   now <- utcTimeToTimestamp <$> getCurrentTime
   let
     n = 3
-    genesis = makeTestingGenesisDataP1 now
+    genesis = makeTestingGenesisDataP5 now
                                      n
                                      1
                                      1
@@ -156,22 +157,43 @@ createAccountWith a bs = do
                                                 (YearMonth 2021 01)
                                                 (YearMonth 2021 12))
   ~(Just ai) <- bsoGetAccountIndex bs' thomasAccount
-  (, ai) <$> bsoModifyAccount bs' (emptyAccountUpdate ai thomasAccount & auAmount ?~ a)
+  (, ai) <$> bsoModifyAccount bs' (emptyAccountUpdate ai & auAmount ?~ a)
 
 -- | Add a baker with the given staked amount.
-addBakerWith :: Amount -> (TheBlockStates, AccountIndex) -> ThisMonadConcrete (BakerAddResult, (TheBlockStates, AccountIndex))
+addBakerWith :: Amount -> (TheBlockStates, AccountIndex) -> ThisMonadConcrete (BakerConfigureResult, (TheBlockStates, AccountIndex))
 addBakerWith am (bs, ai) = do
   a <- BlockSig.verifyKey <$> liftIO BlockSig.newKeyPair
   b <- Bls.derivePublicKey <$> liftIO Bls.generateSecretKey
   c <- VRF.publicKey <$> liftIO VRF.newKeyPair
-  (bar, bs') <- bsoAddBaker bs ai (BakerAdd (BakerKeyUpdate a b c) am False)
+  let conf = BakerConfigureAdd {
+          bcaKeys = BakerKeyUpdate a b c,
+          bcaCapital = am,
+          bcaRestakeEarnings = False,
+          bcaOpenForDelegation = ClosedForAll,
+          bcaMetadataURL = emptyUrlText,
+          bcaTransactionFeeCommission = makeAmountFraction 0,
+          bcaBakingRewardCommission = makeAmountFraction 0,
+          bcaFinalizationRewardCommission = makeAmountFraction 0
+        }
+  (bar, bs') <- bsoConfigureBaker bs ai conf
   return (bar, (bs', ai))
   
 
 -- |Modify the staked amount to the given value.
-modifyStakeTo :: Amount -> (TheBlockStates, AccountIndex) -> ThisMonadConcrete (BakerStakeUpdateResult, (TheBlockStates, AccountIndex))
+modifyStakeTo :: Amount -> (TheBlockStates, AccountIndex) -> ThisMonadConcrete (BakerConfigureResult, (TheBlockStates, AccountIndex))
 modifyStakeTo a (bs, ai) = do
-  (bsur, bs') <- bsoUpdateBakerStake bs ai a
+  let conf = BakerConfigureUpdate {
+                      bcuSlotTimestamp = 0,
+                      bcuKeys = Nothing,
+                      bcuCapital = Just a,
+                      bcuRestakeEarnings = Nothing,
+                      bcuOpenForDelegation = Nothing,
+                      bcuMetadataURL = Nothing,
+                      bcuTransactionFeeCommission = Nothing,
+                      bcuBakingRewardCommission = Nothing,
+                      bcuFinalizationRewardCommission = Nothing
+        }
+  (bsur, bs') <- bsoConfigureBaker bs ai conf
   return (bsur, (bs', ai))
 
 -- |Increase the current threshold for baking. This uses some trickery to run a
@@ -190,7 +212,7 @@ increaseLimit newLimit ((bs, bs2), ai) = do
         -- load the current parameters
         currentParams <- unStoreSerialized <$> refLoad (PU.currentParameters updates)
         -- store the new parameters
-        newParams <- refMake $ StoreSerialized (currentParams & cpPoolParameters . ppBakerStakeThreshold .~ newLimit)
+        newParams <- refMake $ StoreSerialized (currentParams & cpPoolParameters . ppMinimumEquityCapital .~ newLimit)
         -- store the new updates
         newUpdates <- refMake (updates {PU.currentParameters = newParams })
         -- store the new block in the IORef
@@ -207,7 +229,7 @@ increaseLimit newLimit ((bs, bs2), ai) = do
                         -- requirements.
                         runReaderT (PBS.runPersistentBlockStateMonad f) rc
                         return ((), ps, ())))
-  return ((bs & blockUpdates . UQ.currentParameters . cpPoolParameters . ppBakerStakeThreshold .~ newLimit, bs2), ai)
+  return ((bs & blockUpdates . UQ.currentParameters . cpPoolParameters . ppMinimumEquityCapital .~ newLimit, bs2), ai)
 
 --------------------------------------------------------------------------------
 --                                                                            --
@@ -223,8 +245,8 @@ testing1 = do
               createAccountWith (limitDelta `div` 2) >>=
               addBakerWith (limit `div` 2)
   case res of
-    BAStakeUnderThreshold -> return ()
-    e -> error $ "Got (" ++ show e ++ ") but wanted BAStakeUnderThreshold"
+    BCStakeUnderThreshold -> return ()
+    e -> error $ "Got (" ++ show e ++ ") but wanted BCStakeUnderThreshold"
 
 -- starting from an empty blockstate with the dummy parameters, register a baker
 -- with enough stake and decrease the stake below the limit. (MUST FAIL)
@@ -232,10 +254,10 @@ testing2'1 = do
   (res, _) <- getBlockStates >>=
               createAccountWith limitDelta >>=
               addBakerWith limit >>=
-              \(BASuccess _, a) -> modifyStakeTo (limit - 1) a
+              \(BCSuccess _ _, a) -> modifyStakeTo (limit - 1) a
   case res of
-    BSUStakeUnderThreshold -> return ()
-    e -> error $ "Got (" ++ show e ++ ") but wanted BSUStakeUnderThreshold"
+    BCStakeUnderThreshold -> return ()
+    e -> error $ "Got (" ++ show e ++ ") but wanted BCStakeUnderThreshold"
 
 -- starting from an empty blockstate with the dummy parameters, register a baker
 -- with enough stake and decrease the stake above the limit. (MUST SUCCEED)
@@ -243,10 +265,10 @@ testing2'2 = do
   (res, _) <- getBlockStates >>=
               createAccountWith (limitDelta + 100) >>=
               addBakerWith (limit + 100) >>=
-              \(BASuccess _, a) -> modifyStakeTo limit a
+              \(BCSuccess _ _, a) -> modifyStakeTo limit a
   case res of
-    BSUStakeReduced _ _ -> return ()
-    e -> error $ "Got (" ++ show e ++ ") but wanted BSUStakeReduced"
+    BCSuccess [BakerConfigureStakeReduced _] _ -> return ()
+    e -> error $ "Got (" ++ show e ++ ") but wanted BakerConfigureStakeReduced"
 
 -- starting from an empty blockstate with the dummy parameters, register a baker
 -- with enough stake and increase the stake. (MUST SUCCEED)
@@ -254,10 +276,10 @@ testing2'3 = do
   (res, _) <- getBlockStates >>=
               createAccountWith (limitDelta + 100) >>=
               addBakerWith limit >>=
-              \(BASuccess _, a) -> modifyStakeTo (limit + 100) a
+              \(BCSuccess _ _, a) -> modifyStakeTo (limit + 100) a
   case res of
-    BSUStakeIncreased _ -> return ()
-    e -> error $ "Got (" ++ show e ++ ") but wanted BSUStakeIncreased"
+    BCSuccess [BakerConfigureStakeIncreased _] _ -> return ()
+    e -> error $ "Got (" ++ show e ++ ") but wanted BakerConfigureStakeIncreased"
 
 -- starting from an empty blockstate with the dummy parameters, register a baker
 -- with enough stake, increase the limit and decrease the stake any amount (MUST
@@ -266,24 +288,25 @@ testing3'1 = do
   (res, _) <- getBlockStates >>=
               createAccountWith limitDelta >>=
               addBakerWith limit >>=
-              (\(BASuccess _, a) -> increaseLimit (limit * 2) a) >>=
+              (\(BCSuccess _ _, a) -> increaseLimit (limit * 2) a) >>=
               modifyStakeTo (limit - 1)
   case res of
-    BSUStakeUnderThreshold -> return ()
-    e -> error $ "Got (" ++ show e ++ ") but wanted BSUStakeUnderThreshold"
+    BCStakeUnderThreshold -> return ()
+    e -> error $ "Got (" ++ show e ++ ") but wanted BCStakeUnderThreshold"
 
 -- starting from an empty blockstate with the dummy parameters, register a baker
 -- with enough stake, increase the limit and increase the stake below limit
--- (MUST SUCCEED)
+-- (MUST FAIL)
+-- Note, this is a departure from the behaviour prior to P4, where this would succeed.
 testing3'2 = do
   (res, _) <- getBlockStates >>=
               createAccountWith limitDelta >>=
               addBakerWith limit >>=
-              (\(BASuccess _, a) -> increaseLimit (limit * 2) a) >>=
+              (\(BCSuccess _ _, a) -> increaseLimit (limit * 2) a) >>=
               modifyStakeTo (limit + 1 )
   case res of
-    BSUStakeIncreased _ -> return ()
-    e -> error $ "Got (" ++ show e ++ ") but wanted BakerStakeIncreased"
+    BCStakeUnderThreshold -> return ()
+    e -> error $ "Got (" ++ show e ++ ") but wanted BCStakeUnderThreshold"
 
 -- starting from an empty blockstate with the dummy parameters, register a baker
 -- with enough stake, increase the limit and increase the stake over limit (MUST
@@ -292,11 +315,11 @@ testing3'3 = do
   (res, _) <- getBlockStates >>=
               createAccountWith limitDelta >>=
               addBakerWith limit >>=
-              (\(BASuccess _, a) -> increaseLimit (limit * 2) a) >>=
+              (\(BCSuccess _ _, a) -> increaseLimit (limit * 2) a) >>=
               modifyStakeTo (limit * 2 + 1)
   case res of
-    BSUStakeIncreased _ -> return ()
-    e -> error $ "Got (" ++ show e ++ ") but wanted BakerStakeIncreased"
+    BCSuccess [BakerConfigureStakeIncreased _] _ -> return ()
+    e -> error $ "Got (" ++ show e ++ ") but wanted BakerConfigureStakeIncreased"
 
 tests :: Spec
 tests = do

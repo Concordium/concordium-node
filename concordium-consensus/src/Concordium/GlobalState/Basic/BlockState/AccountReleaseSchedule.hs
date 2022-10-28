@@ -32,7 +32,8 @@ module Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule (
   AccountReleaseScheduleHash(..),
   emptyAccountReleaseScheduleHash,
   addReleases,
-  unlockAmountsUntil
+  unlockAmountsUntil,
+  nextReleaseTimestamp,
   ) where
 
 import Control.Monad
@@ -167,7 +168,7 @@ instance Serialize AccountReleaseSchedule where
 -- λ: hashOfHashes h1 h2
 -- 5473ef105c995db8d8dfe75881d8a2018bb12eaeef32032569edfff6814f1b50
 
-newtype AccountReleaseScheduleHash = AccountReleaseScheduleHash Hash
+newtype AccountReleaseScheduleHash = AccountReleaseScheduleHash {theReleaseScheduleHash :: Hash}
     deriving (Serialize, Eq, Ord, Show)
 
 emptyAccountReleaseScheduleHash :: AccountReleaseScheduleHash
@@ -228,3 +229,7 @@ unlockAmountsUntil up ars =
         (minusAmount, fst <$> Map.lookupMin toKeep, ars & values .~ _values'
                                                         & pendingReleases .~ toKeep
                                                         & totalLockedUpBalance -~ minusAmount)
+
+-- |Get the timestamp at which the next scheduled release will occur (if any).
+nextReleaseTimestamp :: AccountReleaseSchedule -> Maybe Timestamp
+nextReleaseTimestamp = fmap fst . Map.lookupMin . _pendingReleases

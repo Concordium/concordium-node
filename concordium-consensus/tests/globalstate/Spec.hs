@@ -15,6 +15,7 @@ import qualified GlobalStateTests.BlockHash(tests)
 import qualified GlobalStateTests.Cache (tests)
 import qualified GlobalStateTests.AccountReleaseScheduleTest(tests)
 import qualified GlobalStateTests.Updates(tests)
+import qualified GlobalStateTests.EnduringDataFlags(tests)
 
 atLevel :: (Word -> IO ()) -> IO ()
 atLevel a = do
@@ -39,3 +40,4 @@ main = atLevel $ \lvl -> hspec $ do
   GlobalStateTests.AccountReleaseScheduleTest.tests
   GlobalStateTests.Updates.tests
   GlobalStateTests.AccountMap.tests lvl
+  GlobalStateTests.EnduringDataFlags.tests
