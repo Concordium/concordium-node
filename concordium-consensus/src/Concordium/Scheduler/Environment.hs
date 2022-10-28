@@ -1099,7 +1099,7 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
         let newReleases = case upd ^. auReleaseSchedule of
                 Nothing -> 0
                 Just l -> foldl' (\t l' -> t + foldl' (+) 0 (snd <$> fst l')) 0 l
-        return $ applyAmountDelta (upd ^. auAmount . non 0) netDeposit + newReleases
+        return $! applyAmountDelta (upd ^. auAmount . non 0) netDeposit + newReleases
       Nothing -> return netDeposit
 
   getCurrentAccountAvailableAmount (ai, acc) = do

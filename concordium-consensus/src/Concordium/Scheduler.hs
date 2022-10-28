@@ -1220,9 +1220,9 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                            return $ schedule ^. totalLockedUpBalance
                         -- Construct the return value.
                         let returnValue = WasmV1.byteStringToReturnValue $ S.runPut $ do
-                             S.put balance
-                             S.put stake
-                             S.put lockedAmount
+                             S.putWord64le (fromIntegral balance)
+                             S.putWord64le (fromIntegral stake)
+                             S.putWord64le (fromIntegral lockedAmount)
                         go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False
                              newBalance WasmV1.Success (Just returnValue))
                   WasmV1.QueryContractBalance {..}  -> do
