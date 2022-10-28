@@ -744,8 +744,8 @@ handleInitContract wtc initAmount modref initName param =
             -- with. Note that the deposit is already deducted at this point.
             senderAmount <- getCurrentAccountAvailableAmount senderAccount
 
-            -- Find setting for whether the number of logs and the size of return value should be limited.
-            let limitLogsAndRvs= Wasm.limitLogsAndReturnValues $ protocolVersion @(MPV m)
+            -- Check whether the number of logs and the size of return values are limited in the current protocol version.
+            let limitLogsAndRvs = Wasm.limitLogsAndReturnValues $ protocolVersion @(MPV m)
 
             unless (senderAmount >= initAmount) $! rejectTransaction (AmountTooLarge (AddressAccount (thSender meta)) initAmount)
 
@@ -1267,7 +1267,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
         artifact <- liftLocal $ getModuleArtifact (GSWasm.miModule moduleInterface)
         let supportsChainQueries = supportsChainQueryContracts $ protocolVersion @(MPV m)
         let maxParameterLen = Wasm.maxParameterLen $ protocolVersion @(MPV m)
-        -- Find setting for whether the number of logs and the size of return value should be limited.
+        -- Check whether the number of logs and the size of return values are limited in the current protocol version.
         let limitLogsAndRvs = Wasm.limitLogsAndReturnValues $ protocolVersion @(MPV m)
         go [] =<< runInterpreter (return . WasmV1.applyReceiveFun artifact cm receiveCtx receiveName useFallback parameter maxParameterLen limitLogsAndRvs transferAmount foreignModel supportsChainQueries)
    where  transferAccountSync :: AccountAddress -- ^The target account address.
@@ -1364,7 +1364,7 @@ handleContractUpdateV0 originAddr istance checkAndGetSender transferAmount recei
   model <- getRuntimeReprV0 (iiState istance)
   artifact <- liftLocal $ getModuleArtifact (GSWasm.miModule iface)
   let maxParameterLen = Wasm.maxParameterLen $ protocolVersion @(MPV m)
-  -- Find setting for whether the number of logs and the size of return value should be limited.
+  -- Check whether the number of logs and the size of return values are limited in the current protocol version.
   let limitLogsAndRvs = Wasm.limitLogsAndReturnValues $ protocolVersion @(MPV m)
   result <- runInterpreter (return . WasmV0.applyReceiveFun artifact cm receiveCtx receiveName parameter maxParameterLen limitLogsAndRvs transferAmount model)
              `rejectingWith'` wasmRejectToRejectReasonReceive cref receiveName parameter

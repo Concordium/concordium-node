@@ -321,7 +321,7 @@ data InvokeMethod =
 getInvokeMethod :: Get InvokeMethod
 getInvokeMethod = getWord8 >>= \case
   0 -> Transfer <$> get <*> get
-  1 -> Call <$> get <*> Wasm.getParameterUnchecked <*> get <*> get -- TODO: Ensure that wasm interpreter checks this.
+  1 -> Call <$> get <*> Wasm.getParameterUnchecked <*> get <*> get
   2 -> Upgrade <$> get
   3 -> QueryAccountBalance <$> get
   4 -> QueryContractBalance <$> get
