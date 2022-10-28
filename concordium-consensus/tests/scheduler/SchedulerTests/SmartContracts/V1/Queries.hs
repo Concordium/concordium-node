@@ -355,6 +355,61 @@ exchangeRatesTestCase =
         -- - 1 event for a succesful update to the contract.
         eventsLengthCheck 1 events
 
+allSourceFile :: FilePath
+allSourceFile = "./testdata/contracts/v1/queries-all.wasm"
+
+allTestCase :: TestCase PV4
+allTestCase =
+  TestCase { tcName = "Ensure all of the queries fail prior to PV5"
+           , tcParameters = (defaultParams @PV4) {tpInitialBlockState=initialBlockStateP4}
+           , tcTransactions =
+             [ ( TJSON { payload = DeployModule V1 allSourceFile
+                       , metadata = makeDummyHeader alesAccount 1 100000
+                       , keys = [(0,[(0, alesKP)])]
+                       }
+               , (SuccessWithSummary (deploymentCostCheck allSourceFile), emptySpec))
+             , ( TJSON { payload = InitContract 0 V1 allSourceFile "init_contract" ""
+                       , metadata = makeDummyHeader alesAccount 2 100000
+                       , keys = [(0,[(0, alesKP)])]
+                       }
+               , (SuccessWithSummary (initializationCostCheck allSourceFile "init_contract"), emptySpec))
+
+             , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "contract.account_balance" ""
+                       , metadata = makeDummyHeader alesAccount 3 100000
+                       , keys = [(0,[(0, alesKP)])]
+                       }
+               , (SuccessWithSummary (rejectWithReasonCheck rejectReasonCheck), emptySpec))
+
+               , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "contract.contract_balance" ""
+                       , metadata = makeDummyHeader alesAccount 4 100000
+                       , keys = [(0,[(0, alesKP)])]
+                       }
+               , (SuccessWithSummary (rejectWithReasonCheck rejectReasonCheck), emptySpec))
+
+               , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "contract.exchange_rates" ""
+                       , metadata = makeDummyHeader alesAccount 5 100000
+                       , keys = [(0,[(0, alesKP)])]
+                       }
+               , (SuccessWithSummary (rejectWithReasonCheck rejectReasonCheck), emptySpec))
+             ]
+           }
+  where
+    eventsCheck :: [Types.Event] -> Expectation
+    eventsCheck events = do
+        -- Check the number of events:
+        -- - 1 event for a succesful update to the contract.
+        eventsLengthCheck 1 events
+
+    initialBlockStateP4 :: BlockState PV4
+    initialBlockStateP4 = blockStateWithAlesAccount
+      100000000
+      (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount thomasBalance) Acc.emptyAccounts)
+
+    rejectReasonCheck :: Types.RejectReason -> Expectation
+    rejectReasonCheck reason =
+      case reason of
+          Types.RuntimeFailure -> return ()
+          other -> assertFailure $ "Unexpected reject reason " ++ show other
 
 -- This only checks that the cost of initialization is correct.
 -- If the state was not set up correctly the latter tests in the suite will fail.
@@ -405,9 +460,15 @@ eventsLengthCheck :: Int -> [Types.Event] -> Expectation
 eventsLengthCheck expected events = unless (length events == expected) $
   assertFailure $ "Unexpected number of events produced: " ++ show (length events) ++ " where the expected was " ++ show expected
 
+-- | Check the transaction rejected, taking a function to check the reason.
+rejectWithReasonCheck :: (Types.RejectReason -> Expectation) -> TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
+rejectWithReasonCheck checkReason _ summary = case Types.tsResult summary of
+  Types.TxReject {..} -> checkReason vrRejectReason
+  Types.TxSuccess {} -> assertFailure "Transaction succeeded unexpectedly"
 
 tests :: Spec
-tests = describe "V1: Queries" $ mkSpecs [
+tests = describe "V1: Queries" $ do
+  mkSpecs [
     accountBalanceTestCase,
     accountBalanceInvokerTestCase,
     accountBalanceTransferTestCase,
@@ -415,5 +476,5 @@ tests = describe "V1: Queries" $ mkSpecs [
     contractBalanceTestCase,
     contractBalanceTransferTestCase,
     contractBalanceMissingContractTestCase,
-    exchangeRatesTestCase
-  ]
+    exchangeRatesTestCase]
+  mkSpecs [allTestCase]
