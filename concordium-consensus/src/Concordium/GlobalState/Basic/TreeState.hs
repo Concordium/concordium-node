@@ -146,10 +146,10 @@ deriving instance (MonadProtocolVersion m) => MonadProtocolVersion (PureTreeStat
 
 deriving instance (Monad m, MonadState (SkovData pv bs) m) => MonadState (SkovData pv bs) (PureTreeStateMonad bs m)
 
-instance (bs ~ BlockState m) => GlobalStateTypes (PureTreeStateMonad bs m) where
+instance (IsProtocolVersion pv, pv ~ MPV m, bs ~ BlockState m) => GlobalStateTypes (PureTreeStateMonad bs m) where
     type BlockPointerType (PureTreeStateMonad bs m) = BasicBlockPointer (MPV m) bs
 
-instance (bs ~ BlockState m, BlockStateTypes m, Monad m, MonadState (SkovData pv bs) m, IsProtocolVersion pv) => BlockPointerMonad (PureTreeStateMonad bs m) where
+instance (bs ~ BlockState m, BlockStateTypes m, Monad m, MonadState (SkovData pv bs) m, IsProtocolVersion pv, pv ~ MPV m) => BlockPointerMonad (PureTreeStateMonad bs m) where
     blockState = return . _bpState
     bpParent = return . runIdentity . _bpParent
     bpLastFinalized = return . runIdentity . _bpLastFinalized
