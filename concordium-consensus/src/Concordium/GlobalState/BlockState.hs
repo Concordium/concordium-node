@@ -406,8 +406,8 @@ instance HashableTo H.Hash TransactionSummaryV1 where
       S.put (tsCost summary) <>
       S.put (tsEnergyCost summary) <>
       S.put (tsType summary) <>
-      encodeValidResult (tsResult summary) <>
-      S.put (tsIndex summary)
+      S.put (tsIndex summary) <>
+      encodeValidResult (tsResult summary)
     where
       -- |Encode the 'ValidResult' omitting the exact 'RejectReason' if the
       -- transaction failed. Otherwise we encode the resulting events in the
