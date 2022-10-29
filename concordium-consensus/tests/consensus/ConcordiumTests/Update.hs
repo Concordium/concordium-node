@@ -31,6 +31,7 @@ import Concordium.GlobalState
 import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.BakerInfo
 import Concordium.Types.IdentityProviders
+import Concordium.Types.Transactions
 import Concordium.GlobalState.Block
 import qualified Concordium.GlobalState.BlockPointer as BS
 import Concordium.GlobalState.Parameters
@@ -179,7 +180,7 @@ stubStateHash :: StateHash
 stubStateHash = StateHashV0 (Hash (FBS.pack (Prelude.replicate 32 (fromIntegral (3 :: Word)))))
 
 stubTransactionHash :: TransactionOutcomesHash
-stubTransactionHash = TransactionOutcomesHashV0 (Hash (FBS.pack (Prelude.replicate 32 (fromIntegral (3 :: Word)))))
+stubTransactionHash = TransactionOutcomesHash (Hash (FBS.pack (Prelude.replicate 32 (fromIntegral (3 :: Word)))))
 
 -- * Dirtying functions to dirty blocks, allowing testing of each individual reject condition in update
 
