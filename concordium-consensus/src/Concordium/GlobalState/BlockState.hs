@@ -416,9 +416,18 @@ instance HashableTo H.Hash TransactionSummaryV1 where
       encodeValidResult (TxSuccess events) = S.putWord8 0 <> putListOf putEvent events
       -- We omit the exact 'RejectReason'.
       encodeValidResult (TxReject _) = S.putWord8 1
+      -- To have a consistent length whether there is a sender or not,
+      -- then we begin the encoding with a tag, '0' if there are
+      -- no sender or '1' if there is a sender present.
+      -- The tag is then followed by the actual address bytes which is
+      -- always exactly 32 bytes. In case there are no sender
+      -- we use the account consisting of 32 zero bytes, but this is ok
+      -- as we have the above mentioned tag prepended.
       encodeSender :: S.Putter (Maybe AccountAddress)
-      encodeSender Nothing = S.putByteString $! BS.replicate 32 0
-      encodeSender (Just sender) = S.put sender
+      encodeSender Nothing = S.putByteString $! BS.replicate 33 0
+      encodeSender (Just sender) = do
+        S.putWord8 1
+        S.put sender
 
 
 
