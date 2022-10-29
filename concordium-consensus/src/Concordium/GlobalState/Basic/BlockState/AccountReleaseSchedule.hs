@@ -82,13 +82,13 @@ toAccountReleaseSummary = case accountVersion @av of
 
 instance (IsAccountVersion av, AccountStructureVersionFor av ~ 'AccountStructureV0) => HashableTo ARSV0.AccountReleaseScheduleHashV0 (AccountReleaseSchedule av) where
     getHash = case accountVersion @av of
-        SAccountV0 -> getHash
-        SAccountV1 -> getHash
+        SAccountV0 -> getHash . theAccountReleaseSchedule
+        SAccountV1 -> getHash . theAccountReleaseSchedule
     {-# INLINE getHash #-}
 
 instance (IsAccountVersion av, AccountStructureVersionFor av ~ 'AccountStructureV1) => HashableTo ARSV1.AccountReleaseScheduleHashV1 (AccountReleaseSchedule av) where
     getHash = case accountVersion @av of
-        SAccountV2 -> getHash
+        SAccountV2 -> getHash . theAccountReleaseSchedule
     {-# INLINE getHash #-}
 
 -- | Create an empty account release schedule

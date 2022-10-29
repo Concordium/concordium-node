@@ -4,6 +4,7 @@
 
 module Concordium.GlobalState.Persistent.BlockState.AccountReleaseScheduleV1 where
 
+import Data.List (sortOn)
 import Control.Monad
 import Control.Monad.Trans
 import Data.Foldable
@@ -62,7 +63,7 @@ data ReleaseScheduleEntry = ReleaseScheduleEntry
       rseReleasesRef :: !(LazyBufferedRef Releases),
       -- |Index of the next release.
       rseNextReleaseIndex :: !Word64
-    }
+    } deriving(Show)
 
 instance (MonadBlobStore m) => BlobStorable m ReleaseScheduleEntry where
     storeUpdate ReleaseScheduleEntry{..} = do
@@ -155,7 +156,12 @@ addReleases _ _ = error "addReleases: Empty list of timestamps and amounts."
 unlockAmountsUntil :: MonadBlobStore m => Timestamp -> AccountReleaseSchedule -> m (Amount, Maybe Timestamp, AccountReleaseSchedule)
 unlockAmountsUntil ts ars = do
     (!relAmt, newRelsList) <- Vector.foldM' updateEntry (0, []) elapsedReleases
-    let !newRels = Vector.fromList newRelsList <> staticReleases
+    let mergeOrdered [] ys = ys
+        mergeOrdered xs [] = xs
+        mergeOrdered xxs@(x:xs) yys@(y:ys)
+            | rseNextTimestamp x <= rseNextTimestamp y = x:mergeOrdered xs yys
+            | otherwise = y:mergeOrdered xxs ys
+    let !newRels = Vector.fromList (mergeOrdered newRelsList (Vector.toList staticReleases))
     let !nextTS = rseNextTimestamp . fst <$> Vector.uncons newRels
     return (relAmt, nextTS, AccountReleaseSchedule newRels)
   where
@@ -163,8 +169,8 @@ unlockAmountsUntil ts ars = do
     updateEntry (!relAmtAcc, !upds) ReleaseScheduleEntry{..} = do
         rels@Releases{..} <- refLoad rseReleasesRef
         let insert [] e = [e]
-            insert (h : t) e
-                | rseSortKey e < rseSortKey h = e : h : t
+            insert v@(h : t) e
+                | rseSortKey e < rseSortKey h = e : v
                 | otherwise = h : insert t e
             go !n !accum
                 | fromIntegral n < Vector.length relReleases =
@@ -241,7 +247,7 @@ getAccountReleaseSchedule ::
     m TARSV1.AccountReleaseSchedule
 getAccountReleaseSchedule arsTotalLockedAmount AccountReleaseSchedule{..} = do
     releases <- foldrM processEntry [] arsReleases
-    return $! TARSV1.AccountReleaseSchedule{arsReleases = releases, ..}
+    return $! TARSV1.AccountReleaseSchedule{arsReleases = sortOn TARSV1.rseSortKey releases, ..}
   where
     processEntry ReleaseScheduleEntry{..} entries = do
         Releases{..} <- refLoad rseReleasesRef

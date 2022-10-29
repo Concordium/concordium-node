@@ -195,12 +195,16 @@ checkCorrectAccountReleaseSchedule (blockStateBasic, blockStatePersistent) (oldB
   let oldReleaseSchedule = oldBasicAccount ^. accountReleaseSchedule . to (TARSV1.arsReleases . theAccountReleaseSchedule)
   let newReleaseSchedule = newBasicAccount ^. accountReleaseSchedule . to (TARSV1.arsReleases . theAccountReleaseSchedule)
   let testEntry TARSV1.ReleaseScheduleEntry{..} = toList (TARSV1.relReleases rseReleases) == rel
-  let comp (x:xs) (y:ys)
-        | x == y = comp xs ys
-        | otherwise = testEntry y && comp (x:xs) ys
-      comp [] [y] = testEntry y
-      comp _ _ = False
-  liftIO $ assertBool "New release schedule == old schedule + new releases" (comp oldReleaseSchedule newReleaseSchedule)
+  -- Ensure that the new release schedule contains a new release entry which contains exactly the releases specified.
+  let comp b (x:xs) (y:ys)
+        | x == y = comp b xs ys
+        | otherwise = do
+            assertBool "Test release" $ testEntry y
+            comp True (x:xs) ys
+      comp False [] [y] = assertBool "Release not equal" $ testEntry y
+      comp b [] [] = assertBool "New release not found" $ b
+      comp _ left right = assertFailure $ "Lists of unexpected length: " ++ show oldReleaseSchedule ++ ", " ++ show newReleaseSchedule ++ ", " ++ show rel ++ ", " ++ show left ++ ", " ++ show right
+  liftIO (comp False oldReleaseSchedule newReleaseSchedule)
 
 -- | Check that the implementations have the same data and that the difference between the old state and the new state after unlocking amounts at the given timestamp is the amount given in the last argument
 -- also check that all the timestamps for this account are over the unlocked timestamps.

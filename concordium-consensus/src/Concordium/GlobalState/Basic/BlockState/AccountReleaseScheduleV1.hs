@@ -139,7 +139,7 @@ insertEntry entry = ins
   where
     ins [] = [entry]
     ins (h : t)
-        | rseSortKey h < rseSortKey entry = entry : h : t
+        | rseSortKey entry < rseSortKey h = entry : h : t
         | otherwise = h : ins t
 
 -- | Insert a new schedule in the structure.
