@@ -2,10 +2,16 @@
 
 ## Unreleased changes
 
-- Add support for protocol version 5. This adds the following features
-  - support for smart contract upgradability
-  - a new representation of accounts that is better optimised for common operations
+- Add support for protocol version 5. This adds the following features:
+  - Support for smart contract upgradability.
+  - Query the current exchange rates, account balances and contract balances from a smart contract.
+  - Relax restrictions on smart contracts
+    - Parameter size limit: 1kiB -> 65kiB
+    - Return value size limit: 16kiB -> no limit (apart from energy)
+    - Number of logs per invocation: 64 -> no limit (apart from energy)
+  - A new representation of accounts that is better optimised for common operations.
 - More efficient indexing of accounts with scheduled releases.
+- Fix an issue where the catch-up downloader would fail at a protocol update.
 
 ## 4.5.0
 

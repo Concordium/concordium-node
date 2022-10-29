@@ -1840,8 +1840,14 @@ doCreateAccount pbs cryptoParams acctAddr credential = do
 doModifyAccount :: forall m pv. (SupportsPersistentState pv m) => PersistentBlockState pv -> AccountUpdate -> m (PersistentBlockState pv)
 doModifyAccount pbs aUpd@AccountUpdate{..} = do
         bsp <- loadPBS pbs
-        -- Do the update to the account
-        let doUpd acc = do
+        -- Do the update to the account. The first component of the return value is a @Just@ when
+        -- the release schedule for the account is updated. This is a triple of: the reference
+        -- to the account (used by the release schedule index), the former first release timestamp
+        -- (or @Nothing@ if there was none), and the new first release timestamp (or @Nothing@ if
+        -- there is none). These are used to update the release schedule index as necessary.
+        let doUpd :: PersistentAccount (AccountVersionFor pv)
+                -> m (Maybe (RSAccountRef pv, Maybe Timestamp, Maybe Timestamp), PersistentAccount (AccountVersionFor pv))
+            doUpd acc = do
                 acc' <- updateAccount aUpd acc
                 releaseChange <- forM _auReleaseSchedule $ \_ -> do
                     acctRef <- case protocolVersion @pv of
@@ -2342,10 +2348,10 @@ doRotateCurrentCapitalDistribution pbs = do
         BlockRewardDetailsV1 hpr -> BlockRewardDetailsV1 <$> rotateCapitalDistribution hpr
     storePBS pbs bsp{bspRewardDetails = newRewardDetails}
 
-doGetEnergyRate :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m EnergyRate
-doGetEnergyRate pbs = do
+doGetExchangeRates :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m ExchangeRates
+doGetExchangeRates pbs = do
     bsp <- loadPBS pbs
-    lookupEnergyRate (bspUpdates bsp)
+    lookupExchangeRates (bspUpdates bsp)
 
 doGetChainParameters :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m (ChainParameters pv)
 doGetChainParameters pbs = do
@@ -2830,7 +2836,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateQuery (P
     getIdentityProvider = doGetIdentityProvider . hpbsPointers
     getAnonymityRevokers =  doGetAnonymityRevokers . hpbsPointers
     getUpdateKeysCollection = doGetUpdateKeyCollection . hpbsPointers
-    getEnergyRate = doGetEnergyRate . hpbsPointers
+    getExchangeRates = doGetExchangeRates . hpbsPointers
     getPaydayEpoch = doGetPaydayEpoch . hpbsPointers
     getPoolStatus = doGetPoolStatus . hpbsPointers
 
@@ -2941,7 +2947,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperatio
     bsoClearProtocolUpdate = doClearProtocolUpdate
     bsoSetNextCapitalDistribution = doSetNextCapitalDistribution
     bsoRotateCurrentCapitalDistribution = doRotateCurrentCapitalDistribution
-    bsoGetEnergyRate = doGetEnergyRate
+    bsoGetExchangeRates = doGetExchangeRates
     bsoGetChainParameters = doGetChainParameters
     bsoGetEpochBlocksBaked = doGetEpochBlocksBaked
     bsoNotifyBlockBaked = doNotifyBlockBaked

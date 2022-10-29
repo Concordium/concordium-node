@@ -1016,7 +1016,10 @@ updateBakerPoolInfo upd = updateEnduringData $ \ed -> case paedStake ed of
         let newInfo = oldInfo & bieBakerPoolInfo %~ applyBakerPoolInfoUpdate upd
         newInfoRef <- refMake $! newInfo
         return $! ed{paedStake = baker{paseBakerInfo = newInfoRef}}
-    _ -> error "updateBakerPoolInfo invariant violation: account is not a baker"
+    PersistentAccountStakeEnduringDelegator{} ->
+        error "updateBakerPoolInfo invariant violation: account is not a baker"
+    PersistentAccountStakeEnduringNone ->
+        error "updateBakerPoolInfo invariant violation: account is not a baker"
 
 
 -- |Set the baker keys on a baker account.
@@ -1038,7 +1041,10 @@ setBakerKeys upd = updateStake $ \case
                            )
         newInfoRef <- refMake $! newInfo
         return $! baker{paseBakerInfo = newInfoRef}
-    _ -> error "setBakerKeys invariant violation: account is not a baker"
+    PersistentAccountStakeEnduringDelegator{} ->
+        error "setBakerKeys invariant violation: account is not a baker"
+    PersistentAccountStakeEnduringNone ->
+        error "setBakerKeys invariant violation: account is not a baker"
 
 -- |Set the stake of a baker or delegator account.
 -- This MUST only be called with an account that is either a baker or delegator.
@@ -1064,7 +1070,7 @@ setRestakeEarnings newRestake =
                 baker{paseBakerRestakeEarnings = newRestake}
             del@PersistentAccountStakeEnduringDelegator{} ->
                 del{paseDelegatorRestakeEarnings = newRestake}
-            _ -> error "setRestakeEarnings invariant violation: account is not a baker or delegator"
+            PersistentAccountStakeEnduringNone -> error "setRestakeEarnings invariant violation: account is not a baker or delegator"
 
 -- |Set the pending change on baker or delegator account.
 -- This MUST only be called with an account that is either a baker or delegator.
@@ -1080,7 +1086,7 @@ setStakePendingChange newPC =
                 baker{paseBakerPendingChange = newPC'}
             del@PersistentAccountStakeEnduringDelegator{} ->
                 del{paseDelegatorPendingChange = newPC'}
-            _ -> error "setStakePendingChange invariant violation: account is not a baker or delegator"
+            PersistentAccountStakeEnduringNone -> error "setStakePendingChange invariant violation: account is not a baker or delegator"
   where
     newPC' = pendingChangeEffectiveTimestamp <$> newPC
 
@@ -1096,7 +1102,10 @@ setDelegationTarget newTarget =
         return . \case
             del@PersistentAccountStakeEnduringDelegator{} ->
                 del{paseDelegatorTarget = newTarget}
-            _ -> error "setDelegationTarget invariant violation: account is not a delegator"
+            PersistentAccountStakeEnduringBaker{} ->
+                error "setDelegationTarget invariant violation: account is not a delegator"
+            PersistentAccountStakeEnduringNone ->
+                error "setDelegationTarget invariant violation: account is not a delegator"
 
 -- |Remove any staking on an account.
 removeStaking ::
@@ -1120,7 +1129,10 @@ setCommissionRates rates = updateStake $ \case
         let newInfo = oldInfo & bieBakerPoolInfo . poolCommissionRates .~ rates
         newInfoRef <- refMake $! newInfo
         return $! baker{paseBakerInfo = newInfoRef}
-    _ -> error "setCommissionRates invariant violation: account is not a baker"
+    PersistentAccountStakeEnduringDelegator{} ->
+        error "setCommissionRates invariant violation: account is not a baker"
+    PersistentAccountStakeEnduringNone ->
+        error "setCommissionRates invariant violation: account is not a baker"
 
 -- |Unlock scheduled releases on an account up to and including the given timestamp.
 -- This returns the next timestamp at which a release is scheduled for the account, if any,

@@ -515,9 +515,9 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
 
     -- |Get the block's UpdateKeysCollection
     getUpdateKeysCollection :: BlockState m -> m (UpdateKeysCollection (ChainParametersVersionFor (MPV m)))
-    
-    -- |Get the current energy to microCCD exchange rate
-    getEnergyRate :: BlockState m -> m EnergyRate
+
+    -- |Get the current exchange rates, which are the Euro per NRG, micro CCD per Euro and the derived energy to microCCD rate.
+    getExchangeRates :: BlockState m -> m ExchangeRates
 
     -- |Get the epoch time of the next scheduled payday.
     getPaydayEpoch :: (SupportsDelegation (MPV m)) => BlockState m -> m Epoch
@@ -1164,8 +1164,8 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- This does not affect the next sequence number for protocol updates.
   bsoClearProtocolUpdate :: UpdatableBlockState m -> m (UpdatableBlockState m)
 
-  -- |Get the current energy rate.
-  bsoGetEnergyRate :: UpdatableBlockState m -> m EnergyRate
+  -- |Get the current exchange rates, which are the Euro per NRG, micro CCD per Euro and the energy rate.
+  bsoGetExchangeRates :: UpdatableBlockState m -> m ExchangeRates
 
   -- |Get the current chain parameters.
   bsoGetChainParameters :: UpdatableBlockState m -> m (ChainParameters (MPV m))
@@ -1295,7 +1295,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   getIdentityProvider s = lift . getIdentityProvider s
   getAnonymityRevokers s = lift . getAnonymityRevokers s
   getUpdateKeysCollection s = lift $ getUpdateKeysCollection s
-  getEnergyRate s = lift $ getEnergyRate s
+  getExchangeRates s = lift $ getExchangeRates s
   getPaydayEpoch = lift . getPaydayEpoch
   getPoolStatus s = lift . getPoolStatus s
   {-# INLINE getModule #-}
@@ -1327,7 +1327,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   {-# INLINE getIdentityProvider #-}
   {-# INLINE getAnonymityRevokers #-}
   {-# INLINE getUpdateKeysCollection #-}
-  {-# INLINE getEnergyRate #-}
+  {-# INLINE getExchangeRates #-}
 
 instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (MGSTrans t m) where
   getAccountCanonicalAddress = lift . getAccountCanonicalAddress
@@ -1436,7 +1436,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoEnqueueUpdate s tt payload = lift $ bsoEnqueueUpdate s tt payload
   bsoOverwriteElectionDifficulty s = lift . bsoOverwriteElectionDifficulty s
   bsoClearProtocolUpdate = lift . bsoClearProtocolUpdate
-  bsoGetEnergyRate = lift . bsoGetEnergyRate
+  bsoGetExchangeRates = lift . bsoGetExchangeRates
   bsoGetChainParameters = lift . bsoGetChainParameters
   bsoGetEpochBlocksBaked = lift . bsoGetEpochBlocksBaked
   bsoNotifyBlockBaked s = lift . bsoNotifyBlockBaked s
@@ -1485,7 +1485,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoEnqueueUpdate #-}
   {-# INLINE bsoOverwriteElectionDifficulty #-}
   {-# INLINE bsoClearProtocolUpdate #-}
-  {-# INLINE bsoGetEnergyRate #-}
+  {-# INLINE bsoGetExchangeRates #-}
   {-# INLINE bsoGetChainParameters #-}
   {-# INLINE bsoGetEpochBlocksBaked #-}
   {-# INLINE bsoNotifyBlockBaked #-}

@@ -51,23 +51,24 @@ class ReleaseScheduleOperations m r where
 -- addresses to release timestamps.
 data LegacyReleaseSchedule = LegacyReleaseSchedule
     { -- |The first timestamp at which a release is scheduled (or the maximum possible timestamp if
-      -- no releases are scheduled).
-      rsFirstTimestamp :: !Timestamp,
+      -- no releases are scheduled). This MUST NOT be used to infer that the release schedule is
+      -- empty, since there can be a release at the maximum timestamp.
+      lrsFirstTimestamp :: !Timestamp,
       -- |A map recording the first release time for each account with a pending release.
       -- An account should occur at most once in the map.
-      rsMap :: !(Map.Map Timestamp (Set.Set AccountAddress)),
+      lrsMap :: !(Map.Map Timestamp (Set.Set AccountAddress)),
       -- |The number of accounts with entries in the release schedule map.
-      rsEntryCount :: !Word64
+      lrsEntryCount :: !Word64
     }
 
 instance Serialize LegacyReleaseSchedule where
     put LegacyReleaseSchedule{..} = do
-        putWord64be rsEntryCount
-        forM_ (Map.toAscList rsMap) $ \(ts, accs) ->
+        putWord64be lrsEntryCount
+        forM_ (Map.toAscList lrsMap) $ \(ts, accs) ->
             forM_ accs $ \acc -> put acc >> put ts
     get = do
-        rsEntryCount <- getWord64be
-        (rsMap, rsFirstTimestamp) <- go rsEntryCount Map.empty (Timestamp maxBound)
+        lrsEntryCount <- getWord64be
+        (lrsMap, lrsFirstTimestamp) <- go lrsEntryCount Map.empty (Timestamp maxBound)
         return LegacyReleaseSchedule{..}
       where
         go 0 !m !fts = return (m, fts)
@@ -88,9 +89,9 @@ instance (MonadBlobStore m) => ReleaseScheduleOperations m (BufferedRef LegacyRe
         LegacyReleaseSchedule{..} <- refLoad br
         refMake $!
             LegacyReleaseSchedule
-                { rsFirstTimestamp = min rsFirstTimestamp ts,
-                  rsMap = Map.alter addAcc ts rsMap,
-                  rsEntryCount = 1 + rsEntryCount
+                { lrsFirstTimestamp = min lrsFirstTimestamp ts,
+                  lrsMap = Map.alter addAcc ts lrsMap,
+                  lrsEntryCount = 1 + lrsEntryCount
                 }
       where
         addAcc Nothing = Just $! Set.singleton addr
@@ -98,13 +99,13 @@ instance (MonadBlobStore m) => ReleaseScheduleOperations m (BufferedRef LegacyRe
 
     updateAccountRelease oldts ts addr br = do
         LegacyReleaseSchedule{..} <- refLoad br
-        let remMap = Map.alter remAcc oldts rsMap
+        let remMap = Map.alter remAcc oldts lrsMap
         refMake $!
             LegacyReleaseSchedule
                 { -- Since the new timestamp must be less than or equal to the old, this is correct.
-                  rsFirstTimestamp = min rsFirstTimestamp ts,
-                  rsMap = Map.alter addAcc ts remMap,
-                  rsEntryCount = rsEntryCount
+                  lrsFirstTimestamp = min lrsFirstTimestamp ts,
+                  lrsMap = Map.alter addAcc ts remMap,
+                  lrsEntryCount = lrsEntryCount
                 }
       where
         remAcc Nothing = error "updateAccountRelease: no entry at expected release time"
@@ -116,22 +117,22 @@ instance (MonadBlobStore m) => ReleaseScheduleOperations m (BufferedRef LegacyRe
 
     processReleasesUntil ts br = do
         rs@LegacyReleaseSchedule{..} <- refLoad br
-        if ts < rsFirstTimestamp
+        if ts < lrsFirstTimestamp
             then return ([], br)
             else do
                 let (newRS, accs) = go rs []
                 (accs,) <$> refMake newRS
       where
         go rs@LegacyReleaseSchedule{..} accum
-            | Map.null rsMap = (LegacyReleaseSchedule (Timestamp maxBound) Map.empty 0, accum)
+            | Map.null lrsMap = (LegacyReleaseSchedule (Timestamp maxBound) Map.empty 0, accum)
             | minTS <= ts =
                 go
-                    (rs{rsMap = newMap, rsEntryCount = rsEntryCount - fromIntegral (Set.size accs)})
+                    (rs{lrsMap = newMap, lrsEntryCount = lrsEntryCount - fromIntegral (Set.size accs)})
                     (accum ++ Set.toList accs)
-            | otherwise = (rs{rsFirstTimestamp = minTS}, accum)
+            | otherwise = (rs{lrsFirstTimestamp = minTS}, accum)
           where
             -- Pattern match lazily in case the map is empty.
-            ~((minTS, accs), newMap) = Map.deleteFindMin rsMap
+            ~((minTS, accs), newMap) = Map.deleteFindMin lrsMap
 
 -- |A set of accounts represented by 'AccountIndex'.
 newtype AccountSet = AccountSet {theAccountSet :: Set.Set AccountIndex}
@@ -144,41 +145,46 @@ instance Applicative m => Cacheable m AccountSet
 -- to sets of accounts.
 data NewReleaseSchedule = NewReleaseSchedule
     { -- |The first timestamp at which a release is scheduled (or the maximum possible timestamp if
-      -- no releases are scheduled).
-      rs5FirstTimestamp :: !Timestamp,
-      -- |A map recording the first release time for each account with a pending release.
-      -- An account should occur at most once in the map.
-      rs5Map :: !(Trie.TrieN BufferedFix Timestamp AccountSet)
+      -- no releases are scheduled). This MUST NOT be used to infer that the release schedule is
+      -- empty, since there can be a release at the maximum timestamp.
+      nrsFirstTimestamp :: !Timestamp,
+      -- |A map recording the first release time for each account with a pending
+      -- release. An account should occur at most once in the map. We make
+      -- crucial use of the lexicographic ordering on the serialization of
+      -- Timestamp which is the natural ordering due to big-endian
+      -- serialization. This allows us to also use the Trie to find the release
+      -- with minimal timestamp.
+      nrsMap :: !(Trie.TrieN BufferedFix Timestamp AccountSet)
     }
 
 instance MonadBlobStore m => BlobStorable m NewReleaseSchedule where
     storeUpdate NewReleaseSchedule{..} = do
-        (pmap, newMap) <- storeUpdate rs5Map
+        (pmap, newMap) <- storeUpdate nrsMap
         let !p = do
-                put rs5FirstTimestamp
+                put nrsFirstTimestamp
                 pmap
-        let !rs = NewReleaseSchedule{rs5Map = newMap, ..}
+        let !rs = NewReleaseSchedule{nrsMap = newMap, ..}
         return (p, rs)
     load = do
-        rs5FirstTimestamp <- get
+        nrsFirstTimestamp <- get
         mmap <- load
         return $! do
-            rs5Map <- mmap
+            nrsMap <- mmap
             return $! NewReleaseSchedule{..}
 
 instance (MonadBlobStore m) => Cacheable m NewReleaseSchedule where
     cache rs = do
-        newMap <- cache (rs5Map rs)
-        return $! rs{rs5Map = newMap}
+        newMap <- cache (nrsMap rs)
+        return $! rs{nrsMap = newMap}
 
 instance (MonadBlobStore m) => ReleaseScheduleOperations m NewReleaseSchedule where
     type AccountRef NewReleaseSchedule = AccountIndex
 
     addAccountRelease ts ai rs = do
-        (_, rs5Map) <- Trie.adjust addAcc ts (rs5Map rs)
+        (_, nrsMap) <- Trie.adjust addAcc ts (nrsMap rs)
         return $!
             NewReleaseSchedule
-                { rs5FirstTimestamp = min ts (rs5FirstTimestamp rs),
+                { nrsFirstTimestamp = min ts (nrsFirstTimestamp rs),
                   ..
                 }
       where
@@ -186,11 +192,11 @@ instance (MonadBlobStore m) => ReleaseScheduleOperations m NewReleaseSchedule wh
         addAcc (Just (AccountSet accs)) = return $!! ((), Trie.Insert (AccountSet (Set.insert ai accs)))
 
     updateAccountRelease oldts newts ai rs = do
-        (_, rsRem) <- Trie.adjust remAcc oldts (rs5Map rs)
-        (_, rs5Map) <- Trie.adjust addAcc newts rsRem
+        (_, rsRem) <- Trie.adjust remAcc oldts (nrsMap rs)
+        (_, nrsMap) <- Trie.adjust addAcc newts rsRem
         return $!
             NewReleaseSchedule
-                { rs5FirstTimestamp = min newts (rs5FirstTimestamp rs),
+                { nrsFirstTimestamp = min newts (nrsFirstTimestamp rs),
                   ..
                 }
       where
@@ -203,9 +209,9 @@ instance (MonadBlobStore m) => ReleaseScheduleOperations m NewReleaseSchedule wh
         addAcc (Just (AccountSet accs)) = return $!! ((), Trie.Insert (AccountSet (Set.insert ai accs)))
 
     processReleasesUntil ts rs = do
-        if ts < rs5FirstTimestamp rs
+        if ts < nrsFirstTimestamp rs
             then return ([], rs)
-            else go [] (rs5Map rs)
+            else go [] (nrsMap rs)
       where
         go accum m =
             Trie.findMin m >>= \case
@@ -287,9 +293,9 @@ emptyReleaseSchedule = case protocolVersion @pv of
         rsRef <-
             refMake $!
                 LegacyReleaseSchedule
-                    { rsFirstTimestamp = Timestamp maxBound,
-                      rsMap = Map.empty,
-                      rsEntryCount = 0
+                    { lrsFirstTimestamp = Timestamp maxBound,
+                      lrsMap = Map.empty,
+                      lrsEntryCount = 0
                     }
         return $! ReleaseScheduleP0 rsRef
     rsP1 :: (RSAccountRef pv ~ AccountIndex) => m (ReleaseSchedule pv)
@@ -297,8 +303,8 @@ emptyReleaseSchedule = case protocolVersion @pv of
         return $!
             ReleaseScheduleP5
                 NewReleaseSchedule
-                    { rs5FirstTimestamp = Timestamp maxBound,
-                      rs5Map = Trie.empty
+                    { nrsFirstTimestamp = Timestamp maxBound,
+                      nrsMap = Trie.empty
                     }
 
 -- |Migration information for a release schedule.
@@ -341,23 +347,23 @@ migrateReleaseSchedule RSMLegacyToLegacy (ReleaseScheduleP0 rs) =
     ReleaseScheduleP0 <$!> migrateReference return rs
 migrateReleaseSchedule (RSMLegacyToNew resolveAcc) (ReleaseScheduleP0 rsRef) = do
     rs <- lift $ refLoad rsRef
-    rsMapList <- lift $ forM (Map.toList (rsMap rs)) $ \(ts, addrs) -> do
+    rsMapList <- lift $ forM (Map.toList (lrsMap rs)) $ \(ts, addrs) -> do
         aiList <- mapM resolveAcc (Set.toList addrs)
         return (ts, AccountSet (Set.fromList aiList))
     newMap <- Trie.fromList rsMapList
     return $!
         ReleaseScheduleP5
             NewReleaseSchedule
-                { rs5FirstTimestamp = rsFirstTimestamp rs,
-                  rs5Map = newMap
+                { nrsFirstTimestamp = lrsFirstTimestamp rs,
+                  nrsMap = newMap
                 }
 migrateReleaseSchedule RSMNewToNew (ReleaseScheduleP5 rs) = do
-    newMap <- Trie.migrateTrieN True return (rs5Map rs)
+    newMap <- Trie.migrateTrieN True return (nrsMap rs)
     return $!
         ReleaseScheduleP5
             NewReleaseSchedule
-                { rs5FirstTimestamp = rs5FirstTimestamp rs,
-                  rs5Map = newMap
+                { nrsFirstTimestamp = nrsFirstTimestamp rs,
+                  nrsMap = newMap
                 }
 
 -- |Make a persistent release schedule from an in-memory release schedule.
@@ -383,21 +389,21 @@ makePersistentReleaseSchedule getAddr tRS = case protocolVersion @pv of
         let tf !entries accIds =
                 let newSet = Set.map getAddr accIds
                  in (entries + fromIntegral (Set.size newSet), newSet)
-            (rsEntryCount, rsMap) = Map.mapAccum tf 0 (Transient.rsMap tRS)
+            (lrsEntryCount, lrsMap) = Map.mapAccum tf 0 (Transient.rsMap tRS)
         rsRef <-
             refMake $!
                 LegacyReleaseSchedule
-                    { rsFirstTimestamp = Transient.rsFirstTimestamp tRS,
+                    { lrsFirstTimestamp = Transient.rsFirstTimestamp tRS,
                       ..
                     }
         return $! ReleaseScheduleP0 rsRef
     rsP1 :: (RSAccountRef pv ~ AccountIndex) => m (ReleaseSchedule pv)
     rsP1 = do
-        rs5Map <- Trie.fromList (second AccountSet <$> Map.toList (Transient.rsMap tRS))
+        nrsMap <- Trie.fromList (second AccountSet <$> Map.toList (Transient.rsMap tRS))
         return $!
             ReleaseScheduleP5
                 NewReleaseSchedule
-                    { rs5FirstTimestamp = Transient.rsFirstTimestamp tRS,
+                    { nrsFirstTimestamp = Transient.rsFirstTimestamp tRS,
                       ..
                     }
 
@@ -409,7 +415,7 @@ releasesMap ::
     m (Map.Map Timestamp (Set.Set AccountIndex))
 releasesMap resolveAddr (ReleaseScheduleP0 rsRef) = do
     LegacyReleaseSchedule{..} <- refLoad rsRef
-    forM rsMap $ fmap Set.fromList . mapM resolveAddr . Set.toList
+    forM lrsMap $ fmap Set.fromList . mapM resolveAddr . Set.toList
 releasesMap _ (ReleaseScheduleP5 rs) = do
-    m <- Trie.toMap (rs5Map rs)
+    m <- Trie.toMap (nrsMap rs)
     return (theAccountSet <$> m)

@@ -7,7 +7,8 @@ import Concordium.Types
 
 data ReleaseSchedule = ReleaseSchedule
     { -- |This is the minimal timestamp for which a release is scheduled, or @Timestamp maxBound@
-      -- if there is no scheduled release.
+      -- if there is no scheduled release. This MUST NOT be used to infer that there are no
+      -- scheduled releases, since a release could be scheduled at the maximum timestamp.
       rsFirstTimestamp :: !Timestamp,
       -- |A map recording the first release time for each account with a pending release.
       -- An account should occur at most once in the map.

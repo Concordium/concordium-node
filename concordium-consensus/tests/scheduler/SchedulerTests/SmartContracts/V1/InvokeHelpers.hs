@@ -102,7 +102,7 @@ initContractV1 senderAddress initName initParam initAmount bs (miv, _) = do
   let initInterpreterEnergy = 1_000_000_000
   (cbk, _) <- getCallbacks
   artifact <- getModuleArtifact (GSWasm.miModule miv)
-  case WasmV1.applyInitFun cbk artifact cm initContext initName initParam initAmount initInterpreterEnergy of
+  case WasmV1.applyInitFun cbk artifact cm initContext initName initParam False initAmount initInterpreterEnergy of
     Nothing -> -- out of energy
       liftIO $ assertFailure "Initialization ran out of energy."
     Just (Left failure, _) ->
@@ -136,7 +136,7 @@ initContractV0 senderAddress initName initParam initAmount bs (miv, _) = do
         }
   let initInterpreterEnergy = 1_000_000_000
   artifact <- getModuleArtifact (GSWasm.miModule miv)
-  case WasmV0.applyInitFun artifact cm initContext initName initParam initAmount initInterpreterEnergy of
+  case WasmV0.applyInitFun artifact cm initContext initName initParam False initAmount initInterpreterEnergy of
     Nothing -> -- out of energy
       liftIO $ assertFailure "Initialization ran out of energy."
     Just (Left failure, _) ->
