@@ -401,7 +401,7 @@ newtype TransactionSummaryV1 = TransactionSummaryV1 {_transactionSummaryV1 :: Tr
 -- i.e., the resulting events.
 instance HashableTo H.Hash TransactionSummaryV1 where
   getHash (TransactionSummaryV1 summary) = H.hashLazy $! S.runPutLazy $!
-      putMaybe S.put (tsSender summary) <>
+      encodeSender (tsSender summary) <>
       S.put (tsHash summary) <>
       S.put (tsCost summary) <>
       S.put (tsEnergyCost summary) <>
@@ -416,6 +416,9 @@ instance HashableTo H.Hash TransactionSummaryV1 where
       encodeValidResult (TxSuccess events) = S.putWord8 0 <> putListOf putEvent events
       -- We omit the exact 'RejectReason'.
       encodeValidResult (TxReject _) = S.putWord8 1
+      encodeSender :: S.Putter (Maybe AccountAddress)
+      encodeSender Nothing = S.putByteString $! BS.replicate 32 0
+      encodeSender (Just sender) = S.put sender
 
 
 
