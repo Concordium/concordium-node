@@ -147,6 +147,7 @@ import Concordium.Logger (MonadLogger)
 import Concordium.Types
 import Concordium.Types.Accounts
 import Concordium.Types.Updates
+import Concordium.Types.Transactions
 import Concordium.Wasm
 
 import qualified Concordium.Crypto.SHA256 as H
@@ -1383,6 +1384,7 @@ instance MonadBlobStore m => BlobStorable m BakerPoolRewardDetails
 instance MonadBlobStore m => BlobStorable m DelegatorCapital
 instance MonadBlobStore m => BlobStorable m BakerCapital
 instance MonadBlobStore m => BlobStorable m CapitalDistribution
+instance MonadBlobStore m => BlobStorable m SpecialTransactionOutcome -- use the serialize instance
 
 newtype StoreSerialized a = StoreSerialized { unStoreSerialized :: a }
     deriving newtype (Serialize)

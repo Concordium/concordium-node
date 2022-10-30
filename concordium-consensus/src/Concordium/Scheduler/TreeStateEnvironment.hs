@@ -143,7 +143,7 @@ runBSM m cm s = do
 -- |Distribute the baking rewards for the last epoch to the bakers of
 -- blocks in that epoch. This should be called in the first block of
 -- a new epoch. This resets the list of blocks baked in the epoch.
-rewardLastEpochBakers :: (BlockStateOperations m, AccountVersionFor (MPV m) ~ 'AccountV0)
+rewardLastEpochBakers :: (SupportsTransactionOutcomes (MPV m), BlockStateOperations m, AccountVersionFor (MPV m) ~ 'AccountV0)
   => UpdatableBlockState m
   -> m (UpdatableBlockState m)
 rewardLastEpochBakers bs0 = do
@@ -250,7 +250,7 @@ calculatePaydayMintAmounts md mr ps updates amt =
 
 -- |Mint for all slots since the last block, recording a
 -- special transaction outcome for the minting.
-doMinting :: (ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0, BlockStateOperations m, BlockPointerMonad m)
+doMinting :: (ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0, BlockStateOperations m, BlockPointerMonad m, SupportsTransactionOutcomes (MPV m))
   => BlockPointerType m
   -- ^Parent block
   -> Slot
@@ -281,7 +281,7 @@ doMinting blockParent slotNumber foundationAddr mintUpds bs0 = do
 
 -- |Mint for the given payday, recording a
 -- special transaction outcome for the minting.
-doMintingP4 :: (ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1, BlockStateOperations m)
+doMintingP4 :: (ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1, BlockStateOperations m, SupportsTransactionOutcomes (MPV m))
   => ChainParameters (MPV m)
   -- ^Chain parameters
   -> Epoch
@@ -325,7 +325,7 @@ data FinalizerInfo = FinalizerInfo {
 -- |Distribute the finalization rewards to the finalizers
 -- in proportion to their voting weight. This also adds a
 -- special transaction outcome recording the reward.
-doFinalizationRewards :: (BlockStateOperations m)
+doFinalizationRewards :: (BlockStateOperations m, SupportsTransactionOutcomes (MPV m))
   => FinalizerInfo
   -> UpdatableBlockState m
   -> m (UpdatableBlockState m)
@@ -416,7 +416,7 @@ doBlockReward transFees FreeTransactionCounts{..} (BakerId aid) foundationAddr b
     }
 
 -- |Accrue the rewards for a block to the relevant pool, the passive delegators, and the foundation.
-doBlockRewardP4 :: forall m. (BlockStateOperations m, MonadProtocolVersion m, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1, SupportsDelegation (MPV m))
+doBlockRewardP4 :: forall m. (BlockStateOperations m, MonadProtocolVersion m, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1, SupportsDelegation (MPV m), SupportsTransactionOutcomes (MPV m))
   => Amount
   -- ^Transaction fees paid
   -> FreeTransactionCounts
@@ -840,7 +840,7 @@ updatedTimeParameters targetSlot tp0 upds =
 --   - Otherwise, return the payday and mint rate.
 mintForSkippedPaydays
   :: (ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
-      BlockStateOperations m)
+      BlockStateOperations m, SupportsTransactionOutcomes (MPV m))
   => Epoch
   -- ^Epoch of the current block
   -> Epoch

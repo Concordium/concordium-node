@@ -5,6 +5,9 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE OverloadedStrings #-}
 -- FIXME: This is to suppress compiler warnings for derived instances of BlockStateOperations.
 -- This may be fixed in GHC 9.0.1.
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
@@ -48,6 +51,7 @@ import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Except
 import qualified Data.Vector as Vec
 import Data.Serialize(Serialize)
+import qualified Data.Serialize as S
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Sequence as Seq
@@ -58,12 +62,15 @@ import Data.Kind (Type)
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
+import Concordium.Types.HashableTo
 import Concordium.Types.Execution
+import Concordium.Utils.Serialization
 import Concordium.Types.Updates hiding (getUpdateKeysCollection)
 import qualified Concordium.Wasm as Wasm
 import qualified Concordium.GlobalState.Wasm as GSWasm
 import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Account
+import Concordium.GlobalState.Persistent.BlobStore
 
 import Concordium.GlobalState.Basic.BlockState.PoolRewards
 import Concordium.GlobalState.BakerInfo
@@ -125,6 +132,9 @@ makeBlockStateHash BlockStateHashInputs{..} = StateHashV0 $
     (H.hashOfHashes
       bshUpdates
       (brdHash bshBlockRewardDetails))
+
+-- |Constraint that a protocol version supports transaction outcomes.
+type SupportsTransactionOutcomes (pv :: ProtocolVersion) = (IsTransactionOutcomesVersion (TransactionOutcomesVersionFor pv))
 
 -- |An auxiliary data type to express restrictions on an account.
 -- Currently an account that has more than one credential is not allowed to handle encrypted transfers,
@@ -378,6 +388,60 @@ type InstanceInfo m = InstanceInfoType (InstrumentedModuleRef m) (ContractState 
 class (Monad m, BlockStateTypes m) => ModuleQuery m where
     -- |Get a module artifact from an 'InstrumentedModuleRef'.
     getModuleArtifact :: Wasm.IsWasmVersion v => InstrumentedModuleRef m v -> m (GSWasm.InstrumentedModuleV v)
+
+-- |We create a wrapper here so we can
+-- derive another 'HashableTo' instance which omits
+-- the exact 'RejectReason' in the resulting hash.
+newtype TransactionSummaryV1 = TransactionSummaryV1 {_transactionSummaryV1 :: TransactionSummary' ValidResult}
+    deriving(Eq, Show)
+
+-- |A 'HashableTo' instance for a 'TransactionSummary'' which omits the exact
+-- reject reason. Failures are simply tagged with a '0x01' byte.
+--
+-- Note. The hash is computed using the 'hashLazy' function purpose as the
+-- summary can be large and this avoids loading storing the intermediate
+-- bytestring. The downside is more foreign calls to the hashing function, so
+-- there might be opportunities for small-scale optimizations here, but this
+-- needs careful benchmarks.
+instance HashableTo H.Hash TransactionSummaryV1 where
+  getHash (TransactionSummaryV1 summary) = H.hashLazy $! S.runPutLazy $!
+      S.putShortByteString "TransactionOutcomeHashV1" <>
+      encodeSender (tsSender summary) <>
+      S.put (tsHash summary) <>
+      S.put (tsCost summary) <>
+      S.put (tsEnergyCost summary) <>
+      S.put (tsType summary) <>
+      S.put (tsIndex summary) <>
+      encodeValidResult (tsResult summary)
+    where
+      -- |Encode the 'ValidResult' omitting the exact 'RejectReason' if the
+      -- transaction failed. Otherwise we encode the resulting events in the
+      -- resulting outcome hash.
+      encodeValidResult :: S.Putter ValidResult
+      encodeValidResult (TxSuccess events) = S.putWord8 0 <> putListOf putEvent events
+      -- We omit the exact 'RejectReason'.
+      encodeValidResult (TxReject _) = S.putWord8 1
+      -- To have a consistent length whether there is a sender or not,
+      -- then we begin the encoding with a tag, '0' if there are
+      -- no sender or '1' if there is a sender present.
+      -- The tag is then followed by the actual address bytes which is
+      -- always exactly 32 bytes. In case there are no sender
+      -- we use the account consisting of 32 zero bytes, but this is ok
+      -- as we have the above mentioned tag prepended.
+      encodeSender :: S.Putter (Maybe AccountAddress)
+      encodeSender Nothing = S.putByteString $! BS.replicate 33 0
+      encodeSender (Just sender) = do
+        S.putWord8 1
+        S.put sender
+
+instance (MonadBlobStore m, MonadProtocolVersion m) => BlobStorable m TransactionSummaryV1 where
+  storeUpdate s@(TransactionSummaryV1 ts) = return (putTransactionSummary ts, s)
+  load = do
+    s <- getTransactionSummary (protocolVersion @(MPV m))
+    return . return $! TransactionSummaryV1 s
+
+-- Generic instance based on the HashableTo instance
+instance Monad m => MHashableTo m H.Hash TransactionSummaryV1 where
 
 -- |The block query methods can query block state. They are needed by
 -- consensus itself to compute stake, get a list of and information about
@@ -1124,7 +1188,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- |Set the mint rate of the next scheduled payday.
   bsoSetPaydayMintRate :: (SupportsDelegation (MPV m)) => UpdatableBlockState m -> MintRate -> m (UpdatableBlockState m)
 
-  -- |Set the list of transaction outcomes for the block.
+  -- |Set the transaction outcomes for the block.
   bsoSetTransactionOutcomes :: UpdatableBlockState m -> [TransactionSummary] -> m (UpdatableBlockState m)
 
   -- |Add a special transaction outcome.

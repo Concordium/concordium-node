@@ -12,6 +12,7 @@ import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Reader
 import Data.Kind
 
+import Concordium.Utils.Serialization.Put
 import Concordium.GlobalState.BlockPointer (BlockPointerData)
 import Concordium.Wasm (WasmVersion)
 import Concordium.GlobalState.Classes
@@ -72,6 +73,10 @@ deriving via
     MGSTrans (ReaderT r) m
     instance
         (MonadProtocolVersion m) => MonadProtocolVersion (ReaderT r m)
+deriving via
+    MGSTrans PutT m
+    instance
+        (MonadProtocolVersion m) => MonadProtocolVersion (PutT m)
 
 instance BlockStateTypes (MGSTrans t m) where
     type BlockState (MGSTrans t m) = BlockState m
