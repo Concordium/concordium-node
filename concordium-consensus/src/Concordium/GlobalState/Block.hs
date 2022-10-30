@@ -25,8 +25,6 @@ import Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.BlockSignature as Sig
 
 import Concordium.GlobalState.Finalization
-import qualified Data.ByteString.Builder as ByteString
-import qualified Data.ByteString.Lazy as LByteString
 
 instance HashableTo BlockHash BakedBlock where
     getHash bb = generateBlockHash (blockSlot bb) (blockPointer bb) (blockBaker bb) (blockBakerKey bb) (blockProof bb) (blockNonce bb) (blockFinalizationData bb) (blockTransactions bb) (blockStateHash bb) (blockTransactionOutcomesHash bb)
@@ -316,15 +314,8 @@ instance forall pv. (IsProtocolVersion pv) => BlockData (Block pv) where
     -- move into gendata?
     blockTransactionOutcomesHash GenesisBlock{} =
         case transactionOutcomesVersion @(TransactionOutcomesVersionFor pv) of
-            -- |There are no transactions in the genesis block.
-            -- Hence the 'blockTransactionOutcomesHash's are simply constants.
-            -- For 'STOV0' we can easily use 'emptyTransactionOutcomesV0' for generating the constant.
-            -- In the case of 'STOV1' we simply hash the utf8 encoded string "GENESIS_TRANSACTION_OUTCOMES_HASH"
-            -- since the 'emptyTransactionOutcomes' is determined by the concrete block state implementation in use
-            -- See 'MerkleTransactionOutcomes' in the 'Basic.BlockState' and 'Persistent.BlockState' modules and we do
-            -- not know that context here. So we simply compute the hash of the above mentioned string.
             STOV0 -> getHash emptyTransactionOutcomesV0
-            STOV1 -> TransactionOutcomesHash $! Hash.hash $! LByteString.toStrict $! ByteString.toLazyByteString $! ByteString.stringUtf8 "GENESIS_TRANSACTION_OUTCOMES_HASH"
+            STOV1 -> emptyTransactionOutcomesHashV1
 
     blockTransactionOutcomesHash (NormalBlock bb) = blockTransactionOutcomesHash bb
 

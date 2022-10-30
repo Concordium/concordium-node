@@ -480,9 +480,9 @@ data PersistentTransactionOutcomes (tov :: TransactionOutcomesVersion) where
 instance BlobStorable m TransactionSummaryV1 => MHashableTo m Transactions.TransactionOutcomesHash (PersistentTransactionOutcomes tov) where
   getHashM (PTOV0 bto) = return (getHash bto)
   getHashM (PTOV1 MerkleTransactionOutcomes{..}) = do
-    l <- getHashM mtoOutcomes
-    r <- getHashM mtoSpecials
-    return $! Transactions.TransactionOutcomesHash (H.hashOfHashes l r)
+    out <- getHashM mtoOutcomes
+    special <- getHashM mtoSpecials
+    return $! Transactions.TransactionOutcomesHash (H.hashShort ("TransactionOutcomesHashV1" <> H.hashToShortByteString out <> H.hashToShortByteString special))
 
 storeUpdateOutcomes :: (IsTransactionOutcomesVersion tov, MonadBlobStore m, MonadProtocolVersion m) => PersistentTransactionOutcomes tov -> m (Put, PersistentTransactionOutcomes tov)
 storeUpdateOutcomes out@(PTOV0 bto) = return (Transactions.putTransactionOutcomes bto, out)

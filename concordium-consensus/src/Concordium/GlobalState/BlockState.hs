@@ -7,6 +7,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE OverloadedStrings #-}
 -- FIXME: This is to suppress compiler warnings for derived instances of BlockStateOperations.
 -- This may be fixed in GHC 9.0.1.
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
@@ -394,13 +395,17 @@ class (Monad m, BlockStateTypes m) => ModuleQuery m where
 newtype TransactionSummaryV1 = TransactionSummaryV1 {_transactionSummaryV1 :: TransactionSummary' ValidResult}
     deriving(Eq, Show)
 
--- |A 'HashableTo' instance for a 'TransactionSummary'' which
--- omits the exact reject reason.
--- Failures are simply tagged with a '0x1' byte.
--- Note. The hash is computed lazily on purpose as the summary can be large
--- i.e., the resulting events.
+-- |A 'HashableTo' instance for a 'TransactionSummary'' which omits the exact
+-- reject reason. Failures are simply tagged with a '0x01' byte.
+--
+-- Note. The hash is computed using the 'hashLazy' function purpose as the
+-- summary can be large and this avoids loading storing the intermediate
+-- bytestring. The downside is more foreign calls to the hashing function, so
+-- there might be opportunities for small-scale optimizations here, but this
+-- needs careful benchmarks.
 instance HashableTo H.Hash TransactionSummaryV1 where
   getHash (TransactionSummaryV1 summary) = H.hashLazy $! S.runPutLazy $!
+      S.putShortByteString "TransactionOutcomeHashV1" <>
       encodeSender (tsSender summary) <>
       S.put (tsHash summary) <>
       S.put (tsCost summary) <>
@@ -428,8 +433,6 @@ instance HashableTo H.Hash TransactionSummaryV1 where
       encodeSender (Just sender) = do
         S.putWord8 1
         S.put sender
-
-
 
 instance (MonadBlobStore m, MonadProtocolVersion m) => BlobStorable m TransactionSummaryV1 where
   storeUpdate s@(TransactionSummaryV1 ts) = return (putTransactionSummary ts, s)

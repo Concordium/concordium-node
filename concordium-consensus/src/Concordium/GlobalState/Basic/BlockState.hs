@@ -300,7 +300,7 @@ instance HashableTo Transactions.TransactionOutcomesHash MerkleTransactionOutcom
   getHash MerkleTransactionOutcomes{..} =
     let out = getHash mtoOutcomes 
         special = getHash mtoSpecials
-    in Transactions.TransactionOutcomesHash (H.hashOfHashes out special)
+    in Transactions.TransactionOutcomesHash (H.hashShort ("TransactionOutcomesHashV1" <> H.hashToShortByteString out <> H.hashToShortByteString special))
 
 -- |Transaction outcomes are kept in this gadt based on the 'TransactionOutcomesVersion'.
 -- The surjective type family 'TransactionOutcomesVersionFor' (From 'ProtocolVersion' to 'TransactionOutcomesVersion')
