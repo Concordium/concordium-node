@@ -73,9 +73,8 @@ import Concordium.Types.ProtocolVersion
 
 -- |The hash that identifies a update from P4 to P5 protocol.
 -- This is the hash of the published specification document.
--- FIXME: Replace with finalized hash.
 updateHash :: SHA256.Hash
-updateHash = read "0000000000000000000000000000000000000000000000000000000000000000"
+updateHash = read "af5684e70c1438e442066d017e4410af6da2b53bfa651a07d81efa2aa668db20"
 
 -- |Construct the genesis data for a P4.ProtocolP5 update.
 -- It is assumed that the last finalized block is the terminal block of the old chain:
