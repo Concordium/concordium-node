@@ -21,6 +21,7 @@ import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseScheduleV
 import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseScheduleV1 as ARSV1
 import Concordium.Types.HashableTo
 
+-- |Release schedule on an account, parametrized by the account version.
 type family AccountReleaseSchedule' (av :: AccountVersion) where
     AccountReleaseSchedule' 'AccountV0 = ARSV0.AccountReleaseSchedule
     AccountReleaseSchedule' 'AccountV1 = ARSV0.AccountReleaseSchedule
@@ -28,6 +29,8 @@ type family AccountReleaseSchedule' (av :: AccountVersion) where
 
 newtype AccountReleaseSchedule (av :: AccountVersion) = AccountReleaseSchedule {theAccountReleaseSchedule :: AccountReleaseSchedule' av}
 
+-- |Helper to retrieve the underlying V0 release schedule assuming we know
+-- that the account version @av@ has the V0 structure.
 theAccountReleaseScheduleV0 ::
     forall av.
     (IsAccountVersion av, AccountStructureVersionFor av ~ 'AccountStructureV0) =>
@@ -37,6 +40,8 @@ theAccountReleaseScheduleV0 = case accountVersion @av of
     SAccountV0 -> theAccountReleaseSchedule
     SAccountV1 -> theAccountReleaseSchedule
 
+-- |Helper to retrieve the underlying V1 release schedule assuming we know
+-- that the account version @av@ has the V1 structure.
 theAccountReleaseScheduleV1 ::
     forall av.
     (IsAccountVersion av, AccountStructureVersionFor av ~ 'AccountStructureV1) =>
@@ -45,6 +50,7 @@ theAccountReleaseScheduleV1 ::
 theAccountReleaseScheduleV1 = case accountVersion @av of
     SAccountV2 -> theAccountReleaseSchedule
 
+-- |Converse of 'theAccountReleaseScheduleV0'.
 fromAccountReleaseScheduleV0 ::
     forall av.
     (IsAccountVersion av, AccountStructureVersionFor av ~ 'AccountStructureV0) =>
@@ -54,6 +60,7 @@ fromAccountReleaseScheduleV0 = case accountVersion @av of
     SAccountV0 -> AccountReleaseSchedule
     SAccountV1 -> AccountReleaseSchedule
 
+-- |Converse of 'theAccountReleaseScheduleV1'
 fromAccountReleaseScheduleV1 ::
     forall av.
     (IsAccountVersion av, AccountStructureVersionFor av ~ 'AccountStructureV1) =>
@@ -110,7 +117,7 @@ addReleases = case accountVersion @av of
     SAccountV1 -> \rels (AccountReleaseSchedule ars) -> AccountReleaseSchedule (ARSV0.addReleases rels ars)
     SAccountV2 -> \rels (AccountReleaseSchedule ars) -> AccountReleaseSchedule (ARSV1.addReleases rels ars)
 
--- | Remove the amounts up to the given timestamp.
+-- | Remove the amounts up to and including the given timestamp.
 -- It returns the unlocked amount, maybe the next smallest timestamp for this account and the new account release schedule.
 unlockAmountsUntil ::
     forall av.

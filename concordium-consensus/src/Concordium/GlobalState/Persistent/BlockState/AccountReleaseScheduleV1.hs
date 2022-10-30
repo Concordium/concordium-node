@@ -4,7 +4,6 @@
 
 module Concordium.GlobalState.Persistent.BlockState.AccountReleaseScheduleV1 where
 
-import Data.List (sortOn)
 import Control.Monad
 import Control.Monad.Trans
 import Data.Foldable
@@ -19,6 +18,7 @@ import Data.Word
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Types
 import Concordium.Types.Accounts.Releases
+import Concordium.Utils
 import Concordium.Utils.Serialization
 
 import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseScheduleV1 as TARSV1
@@ -26,8 +26,11 @@ import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule as ARSV0
 import Concordium.Types.HashableTo
 
+-- |Releases that belong to a single 'ReleaseScheduleEntry'.
 data Releases = Releases
-    { relTransactionHash :: !TransactionHash,
+    { -- | Hash of a transfer with schedule transaction that generated these releases.
+      relTransactionHash :: !TransactionHash,
+      -- |List of releases with timestamp and amount, increasing by timestamp.
       relReleases :: !(Vector (Timestamp, Amount))
     }
 
@@ -44,6 +47,12 @@ instance Serialize Releases where
 
 instance MonadBlobStore m => BlobStorable m Releases
 
+-- |Hash releases starting at the given index in the vector of releases. It is
+-- assumed that there is at least one release starting at the given index.
+--
+-- |This is an internal helper function that should not be used outside this
+-- module. It is needed because releases are stored once in persistent storage,
+-- and when parts of a release are unlocked.
 hashReleasesFrom :: Word64 -> Releases -> Hash.Hash
 hashReleasesFrom dropCount Releases{..} =
     case Vector.unsnoc (Vector.drop (fromIntegral dropCount) relReleases) of
@@ -54,12 +63,16 @@ hashReleasesFrom dropCount Releases{..} =
             hashBase = Hash.hashLazy $ runPutLazy (serRel lastRel)
             hashStep rel accum = Hash.hashLazy $ runPutLazy $ serRel rel >> put accum
 
+-- |A release schedule produced by a single scheduled transfer. An account can
+-- have any number (including 0) of release schedule entries.
 data ReleaseScheduleEntry = ReleaseScheduleEntry
     { -- |Timestamp of the next release.
       rseNextTimestamp :: !Timestamp,
       -- |Hash derived from the releases (given the next release index).
       rseReleasesHash :: !Hash.Hash,
-      -- |Reference to the releases.
+      -- |Reference to the releases. The releases are only stored once and never
+      -- updated. Instead the 'rseNextReleaseIndex' is updated to indicate where
+      -- in the list of releases is the current start of locked amounts.
       rseReleasesRef :: !(LazyBufferedRef Releases),
       -- |Index of the next release.
       rseNextReleaseIndex :: !Word64
@@ -83,6 +96,10 @@ instance (MonadBlobStore m) => BlobStorable m ReleaseScheduleEntry where
             rseReleasesRef <- mReleases
             return $! ReleaseScheduleEntry{..}
 
+-- |The key used to order release schedule entries. An account has a list of
+-- 'ReleaseScheduleEntry', and they are maintained ordered by this key. The
+-- ordering is first by timestamp, and ties are resolved by the hash of the
+-- transaction that generated the 'ReleaseScheduleEntry'.
 rseSortKey :: ReleaseScheduleEntry -> (Timestamp, Hash.Hash)
 rseSortKey ReleaseScheduleEntry{..} = (rseNextTimestamp, rseReleasesHash)
 
@@ -96,8 +113,8 @@ instance (MonadBlobStore m) => BlobStorable m AccountReleaseSchedule where
         storeReleases <- mapM storeUpdate arsReleases
         let p = do
                 putLength (Vector.length arsReleases)
-                sequence_ (fst <$> storeReleases)
-        return (p, AccountReleaseSchedule $! snd <$!> storeReleases)
+                mapM_ fst storeReleases
+        return $!! (p, AccountReleaseSchedule $! snd <$!> storeReleases)
     load = do
         len <- getLength
         loads <- Vector.replicateM len load
@@ -122,6 +139,8 @@ nextReleaseTimestamp AccountReleaseSchedule{..}
     | Vector.length arsReleases == 0 = Nothing
     | otherwise = Just $! rseNextTimestamp (Vector.head arsReleases)
 
+-- |Insert an entry in the account release schedule, preserving the order of
+-- releases by 'rseSortKey'.
 insertEntry :: ReleaseScheduleEntry -> AccountReleaseSchedule -> AccountReleaseSchedule
 insertEntry entry AccountReleaseSchedule{..} = AccountReleaseSchedule newReleases
   where
@@ -156,10 +175,12 @@ addReleases _ _ = error "addReleases: Empty list of timestamps and amounts."
 unlockAmountsUntil :: MonadBlobStore m => Timestamp -> AccountReleaseSchedule -> m (Amount, Maybe Timestamp, AccountReleaseSchedule)
 unlockAmountsUntil ts ars = do
     (!relAmt, newRelsList) <- Vector.foldM' updateEntry (0, []) elapsedReleases
+    -- Merge two lists that are assumed ordered by 'rseSortKey' into a
+    -- list ordered by 'rseSortKey'
     let mergeOrdered [] ys = ys
         mergeOrdered xs [] = xs
         mergeOrdered xxs@(x:xs) yys@(y:ys)
-            | rseNextTimestamp x <= rseNextTimestamp y = x:mergeOrdered xs yys
+            | rseSortKey x <= rseSortKey y = x:mergeOrdered xs yys
             | otherwise = y:mergeOrdered xxs ys
     let !newRels = Vector.fromList (mergeOrdered newRelsList (Vector.toList staticReleases))
     let !nextTS = rseNextTimestamp . fst <$> Vector.uncons newRels
@@ -222,6 +243,7 @@ serializeAccountReleaseSchedule AccountReleaseSchedule{..} = do
             putLength (Vector.length relReleases - start)
             mapM_ put (Vector.drop start relReleases)
 
+-- |Convert a transient account release schedule to the persistent one.
 makePersistentAccountReleaseSchedule :: MonadBlobStore m => TARSV1.AccountReleaseSchedule -> m AccountReleaseSchedule
 makePersistentAccountReleaseSchedule tars = do
     AccountReleaseSchedule . Vector.fromList <$> mapM mpEntry (TARSV1.arsReleases tars)
@@ -247,7 +269,7 @@ getAccountReleaseSchedule ::
     m TARSV1.AccountReleaseSchedule
 getAccountReleaseSchedule arsTotalLockedAmount AccountReleaseSchedule{..} = do
     releases <- foldrM processEntry [] arsReleases
-    return $! TARSV1.AccountReleaseSchedule{arsReleases = sortOn TARSV1.rseSortKey releases, ..}
+    return $! TARSV1.AccountReleaseSchedule{arsReleases = releases, ..}
   where
     processEntry ReleaseScheduleEntry{..} entries = do
         Releases{..} <- refLoad rseReleasesRef

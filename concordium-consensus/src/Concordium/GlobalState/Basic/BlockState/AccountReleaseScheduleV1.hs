@@ -43,6 +43,8 @@ hashReleases Releases{..} = hshRels relReleases
     hshRels (rel :| []) = Hash.hashLazy . runPutLazy $ serRel rel
     hshRels (rel :| (h : t)) = Hash.hashLazy . runPutLazy $ serRel rel >> put (hshRels (h :| t))
 
+-- |A release schedule produced by a single scheduled transfer. An account can
+-- have any number (including 0) of release schedule entries.
 data ReleaseScheduleEntry = ReleaseScheduleEntry
     { rseReleases :: !Releases,
       rseReleasesHash :: !Hash.Hash,
@@ -60,12 +62,20 @@ instance Serialize ReleaseScheduleEntry where
         let rseReleasesHash = hashReleases rseReleases
         return $! ReleaseScheduleEntry{..}
 
+-- |Timestamp of the earliest release in the given 'ReleaseScheduleEntry'
 rseNextTimestamp :: ReleaseScheduleEntry -> Timestamp
 rseNextTimestamp = fst . NE.head . relReleases . rseReleases
 
+-- |The key used to order release schedule entries. An account has a list of
+-- 'ReleaseScheduleEntry', and they are maintained ordered by this key. The
+-- ordering is first by timestamp, and ties are resolved by the hash of the
+-- transaction that generated the 'ReleaseScheduleEntry'.
 rseSortKey :: ReleaseScheduleEntry -> (Timestamp, Hash.Hash)
 rseSortKey rse = (rseNextTimestamp rse, rseReleasesHash rse)
 
+-- |Unlock releases on the given 'ReleaseScheduleEntry' up to, and including,
+-- the given timestamp. The unlocked amount is returned, as well as potentially
+-- the remaining release schedule if any releases are remaining.
 unlockEntryUntil :: Timestamp -> ReleaseScheduleEntry -> (Amount, Maybe ReleaseScheduleEntry)
 unlockEntryUntil ts ReleaseScheduleEntry{..} = (sum (snd <$> lapsed), mrse)
   where
@@ -106,7 +116,7 @@ newtype AccountReleaseScheduleHashV1 = AccountReleaseScheduleHashV1
     deriving (Eq, Ord, Show, Serialize)
 
 emptyAccountReleaseScheduleHashV1 :: AccountReleaseScheduleHashV1
-emptyAccountReleaseScheduleHashV1 = AccountReleaseScheduleHashV1 (Hash.hash "")
+emptyAccountReleaseScheduleHashV1 = AccountReleaseScheduleHashV1 (Hash.hash "EmptyAccountReleaseScheduleV1")
 
 consAccountReleaseScheduleHashV1 :: Hash.Hash -> AccountReleaseScheduleHashV1 -> AccountReleaseScheduleHashV1
 consAccountReleaseScheduleHashV1 h arsh = AccountReleaseScheduleHashV1 . Hash.hashLazy . runPutLazy $ put h >> put arsh
