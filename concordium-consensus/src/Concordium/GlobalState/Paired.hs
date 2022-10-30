@@ -560,9 +560,9 @@ instance
         k2 <- coerceBSMR (getAccountEncryptionKey acc2)
         assertEq k1 k2 $ return k1
 
-    getAccountReleaseSchedule (acc1, acc2) = do
-        ars1 <- coerceBSML (getAccountReleaseSchedule acc1)
-        ars2 <- coerceBSMR (getAccountReleaseSchedule acc2)
+    getAccountReleaseSummary (acc1, acc2) = do
+        ars1 <- coerceBSML (getAccountReleaseSummary acc1)
+        ars2 <- coerceBSMR (getAccountReleaseSummary acc2)
         assertEq ars1 ars2 $ return ars1
 
     getAccountBaker (acc1, acc2) = do

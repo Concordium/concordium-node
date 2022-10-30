@@ -33,6 +33,7 @@ import qualified Concordium.ID.Types as ID
 import Concordium.Types
 import Concordium.Types.Accounts hiding (accountBakerInfo, bakerPendingChange, stakeEarnings, stakedAmount, _bakerPendingChange, _stakedAmount)
 import qualified Concordium.Types.Accounts as BaseAccount hiding (bakerPendingChange, stakeEarnings)
+import Concordium.Types.Accounts.Releases
 import Concordium.Types.Execution
 import Concordium.Types.HashableTo
 import qualified Concordium.Types.Migration as Migration
@@ -43,6 +44,7 @@ import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToS
 import Concordium.GlobalState.BakerInfo (BakerAdd (..), BakerKeyUpdate (..), bakerKeyUpdateToInfo)
 import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
 import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as Transient
+import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseScheduleV0 as ARSV0
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.Account.EncryptedAmount
@@ -624,7 +626,7 @@ getStakedAmount acc =
 
 -- |Get the amount that is locked in scheduled releases on the account.
 getLockedAmount :: (MonadBlobStore m, IsAccountVersion av, AVStructureV0 av) => PersistentAccount av -> m Amount
-getLockedAmount acc = Transient._totalLockedUpBalance <$> getReleaseSchedule acc
+getLockedAmount acc = releaseScheduleLockedBalance <$!> refLoad (acc ^. accountReleaseSchedule)
 
 -- | Get the current public account available balance.
 -- This accounts for lock-up and staked amounts.
@@ -632,7 +634,7 @@ getLockedAmount acc = Transient._totalLockedUpBalance <$> getReleaseSchedule acc
 getAvailableAmount :: (MonadBlobStore m, IsAccountVersion av, AVStructureV0 av) => PersistentAccount av -> m Amount
 getAvailableAmount acc = do
     total <- getAmount acc
-    lockedUp <- Transient._totalLockedUpBalance <$> getReleaseSchedule acc
+    lockedUp <- getLockedAmount acc
     staked <- getStakeDetails acc <&> \case
         StakeDetailsBaker{..} -> sdStakedCapital
         StakeDetailsDelegator{..} -> sdStakedCapital
@@ -676,8 +678,14 @@ getEncryptionKey :: MonadBlobStore f => PersistentAccount av -> f AccountEncrypt
 getEncryptionKey acc = ID.unsafeEncryptionKeyFromRaw <$> acc ^^. accountEncryptionKey
 
 -- |Get the release schedule for an account.
-getReleaseSchedule :: MonadBlobStore m => PersistentAccount av -> m Transient.AccountReleaseSchedule
-getReleaseSchedule acc = loadPersistentAccountReleaseSchedule =<< refLoad (acc ^. accountReleaseSchedule)
+getReleaseSummary ::
+    (MonadBlobStore m, IsAccountVersion av, AVStructureV0 av) =>
+    PersistentAccount av ->
+    m AccountReleaseSummary
+getReleaseSummary acc = do
+    prs <- refLoad (acc ^. accountReleaseSchedule)
+    ars <- loadPersistentAccountReleaseSchedule prs
+    return $ ARSV0.toAccountReleaseSummary ars
 
 -- |Get the timestamp at which the next scheduled release will occur (if any).
 getNextReleaseTimestamp :: MonadBlobStore m => PersistentAccount av -> m (Maybe Timestamp)
@@ -1103,7 +1111,7 @@ makePersistentAccount :: (MonadBlobStore m, IsAccountVersion av, AVStructureV0 a
 makePersistentAccount tacc@Transient.Account{..} = do
     _persistingData <- refMake (tacc ^. persistingAccountData)
     _accountEncryptedAmount' <- refMake =<< storePersistentAccountEncryptedAmount _accountEncryptedAmount
-    _accountReleaseSchedule' <- refMake =<< storePersistentAccountReleaseSchedule _accountReleaseSchedule
+    _accountReleaseSchedule' <- refMake =<< storePersistentAccountReleaseSchedule (Transient.theAccountReleaseScheduleV0 _accountReleaseSchedule)
     _accountStake <- case _accountStaking of
         AccountStakeNone -> return PersistentAccountStakeNone
         AccountStakeBaker ab -> PersistentAccountStakeBaker <$> (refMake =<< makePersistentAccountBaker ab)
@@ -1185,7 +1193,7 @@ serializeAccount cryptoParams PersistentAccount{..} = do
             Nothing -> (False, return ())
             Just p -> (True, p)
     arSched <- loadPersistentAccountReleaseSchedule =<< refLoad _accountReleaseSchedule
-    let asfExplicitReleaseSchedule = arSched /= Transient.emptyAccountReleaseSchedule
+    let asfExplicitReleaseSchedule = arSched /= ARSV0.emptyAccountReleaseSchedule
         asfHasBakerOrDelegation = case _accountStake of
             PersistentAccountStakeNone -> False
             _ -> True
@@ -1210,7 +1218,7 @@ toTransientAccount :: forall m av. (MonadBlobStore m, IsAccountVersion av, AVStr
 toTransientAccount PersistentAccount{..} = do
     _accountPersisting <- Transient.makeAccountPersisting <$> refLoad _persistingData
     _accountEncryptedAmount <- loadPersistentAccountEncryptedAmount =<< refLoad _accountEncryptedAmount
-    _accountReleaseSchedule <- loadPersistentAccountReleaseSchedule =<< refLoad _accountReleaseSchedule
+    _accountReleaseSchedule <- Transient.fromAccountReleaseScheduleV0 <$> (loadPersistentAccountReleaseSchedule =<< refLoad _accountReleaseSchedule)
     _accountStaking <- case _accountStake of
         PersistentAccountStakeNone -> return AccountStakeNone
         PersistentAccountStakeBaker bkr -> AccountStakeBaker <$> (loadPersistentAccountBaker =<< refLoad bkr)

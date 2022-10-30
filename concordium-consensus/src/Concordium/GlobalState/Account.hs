@@ -28,7 +28,8 @@ import Concordium.Types.Accounts
 import Concordium.Types.Execution
 import Concordium.Constants
 import Concordium.Types.HashableTo
-import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
+import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseScheduleV0 as ARSV0
+import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseScheduleV1 as ARSV1
 
 -- |A list of credential IDs that have been removed from an account.
 data RemovedCredentials
@@ -219,7 +220,7 @@ data AccountHashInputsV0 (av :: AccountVersion) =
     ahiNextNonce :: !Nonce,
     ahiAccountAmount :: !Amount,
     ahiAccountEncryptedAmount :: !AccountEncryptedAmount,
-    ahiAccountReleaseScheduleHash :: !AccountReleaseScheduleHash,
+    ahiAccountReleaseScheduleHash :: !ARSV0.AccountReleaseScheduleHashV0,
     ahiPersistingAccountDataHash :: !PersistingAccountDataHash,
     ahiAccountStakeHash :: !(AccountStakeHash av)
   }
@@ -247,7 +248,7 @@ data AccountMerkleHashInputs (av :: AccountVersion) where
     -- |Hash of the account's encrypted amount.
     amhi2EncryptedAmountHash :: !EncryptedAmountHash,
     -- |Hash of the account's release schedule.
-    amhi2AccountReleaseScheduleHash :: !AccountReleaseScheduleHash
+    amhi2AccountReleaseScheduleHash :: !ARSV1.AccountReleaseScheduleHashV1
   } -> AccountMerkleHashInputs 'AccountV2
 
 -- |The Merkle hash derived from the seldom-updated parts of an account, namely the persisting
@@ -264,7 +265,7 @@ instance HashableTo (AccountMerkleHash av) (AccountMerkleHashInputs av) where
         (theAccountStakeHash amhi2AccountStakeHash))
       (Hash.hashOfHashes
         (theEncryptedAmountHash amhi2EncryptedAmountHash)
-        (theReleaseScheduleHash amhi2AccountReleaseScheduleHash))
+        (ARSV1.theAccountReleaseScheduleHashV1 amhi2AccountReleaseScheduleHash))
 
 
 data AccountHashInputsV2 (av :: AccountVersion) =

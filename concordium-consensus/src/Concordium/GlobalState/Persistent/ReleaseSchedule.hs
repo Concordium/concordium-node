@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -60,6 +61,7 @@ data LegacyReleaseSchedule = LegacyReleaseSchedule
       -- |The number of accounts with entries in the release schedule map.
       lrsEntryCount :: !Word64
     }
+    deriving(Show)
 
 instance Serialize LegacyReleaseSchedule where
     put LegacyReleaseSchedule{..} = do
@@ -136,7 +138,7 @@ instance (MonadBlobStore m) => ReleaseScheduleOperations m (BufferedRef LegacyRe
 
 -- |A set of accounts represented by 'AccountIndex'.
 newtype AccountSet = AccountSet {theAccountSet :: Set.Set AccountIndex}
-    deriving (Serialize)
+    deriving (Serialize, Show)
 
 instance MonadBlobStore m => BlobStorable m AccountSet
 instance Applicative m => Cacheable m AccountSet
@@ -156,6 +158,8 @@ data NewReleaseSchedule = NewReleaseSchedule
       -- with minimal timestamp.
       nrsMap :: !(Trie.TrieN BufferedFix Timestamp AccountSet)
     }
+
+    deriving(Show)
 
 instance MonadBlobStore m => BlobStorable m NewReleaseSchedule where
     storeUpdate NewReleaseSchedule{..} = do
@@ -249,6 +253,8 @@ data ReleaseSchedule (pv :: ProtocolVersion) where
         (RSAccountRef pv ~ AccountIndex) =>
         !NewReleaseSchedule ->
         ReleaseSchedule pv
+
+deriving instance IsProtocolVersion pv => Show (ReleaseSchedule pv)
 
 instance (MonadBlobStore m, IsProtocolVersion pv) => BlobStorable m (ReleaseSchedule pv) where
     storeUpdate (ReleaseScheduleP0 rs) = second ReleaseScheduleP0 <$> storeUpdate rs
@@ -350,12 +356,16 @@ migrateReleaseSchedule (RSMLegacyToNew resolveAcc) (ReleaseScheduleP0 rsRef) = d
     rsMapList <- lift $ forM (Map.toList (lrsMap rs)) $ \(ts, addrs) -> do
         aiList <- mapM resolveAcc (Set.toList addrs)
         return (ts, AccountSet (Set.fromList aiList))
+    -- The next two steps could be done more efficiently by immediately writing
+    -- data to disk, but it is unlikely to be very important since there aren't
+    -- that many releases expected.
     newMap <- Trie.fromList rsMapList
+    (_, newMap') <- storeUpdate newMap
     return $!
         ReleaseScheduleP5
             NewReleaseSchedule
                 { nrsFirstTimestamp = lrsFirstTimestamp rs,
-                  nrsMap = newMap
+                  nrsMap = newMap'
                 }
 migrateReleaseSchedule RSMNewToNew (ReleaseScheduleP5 rs) = do
     newMap <- Trie.migrateTrieN True return (nrsMap rs)

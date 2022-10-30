@@ -11,6 +11,7 @@ module Concordium.GlobalState.Persistent.PoolRewards (
     setNextCapitalDistribution,
     currentPassiveDelegationCapital,
     lookupBakerCapitalAndRewardDetails,
+    migratePoolRewardsP1,
     migratePoolRewards
 ) where
 
@@ -64,7 +65,23 @@ data PoolRewards = PoolRewards
     }
     deriving (Show)
 
-migratePoolRewards :: forall m . (MonadBlobStore m) => 
+-- |Migrate pool rewards from @m@ to the new backing store @t m@.
+migratePoolRewards :: SupportMigration m t =>
+    PoolRewards ->
+    t m PoolRewards
+migratePoolRewards PoolRewards{..} = do
+  nextCapital' <- migrateHashedBufferedRefKeepHash nextCapital
+  currentCapital' <- migrateHashedBufferedRefKeepHash currentCapital
+  bakerPoolRewardDetails' <- LFMBT.migrateLFMBTree (migrateReference return) bakerPoolRewardDetails
+  return PoolRewards{
+    nextCapital = nextCapital',
+    currentCapital = currentCapital',
+    bakerPoolRewardDetails = bakerPoolRewardDetails',
+    .. -- the remaining fields are flat, so migration is copying
+    }
+
+-- |Migrate pool rewards from the format before delegation to the P4 format.
+migratePoolRewardsP1 :: forall m . (MonadBlobStore m) =>
     -- |Current epoch bakers and stakes, in ascending order of 'BakerId'.
     [(BakerId, Amount)] ->
     -- |Next epoch bakers and stakes, in ascending order of 'BakerId'.
@@ -76,7 +93,7 @@ migratePoolRewards :: forall m . (MonadBlobStore m) =>
     -- |Mint rate for the next payday
     MintRate ->
     m PoolRewards 
-migratePoolRewards curBakers nextBakers blockCounts npEpoch npMintRate = do
+migratePoolRewardsP1 curBakers nextBakers blockCounts npEpoch npMintRate = do
   (nextCapital, _) <- refFlush =<< bufferHashed (makeCD nextBakers)
   (currentCapital, _) <- refFlush =<< bufferHashed (makeCD curBakers)
   bakerPoolRewardDetails' <- LFMBT.fromAscListV =<< mapM makePRD curBakers

@@ -14,6 +14,7 @@ import Concordium.Types.AnonymityRevokers
 import Concordium.GlobalState.Basic.BlockState as BS
 import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
+import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseScheduleV1 as TARSV1
 import qualified Concordium.GlobalState.Basic.BlockState.AccountTable as AT
 import qualified Concordium.GlobalState.Basic.BlockState.ReleaseSchedule as BRS
 import Concordium.GlobalState.Basic.BlockState.Accounts
@@ -26,6 +27,7 @@ import Concordium.GlobalState.Paired
 import Concordium.GlobalState.Parameters
 import qualified Concordium.GlobalState.Persistent.Accounts
 import qualified Concordium.GlobalState.Persistent.Account
+import qualified Concordium.GlobalState.Persistent.Account.StructureV1
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Persistent.ReleaseSchedule as PRS
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
@@ -47,7 +49,6 @@ import Data.Maybe
 import Data.Proxy
 import qualified Data.Set as Set
 import Data.Time.Clock.POSIX
-import qualified Data.Vector as Vector
 import Lens.Micro.Platform
 import System.FilePath
 import System.IO.Temp
@@ -167,7 +168,7 @@ checkEqualBlockReleaseSchedule expected (blockstateBasic, blockStatePersistent) 
                                  PRS.releasesMap resolveAcc (PBS.bspReleaseSchedule blockStatePersistent')
                                  ) ctx
   liftIO $ assertEqual "Basic & expected release schedules" brs expected
-  liftIO $ assertEqual "Basic & persitent release schedules" brs brsP
+  liftIO $ assertEqual "Basic & persistent release schedules" brs brsP
   
 -- | Check that an account has the same Account release schedule in the two implementations of the blockstate
 checkEqualAccountReleaseSchedule :: (BS.BlockState PV, PBS.PersistentBlockState PV) -> AccountAddress -> ThisMonadConcrete ()
@@ -178,7 +179,7 @@ checkEqualAccountReleaseSchedule (blockStateBasic, blockStatePersistent) acc = d
                                                   blockStatePersistent' <- loadBufferedRef =<< liftIO (readIORef  blockStatePersistent)
                                                   Concordium.GlobalState.Persistent.Accounts.getAccount acc (PBS.bspAccounts blockStatePersistent') >>= \case
                                                     Nothing -> return Nothing
-                                                    Just a -> Just . getHash <$> Concordium.GlobalState.Persistent.Account.accountReleaseSchedule a) ctx :: ThisMonadConcrete (Maybe AccountReleaseScheduleHash)
+                                                    Just (Concordium.GlobalState.Persistent.Account.PAV2 a) -> Just . getHash <$> Concordium.GlobalState.Persistent.Account.StructureV1.getReleaseSchedule a) ctx :: ThisMonadConcrete (Maybe TARSV1.AccountReleaseScheduleHashV1)
   liftIO $ assertEqual "Basic & persistent account release schedule hashes"
       (Just (getHash (newBasicAccount ^. accountReleaseSchedule)))
       newPersistentAccountReleaseScheduleHash
@@ -191,10 +192,19 @@ checkCorrectAccountReleaseSchedule (blockStateBasic, blockStatePersistent) (oldB
   checkEqualAccountReleaseSchedule (blockStateBasic, blockStatePersistent) acc
   liftIO $ assertEqual "Old amount + sum of new releases == new amount"
       (oldBasicAccount ^. accountAmount + sum (map snd rel)) (newBasicAccount ^. accountAmount)
-  let oldReleaseSchedule = oldBasicAccount ^. accountReleaseSchedule
-  let newReleaseSchedule = newBasicAccount ^. accountReleaseSchedule
-  liftIO $ assertEqual "New release schedule == old schedule + new releases"
-    (newReleaseSchedule ^. values) (Vector.snoc (oldReleaseSchedule ^. values) (Just (map (uncurry Release) rel, dummyTransactionHash)))
+  let oldReleaseSchedule = oldBasicAccount ^. accountReleaseSchedule . to (TARSV1.arsReleases . theAccountReleaseSchedule)
+  let newReleaseSchedule = newBasicAccount ^. accountReleaseSchedule . to (TARSV1.arsReleases . theAccountReleaseSchedule)
+  let testEntry TARSV1.ReleaseScheduleEntry{..} = toList (TARSV1.relReleases rseReleases) == rel
+  -- Ensure that the new release schedule contains a new release entry which contains exactly the releases specified.
+  let comp b (x:xs) (y:ys)
+        | x == y = comp b xs ys
+        | otherwise = do
+            assertBool "Test release" $ testEntry y
+            comp True (x:xs) ys
+      comp False [] [y] = assertBool "Release not equal" $ testEntry y
+      comp b [] [] = assertBool "New release not found" $ b
+      comp _ left right = assertFailure $ "Lists of unexpected length: " ++ show oldReleaseSchedule ++ ", " ++ show newReleaseSchedule ++ ", " ++ show rel ++ ", " ++ show left ++ ", " ++ show right
+  liftIO (comp False oldReleaseSchedule newReleaseSchedule)
 
 -- | Check that the implementations have the same data and that the difference between the old state and the new state after unlocking amounts at the given timestamp is the amount given in the last argument
 -- also check that all the timestamps for this account are over the unlocked timestamps.
@@ -207,13 +217,10 @@ checkCorrectShrinkingAccountReleaseSchedule (blockStateBasic, blockStatePersiste
         liftIO $ assertEqual "New locked balance + released amount == old locked balance"
           (newBasicAccount ^. accountReleaseSchedule . totalLockedUpBalance + rel)
           (oldBasicAccount ^. accountReleaseSchedule . totalLockedUpBalance)
+        let rs = newBasicAccount ^. accountReleaseSchedule . to (TARSV1.arsReleases . theAccountReleaseSchedule)
         liftIO $ assertEqual "Sum of releases == locked balance"
-          (Vector.foldl (\accum -> \case
-                                 Nothing -> accum
-                                 Just (rels, _) -> sum (map (\(Release _ x) -> x) rels) + accum) 0 (newBasicAccount ^. accountReleaseSchedule . values))
+          (foldl' (\accum TARSV1.ReleaseScheduleEntry{..} -> sum (fmap snd (TARSV1.relReleases rseReleases)) + accum) 0 rs)
           (newBasicAccount ^. accountReleaseSchedule . totalLockedUpBalance)
-        liftIO $ assertBool "Remaining releases are after release time" (Vector.all (\case
-                               Nothing -> True
-                               Just (rels, _) -> any (\(Release t _) -> t > ts) rels) (newBasicAccount ^. accountReleaseSchedule . values))
+        liftIO $ assertBool "Remaining releases are after release time" (all (\TARSV1.ReleaseScheduleEntry{..} -> any (\(t, _) -> t > ts) (TARSV1.relReleases rseReleases)) rs)
   in
     mapM_ f accs

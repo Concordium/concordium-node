@@ -79,7 +79,7 @@ module Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule (
 
 import Concordium.Crypto.SHA256
 import Concordium.GlobalState.Persistent.BlobStore
-import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as Transient
+import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseScheduleV0 as Transient
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Control.Monad
@@ -188,11 +188,11 @@ instance MonadBlobStore m => BlobStorable m AccountReleaseSchedule where
 
 -- | @hash(AccountReleaseSchedule(releases) = hash (foldl (\h i -> h <> hash i)
 -- mempty) releases@ so @hash (hash a_1 <> hash a_2 <> ... <> hash a_n)@
-instance MonadBlobStore m => MHashableTo m Transient.AccountReleaseScheduleHash AccountReleaseSchedule where
+instance MonadBlobStore m => MHashableTo m Transient.AccountReleaseScheduleHashV0 AccountReleaseSchedule where
   getHashM AccountReleaseSchedule{..} =
     if _arsTotalLockedUpBalance == 0
-    then return Transient.emptyAccountReleaseScheduleHash
-    else Transient.AccountReleaseScheduleHash . hash <$> Vector.foldM' (\prevB -> \case
+    then return Transient.emptyAccountReleaseScheduleHashV0
+    else Transient.AccountReleaseScheduleHashV0 . hash <$> Vector.foldM' (\prevB -> \case
                                     Null -> return prevB
                                     Some (r, _) -> do
                                       itemHash <- getHashM r

@@ -1,7 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -17,6 +16,8 @@ import Concordium.ID.Parameters
 import Concordium.ID.Types
 import Concordium.Types
 import Concordium.Types.Accounts
+import Concordium.Types.Accounts.Releases
+import Concordium.Types.Execution
 import Concordium.Types.HashableTo
 import Concordium.Utils.Serialization.Put
 
@@ -25,14 +26,12 @@ import Concordium.Genesis.Data
 import Concordium.GlobalState.Account
 import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
-import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule (AccountReleaseSchedule (..))
 import Concordium.GlobalState.BlockState (AccountAllowance)
 import qualified Concordium.GlobalState.Persistent.Account.StructureV0 as V0
 import qualified Concordium.GlobalState.Persistent.Account.StructureV1 as V1
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.Cache
 import Concordium.GlobalState.Persistent.CachedRef
-import Concordium.Types.Execution
 
 -- * Account types
 
@@ -174,11 +173,11 @@ accountEncryptionKey (PAV0 acc) = V0.getEncryptionKey acc
 accountEncryptionKey (PAV1 acc) = V0.getEncryptionKey acc
 accountEncryptionKey (PAV2 acc) = V1.getEncryptionKey acc
 
--- |Get the release schedule for an account.
-accountReleaseSchedule :: (MonadBlobStore m) => PersistentAccount av -> m AccountReleaseSchedule
-accountReleaseSchedule (PAV0 acc) = V0.getReleaseSchedule acc
-accountReleaseSchedule (PAV1 acc) = V0.getReleaseSchedule acc
-accountReleaseSchedule (PAV2 acc) = V1.getReleaseSchedule acc
+-- |Get the 'AccountReleaseSummary' summarising scheduled releases for an account.
+accountReleaseSummary :: (MonadBlobStore m) => PersistentAccount av -> m AccountReleaseSummary
+accountReleaseSummary (PAV0 acc) = V0.getReleaseSummary acc
+accountReleaseSummary (PAV1 acc) = V0.getReleaseSummary acc
+accountReleaseSummary (PAV2 acc) = V1.getReleaseSummary acc
 
 -- |Get the timestamp at which the next scheduled release will occur (if any).
 accountNextReleaseTimestamp :: (MonadBlobStore m) => PersistentAccount av -> m (Maybe Timestamp)
