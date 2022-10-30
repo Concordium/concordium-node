@@ -478,33 +478,37 @@ data PersistentTransactionOutcomes (tov :: TransactionOutcomesVersion) where
     PTOV1 :: MerkleTransactionOutcomes -> PersistentTransactionOutcomes 'TOV1
 
 instance BlobStorable m TransactionSummaryV1 => MHashableTo m Transactions.TransactionOutcomesHash (PersistentTransactionOutcomes tov) where
-  getHashM (PTOV0 bto) = return (getHash bto)
-  getHashM (PTOV1 MerkleTransactionOutcomes{..}) = do
-    out <- getHashM mtoOutcomes
-    special <- getHashM mtoSpecials
-    return $! Transactions.TransactionOutcomesHash (H.hashShort ("TransactionOutcomesHashV1" <> H.hashToShortByteString out <> H.hashToShortByteString special))
+    getHashM (PTOV0 bto) = return (getHash bto)
+    getHashM (PTOV1 MerkleTransactionOutcomes{..}) = do
+        out <- getHashM mtoOutcomes
+        special <- getHashM mtoSpecials
+        return $! Transactions.TransactionOutcomesHash (H.hashShort ("TransactionOutcomesHashV1" <> H.hashToShortByteString out <> H.hashToShortByteString special))
 
-storeUpdateOutcomes :: (IsTransactionOutcomesVersion tov, MonadBlobStore m, MonadProtocolVersion m) => PersistentTransactionOutcomes tov -> m (Put, PersistentTransactionOutcomes tov)
-storeUpdateOutcomes out@(PTOV0 bto) = return (Transactions.putTransactionOutcomes bto, out)
-storeUpdateOutcomes (PTOV1 MerkleTransactionOutcomes{..}) = do
-    (pout, mtoOutcomes') <- storeUpdate mtoOutcomes
-    (pspecial, mtoSpecials') <- storeUpdate mtoSpecials
-    return (pout <> pspecial, PTOV1 MerkleTransactionOutcomes{mtoOutcomes = mtoOutcomes', mtoSpecials = mtoSpecials'})
+instance
+    ( TransactionOutcomesVersionFor (MPV m) ~ tov
+    , MonadBlobStore m
+    , MonadProtocolVersion m
+    ) =>
+    BlobStorable m (PersistentTransactionOutcomes tov)
+    where
+    storeUpdate out@(PTOV0 bto) = return (Transactions.putTransactionOutcomes bto, out)
+    storeUpdate (PTOV1 MerkleTransactionOutcomes{..}) = do
+        (pout, mtoOutcomes') <- storeUpdate mtoOutcomes
+        (pspecial, mtoSpecials') <- storeUpdate mtoSpecials
+        return (pout <> pspecial, PTOV1 MerkleTransactionOutcomes{mtoOutcomes = mtoOutcomes', mtoSpecials = mtoSpecials'})
 
-loadOutcomes :: forall pv m. (IsProtocolVersion pv, MonadBlobStore m, MonadProtocolVersion m) => Proxy pv -> Get (m (PersistentTransactionOutcomes (TransactionOutcomesVersionFor pv)))
-loadOutcomes Proxy = do
-    case transactionOutcomesVersion @(TransactionOutcomesVersionFor pv) of
-      STOV0 -> do
-        out <- PTOV0 <$!> Transactions.getTransactionOutcomes (protocolVersion @pv)
-        pure . pure $! out
-      STOV1 -> do
-        mout <- load
-        mspecials <- load
-        return $! do
-          mtoOutcomes <- mout
-          mtoSpecials <- mspecials
-          return $! PTOV1 MerkleTransactionOutcomes{..}
-  
+    load = do
+        case transactionOutcomesVersion @(TransactionOutcomesVersionFor (MPV m)) of
+            STOV0 -> do
+                out <- PTOV0 <$!> Transactions.getTransactionOutcomes (protocolVersion @(MPV m))
+                pure . pure $! out
+            STOV1 -> do
+                mout <- load
+                mspecials <- load
+                return $! do
+                    mtoOutcomes <- mout
+                    mtoSpecials <- mspecials
+                    return $! PTOV1 MerkleTransactionOutcomes{..}
 
 -- |Create an empty 'PersistentTransactionOutcomes' based on the 'ProtocolVersion'.
 emptyTransactionOutcomes :: forall pv. (SupportsTransactionOutcomes pv)
@@ -583,7 +587,7 @@ instance (SupportsPersistentState pv m) => BlobStorable m (BlockStatePointers pv
         (pars, bspAnonymityRevokers') <- storeUpdate bspAnonymityRevokers
         (pbps, bspBirkParameters') <- storeUpdate bspBirkParameters
         (pcryptps, bspCryptographicParameters') <- storeUpdate bspCryptographicParameters
-        (poutcomes, bspTransactionOutcomes') <- storeUpdateOutcomes bspTransactionOutcomes
+        (poutcomes, bspTransactionOutcomes') <- storeUpdate bspTransactionOutcomes
         (pupdates, bspUpdates') <- storeUpdate bspUpdates
         (preleases, bspReleaseSchedule') <- storeUpdate bspReleaseSchedule
         (pRewardDetails, bspRewardDetails') <- storeUpdate bspRewardDetails
@@ -622,7 +626,7 @@ instance (SupportsPersistentState pv m) => BlobStorable m (BlockStatePointers pv
         mars <- label "Anonymity revokers" load
         mbps <- label "Birk parameters" load
         mcryptps <- label "Cryptographic parameters" load
-        moutcomes <- label "Transaction outcomes" (loadOutcomes (Proxy @pv))
+        moutcomes <- label "Transaction outcomes" load
         mUpdates <- label "Updates" load
         mReleases <- label "Release schedule" load
         mRewardDetails <- label "Epoch blocks" load
