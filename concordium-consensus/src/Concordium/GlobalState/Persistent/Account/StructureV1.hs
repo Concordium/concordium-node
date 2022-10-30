@@ -1296,7 +1296,8 @@ migratePersistentAccountFromV0 StateMigrationParametersP4ToP5{} V0.PersistentAcc
                 bkrInfo <- refLoad _accountBakerInfo
                 bkrPoolInfo <- refLoad (V0._theExtraBakerInfo _extraBakerInfo)
                 return $! BakerInfoExV1 bkrInfo bkrPoolInfo
-            paseBakerInfo <- refMake bkrInfoEx
+            paseBakerInfo' <- refMake bkrInfoEx
+            (paseBakerInfo, _) <- refFlush paseBakerInfo'
             let baker =
                     PersistentAccountStakeEnduringBaker
                         { paseBakerRestakeEarnings = _stakeEarnings,
