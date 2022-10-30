@@ -29,7 +29,7 @@ emptyWeak = do
   return pointer
 
 -- |Creates a persistent block pointer with the provided block and metadata. Should not be called directly.
-makePersistentBlockPointer :: (Monad m)
+makePersistentBlockPointer :: (Monad m, IsProtocolVersion pv)
                            => Block pv                               -- ^Pending block
                            -> Maybe BlockHash                    -- ^Precomputed hash of this block. If not provided, it will be computed in-place.
                            -> BlockHeight                        -- ^Height of the block
@@ -83,7 +83,7 @@ makeGenesisPersistentBlockPointer genConf _bpState = liftIO $ do
       ..}
 
 -- |Converts a Pending Block into a PersistentBlockPointer
-makePersistentBlockPointerFromPendingBlock :: forall pv m bs. (MonadLogger m, MonadIO m) =>
+makePersistentBlockPointerFromPendingBlock :: forall pv m bs. (IsProtocolVersion pv, MonadLogger m, MonadIO m) =>
                                    PendingBlock      -- ^Pending block
                                  -> PersistentBlockPointer pv bs  -- ^Parent block
                                  -> PersistentBlockPointer pv bs  -- ^Last finalized block

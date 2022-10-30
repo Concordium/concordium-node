@@ -101,7 +101,7 @@ testFinalizeABlock = do
   let proof2 = VRF.prove (fst $ randomKeyPair (mkStdGen 1)) "proof2"
   now <- liftIO $ getCurrentTime
   -- FIXME: Statehash is stubbed out with a placeholder hash
-  pb <- makePendingBlock (fst $ randomBlockKeyPair (mkStdGen 1)) 1 (bpHash genesisBlock) 0 proof1 proof2 NoFinalizationData [] (StateHashV0 minBound) (getHash Trns.emptyTransactionOutcomes) now
+  pb <- makePendingBlock (fst $ randomBlockKeyPair (mkStdGen 1)) 1 (bpHash genesisBlock) 0 proof1 proof2 NoFinalizationData [] (StateHashV0 minBound) (getHash Trns.emptyTransactionOutcomesV0) now
   
   now' <- liftIO $ getCurrentTime
   blockPtr :: BlockPointerType TestM <- makeLiveBlock pb genesisBlock genesisBlock state now' 0
@@ -143,7 +143,7 @@ testFinalizeABlock = do
   -- add another block with different lfin and parent
   now'' <- liftIO $ getCurrentTime
   --FIXME:  statehash is stubbed out with a palceholder stash
-  pb2 <- makePendingBlock (fst $ randomBlockKeyPair (mkStdGen 1)) 2 (bpHash blockPtr) 0  proof1 proof2 NoFinalizationData [] (StateHashV0 minBound) (getHash Trns.emptyTransactionOutcomes) now''
+  pb2 <- makePendingBlock (fst $ randomBlockKeyPair (mkStdGen 1)) 2 (bpHash blockPtr) 0  proof1 proof2 NoFinalizationData [] (StateHashV0 minBound) (getHash Trns.emptyTransactionOutcomesV0) now''
   now''' <- liftIO $ getCurrentTime
   blockPtr2 :: BlockPointerType TestM <- makeLiveBlock pb2 blockPtr genesisBlock state now''' 0
   let frec2 = FinalizationRecord 2 (bpHash blockPtr2) (FinalizationProof [1] (sign "Hello" sk)) 0

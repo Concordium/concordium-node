@@ -165,7 +165,7 @@ instance Show (BlockPointer pv p s) where
 instance HashableTo BlockHash (BlockPointer pv p s) where
     getHash = getHash . _bpInfo
 
-instance BlockData (BlockPointer pv p s) where
+instance (IsProtocolVersion pv) => BlockData (BlockPointer pv p s) where
     blockSlot = blockSlot . _bpBlock
     blockFields = blockFields . _bpBlock
     blockTransactions = blockTransactions . _bpBlock
@@ -184,7 +184,7 @@ instance BlockData (BlockPointer pv p s) where
 instance IsProtocolVersion pv => EncodeBlock pv (BlockPointer pv p s) where
     putBlock spv = putBlock spv . _bpBlock
 
-instance BlockPointerData (BlockPointer pv p s) where
+instance (IsProtocolVersion pv) => BlockPointerData (BlockPointer pv p s) where
     bpHash = _bpHash . _bpInfo
     bpHeight = _bpHeight . _bpInfo
     bpReceiveTime = _bpReceiveTime . _bpInfo

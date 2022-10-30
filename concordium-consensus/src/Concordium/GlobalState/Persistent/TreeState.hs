@@ -486,7 +486,7 @@ deriving instance (MonadProtocolVersion m) => MonadProtocolVersion (PersistentTr
 deriving instance (Monad m, MonadState (SkovPersistentData pv bs) m)
          => MonadState (SkovPersistentData pv bs) (PersistentTreeStateMonad bs m)
 
-instance GlobalStateTypes (PersistentTreeStateMonad bs m) where
+instance (IsProtocolVersion pv, pv ~ MPV m) => GlobalStateTypes (PersistentTreeStateMonad bs m) where
     type BlockPointerType (PersistentTreeStateMonad bs m) = PersistentBlockPointer (MPV m) bs
 
 getWeakPointer :: (MonadLogger (PersistentTreeStateMonad bs m),
@@ -537,7 +537,8 @@ instance (MonadLogger (PersistentTreeStateMonad bs m),
       NormalBlock bb -> getWeakPointer (_bpParent block) (blockPointer bb) "parent"
   bpLastFinalized block = getWeakPointer (_bpLastFinalized block) (_bpLastFinalizedHash (_bpInfo block)) "last finalized"
 
-constructBlock :: (MonadIO m,
+constructBlock :: (IsProtocolVersion pv,
+                   MonadIO m,
                    BlockStateStorage m,
                    TS.BlockState m ~ bs)
                => StoredBlock pv (TS.BlockStatePointer bs) -> m (PersistentBlockPointer pv bs)

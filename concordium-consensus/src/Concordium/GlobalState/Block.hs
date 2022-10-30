@@ -43,8 +43,7 @@ generateBlockHash :: Slot         -- ^Block slot (must be non-zero)
 generateBlockHash slot parent baker bakerKey proof bnonce finData transactions stateHash transactionOutcomesHash
     = BlockHash topHash
     where
-        topHash = Hash.hashOfHashes transactionOutcomes h1
-        transactionOutcomes = v0TransactionOutcomesHash transactionOutcomesHash
+        topHash = Hash.hashOfHashes (tohGet transactionOutcomesHash) h1
         statehash = v0StateHash stateHash
         h1 = Hash.hashOfHashes statehash h2
         h2 = Hash.hashOfHashes h3 h4
@@ -302,7 +301,7 @@ deriving instance Show (GenesisData pv) => Show (Block pv)
 
 type instance BlockFieldType (Block pv) = BlockFieldType BakedBlock
 
-instance BlockData (Block pv) where
+instance forall pv. (IsProtocolVersion pv) => BlockData (Block pv) where
     blockSlot GenesisBlock{} = 0
     blockSlot (NormalBlock bb) = blockSlot bb
 
@@ -313,7 +312,11 @@ instance BlockData (Block pv) where
     blockTransactions (NormalBlock bb) = blockTransactions bb
 
     -- move into gendata?
-    blockTransactionOutcomesHash GenesisBlock{} = getHash emptyTransactionOutcomes
+    blockTransactionOutcomesHash GenesisBlock{} =
+        case transactionOutcomesVersion @(TransactionOutcomesVersionFor pv) of
+            STOV0 -> getHash emptyTransactionOutcomesV0
+            STOV1 -> emptyTransactionOutcomesHashV1
+
     blockTransactionOutcomesHash (NormalBlock bb) = blockTransactionOutcomesHash bb
 
     -- FIXME: replace stub, and move into gendata 

@@ -84,7 +84,7 @@ stateHash :: StateHash
 stateHash = StateHashV0 (Hash (FBS.pack (Prelude.replicate 32 (fromIntegral (0 :: Word)))))
 
 transactionH :: TransactionOutcomesHash
-transactionH = TransactionOutcomesHashV0 (Hash (FBS.pack (Prelude.replicate 32 (fromIntegral (0 :: Word)))))
+transactionH = TransactionOutcomesHash (Hash (FBS.pack (Prelude.replicate 32 (fromIntegral (0 :: Word)))))
 
 defaultHash :: BlockHash
 defaultHash = Block.generateBlockHash slot parent bakerid bakerSVK blockP nonce blockFinData payload stateHash transactionH
@@ -158,7 +158,7 @@ tests = do
         defaultHash `shouldNotBe` hash'
 
       specify ("TransactionOutcomesHash modifies BlockHash") $ do
-        let transactionH' = TransactionOutcomesHashV0 (Hash (FBS.pack (Prelude.replicate 32 (fromIntegral (1 :: Word)))))
+        let transactionH' = TransactionOutcomesHash (Hash (FBS.pack (Prelude.replicate 32 (fromIntegral (1 :: Word)))))
             hash' = Block.generateBlockHash slot parent bakerid bakerSVK blockP nonce blockFinData payload stateHash transactionH'      
         defaultHash `shouldNotBe` hash'
 

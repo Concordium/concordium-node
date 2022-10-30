@@ -10,6 +10,10 @@
     - Return value size limit: 16kiB -> no limit (apart from energy)
     - Number of logs per invocation: 64 -> no limit (apart from energy)
   - A new representation of accounts that is better optimised for common operations.
+  - Revised the hashing scheme for transaction outcomes in protocol version 5.
+    In particular the exact reject reasons are no longer part of the computed hash.
+    Further the transaction outcomes are being stored in a merkle tree for P5 resulting 
+    in some queries being faster.
 - More efficient indexing of accounts with scheduled releases.
 - Fix an issue where the catch-up downloader would fail at a protocol update.
 

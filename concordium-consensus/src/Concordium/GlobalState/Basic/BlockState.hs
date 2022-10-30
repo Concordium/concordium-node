@@ -12,6 +12,7 @@
 {-# LANGUAGE ViewPatterns #-}
 module Concordium.GlobalState.Basic.BlockState where
 
+import Data.Proxy
 import Lens.Micro.Platform
 import Data.Maybe
 import qualified Data.Map.Strict as Map
@@ -278,6 +279,55 @@ getBlockRewardDetails = case delegationSupport @av of
     SAVDelegationNotSupported -> BlockRewardDetailsV0 <$> getHashedEpochBlocksV0
     SAVDelegationSupported -> BlockRewardDetailsV1 . makeHashed <$> PoolRewards.getPoolRewards
 
+-- |Transaction outcomes in PV5 ('TOV1') are stored in one of two merkle trees,
+-- depending whether the associated transaction was a user transaction or
+-- a protocol defined outcome, e.g., reward.
+-- The resulting 'TransactionOutcomesHash' is then computed by concatenating
+-- the hashes of each of the subtrees and hashing the result.
+data MerkleTransactionOutcomes = MerkleTransactionOutcomes {
+    mtoOutcomes :: LFMBT.LFMBTree TransactionIndex BS.TransactionSummaryV1,
+    mtoSpecials :: LFMBT.LFMBTree TransactionIndex Transactions.SpecialTransactionOutcome
+} deriving (Show)
+
+-- |Create an empty 'MerkleTransactionOutcomes'
+emptyMerkleTransactionOutcomes :: MerkleTransactionOutcomes
+emptyMerkleTransactionOutcomes = MerkleTransactionOutcomes {
+  mtoOutcomes = LFMBT.empty,
+  mtoSpecials = LFMBT.empty
+}
+
+instance HashableTo Transactions.TransactionOutcomesHash MerkleTransactionOutcomes where
+  getHash MerkleTransactionOutcomes{..} =
+    let out = getHash mtoOutcomes 
+        special = getHash mtoSpecials
+    in Transactions.TransactionOutcomesHash (H.hashShort ("TransactionOutcomesHashV1" <> H.hashToShortByteString out <> H.hashToShortByteString special))
+
+-- |Transaction outcomes are kept in this gadt based on the 'TransactionOutcomesVersion'.
+-- The surjective type family 'TransactionOutcomesVersionFor' (From 'ProtocolVersion' to 'TransactionOutcomesVersion')
+-- is holding onto the concrete mapping based on contextual protocol version.
+-- The contents of the actual transaction summary does not differ between the two
+-- however the 'HashableTo' instances does.
+-- 'BTOV0' computes the hash on all of the contents of the individual transaction summaries.
+-- 'BTOV1' omits the exact reject reasons from the computed hash.
+data BasicTransactionOutcomes (tov :: TransactionOutcomesVersion) where
+    BTOV0 :: Transactions.TransactionOutcomes -> BasicTransactionOutcomes 'TOV0
+    BTOV1 :: MerkleTransactionOutcomes -> BasicTransactionOutcomes 'TOV1
+
+instance HashableTo Transactions.TransactionOutcomesHash (BasicTransactionOutcomes tov) where
+  getHash (BTOV0 bto) = getHash bto
+  getHash (BTOV1 bto) = getHash bto
+
+-- |Create an empty 'BasicTransactionOutcomes' based on the 'ProtocolVersion'.
+emptyTransactionOutcomes :: forall pv. (IsTransactionOutcomesVersion (TransactionOutcomesVersionFor pv))
+                                  => Proxy pv -> BasicTransactionOutcomes (TransactionOutcomesVersionFor pv)
+emptyTransactionOutcomes Proxy = case transactionOutcomesVersion @(TransactionOutcomesVersionFor pv) of
+  STOV0 -> BTOV0 Transactions.emptyTransactionOutcomesV0
+  STOV1 -> BTOV1 emptyMerkleTransactionOutcomes
+    
+instance Show (BasicTransactionOutcomes tov) where
+  show (BTOV0 a) = show a
+  show (BTOV1 a) = show a
+    
 data BlockState (pv :: ProtocolVersion) = BlockState {
     _blockAccounts :: !(Accounts.Accounts pv),
     _blockInstances :: !Instances.Instances,
@@ -289,7 +339,7 @@ data BlockState (pv :: ProtocolVersion) = BlockState {
     _blockCryptographicParameters :: !(Hashed CryptographicParameters),
     _blockUpdates :: !(Updates pv),
     _blockReleaseSchedule :: !RS.ReleaseSchedule, -- ^Contains an entry for each account that has pending releases and the first timestamp for said account
-    _blockTransactionOutcomes :: !Transactions.TransactionOutcomes,
+    _blockTransactionOutcomes :: !(BasicTransactionOutcomes (TransactionOutcomesVersionFor pv)),
     _blockRewardDetails :: !(BlockRewardDetails (AccountVersionFor pv))
 } deriving (Show)
 
@@ -322,7 +372,7 @@ instance HashableTo StateHash (HashedBlockState pv) where
 -- |Construct a block state that is empty, except for the supplied 'BirkParameters',
 -- 'CryptographicParameters', 'Authorizations' and 'ChainParameters'.
 emptyBlockState
-    :: IsProtocolVersion pv =>
+    :: forall pv . (IsProtocolVersion pv) =>
     BasicBirkParameters (AccountVersionFor pv) ->
     BlockRewardDetails (AccountVersionFor pv) ->
     CryptographicParameters ->
@@ -331,7 +381,7 @@ emptyBlockState
     BlockState pv
 {-# WARNING emptyBlockState "should only be used for testing" #-}
 emptyBlockState _blockBirkParameters _blockRewardDetails cryptographicParameters keysCollection chainParams = BlockState
-          { _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes,
+          { _blockTransactionOutcomes = emptyTransactionOutcomes (Proxy @pv),
             ..
           }
     where
@@ -490,7 +540,7 @@ getBlockState migration = do
     (_blockReleaseSchedule, preActBkrs) <- foldM processBakerAccount (RS.emptyReleaseSchedule, _birkActiveBakers preBirkParameters) (Accounts.accountList _blockAccounts)
     actBkrs <- foldM processDelegatorAccount preActBkrs (snd <$> Accounts.accountList _blockAccounts)
     let _blockBirkParameters = preBirkParameters {_birkActiveBakers = actBkrs}
-    let _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes
+    let _blockTransactionOutcomes = emptyTransactionOutcomes (Proxy @pv)
     return BlockState{..}
 
 -- | Get total delegated pool capital, sum of delegator stakes,
@@ -800,8 +850,15 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
                 }
 
     {-# INLINE getTransactionOutcome #-}
-    getTransactionOutcome bs trh =
-        return $ bs ^? blockTransactionOutcomes . ix trh
+    getTransactionOutcome bs trh = do
+        case bs ^. blockTransactionOutcomes of
+          BTOV0 outcomes -> return $! outcomes ^? ix (fromIntegral trh)
+          BTOV1 mto ->
+              case LFMBT.lookup trh (mtoOutcomes mto) of
+                  Nothing -> return Nothing
+                  Just (BS.TransactionSummaryV1 v) -> return $ Just v
+          
+                    
 
     {-# INLINE getTransactionOutcomesHash #-}
     getTransactionOutcomesHash bs = return (getHash $ bs ^. blockTransactionOutcomes)
@@ -810,13 +867,17 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
     getStateHash = return . view blockStateHash
 
     {-# INLINE getOutcomes #-}
-    getOutcomes bs =
-        return $ bs ^. blockTransactionOutcomes . to Transactions.outcomeValues
+    getOutcomes bs = do
+        case bs ^. blockTransactionOutcomes of
+          BTOV0 outcomes -> return (Transactions.outcomeValues outcomes)
+          BTOV1 mto -> return $! Vec.fromList . map BS._transactionSummaryV1 $! LFMBT.toAscList (mtoOutcomes mto)
 
     {-# INLINE getSpecialOutcomes #-}
     getSpecialOutcomes bs =
-        return $ bs ^. blockTransactionOutcomes . Transactions.outcomeSpecial
-
+        case bs ^. blockTransactionOutcomes of
+            BTOV0 bto -> return $! Transactions._outcomeSpecial bto
+            BTOV1 bto -> return $ Seq.fromList $ LFMBT.toAscList . mtoSpecials $ bto
+        
     {-# INLINE getAllIdentityProviders #-}
     getAllIdentityProviders bs =
       return $! bs ^. blockIdentityProviders . unhashed . to (Map.elems . IPS.idProviders)
@@ -1838,11 +1899,22 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
 
     bsoGetAccruedTransactionFeesFoundationAccount bs = return $! PoolRewards.foundationTransactionRewards (bs ^. blockPoolRewards)
 
-    bsoSetTransactionOutcomes bs l =
-      return $! bs & blockTransactionOutcomes .~ Transactions.transactionOutcomesFromList l
+    bsoSetTransactionOutcomes bs l = do
+        case transactionOutcomesVersion @(TransactionOutcomesVersionFor pv) of 
+          STOV0 -> return $! (bs & (blockTransactionOutcomes .~ BTOV0 (Transactions.transactionOutcomesV0FromList l)))
+          STOV1 -> 
+              return $! (bs & (blockTransactionOutcomes .~ BTOV1 (MerkleTransactionOutcomes {
+                  mtoOutcomes = LFMBT.fromList (map BS.TransactionSummaryV1 l),
+                  mtoSpecials = LFMBT.empty
+              })))
 
-    bsoAddSpecialTransactionOutcome bs o =
-      return $! bs & blockTransactionOutcomes . Transactions.outcomeSpecial %~ (Seq.|> o)
+
+    bsoAddSpecialTransactionOutcome bs o = do
+        case bs ^. blockTransactionOutcomes of
+            BTOV0 bto -> return $! (bs & (blockTransactionOutcomes .~ BTOV0 (bto & Transactions.outcomeSpecial %~ (Seq.|> o))))
+            BTOV1 bto ->
+               let (_, newSpecials) = LFMBT.append o (mtoSpecials bto)
+               in return (bs & (blockTransactionOutcomes .~ BTOV1 (bto { mtoSpecials = newSpecials })))
 
     {-# INLINE bsoProcessUpdateQueues #-}
     bsoProcessUpdateQueues bs ts = return (changes, bs & blockUpdates .~ newBlockUpdates
@@ -1955,7 +2027,7 @@ instance (IsProtocolVersion pv, MonadIO m) => BS.BlockStateStorage (PureBlockSta
 
 -- |Initial block state.
 initialState :: forall pv
-              . IsProtocolVersion pv
+              . (IsProtocolVersion pv)
              => SeedState
              -> CryptographicParameters
              -> [Account (AccountVersionFor pv)]
@@ -1976,7 +2048,7 @@ initialState seedState cryptoParams genesisAccounts ips anonymityRevokers keysCo
     _blockBank = makeHashed $ Rewards.makeGenesisBankStatus initialAmount
     _blockIdentityProviders = makeHashed ips
     _blockAnonymityRevokers = makeHashed anonymityRevokers
-    _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes
+    _blockTransactionOutcomes = emptyTransactionOutcomes (Proxy @pv)
     _blockUpdates = initialUpdates keysCollection chainParams
     _blockReleaseSchedule = RS.emptyReleaseSchedule
     _blockRewardDetails = emptyBlockRewardDetails
@@ -2126,7 +2198,7 @@ genesisBakerInfo spv cp GenesisBaker{..} = AccountBaker{..}
 
 -- |Initial block state based on 'GenesisData', for a given protocol version.
 -- This also returns the transaction table.
-genesisState :: forall pv . IsProtocolVersion pv
+genesisState :: forall pv . (IsProtocolVersion pv)
              => GenesisData pv
              -> Either String (BlockState pv, TransactionTable.TransactionTable)
 genesisState gd = case protocolVersion @pv of
@@ -2170,7 +2242,7 @@ genesisState gd = case protocolVersion @pv of
                   _blockModules = Modules.emptyModules
                   _blockIdentityProviders = makeHashed genesisIdentityProviders
                   _blockAnonymityRevokers = makeHashed genesisAnonymityRevokers
-                  _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes
+                  _blockTransactionOutcomes = emptyTransactionOutcomes (Proxy @pv)
                   _blockUpdates = initialUpdates genesisUpdateKeys genesisChainParameters
                   _blockReleaseSchedule = RS.emptyReleaseSchedule
 
