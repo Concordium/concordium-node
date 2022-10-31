@@ -5,13 +5,13 @@
     The old and new limits are checked, in P4 and P5, respectively.
     The limit changes in P5 are:
       - Parameter size limit: 1kb -> 65kb
-      - Return value size limit: 16kb -> no limit (apart from energy)
+      - Return value size limit: 16kb -> no limit (apart from energy) *Only relevant for V1 contracts*.
       - Number of logs: 64 -> no limit (apart from energy)
       - Cost of parameters:
         - Of size <= 1kb: base cost + 1NRG / 1 *kilobyte* (same as before P5)
         - Of size > 1 kb: base cost + 1NRG / 1 *byte*
 -}
-module SchedulerTests.SmartContracts.V1.RelaxedRestrictions (tests) where
+module SchedulerTests.SmartContracts.V0.RelaxedRestrictions (tests) where
 
 import Test.Hspec
 import Test.HUnit(assertFailure, assertEqual)
@@ -51,11 +51,11 @@ initialBlockStatePV5 = blockStateWithAlesAccount
     (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 100000000) Acc.emptyAccounts)
 
 sourceFile :: FilePath
-sourceFile = "./testdata/contracts/v1/relaxed-restrictions.wasm"
+sourceFile = "./testdata/contracts/relaxed-restrictions.wasm"
 
--- Tests in this module use version 1, creating V1 instances.
+-- Tests in this module use version 0, creating V0 instances.
 wasmModVersion :: WasmVersion
-wasmModVersion = V1
+wasmModVersion = V0
 
 
 testCasesPV4 :: [TestCase PV4]
@@ -81,7 +81,7 @@ testCasesPV4 =
                 , metadata = makeDummyHeader alesAccount 3 700000
                 , keys = [(0,[(0, alesKP)])]
                 }
-        , (SuccessWithSummary ensureSuccess , emptySpec)
+        , (SuccessWithSummary ensureSuccess, emptySpec)
         )
         -- Check that if the top-level parameter is too big, we get a serialization failure.
       , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "relax.param" (callArgsParam 1024 1025)
@@ -93,38 +93,6 @@ testCasesPV4 =
         -- Check that if the inter-contract parameter is too big, we get a runtime failure.
       , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "relax.param" (callArgsParam 1025 1024)
                 , metadata = makeDummyHeader alesAccount 5 700000
-                , keys = [(0,[(0, alesKP)])]
-                }
-        , (Reject Types.RuntimeFailure, emptySpec)
-        )
-      ]
-     }
-  , TestCase
-    { tcName = "Correct return value limits in PV4."
-    , tcParameters = (defaultParams @PV4) {tpInitialBlockState=initialBlockStatePV4}
-    , tcTransactions =
-      [ ( TJSON { payload = DeployModule wasmModVersion sourceFile
-                , metadata = makeDummyHeader alesAccount 1 100000
-                , keys = [(0,[(0, alesKP)])]
-                }
-        , (SuccessWithSummary deploymentCostCheck, emptySpec)
-        )
-      , ( TJSON { payload = InitContract 0 wasmModVersion sourceFile "init_relax" ""
-                , metadata = makeDummyHeader alesAccount 2 100000
-                , keys = [(0,[(0, alesKP)])]
-                }
-        , (SuccessWithSummary initializationCostCheck, emptySpec)
-        )
-        -- Check that the max size return value is allowed.
-      , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "relax.return-value" (callArgsWord32 16384)
-                , metadata = makeDummyHeader alesAccount 3 700000
-                , keys = [(0,[(0, alesKP)])]
-                }
-        , (SuccessWithSummary ensureSuccess, emptySpec)
-        )
-        -- Check that one above the max size is truncated to the max. Which in turn makes the contract fail.
-      , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "relax.return-value" (callArgsWord32 16385)
-                , metadata = makeDummyHeader alesAccount 4 700000
                 , keys = [(0,[(0, alesKP)])]
                 }
         , (Reject Types.RuntimeFailure, emptySpec)
@@ -193,31 +161,6 @@ testCasesPV5 =
       ]
      }
   , TestCase
-    { tcName = "Correct return value limits in PV5."
-    , tcParameters = (defaultParams @PV5) {tpInitialBlockState=initialBlockStatePV5}
-    , tcTransactions =
-      [ ( TJSON { payload = DeployModule wasmModVersion sourceFile
-                , metadata = makeDummyHeader alesAccount 1 100000
-                , keys = [(0,[(0, alesKP)])]
-                }
-        , (SuccessWithSummary deploymentCostCheck, emptySpec)
-        )
-      , ( TJSON { payload = InitContract 0 wasmModVersion sourceFile "init_relax" ""
-                , metadata = makeDummyHeader alesAccount 2 100000
-                , keys = [(0,[(0, alesKP)])]
-                }
-        , (SuccessWithSummary initializationCostCheck, emptySpec)
-        )
-        -- Check that a large return value can be returned (larger than what is allowed in P4).
-      , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "relax.return-value" (callArgsWord32 100000)
-                , metadata = makeDummyHeader alesAccount 3 700000
-                , keys = [(0,[(0, alesKP)])]
-                }
-        , (SuccessWithSummary ensureSuccess, emptySpec)
-        )
-      ]
-     }
-  , TestCase
     { tcName = "Correct number of logs limits in PV5."
     , tcParameters = (defaultParams @PV5) {tpInitialBlockState=initialBlockStatePV5}
     , tcTransactions =
@@ -263,7 +206,7 @@ callArgsParam internalParamSize desiredLen = BSS.toShort $ runPut $ do
   putByteString auxName -- entrypoint name
   putByteString (BS.pack $ replicate numBytes 1) -- arbitrary bytes to fill the parameter
   where
-    auxName = "param-aux"
+    auxName = "relax.param-aux"
     auxNameLen :: Word16
     auxNameLen = fromIntegral $ BS.length auxName
     -- Calculate the number of arbitrary bytes to put in the end, so that the whole parameter gets the desired length.

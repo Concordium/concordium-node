@@ -7,7 +7,6 @@ import qualified SchedulerTests.InitContextTest(tests)
 import qualified SchedulerTests.ReceiveContextTest(tests)
 import qualified SchedulerTests.TrySendTest(tests)
 import qualified SchedulerTests.FibonacciSelfMessageTest(tests)
-import qualified SchedulerTests.SmartContractTests(tests)
 import qualified SchedulerTests.AccountTransactionSpecs(tests)
 import qualified SchedulerTests.InitialAccountCreationSpec(tests)
 import qualified SchedulerTests.BakerTransactions(tests)
@@ -26,6 +25,9 @@ import qualified SchedulerTests.RejectReasons(tests)
 import qualified SchedulerTests.RejectReasonsRustContract(tests)
 import qualified SchedulerTests.Payday(tests)
 import qualified SchedulerTests.Delegation(tests)
+
+import qualified SchedulerTests.SmartContracts.V0.SmartContractTests(tests)
+import qualified SchedulerTests.SmartContracts.V0.RelaxedRestrictions(tests)
 
 import qualified SchedulerTests.SmartContracts.V1.Counter(tests)
 import qualified SchedulerTests.SmartContracts.V1.Transfer(tests)
@@ -54,7 +56,6 @@ main = hspec $ do
          SchedulerTests.ReceiveContextTest.tests
          SchedulerTests.TrySendTest.tests
          SchedulerTests.FibonacciSelfMessageTest.tests
-         SchedulerTests.SmartContractTests.tests
          SchedulerTests.AccountTransactionSpecs.tests
          SchedulerTests.InitialAccountCreationSpec.tests
          SchedulerTests.BakerTransactions.tests
@@ -71,6 +72,8 @@ main = hspec $ do
          SchedulerTests.StakedAmountLocked.tests
          SchedulerTests.RejectReasons.tests
          SchedulerTests.RejectReasonsRustContract.tests
+         SchedulerTests.SmartContracts.V0.SmartContractTests.tests
+         SchedulerTests.SmartContracts.V0.RelaxedRestrictions.tests
          SchedulerTests.SmartContracts.V1.Counter.tests
          SchedulerTests.SmartContracts.V1.Transfer.tests
          SchedulerTests.SmartContracts.V1.CrossMessaging.tests
