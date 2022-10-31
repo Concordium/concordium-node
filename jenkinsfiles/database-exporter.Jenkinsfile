@@ -43,6 +43,10 @@ pipeline {
             }
         }
         stage('build') {
+            environment {
+                EXTERNAL_UID = "${sh(script: 'id -u', returnStdout: true).trim()}"
+                EXTERNAL_GID = "${sh(script: 'id -g', returnStdout: true).trim()}"
+            }
             steps {
                sh '''\
                    docker build \
