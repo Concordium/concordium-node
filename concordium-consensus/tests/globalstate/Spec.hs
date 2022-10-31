@@ -14,6 +14,7 @@ import qualified GlobalStateTests.Accounts(tests)
 import qualified GlobalStateTests.BlockHash(tests)
 import qualified GlobalStateTests.Cache (tests)
 import qualified GlobalStateTests.AccountReleaseScheduleTest(tests)
+import qualified GlobalStateTests.AccountReleaseScheduleMigration(tests)
 import qualified GlobalStateTests.Updates(tests)
 import qualified GlobalStateTests.EnduringDataFlags(tests)
 
@@ -38,6 +39,7 @@ main = atLevel $ \lvl -> hspec $ do
   GlobalStateTests.FinalizationSerializationSpec.tests
   GlobalStateTests.Instances.tests lvl
   GlobalStateTests.AccountReleaseScheduleTest.tests
+  GlobalStateTests.AccountReleaseScheduleMigration.tests
   GlobalStateTests.Updates.tests
   GlobalStateTests.AccountMap.tests lvl
   GlobalStateTests.EnduringDataFlags.tests

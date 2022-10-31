@@ -330,7 +330,8 @@ data AccountUpdate = AccountUpdate {
   -- |Optionally an update the encrypted amount.
   ,_auEncrypted :: !(Maybe EncryptedAmountUpdate)
   -- |Optionally update the locked stake on the account by adding scheduled releases.
-  -- Each entry in the list MUST have a non-empty list of releases.
+  -- Each entry in the list MUST have a non-empty list of releases, and the releases must be
+  -- in ascending order of timestamp.
   ,_auReleaseSchedule :: !(Maybe [([(Timestamp, Amount)], TransactionHash)])
 } deriving (Eq, Show)
 makeLenses ''AccountUpdate

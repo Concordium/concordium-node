@@ -50,9 +50,9 @@ instance MonadBlobStore m => BlobStorable m Releases
 -- |Hash releases starting at the given index in the vector of releases. It is
 -- assumed that there is at least one release starting at the given index.
 --
--- |This is an internal helper function that should not be used outside this
+-- This is an internal helper function that should not be used outside this
 -- module. It is needed because releases are stored once in persistent storage,
--- and when parts of a release are unlocked.
+-- and when parts of a release are unlocked, the hash is recomputed based on the index.
 hashReleasesFrom :: Word64 -> Releases -> Hash.Hash
 hashReleasesFrom dropCount Releases{..} =
     case Vector.unsnoc (Vector.drop (fromIntegral dropCount) relReleases) of
@@ -76,7 +76,8 @@ data ReleaseScheduleEntry = ReleaseScheduleEntry
       rseReleasesRef :: !(LazyBufferedRef Releases),
       -- |Index of the next release.
       rseNextReleaseIndex :: !Word64
-    } deriving(Show)
+    }
+    deriving (Show)
 
 instance (MonadBlobStore m) => BlobStorable m ReleaseScheduleEntry where
     storeUpdate ReleaseScheduleEntry{..} = do
@@ -99,7 +100,7 @@ instance (MonadBlobStore m) => BlobStorable m ReleaseScheduleEntry where
 -- |The key used to order release schedule entries. An account has a list of
 -- 'ReleaseScheduleEntry', and they are maintained ordered by this key. The
 -- ordering is first by timestamp, and ties are resolved by the hash of the
--- transaction that generated the 'ReleaseScheduleEntry'.
+-- releases.
 rseSortKey :: ReleaseScheduleEntry -> (Timestamp, Hash.Hash)
 rseSortKey ReleaseScheduleEntry{..} = (rseNextTimestamp, rseReleasesHash)
 
@@ -179,9 +180,9 @@ unlockAmountsUntil ts ars = do
     -- list ordered by 'rseSortKey'
     let mergeOrdered [] ys = ys
         mergeOrdered xs [] = xs
-        mergeOrdered xxs@(x:xs) yys@(y:ys)
-            | rseSortKey x <= rseSortKey y = x:mergeOrdered xs yys
-            | otherwise = y:mergeOrdered xxs ys
+        mergeOrdered xxs@(x : xs) yys@(y : ys)
+            | rseSortKey x <= rseSortKey y = x : mergeOrdered xs yys
+            | otherwise = y : mergeOrdered xxs ys
     let !newRels = Vector.fromList (mergeOrdered newRelsList (Vector.toList staticReleases))
     let !nextTS = rseNextTimestamp . fst <$> Vector.uncons newRels
     return (relAmt, nextTS, AccountReleaseSchedule newRels)
@@ -200,8 +201,8 @@ unlockAmountsUntil ts ars = do
                             then go (n + 1) (accum + amt)
                             else
                                 ( accum + relAmtAcc,
-                                  insert upds
-                                    $! ReleaseScheduleEntry
+                                  insert upds $!
+                                    ReleaseScheduleEntry
                                         { rseNextReleaseIndex = n,
                                           rseNextTimestamp = relts,
                                           rseReleasesHash = hashReleasesFrom n rels,
@@ -252,8 +253,8 @@ makePersistentAccountReleaseSchedule tars = do
         let rseNextTimestamp = TARSV1.rseNextTimestamp rse
         let rseNextReleaseIndex = 0
         rseReleasesRef <-
-            refMake
-                $! Releases
+            refMake $!
+                Releases
                     { relTransactionHash = rseTransactionHash,
                       relReleases = Vector.fromList (toList (TARSV1.relReleases rseReleases))
                     }
