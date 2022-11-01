@@ -2,6 +2,9 @@
 
 ## Unreleased changes
 
+- Fix an issue where accounts with scheduled releases would be incorrectly migrated
+  on a protocol update.
+
 ## 5.0.0
 
 - Add support for protocol version 5. This adds the following features:
