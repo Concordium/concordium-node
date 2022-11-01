@@ -376,7 +376,22 @@ class (StaticInformation m, ContractStateOperations m, MonadProtocolVersion m) =
 
   -- |Transfer a scheduled amount from the first address to the second and run
   -- the computation in the modified environment.
-  withScheduledAmount :: IndexedAccount m -> IndexedAccount m -> Amount -> [(Timestamp, Amount)] -> TransactionHash -> m a -> m a
+  --
+  -- Precondition: The list of releases MUST be in ascending order of timestamps, and the total
+  -- of the scheduled releases MUST be equal to the amount being sent.
+  withScheduledAmount :: 
+    -- |Sender address
+    IndexedAccount m ->
+    -- |Receiver address
+    IndexedAccount m ->
+    -- |Amount being sent
+    Amount ->
+    -- |Schedule of releases
+    [(Timestamp, Amount)] ->
+    -- |Hash of transaction
+    TransactionHash ->
+    m a ->
+    m a
 
   -- |Replace encrypted amounts on an account up to (but not including) the
   -- given limit with a new amount.
@@ -584,6 +599,8 @@ addAmountToCS' ai !amnt !cs =
 
 
 -- |Record a list of scheduled releases that has to be pushed into the global map and into the map of the account.
+--
+-- Precondition: The list of releases MUST be in ascending order of timestamps.
 {-# INLINE addScheduledAmountToCS #-}
 addScheduledAmountToCS :: AccountOperations m => IndexedAccount m -> ([(Timestamp, Amount)], TransactionHash) -> ChangeSet m -> m (ChangeSet m)
 addScheduledAmountToCS _ ([], _) cs = return cs

@@ -9,6 +9,7 @@ import Data.List (sortOn)
 import Data.List.NonEmpty (NonEmpty ((:|)))
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as Map
+import Data.Maybe
 import Data.Serialize
 import qualified Data.Vector as Vector
 
@@ -69,7 +70,7 @@ rseNextTimestamp = fst . NE.head . relReleases . rseReleases
 -- |The key used to order release schedule entries. An account has a list of
 -- 'ReleaseScheduleEntry', and they are maintained ordered by this key. The
 -- ordering is first by timestamp, and ties are resolved by the hash of the
--- transaction that generated the 'ReleaseScheduleEntry'.
+-- releases.
 rseSortKey :: ReleaseScheduleEntry -> (Timestamp, Hash.Hash)
 rseSortKey rse = (rseNextTimestamp rse, rseReleasesHash rse)
 
@@ -107,7 +108,7 @@ instance Serialize AccountReleaseSchedule where
     get = do
         relsLength <- getLength
         arsReleases <- replicateM relsLength get
-        let arsTotalLockedAmount = sum [sum (snd <$> relReleases (rseReleases rse))| rse <- arsReleases]
+        let arsTotalLockedAmount = sum [sum (snd <$> relReleases (rseReleases rse)) | rse <- arsReleases]
         return $! AccountReleaseSchedule{..}
 
 newtype AccountReleaseScheduleHashV1 = AccountReleaseScheduleHashV1
@@ -154,7 +155,8 @@ insertEntry entry = ins
 
 -- | Insert a new schedule in the structure.
 --
--- Precondition: The given list of timestamps and amounts MUST NOT be empty.
+-- Precondition: The given list of timestamps and amounts MUST NOT be empty. Moreover, the
+-- timestamps MUST be in ascending order.
 addReleases :: ([(Timestamp, Amount)], TransactionHash) -> AccountReleaseSchedule -> AccountReleaseSchedule
 addReleases (l@(h : t), rseTransactionHash) AccountReleaseSchedule{..} =
     AccountReleaseSchedule (insertEntry entry arsReleases) (arsTotalLockedAmount + sum (snd <$> l))
@@ -177,22 +179,21 @@ unlockAmountsUntil ts ars0 = (relAmt, nextReleaseTimestamp newArs, newArs)
     (!relAmt, !newEntries) = foldr updateEntry (0, staticReleases) elapsedReleases
     newArs = AccountReleaseSchedule newEntries (arsTotalLockedAmount ars0 - relAmt)
 
+-- |Migrate a V0 'ARSV0.AccountReleaseSchedule' to a V1 'ARSV1.AccountReleaseSchedule'.
 fromAccountReleaseScheduleV0 :: ARSV0.AccountReleaseSchedule -> AccountReleaseSchedule
 fromAccountReleaseScheduleV0 ARSV0.AccountReleaseSchedule{..} = AccountReleaseSchedule newReleases _totalLockedUpBalance
   where
-    pendRels = Map.toList _pendingReleases
-    mkEntry i = case _values Vector.! i of
-        Just (r0 : rs, th) ->
-            ReleaseScheduleEntry
-                { rseReleases = rels,
-                  rseReleasesHash = hashReleases rels,
-                  rseTransactionHash = th
-                }
-          where
-            rels = Releases $ fmap (\(ARSV0.Release a b) -> (a, b)) (r0 :| rs)
-        _ -> error "fromAccountReleaseScheduleV0: missing release"
-    mkEntries (_, is) = map mkEntry is
-    newReleases = sortOn rseSortKey $ concatMap mkEntries pendRels
+    pendRels = catMaybes $ Vector.toList _values
+    mkEntry (r0 : rs, th) =
+        ReleaseScheduleEntry
+            { rseReleases = rels,
+              rseReleasesHash = hashReleases rels,
+              rseTransactionHash = th
+            }
+      where
+        rels = Releases $ fmap (\(ARSV0.Release a b) -> (a, b)) (r0 :| rs)
+    mkEntry _ = error "fromAccountReleaseScheduleV0: missing release"
+    newReleases = sortOn rseSortKey $ mkEntry <$> pendRels
 
 toAccountReleaseSummary :: AccountReleaseSchedule -> AccountReleaseSummary
 toAccountReleaseSummary AccountReleaseSchedule{..} = AccountReleaseSummary{..}
@@ -212,4 +213,4 @@ toAccountReleaseSummary AccountReleaseSchedule{..} = AccountReleaseSummary{..}
 -- This should produce the same result as 'arsTotalLockedAmount', and is provided for testing
 -- purposes.
 sumOfReleases :: AccountReleaseSchedule -> Amount
-sumOfReleases ars = sum [sum (snd <$> relReleases (rseReleases rse))| rse <- arsReleases ars]
+sumOfReleases ars = sum [sum (snd <$> relReleases (rseReleases rse)) | rse <- arsReleases ars]
