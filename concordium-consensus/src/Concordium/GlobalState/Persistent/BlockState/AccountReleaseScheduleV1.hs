@@ -159,7 +159,8 @@ insertEntry entry AccountReleaseSchedule{..} = AccountReleaseSchedule newRelease
 
 -- | Insert a new schedule in the structure.
 --
--- Precondition: The given list of timestamps and amounts MUST NOT be empty.
+-- Precondition: The given list of timestamps and amounts MUST NOT be empty and in ascending order
+-- of timestamps.
 addReleases :: MonadBlobStore m => ([(Timestamp, Amount)], TransactionHash) -> AccountReleaseSchedule -> m AccountReleaseSchedule
 addReleases (rels@((rseNextTimestamp, _) : _), th) ars = do
     let newReleases = Releases th (Vector.fromList rels)

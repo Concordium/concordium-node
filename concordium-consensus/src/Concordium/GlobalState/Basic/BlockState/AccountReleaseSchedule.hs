@@ -106,6 +106,8 @@ emptyAccountReleaseSchedule = case accountVersion @av of
     SAccountV2 -> AccountReleaseSchedule ARSV1.emptyAccountReleaseSchedule
 
 -- | Add a list of amounts to this @AccountReleaseSchedule@.
+--
+-- Precondition: The list of amounts MUST be non-empty and in ascending order of timestamps.
 addReleases ::
     forall av.
     (IsAccountVersion av) =>

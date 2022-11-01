@@ -196,7 +196,8 @@ instance HashableTo AccountReleaseScheduleHashV0 AccountReleaseSchedule where
 emptyAccountReleaseSchedule :: AccountReleaseSchedule
 emptyAccountReleaseSchedule = AccountReleaseSchedule Vector.empty Map.empty 0
 
--- | Add a list of amounts to this @AccountReleaseSchedule@.
+-- | Add a list of amounts to this @AccountReleaseSchedule@. The list must be non-empty an in
+-- ascending order of releases.
 addReleases :: ([(Timestamp, Amount)], TransactionHash) -> AccountReleaseSchedule -> AccountReleaseSchedule
 addReleases (l, txh) ars =
   let newIdx = Vector.length $ _values ars

@@ -156,7 +156,7 @@ insertEntry entry = ins
 -- | Insert a new schedule in the structure.
 --
 -- Precondition: The given list of timestamps and amounts MUST NOT be empty. Moreover, the
--- timestamps MUST be increasing.
+-- timestamps MUST be in ascending order.
 addReleases :: ([(Timestamp, Amount)], TransactionHash) -> AccountReleaseSchedule -> AccountReleaseSchedule
 addReleases (l@(h : t), rseTransactionHash) AccountReleaseSchedule{..} =
     AccountReleaseSchedule (insertEntry entry arsReleases) (arsTotalLockedAmount + sum (snd <$> l))

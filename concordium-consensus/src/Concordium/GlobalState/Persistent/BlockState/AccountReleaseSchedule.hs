@@ -212,7 +212,8 @@ isEmptyAccountReleaseSchedule = Map.null . _arsPrioQueue
 
 -- | Insert a new schedule in the structure.
 --
--- Precondition: The given list of timestamps and amounts MUST NOT be empty.
+-- Precondition: The given list of timestamps and amounts MUST NOT be empty, and be in ascending
+-- order of timestamps.
 addReleases :: MonadBlobStore m => ([(Timestamp, Amount)], TransactionHash) -> AccountReleaseSchedule -> m AccountReleaseSchedule
 addReleases (l, txh) ars = do
   -- get the index that will be used with this new item
