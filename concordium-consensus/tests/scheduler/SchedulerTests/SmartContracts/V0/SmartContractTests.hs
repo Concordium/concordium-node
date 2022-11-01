@@ -21,7 +21,7 @@
 
   If any of these files are modified they should be compiled to a `.wasm` file using `wat2wasm` before the tests are run.
 -}
-module SchedulerTests.SmartContractTests where
+module SchedulerTests.SmartContracts.V0.SmartContractTests where
 
 import Concordium.Crypto.DummyData
 import Concordium.GlobalState.Basic.BlockState
