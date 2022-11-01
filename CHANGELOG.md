@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+## 5.0.1
+
 - Fix an issue where accounts with scheduled releases would be incorrectly migrated
   on a protocol update.
 
