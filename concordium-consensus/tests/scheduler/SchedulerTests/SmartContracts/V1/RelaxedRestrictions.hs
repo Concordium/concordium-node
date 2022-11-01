@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE TypeApplications #-}
-{-| This module tests the relaxed smart contract restrictions introduced in P5.
+{-| This module tests the relaxed smart contract restrictions introduced in P5 for V1 contracts.
     The old and new limits are checked, in P4 and P5, respectively.
     The limit changes in P5 are:
       - Parameter size limit: 1kb -> 65kb

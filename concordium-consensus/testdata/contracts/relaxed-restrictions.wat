@@ -1,4 +1,4 @@
-;; Test for the relaxation of restrictions on the parameter size, return value size, and number of logs.
+;; Testing the relaxed restrictions wrt. parameter size and number of logs introduced with protocol version 5.
 ;;
 ;; The two main functions are "relax.param" and "relax.logs". Each of which has comments
 ;; above it explaining what it does.

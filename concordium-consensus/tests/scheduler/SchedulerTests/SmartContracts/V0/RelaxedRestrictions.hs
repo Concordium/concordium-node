@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE TypeApplications #-}
-{-| This module tests the relaxed smart contract restrictions introduced in P5.
+{-| This module tests the relaxed smart contract restrictions introduced in P5 for V0 contracts.
     The old and new limits are checked, in P4 and P5, respectively.
     The limit changes in P5 are:
       - Parameter size limit: 1kb -> 65kb
@@ -261,7 +261,7 @@ checkSuccess _ _ = return ()
 
 tests :: Spec
 tests = do
-  describe "V1: Relax restrictions. Test in PV4." $
+  describe "V0: Relax restrictions. Test in PV4." $
     mkSpecs testCasesPV4
-  describe "V1: Relax restrictions. Test in PV5." $
+  describe "V0: Relax restrictions. Test in PV5." $
     mkSpecs testCasesPV5
