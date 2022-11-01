@@ -53,8 +53,8 @@ pipeline {
         }
         stage('Build debian package') {
             environment {
-                EXTERNAL_UID = "${sh(script: 'id -u', returnStdout: true)}"
-                EXTERNAL_GID = "${sh(script: 'id -g', returnStdout: true)}"
+                EXTERNAL_UID = "${sh(script: 'id -u', returnStdout: true).trim()}"
+                EXTERNAL_GID = "${sh(script: 'id -g', returnStdout: true).trim()}"
             }
             steps {
                sh '''\
