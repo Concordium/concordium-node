@@ -1,3 +1,4 @@
+{-# LANGUAGE TypeApplications #-}
 {-| This module provides a way to invoke contract entrypoints directly, without
 going through a transaction and the scheduler.
 
@@ -102,7 +103,16 @@ invokeContract :: forall m . (MonadProtocolVersion m, BS.BlockStateQuery m)
     -> ChainMetadata -- ^Chain metadata corresponding to the block state.
     -> BlockState m -- ^The block state in which to invoke the contract.
     -> m InvokeContractResult
-invokeContract ContractContext{..} cm bs = do
+invokeContract ContractContext{..} cm bs
+    -- check that the parameter being used conforms to the limitations of the
+    -- protocol version of the block that the query is being invoked in.
+    | Wasm.parameterLen ccParameter > fromIntegral (Wasm.maxParameterLen (protocolVersion @(MPV m))) =
+        return Failure{
+           rcrReason = SerializationFailure,
+           rcrReturnValue = Nothing,
+           rcrUsedEnergy = 0
+           }
+    | otherwise = do
   -- construct an invoker. Since execution of a contract might depend on this
   -- it is necessary to provide some value. However since many contract entrypoints will
   -- not depend on this it is useful to default to a dummy value if the value is not provided.
