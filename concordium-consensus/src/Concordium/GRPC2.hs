@@ -1157,17 +1157,19 @@ convertAccountTransaction ty cost sender result = case ty of
                 Right . Proto.make $ ProtoFields.bakerRemoved .= v
             TTUpdateBakerStake -> mkSuccess <$> do
                 v <- case events of
-                    [] -> Right Proto.defMessage
-                    [BakerStakeIncreased{..}] -> Right . Proto.make $ do
+                    [] -> Right Nothing
+                    [BakerStakeIncreased{..}] -> Right . Just . Proto.make $ do
                         ProtoFields.bakerId .= toProto ebsiBakerId
                         ProtoFields.newStake .= toProto ebsiNewStake
                         ProtoFields.increased .= True
-                    [BakerStakeDecreased{..}] -> Right . Proto.make $ do
+                    [BakerStakeDecreased{..}] -> Right . Just . Proto.make $ do
                         ProtoFields.bakerId .= toProto ebsiBakerId
                         ProtoFields.newStake .= toProto ebsiNewStake
                         ProtoFields.increased .= False
                     _ -> Left CEInvalidTransactionResult
-                Right . Proto.make $ ProtoFields.bakerStakeUpdated . ProtoFields.update .= v
+                case v of
+                  Nothing -> Right . Proto.make $ ProtoFields.bakerStakeUpdated .= Proto.defMessage
+                  Just val -> Right . Proto.make $ ProtoFields.bakerStakeUpdated . ProtoFields.update .= val
             TTUpdateBakerRestakeEarnings -> mkSuccess <$> do
                 v <- case events of
                     [BakerSetRestakeEarnings{..}] -> Right $ Proto.make $ do

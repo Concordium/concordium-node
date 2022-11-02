@@ -2,6 +2,12 @@
 
 ## Unreleased changes
 
+## 5.0.2
+
+- Fix an issue in the node GRPC V2 API where a baker transaction was encoded
+  in an unintended way.
+- Enforce parameter limits in `InvokeContract` endpoint.
+
 ## 5.0.1
 
 - Fix an issue where accounts with scheduled releases would be incorrectly migrated
