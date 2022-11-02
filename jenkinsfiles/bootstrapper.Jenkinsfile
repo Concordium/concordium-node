@@ -17,8 +17,9 @@ pipeline {
                     fi
                 '''
             )}""".trim()
-        BUILD_FILE = "database-exporter_${TAG}.deb"
+        BUILD_FILE = "p2p-bootstrapper_${TAG}.deb"
         OUTFILE = "s3://distribution.concordium.software/tools/linux/${BUILD_FILE}"
+        STATIC_BINARIES_IMAGE_TAG = "${BUILD_TAG}"
     }
     stages {
         stage('Precheck') {
@@ -42,7 +43,15 @@ pipeline {
                 '''.stripIndent()
             }
         }
-        stage('build') {
+        stage('Build static-node-binaries') {
+            environment {
+                STATIC_LIBRARIES_IMAGE_TAG = "latest"
+            }
+            steps {
+                sh './scripts/static-binaries/build-static-binaries.sh'
+            }
+        }
+        stage('Build debian package') {
             environment {
                 EXTERNAL_UID = "${sh(script: 'id -u', returnStdout: true).trim()}"
                 EXTERNAL_GID = "${sh(script: 'id -g', returnStdout: true).trim()}"
@@ -52,16 +61,16 @@ pipeline {
                    docker build \
                         --build-arg ubuntu_version="${UBUNTU_VERSION}" \
                         --build-arg version="${TAG}" \
-                        --build-arg ghc_version="${GHC_VERSION}" \
+                        --build-arg static_binaries_image_tag="${STATIC_BINARIES_IMAGE_TAG}" \
                         --label ubuntu_version="${UBUNTU_VERSION}" \
                         --label version="${TAG}" \
-                        --label ghc_version="${GHC_VERSION}" \
-                        -f "scripts/db-exporter/Dockerfile" \
+                        --label static_binaries_image_tag="${STATIC_BINARIES_IMAGE_TAG}" \
+                        -f "scripts/bootstrapper/Dockerfile" \
                         -t build-deb:${BUILD_TAG} \
                         --no-cache \
                         .
                '''
-               sh 'docker run -v "${OUT_DIR}":/out build-deb:${BUILD_TAG}'
+               sh 'docker run --env EXTERNAL_UID --env EXTERNAL_GID -v "${OUT_DIR}":/out build-deb:${BUILD_TAG}'
             }
         }
         stage('push') {
