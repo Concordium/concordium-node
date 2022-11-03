@@ -795,7 +795,7 @@ getStake ::
     m (AccountStake av)
 getStake acc = do
     let ed = enduringData acc
-    persistentToAccountStake (paedStake ed) (accountAmount acc)
+    persistentToAccountStake (paedStake ed) (accountStakedAmount acc)
 
 -- |Determine if an account has stake as a baker or delegator.
 hasStake :: PersistentAccount av -> Bool
