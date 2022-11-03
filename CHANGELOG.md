@@ -2,6 +2,14 @@
 
 ## Unreleased changes
 
+## 5.0.3
+
+- Fix P4->P5 state migration issues.
+  - Delegators were not correctly copied over, references were retained to the
+    P4 database.
+  - Account stake was incorrectly recreated, all account balance was staked.
+  - Next payday was incorrectly migrated.
+
 ## 5.0.2
 
 - Fix an issue in the node GRPC V2 API where a baker transaction was encoded

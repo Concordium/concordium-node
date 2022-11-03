@@ -2,9 +2,9 @@
 <!-- When updating the product version, the Product Id should be refreshed, otherwise it will not be
     possible to upgrade an existing installation.
 -->
-<?define VersionNumber="5.0.2" ?>
+<?define VersionNumber="5.0.3" ?>
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi" xmlns:Util="http://schemas.microsoft.com/wix/UtilExtension">
-    <Product Name="Concordium Node" Manufacturer="Concordium Software" Id="fb352d99-eae3-49ad-a09e-b0748df0154a" UpgradeCode="297295b4-c716-4d33-8170-0f6136663bfd" Language="1033" Codepage="1252" Version="$(var.VersionNumber)">
+    <Product Name="Concordium Node" Manufacturer="Concordium Software" Id="e4567cc2-9bc2-4e44-a0a2-91ada9f07a7c" UpgradeCode="297295b4-c716-4d33-8170-0f6136663bfd" Language="1033" Codepage="1252" Version="$(var.VersionNumber)">
         <Package Id="*" Keywords="Concordium Installer" Description="Concordium Node $(var.VersionNumber) Installer" Manufacturer="Concordium Software" InstallerVersion="500" Languages="1033" Compressed="yes" InstallScope="perMachine" />
         <MajorUpgrade Schedule="afterInstallValidate" DowngradeErrorMessage="The currently-installed version of [ProductName] is newer than the version you are trying to install. The installation cannot continue. If you wish to install this version, please remove the newer version first." />
         <Media Id="1" Cabinet="Node.cab" EmbedCab="yes" />
