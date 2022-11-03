@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -347,7 +348,9 @@ data BlockRewardDetails (av :: AccountVersion) where
     BlockRewardDetailsV0 :: !HashedEpochBlocks -> BlockRewardDetails 'AccountV0
     BlockRewardDetailsV1 :: (AVSupportsDelegation av) => !(HashedBufferedRef' Rewards.PoolRewardsHash PoolRewards) -> BlockRewardDetails av
 
-migrateBlockRewardDetails ::
+-- |Migrate the block reward details.
+-- When migrating to a 'P4' or later, this sets the 'nextPaydayEpoch' to the reward period length.
+migrateBlockRewardDetails :: forall t m oldpv pv.
     (
       MonadBlobStore (t m)
     , MonadTrans t
@@ -361,9 +364,13 @@ migrateBlockRewardDetails ::
     TimeParameters (ChainParametersVersionFor pv) ->
     BlockRewardDetails (AccountVersionFor oldpv) ->
     t m (BlockRewardDetails (AccountVersionFor pv))
-migrateBlockRewardDetails StateMigrationParametersTrivial _ _ _ = \case
+migrateBlockRewardDetails StateMigrationParametersTrivial _ _ tp = \case
     (BlockRewardDetailsV0 heb) -> BlockRewardDetailsV0 <$> migrateHashedEpochBlocks heb
-    (BlockRewardDetailsV1 hbr) -> BlockRewardDetailsV1 <$> migrateHashedBufferedRefKeepHash hbr
+    (BlockRewardDetailsV1 hbr) -> case tp of
+        TimeParametersV1{..} -> 
+            BlockRewardDetailsV1
+                <$> migrateHashedBufferedRef (migratePoolRewards (rewardPeriodEpochs _tpRewardPeriodLength)) hbr
+        TimeParametersV0{} -> case protocolVersion @pv of
 migrateBlockRewardDetails StateMigrationParametersP1P2 _ _ _ = \case
     (BlockRewardDetailsV0 heb) -> BlockRewardDetailsV0 <$> migrateHashedEpochBlocks heb
 migrateBlockRewardDetails StateMigrationParametersP2P3 _ _ _ = \case
@@ -373,8 +380,10 @@ migrateBlockRewardDetails (StateMigrationParametersP3ToP4 _) curBakers nextBaker
       blockCounts <- bakersFromEpochBlocks (hebBlocks heb)
       (!newRef, _) <- refFlush =<< refMake =<< migratePoolRewardsP1 curBakers nextBakers blockCounts (rewardPeriodEpochs _tpRewardPeriodLength) _tpMintPerPayday
       return (BlockRewardDetailsV1 newRef)
-migrateBlockRewardDetails StateMigrationParametersP4ToP5{} _ _ _ = \case
-    (BlockRewardDetailsV1 hbr) -> BlockRewardDetailsV1 <$> migrateHashedBufferedRef migratePoolRewards hbr
+migrateBlockRewardDetails StateMigrationParametersP4ToP5{} _ _ TimeParametersV1{..} = \case
+    (BlockRewardDetailsV1 hbr) ->
+        BlockRewardDetailsV1
+            <$> migrateHashedBufferedRef (migratePoolRewards (rewardPeriodEpochs _tpRewardPeriodLength)) hbr
 
 instance MonadBlobStore m => MHashableTo m (Rewards.BlockRewardDetailsHash av) (BlockRewardDetails av) where
     getHashM (BlockRewardDetailsV0 heb) = return $ Rewards.BlockRewardDetailsHashV0 (getHash heb)
