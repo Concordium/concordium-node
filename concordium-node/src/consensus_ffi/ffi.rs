@@ -247,6 +247,16 @@ pub struct consensus_runner {
     private: [u8; 0],
 }
 
+/// An opaque reference to an
+/// executable block.
+/// The value behind the reference i.e. the  "executable block"
+/// is created in the consensus module but its owned here on the rust side.
+/// Hence the reference must be freed after here from the rust side.
+#[repr(C)]
+pub struct executable_block {
+    private: [u8; 0],
+}
+
 type LogCallback = extern "C" fn(c_char, c_char, *const u8);
 type BroadcastCallback = extern "C" fn(i64, u32, *const u8, i64);
 type CatchUpStatusCallback = extern "C" fn(u32, *const u8, i64);
@@ -367,12 +377,26 @@ extern "C" {
     ) -> i64;
     #[allow(improper_ctypes)]
     pub fn startBaker(consensus: *mut consensus_runner);
+    #[allow(improper_ctypes)]
     pub fn receiveBlock(
         consensus: *mut consensus_runner,
         genesis_index: u32,
         block_data: *const u8,
         data_length: i64,
+        // todo doc
+        ptr_executable_block: *mut *mut executable_block,
     ) -> i64;
+    #[allow(improper_ctypes)]
+    pub fn executeBlock(
+        consensus: *mut consensus_runner,
+        // The genesis index so the consensus module can
+        // use the correct 'MultiversionRunner'.
+        genesis_index: u32,
+        // todo doc
+        ptr_executable_block: *mut *mut executable_block,
+    ) -> i64;
+    // todo doc
+    pub fn freeExecutableBlock(block: *mut *mut executable_block);
     pub fn receiveFinalizationMessage(
         consensus: *mut consensus_runner,
         genesis_index: u32,
@@ -1437,8 +1461,40 @@ pub fn get_consensus_ptr(
 }
 
 impl ConsensusContainer {
-    pub fn send_block(&self, genesis_index: u32, block: &[u8]) -> ConsensusFfiResponse {
-        wrap_send_data_to_c!(self, genesis_index, block, receiveBlock)
+    pub fn receive_block(
+        &self,
+        genesis_index: u32,
+        block: &[u8],
+    ) -> (ConsensusFfiResponse, *mut *mut executable_block) {
+        let consensus = self.consensus.load(Ordering::SeqCst);
+
+        let ptr_block_to_execute = &mut std::ptr::null_mut();
+        let ptr_block = block.as_ptr();
+        let len = block.len();
+        let result = unsafe {
+            receiveBlock(consensus, genesis_index, ptr_block, len as i64, ptr_block_to_execute)
+        };
+
+        (
+            ConsensusFfiResponse::try_from(result)
+                .unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code)),
+            ptr_block_to_execute,
+        )
+    }
+
+    pub fn execute_block(
+        &self,
+        genesis_index: u32,
+        executable_block: *mut *mut executable_block,
+    ) -> ConsensusFfiResponse {
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let result = unsafe {
+            let result = executeBlock(consensus, genesis_index, executable_block);
+            freeExecutableBlock(executable_block);
+            result
+        };
+        ConsensusFfiResponse::try_from(result)
+            .unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code))
     }
 
     pub fn send_finalization(&self, genesis_index: u32, msg: &[u8]) -> ConsensusFfiResponse {

@@ -531,10 +531,12 @@ instance (
         TreeStateMonad (SkovT pv h c m),
         FinalizationMonad (SkovT pv h c m))
         => SkovMonad (SkovT pv h c m) where
-    {- - INLINE storeBlock - -}
-    storeBlock = doStoreBlock
+    {- - INLINE receiveBlock - -}
+    receiveBlock = doReceiveBlock
+    {- - INLINE doExecuteBlock - -}
+    executeBlock = doExecuteBlock
     {- - INLINE receiveTransaction - -}
-    receiveTransaction tr = doReceiveTransaction tr
+    receiveTransaction = doReceiveTransaction
     {- - INLINE trustedFinalize - -}
     trustedFinalize = doTrustedFinalize
     {- - INLINE handleCatchUpStatus - -}

@@ -271,7 +271,7 @@ pub fn handle_consensus_inbound_msg(
         }
 
         // relay external messages to Consensus
-        let consensus_result = send_msg_to_consensus(node, source, consensus, &request)?;
+        let (consensus_result, _) = send_msg_to_consensus(node, source, consensus, &request)?;
 
         // early blocks should be removed from the deduplication queue
         if consensus_result == ConsensusFfiResponse::BlockTooEarly {
@@ -283,7 +283,8 @@ pub fn handle_consensus_inbound_msg(
         update_peer_states(node, &request, consensus_result);
     } else {
         // relay external messages to Consensus
-        let consensus_result = send_msg_to_consensus(node, source, consensus, &request)?;
+        let (consensus_result, finalizer) =
+            send_msg_to_consensus(node, source, consensus, &request)?;
 
         // adjust the peer state(s) based on the feedback from Consensus
         update_peer_states(node, &request, consensus_result);
@@ -301,9 +302,28 @@ pub fn handle_consensus_inbound_msg(
                 (request.payload, request.variant),
             );
         }
+
+        match finalizer {
+            ConsensusFinalizer::Block((genesis_index, ptr)) => {
+                let _ = consensus.execute_block(genesis_index, ptr);
+            }
+            ConsensusFinalizer::None => (),
+        }
+
+        // todo doc
+        if request.variant == Block {}
     }
 
     Ok(())
+}
+
+/// todo doc
+enum ConsensusFinalizer {
+    /// Nothing to do.
+    None,
+    /// Execute the 'ExecutableBlock' behind the opaque pointer with
+    /// the provided genesis index.
+    Block((u32, *mut *mut ffi::executable_block)),
 }
 
 fn send_msg_to_consensus(
@@ -311,38 +331,51 @@ fn send_msg_to_consensus(
     source_id: RemotePeerId,
     consensus: &ConsensusContainer,
     message: &ConsensusMessage,
-) -> anyhow::Result<ConsensusFfiResponse> {
+) -> anyhow::Result<(ConsensusFfiResponse, ConsensusFinalizer)> {
     let payload = &message.payload[1..]; // non-empty, already checked
 
     let consensus_response = match message.variant {
-        Transaction => consensus.send_transaction(payload).1,
-        _ => {
+        Block => {
             let genesis_index = u32::deserial(&mut Cursor::new(&payload[..4]))?;
-            match message.variant {
-                Block => consensus.send_block(genesis_index, &payload[4..]),
-                FinalizationMessage => consensus.send_finalization(genesis_index, &payload[4..]),
-                FinalizationRecord => {
-                    consensus.send_finalization_record(genesis_index, &payload[4..])
-                }
-                CatchUpStatus => consensus.receive_catch_up_status(
+            let (ffi_response, ptr_executable_block) =
+                consensus.receive_block(genesis_index, &payload[4..]);
+
+            (ffi_response, ConsensusFinalizer::Block((genesis_index, ptr_executable_block)))
+        }
+        FinalizationMessage => {
+            let genesis_index = u32::deserial(&mut Cursor::new(&payload[..4]))?;
+            (consensus.send_finalization(genesis_index, &payload[4..]), ConsensusFinalizer::None)
+        }
+        FinalizationRecord => {
+            let genesis_index = u32::deserial(&mut Cursor::new(&payload[..4]))?;
+            (
+                consensus.send_finalization_record(genesis_index, &payload[4..]),
+                ConsensusFinalizer::None,
+            )
+        }
+        CatchUpStatus => {
+            let genesis_index = u32::deserial(&mut Cursor::new(&payload[..4]))?;
+            (
+                consensus.receive_catch_up_status(
                     genesis_index,
                     &payload[4..],
                     source_id,
                     node.config.catch_up_batch_limit,
                 ),
-                Transaction => unreachable!("Transaction message variant already handled."),
-            }
+                ConsensusFinalizer::None,
+            )
         }
+        Transaction => (consensus.send_transaction(payload).1, ConsensusFinalizer::None),
     };
 
-    if consensus_response.is_acceptable() {
+    if consensus_response.0.is_acceptable() {
         debug!("Processed a {} from {}", message.variant, source_id);
     } else {
         let num_bad_events = node.bad_events.inc_invalid_messages(source_id);
         // we do log some invalid messages to both ease debugging and see problems in
         // normal circumstances
         if num_bad_events < 10 {
-            warn!("Couldn't process a {} due to error code {:?}", message, consensus_response);
+            warn!("Couldn't process a {} due to error code {:?}", message, consensus_response.0);
         }
     }
 

@@ -8,6 +8,8 @@ EXPORTS
  startBaker
  stopBaker
  receiveBlock
+ executeBlock
+ freeExecutableBlock
  receiveFinalizationMessage
  receiveFinalizationRecord
  receiveTransaction

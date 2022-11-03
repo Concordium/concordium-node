@@ -183,7 +183,9 @@ class (SkovQueryMonad m, TimeMonad m, MonadLogger m) => SkovMonad m where
     -- |Store a block in the block table and add it to the tree
     -- if possible. This also checks that the block is not early in the sense that its received
     -- time predates its slot time by more than the early block threshold.
-    storeBlock :: PendingBlock -> m UpdateResult
+    receiveBlock :: PendingBlock -> m UpdateResult
+    -- |todo: doc
+    executeBlock :: ExecutableBlock -> m UpdateResult
     -- |Add a transaction to the transaction table.
     -- This must gracefully handle transactions from other (older) protocol versions.
     receiveTransaction :: BlockItem -> m UpdateResult
@@ -268,6 +270,7 @@ deriving via (MGSTrans (ExceptT e) m) instance SkovQueryMonad m => SkovQueryMona
 
 instance (MonadLogger (t m), MonadTrans t, SkovMonad m) => SkovMonad (MGSTrans t m) where
     storeBlock b = lift $ storeBlock b
+    executeBlock = lift . executeBlock
     receiveTransaction = lift . receiveTransaction
     trustedFinalize = lift . trustedFinalize
     handleCatchUpStatus peerCUS = lift . handleCatchUpStatus peerCUS
@@ -277,6 +280,7 @@ instance (MonadLogger (t m), MonadTrans t, SkovMonad m) => SkovMonad (MGSTrans t
 
     rememberFinalState = lift . rememberFinalState
     {- - INLINE storeBlock - -}
+    {- - INLINE executeBlock - -}
     {- - INLINE receiveTransaction - -}
     {- - INLINE trustedFinalize - -}
     {- - INLINE handleCatchUpStatus - -}
@@ -380,3 +384,4 @@ deriving via SkovQueryMonadT (GlobalStateM pv c r g s m)
                 BlockStateStorage (BlockStateM pv c r g s m),
                 TS.TreeStateMonad (TreeStateBlockStateM pv g c r s m)
                 ) => SkovQueryMonad (GlobalStateM pv c r g s m)
+

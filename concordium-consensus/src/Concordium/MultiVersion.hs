@@ -1016,7 +1016,13 @@ receiveBlock gi blockBS = withLatestExpectedVersion gi $
             Left err -> do
                 logEvent Runner LLDebug err
                 return ResultSerializationFail
-            Right block -> runSkovTransaction vc (storeBlock block)
+            Right block -> runSkovTransaction vc (receiveBlock block)
+
+-- |todo: doc
+executeBlock :: GenesisIndex -> ExecutableBlock -> MVR gsconf finconf UpdateResult
+executeBlock block = withLatestExpectedVersion gi $
+    \(EVersionedConfiguration (vc :: VersionedConfiguration gsconf finconf pv)) -> do
+        runSkovTransaction vc $! executeBlock block
 
 -- |Deserialize and receive a finalization message at a given genesis index.
 receiveFinalizationMessage :: GenesisIndex -> ByteString -> MVR gsconf finconf UpdateResult
