@@ -2,8 +2,9 @@
 
 ## Unreleased changes
 
-## 5.0.4
+## 5.0.5
 
+- Fix bug in persistent state implementation of contract modification.
 - Fix bug in the contract balance query.
 
 ## 5.0.3

@@ -2093,7 +2093,7 @@ doModifyInstance pbs caddr deltaAmnt val newModule = do
                     pinstanceReceiveFuns = newEntryPoints
                     }
                   newHash = Instances.makeInstanceParameterHash (pinstanceAddress newParams') (pinstanceOwner newParams') (pinstanceContractModule newParams') (pinstanceInitName newParams')
-                  newParams = newParams {pinstanceParameterHash = newHash}
+                  newParams = newParams' {pinstanceParameterHash = newHash}
               (newParams,) <$> makeBufferedRef newParams
         upd :: PersistentInstance pv -> m ((), PersistentInstance pv)
         upd (PersistentInstanceV0 oldInst) = case Wasm.getWasmVersion @v of
