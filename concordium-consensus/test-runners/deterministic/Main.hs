@@ -397,8 +397,12 @@ stepConsensus =
                         ssEvents %= addEvent (PEvent (t+ticksPerSlot) (BakerEvent i (EBake (sl+1))))
                     EBlock bb -> do
                         let pb = makePendingBlock bb (posixSecondsToUTCTime (fromIntegral t))
-                        _ <- runBaker t i (storeBlock pb)
-                        return ()
+                        (_, mExecutableBlock) <- runBaker t i (receiveBlock pb)
+                        case mExecutableBlock of
+                            Nothing -> undefined -- todo: this is probably not good enough...
+                            Just executableBlock -> do
+                                _ <- runBaker t i (executeBlock executableBlock)
+                                return ()
                     ETransaction tr -> do
                         _ <- runBaker t i (receiveTransaction tr)
                         return ()
