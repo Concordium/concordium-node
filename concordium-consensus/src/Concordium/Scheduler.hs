@@ -1234,8 +1234,8 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                       Just instanceInfo -> do
                         -- Lookup contract balance.
                         balance <- case instanceInfo of
-                                     InstanceInfoV0 _ -> getCurrentContractAmount Wasm.SV0 istance
-                                     InstanceInfoV1 _ -> getCurrentContractAmount Wasm.SV1 istance
+                                     InstanceInfoV0 ii -> getCurrentContractAmount Wasm.SV0 ii
+                                     InstanceInfoV1 ii -> getCurrentContractAmount Wasm.SV1 ii
                         -- Construct the return value.
                         let returnValue = WasmV1.byteStringToReturnValue $ S.runPut $ do
                              Wasm.putAmountLE balance
