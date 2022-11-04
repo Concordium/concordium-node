@@ -745,21 +745,28 @@ toReceiveResult ResultInsufficientFunds = 30
 -- @ResultInvalid@, @ResultPendingBlock@, @ResultDuplicate@, @ResultStale@,
 -- @ResultConsensusShutDown@, and @ResultInvalidGenesisIndex@.
 -- 'receiveBlock' may invoke the callbacks for new finalization messages.
-receiveBlock :: StablePtr ConsensusRunner -> GenesisIndex -> CString -> Int64 -> IO ReceiveResult
-receiveBlock bptr genIndex msg msgLen = do
+-- todo doc
+receiveBlock :: StablePtr ConsensusRunner -> GenesisIndex -> CString -> Int64 -> Ptr (StablePtr ExecutableBlock) -> IO ReceiveResult
+receiveBlock bptr genIndex msg msgLen ptrPtrExecutableBlock = do
     (ConsensusRunner mvr) <- deRefStablePtr bptr
     mvLog mvr External LLTrace $ "Received block data, size = " ++ show msgLen ++ "."
     blockBS <- BS.packCStringLen (msg, fromIntegral msgLen)
-    toReceiveResult <$> runMVR (MV.receiveBlock genIndex blockBS) mvr
+    (receiveResult, mExecutableBlock) <- runMVR (MV.receiveBlock genIndex blockBS) mvr
+    case mExecutableBlock of
+        Nothing ->  return $! toReceiveResult receiveResult
+        Just executableBlock -> do
+            poke ptrPtrExecutableBlock =<< newStablePtr executableBlock
+            return $! toReceiveResult receiveResult
 
-
+-- |todo doc
 executeBlock :: StablePtr ConsensusRunner -> GenesisIndex -> StablePtr ExecutableBlock -> IO ReceiveResult
-executeBlock bptr genIndex exeBlockPtr = do
+executeBlock bptr genIndex ptrExecutableBlock = do
     (ConsensusRunner mvr) <- deRefStablePtr bptr
-    exeBlock <- deRefStablePtr exeBlockPtr
+    -- Deref the 'StablePtr ExecutableBlock'
+    executableBlock <- deRefStablePtr ptrExecutableBlock
     -- todo: add more context to this log stmt.
     mvLog mvr External LLTrace "Executing block."
-    toReceiveResult <$> runMVR (MV.executeBlock genIndex exeBlock) mvr
+    toReceiveResult <$> runMVR (MV.executeBlock genIndex executableBlock) mvr
 
 
 -- |Handle receipt of a finalization message.
@@ -1418,9 +1425,9 @@ foreign export ccall
 foreign export ccall stopConsensus :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall startBaker :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall stopBaker :: StablePtr ConsensusRunner -> IO ()
-foreign export ccall receiveBlock :: StablePtr ConsensusRunner -> GenesisIndex -> CString -> Int64 -> IO Int64
+foreign export ccall receiveBlock :: StablePtr ConsensusRunner -> GenesisIndex -> CString -> Int64 -> Ptr (StablePtr ExecutableBlock) -> IO Int64
 foreign export ccall executeBlock :: StablePtr ConsensusRunner -> GenesisIndex -> StablePtr ExecutableBlock -> IO Int64
-foreign export ccall freeExecutableBlock :: StablePtr ExecutableBlock
+foreign export ccall freeExecutableBlock :: StablePtr ExecutableBlock -> IO ()
 foreign export ccall receiveFinalizationMessage :: StablePtr ConsensusRunner -> GenesisIndex -> CString -> Int64 -> IO Int64
 foreign export ccall receiveFinalizationRecord :: StablePtr ConsensusRunner -> GenesisIndex -> CString -> Int64 -> IO Int64
 foreign export ccall receiveTransaction :: StablePtr ConsensusRunner -> CString -> Int64 -> Ptr Word8 -> IO Int64
@@ -1479,11 +1486,6 @@ foreign export ccall freeCStr :: CString -> IO ()
 
 foreign export ccall importBlocks :: StablePtr ConsensusRunner -> CString -> Int64 -> IO Int64
 foreign export ccall stopImportingBlocks :: StablePtr ConsensusRunner -> IO ()
-
--- |A type that represents a block ready for execution.
-data ExecutableBlock = ExecutableBlock {
-  
-}
 
 -- |Free the ExecutableBlock such that it can be garbage collected.
 freeExecutableBlock :: StablePtr ExecutableBlock -> IO ()

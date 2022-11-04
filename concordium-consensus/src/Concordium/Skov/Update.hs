@@ -485,50 +485,53 @@ blockArrive block parentP lfBlockP ExecutionResult{..} = do
                 error errMsg
         return blockP
 
--- |Store a block (as received from the network) in the tree.
+-- |Receive a block (as received from the network) in the tree.
 -- This checks for validity of the block, and may add the block
 -- to a pending queue if its prerequisites are not met.
 -- If the block is too early, it is rejected with 'ResultEarlyBlock'.
-doStoreBlock :: (TreeStateMonad m, FinalizationMonad m, SkovMonad m, OnSkov m) => PendingBlock -> m UpdateResult
-{- - INLINE doStoreBlock - -}
-doStoreBlock pb@GB.PendingBlock{pbBlock = BakedBlock{..}, ..} = unlessShutDown $ do
-    threshold <- rpEarlyBlockThreshold <$> getRuntimeParameters
-    slotTime <- getSlotTimestamp (blockSlot pb)
-    -- Check if the block is too early. We check that the threshold is not maxBound also, so that
-    -- by setting the threshold to maxBound we can ensure blocks will never be considered early.
-    -- This can be useful for testing.
-    -- A more general approach might be to check for overflow generally, but this is simple and
-    -- workable.
-    if slotTime > addDuration (utcTimeToTimestamp pbReceiveTime) threshold && threshold /= maxBound then
-        return ResultEarlyBlock
-    else
-        -- Check if the block is already known.
-        getRecentBlockStatus blkHash >>= \case
-            Unknown -> do
-                lfs <- getLastFinalizedSlot
-                -- The block must be later than the last finalized block, otherwise it is already
-                -- dead.
-                if lfs >= blockSlot pb then processDead else do
-                    -- Get the parent if available
-                    let parent = blockPointer bbFields
-                    parentStatus <- getRecentBlockStatus parent
-                    -- If the parent is unknown, try to check the signing key and block proof based on the last finalized block
-                    case parentStatus of
-                        Unknown -> processPending slotTime Nothing
-                        RecentBlock (BlockPending ppb) -> processPending slotTime $ Just $ blockSlot ppb
-                        RecentBlock (BlockAlive parentB) -> processLive slotTime parentB
-                        RecentBlock (BlockFinalized parentB _) -> processLive slotTime parentB
-                        RecentBlock BlockDead -> processDead
-                        OldFinalized -> processDead
-            _ -> return ResultDuplicate
+-- todo doc
+doReceiveBlock :: (TreeStateMonad m, FinalizationMonad m, SkovMonad m, OnSkov m) => PendingBlock -> m (UpdateResult, Maybe ExecutableBlock)
+{- - INLINE doReceiveBlock - -}
+doReceiveBlock pb@GB.PendingBlock{pbBlock = BakedBlock{..}, ..} = isShutDown >>= \case
+    True -> return (ResultConsensusShutDown, Nothing)
+    False -> do 
+        threshold <- rpEarlyBlockThreshold <$> getRuntimeParameters
+        slotTime <- getSlotTimestamp (blockSlot pb)
+        -- Check if the block is too early. We check that the threshold is not maxBound also, so that
+        -- by setting the threshold to maxBound we can ensure blocks will never be considered early.
+        -- This can be useful for testing.
+        -- A more general approach might be to check for overflow generally, but this is simple and
+        -- workable.
+        if slotTime > addDuration (utcTimeToTimestamp pbReceiveTime) threshold && threshold /= maxBound then
+            return (ResultEarlyBlock, Nothing)
+        else
+            -- Check if the block is already known.
+            getRecentBlockStatus blkHash >>= \case
+                Unknown -> do
+                    lfs <- getLastFinalizedSlot
+                    -- The block must be later than the last finalized block, otherwise it is already
+                    -- dead.
+                    if lfs >= blockSlot pb then processDead else do
+                        -- Get the parent if available
+                        let parent = blockPointer bbFields
+                        parentStatus <- getRecentBlockStatus parent
+                        -- If the parent is unknown, try to check the signing key and block proof based on the last finalized block
+                        case parentStatus of
+                            Unknown -> processPending slotTime Nothing
+                            RecentBlock (BlockPending ppb) -> processPending slotTime $ Just $ blockSlot ppb
+                            RecentBlock (BlockAlive parentB) -> return (ResultSuccess, Nothing) -- processLive slotTime parentB fix
+                            RecentBlock (BlockFinalized parentB _) -> return (ResultSuccess, Nothing) -- processLive slotTime parentB fix
+                            RecentBlock BlockDead -> processDead
+                            OldFinalized -> processDead
+                _ -> return (ResultDuplicate, Nothing)
     where
         checkClaimedSignature a = if verifyBlockSignature pb then a else do
             logEvent Skov LLWarning "Dropping block where signature did not match claimed key or blockhash."
-            return ResultInvalid
+            return (ResultInvalid, Nothing)
         blkHash = getHash pb
         processDead = do
             blockArriveDead blkHash
-            return ResultStale
+            return (ResultStale, Nothing)
         processPending slotTime maybeParentBlockSlot = do
                 -- Check:
                 -- - Claimed baker key is valid in committee
@@ -542,7 +545,7 @@ doStoreBlock pb@GB.PendingBlock{pbBlock = BakedBlock{..}, ..} = unlessShutDown $
                         -- We execute the block transactions in the context of the last finalized block
                         processBlockTransactions slotTime lastFinBS >>= \case
                             Nothing -> processDead
-                            Just (newBlock, _) -> addBlockAsPending newBlock
+                            Just (newBlock, _) -> addBlockAsPending newBlock >>= \b -> return (b, Nothing)
                 getDefiniteSlotBakers gd lastFinBS (blockSlot pb) >>= \case
                     Just bakers -> case lotteryBaker bakers (blockBaker pb) of
                         Just (bkrInfo, bkrPower)
@@ -582,7 +585,8 @@ doStoreBlock pb@GB.PendingBlock{pbBlock = BakedBlock{..}, ..} = unlessShutDown $
                 processBlockTransactions slotTime bs >>= \case
                     Nothing -> processDead
                     Just (newBlock, verificationResults) ->
-                        addBlockWithLiveParent newBlock verificationResults parentP
+                        -- addBlockWithLiveParent newBlock verificationResults parentP fix
+                        return (ResultSuccess, Nothing)
         processBlockTransactions slotTime contextState = do
                 txListWithVerRes <- sequence <$> forM (blockTransactions pb)
                     (\tr -> fst <$> doReceiveTransactionInternal (TV.Block contextState) tr slotTime (blockSlot pb))
@@ -591,6 +595,14 @@ doStoreBlock pb@GB.PendingBlock{pbBlock = BakedBlock{..}, ..} = unlessShutDown $
                         let block1 = GB.PendingBlock{pbBlock = BakedBlock{bbTransactions = newTransactions, ..}, ..}
                         updateReceiveStatistics block1
                         return (block1, verificationResults)
+
+-- |Execute an 'ExecutableBlock'.
+-- Before adding the block to the tree we verify the transactions.
+-- Block proofs, baker signatures etc. has already been carried out via 'doReceiveBlock'.
+-- todo make doc nicer
+doExecuteBlock :: ExecutableBlock -> m UpdateResult
+{- - INLINE doExecuteBlock - -}
+doExecuteBlock block = undefined
         
 
 -- |Add a transaction to the transaction table.

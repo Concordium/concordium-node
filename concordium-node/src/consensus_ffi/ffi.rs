@@ -384,7 +384,7 @@ extern "C" {
         block_data: *const u8,
         data_length: i64,
         // todo doc
-        ptr_executable_block: *mut *mut executable_block,
+        executable_block_ptr_ptr: *mut *mut executable_block,
     ) -> i64;
     #[allow(improper_ctypes)]
     pub fn executeBlock(
@@ -393,10 +393,10 @@ extern "C" {
         // use the correct 'MultiversionRunner'.
         genesis_index: u32,
         // todo doc
-        ptr_executable_block: *mut *mut executable_block,
+        ptr_executable_block: *mut executable_block,
     ) -> i64;
     // todo doc
-    pub fn freeExecutableBlock(block: *mut *mut executable_block);
+    pub fn freeExecutableBlock(block: *mut executable_block);
     pub fn receiveFinalizationMessage(
         consensus: *mut consensus_runner,
         genesis_index: u32,
@@ -1465,14 +1465,15 @@ impl ConsensusContainer {
         &self,
         genesis_index: u32,
         block: &[u8],
-    ) -> (ConsensusFfiResponse, *mut *mut executable_block) {
+    ) -> (ConsensusFfiResponse, *mut executable_block) {
         let consensus = self.consensus.load(Ordering::SeqCst);
 
-        let ptr_block_to_execute = &mut std::ptr::null_mut();
+        let ptr_block_to_execute = std::ptr::null_mut();
+        let ptr_ptr_block_to_execute = &mut ptr_block_to_execute;
         let ptr_block = block.as_ptr();
         let len = block.len();
         let result = unsafe {
-            receiveBlock(consensus, genesis_index, ptr_block, len as i64, ptr_block_to_execute)
+            receiveBlock(consensus, genesis_index, ptr_block, len as i64, ptr_ptr_block_to_execute)
         };
 
         (
@@ -1485,7 +1486,7 @@ impl ConsensusContainer {
     pub fn execute_block(
         &self,
         genesis_index: u32,
-        executable_block: *mut *mut executable_block,
+        executable_block: *mut executable_block,
     ) -> ConsensusFfiResponse {
         let consensus = self.consensus.load(Ordering::SeqCst);
         let result = unsafe {

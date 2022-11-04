@@ -179,11 +179,18 @@ data MessageType
     | MessageCatchUpStatus
     deriving (Eq, Show)
 
+-- |todo doc this.
+data ExecutableBlock = ExecutableBlock {
+  something :: Int,
+  foobar :: Int
+}
+
 class (SkovQueryMonad m, TimeMonad m, MonadLogger m) => SkovMonad m where
     -- |Store a block in the block table and add it to the tree
     -- if possible. This also checks that the block is not early in the sense that its received
     -- time predates its slot time by more than the early block threshold.
-    receiveBlock :: PendingBlock -> m UpdateResult
+    -- todo doc
+    receiveBlock :: PendingBlock -> m (UpdateResult, Maybe ExecutableBlock)
     -- |todo: doc
     executeBlock :: ExecutableBlock -> m UpdateResult
     -- |Add a transaction to the transaction table.
@@ -269,7 +276,7 @@ deriving via (MGSTrans MaybeT m) instance SkovQueryMonad m => SkovQueryMonad (Ma
 deriving via (MGSTrans (ExceptT e) m) instance SkovQueryMonad m => SkovQueryMonad (ExceptT e m)
 
 instance (MonadLogger (t m), MonadTrans t, SkovMonad m) => SkovMonad (MGSTrans t m) where
-    storeBlock b = lift $ storeBlock b
+    receiveBlock b = lift $ receiveBlock b
     executeBlock = lift . executeBlock
     receiveTransaction = lift . receiveTransaction
     trustedFinalize = lift . trustedFinalize
@@ -279,7 +286,7 @@ instance (MonadLogger (t m), MonadTrans t, SkovMonad m) => SkovMonad (MGSTrans t
     purgeTransactions = lift purgeTransactions
 
     rememberFinalState = lift . rememberFinalState
-    {- - INLINE storeBlock - -}
+    {- - INLINE receiveBlock - -}
     {- - INLINE executeBlock - -}
     {- - INLINE receiveTransaction - -}
     {- - INLINE trustedFinalize - -}
