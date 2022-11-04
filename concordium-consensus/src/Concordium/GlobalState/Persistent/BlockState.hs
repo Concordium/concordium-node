@@ -2077,7 +2077,7 @@ doModifyInstance :: forall pv m v . (SupportsPersistentState pv m, Wasm.IsWasmVe
 doModifyInstance pbs caddr deltaAmnt val newModule = do
         bsp <- loadPBS pbs
         -- Update the instance
-        Instances.updateContractInstance upd caddr (bspInstances bsp) >>= \case
+        Instances.updateContractInstance (upd bsp) caddr (bspInstances bsp) >>= \case
             Nothing -> error "Invalid contract address"
             Just (_, insts) ->
                 storePBS pbs bsp{bspInstances = insts}
@@ -2095,8 +2095,8 @@ doModifyInstance pbs caddr deltaAmnt val newModule = do
                   newHash = Instances.makeInstanceParameterHash (pinstanceAddress newParams') (pinstanceOwner newParams') (pinstanceContractModule newParams') (pinstanceInitName newParams')
                   newParams = newParams' {pinstanceParameterHash = newHash}
               (newParams,) <$> makeBufferedRef newParams
-        upd :: PersistentInstance pv -> m ((), PersistentInstance pv)
-        upd (PersistentInstanceV0 oldInst) = case Wasm.getWasmVersion @v of
+        upd :: BlockStatePointers pv -> PersistentInstance pv -> m ((), PersistentInstance pv)
+        upd _ (PersistentInstanceV0 oldInst) = case Wasm.getWasmVersion @v of
             Wasm.SV0 -> do
               (piParams, newParamsRef) <- makeParams (pinstanceParameters oldInst)
               if deltaAmnt == 0 then
@@ -2127,7 +2127,7 @@ doModifyInstance pbs caddr deltaAmnt val newModule = do
                                               pinstanceAmount = applyAmountDelta deltaAmnt (pinstanceAmount oldInst),
                                               pinstanceModel = newModel})
             Wasm.SV1 -> error "Expected instance version V0, got V1."
-        upd (PersistentInstanceV1 oldInst) = case Wasm.getWasmVersion @v of
+        upd bsp (PersistentInstanceV1 oldInst) = case Wasm.getWasmVersion @v of
             Wasm.SV0 -> error "Expected V1 contract instance, got V0."
             Wasm.SV1 -> do
                 (piParams, newParamsRef) <- makeParams (pinstanceParameters oldInst)
@@ -2135,23 +2135,38 @@ doModifyInstance pbs caddr deltaAmnt val newModule = do
                     case val of
                         Nothing -> return ((), PersistentInstanceV1 oldInst {pinstanceParameters = newParamsRef})
                         Just newVal -> do
+                              modRef <- case newModule of
+                                Nothing -> return (pinstanceModuleInterface oldInst)
+                                Just (nm, _) -> do
+                                   mods <- refLoad (bspModules bsp)
+                                   fromMaybe (error "Cannot upgrade to a module that does not exist.") <$>
+                                             (Modules.getModuleReference (GSWasm.miModuleRef nm) mods)
                               (csHash, newModel) <- freezeContractState newVal
                               rehashV1
                                 (Just csHash)
                                 (pinstanceParameterHash piParams)
                                 (oldInst {pinstanceParameters = newParamsRef,
-                                          pinstanceModel = newModel})
+                                          pinstanceModel = newModel,
+                                          pinstanceModuleInterface = modRef
+})
                 else
                     case val of
                         Nothing -> rehashV1 Nothing (pinstanceParameterHash piParams) $ oldInst {pinstanceParameters = newParamsRef, pinstanceAmount = applyAmountDelta deltaAmnt (pinstanceAmount oldInst)}
                         Just newVal -> do
+                              modRef <- case newModule of
+                                Nothing -> return (pinstanceModuleInterface oldInst)
+                                Just (nm, _) -> do
+                                   mods <- refLoad (bspModules bsp)
+                                   fromMaybe (error "Cannot upgrade to a module that does not exist.") <$>
+                                             (Modules.getModuleReference (GSWasm.miModuleRef nm) mods)
                               (csHash, newModel) <- freezeContractState newVal
                               rehashV1
                                 (Just csHash)
                                 (pinstanceParameterHash piParams)
                                 oldInst {pinstanceParameters = newParamsRef,
                                          pinstanceAmount = applyAmountDelta deltaAmnt (pinstanceAmount oldInst),
-                                         pinstanceModel = newModel}
+                                         pinstanceModel = newModel,
+                                         pinstanceModuleInterface = modRef }
         rehashV0 (Just csHash) iph inst@PersistentInstanceV {..} = inst {pinstanceHash = Instances.makeInstanceHashV0 iph csHash pinstanceAmount}
         rehashV0 Nothing iph inst@PersistentInstanceV {..} =
             inst {pinstanceHash = Instances.makeInstanceHashV0State iph pinstanceModel pinstanceAmount}
