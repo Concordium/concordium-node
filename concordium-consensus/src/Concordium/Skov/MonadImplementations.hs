@@ -533,7 +533,7 @@ instance (
         => SkovMonad (SkovT pv h c m) where
     {- - INLINE receiveBlock - -}
     receiveBlock = doReceiveBlock
-    {- - INLINE doExecuteBlock - -}
+    {- - INLINE executeBlock - -}
     executeBlock = doExecuteBlock
     {- - INLINE receiveTransaction - -}
     receiveTransaction = doReceiveTransaction
