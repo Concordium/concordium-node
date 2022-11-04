@@ -2,6 +2,10 @@
 
 ## Unreleased changes
 
+## 5.0.4
+
+- Fix bug in the contract balance query.
+
 ## 5.0.3
 
 - Fix P4->P5 state migration issues.
