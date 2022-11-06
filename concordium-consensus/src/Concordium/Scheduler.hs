@@ -1124,7 +1124,17 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                        -- lookup the instance to invoke
                        getCurrentContractInstanceTicking' imcTo >>= \case
                          -- we could not find the instance, return this to the caller and continue
-                         Nothing -> go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.Error (WasmV1.EnvFailure (WasmV1.MissingContract imcTo))) Nothing)
+                         Nothing -> do
+                           -- In protocol version 4 we did not emit the interrupt event in this failing case.
+                           -- That was a mistake which is fixed in P5.
+                           let newEvents =
+                                case demoteProtocolVersion (protocolVersion @(MPV m)) of
+                                    P1 -> events
+                                    P2 -> events
+                                    P3 -> events
+                                    P4 -> events
+                                    P5 -> resumeEvent False:interruptEvent:events
+                           go newEvents =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.Error (WasmV1.EnvFailure (WasmV1.MissingContract imcTo))) Nothing)
                          Just (InstanceInfoV0 targetInstance) -> do
                            -- we are invoking a V0 instance.
                            -- in this case we essentially treat this as a top-level transaction invoking that contract.
@@ -1164,10 +1174,10 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                     newModule <- getModuleInterfaces imuModRef
                     case newModule of
                       -- The module could not be found.
-                      Nothing -> go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.UpgradeInvalidModuleRef imuModRef) Nothing)
+                      Nothing -> go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.UpgradeInvalidModuleRef imuModRef) Nothing)
                       Just newModuleInterface -> case newModuleInterface of
                         -- We do not support upgrades to V0 contracts.
-                        GSWasm.ModuleInterfaceV0 _ -> go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.UpgradeInvalidVersion imuModRef GSWasm.V0) Nothing)
+                        GSWasm.ModuleInterfaceV0 _ -> go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.UpgradeInvalidVersion imuModRef GSWasm.V0) Nothing)
                         GSWasm.ModuleInterfaceV1 newModuleInterfaceAV1 -> do
                            -- Charge for the lookup of the new module.
                            tickEnergy $ Cost.lookupModule $ GSWasm.miModuleSize newModuleInterfaceAV1
@@ -1175,7 +1185,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                            -- The contract must exist in the new module.
                            -- I.e. It must be the case that there exists an init function for the new module that matches the caller.
                            case Map.lookup (instanceInitName iParams) (GSWasm.miExposedReceive newModuleInterfaceAV1) of
-                             Nothing -> go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.UpgradeInvalidContractName imuModRef (instanceInitName iParams)) Nothing)
+                             Nothing -> go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.UpgradeInvalidContractName imuModRef (instanceInitName iParams)) Nothing)
                              Just newReceiveNames ->
                                 -- Now we carry out the upgrade.
                                 -- The upgrade must preserve the following properties:
