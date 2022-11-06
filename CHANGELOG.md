@@ -6,6 +6,7 @@
 
 - Fix bug in persistent state implementation of contract modification.
 - Fix bug in the contract balance query.
+- Do not forget logs emitted by smart contracts.
 
 ## 5.0.3
 
