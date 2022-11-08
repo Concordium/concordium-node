@@ -18,7 +18,9 @@
 -- for the lapsed releases. The list of releases for each entry is also stored as a flattened
 -- array of timestamps and amounts, in ascending order of timestamp. The hash of the releases for
 -- an entry is computed incrementally, but only the final hash is retained. The transaction hash
--- responsible for an entry is recorded, but does not contribute to the hash.
+-- responsible for creating each entry is recorded, but does not contribute to the hash of the
+-- account release schedule; it is maintained for informational purposes, and thus used to
+-- generate the 'AccountReleaseSummary'.
 module Concordium.GlobalState.Persistent.BlockState.AccountReleaseScheduleV1 where
 
 import Control.Monad
