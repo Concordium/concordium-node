@@ -179,20 +179,48 @@ data MessageType
     | MessageCatchUpStatus
     deriving (Eq, Show)
 
--- |todo doc this.
-data ExecutableBlock = ExecutableBlock {
-  something :: Int,
-  foobar :: Int
-}
+-- |A 'VerifiedPendingBlock' returned from initial verification.
+-- That is, the block has passed checks concerning the validity
+-- todo doc.
+-- todo move to Block.hs?
 
-class (SkovQueryMonad m, TimeMonad m, MonadLogger m) => SkovMonad m where
+type VerifiedPendingBlock m = VerifiedPendingBlock' (BlockState m) (BlockPointerType m)
+
+data VerifiedPendingBlock' bst bpt
+      -- |A block awaiting its parent before it can be executed.
+      -- If transaction verification checks out the block will be
+      -- added to the pending blocks table.
+    = VPBAwaiting {
+          vpbaPb :: !PendingBlock,
+          -- ^The block that should be processed.
+          vpbaSlotTime :: !Timestamp,
+          -- ^The block slot timestamp.
+          vpbaTxVerCtx :: !bst
+          -- ^The verification context i.e.,
+          -- the block state of which the transactions should be verified within.   
+      }
+      -- |A block ready for execution.
+      -- I.e. it's parent is either alive or finalized.
+    | VPBExecutable {
+          vpbePb :: !PendingBlock,
+          -- ^The block that should be processed.
+          vpbeSlotTime :: !Timestamp,
+          -- ^The block slot timestamp.
+          vpbeTxVerCtx :: !bst,
+          -- ^The verification context i.e.,
+          -- the block state of which the transactions should be verified within.   
+          vpbeParentBlock :: !bpt
+          -- ^Pointer to the parent block.
+      }
+
+class (SkovQueryMonad m, TimeMonad m, MonadLogger m) => SkovMonad m where  
     -- |Store a block in the block table and add it to the tree
     -- if possible. This also checks that the block is not early in the sense that its received
     -- time predates its slot time by more than the early block threshold.
     -- todo doc
-    receiveBlock :: PendingBlock -> m (UpdateResult, Maybe ExecutableBlock)
+    receiveBlock :: PendingBlock -> m (UpdateResult, Maybe (VerifiedPendingBlock m))
     -- |todo: doc
-    executeBlock :: ExecutableBlock -> m UpdateResult
+    executeBlock :: VerifiedPendingBlock m -> m UpdateResult
     -- |Add a transaction to the transaction table.
     -- This must gracefully handle transactions from other (older) protocol versions.
     receiveTransaction :: BlockItem -> m UpdateResult
@@ -276,7 +304,7 @@ deriving via (MGSTrans MaybeT m) instance SkovQueryMonad m => SkovQueryMonad (Ma
 deriving via (MGSTrans (ExceptT e) m) instance SkovQueryMonad m => SkovQueryMonad (ExceptT e m)
 
 instance (MonadLogger (t m), MonadTrans t, SkovMonad m) => SkovMonad (MGSTrans t m) where
-    receiveBlock b = lift $ receiveBlock b
+    receiveBlock = lift . receiveBlock
     executeBlock = lift . executeBlock
     receiveTransaction = lift . receiveTransaction
     trustedFinalize = lift . trustedFinalize
