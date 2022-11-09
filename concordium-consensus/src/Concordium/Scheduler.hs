@@ -1203,12 +1203,10 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                     Left errCode -> do
                                         go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.Error (WasmV1.EnvFailure errCode)) Nothing)
                                     Right upgradeEvent -> do
-                                        newBalance <- getCurrentContractAmount Wasm.SV1 istance
                                         -- Charge for updating the pointer in the instance to the new module.
                                         tickEnergy Cost.initializeContractInstanceCreateCost
-                                        go (resumeEvent True:upgradeEvent:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False newBalance WasmV1.Success Nothing)
+                                        go (resumeEvent True:upgradeEvent:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance WasmV1.Success Nothing)
                   WasmV1.QueryAccountBalance {..}  -> do
-                    newBalance <- getCurrentContractAmount Wasm.SV1 istance
                     -- Charge for querying balances of an account.
                     tickEnergy Cost.contractInstanceQueryAccountBalanceCost
                     -- Lookup account.
@@ -1216,7 +1214,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                     case maybeAccount of
                       Nothing ->
                         go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False
-                             newBalance (WasmV1.Error $ WasmV1.EnvFailure $ WasmV1.MissingAccount imqabAddress) Nothing)
+                             entryBalance (WasmV1.Error $ WasmV1.EnvFailure $ WasmV1.MissingAccount imqabAddress) Nothing)
                       Just indexedAccount@(_accountIndex, account) -> do
                         -- Lookup account balances.
                         balance <- getCurrentAccountTotalAmount indexedAccount
@@ -1230,9 +1228,8 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                              Wasm.putAmountLE stake
                              Wasm.putAmountLE lockedAmount
                         go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False
-                             newBalance WasmV1.Success (Just returnValue))
+                             entryBalance WasmV1.Success (Just returnValue))
                   WasmV1.QueryContractBalance {..}  -> do
-                    newBalance <- getCurrentContractAmount Wasm.SV1 istance
                     -- Charge for querying the balance of a contract.
                     tickEnergy Cost.contractInstanceQueryContractBalanceCost
                     -- Lookup contract balances.
@@ -1240,7 +1237,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                     case maybeInstanceInfo of
                       Nothing ->
                         go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False
-                             newBalance (WasmV1.Error $ WasmV1.EnvFailure $ WasmV1.MissingContract imqcbAddress) Nothing)
+                             entryBalance (WasmV1.Error $ WasmV1.EnvFailure $ WasmV1.MissingContract imqcbAddress) Nothing)
                       Just instanceInfo -> do
                         -- Lookup contract balance.
                         balance <- case instanceInfo of
@@ -1250,9 +1247,8 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                         let returnValue = WasmV1.byteStringToReturnValue $ S.runPut $ do
                              Wasm.putAmountLE balance
                         go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False
-                             newBalance WasmV1.Success (Just returnValue))
+                             entryBalance WasmV1.Success (Just returnValue))
                   WasmV1.QueryExchangeRates -> do
-                    newBalance <- getCurrentContractAmount Wasm.SV1 istance
                     -- Charge for querying the exchange rate.
                     tickEnergy Cost.contractInstanceQueryExchangeRatesCost
                     -- Lookup exchange rates.
@@ -1262,7 +1258,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                           Wasm.putExchangeRateLE $ currentExchangeRates ^. euroPerEnergy
                           Wasm.putExchangeRateLE $ currentExchangeRates ^. microGTUPerEuro
                     go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False
-                          newBalance WasmV1.Success (Just returnValue))
+                          entryBalance WasmV1.Success (Just returnValue))
 
       -- start contract execution.
       -- transfer the amount from the sender to the contract at the start. This is so that the contract may immediately use it
