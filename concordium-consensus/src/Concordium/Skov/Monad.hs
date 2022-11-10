@@ -42,6 +42,7 @@ import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.Skov.CatchUp.Types
 import qualified Concordium.GlobalState.TreeState as TS
+import qualified Concordium.Scheduler.TreeStateEnvironment as TSEnv
 
 data UpdateResult
     = ResultSuccess
@@ -182,26 +183,9 @@ data MessageType
 -- |A 'VerifiedPendingBlock' returned from initial verification.
 -- That is, the block has passed checks concerning the validity
 -- todo doc.
--- todo move to Block.hs?
-
 type VerifiedPendingBlock m = VerifiedPendingBlock' (BlockState m) (BlockPointerType m)
 
-data VerifiedPendingBlock' bst bpt
-      -- |A block awaiting its parent before it can be executed.
-      -- If transaction verification checks out the block will be
-      -- added to the pending blocks table.
-    = VPBAwaiting {
-          vpbaPb :: !PendingBlock,
-          -- ^The block that should be processed.
-          vpbaSlotTime :: !Timestamp,
-          -- ^The block slot timestamp.
-          vpbaTxVerCtx :: !bst
-          -- ^The verification context i.e.,
-          -- the block state of which the transactions should be verified within.   
-      }
-      -- |A block ready for execution.
-      -- I.e. it's parent is either alive or finalized.
-    | VPBExecutable {
+data VerifiedPendingBlock' bst bpt = VerifiedPendingBlock' {
           vpbePb :: !PendingBlock,
           -- ^The block that should be processed.
           vpbeSlotTime :: !Timestamp,
@@ -209,8 +193,10 @@ data VerifiedPendingBlock' bst bpt
           vpbeTxVerCtx :: !bst,
           -- ^The verification context i.e.,
           -- the block state of which the transactions should be verified within.   
-          vpbeParentBlock :: !bpt
+          vpbeParentBlock :: !bpt,
           -- ^Pointer to the parent block.
+          vpbeFin :: !(Maybe TSEnv.FinalizerInfo)
+          -- ^Finalizer info if it was present.
       }
 
 class (SkovQueryMonad m, TimeMonad m, MonadLogger m) => SkovMonad m where  

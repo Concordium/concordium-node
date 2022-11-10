@@ -323,7 +323,7 @@ enum ConsensusFinalizer {
     None,
     /// Execute the 'ExecutableBlock' behind the opaque pointer with
     /// the provided genesis index.
-    Block((u32, *mut *mut ffi::executable_block)),
+    Block((u32, *mut ffi::executable_block)),
 }
 
 fn send_msg_to_consensus(
@@ -339,8 +339,12 @@ fn send_msg_to_consensus(
             let genesis_index = u32::deserial(&mut Cursor::new(&payload[..4]))?;
             let (ffi_response, ptr_executable_block) =
                 consensus.receive_block(genesis_index, &payload[4..]);
-
-            (ffi_response, ConsensusFinalizer::Block((genesis_index, ptr_executable_block)))
+            // Success indicates that the block is ready for execution.
+            let finalizer = if ffi_response == ConsensusFfiResponse::Success {
+                ConsensusFinalizer::Block((genesis_index, ptr_executable_block))
+            } else {
+                ConsensusFinalizer::None
+            }(ffi_response, finalizer);
         }
         FinalizationMessage => {
             let genesis_index = u32::deserial(&mut Cursor::new(&payload[..4]))?;
