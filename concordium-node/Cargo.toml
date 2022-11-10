@@ -57,7 +57,6 @@ flatbuffers = { version = "2" }
 flatc-rust = { version = "0.2" }
 sha2 = "0.10"
 lazy_static = "^1.2"
-base58check = "^0.1"
 serde = { version = "1.0", features = ["rc"] }
 hex = "0.4"
 rpassword = "5.0"
