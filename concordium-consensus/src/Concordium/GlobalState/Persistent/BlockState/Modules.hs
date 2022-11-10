@@ -12,6 +12,7 @@ module Concordium.GlobalState.Persistent.BlockState.Modules
     ModuleV(..),
     Modules,
     ModuleCache,
+    CachedModule,
     SupportsPersistentModule,
     getModuleInterface,
     PersistentInstrumentedModuleV,

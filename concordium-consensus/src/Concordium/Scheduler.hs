@@ -1184,9 +1184,11 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
 
                            -- The contract must exist in the new module.
                            -- I.e. It must be the case that there exists an init function for the new module that matches the caller.
-                           case Map.lookup (instanceInitName iParams) (GSWasm.miExposedReceive newModuleInterfaceAV1) of
-                             Nothing -> go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.UpgradeInvalidContractName imuModRef (instanceInitName iParams)) Nothing)
-                             Just newReceiveNames ->
+                           case Set.member (instanceInitName iParams) (GSWasm.miExposedInit newModuleInterfaceAV1) of
+                             False -> do
+                                  go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.UpgradeInvalidContractName imuModRef (instanceInitName iParams)) Nothing)
+                             True -> do
+                                let newReceiveNames = fromMaybe Set.empty (Map.lookup (instanceInitName iParams) (GSWasm.miExposedReceive newModuleInterfaceAV1))
                                 -- Now we carry out the upgrade.
                                 -- The upgrade must preserve the following properties:
                                 -- 1. Subsequent operations in the receive function must be executed via the 'old' artifact.
