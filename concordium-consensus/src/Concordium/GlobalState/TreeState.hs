@@ -304,6 +304,15 @@ class (Eq (BlockPointerType m),
     -- The scheduler will need to consult the resulting `VerificationResult` and based on that carry out the correct
     -- verification before executing the transaction.
     addCommitTransaction :: BlockItem -> Context (BlockState m) -> Timestamp -> Slot -> m AddTransactionResult
+    -- |Add a transaction that has already been verified with the supplied verification result.
+    -- This is called for adding transactions that are not already part of a block, so the
+    -- transaction will not become committed to any block.
+    -- By default the transaction is created in the 'Received' state,
+    -- but if the transaction is already in the table the outcomes are retained.
+    -- See documentation of 'AddTransactionResult' for meaning of the return value.
+    -- The time is indicative of the receive time of the transaction. It is used to prioritize transactions
+    -- when constructing a block.
+    addVerifiedTransaction :: BlockItem -> TVer.OkResult -> m AddTransactionResult
     -- |Purge a transaction from the transaction table if its last committed slot
     -- number does not exceed the slot number of the last finalized block.
     -- (A transaction that has been committed to a finalized block should not be purged.)
@@ -426,6 +435,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     finalizeTransactions bh slot = lift . finalizeTransactions bh slot
     commitTransaction slot bh tr = lift . commitTransaction slot bh tr
     addCommitTransaction tr ctx ts slot = lift $ addCommitTransaction tr ctx ts slot
+    addVerifiedTransaction tr vr = lift $ addVerifiedTransaction tr vr
     purgeTransaction = lift . purgeTransaction
     markDeadTransaction bh = lift . markDeadTransaction bh
     lookupTransaction = lift . lookupTransaction
@@ -469,6 +479,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     {-# INLINE finalizeTransactions #-}
     {-# INLINE commitTransaction #-}
     {-# INLINE addCommitTransaction #-}
+    {-# INLINE addVerifiedTransaction #-}
     {-# INLINE purgeTransaction #-}
     {-# INLINE lookupTransaction #-}
     {-# INLINE markDeadTransaction #-}

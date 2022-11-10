@@ -15,6 +15,10 @@ import Concordium.GlobalState.Finalization
 import Concordium.Types
 import Concordium.Types.UpdateQueues (ProtocolUpdateStatus(..))
 import Concordium.Skov.CatchUp.Types
+import Concordium.TimeMonad
+import Concordium.Types.Transactions
+import qualified Concordium.TransactionVerification as TV
+import Concordium.Genesis.Data
 
 doResolveBlock :: TreeStateMonad m => BlockHash -> m (Maybe (BlockPointerType m))
 {- - INLINE doResolveBlock - -}
@@ -120,3 +124,21 @@ leavesBranches = lb ([], [])
           parent <- mapM bpParent n
           let (bs', ls') = List.partition (`elem` parent) s
           lb (ls ++ ls', bs ++ bs') r
+
+-- |Verify a transaction that was received separately from a block.
+-- The return value consists of:
+-- 
+-- * A 'Bool' that is 'True' if the transaction is already in the non-finalized pool.
+--
+-- * The 'TV.VerificationResult' of verifying the transaction.
+doVerifyTransaction :: (TreeStateMonad m, TimeMonad m) => BlockItem -> m (Bool, TV.VerificationResult)
+doVerifyTransaction bi =
+    getNonFinalizedTransactionVerificationResult bi >>= \case
+        Nothing -> do
+            gd <- getGenesisData
+            lfState <- blockState . fst =<< getLastFinalized
+            let verResCtx = Context lfState (gdMaxBlockEnergy gd) False
+            ts <- utcTimeToTimestamp <$> currentTime
+            verRes <- runTransactionVerifierT (TV.verify ts bi) verResCtx
+            return (False, verRes)
+        Just verRes -> return (True, verRes)

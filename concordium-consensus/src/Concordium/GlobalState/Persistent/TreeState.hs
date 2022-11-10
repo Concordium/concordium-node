@@ -800,6 +800,53 @@ instance (MonadLogger (PersistentTreeStateMonad bs m),
             when (slot > results ^. tsSlot) $ transactionTable . ttHashMap . at' trHash . mapped . _2 %= updateSlot slot
             return $ TS.Duplicate bi' mVerRes
 
+    addVerifiedTransaction bi@WithMetadata{..} okRes = do
+      let verRes = TVer.Ok okRes
+      let trHash = wmdHash
+      tt <- use transactionTable
+      -- check if the transaction is in the transaction table cache
+      case tt ^? ttHashMap . ix trHash of
+          Nothing -> case wmdData of
+                NormalTransaction tr -> do
+                  let sender = accountAddressEmbed (transactionSender tr)
+                      nonce = transactionNonce tr
+                  if (tt ^. ttNonFinalizedTransactions . at' sender . non emptyANFT . anftNextNonce) <= nonce then do
+                    transactionTablePurgeCounter += 1
+                    let wmdtr = WithMetadata{wmdData=tr,..}
+                    transactionTable .= (tt & (ttNonFinalizedTransactions . at' sender . non emptyANFT . anftMap . at' nonce . non Map.empty . at' wmdtr ?~ verRes)
+                                            & (ttHashMap . at' trHash ?~ (bi, Received 0 verRes)))
+                    return (TS.Added bi verRes)
+                  else return TS.ObsoleteNonce
+                CredentialDeployment{} -> do
+                  -- because we do not have nonce tracking for these transactions we need to check that
+                  -- this transaction does not already exist in the on-disk storage.
+                  finalizedP <- memberTransactionTable trHash
+                  if finalizedP then
+                    return TS.ObsoleteNonce
+                  else do
+                    transactionTable . ttHashMap . at' trHash ?= (bi, Received 0 verRes)
+                    return (TS.Added bi verRes)
+                ChainUpdate cu -> do
+                  let uty = updateType (uiPayload cu)
+                      sn = updateSeqNumber (uiHeader cu)
+                  if (tt ^. ttNonFinalizedChainUpdates . at' uty . non emptyNFCU . nfcuNextSequenceNumber) <= sn then do
+                    transactionTablePurgeCounter += 1
+                    let wmdcu = WithMetadata{wmdData=cu,..}
+                    transactionTable .= (tt
+                        & (ttNonFinalizedChainUpdates . at' uty . non emptyNFCU . nfcuMap . at' sn . non Map.empty . at' wmdcu ?~ verRes)
+                        & (ttHashMap . at' trHash ?~ (bi, Received 0 verRes)))
+                    return (TS.Added bi verRes)
+                  else return TS.ObsoleteNonce
+          Just (bi', results) -> do
+            -- The `Finalized` case is not reachable as the cause would be that a finalized transaction
+            -- is also part of a later block which would be rejected when executing the block.
+            let mVerRes = case results of
+                 Received _ verRes' -> Just verRes'
+                 Committed _ verRes' _ -> Just verRes'
+                 Finalized {} -> Nothing
+            return $ TS.Duplicate bi' mVerRes
+
+
     type FinTrans (PersistentTreeStateMonad bs m) = [(TransactionHash, FinalizedTransactionStatus)]
     finalizeTransactions bh slot txs = mapM finTrans txs
         where

@@ -306,6 +306,44 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
             when (slot > results ^. tsSlot) $ transactionTable . ttHashMap . at' trHash . mapped . _2 %= updateSlot slot
             return $ TS.Duplicate tr' mVerRes
 
+    addVerifiedTransaction bi@WithMetadata{..} okRes = do
+      let verRes = TVer.Ok okRes
+      let trHash = wmdHash
+      tt <- use transactionTable
+      case tt ^. ttHashMap . at' trHash of
+          Nothing -> case wmdData of
+                NormalTransaction tr -> do
+                  let sender = accountAddressEmbed (transactionSender tr)
+                      nonce = transactionNonce tr
+                  if (tt ^. ttNonFinalizedTransactions . at' sender . non emptyANFT . anftNextNonce) <= nonce then do
+                    transactionTablePurgeCounter += 1
+                    let wmdtr = WithMetadata{wmdData=tr,..}
+                    transactionTable .= (tt & (ttNonFinalizedTransactions . at' sender . non emptyANFT . anftMap . at' nonce . non Map.empty . at' wmdtr ?~ verRes)
+                                            & (ttHashMap . at' trHash ?~ (bi, Received 0 verRes)))
+                    return (TS.Added bi verRes)
+                  else return TS.ObsoleteNonce
+                CredentialDeployment{} -> do
+                  transactionTable . ttHashMap . at' trHash ?= (bi, Received 0 verRes)
+                  return (TS.Added bi verRes)
+                ChainUpdate cu -> do
+                  let uty = updateType (uiPayload cu)
+                      sn = updateSeqNumber (uiHeader cu)
+                  if (tt ^. ttNonFinalizedChainUpdates . at' uty . non emptyNFCU . nfcuNextSequenceNumber) <= sn then do
+                    transactionTablePurgeCounter += 1
+                    let wmdcu = WithMetadata{wmdData=cu,..}
+                    transactionTable .= (tt
+                            & (ttNonFinalizedChainUpdates . at' uty . non emptyNFCU . nfcuMap . at' sn . non Map.empty . at' wmdcu ?~ verRes)
+                            & (ttHashMap . at' trHash ?~ (bi, Received 0 verRes)))
+                    return (TS.Added bi verRes)
+                  else return TS.ObsoleteNonce
+          Just (_, Finalized{}) -> return TS.ObsoleteNonce
+          Just (tr', results) -> do
+            -- The `Finalized` case is not reachable as the cause would be that a finalized transaction
+            -- is also part of a later block which would be rejected when executing the block.
+            let mVerRes = case results of
+                 Received _ verRes' -> Just verRes'
+                 Committed _ verRes' _ -> Just verRes'
+            return $ TS.Duplicate tr' mVerRes
 
     type FinTrans (PureTreeStateMonad bs m) = ()
     finalizeTransactions bh slot = mapM_ finTrans

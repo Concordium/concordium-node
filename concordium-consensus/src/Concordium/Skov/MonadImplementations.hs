@@ -517,6 +517,7 @@ deriving via SkovTGSM pv h c' m
 deriving via SkovQueryMonadT (SkovT pv h c m) instance (
         IsProtocolVersion pv,
         Monad m,
+        TimeMonad m,
         BlockStateQuery (SkovT pv h c m),
         BlockPointerMonad (SkovT pv h c m),
         TreeStateMonad (SkovT pv h c m)
@@ -534,7 +535,8 @@ instance (
     {- - INLINE storeBlock - -}
     storeBlock = doStoreBlock
     {- - INLINE receiveTransaction - -}
-    receiveTransaction tr = doReceiveTransaction tr
+    receiveTransaction = doReceiveTransaction
+    addPreverifiedTransaction = doAddPreverifiedTransaction
     {- - INLINE trustedFinalize - -}
     trustedFinalize = doTrustedFinalize
     {- - INLINE handleCatchUpStatus - -}

@@ -57,6 +57,8 @@ import Concordium.ProtocolUpdate
 import Concordium.Skov as Skov
 import Concordium.TimeMonad
 import Concordium.TimerMonad
+import qualified Concordium.TransactionVerification as TVer
+
 
 -- |Handler configuration for supporting protocol updates.
 -- This handler defines an instance of 'HandlerConfigHandlers' that responds to finalization events
@@ -1131,8 +1133,17 @@ currentProtocolVersion = do
 --
 -- Currently, the 'BlockItem' type is common among all protocol versions.
 -- We deserialize it using the current protocol version.
--- In principle, the protocol version could be different when we call 'Skov.receiveTransaction'.
--- We rely on two principles to ensure this is OK:
+-- We then (pre)verify the transaction in a snapshot of the state.
+-- If the verification is successful, we take the write lock.
+-- In principle, a protocol update could have occurred since verifying the transaction.
+-- If none has occurred, we call 'Skov.addPreverifiedTransaction' to add the transaction.
+-- However, if a protocol update has occurred, we instead call 'Skov.receiveTransaction', which
+-- re-does the transaction verification. While in practice we could probably still use the known
+-- verification result, we opt not to on the basis that in future we may need to perform non-trivial
+-- migration on the verification result to do so correctly.
+--
+-- We rely on two principles to ensure that it is OK to call 'Skov.receiveTransaction' even when
+-- the protocol version has changed since the 'BlockItem' was deserialized:
 --
 -- 1. 'Skov.receiveTransaction' must gracefully handle block items from legacy protocol versions.
 --
@@ -1145,16 +1156,43 @@ currentProtocolVersion = do
 receiveTransaction :: forall gsconf finconf. ByteString -> MVR gsconf finconf (Maybe TransactionHash, UpdateResult)
 receiveTransaction transactionBS = do
     now <- utcTimeToTransactionTime <$> currentTime
-    SomeProtocolVersion spv <- currentProtocolVersion
-    case runGet (getExactVersionedBlockItem spv now) transactionBS of
-        Left err -> do
-            logEvent Runner LLDebug err
-            return (Nothing, ResultSerializationFail)
-        Right transaction -> withWriteLock $ do
-            vvec <- liftIO . readIORef =<< asks mvVersions
-            case Vec.last vvec of
-                (EVersionedConfiguration vc) ->
-                    (Just (wmdHash transaction),) <$> liftSkovUpdate vc (Skov.receiveTransaction transaction)
+    mvr <- ask
+    vvec <- liftIO $ readIORef $ mvVersions mvr
+    case Vec.last vvec of
+        (EVersionedConfiguration (vc :: VersionedConfiguration gsconf finconf pv)) ->
+            case runGet (getExactVersionedBlockItem (protocolVersion @pv) now) transactionBS of
+                Left err -> do
+                    logEvent Runner LLDebug err
+                    return (Nothing, ResultSerializationFail)
+                Right transaction ->
+                    (Just (wmdHash transaction),) <$> do
+                        st <- liftIO $ readIORef $ vcState vc
+                        (known, verRes) <-
+                            evalSkovT @_ @pv
+                                (preverifyTransaction transaction)
+                                (mvrSkovHandlers vc mvr)
+                                (vcContext vc)
+                                st
+                        if known
+                            then return ResultDuplicate
+                            else case verRes of
+                                TVer.Ok okRes -> withWriteLock $ do
+                                    vvec' <- liftIO $ readIORef $ mvVersions mvr
+                                    case Vec.last vvec' of
+                                        (EVersionedConfiguration vc')
+                                            | Vec.length vvec == Vec.length vvec' ->
+                                                -- There hasn't been a protocol update since we did
+                                                -- the preverification, so we add the transaction
+                                                -- with the verification result.
+                                                liftSkovUpdate vc' $
+                                                    Skov.addPreverifiedTransaction transaction okRes
+                                            | otherwise ->
+                                                -- There HAS been a protocol update since we did the
+                                                -- preverification, so we call 'receiveTransaction',
+                                                -- which re-does the verification.
+                                                liftSkovUpdate vc' $
+                                                    Skov.receiveTransaction transaction
+                                _ -> return $! transactionVerificationResultToUpdateResult verRes
 
 -- |Import a block file for out-of-band catch-up.
 importBlocks :: FilePath -> MVR gsconf finconf UpdateResult

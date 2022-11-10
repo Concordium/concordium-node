@@ -42,6 +42,7 @@ import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.Skov.CatchUp.Types
 import qualified Concordium.GlobalState.TreeState as TS
+import qualified Concordium.TransactionVerification as TV
 
 data UpdateResult
     = ResultSuccess
@@ -108,6 +109,32 @@ data UpdateResult
     -- ^The sender did not have enough funds to cover the costs.
     deriving (Eq, Show)
 
+-- |Maps the underlying 'TransactionVerificationResult' to the according 'UpdateResult' type.
+-- See the 'VerificationResult' for more information.
+transactionVerificationResultToUpdateResult :: TV.VerificationResult -> UpdateResult
+-- 'Ok' mappings
+transactionVerificationResultToUpdateResult (TV.Ok _) = ResultSuccess
+-- 'MaybeOk' mappings
+transactionVerificationResultToUpdateResult (TV.MaybeOk (TV.CredentialDeploymentInvalidIdentityProvider _)) = ResultCredentialDeploymentInvalidIP
+transactionVerificationResultToUpdateResult (TV.MaybeOk TV.CredentialDeploymentInvalidAnonymityRevokers) = ResultCredentialDeploymentInvalidAR
+transactionVerificationResultToUpdateResult (TV.MaybeOk (TV.ChainUpdateInvalidNonce _)) = ResultNonceTooLarge
+transactionVerificationResultToUpdateResult (TV.MaybeOk TV.ChainUpdateInvalidSignatures) = ResultChainUpdateInvalidSignatures
+transactionVerificationResultToUpdateResult (TV.MaybeOk TV.NormalTransactionInsufficientFunds) = ResultInsufficientFunds
+transactionVerificationResultToUpdateResult (TV.MaybeOk (TV.NormalTransactionInvalidSender _)) = ResultNonexistingSenderAccount
+transactionVerificationResultToUpdateResult (TV.MaybeOk TV.NormalTransactionInvalidSignatures) = ResultVerificationFailed
+transactionVerificationResultToUpdateResult (TV.MaybeOk (TV.NormalTransactionInvalidNonce _)) = ResultNonceTooLarge
+-- 'NotOk' mappings
+transactionVerificationResultToUpdateResult (TV.NotOk (TV.CredentialDeploymentDuplicateAccountRegistrationID _)) = ResultDuplicateAccountRegistrationID
+transactionVerificationResultToUpdateResult (TV.NotOk TV.CredentialDeploymentInvalidSignatures) = ResultCredentialDeploymentInvalidSignatures
+transactionVerificationResultToUpdateResult (TV.NotOk (TV.ChainUpdateSequenceNumberTooOld _)) = ResultChainUpdateSequenceNumberTooOld
+transactionVerificationResultToUpdateResult (TV.NotOk TV.ChainUpdateEffectiveTimeBeforeTimeout) = ResultChainUpdateInvalidEffectiveTime
+transactionVerificationResultToUpdateResult (TV.NotOk TV.CredentialDeploymentExpired) = ResultCredentialDeploymentExpired
+transactionVerificationResultToUpdateResult (TV.NotOk TV.NormalTransactionDepositInsufficient) = ResultTooLowEnergy
+transactionVerificationResultToUpdateResult (TV.NotOk TV.NormalTransactionEnergyExceeded) = ResultEnergyExceeded
+transactionVerificationResultToUpdateResult (TV.NotOk (TV.NormalTransactionDuplicateNonce _)) = ResultDuplicateNonce
+transactionVerificationResultToUpdateResult (TV.NotOk TV.Expired) = ResultStale
+transactionVerificationResultToUpdateResult (TV.NotOk TV.InvalidPayloadSize) = ResultSerializationFail
+
 class (Monad m, Eq (BlockPointerType m), HashableTo BlockHash (BlockPointerType m), BlockPointerData (BlockPointerType m), BlockPointerMonad m, BlockStateQuery m, MonadProtocolVersion m)
         => SkovQueryMonad m where
     -- |Look up a block in the table given its hash.
@@ -172,6 +199,14 @@ class (Monad m, Eq (BlockPointerType m), HashableTo BlockHash (BlockPointerType 
     default getConsensusStatistics :: (TS.TreeStateMonad m) => m ConsensusStatistics
     getConsensusStatistics = TS.getConsensusStatistics
 
+    -- |Verify a transaction that was received separately from a block.
+    -- The return value consists of:
+    -- 
+    -- * A 'Bool' that is 'True' if the transaction is already in the non-finalized pool.
+    --
+    -- * The 'TV.VerificationResult' of verifying the transaction.
+    preverifyTransaction :: BlockItem -> m (Bool, TV.VerificationResult)
+
 data MessageType
     = MessageBlock
     | MessageFinalization
@@ -187,6 +222,13 @@ class (SkovQueryMonad m, TimeMonad m, MonadLogger m) => SkovMonad m where
     -- |Add a transaction to the transaction table.
     -- This must gracefully handle transactions from other (older) protocol versions.
     receiveTransaction :: BlockItem -> m UpdateResult
+    -- |Add a transaction that has previously been verified (by 'preverifyTransaction') to the
+    -- transaction table. This must gracefully handle transactions from other (older) protocol
+    -- versions. However, if the verification result was derived from a previous Skov instance,
+    -- the caller is responsible for ensuring that the verification result is still applicable to
+    -- the new instance.
+
+    addPreverifiedTransaction :: BlockItem -> TV.OkResult -> m UpdateResult
     -- |Finalize a block where the finalization record is known to be for the
     -- next finalization index and have a valid finalization proof.  This
     -- checks that the block being finalized is live.
@@ -242,6 +284,7 @@ instance (Monad (t m), MonadTrans t, SkovQueryMonad m) => SkovQueryMonad (MGSTra
     isShutDown = lift isShutDown
     getProtocolUpdateStatus = lift getProtocolUpdateStatus
     getConsensusStatistics = lift getConsensusStatistics
+    preverifyTransaction = lift . preverifyTransaction
     {- - INLINE resolveBlock - -}
     {- - INLINE isFinalized - -}
     {- - INLINE lastFinalizedBlock - -}
@@ -269,6 +312,7 @@ deriving via (MGSTrans (ExceptT e) m) instance SkovQueryMonad m => SkovQueryMona
 instance (MonadLogger (t m), MonadTrans t, SkovMonad m) => SkovMonad (MGSTrans t m) where
     storeBlock b = lift $ storeBlock b
     receiveTransaction = lift . receiveTransaction
+    addPreverifiedTransaction bi res = lift $ addPreverifiedTransaction bi res
     trustedFinalize = lift . trustedFinalize
     handleCatchUpStatus peerCUS = lift . handleCatchUpStatus peerCUS
     terminateSkov = lift terminateSkov
@@ -327,7 +371,7 @@ deriving via (MGSTrans SkovQueryMonadT m) instance BlockStateStorage m => BlockS
 deriving via (MGSTrans SkovQueryMonadT m) instance BlockStateOperations m => BlockStateOperations (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance TimeMonad m => TimeMonad (SkovQueryMonadT m)
 
-instance (TS.TreeStateMonad m)
+instance (TS.TreeStateMonad m, TimeMonad m)
           => SkovQueryMonad (SkovQueryMonadT m) where
     {- - INLINE resolveBlock - -}
     resolveBlock = lift . doResolveBlock
@@ -373,8 +417,11 @@ instance (TS.TreeStateMonad m)
     isShutDown = lift doIsShutDown
     getProtocolUpdateStatus = lift doGetProtocolUpdateStatus
 
+    preverifyTransaction = lift . doVerifyTransaction
+
 deriving via SkovQueryMonadT (GlobalStateM pv c r g s m)
       instance (Monad m,
+                TimeMonad m,
                 MonadProtocolVersion (BlockStateM pv c r g s m),
                 BlockStateQuery (BlockStateM pv c r g s m),
                 BlockStateStorage (BlockStateM pv c r g s m),

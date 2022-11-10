@@ -632,6 +632,41 @@ doReceiveTransaction tr = unlessShutDown $ do
     when (ur == ResultSuccess) $ purgeTransactionTable False =<< currentTime
     return ur
 
+-- |Add a transaction that has previously been verified, given the result of verification.
+doAddPreverifiedTransaction ::
+    (TreeStateMonad m) =>
+    BlockItem ->
+    TV.OkResult ->
+    m UpdateResult
+doAddPreverifiedTransaction bi0 okRes = do
+    res <- addVerifiedTransaction bi0 okRes
+    case res of
+        Added WithMetadata{..} verRes -> do
+          ptrs <- getPendingTransactions
+          case wmdData of
+            NormalTransaction tx -> do
+                -- Record the transaction in the pending transaction table.
+                focus <- getFocusBlock
+                st <- blockState focus
+                macct <- getAccount st $! transactionSender tx
+                nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
+                when (nextNonce <= transactionNonce tx) $
+                    putPendingTransactions $! addPendingTransaction nextNonce WithMetadata{wmdData=tx,..} ptrs
+            CredentialDeployment _ -> do
+                putPendingTransactions $! addPendingDeployCredential wmdHash ptrs
+            ChainUpdate cu -> do
+                focus <- getFocusBlock
+                st <- blockState focus
+                nextSN <- getNextUpdateSequenceNumber st (updateType (uiPayload cu))
+                when (nextSN <= updateSeqNumber (uiHeader cu)) $
+                    putPendingTransactions $! addPendingUpdate nextSN cu ptrs
+          -- The actual verification result here is only used if the transaction was received individually.
+          -- If the transaction was received as part of a block we don't use the result for anything.
+          return $! transactionVerificationResultToUpdateResult verRes
+        Duplicate{} -> return ResultDuplicate
+        ObsoleteNonce -> return ResultStale
+        NotAdded verRes -> return $! transactionVerificationResultToUpdateResult verRes
+
 -- |Add a transaction to the transaction table.  The 'Slot' should be
 -- the slot number of the block that the transaction was received with.
 -- This function should only be called when a transaction is received as part of a block.
@@ -743,31 +778,3 @@ doPurgeTransactions :: (TimeMonad m, TreeStateMonad m) => m ()
 doPurgeTransactions = do
         now <- currentTime
         purgeTransactionTable True now
-
-
--- |Maps the underlying 'TransactionVerificationResult' to the according 'UpdateResult' type.
--- See the 'VerificationResult' for more information.
-transactionVerificationResultToUpdateResult :: TV.VerificationResult -> UpdateResult
--- 'Ok' mappings
-transactionVerificationResultToUpdateResult (TV.Ok _) = ResultSuccess
--- 'MaybeOk' mappings
-transactionVerificationResultToUpdateResult (TV.MaybeOk (TV.CredentialDeploymentInvalidIdentityProvider _)) = ResultCredentialDeploymentInvalidIP
-transactionVerificationResultToUpdateResult (TV.MaybeOk TV.CredentialDeploymentInvalidAnonymityRevokers) = ResultCredentialDeploymentInvalidAR
-transactionVerificationResultToUpdateResult (TV.MaybeOk (TV.ChainUpdateInvalidNonce _)) = ResultNonceTooLarge
-transactionVerificationResultToUpdateResult (TV.MaybeOk TV.ChainUpdateInvalidSignatures) = ResultChainUpdateInvalidSignatures
-transactionVerificationResultToUpdateResult (TV.MaybeOk TV.NormalTransactionInsufficientFunds) = ResultInsufficientFunds
-transactionVerificationResultToUpdateResult (TV.MaybeOk (TV.NormalTransactionInvalidSender _)) = ResultNonexistingSenderAccount
-transactionVerificationResultToUpdateResult (TV.MaybeOk TV.NormalTransactionInvalidSignatures) = ResultVerificationFailed
-transactionVerificationResultToUpdateResult (TV.MaybeOk (TV.NormalTransactionInvalidNonce _)) = ResultNonceTooLarge
--- 'NotOk' mappings
-transactionVerificationResultToUpdateResult (TV.NotOk (TV.CredentialDeploymentDuplicateAccountRegistrationID _)) = ResultDuplicateAccountRegistrationID
-transactionVerificationResultToUpdateResult (TV.NotOk TV.CredentialDeploymentInvalidSignatures) = ResultCredentialDeploymentInvalidSignatures
-transactionVerificationResultToUpdateResult (TV.NotOk (TV.ChainUpdateSequenceNumberTooOld _)) = ResultChainUpdateSequenceNumberTooOld
-transactionVerificationResultToUpdateResult (TV.NotOk TV.ChainUpdateEffectiveTimeBeforeTimeout) = ResultChainUpdateInvalidEffectiveTime
-transactionVerificationResultToUpdateResult (TV.NotOk TV.CredentialDeploymentExpired) = ResultCredentialDeploymentExpired
-transactionVerificationResultToUpdateResult (TV.NotOk TV.NormalTransactionDepositInsufficient) = ResultTooLowEnergy
-transactionVerificationResultToUpdateResult (TV.NotOk TV.NormalTransactionEnergyExceeded) = ResultEnergyExceeded
-transactionVerificationResultToUpdateResult (TV.NotOk (TV.NormalTransactionDuplicateNonce _)) = ResultDuplicateNonce
-transactionVerificationResultToUpdateResult (TV.NotOk TV.Expired) = ResultStale
-transactionVerificationResultToUpdateResult (TV.NotOk TV.InvalidPayloadSize) = ResultSerializationFail
-
