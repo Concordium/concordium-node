@@ -1,4 +1,5 @@
-;; 
+;; A trivial module that serves as the target of the upgrade
+;; test defined in the ./upgrading-cases-target.wat module.
 (module
 
   ;; Imports

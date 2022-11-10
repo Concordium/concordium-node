@@ -45,7 +45,7 @@ import qualified SchedulerTests.SmartContracts.V1.Upgrading (tests)
 import qualified SchedulerTests.SmartContracts.V1.Queries (tests)
 import qualified SchedulerTests.SmartContracts.V1.RelaxedRestrictions (tests)
 import qualified SchedulerTests.SmartContracts.V1.UpgradingPersistent (tests)
-
+import qualified SchedulerTests.SmartContracts.V1.TransfersPersistent (tests)
 
 import Test.Hspec
 
@@ -92,5 +92,6 @@ main = hspec $ do
          SchedulerTests.SmartContracts.V1.Queries.tests
          SchedulerTests.SmartContracts.V1.RelaxedRestrictions.tests
          SchedulerTests.SmartContracts.V1.UpgradingPersistent.tests
+         SchedulerTests.SmartContracts.V1.TransfersPersistent.tests
          SchedulerTests.Payday.tests
          SchedulerTests.Delegation.tests
