@@ -21,8 +21,6 @@
         (return (i32.const 0))) ;; Successful init
 
   (func $receive_upgrade (export "contract.upgrade") (param $amount i64) (result i32)
-       ;; Read the module reference from the parameter into memory, and on byte 33 the test scenario
-       ;; 0 means do not update the state, 1 means do
        (call $host_get_parameter_section
              (i32.const 0) ;; index.
              (i32.const 0) ;; starting write offset in memory.
