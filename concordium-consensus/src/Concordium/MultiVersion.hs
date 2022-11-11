@@ -997,8 +997,8 @@ sendCatchUpStatus genIndex = MVR $ \mvr@MultiVersionRunner{..} -> do
 -- todo make the signature nicer
 withLatestExpectedVersion' ::
     GenesisIndex ->
-    (EVersionedConfiguration gsconf finconf -> MVR gsconf finconf (Skov.UpdateResult, Maybe ExecuteBlock)) ->
-    MVR gsconf finconf (Skov.UpdateResult, Maybe ExecuteBlock)
+    (EVersionedConfiguration gsconf finconf -> MVR gsconf finconf (Skov.UpdateResult, Maybe (ExecuteBlock gsconf finconf))) ->
+    MVR gsconf finconf (Skov.UpdateResult, Maybe (ExecuteBlock gsconf finconf))
 withLatestExpectedVersion' gi a = do
     vvec <- liftIO . readIORef =<< asks mvVersions
     -- Length is an Int and GenesisIndex is a Word32.
@@ -1016,10 +1016,10 @@ withLatestExpectedVersion ::
 withLatestExpectedVersion gi a = fst <$> withLatestExpectedVersion' gi (fmap (, Nothing) <$> a)
 
 -- |todo doc
-newtype ExecuteBlock = ExecuteBlock { runBlock :: IO Skov.UpdateResult}
+newtype ExecuteBlock gsconf finconf = ExecuteBlock { runBlock :: MVR gsconf finconf Skov.UpdateResult}
 
 -- |Deserialize and receive a block at a given genesis index.
-receiveBlock :: GenesisIndex -> ByteString -> MVR gsconf finconf (Skov.UpdateResult, Maybe ExecuteBlock)
+receiveBlock :: GenesisIndex -> ByteString -> MVR gsconf finconf (Skov.UpdateResult, Maybe (ExecuteBlock gsconf finconf))
 receiveBlock gi blockBS = withLatestExpectedVersion' gi $
     \(EVersionedConfiguration (vc :: VersionedConfiguration gsconf finconf pv)) -> do
         now <- currentTime
@@ -1036,7 +1036,7 @@ receiveBlock gi blockBS = withLatestExpectedVersion' gi $
                         return (updateResult, cont)
 
 -- |todo: doc
-executeBlock :: GenesisIndex -> ExecuteBlock -> MVR gsconf finconf Skov.UpdateResult
+executeBlock :: GenesisIndex -> ExecuteBlock gsconf finconf -> MVR gsconf finconf Skov.UpdateResult
 executeBlock gi executeCont = withLatestExpectedVersion gi $
     \(EVersionedConfiguration (vc :: VersionedConfiguration gsconf finconf pv)) -> do
         runSkovTransaction vc $! runBlock executeCont
