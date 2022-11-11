@@ -1037,11 +1037,9 @@ receiveBlock gi blockBS = withLatestExpectedVersion' gi $
                         return (updateResult, Just cont)
 
 -- |todo: doc
--- something is iffy 
+-- Acquiring the Write lock is captured in the continuation.
 executeBlock :: GenesisIndex -> ExecuteBlock -> MVR gsconf finconf Skov.UpdateResult
-executeBlock gi eb = withWriteLock $ do
-    updateResult <- liftIO (runBlock eb)
-    return updateResult
+executeBlock gi = liftIO . runBlock
 
 -- |Deserialize and receive a finalization message at a given genesis index.
 receiveFinalizationMessage :: GenesisIndex -> ByteString -> MVR gsconf finconf Skov.UpdateResult
