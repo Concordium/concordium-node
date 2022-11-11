@@ -217,7 +217,7 @@ unlockAmountsUntil ts ars = do
             go !n !accum
                 | fromIntegral n < Vector.length relReleases =
                     let (relts, amt) = relReleases Vector.! fromIntegral n
-                     in if relts <= ts
+                    in  if relts <= ts
                             then go (n + 1) (accum + amt)
                             else
                                 ( accum + relAmtAcc,

@@ -1,33 +1,33 @@
 module Main where
 
-import System.Environment
-import Data.Semigroup
-import Data.List (stripPrefix)
-import Test.Hspec
-import qualified ConcordiumTests.Afgjort.Freeze (tests)
-import qualified ConcordiumTests.Afgjort.CSS.NominationSet (tests)
-import qualified ConcordiumTests.Afgjort.CSS (tests)
-import qualified ConcordiumTests.Afgjort.Lottery (tests)
 import qualified ConcordiumTests.Afgjort.ABBA (tests)
-import qualified ConcordiumTests.Afgjort.WMVBA (tests)
+import qualified ConcordiumTests.Afgjort.CSS (tests)
+import qualified ConcordiumTests.Afgjort.CSS.NominationSet (tests)
+import qualified ConcordiumTests.Afgjort.Freeze (tests)
+import qualified ConcordiumTests.Afgjort.Lottery (tests)
 import qualified ConcordiumTests.Afgjort.Types (tests)
-import qualified ConcordiumTests.Konsensus (tests)
+import qualified ConcordiumTests.Afgjort.WMVBA (tests)
 import qualified ConcordiumTests.CatchUp (tests)
+import qualified ConcordiumTests.FinalizationRecover (test)
+import qualified ConcordiumTests.Konsensus (tests)
+import qualified ConcordiumTests.LeaderElectionTest (tests)
 import qualified ConcordiumTests.PassiveFinalization (test)
-import qualified ConcordiumTests.FinalizationRecover(test)
-import qualified ConcordiumTests.Update(test)
-import qualified ConcordiumTests.ReceiveTransactionsTest(test)
-import qualified ConcordiumTests.LeaderElectionTest(tests)
+import qualified ConcordiumTests.ReceiveTransactionsTest (test)
+import qualified ConcordiumTests.Update (test)
+import Data.List (stripPrefix)
+import Data.Semigroup
+import System.Environment
+import Test.Hspec
 
 atLevel :: (Word -> IO ()) -> IO ()
 atLevel a = do
-        args0 <- getArgs
-        let (args1, mlevel) = mconcat $ map lvlArg args0
-        withArgs args1 $ a $! (maybe 1 getLast mlevel)
-    where
-        lvlArg s = case stripPrefix "--level=" s of
-            Nothing -> ([s], Nothing)
-            Just r -> ([], Just $! Last $! (read r :: Word))
+    args0 <- getArgs
+    let (args1, mlevel) = mconcat $ map lvlArg args0
+    withArgs args1 $ a $! (maybe 1 getLast mlevel)
+  where
+    lvlArg s = case stripPrefix "--level=" s of
+        Nothing -> ([s], Nothing)
+        Just r -> ([], Just $! Last $! (read r :: Word))
 
 main :: IO ()
 main = atLevel $ \lvl -> hspec $ do

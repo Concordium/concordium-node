@@ -12,7 +12,6 @@ import System.Environment
 
 import Data.Maybe
 
-
 smartContractRoot = "../concordium-base/smart-contracts"
 
 makeRust :: Args -> ConfigFlags -> IO HookedBuildInfo
@@ -22,14 +21,16 @@ makeRust args flags = do
 
     -- This way of determining the platform is not ideal.
     notice verbosity "Calling 'cargo build'"
-    rawSystemExit verbosity "cargo"
+    rawSystemExit
+        verbosity
+        "cargo"
         ["build", "--release", "--manifest-path", smartContractRoot ++ "/wasm-chain-integration/Cargo.toml"]
     case buildOS of
-       Windows -> do
+        Windows -> do
             notice verbosity "Copying wasm_chain_integration library"
             rawSystemExit verbosity "cp" ["-u", smartContractRoot ++ "/wasm-chain-integration/target/release/wasm_chain_integration.dll", smartContractRoot ++ "/lib/"]
             rawSystemExit verbosity "cp" ["-u", smartContractRoot ++ "/wasm-chain-integration/target/release/libwasm_chain_integration.a", smartContractRoot ++ "/lib/"]
-       _ -> do
+        _ -> do
             rawSystemExit verbosity "ln" ["-s", "-f", "../wasm-chain-integration/target/release/libwasm_chain_integration.a", smartContractRoot ++ "/lib/"]
             case buildOS of
                 OSX ->
@@ -38,8 +39,10 @@ makeRust args flags = do
                     rawSystemExit verbosity "ln" ["-s", "-f", "../wasm-chain-integration/target/release/libwasm_chain_integration.so", smartContractRoot ++ "/lib/libwasm_chain_integration.so"]
     return emptyHookedBuildInfo
 
-main = defaultMainWithHooks $ generatingProtos "../concordium-grpc-api/v2" simpleUserHooks
-  {
-    preConf = makeRust
-  }
-
+main =
+    defaultMainWithHooks $
+        generatingProtos
+            "../concordium-grpc-api/v2"
+            simpleUserHooks
+                { preConf = makeRust
+                }

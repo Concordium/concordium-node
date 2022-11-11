@@ -4,9 +4,9 @@ import qualified Data.Sequence as Seq
 
 import Concordium.Types (FinalizationIndex)
 
+import Concordium.Afgjort.Finalize.Types
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Types
-import Concordium.Afgjort.Finalize.Types
 import Concordium.Skov.Monad (UpdateResult)
 
 class FinalizationOutputMonad m where
@@ -15,17 +15,18 @@ class FinalizationOutputMonad m where
     {-# INLINE broadcastFinalizationMessage #-}
     broadcastFinalizationPseudoMessage :: FinalizationPseudoMessage -> m ()
 
-
 class (Monad m) => FinalizationMonad m where
     -- |Notify finalization that a new block has been added to
     -- the block tree.
     finalizationBlockArrival :: BlockPointerType m -> m ()
+
     -- |Notify finalization that a new block has become final.
     -- This should never be called with the genesis block. The
     -- block that is passed in must be the block that is finalized
     -- by the finalization record. This should only be called once
     -- per finalization, and finalizations must occur in order.
     finalizationBlockFinal :: FinalizationRecord -> BlockPointerType m -> m ()
+
     -- |Notify finalization that a finalization message has been received.
     -- The result can be one of the following:
     --
@@ -39,6 +40,7 @@ class (Monad m) => FinalizationMonad m where
     -- * 'ResultPendingBlock': the message suggests we are missing blocks; attempt catch up.
     -- * 'ResultConsensusShutDown': the consensus has been shut down (due to an update).
     finalizationReceiveMessage :: FinalizationPseudoMessage -> m UpdateResult
+
     -- |Handle receipt of a finalization record.
     --
     -- If consensus has already shut down (due to a protocol update), returns 'ResultConsensusShutDown'.
@@ -66,14 +68,18 @@ class (Monad m) => FinalizationMonad m where
     -- If the record is for a future finalization index (that is not next), 'ResultUnverifiable' is returned
     -- and the record is discarded.
     finalizationReceiveRecord ::
-        Bool -- ^ @validateDuplicate@
-        -> FinalizationRecord
-         -> m UpdateResult
+        -- | @validateDuplicate@
+        Bool ->
+        FinalizationRecord ->
+        m UpdateResult
+
     -- |Get the (best available) finalization record for a given finalization index
     -- that is not settled.
     finalizationUnsettledRecordAt :: FinalizationIndex -> m (Maybe (FinalizationSessionId, FinalizationCommittee, FinalizationRecord))
+
     -- |Return the finalization records for the unsettled finalized blocks with
     -- finalization index greater than the specified value.
     finalizationUnsettledRecords :: FinalizationIndex -> m (Seq.Seq FinalizationRecord)
+
     -- |Return @True@ if we are a member of the current finalization committee.
     isFinalizationCommitteeMember :: m Bool

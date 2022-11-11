@@ -130,7 +130,8 @@ putPoolRewards PoolRewards{..} = do
     put (_unhashed currentCapital)
     let bprdList = LFMBT.toAscList bakerPoolRewardDetails
     assert (Vec.length (bakerPoolCapital (_unhashed currentCapital)) == length bprdList) $
-        mapM_ put $ LFMBT.toAscList bakerPoolRewardDetails
+        mapM_ put $
+            LFMBT.toAscList bakerPoolRewardDetails
     put passiveDelegationTransactionRewards
     put foundationTransactionRewards
     put nextPaydayEpoch
@@ -143,9 +144,11 @@ getPoolRewards :: Get PoolRewards
 getPoolRewards = do
     nextCapital <- makeHashed <$> get
     currentCapital <- makeHashed <$> get
-    bakerPoolRewardDetails <- LFMBT.fromList <$> replicateM
-            (Vec.length (bakerPoolCapital (_unhashed currentCapital)))
-            get
+    bakerPoolRewardDetails <-
+        LFMBT.fromList
+            <$> replicateM
+                (Vec.length (bakerPoolCapital (_unhashed currentCapital)))
+                get
     passiveDelegationTransactionRewards <- get
     foundationTransactionRewards <- get
     nextPaydayEpoch <- get

@@ -94,8 +94,8 @@ applyPendingChanges isEffective (bakers0, passive0) =
         RemoveStake et | isEffective et -> processDelegators ds
         ReduceStake amt et
             | isEffective et ->
-                d{activeDelegatorStake = amt, activeDelegatorPendingChange = NoChange} :
-                processDelegators ds
+                d{activeDelegatorStake = amt, activeDelegatorPendingChange = NoChange}
+                    : processDelegators ds
         _ -> d : processDelegators ds
     -- Merge two disjoint ordered lists of delegators
     mergeDelegators [] l = l
@@ -113,8 +113,8 @@ applyPendingChanges isEffective (bakers0, passive0) =
                     { activeBakerEquityCapital = amt,
                       activeBakerPendingChange = NoChange,
                       activeBakerDelegators = pDelegators
-                    } :
-                  bakers,
+                    }
+                    : bakers,
                   passive
                 )
         _ -> (baker{activeBakerDelegators = pDelegators} : bakers, passive)
@@ -143,8 +143,8 @@ effectiveTest paydayEpoch = do
 -- on the epoch of the payday.
 effectiveTest' :: GenesisConfiguration -> Epoch -> Timestamp -> Bool
 effectiveTest' genData paydayEpoch = (<= paydayEpochTime)
-    where
-        paydayEpochTime = epochTimestamp genData paydayEpoch
+  where
+    paydayEpochTime = epochTimestamp genData paydayEpoch
 
 -- |A helper datatype for computing the stake and capital distribution.
 -- This is intentionally lazy, as the caller may not wish to evaluate all of the fields, but
@@ -407,7 +407,8 @@ getSlotBakers genData = case protocolVersion @(MPV m) of
 -- If the slot is in an epoch further in the future, this returns 'Nothing'.
 -- (If the slot is in the past, the current epoch bakers will be returned, but the function should
 -- not be called with a historical slot.)
-getDefiniteSlotBakersP1 :: forall m.
+getDefiniteSlotBakersP1 ::
+    forall m.
     ( BlockStateQuery m,
       AccountVersionFor (MPV m) ~ 'AccountV0
     ) =>
@@ -417,10 +418,9 @@ getDefiniteSlotBakersP1 :: forall m.
 getDefiniteSlotBakersP1 bs slot = do
     SeedState{..} <- getSeedState bs
     let slotEpoch = fromIntegral $ slot `quot` epochLength
-    if slotEpoch <= epoch + 1 then
-        Just <$> getSlotBakersP1 bs slot
-    else
-        return Nothing
+    if slotEpoch <= epoch + 1
+        then Just <$> getSlotBakersP1 bs slot
+        else return Nothing
 
 -- |Determine the bakers that apply to a future slot, given the state at a particular block.
 -- This will return 'Nothing' if the projected bakers could change before then (depending on
@@ -428,7 +428,7 @@ getDefiniteSlotBakersP1 bs slot = do
 -- This implementation is used for protocol version P4 and later.
 --
 -- The given slot should never be earlier than the slot of the given block.
--- 
+--
 -- If the slot is in the same payday as the given block, use the current epoch bakers.
 -- If the slot is in the next payday, and the given block is in the last epoch of the prior payday,
 -- use the next epoch bakers.

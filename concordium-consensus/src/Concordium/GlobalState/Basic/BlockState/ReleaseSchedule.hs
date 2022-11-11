@@ -54,7 +54,7 @@ updateAccountRelease oldReleaseTime newReleaseTime ai ReleaseSchedule{..} =
     remAcc Nothing = Nothing
     remAcc (Just accs) =
         let s' = Set.delete ai accs
-         in if Set.null s' then Nothing else Just s'
+        in  if Set.null s' then Nothing else Just s'
 
 -- |Remove all releases from the schedule up to and including the provided timestamp,
 -- returning a list of the accounts with removed releases.

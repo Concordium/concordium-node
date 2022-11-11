@@ -15,8 +15,8 @@ import qualified Concordium.Crypto.SHA256 as SHA256
 import Concordium.Types
 import Concordium.Types.Updates
 
-import Concordium.GlobalState.Types
 import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.Types
 import Concordium.Kontrol
 import qualified Concordium.ProtocolUpdate.P2.ProtocolP3 as ProtocolP3
 

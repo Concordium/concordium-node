@@ -22,11 +22,11 @@ import Data.Word
 import qualified Concordium.Scheduler.Types as Types
 
 import Concordium.GlobalState.BlockState
+import qualified Concordium.GlobalState.ContractStateV1 as StateV1
+import qualified Concordium.GlobalState.Persistent.Instances as Instances
 import qualified Concordium.Scheduler.Runner as SchedTest
 import Concordium.Types.Execution
 import qualified Concordium.Wasm as Wasm
-import qualified Concordium.GlobalState.ContractStateV1 as StateV1
-import qualified Concordium.GlobalState.Persistent.Instances as Instances
 
 import Concordium.Crypto.DummyData
 import Concordium.Scheduler.DummyData
@@ -46,19 +46,19 @@ testModuleSourceFile = "./testdata/contracts/v1/queries-cases.wasm"
 testCase :: Word8 -> [SchedTest.TransactionJSON]
 testCase changeState =
     [ SchedTest.TJSON
-        { payload = SchedTest.DeployModule Wasm.V1 testModuleSourceFile
-        , metadata = makeDummyHeader alesAccount 1 1_000
-        , keys = [(0, [(0, alesKP)])]
-        }
-    , SchedTest.TJSON
-        { payload = SchedTest.InitContract 1_000 Wasm.V1 testModuleSourceFile "init_contract" ""
-        , metadata = makeDummyHeader alesAccount 2 1_000
-        , keys = [(0, [(0, alesKP)])]
-        }
-    , SchedTest.TJSON
-        { payload = SchedTest.Update 0 (Types.ContractAddress 0 0) "contract.query_account" upgradeParameters
-        , metadata = makeDummyHeader alesAccount 3 10_000
-        , keys = [(0, [(0, alesKP)])]
+        { payload = SchedTest.DeployModule Wasm.V1 testModuleSourceFile,
+          metadata = makeDummyHeader alesAccount 1 1_000,
+          keys = [(0, [(0, alesKP)])]
+        },
+      SchedTest.TJSON
+        { payload = SchedTest.InitContract 1_000 Wasm.V1 testModuleSourceFile "init_contract" "",
+          metadata = makeDummyHeader alesAccount 2 1_000,
+          keys = [(0, [(0, alesKP)])]
+        },
+      SchedTest.TJSON
+        { payload = SchedTest.Update 0 (Types.ContractAddress 0 0) "contract.query_account" upgradeParameters,
+          metadata = makeDummyHeader alesAccount 3 10_000,
+          keys = [(0, [(0, alesKP)])]
         }
     ]
   where
@@ -75,18 +75,17 @@ runQueryTests changeState reloadState = do
             Nothing -> error "Missing instance."
             Just (InstanceInfoV0 _) -> error "Expected V1 instance, but got V0."
             Just (InstanceInfoV1 ii) -> do
-              let Instances.InstanceStateV1 s = iiState ii
-              bs <- StateV1.toByteString s
-              return (iiBalance ii, bs)
+                let Instances.InstanceStateV1 s = iiState ii
+                bs <- StateV1.toByteString s
+                return (iiBalance ii, bs)
     forM_ outcomes $ \(_, summary) -> do
         case tsResult summary of
             TxSuccess{} -> return ()
             TxReject{..} -> assertFailure $ "Transaction rejected: " ++ show vrRejectReason
     assertEqual "Amount was not" 1_000 bal
-    if changeState /= 0 then
-      assertEqual "State was updated" 1 (BS.index newState 0) -- non-empty state serialization starts with a 1 tag.
-    else
-      assertEqual "State was not updated" (BS.singleton 0) newState  -- empty state serialization just puts a 0 tag.
+    if changeState /= 0
+        then assertEqual "State was updated" 1 (BS.index newState 0) -- non-empty state serialization starts with a 1 tag.
+        else assertEqual "State was not updated" (BS.singleton 0) newState -- empty state serialization just puts a 0 tag.
 
 tests :: Spec
 tests = describe "Upgrade contract cases with persistent state" $ do

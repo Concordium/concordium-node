@@ -10,26 +10,26 @@
 
 module Concordium.GlobalState.Basic.BlockState.Bakers where
 
+import Concordium.Types.Accounts
 import Control.Exception
 import Data.Map.Strict (Map)
+import Data.Serialize
 import Data.Set (Set)
 import qualified Data.Set as Set
 import qualified Data.Vector as Vec
-import Data.Serialize
 import Lens.Micro.Platform
-import Concordium.Types.Accounts
 
-import Concordium.Genesis.Data (StateMigrationParameters(..))
+import Concordium.Genesis.Data (StateMigrationParameters (..))
 import Concordium.GlobalState.BakerInfo
 import Concordium.Types
 import Concordium.Types.Execution
-import Concordium.Utils.Serialization
 import Concordium.Utils.BinarySearch
+import Concordium.Utils.Serialization
 
 import qualified Concordium.Crypto.SHA256 as H
-import Concordium.Types.HashableTo
 import qualified Concordium.Genesis.Data.P4 as P4
 import Concordium.GlobalState.CapitalDistribution
+import Concordium.Types.HashableTo
 
 -- |The set of bakers that are eligible to bake in a particular epoch.
 --
@@ -37,15 +37,16 @@ import Concordium.GlobalState.CapitalDistribution
 --
 -- Since this in memory implementation is intended more to serve as a specification
 -- than to be used in practice, it is not optimised for time and space usage.
-data EpochBakers (av :: AccountVersion) = EpochBakers {
-    -- |The 'BakerInfo' for each baker, ordered by the 'BakerId'.
-    _bakerInfos :: !(Vec.Vector (BakerInfoEx av)),
-    -- |The stake associated with each baker pool. This vector corresponds
-    -- with the '_bakerInfos' vector.
-    _bakerStakes :: !(Vec.Vector Amount),
-    -- |Total stake of all baker pools.
-    _bakerTotalStake :: !Amount
-} deriving (Eq, Show)
+data EpochBakers (av :: AccountVersion) = EpochBakers
+    { -- |The 'BakerInfo' for each baker, ordered by the 'BakerId'.
+      _bakerInfos :: !(Vec.Vector (BakerInfoEx av)),
+      -- |The stake associated with each baker pool. This vector corresponds
+      -- with the '_bakerInfos' vector.
+      _bakerStakes :: !(Vec.Vector Amount),
+      -- |Total stake of all baker pools.
+      _bakerTotalStake :: !Amount
+    }
+    deriving (Eq, Show)
 
 -- |Look up a baker by its identifier.
 -- This is implemented as a binary search.
@@ -83,40 +84,42 @@ getEpochBakers = do
 -- The list must be in ascending order by 'BakerId', with no duplicates.
 makeHashedEpochBakers :: IsAccountVersion av => [(BakerInfoEx av, Amount)] -> Hashed (EpochBakers av)
 makeHashedEpochBakers bakers = makeHashed EpochBakers{..}
-    where
-        bkrs = Vec.fromList bakers
-        _bakerInfos = fst <$> bkrs
-        _bakerStakes = snd <$> bkrs
-        _bakerTotalStake = Vec.sum _bakerStakes
+  where
+    bkrs = Vec.fromList bakers
+    _bakerInfos = fst <$> bkrs
+    _bakerStakes = snd <$> bkrs
+    _bakerTotalStake = Vec.sum _bakerStakes
 
 -- |Convert an 'EpochBakers' to a 'FullBakers'.
 epochToFullBakers :: EpochBakers av -> FullBakers
-epochToFullBakers EpochBakers{..} = FullBakers{
-        fullBakerInfos = Vec.zipWith mkFullBakerInfo _bakerInfos _bakerStakes,
-        bakerTotalStake = _bakerTotalStake
-    }
-    where
-        mkFullBakerInfo bi bs = FullBakerInfo (bi ^. bakerInfo) bs
+epochToFullBakers EpochBakers{..} =
+    FullBakers
+        { fullBakerInfos = Vec.zipWith mkFullBakerInfo _bakerInfos _bakerStakes,
+          bakerTotalStake = _bakerTotalStake
+        }
+  where
+    mkFullBakerInfo bi bs = FullBakerInfo (bi ^. bakerInfo) bs
 
 -- |Convert an 'EpochBakers' to a 'FullBakersEx'.
 epochToFullBakersEx :: forall av. (AVSupportsDelegation av) => EpochBakers av -> FullBakersEx
-epochToFullBakersEx EpochBakers{..} = FullBakersEx {
-        bakerInfoExs = Vec.zipWith mkFullBakerInfoEx _bakerInfos _bakerStakes,
-        bakerPoolTotalStake = _bakerTotalStake
-    }
-    where
-        mkFullBakerInfoEx :: BakerInfoEx av -> Amount -> FullBakerInfoEx
-        mkFullBakerInfoEx bi@BakerInfoExV1{} bs =
-            FullBakerInfoEx
-                (FullBakerInfo (bi ^. bakerInfo) bs)
-                (bi ^. poolCommissionRates)
+epochToFullBakersEx EpochBakers{..} =
+    FullBakersEx
+        { bakerInfoExs = Vec.zipWith mkFullBakerInfoEx _bakerInfos _bakerStakes,
+          bakerPoolTotalStake = _bakerTotalStake
+        }
+  where
+    mkFullBakerInfoEx :: BakerInfoEx av -> Amount -> FullBakerInfoEx
+    mkFullBakerInfoEx bi@BakerInfoExV1{} bs =
+        FullBakerInfoEx
+            (FullBakerInfo (bi ^. bakerInfo) bs)
+            (bi ^. poolCommissionRates)
 
 -- |Covert an 'EpochBakers' to a vector of pairs of 'BakerId' and stake 'Amount'.
 -- The vector is in ascending order of 'BakerId'.
 epochToBakerStakes :: EpochBakers av -> Vec.Vector (BakerId, Amount)
 epochToBakerStakes EpochBakers{..} = Vec.zipWith mkBakerStake _bakerInfos _bakerStakes
-    where
-        mkBakerStake bi bs = (bi ^. bakerIdentity, bs)
+  where
+    mkBakerStake bi bs = (bi ^. bakerIdentity, bs)
 
 -- |Migrate 'EpochBakers' from one version to another.
 -- For 'StateMigrationParametersTrivial', no conversion is performed.
@@ -133,8 +136,8 @@ migrateEpochBakers (StateMigrationParametersP3ToP4 migration) EpochBakers{..} =
         { _bakerInfos = migrateBakerInfo <$> _bakerInfos,
           ..
         }
-    where
-        migrateBakerInfo (BakerInfoExV0 bi) = BakerInfoExV1 bi (P4.defaultBakerPoolInfo migration)
+  where
+    migrateBakerInfo (BakerInfoExV0 bi) = BakerInfoExV1 bi (P4.defaultBakerPoolInfo migration)
 migrateEpochBakers StateMigrationParametersP4ToP5{} EpochBakers{..} =
     EpochBakers
         { _bakerInfos = (\BakerInfoExV1{..} -> BakerInfoExV1{..}) <$> _bakerInfos,
@@ -142,12 +145,14 @@ migrateEpochBakers StateMigrationParametersP4ToP5{} EpochBakers{..} =
         }
 
 -- |The delegators and total stake of an active pool.
-data ActivePool = ActivePool {
-    -- |The set of delegators to this pool.
-    _apDelegators :: !(Set DelegatorId),
-    -- |The total capital staked by delegators to this pool.
-    _apDelegatorTotalCapital :: !Amount
-} deriving (Eq, Show)
+data ActivePool = ActivePool
+    { -- |The set of delegators to this pool.
+      _apDelegators :: !(Set DelegatorId),
+      -- |The total capital staked by delegators to this pool.
+      _apDelegatorTotalCapital :: !Amount
+    }
+    deriving (Eq, Show)
+
 makeLenses ''ActivePool
 
 -- |Active pool with no delegators.
@@ -187,16 +192,17 @@ addDelegator delId delAmt =
 -- |An index of the baker and delegator accounts.  Every account that has a baker or delegator
 -- record on it should have a corresponding entry here.
 -- (See $Concordium.GlobalState.BlockState.ActiveCurrentNext.)
-data ActiveBakers = ActiveBakers {
-    -- |A map from each baker to its pool of delegators.
-    _activeBakers :: !(Map BakerId ActivePool),
-    -- |The set of public aggregation keys used by bakers.
-    _aggregationKeys :: !(Set BakerAggregationVerifyKey),
-    -- |The pool of passive delegators.
-    _passiveDelegators :: !ActivePool,
-    -- |The total capital of active bakers and delegators.
-    _totalActiveCapital :: !Amount
-} deriving (Eq, Show)
+data ActiveBakers = ActiveBakers
+    { -- |A map from each baker to its pool of delegators.
+      _activeBakers :: !(Map BakerId ActivePool),
+      -- |The set of public aggregation keys used by bakers.
+      _aggregationKeys :: !(Set BakerAggregationVerifyKey),
+      -- |The pool of passive delegators.
+      _passiveDelegators :: !ActivePool,
+      -- |The total capital of active bakers and delegators.
+      _totalActiveCapital :: !Amount
+    }
+    deriving (Eq, Show)
 
 makeLenses ''ActiveBakers
 

@@ -1,22 +1,23 @@
-{-# LANGUAGE
-    TypeFamilies #-}
+{-# LANGUAGE TypeFamilies #-}
+
 module Concordium.Afgjort.PartyMap where
 
 import qualified Data.Map.Strict as Map
+import Lens.Micro.Internal (Index, IxValue, Ixed)
 import Lens.Micro.Platform
-import Lens.Micro.Internal(Index,IxValue,Ixed)
 
-import Concordium.Afgjort.Types
-import qualified Concordium.Afgjort.PartySet as PS
 import qualified Concordium.Afgjort.CSS.BitSet as BitSet
+import qualified Concordium.Afgjort.PartySet as PS
+import Concordium.Afgjort.Types
 
-data PartyMap a = PartyMap { 
-    weight :: !VoterPower,
-    partyMap :: !(Map.Map Party a)
-} deriving (Eq,Ord,Show)
+data PartyMap a = PartyMap
+    { weight :: !VoterPower,
+      partyMap :: !(Map.Map Party a)
+    }
+    deriving (Eq, Ord, Show)
 
 instance Functor PartyMap where
-    fmap f pm = pm {partyMap = fmap f (partyMap pm)}
+    fmap f pm = pm{partyMap = fmap f (partyMap pm)}
 
 instance Foldable PartyMap where
     foldMap f = foldMap f . partyMap
@@ -31,7 +32,7 @@ instance Foldable PartyMap where
     product = product . partyMap
 
 instance Ixed (PartyMap a) where
-    ix i = lens partyMap (\z m -> z {partyMap = m}) . ix i
+    ix i = lens partyMap (\z m -> z{partyMap = m}) . ix i
 
 type instance Index (PartyMap a) = Party
 type instance IxValue (PartyMap a) = a
@@ -44,18 +45,20 @@ insert :: Party -> VoterPower -> a -> PartyMap a -> PartyMap a
 {-# INLINE insert #-}
 insert p vp a m
     | member p m = m
-    | otherwise = m {
-            weight = weight m + vp,
-            partyMap = Map.insert p a (partyMap m)
-        }
+    | otherwise =
+        m
+            { weight = weight m + vp,
+              partyMap = Map.insert p a (partyMap m)
+            }
 
 delete :: Party -> VoterPower -> PartyMap a -> PartyMap a
 {-# INLINE delete #-}
 delete p vp m
-    | member p m = m {
-            weight = weight m - vp,
-            partyMap = Map.delete p (partyMap m)
-        }
+    | member p m =
+        m
+            { weight = weight m - vp,
+              partyMap = Map.delete p (partyMap m)
+            }
     | otherwise = m
 
 empty :: PartyMap a

@@ -160,13 +160,13 @@ instance Cache (FIFOCache v) where
                 Nothing -> do
                     oldEntry <- Vec.read (fifoBuffer cache) (nextIndex cache)
                     let newKeyMap =
-                            IntMap.insert intKey val
-                                $! if oldEntry == nullCacheEntry
+                            IntMap.insert intKey val $!
+                                if oldEntry == nullCacheEntry
                                     then keyMap cache
                                     else IntMap.delete oldEntry (keyMap cache)
                     Vec.write (fifoBuffer cache) (nextIndex cache) $! intKey
-                    putMVar cacheRef
-                        $! cache
+                    putMVar cacheRef $!
+                        cache
                             { keyMap = newKeyMap,
                               nextIndex = (nextIndex cache + 1) `mod` Vec.length (fifoBuffer cache)
                             }
