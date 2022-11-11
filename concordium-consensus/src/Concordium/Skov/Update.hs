@@ -512,7 +512,7 @@ doReceiveBlock pb@GB.PendingBlock{pbBlock = BakedBlock{..}, ..} = isShutDown >>=
 -- Hence the function is used when receiving a block from the network and the parent is either alive or finalized,
 -- or when processing pending children blocks of a block that was priorly also pending but where the parent has become
 -- alive or finalized.
-verifyPendingBlock :: (MonadLogger m, TreeStateMonad m, SkovQueryMonad m, FinalizationMonad m)
+verifyPendingBlock :: (MonadLogger m, TreeStateMonad m, SkovQueryMonad m, FinalizationMonad m, BlockExecutionMonad m)
     => PendingBlock
     -> Timestamp
     -> BlockPointerType m
