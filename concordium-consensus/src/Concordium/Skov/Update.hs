@@ -14,7 +14,6 @@ import GHC.Stack
 import Data.Maybe (fromMaybe)
 import Data.Time (diffUTCTime)
 import Control.Monad.IO.Class
-import Control.Monad.Reader.Class
 
 import Concordium.Types
 import Concordium.Types.Accounts
@@ -512,7 +511,7 @@ doReceiveBlock pb@GB.PendingBlock{pbBlock = BakedBlock{..}, ..} = isShutDown >>=
 -- Hence the function is used when receiving a block from the network and the parent is either alive or finalized,
 -- or when processing pending children blocks of a block that was priorly also pending but where the parent has become
 -- alive or finalized.
-verifyPendingBlock :: (MonadLogger m, TreeStateMonad m, SkovQueryMonad m, FinalizationMonad m, BlockExecutionMonad m)
+verifyPendingBlock :: (MonadLogger m, TreeStateMonad m, SkovQueryMonad m, FinalizationMonad m, MonadIO m)
     => PendingBlock
     -> Timestamp
     -> BlockPointerType m
@@ -630,15 +629,6 @@ data ExecuteBlockParams' bst bpt = ExecuteBlockParams' {
     ebpParentPointer :: !bpt,
     ebpFinInfo :: !(Maybe FinalizerInfo)
 }
-
-class BlockExecutionMonad m where
-    executeBlockM :: m UpdateResult
-
-instance (TreeStateMonad m, FinalizationMonad m, SkovMonad m, OnSkov m, MonadIO m, MonadReader (ExecuteBlockParams m) m) => BlockExecutionMonad m where
-    executeBlockM = do
-        params <- ask
-        res <- doExecuteBlock params
-        return res
 
 -- |Execute a 'VerifiedPendingBlock'.
 -- Before adding the block to the tree we verify the transactions.
