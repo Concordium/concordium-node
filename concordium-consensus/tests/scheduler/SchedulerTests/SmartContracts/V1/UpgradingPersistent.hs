@@ -23,36 +23,20 @@ import qualified Data.Set as Set
 import System.IO.Unsafe
 import Data.Word
 
-import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Scheduler.Types as Types
 
 import Concordium.GlobalState.BlockState
-import Concordium.GlobalState.Persistent.Account
-import Concordium.GlobalState.Persistent.BlobStore
-import Concordium.GlobalState.Persistent.BlockState
-import Concordium.GlobalState.Persistent.BlockState.Modules
-import Concordium.GlobalState.Persistent.Cache
-import Concordium.GlobalState.Types
 import qualified Concordium.GlobalState.Wasm as GSWasm
-import Concordium.Logger
-import Concordium.Scheduler
-import Concordium.Scheduler.EnvironmentImplementation
-import qualified Concordium.Scheduler.EnvironmentImplementation as EI
 import qualified Concordium.Scheduler.Runner as SchedTest
-import Concordium.Scheduler.TreeStateEnvironment
-import Concordium.TimeMonad
 import Concordium.Types.Execution
-import Concordium.Types.SeedState (initialSeedState)
 import qualified Concordium.Wasm as Wasm
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import qualified Concordium.GlobalState.Persistent.Instances as Instances
 
 import Concordium.Crypto.DummyData
-import Concordium.GlobalState.DummyData
 import Concordium.Scheduler.DummyData
 import Concordium.Types.DummyData
 
-import SchedulerTests.TestUtils
 import SchedulerTests.SmartContracts.V1.PersistentStateHelpers
 
 -- The module which supports an upgrade.

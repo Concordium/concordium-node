@@ -9,16 +9,9 @@
 -- |Helpers for running scheduler unit tests using persistent state.
 module SchedulerTests.SmartContracts.V1.PersistentStateHelpers where
 
-import Test.HUnit (Assertion, assertEqual, assertFailure)
-import Test.Hspec
+import Test.HUnit (assertEqual)
 
 import Control.Monad.RWS.Strict
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Short as BSS
-import qualified Data.Serialize as S
-import qualified Data.Set as Set
-import System.IO.Unsafe
-import Data.Word
 
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Scheduler.Types as Types
@@ -30,7 +23,6 @@ import Concordium.GlobalState.Persistent.BlockState
 import Concordium.GlobalState.Persistent.BlockState.Modules
 import Concordium.GlobalState.Persistent.Cache
 import Concordium.GlobalState.Types
-import qualified Concordium.GlobalState.Wasm as GSWasm
 import Concordium.Logger
 import Concordium.Scheduler
 import Concordium.Scheduler.EnvironmentImplementation
@@ -40,9 +32,6 @@ import Concordium.Scheduler.TreeStateEnvironment
 import Concordium.TimeMonad
 import Concordium.Types.Execution
 import Concordium.Types.SeedState (initialSeedState)
-import qualified Concordium.Wasm as Wasm
-import qualified Concordium.GlobalState.ContractStateV1 as StateV1
-import qualified Concordium.GlobalState.Persistent.Instances as Instances
 
 import Concordium.Crypto.DummyData
 import Concordium.GlobalState.DummyData
