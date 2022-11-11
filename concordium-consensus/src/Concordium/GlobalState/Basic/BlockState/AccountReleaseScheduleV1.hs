@@ -195,6 +195,7 @@ fromAccountReleaseScheduleV0 ARSV0.AccountReleaseSchedule{..} = AccountReleaseSc
     mkEntry _ = error "fromAccountReleaseScheduleV0: missing release"
     newReleases = sortOn rseSortKey $ mkEntry <$> pendRels
 
+-- |Produce an 'AccountReleaseSummary' from an 'AccountReleaseSchedule'.
 toAccountReleaseSummary :: AccountReleaseSchedule -> AccountReleaseSummary
 toAccountReleaseSummary AccountReleaseSchedule{..} = AccountReleaseSummary{..}
   where

@@ -4,7 +4,7 @@
              ScopedTypeVariables #-}
 {-|
 Module      : Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule
-Description : The data structure implementing account lock ups.
+Description : The data structure implementing account lock ups (for 'P1' to 'P4').
 
 This module defines a data structure that stores the amounts that are locked up
 for a given account. The defined data structure  can be written to the disk and

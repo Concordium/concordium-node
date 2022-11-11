@@ -13,7 +13,7 @@ import System.IO.Unsafe (unsafePerformIO)
 data Vec
 
 -- |Callback for reading from the blob store into the provided buffer. The
--- argument is the amount of data to read. The return value is (pointer to) a
+-- argument is the location to read from. The return value is (pointer to) a
 -- vector that should be passed to the Rust runtime.
 type LoadCallbackType = Word64 -> IO (Ptr Vec)
 type LoadCallback = FunPtr LoadCallbackType

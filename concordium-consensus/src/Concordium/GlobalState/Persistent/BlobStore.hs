@@ -51,6 +51,11 @@ module Concordium.GlobalState.Persistent.BlobStore(
     BlobStoreM,
     runBlobStoreM,
     SupportMigration,
+    -- * In-memory blob store
+    MemBlobStore(..),
+    newMemBlobStore,
+    destroyMemBlobStore,
+    MemBlobStoreT(..),
     -- * Storage classes
     -- $storageClasses
     BlobStorable(..),
@@ -112,7 +117,9 @@ import Data.Kind (Type)
 import Data.Serialize
 import Data.Word
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Builder as Builder
 import qualified Data.ByteString.Internal as BSInternal
+import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Unsafe as BSUnsafe
 import Control.Exception
 import Data.Functor.Foldable
@@ -589,6 +596,104 @@ deriving via (LiftMonadBlobStore (ExceptT e) m)
 -- makes use of a context to achieve sharing.
 deriving via (LiftMonadBlobStore (ReaderT r) m)
     instance MonadBlobStore m => MonadBlobStore (ReaderT r m)
+
+-- * In-memory blob store
+
+-- |An in-memory blob store. This is intended for testing purposes, as it can be more convenient
+-- than working with files. Internally, the blob store is handled as a lazy 'LBS.ByteString' guarded
+-- by an 'MVar'.
+data MemBlobStore = MemBlobStore {
+    -- |'MVar' containing the entire blob store as a lazy 'LBS.ByteString'.
+    -- This is accessed by 'readMVar' for readers, and 'takeMVar'/'putMVar' for writers.
+    -- This means that writers may block concurrent readers and writers, but readers will not block
+    -- writers or other readers.
+    theMemBlobStore :: !(MVar LBS.ByteString),
+    -- |'MVar' containing the callbacks. This is initially empty, and the callbacks are created
+    -- only when first required. After this has been set, it should only become empty again when
+    -- the 'MemBlobStore' is to be disposed of.
+    mbsCallbacks :: !(MVar (LoadCallback, StoreCallback))
+    }
+
+-- |Create a fresh, empty 'MemBlobStore'.
+newMemBlobStore :: IO MemBlobStore
+newMemBlobStore = MemBlobStore <$> newMVar LBS.empty <*> newEmptyMVar
+
+-- |Destroy a 'MemBlobStore'. The caller should ensure that no operations on the 'MemBlobStore'
+-- can happen after the call to 'destroyMemBlobStore'.
+destroyMemBlobStore :: MemBlobStore -> IO ()
+destroyMemBlobStore MemBlobStore{..} = do
+    _ <- takeMVar theMemBlobStore
+    mcbks <- tryTakeMVar mbsCallbacks
+    forM_ mcbks $ uncurry freeCallbacks
+
+-- |Helper function for implementing storage operations on 'MemBlobStore'.
+storeMem :: MVar LBS.ByteString -> BS.ByteString -> IO Word64
+storeMem mv b = modifyMVarMasked mv $ \bs -> do
+    let !offset = LBS.length bs
+    let !newBS =
+            Builder.toLazyByteString $
+                Builder.lazyByteString bs
+                    <> Builder.word64BE (fromIntegral $ BS.length b)
+                    <> Builder.byteString b
+    return (newBS, fromIntegral offset)
+
+-- |Helper function for implementing reader operations on 'MemBlobStore'.
+loadMem :: MVar LBS.ByteString -> Word64 -> IO BS.ByteString
+loadMem mv offset = do
+    bs <- readMVar mv
+    let bs' = LBS.drop (fromIntegral offset) bs
+    case runGetLazy getWord64be (LBS.take 8 bs') of
+        Left e -> error e
+        Right len -> return $! LBS.toStrict (LBS.take (fromIntegral len) (LBS.drop 8 bs'))
+
+-- |Get the callbacks for a 'MemBlobStore'.
+getMemCallbacks :: MemBlobStore -> IO (LoadCallback, StoreCallback)
+getMemCallbacks mbs@MemBlobStore{..} = tryReadMVar mbsCallbacks >>= \case
+    Just cbs -> return cbs
+    Nothing -> do
+        loadCbk <- createLoadCallback $ \loc -> do
+            bs <- loadMem theMemBlobStore loc
+            BSUnsafe.unsafeUseAsCStringLen bs $ \(sourcePtr, len) -> 
+                copyToRustVec (castPtr sourcePtr) (fromIntegral len)
+        storeCbk <- createStoreCallback $ \ptr size -> do
+            -- Note, we don't use unsafe because the bytestring may be retained.
+            bs <- BS.packCStringLen (castPtr ptr, fromIntegral size)
+            storeMem theMemBlobStore bs
+        res <- tryPutMVar mbsCallbacks (loadCbk, storeCbk)
+        if res then
+            return (loadCbk, storeCbk)
+        else do
+            -- Another thread beat us in setting the callbacks, so clean up ours
+            freeCallbacks loadCbk storeCbk
+            -- The read should succeed next time
+            getMemCallbacks mbs
+
+-- |A monad transformer that provides an instance of 'MonadBlobStore' based on a 'MemBlobStore'.
+newtype MemBlobStoreT m a = MemBlobStoreT {runMemBlobStoreT :: MemBlobStore -> m a}
+    deriving
+        (Functor, Applicative, Monad, MonadReader MemBlobStore, MonadIO, MonadFail, MonadLogger, MonadCatch.MonadThrow, MonadCatch.MonadCatch)
+        via (ReaderT MemBlobStore m)
+    deriving
+        (MonadTrans)
+        via (ReaderT MemBlobStore)
+
+instance MonadIO m => MonadBlobStore (MemBlobStoreT m) where
+    storeRaw b = do
+        mv <- asks theMemBlobStore
+        liftIO $ BlobRef <$> storeMem mv b
+    loadRaw (BlobRef offset) = do
+        mv <- asks theMemBlobStore
+        liftIO $ loadMem mv offset
+    flushStore = return ()
+
+    getCallbacks = liftIO . getMemCallbacks =<< ask
+
+    loadBlobPtr bptr = do
+        mv <- asks theMemBlobStore
+        bs <- liftIO (readMVar mv)
+        let bs' = LBS.take (fromIntegral $ blobPtrLen bptr) $ LBS.drop (fromIntegral $ theBlobPtr bptr) bs
+        return $! LBS.toStrict bs'
+
 
 -- * Storage classes
 --

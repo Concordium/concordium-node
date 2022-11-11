@@ -17,6 +17,7 @@ import qualified GlobalStateTests.AccountReleaseScheduleTest(tests)
 import qualified GlobalStateTests.AccountReleaseScheduleMigration(tests)
 import qualified GlobalStateTests.Updates(tests)
 import qualified GlobalStateTests.EnduringDataFlags(tests)
+import qualified GlobalStateTests.BlobStore(tests)
 
 atLevel :: (Word -> IO ()) -> IO ()
 atLevel a = do
@@ -43,3 +44,4 @@ main = atLevel $ \lvl -> hspec $ do
   GlobalStateTests.Updates.tests
   GlobalStateTests.AccountMap.tests lvl
   GlobalStateTests.EnduringDataFlags.tests
+  GlobalStateTests.BlobStore.tests
