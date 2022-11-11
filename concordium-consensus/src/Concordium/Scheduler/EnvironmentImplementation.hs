@@ -5,6 +5,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 -- FIXME: This is to suppress compiler warnings for derived instances of SchedulerMonad.
 -- This may be fixed in GHC 9.0.1.
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
@@ -60,7 +61,7 @@ data NoLogSchedulerState (m :: DK.Type -> DK.Type) = NoLogSchedulerState {
   _ssNextIndex :: !TransactionIndex
   }
 
-mkInitialSS :: UpdatableBlockState m -> NoLogSchedulerState m
+mkInitialSS :: forall m . UpdatableBlockState m -> NoLogSchedulerState m
 mkInitialSS _ssBlockState = NoLogSchedulerState{
     _ssSchedulerEnergyUsed = 0,
     _ssSchedulerExecutionCosts = 0,

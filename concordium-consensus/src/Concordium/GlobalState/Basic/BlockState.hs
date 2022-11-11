@@ -451,6 +451,9 @@ putBlockState bs = do
 -- a migration from one protocol version to another. The migration parameters specify how to
 -- deserialize the block state from one protocol version into the block state for another by
 -- using the migration to fill in any missing data.
+--
+-- When migrating to a 'P4' or later, this sets the 'nextPaydayEpoch' to the reward period length.
+--
 -- This checks the following invariants:
 --
 --  * Bakers cannot have duplicate aggregation keys.
@@ -487,7 +490,11 @@ getBlockState migration = do
 
     preBlockRewardDetails <- label "reward details" $ getBlockRewardDetails @(AccountVersionFor oldpv)
     let _blockRewardDetails = case migration of
-            StateMigrationParametersTrivial -> preBlockRewardDetails
+            StateMigrationParametersTrivial -> case preBlockRewardDetails of
+                brd@BlockRewardDetailsV0{} -> brd
+                BlockRewardDetailsV1 brd -> case delegationChainParameters @pv of
+                    DelegationChainParametersV1 -> BlockRewardDetailsV1 . makeHashed $
+                        (_unhashed brd){PoolRewards.nextPaydayEpoch = rewardPeriodEpochs $ _blockUpdates ^. currentParameters . cpTimeParameters . tpRewardPeriodLength}
             StateMigrationParametersP1P2 -> preBlockRewardDetails
             StateMigrationParametersP2P3 -> preBlockRewardDetails
             StateMigrationParametersP3ToP4 migrationParams ->
@@ -501,7 +508,8 @@ getBlockState migration = do
                     TimeParametersV1{..} =
                         P4.updateTimeParameters (P4.migrationProtocolUpdateData migrationParams)
             StateMigrationParametersP4ToP5 -> case preBlockRewardDetails of
-                BlockRewardDetailsV1 brd -> BlockRewardDetailsV1 brd
+                BlockRewardDetailsV1 brd -> BlockRewardDetailsV1 . makeHashed $
+                    (_unhashed brd){PoolRewards.nextPaydayEpoch = rewardPeriodEpochs $ _blockUpdates ^. currentParameters . cpTimeParameters . tpRewardPeriodLength}
 
     -- Construct the release schedule and active bakers from the accounts
     let processBakerAccount (rs,bkrs) (aid, account) = do

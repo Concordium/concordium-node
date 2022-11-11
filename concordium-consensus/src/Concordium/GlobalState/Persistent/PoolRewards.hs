@@ -66,10 +66,13 @@ data PoolRewards = PoolRewards
     deriving (Show)
 
 -- |Migrate pool rewards from @m@ to the new backing store @t m@.
+-- This takes the new next payday epoch as a parameter, since this should always be updated on
+-- a protocol update.
 migratePoolRewards :: SupportMigration m t =>
+    Epoch ->
     PoolRewards ->
     t m PoolRewards
-migratePoolRewards PoolRewards{..} = do
+migratePoolRewards newNextPayday PoolRewards{..} = do
   nextCapital' <- migrateHashedBufferedRefKeepHash nextCapital
   currentCapital' <- migrateHashedBufferedRefKeepHash currentCapital
   bakerPoolRewardDetails' <- LFMBT.migrateLFMBTree (migrateReference return) bakerPoolRewardDetails
@@ -77,6 +80,7 @@ migratePoolRewards PoolRewards{..} = do
     nextCapital = nextCapital',
     currentCapital = currentCapital',
     bakerPoolRewardDetails = bakerPoolRewardDetails',
+    nextPaydayEpoch = newNextPayday,
     .. -- the remaining fields are flat, so migration is copying
     }
 

@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -347,7 +348,9 @@ data BlockRewardDetails (av :: AccountVersion) where
     BlockRewardDetailsV0 :: !HashedEpochBlocks -> BlockRewardDetails 'AccountV0
     BlockRewardDetailsV1 :: (AVSupportsDelegation av) => !(HashedBufferedRef' Rewards.PoolRewardsHash PoolRewards) -> BlockRewardDetails av
 
-migrateBlockRewardDetails ::
+-- |Migrate the block reward details.
+-- When migrating to a 'P4' or later, this sets the 'nextPaydayEpoch' to the reward period length.
+migrateBlockRewardDetails :: forall t m oldpv pv.
     (
       MonadBlobStore (t m)
     , MonadTrans t
@@ -361,9 +364,13 @@ migrateBlockRewardDetails ::
     TimeParameters (ChainParametersVersionFor pv) ->
     BlockRewardDetails (AccountVersionFor oldpv) ->
     t m (BlockRewardDetails (AccountVersionFor pv))
-migrateBlockRewardDetails StateMigrationParametersTrivial _ _ _ = \case
+migrateBlockRewardDetails StateMigrationParametersTrivial _ _ tp = \case
     (BlockRewardDetailsV0 heb) -> BlockRewardDetailsV0 <$> migrateHashedEpochBlocks heb
-    (BlockRewardDetailsV1 hbr) -> BlockRewardDetailsV1 <$> migrateHashedBufferedRefKeepHash hbr
+    (BlockRewardDetailsV1 hbr) -> case tp of
+        TimeParametersV1{..} -> 
+            BlockRewardDetailsV1
+                <$> migrateHashedBufferedRef (migratePoolRewards (rewardPeriodEpochs _tpRewardPeriodLength)) hbr
+        TimeParametersV0{} -> case protocolVersion @pv of
 migrateBlockRewardDetails StateMigrationParametersP1P2 _ _ _ = \case
     (BlockRewardDetailsV0 heb) -> BlockRewardDetailsV0 <$> migrateHashedEpochBlocks heb
 migrateBlockRewardDetails StateMigrationParametersP2P3 _ _ _ = \case
@@ -373,8 +380,10 @@ migrateBlockRewardDetails (StateMigrationParametersP3ToP4 _) curBakers nextBaker
       blockCounts <- bakersFromEpochBlocks (hebBlocks heb)
       (!newRef, _) <- refFlush =<< refMake =<< migratePoolRewardsP1 curBakers nextBakers blockCounts (rewardPeriodEpochs _tpRewardPeriodLength) _tpMintPerPayday
       return (BlockRewardDetailsV1 newRef)
-migrateBlockRewardDetails StateMigrationParametersP4ToP5{} _ _ _ = \case
-    (BlockRewardDetailsV1 hbr) -> BlockRewardDetailsV1 <$> migrateHashedBufferedRef migratePoolRewards hbr
+migrateBlockRewardDetails StateMigrationParametersP4ToP5{} _ _ TimeParametersV1{..} = \case
+    (BlockRewardDetailsV1 hbr) ->
+        BlockRewardDetailsV1
+            <$> migrateHashedBufferedRef (migratePoolRewards (rewardPeriodEpochs _tpRewardPeriodLength)) hbr
 
 instance MonadBlobStore m => MHashableTo m (Rewards.BlockRewardDetailsHash av) (BlockRewardDetails av) where
     getHashM (BlockRewardDetailsV0 heb) = return $ Rewards.BlockRewardDetailsHashV0 (getHash heb)
@@ -2068,73 +2077,99 @@ doModifyInstance :: forall pv m v . (SupportsPersistentState pv m, Wasm.IsWasmVe
 doModifyInstance pbs caddr deltaAmnt val newModule = do
         bsp <- loadPBS pbs
         -- Update the instance
-        Instances.updateContractInstance upd caddr (bspInstances bsp) >>= \case
+        Instances.updateContractInstance (upd bsp) caddr (bspInstances bsp) >>= \case
             Nothing -> error "Invalid contract address"
             Just (_, insts) ->
                 storePBS pbs bsp{bspInstances = insts}
     where
-        makeParams :: BufferedRef PersistentInstanceParameters -> m (PersistentInstanceParameters, BufferedRef PersistentInstanceParameters)
-        makeParams piRef = do
-          (params, newParamsRef) <- cacheBufferedRef piRef
-          case newModule of
-            Nothing -> return (params, newParamsRef)
-            Just (nm, newEntryPoints) -> do
-              let newParams' = params {
-                    pinstanceContractModule = GSWasm.miModuleRef nm,
-                    pinstanceReceiveFuns = newEntryPoints
-                    }
-                  newHash = Instances.makeInstanceParameterHash (pinstanceAddress newParams') (pinstanceOwner newParams') (pinstanceContractModule newParams') (pinstanceInitName newParams')
-                  newParams = newParams {pinstanceParameterHash = newHash}
-              (newParams,) <$> makeBufferedRef newParams
-        upd :: PersistentInstance pv -> m ((), PersistentInstance pv)
-        upd (PersistentInstanceV0 oldInst) = case Wasm.getWasmVersion @v of
+        upd :: BlockStatePointers pv -> PersistentInstance pv -> m ((), PersistentInstance pv)
+        upd _ (PersistentInstanceV0 oldInst) = case Wasm.getWasmVersion @v of
             Wasm.SV0 -> do
-              (piParams, newParamsRef) <- makeParams (pinstanceParameters oldInst)
+              -- V0 instances cannot be upgraded, so we don't need to do any
+              piParams <- loadBufferedRef (pinstanceParameters oldInst)
               if deltaAmnt == 0 then
                   case val of
-                      Nothing -> return ((), PersistentInstanceV0 oldInst {pinstanceParameters = newParamsRef})
+                      Nothing -> return ((), PersistentInstanceV0 oldInst)
                       Just newVal -> do
                         (csHash, newModel) <- freezeContractState newVal
                         return ((), PersistentInstanceV0 $
                                    rehashV0
                                    (Just csHash)
                                    (pinstanceParameterHash piParams)
-                                   (oldInst {pinstanceParameters = newParamsRef, pinstanceModel = newModel}))
+                                   (oldInst {pinstanceModel = newModel}))
               else
                   case val of
                       Nothing -> return ((), PersistentInstanceV0 $
                                            rehashV0
                                            Nothing
                                            (pinstanceParameterHash piParams)
-                                           oldInst {pinstanceParameters = newParamsRef,
-                                                    pinstanceAmount = applyAmountDelta deltaAmnt (pinstanceAmount oldInst)})
+                                           oldInst {pinstanceAmount = applyAmountDelta deltaAmnt (pinstanceAmount oldInst)})
                       Just newVal -> do
                           (csHash, newModel) <- freezeContractState newVal
                           return ((), PersistentInstanceV0 $
                                      rehashV0
                                      (Just csHash)
                                      (pinstanceParameterHash piParams)
-                                     oldInst {pinstanceParameters = newParamsRef,
-                                              pinstanceAmount = applyAmountDelta deltaAmnt (pinstanceAmount oldInst),
+                                     oldInst {pinstanceAmount = applyAmountDelta deltaAmnt (pinstanceAmount oldInst),
                                               pinstanceModel = newModel})
             Wasm.SV1 -> error "Expected instance version V0, got V1."
-        upd (PersistentInstanceV1 oldInst) = case Wasm.getWasmVersion @v of
+        upd bsp (PersistentInstanceV1 oldInst) = case Wasm.getWasmVersion @v of
             Wasm.SV0 -> error "Expected V1 contract instance, got V0."
             Wasm.SV1 -> do
-                (piParams, newParamsRef) <- makeParams (pinstanceParameters oldInst)
+                -- V1 instances can be upgraded to other V1 instances.
+                -- First compute whether the parameters and the in-memory module reference need to be updated.
+                (piParams, newParamsRef, newModuleInterface) <- do
+                       (params, newParamsRef) <- cacheBufferedRef (pinstanceParameters oldInst)
+                       case newModule of
+                         Nothing -> return (params, newParamsRef, pinstanceModuleInterface oldInst)
+                         Just (nm, newEntryPoints) -> do
+                           let newParams' = params {
+                                 pinstanceContractModule = GSWasm.miModuleRef nm,
+                                 pinstanceReceiveFuns = newEntryPoints
+                                 }
+                               -- compute the new hash of parameters since the module has changed
+                               newHash = Instances.makeInstanceParameterHash (pinstanceAddress newParams') (pinstanceOwner newParams') (pinstanceContractModule newParams') (pinstanceInitName newParams')
+                               newParams = newParams' {pinstanceParameterHash = newHash}
+                           mods <- refLoad (bspModules bsp)
+                           newModuleInterface <- fromMaybe (error "Cannot upgrade to a module that does not exist.") <$> (Modules.getModuleReference (GSWasm.miModuleRef nm) mods)
+                           br <- makeBufferedRef newParams
+                           return (newParams, br, newModuleInterface)
                 if deltaAmnt == 0 then
+                    -- there is no change in amount owned by the contract
                     case val of
-                        Nothing -> return ((), PersistentInstanceV1 oldInst {pinstanceParameters = newParamsRef})
+                        -- no change in either the state or the module. No need to change the instance
+                        Nothing
+                            | Nothing <- newModule -> return ((), PersistentInstanceV1 oldInst)
+                            | otherwise ->
+                                 -- the module is the only thing that was updated, so change parameters, and rehash
+                                 rehashV1
+                                     Nothing
+                                     (pinstanceParameterHash piParams)
+                                     oldInst {pinstanceParameters = newParamsRef,
+                                              pinstanceModuleInterface = newModuleInterface}
                         Just newVal -> do
+                              -- the state has changed, we need to rehash the instance.
+                              -- we also update parameters, but the update might be a no-op if newModel = Nothing,
+                              -- since then newParamsRef = pinstanceParameters
                               (csHash, newModel) <- freezeContractState newVal
                               rehashV1
                                 (Just csHash)
                                 (pinstanceParameterHash piParams)
                                 (oldInst {pinstanceParameters = newParamsRef,
-                                          pinstanceModel = newModel})
+                                          pinstanceModel = newModel,
+                                          pinstanceModuleInterface = newModuleInterface
+                                  })
                 else
+                    -- at least the amount has changed rehash in all cases
                     case val of
-                        Nothing -> rehashV1 Nothing (pinstanceParameterHash piParams) $ oldInst {pinstanceParameters = newParamsRef, pinstanceAmount = applyAmountDelta deltaAmnt (pinstanceAmount oldInst)}
+                        Nothing ->
+                            rehashV1
+                                Nothing
+                                (pinstanceParameterHash piParams)
+                                oldInst {pinstanceParameters = newParamsRef,
+                                         pinstanceAmount = applyAmountDelta deltaAmnt (pinstanceAmount oldInst),
+                                         pinstanceModuleInterface = newModuleInterface
+                                        }
                         Just newVal -> do
                               (csHash, newModel) <- freezeContractState newVal
                               rehashV1
@@ -2142,7 +2177,8 @@ doModifyInstance pbs caddr deltaAmnt val newModule = do
                                 (pinstanceParameterHash piParams)
                                 oldInst {pinstanceParameters = newParamsRef,
                                          pinstanceAmount = applyAmountDelta deltaAmnt (pinstanceAmount oldInst),
-                                         pinstanceModel = newModel}
+                                         pinstanceModel = newModel,
+                                         pinstanceModuleInterface = newModuleInterface }
         rehashV0 (Just csHash) iph inst@PersistentInstanceV {..} = inst {pinstanceHash = Instances.makeInstanceHashV0 iph csHash pinstanceAmount}
         rehashV0 Nothing iph inst@PersistentInstanceV {..} =
             inst {pinstanceHash = Instances.makeInstanceHashV0State iph pinstanceModel pinstanceAmount}

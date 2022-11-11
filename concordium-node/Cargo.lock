@@ -548,6 +548,8 @@ dependencies = [
  "itertools",
  "libc",
  "num",
+ "num-bigint 0.4.3",
+ "num-traits 0.2.15",
  "pairing",
  "rand 0.7.3",
  "rand_core 0.5.1",
@@ -561,7 +563,7 @@ dependencies = [
 
 [[package]]
 name = "concordium_node"
-version = "5.0.2"
+version = "5.0.6"
 dependencies = [
  "anyhow",
  "app_dirs2",

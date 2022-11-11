@@ -93,7 +93,7 @@ type ExecutionResult m = ExecutionResult' (BlockState m)
 
 makeLenses ''ExecutionResult'
 
-instance TreeStateMonad m => HasSchedulerState (LogSchedulerState m) where
+instance HasSchedulerState (LogSchedulerState m) where
   type SS (LogSchedulerState m) = UpdatableBlockState m
   schedulerBlockState = lssBlockState
   schedulerEnergyUsed = lssSchedulerEnergyUsed
@@ -123,7 +123,7 @@ deriving via (BSOMonadWrapper ContextState state (MGSTrans (RWST ContextState ()
     instance (
               SS state ~ UpdatableBlockState m,
               HasSchedulerState state,
-              TreeStateMonad m,
+              MonadProtocolVersion m,
               MonadLogger m,
               BlockStateOperations m) => SchedulerMonad (BlockStateMonad state m)
 
@@ -131,7 +131,7 @@ deriving via (BSOMonadWrapper ContextState state (MGSTrans (RWST ContextState ()
     instance (
               SS state ~ UpdatableBlockState m,
               HasSchedulerState state,
-              TreeStateMonad m,
+              MonadProtocolVersion m,
               MonadLogger m,
               BlockStateOperations m) => TVer.TransactionVerifier (BlockStateMonad state m)
 

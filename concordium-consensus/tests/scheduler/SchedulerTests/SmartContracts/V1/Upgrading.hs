@@ -223,8 +223,8 @@ missingModuleTestCase = TestCase { tcName = "Upgrading to a missing module fails
     eventsCheck :: [Types.Event] -> Expectation
     eventsCheck events = do
         -- Check the number of events:
-        -- - 1 event for a succesful update to the contract ('contract.upgrade').
-        eventsLengthCheck 1 events
+        -- - 1 event for a succesful update to the contract ('contract.upgrade'), 2 for interrupt
+        eventsLengthCheck 3 events
         -- Find and check for upgrade events
         when (List.any isUpgradeEvent events) $ assertFailure "Found unexpected event: Upgraded"
 
@@ -270,8 +270,8 @@ missingContractTestCase =
     eventsCheck :: [Types.Event] -> Expectation
     eventsCheck events = do
         -- Check the number of events:
-        -- - 1 event for a succesful update to the contract ('contract.upgrade').
-        eventsLengthCheck 1 events
+        -- - 1 event for the "update", 2 events for the interrupt
+        eventsLengthCheck 3 events
         -- Find and check for upgrade events
         when (List.any isUpgradeEvent events) $ assertFailure "Found unexpected event: Upgraded"
 
@@ -317,8 +317,9 @@ unsupportedVersionTestCase =
     eventsCheck :: [Types.Event] -> Expectation
     eventsCheck events = do
         -- Check the number of events:
-        -- - 1 event for a succesful update to the contract ('contract.upgrade').
-        eventsLengthCheck 1 events
+        -- - 1 event for a succesful update to the contract ('contract.upgrade'),
+        -- - 2 events for the interrupt
+        eventsLengthCheck 3 events
         -- Find and check for upgrade events
         when (List.any isUpgradeEvent events) $ assertFailure "Found unexpected event: Upgraded"
 

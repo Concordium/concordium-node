@@ -81,7 +81,6 @@ import qualified Data.Map.Strict as OrdMap
 import Data.Maybe
 import Data.Ord
 import qualified Data.Set as Set
-import qualified Data.Map.Strict as Map
 
 import qualified Concordium.Crypto.Proofs as Proofs
 import qualified Concordium.Crypto.BlsSignature as Bls
@@ -1101,158 +1100,172 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                       rAddress = instanceAddress istance,
                       ..
                       }
-                case rrdMethod of
-                  -- the operation is an account transfer, so we handle it.
-                  WasmV1.Transfer{..} ->
-                    runExceptT (transferAccountSync imtTo istance imtAmount) >>= \case
-                      Left errCode -> do
-                        go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.Error (WasmV1.EnvFailure errCode)) Nothing)
-                      Right transferEvents -> do
-                        newBalance <- getCurrentContractAmount Wasm.SV1 istance
-                        go (resumeEvent True:transferEvents ++ interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False newBalance WasmV1.Success Nothing)
-                  WasmV1.Call{..} -> do
-                    -- the operation is a call to another contract. There is a bit of complication because the contract could be a V0
-                    -- or V1 one, and the behaviour is different depending on which one it is.
-                    -- First, commit the current state of the contract.
-                    let maybeCommitState :: (ModificationIndex -> LocalT r m a) -> LocalT r m a
-                        maybeCommitState f =
-                         if rrdStateChanged then withInstanceStateV1 istance rrdCurrentState f
-                         else do
-                           mi <- getCurrentModificationIndex istance
-                           f mi
-                    maybeCommitState $ \modificationIndex -> do
-                       -- lookup the instance to invoke
-                       getCurrentContractInstanceTicking' imcTo >>= \case
-                         -- we could not find the instance, return this to the caller and continue
-                         Nothing -> go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.Error (WasmV1.EnvFailure (WasmV1.MissingContract imcTo))) Nothing)
-                         Just (InstanceInfoV0 targetInstance) -> do
-                           -- we are invoking a V0 instance.
-                           -- in this case we essentially treat this as a top-level transaction invoking that contract.
-                           -- That is, we execute the entire tree that is potentially generated.
-                           let rName = Wasm.uncheckedMakeReceiveName (instanceInitName (iiParameters targetInstance)) imcName
-                               runSuccess = handleContractUpdateV0 originAddr targetInstance (checkAndGetBalanceInstanceV0 ownerAccount istance) imcAmount rName imcParam
-                           -- If execution of the contract succeeds resume.
-                           -- Otherwise rollback the state and report that to the caller.
-                           runInnerTransaction runSuccess >>= \case
-                              Left _ -> -- execution failed, ignore the reject reason since V0 contract cannot return useful information
-                                go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance WasmV1.MessageSendFailed Nothing)
-                              Right evs -> do
-                                -- Execution of the contract might have changed our own state. If so, we need to resume in the new state, otherwise
-                                -- we can keep the old one.
-                                (lastModifiedIndex, newState) <- getCurrentContractInstanceState istance
-                                let stateChanged = lastModifiedIndex /= modificationIndex
-                                resumeState <- getRuntimeReprV1 newState
-                                newBalance <- getCurrentContractAmount Wasm.SV1 istance
-                                go (resumeEvent True:evs ++ interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig resumeState stateChanged newBalance WasmV1.Success Nothing)
-                         Just (InstanceInfoV1 targetInstance) -> do
-                           -- If this returns Right _ it is successful, and we pass this, and the returned return value
-                           -- to the caller.
-                           -- Otherwise we roll back all the changes and return the return value, and the error code to the caller.
-                           let rName = Wasm.uncheckedMakeReceiveName (instanceInitName (iiParameters targetInstance)) imcName
-                           withRollback (handleContractUpdateV1 originAddr targetInstance (checkAndGetBalanceInstanceV1 ownerAccount istance) imcAmount rName imcParam) >>= \case
-                              Left cer ->
-                                go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.Error cer) (WasmV1.ccfToReturnValue cer))
-                              Right (rVal, callEvents) -> do
-                                (lastModifiedIndex, newState) <- getCurrentContractInstanceState istance
-                                let stateChanged = lastModifiedIndex /= modificationIndex
-                                resumeState <- getRuntimeReprV1 newState
-                                newBalance <- getCurrentContractAmount Wasm.SV1 istance
-                                go (resumeEvent True:callEvents ++ interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig resumeState stateChanged newBalance WasmV1.Success (Just rVal))
-                  WasmV1.Upgrade{..} -> do
-                    -- charge for base administrative cost.
-                    tickEnergy Cost.initializeContractInstanceBaseCost
-                    newModule <- getModuleInterfaces imuModRef
-                    case newModule of
-                      -- The module could not be found.
-                      Nothing -> go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.UpgradeInvalidModuleRef imuModRef) Nothing)
-                      Just newModuleInterface -> case newModuleInterface of
-                        -- We do not support upgrades to V0 contracts.
-                        GSWasm.ModuleInterfaceV0 _ -> go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.UpgradeInvalidVersion imuModRef GSWasm.V0) Nothing)
-                        GSWasm.ModuleInterfaceV1 newModuleInterfaceAV1 -> do
-                           -- Charge for the lookup of the new module.
-                           tickEnergy $ Cost.lookupModule $ GSWasm.miModuleSize newModuleInterfaceAV1
-
-                           -- The contract must exist in the new module.
-                           -- I.e. It must be the case that there exists an init function for the new module that matches the caller.
-                           case Map.lookup (instanceInitName iParams) (GSWasm.miExposedReceive newModuleInterfaceAV1) of
-                             Nothing -> go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.UpgradeInvalidContractName imuModRef (instanceInitName iParams)) Nothing)
-                             Just newReceiveNames ->
-                                -- Now we carry out the upgrade.
-                                -- The upgrade must preserve the following properties:
-                                -- 1. Subsequent operations in the receive function must be executed via the 'old' artifact.
-                                -- I.e. If some code is followed by the upgrade function this must be run on the existing artifact code.
-                                -- 2. Reentrant contract calls must be executed on the new artifact.
-                                -- In order to fulfill the two above properties we add the actual state change to the 'ChangeSet' so that
-                                -- the 'resume' will execute on the 'old' version of the artifact. This solves (1).
-                                -- In order to fulfill (2) we will need to lookup the 'ChangeSet' whenever we get interrupted (with a call) to see
-                                -- if the code should be run on the old or the new artifact i.e., if a pending upgrade exists
-                                -- in the 'ChangeSet' we will need to use the new module artifact. See 'getCurrentContractInstance'.
-                                -- If the upgrade or subsequent actions fails then the transaction must be rolled back.
-                                -- Finally 'commitChanges' will commit the changeset upon a succesfull transaction.
-                                runExceptT (handleContractUpgrade cref currentModRef newModuleInterfaceAV1 newReceiveNames) >>= \case
-                                    Left errCode -> do
-                                        go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.Error (WasmV1.EnvFailure errCode)) Nothing)
-                                    Right upgradeEvent -> do
-                                        newBalance <- getCurrentContractAmount Wasm.SV1 istance
-                                        -- Charge for updating the pointer in the instance to the new module.
-                                        tickEnergy Cost.initializeContractInstanceCreateCost
-                                        go (resumeEvent True:upgradeEvent:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False newBalance WasmV1.Success Nothing)
-                  WasmV1.QueryAccountBalance {..}  -> do
-                    newBalance <- getCurrentContractAmount Wasm.SV1 istance
-                    -- Charge for querying balances of an account.
-                    tickEnergy Cost.contractInstanceQueryAccountBalanceCost
-                    -- Lookup account.
-                    maybeAccount <- getStateAccount imqabAddress
-                    case maybeAccount of
-                      Nothing ->
-                        go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False
-                             newBalance (WasmV1.Error $ WasmV1.EnvFailure $ WasmV1.MissingAccount imqabAddress) Nothing)
-                      Just indexedAccount@(_accountIndex, account) -> do
-                        -- Lookup account balances.
-                        balance <- getCurrentAccountTotalAmount indexedAccount
-                        -- During this transaction the staked and locked amount could not have been affected.
-                        -- Hence we can simply take the relevant balance from the "state account".
-                        stake <- getAccountStakedAmount account
-                        lockedAmount <- getAccountLockedAmount account
-                        -- Construct the return value.
-                        let returnValue = WasmV1.byteStringToReturnValue $ S.runPut $ do
-                             Wasm.putAmountLE balance
-                             Wasm.putAmountLE stake
-                             Wasm.putAmountLE lockedAmount
-                        go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False
-                             newBalance WasmV1.Success (Just returnValue))
-                  WasmV1.QueryContractBalance {..}  -> do
-                    newBalance <- getCurrentContractAmount Wasm.SV1 istance
-                    -- Charge for querying the balance of a contract.
-                    tickEnergy Cost.contractInstanceQueryContractBalanceCost
-                    -- Lookup contract balances.
-                    maybeInstanceInfo <- getCurrentContractInstance imqcbAddress
-                    case maybeInstanceInfo of
-                      Nothing ->
-                        go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False
-                             newBalance (WasmV1.Error $ WasmV1.EnvFailure $ WasmV1.MissingContract imqcbAddress) Nothing)
-                      Just instanceInfo -> do
-                        -- Lookup contract balance.
-                        balance <- case instanceInfo of
-                                     InstanceInfoV0 _ -> getCurrentContractAmount Wasm.SV0 istance
-                                     InstanceInfoV1 _ -> getCurrentContractAmount Wasm.SV1 istance
-                        -- Construct the return value.
-                        let returnValue = WasmV1.byteStringToReturnValue $ S.runPut $ do
-                             Wasm.putAmountLE balance
-                        go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False
-                             newBalance WasmV1.Success (Just returnValue))
-                  WasmV1.QueryExchangeRates -> do
-                    newBalance <- getCurrentContractAmount Wasm.SV1 istance
-                    -- Charge for querying the exchange rate.
-                    tickEnergy Cost.contractInstanceQueryExchangeRatesCost
-                    -- Lookup exchange rates.
-                    currentExchangeRates <- getExchangeRates
-                    -- Construct the return value.
-                    let returnValue = WasmV1.byteStringToReturnValue $ S.runPut $ do
-                          Wasm.putExchangeRateLE $ currentExchangeRates ^. euroPerEnergy
-                          Wasm.putExchangeRateLE $ currentExchangeRates ^. microGTUPerEuro
-                    go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False
-                          newBalance WasmV1.Success (Just returnValue))
+                -- Helper for commiting the state of the contract if necessary.
+                let maybeCommitState :: (ModificationIndex -> LocalT r m a) -> LocalT r m a
+                    maybeCommitState f =
+                      if rrdStateChanged then withInstanceStateV1 istance rrdCurrentState f
+                      else do
+                        mi <- getCurrentModificationIndex istance
+                        f mi
+                maybeCommitState $ \modificationIndex -> do
+                  case rrdMethod of
+                    -- the operation is an account transfer, so we handle it.
+                    WasmV1.Transfer{..} ->
+                      runExceptT (transferAccountSync imtTo istance imtAmount) >>= \case
+                        Left errCode -> do
+                          go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.Error (WasmV1.EnvFailure errCode)) Nothing)
+                        Right transferEvents -> do
+                          newBalance <- getCurrentContractAmount Wasm.SV1 istance
+                          go (resumeEvent True:transferEvents ++ interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False newBalance WasmV1.Success Nothing)
+                    WasmV1.Call{..} -> do
+                      -- the operation is a call to another contract. There is a bit of complication because the contract could be a V0
+                      -- or V1 one, and the behaviour is different depending on which one it is.
+                      -- lookup the instance to invoke
+                      getCurrentContractInstanceTicking' imcTo >>= \case
+                        -- we could not find the instance, return this to the caller and continue
+                        Nothing -> do
+                          -- In protocol version 4 we did not emit the interrupt event in this failing case.
+                          -- That was a mistake which is fixed in P5.
+                          let newEvents =
+                               case demoteProtocolVersion (protocolVersion @(MPV m)) of
+                                   P1 -> events
+                                   P2 -> events
+                                   P3 -> events
+                                   P4 -> events
+                                   P5 -> resumeEvent False:interruptEvent:events
+                          go newEvents =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.Error (WasmV1.EnvFailure (WasmV1.MissingContract imcTo))) Nothing)
+                        Just (InstanceInfoV0 targetInstance) -> do
+                          -- we are invoking a V0 instance.
+                          -- in this case we essentially treat this as a top-level transaction invoking that contract.
+                          -- That is, we execute the entire tree that is potentially generated.
+                          let rName = Wasm.uncheckedMakeReceiveName (instanceInitName (iiParameters targetInstance)) imcName
+                              runSuccess = handleContractUpdateV0 originAddr targetInstance (checkAndGetBalanceInstanceV0 ownerAccount istance) imcAmount rName imcParam
+                          -- If execution of the contract succeeds resume.
+                          -- Otherwise rollback the state and report that to the caller.
+                          runInnerTransaction runSuccess >>= \case
+                             Left _ -> -- execution failed, ignore the reject reason since V0 contract cannot return useful information
+                               go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance WasmV1.MessageSendFailed Nothing)
+                             Right evs -> do
+                               -- Execution of the contract might have changed our own state. If so, we need to resume in the new state, otherwise
+                               -- we can keep the old one.
+                               (lastModifiedIndex, newState) <- getCurrentContractInstanceState istance
+                               let stateChanged = lastModifiedIndex /= modificationIndex
+                               resumeState <- getRuntimeReprV1 newState
+                               newBalance <- getCurrentContractAmount Wasm.SV1 istance
+                               go (resumeEvent True:evs ++ interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig resumeState stateChanged newBalance WasmV1.Success Nothing)
+                        Just (InstanceInfoV1 targetInstance) -> do
+                          -- If this returns Right _ it is successful, and we pass this, and the returned return value
+                          -- to the caller.
+                          -- Otherwise we roll back all the changes and return the return value, and the error code to the caller.
+                          let rName = Wasm.uncheckedMakeReceiveName (instanceInitName (iiParameters targetInstance)) imcName
+                          withRollback (handleContractUpdateV1 originAddr targetInstance (checkAndGetBalanceInstanceV1 ownerAccount istance) imcAmount rName imcParam) >>= \case
+                             Left cer ->
+                               go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.Error cer) (WasmV1.ccfToReturnValue cer))
+                             Right (rVal, callEvents) -> do
+                               (lastModifiedIndex, newState) <- getCurrentContractInstanceState istance
+                               let stateChanged = lastModifiedIndex /= modificationIndex
+                               resumeState <- getRuntimeReprV1 newState
+                               newBalance <- getCurrentContractAmount Wasm.SV1 istance
+                               go (resumeEvent True:callEvents ++ interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig resumeState stateChanged newBalance WasmV1.Success (Just rVal))
+                    WasmV1.Upgrade{..} -> do
+                        -- charge for base administrative cost.
+                        tickEnergy Cost.initializeContractInstanceBaseCost
+                        newModule <- getModuleInterfaces imuModRef
+                        case newModule of
+                          -- The module could not be found.
+                          Nothing -> go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.UpgradeInvalidModuleRef imuModRef) Nothing)
+                          Just newModuleInterface -> case newModuleInterface of
+                            -- We do not support upgrades to V0 contracts.
+                            GSWasm.ModuleInterfaceV0 _ -> go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.UpgradeInvalidVersion imuModRef GSWasm.V0) Nothing)
+                            GSWasm.ModuleInterfaceV1 newModuleInterfaceAV1 -> do
+                               -- Charge for the lookup of the new module.
+                               tickEnergy $ Cost.lookupModule $ GSWasm.miModuleSize newModuleInterfaceAV1
+                               -- The contract must exist in the new module.
+                               -- I.e. It must be the case that there exists an init function for the new module that matches the caller.
+                               if Set.notMember (instanceInitName iParams) (GSWasm.miExposedInit newModuleInterfaceAV1) then
+                                   go (resumeEvent False:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.UpgradeInvalidContractName imuModRef (instanceInitName iParams)) Nothing)
+                               else do
+                                    let newReceiveNames = OrdMap.findWithDefault Set.empty (instanceInitName iParams) (GSWasm.miExposedReceive newModuleInterfaceAV1)
+                                    -- Now we carry out the upgrade.
+                                    -- The upgrade must preserve the following properties:
+                                    -- 1. Subsequent operations in the receive function must be executed via the 'old' artifact.
+                                    -- I.e. If some code is followed by the upgrade function this must be run on the existing artifact code.
+                                    -- 2. Reentrant contract calls must be executed on the new artifact.
+                                    -- In order to fulfill the two above properties we add the actual state change to the 'ChangeSet' so that
+                                    -- the 'resume' will execute on the 'old' version of the artifact. This solves (1).
+                                    -- In order to fulfill (2) we will need to lookup the 'ChangeSet' whenever we get interrupted (with a call) to see
+                                    -- if the code should be run on the old or the new artifact i.e., if a pending upgrade exists
+                                    -- in the 'ChangeSet' we will need to use the new module artifact. See 'getCurrentContractInstance'.
+                                    -- If the upgrade or subsequent actions fails then the transaction must be rolled back.
+                                    -- Finally 'commitChanges' will commit the changeset upon a succesfull transaction.
+                                    addContractUpgrade cref newModuleInterfaceAV1 newReceiveNames
+                                    let upgradeEvent = Upgraded cref currentModRef (GSWasm.miModuleRef newModuleInterfaceAV1)
+                                    -- Charge for updating the pointer in the instance to the new module.
+                                    tickEnergy Cost.initializeContractInstanceCreateCost
+                                    go (resumeEvent True:upgradeEvent:interruptEvent:events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance WasmV1.Success Nothing)
+                    WasmV1.QueryAccountBalance {..} -> do
+                      -- Charge for querying balances of an account.
+                      tickEnergy Cost.contractInstanceQueryAccountBalanceCost
+                      -- Lookup account.
+                      maybeAccount <- getStateAccount imqabAddress
+                      case maybeAccount of
+                        Nothing ->
+                          -- The Wasm execution does not reset contract events for queries, hence we do not have to
+                          -- add them here via an interrupt. They will be retained until the next interrupt.
+                          go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False
+                               entryBalance (WasmV1.Error $ WasmV1.EnvFailure $ WasmV1.MissingAccount imqabAddress) Nothing)
+                        Just indexedAccount@(_accountIndex, account) -> do
+                          -- Lookup account balances.
+                          balance <- getCurrentAccountTotalAmount indexedAccount
+                          -- During this transaction the staked and locked amount could not have been affected.
+                          -- Hence we can simply take the relevant balance from the "state account".
+                          stake <- getAccountStakedAmount account
+                          lockedAmount <- getAccountLockedAmount account
+                          -- Construct the return value.
+                          let returnValue = WasmV1.byteStringToReturnValue $ S.runPut $ do
+                               Wasm.putAmountLE balance
+                               Wasm.putAmountLE stake
+                               Wasm.putAmountLE lockedAmount
+                          -- The Wasm execution does not reset contract events for queries, hence we do not have to
+                          -- add them here via an interrupt. They will be retained until the next interrupt.
+                          go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False
+                               entryBalance WasmV1.Success (Just returnValue))
+                    WasmV1.QueryContractBalance {..}  -> do
+                      -- Charge for querying the balance of a contract.
+                      tickEnergy Cost.contractInstanceQueryContractBalanceCost
+                      -- Lookup contract balances.
+                      maybeInstanceInfo <- getCurrentContractInstance imqcbAddress
+                      case maybeInstanceInfo of
+                        Nothing ->
+                          -- The Wasm execution does not reset contract events for queries, hence we do not have to
+                          -- add them here via an interrupt. They will be retained until the next interrupt.
+                          go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False
+                               entryBalance (WasmV1.Error $ WasmV1.EnvFailure $ WasmV1.MissingContract imqcbAddress) Nothing)
+                        Just instanceInfo -> do
+                          -- Lookup contract balance.
+                          balance <- case instanceInfo of
+                                       InstanceInfoV0 ii -> getCurrentContractAmount Wasm.SV0 ii
+                                       InstanceInfoV1 ii -> getCurrentContractAmount Wasm.SV1 ii
+                          -- Construct the return value.
+                          let returnValue = WasmV1.byteStringToReturnValue $ S.runPut $ do
+                               Wasm.putAmountLE balance
+                          -- The Wasm execution does not reset contract events for queries, hence we do not have to
+                          -- add them here via an interrupt. They will be retained until the next interrupt.
+                          go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False
+                               entryBalance WasmV1.Success (Just returnValue))
+                    WasmV1.QueryExchangeRates -> do
+                      -- Charge for querying the exchange rate.
+                      tickEnergy Cost.contractInstanceQueryExchangeRatesCost
+                      -- Lookup exchange rates.
+                      currentExchangeRates <- getExchangeRates
+                      -- Construct the return value.
+                      let returnValue = WasmV1.byteStringToReturnValue $ S.runPut $ do
+                            Wasm.putExchangeRateLE $ currentExchangeRates ^. euroPerEnergy
+                            Wasm.putExchangeRateLE $ currentExchangeRates ^. microGTUPerEuro
+                      -- The Wasm execution does not reset contract events for queries, hence we do not have to
+                      -- add them here via an interrupt. They will be retained until the next interrupt.
+                      go events =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False
+                            entryBalance WasmV1.Success (Just returnValue))
 
       -- start contract execution.
       -- transfer the amount from the sender to the contract at the start. This is so that the contract may immediately use it
@@ -1285,20 +1298,6 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                 -- Add the transfer to the current changeset and return the corresponding event.
                 lift (withContractToAccountAmountV1 (instanceAddress senderInstance) targetAccount tAmount $
                       return [Transferred addr tAmount (AddressAccount accAddr)])
-          handleContractUpgrade :: ContractAddress
-                                -- ^The address of the instance to upgrade.
-                                -> ModuleRef
-                                -- ^The old module ref used for the emitted event.
-                                -> GSWasm.ModuleInterfaceA (InstrumentedModuleRef m GSWasm.V1)
-                                -- ^The new module that the instance should be using for execution.
-                                -> Set.Set GSWasm.ReceiveName
-                                -- ^The set of receive names for the instance exposed in the new module.
-                                -> ExceptT WasmV1.EnvFailure (LocalT r m) Event
-                                -- ^The events resulting from the upgrade.
-          handleContractUpgrade cAddr oldModRef newMod newReceiveNames = do
-              -- Add the upgrade to the 'ChangeSet' and add the 'Upgrade' event to the stack of events.
-              lift $! addContractUpgrade cAddr newMod newReceiveNames
-              return $ Upgraded cAddr oldModRef (GSWasm.miModuleRef newMod)
 
 -- | Invoke a V0 contract and process any generated messages.
 -- This includes the transfer of an amount from the sending account or instance.

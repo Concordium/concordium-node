@@ -230,6 +230,47 @@ contractBalanceTestCase =
                        , keys = [(0,[(0, alesKP)])]
                        }
                , (SuccessWithSummary (deploymentCostCheck contractBalanceSourceFile), emptySpec))
+             , ( TJSON { payload = InitContract 0 V1 contractBalanceSourceFile "init_contract" ""
+                       , metadata = makeDummyHeader alesAccount 2 100000
+                       , keys = [(0,[(0, alesKP)])]
+                       }
+               , (SuccessWithSummary (initializationCostCheck contractBalanceSourceFile "init_contract"), emptySpec))
+             , ( TJSON { payload = InitContract initAmount V1 contractBalanceSourceFile "init_contract" ""
+                       , metadata = makeDummyHeader alesAccount 3 100000
+                       , keys = [(0,[(0, alesKP)])]
+                       }
+               , (SuccessWithSummary (initializationCostCheck contractBalanceSourceFile "init_contract"), emptySpec))
+             , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "contract.query" parameters
+                       , metadata = makeDummyHeader alesAccount 4 100000
+                       , keys = [(0,[(0, alesKP)])]
+                       }
+               , (SuccessWithSummary (successWithEventsCheck eventsCheck), emptySpec))
+             ]
+           }
+  where
+    initAmount = 123
+
+    parameters = BSS.toShort $ runPut $ do
+      putWord64le 1 -- Index of the contract address.
+      putWord64le 0 -- Subindex of the contract address.
+      Wasm.putAmountLE initAmount -- Expected balance.
+
+    eventsCheck :: [Types.Event] -> Expectation
+    eventsCheck events = do
+        -- Check the number of events:
+        -- - 1 event for a succesful update to the contract.
+        eventsLengthCheck 1 events
+
+contractBalanceSelfTestCase :: TestCase PV5
+contractBalanceSelfTestCase =
+  TestCase { tcName = "Query the balance of the contract itself"
+           , tcParameters = (defaultParams @PV5) {tpInitialBlockState=initialBlockState}
+           , tcTransactions =
+             [ ( TJSON { payload = DeployModule V1 contractBalanceSourceFile
+                       , metadata = makeDummyHeader alesAccount 1 100000
+                       , keys = [(0,[(0, alesKP)])]
+                       }
+               , (SuccessWithSummary (deploymentCostCheck contractBalanceSourceFile), emptySpec))
              , ( TJSON { payload = InitContract initAmount V1 contractBalanceSourceFile "init_contract" ""
                        , metadata = makeDummyHeader alesAccount 2 100000
                        , keys = [(0,[(0, alesKP)])]
@@ -489,6 +530,7 @@ tests = describe "V1: Queries" $ do
     accountBalanceTransferTestCase,
     accountBalanceMissingAccountTestCase,
     contractBalanceTestCase,
+    contractBalanceSelfTestCase,
     contractBalanceTransferTestCase,
     contractBalanceMissingContractTestCase,
     exchangeRatesTestCase]

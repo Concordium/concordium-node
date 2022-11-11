@@ -663,15 +663,14 @@ addContractInitToCS :: Proxy m -> ContractAddress -> ChangeSet m -> ChangeSet m
 addContractInitToCS Proxy addr cs =
     cs { _instanceInits = HSet.insert addr (cs ^. instanceInits) }
 
-
 -- |Add the contract upgrade to the 'ChangeSet'.
 -- We only care about the most recent contract upgrade.
 {-# INLINE addContractUpgradeToCS #-}
 addContractUpgradeToCS :: Proxy m -> ContractAddress -> GSWasm.ModuleInterfaceA (InstrumentedModuleRef m GSWasm.V1) -> Set.Set GSWasm.ReceiveName -> ChangeSet m -> ChangeSet m
 addContractUpgradeToCS Proxy addr updatedMod updatedReceiveNames cs = do
     cs & instanceV1Updates . at addr %~ \case
-                                          Just InstanceV1Update{..} -> Just $! InstanceV1Update index amountChange newState (Just (updatedMod, updatedReceiveNames))
-                                          Nothing -> Just $! InstanceV1Update 0 0 Nothing (Just (updatedMod, updatedReceiveNames))
+      Just InstanceV1Update{..} -> Just $! InstanceV1Update index amountChange newState (Just (updatedMod, updatedReceiveNames))
+      Nothing -> Just $! InstanceV1Update 0 0 Nothing (Just (updatedMod, updatedReceiveNames))
 
 -- |Whether the transaction energy limit is reached because of transaction max energy limit,
 -- or because of block energy limit
@@ -1191,10 +1190,8 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
   outOfBlockEnergy = LocalT (ContT (\_ -> return (Left Nothing)))
 
   {-# INLINE addContractUpgrade #-}
-  addContractUpgrade cAddr newMod newReceiveNames = do
-      cs <- use changeSet
-      let cs' = addContractUpgradeToCS (Proxy @m) cAddr newMod newReceiveNames cs
-      changeSet .=! cs'
+  addContractUpgrade cAddr newMod newReceiveNames =
+      changeSet %=! addContractUpgradeToCS (Proxy @m) cAddr newMod newReceiveNames
 
 -- |Call an external method that can fail with running out of energy.
 -- Depending on what is the current limit, either remaining transaction energy,

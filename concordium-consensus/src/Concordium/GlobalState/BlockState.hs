@@ -351,7 +351,7 @@ data InstanceInfoTypeV
     (contractState :: Wasm.WasmVersion -> Type)
     (v :: Wasm.WasmVersion)
     = InstanceInfoV {
-    -- |Immutable parameters that do not change after the instance is created.
+    -- |Immutable parameters that change rarely after the instance is created.
     iiParameters :: InstanceParameters (instrumentedModule v),
     -- |The state that will be modified during execution.
     iiState :: contractState v,
