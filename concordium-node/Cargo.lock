@@ -338,6 +338,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "22a81f981b8ef527251cf84b62c73331637431d5d34820d7f166ed28ea97afd6"
 
 [[package]]
+name = "bs58"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "771fe0050b883fcc3ea2359b1a96bcfbc090b7116eae7c3c512c7a083fdf23d3"
+dependencies = [
+ "sha2 0.9.9",
+]
+
+[[package]]
 name = "bstr"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -535,15 +544,17 @@ dependencies = [
 
 [[package]]
 name = "concordium-contracts-common"
-version = "4.0.0"
+version = "4.1.0"
 dependencies = [
- "base58check",
+ "bs58",
  "chrono",
  "concordium-contracts-common-derive",
  "fnv",
  "hashbrown 0.11.2",
  "num-bigint 0.4.3",
+ "num-integer",
  "num-traits 0.2.15",
+ "rust_decimal",
  "serde 1.0.145",
  "serde_json 1.0.86",
  "thiserror",
@@ -580,6 +591,8 @@ dependencies = [
  "itertools",
  "libc",
  "num",
+ "num-bigint 0.4.3",
+ "num-traits 0.2.15",
  "pairing",
  "rand 0.7.3",
  "rand_core 0.5.1",
