@@ -270,6 +270,7 @@ processFinalization newFinBlock finRec@FinalizationRecord{..} = do
 --    it is added to the appropriate pending queue.  'addBlock'
 --    should be called again when the pending criterion is fulfilled.
 -- 3. The block is determined to be valid and added to the tree.
+-- todo doc
 addBlock :: forall m. (HasCallStack, TreeStateMonad m, SkovMonad m, FinalizationMonad m, OnSkov m) => VerifiedPendingBlock m -> [Maybe TV.VerificationResult] -> m UpdateResult
 addBlock block txvers = do
         lfs <- getLastFinalizedSlot
@@ -350,13 +351,18 @@ addBlockWithLiveParent verifiedBlock txvers parentP = do
                             isPending (Just (BlockPending _)) = True
                             isPending _ = False
                         childSlot <- getSlotTimestamp (blockSlot childpb)
-                        (_, mVerifiedPendingBlock) <- verifyPendingBlock childpb childSlot undefined --todo fill in the parent block.
-                        case mVerifiedPendingBlock of
-                            Just verifiedPendingBlock -> 
-                                when (isPending childStatus) $ addBlock verifiedPendingBlock verress >>= \case
-                                ResultSuccess -> onPendingLive
-                                _ -> return ()
+                        let parentHash = blockPointer childpb
+                        mParentP <- resolveBlock parentHash
+                        case mParentP of
                             Nothing -> return ()
+                            Just childPP -> do
+                                (_, mVerifiedPendingBlock) <- verifyPendingBlock childpb childSlot childPP
+                                case mVerifiedPendingBlock of
+                                    Just verifiedPendingBlock ->
+                                        when (isPending childStatus) $ addBlock verifiedPendingBlock verress >>= \case
+                                            ResultSuccess -> onPendingLive
+                                            _ -> return ()
+                                    Nothing -> return ()
                     return ResultSuccess
     where
         block = vpbePb verifiedBlock
@@ -504,6 +510,10 @@ doReceiveBlock pb@GB.PendingBlock{pbBlock = BakedBlock{..}, ..} = isShutDown >>=
 
 -- |Check validity of a block (whose parent is either alive or finalized) and if present then also the finalization record.
 -- Returns a `VerifiedPendingBlock` the `PendingBlock` could be verified.
+-- This should be called if the parent is known to be alive or finalized.
+-- Hence the function is used when receiving a block from the network and the parent is either alive or finalized,
+-- or when processing pending children blocks of a block that was priorly also pending but where the parent has become
+-- alive or finalized.
 verifyPendingBlock :: (MonadLogger m, TreeStateMonad m, SkovQueryMonad m, FinalizationMonad m)
     => PendingBlock
     -> Timestamp
