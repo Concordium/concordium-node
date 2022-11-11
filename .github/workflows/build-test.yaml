@@ -41,7 +41,7 @@ on:
   workflow_dispatch: # allow manual trigger
 
 env:
-  dummy: 7                 # change to force cache invalidation
+  dummy: 8                 # change to force cache invalidation
   CARGO_TERM_COLOR: always # implicitly adds '--color=always' to all cargo commands
   TEST_LEVEL: 1            # for stack tests
 

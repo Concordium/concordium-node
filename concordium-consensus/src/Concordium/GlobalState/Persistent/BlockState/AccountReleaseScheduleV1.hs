@@ -2,6 +2,25 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
+-- |This module defines a data structure that stores the amounts that are locked up for a given
+-- account. The data structure is persisted to a blob store. This version of the account release
+-- schedule was introduced at protocol 'P5' as a refinement of the earlier version.
+--
+-- The release schedule is represented as a vector of 'ReleaseScheduleEntry's, each of which
+-- represents the releases added by a single transaction. Each entry includes the timestamp
+-- of the next future release in that entry, a pointer to an ordered list of the releases, and
+-- a hash of these releases.
+--
+-- On disk, the vector is represented as a flat array. This has a disadvantage that it needs to be
+-- rewritten in its entirety for each change. Each entry, however, avoids rewriting the list of
+-- releases by storing an offset to the next entry in the list. This way, only one copy of the
+-- releases for each transaction is stored in the blob store, but the offset is updated to account
+-- for the lapsed releases. The list of releases for each entry is also stored as a flattened
+-- array of timestamps and amounts, in ascending order of timestamp. The hash of the releases for
+-- an entry is computed incrementally, but only the final hash is retained. The transaction hash
+-- responsible for creating each entry is recorded, but does not contribute to the hash of the
+-- account release schedule; it is maintained for informational purposes, and thus used to
+-- generate the 'AccountReleaseSummary'.
 module Concordium.GlobalState.Persistent.BlockState.AccountReleaseScheduleV1 where
 
 import Control.Monad
