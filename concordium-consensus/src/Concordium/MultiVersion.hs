@@ -1032,8 +1032,8 @@ receiveBlock gi blockBS = withLatestExpectedVersion' gi $
                 case mVerifiedPendingBlock of
                     Nothing -> return (updateResult, Nothing)
                     Just verifiedPendingBlock -> do
-                        let cont = runSkovTransaction vc (Skov.executeBlock verifiedPendingBlock)
-                        return (updateResult, cont)
+                        let cont = ExecuteBlock $! runSkovTransaction vc (Skov.executeBlock verifiedPendingBlock)
+                        return (updateResult, Just cont)
 
 -- |todo: doc
 executeBlock :: GenesisIndex -> ExecuteBlock gsconf finconf -> MVR gsconf finconf Skov.UpdateResult
