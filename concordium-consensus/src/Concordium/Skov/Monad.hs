@@ -42,7 +42,6 @@ import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.Skov.CatchUp.Types
 import qualified Concordium.GlobalState.TreeState as TS
-import qualified Concordium.Scheduler.TreeStateEnvironment as TSEnv
 
 data UpdateResult
     = ResultSuccess
@@ -180,33 +179,20 @@ data MessageType
     | MessageCatchUpStatus
     deriving (Eq, Show)
 
--- |A 'VerifiedPendingBlock' returned from initial verification.
--- That is, the block has passed checks concerning the validity
--- todo doc.
-type VerifiedPendingBlock m = VerifiedPendingBlock' (BlockState m) (BlockPointerType m)
-
-data VerifiedPendingBlock' bst bpt = VerifiedPendingBlock' {
-          vpbePb :: !PendingBlock,
-          -- ^The block that should be processed.
-          vpbeSlotTime :: !Timestamp,
-          -- ^The block slot timestamp.
-          vpbeTxVerCtx :: !bst,
-          -- ^The verification context i.e.,
-          -- the block state of which the transactions should be verified within.   
-          vpbeParentBlock :: !bpt,
-          -- ^Pointer to the parent block.
-          vpbeFin :: !(Maybe TSEnv.FinalizerInfo)
-          -- ^Finalizer info if it was present.
-      }
+-- |This is a continuation for executing the block.
+-- The type exists so we can wrap the continuation in a 'ForeignPtr'.
+-- todo doc..
+-- todo rename!!!
+newtype VerifiedPendingBlock = VerifiedPendingBlock { runExecuteBlock :: IO UpdateResult }
 
 class (SkovQueryMonad m, TimeMonad m, MonadLogger m) => SkovMonad m where  
     -- |Store a block in the block table and add it to the tree
     -- if possible. This also checks that the block is not early in the sense that its received
     -- time predates its slot time by more than the early block threshold.
     -- todo doc
-    receiveBlock :: PendingBlock -> m (UpdateResult, Maybe (VerifiedPendingBlock m))
+    receiveBlock :: PendingBlock -> m (UpdateResult, Maybe VerifiedPendingBlock)
     -- |todo: doc
-    executeBlock :: VerifiedPendingBlock m -> m UpdateResult
+    executeBlock :: VerifiedPendingBlock -> m UpdateResult
     -- |Add a transaction to the transaction table.
     -- This must gracefully handle transactions from other (older) protocol versions.
     receiveTransaction :: BlockItem -> m UpdateResult

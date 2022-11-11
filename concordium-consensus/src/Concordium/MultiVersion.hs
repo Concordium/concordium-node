@@ -997,8 +997,8 @@ sendCatchUpStatus genIndex = MVR $ \mvr@MultiVersionRunner{..} -> do
 -- todo make the signature nicer
 withLatestExpectedVersion' ::
     GenesisIndex ->
-    (EVersionedConfiguration gsconf finconf -> MVR gsconf finconf (Skov.UpdateResult, Maybe (Skov.VerifiedPendingBlock m))) ->
-    MVR gsconf finconf (Skov.UpdateResult, Maybe (Skov.VerifiedPendingBlock m))
+    (EVersionedConfiguration gsconf finconf -> MVR gsconf finconf (Skov.UpdateResult, Maybe Skov.VerifiedPendingBlock)) ->
+    MVR gsconf finconf (Skov.UpdateResult, Maybe Skov.VerifiedPendingBlock)
 withLatestExpectedVersion' gi a = do
     vvec <- liftIO . readIORef =<< asks mvVersions
     -- Length is an Int and GenesisIndex is a Word32.
@@ -1016,7 +1016,7 @@ withLatestExpectedVersion ::
 withLatestExpectedVersion gi a = fst <$> withLatestExpectedVersion' gi (fmap (, Nothing) <$> a)
 
 -- |Deserialize and receive a block at a given genesis index.
-receiveBlock :: GenesisIndex -> ByteString -> MVR gsconf finconf (Skov.UpdateResult, Maybe (Skov.VerifiedPendingBlock m))
+receiveBlock :: GenesisIndex -> ByteString -> MVR gsconf finconf (Skov.UpdateResult, Maybe Skov.VerifiedPendingBlock)
 receiveBlock gi blockBS = withLatestExpectedVersion' gi $
     \(EVersionedConfiguration (vc :: VersionedConfiguration gsconf finconf pv)) -> do
         now <- currentTime
@@ -1027,10 +1027,10 @@ receiveBlock gi blockBS = withLatestExpectedVersion' gi $
             Right block -> runSkovTransaction vc (Skov.receiveBlock block)
 
 -- |todo: doc
-executeBlock :: GenesisIndex -> Skov.VerifiedPendingBlock m -> MVR gsconf finconf Skov.UpdateResult
-executeBlock gi block = withLatestExpectedVersion gi $
+executeBlock :: GenesisIndex -> Skov.VerifiedPendingBlock -> MVR gsconf finconf Skov.UpdateResult
+executeBlock gi executeCont = withLatestExpectedVersion gi $
     \(EVersionedConfiguration (vc :: VersionedConfiguration gsconf finconf pv)) -> do
-        runSkovTransaction vc $! Skov.executeBlock block
+        runSkovTransaction vc $! pure $! Skov.runExecuteBlock executeCont
 
 -- |Deserialize and receive a finalization message at a given genesis index.
 receiveFinalizationMessage :: GenesisIndex -> ByteString -> MVR gsconf finconf Skov.UpdateResult

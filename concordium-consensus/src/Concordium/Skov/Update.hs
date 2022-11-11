@@ -1,6 +1,7 @@
 {-# LANGUAGE
     ScopedTypeVariables,
-    ViewPatterns #-}
+    ViewPatterns,
+    UndecidableInstances#-}
 module Concordium.Skov.Update where
 
 import Control.Monad
@@ -12,6 +13,8 @@ import Data.List (intercalate)
 import GHC.Stack
 import Data.Maybe (fromMaybe)
 import Data.Time (diffUTCTime)
+import Control.Monad.IO.Class
+import Control.Monad.Reader.Class
 
 import Concordium.Types
 import Concordium.Types.Accounts
@@ -271,23 +274,22 @@ processFinalization newFinBlock finRec@FinalizationRecord{..} = do
 --    should be called again when the pending criterion is fulfilled.
 -- 3. The block is determined to be valid and added to the tree.
 -- todo doc
-addBlock :: forall m. (HasCallStack, TreeStateMonad m, SkovMonad m, FinalizationMonad m, OnSkov m) => VerifiedPendingBlock m -> [Maybe TV.VerificationResult] -> m UpdateResult
-addBlock block txvers = do
+addBlock :: forall m. (HasCallStack, TreeStateMonad m, SkovMonad m, FinalizationMonad m, OnSkov m) => PendingBlock -> [Maybe TV.VerificationResult] -> BlockPointerType m -> Maybe FinalizerInfo -> m UpdateResult
+addBlock block txvers parentP mFinInfo = do
         lfs <- getLastFinalizedSlot
         -- The block must be later than the last finalized block
-        if lfs >= (blockSlot . vpbePb) block then deadBlock else do
+        if lfs >= blockSlot block then deadBlock else do
             -- Look up the block parent, if any.
             -- This is performance sensitive since it is before we managed to validate the block,
             -- so we make sure to look up as little data as possible to determine block validity.
             -- In particular we do not use getBlockStatus since that loads the entire block
             -- from the database if the block is finalized.
-            addBlockWithLiveParent block txvers parent
+            addBlockWithLiveParent block txvers parentP mFinInfo
     where
         deadBlock :: m UpdateResult
         deadBlock = do
-            blockArriveDead $! (getHash . vpbePb) block
+            blockArriveDead $! getHash block
             return ResultStale
-        parent = vpbeParentBlock block
 
 -- |Add a block to the pending blocks table, returning 'ResultPendingBlock'.
 -- It is assumed that the parent of the block is unknown or also a pending block, and that its
@@ -311,13 +313,15 @@ addBlockWithLiveParent ::
     forall m.
     (HasCallStack, TreeStateMonad m, SkovMonad m, FinalizationMonad m, OnSkov m) =>
     -- |A pending block with a live or finalized parent.
-    VerifiedPendingBlock m ->
+    PendingBlock ->
     -- |Verification results of transactions, corresponding to those in the block
     [Maybe TV.VerificationResult] ->
     -- |Parent block pointer
     BlockPointerType m ->
+    -- |Finalizer info if available.
+    Maybe FinalizerInfo ->
     m UpdateResult
-addBlockWithLiveParent verifiedBlock txvers parentP = do
+addBlockWithLiveParent block txvers parentP finInfo = do
     (lfbp, _) <- getLastFinalized
     parentState <- blockState parentP
     parentSeedState <- getSeedState parentState
@@ -325,7 +329,7 @@ addBlockWithLiveParent verifiedBlock txvers parentP = do
     -- Update the seed state with the block nonce
     let newSeedState = updateSeedState blkSlot (blockNonce block) parentSeedState
         ts = zip (blockTransactions block) txvers
-    executeFrom blkHash blkSlot slotTime parentP (blockBaker block) (vpbeFin verifiedBlock) newSeedState ts >>= \case
+    executeFrom blkHash blkSlot slotTime parentP (blockBaker block) finInfo newSeedState ts >>= \case
         Left err -> do
             logEvent Skov LLWarning ("Block execution failure: " ++ show err)
             invalidBlock "execution failure"
@@ -350,22 +354,16 @@ addBlockWithLiveParent verifiedBlock txvers parentP = do
                         let isPending Nothing = True
                             isPending (Just (BlockPending _)) = True
                             isPending _ = False
-                        childSlot <- getSlotTimestamp (blockSlot childpb)
                         let parentHash = blockPointer childpb
                         mParentP <- resolveBlock parentHash
                         case mParentP of
                             Nothing -> return ()
                             Just childPP -> do
-                                (_, mVerifiedPendingBlock) <- verifyPendingBlock childpb childSlot childPP
-                                case mVerifiedPendingBlock of
-                                    Just verifiedPendingBlock ->
-                                        when (isPending childStatus) $ addBlock verifiedPendingBlock verress >>= \case
-                                            ResultSuccess -> onPendingLive
-                                            _ -> return ()
-                                    Nothing -> return ()
+                                when (isPending childStatus) $ addBlock childpb verress childPP Nothing >>= \case
+                                    ResultSuccess -> onPendingLive
+                                    _ -> return ()
                     return ResultSuccess
     where
-        block = vpbePb verifiedBlock
         invalidBlock :: String -> m UpdateResult
         invalidBlock reason = do
             logEvent Skov LLWarning $ "Block is not valid (" ++ reason ++ "): " ++ show block
@@ -415,7 +413,7 @@ blockArrive block parentP lfBlockP ExecutionResult{..} = do
 -- to a pending queue if its prerequisites are not met.
 -- If the block is too early, it is rejected with 'ResultEarlyBlock'.
 -- todo doc
-doReceiveBlock :: (TreeStateMonad m, FinalizationMonad m, SkovMonad m) => PendingBlock -> m (UpdateResult, Maybe (VerifiedPendingBlock m))
+doReceiveBlock :: (TreeStateMonad m, FinalizationMonad m, SkovMonad m) => PendingBlock -> m (UpdateResult, Maybe VerifiedPendingBlock)
 {- - INLINE doReceiveBlock - -}
 doReceiveBlock pb@GB.PendingBlock{pbBlock = BakedBlock{..}, ..} = isShutDown >>= \case
     True -> return (ResultConsensusShutDown, Nothing)
@@ -518,7 +516,7 @@ verifyPendingBlock :: (MonadLogger m, TreeStateMonad m, SkovQueryMonad m, Finali
     => PendingBlock
     -> Timestamp
     -> BlockPointerType m
-    -> m (UpdateResult, Maybe (VerifiedPendingBlock m))
+    -> m (UpdateResult, Maybe VerifiedPendingBlock)
 verifyPendingBlock block slotTime parentP =
     -- Check that the claimed key matches the signature/blockhash
     checkClaimedSignature $ do
@@ -558,16 +556,16 @@ verifyPendingBlock block slotTime parentP =
                 -- The signature is checked using the claimed key already in doStoreBlock for blocks which were received from the network.
                 check "Baker key claimed in block did not match actual baker key" (_bakerSignatureVerifyKey == blockBakerKey block) $ do
                     let
-                        vpbePb = block
-                        vpbeSlotTime = slotTime
-                        vpbeTxVerCtx = parentState
-                        vpbeParentBlock = parentP
+                        ebpPb = block                        
+                        ebpSlotTime = slotTime
+                        ebpTxVerCtx = parentState
+                        ebpParentPointer = parentP
                     case blockFinalizationData block of
                         -- If the block contains no finalization data, it is trivially valid and
                         -- inherits the last finalized pointer from the parent.
                         NoFinalizationData -> do
                             logEvent Skov LLInfo $ "Received block " ++ show block
-                            return (ResultSuccess, Just VerifiedPendingBlock'{vpbeFin = Nothing,..})
+                            return (ResultSuccess, Just $! VerifiedPendingBlock $! doExecuteBlock ExecuteBlockParams'{ebpFinInfo = Nothing,..})
                         -- If the block contains a finalization record...
                         BlockFinalizationData finRec@FinalizationRecord{finalizationBlockPointer=finBP,..} -> do
                             -- Get whichever block was finalized at the previous index.
@@ -606,7 +604,9 @@ verifyPendingBlock block slotTime parentP =
                                              Just fbp -> do 
                                                  check "finalization inconsistency" (bpHash fbp == finBP) $ do
                                                      logEvent Skov LLInfo $ "Received block " ++ show block
-                                                     return (ResultSuccess, Just VerifiedPendingBlock'{vpbeFin = Just (makeFinalizerInfo committee finalizationProof),..})
+                                                     return (ResultSuccess,
+                                                             Just (VerifiedPendingBlock (
+                                                                      doExecuteBlock ExecuteBlockParams'{ebpFinInfo = Just (makeFinalizerInfo committee finalizationProof),..})))
                                              Nothing -> rejectInvalidBlock $ "no finalized block at index " ++ show finalizationIndex
     where
         checkClaimedSignature a = if verifyBlockSignature block then a else do
@@ -619,16 +619,37 @@ verifyPendingBlock block slotTime parentP =
             return (ResultInvalid, Nothing)
         check reason q a = if q then a else rejectInvalidBlock reason
 
+
+-- todo doc
+type ExecuteBlockParams m = ExecuteBlockParams' (BlockState m) (BlockPointerType m)
+-- todo doc
+data ExecuteBlockParams' bst bpt = ExecuteBlockParams' {
+    ebpSlotTime :: !Timestamp,
+    ebpPb :: !PendingBlock,
+    ebpTxVerCtx :: !bst,
+    ebpParentPointer :: !bpt,
+    ebpFinInfo :: !(Maybe FinalizerInfo)
+}
+
+class BlockExecutionMonad m where
+    executeBlockM :: m UpdateResult
+
+instance (TreeStateMonad m, FinalizationMonad m, SkovMonad m, OnSkov m, MonadIO m, MonadReader (ExecuteBlockParams m) m) => BlockExecutionMonad m where
+    executeBlockM = do
+        params <- ask
+        res <- doExecuteBlock params
+        return res
+
 -- |Execute a 'VerifiedPendingBlock'.
 -- Before adding the block to the tree we verify the transactions.
 -- If the 'VerifiedPendingBlock' is awaiting its parent then it is added to the pending blocks table.
 -- If the parent of @block@ is alive or finalized then we add it to the tree.
-doExecuteBlock :: (TreeStateMonad m, FinalizationMonad m, SkovMonad m, OnSkov m) => VerifiedPendingBlock m -> m UpdateResult
+doExecuteBlock :: (TreeStateMonad m, FinalizationMonad m, SkovMonad m, OnSkov m) => ExecuteBlockParams m -> m UpdateResult
 {- - INLINE doExecuteBlock - -}
-doExecuteBlock VerifiedPendingBlock'{..}  = do
-    verifyBlockTransactions vpbePb vpbeSlotTime vpbeTxVerCtx >>= \case
-        Nothing -> deadBlock $! pbHash vpbePb
-        Just (newBlock, verificationResults) -> addBlockWithLiveParent VerifiedPendingBlock'{vpbePb = newBlock, ..} verificationResults vpbeParentBlock
+doExecuteBlock ExecuteBlockParams'{..} = do
+    verifyBlockTransactions ebpPb ebpTxVerCtx >>= \case
+        Nothing -> deadBlock $! pbHash ebpPb
+        Just (newBlock, verificationResults) -> addBlockWithLiveParent newBlock verificationResults ebpParentPointer ebpFinInfo
     where
         -- |Verify the transactions of the block within the provided block state context.
         -- If transactions could successfully be verified then this function
@@ -636,9 +657,9 @@ doExecuteBlock VerifiedPendingBlock'{..}  = do
         -- alive or finalized.
         -- If the parent is pending as well or 'Unknown' then the block must be added as pending.
         -- If the transactions could not be verified we return 'Nothing' 
-        verifyBlockTransactions pb@GB.PendingBlock{pbBlock = BakedBlock{..}, ..} slotTime contextState = do
+        verifyBlockTransactions pb@GB.PendingBlock{pbBlock = BakedBlock{..}, ..} contextState = do
             txListWithVerRes <- sequence <$> forM (blockTransactions pb)
-                (\tr -> fst <$> doReceiveTransactionInternal (TV.Block contextState) tr slotTime (blockSlot pb))
+                (\tr -> fst <$> doReceiveTransactionInternal (TV.Block contextState) tr ebpSlotTime (blockSlot pb))
             forM (unzip <$> txListWithVerRes) $ \(newTransactions, verificationResults) -> do
                 purgeTransactionTable False =<< currentTime
                 -- We wrap the processed transactions within the pending block as processing
