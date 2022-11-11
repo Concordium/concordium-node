@@ -746,7 +746,7 @@ toReceiveResult ResultInsufficientFunds = 30
 -- @ResultConsensusShutDown@, and @ResultInvalidGenesisIndex@.
 -- 'receiveBlock' may invoke the callbacks for new finalization messages.
 -- todo doc
-receiveBlock :: StablePtr ConsensusRunner -> GenesisIndex -> CString -> Int64 -> Ptr (StablePtr ExecutableBlock) -> IO ReceiveResult
+receiveBlock :: StablePtr ConsensusRunner -> GenesisIndex -> CString -> Int64 -> Ptr (StablePtr ExecuteBlock) -> IO ReceiveResult
 receiveBlock bptr genIndex msg msgLen ptrPtrExecutableBlock = do
     (ConsensusRunner mvr) <- deRefStablePtr bptr
     mvLog mvr External LLTrace $ "Received block data, size = " ++ show msgLen ++ "."
@@ -759,7 +759,7 @@ receiveBlock bptr genIndex msg msgLen ptrPtrExecutableBlock = do
             return $! toReceiveResult receiveResult
 
 -- |todo doc
-executeBlock :: StablePtr ConsensusRunner -> GenesisIndex -> StablePtr ExecutableBlock -> IO ReceiveResult
+executeBlock :: StablePtr ConsensusRunner -> GenesisIndex -> StablePtr ExecuteBlock -> IO ReceiveResult
 executeBlock bptr genIndex ptrExecutableBlock = do
     (ConsensusRunner mvr) <- deRefStablePtr bptr
     -- Deref the 'StablePtr ExecutableBlock'

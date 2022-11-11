@@ -13,7 +13,6 @@ import Data.List (intercalate)
 import GHC.Stack
 import Data.Maybe (fromMaybe)
 import Data.Time (diffUTCTime)
-import Control.Monad.IO.Class
 
 import Concordium.Types
 import Concordium.Types.Accounts
@@ -412,7 +411,7 @@ blockArrive block parentP lfBlockP ExecutionResult{..} = do
 -- to a pending queue if its prerequisites are not met.
 -- If the block is too early, it is rejected with 'ResultEarlyBlock'.
 -- todo doc
-doReceiveBlock :: (TreeStateMonad m, FinalizationMonad m, SkovMonad m) => PendingBlock -> m (UpdateResult, Maybe VerifiedPendingBlock)
+doReceiveBlock :: (TreeStateMonad m, FinalizationMonad m, SkovMonad m) => PendingBlock -> m (UpdateResult, Maybe (VerifiedPendingBlock m))
 {- - INLINE doReceiveBlock - -}
 doReceiveBlock pb@GB.PendingBlock{pbBlock = BakedBlock{..}, ..} = isShutDown >>= \case
     True -> return (ResultConsensusShutDown, Nothing)
@@ -511,11 +510,11 @@ doReceiveBlock pb@GB.PendingBlock{pbBlock = BakedBlock{..}, ..} = isShutDown >>=
 -- Hence the function is used when receiving a block from the network and the parent is either alive or finalized,
 -- or when processing pending children blocks of a block that was priorly also pending but where the parent has become
 -- alive or finalized.
-verifyPendingBlock :: (MonadLogger m, TreeStateMonad m, SkovQueryMonad m, FinalizationMonad m, MonadIO m)
+verifyPendingBlock :: (MonadLogger m, TreeStateMonad m, SkovQueryMonad m, FinalizationMonad m)
     => PendingBlock
     -> Timestamp
     -> BlockPointerType m
-    -> m (UpdateResult, Maybe VerifiedPendingBlock)
+    -> m (UpdateResult, Maybe (VerifiedPendingBlock m))
 verifyPendingBlock block slotTime parentP =
     -- Check that the claimed key matches the signature/blockhash
     checkClaimedSignature $ do
@@ -555,16 +554,16 @@ verifyPendingBlock block slotTime parentP =
                 -- The signature is checked using the claimed key already in doStoreBlock for blocks which were received from the network.
                 check "Baker key claimed in block did not match actual baker key" (_bakerSignatureVerifyKey == blockBakerKey block) $ do
                     let
-                        ebpPb = block                        
-                        ebpSlotTime = slotTime
-                        ebpTxVerCtx = parentState
-                        ebpParentPointer = parentP
+                        vpbPb = block                        
+                        vpbSlotTime = slotTime
+                        vpbTxVerCtx = parentState
+                        vpbParentPointer = parentP
                     case blockFinalizationData block of
                         -- If the block contains no finalization data, it is trivially valid and
                         -- inherits the last finalized pointer from the parent.
                         NoFinalizationData -> do
                             logEvent Skov LLInfo $ "Received block " ++ show block
-                            return (ResultSuccess, Just $! VerifiedPendingBlock $! doExecuteBlock ExecuteBlockParams'{ebpFinInfo = Nothing,..})
+                            return (ResultSuccess, Just $! VerifiedPendingBlock'{vpbFinInfo = Nothing,..})
                         -- If the block contains a finalization record...
                         BlockFinalizationData finRec@FinalizationRecord{finalizationBlockPointer=finBP,..} -> do
                             -- Get whichever block was finalized at the previous index.
@@ -604,8 +603,7 @@ verifyPendingBlock block slotTime parentP =
                                                  check "finalization inconsistency" (bpHash fbp == finBP) $ do
                                                      logEvent Skov LLInfo $ "Received block " ++ show block
                                                      return (ResultSuccess,
-                                                             Just (VerifiedPendingBlock (
-                                                                      doExecuteBlock ExecuteBlockParams'{ebpFinInfo = Just (makeFinalizerInfo committee finalizationProof),..})))
+                                                             Just (VerifiedPendingBlock' {vpbFinInfo = Just (makeFinalizerInfo committee finalizationProof),..}))
                                              Nothing -> rejectInvalidBlock $ "no finalized block at index " ++ show finalizationIndex
     where
         checkClaimedSignature a = if verifyBlockSignature block then a else do
@@ -618,28 +616,16 @@ verifyPendingBlock block slotTime parentP =
             return (ResultInvalid, Nothing)
         check reason q a = if q then a else rejectInvalidBlock reason
 
-
--- todo doc
-type ExecuteBlockParams m = ExecuteBlockParams' (BlockState m) (BlockPointerType m)
--- todo doc
-data ExecuteBlockParams' bst bpt = ExecuteBlockParams' {
-    ebpSlotTime :: !Timestamp,
-    ebpPb :: !PendingBlock,
-    ebpTxVerCtx :: !bst,
-    ebpParentPointer :: !bpt,
-    ebpFinInfo :: !(Maybe FinalizerInfo)
-}
-
 -- |Execute a 'VerifiedPendingBlock'.
 -- Before adding the block to the tree we verify the transactions.
 -- If the 'VerifiedPendingBlock' is awaiting its parent then it is added to the pending blocks table.
 -- If the parent of @block@ is alive or finalized then we add it to the tree.
-doExecuteBlock :: (TreeStateMonad m, FinalizationMonad m, SkovMonad m, OnSkov m) => ExecuteBlockParams m -> m UpdateResult
+doExecuteBlock :: (TreeStateMonad m, FinalizationMonad m, SkovMonad m, OnSkov m) => VerifiedPendingBlock m -> m UpdateResult
 {- - INLINE doExecuteBlock - -}
-doExecuteBlock ExecuteBlockParams'{..} = do
-    verifyBlockTransactions ebpPb ebpTxVerCtx >>= \case
-        Nothing -> deadBlock $! pbHash ebpPb
-        Just (newBlock, verificationResults) -> addBlockWithLiveParent newBlock verificationResults ebpParentPointer ebpFinInfo
+doExecuteBlock VerifiedPendingBlock'{..} = do
+    verifyBlockTransactions vpbPb vpbTxVerCtx >>= \case
+        Nothing -> deadBlock $! pbHash vpbPb
+        Just (newBlock, verificationResults) -> addBlockWithLiveParent newBlock verificationResults vpbParentPointer vpbFinInfo
     where
         -- |Verify the transactions of the block within the provided block state context.
         -- If transactions could successfully be verified then this function
@@ -649,7 +635,7 @@ doExecuteBlock ExecuteBlockParams'{..} = do
         -- If the transactions could not be verified we return 'Nothing' 
         verifyBlockTransactions pb@GB.PendingBlock{pbBlock = BakedBlock{..}, ..} contextState = do
             txListWithVerRes <- sequence <$> forM (blockTransactions pb)
-                (\tr -> fst <$> doReceiveTransactionInternal (TV.Block contextState) tr ebpSlotTime (blockSlot pb))
+                (\tr -> fst <$> doReceiveTransactionInternal (TV.Block contextState) tr vpbSlotTime (blockSlot pb))
             forM (unzip <$> txListWithVerRes) $ \(newTransactions, verificationResults) -> do
                 purgeTransactionTable False =<< currentTime
                 -- We wrap the processed transactions within the pending block as processing

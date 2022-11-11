@@ -42,6 +42,7 @@ import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.Skov.CatchUp.Types
 import qualified Concordium.GlobalState.TreeState as TS
+import qualified Concordium.Scheduler.TreeStateEnvironment as TSEnv
 
 data UpdateResult
     = ResultSuccess
@@ -182,17 +183,26 @@ data MessageType
 -- |This is a continuation for executing the block.
 -- The type exists so we can wrap the continuation in a 'ForeignPtr'.
 -- todo doc..
--- todo rename!!!
-newtype VerifiedPendingBlock = VerifiedPendingBlock { runExecuteBlock :: IO UpdateResult }
+-- todo doc
+type VerifiedPendingBlock m = VerifiedPendingBlock' (BlockState m) (BlockPointerType m)
+-- todo doc
+data VerifiedPendingBlock' bst bpt = VerifiedPendingBlock' {
+    vpbSlotTime :: !Timestamp,
+    vpbPb :: !PendingBlock,
+    vpbTxVerCtx :: !bst,
+    vpbParentPointer :: !bpt,
+    vpbFinInfo :: !(Maybe TSEnv.FinalizerInfo)
+}
+
 
 class (SkovQueryMonad m, TimeMonad m, MonadLogger m) => SkovMonad m where  
     -- |Store a block in the block table and add it to the tree
     -- if possible. This also checks that the block is not early in the sense that its received
     -- time predates its slot time by more than the early block threshold.
     -- todo doc
-    receiveBlock :: PendingBlock -> m (UpdateResult, Maybe VerifiedPendingBlock)
+    receiveBlock :: PendingBlock -> m (UpdateResult, Maybe (VerifiedPendingBlock m))
     -- |todo: doc
-    executeBlock :: VerifiedPendingBlock -> m UpdateResult
+    executeBlock :: VerifiedPendingBlock m -> m UpdateResult
     -- |Add a transaction to the transaction table.
     -- This must gracefully handle transactions from other (older) protocol versions.
     receiveTransaction :: BlockItem -> m UpdateResult

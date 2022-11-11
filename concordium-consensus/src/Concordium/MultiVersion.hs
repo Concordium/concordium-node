@@ -997,8 +997,8 @@ sendCatchUpStatus genIndex = MVR $ \mvr@MultiVersionRunner{..} -> do
 -- todo make the signature nicer
 withLatestExpectedVersion' ::
     GenesisIndex ->
-    (EVersionedConfiguration gsconf finconf -> MVR gsconf finconf (Skov.UpdateResult, Maybe Skov.VerifiedPendingBlock)) ->
-    MVR gsconf finconf (Skov.UpdateResult, Maybe Skov.VerifiedPendingBlock)
+    (EVersionedConfiguration gsconf finconf -> MVR gsconf finconf (Skov.UpdateResult, Maybe ExecuteBlock)) ->
+    MVR gsconf finconf (Skov.UpdateResult, Maybe ExecuteBlock)
 withLatestExpectedVersion' gi a = do
     vvec <- liftIO . readIORef =<< asks mvVersions
     -- Length is an Int and GenesisIndex is a Word32.
@@ -1015,8 +1015,11 @@ withLatestExpectedVersion ::
     MVR gsconf finconf Skov.UpdateResult
 withLatestExpectedVersion gi a = fst <$> withLatestExpectedVersion' gi (fmap (, Nothing) <$> a)
 
+-- |todo doc
+newtype ExecuteBlock = ExecuteBlock { runBlock :: IO Skov.UpdateResult}
+
 -- |Deserialize and receive a block at a given genesis index.
-receiveBlock :: GenesisIndex -> ByteString -> MVR gsconf finconf (Skov.UpdateResult, Maybe Skov.VerifiedPendingBlock)
+receiveBlock :: GenesisIndex -> ByteString -> MVR gsconf finconf (Skov.UpdateResult, Maybe ExecuteBlock)
 receiveBlock gi blockBS = withLatestExpectedVersion' gi $
     \(EVersionedConfiguration (vc :: VersionedConfiguration gsconf finconf pv)) -> do
         now <- currentTime
@@ -1024,13 +1027,19 @@ receiveBlock gi blockBS = withLatestExpectedVersion' gi $
             Left err -> do
                 logEvent Runner LLDebug err
                 return (Skov.ResultSerializationFail, Nothing)
-            Right block -> runSkovTransaction vc (Skov.receiveBlock block)
+            Right block -> do
+                (updateResult, mVerifiedPendingBlock) <- runSkovTransaction vc (Skov.receiveBlock block)
+                case mVerifiedPendingBlock of
+                    Nothing -> return (updateResult, Nothing)
+                    Just verifiedPendingBlock -> do
+                        let cont = runSkovTransaction vc (Skov.executeBlock verifiedPendingBlock)
+                        return (updateResult, cont)
 
 -- |todo: doc
-executeBlock :: GenesisIndex -> Skov.VerifiedPendingBlock -> MVR gsconf finconf Skov.UpdateResult
+executeBlock :: GenesisIndex -> ExecuteBlock -> MVR gsconf finconf Skov.UpdateResult
 executeBlock gi executeCont = withLatestExpectedVersion gi $
     \(EVersionedConfiguration (vc :: VersionedConfiguration gsconf finconf pv)) -> do
-        runSkovTransaction vc $! pure $! Skov.runExecuteBlock executeCont
+        runSkovTransaction vc $! runBlock executeCont
 
 -- |Deserialize and receive a finalization message at a given genesis index.
 receiveFinalizationMessage :: GenesisIndex -> ByteString -> MVR gsconf finconf Skov.UpdateResult
