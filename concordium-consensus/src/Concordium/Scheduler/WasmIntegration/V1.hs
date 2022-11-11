@@ -179,7 +179,7 @@ invokeResponseToWord64 (Error (ExecutionReject LogicReject{..})) =
   in 0xffff_ff00_0000_0000 .|. fromIntegral unsigned -- and cut away the upper 32 bits
 
 foreign import ccall "call_init_v1"
-   call_init :: LoadCallback -- Callbacks for loading state. Not needed in reality, but the way things are set it is. It does not hurt to pass.
+   call_init :: LoadCallback -- ^Callbacks for loading state. Not needed in reality, but the way things are set it is. It does not hurt to pass.
              -> Ptr Word8 -- ^Pointer to the Wasm artifact.
              -> CSize -- ^Length of the artifact.
              -> Ptr Word8 -- ^Pointer to the serialized chain meta + init ctx.

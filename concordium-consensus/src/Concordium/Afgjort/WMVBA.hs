@@ -2,55 +2,55 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -Wno-duplicate-exports #-}
 {- |
-WMVBA is the protocol used to generate agreement on the finalization layer.
+ WMVBA is the protocol used to generate agreement on the finalization layer.
 
-For more information, check the konsensus paper, section 5.6 and specifically 5.6.5.
+ For more information, check the konsensus paper, section 5.6 and specifically 5.6.5.
 
-= Definitions
+ = Definitions
 
-* Input justified: A bit @b@ is @Jin@-justified for us if I have a @Jdec@-justified tuple @(baid, FROZEN, d)@ where @d@ is not @Bottom@.
-* Final justification: A decision @d@ is @Jfin@-justified for is if I have @t + 1@ signatures on the message @(baid, WEAREDONE, d)@.
+ * Input justified: A bit @b@ is @Jin@-justified for us if I have a @Jdec@-justified tuple @(baid, FROZEN, d)@ where @d@ is not @Bottom@.
+ * Final justification: A decision @d@ is @Jfin@-justified for is if I have @t + 1@ signatures on the message @(baid, WEAREDONE, d)@.
 
-= Protocol
+ = Protocol
 
-== Input
+ == Input
 
-* @baid@: each invocation of WMVBA is identified by a unique identifier.
-* @J@: a justification.
+ * @baid@: each invocation of WMVBA is identified by a unique identifier.
+ * @J@: a justification.
 
-== Precondition
+ == Precondition
 
-* @p@ is @J@-justified.
+ * @p@ is @J@-justified.
 
-== Execution
+ == Execution
 
-1. Run @Freeze(baid, J)@ with input @p@ (a block) to generate @d@ (either a block or @Bottom@) which is @Jdec@-justified.
-2. Run @ABBA(baid)@ with input @b@ where @b = Bottom@ if @d = Bottom@ and @b = T@ otherwise.
-3. If @b' = Bottom@ terminate and output @(b', W = Bottom)@ otherwise:
+ 1. Run @Freeze(baid, J)@ with input @p@ (a block) to generate @d@ (either a block or @Bottom@) which is @Jdec@-justified.
+ 2. Run @ABBA(baid)@ with input @b@ where @b = Bottom@ if @d = Bottom@ and @b = T@ otherwise.
+ 3. If @b' = Bottom@ terminate and output @(b', W = Bottom)@ otherwise:
 
     * Once we have @(baid, FROZEN, d)@ with @d \= Bottom@, send @(baid, WEAREDONE, d)@ to all parties.
     * Once we receive @t+1@ signed @(baid, WEAREDONE, d)@ messages terminate and output @(d, W)@ where @W@ contains @baid@ and @t+1@ of these signatures.
 
-= Implementation:
+ = Implementation:
 
-All the sent messages are modelled via 'WMVBAMessage'. The state of the WMVBA instance is managed in 'WMVBAState' that contains both a 'FreezeState' and a 'ABBAState'. The data used by the instance is managed
-by 'WMVBAInstance' that can be converted to the required instances `FreezeInstance` and `ABBAInstance`.
+ All the sent messages are modelled via 'WMVBAMessage'. The state of the WMVBA instance is managed in 'WMVBAState' that contains both a 'FreezeState' and a 'ABBAState'. The data used by the instance is managed
+ by 'WMVBAInstance' that can be converted to the required instances `FreezeInstance` and `ABBAInstance`.
 
-The capabilites that need to be exposed in the WMVBA protocol are abstracted through the 'WMVBAMonad' that has the newtype 'WMVBA' as an instance. 'WMVBA' is essentially a 'RWST' monad that reads the
-'WMVBAInstance' values, writes to a list of 'WMVBAOutputEvent's and keeps a 'WMVBAState'. Computations on 'Freeze' and 'ABBA' monads can be lifted into computations in 'WMVBA'.
+ The capabilites that need to be exposed in the WMVBA protocol are abstracted through the 'WMVBAMonad' that has the newtype 'WMVBA' as an instance. 'WMVBA' is essentially a 'RWST' monad that reads the
+ 'WMVBAInstance' values, writes to a list of 'WMVBAOutputEvent's and keeps a 'WMVBAState'. Computations on 'Freeze' and 'ABBA' monads can be lifted into computations in 'WMVBA'.
 
-For the agents that don't participate in the WMVBA protocol, a 'WMVBAPassiveState' is provided that just happens inside a 'MonadState' in order to gather justifications and finalize blocks
-locally.
+ For the agents that don't participate in the WMVBA protocol, a 'WMVBAPassiveState' is provided that just happens inside a 'MonadState' in order to gather justifications and finalize blocks
+ locally.
 
-All the protocol implementations follow a common pattern that consists of:
+ All the protocol implementations follow a common pattern that consists of:
 
-* A set of __Types__ that are specific to that protocol and are probably used by higher protocols.
-* A set of __Message types__ that are specific to that protocol and are forwarded by higher protocols.
-* A __Base monad__ typeclass definition that specifies the capabilities of the monad.
-* An __Instance__ that specifies the available data for the running monad.
-* A __State__ that specifies the state for the running monad.
-* A __Protocol__ set of functions that define the inputs and outputs of the protocol and guide its flow.
-* A __Summary__ definition and set of functions that allows the user to get summaries from the different stages of the protocols.
+ * A set of __Types__ that are specific to that protocol and are probably used by higher protocols.
+ * A set of __Message types__ that are specific to that protocol and are forwarded by higher protocols.
+ * A __Base monad__ typeclass definition that specifies the capabilities of the monad.
+ * An __Instance__ that specifies the available data for the running monad.
+ * A __State__ that specifies the state for the running monad.
+ * A __Protocol__ set of functions that define the inputs and outputs of the protocol and guide its flow.
+ * A __Summary__ definition and set of functions that allows the user to get summaries from the different stages of the protocols.
 -}
 module Concordium.Afgjort.WMVBA (
     -- * Types

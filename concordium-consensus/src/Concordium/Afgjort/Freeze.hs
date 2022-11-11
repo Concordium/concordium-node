@@ -5,43 +5,43 @@
 {-# LANGUAGE ViewPatterns #-}
 {- |Freeze is the protocol to generate a consistent decision for generating finalization proofs.
 
-For more information, check the konsensus paper, section 5.6.3
+ For more information, check the konsensus paper, section 5.6.3
 
-= Definitions
+ = Definitions
 
-There are three types of messages in Freeze and each one entails one type of justification:
+ There are three types of messages in Freeze and each one entails one type of justification:
 
-* Proposal: a proposal message @(baid, PROPOSAL, p)@ from a remote party is considered Jprop-justified for us if
-  it is signed by the remote party and the value @p@ is J-justified for us.
-* Vote: a vote message @(baid, VOTE, v)@ from a remote party is considered Jvote-justified for us if it is signed
-  by the remote party and:
+ * Proposal: a proposal message @(baid, PROPOSAL, p)@ from a remote party is considered Jprop-justified for us if
+   it is signed by the remote party and the value @p@ is J-justified for us.
+ * Vote: a vote message @(baid, VOTE, v)@ from a remote party is considered Jvote-justified for us if it is signed
+   by the remote party and:
 
-  - @v == bottom@ and we have received Jprop-justified messages for different values (from different parties).
-  - we have received Jprop-justified messages for the same value @v@ from @n-2t@ parties.
+   - @v == bottom@ and we have received Jprop-justified messages for different values (from different parties).
+   - we have received Jprop-justified messages for the same value @v@ from @n-2t@ parties.
 
-* Decision: a decision message @(baid, FROZEN, d)@ is Jdec-justified for us if we have collected Jvote-justified messages
-  with the same @d@ from at least @t+1@ parties.
+ * Decision: a decision message @(baid, FROZEN, d)@ is Jdec-justified for us if we have collected Jvote-justified messages
+   with the same @d@ from at least @t+1@ parties.
 
-These messages are defined in @FreezeMessage@.
+ These messages are defined in @FreezeMessage@.
 
-= Protocol
+ = Protocol
 
-The Freeze protocol works dividided in 3 phases as follows:
+ The Freeze protocol works dividided in 3 phases as follows:
 
-== Input:
-  - @baid@: the WMVBA invocation identifier.
-  - @J@: a justification.
+ == Input:
+   - @baid@: the WMVBA invocation identifier.
+   - @J@: a justification.
 
-== Precondition:
-  Each party has a proposal p (J-justified) as input.
+ == Precondition:
+   Each party has a proposal p (J-justified) as input.
 
-== Execution
+ == Execution
 
-A) Propose:
+ A) Propose:
 
     1. Each party broadcasts a signed proposal message @(baid, PROPOSAL, p)@.
 
-B) Vote:
+ B) Vote:
 
     2. Each party receives the proposal messages and after messages from @n-t@ parties do:
 
@@ -49,7 +49,7 @@ B) Vote:
 
         b) If two different proposals are received, then broadcast message @(baid, VOTE, bottom)@.
 
-C) Freeze:
+ C) Freeze:
 
     3. Once @n-t@ vote messages are collected:
 

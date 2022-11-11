@@ -4,17 +4,17 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-|
-The scheduler executes transactions (including credential deployment), updating the current block state.
-It can
+ The scheduler executes transactions (including credential deployment), updating the current block state.
+ It can
 
-  * Execute a given list of transactions until failure ('runTransactions' / 'execTransactions'), used to execute a given block.
-  * Select transactions to create a new block ('filterTransactions').
+   * Execute a given list of transactions until failure ('runTransactions' / 'execTransactions'), used to execute a given block.
+   * Select transactions to create a new block ('filterTransactions').
 
-= Processing of transactions
+ = Processing of transactions
 
-  * Processing happens in the 'SchedulerMonad'.
+   * Processing happens in the 'SchedulerMonad'.
 
-  * The processing of a transaction can end in three different ways (see also 'TxResult'):
+   * The processing of a transaction can end in three different ways (see also 'TxResult'):
 
       1. The transaction is invalid and can not be part of a block. The block state is thus not
          changed. This can for example be because the transaction has an invalid

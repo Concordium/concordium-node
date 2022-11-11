@@ -14,35 +14,35 @@
 {-|
  Definition of the API of every BlockState implementation.
 
-The block state holds amongs other things the status of the accounts, bakers and
-bank rewards after the execution of a specific block.
+ The block state holds amongs other things the status of the accounts, bakers and
+ bank rewards after the execution of a specific block.
 
-We will consider the genesis state containing at least:
+ We will consider the genesis state containing at least:
 
-* accounts: a collection of accounts
-* credentials: a collection of the deployed credentials
-* executionCost
-* mintedGTUPerSlot
-* totalGTU
-* centralBankGTU
-* identityIssuers: a collection for the amount of notifications received by the issuer
-* birkParameters
-* bakers: collection of the current bakers (could be inside birkParameters)
-* electionDifficulty
-* transactionOutcomesValues: normal transaction outcomes in a block
-* transactionOutcomesSpecial: special transction outcomes in a block
+ * accounts: a collection of accounts
+ * credentials: a collection of the deployed credentials
+ * executionCost
+ * mintedGTUPerSlot
+ * totalGTU
+ * centralBankGTU
+ * identityIssuers: a collection for the amount of notifications received by the issuer
+ * birkParameters
+ * bakers: collection of the current bakers (could be inside birkParameters)
+ * electionDifficulty
+ * transactionOutcomesValues: normal transaction outcomes in a block
+ * transactionOutcomesSpecial: special transction outcomes in a block
 
-Each implementation might group these values under different structures but they
-are all required.
+ Each implementation might group these values under different structures but they
+ are all required.
 
-Some invariants that must be maintained in the BlockState are:
-B1. Once an account has been created, it cannot be replaced by another account with the same address.
-B2. The total GTU should equal the sum of all amounts on accounts plus the central bank amount plus the reward amount.
-B3. The number of notifications to identity issuers must be the same as the number of transactions that don't deploy credentials.
-B4. Two bakers cannot share the same aggregate signature verify key.
-B5. The amount delegated to any given baker must be the sum of the amounts o all the accounts that delegate to that baker. The total delegated amount must always equal the sum of the amounts delegated to all bakers.
+ Some invariants that must be maintained in the BlockState are:
+ B1. Once an account has been created, it cannot be replaced by another account with the same address.
+ B2. The total GTU should equal the sum of all amounts on accounts plus the central bank amount plus the reward amount.
+ B3. The number of notifications to identity issuers must be the same as the number of transactions that don't deploy credentials.
+ B4. Two bakers cannot share the same aggregate signature verify key.
+ B5. The amount delegated to any given baker must be the sum of the amounts o all the accounts that delegate to that baker. The total delegated amount must always equal the sum of the amounts delegated to all bakers.
 
-These invariants are actually inviolable considering the structure of the API.
+ These invariants are actually inviolable considering the structure of the API.
 -}
 module Concordium.GlobalState.BlockState where
 

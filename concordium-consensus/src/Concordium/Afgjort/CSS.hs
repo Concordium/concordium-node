@@ -4,37 +4,37 @@
 {-# LANGUAGE TemplateHaskell #-}
 {- |Core Set Selection algorithm
 
-For more information, check the konsensus paper, section 5.6.4.
+ For more information, check the konsensus paper, section 5.6.4.
 
-The core set selection algorithm outputs a set @CoreSet@ that is later used to consider an input finalized.
+ The core set selection algorithm outputs a set @CoreSet@ that is later used to consider an input finalized.
 
-= Definitions
+ = Definitions
 
-One of the inputs to CSS is a justification, to which we will refer as Jcssin.
+ One of the inputs to CSS is a justification, to which we will refer as Jcssin.
 
-* TPL: A tuple @(P, b)@ is Jtpl-justified for us if it is signed by @P@ and @b@ is Jcssin-justified for us.
-* Seen: A seen message @(SEEN, Pk, (Pi, bi))@ is Jseen-justified for us if it is signed by Pk and @(Pi, bi)@ is
+ * TPL: A tuple @(P, b)@ is Jtpl-justified for us if it is signed by @P@ and @b@ is Jcssin-justified for us.
+ * Seen: A seen message @(SEEN, Pk, (Pi, bi))@ is Jseen-justified for us if it is signed by Pk and @(Pi, bi)@ is
   Jtpl-justified for us.
-* Done: A done-reporting message @(DONEREPORTING, Pk, iSaw_k)@ is Jdone-justified for us if it is signed by Pk and
+ * Done: A done-reporting message @(DONEREPORTING, Pk, iSaw_k)@ is Jdone-justified for us if it is signed by Pk and
   each tuple @(Pi, bi)@ in @iSaw_k@ is Jseen-justified with a message @(SEEN, Pk, (Pi, bi))@.
 
-= Protocol
+ = Protocol
 
-== Input
-* @baid@: the identifier of the WMVBA instance.
-* @Jcssin@: a justification.
-* @delay@: delay for countering de-synchronization.
+ == Input
+ * @baid@: the identifier of the WMVBA instance.
+ * @Jcssin@: a justification.
+ * @delay@: delay for countering de-synchronization.
 
-== Precondition
-* @b@ (either @T@ or @Bottom@) is @Jcssin@-justified for us.
+ == Precondition
+ * @b@ (either @T@ or @Bottom@) is @Jcssin@-justified for us.
 
-== Execution
-* Start:
+ == Execution
+ * Start:
 
     1. Set the flag @report@ to @T@. Initialize @iSaw@ and @manySaw@ to the empty set.
     2. Send @b@ signed to all parties and move to the next phase.
 
-* Reporting Phase:
+ * Reporting Phase:
 
      - Once I receive @bj@ from @Pj@ where @(Pj, bj)@ is @Jtpl@ justified for me, add @(Pj, bj)@ to @iSaw@
        and send signed @(SEEN, Pi, (Pj, bj))@ to all parties.
@@ -42,7 +42,7 @@ One of the inputs to CSS is a justification, to which we will refer as Jcssin.
      - Once @manySaw@ has tuples @(Pj, .)@ for @n - t@ parties, wait for @delay@ and set @report@ to @Bottom@ and move
        to the next phase.
 
-* Closing Down:
+ * Closing Down:
 
      - Send signed @(DONEREPORTING, Pi, iSaw)@ to all parties.
      - Once I receive @Jdone@-justified @(DONEREPORTING, Pj, iSaw_j)@ from @n - t@ parties, set @Core@ to all currently

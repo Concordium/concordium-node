@@ -5,29 +5,29 @@
 {-# LANGUAGE TemplateHaskell #-}
 {- |Another Binary Byzantine Agreement (ABBA) algorithm
 
-For more information, check the konsensus paper, section 5.6.4.
+ For more information, check the konsensus paper, section 5.6.4.
 
-= Definitions
+ = Definitions
 
-* Phase-1 justified: a bit @b@ is @Jphase,1@-justified for us if it is @Jin@-justified.
-* Phase-k justified: a bit @b@ is @Jphase,k@-justified for us if we have @t + 1@ signatures on @(baid, JUSTIFIED, b, k-1)@.
-* Out justified: a bit @b@ is @Jout@-justified for us if we have @t + 1@ signatures on @(baid, WEAREDONE, b)@.
+ * Phase-1 justified: a bit @b@ is @Jphase,1@-justified for us if it is @Jin@-justified.
+ * Phase-k justified: a bit @b@ is @Jphase,k@-justified for us if we have @t + 1@ signatures on @(baid, JUSTIFIED, b, k-1)@.
+ * Out justified: a bit @b@ is @Jout@-justified for us if we have @t + 1@ signatures on @(baid, WEAREDONE, b)@.
 
-= Protocol
+ = Protocol
 
-== Input
+ == Input
 
-* @baid@: the identifier of the WMVBA instance.
-* @Jin@: a justification.
-* @delay@: delay for countering de-synchronization.
+ * @baid@: the identifier of the WMVBA instance.
+ * @Jin@: a justification.
+ * @delay@: delay for countering de-synchronization.
 
-== Precondition
+ == Precondition
 
-* We have an input @b@ which is @Jin@-justified for us.
+ * We have an input @b@ which is @Jin@-justified for us.
 
-== Execution
+ == Execution
 
-* Graded Agreement
+ * Graded Agreement
 
   In each phase @k = 1,2...@ do
 
@@ -47,7 +47,7 @@ For more information, check the konsensus paper, section 5.6.4.
            and select the bit @b'@ where @(b', P) in Core@ and @P@ has the highest valid lottery ticket in @Core@.
            let @b = b'@ and @grade = 0@.
 
-* Closing Down
+ * Closing Down
 
     1. When we achieve grade 2 for the first time, we send @(baid, WEAREDONE, b)@ to all parties.
     2. Once having received at least @t + 1@ signed @(baid, WEAREDONE, b')@, terminate outputting @b'@ which is then

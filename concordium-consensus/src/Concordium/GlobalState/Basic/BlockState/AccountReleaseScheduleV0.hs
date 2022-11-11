@@ -2,24 +2,24 @@
              OverloadedStrings,
              BangPatterns #-}
 {-|
-Module      : Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
-Description : The data structure implementing account lock ups.
+ Module      : Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
+ Description : The data structure implementing account lock ups.
 
-This module defines a data structure that stores the amounts that are locked up
-for a given account.
+ This module defines a data structure that stores the amounts that are locked up
+ for a given account.
 
-The structure consists of a vector and a priority queue:
+ The structure consists of a vector and a priority queue:
 
-* The priority queue (implemented with a Map) maps timestamps to the index in
-which the schedule is stored in the vector.
+ * The priority queue (implemented with a Map) maps timestamps to the index in
+ which the schedule is stored in the vector.
 
-* The vector keeps a list of items that are either Nothing if that schedule was completed
-or Just a list of releases if that schedule is not yet completed.
+ * The vector keeps a list of items that are either Nothing if that schedule was completed
+ or Just a list of releases if that schedule is not yet completed.
 
-Whenever a release schedule is completed, its entry in the vector will be
-replaced with a Nothing. Once every entry in the vector is empty (checked
-with the remaining total locked amount) it just resets the structure to an empty
-structure, effectively resetting the size of the vector to 0.
+ Whenever a release schedule is completed, its entry in the vector will be
+ replaced with a Nothing. Once every entry in the vector is empty (checked
+ with the remaining total locked amount) it just resets the structure to an empty
+ structure, effectively resetting the size of the vector to 0.
 -}
 module Concordium.GlobalState.Basic.BlockState.AccountReleaseScheduleV0 (
   AccountReleaseSchedule(..),
