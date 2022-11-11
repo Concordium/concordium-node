@@ -1032,8 +1032,8 @@ receiveBlock gi blockBS = withLatestExpectedVersion' gi $
                 (updateResult, mVerifiedPendingBlock) <- runSkovTransaction vc (Skov.receiveBlock block)
                 case mVerifiedPendingBlock of
                     Nothing -> return (updateResult, Nothing)
-                    Just verifiedPendingBlock -> withWriteLock $ do
-                        let cont = ExecuteBlock $! runSkovTransaction vc Skov.executeBlock verifiedPendingBlock
+                    Just verifiedPendingBlock -> do
+                        let cont = ExecuteBlock $! runSkovTransaction vc (Skov.executeBlock verifiedPendingBlock)
                         return (updateResult, Just cont)
 
 -- |todo: doc
