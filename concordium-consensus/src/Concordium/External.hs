@@ -24,6 +24,7 @@ import qualified Data.ProtoLens.Combinators as Proto
 import qualified Proto.Concordium.Types as Proto
 import qualified Proto.Concordium.Types_Fields as ProtoFields
 import Lens.Micro.Platform
+import Control.Monad.IO.Class
 
 import Concordium.Types.Block (AbsoluteBlockHeight)
 import qualified Concordium.Crypto.SHA256 as SHA256
@@ -58,7 +59,6 @@ import Concordium.Skov (
     MessageType (..),
     NoFinalization (..),
     UpdateResult (..),
-    ExecutableBlock,
  )
 import Concordium.TimerMonad (ThreadTimer)
 
@@ -746,20 +746,20 @@ toReceiveResult ResultInsufficientFunds = 30
 -- @ResultConsensusShutDown@, and @ResultInvalidGenesisIndex@.
 -- 'receiveBlock' may invoke the callbacks for new finalization messages.
 -- todo doc
-receiveBlock :: StablePtr ConsensusRunner -> GenesisIndex -> CString -> Int64 -> Ptr (StablePtr ExecuteBlock) -> IO ReceiveResult
-receiveBlock bptr genIndex msg msgLen ptrPtrExecutableBlock = do
+receiveBlock :: StablePtr ConsensusRunner -> GenesisIndex -> CString -> Int64 -> Ptr (StablePtr MV.ExecuteBlock) -> IO ReceiveResult
+receiveBlock bptr genIndex msg msgLen ptrPtrExecuteBlock = do
     (ConsensusRunner mvr) <- deRefStablePtr bptr
     mvLog mvr External LLTrace $ "Received block data, size = " ++ show msgLen ++ "."
     blockBS <- BS.packCStringLen (msg, fromIntegral msgLen)
-    (receiveResult, mExecutableBlock) <- runMVR (MV.receiveBlock genIndex blockBS) mvr
-    case mExecutableBlock of
+    (receiveResult, mExecuteBlock) <- runMVR (MV.receiveBlock genIndex blockBS) mvr
+    case mExecuteBlock of
         Nothing ->  return $! toReceiveResult receiveResult
-        Just executableBlock -> do
-            poke ptrPtrExecutableBlock =<< newStablePtr executableBlock
+        Just executeBlock -> do
+            poke ptrPtrExecuteBlock =<< newStablePtr executeBlock
             return $! toReceiveResult receiveResult
 
 -- |todo doc
-executeBlock :: StablePtr ConsensusRunner -> GenesisIndex -> StablePtr ExecuteBlock -> IO ReceiveResult
+executeBlock :: StablePtr ConsensusRunner -> GenesisIndex -> StablePtr MV.ExecuteBlock -> IO ReceiveResult
 executeBlock bptr genIndex ptrExecutableBlock = do
     (ConsensusRunner mvr) <- deRefStablePtr bptr
     -- Deref the 'StablePtr ExecutableBlock'
@@ -1425,9 +1425,9 @@ foreign export ccall
 foreign export ccall stopConsensus :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall startBaker :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall stopBaker :: StablePtr ConsensusRunner -> IO ()
-foreign export ccall receiveBlock :: StablePtr ConsensusRunner -> GenesisIndex -> CString -> Int64 -> Ptr (StablePtr ExecutableBlock) -> IO Int64
-foreign export ccall executeBlock :: StablePtr ConsensusRunner -> GenesisIndex -> StablePtr ExecutableBlock -> IO Int64
-foreign export ccall freeExecutableBlock :: StablePtr ExecutableBlock -> IO ()
+foreign export ccall receiveBlock :: StablePtr ConsensusRunner -> GenesisIndex -> CString -> Int64 -> Ptr (StablePtr MV.ExecuteBlock) -> IO Int64
+foreign export ccall executeBlock :: StablePtr ConsensusRunner -> GenesisIndex -> StablePtr MV.ExecuteBlock -> IO Int64
+foreign export ccall freeExecutableBlock :: StablePtr MV.ExecuteBlock -> IO ()
 foreign export ccall receiveFinalizationMessage :: StablePtr ConsensusRunner -> GenesisIndex -> CString -> Int64 -> IO Int64
 foreign export ccall receiveFinalizationRecord :: StablePtr ConsensusRunner -> GenesisIndex -> CString -> Int64 -> IO Int64
 foreign export ccall receiveTransaction :: StablePtr ConsensusRunner -> CString -> Int64 -> Ptr Word8 -> IO Int64
@@ -1488,6 +1488,6 @@ foreign export ccall importBlocks :: StablePtr ConsensusRunner -> CString -> Int
 foreign export ccall stopImportingBlocks :: StablePtr ConsensusRunner -> IO ()
 
 -- |Free the ExecutableBlock such that it can be garbage collected.
-freeExecutableBlock :: StablePtr ExecutableBlock -> IO ()
+freeExecutableBlock :: StablePtr MV.ExecuteBlock -> IO ()
 freeExecutableBlock ebPtr = mask_ $ do
     freeStablePtr ebPtr

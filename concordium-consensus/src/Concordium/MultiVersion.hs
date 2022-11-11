@@ -997,8 +997,8 @@ sendCatchUpStatus genIndex = MVR $ \mvr@MultiVersionRunner{..} -> do
 -- todo make the signature nicer
 withLatestExpectedVersion' ::
     GenesisIndex ->
-    (EVersionedConfiguration gsconf finconf -> MVR gsconf finconf (Skov.UpdateResult, Maybe (ExecuteBlock gsconf finconf))) ->
-    MVR gsconf finconf (Skov.UpdateResult, Maybe (ExecuteBlock gsconf finconf))
+    (EVersionedConfiguration gsconf finconf -> MVR gsconf finconf (Skov.UpdateResult, Maybe ExecuteBlock)) ->
+    MVR gsconf finconf (Skov.UpdateResult, Maybe ExecuteBlock)
 withLatestExpectedVersion' gi a = do
     vvec <- liftIO . readIORef =<< asks mvVersions
     -- Length is an Int and GenesisIndex is a Word32.
@@ -1007,7 +1007,7 @@ withLatestExpectedVersion' gi a = do
         EQ -> a (Vec.last vvec)
         LT -> return (Skov.ResultInvalidGenesisIndex, Nothing)
         GT -> return (Skov.ResultConsensusShutDown, Nothing)
-        
+
 -- |todo doc
 withLatestExpectedVersion ::
     GenesisIndex ->
@@ -1016,10 +1016,11 @@ withLatestExpectedVersion ::
 withLatestExpectedVersion gi a = fst <$> withLatestExpectedVersion' gi (fmap (, Nothing) <$> a)
 
 -- |todo doc
-newtype ExecuteBlock gsconf finconf = ExecuteBlock { runBlock :: MVR gsconf finconf Skov.UpdateResult}
+newtype ExecuteBlock = ExecuteBlock { runBlock :: IO Skov.UpdateResult}
+
 
 -- |Deserialize and receive a block at a given genesis index.
-receiveBlock :: GenesisIndex -> ByteString -> MVR gsconf finconf (Skov.UpdateResult, Maybe (ExecuteBlock gsconf finconf))
+receiveBlock :: GenesisIndex -> ByteString -> MVR gsconf finconf (Skov.UpdateResult, Maybe ExecuteBlock)
 receiveBlock gi blockBS = withLatestExpectedVersion' gi $
     \(EVersionedConfiguration (vc :: VersionedConfiguration gsconf finconf pv)) -> do
         now <- currentTime
@@ -1031,15 +1032,16 @@ receiveBlock gi blockBS = withLatestExpectedVersion' gi $
                 (updateResult, mVerifiedPendingBlock) <- runSkovTransaction vc (Skov.receiveBlock block)
                 case mVerifiedPendingBlock of
                     Nothing -> return (updateResult, Nothing)
-                    Just verifiedPendingBlock -> do
-                        let cont = ExecuteBlock $! runSkovTransaction vc (Skov.executeBlock verifiedPendingBlock)
+                    Just verifiedPendingBlock -> withWriteLock $ do
+                        let cont = ExecuteBlock $! runSkovTransaction vc Skov.executeBlock verifiedPendingBlock
                         return (updateResult, Just cont)
 
 -- |todo: doc
-executeBlock :: GenesisIndex -> ExecuteBlock gsconf finconf -> MVR gsconf finconf Skov.UpdateResult
-executeBlock gi executeCont = withLatestExpectedVersion gi $
-    \(EVersionedConfiguration (vc :: VersionedConfiguration gsconf finconf pv)) -> do
-        runSkovTransaction vc $! runBlock executeCont
+-- something is iffy 
+executeBlock :: GenesisIndex -> ExecuteBlock -> MVR gsconf finconf Skov.UpdateResult
+executeBlock gi eb = withWriteLock $ do
+    updateResult <- liftIO (runBlock eb)
+    return updateResult
 
 -- |Deserialize and receive a finalization message at a given genesis index.
 receiveFinalizationMessage :: GenesisIndex -> ByteString -> MVR gsconf finconf Skov.UpdateResult
@@ -1198,9 +1200,11 @@ importBlocks importFile = do
         if shouldStop
             then return $ fixResult Skov.ResultConsensusShutDown
             else do
-                (recvRes, mExecutableBlock) <- receiveBlock gi bs
-                case mExecutableBlock of
-                    Just executableBlock -> executeBlock gi executableBlock >>= \x -> return $! fixResult x
+                (recvRes, mExecuteBlock) <- receiveBlock gi bs
+                case mExecuteBlock of
+                    Just eb -> liftIO $ do
+                      updateResult <- runBlock eb
+                      return $! fixResult updateResult
                     Nothing -> return $! fixResult recvRes
 
     doImport (ImportFinalizationRecord _ gi bs) = fixResult <$> receiveFinalizationRecord gi bs
