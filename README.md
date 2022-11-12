@@ -76,11 +76,17 @@ To check the formatting locally run the following commnad from the project root:
 $ fourmolu --mode check $(git ls-files '*.hs')
 ```
 
+To format run the following command from the project root:
+
+```
+$ fourmolu --mode inplace $(git ls-files '*.hs')
+```
+
+Lines should strive to be at most 100 characters, naming and code style should
+follow the scheme that already exists.
 
 We do not use any linting tool on the CI. Running hlint might uncover common
-issues, and with regards to formatting, the general rule is that lines should
-not be too long, and follow the naming scheme and code style that already
-exists.
+issues.
 
 ## Rust workflow
 
