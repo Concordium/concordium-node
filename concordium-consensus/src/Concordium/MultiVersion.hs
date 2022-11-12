@@ -1023,20 +1023,22 @@ newtype ExecuteBlock = ExecuteBlock { runBlock :: IO Skov.UpdateResult}
 receiveBlock :: GenesisIndex -> ByteString -> MVR gsconf finconf (Skov.UpdateResult, Maybe ExecuteBlock)
 receiveBlock gi blockBS = withLatestExpectedVersion' gi $
     \(EVersionedConfiguration (vc :: VersionedConfiguration gsconf finconf pv)) -> do
-        now <- currentTime
-        case deserializeExactVersionedPendingBlock (protocolVersion @pv) blockBS now of
-            Left err -> do
-                logEvent Runner LLDebug err
-                return (Skov.ResultSerializationFail, Nothing)
-            Right block -> do
-                (updateResult, mVerifiedPendingBlock) <- runSkovTransaction vc (Skov.receiveBlock block)
-                case mVerifiedPendingBlock of
-                    Nothing -> return (updateResult, Nothing)
-                    Just verifiedPendingBlock -> do
-                        let cont = ExecuteBlock $! runSkovTransaction vc (Skov.executeBlock verifiedPendingBlock)
-                        return (updateResult, Just cont)
+        MVR $ \mvr -> do
+            now <- currentTime
+            case deserializeExactVersionedPendingBlock (protocolVersion @pv) blockBS now of
+                Left err -> do
+--                    logEvent Runner LLDebug err -- todo fix log
+                    return (Skov.ResultSerializationFail, Nothing)
+                Right block -> do
+                    (updateResult, mVerifiedPendingBlock) <- runMVR (runSkovTransaction vc (Skov.receiveBlock block)) mvr
+                    case mVerifiedPendingBlock of
+                        Nothing -> return (updateResult, Nothing)
+                        Just verifiedPendingBlock -> do
+                            let cont = ExecuteBlock $! runMVR (runSkovTransaction vc (Skov.executeBlock verifiedPendingBlock)) mvr
+                            return (updateResult, Just cont)
 
 -- |todo: doc
+-- todo remove gi.
 -- Acquiring the Write lock is captured in the continuation.
 executeBlock :: GenesisIndex -> ExecuteBlock -> MVR gsconf finconf Skov.UpdateResult
 executeBlock gi = liftIO . runBlock
