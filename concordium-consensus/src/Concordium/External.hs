@@ -24,7 +24,6 @@ import qualified Data.ProtoLens.Combinators as Proto
 import qualified Proto.Concordium.Types as Proto
 import qualified Proto.Concordium.Types_Fields as ProtoFields
 import Lens.Micro.Platform
-import Control.Monad.IO.Class
 
 import Concordium.Types.Block (AbsoluteBlockHeight)
 import qualified Concordium.Crypto.SHA256 as SHA256
@@ -754,8 +753,8 @@ receiveBlock bptr genIndex msg msgLen ptrPtrExecuteBlock = do
     (receiveResult, mExecuteBlock) <- runMVR (MV.receiveBlock genIndex blockBS) mvr
     case mExecuteBlock of
         Nothing ->  return $! toReceiveResult receiveResult
-        Just executeBlock -> do
-            poke ptrPtrExecuteBlock =<< newStablePtr executeBlock
+        Just eb -> do
+            poke ptrPtrExecuteBlock =<< newStablePtr eb
             return $! toReceiveResult receiveResult
 
 -- |todo doc
