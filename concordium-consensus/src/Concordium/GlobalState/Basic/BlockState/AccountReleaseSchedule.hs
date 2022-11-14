@@ -57,8 +57,8 @@ theAccountReleaseScheduleV1 = case accountVersion @av of
 fromAccountReleaseScheduleV0 ::
     forall av.
     (IsAccountVersion av, AccountStructureVersionFor av ~ 'AccountStructureV0) =>
-    ARSV0.AccountReleaseSchedule
-    -> AccountReleaseSchedule av
+    ARSV0.AccountReleaseSchedule ->
+    AccountReleaseSchedule av
 fromAccountReleaseScheduleV0 = case accountVersion @av of
     SAccountV0 -> AccountReleaseSchedule
     SAccountV1 -> AccountReleaseSchedule
@@ -67,8 +67,8 @@ fromAccountReleaseScheduleV0 = case accountVersion @av of
 fromAccountReleaseScheduleV1 ::
     forall av.
     (IsAccountVersion av, AccountStructureVersionFor av ~ 'AccountStructureV1) =>
-    ARSV1.AccountReleaseSchedule
-    -> AccountReleaseSchedule av
+    ARSV1.AccountReleaseSchedule ->
+    AccountReleaseSchedule av
 fromAccountReleaseScheduleV1 = case accountVersion @av of
     SAccountV2 -> AccountReleaseSchedule
 

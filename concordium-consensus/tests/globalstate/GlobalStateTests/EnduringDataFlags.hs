@@ -11,11 +11,12 @@ genPendingChangeFlags :: Gen PendingChangeFlags
 genPendingChangeFlags = elements [PendingChangeNone, PendingChangeReduce, PendingChangeRemove]
 
 genStakeFlags :: Gen StakeFlags
-genStakeFlags = oneof [
-        pure StakeFlagsNone,
-        StakeFlagsBaker <$> arbitrary <*> genPendingChangeFlags,
-        StakeFlagsDelegator <$> arbitrary <*> arbitrary <*> genPendingChangeFlags
-    ]
+genStakeFlags =
+    oneof
+        [ pure StakeFlagsNone,
+          StakeFlagsBaker <$> arbitrary <*> genPendingChangeFlags,
+          StakeFlagsDelegator <$> arbitrary <*> arbitrary <*> genPendingChangeFlags
+        ]
 
 genEnduringDataFlags :: Gen EnduringDataFlags
 genEnduringDataFlags = EnduringDataFlags <$> arbitrary <*> arbitrary <*> genStakeFlags

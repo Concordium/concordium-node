@@ -1,19 +1,20 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE UndecidableInstances #-}
+
 -- | Definition of some basic typeclasses that give access to the basic types
 -- used in the implementation and some lenses to access specific components
 module Concordium.GlobalState.Classes where
 
-import Data.Kind
-import Lens.Micro.Platform
-import Control.Monad.Trans.Class
+import Concordium.GlobalState.Persistent.Cache
+import Concordium.Logger
 import Control.Monad.IO.Class
-import Control.Monad.State.Class
 import Control.Monad.Reader.Class
+import Control.Monad.State.Class
+import Control.Monad.Trans.Class
 import Control.Monad.Writer.Class
 import Data.Functor.Identity
-import Concordium.Logger
-import Concordium.GlobalState.Persistent.Cache
+import Data.Kind
+import Lens.Micro.Platform
 
 -- |Defines a lens for accessing the global state component of a type.
 class HasGlobalState g s | s -> g where
@@ -50,7 +51,7 @@ instance (MonadReader r m, HasGlobalStateContext c r) => MonadReader c (FocusGlo
     {-# INLINE local #-}
 
 instance (MonadIO m, MonadReader r m, HasGlobalStateContext c r, HasCache cache c) => MonadCache cache (FocusGlobalStateM c g m) where
-  getCache = projectCache <$> ask
+    getCache = projectCache <$> ask
 
 -- |@MGSTrans t m@ is a newtype wrapper for a monad transformer @t@ applied
 -- to a monad @m@.  This wrapper exists to support lifting various monad

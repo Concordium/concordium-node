@@ -635,10 +635,11 @@ getAvailableAmount :: (MonadBlobStore m, IsAccountVersion av, AVStructureV0 av) 
 getAvailableAmount acc = do
     total <- getAmount acc
     lockedUp <- getLockedAmount acc
-    staked <- getStakeDetails acc <&> \case
-        StakeDetailsBaker{..} -> sdStakedCapital
-        StakeDetailsDelegator{..} -> sdStakedCapital
-        _ -> 0
+    staked <-
+        getStakeDetails acc <&> \case
+            StakeDetailsBaker{..} -> sdStakedCapital
+            StakeDetailsDelegator{..} -> sdStakedCapital
+            _ -> 0
     return $ total - max lockedUp staked
 
 -- |Get the next account nonce for transactions from this account.

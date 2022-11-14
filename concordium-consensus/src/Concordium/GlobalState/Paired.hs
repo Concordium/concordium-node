@@ -5,45 +5,45 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
+
 -- |This module pairs together two global state implementations
 -- for testing purposes.
-
 module Concordium.GlobalState.Paired where
 
-import Lens.Micro.Platform
 import Control.Exception
+import Control.Monad
+import Control.Monad.IO.Class
 import Control.Monad.Reader.Class
 import Control.Monad.State.Class
-import Control.Monad.IO.Class
-import Control.Monad
 import Data.Coerce
-import Data.Kind
-import qualified Data.Serialize as S
 import Data.Function
-import qualified Data.Sequence as Seq
+import Data.Kind
 import qualified Data.List as List
 import Data.Proxy
+import qualified Data.Sequence as Seq
+import qualified Data.Serialize as S
+import Lens.Micro.Platform
 
-import Concordium.Types.HashableTo
 import Concordium.Types
+import Concordium.Types.HashableTo
 import qualified Concordium.Wasm as Wasm
 
-import Concordium.GlobalState.Instance
-import qualified Concordium.GlobalState.Wasm as GSWasm
-import qualified Concordium.GlobalState.Classes as C
+import Concordium.GlobalState
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockMonads
-import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.BlockPointer
+import Concordium.GlobalState.BlockState
+import qualified Concordium.GlobalState.Classes as C
+import Concordium.GlobalState.ContractStateFFIHelpers (errorLoadCallback)
+import qualified Concordium.GlobalState.ContractStateV1 as StateV1
+import Concordium.GlobalState.Instance
 import Concordium.GlobalState.TreeState as TS
 import Concordium.GlobalState.Wasm
-import Concordium.GlobalState
-import qualified Concordium.GlobalState.ContractStateV1 as StateV1
-import Concordium.GlobalState.ContractStateFFIHelpers (errorLoadCallback)
-import Concordium.Logger (MonadLogger(..), LogIO)
+import qualified Concordium.GlobalState.Wasm as GSWasm
+import Concordium.Logger (LogIO, MonadLogger (..))
 import Control.Arrow ((&&&))
 import GHC.Stack
 
@@ -58,34 +58,38 @@ assertEq x y
 newtype ReviseRSM r s m a = ReviseRSM (m a)
     deriving (Functor, Applicative, Monad, MonadIO, MonadLogger)
 
-instance (MonadReader r' m, Coercible r' r) =>
-        MonadReader r (ReviseRSM r s m) where
+instance
+    (MonadReader r' m, Coercible r' r) =>
+    MonadReader r (ReviseRSM r s m)
+    where
     ask = ReviseRSM (fmap coerce (ask :: m r'))
     local f (ReviseRSM a) = ReviseRSM (local (coerce f) a)
     reader r = ReviseRSM (reader (coerce r))
 
-instance (MonadState s' m, Coercible s' s) =>
-        MonadState s (ReviseRSM r s m) where
+instance
+    (MonadState s' m, Coercible s' s) =>
+    MonadState s (ReviseRSM r s m)
+    where
     get = ReviseRSM (fmap coerce (get :: m s'))
     put = ReviseRSM . put . coerce
     state f = ReviseRSM (state (coerce f))
 
 deriving instance (MonadProtocolVersion m) => MonadProtocolVersion (ReviseRSM r s m)
 
-data PairGSContext lc rc = PairGSContext {
-        _pairContextLeft :: !lc,
-        _pairContextRight :: !rc
+data PairGSContext lc rc = PairGSContext
+    { _pairContextLeft :: !lc,
+      _pairContextRight :: !rc
     }
 makeLenses ''PairGSContext
 
-data PairGState ls rs = PairGState {
-        _pairStateLeft :: !ls,
-        _pairStateRight :: !rs
+data PairGState ls rs = PairGState
+    { _pairStateLeft :: !ls,
+      _pairStateRight :: !rs
     }
 makeLenses ''PairGState
 
-newtype FocusLeft a = FocusLeft { unFocusLeft :: a }
-newtype FocusRight a = FocusRight { unFocusRight :: a }
+newtype FocusLeft a = FocusLeft {unFocusLeft :: a}
+newtype FocusRight a = FocusRight {unFocusRight :: a}
 
 instance C.HasGlobalStateContext (PairGSContext lc rc) a => C.HasGlobalStateContext lc (FocusLeft a) where
     globalStateContext = lens unFocusLeft (const FocusLeft) . C.globalStateContext . pairContextLeft
@@ -100,17 +104,26 @@ type BSMR pv rc r rs s m = BlockStateM pv rc (FocusRight r) rs (FocusRight s) (R
 data PairInstrumentedModuleRef imr1 imr2 :: Wasm.WasmVersion -> Type where
     PIMR :: imr1 v -> imr2 v -> PairInstrumentedModuleRef imr1 imr2 v
 
-instance (C.HasGlobalStateContext (PairGSContext lc rc) r)
-        => BlockStateTypes (BlockStateM pv (PairGSContext lc rc) r (PairGState lg rg) s m) where
-    type BlockState (BlockStateM pv (PairGSContext lc rc) r (PairGState lg rg) s m)
-            = (BlockState (BSML pv lc r lg s m),
-                BlockState (BSMR pv rc r rg s m))
-    type UpdatableBlockState (BlockStateM pv (PairGSContext lc rc) r (PairGState lg rg) s m)
-            = (UpdatableBlockState (BSML pv lc r lg s m),
-                UpdatableBlockState (BSMR pv rc r rg s m))
-    type Account (BlockStateM pv (PairGSContext lc rc) r (PairGState lg rg) s m)
-            = (Account (BSML pv lc r lg s m),
-                Account (BSMR pv rc r rg s m))
+instance
+    (C.HasGlobalStateContext (PairGSContext lc rc) r) =>
+    BlockStateTypes (BlockStateM pv (PairGSContext lc rc) r (PairGState lg rg) s m)
+    where
+    type
+        BlockState (BlockStateM pv (PairGSContext lc rc) r (PairGState lg rg) s m) =
+            ( BlockState (BSML pv lc r lg s m),
+              BlockState (BSMR pv rc r rg s m)
+            )
+    type
+        UpdatableBlockState (BlockStateM pv (PairGSContext lc rc) r (PairGState lg rg) s m) =
+            ( UpdatableBlockState (BSML pv lc r lg s m),
+              UpdatableBlockState (BSMR pv rc r rg s m)
+            )
+    type
+        Account (BlockStateM pv (PairGSContext lc rc) r (PairGState lg rg) s m) =
+            ( Account (BSML pv lc r lg s m),
+              Account (BSMR pv rc r rg s m)
+            )
+
     -- The paired state has the basic contract state as the type of contract
     -- states. The paired abstraction is inadequate for more in light of the
     -- fact that contract state lives on the other end of FFI. To support true
@@ -118,15 +131,19 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r)
     -- on the foreign end of FFI, and parametrize all functions that use it
     -- (e.g., call_receive). This is not practical so we use a simple contract
     -- state here.
-    type ContractState (BlockStateM pv (PairGSContext lc rc) r (PairGState lg rg) s m)
-            = InstanceStateV
+    type
+        ContractState (BlockStateM pv (PairGSContext lc rc) r (PairGState lg rg) s m) =
+            InstanceStateV
 
-    type BakerInfoRef (BlockStateM pv (PairGSContext lc rc) r (PairGState lg rg) s m)
-            = (BakerInfoRef (BSML pv lc r lg s m),
-                BakerInfoRef (BSMR pv rc r rg s m))
-    
-    type InstrumentedModuleRef (BlockStateM pv (PairGSContext lc rc) r (PairGState lg rg) s m)
-            = PairInstrumentedModuleRef (InstrumentedModuleRef (BSML pv lc r lg s m)) (InstrumentedModuleRef (BSMR pv rc r rg s m))
+    type
+        BakerInfoRef (BlockStateM pv (PairGSContext lc rc) r (PairGState lg rg) s m) =
+            ( BakerInfoRef (BSML pv lc r lg s m),
+              BakerInfoRef (BSMR pv rc r rg s m)
+            )
+
+    type
+        InstrumentedModuleRef (BlockStateM pv (PairGSContext lc rc) r (PairGState lg rg) s m) =
+            PairInstrumentedModuleRef (InstrumentedModuleRef (BSML pv lc r lg s m)) (InstrumentedModuleRef (BSMR pv rc r rg s m))
 
 instance C.HasGlobalState (PairGState ls rs) s => C.HasGlobalState ls (FocusLeft s) where
     globalState = lens unFocusLeft (const FocusLeft) . C.globalState . pairStateLeft
@@ -157,13 +174,14 @@ instance (BlockData l, BlockData r) => BlockData (PairBlockData l r) where
         (Nothing, Nothing) -> Nothing
         (Just ml, Just mr) -> Just $ PairBlockMetadata (ml, mr)
         _ -> error "blockFields do not match"
-    blockTransactions (PairBlockData (l, r)) = assertEq (blockTransactions l) (blockTransactions r) $
-        blockTransactions l
+    blockTransactions (PairBlockData (l, r)) =
+        assertEq (blockTransactions l) (blockTransactions r) $
+            blockTransactions l
     blockTransactionOutcomesHash (PairBlockData (l, r)) = assertEq (blockTransactionOutcomesHash l) (blockTransactionOutcomesHash r) $ blockTransactionOutcomesHash l
     blockStateHash (PairBlockData (l, r)) = assertEq (blockStateHash l) (blockStateHash r) $ blockStateHash l
     verifyBlockSignature (PairBlockData (l, r)) = assertEq vbsl (verifyBlockSignature r) vbsl
-        where
-            vbsl = verifyBlockSignature l
+      where
+        vbsl = verifyBlockSignature l
 
 instance (EncodeBlock pv l) => EncodeBlock pv (PairBlockData l r) where
     putBlock spv (PairBlockData (l, _)) = putBlock spv l
@@ -197,8 +215,10 @@ instance (BlockPointerData l, BlockPointerData r) => BlockPointerData (PairBlock
 type GSML pv lc r ls s m = GlobalStateM pv lc (FocusLeft r) ls (FocusLeft s) (ReviseRSM (FocusLeft r) (FocusLeft s) m)
 type GSMR pv rc r rs s m = GlobalStateM pv rc (FocusRight r) rs (FocusRight s) (ReviseRSM (FocusRight r) (FocusRight s) m)
 
-instance (GlobalStateTypes (GSML pv lc r ls s m), GlobalStateTypes (GSMR pv rc r rs s m))
-        => GlobalStateTypes (TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m) where
+instance
+    (GlobalStateTypes (GSML pv lc r ls s m), GlobalStateTypes (GSMR pv rc r rs s m)) =>
+    GlobalStateTypes (TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m)
+    where
     type BlockPointerType (TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m) = PairBlockData (BlockPointerType (GSML pv lc r ls s m)) (BlockPointerType (GSMR pv rc r rs s m))
 
 {-# INLINE coerceBSML #-}
@@ -232,7 +252,6 @@ instance
     ) =>
     BlockStateQuery (BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m)
     where
-
     getModule (ls, rs) modRef = do
         m1 <- coerceBSML (getModule ls modRef)
         m2 <- coerceBSMR (getModule rs modRef)
@@ -253,18 +272,19 @@ instance
         a1 <- coerceBSML (getAccount ls addr)
         a2 <- coerceBSMR (getAccount rs addr)
         case (a1, a2) of
-          (Just (ai1, a1'), Just (ai2, a2')) -> do
-            assertAccountHashEq a1' a2'
-            assertEq ai1 ai2 $
-              return $ Just (ai1, (a1', a2'))
-          (Nothing, Nothing) ->
-            return Nothing
-          (Nothing, _) -> error $ "Cannot get account with address " ++ show addr ++ " in left implementation"
-          (_, Nothing) -> error $ "Cannot get account with address " ++ show addr ++ " in right implementation"
+            (Just (ai1, a1'), Just (ai2, a2')) -> do
+                assertAccountHashEq a1' a2'
+                assertEq ai1 ai2 $
+                    return $
+                        Just (ai1, (a1', a2'))
+            (Nothing, Nothing) ->
+                return Nothing
+            (Nothing, _) -> error $ "Cannot get account with address " ++ show addr ++ " in left implementation"
+            (_, Nothing) -> error $ "Cannot get account with address " ++ show addr ++ " in right implementation"
     accountExists (ls, rs) aaddr = do
-      a1 <- coerceBSML (accountExists ls aaddr)
-      a2 <- coerceBSMR (accountExists rs aaddr)
-      assertEq a1 a2 $ return a1
+        a1 <- coerceBSML (accountExists ls aaddr)
+        a2 <- coerceBSMR (accountExists rs aaddr)
+        assertEq a1 a2 $ return a1
     getActiveBakers (ls, rs) = do
         ab1 <- coerceBSML (getActiveBakers ls)
         ab2 <- coerceBSMR (getActiveBakers rs)
@@ -282,93 +302,102 @@ instance
         (b2, d2) <- coerceBSMR $ getActiveBakersAndDelegators rs
         assertEq d1 d2 $
             assertEq (length b1) (length b2) $
-            return (zipActiveBakerInfo b1 b2, d1)
-        where
-            zipActiveBakerInfo (i1 : b1) (i2 : b2) =
-                assertEq (activeBakerEquityCapital i1) (activeBakerEquityCapital i2) $
+                return (zipActiveBakerInfo b1 b2, d1)
+      where
+        zipActiveBakerInfo (i1 : b1) (i2 : b2) =
+            assertEq (activeBakerEquityCapital i1) (activeBakerEquityCapital i2) $
                 assertEq (activeBakerPendingChange i1) (activeBakerPendingChange i2) $
-                assertEq (activeBakerDelegators i1) (activeBakerDelegators i2) $
-                let i = ActiveBakerInfo{
-                            activeBakerInfoRef = (activeBakerInfoRef i1, activeBakerInfoRef i2),
-                            activeBakerEquityCapital = activeBakerEquityCapital i1,
-                            activeBakerPendingChange = activeBakerPendingChange i1,
-                            activeBakerDelegators = activeBakerDelegators i1
-                        }
-                    b = zipActiveBakerInfo b1 b2
-                in i : b
-            zipActiveBakerInfo _ _ = []
+                    assertEq (activeBakerDelegators i1) (activeBakerDelegators i2) $
+                        let i =
+                                ActiveBakerInfo
+                                    { activeBakerInfoRef = (activeBakerInfoRef i1, activeBakerInfoRef i2),
+                                      activeBakerEquityCapital = activeBakerEquityCapital i1,
+                                      activeBakerPendingChange = activeBakerPendingChange i1,
+                                      activeBakerDelegators = activeBakerDelegators i1
+                                    }
+                            b = zipActiveBakerInfo b1 b2
+                        in  i : b
+        zipActiveBakerInfo _ _ = []
     getAccountByCredId (ls, rs) cid = do
         a1 <- coerceBSML (getAccountByCredId ls cid)
         a2 <- coerceBSMR (getAccountByCredId rs cid)
         case (a1, a2) of
-          (Just (ai1, a1'), Just (ai2, a2')) -> do
-            assertAccountHashEq a1' a2'
-            assertEq ai1 ai2 $
-              return $ Just (ai1, (a1', a2'))
-          (Nothing, Nothing) ->
-            return Nothing
-          (Nothing, _) -> error $ "Cannot get account with credid " ++ show cid ++ " in left implementation"
-          (_, Nothing) -> error $ "Cannot get account with credid " ++ show cid ++ " in right implementation"
+            (Just (ai1, a1'), Just (ai2, a2')) -> do
+                assertAccountHashEq a1' a2'
+                assertEq ai1 ai2 $
+                    return $
+                        Just (ai1, (a1', a2'))
+            (Nothing, Nothing) ->
+                return Nothing
+            (Nothing, _) -> error $ "Cannot get account with credid " ++ show cid ++ " in left implementation"
+            (_, Nothing) -> error $ "Cannot get account with credid " ++ show cid ++ " in right implementation"
     getAccountByIndex (ls, rs) idx = do
         a1 <- coerceBSML (getAccountByIndex ls idx)
         a2 <- coerceBSMR (getAccountByIndex rs idx)
         case (a1, a2) of
-          (Just (ai1, a1'), Just (ai2, a2')) -> do
-            assertAccountHashEq a1' a2'
-            assertEq ai1 ai2 $
-              return $ Just (ai1, (a1', a2'))
-          (Nothing, Nothing) ->
-            return Nothing
-          (Nothing, _) -> error $ "Cannot get account by index " ++ show idx ++ " in left implementation"
-          (_, Nothing) -> error $ "Cannot get account by index " ++ show idx ++ " in right implementation"
+            (Just (ai1, a1'), Just (ai2, a2')) -> do
+                assertAccountHashEq a1' a2'
+                assertEq ai1 ai2 $
+                    return $
+                        Just (ai1, (a1', a2'))
+            (Nothing, Nothing) ->
+                return Nothing
+            (Nothing, _) -> error $ "Cannot get account by index " ++ show idx ++ " in left implementation"
+            (_, Nothing) -> error $ "Cannot get account by index " ++ show idx ++ " in right implementation"
     getBakerAccount (ls, rs) bid = do
         a1 <- coerceBSML (getBakerAccount ls bid)
         a2 <- coerceBSMR (getBakerAccount rs bid)
         case (a1, a2) of
-          (Just a1', Just a2') -> do
-            assertAccountHashEq a1' a2'
-            return $ Just (a1', a2')
-          (Nothing, Nothing) ->
-            return Nothing
-          (Nothing, _) -> error $ "Cannot get account for baker " ++ show bid ++ " in left implementation"
-          (_, Nothing) -> error $ "Cannot get account for baker " ++ show bid ++ " in right implementation"
+            (Just a1', Just a2') -> do
+                assertAccountHashEq a1' a2'
+                return $ Just (a1', a2')
+            (Nothing, Nothing) ->
+                return Nothing
+            (Nothing, _) -> error $ "Cannot get account for baker " ++ show bid ++ " in left implementation"
+            (_, Nothing) -> error $ "Cannot get account for baker " ++ show bid ++ " in right implementation"
     getContractInstance (ls, rs) caddr = do
         cInfo1 <- coerceBSML (getContractInstance ls caddr)
         cInfo2 <- coerceBSMR (getContractInstance rs caddr)
         case (cInfo1, cInfo2) of
-          (Nothing, Nothing) -> return Nothing
-          (Nothing, Just _) -> error $ "Cannot get instance for " ++ show caddr ++ " in left implementation."
-          (Just _, Nothing) -> error $ "Cannot get instance for " ++ show caddr ++ " in right implementation."
-          (Just ii1, Just ii2) ->
-            case (ii1, ii2) of
-              (InstanceInfoV0 iv1, InstanceInfoV0 iv2) ->
-                assertEq (void (iiParameters iv1)) (void (iiParameters iv2)) $
-                assertEq (iiBalance iv1) (iiBalance iv2) $ do
-                  statebs1 <- coerceBSML (contractStateToByteString (iiState iv1))
-                  statebs2 <- coerceBSMR (contractStateToByteString (iiState iv2))
-                  assertEq statebs1 statebs2 $
-                    return $ Just $ InstanceInfoV0 InstanceInfoV{
-                      iiParameters = PIMR (miModule (instanceModuleInterface (iiParameters iv1))) <$> iiParameters iv2,
-                      iiBalance = iiBalance iv1,
-                      iiState = case S.decode statebs1 of
-                          Left err -> error $ "Could not decode left V0 state: " ++ err
-                          Right x -> x
-                      }
-              (InstanceInfoV1 iv1, InstanceInfoV1 iv2) ->
-                assertEq (void (iiParameters iv1)) (void (iiParameters iv2)) $
-                assertEq (iiBalance iv1) (iiBalance iv2) $ do
-                  statebs1 <- coerceBSML (contractStateToByteString (iiState iv1))
-                  statebs2 <- coerceBSMR (contractStateToByteString (iiState iv2))
-                  assertEq statebs1 statebs2 $
-                    return $ Just $ InstanceInfoV1 InstanceInfoV{
-                      iiParameters = PIMR (miModule (instanceModuleInterface (iiParameters iv1))) <$> iiParameters iv2,
-                      iiBalance = iiBalance iv1,
-                      iiState = case S.decode statebs1 of
-                          Left err -> error $ "Could not decode left V1 state: " ++ err
-                          Right x -> x
-                      }
-              (InstanceInfoV0 _, InstanceInfoV1 _) -> error $ "Left state returns V0 instance, but right state V1 for address " ++ show caddr
-              (InstanceInfoV1 _, InstanceInfoV0 _) -> error $ "Left state returns V1 instance, but right state V0 for address " ++ show caddr
+            (Nothing, Nothing) -> return Nothing
+            (Nothing, Just _) -> error $ "Cannot get instance for " ++ show caddr ++ " in left implementation."
+            (Just _, Nothing) -> error $ "Cannot get instance for " ++ show caddr ++ " in right implementation."
+            (Just ii1, Just ii2) ->
+                case (ii1, ii2) of
+                    (InstanceInfoV0 iv1, InstanceInfoV0 iv2) ->
+                        assertEq (void (iiParameters iv1)) (void (iiParameters iv2)) $
+                            assertEq (iiBalance iv1) (iiBalance iv2) $ do
+                                statebs1 <- coerceBSML (contractStateToByteString (iiState iv1))
+                                statebs2 <- coerceBSMR (contractStateToByteString (iiState iv2))
+                                assertEq statebs1 statebs2 $
+                                    return $
+                                        Just $
+                                            InstanceInfoV0
+                                                InstanceInfoV
+                                                    { iiParameters = PIMR (miModule (instanceModuleInterface (iiParameters iv1))) <$> iiParameters iv2,
+                                                      iiBalance = iiBalance iv1,
+                                                      iiState = case S.decode statebs1 of
+                                                        Left err -> error $ "Could not decode left V0 state: " ++ err
+                                                        Right x -> x
+                                                    }
+                    (InstanceInfoV1 iv1, InstanceInfoV1 iv2) ->
+                        assertEq (void (iiParameters iv1)) (void (iiParameters iv2)) $
+                            assertEq (iiBalance iv1) (iiBalance iv2) $ do
+                                statebs1 <- coerceBSML (contractStateToByteString (iiState iv1))
+                                statebs2 <- coerceBSMR (contractStateToByteString (iiState iv2))
+                                assertEq statebs1 statebs2 $
+                                    return $
+                                        Just $
+                                            InstanceInfoV1
+                                                InstanceInfoV
+                                                    { iiParameters = PIMR (miModule (instanceModuleInterface (iiParameters iv1))) <$> iiParameters iv2,
+                                                      iiBalance = iiBalance iv1,
+                                                      iiState = case S.decode statebs1 of
+                                                        Left err -> error $ "Could not decode left V1 state: " ++ err
+                                                        Right x -> x
+                                                    }
+                    (InstanceInfoV0 _, InstanceInfoV1 _) -> error $ "Left state returns V0 instance, but right state V1 for address " ++ show caddr
+                    (InstanceInfoV1 _, InstanceInfoV0 _) -> error $ "Left state returns V1 instance, but right state V0 for address " ++ show caddr
     getModuleList (ls, rs) = do
         m1 <- coerceBSML (getModuleList ls)
         m2 <- coerceBSMR (getModuleList rs)
@@ -488,14 +517,14 @@ instance
         assertEq ps1 ps2 $ return ps1
 
 instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r) => ContractStateOperations (BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m) where
-  thawContractState (InstanceStateV0 st) = return st
-  thawContractState (InstanceStateV1 st) = return (StateV1.thawInMemoryPersistent st)
-  externalContractState (InstanceStateV0 st) = return st
-  externalContractState (InstanceStateV1 (StateV1.InMemoryPersistentState st)) = return st
-  stateSizeV0 (InstanceStateV0 cs) = return (Wasm.contractStateSize cs)
-  getV1StateContext = return errorLoadCallback
-  contractStateToByteString (InstanceStateV0 st) = return (Wasm.contractState st)
-  contractStateToByteString (InstanceStateV1 st) = return (S.encode st)
+    thawContractState (InstanceStateV0 st) = return st
+    thawContractState (InstanceStateV1 st) = return (StateV1.thawInMemoryPersistent st)
+    externalContractState (InstanceStateV0 st) = return st
+    externalContractState (InstanceStateV1 (StateV1.InMemoryPersistentState st)) = return st
+    stateSizeV0 (InstanceStateV0 cs) = return (Wasm.contractStateSize cs)
+    getV1StateContext = return errorLoadCallback
+    contractStateToByteString (InstanceStateV0 st) = return (Wasm.contractState st)
+    contractStateToByteString (InstanceStateV1 st) = return (S.encode st)
 
 instance
     ( Monad m,
@@ -503,8 +532,8 @@ instance
       AccountOperations (BSML pv lc r ls s m),
       AccountOperations (BSMR pv rc r rs s m)
     ) =>
-    AccountOperations (BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m) where
-
+    AccountOperations (BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m)
+    where
     getAccountCanonicalAddress (acc1, acc2) = do
         addr1 <- coerceBSML (getAccountCanonicalAddress acc1)
         addr2 <- coerceBSMR (getAccountCanonicalAddress acc2)
@@ -571,7 +600,8 @@ instance
         assertEq ab1 ab2 $ return ab1
 
     getAccountBakerInfoRef (acc1, acc2) =
-        liftM2 (liftM2 (,))
+        liftM2
+            (liftM2 (,))
             (coerceBSML (getAccountBakerInfoRef acc1))
             (coerceBSMR (getAccountBakerInfoRef acc2))
 
@@ -600,7 +630,8 @@ instance
       C.HasGlobalStateContext (PairGSContext lc rc) r,
       ModuleQuery (BSML pv lc r ls s m)
     ) =>
-    ModuleQuery (BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m) where
+    ModuleQuery (BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m)
+    where
     -- Because it is difficult to do so, we do not compare the module artifacts, which are foreign
     -- pointers.
     getModuleArtifact (PIMR mod1 _) =
@@ -612,7 +643,8 @@ instance
       BlockStateOperations (BSML pv lc r ls s m),
       BlockStateOperations (BSMR pv rc r rs s m)
     ) =>
-    BlockStateOperations (BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m) where
+    BlockStateOperations (BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m)
+    where
     bsoGetModule (bs1, bs2) mref = do
         r1 <- coerceBSML $ bsoGetModule bs1 mref
         r2 <- coerceBSMR $ bsoGetModule bs2 mref
@@ -629,16 +661,17 @@ instance
         r1 <- coerceBSML $ bsoGetAccount bs1 aref
         r2 <- coerceBSMR $ bsoGetAccount bs2 aref
         case (r1, r2) of
-          (Just (ai1, r1'), Just (ai2, r2')) -> do
-            assertAccountHashEq r1' r2'
-            assertEq ai1 ai2 $
-                return $ Just (ai1, (r1', r2'))
-          (Nothing, Nothing) ->
-            return Nothing
-          (Nothing, _) ->
-            error $ "Cannot get account with address " ++ show aref ++ " in left implementation"
-          (_, Nothing) ->
-            error $ "Cannot get account with address " ++ show aref ++ " in right implementation"
+            (Just (ai1, r1'), Just (ai2, r2')) -> do
+                assertAccountHashEq r1' r2'
+                assertEq ai1 ai2 $
+                    return $
+                        Just (ai1, (r1', r2'))
+            (Nothing, Nothing) ->
+                return Nothing
+            (Nothing, _) ->
+                error $ "Cannot get account with address " ++ show aref ++ " in left implementation"
+            (_, Nothing) ->
+                error $ "Cannot get account with address " ++ show aref ++ " in right implementation"
     bsoGetAccountIndex (bs1, bs2) aref = do
         r1 <- coerceBSML $ bsoGetAccountIndex bs1 aref
         r2 <- coerceBSMR $ bsoGetAccountIndex bs2 aref
@@ -648,49 +681,55 @@ instance
         cInfo1 <- coerceBSML (bsoGetInstance ls caddr)
         cInfo2 <- coerceBSMR (bsoGetInstance rs caddr)
         case (cInfo1, cInfo2) of
-          (Nothing, Nothing) -> return Nothing
-          (Nothing, Just _) -> error $ "Cannot get instance for " ++ show caddr ++ " in left implementation."
-          (Just _, Nothing) -> error $ "Cannot get instance for " ++ show caddr ++ " in right implementation."
-          (Just ii1, Just ii2) ->
-            case (ii1, ii2) of
-              (InstanceInfoV0 iv1, InstanceInfoV0 iv2) ->
-                assertEq (void (iiParameters iv1)) (void (iiParameters iv2)) $
-                assertEq (iiBalance iv1) (iiBalance iv2) $ do
-                  statebs <- coerceBSML (contractStateToByteString (iiState iv1))
-                  return $ Just $ InstanceInfoV0 InstanceInfoV{
-                    iiParameters = PIMR (miModule (instanceModuleInterface (iiParameters iv1))) <$> iiParameters iv2,
-                    iiBalance = iiBalance iv1,
-                    iiState = case S.decode statebs of
-                        Left err -> error $ "Could not decode left V0 state: " ++ err
-                        Right x -> x
-                    }
-              (InstanceInfoV1 iv1, InstanceInfoV1 iv2) ->
-                assertEq (void (iiParameters iv1)) (void (iiParameters iv2)) $
-                assertEq (iiBalance iv1) (iiBalance iv2) $ do
-                  statebs <- coerceBSML (contractStateToByteString (iiState iv1))
-                  return $ Just $ InstanceInfoV1 InstanceInfoV{
-                    iiParameters = PIMR (miModule (instanceModuleInterface (iiParameters iv1))) <$> iiParameters iv2,
-                    iiBalance = iiBalance iv1,
-                    iiState = case S.decode statebs of
-                        Left err -> error $ "Could not decode left V1 state: " ++ err
-                        Right x -> x
-                    }
-              (InstanceInfoV0 _, InstanceInfoV1 _) -> error $ "Left state returns V0 instance, but right state V1 for address " ++ show caddr
-              (InstanceInfoV1 _, InstanceInfoV0 _) -> error $ "Left state returns V1 instance, but right state V0 for address " ++ show caddr
+            (Nothing, Nothing) -> return Nothing
+            (Nothing, Just _) -> error $ "Cannot get instance for " ++ show caddr ++ " in left implementation."
+            (Just _, Nothing) -> error $ "Cannot get instance for " ++ show caddr ++ " in right implementation."
+            (Just ii1, Just ii2) ->
+                case (ii1, ii2) of
+                    (InstanceInfoV0 iv1, InstanceInfoV0 iv2) ->
+                        assertEq (void (iiParameters iv1)) (void (iiParameters iv2)) $
+                            assertEq (iiBalance iv1) (iiBalance iv2) $ do
+                                statebs <- coerceBSML (contractStateToByteString (iiState iv1))
+                                return $
+                                    Just $
+                                        InstanceInfoV0
+                                            InstanceInfoV
+                                                { iiParameters = PIMR (miModule (instanceModuleInterface (iiParameters iv1))) <$> iiParameters iv2,
+                                                  iiBalance = iiBalance iv1,
+                                                  iiState = case S.decode statebs of
+                                                    Left err -> error $ "Could not decode left V0 state: " ++ err
+                                                    Right x -> x
+                                                }
+                    (InstanceInfoV1 iv1, InstanceInfoV1 iv2) ->
+                        assertEq (void (iiParameters iv1)) (void (iiParameters iv2)) $
+                            assertEq (iiBalance iv1) (iiBalance iv2) $ do
+                                statebs <- coerceBSML (contractStateToByteString (iiState iv1))
+                                return $
+                                    Just $
+                                        InstanceInfoV1
+                                            InstanceInfoV
+                                                { iiParameters = PIMR (miModule (instanceModuleInterface (iiParameters iv1))) <$> iiParameters iv2,
+                                                  iiBalance = iiBalance iv1,
+                                                  iiState = case S.decode statebs of
+                                                    Left err -> error $ "Could not decode left V1 state: " ++ err
+                                                    Right x -> x
+                                                }
+                    (InstanceInfoV0 _, InstanceInfoV1 _) -> error $ "Left state returns V0 instance, but right state V1 for address " ++ show caddr
+                    (InstanceInfoV1 _, InstanceInfoV0 _) -> error $ "Left state returns V1 instance, but right state V0 for address " ++ show caddr
 
     bsoGetAccountByIndex (bs1, bs2) ai = do
         r1 <- coerceBSML $ bsoGetAccountByIndex bs1 ai
         r2 <- coerceBSMR $ bsoGetAccountByIndex bs2 ai
         case (r1, r2) of
-          (Just r1', Just r2') -> do
-            assertAccountHashEq r1' r2'
-            return $ Just (r1', r2')
-          (Nothing, Nothing) ->
-            return Nothing
-          (Nothing, _) ->
-            error $ "Cannot get account with index " ++ show ai ++ " in left implementation"
-          (_, Nothing) ->
-            error $ "Cannot get account with index " ++ show ai ++ " in right implementation"
+            (Just r1', Just r2') -> do
+                assertAccountHashEq r1' r2'
+                return $ Just (r1', r2')
+            (Nothing, Nothing) ->
+                return Nothing
+            (Nothing, _) ->
+                error $ "Cannot get account with index " ++ show ai ++ " in left implementation"
+            (_, Nothing) ->
+                error $ "Cannot get account with index " ++ show ai ++ " in right implementation"
 
     bsoAddressWouldClash (bs1, bs2) addr = do
         r1 <- coerceBSML $ bsoAddressWouldClash bs1 addr
@@ -713,14 +752,22 @@ instance
             (_, Nothing) ->
                 error "Account creation failed in right implementation but not left"
     bsoPutNewInstance (bs1, bs2) NewInstanceData{..} = do
-        (r1, bs1') <- coerceBSML $ bsoPutNewInstance bs1 NewInstanceData{
-                nidInterface = (\(PIMR l _) -> l) <$> nidInterface,
-                ..
-            }
-        (r2, bs2') <- coerceBSMR $ bsoPutNewInstance bs2 NewInstanceData{
-                nidInterface = (\(PIMR _ r) -> r) <$> nidInterface,
-                ..
-            }
+        (r1, bs1') <-
+            coerceBSML $
+                bsoPutNewInstance
+                    bs1
+                    NewInstanceData
+                        { nidInterface = (\(PIMR l _) -> l) <$> nidInterface,
+                          ..
+                        }
+        (r2, bs2') <-
+            coerceBSMR $
+                bsoPutNewInstance
+                    bs2
+                    NewInstanceData
+                        { nidInterface = (\(PIMR _ r) -> r) <$> nidInterface,
+                          ..
+                        }
         assertEq r1 r2 $ return (r1, (bs1', bs2'))
     bsoPutNewModule (bs1, bs2) iface = do
         (r1, bs1') <- coerceBSML $ bsoPutNewModule bs1 iface
@@ -742,9 +789,9 @@ instance
         bs1' <- coerceBSML $ bsoModifyInstance bs1 caddr delta model Nothing
         bs2' <- coerceBSMR $ bsoModifyInstance bs2 caddr delta model Nothing
         return (bs1', bs2')
-    bsoModifyInstance (bs1, bs2) caddr delta model (Just (GSWasm.ModuleInterface{miModule=PIMR l r,..}, nr)) = do
-        bs1' <- coerceBSML $ bsoModifyInstance bs1 caddr delta model (Just (GSWasm.ModuleInterface{miModule=l,..}, nr))
-        bs2' <- coerceBSMR $ bsoModifyInstance bs2 caddr delta model (Just (GSWasm.ModuleInterface{miModule=r,..}, nr))
+    bsoModifyInstance (bs1, bs2) caddr delta model (Just (GSWasm.ModuleInterface{miModule = PIMR l r, ..}, nr)) = do
+        bs1' <- coerceBSML $ bsoModifyInstance bs1 caddr delta model (Just (GSWasm.ModuleInterface{miModule = l, ..}, nr))
+        bs2' <- coerceBSMR $ bsoModifyInstance bs2 caddr delta model (Just (GSWasm.ModuleInterface{miModule = r, ..}, nr))
         return (bs1', bs2')
     bsoNotifyEncryptedBalanceChange (bs1, bs2) amt = do
         bs1' <- coerceBSML $ bsoNotifyEncryptedBalanceChange bs1 amt
@@ -903,17 +950,20 @@ instance
         bs2' <- coerceBSMR $ bsoClearProtocolUpdate bs2
         return (bs1', bs2')
     bsoRotateCurrentEpochBakers (bs1, bs2) =
-        liftM2 (,)
+        liftM2
+            (,)
             (coerceBSML $ bsoRotateCurrentEpochBakers bs1)
             (coerceBSMR $ bsoRotateCurrentEpochBakers bs2)
     bsoSetNextEpochBakers (bs1, bs2) ne = do
         let ne1 = ne <&> \(r, a) -> (fst r, a)
         let ne2 = ne <&> \(r, a) -> (snd r, a)
-        liftM2 (,)
+        liftM2
+            (,)
             (coerceBSML $ bsoSetNextEpochBakers bs1 ne1)
             (coerceBSMR $ bsoSetNextEpochBakers bs2 ne2)
     bsoProcessPendingChanges (bs1, bs2) ch =
-        liftM2 (,)
+        liftM2
+            (,)
             (coerceBSML $ bsoProcessPendingChanges bs1 ch)
             (coerceBSMR $ bsoProcessPendingChanges bs2 ch)
     bsoGetExchangeRates (bs1, bs2) = do
@@ -953,21 +1003,22 @@ instance
         (b2, d2) <- coerceBSMR $ bsoGetActiveBakersAndDelegators bs2
         assertEq d1 d2 $
             assertEq (length b1) (length b2) $
-            return (zipActiveBakerInfo b1 b2, d1)
-        where
-            zipActiveBakerInfo (i1 : b1) (i2 : b2) =
-                assertEq (activeBakerEquityCapital i1) (activeBakerEquityCapital i2) $
+                return (zipActiveBakerInfo b1 b2, d1)
+      where
+        zipActiveBakerInfo (i1 : b1) (i2 : b2) =
+            assertEq (activeBakerEquityCapital i1) (activeBakerEquityCapital i2) $
                 assertEq (activeBakerPendingChange i1) (activeBakerPendingChange i2) $
-                assertEq (activeBakerDelegators i1) (activeBakerDelegators i2) $
-                let i = ActiveBakerInfo{
-                            activeBakerInfoRef = (activeBakerInfoRef i1, activeBakerInfoRef i2),
-                            activeBakerEquityCapital = activeBakerEquityCapital i1,
-                            activeBakerPendingChange = activeBakerPendingChange i1,
-                            activeBakerDelegators = activeBakerDelegators i1
-                        }
-                    b = zipActiveBakerInfo b1 b2
-                in i : b
-            zipActiveBakerInfo _ _ = []
+                    assertEq (activeBakerDelegators i1) (activeBakerDelegators i2) $
+                        let i =
+                                ActiveBakerInfo
+                                    { activeBakerInfoRef = (activeBakerInfoRef i1, activeBakerInfoRef i2),
+                                      activeBakerEquityCapital = activeBakerEquityCapital i1,
+                                      activeBakerPendingChange = activeBakerPendingChange i1,
+                                      activeBakerDelegators = activeBakerDelegators i1
+                                    }
+                            b = zipActiveBakerInfo b1 b2
+                        in  i : b
+        zipActiveBakerInfo _ _ = []
     bsoGetCurrentEpochBakers (ls, rs) = do
         b1 <- coerceBSML (bsoGetCurrentEpochBakers ls)
         b2 <- coerceBSMR (bsoGetCurrentEpochBakers rs)
@@ -991,12 +1042,14 @@ instance
 
 type instance BlockStatePointer (a, b) = (BlockStatePointer a, BlockStatePointer b)
 
-instance (MonadLogger m,
-    C.HasGlobalStateContext (PairGSContext lc rc) r,
-    BlockStateStorage (BSML pv lc r ls s m),
+instance
+    ( MonadLogger m,
+      C.HasGlobalStateContext (PairGSContext lc rc) r,
+      BlockStateStorage (BSML pv lc r ls s m),
       BlockStateStorage (BSMR pv rc r rs s m)
     ) =>
-    BlockStateStorage (BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m) where
+    BlockStateStorage (BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m)
+    where
     thawBlockState (bs1, bs2) = do
         ubs1 <- coerceBSML $ thawBlockState bs1
         ubs2 <- coerceBSMR $ thawBlockState bs2
@@ -1041,14 +1094,17 @@ coerceGSML = coerce
 coerceGSMR :: GSMR pv rc r rs s m a -> TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m a
 coerceGSMR = coerce
 
-instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
-          MonadReader r m,
-          C.HasGlobalState (PairGState ls rs) s,
-          MonadState s m,
-          MonadIO m,
-          BlockPointerMonad (GSML pv lc r ls s m),
-          BlockPointerMonad (GSMR pv rc r rs s m))
-          => BlockPointerMonad (TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m) where
+instance
+    ( C.HasGlobalStateContext (PairGSContext lc rc) r,
+      MonadReader r m,
+      C.HasGlobalState (PairGState ls rs) s,
+      MonadState s m,
+      MonadIO m,
+      BlockPointerMonad (GSML pv lc r ls s m),
+      BlockPointerMonad (GSMR pv rc r rs s m)
+    ) =>
+    BlockPointerMonad (TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m)
+    where
     blockState (PairBlockData (bp1, bp2)) = do
         bs1 <- coerceGSML $ blockState bp1
         bs2 <- coerceGSMR $ blockState bp2
@@ -1062,38 +1118,41 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
         bs2 <- coerceGSMR $ bpLastFinalized bp2
         return $ PairBlockData (bs1, bs2)
 
-instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
-        MonadReader r m,
-        C.HasGlobalState (PairGState ls rs) s,
-        MonadState s m,
-        MonadIO m,
-        BlockStateStorage (TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m),
-        TreeStateMonad (GSML pv lc r ls s m),
-        TreeStateMonad (GSMR pv rc r rs s m))
-        => TreeStateMonad (TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m) where
+instance
+    ( C.HasGlobalStateContext (PairGSContext lc rc) r,
+      MonadReader r m,
+      C.HasGlobalState (PairGState ls rs) s,
+      MonadState s m,
+      MonadIO m,
+      BlockStateStorage (TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m),
+      TreeStateMonad (GSML pv lc r ls s m),
+      TreeStateMonad (GSMR pv rc r rs s m)
+    ) =>
+    TreeStateMonad (TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m)
+    where
     makePendingBlock sk sl parent bid bp bn lf trs sthash trouthash brtime = do
-      pb1 <- coerceGSML $ TS.makePendingBlock sk sl parent bid bp bn lf trs sthash trouthash brtime
-      pb2 <- coerceGSMR $ TS.makePendingBlock sk sl parent bid bp bn lf trs sthash trouthash brtime
-      assertEq pb1 pb2 $ return pb1
+        pb1 <- coerceGSML $ TS.makePendingBlock sk sl parent bid bp bn lf trs sthash trouthash brtime
+        pb2 <- coerceGSMR $ TS.makePendingBlock sk sl parent bid bp bn lf trs sthash trouthash brtime
+        assertEq pb1 pb2 $ return pb1
 
     getFinalizedAtHeight bHeight = do
-      b1 <- coerceGSML $ getFinalizedAtHeight bHeight
-      b2 <- coerceGSMR $ getFinalizedAtHeight bHeight
-      case (b1, b2) of
-        (Nothing, Nothing) -> return Nothing
-        (Just bp1, Just bp2) -> assertEq (bpHash bp1) (bpHash bp2) $ return (Just (PairBlockData (bp1, bp2)))
-        (Nothing, Just bp) -> error $ "Cannot get finalized block at height in left implementation: " ++ show (bpHash bp)
-        (Just bp, Nothing) -> error $ "Cannot get finalized block at height in right implementation: " ++ show (bpHash bp)
+        b1 <- coerceGSML $ getFinalizedAtHeight bHeight
+        b2 <- coerceGSMR $ getFinalizedAtHeight bHeight
+        case (b1, b2) of
+            (Nothing, Nothing) -> return Nothing
+            (Just bp1, Just bp2) -> assertEq (bpHash bp1) (bpHash bp2) $ return (Just (PairBlockData (bp1, bp2)))
+            (Nothing, Just bp) -> error $ "Cannot get finalized block at height in left implementation: " ++ show (bpHash bp)
+            (Just bp, Nothing) -> error $ "Cannot get finalized block at height in right implementation: " ++ show (bpHash bp)
 
     getNextAccountNonce addr = do
-      b1 <- coerceGSML $ getNextAccountNonce addr
-      b2 <- coerceGSMR $ getNextAccountNonce addr
-      assertEq b1 b2 $ return b1
+        b1 <- coerceGSML $ getNextAccountNonce addr
+        b2 <- coerceGSMR $ getNextAccountNonce addr
+        assertEq b1 b2 $ return b1
 
     getCredential key = do
-      b1 <- coerceGSML $ getCredential key
-      b2 <- coerceGSMR $ getCredential key
-      assertEq b1 b2 $ return b1
+        b1 <- coerceGSML $ getCredential key
+        b2 <- coerceGSMR $ getCredential key
+        assertEq b1 b2 $ return b1
 
     getBlockStatus bh = do
         bs1 <- coerceGSML $ getBlockStatus bh
@@ -1130,8 +1189,9 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
     markDead bh = do
         coerceGSML $ markDead bh
         coerceGSMR $ markDead bh
-    type MarkFin (TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m) =
-      (MarkFin (GSML pv lc r ls s m), MarkFin (GSMR pv rc r rs s m))
+    type
+        MarkFin (TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m) =
+            (MarkFin (GSML pv lc r ls s m), MarkFin (GSMR pv rc r rs s m))
     markFinalized bh fr = do
         mf1 <- coerceGSML $ markFinalized bh fr
         mf2 <- coerceGSMR $ markFinalized bh fr
@@ -1172,8 +1232,9 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
         case (r1, r2) of
             (Nothing, Nothing) -> return Nothing
             (Just bp1, Just bp2) ->
-              assertEq (bpHash bp1) (bpHash bp2) $
-                return $ Just (PairBlockData (bp1, bp2))
+                assertEq (bpHash bp1) (bpHash bp2) $
+                    return $
+                        Just (PairBlockData (bp1, bp2))
             _ -> error $ "getFinalizationAtindex (Paired): no match " ++ show r1 ++ ", " ++ show r2
     getRecordAtIndex fi = do
         r1 <- coerceGSML $ getRecordAtIndex fi
@@ -1181,12 +1242,13 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
         case (r1, r2) of
             (Nothing, Nothing) -> return Nothing
             (Just rec1, Just rec2) ->
-              assertEq rec1 rec2 $
-                return $ Just rec1
+                assertEq rec1 rec2 $
+                    return $
+                        Just rec1
             _ -> error $ "getRecordAtindex (Paired): no match " ++ show r1 ++ ", " ++ show r2
     wrapupFinalization finRec mffts = do
-      coerceGSML (wrapupFinalization finRec ((fst . fst &&& fst . snd) <$> mffts))
-      coerceGSMR (wrapupFinalization finRec ((snd . fst &&& snd . snd) <$> mffts))
+        coerceGSML (wrapupFinalization finRec ((fst . fst &&& fst . snd) <$> mffts))
+        coerceGSMR (wrapupFinalization finRec ((snd . fst &&& snd . snd) <$> mffts))
     getBranches = do
         r1 <- coerceGSML getBranches
         r2 <- coerceGSMR getBranches
@@ -1237,8 +1299,9 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
         r1 <- coerceGSML $ getNonFinalizedChainUpdates uty sn
         r2 <- coerceGSMR $ getNonFinalizedChainUpdates uty sn
         assertEq r1 r2 $ return r1
-    type FinTrans (TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m) =
-      (FinTrans (GSML pv lc r ls s m), FinTrans (GSMR pv rc r rs s m))
+    type
+        FinTrans (TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m) =
+            (FinTrans (GSML pv lc r ls s m), FinTrans (GSMR pv rc r rs s m))
     finalizeTransactions bh slot trs = do
         ft1 <- coerceGSML $ finalizeTransactions bh slot trs
         ft2 <- coerceGSMR $ finalizeTransactions bh slot trs
@@ -1259,19 +1322,21 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
         r2 <- coerceGSMR $ lookupTransaction h
         assertEq r1 r2 $ return r1
     markDeadTransaction bh tr = do
-      coerceGSML $ markDeadTransaction bh tr
-      coerceGSMR $ markDeadTransaction bh tr
+        coerceGSML $ markDeadTransaction bh tr
+        coerceGSMR $ markDeadTransaction bh tr
+
     -- For getting statistics, we will only use one side
     getConsensusStatistics = coerceGSML $ getConsensusStatistics
     putConsensusStatistics stats = do
         coerceGSML $ putConsensusStatistics stats
         coerceGSMR $ putConsensusStatistics stats
+
     -- For runtime parameters, we will only use one side
     getRuntimeParameters = coerceGSML getRuntimeParameters
 
     purgeTransactionTable t i = do
-      coerceGSML (purgeTransactionTable t i)
-      coerceGSMR (purgeTransactionTable t i)
+        coerceGSML (purgeTransactionTable t i)
+        coerceGSMR (purgeTransactionTable t i)
 
     clearOnProtocolUpdate = do
         coerceGSML clearOnProtocolUpdate
@@ -1282,13 +1347,13 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
         coerceGSMR clearAfterProtocolUpdate
 
     getNonFinalizedTransactionVerificationResult tx = do
-      r1 <- coerceGSML $ getNonFinalizedTransactionVerificationResult tx
-      r2 <- coerceGSMR $ getNonFinalizedTransactionVerificationResult tx
-      assertEq r1 r2 $ return r1
+        r1 <- coerceGSML $ getNonFinalizedTransactionVerificationResult tx
+        r2 <- coerceGSMR $ getNonFinalizedTransactionVerificationResult tx
+        assertEq r1 r2 $ return r1
 
     storeFinalState (bs1, bs2) = do
-      coerceGSML (storeFinalState bs1)
-      coerceGSMR (storeFinalState bs2)
+        coerceGSML (storeFinalState bs1)
+        coerceGSMR (storeFinalState bs2)
 
 newtype PairGSConfig c1 c2 = PairGSConfig (c1, c2)
 
@@ -1310,11 +1375,12 @@ instance (GlobalStateConfig c1, GlobalStateConfig c2) => GlobalStateConfig (Pair
         return (PairGSContext ctx1 ctx2, PairGState s1 s2)
 
     migrateExistingState (PairGSConfig (conf1, conf2)) (PairGSContext ctx1 ctx2) (PairGState s1 s2) migrationData gd = do
-      (newCtx1, newState1) <- migrateExistingState conf1 ctx1 s1 migrationData gd
-      (newCtx2, newState2) <- migrateExistingState conf2 ctx2 s2 migrationData gd
-      return (PairGSContext newCtx1 newCtx2, PairGState newState1 newState2)
+        (newCtx1, newState1) <- migrateExistingState conf1 ctx1 s1 migrationData gd
+        (newCtx2, newState2) <- migrateExistingState conf2 ctx2 s2 migrationData gd
+        return (PairGSContext newCtx1 newCtx2, PairGState newState1 newState2)
 
-    activateGlobalState :: forall pv .
+    activateGlobalState ::
+        forall pv.
         IsProtocolVersion pv =>
         Proxy (PairGSConfig c1 c2) ->
         Proxy pv ->
@@ -1322,10 +1388,10 @@ instance (GlobalStateConfig c1, GlobalStateConfig c2) => GlobalStateConfig (Pair
         PairGState (GSState c1 pv) (GSState c2 pv) ->
         LogIO (PairGState (GSState c1 pv) (GSState c2 pv))
     activateGlobalState Proxy Proxy (PairGSContext ctx1 ctx2) (PairGState s1 s2) = do
-            s1Active <- activateGlobalState (Proxy @c1) (Proxy @pv) ctx1 s1
-            s2Active <- activateGlobalState (Proxy @c2) (Proxy @pv) ctx2 s2
-            return (PairGState s1Active s2Active)
+        s1Active <- activateGlobalState (Proxy @c1) (Proxy @pv) ctx1 s1
+        s2Active <- activateGlobalState (Proxy @c2) (Proxy @pv) ctx2 s2
+        return (PairGState s1Active s2Active)
 
     shutdownGlobalState spv _ (PairGSContext ctx1 ctx2) (PairGState s1 s2) = do
-            shutdownGlobalState spv (Proxy :: Proxy c1) ctx1 s1
-            shutdownGlobalState spv (Proxy :: Proxy c2) ctx2 s2
+        shutdownGlobalState spv (Proxy :: Proxy c1) ctx1 s1
+        shutdownGlobalState spv (Proxy :: Proxy c2) ctx2 s2

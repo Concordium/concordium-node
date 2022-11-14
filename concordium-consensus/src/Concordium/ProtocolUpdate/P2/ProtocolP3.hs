@@ -61,10 +61,10 @@ import qualified Concordium.Genesis.Data.P3 as P3
 import Concordium.Types.SeedState
 
 import Concordium.GlobalState.Block
-import Concordium.GlobalState.Types
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.Types
 import Concordium.Kontrol
 import Concordium.Types.ProtocolVersion
 
@@ -98,10 +98,10 @@ updateRegenesis = do
     -- Update the seed state
     oldSeedState <- bsoGetSeedState s0
     s1 <-
-        bsoSetSeedState s0 $
-            initialSeedState
+        bsoSetSeedState s0
+            $ initialSeedState
                 (SHA256.hash $ "Regenesis" <> encode (updatedNonce oldSeedState))
-                $ gdEpochLength gd
+            $ gdEpochLength gd
     -- Clear the protocol update.
     s3 <- bsoClearProtocolUpdate s1
     regenesisState <- freezeBlockState s3

@@ -1,57 +1,65 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE TypeFamilies #-}
+
 module Concordium.GlobalState.BlockPointer where
 
-import Data.Bits
-import Data.Kind
-import Data.Serialize
-import Data.Word
-import Data.Hashable
-import Concordium.Types.HashableTo
 import Concordium.GlobalState.Block
 import Concordium.Types
+import Concordium.Types.HashableTo
+import Data.Bits
+import Data.Hashable
+import Data.Kind
+import Data.Serialize
 import Data.Time.Clock
 import Data.Time.Clock.POSIX
+import Data.Word
 
 class (Eq bp, Show bp, BlockData bp) => BlockPointerData bp where
     -- |Hash of the block
     bpHash :: bp -> BlockHash
+
     -- |Height of the block in the tree
     bpHeight :: bp -> BlockHeight
+
     -- |Time at which the block was first received
     bpReceiveTime :: bp -> UTCTime
+
     -- |Time at which the block was first considered part of the tree (validated)
     bpArriveTime :: bp -> UTCTime
+
     -- |Number of transactions in a block
     bpTransactionCount :: bp -> Int
+
     -- |Energy cost of all transactions in the block.
     bpTransactionsEnergyCost :: bp -> Energy
+
     -- |Size of the transaction data in bytes.
     bpTransactionsSize :: bp -> Int
+
     -- |Hash of last-finalized block
     bpLastFinalizedHash :: bp -> BlockHash
 
 -- |Block pointer data. The minimal data that should be the same among all
 -- block pointer instantiations.
-data BasicBlockPointerData = BasicBlockPointerData {
-    -- |Hash of the block
-    _bpHash :: !BlockHash,
-    -- |Height of the block in the tree
-    _bpHeight :: !BlockHeight,
-    -- |Time at which the block was first received
-    _bpReceiveTime :: !UTCTime,
-    -- |Time at which the block was first considered part of the tree (validated)
-    _bpArriveTime :: !UTCTime,
-    -- |Number of transactions in a block
-    _bpTransactionCount :: !Int,
-    -- |Energy cost of all transactions in the block.
-    _bpTransactionsEnergyCost :: !Energy,
-    -- |Size of the transaction data in bytes.
-    _bpTransactionsSize :: !Int,
-    -- |Hash of last-finalized block
-    _bpLastFinalizedHash :: !BlockHash
-}
+data BasicBlockPointerData = BasicBlockPointerData
+    { -- |Hash of the block
+      _bpHash :: !BlockHash,
+      -- |Height of the block in the tree
+      _bpHeight :: !BlockHeight,
+      -- |Time at which the block was first received
+      _bpReceiveTime :: !UTCTime,
+      -- |Time at which the block was first considered part of the tree (validated)
+      _bpArriveTime :: !UTCTime,
+      -- |Number of transactions in a block
+      _bpTransactionCount :: !Int,
+      -- |Energy cost of all transactions in the block.
+      _bpTransactionsEnergyCost :: !Energy,
+      -- |Size of the transaction data in bytes.
+      _bpTransactionsSize :: !Int,
+      -- |Hash of last-finalized block
+      _bpLastFinalizedHash :: !BlockHash
+    }
 
 instance Eq BasicBlockPointerData where
     {-# INLINE (==) #-}
@@ -102,10 +110,9 @@ instance Serialize BasicBlockPointerData where
             getTime :: Get UTCTime
             getTime = do
                 raw <- getWord64be
-                if testBit raw 63 then
-                    return (microSecondsTime (clearBit raw 63))
-                else
-                    return (secondsTime raw)
+                if testBit raw 63
+                    then return (microSecondsTime (clearBit raw 63))
+                    else return (secondsTime raw)
         _bpHash <- get
         _bpHeight <- get
         _bpReceiveTime <- getTime
@@ -134,18 +141,18 @@ instance Serialize BasicBlockPointerData where
 -- * BlockData
 -- * BlockPointerData
 -- * HashableTo BlockHash
-data BlockPointer (pv :: ProtocolVersion) (p :: Type -> Type) s = BlockPointer {
-    -- |Information about the block, e.g., height, transactions, ...
-    _bpInfo :: !BasicBlockPointerData,
-    -- |Pointer to the parent (circular reference for genesis block)
-    _bpParent :: p (BlockPointer pv p s),
-    -- |Pointer to the last finalized block (circular for genesis)
-    _bpLastFinalized :: p (BlockPointer pv p s),
-    -- |The block itself
-    _bpBlock :: !(Block pv),
-    -- |The handle for accessing the state (of accounts, contracts, etc.) after execution of the block.
-    _bpState :: !s
-}
+data BlockPointer (pv :: ProtocolVersion) (p :: Type -> Type) s = BlockPointer
+    { -- |Information about the block, e.g., height, transactions, ...
+      _bpInfo :: !BasicBlockPointerData,
+      -- |Pointer to the parent (circular reference for genesis block)
+      _bpParent :: p (BlockPointer pv p s),
+      -- |Pointer to the last finalized block (circular for genesis)
+      _bpLastFinalized :: p (BlockPointer pv p s),
+      -- |The block itself
+      _bpBlock :: !(Block pv),
+      -- |The handle for accessing the state (of accounts, contracts, etc.) after execution of the block.
+      _bpState :: !s
+    }
 
 type instance BlockFieldType (BlockPointer pv p s) = BlockFields
 

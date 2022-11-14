@@ -10,35 +10,35 @@ module Concordium.Queries where
 
 import Control.Monad
 import Control.Monad.Reader
+import Data.Bifunctor (second)
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import qualified Data.Map.Strict as Map
 import Data.Maybe
+import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import qualified Data.Vector as Vec
 import Lens.Micro.Platform
-import qualified Data.Sequence as Seq
-import Data.Bifunctor (second)
 
 import Concordium.Common.Version
 import Concordium.Genesis.Data
+import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import Concordium.GlobalState.Instance
 import Concordium.Types
 import Concordium.Types.Accounts
 import Concordium.Types.AnonymityRevokers
 import Concordium.Types.Block (absoluteToLocalBlockHeight, localToAbsoluteBlockHeight)
+import Concordium.Types.Execution (TransactionSummary)
 import Concordium.Types.HashableTo
 import Concordium.Types.IdentityProviders
 import Concordium.Types.Parameters
 import Concordium.Types.Queries
 import Concordium.Types.SeedState
 import Concordium.Types.Transactions
-import Concordium.Types.Execution (TransactionSummary)
-import Concordium.Types.Updates
 import qualified Concordium.Types.UpdateQueues as UQ
+import Concordium.Types.Updates
 import qualified Concordium.Wasm as Wasm
-import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 
 import qualified Concordium.Scheduler.InvokeContract as InvokeContract
 import qualified Concordium.Types.InvokeContract as InvokeContract
@@ -50,20 +50,20 @@ import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer
-import Concordium.GlobalState.CapitalDistribution (DelegatorCapital (..))
 import qualified Concordium.GlobalState.BlockState as BS
+import Concordium.GlobalState.CapitalDistribution (DelegatorCapital (..))
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Statistics
 import qualified Concordium.GlobalState.TransactionTable as TT
-import qualified Concordium.GlobalState.Wasm as GSWasm
 import Concordium.GlobalState.Types
+import qualified Concordium.GlobalState.Wasm as GSWasm
 import Concordium.ID.Types
 import Concordium.Kontrol
 import Concordium.Kontrol.BestBlock
 import Concordium.MultiVersion
 import Concordium.Skov as Skov (
     SkovQueryMonad (getBlocksAtHeight),
-    evalSkovT
+    evalSkovT,
  )
 
 -- |Input to block based queries, i.e., queries which query the state of an
@@ -173,9 +173,9 @@ liftSkovQueryBlock a bh =
 -- The return value is the hash used for the query, and a result if it was found.
 liftSkovQueryBHI ::
     ( forall (pv :: ProtocolVersion).
-      ( SkovMonad (VersionedSkovM gsconf finconf pv)
-      , FinalizationMonad (VersionedSkovM gsconf finconf pv)
-      , IsProtocolVersion pv
+      ( SkovMonad (VersionedSkovM gsconf finconf pv),
+        FinalizationMonad (VersionedSkovM gsconf finconf pv),
+        IsProtocolVersion pv
       ) =>
       BlockPointerType (VersionedSkovM gsconf finconf pv) ->
       VersionedSkovM gsconf finconf pv a
@@ -202,8 +202,8 @@ liftSkovQueryBHI a bhi = do
 -- The return value is the hash used for the query, and a result if it was found.
 liftSkovQueryBHIAndVersion ::
     ( forall (pv :: ProtocolVersion).
-      ( SkovMonad (VersionedSkovM gsconf finconf pv)
-      , FinalizationMonad (VersionedSkovM gsconf finconf pv)
+      ( SkovMonad (VersionedSkovM gsconf finconf pv),
+        FinalizationMonad (VersionedSkovM gsconf finconf pv)
       ) =>
       EVersionedConfiguration gsconf finconf ->
       BlockPointerType (VersionedSkovM gsconf finconf pv) ->
@@ -220,14 +220,13 @@ liftSkovQueryBHIAndVersion query bhi = do
                         (\evc -> liftSkovQuery mvr evc (mapM (query evc) =<< resolveBlock bh))
                         mvr
         other -> do
-          versions <- liftIO . readIORef =<< asks mvVersions
-          let evc = Vec.last versions
-          liftSkovQueryLatest $ do
-            bp <- case other of
+            versions <- liftIO . readIORef =<< asks mvVersions
+            let evc = Vec.last versions
+            liftSkovQueryLatest $ do
+                bp <- case other of
                     BHIBest -> bestBlock
                     BHILastFinal -> lastFinalizedBlock
-            (bpHash bp,) . Just <$> query evc bp
-
+                (bpHash bp,) . Just <$> query evc bp
 
 -- |Try a block based query on the latest skov version, working
 -- backwards until we find the specified block or run out of
@@ -260,27 +259,27 @@ liftSkovQueryBlockAndVersion a bh = MVR $ \mvr ->
         mvr
 
 -- | Information about a registered delegator in a block.
-data DelegatorInfo = DelegatorInfo {
-  -- | The delegator account address.
-  pdiAccount :: !AccountAddress,
-  -- | The amount of stake currently staked to the pool.
-  pdiStake :: !Amount,
-  -- | Pending change to the current stake of the delegator.
-  pdiPendingChanges :: !(StakePendingChange' Timestamp)
-}
+data DelegatorInfo = DelegatorInfo
+    { -- | The delegator account address.
+      pdiAccount :: !AccountAddress,
+      -- | The amount of stake currently staked to the pool.
+      pdiStake :: !Amount,
+      -- | Pending change to the current stake of the delegator.
+      pdiPendingChanges :: !(StakePendingChange' Timestamp)
+    }
 
 -- | Information about a fixed delegator in the reward period for a block.
-data DelegatorRewardPeriodInfo = DelegatorRewardPeriodInfo {
-  -- | The delegator account address.
-  pdrpiAccount :: !AccountAddress,
-  -- | The amount of stake fixed to the pool in the current reward period.
-  pdrpiStake :: !Amount
-}
+data DelegatorRewardPeriodInfo = DelegatorRewardPeriodInfo
+    { -- | The delegator account address.
+      pdrpiAccount :: !AccountAddress,
+      -- | The amount of stake fixed to the pool in the current reward period.
+      pdrpiStake :: !Amount
+    }
 
 -- |Information about the finalization record included in a block.
-data BlockFinalizationSummary =
-  NoSummary
-  | Summary !FinalizationSummary
+data BlockFinalizationSummary
+    = NoSummary
+    | Summary !FinalizationSummary
 
 -- |Retrieve the consensus status.
 getConsensusStatus :: MVR gsconf finconf ConsensusStatus
@@ -420,8 +419,8 @@ getAccountNonFinalizedTransactions acct = liftSkovQueryLatest $ queryNonFinalize
 -- committed to blocks and eventually finalized.
 getNextAccountNonce :: AccountAddress -> MVR gsconf finconf NextAccountNonce
 getNextAccountNonce accountAddress = liftSkovQueryLatest $ do
-  (nanNonce, nanAllFinal) <- queryNextAccountNonce $ accountAddressEmbed accountAddress
-  return NextAccountNonce{..}
+    (nanNonce, nanAllFinal) <- queryNextAccountNonce $ accountAddressEmbed accountAddress
+    return NextAccountNonce{..}
 
 -- * Queries against latest version that produces a result
 
@@ -503,7 +502,6 @@ getBlockSummary = liftSkovQueryBlock getBlockSummarySkovM
         let bsProtocolVersion = protocolVersion @pv
         return BlockSummary{..}
 
-
 -- |Get the block items of a block.
 getBlockItems :: forall gsconf finconf. BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe [BlockItem])
 getBlockItems = liftSkovQueryBHI (return . blockTransactions)
@@ -520,84 +518,90 @@ getBlockSpecialEvents = liftSkovQueryBHI $ BS.getSpecialOutcomes <=< blockState
 getBlockPendingUpdates :: forall gsconf finconf. BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe [(TransactionTime, PendingUpdateEffect)])
 getBlockPendingUpdates = liftSkovQueryBHI query
   where
-    query :: forall pv.
+    query ::
+        forall pv.
         SkovMonad (VersionedSkovM gsconf finconf pv) =>
         BlockPointerType (VersionedSkovM gsconf finconf pv) ->
         VersionedSkovM gsconf finconf pv [(TransactionTime, PendingUpdateEffect)]
     query bp = do
-      bs <- blockState bp
-      updates <- BS.getUpdates bs
-      fuQueue <- foundationAccQueue bs (UQ._pFoundationAccountQueue . UQ._pendingUpdates $ updates)
-      let remainingQueues = flattenUpdateQueues $ UQ._pendingUpdates updates
-      return (merge fuQueue remainingQueues)
-        where
-          -- | Flatten all of the pending update queues into one queue ordered by
-          -- effective time. This is not the most efficient implementation and scales
-          -- linearly with the number of queues, where it could scale logarithmically. But
-          -- in practice this will not be an issue since update queues are very small.
-          --
-          -- The return list is ordered by the transaction time, ascending.
-          --
-          -- This flattens all queues except the foundation account updates.
-          -- That one needs access to account lookup so it is handled by a
-          -- separate helper below.
-          flattenUpdateQueues :: forall cpv. IsChainParametersVersion cpv =>
-              UQ.PendingUpdates cpv ->
-              [(TransactionTime, PendingUpdateEffect)]
-          flattenUpdateQueues UQ.PendingUpdates{..} =
-            queueMapper PUERootKeys _pRootKeysUpdateQueue `merge`
-            queueMapper PUELevel1Keys _pLevel1KeysUpdateQueue `merge`
-            (case chainParametersVersion @cpv of
-              SCPV0 -> queueMapper PUELevel2KeysV0 _pLevel2KeysUpdateQueue
-              SCPV1 -> queueMapper PUELevel2KeysV1 _pLevel2KeysUpdateQueue) `merge`
-            queueMapper PUEProtocol _pProtocolQueue `merge`
-            queueMapper PUEElectionDifficulty _pElectionDifficultyQueue `merge`
-            queueMapper PUEEuroPerEnergy _pEuroPerEnergyQueue `merge`
-            queueMapper PUEMicroCCDPerEuro _pMicroGTUPerEuroQueue `merge`
-            (case chainParametersVersion @cpv of
-              SCPV0 -> queueMapper PUEMintDistributionV0 _pMintDistributionQueue
-              SCPV1 -> queueMapper PUEMintDistributionV1 _pMintDistributionQueue) `merge`
-            queueMapper PUETransactionFeeDistribution _pTransactionFeeDistributionQueue `merge`
-            queueMapper PUEGASRewards _pGASRewardsQueue `merge`
-            (case chainParametersVersion @cpv of
-              SCPV0 -> queueMapper PUEPoolParametersV0 _pPoolParametersQueue
-              SCPV1 -> queueMapper PUEPoolParametersV1 _pPoolParametersQueue) `merge`
-            queueMapper PUEAddAnonymityRevoker _pAddAnonymityRevokerQueue `merge`
-            queueMapper PUEAddIdentityProvider _pAddIdentityProviderQueue `merge`
-            queueMapperForCPV1 PUECooldownParameters _pCooldownParametersQueue `merge`
-            queueMapperForCPV1 PUETimeParameters _pTimeParametersQueue
-            where
+        bs <- blockState bp
+        updates <- BS.getUpdates bs
+        fuQueue <- foundationAccQueue bs (UQ._pFoundationAccountQueue . UQ._pendingUpdates $ updates)
+        let remainingQueues = flattenUpdateQueues $ UQ._pendingUpdates updates
+        return (merge fuQueue remainingQueues)
+      where
+        -- \| Flatten all of the pending update queues into one queue ordered by
+        -- effective time. This is not the most efficient implementation and scales
+        -- linearly with the number of queues, where it could scale logarithmically. But
+        -- in practice this will not be an issue since update queues are very small.
+        --
+        -- The return list is ordered by the transaction time, ascending.
+        --
+        -- This flattens all queues except the foundation account updates.
+        -- That one needs access to account lookup so it is handled by a
+        -- separate helper below.
+        flattenUpdateQueues ::
+            forall cpv.
+            IsChainParametersVersion cpv =>
+            UQ.PendingUpdates cpv ->
+            [(TransactionTime, PendingUpdateEffect)]
+        flattenUpdateQueues UQ.PendingUpdates{..} =
+            queueMapper PUERootKeys _pRootKeysUpdateQueue
+                `merge` queueMapper PUELevel1Keys _pLevel1KeysUpdateQueue
+                `merge` ( case chainParametersVersion @cpv of
+                            SCPV0 -> queueMapper PUELevel2KeysV0 _pLevel2KeysUpdateQueue
+                            SCPV1 -> queueMapper PUELevel2KeysV1 _pLevel2KeysUpdateQueue
+                        )
+                `merge` queueMapper PUEProtocol _pProtocolQueue
+                `merge` queueMapper PUEElectionDifficulty _pElectionDifficultyQueue
+                `merge` queueMapper PUEEuroPerEnergy _pEuroPerEnergyQueue
+                `merge` queueMapper PUEMicroCCDPerEuro _pMicroGTUPerEuroQueue
+                `merge` ( case chainParametersVersion @cpv of
+                            SCPV0 -> queueMapper PUEMintDistributionV0 _pMintDistributionQueue
+                            SCPV1 -> queueMapper PUEMintDistributionV1 _pMintDistributionQueue
+                        )
+                `merge` queueMapper PUETransactionFeeDistribution _pTransactionFeeDistributionQueue
+                `merge` queueMapper PUEGASRewards _pGASRewardsQueue
+                `merge` ( case chainParametersVersion @cpv of
+                            SCPV0 -> queueMapper PUEPoolParametersV0 _pPoolParametersQueue
+                            SCPV1 -> queueMapper PUEPoolParametersV1 _pPoolParametersQueue
+                        )
+                `merge` queueMapper PUEAddAnonymityRevoker _pAddAnonymityRevokerQueue
+                `merge` queueMapper PUEAddIdentityProvider _pAddIdentityProviderQueue
+                `merge` queueMapperForCPV1 PUECooldownParameters _pCooldownParametersQueue
+                `merge` queueMapperForCPV1 PUETimeParameters _pTimeParametersQueue
+          where
+            queueMapper :: (a -> PendingUpdateEffect) -> UQ.UpdateQueue a -> [(TransactionTime, PendingUpdateEffect)]
+            queueMapper constructor UQ.UpdateQueue{..} = second constructor <$> _uqQueue
 
-              queueMapper :: (a -> PendingUpdateEffect) -> UQ.UpdateQueue a -> [(TransactionTime, PendingUpdateEffect)]
-              queueMapper constructor UQ.UpdateQueue {..} = second constructor <$> _uqQueue
-          
-              queueMapperForCPV1 :: (a -> PendingUpdateEffect) -> UQ.UpdateQueueForCPV1 cpv a -> [(TransactionTime, PendingUpdateEffect)]
-              queueMapperForCPV1 _ NothingForCPV1 = []
-              queueMapperForCPV1 constructor (JustForCPV1 queue) = queueMapper constructor queue
-          
-          -- Merge two ascending lists into an ascending list.
-          merge ::
+            queueMapperForCPV1 :: (a -> PendingUpdateEffect) -> UQ.UpdateQueueForCPV1 cpv a -> [(TransactionTime, PendingUpdateEffect)]
+            queueMapperForCPV1 _ NothingForCPV1 = []
+            queueMapperForCPV1 constructor (JustForCPV1 queue) = queueMapper constructor queue
+
+        -- Merge two ascending lists into an ascending list.
+        merge ::
             [(TransactionTime, PendingUpdateEffect)] ->
             [(TransactionTime, PendingUpdateEffect)] ->
             [(TransactionTime, PendingUpdateEffect)]
-          merge [] y = y
-          merge x [] = x
-          merge (x:xs) (y:ys) | fst y < fst x = y : merge (x:xs) ys
-          merge (x:xs) (y:ys)                 = x : merge xs (y:ys)
+        merge [] y = y
+        merge x [] = x
+        merge (x : xs) (y : ys) | fst y < fst x = y : merge (x : xs) ys
+        merge (x : xs) (y : ys) = x : merge xs (y : ys)
 
-          foundationAccQueue :: SkovQueryMonad m => BlockState m -> UQ.UpdateQueue AccountIndex -> m [(TransactionTime, PendingUpdateEffect)]
-          foundationAccQueue bs UQ.UpdateQueue {..} = do
+        foundationAccQueue :: SkovQueryMonad m => BlockState m -> UQ.UpdateQueue AccountIndex -> m [(TransactionTime, PendingUpdateEffect)]
+        foundationAccQueue bs UQ.UpdateQueue{..} = do
             forM _uqQueue $ \(t, ai) -> do
-                                BS.getAccountByIndex bs ai >>= \case
-                                  Nothing -> error "Invariant violation. Foundation account index does not exist in the account table."
-                                  Just (_, acc) -> do
-                                    (t, ) . PUEFoundationAccount <$> BS.getAccountCanonicalAddress acc
+                BS.getAccountByIndex bs ai >>= \case
+                    Nothing -> error "Invariant violation. Foundation account index does not exist in the account table."
+                    Just (_, acc) -> do
+                        (t,) . PUEFoundationAccount <$> BS.getAccountCanonicalAddress acc
 
 -- |An existentially qualified pair of chain parameters and update keys currently in effect.
-data EChainParametersAndKeys = forall (cpv :: ChainParametersVersion). IsChainParametersVersion cpv =>
+data EChainParametersAndKeys = forall (cpv :: ChainParametersVersion).
+      IsChainParametersVersion cpv =>
     EChainParametersAndKeys
-    { ecpParams :: !(ChainParameters' cpv)
-    , ecpKeys :: !(UpdateKeysCollection cpv)
+    { ecpParams :: !(ChainParameters' cpv),
+      ecpKeys :: !(UpdateKeysCollection cpv)
     }
 
 -- |Get the chain parameters valid at the end of a given block, as well as the address of the foundation account.
@@ -605,19 +609,20 @@ data EChainParametersAndKeys = forall (cpv :: ChainParametersVersion). IsChainPa
 getBlockChainParameters :: forall gsconf finconf. BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe (AccountAddress, EChainParametersAndKeys))
 getBlockChainParameters = liftSkovQueryBHI query
   where
-    query :: forall pv.
+    query ::
+        forall pv.
         SkovMonad (VersionedSkovM gsconf finconf pv) =>
         BlockPointerType (VersionedSkovM gsconf finconf pv) ->
         VersionedSkovM gsconf finconf pv (AccountAddress, EChainParametersAndKeys)
     query bp = do
-      bs <- blockState bp
-      updates <- BS.getUpdates bs
-      let params = UQ._currentParameters updates
-      BS.getAccountByIndex bs (_cpFoundationAccount params) >>= \case
-        Nothing -> error "Invariant violation. Foundation account index does not exist in the account table."
-        Just (_, acc) -> do
-            foundationAddr <- BS.getAccountCanonicalAddress acc
-            return (foundationAddr, EChainParametersAndKeys params (_unhashed (UQ._currentKeyCollection updates)))
+        bs <- blockState bp
+        updates <- BS.getUpdates bs
+        let params = UQ._currentParameters updates
+        BS.getAccountByIndex bs (_cpFoundationAccount params) >>= \case
+            Nothing -> error "Invariant violation. Foundation account index does not exist in the account table."
+            Just (_, acc) -> do
+                foundationAddr <- BS.getAccountCanonicalAddress acc
+                return (foundationAddr, EChainParametersAndKeys params (_unhashed (UQ._currentKeyCollection updates)))
 
 -- |Get the finalization record contained in the given block, if any.
 getBlockFinalizationSummary :: forall gsconf finconf. BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe BlockFinalizationSummary)
@@ -655,22 +660,24 @@ getBlockFinalizationSummary = liftSkovQueryBHI getFinSummarySkovM
 getNextUpdateSequenceNumbers :: forall gsconf finconf. BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe NextUpdateSequenceNumbers)
 getNextUpdateSequenceNumbers = liftSkovQueryBHI query
   where
-    query :: forall pv.
+    query ::
+        forall pv.
         SkovMonad (VersionedSkovM gsconf finconf pv) =>
         BlockPointerType (VersionedSkovM gsconf finconf pv) ->
         VersionedSkovM gsconf finconf pv NextUpdateSequenceNumbers
     query bp = do
-      bs <- blockState bp
-      updates <- BS.getUpdates bs
-      return $ updateQueuesNextSequenceNumbers $ UQ._pendingUpdates updates
+        bs <- blockState bp
+        updates <- BS.getUpdates bs
+        return $ updateQueuesNextSequenceNumbers $ UQ._pendingUpdates updates
 
 -- |Get the total amount of GTU in existence and status of the reward accounts.
 getRewardStatus :: BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe RewardStatus)
 getRewardStatus = liftSkovQueryBHI $ \bp -> do
     reward <- BS.getRewardStatus =<< blockState bp
     gd <- getGenesisData
-    let epochToUTC e = timestampToUTCTime $
-            addDuration (gdGenesisTime gd) (fromIntegral e * fromIntegral (gdEpochLength gd) * gdSlotDuration gd)
+    let epochToUTC e =
+            timestampToUTCTime $
+                addDuration (gdGenesisTime gd) (fromIntegral e * fromIntegral (gdEpochLength gd) * gdSlotDuration gd)
     return $ epochToUTC <$> reward
 
 -- |Get the birk parameters that applied when a given block was baked.
@@ -737,11 +744,10 @@ getInstanceList =
 getModuleList :: BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe [ModuleRef])
 getModuleList = liftSkovQueryBHI $ BS.getModuleList <=< blockState
 
-{- |Get the details of an account in the block state.
- The account can be given via an address, an account index or a credential registration id.
- In the latter case we lookup the account the credential is associated with, even if it was
- removed from the account.
--}
+-- |Get the details of an account in the block state.
+-- The account can be given via an address, an account index or a credential registration id.
+-- In the latter case we lookup the account the credential is associated with, even if it was
+-- removed from the account.
 getAccountInfo ::
     BlockHashInput ->
     AccountIdentifier ->
@@ -779,33 +785,42 @@ getAccountInfo blockHashInput acct = do
 -- |Get the details of a smart contract instance in the block state.
 getInstanceInfo :: BlockHashInput -> ContractAddress -> MVR gsconf finconf (BlockHash, Maybe Wasm.InstanceInfo)
 getInstanceInfo bhi caddr = do
-    (bh, ii) <- liftSkovQueryBHI
+    (bh, ii) <-
+        liftSkovQueryBHI
             ( \bp -> do
                 bs <- blockState bp
                 mkII =<< BS.getContractInstance bs caddr
             )
             bhi
     return (bh, join ii)
-    where mkII Nothing = return Nothing
-          mkII (Just (BS.InstanceInfoV0 BS.InstanceInfoV{..})) = do
-            iiModel <- BS.externalContractState iiState
-            return (Just (Wasm.InstanceInfoV0{
-              Wasm.iiOwner = instanceOwner iiParameters,
-              Wasm.iiAmount = iiBalance,
-              Wasm.iiMethods = instanceReceiveFuns iiParameters,
-              Wasm.iiName = instanceInitName iiParameters,
-              Wasm.iiSourceModule = GSWasm.miModuleRef (instanceModuleInterface iiParameters),
-              ..
-              }))
-          mkII (Just (BS.InstanceInfoV1 BS.InstanceInfoV{..})) = do
-            return (Just (Wasm.InstanceInfoV1{
-              Wasm.iiOwner = instanceOwner iiParameters,
-              Wasm.iiAmount = iiBalance,
-              Wasm.iiMethods = instanceReceiveFuns iiParameters,
-              Wasm.iiName = instanceInitName iiParameters,
-              Wasm.iiSourceModule = GSWasm.miModuleRef (instanceModuleInterface iiParameters)
-              }))
-
+  where
+    mkII Nothing = return Nothing
+    mkII (Just (BS.InstanceInfoV0 BS.InstanceInfoV{..})) = do
+        iiModel <- BS.externalContractState iiState
+        return
+            ( Just
+                ( Wasm.InstanceInfoV0
+                    { Wasm.iiOwner = instanceOwner iiParameters,
+                      Wasm.iiAmount = iiBalance,
+                      Wasm.iiMethods = instanceReceiveFuns iiParameters,
+                      Wasm.iiName = instanceInitName iiParameters,
+                      Wasm.iiSourceModule = GSWasm.miModuleRef (instanceModuleInterface iiParameters),
+                      ..
+                    }
+                )
+            )
+    mkII (Just (BS.InstanceInfoV1 BS.InstanceInfoV{..})) = do
+        return
+            ( Just
+                ( Wasm.InstanceInfoV1
+                    { Wasm.iiOwner = instanceOwner iiParameters,
+                      Wasm.iiAmount = iiBalance,
+                      Wasm.iiMethods = instanceReceiveFuns iiParameters,
+                      Wasm.iiName = instanceInitName iiParameters,
+                      Wasm.iiSourceModule = GSWasm.miModuleRef (instanceModuleInterface iiParameters)
+                    }
+                )
+            )
 
 -- |Get the exact state of a smart contract instance in the block state. The
 -- return value is 'Nothing' if the instance cannot be found (either the
@@ -814,25 +829,28 @@ getInstanceInfo bhi caddr = do
 -- the instance is a V1 instance.
 getInstanceState :: BlockHashInput -> ContractAddress -> MVR gsconf finconf (BlockHash, Maybe (Either Wasm.ContractState (StateV1.PersistentState, StateV1.LoadCallback)))
 getInstanceState bhi caddr = do
-    (bh, ii) <- liftSkovQueryBHI
+    (bh, ii) <-
+        liftSkovQueryBHI
             ( \bp -> do
                 bs <- blockState bp
                 mkII =<< BS.getContractInstance bs caddr
             )
             bhi
     return (bh, join ii)
-    where mkII Nothing = return Nothing
-          mkII (Just (BS.InstanceInfoV0 BS.InstanceInfoV{..})) =
-            Just . Left <$> BS.externalContractState iiState
-          mkII (Just (BS.InstanceInfoV1 BS.InstanceInfoV{..})) = do
-            state <- BS.externalContractState iiState
-            callback <- BS.getV1StateContext
-            return . Just . Right $! (state, callback)
+  where
+    mkII Nothing = return Nothing
+    mkII (Just (BS.InstanceInfoV0 BS.InstanceInfoV{..})) =
+        Just . Left <$> BS.externalContractState iiState
+    mkII (Just (BS.InstanceInfoV1 BS.InstanceInfoV{..})) = do
+        state <- BS.externalContractState iiState
+        callback <- BS.getV1StateContext
+        return . Just . Right $! (state, callback)
 
 -- |Get the source of a module as it was deployed to the chain.
 getModuleSource :: BlockHashInput -> ModuleRef -> MVR gsconf finconf (BlockHash, Maybe Wasm.WasmModule)
 getModuleSource bhi modRef = do
-    (bh, res) <- liftSkovQueryBHI
+    (bh, res) <-
+        liftSkovQueryBHI
             ( \bp -> do
                 bs <- blockState bp
                 BS.getModule bs modRef
@@ -863,59 +881,65 @@ getRegisteredBakers :: forall gsconf finconf. BlockHashInput -> MVR gsconf finco
 getRegisteredBakers = liftSkovQueryBHI (BS.getActiveBakers <=< blockState)
 
 -- | Error type for querying delegators for some block.
-data GetDelegatorsError = GDEUnsupportedProtocolVersion -- ^ The block is from a protocol version without delegators.
-                        | GDEPoolNotFound -- ^ No pool found for the provided baker ID.
-                        | GDEBlockNotFound -- ^ No block found for the provided block input.
+data GetDelegatorsError
+    = -- | The block is from a protocol version without delegators.
+      GDEUnsupportedProtocolVersion
+    | -- | No pool found for the provided baker ID.
+      GDEPoolNotFound
+    | -- | No block found for the provided block input.
+      GDEBlockNotFound
 
 -- |Get the list of registered delegators for a given block.
 -- Changes to delegation is reflected immediately in this list.
 -- If a BakerId is provided it will return the delegators for the corresponding pool otherwise it returns the passive delegators.
 getDelegators :: forall gsconf finconf. BlockHashInput -> Maybe BakerId -> MVR gsconf finconf (BlockHash, Either GetDelegatorsError [DelegatorInfo])
 getDelegators bhi maybeBakerId = do
-  (bh, res) <- liftSkovQueryBHI getter bhi
-  return (bh, fromMaybe (Left GDEBlockNotFound) res)
-    where
-      getter ::
+    (bh, res) <- liftSkovQueryBHI getter bhi
+    return (bh, fromMaybe (Left GDEBlockNotFound) res)
+  where
+    getter ::
         forall pv.
-        ( SkovMonad (VersionedSkovM gsconf finconf pv)) =>
+        (SkovMonad (VersionedSkovM gsconf finconf pv)) =>
         BlockPointerType (VersionedSkovM gsconf finconf pv) ->
         VersionedSkovM gsconf finconf pv (Either GetDelegatorsError [DelegatorInfo])
-      getter bp = case delegationSupport @(AccountVersionFor pv) of
+    getter bp = case delegationSupport @(AccountVersionFor pv) of
         SAVDelegationNotSupported ->
-          return $ Left GDEUnsupportedProtocolVersion
+            return $ Left GDEUnsupportedProtocolVersion
         SAVDelegationSupported -> do
-          bs <- blockState bp
-          maybeDelegators <- BS.getActiveDelegators bs maybeBakerId
-          return $ maybe (Left GDEPoolNotFound) (Right . fmap toDelegatorInfo) maybeDelegators
-      toDelegatorInfo (accountAddress, BS.ActiveDelegatorInfo {..}) = DelegatorInfo {
-        pdiAccount = accountAddress,
-        pdiStake = activeDelegatorStake,
-        pdiPendingChanges = activeDelegatorPendingChange
-        }
+            bs <- blockState bp
+            maybeDelegators <- BS.getActiveDelegators bs maybeBakerId
+            return $ maybe (Left GDEPoolNotFound) (Right . fmap toDelegatorInfo) maybeDelegators
+    toDelegatorInfo (accountAddress, BS.ActiveDelegatorInfo{..}) =
+        DelegatorInfo
+            { pdiAccount = accountAddress,
+              pdiStake = activeDelegatorStake,
+              pdiPendingChanges = activeDelegatorPendingChange
+            }
 
 -- |Get the fixed list of delegators contributing stake in the reward period for a given block.
 -- If a BakerId is provided it will return the delegators for the corresponding pool otherwise it returns the passive delegators.
 getDelegatorsRewardPeriod :: forall gsconf finconf. BlockHashInput -> Maybe BakerId -> MVR gsconf finconf (BlockHash, Either GetDelegatorsError [DelegatorRewardPeriodInfo])
 getDelegatorsRewardPeriod bhi maybeBakerId = do
-  (bh, res) <- liftSkovQueryBHI getter bhi
-  return (bh, fromMaybe (Left GDEBlockNotFound) res)
-    where
-      getter ::
+    (bh, res) <- liftSkovQueryBHI getter bhi
+    return (bh, fromMaybe (Left GDEBlockNotFound) res)
+  where
+    getter ::
         forall pv.
-        ( SkovMonad (VersionedSkovM gsconf finconf pv)) =>
+        (SkovMonad (VersionedSkovM gsconf finconf pv)) =>
         BlockPointerType (VersionedSkovM gsconf finconf pv) ->
         VersionedSkovM gsconf finconf pv (Either GetDelegatorsError [DelegatorRewardPeriodInfo])
-      getter bp = case delegationSupport @(AccountVersionFor pv) of
+    getter bp = case delegationSupport @(AccountVersionFor pv) of
         SAVDelegationNotSupported ->
-          return $ Left GDEUnsupportedProtocolVersion
+            return $ Left GDEUnsupportedProtocolVersion
         SAVDelegationSupported -> do
-          bs <- blockState bp
-          maybeDelegators <- BS.getCurrentDelegators bs maybeBakerId
-          return $ maybe (Left GDEPoolNotFound) (Right . fmap toDelegatorInfo) maybeDelegators
-      toDelegatorInfo (accountAddress, DelegatorCapital {..}) = DelegatorRewardPeriodInfo {
-        pdrpiAccount = accountAddress,
-        pdrpiStake = dcDelegatorCapital
-        }
+            bs <- blockState bp
+            maybeDelegators <- BS.getCurrentDelegators bs maybeBakerId
+            return $ maybe (Left GDEPoolNotFound) (Right . fmap toDelegatorInfo) maybeDelegators
+    toDelegatorInfo (accountAddress, DelegatorCapital{..}) =
+        DelegatorRewardPeriodInfo
+            { pdrpiAccount = accountAddress,
+              pdrpiStake = dcDelegatorCapital
+            }
 
 -- ** Transaction indexed
 
@@ -985,11 +1009,12 @@ getTransactionStatusInBlock trHash blockHash =
 invokeContract :: BlockHashInput -> InvokeContract.ContractContext -> MVR gsconf finconf (BlockHash, Maybe InvokeContract.InvokeContractResult)
 invokeContract bhi cctx =
     liftSkovQueryBHI
-    (\bp -> do
-        bs <- blockState bp
-        cm <- ChainMetadata <$> getSlotTimestamp (blockSlot bp)
-        InvokeContract.invokeContract cctx cm bs)
-    bhi
+        ( \bp -> do
+            bs <- blockState bp
+            cm <- ChainMetadata <$> getSlotTimestamp (blockSlot bp)
+            InvokeContract.invokeContract cctx cm bs
+        )
+        bhi
 
 -- * Miscellaneous
 

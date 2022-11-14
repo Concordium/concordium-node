@@ -4,17 +4,18 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
+
 module Concordium.GlobalState.Basic.BlockState.AccountTable where
 
-import Prelude hiding (lookup)
-import Data.Word
-import Data.Bits
-import Lens.Micro.Platform
-import Lens.Micro.Internal (Ixed,Index,IxValue)
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.GlobalState.Basic.BlockState.Account
-import Concordium.Types.HashableTo
 import Concordium.Types
+import Concordium.Types.HashableTo
+import Data.Bits
+import Data.Word
+import Lens.Micro.Internal (Index, IxValue, Ixed)
+import Lens.Micro.Platform
+import Prelude hiding (lookup)
 
 data AccountTable (av :: AccountVersion) = Empty | Tree !(AT av)
 
@@ -63,35 +64,38 @@ lookup x (Tree t) = lookup' x t
 append :: forall av. IsAccountVersion av => Account av -> AccountTable av -> (AccountIndex, AccountTable av)
 append acct Empty = (0, Tree (Leaf (getHash acct) acct))
 append acct (Tree t) = append' t & _2 %~ Tree
-    where
-        append' :: AT av -> (AccountIndex, AT av)
-        append' l@(Leaf h _) = (1, Branch 0 True branchHash l newLeaf)
-            where
-                branchHash = H.hashShort $
-                        H.hashToShortByteString (theAccountHash h)
-                        <> H.hashToShortByteString (theAccountHash newHash)
-        append' b@(Branch lvl True _ _ _) = (bit (fromIntegral lvl + 1), mkBranch (lvl + 1) False b newLeaf)
-        append' (Branch lvl False _ l r) = let (i', r') = append' r in
-                                                (setBit i' (fromIntegral lvl),
-                                                mkBranch lvl (full r' && nextLevel r' == lvl) l r')
-        newLeaf = Leaf newHash acct
-        newHash = getHash acct
+  where
+    append' :: AT av -> (AccountIndex, AT av)
+    append' l@(Leaf h _) = (1, Branch 0 True branchHash l newLeaf)
+      where
+        branchHash =
+            H.hashShort $
+                H.hashToShortByteString (theAccountHash h)
+                    <> H.hashToShortByteString (theAccountHash newHash)
+    append' b@(Branch lvl True _ _ _) = (bit (fromIntegral lvl + 1), mkBranch (lvl + 1) False b newLeaf)
+    append' (Branch lvl False _ l r) =
+        let (i', r') = append' r
+        in  ( setBit i' (fromIntegral lvl),
+              mkBranch lvl (full r' && nextLevel r' == lvl) l r'
+            )
+    newLeaf = Leaf newHash acct
+    newHash = getHash acct
 
 -- |Get the size of an 'AccountTable'.
 size :: AccountTable av -> Word64
 size Empty = 0
 size (Tree t) = size' t
-    where
-        size' (Leaf _ _) = 1
-        size' (Branch lvl True _ _ _) = bit (fromIntegral lvl + 1)
-        size' (Branch lvl False _ _ r) = setBit (size' r) (fromIntegral lvl)
+  where
+    size' (Leaf _ _) = 1
+    size' (Branch lvl True _ _ _) = bit (fromIntegral lvl + 1)
+    size' (Branch lvl False _ _ r) = setBit (size' r) (fromIntegral lvl)
 
 type instance Index (AT av) = AccountIndex
 type instance IxValue (AT av) = Account av
 
 instance IsAccountVersion av => Ixed (AT av) where
     ix i upd l@(Leaf _ acct)
-        | i == 0    = mkLeaf <$> upd acct
+        | i == 0 = mkLeaf <$> upd acct
         | otherwise = pure l
     ix i upd (Branch lvl f _ l r)
         | testBit i (fromIntegral lvl) = mkBranch lvl f l <$> ix (clearBit i (fromIntegral lvl)) upd r
@@ -109,26 +113,26 @@ instance IsAccountVersion av => Ixed (AccountTable av) where
 toList :: AccountTable av -> [(AccountIndex, Account av)]
 toList Empty = []
 toList (Tree t) = toL 0 t
-    where
-        toL o (Leaf _ a) = [(o, a)]
-        toL o (Branch lvl _ _ t1 t2) = toL o t1 ++ toL (setBit o (fromIntegral lvl)) t2
+  where
+    toL o (Leaf _ a) = [(o, a)]
+    toL o (Branch lvl _ _ t1 t2) = toL o t1 ++ toL (setBit o (fromIntegral lvl)) t2
 
 -- |Convert the account table to a list of accounts with their hashes.
 -- The accounts are in ascending index order.
 toHashedList :: AccountTable av -> [Hashed' (AccountHash av) (Account av)]
 toHashedList Empty = []
 toHashedList (Tree t) = toHL t
-    where
-            toHL (Leaf h a) = [Hashed a h]
-            toHL (Branch _ _ _  t1 t2) = toHL t1 ++ toHL t2
+  where
+    toHL (Leaf h a) = [Hashed a h]
+    toHL (Branch _ _ _ t1 t2) = toHL t1 ++ toHL t2
 
 -- |Strict fold over the account table in increasing order of account index.
-foldl' :: (a -> Account av -> a) -> a ->  AccountTable av -> a
+foldl' :: (a -> Account av -> a) -> a -> AccountTable av -> a
 foldl' _ a Empty = a
 foldl' f !a0 (Tree t) = ft a0 t
-    where
-        ft a (Leaf _ acct) = f a acct
-        ft a (Branch _ _ _ l r) =
-            let !a1 = ft a l
-                !a2 = ft a1 r
-            in a2
+  where
+    ft a (Leaf _ acct) = f a acct
+    ft a (Branch _ _ _ l r) =
+        let !a1 = ft a l
+            !a2 = ft a1 r
+        in  a2

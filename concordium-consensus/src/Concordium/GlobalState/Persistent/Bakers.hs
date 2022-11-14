@@ -12,27 +12,28 @@
 -- We suppress redundant constraint warnings since GHC does not detect when a constraint is used
 -- for pattern matching. (See: https://gitlab.haskell.org/ghc/ghc/-/issues/20896)
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
+
 module Concordium.GlobalState.Persistent.Bakers where
 
 import Control.Exception
 import Control.Monad
 import Control.Monad.Trans
+import Data.Foldable (foldlM)
 import qualified Data.Map.Strict as Map
+import Data.Serialize
 import qualified Data.Set as Set
 import qualified Data.Vector as Vec
 import Lens.Micro.Platform
-import Data.Serialize
-import Data.Foldable (foldlM)
 
 import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.Basic.BlockState.Bakers as Basic
-import qualified Concordium.Types.Accounts as BaseAccounts
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.Account
 import qualified Concordium.GlobalState.Persistent.Accounts as Accounts
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.Types
-import Concordium.Types.Execution (DelegationTarget(..))
+import qualified Concordium.Types.Accounts as BaseAccounts
+import Concordium.Types.Execution (DelegationTarget (..))
 import Concordium.Utils.BinarySearch
 import Concordium.Utils.Serialization
 
@@ -43,7 +44,9 @@ import Concordium.Utils.Serialization.Put
 
 -- |A list of references to 'BakerInfo's, ordered by increasing 'BakerId'.
 -- (This structure is always fully cached in memory, so the 'Cacheable' instance is trivial. See
+
 -- $Concordium.GlobalState.Persistent.Account.PersistentAccountCacheable for details.)
+
 newtype BakerInfos (av :: AccountVersion)
     = BakerInfos (Vec.Vector (PersistentBakerInfoRef av))
     deriving (Show)
@@ -51,28 +54,31 @@ newtype BakerInfos (av :: AccountVersion)
 -- |See documentation of @migratePersistentBlockState@.
 migrateBakerInfos ::
     forall oldpv pv t m.
-    ( IsProtocolVersion pv
-    , SupportMigration m t
-    ) => StateMigrationParameters oldpv pv -> BakerInfos (AccountVersionFor oldpv) -> t m (BakerInfos (AccountVersionFor pv))
+    ( IsProtocolVersion pv,
+      SupportMigration m t
+    ) =>
+    StateMigrationParameters oldpv pv ->
+    BakerInfos (AccountVersionFor oldpv) ->
+    t m (BakerInfos (AccountVersionFor pv))
 migrateBakerInfos migration (BakerInfos inner) = BakerInfos <$> mapM (migratePersistentBakerInfoRef migration) inner
 
 instance (IsAccountVersion av, MonadBlobStore m) => BlobStorable m (BakerInfos av) where
     storeUpdate (BakerInfos v) = do
-      v' <- mapM storeUpdate v
-      let pv = do
-              putLength (Vec.length v')
-              mapM_ fst v'
-      return (pv, BakerInfos (snd <$> v'))
+        v' <- mapM storeUpdate v
+        let pv = do
+                putLength (Vec.length v')
+                mapM_ fst v'
+        return (pv, BakerInfos (snd <$> v'))
     load = do
-      len <- getLength
-      v <- Vec.replicateM len load
-      return $ BakerInfos <$> sequence v
+        len <- getLength
+        v <- Vec.replicateM len load
+        return $ BakerInfos <$> sequence v
 
 -- |This hashing should match (part of) the hashing for 'Basic.EpochBakers'.
 instance (IsAccountVersion av, MonadBlobStore m) => MHashableTo m H.Hash (BakerInfos av) where
     getHashM (BakerInfos v) = do
-      v' <- mapM loadPersistentBakerInfoRef v
-      return $ H.hashLazy $ runPutLazy $ mapM_ put v'
+        v' <- mapM loadPersistentBakerInfoRef v
+        return $ H.hashLazy $ runPutLazy $ mapM_ put v'
 
 instance (Applicative m) => Cacheable m (BakerInfos av)
 
@@ -98,11 +104,12 @@ instance (Applicative m) => Cacheable m BakerStakes
 -- |The set of bakers that are eligible to bake in a particular epoch.
 --
 -- The hashing scheme separately hashes the baker info and baker stakes.
-data PersistentEpochBakers (av :: AccountVersion) = PersistentEpochBakers {
-    _bakerInfos :: !(HashedBufferedRef (BakerInfos av)),
-    _bakerStakes :: !(HashedBufferedRef BakerStakes),
-    _bakerTotalStake :: !Amount
-} deriving (Show)
+data PersistentEpochBakers (av :: AccountVersion) = PersistentEpochBakers
+    { _bakerInfos :: !(HashedBufferedRef (BakerInfos av)),
+      _bakerStakes :: !(HashedBufferedRef BakerStakes),
+      _bakerTotalStake :: !Amount
+    }
+    deriving (Show)
 
 makeLenses ''PersistentEpochBakers
 
@@ -111,33 +118,35 @@ makeLenses ''PersistentEpochBakers
 -- The intention is that the list will be consumed immediately.
 extractBakerStakes :: (IsAccountVersion av, MonadBlobStore m) => PersistentEpochBakers av -> m [(BakerId, Amount)]
 extractBakerStakes PersistentEpochBakers{..} = do
-  BakerInfos infos <- refLoad _bakerInfos
-  BakerStakes stakes <- refLoad _bakerStakes
-  zipWithM (\bi bs -> do
-               bid <- loadBakerId bi
-               return (bid, bs)
-               )
-      (Vec.toList infos)
-      (Vec.toList stakes)
+    BakerInfos infos <- refLoad _bakerInfos
+    BakerStakes stakes <- refLoad _bakerStakes
+    zipWithM
+        ( \bi bs -> do
+            bid <- loadBakerId bi
+            return (bid, bs)
+        )
+        (Vec.toList infos)
+        (Vec.toList stakes)
 
 -- |See documentation of @migratePersistentBlockState@.
 migratePersistentEpochBakers ::
     forall oldpv pv t m.
-    ( IsProtocolVersion oldpv
-    , IsProtocolVersion pv
-    , SupportMigration m t
+    ( IsProtocolVersion oldpv,
+      IsProtocolVersion pv,
+      SupportMigration m t
     ) =>
     StateMigrationParameters oldpv pv ->
     PersistentEpochBakers (AccountVersionFor oldpv) ->
     t m (PersistentEpochBakers (AccountVersionFor pv))
-migratePersistentEpochBakers migration PersistentEpochBakers {..} = do
-  newBakerInfos <- migrateHashedBufferedRef (migrateBakerInfos migration) _bakerInfos
-  newBakerStakes <- migrateHashedBufferedRefKeepHash _bakerStakes
-  return PersistentEpochBakers {
-    _bakerInfos = newBakerInfos,
-    _bakerStakes = newBakerStakes,
-    ..
-    }
+migratePersistentEpochBakers migration PersistentEpochBakers{..} = do
+    newBakerInfos <- migrateHashedBufferedRef (migrateBakerInfos migration) _bakerInfos
+    newBakerStakes <- migrateHashedBufferedRefKeepHash _bakerStakes
+    return
+        PersistentEpochBakers
+            { _bakerInfos = newBakerInfos,
+              _bakerStakes = newBakerStakes,
+              ..
+            }
 
 -- |Look up a baker and its stake in a 'PersistentEpochBakers'.
 epochBaker :: forall m av. (IsAccountVersion av, MonadBlobStore m) => BakerId -> PersistentEpochBakers av -> m (Maybe (BaseAccounts.BakerInfo, Amount))
@@ -151,19 +160,20 @@ epochBaker bid PersistentEpochBakers{..} = do
 -- |Serialize 'PersistentEpochBakers'.
 putEpochBakers :: (IsAccountVersion av, MonadBlobStore m, MonadPut m) => PersistentEpochBakers av -> m ()
 putEpochBakers peb = do
-        BakerInfos bi <- refLoad (peb ^. bakerInfos)
-        bInfos <- mapM loadBakerInfo bi
-        BakerStakes bStakes <- refLoad (peb ^. bakerStakes)
-        assert (Vec.length bInfos == Vec.length bStakes) $
-            liftPut $ putLength (Vec.length bInfos)
-        mapM_ sPut bInfos
-        mapM_ (liftPut . put) bStakes
+    BakerInfos bi <- refLoad (peb ^. bakerInfos)
+    bInfos <- mapM loadBakerInfo bi
+    BakerStakes bStakes <- refLoad (peb ^. bakerStakes)
+    assert (Vec.length bInfos == Vec.length bStakes) $
+        liftPut $
+            putLength (Vec.length bInfos)
+    mapM_ sPut bInfos
+    mapM_ (liftPut . put) bStakes
 
 instance (IsAccountVersion av, MonadBlobStore m) => MHashableTo m H.Hash (PersistentEpochBakers av) where
     getHashM PersistentEpochBakers{..} = do
-      hbkrInfos <- getHashM _bakerInfos
-      hbkrStakes <- getHashM _bakerStakes
-      return $ H.hashOfHashes hbkrInfos hbkrStakes
+        hbkrInfos <- getHashM _bakerInfos
+        hbkrStakes <- getHashM _bakerStakes
+        return $ H.hashOfHashes hbkrInfos hbkrStakes
 
 instance (IsAccountVersion av, MonadBlobStore m) => BlobStorable m (PersistentEpochBakers av) where
     storeUpdate PersistentEpochBakers{..} = do
@@ -173,21 +183,21 @@ instance (IsAccountVersion av, MonadBlobStore m) => BlobStorable m (PersistentEp
                 pBkrInfos
                 pBkrStakes
                 put _bakerTotalStake
-        return (pBkrs, PersistentEpochBakers{_bakerInfos = newBkrInfos, _bakerStakes = newBkrStakes,..})
+        return (pBkrs, PersistentEpochBakers{_bakerInfos = newBkrInfos, _bakerStakes = newBkrStakes, ..})
     load = do
         mBkrInfos <- load
         mBkrStakes <- load
         _bakerTotalStake <- get
         return $ do
-          _bakerInfos <- mBkrInfos
-          _bakerStakes <- mBkrStakes
-          return PersistentEpochBakers{..}
+            _bakerInfos <- mBkrInfos
+            _bakerStakes <- mBkrStakes
+            return PersistentEpochBakers{..}
 
 instance (IsAccountVersion av, MonadBlobStore m) => Cacheable m (PersistentEpochBakers av) where
     cache peb = do
         cBkrInfos <- cache (_bakerInfos peb)
         cBkrStakes <- cache (_bakerStakes peb)
-        return peb {_bakerInfos = cBkrInfos, _bakerStakes = cBkrStakes}
+        return peb{_bakerInfos = cBkrInfos, _bakerStakes = cBkrStakes}
 
 -- |Derive a 'FullBakers' from a 'PersistentEpochBakers'.
 epochToFullBakers :: (IsAccountVersion av, MonadBlobStore m) => PersistentEpochBakers av -> m FullBakers
@@ -195,12 +205,13 @@ epochToFullBakers PersistentEpochBakers{..} = do
     BakerInfos infoRefs <- refLoad _bakerInfos
     infos <- mapM loadBakerInfo infoRefs
     BakerStakes stakes <- refLoad _bakerStakes
-    return FullBakers{
-            fullBakerInfos = Vec.zipWith mkFullBakerInfo infos stakes,
-            bakerTotalStake = _bakerTotalStake
-        }
-    where
-        mkFullBakerInfo info stake = FullBakerInfo info stake
+    return
+        FullBakers
+            { fullBakerInfos = Vec.zipWith mkFullBakerInfo infos stakes,
+              bakerTotalStake = _bakerTotalStake
+            }
+  where
+    mkFullBakerInfo info stake = FullBakerInfo info stake
 
 -- |Derive a 'FullBakers' from a 'PersistentEpochBakers'.
 epochToFullBakersEx ::
@@ -212,14 +223,15 @@ epochToFullBakersEx PersistentEpochBakers{..} = do
     BakerInfos infoRefs <- refLoad _bakerInfos
     infos <- mapM loadPersistentBakerInfoRef infoRefs
     BakerStakes stakes <- refLoad _bakerStakes
-    return FullBakersEx{
-            bakerInfoExs = Vec.zipWith mkFullBakerInfoEx infos stakes,
-            bakerPoolTotalStake = _bakerTotalStake
-        }
-    where
-        mkFullBakerInfoEx :: BaseAccounts.BakerInfoEx av -> Amount -> FullBakerInfoEx
-        mkFullBakerInfoEx (BaseAccounts.BakerInfoExV1 info extra) stake =
-            FullBakerInfoEx (FullBakerInfo info stake) (extra ^. BaseAccounts.poolCommissionRates)
+    return
+        FullBakersEx
+            { bakerInfoExs = Vec.zipWith mkFullBakerInfoEx infos stakes,
+              bakerPoolTotalStake = _bakerTotalStake
+            }
+  where
+    mkFullBakerInfoEx :: BaseAccounts.BakerInfoEx av -> Amount -> FullBakerInfoEx
+    mkFullBakerInfoEx (BaseAccounts.BakerInfoExV1 info extra) stake =
+        FullBakerInfoEx (FullBakerInfo info stake) (extra ^. BaseAccounts.poolCommissionRates)
 
 -- |Derive a 'PersistentEpochBakers' from a 'Basic.EpochBakers'.
 makePersistentEpochBakers :: (IsAccountVersion av, MonadBlobStore m) => Basic.EpochBakers av -> m (PersistentEpochBakers av)
@@ -265,13 +277,13 @@ migratePersistentActiveDelegators (StateMigrationParametersP3ToP4 _) = \case
     PersistentActiveDelegatorsV0 ->
         return
             PersistentActiveDelegatorsV1
-                { adDelegators = Trie.empty
-                , adDelegatorTotalCapital = 0
+                { adDelegators = Trie.empty,
+                  adDelegatorTotalCapital = 0
                 }
 migratePersistentActiveDelegators StateMigrationParametersP4ToP5{} =
     \PersistentActiveDelegatorsV1{..} -> do
-      newDelegators <- Trie.migrateTrieN True return adDelegators
-      return PersistentActiveDelegatorsV1{adDelegators=newDelegators,..}
+        newDelegators <- Trie.migrateTrieN True return adDelegators
+        return PersistentActiveDelegatorsV1{adDelegators = newDelegators, ..}
 
 emptyPersistentActiveDelegators :: forall av. IsAccountVersion av => PersistentActiveDelegators av
 emptyPersistentActiveDelegators =
@@ -309,11 +321,11 @@ deriving instance Show (TotalActiveCapital av)
 
 -- |See documentation of @migratePersistentBlockState@.
 migrateTotalActiveCapital ::
-  StateMigrationParameters oldpv pv ->
-  -- |The total amount staked by all the __bakers__.
-  Amount ->
-  TotalActiveCapital (AccountVersionFor oldpv) ->
-  TotalActiveCapital (AccountVersionFor pv)
+    StateMigrationParameters oldpv pv ->
+    -- |The total amount staked by all the __bakers__.
+    Amount ->
+    TotalActiveCapital (AccountVersionFor oldpv) ->
+    TotalActiveCapital (AccountVersionFor pv)
 migrateTotalActiveCapital StateMigrationParametersTrivial _ x = x
 migrateTotalActiveCapital StateMigrationParametersP1P2 _ x = x
 migrateTotalActiveCapital StateMigrationParametersP2P3 _ x = x
@@ -344,52 +356,60 @@ tacAmount f (TotalActiveCapitalV1 amt) = TotalActiveCapitalV1 <$> f amt
 
 type AggregationKeySet = Trie.TrieN BufferedFix BakerAggregationVerifyKey ()
 
-data PersistentActiveBakers (av :: AccountVersion) = PersistentActiveBakers {
-    _activeBakers :: !(BakerIdTrieMap av),
-    _aggregationKeys :: !AggregationKeySet,
-    _passiveDelegators :: !(PersistentActiveDelegators av),
-    _totalActiveCapital :: !(TotalActiveCapital av)
-} deriving (Show)
+data PersistentActiveBakers (av :: AccountVersion) = PersistentActiveBakers
+    { _activeBakers :: !(BakerIdTrieMap av),
+      _aggregationKeys :: !AggregationKeySet,
+      _passiveDelegators :: !(PersistentActiveDelegators av),
+      _totalActiveCapital :: !(TotalActiveCapital av)
+    }
+    deriving (Show)
 
 makeLenses ''PersistentActiveBakers
 
 -- |See documentation of @migratePersistentBlockState@.
-migratePersistentActiveBakers :: forall oldpv pv t m .
-    (IsProtocolVersion oldpv,
-     IsProtocolVersion pv,
-     SupportMigration m t,
-     Accounts.SupportsPersistentAccount pv (t m)
-    ) => 
+migratePersistentActiveBakers ::
+    forall oldpv pv t m.
+    ( IsProtocolVersion oldpv,
+      IsProtocolVersion pv,
+      SupportMigration m t,
+      Accounts.SupportsPersistentAccount pv (t m)
+    ) =>
     StateMigrationParameters oldpv pv ->
     -- |Already migrated accounts.
-    Accounts.Accounts pv -> 
+    Accounts.Accounts pv ->
     PersistentActiveBakers (AccountVersionFor oldpv) ->
     t m (PersistentActiveBakers (AccountVersionFor pv))
 migratePersistentActiveBakers migration accounts PersistentActiveBakers{..} = do
-  newActiveBakers <- Trie.migrateTrieN True (migratePersistentActiveDelegators migration) _activeBakers
-  newAggregationKeys <- Trie.migrateTrieN True return _aggregationKeys
-  newPassiveDelegators <- migratePersistentActiveDelegators migration _passiveDelegators
-  bakerIds <- Trie.keysAsc newActiveBakers
-  totalStakedAmount <- foldM (\acc (BakerId aid) ->
-    Accounts.indexedAccount aid accounts >>= \case
-      Nothing -> error "Baker account does not exist."
-      Just pa -> accountBakerStakeAmount pa >>= \case
-        Nothing -> error "Baker account not a baker."
-        Just amt -> return $! (acc + amt)
-    ) 0 bakerIds
-  let newTotalActiveCapital = migrateTotalActiveCapital migration totalStakedAmount _totalActiveCapital
-  return PersistentActiveBakers {
-    _activeBakers = newActiveBakers,
-    _aggregationKeys = newAggregationKeys,
-    _passiveDelegators = newPassiveDelegators,
-    _totalActiveCapital = newTotalActiveCapital
-    }
+    newActiveBakers <- Trie.migrateTrieN True (migratePersistentActiveDelegators migration) _activeBakers
+    newAggregationKeys <- Trie.migrateTrieN True return _aggregationKeys
+    newPassiveDelegators <- migratePersistentActiveDelegators migration _passiveDelegators
+    bakerIds <- Trie.keysAsc newActiveBakers
+    totalStakedAmount <-
+        foldM
+            ( \acc (BakerId aid) ->
+                Accounts.indexedAccount aid accounts >>= \case
+                    Nothing -> error "Baker account does not exist."
+                    Just pa ->
+                        accountBakerStakeAmount pa >>= \case
+                            Nothing -> error "Baker account not a baker."
+                            Just amt -> return $! (acc + amt)
+            )
+            0
+            bakerIds
+    let newTotalActiveCapital = migrateTotalActiveCapital migration totalStakedAmount _totalActiveCapital
+    return
+        PersistentActiveBakers
+            { _activeBakers = newActiveBakers,
+              _aggregationKeys = newAggregationKeys,
+              _passiveDelegators = newPassiveDelegators,
+              _totalActiveCapital = newTotalActiveCapital
+            }
 
 totalActiveCapitalV1 :: (AVSupportsDelegation av) => Lens' (PersistentActiveBakers av) Amount
 totalActiveCapitalV1 = totalActiveCapital . tac
-    where
-        tac :: (AVSupportsDelegation av) => Lens' (TotalActiveCapital av) Amount
-        tac f (TotalActiveCapitalV1 v) = TotalActiveCapitalV1 <$> f v
+  where
+    tac :: (AVSupportsDelegation av) => Lens' (TotalActiveCapital av) Amount
+    tac f (TotalActiveCapitalV1 v) = TotalActiveCapitalV1 <$> f v
 
 -- |A helper function that adds a delegator to a 'PersistentActiveDelegators'.
 -- It is assumed that the delegator is not already in the delegators.
@@ -474,7 +494,8 @@ transferDelegatorsToPassive bid pab = do
     let oldLPD = pab ^. passiveDelegators . to adDelegators
     newLPD <- foldM (\a d -> Trie.insert d () a) oldLPD transList
     let pab' =
-            pab & activeBakers .~ newAB
+            pab
+                & activeBakers .~ newAB
                 & passiveDelegators
                     %~ ( \(PersistentActiveDelegatorsV1 _ tot) ->
                             PersistentActiveDelegatorsV1 newLPD (tot + adDelegatorTotalCapital transferred)
@@ -485,18 +506,20 @@ transferDelegatorsToPassive bid pab = do
     extract (Just t) = return (t, Trie.Insert emptyPersistentActiveDelegators)
 
 instance
-        (IsAccountVersion av, MonadBlobStore m) =>
-        BlobStorable m (PersistentActiveBakers av) where
+    (IsAccountVersion av, MonadBlobStore m) =>
+    BlobStorable m (PersistentActiveBakers av)
+    where
     storeUpdate oldPAB@PersistentActiveBakers{..} = do
         (pActiveBakers, newActiveBakers) <- storeUpdate _activeBakers
         (pAggregationKeys, newAggregationKeys) <- storeUpdate _aggregationKeys
         (ppassiveDelegators, newpassiveDelegators) <- storeUpdate _passiveDelegators
         let pPAB = pActiveBakers >> pAggregationKeys >> ppassiveDelegators >> put _totalActiveCapital
-        let newPAB = oldPAB{
-          _activeBakers = newActiveBakers,
-          _aggregationKeys = newAggregationKeys,
-          _passiveDelegators = newpassiveDelegators
-        }
+        let newPAB =
+                oldPAB
+                    { _activeBakers = newActiveBakers,
+                      _aggregationKeys = newAggregationKeys,
+                      _passiveDelegators = newpassiveDelegators
+                    }
         return (pPAB, newPAB)
     load = do
         mActiveBakers <- load

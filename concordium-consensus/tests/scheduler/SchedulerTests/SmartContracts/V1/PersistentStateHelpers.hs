@@ -43,18 +43,23 @@ import SchedulerTests.TestUtils
 -- |Monad that implements the necessary constraints to be used for
 -- running the scheduler.
 newtype PersistentBSM a = PersistentBSM {_runPersistentBSM :: PersistentBlockStateMonad PV5 (PersistentBlockStateContext PV5) (BlobStoreM' (PersistentBlockStateContext PV5)) a}
-    deriving (Applicative, Functor, Monad,
-              AccountOperations,
-              ContractStateOperations,
-              ModuleQuery,
-              MonadProtocolVersion,
-              BlockStateTypes,
-              MonadBlobStore,
-              BlockStateQuery,
-              BlockStateOperations,
-              MonadIO,
-              MonadCache (AccountCache 'Types.AccountV2),
-              MonadCache ModuleCache, BlockStateStorage)
+    deriving
+        ( Applicative,
+          Functor,
+          Monad,
+          AccountOperations,
+          ContractStateOperations,
+          ModuleQuery,
+          MonadProtocolVersion,
+          BlockStateTypes,
+          MonadBlobStore,
+          BlockStateQuery,
+          BlockStateOperations,
+          MonadIO,
+          MonadCache (AccountCache 'Types.AccountV2),
+          MonadCache ModuleCache,
+          BlockStateStorage
+        )
 
 instance MonadLogger PersistentBSM where
     logEvent _ _ _ = return ()
@@ -101,9 +106,9 @@ runTest input reloadState k = do
 
     contextState =
         ContextState
-            { _chainMetadata = dummyChainMeta
-            , _maxBlockEnergy = 3_000_000
-            , _accountCreationLimit = 10
+            { _chainMetadata = dummyChainMeta,
+              _maxBlockEnergy = 3_000_000,
+              _accountCreationLimit = 10
             }
     -- timeout for block construction. We do not care about that here, so set to something after current time
     timeout = read "3000-01-01 13:27:13.257285424 UTC"

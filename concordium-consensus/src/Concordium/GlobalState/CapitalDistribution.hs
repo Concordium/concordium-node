@@ -117,5 +117,5 @@ makeCapitalDistribution bakers passive =
   where
     mkBakerCapital (bcBakerId, bcBakerEquityCapital, dels) =
         let bcDelegatorCapital = Vec.fromList $ mkDelegatorCapital <$> dels
-         in BakerCapital{..}
+        in  BakerCapital{..}
     mkDelegatorCapital (dcDelegatorId, dcDelegatorCapital) = DelegatorCapital{..}
