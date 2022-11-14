@@ -72,11 +72,15 @@ The CI is setup to ensure the code follows this style.
 
 To check the formatting locally run the following commnad from the project root:
 
+**On unix-like systems**:
+
 ```
 $ fourmolu --mode check $(git ls-files '*.hs')
 ```
 
 To format run the following command from the project root:
+
+**On unix-like systems**:
 
 ```
 $ fourmolu --mode inplace $(git ls-files '*.hs')
