@@ -114,7 +114,6 @@ module Concordium.Afgjort.WMVBA (
 ) where
 
 import Control.Monad.RWS.Strict
-import Control.Monad.State.Class
 import Data.Bits
 import qualified Data.ByteString as BS
 import Data.Map (Map)
