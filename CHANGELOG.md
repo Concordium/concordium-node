@@ -2,6 +2,29 @@
 
 ## Unreleased changes
 
+## 5.0.6
+
+- Fix persistent state implementation of contract modifications.
+  In certain cases the cached part of the instance was not correctly updated.
+- Change the cost of the exchange rate query to be more aligned with other operations.
+- Fix the behaviour of a smart contract upgrade when upgrading to a contract
+  without entrypoints.
+
+
+## 5.0.5
+
+- Fix bug in persistent state implementation of contract modification.
+- Fix bug in the contract balance query.
+- Do not forget logs emitted by smart contracts.
+
+## 5.0.3
+
+- Fix P4->P5 state migration issues.
+  - Delegators were not correctly copied over, references were retained to the
+    P4 database.
+  - Account stake was incorrectly recreated, all account balance was staked.
+  - Next payday was incorrectly migrated.
+
 ## 5.0.2
 
 - Fix an issue in the node GRPC V2 API where a baker transaction was encoded

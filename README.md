@@ -66,10 +66,31 @@ build, run, and test the code. In order to build the haskell libraries the rust
 dependencies must be pre-build, which is done automatically by the cabal setup
 script.
 
-We do not use any code formatting or linting tool on the CI. Running hlint might
-uncover common issues, and with regards to formatting, the general rule is that
-lines should not be too long, and follow the naming scheme and code style that
-already exists.
+Code should be formatted using [`fourmolu`](https://github.com/fourmolu/fourmolu)
+version `0.9.0.0` and using the config `fourmolu.yaml` found in the project root.
+The CI is setup to ensure the code follows this style.
+
+To check the formatting locally run the following commnad from the project root:
+
+**On unix-like systems**:
+
+```
+$ fourmolu --mode check $(git ls-files '*.hs')
+```
+
+To format run the following command from the project root:
+
+**On unix-like systems**:
+
+```
+$ fourmolu --mode inplace $(git ls-files '*.hs')
+```
+
+Lines should strive to be at most 100 characters, naming and code style should
+follow the scheme that already exists.
+
+We do not use any linting tool on the CI. Running hlint might uncover common
+issues.
 
 ## Rust workflow
 

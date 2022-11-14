@@ -1,10 +1,12 @@
-{-# LANGUAGE CPP, TypeFamilies #-}
-module Concordium.TimerMonad(
-    Timeout(..),
-    TimerMonad(..),
+{-# LANGUAGE CPP #-}
+{-# LANGUAGE TypeFamilies #-}
+
+module Concordium.TimerMonad (
+    Timeout (..),
+    TimerMonad (..),
     ThreadTimer,
     makeThreadTimer,
-    cancelThreadTimer
+    cancelThreadTimer,
 ) where
 
 import Data.Time
@@ -18,10 +20,10 @@ import GHC.Event
 
 -- |Representation of a waiting period.
 data Timeout
-    = DelayFor NominalDiffTime
-    -- ^Wait for a certain period of time
-    | DelayUntil UTCTime
-    -- ^Wait until a given time
+    = -- |Wait for a certain period of time
+      DelayFor NominalDiffTime
+    | -- |Wait until a given time
+      DelayUntil UTCTime
 
 class Monad m => TimerMonad m where
     type Timer m
@@ -40,8 +42,8 @@ data ThreadTimer = ThreadTimer !TimerManager !TimeoutKey
 getDelay :: Timeout -> IO Int
 getDelay (DelayFor d) = return (truncate (d * 1e6))
 getDelay (DelayUntil t) = do
-  now <- getCurrentTime
-  return (truncate ((diffUTCTime t now) * 1e6))
+    now <- getCurrentTime
+    return (truncate ((diffUTCTime t now) * 1e6))
 
 makeThreadTimer :: Timeout -> IO () -> IO ThreadTimer
 makeThreadTimer timeout action = do

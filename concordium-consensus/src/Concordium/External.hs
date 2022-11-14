@@ -12,26 +12,26 @@ import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Unsafe as BS
 import Data.Int
+import qualified Data.ProtoLens as Proto
+import qualified Data.ProtoLens.Combinators as Proto
 import qualified Data.Serialize as S
 import Data.Word
 import Foreign
 import Foreign.C
+import Lens.Micro.Platform
+import qualified Proto.Concordium.Types as Proto
+import qualified Proto.Concordium.Types_Fields as ProtoFields
 import System.Directory
 import System.FilePath
 import Text.Read (readMaybe)
-import qualified Data.ProtoLens as Proto
-import qualified Data.ProtoLens.Combinators as Proto
-import qualified Proto.Concordium.Types as Proto
-import qualified Proto.Concordium.Types_Fields as ProtoFields
-import Lens.Micro.Platform
 
-import Concordium.Types.Block (AbsoluteBlockHeight)
+import Concordium.Common.Version
 import qualified Concordium.Crypto.SHA256 as SHA256
 import Concordium.ID.Types
 import Concordium.Logger
 import Concordium.Types
+import Concordium.Types.Block (AbsoluteBlockHeight)
 import qualified Data.FixedByteString as FBS
-import Concordium.Common.Version
 
 import Concordium.Afgjort.Finalize.Types (FinalizationInstance (FinalizationInstance))
 import Concordium.Birk.Bake
@@ -39,7 +39,6 @@ import Concordium.Constants.Time (defaultEarlyBlockThreshold, defaultMaxBakingDe
 import Concordium.GlobalState
 import Concordium.GlobalState.Persistent.LMDB (addDatabaseVersion)
 import Concordium.GlobalState.Persistent.TreeState (InitException (..))
-import qualified Concordium.Types.InvokeContract as InvokeContract
 import Concordium.MultiVersion (
     Callbacks (..),
     CatchUpConfiguration (..),
@@ -60,6 +59,7 @@ import Concordium.Skov (
     UpdateResult (..),
  )
 import Concordium.TimerMonad (ThreadTimer)
+import qualified Concordium.Types.InvokeContract as InvokeContract
 
 -- |A 'PeerID' identifies peer at the p2p layer.
 type PeerID = Word64
@@ -312,17 +312,18 @@ data NotifyContext
 
 -- |Type of the callback used to send notifications.
 type NotifyCallback =
-  -- |Handle to the context.
-  Ptr NotifyContext ->
-  -- |The type of event. Only 0 and 1 are given meaning.
-  --
-  --   - 0 for block arrived
-  --   - 1 for block finalized
-  Word8
-  -- |Pointer to the beginning of the data to send.
-  -> Ptr Word8
-  -- |Size of the data to send.
-  -> Word64 -> IO ()
+    -- |Handle to the context.
+    Ptr NotifyContext ->
+    -- |The type of event. Only 0 and 1 are given meaning.
+    --
+    --   - 0 for block arrived
+    --   - 1 for block finalized
+    Word8 ->
+    -- |Pointer to the beginning of the data to send.
+    Ptr Word8 ->
+    -- |Size of the data to send.
+    Word64 ->
+    IO ()
 
 foreign import ccall "dynamic" callNotifyCallback :: FunPtr NotifyCallback -> NotifyCallback
 
@@ -441,24 +442,24 @@ startConsensus
                           broadcastFinalizationMessage = callBroadcastCallback bcbk MessageFinalization,
                           broadcastFinalizationRecord = callBroadcastCallback bcbk MessageFinalizationRecord,
                           notifyBlockArrived =
-                            if notifyContext /= nullPtr then
-                              Just $ mkNotifyBlockArrived (notifyCallback notifyContext)
-                            else Nothing,
+                            if notifyContext /= nullPtr
+                                then Just $ mkNotifyBlockArrived (notifyCallback notifyContext)
+                                else Nothing,
                           notifyBlockFinalized =
-                            if notifyContext /= nullPtr then
-                              Just $ mkNotifyBlockFinalized (notifyCallback notifyContext)
-                            else Nothing,
+                            if notifyContext /= nullPtr
+                                then Just $ mkNotifyBlockFinalized (notifyCallback notifyContext)
+                                else Nothing,
                           notifyCatchUpStatus = callCatchUpStatusCallback cucbk,
                           notifyRegenesis = callRegenesisCallback regenesisCB regenesisRef
                         }
             runner <- do
-                        let config ::
-                                MultiVersionConfiguration
-                                    DiskTreeDiskBlockConfig
-                                    (BufferedFinalization ThreadTimer)
-                            config = MultiVersionConfiguration{..}
-                        ConsensusRunner
-                            <$> makeMultiVersionRunner config callbacks (Just bakerIdentity) logM (Left genesisBS)
+                let config ::
+                        MultiVersionConfiguration
+                            DiskTreeDiskBlockConfig
+                            (BufferedFinalization ThreadTimer)
+                    config = MultiVersionConfiguration{..}
+                ConsensusRunner
+                    <$> makeMultiVersionRunner config callbacks (Just bakerIdentity) logM (Left genesisBS)
             poke runnerPtrPtr =<< newStablePtr runner
             return StartSuccess
       where
@@ -572,24 +573,23 @@ startConsensusPassive
                           broadcastFinalizationRecord = \_ _ -> return (),
                           notifyCatchUpStatus = callCatchUpStatusCallback cucbk,
                           notifyBlockArrived =
-                            if notifyContext /= nullPtr then
-                              Just $ mkNotifyBlockArrived (notifyCallback notifyContext)
-                            else Nothing,
+                            if notifyContext /= nullPtr
+                                then Just $ mkNotifyBlockArrived (notifyCallback notifyContext)
+                                else Nothing,
                           notifyBlockFinalized =
-                            if notifyContext /= nullPtr then
-                              Just $ mkNotifyBlockFinalized (notifyCallback notifyContext)
-                            else
-                              Nothing,
+                            if notifyContext /= nullPtr
+                                then Just $ mkNotifyBlockFinalized (notifyCallback notifyContext)
+                                else Nothing,
                           notifyRegenesis = callRegenesisCallback regenesisCB regenesisRef
                         }
             runner <- do
-                        let config ::
-                                MultiVersionConfiguration
-                                    DiskTreeDiskBlockConfig
-                                    (NoFinalization ThreadTimer)
-                            config = MultiVersionConfiguration{..}
-                        ConsensusRunner
-                            <$> makeMultiVersionRunner config callbacks Nothing logM (Left genesisBS)
+                let config ::
+                        MultiVersionConfiguration
+                            DiskTreeDiskBlockConfig
+                            (NoFinalization ThreadTimer)
+                    config = MultiVersionConfiguration{..}
+                ConsensusRunner
+                    <$> makeMultiVersionRunner config callbacks Nothing logM (Left genesisBS)
             poke runnerPtrPtr =<< newStablePtr runner
             return StartSuccess
       where
@@ -702,7 +702,6 @@ stopBaker cptr = mask_ $ do
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 -- |    30 | ResultInsufficientFunds                     | The sender did not have enough funds to cover the costs.                                      | No       |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
-
 type ReceiveResult = Int64
 
 -- |Convert an 'UpdateResult' to the corresponding 'ReceiveResult' value.
@@ -802,10 +801,10 @@ receiveTransaction bptr transactionData transactionLen outPtr = do
     transactionBS <- BS.packCStringLen (transactionData, fromIntegral transactionLen)
     (mh, ur) <- runMVR (MV.receiveTransaction transactionBS) mvr
     case mh of
-      Nothing -> return (toReceiveResult ur)
-      Just (TransactionHashV0 (SHA256.Hash h)) -> do
-        FBS.withPtrReadOnly h $ \p -> copyBytes outPtr p 32
-        return (toReceiveResult ur)
+        Nothing -> return (toReceiveResult ur)
+        Just (TransactionHashV0 (SHA256.Hash h)) -> do
+            FBS.withPtrReadOnly h $ \p -> copyBytes outPtr p 32
+            return (toReceiveResult ur)
 
 -- |Handle receiving a catch-up status message.
 -- If the message is a request, then the supplied callback will be used to
@@ -1002,8 +1001,8 @@ getLastFinalizedBlockHeight ::
     StablePtr ConsensusRunner ->
     IO Word64
 getLastFinalizedBlockHeight cptr = do
-  (ConsensusRunner mvr) <- deRefStablePtr cptr
-  theBlockHeight <$> runMVR Q.getLastFinalizedBlockHeight mvr
+    (ConsensusRunner mvr) <- deRefStablePtr cptr
+    theBlockHeight <$> runMVR Q.getLastFinalizedBlockHeight mvr
 
 -- ** Block-indexed queries
 
@@ -1164,7 +1163,6 @@ invokeContract cptr blockcstr ctxcstr = do
         (Just bh, Just ctx) -> jsonQuery cptr (snd <$> Q.invokeContract (Q.BHIGiven bh) ctx)
         _ -> jsonCString AE.Null
 
-
 -- |Get the source code of a module as deployed on the chain at a particular block.
 -- The block must be given as a null-terminated base16 encoding of the block hash.
 -- The module is referenced by a null-terminated base16 encoding of the module hash.
@@ -1295,7 +1293,7 @@ checkIfRunning cptr = do
 -- Returns 1 if we are not added as a baker.
 -- Returns 2 if we are added as a baker, but not part of the baking committee yet.
 -- Returns 3 if we have keys that do not match the baker's public keys on the chain.
--- Returns 0 if we are part of the baking committee. 
+-- Returns 0 if we are part of the baking committee.
 bakerStatusBestBlock :: StablePtr ConsensusRunner -> Ptr Word64 -> Ptr Word8 -> IO Word8
 bakerStatusBestBlock cptr bakerIdPtr hasBakerIdPtr = do
     (ConsensusRunner mvr) <- deRefStablePtr cptr
@@ -1306,13 +1304,13 @@ bakerStatusBestBlock cptr bakerIdPtr hasBakerIdPtr = do
             poke hasBakerIdPtr 1
             poke bakerIdPtr $ fromIntegral bid
             return $! getBakerStatusCode bs
-    where
-        getBakerStatusCode :: BakerStatus -> Word8
-        getBakerStatusCode bs = case bs of
-            ActiveInComittee -> 0
-            NotInCommittee -> 1
-            AddedButNotActiveInCommittee -> 2
-            AddedButWrongKeys -> 3
+  where
+    getBakerStatusCode :: BakerStatus -> Word8
+    getBakerStatusCode bs = case bs of
+        ActiveInComittee -> 0
+        NotInCommittee -> 1
+        AddedButNotActiveInCommittee -> 2
+        AddedButWrongKeys -> 3
 
 -- FFI exports
 -- Note: Exports must be listed in the lib.def file in order for the symbols to be correctly

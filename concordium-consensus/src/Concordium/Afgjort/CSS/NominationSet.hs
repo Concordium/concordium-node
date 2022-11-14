@@ -1,15 +1,14 @@
 module Concordium.Afgjort.CSS.NominationSet where
 
-import qualified Concordium.Afgjort.CSS.BitSet as Set
 import Concordium.Afgjort.CSS.BitSet (BitSet)
-import qualified Data.Serialize as S
-import Data.Serialize.Put
-import Data.Serialize.Get
-import Data.Bits
+import qualified Concordium.Afgjort.CSS.BitSet as Set
 import Control.Monad
+import Data.Bits
+import qualified Data.Serialize as S
+import Data.Serialize.Get
+import Data.Serialize.Put
 
 import Concordium.Afgjort.Types
-
 
 -- |A nomination set records a set of parties that have seen
 -- Top and a set of parties that have seen Bottom.  `nomMax`
@@ -17,16 +16,17 @@ import Concordium.Afgjort.Types
 -- these sets.  Either set may be empty (in which case @Nothing@
 -- is used to represent it), but at least one of them should not
 -- be.
-data NominationSet = NominationSet {
-    nomMax :: !Party,
-    nomTop :: !BitSet,
-    nomBot :: !BitSet
-} deriving (Eq, Ord)
+data NominationSet = NominationSet
+    { nomMax :: !Party,
+      nomTop :: !BitSet,
+      nomBot :: !BitSet
+    }
+    deriving (Eq, Ord)
 
 instance Show NominationSet where
     show NominationSet{..} = "{top: " ++ sh nomTop ++ ", bot: " ++ sh nomBot ++ "}"
-        where
-            sh s = show (Set.toList s :: [Party])
+      where
+        sh s = show (Set.toList s :: [Party])
 
 data NominationSetTag
     = NSEmpty
@@ -37,44 +37,44 @@ data NominationSetTag
 
 nomTag :: NominationSet -> NominationSetTag
 nomTag s = case (Set.null (nomTop s), Set.null (nomBot s)) of
-            (True, True) -> NSEmpty
-            (False, True) -> NSTop
-            (True, False) -> NSBot
-            (False, False) -> NSBoth
+    (True, True) -> NSEmpty
+    (False, True) -> NSTop
+    (True, False) -> NSBot
+    (False, False) -> NSBoth
 
 putUntaggedNominationSet :: Putter NominationSet
 putUntaggedNominationSet NominationSet{..} = do
-        putParty nomMax
-        unless (Set.null nomTop) $ putParties minParty (Set.toAscList nomTop)
-        unless (Set.null nomBot) $ putParties minParty (Set.toAscList nomBot)
-    where
-        putParties curP l
-            | curP <= nomMax = do
-                let (curl, restl) = span (< curP + 8) l
-                putPartiesByte (fromIntegral . subtract curP <$> curl)
-                putParties (curP + 8) restl
-            | otherwise = return ()
-        putPartiesByte l = putWord8 (foldl setBit 0 l)
+    putParty nomMax
+    unless (Set.null nomTop) $ putParties minParty (Set.toAscList nomTop)
+    unless (Set.null nomBot) $ putParties minParty (Set.toAscList nomBot)
+  where
+    putParties curP l
+        | curP <= nomMax = do
+            let (curl, restl) = span (< curP + 8) l
+            putPartiesByte (fromIntegral . subtract curP <$> curl)
+            putParties (curP + 8) restl
+        | otherwise = return ()
+    putPartiesByte l = putWord8 (foldl setBit 0 l)
 
 getUntaggedNominationSet :: NominationSetTag -> Get NominationSet
 getUntaggedNominationSet tag = do
-        nomMax <- getParty
-        let
-            getParties curP
-                | curP <= nomMax = do
-                    b <- getWord8
-                    let bgn = (curP +) . fromIntegral <$> filter (testBit b) [0..7]
-                    (bgn ++) <$> getParties (curP + 8)
-                | otherwise = return []
-        nomTop <- if tag == NSTop || tag == NSBoth then
-                    Set.fromAscList <$> getParties minParty
-                else
-                    return Set.empty
-        nomBot <- if tag == NSBot || tag == NSBoth then
-                    Set.fromAscList <$> getParties minParty
-                else
-                    return Set.empty
-        return $! (NominationSet{..})
+    nomMax <- getParty
+    let
+        getParties curP
+            | curP <= nomMax = do
+                b <- getWord8
+                let bgn = (curP +) . fromIntegral <$> filter (testBit b) [0 .. 7]
+                (bgn ++) <$> getParties (curP + 8)
+            | otherwise = return []
+    nomTop <-
+        if tag == NSTop || tag == NSBoth
+            then Set.fromAscList <$> getParties minParty
+            else return Set.empty
+    nomBot <-
+        if tag == NSBot || tag == NSBoth
+            then Set.fromAscList <$> getParties minParty
+            else return Set.empty
+    return $! (NominationSet{..})
 
 instance S.Serialize NominationSet where
     put ns = case nomTag ns of
@@ -82,7 +82,8 @@ instance S.Serialize NominationSet where
         NSTop -> putWord8 1 >> putUntaggedNominationSet ns
         NSBot -> putWord8 2 >> putUntaggedNominationSet ns
         NSBoth -> putWord8 3 >> putUntaggedNominationSet ns
-    get = getWord8 >>= \case
+    get =
+        getWord8 >>= \case
             0 -> return emptyNominationSet
             1 -> getUntaggedNominationSet NSTop
             2 -> getUntaggedNominationSet NSBot
@@ -94,20 +95,19 @@ emptyNominationSet = NominationSet minParty Set.empty Set.empty
 
 addNomination :: Party -> Choice -> NominationSet -> NominationSet
 addNomination p c ns =
-        if c then
-            ns {nomMax = nm, nomTop = Set.insert p (nomTop ns)}
-        else
-            ns {nomMax = nm, nomBot = Set.insert p (nomBot ns)}
-    where
-        nm = max p (nomMax ns)
+    if c
+        then ns{nomMax = nm, nomTop = Set.insert p (nomTop ns)}
+        else ns{nomMax = nm, nomBot = Set.insert p (nomBot ns)}
+  where
+    nm = max p (nomMax ns)
 
 subsumedBy :: NominationSet -> NominationSet -> Bool
 subsumedBy s1 s2 = (nomTop s1 `Set.isSubsetOf` nomTop s2) && (nomBot s1 `Set.isSubsetOf` nomBot s2)
 
 nominationSetToList :: NominationSet -> [(Party, Choice)]
 nominationSetToList s = mkList True (nomTop s) ++ mkList False (nomBot s)
-    where
-        mkList b = fmap (, b) . Set.toList
+  where
+    mkList b = fmap (,b) . Set.toList
 
 nominations :: Party -> NominationSet -> Maybe Choices
 nominations p s = case (p `Set.member` nomTop s, p `Set.member` nomBot s) of
@@ -121,11 +121,12 @@ singletonNominationSet p True = NominationSet p (Set.singleton p) Set.empty
 singletonNominationSet p False = NominationSet p Set.empty (Set.singleton p)
 
 unionNominationSet :: NominationSet -> NominationSet -> NominationSet
-unionNominationSet ns1 ns2 = NominationSet {
-        nomMax = max (nomMax ns1) (nomMax ns2),
-        nomTop = Set.union (nomTop ns1) (nomTop ns2),
-        nomBot = Set.union (nomBot ns1) (nomBot ns2)
-    }
+unionNominationSet ns1 ns2 =
+    NominationSet
+        { nomMax = max (nomMax ns1) (nomMax ns2),
+          nomTop = Set.union (nomTop ns1) (nomTop ns2),
+          nomBot = Set.union (nomBot ns1) (nomBot ns2)
+        }
 
 -- |Returns 'True' if a nomination set contains a nomination from every party,
 -- up to 'nomMax'.

@@ -1,47 +1,45 @@
-{-# LANGUAGE
-        ScopedTypeVariables,
-        DefaultSignatures,
-        TypeFamilies,
-        TemplateHaskell
-#-}
-{- |This module provides abstractions for working with LMDB databases.
-    Chief among them is the 'MDBDatabase' class, which can be used for
-    type-safe access to an 'MDB_dbi'' by providing an implementation.
-    The 'Cursor' type and the 'withCursor' and 'getCursor' operations
-    provide a type-safe abstraction over cursors.
--}
+{-# LANGUAGE DefaultSignatures #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies #-}
+
+-- |This module provides abstractions for working with LMDB databases.
+--    Chief among them is the 'MDBDatabase' class, which can be used for
+--    type-safe access to an 'MDB_dbi'' by providing an implementation.
+--    The 'Cursor' type and the 'withCursor' and 'getCursor' operations
+--    provide a type-safe abstraction over cursors.
 module Concordium.GlobalState.LMDB.Helpers (
-  -- * Database environment.
-  StoreEnv,
-  makeStoreEnv,
-  withWriteStoreEnv,
-  seEnv,
+    -- * Database environment.
+    StoreEnv,
+    makeStoreEnv,
+    withWriteStoreEnv,
+    seEnv,
 
-  -- * Database queries and updates.
-  MDBDatabase(..),
-  transaction,
-  isRecordPresent,
-  storeRecord,
-  storeReplaceRecord,
-  storeReplaceBytes,
-  loadRecord,
-  deleteRecord,
-  databaseSize,
+    -- * Database queries and updates.
+    MDBDatabase (..),
+    transaction,
+    isRecordPresent,
+    storeRecord,
+    storeReplaceRecord,
+    storeReplaceBytes,
+    loadRecord,
+    deleteRecord,
+    databaseSize,
 
-  -- * Traversing the database.
-  CursorMove(..),
-  withCursor,
-  getCursor,
-  getPrimitiveCursor,
-  movePrimitiveCursor,
-  withPrimitiveCursor,
-  PrimitiveCursor,
-  loadAll,
+    -- * Traversing the database.
+    CursorMove (..),
+    withCursor,
+    getCursor,
+    getPrimitiveCursor,
+    movePrimitiveCursor,
+    withPrimitiveCursor,
+    PrimitiveCursor,
+    loadAll,
 
-  -- * Low level operations.
-  byteStringFromMDB_val,
-  unsafeByteStringFromMDB_val
-                                           )
+    -- * Low level operations.
+    byteStringFromMDB_val,
+    unsafeByteStringFromMDB_val,
+)
 where
 
 import Control.Concurrent (runInBoundThread, yield)
@@ -49,42 +47,42 @@ import Control.Concurrent.MVar
 import Control.Exception
 import Control.Monad
 import Control.Monad.Trans.Except
-import qualified Data.Serialize as S
-import Database.LMDB.Raw
+import Data.ByteString
+import qualified Data.ByteString.Lazy as LBS
+import Data.ByteString.Unsafe (unsafePackCStringLen)
+import qualified Data.ByteString.Unsafe as BS
+import Data.Coerce
 import Data.Maybe
 import Data.Proxy
-import Data.Coerce
-import Data.ByteString
-import qualified Data.ByteString.Unsafe as BS
-import qualified Data.ByteString.Lazy as LBS
+import qualified Data.Serialize as S
 import Data.Word
-import Foreign.Marshal.Utils
+import Database.LMDB.Raw
 import Foreign.Marshal.Alloc
+import Foreign.Marshal.Utils
 import Foreign.Ptr
 import Foreign.Storable
 import Lens.Micro.Platform
-import Data.ByteString.Unsafe (unsafePackCStringLen)
 
 -- |State of a reader-writer lock.
-data RWState =
-   -- |Nobody has acquired the lock.
-  Free {
-      -- |The lock is not acquired, but there might be pending writers that want to acquire it.
-      waitingWriters :: !Word64
-      }
-  -- |There is at least one active reader.
-  | ReadLocked {
-      -- |The number of readers that are currently active.
-      readers :: !Word64,
-      -- |The number of pending writers.
-      waitingWriters :: !Word64
-      }
-  -- |The lock is acquired by a single writer.
-  | WriteLocked {
-      -- |The number of writers that are pending (that is, currently blocked on this lock).
-      waitingWriters :: !Word64
-      }
-    deriving(Show)
+data RWState
+    = -- |Nobody has acquired the lock.
+      Free
+        { -- |The lock is not acquired, but there might be pending writers that want to acquire it.
+          waitingWriters :: !Word64
+        }
+    | -- |There is at least one active reader.
+      ReadLocked
+        { -- |The number of readers that are currently active.
+          readers :: !Word64,
+          -- |The number of pending writers.
+          waitingWriters :: !Word64
+        }
+    | -- |The lock is acquired by a single writer.
+      WriteLocked
+        { -- |The number of writers that are pending (that is, currently blocked on this lock).
+          waitingWriters :: !Word64
+        }
+    deriving (Show)
 
 -- |A reader-writer lock that strongly prefer writers. More precisely this means the following
 -- - readers and writers are mutually exclusive
@@ -130,67 +128,68 @@ data RWState =
 --
 -- Additionally, rwlReadLock and rwlWriteLock can only be modified while the
 -- rwlState MVar is held.
-data RWLock = RWLock {
-  -- |The state the lock is currently in.
-  rwlState :: !(MVar RWState),
-  -- |An MVar used to signal threads that are waiting for all active readers to
-  -- wake up. This is empty when there is at least one active reader and full
-  -- otherwise.
-  rwlReadLock :: !(MVar ()),
-  -- |An MVar used to signal waiting readers and writers to wake up. This is
-  -- empty when there is an active writer, and full otherwise. Readers wait on
-  -- this MVar when there is an active writer.
-  rwlWriteLock :: !(MVar ())
-  }
+data RWLock = RWLock
+    { -- |The state the lock is currently in.
+      rwlState :: !(MVar RWState),
+      -- |An MVar used to signal threads that are waiting for all active readers to
+      -- wake up. This is empty when there is at least one active reader and full
+      -- otherwise.
+      rwlReadLock :: !(MVar ()),
+      -- |An MVar used to signal waiting readers and writers to wake up. This is
+      -- empty when there is an active writer, and full otherwise. Readers wait on
+      -- this MVar when there is an active writer.
+      rwlWriteLock :: !(MVar ())
+    }
 
 -- |Initialize a lock in the unlocked state.
 initializeLock :: IO RWLock
 initializeLock = do
-  rwlState <- newMVar (Free 0)
-  rwlReadLock <- newMVar ()
-  rwlWriteLock <- newMVar ()
-  return RWLock{..}
+    rwlState <- newMVar (Free 0)
+    rwlReadLock <- newMVar ()
+    rwlWriteLock <- newMVar ()
+    return RWLock{..}
 
 -- |Acquire a read lock. This will block until there are no pending writers
 -- waiting to acquire the lock.
 acquireRead :: RWLock -> IO ()
 acquireRead RWLock{..} = mask_ go
   where
-    go = takeMVar rwlState >>= \case
-      st@(Free waitingWriters)
-        | waitingWriters == 0 -> do
-            -- the lock is free and there are no waiting writers. Acquire a read lock.
-            takeMVar rwlReadLock
-            putMVar rwlState (ReadLocked 1 0)
-        | otherwise -> do
-            -- the lock is free, but there are waiting writers. We do nothing and try again.
-            -- Due to fairness of MVars next time another thread will make progress
-            -- so we are going to end up after a finite number of iterations, in a WriteLocked state.
-            putMVar rwlState st
-            -- Since this branch seems to be compiled into a loop without
-            -- allocations by GHC with -O2 we need to explicitly yield to allow others
-            -- to make progress. Otherwise with sufficient contention this loop ends up
-            -- starving other threads since they are never scheduled. This then also means
-            -- the loop never terminates since no other thread transitions from the Free
-            -- to WriteLocked state.
-            yield
-            go
-      st@(ReadLocked n waitingWriters)
-          | waitingWriters == 0 ->
-            -- No waiting writers, add another reader.
-            putMVar rwlState $! ReadLocked (n + 1) 0
-          | otherwise -> do
-              -- Some readers hold the lock, but there are waiting writers.
-              -- We do nothing and wait until there are no more readers and attempt again.
-              -- At that point we are likely to end up in WriteLocked state.
-              putMVar rwlState st
-              readMVar rwlReadLock
-              go
-      lockState@(WriteLocked _) -> do
-        -- There is an active writer. Do nothing and wait until the writer is done.
-        putMVar rwlState lockState
-        readMVar rwlWriteLock
-        go
+    go =
+        takeMVar rwlState >>= \case
+            st@(Free waitingWriters)
+                | waitingWriters == 0 -> do
+                    -- the lock is free and there are no waiting writers. Acquire a read lock.
+                    takeMVar rwlReadLock
+                    putMVar rwlState (ReadLocked 1 0)
+                | otherwise -> do
+                    -- the lock is free, but there are waiting writers. We do nothing and try again.
+                    -- Due to fairness of MVars next time another thread will make progress
+                    -- so we are going to end up after a finite number of iterations, in a WriteLocked state.
+                    putMVar rwlState st
+                    -- Since this branch seems to be compiled into a loop without
+                    -- allocations by GHC with -O2 we need to explicitly yield to allow others
+                    -- to make progress. Otherwise with sufficient contention this loop ends up
+                    -- starving other threads since they are never scheduled. This then also means
+                    -- the loop never terminates since no other thread transitions from the Free
+                    -- to WriteLocked state.
+                    yield
+                    go
+            st@(ReadLocked n waitingWriters)
+                | waitingWriters == 0 ->
+                    -- No waiting writers, add another reader.
+                    putMVar rwlState $! ReadLocked (n + 1) 0
+                | otherwise -> do
+                    -- Some readers hold the lock, but there are waiting writers.
+                    -- We do nothing and wait until there are no more readers and attempt again.
+                    -- At that point we are likely to end up in WriteLocked state.
+                    putMVar rwlState st
+                    readMVar rwlReadLock
+                    go
+            lockState@(WriteLocked _) -> do
+                -- There is an active writer. Do nothing and wait until the writer is done.
+                putMVar rwlState lockState
+                readMVar rwlWriteLock
+                go
 
 -- |Acquire a write lock. This will block when there are active readers or
 -- writers. When this is operation is blocked it also blocks new readers from
@@ -199,36 +198,37 @@ acquireWrite :: RWLock -> IO ()
 acquireWrite RWLock{..} = mask_ $ go False
   where
     -- the boolean flag indicates whether this is a first iteration of the loop (False) or not (True)
-    go alreadyWaiting = takeMVar rwlState >>= \case
-      (Free waitingWriters) -> do
-        -- The lock is free, take it.
-        takeMVar rwlWriteLock
-        putMVar rwlState $! WriteLocked (waitingWriters - if alreadyWaiting then 1 else 0)
-      (ReadLocked n waitingWriters) -> do
-        -- There are active readers. Queue ourselves up and wait until all existing readers
-        -- are done. This will block all subsequent readers from acquiring the lock.
-        putMVar rwlState $! ReadLocked n (waitingWriters + if alreadyWaiting then 0 else 1)
-        readMVar rwlReadLock
-        go True
-      (WriteLocked waitingWriters) -> do
-        -- There is an active writer. Queue ourselves up so that readers are
-        -- blocked from acquiring the lock and wait until the current writer is done.
-        putMVar rwlState $! WriteLocked (waitingWriters + if alreadyWaiting then 0 else 1)
-        readMVar rwlWriteLock
-        go True
+    go alreadyWaiting =
+        takeMVar rwlState >>= \case
+            (Free waitingWriters) -> do
+                -- The lock is free, take it.
+                takeMVar rwlWriteLock
+                putMVar rwlState $! WriteLocked (waitingWriters - if alreadyWaiting then 1 else 0)
+            (ReadLocked n waitingWriters) -> do
+                -- There are active readers. Queue ourselves up and wait until all existing readers
+                -- are done. This will block all subsequent readers from acquiring the lock.
+                putMVar rwlState $! ReadLocked n (waitingWriters + if alreadyWaiting then 0 else 1)
+                readMVar rwlReadLock
+                go True
+            (WriteLocked waitingWriters) -> do
+                -- There is an active writer. Queue ourselves up so that readers are
+                -- blocked from acquiring the lock and wait until the current writer is done.
+                putMVar rwlState $! WriteLocked (waitingWriters + if alreadyWaiting then 0 else 1)
+                readMVar rwlWriteLock
+                go True
 
 -- |Release the write lock. The lock is assumed to be in write state, otherwise
 -- this function will raise an exception.
 releaseWrite :: RWLock -> IO ()
-releaseWrite RWLock{..} = mask_ $
-   takeMVar rwlState >>= \case
-    (WriteLocked waitingWriters) -> do
-      putMVar rwlWriteLock ()
-      putMVar rwlState (Free waitingWriters)
-    lockState -> do
-      putMVar rwlState lockState
-      error $ "releaseWrite: attempting to release while in state: " ++ show lockState
-
+releaseWrite RWLock{..} =
+    mask_ $
+        takeMVar rwlState >>= \case
+            (WriteLocked waitingWriters) -> do
+                putMVar rwlWriteLock ()
+                putMVar rwlState (Free waitingWriters)
+            lockState -> do
+                putMVar rwlState lockState
+                error $ "releaseWrite: attempting to release while in state: " ++ show lockState
 
 -- |Release the read lock. The lock is assumed to be in read state, otherwise
 -- this function will raise an exception. Note that since multiple readers may
@@ -236,15 +236,16 @@ releaseWrite RWLock{..} = mask_ $
 -- and leaves the lock in read state, or unlocks it if called when there is only
 -- a single active reader.
 releaseRead :: RWLock -> IO ()
-releaseRead RWLock{..} = mask_ $
-  takeMVar rwlState >>= \case
-    (ReadLocked 1 waitingWriters) -> do
-      putMVar rwlReadLock ()
-      putMVar rwlState (Free waitingWriters)
-    (ReadLocked n waitingWriters) -> putMVar rwlState $! ReadLocked (n - 1) waitingWriters
-    lockState -> do
-      putMVar rwlState lockState
-      error $ "releaseRead: attempting to release read when in state: " ++ show lockState
+releaseRead RWLock{..} =
+    mask_ $
+        takeMVar rwlState >>= \case
+            (ReadLocked 1 waitingWriters) -> do
+                putMVar rwlReadLock ()
+                putMVar rwlState (Free waitingWriters)
+            (ReadLocked n waitingWriters) -> putMVar rwlState $! ReadLocked (n - 1) waitingWriters
+            lockState -> do
+                putMVar rwlState lockState
+                error $ "releaseRead: attempting to release read when in state: " ++ show lockState
 
 -- |Acquire the write lock and execute the action. The lock will be released
 -- even if the action raises an exception. See 'acquireWrite' for more details.
@@ -261,21 +262,22 @@ withReadLock ls = bracket_ (acquireRead ls) (releaseRead ls)
 -- there are no active transactions. The intended way to use this is to acquire
 -- a read lock for each normal transaction (e.g., read, write), and acquire a
 -- write lock when the environment needs to be modified, e.g., resized.
-data StoreEnv = StoreEnv {
-  -- |The LMDB environment.
-  _seEnv :: !MDB_env,
-  -- |Lock to quard access to the environment. When resizing the environment
-  -- we must ensure that there are no outstanding transactions.
-  _seEnvLock :: !RWLock
-}
+data StoreEnv = StoreEnv
+    { -- |The LMDB environment.
+      _seEnv :: !MDB_env,
+      -- |Lock to quard access to the environment. When resizing the environment
+      -- we must ensure that there are no outstanding transactions.
+      _seEnvLock :: !RWLock
+    }
+
 makeLenses ''StoreEnv
 
 -- |Construct a new LMDB environment with associated locks that protect its use.
 makeStoreEnv :: IO StoreEnv
 makeStoreEnv = do
-  _seEnv <- mdb_env_create
-  _seEnvLock <- initializeLock
-  return StoreEnv{..}
+    _seEnv <- mdb_env_create
+    _seEnvLock <- initializeLock
+    return StoreEnv{..}
 
 -- |Acquire exclusive access to the LMDB environment and perform the given action.
 -- The IO action should not leak the 'MDB_env'.
@@ -296,30 +298,36 @@ withWriteStoreEnv env f = withWriteLock (env ^. seEnvLock) (f (env ^. seEnv))
 -- can be used to improve performance or provide more specialized
 -- encodings.
 class MDBDatabase db where
-  -- |Type of keys of the database.
-  type DBKey db
-  -- |Type of values of the database.
-  type DBValue db
-  -- |Obtain the database handle.
-  mdbDatabase :: db -> MDB_dbi'
-  default mdbDatabase :: (Coercible db MDB_dbi') => db -> MDB_dbi'
-  mdbDatabase = coerce
-  -- |Encode a key as a strict byte string. (Strict because it must be short.)
-  encodeKey :: Proxy db -> DBKey db -> ByteString
-  default encodeKey :: (S.Serialize (DBKey db)) => Proxy db -> DBKey db -> ByteString
-  encodeKey _ = S.encode
-  -- |Decode a key. The result should not retain the pointer.
-  decodeKey :: Proxy db -> MDB_val -> IO (Either String (DBKey db))
-  default decodeKey :: (S.Serialize (DBKey db)) => Proxy db -> MDB_val -> IO (Either String (DBKey db))
-  decodeKey _ k = S.decode <$> byteStringFromMDB_val k
-  -- |Encode a value as a lazy byte string. (Lazy because it may be more memory efficient.)
-  encodeValue :: Proxy db -> DBValue db -> LBS.ByteString
-  default encodeValue :: (S.Serialize (DBValue db)) => Proxy db -> DBValue db -> LBS.ByteString
-  encodeValue _ = S.encodeLazy
-  -- |Decode a value at the given key. The result should not retain the pointer.
-  decodeValue :: Proxy db -> DBKey db -> MDB_val -> IO (Either String (DBValue db))
-  default decodeValue :: (S.Serialize (DBValue db)) => Proxy db -> DBKey db -> MDB_val -> IO (Either String (DBValue db))
-  decodeValue _ _ v = S.decode <$> byteStringFromMDB_val v
+    -- |Type of keys of the database.
+    type DBKey db
+
+    -- |Type of values of the database.
+    type DBValue db
+
+    -- |Obtain the database handle.
+    mdbDatabase :: db -> MDB_dbi'
+    default mdbDatabase :: (Coercible db MDB_dbi') => db -> MDB_dbi'
+    mdbDatabase = coerce
+
+    -- |Encode a key as a strict byte string. (Strict because it must be short.)
+    encodeKey :: Proxy db -> DBKey db -> ByteString
+    default encodeKey :: (S.Serialize (DBKey db)) => Proxy db -> DBKey db -> ByteString
+    encodeKey _ = S.encode
+
+    -- |Decode a key. The result should not retain the pointer.
+    decodeKey :: Proxy db -> MDB_val -> IO (Either String (DBKey db))
+    default decodeKey :: (S.Serialize (DBKey db)) => Proxy db -> MDB_val -> IO (Either String (DBKey db))
+    decodeKey _ k = S.decode <$> byteStringFromMDB_val k
+
+    -- |Encode a value as a lazy byte string. (Lazy because it may be more memory efficient.)
+    encodeValue :: Proxy db -> DBValue db -> LBS.ByteString
+    default encodeValue :: (S.Serialize (DBValue db)) => Proxy db -> DBValue db -> LBS.ByteString
+    encodeValue _ = S.encodeLazy
+
+    -- |Decode a value at the given key. The result should not retain the pointer.
+    decodeValue :: Proxy db -> DBKey db -> MDB_val -> IO (Either String (DBValue db))
+    default decodeValue :: (S.Serialize (DBValue db)) => Proxy db -> DBKey db -> MDB_val -> IO (Either String (DBValue db))
+    decodeValue _ _ v = S.decode <$> byteStringFromMDB_val v
 
 -- |Run a transaction in an LMDB environment. The second argument specifies if
 -- the transaction is read-only. This will acquire a read lock so the given IO
@@ -327,13 +335,13 @@ class MDBDatabase db where
 -- itself. Doing so is likely to lead to a deadlock if other threads have access
 -- to the same environment.
 transaction :: StoreEnv -> Bool -> (MDB_txn -> IO a) -> IO a
-transaction se readOnly tx
-  = threadRun $ mask $ \unmask ->
-      withReadLock lock $ do
-        txn <- mdb_txn_begin env Nothing readOnly
-        res <- unmask (tx txn) `onException` mdb_txn_abort txn
-        mdb_txn_commit txn
-        return res
+transaction se readOnly tx =
+    threadRun $ mask $ \unmask ->
+        withReadLock lock $ do
+            txn <- mdb_txn_begin env Nothing readOnly
+            res <- unmask (tx txn) `onException` mdb_txn_abort txn
+            mdb_txn_commit txn
+            return res
   where
     env = se ^. seEnv
     lock = se ^. seEnvLock
@@ -362,19 +370,19 @@ unsafeByteStringFromMDB_val (MDB_val len ptr) = unsafePackCStringLen (coerce ptr
 -- The destination must have the same size as the source.
 writeMDB_val :: LBS.ByteString -> MDB_val -> IO ()
 writeMDB_val lbs v = assert (LBS.length lbs == fromIntegral (mv_size v)) $ do
-  let f ptr chunk =
-        BS.unsafeUseAsCStringLen chunk $ \(cptr, clen) -> do
-          copyBytes ptr cptr clen
-          return $ plusPtr ptr clen
-  foldM_ f (coerce $ mv_data v) (LBS.toChunks lbs)
+    let f ptr chunk =
+            BS.unsafeUseAsCStringLen chunk $ \(cptr, clen) -> do
+                copyBytes ptr cptr clen
+                return $ plusPtr ptr clen
+    foldM_ f (coerce $ mv_data v) (LBS.toChunks lbs)
 
 -- |A 'PrimitiveCursor' provides a wrapper for an 'MDB_cursor'', together
 -- with two pointers for storing references to keys and values.
-data PrimitiveCursor = PrimitiveCursor {
-  pcCursor :: !MDB_cursor',
-  pcKeyPtr :: !(Ptr MDB_val),
-  pcValPtr :: !(Ptr MDB_val)
-}
+data PrimitiveCursor = PrimitiveCursor
+    { pcCursor :: !MDB_cursor',
+      pcKeyPtr :: !(Ptr MDB_val),
+      pcValPtr :: !(Ptr MDB_val)
+    }
 
 -- |Open a cursor on a database. This also allocates pointers for holding keys
 -- and values retrieved via the cursor.  After the continuation is run, the
@@ -383,49 +391,48 @@ data PrimitiveCursor = PrimitiveCursor {
 withPrimitiveCursor :: MDB_txn -> MDB_dbi' -> (PrimitiveCursor -> IO a) -> IO a
 withPrimitiveCursor txn db op =
     bracket (mdb_cursor_open' txn db) mdb_cursor_close' $ \pcCursor ->
-    bracket malloc free $ \pcKeyPtr ->
-    bracket malloc free $ \pcValPtr -> op PrimitiveCursor{..}
+        bracket malloc free $ \pcKeyPtr ->
+            bracket malloc free $ \pcValPtr -> op PrimitiveCursor{..}
 
 -- |Operations on cursors
 data CursorMove
-  = CursorCurrent
-  -- ^Stay at the current position
-  | CursorFirst
-  -- ^Move to the first key
-  | CursorLast
-  -- ^Move to the last key
-  | CursorNext
-  -- ^Move to the next key
-  | CursorPrevious
-  -- ^Move to the previous key
+    = -- |Stay at the current position
+      CursorCurrent
+    | -- |Move to the first key
+      CursorFirst
+    | -- |Move to the last key
+      CursorLast
+    | -- |Move to the next key
+      CursorNext
+    | -- |Move to the previous key
+      CursorPrevious
 
 -- |Move a cursor and read the key and value at the new location.
 getPrimitiveCursor :: CursorMove -> PrimitiveCursor -> IO (Maybe (MDB_val, MDB_val))
 getPrimitiveCursor movement PrimitiveCursor{..} = do
     res <- mdb_cursor_get' moveOp pcCursor pcKeyPtr pcValPtr
-    if res then do
-      key <- peek pcKeyPtr
-      val <- peek pcValPtr
-      return $ Just (key, val)
-    else
-      return Nothing
+    if res
+        then do
+            key <- peek pcKeyPtr
+            val <- peek pcValPtr
+            return $ Just (key, val)
+        else return Nothing
   where
     moveOp = case movement of
-      CursorCurrent -> MDB_GET_CURRENT
-      CursorFirst -> MDB_FIRST
-      CursorLast -> MDB_LAST
-      CursorNext -> MDB_NEXT
-      CursorPrevious -> MDB_PREV
+        CursorCurrent -> MDB_GET_CURRENT
+        CursorFirst -> MDB_FIRST
+        CursorLast -> MDB_LAST
+        CursorNext -> MDB_NEXT
+        CursorPrevious -> MDB_PREV
 
 -- |Move a cursor to a specified key.
 movePrimitiveCursor :: MDB_val -> PrimitiveCursor -> IO (Maybe MDB_val)
 movePrimitiveCursor target PrimitiveCursor{..} = do
     poke pcKeyPtr target
     res <- mdb_cursor_get' MDB_SET_KEY pcCursor pcKeyPtr pcValPtr
-    if res then
-      Just <$> peek pcValPtr
-    else
-      return Nothing
+    if res
+        then Just <$> peek pcValPtr
+        else return Nothing
 
 -- |A type-safe cursor over a database.
 newtype Cursor db = Cursor PrimitiveCursor
@@ -445,35 +452,37 @@ getCursor movement (Cursor pc) = getPrimitiveCursor movement pc >>= mapM (decode
 -- |Decode a key-value pair from the database internal representation.
 decodeKV :: MDBDatabase db => Proxy db -> (MDB_val, MDB_val) -> IO (Either String (DBKey db, DBValue db))
 decodeKV prox (keyv, valv) = runExceptT $ do
-  key <- ExceptT $ decodeKey prox keyv
-  val <- ExceptT $ decodeValue prox key valv
-  return (key, val)
+    key <- ExceptT $ decodeKey prox keyv
+    val <- ExceptT $ decodeValue prox key valv
+    return (key, val)
 
 -- |Load all key value pairs from a database. Raises an error on a serialization failure.
 loadAll :: forall db. (MDBDatabase db) => MDB_txn -> db -> IO [(DBKey db, DBValue db)]
 loadAll txn db = withCursor txn db $ \cursor -> do
-        let trav l (Just (Right kv)) = trav (kv : l) =<< getCursor CursorPrevious cursor
-            trav l Nothing = return l
-            trav _ (Just (Left e)) = error e
-        trav [] =<< getCursor CursorLast cursor
+    let trav l (Just (Right kv)) = trav (kv : l) =<< getCursor CursorPrevious cursor
+        trav l Nothing = return l
+        trav _ (Just (Left e)) = error e
+    trav [] =<< getCursor CursorLast cursor
 
 -- |Store a record. Do not replace an existing record at the same key.
-storeRecord :: forall db. (MDBDatabase db)
-  => MDB_txn
-  -- ^Transaction
-  -> db
-  -- ^Table
-  -> DBKey db
-  -- ^Key
-  -> DBValue db
-  -- ^Value
-   -> IO ()
+storeRecord ::
+    forall db.
+    (MDBDatabase db) =>
+    -- |Transaction
+    MDB_txn ->
+    -- |Table
+    db ->
+    -- |Key
+    DBKey db ->
+    -- |Value
+    DBValue db ->
+    IO ()
 storeRecord txn dbi key val = withMDB_val (encodeKey prox key) $ \keyv -> do
     let encVal = encodeValue prox val
     res <- tryJust isKeyExist $ mdb_reserve' writeFlags txn (mdbDatabase dbi) keyv (fromIntegral $ LBS.length encVal)
     case res of
-      Left _ -> return () -- Key exists, so nothing to do
-      Right valv -> writeMDB_val encVal valv
+        Left _ -> return () -- Key exists, so nothing to do
+        Right valv -> writeMDB_val encVal valv
   where
     prox :: Proxy db
     prox = Proxy
@@ -482,16 +491,18 @@ storeRecord txn dbi key val = withMDB_val (encodeKey prox key) $ \keyv -> do
     isKeyExist _ = Nothing
 
 -- |Store a record. Replace any existing record at the same key.
-storeReplaceRecord :: forall db. (MDBDatabase db)
-  => MDB_txn
-  -- ^Transaction
-  -> db
-  -- ^Table
-  -> DBKey db
-  -- ^Key
-  -> DBValue db
-  -- ^Value
-   -> IO ()
+storeReplaceRecord ::
+    forall db.
+    (MDBDatabase db) =>
+    -- |Transaction
+    MDB_txn ->
+    -- |Table
+    db ->
+    -- |Key
+    DBKey db ->
+    -- |Value
+    DBValue db ->
+    IO ()
 storeReplaceRecord txn dbi key val = do
     let encVal = encodeValue prox val
     storeReplaceBytes txn dbi key encVal
@@ -500,16 +511,18 @@ storeReplaceRecord txn dbi key val = do
     prox = Proxy
 
 -- |Store a serialized record. Replace any existing record at the same key.
-storeReplaceBytes :: forall db. (MDBDatabase db)
-  => MDB_txn
-  -- ^Transaction
-  -> db
-  -- ^Table
-  -> DBKey db
-  -- ^Key
-  -> LBS.ByteString
-  -- ^Value
-   -> IO ()
+storeReplaceBytes ::
+    forall db.
+    (MDBDatabase db) =>
+    -- |Transaction
+    MDB_txn ->
+    -- |Table
+    db ->
+    -- |Key
+    DBKey db ->
+    -- |Value
+    LBS.ByteString ->
+    IO ()
 storeReplaceBytes txn dbi key encVal = withMDB_val (encodeKey prox key) $ \keyv -> do
     valv <- mdb_reserve' writeFlags txn (mdbDatabase dbi) keyv (fromIntegral $ LBS.length encVal)
     writeMDB_val encVal valv
@@ -519,50 +532,57 @@ storeReplaceBytes txn dbi key encVal = withMDB_val (encodeKey prox key) $ \keyv 
     writeFlags = compileWriteFlags []
 
 -- |Load a record at the specified key.
-loadRecord :: forall db. (MDBDatabase db)
-  => MDB_txn
-  -- ^Transaction
-  -> db
-  -- ^Table
-  -> DBKey db
-  -- ^Key
-  -> IO (Maybe (DBValue db))
+loadRecord ::
+    forall db.
+    (MDBDatabase db) =>
+    -- |Transaction
+    MDB_txn ->
+    -- |Table
+    db ->
+    -- |Key
+    DBKey db ->
+    IO (Maybe (DBValue db))
 loadRecord txn dbi key = do
     mval <- withMDB_val (encodeKey prox key) $ mdb_get' txn (mdbDatabase dbi)
     case mval of
-      Nothing -> return Nothing
-      Just bval -> decodeValue prox key bval >>= \case
-        Left _ -> return Nothing
-        Right val -> return (Just val)
+        Nothing -> return Nothing
+        Just bval ->
+            decodeValue prox key bval >>= \case
+                Left _ -> return Nothing
+                Right val -> return (Just val)
   where
     prox :: Proxy db
     prox = Proxy
 
 -- |Delete a record at the specified key. Returns True on success, or False if no value exists for
 -- the specified key.
-deleteRecord :: forall db. (MDBDatabase db)
-  => MDB_txn
-  -- ^Transaction
-  -> db
-  -- ^Table
-  -> DBKey db
-  -- ^Key
-  -> IO Bool
+deleteRecord ::
+    forall db.
+    (MDBDatabase db) =>
+    -- |Transaction
+    MDB_txn ->
+    -- |Table
+    db ->
+    -- |Key
+    DBKey db ->
+    IO Bool
 deleteRecord txn dbi key = do
-  withMDB_val (encodeKey prox key) $ \val -> mdb_del' txn (mdbDatabase dbi) val Nothing
+    withMDB_val (encodeKey prox key) $ \val -> mdb_del' txn (mdbDatabase dbi) val Nothing
   where
     prox :: Proxy db
     prox = Proxy
 
 -- |Determine if a value exists in the database with the specified key.
-isRecordPresent :: forall db. (MDBDatabase db)
-  => MDB_txn
-  -- ^Transaction
-  -> db
-  -- ^Table
-  -> DBKey db
-  -- ^Key
-  -> IO Bool
+isRecordPresent ::
+    forall db.
+    (MDBDatabase db) =>
+    -- |Transaction
+    MDB_txn ->
+    -- |Table
+    db ->
+    -- |Key
+    DBKey db ->
+    IO Bool
 isRecordPresent txn dbi key =
     isJust <$> withMDB_val (encodeKey prox key) (mdb_get' txn (mdbDatabase dbi))
   where
@@ -570,10 +590,12 @@ isRecordPresent txn dbi key =
     prox = Proxy
 
 -- |Determine the number of entries in a database.
-databaseSize :: forall db. (MDBDatabase db)
-  => MDB_txn
-  -- ^Transaction
-  -> db
-  -- ^Table
-  -> IO Word64
+databaseSize ::
+    forall db.
+    (MDBDatabase db) =>
+    -- |Transaction
+    MDB_txn ->
+    -- |Table
+    db ->
+    IO Word64
 databaseSize txn dbi = fromIntegral . ms_entries <$> mdb_stat' txn (mdbDatabase dbi)

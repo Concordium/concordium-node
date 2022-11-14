@@ -1,8 +1,8 @@
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -61,7 +61,7 @@ data LegacyReleaseSchedule = LegacyReleaseSchedule
       -- |The number of accounts with entries in the release schedule map.
       lrsEntryCount :: !Word64
     }
-    deriving(Show)
+    deriving (Show)
 
 instance Serialize LegacyReleaseSchedule where
     put LegacyReleaseSchedule{..} = do
@@ -113,7 +113,7 @@ instance (MonadBlobStore m) => ReleaseScheduleOperations m (BufferedRef LegacyRe
         remAcc Nothing = error "updateAccountRelease: no entry at expected release time"
         remAcc (Just s) =
             let s' = Set.delete addr s
-             in if Set.null s' then Nothing else Just s'
+            in  if Set.null s' then Nothing else Just s'
         addAcc Nothing = Just (Set.singleton addr)
         addAcc (Just accs) = Just $! Set.insert addr accs
 
@@ -158,8 +158,7 @@ data NewReleaseSchedule = NewReleaseSchedule
       -- with minimal timestamp.
       nrsMap :: !(Trie.TrieN BufferedFix Timestamp AccountSet)
     }
-
-    deriving(Show)
+    deriving (Show)
 
 instance MonadBlobStore m => BlobStorable m NewReleaseSchedule where
     storeUpdate NewReleaseSchedule{..} = do
@@ -208,7 +207,7 @@ instance (MonadBlobStore m) => ReleaseScheduleOperations m NewReleaseSchedule wh
         remAcc (Just (AccountSet accs)) =
             return $!
                 let accs' = Set.delete ai accs
-                 in if Set.null accs' then ((), Trie.Remove) else ((), Trie.Insert (AccountSet accs'))
+                in  if Set.null accs' then ((), Trie.Remove) else ((), Trie.Insert (AccountSet accs'))
         addAcc Nothing = return ((), Trie.Insert (AccountSet (Set.singleton ai)))
         addAcc (Just (AccountSet accs)) = return $!! ((), Trie.Insert (AccountSet (Set.insert ai accs)))
 
@@ -398,7 +397,7 @@ makePersistentReleaseSchedule getAddr tRS = case protocolVersion @pv of
     rsP0 = do
         let tf !entries accIds =
                 let newSet = Set.map getAddr accIds
-                 in (entries + fromIntegral (Set.size newSet), newSet)
+                in  (entries + fromIntegral (Set.size newSet), newSet)
             (lrsEntryCount, lrsMap) = Map.mapAccum tf 0 (Transient.rsMap tRS)
         rsRef <-
             refMake $!

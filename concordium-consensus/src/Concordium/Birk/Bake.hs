@@ -1,65 +1,71 @@
-{-# LANGUAGE
-    DeriveGeneric, OverloadedStrings, UndecidableInstances, MonoLocalBinds, ScopedTypeVariables, TypeApplications #-}
-module Concordium.Birk.Bake(
-  BakerIdentity(..),
-  BakeResult(..),
-  bakerSignPublicKey,
-  bakerElectionPublicKey,
-  validateBakerKeys,
-  BakerMonad(..)) where
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE MonoLocalBinds #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE UndecidableInstances #-}
 
-import GHC.Generics
-import Control.Monad.Trans.Maybe
-import Control.Monad.Trans
+module Concordium.Birk.Bake (
+    BakerIdentity (..),
+    BakeResult (..),
+    bakerSignPublicKey,
+    bakerElectionPublicKey,
+    validateBakerKeys,
+    BakerMonad (..),
+) where
+
 import Control.Monad
-import Data.ByteString(ByteString)
-import Data.Serialize
-import Data.Aeson(FromJSON, parseJSON, withObject, (.:))
+import Control.Monad.Trans
+import Control.Monad.Trans.Maybe
+import Data.Aeson (FromJSON, parseJSON, withObject, (.:))
+import Data.ByteString (ByteString)
 import Data.List (foldl')
+import Data.Serialize
+import GHC.Generics
 
 import Concordium.Types
 import Concordium.Types.Accounts
 
 import qualified Concordium.Crypto.BlockSignature as Sig
-import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.BlsSignature as BLS
-import Concordium.GlobalState.Parameters
+import qualified Concordium.Crypto.VRF as VRF
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Block hiding (PendingBlock, makePendingBlock)
 import Concordium.GlobalState.BlockMonads
+import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Finalization
+import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.TreeState as TS
 import Concordium.Types.HashableTo
+import Concordium.Types.SeedState
 import Concordium.Types.Transactions
 import Concordium.Types.Updates
-import Concordium.GlobalState.TransactionTable
-import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
-import Concordium.Types.SeedState
 
+import Concordium.Afgjort.Finalize
+import Concordium.Birk.LeaderElection
 import Concordium.Kontrol
 import Concordium.Kontrol.Bakers
-import Concordium.Birk.LeaderElection
 import Concordium.Kontrol.BestBlock
 import Concordium.Kontrol.UpdateLeaderElectionParameters
-import Concordium.Afgjort.Finalize
 import Concordium.Skov
-import Concordium.Skov.Update (blockArrive, onBlock, updateFocusBlockTo, OnSkov, makeFinalizerInfo)
+import Concordium.Skov.Update (OnSkov, blockArrive, makeFinalizerInfo, onBlock, updateFocusBlockTo)
 
-import Concordium.Scheduler.TreeStateEnvironment(constructBlock, ExecutionResult, ExecutionResult'(..), FinalizerInfo)
-import Concordium.Scheduler.Types(FilteredTransactions(..))
+import Concordium.Scheduler.TreeStateEnvironment (ExecutionResult, ExecutionResult' (..), FinalizerInfo, constructBlock)
+import Concordium.Scheduler.Types (FilteredTransactions (..))
 
 import Concordium.Logger
 import Concordium.TimeMonad
 
-
-data BakerIdentity = BakerIdentity {
-    bakerId :: BakerId,
-    bakerSignKey :: BakerSignPrivateKey,
-    bakerElectionKey :: BakerElectionPrivateKey,
-    bakerAggregationKey :: BakerAggregationPrivateKey,
-    bakerAggregationPublicKey :: BakerAggregationVerifyKey
-} deriving (Eq, Generic)
+data BakerIdentity = BakerIdentity
+    { bakerId :: BakerId,
+      bakerSignKey :: BakerSignPrivateKey,
+      bakerElectionKey :: BakerElectionPrivateKey,
+      bakerAggregationKey :: BakerAggregationPrivateKey,
+      bakerAggregationPublicKey :: BakerAggregationVerifyKey
+    }
+    deriving (Eq, Generic)
 
 bakerSignPublicKey :: BakerIdentity -> BakerSignVerifyKey
 bakerSignPublicKey ident = Sig.verifyKey (bakerSignKey ident)
@@ -67,50 +73,52 @@ bakerSignPublicKey ident = Sig.verifyKey (bakerSignKey ident)
 bakerElectionPublicKey :: BakerIdentity -> BakerElectionVerifyKey
 bakerElectionPublicKey ident = VRF.publicKey (bakerElectionKey ident)
 
-instance Serialize BakerIdentity where
+instance Serialize BakerIdentity
 
 instance FromJSON BakerIdentity where
-  parseJSON v = flip (withObject "Baker identity:") v $ \obj -> do
-    bakerId <- obj .: "bakerId"
-    bakerSignKey <- parseJSON v
-    bakerElectionKey <- parseJSON v
-    bakerAggregationKey <- obj .: "aggregationSignKey"
-    bakerAggregationPublicKey <- obj .: "aggregationVerifyKey"
-    when (bakerAggregationPublicKey /= BLS.derivePublicKey bakerAggregationKey) $
-        fail "Aggregation signing key does not correspond to the verification key."
-    return BakerIdentity{..}
+    parseJSON v = flip (withObject "Baker identity:") v $ \obj -> do
+        bakerId <- obj .: "bakerId"
+        bakerSignKey <- parseJSON v
+        bakerElectionKey <- parseJSON v
+        bakerAggregationKey <- obj .: "aggregationSignKey"
+        bakerAggregationPublicKey <- obj .: "aggregationVerifyKey"
+        when (bakerAggregationPublicKey /= BLS.derivePublicKey bakerAggregationKey) $
+            fail "Aggregation signing key does not correspond to the verification key."
+        return BakerIdentity{..}
 
-processTransactions
-    :: (TreeStateMonad m,
-        SkovMonad m)
-    => Slot
-    -> SeedState
-    -> BlockPointerType m
-    -> Maybe FinalizerInfo
-    -> BakerId
-    -> m (FilteredTransactions, ExecutionResult m)
+processTransactions ::
+    ( TreeStateMonad m,
+      SkovMonad m
+    ) =>
+    Slot ->
+    SeedState ->
+    BlockPointerType m ->
+    Maybe FinalizerInfo ->
+    BakerId ->
+    m (FilteredTransactions, ExecutionResult m)
 processTransactions slot ss bh mfinInfo bid = do
-  -- update the focus block to the parent block (establish invariant needed by constructBlock)
-  updateFocusBlockTo bh
-  -- at this point we can construct the block. The function 'constructBlock' also
-  -- updates the pending table and purges any transactions deemed invalid
-  slotTime <- getSlotTimestamp slot
-  constructBlock slot slotTime bh bid mfinInfo ss
-  -- NB: what remains is to update the focus block to the newly constructed one.
-  -- This is done in the method below once a block pointer is constructed.
+    -- update the focus block to the parent block (establish invariant needed by constructBlock)
+    updateFocusBlockTo bh
+    -- at this point we can construct the block. The function 'constructBlock' also
+    -- updates the pending table and purges any transactions deemed invalid
+    slotTime <- getSlotTimestamp slot
+    constructBlock slot slotTime bh bid mfinInfo ss
+
+-- NB: what remains is to update the focus block to the newly constructed one.
+-- This is done in the method below once a block pointer is constructed.
 
 -- |Re-establish all the invariants among the transaction table, pending table,
 -- account non-finalized table
 maintainTransactions ::
-  (TreeStateMonad m)
-  => BlockPointerType m
-  -> FilteredTransactions
-  -> m ()
+    (TreeStateMonad m) =>
+    BlockPointerType m ->
+    FilteredTransactions ->
+    m ()
 maintainTransactions bp FilteredTransactions{..} = do
     -- We first commit all valid transactions to the current block slot to prevent them being purged.
     let bh = getHash bp
     let slot = blockSlot bp
-    zipWithM_ (\tx -> commitTransaction slot bh (fst tx)) (map (\(a,b) -> (fst a, b)) ftAdded) [0..]
+    zipWithM_ (\tx -> commitTransaction slot bh (fst tx)) (map (\(a, b) -> (fst a, b)) ftAdded) [0 ..]
 
     -- lookup the maximum block size as mandated by the tree state
     maxSize <- rpBlockSize <$> TS.getRuntimeParameters
@@ -123,18 +131,19 @@ maintainTransactions bp FilteredTransactions{..} = do
     stateHandle <- blockState bp
 
     let nextNonceFor addr = do
-          macc <- getAccount stateHandle addr
-          case macc of
-            Nothing -> return minNonce
-            Just (_, acc) -> getAccountNonce acc
+            macc <- getAccount stateHandle addr
+            case macc of
+                Nothing -> return minNonce
+                Just (_, acc) -> getAccountNonce acc
     -- construct a new pending transaction table adding back some failed transactions.
     let purgeFailed cpt (tx, _) = do
-          b <- purgeTransaction (normalTransaction tx)
-          if b then return cpt  -- if the transaction was purged don't put it back into the pending table
-          else do
-            -- but otherwise do
-            nonce <- nextNonceFor (transactionSender tx)
-            return $! checkedAddPendingTransaction nonce tx cpt
+            b <- purgeTransaction (normalTransaction tx)
+            if b
+                then return cpt -- if the transaction was purged don't put it back into the pending table
+                else do
+                    -- but otherwise do
+                    nonce <- nextNonceFor (transactionSender tx)
+                    return $! checkedAddPendingTransaction nonce tx cpt
 
     newpt <- foldM purgeFailed emptyPendingTransactionTable (map fst ftFailed)
 
@@ -144,36 +153,40 @@ maintainTransactions bp FilteredTransactions{..} = do
     -- However modulo crypto breaking, this can only happen if the user has tried to deploy duplicate
     -- credentials (with high probability), so it is likely fine to remove it.
     let purgeCredential cpt (cred, _) = do
-          b <- purgeTransaction (credentialDeployment cred)
-          if b then return cpt
-          else return $! addPendingDeployCredential (wmdHash cred) cpt
+            b <- purgeTransaction (credentialDeployment cred)
+            if b
+                then return cpt
+                else return $! addPendingDeployCredential (wmdHash cred) cpt
 
     newpt' <- foldM purgeCredential newpt (map fst ftFailedCredentials)
 
     let purgeUpdate cpt (ui, _) = do
-          b <- purgeTransaction (chainUpdate ui)
-          if b then return cpt
-          else do
-            sn <- getNextUpdateSequenceNumber stateHandle (updateType (uiPayload (wmdData ui)))
-            return $! checkedAddPendingUpdate sn (wmdData ui) cpt
+            b <- purgeTransaction (chainUpdate ui)
+            if b
+                then return cpt
+                else do
+                    sn <- getNextUpdateSequenceNumber stateHandle (updateType (uiPayload (wmdData ui)))
+                    return $! checkedAddPendingUpdate sn (wmdData ui) cpt
     newpt'' <- foldM purgeUpdate newpt' (map fst ftFailedUpdates)
 
     -- additionally add in the unprocessed transactions which are sufficiently small (here meaning < maxSize)
     let purgeTooBig cpt (tx, _) =
-          if transactionSize tx < maxSize then do
-            nonce <- nextNonceFor (transactionSender tx)
-            return $! checkedAddPendingTransaction nonce tx cpt
-          else do
-            -- only purge a transaction from the table if it is too big **and**
-            -- not already committed to a recent block. if it is in a currently
-            -- live block then we must not purge it to maintain the invariant
-            -- that all transactions in live blocks exist in the transaction
-            -- table.
-            b <- purgeTransaction (normalTransaction tx)
-            if b then return cpt
-            else do
-              nonce <- nextNonceFor (transactionSender tx)
-              return $! checkedAddPendingTransaction nonce tx cpt
+            if transactionSize tx < maxSize
+                then do
+                    nonce <- nextNonceFor (transactionSender tx)
+                    return $! checkedAddPendingTransaction nonce tx cpt
+                else do
+                    -- only purge a transaction from the table if it is too big **and**
+                    -- not already committed to a recent block. if it is in a currently
+                    -- live block then we must not purge it to maintain the invariant
+                    -- that all transactions in live blocks exist in the transaction
+                    -- table.
+                    b <- purgeTransaction (normalTransaction tx)
+                    if b
+                        then return cpt
+                        else do
+                            nonce <- nextNonceFor (transactionSender tx)
+                            return $! checkedAddPendingTransaction nonce tx cpt
 
     ptWithUnprocessed <- foldM purgeTooBig newpt'' ftUnprocessed
 
@@ -183,10 +196,11 @@ maintainTransactions bp FilteredTransactions{..} = do
     let ptWithUnprocessedCreds = foldl' (\cpt cdiwm -> addPendingDeployCredential (wmdHash cdiwm) cpt) ptWithUnprocessed (map fst ftUnprocessedCredentials)
 
     let purgeUnprocessedUpdates cpt (ui, verRes) =
-          if wmdSize ui < maxSize then do
-            sn <- getNextUpdateSequenceNumber stateHandle (updateType (uiPayload (wmdData ui)))
-            return $! checkedAddPendingUpdate sn (wmdData ui) cpt
-          else purgeUpdate cpt (ui, verRes)
+            if wmdSize ui < maxSize
+                then do
+                    sn <- getNextUpdateSequenceNumber stateHandle (updateType (uiPayload (wmdData ui)))
+                    return $! checkedAddPendingUpdate sn (wmdData ui) cpt
+                else purgeUpdate cpt (ui, verRes)
     ptWithAllUnprocessed <- foldM purgeUnprocessedUpdates ptWithUnprocessedCreds ftUnprocessedUpdates
 
     -- commit the new pending transactions to the tree state
@@ -195,9 +209,9 @@ maintainTransactions bp FilteredTransactions{..} = do
 -- |Check that a baker's keys match the 'BakerInfo'.
 validateBakerKeys :: BakerInfo -> BakerIdentity -> Bool
 validateBakerKeys BakerInfo{..} ident =
-  _bakerElectionVerifyKey == bakerElectionPublicKey ident
-  && _bakerSignatureVerifyKey == bakerSignPublicKey ident
-  && _bakerAggregationVerifyKey == bakerAggregationPublicKey ident
+    _bakerElectionVerifyKey == bakerElectionPublicKey ident
+        && _bakerSignatureVerifyKey == bakerSignPublicKey ident
+        && _bakerAggregationVerifyKey == bakerAggregationPublicKey ident
 
 doBakeForSlot :: forall m. (FinalizationMonad m, SkovMonad m, TreeStateMonad m, MonadIO m, OnSkov m) => BakerIdentity -> Slot -> m (Maybe (BlockPointerType m))
 doBakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
@@ -211,30 +225,31 @@ doBakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     bakers <- getSlotBakers gd bbState slot
     (binfo, lotteryPower) <- MaybeT . return $ lotteryBaker bakers bakerId
     unless (validateBakerKeys binfo ident) $ do
-      logEvent Baker LLWarning "Baker keys are incorrect."
-      let logMismatch :: (Eq a, Show a) => String -> a -> a -> MaybeT m ()
-          logMismatch desc x y = unless (x == y) $ logEvent Baker LLTrace $ desc ++ " mismatch. Expected: " ++ show x ++ "; actual: " ++ show y
-      logMismatch "Election verify key" (_bakerElectionVerifyKey binfo) (bakerElectionPublicKey ident)
-      logMismatch "Signature verify key" (_bakerSignatureVerifyKey binfo) (bakerSignPublicKey ident)
-      logMismatch "Aggregate signature verify key" (_bakerAggregationVerifyKey binfo) bakerAggregationPublicKey
-      fail "Baker keys are incorrect."
+        logEvent Baker LLWarning "Baker keys are incorrect."
+        let logMismatch :: (Eq a, Show a) => String -> a -> a -> MaybeT m ()
+            logMismatch desc x y = unless (x == y) $ logEvent Baker LLTrace $ desc ++ " mismatch. Expected: " ++ show x ++ "; actual: " ++ show y
+        logMismatch "Election verify key" (_bakerElectionVerifyKey binfo) (bakerElectionPublicKey ident)
+        logMismatch "Signature verify key" (_bakerSignatureVerifyKey binfo) (bakerSignPublicKey ident)
+        logMismatch "Aggregate signature verify key" (_bakerAggregationVerifyKey binfo) bakerAggregationPublicKey
+        fail "Baker keys are incorrect."
     oldSeedState <- getSeedState bbState
     let leNonce = computeLeadershipElectionNonce oldSeedState slot
     slotTime <- getSlotTimestamp slot
     elDiff <- getElectionDifficulty bbState slotTime
-    electionProof <- MaybeT . liftIO $
-        leaderElection leNonce elDiff slot bakerElectionKey lotteryPower
+    electionProof <-
+        MaybeT . liftIO $
+            leaderElection leNonce elDiff slot bakerElectionKey lotteryPower
     logEvent Baker LLInfo $ "Won lottery in " ++ show slot ++ "(lottery power: " ++ show lotteryPower ++ "; election difficulty: " ++ show elDiff ++ ")"
     let nonce = computeBlockNonce leNonce slot bakerElectionKey
     nfr <- lift (nextFinalizationRecord bb)
     (lastFinal, mfinInfo, finData) <- case nfr of
-        Nothing -> (, Nothing, NoFinalizationData) <$> bpLastFinalized bb
+        Nothing -> (,Nothing,NoFinalizationData) <$> bpLastFinalized bb
         Just (_, finCom, finRec) ->
             resolveBlock (finalizationBlockPointer finRec) >>= \case
                 -- It is possible that we have a finalization proof but we
                 -- don't actually have the block that was finalized.
                 -- Possibly we should not even bake in this situation.
-                Nothing -> (, Nothing, NoFinalizationData) <$> bpLastFinalized bb
+                Nothing -> (,Nothing,NoFinalizationData) <$> bpLastFinalized bb
                 Just finBlock -> return (finBlock, Just (makeFinalizerInfo finCom $ finalizationProof finRec), BlockFinalizationData finRec)
     -- possibly add the block nonce in the seed state
     let newSeedState = updateSeedState slot nonce oldSeedState
@@ -270,7 +285,8 @@ data BakeResult
       BakeShutdown
 
 -- |Try to bake for a slot later than the given slot, up to the current slot.
-doTryBake :: forall m.
+doTryBake ::
+    forall m.
     (FinalizationMonad m, SkovMonad m, TreeStateMonad m, MonadIO m, OnSkov m) =>
     -- |Baker identity
     BakerIdentity ->
@@ -287,7 +303,7 @@ doTryBake bid lastSlot = unlessShutdown $ do
     -- Determine the oldest slot that we could bake for given that we can only bake maxDelaySlots
     -- in the past. This avoids underflow. We can never bake for slot 0.
     let oldestViableSlot = if curSlot <= maxDelaySlots then 1 else curSlot - maxDelaySlots
-    -- The starting slot is the minimum slot that is at least the oldest viable slot and 
+    -- The starting slot is the minimum slot that is at least the oldest viable slot and
     -- greater than both the last finalized slot and lost slot baked for.
     let startSlot = max oldestViableSlot (max lastFinSlot lastSlot + 1)
     -- Try baking from the candidate slot up to the current slot.
@@ -298,8 +314,11 @@ doTryBake bid lastSlot = unlessShutdown $ do
             | otherwise =
                 doBakeForSlot bid candidate >>= \case
                     Nothing -> bakeLoop (candidate + 1)
-                    Just block -> return $ BakeSuccess candidate $ runPut $
-                      putVersionedBlock (protocolVersion @(MPV m)) block
+                    Just block ->
+                        return $
+                            BakeSuccess candidate $
+                                runPut $
+                                    putVersionedBlock (protocolVersion @(MPV m)) block
     bakeLoop startSlot
   where
     unlessShutdown a =
@@ -314,12 +333,15 @@ class (SkovMonad m, FinalizationMonad m) => BakerMonad m where
     -- pending transaction table and block table. It will also update the focus block
     -- to the newly created block.
     bakeForSlot :: BakerIdentity -> Slot -> m (Maybe (BlockPointerType m))
+
     -- |Try to bake for a slot later than the given slot, up to the current slot.
     -- This will never bake for a slot earlier than the last finalized block, or that precedes
     -- the current slot by more than the 'rpMaxBakingDelay' runtime parameter.
     tryBake :: BakerIdentity -> Slot -> m BakeResult
 
-instance (FinalizationMonad (SkovT pv h c m), MonadIO m, SkovMonad (SkovT pv h c m), TreeStateMonad (SkovT pv h c m), OnSkov (SkovT pv h c m)) =>
-        BakerMonad (SkovT pv h c m) where
+instance
+    (FinalizationMonad (SkovT pv h c m), MonadIO m, SkovMonad (SkovT pv h c m), TreeStateMonad (SkovT pv h c m), OnSkov (SkovT pv h c m)) =>
+    BakerMonad (SkovT pv h c m)
+    where
     bakeForSlot = doBakeForSlot
     tryBake = doTryBake

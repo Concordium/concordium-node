@@ -1,0 +1,12 @@
+indentation: 4 # How many spaces to use as an indent.
+function-arrows: trailing # Where to place arrows in type signatures.
+comma-style: trailing # Where to place commas in lists, tuples, etc.
+import-export-style: diff-friendly # How to format multiline import/export lists (diff-friendly lists have trailing commas but keep the opening parenthesis on the same line as import).
+record-brace-space: false # rec {x = 1} vs. rec{x = 1}.
+indent-wheres: false # 'false' means save space by only half-indenting the 'where' keyword.
+newlines-between-decls: 1 # number of newlines between top-level declarations.
+haddock-style: single-line # Use -- |, {- |, or {-| for multiline haddocks (single-line haddocks always use --).
+let-style: auto # How to style let blocks (auto uses newline if there's a newline in the input and inline otherwise, and mixed uses inline only when the let has exactly one binding).
+in-style: left-align # How to align the in keyword with respect to let.
+respectful: true # Be less aggressive in reformatting input, e.g. keep empty lines in import list.
+fixities: [] # Override fixities of operators.
