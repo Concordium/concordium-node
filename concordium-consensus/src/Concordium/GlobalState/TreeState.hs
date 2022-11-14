@@ -13,7 +13,6 @@ module Concordium.GlobalState.TreeState (
 ) where
 
 import Control.Monad.Reader
-import Control.Monad.Trans.Class
 import Control.Monad.Trans.Except
 import Control.Monad.Trans.Maybe
 import qualified Data.Map.Strict as Map

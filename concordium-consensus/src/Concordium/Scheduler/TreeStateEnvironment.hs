@@ -51,7 +51,6 @@ import Concordium.Scheduler.EnvironmentImplementation (
  )
 import Concordium.Scheduler.Types
 import qualified Concordium.TransactionVerification as TVer
-import Concordium.Types
 import qualified Concordium.Types.Accounts as Types
 import Concordium.Types.SeedState
 import qualified Concordium.Types.Transactions as Types

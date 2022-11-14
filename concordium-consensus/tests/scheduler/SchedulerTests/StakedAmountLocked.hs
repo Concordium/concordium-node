@@ -30,7 +30,6 @@ import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Scheduler.Types hiding (Transfer)
 import Concordium.TransactionVerification
-import Concordium.Types
 
 import Lens.Micro.Platform
 

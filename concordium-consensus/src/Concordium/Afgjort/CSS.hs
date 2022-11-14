@@ -105,7 +105,6 @@ module Concordium.Afgjort.CSS (
 ) where
 
 import Control.Monad.RWS.Strict
-import Control.Monad.State.Class
 import Data.List (foldl')
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map

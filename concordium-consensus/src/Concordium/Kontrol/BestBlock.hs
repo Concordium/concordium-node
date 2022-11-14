@@ -21,7 +21,6 @@ import Concordium.Birk.LeaderElection
 import Concordium.GlobalState.TreeState (BlockPointerType, Branches)
 import Concordium.Kontrol
 import Concordium.Kontrol.Bakers
-import Concordium.Skov.Monad
 
 blockLuck :: (SkovQueryMonad m) => BlockPointerType m -> m BlockLuck
 blockLuck block = case blockFields block of
