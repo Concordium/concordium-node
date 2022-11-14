@@ -1468,7 +1468,7 @@ impl ConsensusContainer {
     ) -> (ConsensusFfiResponse, *mut executable_block) {
         let consensus = self.consensus.load(Ordering::SeqCst);
 
-        let ptr_block_to_execute = std::ptr::null_mut();
+        let mut ptr_block_to_execute = std::ptr::null_mut();
         let ptr_ptr_block_to_execute = &mut ptr_block_to_execute;
         let ptr_block = block.as_ptr();
         let len = block.len();

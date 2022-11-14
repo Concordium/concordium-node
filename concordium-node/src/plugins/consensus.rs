@@ -344,7 +344,8 @@ fn send_msg_to_consensus(
                 ConsensusFinalizer::Block((genesis_index, ptr_executable_block))
             } else {
                 ConsensusFinalizer::None
-            }(ffi_response, finalizer);
+            };
+            (ffi_response, finalizer)
         }
         FinalizationMessage => {
             let genesis_index = u32::deserial(&mut Cursor::new(&payload[..4]))?;
