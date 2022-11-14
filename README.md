@@ -108,5 +108,5 @@ The CI is configured to check two things
   formatting. Unfortunately the stable version of the tool is quite outdated, so
   we use a nightly version, which is updated a few times a year. Thus in order
   for the CI to pass you will need to install the relevant nightly version, see
-  see the file [.github/workflows/rustfmt.yaml](.github/workflows/rustfmt.yaml),
+  see the `rustfmt` job in the file [.github/workflows/build-test.yaml](.github/workflows/build-test.yaml),
   look for `nightly-...`).
