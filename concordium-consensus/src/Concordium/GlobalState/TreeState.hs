@@ -361,8 +361,6 @@ class
     -- By default the transaction is created in the 'Received' state,
     -- but if the transaction is already in the table the outcomes are retained.
     -- See documentation of 'AddTransactionResult' for meaning of the return value.
-    -- The time is indicative of the receive time of the transaction. It is used to prioritize transactions
-    -- when constructing a block.
     addVerifiedTransaction :: BlockItem -> TVer.OkResult -> m AddTransactionResult
 
     -- |Purge a transaction from the transaction table if its last committed slot

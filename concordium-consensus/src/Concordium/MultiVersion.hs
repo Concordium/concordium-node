@@ -1126,13 +1126,6 @@ getCatchUpRequest = do
             cus <- evalSkovT (getCatchUpStatus @(VersionedSkovM _ _ pv) True) (mvrSkovHandlers vc mvr) (vcContext vc) st
             return (vcIndex vc, runPutLazy $ putVersionedCatchUpStatus cus)
 
-currentProtocolVersion :: MVR gsconf finconf SomeProtocolVersion
-currentProtocolVersion = do
-    vvec <- liftIO . readIORef =<< asks mvVersions
-    case Vec.last vvec of
-        EVersionedConfiguration (_ :: VersionedConfiguration gsconf finconf pv) ->
-            return $ SomeProtocolVersion $ protocolVersion @pv
-
 -- |Deserialize and receive a transaction.  The transaction is passed to
 -- the current version of the chain.
 --

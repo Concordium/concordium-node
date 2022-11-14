@@ -110,8 +110,8 @@ data UpdateResult
       ResultInsufficientFunds
     deriving (Eq, Show)
 
--- |Maps the underlying 'TransactionVerificationResult' to the according 'UpdateResult' type.
--- See the 'VerificationResult' for more information.
+-- |Maps a 'TV.VerificationResult' to the corresponding 'UpdateResult' type.
+-- See the 'TV.VerificationResult' for more information.
 transactionVerificationResultToUpdateResult :: TV.VerificationResult -> UpdateResult
 -- 'Ok' mappings
 transactionVerificationResultToUpdateResult (TV.Ok _) = ResultSuccess
