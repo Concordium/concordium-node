@@ -214,7 +214,7 @@ jobs:
     # Compile Haskell sources. This must be done before running checks or tests on the Rust sources.
     - name: Build consensus
       run: |
-        stack build --test --bench --force-dirty --stack-yaml concordium-consensus/stack.yaml --no-run-tests --no-run-benchmarks
+        stack build --test --bench --force-dirty --stack-yaml concordium-consensus/stack.yaml --no-run-tests --no-run-benchmarks --ghc-options "-Werror"
 
     # Test Haskell sources. Could be run in parallel with the steps below.
     - name: Test consensus
