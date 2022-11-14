@@ -95,7 +95,6 @@ module Concordium.Afgjort.ABBA (
 
 import Control.Arrow
 import Control.Monad.RWS.Strict
-import Control.Monad.State.Class
 import qualified Data.ByteString as BS
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map

@@ -97,7 +97,6 @@ module Concordium.Afgjort.Freeze (
 
 import Control.Exception (assert)
 import Control.Monad.RWS.Strict
-import Control.Monad.State.Class
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Serialize as S

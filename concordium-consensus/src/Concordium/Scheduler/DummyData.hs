@@ -11,7 +11,6 @@ import Data.FileEmbed
 import Concordium.Common.Version
 import Concordium.ID.Types
 import Concordium.Scheduler.Types
-import Concordium.Types
 import Data.Time
 
 import qualified Concordium.Scheduler.Runner as Runner

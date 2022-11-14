@@ -49,7 +49,6 @@ import Concordium.Afgjort.Finalize
 import Concordium.Birk.Bake
 import Concordium.Kontrol
 import Concordium.Logger
-import Concordium.Skov.Monad
 import Concordium.Skov.MonadImplementations
 import Concordium.Startup
 import Concordium.TimeMonad

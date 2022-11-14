@@ -19,7 +19,6 @@ module Concordium.Skov.MonadImplementations where
 import Control.Monad.Identity
 import Control.Monad.RWS.Strict
 import Control.Monad.Reader
-import Control.Monad.State.Class
 import Control.Monad.State.Strict
 import Data.Kind
 import Data.Proxy
