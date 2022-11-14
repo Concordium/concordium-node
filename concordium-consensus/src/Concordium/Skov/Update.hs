@@ -272,8 +272,12 @@ processFinalization newFinBlock finRec@FinalizationRecord{..} = do
 --    should be called again when the pending criterion is fulfilled.
 -- 3. The block is determined to be valid and added to the tree.
 -- todo doc
-addBlock :: forall m. (HasCallStack, TreeStateMonad m, SkovMonad m, FinalizationMonad m, OnSkov m) => PendingBlock -> [Maybe TV.VerificationResult] -> BlockPointerType m -> Maybe FinalizerInfo -> m UpdateResult
-addBlock block txvers parentP mFinInfo = do
+addBlock :: forall m. (HasCallStack, TreeStateMonad m, SkovMonad m, FinalizationMonad m, OnSkov m)
+      => PendingBlock
+      -> [Maybe TV.VerificationResult]
+      -> Maybe FinalizerInfo
+      -> m UpdateResult
+addBlock block txvers mFinInfo = do
         lfs <- getLastFinalizedSlot
         -- The block must be later than the last finalized block
         if lfs >= blockSlot block then deadBlock else do
@@ -282,12 +286,25 @@ addBlock block txvers parentP mFinInfo = do
             -- so we make sure to look up as little data as possible to determine block validity.
             -- In particular we do not use getBlockStatus since that loads the entire block
             -- from the database if the block is finalized.
-            addBlockWithLiveParent block txvers parentP mFinInfo
+            parentStatus <- getRecentBlockStatus parent
+            case parentStatus of
+                -- The block's parent is older than the last finalized one. So
+                -- this block cannot be on a live branch.
+                OldFinalized -> deadBlock
+                Unknown -> addBlockAsPending block
+                RecentBlock (BlockPending _) -> addBlockAsPending block
+                RecentBlock BlockDead -> deadBlock
+                RecentBlock (BlockAlive parentP) -> addBlockWithLiveParent block txvers parentP mFinInfo
+                -- In the following case the finalized block is the last
+                -- finalized one (this is the semantics of getRecentBlockStatus)
+                RecentBlock (BlockFinalized parentP _) -> addBlockWithLiveParent block txvers parentP mFinInfo
     where
         deadBlock :: m UpdateResult
         deadBlock = do
             blockArriveDead $! getHash block
             return ResultStale
+        parent = blockPointer block
+
 
 -- |Add a block to the pending blocks table, returning 'ResultPendingBlock'.
 -- It is assumed that the parent of the block is unknown or also a pending block, and that its
@@ -349,15 +366,12 @@ addBlockWithLiveParent block txvers parentP finInfo = do
                     forM_ children $ \childpb -> do
                         childStatus <- getBlockStatus (getHash childpb)
                         verress <- mapM getNonFinalizedTransactionVerificationResult (blockTransactions childpb)
-                        let isPending Nothing = True
+                        let
+                            isPending Nothing = True
                             isPending (Just (BlockPending _)) = True
-                            isPending _ = False
-                        let parentHash = blockPointer childpb
-                        mParentP <- resolveBlock parentHash
-                        case mParentP of
-                            Nothing -> return ()
-                            Just childPP -> do
-                                when (isPending childStatus) $ addBlock childpb verress childPP Nothing >>= \case
+                            isPending _ = False                    
+                        when (isPending childStatus) $!
+                                addBlock childpb verress Nothing >>= \case
                                     ResultSuccess -> onPendingLive
                                     _ -> return ()
                     return ResultSuccess

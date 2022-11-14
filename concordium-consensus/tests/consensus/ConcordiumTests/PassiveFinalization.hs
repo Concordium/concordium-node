@@ -218,9 +218,13 @@ bake bid n = do
           mb
 
 store :: (SkovMonad m, MonadFail m) => BakedBlock -> m ()
-store block = storeBlock (makePendingBlock block dummyTime) >>= \case
-    ResultSuccess -> return()
-    result        -> fail $ "Could not store block " ++ show block ++ ". Reason: " ++ show result
+store block = do
+    (recvResult, mCont) <- receiveBlock (makePendingBlock block dummyTime)
+    case mCont of
+        Nothing -> fail $ "Could not receive block " ++ show block ++ ". Reason: " ++ show recvResult
+        Just cont -> executeBlock cont >>= \case 
+            ResultSuccess -> return ()
+            result        -> fail $ "Could not execute block " ++ show block ++ ". Reason: " ++ show result
 
 receiveFinMessage :: (FinalizationMonad m, MonadIO m, MonadFail m)
                   => FinalizationIndex

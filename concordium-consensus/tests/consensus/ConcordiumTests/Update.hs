@@ -160,16 +160,20 @@ bake bid n = do
 
 -- |Attempts to store a block, and throws an error if it fails
 store :: (SkovMonad m, MonadFail m) => BakedBlock -> m ()
-store block = storeBlock (makePendingBlock block dummyTime) >>= \case
-    ResultSuccess -> return()
-    result        -> fail $ "Failed to store un-dirtied block " ++ show block ++ ". Reason: " ++ show result
+store block = receiveBlock (makePendingBlock block dummyTime) >>= \case
+    (recvRes, Nothing) -> fail $ "Failed to receive un-dirtied block " ++ show block ++ ". Reason: " ++ show recvRes
+    (_, Just cont) -> executeBlock cont >>= \case
+         ResultSuccess -> return ()
+         result        -> fail $ "Failed to execute un-dirtied block " ++ show block ++ ". Reason: " ++ show result
 
 -- |Attempts to store a block, and throws an error if it succeeds
 -- Used for verifying that dirtied blocks are rejected
 failStore :: (SkovMonad m, MonadFail m) => BakedBlock -> m ()
-failStore block = storeBlock (makePendingBlock block dummyTime) >>= \case
-    ResultSuccess -> fail $ "Successfully stored dirtied block: " ++ show block
-    _        -> return()
+failStore block = receiveBlock (makePendingBlock block dummyTime) >>= \case
+    (recvRes, Nothing) -> (when (recvRes == ResultSuccess) $ fail $ "Successfully received dirtied block: " ++ show block)
+    (_, Just cont) -> executeBlock cont >>= \case
+        ResultSuccess -> fail $ "Successfully executed dirtied block: " ++ show block
+        _ -> return ()
 
 -- * Helper functions for dirtying fields of blocks
 
@@ -211,11 +215,11 @@ dirtyBakerKeySignature BakedBlock{..} _ = reSign fakeKeyPair BakedBlock{bbFields
 
 -- |Claims earlier slot than reality
 dirtySlot1 ::BakedBlock -> BakerSignPrivateKey -> BakedBlock
-dirtySlot1 BakedBlock{..} bid = reSign bid BakedBlock{bbSlot = 1, ..} 
+dirtySlot1 BakedBlock{..} bid = reSign bid BakedBlock{bbSlot = 1, ..}
 
 -- |Claims later slot than reality
 dirtySlot2 :: BakedBlock -> BakerSignPrivateKey -> BakedBlock
-dirtySlot2 BakedBlock{..} bid = reSign bid BakedBlock{bbSlot = 3, ..} 
+dirtySlot2 BakedBlock{..} bid = reSign bid BakedBlock{bbSlot = 3, ..}
 
 
 -- |Sanity check test, to make sure that an undirtied block doesn't fail to be stored

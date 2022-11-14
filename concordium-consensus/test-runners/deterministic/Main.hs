@@ -397,11 +397,10 @@ stepConsensus =
                         ssEvents %= addEvent (PEvent (t+ticksPerSlot) (BakerEvent i (EBake (sl+1))))
                     EBlock bb -> do
                         let pb = makePendingBlock bb (posixSecondsToUTCTime (fromIntegral t))
-                        (_, mExecutableBlock) <- runBaker t i (receiveBlock pb)
-                        case mExecutableBlock of
-                            Nothing -> undefined -- todo: this is probably not good enough...
-                            Just executableBlock -> do
-                                _ <- runBaker t i (executeBlock executableBlock)
+                        runBaker t i (receiveBlock pb) >>= \case
+                            (recvRes, Nothing) -> return () -- todo figure out how it should be handled if the block cannot be initially verified.
+                            (_, Just cont) -> do
+                                _ <- runBaker t i (executeBlock cont)
                                 return ()
                     ETransaction tr -> do
                         _ <- runBaker t i (receiveTransaction tr)

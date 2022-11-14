@@ -36,7 +36,7 @@ import Concordium.Kontrol (currentTimestamp)
 import Concordium.Logger
 import Concordium.MultiVersion
 import qualified Concordium.ProtocolUpdate.P1.Reboot as P1.Reboot
-import Concordium.Skov hiding (receiveTransaction, receiveBlock)
+import Concordium.Skov hiding (receiveTransaction, receiveBlock, executeBlock)
 import Concordium.Startup
 import Concordium.TimerMonad
 import Concordium.Types
@@ -227,8 +227,11 @@ startCatchUpThread myPeer peers = forkIO $
 peerReceive :: Peer g f -> Peer g f -> MessageType -> GenesisIndex -> BS.ByteString -> IO ()
 peerReceive target src MessageBlock genIndex msg = do
     mvLog (peerMVR target) External LLDebug $ "Received block from " ++ show (peerId src)
-    res <- runMVR (receiveBlock genIndex msg) (peerMVR target)
-    when (isPending (fst res)) $ markPeerPending target (peerId src)
+    runMVR (receiveBlock genIndex msg) (peerMVR target) >>= \case
+        (recvRes, Nothing) -> return () -- todo figure out how this should be handled correctly.
+        (_, Just cont) -> do
+            execRes <- runMVR (executeBlock genIndex cont) (peerMVR target)
+            when (isPending execRes) $ markPeerPending target (peerId src)
 peerReceive target src MessageFinalizationRecord genIndex msg = do
     mvLog (peerMVR target) External LLDebug $ "Received finalization record from " ++ show (peerId src)
     res <- runMVR (receiveFinalizationRecord genIndex msg) (peerMVR target)
