@@ -801,54 +801,34 @@ instance
             Nothing -> do
                 -- If the transaction was not present in the `TransactionTable` then we verify it now
                 -- adding it based on the verification result.
-                -- Only transactions which can possible be valid at the stage of execution are being added
+                -- Only transactions which can possibly be valid at the stage of execution are added
                 -- to the `TransactionTable`.
                 -- Verifying the transaction here as opposed to `doReceiveTransactionInternal` avoids
-                -- verifying a transaction which have been both received individually and as part of a block twice.
+                -- reverifying a transaction which was received both individually and as part of a block.
                 verRes <- TS.runTransactionVerifierT (TVer.verify ts bi) verResCtx
                 if TVer.definitelyNotValid verRes (verResCtx ^. TS.isTransactionFromBlock)
                     then return $ TS.NotAdded verRes
-                    else case wmdData of
-                        NormalTransaction tr -> do
-                            let sender = accountAddressEmbed (transactionSender tr)
-                                nonce = transactionNonce tr
-                            if (tt ^. ttNonFinalizedTransactions . at' sender . non emptyANFT . anftNextNonce) <= nonce
-                                then do
-                                    transactionTablePurgeCounter += 1
-                                    let wmdtr = WithMetadata{wmdData = tr, ..}
-                                    transactionTable
-                                        .= ( tt
-                                                & (ttNonFinalizedTransactions . at' sender . non emptyANFT . anftMap . at' nonce . non Map.empty . at' wmdtr ?~ verRes)
-                                                & (ttHashMap . at' trHash ?~ (bi, Received slot verRes))
-                                           )
-                                    return (TS.Added bi verRes)
-                                else return TS.ObsoleteNonce
-                        CredentialDeployment{} -> do
-                            -- because we do not have nonce tracking for these transactions we need to check that
-                            -- this transaction does not already exist in the on-disk storage.
-                            finalizedP <- memberTransactionTable trHash
-                            if finalizedP
-                                then return TS.ObsoleteNonce
-                                else do
-                                    transactionTable . ttHashMap . at' trHash ?= (bi, Received slot verRes)
-                                    return (TS.Added bi verRes)
-                        ChainUpdate cu -> do
-                            let uty = updateType (uiPayload cu)
-                                sn = updateSeqNumber (uiHeader cu)
-                            if (tt ^. ttNonFinalizedChainUpdates . at' uty . non emptyNFCU . nfcuNextSequenceNumber) <= sn
-                                then do
-                                    transactionTablePurgeCounter += 1
-                                    let wmdcu = WithMetadata{wmdData = cu, ..}
-                                    transactionTable
-                                        .= ( tt
-                                                & (ttNonFinalizedChainUpdates . at' uty . non emptyNFCU . nfcuMap . at' sn . non Map.empty . at' wmdcu ?~ verRes)
-                                                & (ttHashMap . at' trHash ?~ (bi, Received slot verRes))
-                                           )
-                                    return (TS.Added bi verRes)
-                                else return TS.ObsoleteNonce
+                    else do
+                        -- Finalized credentials are not present in the transaction table, so we
+                        -- check if they are already in the on-disk transaction table.
+                        -- (This check is almost certainly unnecessary because the transaction
+                        -- verification would fail due to the account already existing if it was
+                        -- already finalized.)
+                        -- For other transaction types, we use the nonce/sequence number to rule
+                        -- out the transaction already being finalized.
+                        oldCredential <- case wmdData of
+                            CredentialDeployment{} -> memberTransactionTable wmdHash
+                            _ -> return False
+                        let ~(added, newTT) = addTransaction bi slot verRes tt
+                        if not oldCredential && added
+                            then do
+                                transactionTablePurgeCounter += 1
+                                transactionTable .=! newTT
+                                return (TS.Added bi verRes)
+                            else return TS.ObsoleteNonce
             Just (bi', results) -> do
-                -- The `Finalized` case is not reachable as the cause would be that a finalized transaction
-                -- is also part of a later block which would be rejected when executing the block.
+                -- The `Finalized` case is not reachable because finalized transactions are removed
+                -- from the transaction table.
                 let mVerRes = case results of
                         Received _ verRes -> Just verRes
                         Committed _ verRes _ -> Just verRes
@@ -866,47 +846,24 @@ instance
         tt <- use transactionTable
         -- check if the transaction is in the transaction table cache
         case tt ^? ttHashMap . ix trHash of
-            Nothing -> case wmdData of
-                NormalTransaction tr -> do
-                    let sender = accountAddressEmbed (transactionSender tr)
-                        nonce = transactionNonce tr
-                    if (tt ^. ttNonFinalizedTransactions . at' sender . non emptyANFT . anftNextNonce) <= nonce
-                        then do
-                            transactionTablePurgeCounter += 1
-                            let wmdtr = WithMetadata{wmdData = tr, ..}
-                            transactionTable
-                                .= ( tt
-                                        & (ttNonFinalizedTransactions . at' sender . non emptyANFT . anftMap . at' nonce . non Map.empty . at' wmdtr ?~ verRes)
-                                        & (ttHashMap . at' trHash ?~ (bi, Received 0 verRes))
-                                   )
-                            return (TS.Added bi verRes)
-                        else return TS.ObsoleteNonce
-                CredentialDeployment{} -> do
-                    -- because we do not have nonce tracking for these transactions we need to check that
-                    -- this transaction does not already exist in the on-disk storage.
-                    finalizedP <- memberTransactionTable trHash
-                    if finalizedP
-                        then return TS.ObsoleteNonce
-                        else do
-                            transactionTable . ttHashMap . at' trHash ?= (bi, Received 0 verRes)
-                            return (TS.Added bi verRes)
-                ChainUpdate cu -> do
-                    let uty = updateType (uiPayload cu)
-                        sn = updateSeqNumber (uiHeader cu)
-                    if (tt ^. ttNonFinalizedChainUpdates . at' uty . non emptyNFCU . nfcuNextSequenceNumber) <= sn
-                        then do
-                            transactionTablePurgeCounter += 1
-                            let wmdcu = WithMetadata{wmdData = cu, ..}
-                            transactionTable
-                                .= ( tt
-                                        & (ttNonFinalizedChainUpdates . at' uty . non emptyNFCU . nfcuMap . at' sn . non Map.empty . at' wmdcu ?~ verRes)
-                                        & (ttHashMap . at' trHash ?~ (bi, Received 0 verRes))
-                                   )
-                            return (TS.Added bi verRes)
-                        else return TS.ObsoleteNonce
+            Nothing -> do
+                -- Finalized credentials are not present in the transaction table, so we
+                -- check if they are already in the on-disk transaction table.
+                -- For other transaction types, we use the nonce/sequence number to rule
+                -- out the transaction already being finalized.
+                oldCredential <- case wmdData of
+                    CredentialDeployment{} -> memberTransactionTable wmdHash
+                    _ -> return False
+                let ~(added, newTT) = addTransaction bi 0 verRes tt
+                if not oldCredential && added
+                    then do
+                        transactionTablePurgeCounter += 1
+                        transactionTable .=! newTT
+                        return (TS.Added bi verRes)
+                    else return TS.ObsoleteNonce
             Just (bi', results) -> do
-                -- The `Finalized` case is not reachable as the cause would be that a finalized transaction
-                -- is also part of a later block which would be rejected when executing the block.
+                -- The `Finalized` case is not reachable because finalized transactions are removed
+                -- from the transaction table.
                 let mVerRes = case results of
                         Received _ verRes' -> Just verRes'
                         Committed _ verRes' _ -> Just verRes'

@@ -674,12 +674,12 @@ doReceiveTransaction tr = unlessShutDown $ do
 
 -- |Add a transaction that has previously been verified, given the result of verification.
 doAddPreverifiedTransaction ::
-    (TreeStateMonad m) =>
+    (TreeStateMonad m, TimeMonad m) =>
     BlockItem ->
     TV.OkResult ->
     m UpdateResult
-doAddPreverifiedTransaction bi0 okRes = do
-    res <- addVerifiedTransaction bi0 okRes
+doAddPreverifiedTransaction blockItem okRes = do
+    res <- addVerifiedTransaction blockItem okRes
     case res of
         Added WithMetadata{..} verRes -> do
             ptrs <- getPendingTransactions
@@ -702,8 +702,7 @@ doAddPreverifiedTransaction bi0 okRes = do
                     when (nextSN <= updateSeqNumber (uiHeader cu)) $
                         putPendingTransactions $!
                             addPendingUpdate nextSN cu ptrs
-            -- The actual verification result here is only used if the transaction was received individually.
-            -- If the transaction was received as part of a block we don't use the result for anything.
+            purgeTransactionTable False =<< currentTime
             return $! transactionVerificationResultToUpdateResult verRes
         Duplicate{} -> return ResultDuplicate
         ObsoleteNonce -> return ResultStale

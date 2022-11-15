@@ -479,13 +479,8 @@ instance (Monad m) => MonadReader (SkovContext c) (SkovT pv h c m) where
     ask = SkovT (\_ c -> return c)
     local f (SkovT a) = SkovT (\h -> a h . f)
 
-{- - INLINE ask - -}
-{- - INLINE local - -}
-
 instance MonadTrans (SkovT pv h c) where
     lift a = SkovT (\_ _ -> lift a)
-
-{- - INLINE lift - -}
 
 instance (Monad m, SkovTimerHandlers pv h c m) => TimerMonad (SkovT pv h c m) where
     type Timer (SkovT pv h c m) = SkovHandlerTimer h
@@ -597,23 +592,14 @@ instance
     ) =>
     SkovMonad (SkovT pv h c m)
     where
-    {- - INLINE storeBlock - -}
     storeBlock = doStoreBlock
-
-    {- - INLINE receiveTransaction - -}
     receiveTransaction = doReceiveTransaction
     addPreverifiedTransaction = doAddPreverifiedTransaction
-
-    {- - INLINE trustedFinalize - -}
     trustedFinalize = doTrustedFinalize
-
-    {- - INLINE handleCatchUpStatus - -}
     handleCatchUpStatus = doHandleCatchUp
     clearSkovOnProtocolUpdate = doClearSkov
     terminateSkov = doTerminateSkov
-
     purgeTransactions = doPurgeTransactions
-
     rememberFinalState = storeFinalState
 
 class (Monad m, HandlerConfig c) => HandlerConfigHandlers c m | m -> c where
@@ -677,15 +663,11 @@ instance
     where
     finQueue = lens ssFinState (\s fs -> s{ssFinState = fs}) . finQueue
 
-{- - INLINE finQueue - -}
-
 instance
     (FinalizationStateLenses (FCState finconf) t) =>
     FinalizationStateLenses (SkovState (SkovConfig pv gsconf finconf hconf)) t
     where
     finState = lens ssFinState (\s fs -> s{ssFinState = fs}) . finState
-
-{- - INLINE finState - -}
 
 instance
     (FinalizationBufferLenses (FCState finconf)) =>
@@ -693,24 +675,17 @@ instance
     where
     finBuffer = lens ssFinState (\s fs -> s{ssFinState = fs}) . finBuffer
 
-{- - INLINE finBuffer - -}
-
 instance
     (HasFinalizationInstance (FCContext finconf)) =>
     HasFinalizationInstance (SkovContext (SkovConfig pv gsconf finconf hconf))
     where
     finalizationInstance = finalizationInstance . scFinContext
 
-{- - INLINE finalizationInstance - -}
-
 instance (c ~ GSContext gsconf pv) => HasGlobalStateContext c (SkovContext (SkovConfig pv gsconf finconf hconf)) where
     globalStateContext = lens scGSContext (\sc v -> sc{scGSContext = v})
 
-{- - INLINE globalStateContext - -}
 instance (g ~ GSState gsconf pv) => HasGlobalState g (SkovState (SkovConfig pv gsconf finconf hconf)) where
     globalState = lens ssGSState (\ss v -> ss{ssGSState = v})
-
-{- - INLINE globalState - -}
 
 instance
     ( MonadIO m,
@@ -722,10 +697,6 @@ instance
     onBlock bp = handleBlock bp
     onFinalize = handleFinalize
     onPendingLive = SkovT $ \h _ -> lift $ handlePendingLive h
-
-{- - INLINE onBlock - -}
-{- - INLINE onFinalize - -}
-{- - INLINE onPendingLive - -}
 
 -- |Synonym for 'ActiveFinalizationM' based on a specific configuration. Arguments:
 --
