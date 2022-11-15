@@ -228,7 +228,7 @@ peerReceive :: Peer g f -> Peer g f -> MessageType -> GenesisIndex -> BS.ByteStr
 peerReceive target src MessageBlock genIndex msg = do
     mvLog (peerMVR target) External LLDebug $ "Received block from " ++ show (peerId src)
     runMVR (receiveBlock genIndex msg) (peerMVR target) >>= \case
-        (recvRes, Nothing) -> return () -- todo figure out how this should be handled correctly.
+        (recvRes, Nothing) -> error $ "Receive block failed with result " ++ show recvRes
         (_, Just cont) -> do
             execRes <- runMVR (executeBlock genIndex cont) (peerMVR target)
             when (isPending execRes) $ markPeerPending target (peerId src)

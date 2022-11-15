@@ -191,6 +191,7 @@ data VerifiedPendingBlock' bst bpt = VerifiedPendingBlock' {
     vpbPb :: !PendingBlock,
     vpbTxVerCtx :: !bst,
     vpbParentPointer :: !bpt,
+    vpLfbp :: !bpt,
     vpbFinInfo :: !(Maybe TSEnv.FinalizerInfo)
 }
 

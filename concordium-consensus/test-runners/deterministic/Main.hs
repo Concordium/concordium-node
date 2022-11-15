@@ -398,7 +398,7 @@ stepConsensus =
                     EBlock bb -> do
                         let pb = makePendingBlock bb (posixSecondsToUTCTime (fromIntegral t))
                         runBaker t i (receiveBlock pb) >>= \case
-                            (recvRes, Nothing) -> return () -- todo figure out how it should be handled if the block cannot be initially verified.
+                            (recvRes, Nothing) -> error $ "Receive block failed with result " ++ show recvRes
                             (_, Just cont) -> do
                                 _ <- runBaker t i (executeBlock cont)
                                 return ()

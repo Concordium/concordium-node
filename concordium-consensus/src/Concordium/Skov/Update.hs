@@ -275,9 +275,10 @@ processFinalization newFinBlock finRec@FinalizationRecord{..} = do
 addBlock :: forall m. (HasCallStack, TreeStateMonad m, SkovMonad m, FinalizationMonad m, OnSkov m)
       => PendingBlock
       -> [Maybe TV.VerificationResult]
+      -> BlockPointerType m
       -> Maybe FinalizerInfo
       -> m UpdateResult
-addBlock block txvers mFinInfo = do
+addBlock block txvers lfbp mFinInfo = do
         lfs <- getLastFinalizedSlot
         -- The block must be later than the last finalized block
         if lfs >= blockSlot block then deadBlock else do
@@ -294,10 +295,10 @@ addBlock block txvers mFinInfo = do
                 Unknown -> addBlockAsPending block
                 RecentBlock (BlockPending _) -> addBlockAsPending block
                 RecentBlock BlockDead -> deadBlock
-                RecentBlock (BlockAlive parentP) -> addBlockWithLiveParent block txvers parentP mFinInfo
+                RecentBlock (BlockAlive parentP) -> addBlockWithLiveParent block txvers parentP lfbp mFinInfo
                 -- In the following case the finalized block is the last
                 -- finalized one (this is the semantics of getRecentBlockStatus)
-                RecentBlock (BlockFinalized parentP _) -> addBlockWithLiveParent block txvers parentP mFinInfo
+                RecentBlock (BlockFinalized parentP _) -> addBlockWithLiveParent block txvers parentP lfbp mFinInfo
     where
         deadBlock :: m UpdateResult
         deadBlock = do
@@ -333,11 +334,12 @@ addBlockWithLiveParent ::
     [Maybe TV.VerificationResult] ->
     -- |Parent block pointer
     BlockPointerType m ->
+    -- |Last finalized block pointer
+    BlockPointerType m ->
     -- |Finalizer info if available.
     Maybe FinalizerInfo ->
     m UpdateResult
-addBlockWithLiveParent block txvers parentP finInfo = do
-    (lfbp, _) <- getLastFinalized
+addBlockWithLiveParent block txvers parentP lfbp finInfo = do
     parentState <- blockState parentP
     parentSeedState <- getSeedState parentState
     slotTime <- getSlotTimestamp (blockSlot block)
@@ -371,7 +373,7 @@ addBlockWithLiveParent block txvers parentP finInfo = do
                             isPending (Just (BlockPending _)) = True
                             isPending _ = False                    
                         when (isPending childStatus) $!
-                                addBlock childpb verress Nothing >>= \case
+                                addBlock childpb verress lfbp Nothing >>= \case
                                     ResultSuccess -> onPendingLive
                                     _ -> return ()
                     return ResultSuccess
@@ -486,7 +488,7 @@ doReceiveBlock pb@GB.PendingBlock{pbBlock = BakedBlock{..}, ..} = isShutDown >>=
             let continuePending = checkClaimedSignature $ do
                     verifyBlockTransactions slotTime lastFinBS >>= \case
                         Nothing -> rejectStaleBlock
-                        Just _ -> addBlockAsPending pb >>= (\updateResult -> return (updateResult, Nothing))
+                        Just _ -> (, Nothing) <$> addBlockAsPending pb 
             getDefiniteSlotBakers gd lastFinBS (blockSlot pb) >>= \case
                Just bakers -> case lotteryBaker bakers (blockBaker pb) of
                    Just (bkrInfo, bkrPower)
@@ -577,7 +579,8 @@ verifyPendingBlock block slotTime parentP =
                         -- inherits the last finalized pointer from the parent.
                         NoFinalizationData -> do
                             logEvent Skov LLInfo $ "Received block " ++ show block
-                            return (ResultSuccess, Just $! VerifiedPendingBlock'{vpbFinInfo = Nothing,..})
+                            lfbp <- bpLastFinalized parentP
+                            return (ResultSuccess, Just $! VerifiedPendingBlock'{vpbFinInfo = Nothing, vpLfbp = lfbp,..})
                         -- If the block contains a finalization record...
                         BlockFinalizationData finRec@FinalizationRecord{finalizationBlockPointer=finBP,..} -> do
                             -- Get whichever block was finalized at the previous index.
@@ -617,7 +620,7 @@ verifyPendingBlock block slotTime parentP =
                                                  check "finalization inconsistency" (bpHash fbp == finBP) $ do
                                                      logEvent Skov LLInfo $ "Received block " ++ show block
                                                      return (ResultSuccess,
-                                                             Just (VerifiedPendingBlock' {vpbFinInfo = Just (makeFinalizerInfo committee finalizationProof),..}))
+                                                             Just (VerifiedPendingBlock' {vpbFinInfo = Just (makeFinalizerInfo committee finalizationProof), vpLfbp = fbp,..}))
                                              Nothing -> rejectInvalidBlock $ "no finalized block at index " ++ show finalizationIndex
     where
         checkClaimedSignature a = if verifyBlockSignature block then a else do
@@ -632,14 +635,13 @@ verifyPendingBlock block slotTime parentP =
 
 -- |Execute a 'VerifiedPendingBlock'.
 -- Before adding the block to the tree we verify the transactions.
--- If the 'VerifiedPendingBlock' is awaiting its parent then it is added to the pending blocks table.
--- If the parent of @block@ is alive or finalized then we add it to the tree.
+-- PRECONDITION: The block must be ready for execution i.e. its parent must either be alive or finalized.
 doExecuteBlock :: (TreeStateMonad m, FinalizationMonad m, SkovMonad m, OnSkov m) => VerifiedPendingBlock m -> m UpdateResult
 {- - INLINE doExecuteBlock - -}
 doExecuteBlock VerifiedPendingBlock'{..} = do
     verifyBlockTransactions vpbPb vpbTxVerCtx >>= \case
         Nothing -> deadBlock $! pbHash vpbPb
-        Just (newBlock, verificationResults) -> addBlockWithLiveParent newBlock verificationResults vpbParentPointer vpbFinInfo
+        Just (newBlock, verificationResults) -> addBlockWithLiveParent newBlock verificationResults vpbParentPointer vpLfbp vpbFinInfo
     where
         -- |Verify the transactions of the block within the provided block state context.
         -- If transactions could successfully be verified then this function
