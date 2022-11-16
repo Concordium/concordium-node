@@ -1313,6 +1313,10 @@ instance
         r1 <- coerceGSML $ addCommitTransaction tr (TS.Context bsl x y) ts sl
         r2 <- coerceGSMR $ addCommitTransaction tr (TS.Context bsr x y) ts sl
         assertEq r1 r2 $ return r1
+    addVerifiedTransaction tr okRes = do
+        r1 <- coerceGSML $ addVerifiedTransaction tr okRes
+        r2 <- coerceGSMR $ addVerifiedTransaction tr okRes
+        assertEq r1 r2 $ return r1
     purgeTransaction tr = do
         r1 <- coerceGSML $ purgeTransaction tr
         r2 <- coerceGSMR $ purgeTransaction tr
