@@ -395,9 +395,6 @@ extern "C" {
         // adding the block to the tree.
         ptr_executable_block: *mut executable_block,
     ) -> i64;
-    // Free the underlying continuation for executing a prior executed block.
-    #[allow(improper_ctypes)]
-    pub fn freeExecuteBlock(block: *mut executable_block);
     pub fn receiveFinalizationMessage(
         consensus: *mut consensus_runner,
         genesis_index: u32,
@@ -1486,13 +1483,7 @@ impl ConsensusContainer {
 
     pub fn execute_block(&self, executable_block: *mut executable_block) -> ConsensusFfiResponse {
         let consensus = self.consensus.load(Ordering::SeqCst);
-        let result = unsafe {
-            let result = executeBlock(consensus, executable_block);
-            // Free the 'ForeignPtr' retaining the continuation used for
-            // executing the block.
-            freeExecuteBlock(executable_block);
-            result
-        };
+        let result = unsafe { executeBlock(consensus, executable_block) };
         ConsensusFfiResponse::try_from(result)
             .unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code))
     }
