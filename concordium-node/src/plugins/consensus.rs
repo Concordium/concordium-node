@@ -303,27 +303,28 @@ pub fn handle_consensus_inbound_msg(
             );
         }
 
+        // Execute any finalizer returned from the
+        // consensus layer.
         match finalizer {
-            ConsensusFinalizer::Block((genesis_index, ptr)) => {
-                let _ = consensus.execute_block(genesis_index, ptr);
+            // We received a block now we execute it.
+            ConsensusFinalizer::Block(ptr) => {
+                let _ = consensus.execute_block(ptr);
             }
+            // Nothing to do in this case.
             ConsensusFinalizer::None => (),
         }
-
-        // todo doc
-        if request.variant == Block {}
     }
 
     Ok(())
 }
 
-/// todo doc
+/// A type for encapsulating a finalizer returned
+/// from the consensus layer.
 enum ConsensusFinalizer {
     /// Nothing to do.
     None,
-    /// Execute the 'ExecutableBlock' behind the opaque pointer with
-    /// the provided genesis index.
-    Block((u32, *mut ffi::executable_block)),
+    /// Execute the 'ExecutableBlock' behind the opaque pointer.
+    Block(*mut ffi::executable_block),
 }
 
 fn send_msg_to_consensus(
@@ -340,8 +341,10 @@ fn send_msg_to_consensus(
             let (ffi_response, ptr_executable_block) =
                 consensus.receive_block(genesis_index, &payload[4..]);
             // Success indicates that the block is ready for execution.
+            // If the block was deemed pending or invalid then there is nothing
+            // more to do.
             let finalizer = if ffi_response == ConsensusFfiResponse::Success {
-                ConsensusFinalizer::Block((genesis_index, ptr_executable_block))
+                ConsensusFinalizer::Block(ptr_executable_block)
             } else {
                 ConsensusFinalizer::None
             };

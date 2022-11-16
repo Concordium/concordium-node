@@ -383,20 +383,21 @@ extern "C" {
         genesis_index: u32,
         block_data: *const u8,
         data_length: i64,
-        // todo doc
+        // A mutable *pointer that will be written to
+        // by the consensus layer with continuation required for
+        // executing the just received block.
         executable_block_ptr_ptr: *mut *mut executable_block,
     ) -> i64;
     #[allow(improper_ctypes)]
     pub fn executeBlock(
         consensus: *mut consensus_runner,
-        // The genesis index so the consensus module can
-        // use the correct 'MultiversionRunner'.
-        genesis_index: u32,
-        // todo doc
+        // Pointer to the continuation for
+        // adding the block to the tree.
         ptr_executable_block: *mut executable_block,
     ) -> i64;
-    // todo doc
-    pub fn freeExecutableBlock(block: *mut executable_block);
+    // Free the underlying continuation for executing a prior executed block.
+    #[allow(improper_ctypes)]
+    pub fn freeExecuteBlock(block: *mut executable_block);
     pub fn receiveFinalizationMessage(
         consensus: *mut consensus_runner,
         genesis_index: u32,
@@ -1483,15 +1484,13 @@ impl ConsensusContainer {
         )
     }
 
-    pub fn execute_block(
-        &self,
-        genesis_index: u32,
-        executable_block: *mut executable_block,
-    ) -> ConsensusFfiResponse {
+    pub fn execute_block(&self, executable_block: *mut executable_block) -> ConsensusFfiResponse {
         let consensus = self.consensus.load(Ordering::SeqCst);
         let result = unsafe {
-            let result = executeBlock(consensus, genesis_index, executable_block);
-            freeExecutableBlock(executable_block);
+            let result = executeBlock(consensus, executable_block);
+            // Free the 'ForeignPtr' retaining the continuation used for
+            // executing the block.
+            freeExecuteBlock(executable_block);
             result
         };
         ConsensusFfiResponse::try_from(result)

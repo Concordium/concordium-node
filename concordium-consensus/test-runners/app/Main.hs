@@ -230,7 +230,7 @@ peerReceive target src MessageBlock genIndex msg = do
     runMVR (receiveBlock genIndex msg) (peerMVR target) >>= \case
         (recvRes, Nothing) -> error $ "Receive block failed with result " ++ show recvRes
         (_, Just cont) -> do
-            execRes <- runMVR (executeBlock genIndex cont) (peerMVR target)
+            execRes <- runMVR (executeBlock cont) (peerMVR target)
             when (isPending execRes) $ markPeerPending target (peerId src)
 peerReceive target src MessageFinalizationRecord genIndex msg = do
     mvLog (peerMVR target) External LLDebug $ "Received finalization record from " ++ show (peerId src)

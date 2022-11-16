@@ -1015,11 +1015,20 @@ withLatestExpectedVersion ::
     MVR gsconf finconf Skov.UpdateResult
 withLatestExpectedVersion gi a = fst <$> withLatestExpectedVersion' gi (fmap (, Nothing) <$> a)
 
--- |todo doc
+-- |A continuation for executing a block that has been received
+-- and verified.
 newtype ExecuteBlock = ExecuteBlock { runBlock :: IO Skov.UpdateResult}
 
-
 -- |Deserialize and receive a block at a given genesis index.
+-- Return a continuation ('Maybe ExecuteBlock') iff. the 'Skov.UpdateResult' is 'ResultSuccess'.
+--
+-- An initial write lock is acquired for receiving the block.
+-- This is used for marking blocks as pending or even dead
+--
+-- The acquiring of the write lock for the later execution of the block is
+-- yielded within the actual continuation for doing so.
+--
+-- The continuation is expected to be invoked via 'executeBlock'.
 receiveBlock :: GenesisIndex -> ByteString -> MVR gsconf finconf (Skov.UpdateResult, Maybe ExecuteBlock)
 receiveBlock gi blockBS = withLatestExpectedVersion' gi $
     \(EVersionedConfiguration (vc :: VersionedConfiguration gsconf finconf pv)) -> do
@@ -1027,7 +1036,7 @@ receiveBlock gi blockBS = withLatestExpectedVersion' gi $
             now <- currentTime
             case deserializeExactVersionedPendingBlock (protocolVersion @pv) blockBS now of
                 Left err -> do
---                    logEvent Runner LLDebug err -- todo fix log
+                    mvLog mvr Runner LLDebug err
                     return (Skov.ResultSerializationFail, Nothing)
                 Right block -> do
                     (updateResult, mVerifiedPendingBlock) <- runMVR (runSkovTransaction vc (Skov.receiveBlock block)) mvr
@@ -1037,11 +1046,11 @@ receiveBlock gi blockBS = withLatestExpectedVersion' gi $
                             let cont = ExecuteBlock $! runMVR (runSkovTransaction vc (Skov.executeBlock verifiedPendingBlock)) mvr
                             return (updateResult, Just cont)
 
--- |todo: doc
--- todo remove gi.
--- Acquiring the Write lock is captured in the continuation.
-executeBlock :: GenesisIndex -> ExecuteBlock -> MVR gsconf finconf Skov.UpdateResult
-executeBlock gi = liftIO . runBlock
+
+-- |Invoke the continuation yielded in a 'ExecuteBlock'.
+-- *Acquiring* the write lock is captured in the continuation itself.
+executeBlock :: ExecuteBlock -> MVR gsconf finconf Skov.UpdateResult
+executeBlock = liftIO . runBlock
 
 -- |Deserialize and receive a finalization message at a given genesis index.
 receiveFinalizationMessage :: GenesisIndex -> ByteString -> MVR gsconf finconf Skov.UpdateResult

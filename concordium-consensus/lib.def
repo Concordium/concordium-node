@@ -9,7 +9,7 @@ EXPORTS
  stopBaker
  receiveBlock
  executeBlock
- freeExecutableBlock
+ freeExecuteBlock
  receiveFinalizationMessage
  receiveFinalizationRecord
  receiveTransaction

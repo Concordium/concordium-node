@@ -744,8 +744,22 @@ toReceiveResult ResultInsufficientFunds = 30
 -- @ResultInvalid@, @ResultPendingBlock@, @ResultDuplicate@, @ResultStale@,
 -- @ResultConsensusShutDown@, and @ResultInvalidGenesisIndex@.
 -- 'receiveBlock' may invoke the callbacks for new finalization messages.
--- todo doc
-receiveBlock :: StablePtr ConsensusRunner -> GenesisIndex -> CString -> Int64 -> Ptr (StablePtr MV.ExecuteBlock) -> IO ReceiveResult
+-- If the block was successfully verified i.e. baker signature, finalization proofs etc. then
+-- the 
+receiveBlock ::
+    -- |Pointer to the multi version runner.
+    StablePtr ConsensusRunner ->
+    -- |The genesis index.
+    GenesisIndex ->
+    -- |The message.
+    CString ->
+    -- |The length of the message.
+    Int64 ->
+    -- |The pointer of which the continuation for executing the block is written to.
+    -- There will only be written a continuation to the pointer if the 'receiving' of the block
+    -- returns 'ResultSuccess'.
+    Ptr (StablePtr MV.ExecuteBlock) ->
+    IO ReceiveResult
 receiveBlock bptr genIndex msg msgLen ptrPtrExecuteBlock = do
     (ConsensusRunner mvr) <- deRefStablePtr bptr
     mvLog mvr External LLTrace $ "Received block data, size = " ++ show msgLen ++ "."
@@ -757,15 +771,23 @@ receiveBlock bptr genIndex msg msgLen ptrPtrExecuteBlock = do
             poke ptrPtrExecuteBlock =<< newStablePtr eb
             return $! toReceiveResult receiveResult
 
--- |todo doc
-executeBlock :: StablePtr ConsensusRunner -> GenesisIndex -> StablePtr MV.ExecuteBlock -> IO ReceiveResult
-executeBlock bptr genIndex ptrExecutableBlock = do
+-- |Execute a block that has been received and succesfully verified.
+-- The 'MV.ExecuteBlock' continuation is obtained via first calling 'receiveBlock' which in return
+-- will construct a pointer to the continuation.
+-- The caller must ensure to call 'freeExecuteBlock' upon a return from 'executeBlock' in order to avoid leaks.
+executeBlock :: StablePtr ConsensusRunner -> StablePtr MV.ExecuteBlock -> IO ReceiveResult
+executeBlock bptr ptrExecutableBlock = do
     (ConsensusRunner mvr) <- deRefStablePtr bptr
     -- Deref the 'StablePtr ExecutableBlock'
     executableBlock <- deRefStablePtr ptrExecutableBlock
     -- todo: add more context to this log stmt.
     mvLog mvr External LLTrace "Executing block."
-    toReceiveResult <$> runMVR (MV.executeBlock genIndex executableBlock) mvr
+    toReceiveResult <$> runMVR (MV.executeBlock executableBlock) mvr
+
+-- |Free the 'StablePtr' yielding the 'ExecuteBlock' continuation such that it can be garbage collected.
+freeExecuteBlock :: StablePtr MV.ExecuteBlock -> IO ()
+freeExecuteBlock ebPtr = mask_ $ do
+    freeStablePtr ebPtr
 
 
 -- |Handle receipt of a finalization message.
@@ -1425,8 +1447,8 @@ foreign export ccall stopConsensus :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall startBaker :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall stopBaker :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall receiveBlock :: StablePtr ConsensusRunner -> GenesisIndex -> CString -> Int64 -> Ptr (StablePtr MV.ExecuteBlock) -> IO Int64
-foreign export ccall executeBlock :: StablePtr ConsensusRunner -> GenesisIndex -> StablePtr MV.ExecuteBlock -> IO Int64
-foreign export ccall freeExecutableBlock :: StablePtr MV.ExecuteBlock -> IO ()
+foreign export ccall executeBlock :: StablePtr ConsensusRunner -> StablePtr MV.ExecuteBlock -> IO Int64
+foreign export ccall freeExecuteBlock :: StablePtr MV.ExecuteBlock -> IO ()
 foreign export ccall receiveFinalizationMessage :: StablePtr ConsensusRunner -> GenesisIndex -> CString -> Int64 -> IO Int64
 foreign export ccall receiveFinalizationRecord :: StablePtr ConsensusRunner -> GenesisIndex -> CString -> Int64 -> IO Int64
 foreign export ccall receiveTransaction :: StablePtr ConsensusRunner -> CString -> Int64 -> Ptr Word8 -> IO Int64
@@ -1486,7 +1508,3 @@ foreign export ccall freeCStr :: CString -> IO ()
 foreign export ccall importBlocks :: StablePtr ConsensusRunner -> CString -> Int64 -> IO Int64
 foreign export ccall stopImportingBlocks :: StablePtr ConsensusRunner -> IO ()
 
--- |Free the ExecutableBlock such that it can be garbage collected.
-freeExecutableBlock :: StablePtr MV.ExecuteBlock -> IO ()
-freeExecutableBlock ebPtr = mask_ $ do
-    freeStablePtr ebPtr
