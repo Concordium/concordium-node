@@ -67,7 +67,7 @@ benchPassive n = env (pure (testAccountMap n)) $ \am0 ->
     let testAccount x xres = env (pure (testAccountAddress x)) $ \addr0 ->
             bench ("Account" ++ show x) $
                 whnf (\(am, addr) -> AM.lookupPure addr am == xres) (am0, addr0)
-     in bgroup
+    in  bgroup
             "lookup"
             [ testAccount 0 (Just 0),
               testAccount 1234 (Just 1234),
@@ -85,7 +85,7 @@ benchPersistent n = envWithCleanup (testPersistentAccountMap n) cleanupPersisten
                 whnfIO $ do
                     res <- runBlobStoreM (AM.lookup addr pam) bs
                     return $! res == xres
-     in bgroup
+    in  bgroup
             ("lookupPersistent" ++ show n)
             [ testAccount 0 (Just 0),
               testAccount 10 (Just 10),

@@ -1,17 +1,23 @@
-# Workflow triggered by pushes to the master branch and PRs targeting it
+# Workflow triggered by pushes to the main branch and PRs targeting it
 # (as long as the commits contain code changes).
 #
 # Jobs:
+# - rustfmt: Checks formatting of the Rust sources using the 'rustfmt'
+#            tool. The job is skipped if the workflow was triggered by a
+#            PR marked as a draft.
+# - fourmolu: Checks formatting of the Haskell sources using the
+#             'fourmolu' tool. The job is skipped if the workflow was
+#             triggered by a PR marked as a draft.
 # - build-test: Build and test both the Haskell and Rust sources.
 #               The job is skipped if the workflow was triggered by a PR
 #               marked as a draft.
-#
+# 
 # The steps in 'build-test' are ordered to fail as fast as possible
 # and restore caches as late as possible.
 # The dependencies between the steps are described in inline comments below
 # along with a few suggestions for improving parallelization.
 
-name: Build and test
+name: Check formatting, build and run tests
 
 on:
   push:
@@ -25,6 +31,7 @@ on:
     - 'concordium-base'
     - 'concordium-consensus/smart-contracts'
     - 'concordium-consensus/haskell-lmdb'
+    - 'concordium-node/rustfmt.toml'
 
   pull_request:
     branches: main
@@ -38,15 +45,76 @@ on:
     - 'concordium-base'
     - 'concordium-consensus/smart-contracts'
     - 'concordium-consensus/haskell-lmdb'
+    - 'concordium-node/rustfmt.toml'
   workflow_dispatch: # allow manual trigger
 
 env:
-  dummy: 7                 # change to force cache invalidation
+  dummy: 8                 # change to force cache invalidation
   CARGO_TERM_COLOR: always # implicitly adds '--color=always' to all cargo commands
   TEST_LEVEL: 1            # for stack tests
 
 jobs:
+
+  fourmolu:
+    runs-on: ubuntu-latest
+    if: ${{ !github.event.pull_request.draft }}
+    steps:
+
+    - name: Download fourmolu
+      uses: supplypike/setup-bin@v1
+      with:
+        uri: 'https://github.com/fourmolu/fourmolu/releases/download/v0.9.0.0/fourmolu-0.9.0.0-linux-x86_64'
+        name: 'fourmolu'
+        version: '0.9.0.0'
+
+    - name: Checkout project
+      uses: actions/checkout@v2
+      with:
+        submodules: recursive
+
+    # Since fourmolu uses the project cabal file to find default language extensions, this step is
+    # needed to generate a cabal file from the package.yaml.
+    - name: Setup the project
+      run: |
+        stack --stack-yaml concordium-consensus/stack.yaml setup
+
+    - name: Run fourmolu
+      run: |
+        fourmolu --color always --mode check $(git ls-files '*.hs')
+
+  rustfmt:
+    runs-on: ubuntu-latest
+    if: ${{ !github.event.pull_request.draft }}
+
+    strategy:
+      matrix:
+        plan:
+        - rust: "nightly-2022-06-09-x86_64-unknown-linux-gnu"
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+      with:
+        # token: ${{ secrets.CONCORDIUM_CI }}
+        submodules: recursive
+
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: ${{ matrix.plan.rust }}
+        override: true
+        components: rustfmt
+
+    - name: Run rustfmt
+      run: |
+        cargo fmt --manifest-path concordium-node/Cargo.toml --all -- --check
+        cargo fmt --manifest-path collector-backend/Cargo.toml --all -- --check
+        cargo fmt --manifest-path service/windows/Cargo.toml --all -- --check
+        cargo fmt --manifest-path service/windows/installer/custom-actions/Cargo.toml --all -- --check
+
   build:
+    needs: [fourmolu, rustfmt]
     # Use fixed OS version because we install packages on the system.
     runs-on: ubuntu-20.04
     if: ${{ !github.event.pull_request.draft }}
@@ -146,7 +214,7 @@ jobs:
     # Compile Haskell sources. This must be done before running checks or tests on the Rust sources.
     - name: Build consensus
       run: |
-        stack build --test --bench --force-dirty --stack-yaml concordium-consensus/stack.yaml --no-run-tests --no-run-benchmarks
+        stack build --test --bench --force-dirty --stack-yaml concordium-consensus/stack.yaml --no-run-tests --no-run-benchmarks --ghc-options "-Werror"
 
     # Test Haskell sources. Could be run in parallel with the steps below.
     - name: Test consensus

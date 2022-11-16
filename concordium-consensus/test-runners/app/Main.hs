@@ -107,8 +107,8 @@ transferTransactions gen = trs (0 :: Nonce) (randoms gen :: [Word8])
             (Dummy.mateuszKP, Dummy.mateuszAccount)
             Dummy.mateuszAccount
             (fromIntegral amnt)
-            n :
-        trs (n + 1) amnts
+            n
+            : trs (n + 1) amnts
     trs _ _ = error "Ran out of transaction data"
 
 -- |Notification of a block being baked, or a protocol update occurring, that should be rendered
@@ -299,7 +299,6 @@ callbacks myPeerId peersRef monitorChan = Callbacks{..}
     notifyBlockArrived = Nothing
     notifyBlockFinalized = Nothing
 
-
 -- |Construct a 'MultiVersionConfiguration' to use for each baker node.
 config :: FilePath -> BakerIdentity -> MultiVersionConfiguration DiskTreeDiskBlockConfig (BufferedFinalization ThreadTimer)
 config dataPath bid = MultiVersionConfiguration{..}
@@ -329,20 +328,23 @@ main :: IO ()
 main = do
     -- Set genesis at the next whole second
     now <- (\(Timestamp t) -> Timestamp $ ((t `div` 1000) + 1) * 1000) <$> currentTimestamp
-    let chainParams = ChainParameters {
-            _cpElectionDifficulty = makeElectionDifficulty 20000,
-            _cpExchangeRates = makeExchangeRates 1 1,
-            _cpCooldownParameters = CooldownParametersV0 {
-                _cpBakerExtraCooldownEpochs = 4
-                },
-            _cpTimeParameters = TimeParametersV0,
-            _cpAccountCreationLimit = 10,
-            _cpRewardParameters = Dummy.dummyRewardParametersV0,
-            _cpFoundationAccount = numberOfBakers,
-            _cpPoolParameters = PoolParametersV0 {
-                _ppBakerStakeThreshold =  300000000000
+    let chainParams =
+            ChainParameters
+                { _cpElectionDifficulty = makeElectionDifficulty 20000,
+                  _cpExchangeRates = makeExchangeRates 1 1,
+                  _cpCooldownParameters =
+                    CooldownParametersV0
+                        { _cpBakerExtraCooldownEpochs = 4
+                        },
+                  _cpTimeParameters = TimeParametersV0,
+                  _cpAccountCreationLimit = 10,
+                  _cpRewardParameters = Dummy.dummyRewardParametersV0,
+                  _cpFoundationAccount = numberOfBakers,
+                  _cpPoolParameters =
+                    PoolParametersV0
+                        { _ppBakerStakeThreshold = 300000000000
+                        }
                 }
-            }
     let (genesisData, bakerIdentities, _) =
             makeGenesisData @PV
                 now

@@ -1,15 +1,16 @@
 {-# LANGUAGE DefaultSignatures #-}
+
 module Concordium.TimeMonad where
 
 import Control.Monad.IO.Class
-import Control.Monad.Trans.State
+import qualified Control.Monad.RWS.Strict as Strict
 import qualified Control.Monad.State.Strict as Strict
 import Control.Monad.Trans
-import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Except
+import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.RWS
 import Control.Monad.Trans.Reader
-import qualified Control.Monad.RWS.Strict as Strict
+import Control.Monad.Trans.State
 import Data.Time
 
 import Concordium.Logger

@@ -1,9 +1,9 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE GADTs #-}
 
 module Concordium.GlobalState.Types where
 
@@ -12,12 +12,12 @@ import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Reader
 import Data.Kind
 
-import Concordium.Utils.Serialization.Put
+import Concordium.Genesis.Data
 import Concordium.GlobalState.BlockPointer (BlockPointerData)
-import Concordium.Wasm (WasmVersion)
 import Concordium.GlobalState.Classes
 import Concordium.Types
-import Concordium.Genesis.Data
+import Concordium.Utils.Serialization.Put
+import Concordium.Wasm (WasmVersion)
 
 class (IsProtocolVersion (MPV m)) => MonadProtocolVersion (m :: Type -> Type) where
     type MPV m :: ProtocolVersion
@@ -27,17 +27,21 @@ class (IsProtocolVersion (MPV m)) => MonadProtocolVersion (m :: Type -> Type) wh
 class BlockStateTypes (m :: Type -> Type) where
     type BlockState m :: Type
     type UpdatableBlockState m :: Type
+
     -- |The type of accounts supported by the block state.
     type Account m :: Type
+
     -- |The type of contract state, parametrized both by the monad m, as well as
     -- the contract version. The reason that the kind of @ContractState m@ is
     -- @WasmVersion -> Type@ as opposed to parametrizing the type by both @m@
     -- and @WasmVersion@ is that this way we can "partially apply"
     -- @ContractState@, something that would otherwise not be possible.
     type ContractState m :: WasmVersion -> Type
+
     -- |A reference type for 'BakerInfo'. This is used to avoid duplicating 'BakerInfo' in the
     -- state where possible.
     type BakerInfoRef m :: Type
+
     -- |A reference to an instrumented module.
     type InstrumentedModuleRef m :: WasmVersion -> Type
 
@@ -45,14 +49,16 @@ class BlockStateTypes (m :: Type -> Type) where
 -- the new instance. This is an existential type that closes over the **new**
 -- protocol version. The existing protocol version is determined from the monad
 -- @m@, which will have to be an instance of 'MonadProtocolVersion'.
-data PVInit m = forall pv . (IsProtocolVersion pv) => PVInit {
-    -- |Genesis data for the new chain.
-    pvInitGenesis :: Regenesis pv,
-    -- |Instructions on how to migrate from the existing instance to the new one.
-    pvInitMigration :: StateMigrationParameters (MPV m) pv,
-    -- |(Relative) height of the last finalized block.
-    pvInitFinalHeight :: BlockHeight
-  }
+data PVInit m = forall pv.
+      (IsProtocolVersion pv) =>
+    PVInit
+    { -- |Genesis data for the new chain.
+      pvInitGenesis :: Regenesis pv,
+      -- |Instructions on how to migrate from the existing instance to the new one.
+      pvInitMigration :: StateMigrationParameters (MPV m) pv,
+      -- |(Relative) height of the last finalized block.
+      pvInitFinalHeight :: BlockHeight
+    }
 
 -- |Account together with its index in the account map.
 type IndexedAccount m = (AccountIndex, Account m)

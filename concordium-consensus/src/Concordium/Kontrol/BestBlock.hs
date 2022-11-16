@@ -1,54 +1,54 @@
-{-# LANGUAGE
-    ScopedTypeVariables #-}
-module Concordium.Kontrol.BestBlock(
+{-# LANGUAGE ScopedTypeVariables #-}
+
+module Concordium.Kontrol.BestBlock (
     bestBlock,
     bestBlockBefore,
-    bestBlockOf
+    bestBlockOf,
 ) where
 
+import Control.Exception (assert)
 import Data.Foldable
 import qualified Data.Sequence as Seq
-import Control.Exception (assert)
 
-import Concordium.Types
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Block
+import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
 import Concordium.GlobalState.BlockState
-import Concordium.GlobalState.BlockMonads
+import Concordium.Types
 
-import Concordium.Skov.Monad
 import Concordium.Birk.LeaderElection
-import Concordium.GlobalState.TreeState(Branches, BlockPointerType)
+import Concordium.GlobalState.TreeState (BlockPointerType, Branches)
 import Concordium.Kontrol
 import Concordium.Kontrol.Bakers
 
 blockLuck :: (SkovQueryMonad m) => BlockPointerType m -> m BlockLuck
 blockLuck block = case blockFields block of
-        Nothing -> return genesisLuck -- Genesis block has luck 1 by definition
-        Just bf -> do
-            -- get Birk parameters of the __parent__ block, at the slot of the new block.
-            -- These are the parameters which determine valid bakers, election difficulty,
-            -- that determine the luck of the block itself.
-            parent <- bpParent block
-            parentState <- blockState parent
-            genData <- getGenesisData
-            bakers <- getSlotBakers genData parentState (blockSlot block)
-            let baker = lotteryBaker bakers (blockBaker bf)
-            ts <- getSlotTimestamp (blockSlot block)
-            elDiff <- getElectionDifficulty parentState ts
-            case baker of
-                Nothing -> assert False $ return zeroLuck -- This should not happen, since it would mean the block was baked by an invalid baker
-                Just (_, lotteryPower) ->
-                    return $! electionLuck elDiff lotteryPower (blockProof bf)
+    Nothing -> return genesisLuck -- Genesis block has luck 1 by definition
+    Just bf -> do
+        -- get Birk parameters of the __parent__ block, at the slot of the new block.
+        -- These are the parameters which determine valid bakers, election difficulty,
+        -- that determine the luck of the block itself.
+        parent <- bpParent block
+        parentState <- blockState parent
+        genData <- getGenesisData
+        bakers <- getSlotBakers genData parentState (blockSlot block)
+        let baker = lotteryBaker bakers (blockBaker bf)
+        ts <- getSlotTimestamp (blockSlot block)
+        elDiff <- getElectionDifficulty parentState ts
+        case baker of
+            Nothing -> assert False $ return zeroLuck -- This should not happen, since it would mean the block was baked by an invalid baker
+            Just (_, lotteryPower) ->
+                return $! electionLuck elDiff lotteryPower (blockProof bf)
 
-compareBlocks :: (SkovQueryMonad m)
-              => BlockPointerType m
-              -> (BlockPointerType m, Maybe BlockLuck)
-              -> m (BlockPointerType m, Maybe BlockLuck)
+compareBlocks ::
+    (SkovQueryMonad m) =>
+    BlockPointerType m ->
+    (BlockPointerType m, Maybe BlockLuck) ->
+    m (BlockPointerType m, Maybe BlockLuck)
 compareBlocks contender best@(bestb, mbestLuck) =
     case compare (blockSlot bestb) (blockSlot contender) of
-        LT -> return best -- if bestb has the smaller slot it is to be preferred 
+        LT -> return best -- if bestb has the smaller slot it is to be preferred
         GT -> return (contender, Nothing)
         EQ -> do
             luck <- blockLuck contender
@@ -60,13 +60,12 @@ compareBlocks contender best@(bestb, mbestLuck) =
 bestBlockBranches :: forall m. (SkovQueryMonad m) => [[BlockPointerType m]] -> m (BlockPointerType m)
 bestBlockBranches [] = lastFinalizedBlock
 bestBlockBranches l = bb l
-    where
-        bb [] = lastFinalizedBlock
-        bb (blocks : branches) =
-            case blocks of
-                [] -> bb branches
-                (b : bs) -> fst <$> foldrM compareBlocks (b, Nothing) bs
-
+  where
+    bb [] = lastFinalizedBlock
+    bb (blocks : branches) =
+        case blocks of
+            [] -> bb branches
+            (b : bs) -> fst <$> foldrM compareBlocks (b, Nothing) bs
 
 -- |Get the best block currently in the tree.
 bestBlock :: forall m. (SkovQueryMonad m) => m (BlockPointerType m)
@@ -82,8 +81,8 @@ bestBlockBefore slotBound = bestBlockBranches . fmap (filter (\b -> blockSlot b 
 bestBlockOf :: (SkovQueryMonad m) => Branches m -> m (Maybe (BlockPointerType m))
 bestBlockOf Seq.Empty = return Nothing
 bestBlockOf (bs' Seq.:|> tbs) = case tbs of
-        [] -> bestBlockOf bs'
-        [b] -> return $ Just b
-        (b : tbs') -> do
-            bb <- fst <$> foldrM compareBlocks (b, Nothing) tbs'
-            return $ Just bb
+    [] -> bestBlockOf bs'
+    [b] -> return $ Just b
+    (b : tbs') -> do
+        bb <- fst <$> foldrM compareBlocks (b, Nothing) tbs'
+        return $ Just bb

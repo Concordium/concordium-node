@@ -1,94 +1,97 @@
-{-# LANGUAGE
-    ScopedTypeVariables,
-    ViewPatterns,
-    UndecidableInstances#-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ViewPatterns #-}
+
+
 module Concordium.Skov.Update where
 
 import Control.Monad
-import qualified Data.Sequence as Seq
-import qualified Data.Vector as Vec
-import Lens.Micro.Platform
 import Data.Foldable
 import Data.List (intercalate)
-import GHC.Stack
 import Data.Maybe (fromMaybe)
 import Data.Time (diffUTCTime, NominalDiffTime)
 
+import qualified Data.Sequence as Seq
+import qualified Data.Vector as Vec
+import GHC.Stack
+import Lens.Micro.Platform
+
+
+import Concordium.GlobalState.BakerInfo
+import Concordium.GlobalState.Block hiding (PendingBlock)
+import qualified Concordium.GlobalState.Block as GB (PendingBlock (..))
+import Concordium.GlobalState.BlockMonads
+import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
+import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.Finalization
+import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.TreeState
 import Concordium.Types
 import Concordium.Types.Accounts
 import Concordium.Types.HashableTo
-import Concordium.GlobalState.TreeState
-import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
-import Concordium.GlobalState.BlockMonads
-import Concordium.GlobalState.BlockState
-import qualified Concordium.GlobalState.Block as GB (PendingBlock(..))
-import Concordium.GlobalState.Block hiding (PendingBlock)
-import Concordium.GlobalState.Finalization
-import Concordium.GlobalState.Parameters
 import Concordium.Types.Transactions
-import Concordium.GlobalState.BakerInfo
 
 import Concordium.Scheduler.TreeStateEnvironment
 
-import Concordium.Kontrol hiding (getRuntimeParameters, getGenesisData)
-import Concordium.Kontrol.Bakers
-import Concordium.Birk.LeaderElection
-import Concordium.Kontrol.UpdateLeaderElectionParameters
 import Concordium.Afgjort.Finalize
 import Concordium.Afgjort.Finalize.Types
-import Concordium.Logger
-import Concordium.TimeMonad
-import Concordium.Skov.Statistics
-import qualified Concordium.TransactionVerification as TV
-import Concordium.Types.Updates (uiHeader, updateType, uiPayload)
-import Concordium.Scheduler.Types (updateSeqNumber)
+import Concordium.Birk.LeaderElection
 import Concordium.GlobalState.TransactionTable
+import Concordium.Kontrol hiding (getGenesisData, getRuntimeParameters)
+import Concordium.Kontrol.Bakers
+import Concordium.Kontrol.UpdateLeaderElectionParameters
+import Concordium.Logger
+import Concordium.Scheduler.Types (updateSeqNumber)
+import Concordium.Skov.Statistics
+import Concordium.TimeMonad
+import qualified Concordium.TransactionVerification as TV
+import Concordium.Types.Updates (uiHeader, uiPayload, updateType)
 
 -- |Determine if one block is an ancestor of another.
 -- A block is considered to be an ancestor of itself.
 isAncestorOf :: BlockPointerMonad m => BlockPointerType m -> BlockPointerType m -> m Bool
 isAncestorOf b1 b2 = case compare (bpHeight b1) (bpHeight b2) of
-        GT -> return False
-        EQ -> return (b1 == b2)
-        LT -> do
-          parent <- bpParent b2
-          isAncestorOf b1 parent
+    GT -> return False
+    EQ -> return (b1 == b2)
+    LT -> do
+        parent <- bpParent b2
+        isAncestorOf b1 parent
 
 -- |Update the focus block, together with the pending transaction table.
 updateFocusBlockTo :: (TreeStateMonad m) => BlockPointerType m -> m ()
 updateFocusBlockTo newBB = do
-        oldBB <- getFocusBlock
-        pts <- getPendingTransactions
-        upts <- updatePTs oldBB newBB [] pts
-        putPendingTransactions upts
-        putFocusBlock newBB
-    where
-        updatePTs :: (BlockPointerMonad m) => BlockPointerType m -> BlockPointerType m -> [BlockPointerType m] -> PendingTransactionTable -> m PendingTransactionTable
-        updatePTs oBB nBB forw pts = case compare (bpHeight oBB) (bpHeight nBB) of
-                LT -> do
-                  parent <- bpParent nBB
-                  updatePTs oBB parent (nBB : forw) pts
-                EQ -> if oBB == nBB then
-                            return $ foldl (\p f-> forwardPTT (blockTransactions f) p) pts forw
-                        else do
-                            parent1 <- bpParent oBB
-                            parent2 <- bpParent nBB
-                            updatePTs parent1 parent2 (nBB : forw) (reversePTT (blockTransactions oBB) pts)
-                GT -> do
-                  parent <- bpParent oBB
-                  updatePTs parent nBB forw (reversePTT (blockTransactions oBB) pts)
+    oldBB <- getFocusBlock
+    pts <- getPendingTransactions
+    upts <- updatePTs oldBB newBB [] pts
+    putPendingTransactions upts
+    putFocusBlock newBB
+  where
+    updatePTs :: (BlockPointerMonad m) => BlockPointerType m -> BlockPointerType m -> [BlockPointerType m] -> PendingTransactionTable -> m PendingTransactionTable
+    updatePTs oBB nBB forw pts = case compare (bpHeight oBB) (bpHeight nBB) of
+        LT -> do
+            parent <- bpParent nBB
+            updatePTs oBB parent (nBB : forw) pts
+        EQ ->
+            if oBB == nBB
+                then return $ foldl (\p f -> forwardPTT (blockTransactions f) p) pts forw
+                else do
+                    parent1 <- bpParent oBB
+                    parent2 <- bpParent nBB
+                    updatePTs parent1 parent2 (nBB : forw) (reversePTT (blockTransactions oBB) pts)
+        GT -> do
+            parent <- bpParent oBB
+            updatePTs parent nBB forw (reversePTT (blockTransactions oBB) pts)
 
 -- |Make a 'FinalizerInfo' from a 'FinalizationCommittee' and 'FinalizationProof'. It is assumed
 -- that the 'FinalizationProof' is valid with respect to the 'FinalizationCommittee'.
 makeFinalizerInfo :: FinalizationCommittee -> FinalizationProof -> FinalizerInfo
 makeFinalizerInfo committee finProof =
-    FinalizerInfo {
-        committeeVoterPower = finPower <$> parties committee,
-        committeeSigners = finSigner <$> finalizationProofParties finProof
-    }
-    where
-        finPower p = (partyBakerId p, partyWeight p)
-        finSigner i = partyBakerId $ parties committee Vec.! fromIntegral i
+    FinalizerInfo
+        { committeeVoterPower = finPower <$> parties committee,
+          committeeSigners = finSigner <$> finalizationProofParties finProof
+        }
+  where
+    finPower p = (partyBakerId p, partyWeight p)
+    finSigner i = partyBakerId $ parties committee Vec.! fromIntegral i
 
 -- |A monad implementing 'OnSkov' provides functions for responding to
 -- a block being added to the tree, and a finalization record being verified.
@@ -96,10 +99,12 @@ makeFinalizerInfo committee finProof =
 class OnSkov m where
     -- |Called when a block arrives.
     onBlock :: BlockPointerType m -> m ()
+
     -- |Called when a finalization record is validated.  This is
     -- only called for the block that is explicitly finalized (i.e.
     -- once per finalization record).
     onFinalize :: FinalizationRecord -> BlockPointerType m -> [BlockPointerType m] -> m ()
+
     -- |Called when a block or finalization record that was previously
     -- pending becomes live.
     onPendingLive :: m ()
@@ -110,26 +115,27 @@ class OnSkov m where
 -- tree, and we purge them recursively from '_skovPossiblyPendingTable'.
 blockArriveDead :: (HasCallStack, BlockPointerMonad m, MonadLogger m, TreeStateMonad m) => BlockHash -> m ()
 blockArriveDead cbp = do
-        markDead cbp
-        logEvent Skov LLDebug $ "Block " ++ show cbp ++ " arrived dead"
-        children <- map getHash <$> takePendingChildren cbp
-        forM_ children blockArriveDead
+    markDead cbp
+    logEvent Skov LLDebug $ "Block " ++ show cbp ++ " arrived dead"
+    children <- map getHash <$> takePendingChildren cbp
+    forM_ children blockArriveDead
 
 -- |Purge pending blocks with slot numbers predating the last finalized slot.
 purgePending :: (HasCallStack, TreeStateMonad m, MonadLogger m) => m ()
 purgePending = do
-        lfSlot <- getLastFinalizedSlot
-        let purgeLoop = takeNextPendingUntil lfSlot >>= \case
-                            Nothing -> return ()
-                            Just (getHash -> pb) -> do
-                                pbStatus <- getBlockStatus pb
-                                let
-                                    isPending Nothing = True
-                                    isPending (Just BlockPending{}) = True
-                                    isPending _ = False
-                                when (isPending pbStatus) $ blockArriveDead pb
-                                purgeLoop
-        purgeLoop
+    lfSlot <- getLastFinalizedSlot
+    let purgeLoop =
+            takeNextPendingUntil lfSlot >>= \case
+                Nothing -> return ()
+                Just (getHash -> pb) -> do
+                    pbStatus <- getBlockStatus pb
+                    let
+                        isPending Nothing = True
+                        isPending (Just BlockPending{}) = True
+                        isPending _ = False
+                    when (isPending pbStatus) $ blockArriveDead pb
+                    purgeLoop
+    purgeLoop
 
 doTrustedFinalize :: (TreeStateMonad m, SkovMonad m, OnSkov m) => FinalizationRecord -> m (Either UpdateResult (BlockPointerType m))
 doTrustedFinalize finRec =
@@ -169,34 +175,35 @@ processFinalization newFinBlock finRec@FinalizationRecord{..} = do
         -- We proceed backwards from the new finalized block, collecting blocks
         -- to mark as dead. When we exhaust the branches we then mark blocks as finalized
         -- by increasing height.
-        -- 
+        --
         -- Instead of marking blocks dead immediately, we accumulate them in a list by decreasing
         -- height. The reason for doing this is that we never have to look up a parent block that is
         -- already marked dead.
-        let pruneTrunk :: [BlockPointerType m] -- ^List of blocks to remove.
-                       -> [BlockPointerType m] -- ^List of finalized blocks.
-                       -> BlockPointerType m -- ^Finalized block to consider now.
-                                            -- At the same height as the latest branch in the next argument
-                       -> Branches m
-                       -> m ([BlockPointerType m], [BlockPointerType m])
-                       -- ^ The return value is a list of blocks to mark dead (ordered by decreasing
-                       -- height) and a list of blocks to mark finalized (ordered by increasing
-                       -- height).
+        let pruneTrunk ::
+                [BlockPointerType m] -> -- \^List of blocks to remove.
+                [BlockPointerType m] -> -- \^List of finalized blocks.
+                BlockPointerType m -> -- \^Finalized block to consider now.
+                -- At the same height as the latest branch in the next argument
+                Branches m ->
+                m ([BlockPointerType m], [BlockPointerType m])
+            -- \^ The return value is a list of blocks to mark dead (ordered by decreasing
+            -- height) and a list of blocks to mark finalized (ordered by increasing
+            -- height).
             pruneTrunk toRemove toFinalize _ Seq.Empty = return (toRemove, toFinalize)
             pruneTrunk toRemove toFinalize keeper (brs Seq.:|> l) = do
-              let toRemove1 = toRemove ++ filter (/= keeper) l
-              parent <- bpParent keeper
-              pruneTrunk toRemove1 (keeper : toFinalize) parent brs
+                let toRemove1 = toRemove ++ filter (/= keeper) l
+                parent <- bpParent keeper
+                pruneTrunk toRemove1 (keeper : toFinalize) parent brs
         (toRemoveFromTrunk, toFinalize) <- pruneTrunk [] [] newFinBlock (Seq.take pruneHeight oldBranches)
         -- Add the finalization to the finalization list
         addFinalization newFinBlock finRec
         mffts <- forM toFinalize $ \block -> do
-          -- mark blocks as finalized in the order returned by `pruneTrunk`, so that blocks are marked
-          -- finalized by increasing height          
-          mf <- markFinalized (getHash block) finRec
-          -- Finalize the transactions of surviving blocks in the order of their finalization.
-          ft <- finalizeTransactions (getHash block) (blockSlot block) (blockTransactions block)
-          return (mf, ft)
+            -- mark blocks as finalized in the order returned by `pruneTrunk`, so that blocks are marked
+            -- finalized by increasing height
+            mf <- markFinalized (getHash block) finRec
+            -- Finalize the transactions of surviving blocks in the order of their finalization.
+            ft <- finalizeTransactions (getHash block) (blockSlot block) (blockTransactions block)
+            return (mf, ft)
         -- block states and transaction statuses need to be added into the same LMDB transaction
         -- with the finalization record, if persistent tree state is used
         wrapupFinalization finRec mffts
@@ -205,12 +212,12 @@ processFinalization newFinBlock finRec@FinalizationRecord{..} = do
         let doArchive b = case compare (bpHeight b) lastFinHeight of
                 LT -> return []
                 EQ -> do
-                  archiveBlockState =<< blockState b
-                  return []
+                    archiveBlockState =<< blockState b
+                    return []
                 GT -> do
-                        blocks <- doArchive =<< bpParent b
-                        archiveBlockState =<< blockState b
-                        return (b:blocks)
+                    blocks <- doArchive =<< bpParent b
+                    archiveBlockState =<< blockState b
+                    return (b : blocks)
         finalizedBlocks <- doArchive =<< bpParent newFinBlock
         -- Prune the branches: mark dead any block that doesn't descend from
         -- the newly-finalized block.
@@ -218,22 +225,26 @@ processFinalization newFinBlock finRec@FinalizationRecord{..} = do
         -- and a return a list. The reason for doing this is that we never
         -- have to look up a parent block that is already marked dead.
         let
-            pruneBranches :: [BlockPointerType m] -- ^Accumulator of blocks to mark dead.
-                          -> [BlockPointerType m] -- ^Parents that remain alive.
-                          -> Branches m -- ^Branches to prune
-                          -> m (Branches m, [BlockPointerType m])
-                          -- ^The return value is a pair of new branches and the
-                          -- list of blocks to mark dead. The blocks are ordered
-                          -- by decreasing height.
+            pruneBranches ::
+                [BlockPointerType m] -> -- \^Accumulator of blocks to mark dead.
+                [BlockPointerType m] -> -- \^Parents that remain alive.
+                Branches m -> -- \^Branches to prune
+                m (Branches m, [BlockPointerType m])
+            -- \^The return value is a pair of new branches and the
+            -- list of blocks to mark dead. The blocks are ordered
+            -- by decreasing height.
             pruneBranches toRemove _ Seq.Empty = return (Seq.empty, toRemove)
             pruneBranches toRemove parents (brs Seq.:<| rest) = do
-                (survivors, removals) <- foldrM (\bp ~(keep, remove) -> do
-                    parent <- bpParent bp
-                    if parent `elem` parents then
-                        return (bp:keep, remove)
-                    else
-                        return (keep, bp:remove))
-                    ([], toRemove) brs
+                (survivors, removals) <-
+                    foldrM
+                        ( \bp ~(keep, remove) -> do
+                            parent <- bpParent bp
+                            if parent `elem` parents
+                                then return (bp : keep, remove)
+                                else return (keep, bp : remove)
+                        )
+                        ([], toRemove)
+                        brs
                 (rest', toRemove') <- pruneBranches removals survivors rest
                 return (survivors Seq.<| rest', toRemove')
         (unTrimmedBranches, toRemoveFromBranches) <- pruneBranches [] [newFinBlock] (Seq.drop pruneHeight oldBranches)
@@ -249,20 +260,20 @@ processFinalization newFinBlock finRec@FinalizationRecord{..} = do
         putBranches newBranches
         -- mark dead blocks by decreasing height
         forM_ (toRemoveFromBranches ++ toRemoveFromTrunk) $ \bp -> do
-          markLiveBlockDead bp
-          logEvent Skov LLDebug $ "Block " ++ show (bpHash bp) ++ " marked dead"
+            markLiveBlockDead bp
+            logEvent Skov LLDebug $ "Block " ++ show (bpHash bp) ++ " marked dead"
         -- purge pending blocks with slot numbers predating the last finalized slot
         purgePending
         onFinalize finRec newFinBlock finalizedBlocks
         endTime <- currentTime
         logEvent Skov LLDebug $ "Processed finalization in " ++ show (diffUTCTime endTime startTime)
 
--- |Try to add a block to the tree.  
+-- |Try to add a block to the tree.
 -- Besides taking the `PendingBlock` this function takes a list
 -- of verification results which ensures sharing of computed verification results.
--- 
+--
 -- Important! The verification results must be the result of verifying transactions in the block.
---  
+--
 -- There are three possible outcomes:
 -- 1. The block is determined to be invalid in the current tree.
 --    In this case, the block is marked dead.
@@ -311,11 +322,11 @@ addBlock block txvers lfbp mFinInfo = do
 -- slot time is after the slot time of the last finalized block.
 addBlockAsPending :: (TreeStateMonad m, MonadLogger m) => PendingBlock -> m UpdateResult
 addBlockAsPending block = do
-        addPendingBlock block
-        markPending block
-        let parent = blockPointer block
-        logEvent Skov LLDebug $ "Block " ++ show block ++ " is pending its parent (" ++ show parent ++ ")"
-        return ResultPendingBlock
+    addPendingBlock block
+    markPending block
+    let parent = blockPointer block
+    logEvent Skov LLDebug $ "Block " ++ show block ++ " is pending its parent (" ++ show parent ++ ")"
+    return ResultPendingBlock
 
 -- |Add a block where the parent block is known to be alive, and the transactions have been verified.
 -- If the block proves to be valid, it is added to the tree and this returns 'ResultSuccess'.
@@ -388,37 +399,42 @@ addBlockWithLiveParent block txvers parentP lfbp finInfo = do
 -- |Add a valid, live block to the tree.
 -- This is used by 'addBlock' and 'doBakeForSlot', and should not
 -- be called directly otherwise.
-blockArrive :: (HasCallStack, TreeStateMonad m, SkovMonad m)
-        => PendingBlock           -- ^Block to add
-        -> BlockPointerType m     -- ^Parent pointer
-        -> BlockPointerType m    -- ^Last finalized pointer
-        -> ExecutionResult m -- ^Result of block execution (state, energy used, ...)
-        -> m (BlockPointerType m)
+blockArrive ::
+    (HasCallStack, TreeStateMonad m, SkovMonad m) =>
+    -- |Block to add
+    PendingBlock ->
+    -- |Parent pointer
+    BlockPointerType m ->
+    -- |Last finalized pointer
+    BlockPointerType m ->
+    -- |Result of block execution (state, energy used, ...)
+    ExecutionResult m ->
+    m (BlockPointerType m)
 blockArrive block parentP lfBlockP ExecutionResult{..} = do
-        let height = bpHeight parentP + 1
-        curTime <- currentTime
-        blockP <- makeLiveBlock block parentP lfBlockP _finalState curTime _energyUsed
-        logEvent Skov LLInfo $ "Block " ++ show block ++ " arrived"
-        -- Update the statistics
-        updateArriveStatistics blockP
-        -- Add to the branches
-        finHght <- getLastFinalizedHeight
-        brs <- getBranches
-        let branchLen = fromIntegral $ Seq.length brs
-        let insertIndex = height - finHght - 1
-        if insertIndex < branchLen then
-            putBranches $ brs & ix (fromIntegral insertIndex) %~ (blockP:)
+    let height = bpHeight parentP + 1
+    curTime <- currentTime
+    blockP <- makeLiveBlock block parentP lfBlockP _finalState curTime _energyUsed
+    logEvent Skov LLInfo $ "Block " ++ show block ++ " arrived"
+    -- Update the statistics
+    updateArriveStatistics blockP
+    -- Add to the branches
+    finHght <- getLastFinalizedHeight
+    brs <- getBranches
+    let branchLen = fromIntegral $ Seq.length brs
+    let insertIndex = height - finHght - 1
+    if insertIndex < branchLen
+        then putBranches $ brs & ix (fromIntegral insertIndex) %~ (blockP :)
         else
-            if insertIndex == branchLen then
-                putBranches $ brs Seq.|> [blockP]
-            else do
-                -- This should not be possible, since the parent block should either be
-                -- the last finalized block (in which case insertIndex == 0)
-                -- or the child of a live block (in which case insertIndex <= branchLen)
-                let errMsg = "Attempted to add block at invalid height (" ++ show (theBlockHeight height) ++ ") while last finalized height is " ++ show (theBlockHeight finHght)
-                logEvent Skov LLError errMsg
-                error errMsg
-        return blockP
+            if insertIndex == branchLen
+                then putBranches $ brs Seq.|> [blockP]
+                else do
+                    -- This should not be possible, since the parent block should either be
+                    -- the last finalized block (in which case insertIndex == 0)
+                    -- or the child of a live block (in which case insertIndex <= branchLen)
+                    let errMsg = "Attempted to add block at invalid height (" ++ show (theBlockHeight height) ++ ") while last finalized height is " ++ show (theBlockHeight finHght)
+                    logEvent Skov LLError errMsg
+                    error errMsg
+    return blockP
 
 -- |Output the time that an action took together with the computed result.
 clockIt :: TimeMonad m => m a -> m (NominalDiffTime, a)
@@ -702,7 +718,6 @@ doExecuteBlock VerifiedPendingBlock'{..} = do
             blockArriveDead blockHash
             return ResultInvalid
 
-
 -- |Add a transaction to the transaction table.
 -- This returns
 --   * 'ResultSuccess' if the transaction is freshly added.
@@ -724,7 +739,7 @@ doExecuteBlock VerifiedPendingBlock'{..} = do
 --     The transaction is not added to the transaction table.
 --   * 'ResultCredentialDeploymentInvalidIP' the 'CredentialDeployment' contained an unrecognized identity provider.
 --     The transaction is not added to the transaction table.
---   * 'ResultCredentialDeploymentInvalidAR' the 'CredentialDeployment' contained unrecognized anonymity revokers. 
+--   * 'ResultCredentialDeploymentInvalidAR' the 'CredentialDeployment' contained unrecognized anonymity revokers.
 --     The transaction is not added to the transaction table.
 --   * 'ResultCredentialDeploymentExpired' the 'CredentialDeployment' was expired. The transaction is not added to
 --     the transaction table.
@@ -733,14 +748,54 @@ doExecuteBlock VerifiedPendingBlock'{..} = do
 --      was before the timeout of the update.
 --   * 'ResultChainUpdateInvalidSignatures' the update contained invalid signatures.
 --   * 'ResultEnergyExceeded' the stated energy of the transaction exceeds the maximum allowed for the block.
-doReceiveTransaction :: (TreeStateMonad m,
-                         TimeMonad m,
-                         SkovQueryMonad m) => BlockItem -> m UpdateResult
+doReceiveTransaction ::
+    ( TreeStateMonad m,
+      TimeMonad m,
+      SkovQueryMonad m
+    ) =>
+    BlockItem ->
+    m UpdateResult
 doReceiveTransaction tr = unlessShutDown $ do
     now <- currentTime
     ur <- snd <$> doReceiveTransactionInternal TV.Single tr (utcTimeToTimestamp now) 0
     when (ur == ResultSuccess) $ purgeTransactionTable False =<< currentTime
     return ur
+
+-- |Add a transaction that has previously been verified, given the result of verification.
+doAddPreverifiedTransaction ::
+    (TreeStateMonad m, TimeMonad m) =>
+    BlockItem ->
+    TV.OkResult ->
+    m UpdateResult
+doAddPreverifiedTransaction blockItem okRes = do
+    res <- addVerifiedTransaction blockItem okRes
+    case res of
+        Added WithMetadata{..} verRes -> do
+            ptrs <- getPendingTransactions
+            case wmdData of
+                NormalTransaction tx -> do
+                    -- Record the transaction in the pending transaction table.
+                    focus <- getFocusBlock
+                    st <- blockState focus
+                    macct <- getAccount st $! transactionSender tx
+                    nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
+                    when (nextNonce <= transactionNonce tx) $
+                        putPendingTransactions $!
+                            addPendingTransaction nextNonce WithMetadata{wmdData = tx, ..} ptrs
+                CredentialDeployment _ -> do
+                    putPendingTransactions $! addPendingDeployCredential wmdHash ptrs
+                ChainUpdate cu -> do
+                    focus <- getFocusBlock
+                    st <- blockState focus
+                    nextSN <- getNextUpdateSequenceNumber st (updateType (uiPayload cu))
+                    when (nextSN <= updateSeqNumber (uiHeader cu)) $
+                        putPendingTransactions $!
+                            addPendingUpdate nextSN cu ptrs
+            purgeTransactionTable False =<< currentTime
+            return $! transactionVerificationResultToUpdateResult verRes
+        Duplicate{} -> return ResultDuplicate
+        ObsoleteNonce -> return ResultStale
+        NotAdded verRes -> return $! transactionVerificationResultToUpdateResult verRes
 
 -- |Add a transaction to the transaction table.  The 'Slot' should be
 -- the slot number of the block that the transaction was received with.
@@ -757,49 +812,50 @@ doReceiveTransactionInternal origin tr ts slot = do
     ctx <- getVerificationCtx =<< getBlockState
     addCommitTransaction tr ctx ts slot >>= \case
         Added bi@WithMetadata{..} verRes -> do
-          ptrs <- getPendingTransactions
-          case wmdData of
-            NormalTransaction tx -> do
-              -- Transactions received individually should always be added to the ptt.
-              -- If the transaction was received as part of a block we only add it to the ptt if
-              -- the transaction nonce is at least the `nextNonce` recorded for sender account.
-              -- 
-              -- The pending transaction table records transactions that are pending from the perspective of the focus block (which is always above the last finalized block).
-              -- It is an invariant of the pending table and focus block that the next recorded nonce for any sender in the pending table is
-              -- the same as the next account nonce from the perspective of the focus block.
-              -- 
-              -- When receiving transactions individually, the pre-validation done in addCommitTransaction already checks that the transaction nonce is the next available one.
-              -- This is always at least the nonce that is recorded in the focus block for the account.
-              -- The invariant then ensures that the next nonce for the sender in the pending table is the same as that in the focus block for the account.
-              --
-              -- However when receiving transactions as part of a block pre-validation only ensures that the nonce is at least the last finalized one
-              -- (or at least the one in the parent block, depending on whether the parent block exists or not).
-              -- In the case the parent block is above the focus block, or the parent block does not exist,
-              -- this nonce would in general be above the nonce recorded in the focus block for the account.
-              -- Hence to maintain the invariant we have to inform the pending table what the next available nonce is in the focus block.
-              let add nextNonce = putPendingTransactions $! addPendingTransaction nextNonce WithMetadata{wmdData=tx,..} ptrs
-              case origin of
-                TV.Single -> add $ transactionNonce tx
-                TV.Block _ -> do
-                  focus <- getFocusBlock
-                  st <- blockState focus
-                  macct <- getAccount st $! transactionSender tx
-                  nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
-                  -- If a transaction with this nonce has already been run by
-                  -- the focus block, then we do not need to add it to the
-                  -- pending transactions. Otherwise, we do.
-                  when (nextNonce <= transactionNonce tx) $ add nextNonce
-            CredentialDeployment _ -> do
-                  putPendingTransactions $! addPendingDeployCredential wmdHash ptrs
-            ChainUpdate cu -> do
-                focus <- getFocusBlock
-                st <- blockState focus
-                nextSN <- getNextUpdateSequenceNumber st (updateType (uiPayload cu))
-                when (nextSN <= updateSeqNumber (uiHeader cu)) $
-                    putPendingTransactions $! addPendingUpdate nextSN cu ptrs
-          -- The actual verification result here is only used if the transaction was received individually.
-          -- If the transaction was received as part of a block we don't use the result for anything.
-          return (Just (bi, Just verRes), transactionVerificationResultToUpdateResult verRes)
+            ptrs <- getPendingTransactions
+            case wmdData of
+                NormalTransaction tx -> do
+                    -- Transactions received individually should always be added to the ptt.
+                    -- If the transaction was received as part of a block we only add it to the ptt if
+                    -- the transaction nonce is at least the `nextNonce` recorded for sender account.
+                    --
+                    -- The pending transaction table records transactions that are pending from the perspective of the focus block (which is always above the last finalized block).
+                    -- It is an invariant of the pending table and focus block that the next recorded nonce for any sender in the pending table is
+                    -- the same as the next account nonce from the perspective of the focus block.
+                    --
+                    -- When receiving transactions individually, the pre-validation done in addCommitTransaction already checks that the transaction nonce is the next available one.
+                    -- This is always at least the nonce that is recorded in the focus block for the account.
+                    -- The invariant then ensures that the next nonce for the sender in the pending table is the same as that in the focus block for the account.
+                    --
+                    -- However when receiving transactions as part of a block pre-validation only ensures that the nonce is at least the last finalized one
+                    -- (or at least the one in the parent block, depending on whether the parent block exists or not).
+                    -- In the case the parent block is above the focus block, or the parent block does not exist,
+                    -- this nonce would in general be above the nonce recorded in the focus block for the account.
+                    -- Hence to maintain the invariant we have to inform the pending table what the next available nonce is in the focus block.
+                    let add nextNonce = putPendingTransactions $! addPendingTransaction nextNonce WithMetadata{wmdData = tx, ..} ptrs
+                    case origin of
+                        TV.Single -> add $ transactionNonce tx
+                        TV.Block _ -> do
+                            focus <- getFocusBlock
+                            st <- blockState focus
+                            macct <- getAccount st $! transactionSender tx
+                            nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
+                            -- If a transaction with this nonce has already been run by
+                            -- the focus block, then we do not need to add it to the
+                            -- pending transactions. Otherwise, we do.
+                            when (nextNonce <= transactionNonce tx) $ add nextNonce
+                CredentialDeployment _ -> do
+                    putPendingTransactions $! addPendingDeployCredential wmdHash ptrs
+                ChainUpdate cu -> do
+                    focus <- getFocusBlock
+                    st <- blockState focus
+                    nextSN <- getNextUpdateSequenceNumber st (updateType (uiPayload cu))
+                    when (nextSN <= updateSeqNumber (uiHeader cu)) $
+                        putPendingTransactions $!
+                            addPendingUpdate nextSN cu ptrs
+            -- The actual verification result here is only used if the transaction was received individually.
+            -- If the transaction was received as part of a block we don't use the result for anything.
+            return (Just (bi, Just verRes), transactionVerificationResultToUpdateResult verRes)
         -- Return the cached verification result if the transaction was either `Received` or `Committed`.
         -- The verification result is used by the `Scheduler` if this transaction was part of a block.
         -- Note. the `Scheduler` will re-verify the transaction if required,
@@ -811,73 +867,47 @@ doReceiveTransactionInternal origin tr ts slot = do
         ObsoleteNonce -> return (Nothing, ResultStale)
         NotAdded verRes -> return (Nothing, transactionVerificationResultToUpdateResult verRes)
   where
-      getVerificationCtx state = do
+    getVerificationCtx state = do
         gd <- getGenesisData
         let isOriginBlock = case origin of
                 TV.Single -> False
                 TV.Block _ -> True
         pure $ Context state (gdMaxBlockEnergy gd) isOriginBlock
-      -- We use the last finalized block for transactions received individually.
-      -- For transactions received as part of a block we try use the parent block
-      -- if it's eligible. That is, the parent block must be ´Alive´ otherwise we fallback
-      -- to use the last finalized block.
-      getBlockState = do
+    -- We use the last finalized block for transactions received individually.
+    -- For transactions received as part of a block we try use the parent block
+    -- if it's eligible. That is, the parent block must be ´Alive´ otherwise we fallback
+    -- to use the last finalized block.
+    getBlockState = do
         case origin of
-          TV.Single -> blockState . fst =<< getLastFinalized
-          TV.Block bs -> pure bs
+            TV.Single -> blockState . fst =<< getLastFinalized
+            TV.Block bs -> pure bs
 
 -- |Clear the skov instance __just before__ handling the protocol update. This
 -- clears all blocks that are not finalized but otherwise maintains all existing
 -- state invariants. This prepares the state for @migrateExistingSkov@.
 doClearSkov :: (TreeStateMonad m, SkovMonad m) => m ()
-doClearSkov = isShutDown >>= \case
-    False -> return ()
-    True -> do
-        lfb <- lastFinalizedBlock
-        -- Archive the state
-        archiveBlockState =<< blockState lfb
-        -- Make the last finalized block the focus block,
-        -- adjusting the pending transaction table.
-        updateFocusBlockTo lfb
-        -- Clear out all of the non-finalized and pending blocks.
-        clearOnProtocolUpdate
+doClearSkov =
+    isShutDown >>= \case
+        False -> return ()
+        True -> do
+            lfb <- lastFinalizedBlock
+            -- Archive the state
+            archiveBlockState =<< blockState lfb
+            -- Make the last finalized block the focus block,
+            -- adjusting the pending transaction table.
+            updateFocusBlockTo lfb
+            -- Clear out all of the non-finalized and pending blocks.
+            clearOnProtocolUpdate
 
 -- |Terminate the skov instance __after__ the protocol update has taken effect.
 -- After this point the skov instance is useful for queries only.
 doTerminateSkov :: (TreeStateMonad m, SkovMonad m) => m ()
-doTerminateSkov = isShutDown >>= \case
-    False -> return ()
-    True -> clearAfterProtocolUpdate
+doTerminateSkov =
+    isShutDown >>= \case
+        False -> return ()
+        True -> clearAfterProtocolUpdate
 
 doPurgeTransactions :: (TimeMonad m, TreeStateMonad m) => m ()
 doPurgeTransactions = do
-        now <- currentTime
-        purgeTransactionTable True now
-
-
--- |Maps the underlying 'TransactionVerificationResult' to the according 'UpdateResult' type.
--- See the 'VerificationResult' for more information.
-transactionVerificationResultToUpdateResult :: TV.VerificationResult -> UpdateResult
--- 'Ok' mappings
-transactionVerificationResultToUpdateResult (TV.Ok _) = ResultSuccess
--- 'MaybeOk' mappings
-transactionVerificationResultToUpdateResult (TV.MaybeOk (TV.CredentialDeploymentInvalidIdentityProvider _)) = ResultCredentialDeploymentInvalidIP
-transactionVerificationResultToUpdateResult (TV.MaybeOk TV.CredentialDeploymentInvalidAnonymityRevokers) = ResultCredentialDeploymentInvalidAR
-transactionVerificationResultToUpdateResult (TV.MaybeOk (TV.ChainUpdateInvalidNonce _)) = ResultNonceTooLarge
-transactionVerificationResultToUpdateResult (TV.MaybeOk TV.ChainUpdateInvalidSignatures) = ResultChainUpdateInvalidSignatures
-transactionVerificationResultToUpdateResult (TV.MaybeOk TV.NormalTransactionInsufficientFunds) = ResultInsufficientFunds
-transactionVerificationResultToUpdateResult (TV.MaybeOk (TV.NormalTransactionInvalidSender _)) = ResultNonexistingSenderAccount
-transactionVerificationResultToUpdateResult (TV.MaybeOk TV.NormalTransactionInvalidSignatures) = ResultVerificationFailed
-transactionVerificationResultToUpdateResult (TV.MaybeOk (TV.NormalTransactionInvalidNonce _)) = ResultNonceTooLarge
--- 'NotOk' mappings
-transactionVerificationResultToUpdateResult (TV.NotOk (TV.CredentialDeploymentDuplicateAccountRegistrationID _)) = ResultDuplicateAccountRegistrationID
-transactionVerificationResultToUpdateResult (TV.NotOk TV.CredentialDeploymentInvalidSignatures) = ResultCredentialDeploymentInvalidSignatures
-transactionVerificationResultToUpdateResult (TV.NotOk (TV.ChainUpdateSequenceNumberTooOld _)) = ResultChainUpdateSequenceNumberTooOld
-transactionVerificationResultToUpdateResult (TV.NotOk TV.ChainUpdateEffectiveTimeBeforeTimeout) = ResultChainUpdateInvalidEffectiveTime
-transactionVerificationResultToUpdateResult (TV.NotOk TV.CredentialDeploymentExpired) = ResultCredentialDeploymentExpired
-transactionVerificationResultToUpdateResult (TV.NotOk TV.NormalTransactionDepositInsufficient) = ResultTooLowEnergy
-transactionVerificationResultToUpdateResult (TV.NotOk TV.NormalTransactionEnergyExceeded) = ResultEnergyExceeded
-transactionVerificationResultToUpdateResult (TV.NotOk (TV.NormalTransactionDuplicateNonce _)) = ResultDuplicateNonce
-transactionVerificationResultToUpdateResult (TV.NotOk TV.Expired) = ResultStale
-transactionVerificationResultToUpdateResult (TV.NotOk TV.InvalidPayloadSize) = ResultSerializationFail
-
+    now <- currentTime
+    purgeTransactionTable True now

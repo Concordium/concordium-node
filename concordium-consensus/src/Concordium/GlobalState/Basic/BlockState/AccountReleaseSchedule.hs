@@ -27,7 +27,10 @@ type family AccountReleaseSchedule' (av :: AccountVersion) where
     AccountReleaseSchedule' 'AccountV1 = ARSV0.AccountReleaseSchedule
     AccountReleaseSchedule' 'AccountV2 = ARSV1.AccountReleaseSchedule
 
-newtype AccountReleaseSchedule (av :: AccountVersion) = AccountReleaseSchedule {theAccountReleaseSchedule :: AccountReleaseSchedule' av}
+-- |Release schedule on an account, parametrized by the account version.
+newtype AccountReleaseSchedule (av :: AccountVersion) = AccountReleaseSchedule
+    { theAccountReleaseSchedule :: AccountReleaseSchedule' av
+    }
 
 -- |Helper to retrieve the underlying V0 release schedule assuming we know
 -- that the account version @av@ has the V0 structure.
@@ -54,8 +57,8 @@ theAccountReleaseScheduleV1 = case accountVersion @av of
 fromAccountReleaseScheduleV0 ::
     forall av.
     (IsAccountVersion av, AccountStructureVersionFor av ~ 'AccountStructureV0) =>
-    ARSV0.AccountReleaseSchedule
-    -> AccountReleaseSchedule av
+    ARSV0.AccountReleaseSchedule ->
+    AccountReleaseSchedule av
 fromAccountReleaseScheduleV0 = case accountVersion @av of
     SAccountV0 -> AccountReleaseSchedule
     SAccountV1 -> AccountReleaseSchedule
@@ -64,8 +67,8 @@ fromAccountReleaseScheduleV0 = case accountVersion @av of
 fromAccountReleaseScheduleV1 ::
     forall av.
     (IsAccountVersion av, AccountStructureVersionFor av ~ 'AccountStructureV1) =>
-    ARSV1.AccountReleaseSchedule
-    -> AccountReleaseSchedule av
+    ARSV1.AccountReleaseSchedule ->
+    AccountReleaseSchedule av
 fromAccountReleaseScheduleV1 = case accountVersion @av of
     SAccountV2 -> AccountReleaseSchedule
 
@@ -81,6 +84,7 @@ instance (IsAccountVersion av) => Show (AccountReleaseSchedule av) where
         SAccountV1 -> show . theAccountReleaseSchedule
         SAccountV2 -> show . theAccountReleaseSchedule
 
+-- |Produce an 'AccountReleaseSummary' from an 'AccountReleaseSchedule'.
 toAccountReleaseSummary :: forall av. IsAccountVersion av => AccountReleaseSchedule av -> AccountReleaseSummary
 toAccountReleaseSummary = case accountVersion @av of
     SAccountV0 -> ARSV0.toAccountReleaseSummary . theAccountReleaseSchedule
@@ -142,6 +146,7 @@ nextReleaseTimestamp = case accountVersion @av of
     SAccountV1 -> ARSV0.nextReleaseTimestamp . theAccountReleaseSchedule
     SAccountV2 -> ARSV1.nextReleaseTimestamp . theAccountReleaseSchedule
 
+-- |Serialize an account release schedule. The serialization format depends on the account version.
 serializeAccountReleaseSchedule :: forall av. (IsAccountVersion av) => Putter (AccountReleaseSchedule av)
 serializeAccountReleaseSchedule = case accountVersion @av of
     SAccountV0 -> put . theAccountReleaseSchedule

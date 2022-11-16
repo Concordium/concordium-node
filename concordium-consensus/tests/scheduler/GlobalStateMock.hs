@@ -1,14 +1,14 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE QuantifiedConstraints #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 -- |This module provides a mocked implementation of the block state-related monads.
@@ -97,14 +97,14 @@ generateAct ''AccountOperationsAction
 
 -- |Mock type for 'ContractStateOperations'.
 -- None of the operations are currently implemented.
-data ContractStateOperationsAction a where
+data ContractStateOperationsAction a
 
 deriving instance Eq (ContractStateOperationsAction a)
 deriving instance Show (ContractStateOperationsAction a)
 
 -- |Mock type for 'ModuleQuery'
 -- None of the operations are currently implemented.
-data ModuleQueryAction a where
+data ModuleQueryAction a
 
 deriving instance Eq (ModuleQueryAction a)
 deriving instance Show (ModuleQueryAction a)
@@ -250,8 +250,8 @@ instance Act (Action pv) where
     eqAct (BSO x) (BSO y) = eqAct x y
     eqAct _ _ = Nothing
     showRes (AO x) r = showRes x r
-    showRes (CO x) _ = case x of
-    showRes (MQ x) _ = case x of
+    showRes (CO x) _ = case x of {}
+    showRes (MQ x) _ = case x of {}
     showRes (BSQ x) r = showRes x r
     showRes (BSO x) r = showRes x r
 
@@ -311,20 +311,22 @@ mockOperations
     [|mockAction . AO|]
 
 mockOperations
-    [d|instance (Monad m) => ContractStateOperations (MockT (Action pv) m) where
-         thawContractState = error "Unsupported operation."
-         externalContractState = error "Unsupported operation."
-         getV1StateContext = error "Unsupported operation."
-         stateSizeV0 = error "Unsupported operation."
-         contractStateToByteString = error "Unsupported operation."
-         |]
+    [d|
+        instance (Monad m) => ContractStateOperations (MockT (Action pv) m) where
+            thawContractState = error "Unsupported operation."
+            externalContractState = error "Unsupported operation."
+            getV1StateContext = error "Unsupported operation."
+            stateSizeV0 = error "Unsupported operation."
+            contractStateToByteString = error "Unsupported operation."
+        |]
     ''ContractStateOperationsAction
     [|mockAction . CO|]
 
 mockOperations
-    [d|instance (Monad m) => ModuleQuery (MockT (Action pv) m) where
-         getModuleArtifact = error "Unsupported operation."
-         |]
+    [d|
+        instance (Monad m) => ModuleQuery (MockT (Action pv) m) where
+            getModuleArtifact = error "Unsupported operation."
+        |]
     ''ModuleQueryAction
     [|mockAction . MO|]
 
@@ -334,11 +336,12 @@ mockOperations
     [|mockAction . BSQ|]
 
 mockOperations
-    [d|instance (Monad m) => BlockStateOperations (MockT (Action pv) m) where
-        bsoPutNewInstance = error "Unsupported operation"
-        bsoModifyInstance = error "Unsupported operation"
-        bsoPutNewModule = error "Unsupported operation"
-        bsoProcessPendingChanges = error "Unsupported operation"
+    [d|
+        instance (Monad m) => BlockStateOperations (MockT (Action pv) m) where
+            bsoPutNewInstance = error "Unsupported operation"
+            bsoModifyInstance = error "Unsupported operation"
+            bsoPutNewModule = error "Unsupported operation"
+            bsoProcessPendingChanges = error "Unsupported operation"
         |]
     ''BlockStateOperationsAction
     [|mockAction . BSO|]

@@ -28,7 +28,7 @@ Map listen_port = [
 Map genesis_path = [
     mainnet: "mainnet/2021-06-09",
     testnet: "testnet/2022-06-13/genesis_data",
-    stagenet: "stagenet/2022-06-24/genesis_data"
+    stagenet: "stagenet/2022-11-11/genesis_data"
 ]
 
 pipeline {

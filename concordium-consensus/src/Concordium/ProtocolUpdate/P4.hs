@@ -5,7 +5,7 @@ module Concordium.ProtocolUpdate.P4 (
     Update (..),
     checkUpdate,
     updateRegenesis,
-    updateNextProtocolVersion
+    updateNextProtocolVersion,
 ) where
 
 import qualified Data.HashMap.Strict as HM
@@ -15,8 +15,8 @@ import qualified Concordium.Crypto.SHA256 as SHA256
 import Concordium.Types
 import Concordium.Types.Updates
 
-import Concordium.GlobalState.Types
 import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.Types
 import Concordium.Kontrol
 import qualified Concordium.ProtocolUpdate.P4.ProtocolP5 as ProtocolP5
 

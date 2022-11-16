@@ -7,11 +7,11 @@
 module Main where
 
 import qualified Data.ByteString as BS
+import Data.Time.Clock.POSIX
 import System.Directory
 import System.Environment
 import System.FilePath
 import System.IO
-import Data.Time.Clock.POSIX
 
 import Concordium.GlobalState
 import Concordium.GlobalState.Parameters

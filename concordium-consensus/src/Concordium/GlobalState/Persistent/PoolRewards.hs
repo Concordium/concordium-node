@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+
 module Concordium.GlobalState.Persistent.PoolRewards (
     module Concordium.GlobalState.Basic.BlockState.PoolRewards,
     PoolRewards (..),
@@ -12,14 +13,14 @@ module Concordium.GlobalState.Persistent.PoolRewards (
     currentPassiveDelegationCapital,
     lookupBakerCapitalAndRewardDetails,
     migratePoolRewardsP1,
-    migratePoolRewards
+    migratePoolRewards,
 ) where
 
+import Control.Exception (assert)
 import qualified Data.Map.Strict as Map
 import Data.Serialize
 import qualified Data.Vector as Vec
 import Data.Word
-import Control.Exception (assert)
 
 import Concordium.Crypto.SHA256 as Hash
 
@@ -66,22 +67,32 @@ data PoolRewards = PoolRewards
     deriving (Show)
 
 -- |Migrate pool rewards from @m@ to the new backing store @t m@.
-migratePoolRewards :: SupportMigration m t =>
+-- This takes the new next payday epoch as a parameter, since this should always be updated on
+-- a protocol update.
+migratePoolRewards ::
+    SupportMigration m t =>
+    Epoch ->
     PoolRewards ->
     t m PoolRewards
-migratePoolRewards PoolRewards{..} = do
-  nextCapital' <- migrateHashedBufferedRefKeepHash nextCapital
-  currentCapital' <- migrateHashedBufferedRefKeepHash currentCapital
-  bakerPoolRewardDetails' <- LFMBT.migrateLFMBTree (migrateReference return) bakerPoolRewardDetails
-  return PoolRewards{
-    nextCapital = nextCapital',
-    currentCapital = currentCapital',
-    bakerPoolRewardDetails = bakerPoolRewardDetails',
-    .. -- the remaining fields are flat, so migration is copying
-    }
+migratePoolRewards newNextPayday PoolRewards{..} = do
+    nextCapital' <- migrateHashedBufferedRefKeepHash nextCapital
+    currentCapital' <- migrateHashedBufferedRefKeepHash currentCapital
+    bakerPoolRewardDetails' <- LFMBT.migrateLFMBTree (migrateReference return) bakerPoolRewardDetails
+    return
+        PoolRewards
+            { nextCapital = nextCapital',
+              currentCapital = currentCapital',
+              bakerPoolRewardDetails = bakerPoolRewardDetails',
+              nextPaydayEpoch = newNextPayday,
+              ..
+            }
+
+-- the remaining fields are flat, so migration is copying
 
 -- |Migrate pool rewards from the format before delegation to the P4 format.
-migratePoolRewardsP1 :: forall m . (MonadBlobStore m) =>
+migratePoolRewardsP1 ::
+    forall m.
+    (MonadBlobStore m) =>
     -- |Current epoch bakers and stakes, in ascending order of 'BakerId'.
     [(BakerId, Amount)] ->
     -- |Next epoch bakers and stakes, in ascending order of 'BakerId'.
@@ -92,33 +103,35 @@ migratePoolRewardsP1 :: forall m . (MonadBlobStore m) =>
     Epoch ->
     -- |Mint rate for the next payday
     MintRate ->
-    m PoolRewards 
+    m PoolRewards
 migratePoolRewardsP1 curBakers nextBakers blockCounts npEpoch npMintRate = do
-  (nextCapital, _) <- refFlush =<< bufferHashed (makeCD nextBakers)
-  (currentCapital, _) <- refFlush =<< bufferHashed (makeCD curBakers)
-  bakerPoolRewardDetails' <- LFMBT.fromAscListV =<< mapM makePRD curBakers
-  (_, bakerPoolRewardDetails) <- storeUpdateRef bakerPoolRewardDetails'
-  let passiveDelegationTransactionRewards = 0
-      foundationTransactionRewards = 0
-      nextPaydayEpoch = npEpoch
-      nextPaydayMintRate = npMintRate
-  return PoolRewards{..}
-
-  where makeCD bkrs = makeHashed $
+    (nextCapital, _) <- refFlush =<< bufferHashed (makeCD nextBakers)
+    (currentCapital, _) <- refFlush =<< bufferHashed (makeCD curBakers)
+    bakerPoolRewardDetails' <- LFMBT.fromAscListV =<< mapM makePRD curBakers
+    (_, bakerPoolRewardDetails) <- storeUpdateRef bakerPoolRewardDetails'
+    let passiveDelegationTransactionRewards = 0
+        foundationTransactionRewards = 0
+        nextPaydayEpoch = npEpoch
+        nextPaydayMintRate = npMintRate
+    return PoolRewards{..}
+  where
+    makeCD bkrs =
+        makeHashed $
             CapitalDistribution
                 { bakerPoolCapital = Vec.fromList (makeBakerCapital <$> bkrs),
                   passiveDelegatorsCapital = Vec.empty
                 }
-        makeBakerCapital (bid, amt) = BakerCapital bid amt Vec.empty
-        makePRD :: (BakerId, a) -> m (BufferedRef BakerPoolRewardDetails)
-        makePRD (bid, _) = do
-          let bprd = BakerPoolRewardDetails
-                  { blockCount = Map.findWithDefault 0 bid blockCounts,
-                    transactionFeesAccrued = 0,
-                    finalizationAwake = False
-                  }
-          (!newRef, _) <- refFlush =<< refMake bprd
-          return newRef
+    makeBakerCapital (bid, amt) = BakerCapital bid amt Vec.empty
+    makePRD :: (BakerId, a) -> m (BufferedRef BakerPoolRewardDetails)
+    makePRD (bid, _) = do
+        let bprd =
+                BakerPoolRewardDetails
+                    { blockCount = Map.findWithDefault 0 bid blockCounts,
+                      transactionFeesAccrued = 0,
+                      finalizationAwake = False
+                    }
+        (!newRef, _) <- refFlush =<< refMake bprd
+        return newRef
 
 -- |Look up the baker capital and reward details for a baker ID.
 lookupBakerCapitalAndRewardDetails ::
@@ -137,12 +150,12 @@ instance MonadBlobStore m => BlobStorable m PoolRewards where
     storeUpdate pr0 = do
         (pNextCapital, nextCapital) <- storeUpdate (nextCapital pr0)
         (pCurrentCapital, currentCapital) <- storeUpdate (currentCapital pr0)
-        (pBakerPoolRewardDetails, bakerPoolRewardDetails)
-            <- storeUpdate (bakerPoolRewardDetails pr0)
-        (pPassiveDelegationTransactionRewards, passiveDelegationTransactionRewards)
-            <- storeUpdate (passiveDelegationTransactionRewards pr0)
-        (pFoundationTransactionRewards, foundationTransactionRewards)
-            <- storeUpdate (foundationTransactionRewards pr0)
+        (pBakerPoolRewardDetails, bakerPoolRewardDetails) <-
+            storeUpdate (bakerPoolRewardDetails pr0)
+        (pPassiveDelegationTransactionRewards, passiveDelegationTransactionRewards) <-
+            storeUpdate (passiveDelegationTransactionRewards pr0)
+        (pFoundationTransactionRewards, foundationTransactionRewards) <-
+            storeUpdate (foundationTransactionRewards pr0)
         (pNextPaydayEpoch, nextPaydayEpoch) <- storeUpdate (nextPaydayEpoch pr0)
         (pNextPaydayMintRate, nextPaydayMintRate) <- storeUpdate (nextPaydayMintRate pr0)
         let p = do
@@ -195,16 +208,16 @@ instance MonadBlobStore m => MHashableTo m PoolRewardsHash PoolRewards where
         hNextCapital <- getHashM nextCapital
         hCurrentCapital <- getHashM currentCapital
         hBakerPoolRewardDetails <- getHashM bakerPoolRewardDetails
-        return
-            $! PoolRewardsHash . Hash.hashOfHashes hNextCapital
-            $ Hash.hashOfHashes hCurrentCapital $
-                Hash.hashOfHashes hBakerPoolRewardDetails $
-                    getHash $
-                        runPut $
-                            put passiveDelegationTransactionRewards
-                                <> put foundationTransactionRewards
-                                <> put nextPaydayEpoch
-                                <> put nextPaydayMintRate
+        return $!
+            PoolRewardsHash . Hash.hashOfHashes hNextCapital $
+                Hash.hashOfHashes hCurrentCapital $
+                    Hash.hashOfHashes hBakerPoolRewardDetails $
+                        getHash $
+                            runPut $
+                                put passiveDelegationTransactionRewards
+                                    <> put foundationTransactionRewards
+                                    <> put nextPaydayEpoch
+                                    <> put nextPaydayMintRate
 
 instance MonadBlobStore m => Cacheable m PoolRewards where
     cache pr@PoolRewards{nextPaydayEpoch = nextPaydayEpoch, nextPaydayMintRate = nextPaydayMintRate} = do
@@ -283,7 +296,7 @@ setNextCapitalDistribution bakers passive oldPoolRewards = do
   where
     mkBakCap (bcBakerId, bcBakerEquityCapital, dels) =
         let bcDelegatorCapital = Vec.fromList $ map mkDelCap dels
-         in BakerCapital{..}
+        in  BakerCapital{..}
     mkDelCap (dcDelegatorId, dcDelegatorCapital) =
         DelegatorCapital{..}
 

@@ -100,7 +100,7 @@ benches size = envWithCleanup (setup size) cleanup $ \cnf ->
                 ]
           where
             !xres = if 1 <= x && x <= size then Just $! fromIntegral x else Nothing
-     in bgroup
+    in  bgroup
             ("Map size " ++ show size)
             [ testRegID 1,
               testRegID size,

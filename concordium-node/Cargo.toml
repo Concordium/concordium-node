@@ -1,6 +1,6 @@
 [package]
 name = "concordium_node"
-version = "5.0.2" # must be kept in sync with 'is_compatible_version' in 'src/configuration.rs'
+version = "5.0.6" # must be kept in sync with 'is_compatible_version' in 'src/configuration.rs'
 description = "Concordium Node"
 authors = ["Concordium <developers@concordium.com>"]
 exclude = [".gitignore", ".gitlab-ci.yml", "test/**/*","**/**/.gitignore","**/**/.gitlab-ci.yml"]
@@ -57,7 +57,6 @@ flatbuffers = { version = "2" }
 flatc-rust = { version = "0.2" }
 sha2 = "0.10"
 lazy_static = "^1.2"
-base58check = "^0.1"
 serde = { version = "1.0", features = ["rc"] }
 hex = "0.4"
 rpassword = "5.0"

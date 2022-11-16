@@ -1,25 +1,25 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
+
 module Concordium.Scheduler.DummyData {-# WARNING "This module should not be used in production code." #-} where
 
-import Data.FileEmbed
-import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Aeson as AE
+import qualified Data.ByteString.Lazy as BSL
+import Data.FileEmbed
 
 import Concordium.Common.Version
-import Concordium.Types
-import Concordium.Scheduler.Types
 import Concordium.ID.Types
+import Concordium.Scheduler.Types
 import Data.Time
 
 import qualified Concordium.Scheduler.Runner as Runner
 
 import Concordium.Types.DummyData
 
+import qualified Concordium.Crypto.SignatureScheme as Sig
 import Concordium.ID.DummyData
-import qualified  Concordium.Crypto.SignatureScheme as Sig
-import qualified  Data.Map.Strict as Map
+import qualified Data.Map.Strict as Map
 
 -- |Maximum possible expiry of a message.
 maxExpiry :: TransactionExpiryTime
@@ -46,14 +46,17 @@ cdi2 = readAccountCreation . BSL.fromStrict $ $(makeRelativeToProject "testdata/
 {-# WARNING cdi3 "Do not use in production." #-}
 cdi3 :: AccountCreation
 cdi3 = readAccountCreation . BSL.fromStrict $ $(makeRelativeToProject "testdata/credential-3.json" >>= embedFile)
+
 -- credential 4 should have the same reg id as credential 3, so should be rejected
 {-# WARNING cdi4 "Do not use in production." #-}
 cdi4 :: AccountCreation
 cdi4 = readAccountCreation . BSL.fromStrict $ $(makeRelativeToProject "testdata/credential-4.json" >>= embedFile)
+
 -- Credentials 5 and 6 should have the same account address
 {-# WARNING cdi5 "Do not use in production." #-}
 cdi5 :: AccountCreation
 cdi5 = readAccountCreation . BSL.fromStrict $ $(makeRelativeToProject "testdata/credential-5.json" >>= embedFile)
+
 -- {-# WARNING cdi6 "Do not use in production." #-}
 -- cdi6 :: AccountCreation
 -- cdi6 = readAccountCreation . BSL.fromStrict $ $(makeRelativeToProject "testdata/credential-6.json" >>= embedFile)
@@ -63,26 +66,25 @@ cdi7 = readAccountCreation . BSL.fromStrict $ $(makeRelativeToProject "testdata/
 
 readAccountCreation :: BSL.ByteString -> AccountCreation
 readAccountCreation bs =
-  case AE.eitherDecode bs of
-    Left err -> error $ "Cannot read account creation " ++ err
-    Right d -> if vVersion d == 0 then vValue d else error "Incorrect account creation version."
+    case AE.eitherDecode bs of
+        Left err -> error $ "Cannot read account creation " ++ err
+        Right d -> if vVersion d == 0 then vValue d else error "Incorrect account creation version."
 
-newtype SigningKeys = SigningKeys {
-    keys :: (Map.Map KeyIndex Sig.KeyPair) -- [(KeyIndex, Sig.KeyPair)]
-} 
+newtype SigningKeys = SigningKeys
+    { keys :: (Map.Map KeyIndex Sig.KeyPair) -- [(KeyIndex, Sig.KeyPair)]
+    }
 
 instance AE.FromJSON SigningKeys where
     parseJSON = AE.withObject "SigningKeys" $ \v -> do
         keys <- v AE..: "keys"
         return SigningKeys{..}
 
-
 {-# WARNING readSigningKeys "Do not use in production." #-}
 readSigningKeys :: BSL.ByteString -> SigningKeys
 readSigningKeys bs =
-  case AE.eitherDecode bs of
-    Left err -> error $ "Cannot read credential because " ++ err
-    Right d -> d
+    case AE.eitherDecode bs of
+        Left err -> error $ "Cannot read credential because " ++ err
+        Right d -> d
 
 {-# WARNING ac8 "Do not use in production." #-}
 ac8 :: AccountCreation
@@ -108,6 +110,7 @@ cdi11 = readCredential . BSL.fromStrict $ $(makeRelativeToProject "testdata/cred
 {-# WARNING cdi11keys "Do not use in production." #-}
 cdi11keys :: SigningKeys
 cdi11keys = readSigningKeys . BSL.fromStrict $ $(makeRelativeToProject "testdata/credential-private-keys-11.json" >>= embedFile)
+
 -- {-# WARNING cdi12 "Do not use in production." #-}
 -- cdi12 :: CredentialDeploymentInformation
 -- cdi12 = readCredential . BSL.fromStrict $ $(makeRelativeToProject "testdata/credential-11.json" >>= embedFile)
@@ -137,7 +140,7 @@ dummyBlockTimeout :: UTCTime
 dummyBlockTimeout = read "2100-09-23 13:27:13.257285424 UTC"
 
 dummyChainMeta :: ChainMetadata
-dummyChainMeta = ChainMetadata { slotTime = 0 }
+dummyChainMeta = ChainMetadata{slotTime = 0}
 
 dummyMaxCredentials :: CredentialsPerBlockLimit
 dummyMaxCredentials = 10

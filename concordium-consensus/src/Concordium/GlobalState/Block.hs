@@ -2,61 +2,73 @@
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE TypeApplications #-}
-module Concordium.GlobalState.Block(
+
+module Concordium.GlobalState.Block (
     BlockFinalizationData,
-    module Concordium.GlobalState.Block
+    module Concordium.GlobalState.Block,
 ) where
 
 import Control.Monad
-import Data.Kind
-import Data.Time
-import Data.Serialize
 import qualified Data.ByteString as ByteString
+import Data.Kind
+import Data.Serialize
+import Data.Time
 
 import Concordium.Common.Version
-import Concordium.Types
-import Concordium.Types.Transactions
-import Concordium.Types.HashableTo
-import Concordium.GlobalState.Parameters
-import Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.BlockSignature as Sig
+import Concordium.Crypto.SHA256 as Hash
+import Concordium.GlobalState.Parameters
+import Concordium.Types
+import Concordium.Types.HashableTo
+import Concordium.Types.Transactions
 
 import Concordium.GlobalState.Finalization
 
 instance HashableTo BlockHash BakedBlock where
     getHash bb = generateBlockHash (blockSlot bb) (blockPointer bb) (blockBaker bb) (blockBakerKey bb) (blockProof bb) (blockNonce bb) (blockFinalizationData bb) (blockTransactions bb) (blockStateHash bb) (blockTransactionOutcomesHash bb)
 
-generateBlockHash :: Slot         -- ^Block slot (must be non-zero)
-    -> BlockHash                  -- ^Hash of parent block
-    -> BakerId                    -- ^Identifier of block baker
-    -> BakerSignVerifyKey         -- ^Claimed Baker public Key
-    -> BlockProof                 -- ^Block proof
-    -> BlockNonce                 -- ^Block nonce
-    -> BlockFinalizationData      -- ^Finalization data
-    -> [BlockItem]                -- ^Payload of the block.
-    -> StateHash                  -- ^Statehash of the block.
-    -> TransactionOutcomesHash     -- ^TransactionOutcomesHash of block.
-    -> BlockHash
-generateBlockHash slot parent baker bakerKey proof bnonce finData transactions stateHash transactionOutcomesHash
-    = BlockHash topHash
-    where
-        topHash = Hash.hashOfHashes (tohGet transactionOutcomesHash) h1
-        statehash = v0StateHash stateHash
-        h1 = Hash.hashOfHashes statehash h2
-        h2 = Hash.hashOfHashes h3 h4
-        h3 = Hash.hashLazy . runPutLazy $ put finData
-        h4 = Hash.hashLazy . runPutLazy $ do
-            put slot
-            put parent
-            put baker
-            put bakerKey
-            put proof
-            put bnonce
-            putWord64be (fromIntegral (length transactions))
-            mapM_ putBlockItemV0 transactions
+generateBlockHash ::
+    -- |Block slot (must be non-zero)
+    Slot ->
+    -- |Hash of parent block
+    BlockHash ->
+    -- |Identifier of block baker
+    BakerId ->
+    -- |Claimed Baker public Key
+    BakerSignVerifyKey ->
+    -- |Block proof
+    BlockProof ->
+    -- |Block nonce
+    BlockNonce ->
+    -- |Finalization data
+    BlockFinalizationData ->
+    -- |Payload of the block.
+    [BlockItem] ->
+    -- |Statehash of the block.
+    StateHash ->
+    -- |TransactionOutcomesHash of block.
+    TransactionOutcomesHash ->
+    BlockHash
+generateBlockHash slot parent baker bakerKey proof bnonce finData transactions stateHash transactionOutcomesHash =
+    BlockHash topHash
+  where
+    topHash = Hash.hashOfHashes (tohGet transactionOutcomesHash) h1
+    statehash = v0StateHash stateHash
+    h1 = Hash.hashOfHashes statehash h2
+    h2 = Hash.hashOfHashes h3 h4
+    h3 = Hash.hashLazy . runPutLazy $ put finData
+    h4 = Hash.hashLazy . runPutLazy $ do
+        put slot
+        put parent
+        put baker
+        put bakerKey
+        put proof
+        put bnonce
+        putWord64be (fromIntegral (length transactions))
+        mapM_ putBlockItemV0 transactions
 
 instance HashableTo BlockHash (Block pv) where
     getHash (GenesisBlock genCore) = _gcCurrentHash genCore
@@ -68,14 +80,19 @@ instance HashableTo BlockHash (Block pv) where
 class BlockMetadata d where
     -- |The hash of the parent block
     blockPointer :: d -> BlockHash
+
     -- |The identifier of the block's baker
     blockBaker :: d -> BakerId
+
     -- |The public Signing key the block claims it was signed with
     blockBakerKey :: d -> BakerSignVerifyKey
+
     -- |The proof that the baker was entitled to bake this block
     blockProof :: d -> BlockProof
+
     -- |The block nonce
     blockNonce :: d -> BlockNonce
+
     -- |A finalization proof, where given
     blockFinalizationData :: d -> BlockFinalizationData
 
@@ -89,16 +106,22 @@ type family BlockFieldType (b :: Type) :: Type
 class (BlockMetadata (BlockFieldType b)) => BlockData b where
     -- |The slot number of the block (0 for genesis block)
     blockSlot :: b -> Slot
+
     -- |The fields of a block, if it was baked; @Nothing@ for the genesis block.
     blockFields :: b -> Maybe (BlockFieldType b)
+
     -- |The transactions in a block in the variant they are currently stored in the block.
     blockTransactions :: b -> [BlockItem]
+
     -- |The hash of the TransactionOutcomes resulting from executing this block
     blockTransactionOutcomesHash :: b -> TransactionOutcomesHash
+
     -- |The hash of the state after executing this block
     blockStateHash :: b -> StateHash
+
     -- |The signature of the block, if it was baked; @Nothing@ for the genesis block.
     blockSignature :: b -> Maybe BlockSignature
+
     -- |Determine if the block is signed by the key given in the block
     -- (always 'True' for genesis block)
     verifyBlockSignature :: b -> Bool
@@ -124,6 +147,7 @@ class (IsProtocolVersion pv) => EncodeBlock pv b where
     -- on the protocol version, and should correspond to the result
     -- of 'blockVersion' for the given protocol version.
     putBlock :: SProtocolVersion pv -> Putter b
+
     -- |Serialize a block with a version header.
     putVersionedBlock :: SProtocolVersion pv -> Putter b
     putVersionedBlock pv b = putVersion (blockVersion pv) >> putBlock pv b
@@ -135,33 +159,36 @@ class (IsProtocolVersion pv) => DecodeBlock pv b where
     -- |Deserialize a block in the format version determined by
     -- the protocol version.
     getBlock :: SProtocolVersion pv -> DecodeBlockMetadata b -> Get b
+
     -- |Deserialize a block with a version header.
     -- The default implementation checks that the version is correct
     -- and calls getBlock.
     getVersionedBlock :: SProtocolVersion pv -> DecodeBlockMetadata b -> Get b
     getVersionedBlock pv md = do
         v <- getVersion
-        unless (v == blockVersion pv) $ fail $
-            "Unexpected block version (expected " ++ show (blockVersion pv) ++ " but saw " ++ show v ++ ")"
+        unless (v == blockVersion pv) $
+            fail $
+                "Unexpected block version (expected " ++ show (blockVersion pv) ++ " but saw " ++ show v ++ ")"
         getBlock pv md
 
 -- * Block types
 
 -- |The fields of a baked block.
-data BlockFields = BlockFields {
-    -- |The 'BlockHash' of the parent block
-    bfBlockPointer :: !BlockHash,
-    -- |The identity of the block baker
-    bfBlockBaker :: !BakerId,
-    -- |The public Signing key the block claims it was signed with
-    bfBlockBakerKey :: !BakerSignVerifyKey,
-    -- |The proof that the baker was entitled to bake this block
-    bfBlockProof :: !BlockProof,
-    -- |The block nonce
-    bfBlockNonce :: !BlockNonce,
-    -- |The 'BlockHash' of the last finalized block when the block was baked
-    bfBlockFinalizationData :: !BlockFinalizationData
-} deriving (Show)
+data BlockFields = BlockFields
+    { -- |The 'BlockHash' of the parent block
+      bfBlockPointer :: !BlockHash,
+      -- |The identity of the block baker
+      bfBlockBaker :: !BakerId,
+      -- |The public Signing key the block claims it was signed with
+      bfBlockBakerKey :: !BakerSignVerifyKey,
+      -- |The proof that the baker was entitled to bake this block
+      bfBlockProof :: !BlockProof,
+      -- |The block nonce
+      bfBlockNonce :: !BlockNonce,
+      -- |The 'BlockHash' of the last finalized block when the block was baked
+      bfBlockFinalizationData :: !BlockFinalizationData
+    }
+    deriving (Show)
 
 instance BlockMetadata BlockFields where
     blockPointer = bfBlockPointer
@@ -187,23 +214,24 @@ instance BlockMetadata BlockFields where
 -- * BlockFieldType & BlockTransactionType
 -- * BlockMetadata
 -- * BlockData
-data BakedBlock = BakedBlock {
-    -- |Slot number (must be >0)
-    bbSlot :: !Slot,
-    -- |Block fields
-    bbFields :: !BlockFields,
-    -- |Block transactions
-    bbTransactions :: ![BlockItem],
-    -- |Block State Hash
-    bbStateHash :: !StateHash,
-    -- |Block TransactionOutcomes Hash
-    bbTransactionOutcomesHash :: !TransactionOutcomesHash,
-    -- |Block signature
-    -- With the way the abstractions are currently set up it is
-    -- necessary that this is a lazy field. Specifically signing
-    -- the block relies on this.
-    bbSignature :: BlockSignature
-} deriving (Show)
+data BakedBlock = BakedBlock
+    { -- |Slot number (must be >0)
+      bbSlot :: !Slot,
+      -- |Block fields
+      bbFields :: !BlockFields,
+      -- |Block transactions
+      bbTransactions :: ![BlockItem],
+      -- |Block State Hash
+      bbStateHash :: !StateHash,
+      -- |Block TransactionOutcomes Hash
+      bbTransactionOutcomesHash :: !TransactionOutcomesHash,
+      -- |Block signature
+      -- With the way the abstractions are currently set up it is
+      -- necessary that this is a lazy field. Specifically signing
+      -- the block relies on this.
+      bbSignature :: BlockSignature
+    }
+    deriving (Show)
 
 type instance BlockFieldType BakedBlock = BlockFields
 
@@ -237,18 +265,18 @@ instance BlockData BakedBlock where
 -- |Serialize a normal (non-genesis) block in V2 format.
 putBakedBlockV2 :: BakedBlock -> Put
 putBakedBlockV2 b = do
-        put (blockSlot b)
-        put (blockPointer b)
-        put (blockBaker b)
-        put (blockBakerKey b)
-        put (blockProof b)
-        put (blockNonce b)
-        put (blockFinalizationData b)
-        put (blockStateHash b)
-        put (blockTransactionOutcomesHash b)
-        putWord64be (fromIntegral (length (blockTransactions b)))
-        mapM_ putBlockItemV0 (blockTransactions b)
-        put (bbSignature b)
+    put (blockSlot b)
+    put (blockPointer b)
+    put (blockBaker b)
+    put (blockBakerKey b)
+    put (blockProof b)
+    put (blockNonce b)
+    put (blockFinalizationData b)
+    put (blockStateHash b)
+    put (blockTransactionOutcomesHash b)
+    putWord64be (fromIntegral (length (blockTransactions b)))
+    mapM_ putBlockItemV0 (blockTransactions b)
+    put (bbSignature b)
 
 instance (IsProtocolVersion pv) => EncodeBlock pv BakedBlock where
     putBlock _ = putBakedBlockV2
@@ -258,27 +286,26 @@ instance (IsProtocolVersion pv) => EncodeBlock pv BakedBlock where
 -- The arrival time for the transactions is also provided as a parameter.
 getBakedBlockAtSlot :: SProtocolVersion pv -> Slot -> TransactionTime -> Get BakedBlock
 getBakedBlockAtSlot spv sl arrivalTime = do
-        bfBlockPointer <- get
-        bfBlockBaker <- get
-        bfBlockBakerKey <- get
-        bfBlockProof <- get
-        bfBlockNonce <- get
-        bfBlockFinalizationData <- get
-        bbStateHash <- get
-        bbTransactionOutcomesHash <- get
-        bbTransactions <- getListOf (getBlockItemV0 spv arrivalTime)
-        bbSignature <- get
-        return BakedBlock{bbSlot = sl, bbFields = BlockFields{..}, ..}
+    bfBlockPointer <- get
+    bfBlockBaker <- get
+    bfBlockBakerKey <- get
+    bfBlockProof <- get
+    bfBlockNonce <- get
+    bfBlockFinalizationData <- get
+    bbStateHash <- get
+    bbTransactionOutcomesHash <- get
+    bbTransactions <- getListOf (getBlockItemV0 spv arrivalTime)
+    bbSignature <- get
+    return BakedBlock{bbSlot = sl, bbFields = BlockFields{..}, ..}
 
 -- |Deserialized a normal (non-genesis) block according to the V1/V2 format.
 -- The arrival time for the transactions is provided as a parameter.
 getBakedBlock :: SProtocolVersion pv -> TransactionTime -> Get BakedBlock
 getBakedBlock spv arrivalTime = do
-        sl <- get
-        if sl == genesisSlot then
-            fail "Unexpected genesis block"
-        else
-            getBakedBlockAtSlot spv sl arrivalTime
+    sl <- get
+    if sl == genesisSlot
+        then fail "Unexpected genesis block"
+        else getBakedBlockAtSlot spv sl arrivalTime
 
 type instance DecodeBlockMetadata BakedBlock = TransactionTime
 
@@ -292,10 +319,10 @@ instance forall pv. (IsProtocolVersion pv) => DecodeBlock pv BakedBlock where
 -- * BlockFieldType & BlockTransactionType
 -- * BlockData
 data Block (pv :: ProtocolVersion)
-    = GenesisBlock !GenesisConfiguration
-    -- ^A genesis block with the given configuration.
-    | NormalBlock !BakedBlock
-    -- ^A baked (i.e. non-genesis) block
+    = -- |A genesis block with the given configuration.
+      GenesisBlock !GenesisConfiguration
+    | -- |A baked (i.e. non-genesis) block
+      NormalBlock !BakedBlock
 
 deriving instance Show (GenesisData pv) => Show (Block pv)
 
@@ -316,10 +343,9 @@ instance forall pv. (IsProtocolVersion pv) => BlockData (Block pv) where
         case transactionOutcomesVersion @(TransactionOutcomesVersionFor pv) of
             STOV0 -> getHash emptyTransactionOutcomesV0
             STOV1 -> emptyTransactionOutcomesHashV1
-
     blockTransactionOutcomesHash (NormalBlock bb) = blockTransactionOutcomesHash bb
 
-    -- FIXME: replace stub, and move into gendata 
+    -- FIXME: replace stub, and move into gendata
     blockStateHash GenesisBlock{} = StateHashV0 minBound
     blockStateHash (NormalBlock bb) = blockStateHash bb
 
@@ -346,11 +372,11 @@ instance (IsProtocolVersion pv) => EncodeBlock pv (Block pv) where
 -- * BlockData
 -- * BlockPendingData
 -- * HashableTo BlockHash
-data PendingBlock = PendingBlock {
-    pbHash :: !BlockHash,
-    pbBlock :: !BakedBlock,
-    pbReceiveTime :: !UTCTime
-}
+data PendingBlock = PendingBlock
+    { pbHash :: !BlockHash,
+      pbBlock :: !BakedBlock,
+      pbReceiveTime :: !UTCTime
+    }
 
 type instance BlockFieldType PendingBlock = BlockFieldType BakedBlock
 
@@ -395,31 +421,42 @@ instance HashableTo BlockHash PendingBlock where
     getHash = pbHash
 
 makePendingBlock :: BakedBlock -> UTCTime -> PendingBlock
-makePendingBlock pbBlock pbReceiveTime = PendingBlock{pbHash = getHash pbBlock,..}
+makePendingBlock pbBlock pbReceiveTime = PendingBlock{pbHash = getHash pbBlock, ..}
 
 -- |Generate a baked block.
-signBlock :: BakerSignPrivateKey           -- ^Key for signing the new block
-    -> Slot                       -- ^Block slot (must be non-zero)
-    -> BlockHash                  -- ^Hash of parent block
-    -> BakerId                    -- ^Identifier of block baker
+signBlock ::
+    -- |Key for signing the new block
+    BakerSignPrivateKey ->
+    -- |Block slot (must be non-zero)
+    Slot ->
+    -- |Hash of parent block
+    BlockHash ->
+    -- |Identifier of block baker
     -- -> BakerSignVerifyKey         -- ^Claimed Baker public Key
-    -> BlockProof                 -- ^Block proof
-    -> BlockNonce                 -- ^Block nonce
-    -> BlockFinalizationData      -- ^Finalization data
-    -> [BlockItem]                -- ^Payload of the block.
-    -> StateHash                  -- ^Statehash of the block.
-    -> TransactionOutcomesHash     -- ^TransactionOutcomesHash of block.
-    -> BakedBlock
+    BakerId ->
+    -- |Block proof
+    BlockProof ->
+    -- |Block nonce
+    BlockNonce ->
+    -- |Finalization data
+    BlockFinalizationData ->
+    -- |Payload of the block.
+    [BlockItem] ->
+    -- |Statehash of the block.
+    StateHash ->
+    -- |TransactionOutcomesHash of block.
+    TransactionOutcomesHash ->
+    BakedBlock
 signBlock key slot parent baker proof bnonce finData transactions stateHash transactionOutcomesHash
     | slot == 0 = error "Only the genesis block may have slot 0"
     | otherwise = do
         -- Generate hash on the unsigned block, and sign the hash
         let sig = Sig.sign key (Hash.hashToByteString (blockHash preBlockHash))
         preBlock $! sig
-    where
-        bakerKey = Sig.verifyKey key
-        preBlock = BakedBlock slot (BlockFields parent baker bakerKey proof bnonce finData) transactions stateHash transactionOutcomesHash
-        preBlockHash = generateBlockHash slot parent baker bakerKey proof bnonce finData transactions stateHash transactionOutcomesHash
+  where
+    bakerKey = Sig.verifyKey key
+    preBlock = BakedBlock slot (BlockFields parent baker bakerKey proof bnonce finData) transactions stateHash transactionOutcomesHash
+    preBlockHash = generateBlockHash slot parent baker bakerKey proof bnonce finData transactions stateHash transactionOutcomesHash
 
 type instance DecodeBlockMetadata PendingBlock = UTCTime
 
