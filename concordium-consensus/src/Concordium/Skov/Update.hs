@@ -495,7 +495,6 @@ doReceiveBlock pb@GB.PendingBlock{pbBlock = BakedBlock{..}, ..} = isShutDown >>=
             forM (unzip <$> txListWithVerRes) $ \(newTransactions, verificationResults) -> do
                 purgeTransactionTable False =<< currentTime
                 let block1 = GB.PendingBlock{pbBlock = BakedBlock{bbTransactions = newTransactions, ..}, ..}
-                updateReceiveStatistics block1
                 return (block1, verificationResults)
         -- Processes a pending block that cannot be immediately be executed.
         processPending slotTime maybeParentBlockSlot = do
