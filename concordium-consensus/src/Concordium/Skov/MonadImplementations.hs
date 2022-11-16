@@ -590,14 +590,10 @@ instance (
         TreeStateMonad (SkovT pv h c m),
         FinalizationMonad (SkovT pv h c m))
         => SkovMonad (SkovT pv h c m) where
-    {- - INLINE receiveBlock - -}
     receiveBlock = doReceiveBlock
-    {- - INLINE executeBlock - -}
     executeBlock = doExecuteBlock
-    {- - INLINE receiveTransaction - -}
     receiveTransaction = doReceiveTransaction
     addPreverifiedTransaction = doAddPreverifiedTransaction
-    {- - INLINE trustedFinalize - -}
     trustedFinalize = doTrustedFinalize
     handleCatchUpStatus = doHandleCatchUp
     clearSkovOnProtocolUpdate = doClearSkov
