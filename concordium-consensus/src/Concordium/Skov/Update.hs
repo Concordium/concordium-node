@@ -674,7 +674,7 @@ doExecuteBlock :: (TreeStateMonad m, FinalizationMonad m, SkovMonad m, OnSkov m)
 doExecuteBlock VerifiedPendingBlock'{..} = do
     (timeSpent, res)<- clockIt $ do
         verifyBlockTransactions vpbPb vpbTxVerCtx >>= \case
-            Nothing -> deadBlock $! pbHash vpbPb
+            Nothing -> invalidBlock $! pbHash vpbPb
             Just (newBlock, verificationResults) -> addBlockWithLiveParent newBlock verificationResults vpbParentPointer vpLfbp vpbFinInfo
     logEvent Skov LLTrace $ "Block " ++ show (pbHash vpbPb) ++ " executed in " ++ show timeSpent
     return res        
@@ -698,9 +698,9 @@ doExecuteBlock VerifiedPendingBlock'{..} = do
                 let block1 = GB.PendingBlock{pbBlock = BakedBlock{bbTransactions = newTransactions, ..}, ..}
                 return (block1, verificationResults)
         -- |Mark the block as dead.
-        deadBlock blockHash = do
+        invalidBlock blockHash = do
             blockArriveDead blockHash
-            return ResultStale
+            return ResultInvalid
 
 
 -- |Add a transaction to the transaction table.
