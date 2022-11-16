@@ -230,7 +230,7 @@ emptyTransactionTableWithSequenceNumbers accs upds =
 -- non-finalized nonce/sequence number.  A return value of 'True' indicates that the transaction
 -- was added.  The caller should check that the transaction is not already present.
 addTransaction :: BlockItem -> Slot -> TVer.VerificationResult -> TransactionTable -> (Bool, TransactionTable)
-addTransaction blockItem@WithMetadata{..} slot verRes tt0 =
+addTransaction blockItem@WithMetadata{..} slot !verRes tt0 =
     case wmdData of
         NormalTransaction tr
             | tt0 ^. senderANFT . anftNextNonce <= nonce ->

@@ -2,6 +2,10 @@
 
 ## Unreleased changes
 
+- Improvements to allow greater concurrency with transaction processing.
+  (Checking transaction signatures is done without acquiring the global
+  state lock.)
+
 ## 5.0.6
 
 - Fix persistent state implementation of contract modifications.
@@ -9,7 +13,6 @@
 - Change the cost of the exchange rate query to be more aligned with other operations.
 - Fix the behaviour of a smart contract upgrade when upgrading to a contract
   without entrypoints.
-
 
 ## 5.0.5
 
