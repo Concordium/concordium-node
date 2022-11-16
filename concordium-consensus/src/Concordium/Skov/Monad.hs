@@ -180,29 +180,42 @@ data MessageType
     | MessageCatchUpStatus
     deriving (Eq, Show)
 
--- |This is a continuation for executing the block.
--- The type exists so we can wrap the continuation in a 'ForeignPtr'.
--- todo doc..
--- todo doc
+-- |Type alias for fixing the `m` of the 'BlockState m' and 'BlockPointerType m'
 type VerifiedPendingBlock m = VerifiedPendingBlock' (BlockState m) (BlockPointerType m)
--- todo doc
+
+-- |A VerifiedPending block yields the information required for
+-- executing the contained 'PendingBlock'.
+-- The 'PendingBlock' is guaranteed to have a parent that is either
+-- alive or finalized and being head of the chain.
+-- 
+-- In particular the 'VerifiedPendingBlock'' is obtained via a
+-- call to 'doReceiveBlock' if the block could be verified (except for transaction
+-- verifcation). Transactions are verified as part of 'doExecuteBlock' before executing
+-- the block and subsequently adding it to the tree.
 data VerifiedPendingBlock' bst bpt = VerifiedPendingBlock' {
-    vpbSlotTime :: !Timestamp,
+    -- |The pending block to add to the tree.
     vpbPb :: !PendingBlock,
+    -- |The verification context of the transactions yielded by @vpbPb@.
     vpbTxVerCtx :: !bst,
+    -- |A pointer to the parent block.
     vpbParentPointer :: !bpt,
+    -- |The last finalized block pointer.
     vpLfbp :: !bpt,
+    -- |FinalizerInfo if the block contained finalization records.
     vpbFinInfo :: !(Maybe TSEnv.FinalizerInfo)
 }
 
 
 class (SkovQueryMonad m, TimeMonad m, MonadLogger m) => SkovMonad m where  
-    -- |Store a block in the block table and add it to the tree
-    -- if possible. This also checks that the block is not early in the sense that its received
-    -- time predates its slot time by more than the early block threshold.
-    -- todo doc
+    -- |Receive a block from the network.
+    -- This checks the validity of the block itself but no transactions are verified yet.
+    -- 
+    -- Iff. the parent of the block is live and the block can be verified then this function returns a
+    -- 'VerifiedPendingBlock' which yields the information necessary for adding the block to the tree.
+    -- 
+    -- The caller is then expected to invoke 'executeBlock' with the returned 'VerifiedPendingBlock' if present.
     receiveBlock :: PendingBlock -> m (UpdateResult, Maybe (VerifiedPendingBlock m))
-    -- |todo: doc
+    -- |Inserts a 'PendingBlock' given the provided 'VerifiedPendingBlock'.
     executeBlock :: VerifiedPendingBlock m -> m UpdateResult
     -- |Add a transaction to the transaction table.
     -- This must gracefully handle transactions from other (older) protocol versions.

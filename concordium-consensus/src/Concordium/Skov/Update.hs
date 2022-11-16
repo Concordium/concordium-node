@@ -271,7 +271,6 @@ processFinalization newFinBlock finRec@FinalizationRecord{..} = do
 --    it is added to the appropriate pending queue.  'addBlock'
 --    should be called again when the pending criterion is fulfilled.
 -- 3. The block is determined to be valid and added to the tree.
--- todo doc
 addBlock :: forall m. (HasCallStack, TreeStateMonad m, SkovMonad m, FinalizationMonad m, OnSkov m)
       => PendingBlock
       -> [Maybe TV.VerificationResult]
@@ -425,7 +424,9 @@ blockArrive block parentP lfBlockP ExecutionResult{..} = do
 -- This checks for validity of the block, and may add the block
 -- to a pending queue if its prerequisites are not met.
 -- If the block is too early, it is rejected with 'ResultEarlyBlock'.
--- todo doc
+-- If the validity of the block could not be verified then the block is marked
+-- as dead and the 'UpdateResult' contains whether the block was either stale or
+-- simply invalid (non-verifiable).
 doReceiveBlock :: (TreeStateMonad m, FinalizationMonad m, SkovMonad m) => PendingBlock -> m (UpdateResult, Maybe (VerifiedPendingBlock m))
 {- - INLINE doReceiveBlock - -}
 doReceiveBlock pb@GB.PendingBlock{pbBlock = BakedBlock{..}, ..} = isShutDown >>= \case
@@ -463,8 +464,15 @@ doReceiveBlock pb@GB.PendingBlock{pbBlock = BakedBlock{..}, ..} = isShutDown >>=
     where
         checkClaimedSignature a = if verifyBlockSignature pb then a else do
             logEvent Skov LLWarning "Dropping block where signature did not match claimed key or blockhash."
-            return (ResultInvalid, Nothing)
+            rejectInvalidBlock
         blockHash = getHash pb
+        -- Reject a block which is deemed invalid.
+        -- Mark the block as dead.
+        rejectInvalidBlock = do
+            blockArriveDead blockHash
+            return (ResultInvalid, Nothing)
+        -- Reject a block which is deemed invalid.
+        -- Mark the block as dead.
         rejectStaleBlock = do
             blockArriveDead blockHash
             return (ResultStale, Nothing)
@@ -491,14 +499,14 @@ doReceiveBlock pb@GB.PendingBlock{pbBlock = BakedBlock{..}, ..} = isShutDown >>=
             gd <- getGenesisData
             let continuePending = checkClaimedSignature $ do
                     verifyBlockTransactions slotTime lastFinBS >>= \case
-                        Nothing -> rejectStaleBlock
+                        Nothing -> rejectInvalidBlock
                         Just _ -> (, Nothing) <$> addBlockAsPending pb 
             getDefiniteSlotBakers gd lastFinBS (blockSlot pb) >>= \case
                Just bakers -> case lotteryBaker bakers (blockBaker pb) of
                    Just (bkrInfo, bkrPower)
                        | bkrInfo ^. bakerSignatureVerifyKey /= blockBakerKey pb -> do
                            logEvent Skov LLWarning $ "Pending block is not signed by a valid baker: " ++ show pb
-                           rejectStaleBlock
+                           rejectInvalidBlock
                        | otherwise -> do
                            lastFinSS <- getSeedState lastFinBS
                            case predictLeadershipElectionNonce lastFinSS (blockSlot lastFin) maybeParentBlockSlot (blockSlot pb) of
@@ -519,8 +527,8 @@ doReceiveBlock pb@GB.PendingBlock{pbBlock = BakedBlock{..}, ..} = isShutDown >>=
                                        continuePending
                                    else do
                                        logEvent Skov LLWarning $ "Block proof of pending block was not verifiable: " ++ show pb
-                                       rejectStaleBlock
-                   Nothing -> rejectStaleBlock
+                                       rejectInvalidBlock
+                   Nothing -> rejectInvalidBlock
                Nothing -> continuePending
 
 
@@ -574,8 +582,7 @@ verifyPendingBlock block slotTime parentP =
                 -- The signature is checked using the claimed key already in doStoreBlock for blocks which were received from the network.
                 check "Baker key claimed in block did not match actual baker key" (_bakerSignatureVerifyKey == blockBakerKey block) $ do
                     let
-                        vpbPb = block                        
-                        vpbSlotTime = slotTime
+                        vpbPb = block
                         vpbTxVerCtx = parentState
                         vpbParentPointer = parentP
                     case blockFinalizationData block of
@@ -663,8 +670,9 @@ doExecuteBlock VerifiedPendingBlock'{..} = do
         -- If the parent is pending as well or 'Unknown' then the block must be added as pending.
         -- If the transactions could not be verified we return 'Nothing' 
         verifyBlockTransactions pb@GB.PendingBlock{pbBlock = BakedBlock{..}, ..} contextState = do
+            slotTime <- getSlotTimestamp (blockSlot pb)
             txListWithVerRes <- sequence <$> forM (blockTransactions pb)
-                (\tr -> fst <$> doReceiveTransactionInternal (TV.Block contextState) tr vpbSlotTime (blockSlot pb))
+                (\tr -> fst <$> doReceiveTransactionInternal (TV.Block contextState) tr slotTime (blockSlot pb))
             forM (unzip <$> txListWithVerRes) $ \(newTransactions, verificationResults) -> do
                 purgeTransactionTable False =<< currentTime
                 -- We wrap the processed transactions within the pending block as processing
