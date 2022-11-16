@@ -492,9 +492,11 @@ doReceiveBlock pb@GB.PendingBlock{pbBlock = BakedBlock{..}, ..} = isShutDown >>=
         verifyBlockTransactions slotTime contextState = do
             txListWithVerRes <- sequence <$> forM (blockTransactions pb)
                 (\tr -> fst <$> doReceiveTransactionInternal (TV.Block contextState) tr slotTime (blockSlot pb))           
+            forM (unzip <$> txListWithVerRes) $ \(newTransactions, verificationResults) -> do
             purgeTransactionTable False =<< currentTime
-            updateReceiveStatistics pb
-            return txListWithVerRes
+            let block1 = GB.PendingBlock{pbBlock = BakedBlock{bbTransactions = newTransactions, ..}, ..}
+            updateReceiveStatistics block1
+            return (block1, verificationResults)
         -- Processes a pending block that cannot be immediately be executed.
         processPending slotTime maybeParentBlockSlot = do
             -- Check:
@@ -508,7 +510,7 @@ doReceiveBlock pb@GB.PendingBlock{pbBlock = BakedBlock{..}, ..} = isShutDown >>=
             let continuePending = checkClaimedSignature $ do
                     verifyBlockTransactions slotTime lastFinBS >>= \case
                         Nothing -> rejectInvalidBlock
-                        Just _ -> (, Nothing) <$> addBlockAsPending pb 
+                        Just (newBlock, _) -> (, Nothing) <$> addBlockAsPending newBlock
             getDefiniteSlotBakers gd lastFinBS (blockSlot pb) >>= \case
                Just bakers -> case lotteryBaker bakers (blockBaker pb) of
                    Just (bkrInfo, bkrPower)
