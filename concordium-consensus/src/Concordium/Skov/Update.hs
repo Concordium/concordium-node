@@ -553,7 +553,7 @@ verifyPendingBlock :: (TimeMonad m, MonadLogger m, TreeStateMonad m, SkovQueryMo
     -> m (UpdateResult, Maybe (VerifiedPendingBlock m))
 verifyPendingBlock block slotTime parentP = do
     (timeSpent, res) <- clockIt verify
-    logEvent Skov LLTrace $ "Block verified (" ++ show (pbHash block) ++ ") in " ++ show timeSpent
+    logEvent Skov LLTrace $ "Block " ++ show (pbHash block) ++ " verified in " ++ show timeSpent
     return res
     where
         verify = 
@@ -675,7 +675,7 @@ doExecuteBlock VerifiedPendingBlock'{..} = do
         verifyBlockTransactions vpbPb vpbTxVerCtx >>= \case
             Nothing -> deadBlock $! pbHash vpbPb
             Just (newBlock, verificationResults) -> addBlockWithLiveParent newBlock verificationResults vpbParentPointer vpLfbp vpbFinInfo
-    logEvent Skov LLTrace $ "Block (" ++ show (pbHash vpbPb) ++ ") executed in " ++ show timeSpent
+    logEvent Skov LLTrace $ "Block " ++ show (pbHash vpbPb) ++ " executed in " ++ show timeSpent
     return res        
     where
         -- |Verify the transactions of the block within the provided block state context.
