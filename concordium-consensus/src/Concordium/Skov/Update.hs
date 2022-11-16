@@ -318,13 +318,12 @@ addBlockAsPending block = do
         logEvent Skov LLDebug $ "Block " ++ show block ++ " is pending its parent (" ++ show parent ++ ")"
         return ResultPendingBlock
 
--- |Add a block where the parent block is known to be live, and the transactions have been verified.
+-- |Add a block where the parent block is known to be alive, and the transactions have been verified.
 -- If the block proves to be valid, it is added to the tree and this returns 'ResultSuccess'.
 -- Otherwise, the block is marked dead and 'ResultInvalid' is returned.
 --
 -- PRECONDITION: The parent of the block provided must be either alive or finalized.
 -- It is assumed that the slot time of the block is after the last finalized block.
--- todo doc.
 addBlockWithLiveParent ::
     forall m.
     (HasCallStack, TreeStateMonad m, SkovMonad m, FinalizationMonad m, OnSkov m) =>
@@ -469,6 +468,11 @@ doReceiveBlock pb@GB.PendingBlock{pbBlock = BakedBlock{..}, ..} = isShutDown >>=
         rejectStaleBlock = do
             blockArriveDead blockHash
             return (ResultStale, Nothing)
+        -- Verify the transactions of the block.
+        -- Note. We only verify transactions here for pending blocks i.e. blocks awaiting its parent
+        -- to be either alive or finalized.
+        -- Blocks who already have a parent that is either finalized or alive have their
+        -- transactions checked in 'doExecuteBlock'.
         verifyBlockTransactions slotTime contextState = do
             txListWithVerRes <- sequence <$> forM (blockTransactions pb)
                 (\tr -> fst <$> doReceiveTransactionInternal (TV.Block contextState) tr slotTime (blockSlot pb))           
@@ -580,6 +584,8 @@ verifyPendingBlock block slotTime parentP =
                         NoFinalizationData -> do
                             logEvent Skov LLInfo $ "Received block " ++ show block
                             lfbp <- bpLastFinalized parentP
+                            -- Update the receive statistics for the block.
+                            updateReceiveStatistics block
                             return (ResultSuccess, Just $! VerifiedPendingBlock'{vpbFinInfo = Nothing, vpLfbp = lfbp,..})
                         -- If the block contains a finalization record...
                         BlockFinalizationData finRec@FinalizationRecord{finalizationBlockPointer=finBP,..} -> do
@@ -619,14 +625,21 @@ verifyPendingBlock block slotTime parentP =
                                              Just fbp -> do 
                                                  check "finalization inconsistency" (bpHash fbp == finBP) $ do
                                                      logEvent Skov LLInfo $ "Received block " ++ show block
+                                                     -- Update the receive statistics for the block.
+                                                     updateReceiveStatistics block
                                                      return (ResultSuccess,
                                                              Just (VerifiedPendingBlock' {vpbFinInfo = Just (makeFinalizerInfo committee finalizationProof), vpLfbp = fbp,..}))
                                              Nothing -> rejectInvalidBlock $ "no finalized block at index " ++ show finalizationIndex
     where
+        -- Checks the claimed signature of the block.
+        -- If the signature cannot be verified we mark the block as dead.
         checkClaimedSignature a = if verifyBlockSignature block then a else do
             logEvent Skov LLWarning "Dropping block where signature did not match claimed key or blockhash."
+            blockArriveDead blockHash
             return (ResultInvalid, Nothing)
         blockHash = getHash block
+        -- Reject an invalid block with the specified reason.
+        -- Subsequently we mark the block as dead.
         rejectInvalidBlock reason = do
             logEvent Skov LLWarning $ "Block is not valid (" ++ reason ++ "): " ++ show block
             blockArriveDead blockHash
@@ -659,7 +672,6 @@ doExecuteBlock VerifiedPendingBlock'{..} = do
                 -- I.e. if a transaction has been received individually but also as part of the block
                 -- we're about to execute.
                 let block1 = GB.PendingBlock{pbBlock = BakedBlock{bbTransactions = newTransactions, ..}, ..}
-                updateReceiveStatistics block1
                 return (block1, verificationResults)
         -- |Mark the block as dead.
         deadBlock blockHash = do
