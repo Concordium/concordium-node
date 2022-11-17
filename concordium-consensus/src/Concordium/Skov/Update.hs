@@ -607,10 +607,7 @@ verifyPendingBlock block slotTime parentP = do
                             nonce
                             (blockSlot block)
                             _bakerElectionVerifyKey
-                            (blockNonce block)) $
-                        -- And check baker key matches claimed key.
-                        -- The signature is checked using the claimed key already in doStoreBlock for blocks which were received from the network.
-                        check "Baker key claimed in block did not match actual baker key" (_bakerSignatureVerifyKey == blockBakerKey block) $ do
+                            (blockNonce block)) $ do
                             let
                                 vpbPb = block
                                 vpbTxVerCtx = parentState
