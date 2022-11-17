@@ -456,36 +456,40 @@ doReceiveBlock :: (TreeStateMonad m, FinalizationMonad m, SkovMonad m) => Pendin
 doReceiveBlock pb@GB.PendingBlock{pbBlock = BakedBlock{..}, ..} = isShutDown >>= \case
     True -> return (ResultConsensusShutDown, Nothing)
     False -> do
-        threshold <- rpEarlyBlockThreshold <$> getRuntimeParameters
-        slotTime <- getSlotTimestamp (blockSlot pb)
-        -- Check if the block is too early. We check that the threshold is not maxBound also, so that
-        -- by setting the threshold to maxBound we can ensure blocks will never be considered early.
-        -- This can be useful for testing.
-        -- A more general approach might be to check for overflow generally, but this is simple and
-        -- workable.
-        if slotTime > addDuration (utcTimeToTimestamp pbReceiveTime) threshold && threshold /= maxBound then
-            return (ResultEarlyBlock, Nothing)
-        else
-            -- Check if the block is already known.
-            getRecentBlockStatus blockHash >>= \case
-                Unknown -> do
-                    lfs <- getLastFinalizedSlot
-                    -- The block must be later than the last finalized block, otherwise it is already
-                    -- dead.
-                    if lfs >= blockSlot pb then rejectStaleBlock else do
-                        -- Get the parent if available
-                        let parent = blockPointer bbFields
-                        parentStatus <- getRecentBlockStatus parent
-                        -- If the parent is unknown, try to check the signing key and block proof based on the last finalized block
-                        case parentStatus of
-                            Unknown -> processPending slotTime Nothing
-                            RecentBlock (BlockPending ppb) -> processPending slotTime $ Just $ blockSlot ppb
-                            RecentBlock (BlockAlive parentB) -> verifyPendingBlock pb slotTime parentB
-                            RecentBlock (BlockFinalized parentB _) -> verifyPendingBlock pb slotTime parentB
-                            RecentBlock BlockDead -> rejectStaleBlock
-                            OldFinalized -> rejectStaleBlock
-                _ -> return (ResultDuplicate, Nothing)
-    where
+        (timeSpent, res) <- clockIt verify
+        logEvent Skov LLTrace $ "Block " ++ show pbHash ++ " verified in " ++ show timeSpent
+        return res
+   where
+        verify = do
+            threshold <- rpEarlyBlockThreshold <$> getRuntimeParameters
+            slotTime <- getSlotTimestamp (blockSlot pb)
+            -- Check if the block is too early. We check that the threshold is not maxBound also, so that
+            -- by setting the threshold to maxBound we can ensure blocks will never be considered early.
+            -- This can be useful for testing.
+            -- A more general approach might be to check for overflow generally, but this is simple and
+            -- workable.
+            if slotTime > addDuration (utcTimeToTimestamp pbReceiveTime) threshold && threshold /= maxBound then
+                return (ResultEarlyBlock, Nothing)
+            else
+             -- Check if the block is already known.
+                getRecentBlockStatus blockHash >>= \case
+                    Unknown -> do
+                        lfs <- getLastFinalizedSlot
+                        -- The block must be later than the last finalized block, otherwise it is already
+                        -- dead.
+                        if lfs >= blockSlot pb then rejectStaleBlock else do
+                            -- Get the parent if available
+                            let parent = blockPointer bbFields
+                            parentStatus <- getRecentBlockStatus parent
+                            -- If the parent is unknown, try to check the signing key and block proof based on the last finalized block
+                            case parentStatus of
+                                Unknown -> processPending slotTime Nothing
+                                RecentBlock (BlockPending ppb) -> processPending slotTime $ Just $ blockSlot ppb
+                                RecentBlock (BlockAlive parentB) -> verifyPendingBlock pb slotTime parentB
+                                RecentBlock (BlockFinalized parentB _) -> verifyPendingBlock pb slotTime parentB
+                                RecentBlock BlockDead -> rejectStaleBlock
+                                OldFinalized -> rejectStaleBlock
+                    _ -> return (ResultDuplicate, Nothing)
         checkClaimedSignature a = if verifyBlockSignature pb then a else do
             logEvent Skov LLWarning "Dropping block where signature did not match claimed key or blockhash."
             rejectInvalidBlock
@@ -568,12 +572,7 @@ verifyPendingBlock :: (TimeMonad m, MonadLogger m, TreeStateMonad m, SkovQueryMo
     -> Timestamp
     -> BlockPointerType m
     -> m (UpdateResult, Maybe (VerifiedPendingBlock m))
-verifyPendingBlock block slotTime parentP = do
-    (timeSpent, res) <- clockIt verify
-    logEvent Skov LLTrace $ "Block " ++ show (pbHash block) ++ " verified in " ++ show timeSpent
-    return res
-    where
-        verify = 
+verifyPendingBlock block slotTime parentP =
             -- Check that the claimed key matches the signature/blockhash
             checkClaimedSignature $ do
             -- Check that the blockSlot is beyond the parent slot
@@ -664,12 +663,11 @@ verifyPendingBlock block slotTime parentP = do
                                                              return (ResultSuccess,
                                                                      Just (VerifiedPendingBlock' {vpbFinInfo = Just (makeFinalizerInfo committee finalizationProof), vpLfbp = fbp,..}))
                                                      Nothing -> rejectInvalidBlock $ "no finalized block at index " ++ show finalizationIndex
+    where
         -- Checks the claimed signature of the block.
         -- If the signature cannot be verified we mark the block as dead.
         checkClaimedSignature a = if verifyBlockSignature block then a else do
-            logEvent Skov LLWarning "Dropping block where signature did not match claimed key or blockhash."
-            blockArriveDead blockHash
-            return (ResultInvalid, Nothing)
+            rejectInvalidBlock "Dropping block where signature did not match claimed key or blockhash."
         blockHash = getHash block
         -- Reject an invalid block with the specified reason.
         -- Subsequently we mark the block as dead.
