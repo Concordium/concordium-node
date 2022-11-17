@@ -779,7 +779,7 @@ executeBlock ptrConsensus ptrCont = do
     (ConsensusRunner mvr) <- deRefStablePtr ptrConsensus
     executableBlock <- deRefStablePtr ptrCont
     mvLog mvr External LLTrace "Executing block."
-    res <- runMVR (MV.executeBlock executableBlock) mvr
+    res <- MV.runBlock executableBlock
     freeStablePtr ptrCont
     return $! toReceiveResult res
 

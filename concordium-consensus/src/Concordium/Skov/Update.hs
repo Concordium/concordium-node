@@ -1,7 +1,5 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE ViewPatterns #-}
-
-
 module Concordium.Skov.Update where
 
 import Control.Monad
@@ -681,7 +679,6 @@ verifyPendingBlock block slotTime parentP =
 -- Before adding the block to the tree we verify the transactions.
 -- PRECONDITION: The block must be ready for execution i.e. its parent must either be alive or finalized.
 doExecuteBlock :: (TreeStateMonad m, FinalizationMonad m, SkovMonad m, OnSkov m) => VerifiedPendingBlock m -> m UpdateResult
-{- - INLINE doExecuteBlock - -}
 doExecuteBlock VerifiedPendingBlock'{..} = do
     (timeSpent, res)<- clockIt $ do
         verifyBlockTransactions vpbPb vpbTxVerCtx >>= \case

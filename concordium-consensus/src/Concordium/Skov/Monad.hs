@@ -385,12 +385,6 @@ instance (MonadLogger (t m), MonadTrans t, SkovMonad m) => SkovMonad (MGSTrans t
 
     rememberFinalState = lift . rememberFinalState
 
-    {- - INLINE receiveBlock - -}
-    {- - INLINE executeBlock - -}
-    {- - INLINE receiveTransaction - -}
-    {- - INLINE trustedFinalize - -}
-    {- - INLINE handleCatchUpStatus - -}
-
 deriving via (MGSTrans MaybeT m) instance SkovMonad m => SkovMonad (MaybeT m)
 
 deriving via (MGSTrans (ExceptT e) m) instance SkovMonad m => SkovMonad (ExceptT e m)

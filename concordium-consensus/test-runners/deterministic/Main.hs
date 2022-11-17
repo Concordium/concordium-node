@@ -410,7 +410,7 @@ stepConsensus =
                     EBlock bb -> do
                         let pb = makePendingBlock bb (posixSecondsToUTCTime (fromIntegral t))
                         runBaker t i (receiveBlock pb) >>= \case
-                            (recvRes, Nothing) -> error $ "Receive block failed with result " ++ show recvRes
+                            (_, Nothing) -> return ()
                             (_, Just cont) -> do
                                 _ <- runBaker t i (executeBlock cont)
                                 return ()

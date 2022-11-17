@@ -999,11 +999,10 @@ sendCatchUpStatus genIndex = MVR $ \mvr@MultiVersionRunner{..} -> do
 -- During a protocol update, it might be wise to cache messages for
 -- the forthcoming protocol version. For the time being, we will
 -- simply rely on catch-up.
--- todo make the signature nicer
 withLatestExpectedVersion' ::
     GenesisIndex ->
-    (EVersionedConfiguration gsconf finconf -> MVR gsconf finconf (Skov.UpdateResult, Maybe ExecuteBlock)) ->
-    MVR gsconf finconf (Skov.UpdateResult, Maybe ExecuteBlock)
+    (EVersionedConfiguration gsconf finconf -> MVR gsconf finconf (Skov.UpdateResult, Maybe a)) ->
+    MVR gsconf finconf (Skov.UpdateResult, Maybe a)
 withLatestExpectedVersion' gi a = do
     vvec <- liftIO . readIORef =<< asks mvVersions
     -- Length is an Int and GenesisIndex is a Word32.
