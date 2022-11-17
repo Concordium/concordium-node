@@ -491,7 +491,7 @@ runKonsensusTest maxFinComSize collectedFinComParties steps g states es
                 ((ResultSuccess, Just cont), fs', es') -> do
                     (_, fs'', es'') <- myRunSkovT (executeBlock cont) handlers fi fs' es'
                     continue fs'' es''
-                ((recvRes, Just _), _, _) -> error $ "Unsuccessfull block receive should not yield an execution continuation " ++ show recvRes
+                ((recvRes, Just _), _, _) -> error $ "Unsuccessful block receive should not yield an execution continuation " ++ show recvRes
                 ((_, Nothing), fs', es') -> continue fs' es' -- This case covers pending blocks etc where should just resume execution i.e. there is no more work to do.
             ETransaction tr -> do
                 (_, fs', es') <- myRunSkovT (receiveTransaction tr) handlers fi fs es1
