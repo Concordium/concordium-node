@@ -33,16 +33,24 @@ module Concordium.GlobalState.Persistent.BlockState (
     cacheStateAndGetTransactionTable,
     migratePersistentBlockState,
     SupportsPersistentState,
+    genesisState,
 ) where
 
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.Crypto.SHA256 as SHA256
+import qualified Concordium.Genesis.Data as GenesisData
+import qualified Concordium.Genesis.Data.P1 as P1
+import qualified Concordium.Genesis.Data.P2 as P2
+import qualified Concordium.Genesis.Data.P3 as P3
+import qualified Concordium.Genesis.Data.P4 as P4
+import qualified Concordium.Genesis.Data.P5 as P5
 import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount)
 import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import qualified Concordium.GlobalState.Basic.BlockState.Account as TransientAccount
 import qualified Concordium.GlobalState.Basic.BlockState.Accounts as TransientAccounts
 import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as BasicLFMBT
+import Concordium.GlobalState.Basic.BlockState.PoolRewards (emptyBakerPoolRewardDetails)
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.CapitalDistribution
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
@@ -88,6 +96,7 @@ import Concordium.Utils.BinarySearch
 import Concordium.Utils.Serialization
 import Concordium.Utils.Serialization.Put
 import qualified Concordium.Wasm as Wasm
+
 import qualified Control.Monad.Except as MTL
 import Control.Monad.Reader
 import qualified Control.Monad.State.Strict as MTL
@@ -502,6 +511,12 @@ emptyMerkleTransactionOutcomes =
 data PersistentTransactionOutcomes (tov :: TransactionOutcomesVersion) where
     PTOV0 :: Transactions.TransactionOutcomes -> PersistentTransactionOutcomes 'TOV0
     PTOV1 :: MerkleTransactionOutcomes -> PersistentTransactionOutcomes 'TOV1
+
+-- |Create an empty persistent transaction outcome
+emptyPersistentTransactionOutcomes :: forall tov. IsTransactionOutcomesVersion tov => PersistentTransactionOutcomes tov
+emptyPersistentTransactionOutcomes = case transactionOutcomesVersion @tov of
+    STOV0 -> PTOV0 Transactions.emptyTransactionOutcomesV0
+    STOV1 -> PTOV1 emptyMerkleTransactionOutcomes
 
 instance BlobStorable m TransactionSummaryV1 => MHashableTo m Transactions.TransactionOutcomesHash (PersistentTransactionOutcomes tov) where
     getHashM (PTOV0 bto) = return (getHash bto)
@@ -3467,3 +3482,178 @@ cacheStateAndGetTransactionTable hpbs = do
                   bspRewardDetails = red
                 }
     return tt
+
+-- |Initial block state based on 'GenesisData', for a given protocol version.
+-- This also returns the transaction table.
+genesisState ::
+    forall pv av m.
+    (IsProtocolVersion pv, SupportsPersistentState pv m, AccountVersionFor pv ~ av, IsAccountVersion av) =>
+    GenesisData pv ->
+    m (Either String (HashedPersistentBlockState pv, TransactionTable.TransactionTable))
+genesisState gd = case protocolVersion @pv of
+    SP1 -> case gd of
+        GDP1 P1.GDP1Initial{..} -> MTL.runExceptT $ mkGenesisStateInitial genesisCore genesisInitialState
+    SP2 -> case gd of
+        GDP2 P2.GDP2Initial{..} -> MTL.runExceptT $ mkGenesisStateInitial genesisCore genesisInitialState
+    SP3 -> case gd of
+        GDP3 P3.GDP3Initial{..} -> MTL.runExceptT $ mkGenesisStateInitial genesisCore genesisInitialState
+    SP4 -> case gd of
+        GDP4 P4.GDP4Initial{..} -> MTL.runExceptT $ mkGenesisStateInitial genesisCore genesisInitialState
+    SP5 -> case gd of
+        GDP5 P5.GDP5Initial{..} -> MTL.runExceptT $ mkGenesisStateInitial genesisCore genesisInitialState
+  where
+    mkGenesisStateInitial :: CoreGenesisParameters -> GenesisState pv -> MTL.ExceptT String m (HashedPersistentBlockState pv, TransactionTable.TransactionTable)
+    mkGenesisStateInitial GenesisData.CoreGenesisParameters{..} GenesisData.GenesisState{..} = do
+        -- TODO avoid iterating all of the accounts more than once.
+
+        -- Block accounts
+        accounts <- mapM fromGenesisAccount $ zip [0 ..] $ Vec.toList genesisAccounts
+        bspAccounts <- Accounts.fromList accounts
+
+        -- Birk parameters
+        birkActiveBakers' <- lift $ persistentActiveBakersFromGenesisAccounts $ Vec.toList genesisAccounts
+        _birkActiveBakers <- refMake birkActiveBakers'
+        epochBakers <- lift $ persistentEpochBakersFromGenesisAccounts genesisChainParameters $ Vec.toList genesisAccounts
+        _birkNextEpochBakers <- refMake epochBakers
+        let _birkCurrentEpochBakers = _birkNextEpochBakers
+            persistentBirkParameters = PersistentBirkParameters{_birkSeedState = genesisSeedState, ..}
+
+        -- Reward details
+        rewardDetails <- case delegationSupport @av of
+            SAVDelegationNotSupported -> return $ BlockRewardDetailsV0 emptyHashedEpochBlocks
+            SAVDelegationSupported -> do
+                let foldBakers (capitals, rewards) GenesisAccount{gaBaker = Just GenesisBaker{..}} =
+                        let capital =
+                                BakerCapital
+                                    { bcBakerId = gbBakerId,
+                                      bcBakerEquityCapital = gbStake,
+                                      bcDelegatorCapital = Vec.empty
+                                    }
+                            poolRewardDetailsRef = emptyBakerPoolRewardDetails
+                        in  (capital : capitals, poolRewardDetailsRef : rewards)
+                    foldBakers acc _ = acc
+                let (bakerCapitals, bakerPoolRewardsList) = foldl foldBakers ([], []) genesisAccounts
+                capRef :: HashedBufferedRef CapitalDistribution <-
+                    refMake
+                        CapitalDistribution
+                            { bakerPoolCapital = Vec.fromList bakerCapitals,
+                              passiveDelegatorsCapital = Vec.empty
+                            }
+                bakerPoolRewards :: LFMBT.LFMBTree Word64 BufferedRef BakerPoolRewardDetails <- LFMBT.fromAscList bakerPoolRewardsList
+                case delegationChainParameters @pv of
+                    DelegationChainParametersV1 ->
+                        BlockRewardDetailsV1
+                            <$> refMake
+                                PoolRewards
+                                    { nextCapital = capRef,
+                                      currentCapital = capRef,
+                                      bakerPoolRewardDetails = bakerPoolRewards,
+                                      passiveDelegationTransactionRewards = 0,
+                                      foundationTransactionRewards = 0,
+                                      nextPaydayEpoch = genesisChainParameters ^. cpTimeParameters . tpRewardPeriodLength . to rewardPeriodEpochs,
+                                      nextPaydayMintRate = genesisChainParameters ^. cpTimeParameters . tpMintPerPayday
+                                    }
+
+        -- initial amount in the central bank is the amount on all genesis accounts combined
+        let initialAmount = Vec.foldl' (\c acc -> c + gaBalance acc) 0 genesisAccounts
+        let bspBank = makeHashed $ Rewards.makeGenesisBankStatus initialAmount
+
+        -- In initial genesis, all accounts and updates have no prior transactions
+        let initialTT = TransactionTable.emptyTransactionTable
+
+        -- Modules and instances
+        modules <- refMake Modules.emptyModules
+        let persistentBlockInstances = Instances.emptyInstances
+
+        -- Identity providers and anonymity revokers
+        identityProviders <- bufferHashed $ makeHashed genesisIdentityProviders
+        anonymityRevokers <- bufferHashed $ makeHashed genesisAnonymityRevokers
+
+        cryptographicParameters <- bufferHashed $ makeHashed genesisCryptographicParameters
+
+        persistentUpdates <- initialUpdates genesisUpdateKeys genesisChainParameters
+        updates <- makeBufferedRef persistentUpdates
+
+        releaseSchedule <- emptyReleaseSchedule
+        bsp <-
+            makeBufferedRef $
+                BlockStatePointers
+                    { bspAccounts = bspAccounts,
+                      bspInstances = persistentBlockInstances,
+                      bspModules = modules,
+                      bspBank = bspBank,
+                      bspIdentityProviders = identityProviders,
+                      bspAnonymityRevokers = anonymityRevokers,
+                      bspBirkParameters = persistentBirkParameters,
+                      bspCryptographicParameters = cryptographicParameters,
+                      bspTransactionOutcomes = emptyPersistentTransactionOutcomes,
+                      bspUpdates = updates,
+                      bspReleaseSchedule = releaseSchedule,
+                      bspRewardDetails = rewardDetails
+                    }
+        bps <- liftIO $ newIORef $! bsp
+        hashedBlockState <- hashBlockState bps
+        return (hashedBlockState, initialTT)
+      where
+        fromGenesisAccount :: (BakerId, GenesisAccount) -> MTL.ExceptT String m (PersistentAccount (AccountVersionFor pv))
+        fromGenesisAccount (bid, GenesisAccount{..}) = do
+            case gaBaker of
+                Just GenesisBaker{..} | gbBakerId /= bid -> MTL.throwError "Mismatch between assigned and chosen baker id."
+                _ ->
+                    lift $
+                        makePersistentAccount
+                            ( TransientAccount.newAccountMultiCredential genesisCryptographicParameters gaThreshold gaAddress gaCredentials
+                                & TransientAccount.accountAmount .~ gaBalance
+                                & case gaBaker of
+                                    Nothing -> id
+                                    Just genBaker ->
+                                        TransientAccount.accountStaking
+                                            .~ BaseAccounts.AccountStakeBaker
+                                                (Basic.genesisBakerInfo (protocolVersion @pv) genesisChainParameters genBaker)
+                            )
+        genesisSeedState = initialSeedState genesisLeadershipElectionNonce genesisEpochLength
+
+        persistentActiveBakersFromGenesisAccounts :: [GenesisAccount] -> m (PersistentActiveBakers av)
+        persistentActiveBakersFromGenesisAccounts accounts = do
+            (_activeBakers, _aggregationKeys, total) <- foldM accum (Trie.empty, Trie.empty, 0) accounts
+            let _totalActiveCapital = case delegationSupport @av of
+                    SAVDelegationNotSupported -> TotalActiveCapitalV0
+                    SAVDelegationSupported -> TotalActiveCapitalV1 total
+            return
+                PersistentActiveBakers
+                    { _passiveDelegators = emptyPersistentActiveDelegators,
+                      ..
+                    }
+          where
+            accum (bakers, keys, total) GenesisAccount{gaBaker = Just GenesisBaker{..}} = do
+                newBakers <- Trie.insert gbBakerId emptyPersistentActiveDelegators bakers
+                newKeys <- Trie.insert gbAggregationVerifyKey () keys
+                let newTotal = total + gbStake
+                return (newBakers, newKeys, newTotal)
+            accum acc _ = return acc
+
+        persistentEpochBakersFromGenesisAccounts :: ChainParameters pv -> [GenesisAccount] -> m (PersistentEpochBakers av)
+        persistentEpochBakersFromGenesisAccounts chainParameters accounts = do
+            (bakerInfos', bakerStakes', _bakerTotalStake) <- foldM accum ([], [], 0) accounts
+            _bakerInfos <- refMake $ BakerInfos $ Vec.fromList bakerInfos'
+            _bakerStakes <- refMake $ BakerStakes $ Vec.fromList bakerStakes'
+            return PersistentEpochBakers{..}
+          where
+            accum (infos, stakes, total) GenesisAccount{gaBaker = Just GenesisBaker{..}} = do
+                let _bieBakerInfo = BaseAccounts.BakerInfo gbBakerId gbElectionVerifyKey gbSignatureVerifyKey gbAggregationVerifyKey
+                bakerInfoRef <- makePersistentBakerInfoRef $
+                    case delegationSupport @av of
+                        SAVDelegationNotSupported -> BaseAccounts.BakerInfoExV0 _bieBakerInfo
+                        SAVDelegationSupported ->
+                            let
+                                _bieBakerPoolInfo =
+                                    BaseAccounts.BakerPoolInfo
+                                        { _poolOpenStatus = Transactions.OpenForAll,
+                                          _poolMetadataUrl = emptyUrlText,
+                                          _poolCommissionRates = case delegationChainParameters @pv of
+                                            DelegationChainParametersV1 -> chainParameters ^. cpPoolParameters . ppCommissionBounds . to maximumCommissionRates
+                                        }
+                            in
+                                BaseAccounts.BakerInfoExV1{..}
+                return (bakerInfoRef : infos, gbStake : stakes, total + gbStake)
+            accum acc _ = return acc

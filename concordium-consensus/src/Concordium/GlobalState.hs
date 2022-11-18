@@ -30,7 +30,7 @@ import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.Account (AccountCache, newAccountCache)
 import Concordium.GlobalState.Persistent.BlobStore (BlobStoreT (runBlobStoreT), closeBlobStore, createBlobStore, destroyBlobStore, loadBlobStore)
-import Concordium.GlobalState.Persistent.BlockState
+import Concordium.GlobalState.Persistent.BlockState as PBS
 import Concordium.GlobalState.Persistent.TreeState
 import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.TreeState as TS
@@ -620,7 +620,7 @@ instance GlobalStateConfig MemoryTreeMemoryBlockConfig where
                         return ((), skovData)
 
     initialiseNewGlobalState gendata (MTMBConfig rtparams) = do
-        (bs, tt) <- case genesisState gendata of
+        (bs, tt) <- case BS.genesisState gendata of
             Left err -> logExceptionAndThrow GlobalState (InvalidGenesisData err)
             Right (bs, tt) -> return (BS.hashBlockState bs, tt)
         skovData <- runPureBlockStateMonad (Basic.initialSkovData rtparams (genesisConfiguration gendata) bs tt Nothing)
@@ -649,7 +649,7 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
                 Nothing -> error "Precondition violation. Migration called in state without initial block state."
                 Just initState -> do
                     newState <- migratePersistentBlockState migration (hpbsPointers initState)
-                    Concordium.GlobalState.Persistent.BlockState.hashBlockState newState
+                    PBS.hashBlockState newState
         -- since the basic state maintains finalized transactions in the transaction table
         -- we need to remove them from the table for the new state since they don't apply to it.
         let newTT =
@@ -673,19 +673,22 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
         return (pbsc, isd)
 
     initialiseNewGlobalState genData MTDBConfig{..} = do
-        (genState, genTT) <- case genesisState genData of
-            Left err -> logExceptionAndThrow GlobalState (InvalidGenesisData err)
-            Right genState -> return genState
-        liftIO $ do
-            pbscBlobStore <- createBlobStore mtdbBlockStateFile
-            pbscAccountCache <- newAccountCache (rpAccountsCacheSize mtdbRuntimeParameters)
-            pbscModuleCache <- Modules.newModuleCache (rpModulesCacheSize mtdbRuntimeParameters)
+        do
+            pbscBlobStore <- liftIO $ createBlobStore mtdbBlockStateFile
+            pbscAccountCache <- liftIO $ newAccountCache (rpAccountsCacheSize mtdbRuntimeParameters)
+            pbscModuleCache <- liftIO $ Modules.newModuleCache (rpModulesCacheSize mtdbRuntimeParameters)
             let pbsc = PersistentBlockStateContext{..}
             let initState = do
-                    pbs <- makePersistent genState
-                    _ <- saveBlockState pbs
-                    Basic.initialSkovData mtdbRuntimeParameters (genesisConfiguration genData) pbs genTT Nothing
-            skovData <- runReaderT (runPersistentBlockStateMonad initState) pbsc
+                    genesisStateResult <- PBS.genesisState genData
+                    case genesisStateResult of
+                        Left err -> return $ Left err
+                        Right (pbs, genTT) -> do
+                            _ <- saveBlockState pbs
+                            Right <$> Basic.initialSkovData mtdbRuntimeParameters (genesisConfiguration genData) pbs genTT Nothing
+            skovDataResult <- runReaderT (runPersistentBlockStateMonad initState) pbsc
+            skovData <- case skovDataResult of
+                Left err -> logExceptionAndThrow GlobalState (InvalidGenesisData err)
+                Right d -> return d
             return (pbsc, skovData)
 
     activateGlobalState _ _ _ = return
@@ -724,7 +727,7 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
                 Nothing -> error "Precondition violation. Migration called in state without initial block state."
                 Just initState -> do
                     newState <- migratePersistentBlockState migration (hpbsPointers initState)
-                    Concordium.GlobalState.Persistent.BlockState.hashBlockState newState
+                    PBS.hashBlockState newState
         let initGS = do
                 ser <- saveBlockState newInitialBlockState
                 initialSkovPersistentData
@@ -746,12 +749,11 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
         pbscModuleCache <- liftIO $ Modules.newModuleCache (rpModulesCacheSize dtdbRuntimeParameters)
         let pbsc = PersistentBlockStateContext{..}
         let initGS = do
-                logEvent GlobalState LLTrace "Creating transient global state"
-                (genState, genTT) <- case genesisState genData of
+                logEvent GlobalState LLTrace "Creating persistent global state"
+                result <- PBS.genesisState genData
+                (pbs, genTT) <- case result of
                     Left err -> logExceptionAndThrow GlobalState (InvalidGenesisData err)
                     Right genState -> return genState
-                logEvent GlobalState LLTrace "Creating persistent global state"
-                pbs <- makePersistent genState
                 logEvent GlobalState LLTrace "Writing persistent global state"
                 ser <- saveBlockState pbs
                 logEvent GlobalState LLTrace "Creating persistent global state context"
