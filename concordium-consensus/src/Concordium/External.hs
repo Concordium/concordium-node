@@ -765,7 +765,7 @@ receiveBlock bptr genIndex msg msgLen ptrPtrExecuteBlock = do
     blockBS <- BS.packCStringLen (msg, fromIntegral msgLen)
     (receiveResult, mExecuteBlock) <- runMVR (MV.receiveBlock genIndex blockBS) mvr
     case mExecuteBlock of
-        Nothing ->  return $! toReceiveResult receiveResult
+        Nothing -> return $! toReceiveResult receiveResult
         Just eb -> do
             poke ptrPtrExecuteBlock =<< newStablePtr eb
             return $! toReceiveResult receiveResult
@@ -782,7 +782,6 @@ executeBlock ptrConsensus ptrCont = do
     res <- MV.runBlock executableBlock
     freeStablePtr ptrCont
     return $! toReceiveResult res
-
 
 -- |Handle receipt of a finalization message.
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,
@@ -1499,4 +1498,3 @@ foreign export ccall freeCStr :: CString -> IO ()
 
 foreign export ccall importBlocks :: StablePtr ConsensusRunner -> CString -> Int64 -> IO Int64
 foreign export ccall stopImportingBlocks :: StablePtr ConsensusRunner -> IO ()
-

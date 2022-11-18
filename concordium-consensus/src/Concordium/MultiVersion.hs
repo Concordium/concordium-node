@@ -1017,11 +1017,11 @@ withLatestExpectedVersion ::
     GenesisIndex ->
     (EVersionedConfiguration gsconf finconf -> MVR gsconf finconf Skov.UpdateResult) ->
     MVR gsconf finconf Skov.UpdateResult
-withLatestExpectedVersion gi a = fst <$> withLatestExpectedVersion' gi (fmap (, Nothing) <$> a)
+withLatestExpectedVersion gi a = fst <$> withLatestExpectedVersion' gi (fmap (,Nothing) <$> a)
 
 -- |A continuation for executing a block that has been received
 -- and verified.
-newtype ExecuteBlock = ExecuteBlock { runBlock :: IO Skov.UpdateResult}
+newtype ExecuteBlock = ExecuteBlock {runBlock :: IO Skov.UpdateResult}
 
 -- |Deserialize and receive a block at a given genesis index.
 -- Return a continuation ('Maybe ExecuteBlock') iff. the 'Skov.UpdateResult' is 'ResultSuccess'.
@@ -1049,7 +1049,6 @@ receiveBlock gi blockBS = withLatestExpectedVersion' gi $
                         Just verifiedPendingBlock -> do
                             let cont = ExecuteBlock $! runMVR (runSkovTransaction vc (Skov.executeBlock verifiedPendingBlock)) mvr
                             return (updateResult, Just cont)
-
 
 -- |Invoke the continuation yielded in a 'ExecuteBlock'.
 -- *Acquiring* the write lock is captured in the continuation itself.
@@ -1247,10 +1246,9 @@ importBlocks importFile = do
                 (recvRes, mExecuteBlock) <- receiveBlock gi bs
                 case mExecuteBlock of
                     Just eb -> liftIO $ do
-                      updateResult <- runBlock eb
-                      return $! fixResult updateResult
+                        updateResult <- runBlock eb
+                        return $! fixResult updateResult
                     Nothing -> return $! fixResult recvRes
-
     doImport (ImportFinalizationRecord _ gi bs) = fixResult <$> receiveFinalizationRecord gi bs
     fixResult Skov.ResultSuccess = Right ()
     fixResult Skov.ResultDuplicate = Right ()

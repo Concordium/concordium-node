@@ -37,6 +37,7 @@ import Concordium.GlobalState.TransactionTable
 import qualified Concordium.GlobalState.TreeState as TS
 import Concordium.GlobalState.Types
 import Concordium.Logger
+import qualified Concordium.Scheduler.TreeStateEnvironment as TSEnv
 import Concordium.Skov.CatchUp.Types
 import Concordium.TimeMonad
 import qualified Concordium.TransactionVerification as TV
@@ -44,7 +45,6 @@ import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Transactions
 import Concordium.Types.UpdateQueues (ProtocolUpdateStatus)
-import qualified Concordium.Scheduler.TreeStateEnvironment as TSEnv
 
 data UpdateResult
     = -- |Message received, validated and processed
@@ -246,36 +246,37 @@ type VerifiedPendingBlock m = VerifiedPendingBlock' (BlockState m) (BlockPointer
 -- executing the contained 'PendingBlock'.
 -- The 'PendingBlock' is guaranteed to have a parent that is either
 -- alive or finalized and being head of the chain.
--- 
+--
 -- In particular the 'VerifiedPendingBlock'' is obtained via a
 -- call to 'doReceiveBlock' if the block could be verified (except for transaction
 -- verifcation). Transactions are verified as part of 'doExecuteBlock' before executing
 -- the block and subsequently adding it to the tree.
-data VerifiedPendingBlock' bst bpt = VerifiedPendingBlock' {
-    -- |The pending block to add to the tree.
-    vpbPb :: !PendingBlock,
-    -- |The verification context of the transactions yielded by @vpbPb@.
-    vpbTxVerCtx :: !bst,
-    -- |A pointer to the parent block.
-    vpbParentPointer :: !bpt,
-    -- |The last finalized block pointer.
-    vpLfbp :: !bpt,
-    -- |FinalizerInfo if the block contained finalization records.
-    vpbFinInfo :: !(Maybe TSEnv.FinalizerInfo)
-}
+data VerifiedPendingBlock' bst bpt = VerifiedPendingBlock'
+    { -- |The pending block to add to the tree.
+      vpbPb :: !PendingBlock,
+      -- |The verification context of the transactions yielded by @vpbPb@.
+      vpbTxVerCtx :: !bst,
+      -- |A pointer to the parent block.
+      vpbParentPointer :: !bpt,
+      -- |The last finalized block pointer.
+      vpLfbp :: !bpt,
+      -- |FinalizerInfo if the block contained finalization records.
+      vpbFinInfo :: !(Maybe TSEnv.FinalizerInfo)
+    }
 
-
-class (SkovQueryMonad m, TimeMonad m, MonadLogger m) => SkovMonad m where  
+class (SkovQueryMonad m, TimeMonad m, MonadLogger m) => SkovMonad m where
     -- |Receive a block from the network.
     -- This checks the validity of the block itself but no transactions are verified yet.
-    -- 
+    --
     -- Iff. the parent of the block is live and the block can be verified then this function returns a
     -- 'VerifiedPendingBlock' which yields the information necessary for adding the block to the tree.
-    -- 
+    --
     -- The caller is then expected to invoke 'executeBlock' with the returned 'VerifiedPendingBlock' if present.
     receiveBlock :: PendingBlock -> m (UpdateResult, Maybe (VerifiedPendingBlock m))
+
     -- |Inserts a 'PendingBlock' given the provided 'VerifiedPendingBlock'.
     executeBlock :: VerifiedPendingBlock m -> m UpdateResult
+
     -- |Add a transaction to the transaction table.
     -- This must gracefully handle transactions from other (older) protocol versions.
     receiveTransaction :: BlockItem -> m UpdateResult

@@ -36,7 +36,7 @@ import Concordium.Kontrol (currentTimestamp)
 import Concordium.Logger
 import Concordium.MultiVersion
 import qualified Concordium.ProtocolUpdate.P1.Reboot as P1.Reboot
-import Concordium.Skov hiding (receiveTransaction, receiveBlock, executeBlock)
+import Concordium.Skov hiding (executeBlock, receiveBlock, receiveTransaction)
 import Concordium.Startup
 import Concordium.TimerMonad
 import Concordium.Types
@@ -230,8 +230,8 @@ peerReceive target src MessageBlock genIndex msg = do
     runMVR (receiveBlock genIndex msg) (peerMVR target) >>= \case
         (recvRes, Nothing) -> when (isPending recvRes) $ markPeerPending target (peerId src)
         (_, Just cont) -> do
-          _ <- runMVR (executeBlock cont) (peerMVR target)
-          return ()
+            _ <- runMVR (executeBlock cont) (peerMVR target)
+            return ()
 peerReceive target src MessageFinalizationRecord genIndex msg = do
     mvLog (peerMVR target) External LLDebug $ "Received finalization record from " ++ show (peerId src)
     res <- runMVR (receiveFinalizationRecord genIndex msg) (peerMVR target)

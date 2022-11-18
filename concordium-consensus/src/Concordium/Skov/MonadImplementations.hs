@@ -581,15 +581,17 @@ deriving via
         ) =>
         SkovQueryMonad (SkovT pv h c m)
 
-instance (
-        Monad m,
-        TimeMonad m,
-        MonadLogger m,
-        OnSkov (SkovT pv h c m),
-        BlockStateStorage (SkovT pv h c m),
-        TreeStateMonad (SkovT pv h c m),
-        FinalizationMonad (SkovT pv h c m))
-        => SkovMonad (SkovT pv h c m) where
+instance
+    ( Monad m,
+      TimeMonad m,
+      MonadLogger m,
+      OnSkov (SkovT pv h c m),
+      BlockStateStorage (SkovT pv h c m),
+      TreeStateMonad (SkovT pv h c m),
+      FinalizationMonad (SkovT pv h c m)
+    ) =>
+    SkovMonad (SkovT pv h c m)
+    where
     receiveBlock = doReceiveBlock
     executeBlock = doExecuteBlock
     receiveTransaction = doReceiveTransaction
