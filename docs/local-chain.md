@@ -14,7 +14,7 @@ given genesis.
 We have a
 [genesis-creator](https://github.com/Concordium/concordium-misc-tools/tree/main/genesis-creator)
 tool that can be used to create genesis blocks configured to specific scenarios.
-Please see the README in the linked repository for how to build the tool.
+Please see the README in the linked repository for how to build and use the tool.
 
 The main output of the genesis tool that is needed for running the node is the
 genesis block. This is typically called `genesis.dat`, and it is a binary file
@@ -39,6 +39,7 @@ data directory**).
 ```console
 cargo run --release -- \
    --genesis-data-file /path/to/genesis.dat \
+   --no-bootstrap= \
    --listen-port 8000 \
    --rpc-server-port 7000 \
    --data-dir node-0 \
@@ -55,6 +56,7 @@ V1 interface open at port 7000.
 ```console
 cargo run --release -- \
    --genesis-data-file /path/to/genesis.dat \
+   --no-bootstrap= \
    --listen-port 8000 \
    --rpc-server-port 7000 \
    --data-dir node-0 \
@@ -76,6 +78,7 @@ each other run the following two commands from different terminals.
 ```console
 cargo run --release -- \
    --genesis-data-file /path/to/genesis.dat \
+   --no-bootstrap= \
    --listen-port 8000 \
    --rpc-server-port 7000 \
    --data-dir node-0 \
@@ -92,6 +95,7 @@ second node.
 ```console
 cargo run --release -- \
    --genesis-data-file /path/to/genesis.dat \
+   --no-bootstrap= \
    --listen-port 8001 \
    --rpc-server-port 7001 \
    --data-dir node-1 \
