@@ -459,7 +459,7 @@ doReceiveBlock pb@GB.PendingBlock{pbBlock = BakedBlock{..}, ..} =
         True -> return (ResultConsensusShutDown, Nothing)
         False -> do
             (timeSpent, res) <- clockIt verify
-            logEvent Skov LLTrace $ "Block " ++ show pbHash ++ " verified in " ++ show timeSpent
+            logEvent Skov LLInfo $ "Block " ++ show pbHash ++ " verified in " ++ show timeSpent
             return res
   where
     verify = do
@@ -692,7 +692,7 @@ doExecuteBlock VerifiedPendingBlock'{..} = do
         verifyBlockTransactions vpbPb vpbTxVerCtx >>= \case
             Nothing -> invalidBlock $! pbHash vpbPb
             Just (newBlock, verificationResults) -> addBlockWithLiveParent newBlock verificationResults vpbParentPointer vpLfbp vpbFinInfo
-    logEvent Skov LLTrace $ "Block " ++ show (pbHash vpbPb) ++ " executed in " ++ show timeSpent
+    logEvent Skov LLInfo $ "Block " ++ show (pbHash vpbPb) ++ " executed in " ++ show timeSpent
     return res
   where
     -- \|Verify the transactions of the block within the provided block state context.
