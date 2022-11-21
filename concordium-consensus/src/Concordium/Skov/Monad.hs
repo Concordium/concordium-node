@@ -248,7 +248,7 @@ type VerifiedPendingBlock m = VerifiedPendingBlock' (BlockState m) (BlockPointer
 --
 -- In particular the 'VerifiedPendingBlock'' is obtained via a
 -- call to 'doReceiveBlock' if the block could be verified (except for transaction
--- verifcation). Transactions are verified as part of 'doExecuteBlock' before executing
+-- verification). Transactions are verified as part of 'doExecuteBlock' before executing
 -- the block and subsequently adding it to the tree.
 data VerifiedPendingBlock' bst bpt = VerifiedPendingBlock'
     { -- |The pending block to add to the tree.

@@ -344,14 +344,13 @@ addBlockWithLiveParent ::
     BlockPointerType m ->
     m UpdateResult
 addBlockWithLiveParent block txvers parentP = do
-    parentState <- blockState parentP
-    parentSeedState <- getSeedState parentState   
+    -- Determine if the block's finalized data is valid and if so what
+    -- its last finalized block pointer should be.
     case blockFinalizationData block of
         -- If the block contains no finalization data, it is trivially valid and
         -- inherits the last finalized pointer from the parent.
         NoFinalizationData -> do
-            execute parentSeedState Nothing =<< bpLastFinalized parentP
-            --todo execute
+            execute Nothing =<< bpLastFinalized parentP
         -- If the block contains a finalization record...
         BlockFinalizationData finRec@FinalizationRecord{finalizationBlockPointer = finBP, ..} -> do
             -- Get whichever block was finalized at the previous index.
@@ -362,21 +361,21 @@ addBlockWithLiveParent block txvers parentP = do
             finOK <-
                 finalizationReceiveRecord True finRec >>= \case
                     ResultSuccess ->
-                          -- In this event, we can be sure that the finalization record
-                            -- was used to finalize a block; so in particular, the block it
-                            -- finalizes is the named one.
-                            -- Check that the parent block is still live: potentially, the
-                            -- block might not be descended from the one it has a finalization
-                            -- record for.  Furthermore, if the parent block is finalized now,
-                            -- it has to be the last finalized block.
-                            getBlockStatus (bpHash parentP) >>= \case
-                                Just BlockAlive{} -> return True
-                                Just BlockFinalized{} -> do
-                                    -- The last finalized block may have changed as a result
-                                    -- of the call to finalizationReceiveRecord.
-                                    (lf, _) <- getLastFinalized
-                                    return (parentP == lf)
-                                _ -> return False
+                        -- In this event, we can be sure that the finalization record
+                        -- was used to finalize a block; so in particular, the block it
+                        -- finalizes is the named one.
+                        -- Check that the parent block is still live: potentially, the
+                        -- block might not be descended from the one it has a finalization
+                        -- record for.  Furthermore, if the parent block is finalized now,
+                        -- it has to be the last finalized block.
+                        getBlockStatus (bpHash parentP) >>= \case
+                            Just BlockAlive{} -> return True
+                            Just BlockFinalized{} -> do
+                                -- The last finalized block may have changed as a result
+                                -- of the call to finalizationReceiveRecord.
+                                (lf, _) <- getLastFinalized
+                                return (parentP == lf)
+                            _ -> return False
                     ResultDuplicate -> return True
                     _ -> return False
             -- check that the finalized block at the previous index
@@ -390,7 +389,7 @@ addBlockWithLiveParent block txvers parentP = do
                         blockAtFinIndex finalizationIndex >>= \case
                             Just fbp -> do
                                 check "finalization inconsistency" (bpHash fbp == finBP) $ do
-                                    execute parentSeedState (Just $! makeFinalizerInfo committee finalizationProof) fbp
+                                    execute (Just $! makeFinalizerInfo committee finalizationProof) fbp
                             Nothing -> invalidBlock $ "no finalized block at index " ++ show finalizationIndex
     where
     invalidBlock :: String -> m UpdateResult
@@ -401,7 +400,9 @@ addBlockWithLiveParent block txvers parentP = do
     check reason q a = if q then a else invalidBlock reason
     blkSlot = blockSlot block
     blkHash = getHash block
-    execute parentSeedState mFinInfo lfbp = do
+    execute mFinInfo lfbp = do
+        parentState <- blockState parentP
+        parentSeedState <- getSeedState parentState   
         -- Update the seed state with the block nonce
         let newSeedState = updateSeedState blkSlot (blockNonce block) parentSeedState
             ts = zip (blockTransactions block) txvers
@@ -422,21 +423,83 @@ addBlockWithLiveParent block txvers parentP = do
                         -- Notify of the block arrival (for finalization)
                         finalizationBlockArrival blockP
                         onBlock blockP
-                        -- Process finalization records
                         -- Handle any blocks that are waiting for this one
                         children <- takePendingChildren blkHash
-                        forM_ children $ \childpb -> do
-                            childStatus <- getBlockStatus (getHash childpb)
-                            verress <- mapM getNonFinalizedTransactionVerificationResult (blockTransactions childpb)
-                            let
-                                isPending Nothing = True
-                                isPending (Just (BlockPending _)) = True
-                                isPending _ = False
-                            when (isPending childStatus) $!
-                                addBlock childpb verress >>= \case
-                                    ResultSuccess -> onPendingLive
-                                    _ -> return ()
+                        forM_ children $ processPendingChild blockP
                         return ResultSuccess
+
+
+processPendingChild ::
+    forall m.
+    (HasCallStack, TreeStateMonad m, SkovMonad m, FinalizationMonad m, OnSkov m) =>
+    -- |Parent block pointer
+    BlockPointerType m ->
+    -- |A pending block with a live or finalized parent.
+    PendingBlock ->
+    m UpdateResult
+processPendingChild parentP block = do
+    childStatus <- getBlockStatus (getHash block)
+    let isPending Nothing = True
+        isPending (Just (BlockPending _)) = True
+        isPending _ = False
+    when (isPending childStatus) $ do
+        -- Here, we need to do all of the checks on the pending block that would have been done
+        -- for a block with a live parent when it was received, but may not have been done for
+        -- a pending one.
+        -- Check that the blockSlot is beyond the parent slot
+        check ("block slot (" ++ show (blockSlot block) ++ ") not later than parent block slot (" ++ show (blockSlot parentP) ++ ")") (blockSlot parentP < blockSlot block) $ do
+            -- get Birk parameters from the __parent__ block. The baker must have existed in that
+            -- block's state in order that the current block is valid
+            parentState <- blockState parentP
+            -- Determine the baker and its lottery power
+            gd <- getGenesisData
+            bakers <- getSlotBakers gd parentState (blockSlot block)
+            -- Determine the leadership election nonce
+            parentSeedState <- getSeedState parentState
+            let nonce = computeLeadershipElectionNonce parentSeedState (blockSlot block)
+            -- Determine the election difficulty
+            elDiff <- getElectionDifficulty parentState slotTime
+            logEvent Skov LLTrace $ "Verifying block with election difficulty " ++ show elDiff
+            case lotteryBaker bakers (blockBaker block) of
+                Nothing -> invalidBlock $ "unknown baker " ++ show (blockBaker block)
+                Just (BakerInfo{..}, lotteryPower) ->
+                    -- Check the baker key matches the claimed key.
+                    check "Baker key claimed in block did not match actual baker key" (_bakerSignatureVerifyKey == blockBakerKey block)
+                        $
+                        -- The block nonce
+                        check
+                            "invalid block nonce"
+                            ( verifyBlockNonce
+                                nonce
+                                (blockSlot block)
+                                _bakerElectionVerifyKey
+                                (blockNonce block)
+                            )
+                        $
+                        -- Check the block proof
+                        check
+                            "invalid block proof"
+                            ( verifyProof
+                                nonce
+                                elDiff
+                                (blockSlot block)
+                                _bakerElectionVerifyKey
+                                lotteryPower
+                                (blockProof block)
+                            )
+                        $ do
+                            verress <- mapM getNonFinalizedTransactionVerificationResult (blockTransactions block)
+                            addBlockWithLiveParent block verress parentP >>= \case
+                                ResultSuccess -> onPendingLive
+                                _ -> return ()
+  where
+    invalidBlock :: String -> m UpdateResult
+    invalidBlock reason = do
+        logEvent Skov LLWarning $ "Block is not valid (" ++ reason ++ "): " ++ show block
+        blockArriveDead $ getHash block
+        return ResultInvalid
+    check reason q a = if q then a else invalidBlock reason
+
 
 -- |Add a valid, live block to the tree.
 -- This is used by 'addBlock' and 'doBakeForSlot', and should not
@@ -640,6 +703,8 @@ doReceiveBlock pb@GB.PendingBlock{pbBlock = BakedBlock{..}, ..} =
             case lotteryBaker bakers (blockBaker block) of
                 Nothing -> rejectInvalidBlock $ "unknown baker " ++ show (blockBaker block)
                 Just (BakerInfo{..}, lotteryPower) ->
+                    -- Check the baker key matches the claimed key.
+                    check "Baker key claimed in block did not match actual baker key" (_bakerSignatureVerifyKey == blockBakerKey block) $
                     -- The block nonce
                     check
                         "invalid block nonce"
