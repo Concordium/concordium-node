@@ -37,7 +37,6 @@ import Concordium.GlobalState.TransactionTable
 import qualified Concordium.GlobalState.TreeState as TS
 import Concordium.GlobalState.Types
 import Concordium.Logger
-import qualified Concordium.Scheduler.TreeStateEnvironment as TSEnv
 import Concordium.Skov.CatchUp.Types
 import Concordium.TimeMonad
 import qualified Concordium.TransactionVerification as TV
@@ -257,11 +256,7 @@ data VerifiedPendingBlock' bst bpt = VerifiedPendingBlock'
       -- |The verification context of the transactions yielded by @vpbPb@.
       vpbTxVerCtx :: !bst,
       -- |A pointer to the parent block.
-      vpbParentPointer :: !bpt,
-      -- |The last finalized block pointer.
-      vpLfbp :: !bpt,
-      -- |FinalizerInfo if the block contained finalization records.
-      vpbFinInfo :: !(Maybe TSEnv.FinalizerInfo)
+      vpbParentPointer :: !bpt
     }
 
 class (SkovQueryMonad m, TimeMonad m, MonadLogger m) => SkovMonad m where
