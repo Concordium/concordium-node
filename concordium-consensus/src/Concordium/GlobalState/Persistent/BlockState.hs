@@ -3504,62 +3504,20 @@ genesisState gd = case protocolVersion @pv of
   where
     mkGenesisStateInitial :: CoreGenesisParameters -> GenesisState pv -> MTL.ExceptT String m (HashedPersistentBlockState pv, TransactionTable.TransactionTable)
     mkGenesisStateInitial GenesisData.CoreGenesisParameters{..} GenesisData.GenesisState{..} = do
-        -- TODO avoid iterating all of the accounts more than once.
-
-        -- Block accounts
-        accounts <- mapM fromGenesisAccount $ zip [0 ..] $ Vec.toList genesisAccounts
-        bspAccounts <- Accounts.fromList accounts
+        -- Iterate the accounts in genesis once and accumulate all relevant information.
+        (bspAccounts, activeBakersState, epochBakersState, initialTotalAmount, rewardDetailsState) <- foldM accumStateFromGenesisAccounts initialState $ zip [0 ..] $ Vec.toList genesisAccounts
 
         -- Birk parameters
-        birkActiveBakers' <- lift $ persistentActiveBakersFromGenesisAccounts $ Vec.toList genesisAccounts
-        _birkActiveBakers <- refMake birkActiveBakers'
-        epochBakers <- lift $ persistentEpochBakersFromGenesisAccounts genesisChainParameters $ Vec.toList genesisAccounts
-        _birkNextEpochBakers <- refMake epochBakers
+        _birkActiveBakers <- refMake $ buildActiveBakers activeBakersState
+        _birkNextEpochBakers <- refMake =<< buildEpochBakers epochBakersState
         let _birkCurrentEpochBakers = _birkNextEpochBakers
-            persistentBirkParameters = PersistentBirkParameters{_birkSeedState = genesisSeedState, ..}
+            _birkSeedState = initialSeedState genesisLeadershipElectionNonce genesisEpochLength
+            persistentBirkParameters :: PersistentBirkParameters av = PersistentBirkParameters{..}
 
         -- Reward details
-        rewardDetails <- case delegationSupport @av of
-            SAVDelegationNotSupported -> return $ BlockRewardDetailsV0 emptyHashedEpochBlocks
-            SAVDelegationSupported -> do
-                let foldBakers (capitals, rewards) GenesisAccount{gaBaker = Just GenesisBaker{..}} =
-                        let capital =
-                                BakerCapital
-                                    { bcBakerId = gbBakerId,
-                                      bcBakerEquityCapital = gbStake,
-                                      bcDelegatorCapital = Vec.empty
-                                    }
-                            poolRewardDetailsRef = emptyBakerPoolRewardDetails
-                        in  (capital : capitals, poolRewardDetailsRef : rewards)
-                    foldBakers acc _ = acc
-                let (bakerCapitals, bakerPoolRewardsList) = foldl foldBakers ([], []) genesisAccounts
-                capRef :: HashedBufferedRef CapitalDistribution <-
-                    refMake
-                        CapitalDistribution
-                            { bakerPoolCapital = Vec.fromList bakerCapitals,
-                              passiveDelegatorsCapital = Vec.empty
-                            }
-                bakerPoolRewards :: LFMBT.LFMBTree Word64 BufferedRef BakerPoolRewardDetails <- LFMBT.fromAscList bakerPoolRewardsList
-                case delegationChainParameters @pv of
-                    DelegationChainParametersV1 ->
-                        BlockRewardDetailsV1
-                            <$> refMake
-                                PoolRewards
-                                    { nextCapital = capRef,
-                                      currentCapital = capRef,
-                                      bakerPoolRewardDetails = bakerPoolRewards,
-                                      passiveDelegationTransactionRewards = 0,
-                                      foundationTransactionRewards = 0,
-                                      nextPaydayEpoch = genesisChainParameters ^. cpTimeParameters . tpRewardPeriodLength . to rewardPeriodEpochs,
-                                      nextPaydayMintRate = genesisChainParameters ^. cpTimeParameters . tpMintPerPayday
-                                    }
+        rewardDetails <- lift $ buildRewardDetails rewardDetailsState
 
-        -- initial amount in the central bank is the amount on all genesis accounts combined
-        let initialAmount = Vec.foldl' (\c acc -> c + gaBalance acc) 0 genesisAccounts
-        let bspBank = makeHashed $ Rewards.makeGenesisBankStatus initialAmount
-
-        -- In initial genesis, all accounts and updates have no prior transactions
-        let initialTT = TransactionTable.emptyTransactionTable
+        let bspBank = makeHashed $ Rewards.makeGenesisBankStatus initialTotalAmount
 
         -- Modules and instances
         modules <- refMake Modules.emptyModules
@@ -3593,67 +3551,116 @@ genesisState gd = case protocolVersion @pv of
                     }
         bps <- liftIO $ newIORef $! bsp
         hashedBlockState <- hashBlockState bps
-        return (hashedBlockState, initialTT)
+        return (hashedBlockState, TransactionTable.emptyTransactionTable)
       where
-        fromGenesisAccount :: (BakerId, GenesisAccount) -> MTL.ExceptT String m (PersistentAccount (AccountVersionFor pv))
-        fromGenesisAccount (bid, GenesisAccount{..}) = do
-            case gaBaker of
-                Just GenesisBaker{..} | gbBakerId /= bid -> MTL.throwError "Mismatch between assigned and chosen baker id."
-                _ ->
-                    lift $
-                        makePersistentAccount
-                            ( TransientAccount.newAccountMultiCredential genesisCryptographicParameters gaThreshold gaAddress gaCredentials
-                                & TransientAccount.accountAmount .~ gaBalance
-                                & case gaBaker of
-                                    Nothing -> id
-                                    Just genBaker ->
-                                        TransientAccount.accountStaking
-                                            .~ BaseAccounts.AccountStakeBaker
-                                                (Basic.genesisBakerInfo (protocolVersion @pv) genesisChainParameters genBaker)
-                            )
-        genesisSeedState = initialSeedState genesisLeadershipElectionNonce genesisEpochLength
+        -- For iterating the genesis accounts and accumulating relevant states to build up the genesis block.
+        accumStateFromGenesisAccounts (accounts, activeBakersState, bakerInfoState, totalAmount, rewardDetailsState) (index, genesisAccount) = do
+            case gaBaker genesisAccount of
+                Just GenesisBaker{..} -> unless (gbBakerId == index) $ MTL.throwError "Mismatch between assigned and chosen baker id."
+                _ -> return ()
 
-        persistentActiveBakersFromGenesisAccounts :: [GenesisAccount] -> m (PersistentActiveBakers av)
-        persistentActiveBakersFromGenesisAccounts accounts = do
-            (_activeBakers, _aggregationKeys, total) <- foldM accum (Trie.empty, Trie.empty, 0) accounts
+            nextAccounts <- updateAccounts accounts genesisAccount
+            nextActiveBakers <- updateActiveBakersState activeBakersState genesisAccount
+            nextBakerInfoState <- updateEpochBakersState bakerInfoState genesisAccount
+            let nextTotalAmount = totalAmount + gaBalance genesisAccount
+            let nextRewardDetailsState = updateRewardDetailsState rewardDetailsState genesisAccount
+            return (nextAccounts, nextActiveBakers, nextBakerInfoState, nextTotalAmount, nextRewardDetailsState)
+        initialState = (Accounts.emptyAccounts, initialActiveBakersState, initialEpochBakersState, 0, initialRewardDetailsState)
+
+        updateAccounts accounts GenesisAccount{..} = do
+            -- Create the persistent account
+            persistentAccount <-
+                lift $
+                    makePersistentAccount
+                        ( TransientAccount.newAccountMultiCredential genesisCryptographicParameters gaThreshold gaAddress gaCredentials
+                            & TransientAccount.accountAmount .~ gaBalance
+                            & case gaBaker of
+                                Nothing -> id
+                                Just genBaker ->
+                                    TransientAccount.accountStaking
+                                        .~ BaseAccounts.AccountStakeBaker
+                                            (Basic.genesisBakerInfo (protocolVersion @pv) genesisChainParameters genBaker)
+                        )
+            -- Insert the account
+            (maybeIndex, nextAccounts) <- Accounts.putNewAccount persistentAccount accounts
+            when (isNothing maybeIndex) $ MTL.throwError "Duplicate account address in genesis accounts."
+            return nextAccounts
+
+        -- Persistent active bakers
+        initialActiveBakersState = (Trie.empty, Trie.empty, 0)
+        updateActiveBakersState (bakers, keys, total) GenesisAccount{gaBaker = Just GenesisBaker{..}} = do
+            newBakers :: BakerIdTrieMap av <- Trie.insert gbBakerId emptyPersistentActiveDelegators bakers
+            newKeys <- Trie.insert gbAggregationVerifyKey () keys
+            let newTotal = total + gbStake
+            return (newBakers, newKeys, newTotal)
+        updateActiveBakersState acc _ = return acc
+        buildActiveBakers (_activeBakers, _aggregationKeys, total) =
             let _totalActiveCapital = case delegationSupport @av of
                     SAVDelegationNotSupported -> TotalActiveCapitalV0
                     SAVDelegationSupported -> TotalActiveCapitalV1 total
-            return
-                PersistentActiveBakers
+            in  PersistentActiveBakers
                     { _passiveDelegators = emptyPersistentActiveDelegators,
                       ..
                     }
-          where
-            accum (bakers, keys, total) GenesisAccount{gaBaker = Just GenesisBaker{..}} = do
-                newBakers <- Trie.insert gbBakerId emptyPersistentActiveDelegators bakers
-                newKeys <- Trie.insert gbAggregationVerifyKey () keys
-                let newTotal = total + gbStake
-                return (newBakers, newKeys, newTotal)
-            accum acc _ = return acc
 
-        persistentEpochBakersFromGenesisAccounts :: ChainParameters pv -> [GenesisAccount] -> m (PersistentEpochBakers av)
-        persistentEpochBakersFromGenesisAccounts chainParameters accounts = do
-            (bakerInfos', bakerStakes', _bakerTotalStake) <- foldM accum ([], [], 0) accounts
+        -- Persistent epoch bakers
+        initialEpochBakersState = ([], [], 0)
+        updateEpochBakersState (infos, stakes, total) GenesisAccount{gaBaker = Just GenesisBaker{..}} = do
+            let _bieBakerInfo = BaseAccounts.BakerInfo gbBakerId gbElectionVerifyKey gbSignatureVerifyKey gbAggregationVerifyKey
+            let chainParameters = genesisChainParameters :: ChainParameters pv
+            bakerInfoRef <- makePersistentBakerInfoRef @av $
+                case delegationSupport @av of
+                    SAVDelegationNotSupported -> BaseAccounts.BakerInfoExV0 _bieBakerInfo
+                    SAVDelegationSupported ->
+                        let
+                            _bieBakerPoolInfo =
+                                BaseAccounts.BakerPoolInfo
+                                    { _poolOpenStatus = Transactions.OpenForAll,
+                                      _poolMetadataUrl = emptyUrlText,
+                                      _poolCommissionRates = case delegationChainParameters @pv of
+                                        DelegationChainParametersV1 -> chainParameters ^. cpPoolParameters . ppCommissionBounds . to maximumCommissionRates
+                                    }
+                        in
+                            BaseAccounts.BakerInfoExV1{..}
+            return (bakerInfoRef : infos, gbStake : stakes, total + gbStake)
+        updateEpochBakersState acc _ = return acc
+        buildEpochBakers (bakerInfos', bakerStakes', _bakerTotalStake) = do
             _bakerInfos <- refMake $ BakerInfos $ Vec.fromList bakerInfos'
             _bakerStakes <- refMake $ BakerStakes $ Vec.fromList bakerStakes'
             return PersistentEpochBakers{..}
-          where
-            accum (infos, stakes, total) GenesisAccount{gaBaker = Just GenesisBaker{..}} = do
-                let _bieBakerInfo = BaseAccounts.BakerInfo gbBakerId gbElectionVerifyKey gbSignatureVerifyKey gbAggregationVerifyKey
-                bakerInfoRef <- makePersistentBakerInfoRef $
-                    case delegationSupport @av of
-                        SAVDelegationNotSupported -> BaseAccounts.BakerInfoExV0 _bieBakerInfo
-                        SAVDelegationSupported ->
-                            let
-                                _bieBakerPoolInfo =
-                                    BaseAccounts.BakerPoolInfo
-                                        { _poolOpenStatus = Transactions.OpenForAll,
-                                          _poolMetadataUrl = emptyUrlText,
-                                          _poolCommissionRates = case delegationChainParameters @pv of
-                                            DelegationChainParametersV1 -> chainParameters ^. cpPoolParameters . ppCommissionBounds . to maximumCommissionRates
-                                        }
-                            in
-                                BaseAccounts.BakerInfoExV1{..}
-                return (bakerInfoRef : infos, gbStake : stakes, total + gbStake)
-            accum acc _ = return acc
+
+        -- Block reward details
+        initialRewardDetailsState = ([], [])
+        updateRewardDetailsState (capitals, rewards) GenesisAccount{gaBaker = Just GenesisBaker{..}} =
+            let capital =
+                    BakerCapital
+                        { bcBakerId = gbBakerId,
+                          bcBakerEquityCapital = gbStake,
+                          bcDelegatorCapital = Vec.empty
+                        }
+                poolRewardDetailsRef = emptyBakerPoolRewardDetails
+            in  (capital : capitals, poolRewardDetailsRef : rewards)
+        updateRewardDetailsState acc _ = acc
+        buildRewardDetails (bakerCapitals, bakerPoolRewardsList) = case delegationSupport @av of
+            SAVDelegationNotSupported -> return $ BlockRewardDetailsV0 emptyHashedEpochBlocks
+            SAVDelegationSupported -> do
+                capRef :: HashedBufferedRef CapitalDistribution <-
+                    refMake
+                        CapitalDistribution
+                            { bakerPoolCapital = Vec.fromList bakerCapitals,
+                              passiveDelegatorsCapital = Vec.empty
+                            }
+                bakerPoolRewards :: LFMBT.LFMBTree Word64 BufferedRef BakerPoolRewardDetails <- LFMBT.fromAscList bakerPoolRewardsList
+                case delegationChainParameters @pv of
+                    DelegationChainParametersV1 ->
+                        BlockRewardDetailsV1
+                            <$> refMake
+                                PoolRewards
+                                    { nextCapital = capRef,
+                                      currentCapital = capRef,
+                                      bakerPoolRewardDetails = bakerPoolRewards,
+                                      passiveDelegationTransactionRewards = 0,
+                                      foundationTransactionRewards = 0,
+                                      nextPaydayEpoch = genesisChainParameters ^. cpTimeParameters . tpRewardPeriodLength . to rewardPeriodEpochs,
+                                      nextPaydayMintRate = genesisChainParameters ^. cpTimeParameters . tpMintPerPayday
+                                    }
