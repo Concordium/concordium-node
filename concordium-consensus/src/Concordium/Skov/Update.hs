@@ -352,30 +352,47 @@ addBlockWithLiveParent block txvers parentP = do
     execute mFinInfo lfbp = do
         parentState <- blockState parentP
         parentSeedState <- getSeedState parentState
-        -- Update the seed state with the block nonce
-        let newSeedState = updateSeedState blkSlot (blockNonce block) parentSeedState
-            ts = zip (blockTransactions block) txvers
-        slotTime <- getSlotTimestamp blkSlot
-        executeFrom blkHash blkSlot slotTime parentP (blockBaker block) mFinInfo newSeedState ts >>= \case
-            Left err -> do
-                logEvent Skov LLWarning ("Block execution failure: " ++ show err)
-                invalidBlock "execution failure"
-            Right result -> do
-                -- Check that the StateHash is correct
-                stateHash <- getStateHash (_finalState result)
-                check "Claimed stateHash did not match calculated stateHash" (stateHash == blockStateHash block) $ do
-                    -- Check that the TransactionOutcomeHash is correct
-                    tohash <- getTransactionOutcomesHash (_finalState result)
-                    check "Claimed transactionOutcomesHash did not match actual transactionOutcomesHash" (tohash == blockTransactionOutcomesHash block) $ do
-                        -- Add the block to the tree
-                        blockP <- blockArrive block parentP lfbp result
-                        -- Notify of the block arrival (for finalization)
-                        finalizationBlockArrival blockP
-                        onBlock blockP
-                        -- Handle any blocks that are waiting for this one
-                        children <- takePendingChildren blkHash
-                        forM_ children processPendingChild
-                        return ResultSuccess
+        -- Determine the leadership election nonce
+        let nonce = computeLeadershipElectionNonce parentSeedState (blockSlot block)
+        -- Determine the baker and its lottery power
+        gd <- getGenesisData
+        bakers <- getSlotBakers gd parentState (blockSlot block)
+        case lotteryBaker bakers (blockBaker block) of
+            Nothing -> invalidBlock $ "unknown baker " ++ show (blockBaker block)
+            Just (BakerInfo{..}, _) -> do
+                check
+                    "invalid block nonce"
+                    ( verifyBlockNonce
+                        nonce
+                        (blockSlot block)
+                        _bakerElectionVerifyKey
+                        (blockNonce block)
+                    )
+                    $ do
+                        -- Update the seed state with the block nonce
+                        let newSeedState = updateSeedState blkSlot (blockNonce block) parentSeedState
+                            ts = zip (blockTransactions block) txvers
+                        slotTime <- getSlotTimestamp blkSlot
+                        executeFrom blkHash blkSlot slotTime parentP (blockBaker block) mFinInfo newSeedState ts >>= \case
+                            Left err -> do
+                                logEvent Skov LLWarning ("Block execution failure: " ++ show err)
+                                invalidBlock "execution failure"
+                            Right result -> do
+                                -- Check that the StateHash is correct
+                                stateHash <- getStateHash (_finalState result)
+                                check "Claimed stateHash did not match calculated stateHash" (stateHash == blockStateHash block) $ do
+                                    -- Check that the TransactionOutcomeHash is correct
+                                    tohash <- getTransactionOutcomesHash (_finalState result)
+                                    check "Claimed transactionOutcomesHash did not match actual transactionOutcomesHash" (tohash == blockTransactionOutcomesHash block) $ do
+                                        -- Add the block to the tree
+                                        blockP <- blockArrive block parentP lfbp result
+                                        -- Notify of the block arrival (for finalization)
+                                        finalizationBlockArrival blockP
+                                        onBlock blockP
+                                        -- Handle any blocks that are waiting for this one
+                                        children <- takePendingChildren blkHash
+                                        forM_ children processPendingChild
+                                        return ResultSuccess
 
 -- |Process a block that has been awaiting its parent to become live.
 -- If the child block can be verified:
@@ -481,15 +498,6 @@ liveParentChecks block parentP = runExceptT $ do
             -- Check the baker key matches the claimed key.
             unless (_bakerSignatureVerifyKey == blockBakerKey block) $
                 throwError "Baker key claimed in block did not match actual baker key"
-            -- Check the block nonce
-            unless
-                ( verifyBlockNonce
-                    nonce
-                    (blockSlot block)
-                    _bakerElectionVerifyKey
-                    (blockNonce block)
-                )
-                $ throwError "invalid block nonce"
             -- Check the block proof
             unless
                 ( verifyProof
