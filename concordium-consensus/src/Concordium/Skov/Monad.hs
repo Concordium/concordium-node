@@ -238,26 +238,8 @@ data MessageType
     | MessageCatchUpStatus
     deriving (Eq, Show)
 
--- |Type alias for fixing the `m` of the 'BlockState m' and 'BlockPointerType m'
-type VerifiedPendingBlock m = VerifiedPendingBlock' (BlockState m) (BlockPointerType m)
-
--- |A VerifiedPending block yields the information required for
--- executing the contained 'PendingBlock'.
--- The 'PendingBlock' is guaranteed to have a parent that is either
--- alive or finalized and being head of the chain.
---
--- In particular the 'VerifiedPendingBlock'' is obtained via a
--- call to 'doReceiveBlock' if the block could be verified (except for transaction
--- verification). Transactions are verified as part of 'doExecuteBlock' before executing
--- the block and subsequently adding it to the tree.
-data VerifiedPendingBlock' bst bpt = VerifiedPendingBlock'
-    { -- |The pending block to add to the tree.
-      vpbPb :: !PendingBlock,
-      -- |The verification context of the transactions yielded by @vpbPb@.
-      vpbTxVerCtx :: !bst,
-      -- |A pointer to the parent block.
-      vpbParentPointer :: !bpt
-    }
+-- |Wrapper for a 'PendingBlock' that has been received and is now ready for execution.
+newtype VerifiedPendingBlock = VerifiedPendingBlock PendingBlock
 
 class (SkovQueryMonad m, TimeMonad m, MonadLogger m) => SkovMonad m where
     -- |Receive a block from the network.
@@ -267,10 +249,10 @@ class (SkovQueryMonad m, TimeMonad m, MonadLogger m) => SkovMonad m where
     -- 'VerifiedPendingBlock' which yields the information necessary for adding the block to the tree.
     --
     -- The caller is then expected to invoke 'executeBlock' with the returned 'VerifiedPendingBlock' if present.
-    receiveBlock :: PendingBlock -> m (UpdateResult, Maybe (VerifiedPendingBlock m))
+    receiveBlock :: PendingBlock -> m (UpdateResult, Maybe VerifiedPendingBlock)
 
     -- |Inserts a 'PendingBlock' given the provided 'VerifiedPendingBlock'.
-    executeBlock :: VerifiedPendingBlock m -> m UpdateResult
+    executeBlock :: VerifiedPendingBlock -> m UpdateResult
 
     -- |Add a transaction to the transaction table.
     -- This must gracefully handle transactions from other (older) protocol versions.
