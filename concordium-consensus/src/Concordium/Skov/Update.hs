@@ -388,86 +388,93 @@ addBlockWithLiveParent block txvers parentP = do
 -- - The block proof is valid.
 -- - The transactions of the block could be verified.
 -- Iff. the above checks out then the block is executed and the block is marked as live.
-processPendingChild :: forall m. (HasCallStack, TreeStateMonad m, SkovMonad m, FinalizationMonad m, OnSkov m) =>
+processPendingChild ::
+    forall m.
+    (HasCallStack, TreeStateMonad m, SkovMonad m, FinalizationMonad m, OnSkov m) =>
     -- |A pending block.
     PendingBlock ->
     m ()
 processPendingChild block = do
     lfs <- getLastFinalizedSlot
     -- The block must be later than the last finalized block
-    if lfs >= blockSlot block then deadBlock
-    else do
-        getRecentBlockStatus (blockPointer block) >>= \case
-            RecentBlock (BlockAlive parentP) -> process parentP
-            RecentBlock (BlockFinalized parentP _) -> process parentP
-            _ -> return ()
-    where
-        invalidBlock :: String -> m ()
-        invalidBlock reason = do
-            logEvent Skov LLWarning $ "Pending block child is not valid (" ++ reason ++ "): " ++ show block
-            blockArriveDead $ getHash block
-            return ()
-        deadBlock :: m ()
-        deadBlock = do
-            blockArriveDead $ getHash block
-            return ()
-        check reason q a = if q then a else invalidBlock reason
-        process parentP = do
-            childStatus <- getRecentBlockStatus (getHash block)
-            let isPending Unknown = True
-                isPending (RecentBlock (BlockPending _)) = True
-                isPending _ = False
-            when (isPending childStatus) $ do
-                -- Here, we need to do all of the checks on the pending block that would have been done
-                -- for a block with a live parent when it was received, but may not have been done for
-                -- a pending one.
-                -- Check that the blockSlot is beyond the parent slot
-                check ("block slot (" ++ show (blockSlot block) ++ ") not later than parent block slot (" ++ show (blockSlot parentP) ++ ")") (blockSlot parentP < blockSlot block) $ do
-                    -- get Birk parameters from the __parent__ block. The baker must have existed in that
-                    -- block's state in order that the current block is valid
-                    parentState <- blockState parentP
-                    -- Determine the baker and its lottery power
-                    gd <- getGenesisData
-                    bakers <- getSlotBakers gd parentState (blockSlot block)
-                    -- Determine the leadership election nonce
-                    parentSeedState <- getSeedState parentState
-                    let nonce = computeLeadershipElectionNonce parentSeedState (blockSlot block)
-                    -- Determine the election difficulty
-                    slotTime <- getSlotTimestamp (blockSlot block)
-                    elDiff <- getElectionDifficulty parentState slotTime
-                    logEvent Skov LLTrace $ "Verifying block with election difficulty " ++ show elDiff
-                    case lotteryBaker bakers (blockBaker block) of
-                        Nothing -> invalidBlock $ "unknown baker " ++ show (blockBaker block)
-                        Just (BakerInfo{..}, lotteryPower) ->
-                            -- Check the baker key matches the claimed key.
-                            check "Baker key claimed in block did not match actual baker key" (_bakerSignatureVerifyKey == blockBakerKey block)
-                                $
-                                -- The block nonce
-                                check
-                                    "invalid block nonce"
-                                    ( verifyBlockNonce
-                                        nonce
-                                        (blockSlot block)
-                                        _bakerElectionVerifyKey
-                                        (blockNonce block)
-                                    )
-                                $
-                                -- Check the block proof
-                                check
-                                    "invalid block proof"
-                                    ( verifyProof
-                                        nonce
-                                        elDiff
-                                        (blockSlot block)
-                                        _bakerElectionVerifyKey
-                                        lotteryPower
-                                        (blockProof block)
-                                    )
-                                $ do
-                                    verress <- mapM getNonFinalizedTransactionVerificationResult (blockTransactions block)
-                                    addBlockWithLiveParent block verress parentP >>= \case
-                                        ResultSuccess -> onPendingLive
-                                        _ -> return ()
+    if lfs >= blockSlot block
+        then deadBlock
+        else do
+            -- We lookup the parent block here as opposed to pass it in via a parameter in the loop where
+            -- we process the children of a pending block just added.
+            -- The reason is that a pending child block could become dead by e.g. having two children,
+            -- and one of those would then include a finalization proof of the other child/branch.
+            getRecentBlockStatus (blockPointer block) >>= \case
+                RecentBlock (BlockAlive parentP) -> process parentP
+                RecentBlock (BlockFinalized parentP _) -> process parentP
+                _ -> return ()
+  where
+    invalidBlock :: String -> m ()
+    invalidBlock reason = do
+        logEvent Skov LLWarning $ "Pending block child is not valid (" ++ reason ++ "): " ++ show block
+        blockArriveDead $ getHash block
+        return ()
+    deadBlock :: m ()
+    deadBlock = do
+        blockArriveDead $ getHash block
+        return ()
+    check reason q a = if q then a else invalidBlock reason
+    process parentP = do
+        childStatus <- getRecentBlockStatus (getHash block)
+        let isPending Unknown = True
+            isPending (RecentBlock (BlockPending _)) = True
+            isPending _ = False
+        when (isPending childStatus) $ do
+            -- Here, we need to do all of the checks on the pending block that would have been done
+            -- for a block with a live parent when it was received, but may not have been done for
+            -- a pending one.
+            -- Check that the blockSlot is beyond the parent slot
+            check ("block slot (" ++ show (blockSlot block) ++ ") not later than parent block slot (" ++ show (blockSlot parentP) ++ ")") (blockSlot parentP < blockSlot block) $ do
+                -- get Birk parameters from the __parent__ block. The baker must have existed in that
+                -- block's state in order that the current block is valid
+                parentState <- blockState parentP
+                -- Determine the baker and its lottery power
+                gd <- getGenesisData
+                bakers <- getSlotBakers gd parentState (blockSlot block)
+                -- Determine the leadership election nonce
+                parentSeedState <- getSeedState parentState
+                let nonce = computeLeadershipElectionNonce parentSeedState (blockSlot block)
+                -- Determine the election difficulty
+                slotTime <- getSlotTimestamp (blockSlot block)
+                elDiff <- getElectionDifficulty parentState slotTime
+                logEvent Skov LLTrace $ "Verifying block with election difficulty " ++ show elDiff
+                case lotteryBaker bakers (blockBaker block) of
+                    Nothing -> invalidBlock $ "unknown baker " ++ show (blockBaker block)
+                    Just (BakerInfo{..}, lotteryPower) ->
+                        -- Check the baker key matches the claimed key.
+                        check "Baker key claimed in block did not match actual baker key" (_bakerSignatureVerifyKey == blockBakerKey block)
+                            $
+                            -- The block nonce
+                            check
+                                "invalid block nonce"
+                                ( verifyBlockNonce
+                                    nonce
+                                    (blockSlot block)
+                                    _bakerElectionVerifyKey
+                                    (blockNonce block)
+                                )
+                            $
+                            -- Check the block proof
+                            check
+                                "invalid block proof"
+                                ( verifyProof
+                                    nonce
+                                    elDiff
+                                    (blockSlot block)
+                                    _bakerElectionVerifyKey
+                                    lotteryPower
+                                    (blockProof block)
+                                )
+                            $ do
+                                verress <- mapM getNonFinalizedTransactionVerificationResult (blockTransactions block)
+                                addBlockWithLiveParent block verress parentP >>= \case
+                                    ResultSuccess -> onPendingLive
+                                    _ -> return ()
 
 -- |Add a valid, live block to the tree.
 -- This is used by 'addBlockWithLiveParent' and 'doBakeForSlot', and should not
