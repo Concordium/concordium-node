@@ -5,6 +5,10 @@
 - Improvements to allow greater concurrency with transaction processing.
   (Checking transaction signatures is done without acquiring the global
   state lock.)
+- Relay blocks earlier. In particular this means that blocks are now processed in 
+  two steps, `block receive` and `block execute`. The former performs meta verification on the block
+  while the latter adds the block to the tree.
+  Blocks are now relayed in between the the two steps.
 
 ## 5.0.6
 
