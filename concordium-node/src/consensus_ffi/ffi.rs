@@ -257,24 +257,9 @@ pub struct execute_block {
     private: [u8; 0],
 }
 
-/// Wraps the *mut execute block so we can make sure the
-/// ptr is populated with an "execute block" continuation before calling it.
-pub enum ExecuteBlockCallback {
-    // The ptr to write to is initialized, but there are no call back to call yet.
-    Initialized(*mut *mut execute_block),
-    // The execute block continuation is present and ready execution.
-    Populated(*mut execute_block),
-}
-
-impl ExecuteBlockCallback {
-    fn populate(&mut self, cont: *mut execute_block) {
-        match self {
-            ExecuteBlockCallback::Initialized(_) => *self = ExecuteBlockCallback::Populated(cont),
-            ExecuteBlockCallback::Populated(_) => {
-                panic!("Cannot populate already populated ExecuteBlockCallback")
-            }
-        }
-    }
+/// Abstracts the reference required to execute a block that has been received.
+pub struct ExecuteBlockCallback {
+    callback: *mut execute_block,
 }
 
 type LogCallback = extern "C" fn(c_char, c_char, *const u8);
@@ -1483,31 +1468,30 @@ impl ConsensusContainer {
         &self,
         genesis_index: u32,
         block: &[u8],
-        execute_block_callback: &mut ExecuteBlockCallback,
-    ) -> ConsensusFfiResponse {
-        match *execute_block_callback {
-            // todo: is it ok to panic? hmm
-            ExecuteBlockCallback::Populated(_) => panic!(
-                "'receive_block' may only be called with an 'ExecuteBlockCallback::Initialized'"
-            ),
-            ExecuteBlockCallback::Initialized(ptr) => {
-                let consensus = self.consensus.load(Ordering::SeqCst);
-                let ptr_block = block.as_ptr();
-                let len = block.len();
-                let result = unsafe {
-                    let res = receiveBlock(consensus, genesis_index, ptr_block, len as i64, ptr);
-                    let result = ConsensusFfiResponse::try_from(res)
-                        .unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code));
-                    if let Some(execute_block_continuation) = ptr.as_ref() {
-                        if ConsensusFfiResponse::Success == result {
-                            execute_block_callback.populate(*execute_block_continuation);
-                        }
-                    }
-                    result
-                };
-                result
-            }
-        }
+    ) -> (ConsensusFfiResponse, Option<ExecuteBlockCallback>) {
+        let consensus = self.consensus.load(Ordering::SeqCst);
+
+        let mut ptr_block_to_execute = std::ptr::null_mut();
+        let ptr_ptr_block_to_execute = &mut ptr_block_to_execute;
+        let ptr_block = block.as_ptr();
+        let len = block.len();
+        let result = unsafe {
+            receiveBlock(consensus, genesis_index, ptr_block, len as i64, ptr_ptr_block_to_execute)
+        };
+        let callback = if ptr_block_to_execute.is_null() {
+            None
+        } else {
+            let cbk = ExecuteBlockCallback {
+                callback: ptr_block_to_execute,
+            };
+            Some(cbk)
+        };
+
+        (
+            ConsensusFfiResponse::try_from(result)
+                .unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code)),
+            callback,
+        )
     }
 
     pub fn execute_block(
@@ -1515,17 +1499,9 @@ impl ConsensusContainer {
         execute_block_callback: ExecuteBlockCallback,
     ) -> ConsensusFfiResponse {
         let consensus = self.consensus.load(Ordering::SeqCst);
-        match execute_block_callback {
-            // todo: is it ok to panic? hmm
-            ExecuteBlockCallback::Initialized(_) => {
-                panic!("'execute_block' may only be called with 'ExecuteBlockCallback::Populated'")
-            }
-            ExecuteBlockCallback::Populated(ptr_execute_block) => {
-                let result = unsafe { executeBlock(consensus, ptr_execute_block) };
-                ConsensusFfiResponse::try_from(result)
-                    .unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code))
-            }
-        }
+        let result = unsafe { executeBlock(consensus, execute_block_callback.callback) };
+        ConsensusFfiResponse::try_from(result)
+            .unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code))
     }
 
     pub fn send_finalization(&self, genesis_index: u32, msg: &[u8]) -> ConsensusFfiResponse {

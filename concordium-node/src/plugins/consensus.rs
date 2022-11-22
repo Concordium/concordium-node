@@ -278,11 +278,11 @@ pub fn handle_consensus_inbound_msg(
         match finalizer {
             // Execute the block in the finalizer.
             // There is nothing left to do afterwards.
-            ConsensusFinalizer::Block(callback) => {
+            Some(callback) => {
                 let _ = consensus.execute_block(callback);
             }
             // Nothing to do in this case.
-            ConsensusFinalizer::None => (),
+            None => (),
         }
 
         // early blocks should be removed from the deduplication queue
@@ -320,27 +320,15 @@ pub fn handle_consensus_inbound_msg(
         match finalizer {
             // Execute the block in the finalizer.
             // There is nothing left to do afterwards.
-            ConsensusFinalizer::Block(callback) => {
+            Some(callback) => {
                 let _ = consensus.execute_block(callback);
             }
             // Nothing to do in this case.
-            ConsensusFinalizer::None => (),
+            None => (),
         }
     }
 
     Ok(())
-}
-
-/// A type for encapsulating a finalizer returned
-/// from the consensus layer.
-enum ConsensusFinalizer {
-    /// Nothing to do.
-    None,
-    /// Execute block via the callback.
-    /// Note. The callback may only be called if the
-    /// ptr to the execution continuation is populated i.e.,
-    /// 'ExecuteBlockCallback::Populated'.
-    Block(ExecuteBlockCallback),
 }
 
 fn send_msg_to_consensus(
@@ -348,37 +336,21 @@ fn send_msg_to_consensus(
     source_id: RemotePeerId,
     consensus: &ConsensusContainer,
     message: &ConsensusMessage,
-) -> anyhow::Result<(ConsensusFfiResponse, ConsensusFinalizer)> {
+) -> anyhow::Result<(ConsensusFfiResponse, Option<ExecuteBlockCallback>)> {
     let payload = &message.payload[1..]; // non-empty, already checked
 
     let consensus_response = match message.variant {
         Block => {
             let genesis_index = u32::deserial(&mut Cursor::new(&payload[..4]))?;
-            let mut block_execute_callback =
-                ExecuteBlockCallback::Initialized(&mut std::ptr::null_mut());
-            let ffi_response =
-                consensus.receive_block(genesis_index, &payload[4..], &mut block_execute_callback);
-            // Create the finalizer from the result of the block execution callback.
-            let finalizer = match block_execute_callback {
-                // There is not callback present so the finalizer is a noop.
-                ExecuteBlockCallback::Initialized(_) => ConsensusFinalizer::None,
-                // The poiter has been populated o
-                ExecuteBlockCallback::Populated(_) => {
-                    ConsensusFinalizer::Block(block_execute_callback)
-                }
-            };
-            (ffi_response, finalizer)
+            consensus.receive_block(genesis_index, &payload[4..])
         }
         FinalizationMessage => {
             let genesis_index = u32::deserial(&mut Cursor::new(&payload[..4]))?;
-            (consensus.send_finalization(genesis_index, &payload[4..]), ConsensusFinalizer::None)
+            (consensus.send_finalization(genesis_index, &payload[4..]), Option::None)
         }
         FinalizationRecord => {
             let genesis_index = u32::deserial(&mut Cursor::new(&payload[..4]))?;
-            (
-                consensus.send_finalization_record(genesis_index, &payload[4..]),
-                ConsensusFinalizer::None,
-            )
+            (consensus.send_finalization_record(genesis_index, &payload[4..]), Option::None)
         }
         CatchUpStatus => {
             let genesis_index = u32::deserial(&mut Cursor::new(&payload[..4]))?;
@@ -389,10 +361,10 @@ fn send_msg_to_consensus(
                     source_id,
                     node.config.catch_up_batch_limit,
                 ),
-                ConsensusFinalizer::None,
+                Option::None,
             )
         }
-        Transaction => (consensus.send_transaction(payload).1, ConsensusFinalizer::None),
+        Transaction => (consensus.send_transaction(payload).1, Option::None),
     };
 
     if consensus_response.0.is_acceptable() {
