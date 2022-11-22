@@ -149,11 +149,6 @@ putNewAccount !acct accts0 = do
   where
     acctIndex = fromIntegral $ L.size (accountTable accts0)
 
-fromList :: SupportsPersistentAccount pv m => [PersistentAccount (AccountVersionFor pv)] -> m (Accounts pv)
-fromList = foldM fn emptyAccounts
-  where
-    fn accounts account = snd <$> putNewAccount account accounts
-
 -- |Determine if an account with the given address exists.
 exists :: (IsProtocolVersion pv, MonadBlobStore m) => AccountAddress -> Accounts pv -> m Bool
 exists addr Accounts{..} = AccountMap.isAddressAssigned addr accountMap

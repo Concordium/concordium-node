@@ -3563,7 +3563,7 @@ genesisState gd = case protocolVersion @pv of
             nextActiveBakers <- updateActiveBakersState activeBakersState genesisAccount
             nextBakerInfoState <- updateEpochBakersState bakerInfoState genesisAccount
             let nextTotalAmount = totalAmount + gaBalance genesisAccount
-            let nextRewardDetailsState = updateRewardDetailsState rewardDetailsState genesisAccount
+            nextRewardDetailsState <- updateRewardDetailsState rewardDetailsState genesisAccount
             return (nextAccounts, nextActiveBakers, nextBakerInfoState, nextTotalAmount, nextRewardDetailsState)
         initialState = (Accounts.emptyAccounts, initialActiveBakersState, initialEpochBakersState, 0, initialRewardDetailsState)
 
@@ -3604,7 +3604,7 @@ genesisState gd = case protocolVersion @pv of
                     }
 
         -- Persistent epoch bakers
-        initialEpochBakersState = ([], [], 0)
+        initialEpochBakersState = (Vec.empty, Vec.empty, 0)
         updateEpochBakersState (infos, stakes, total) GenesisAccount{gaBaker = Just GenesisBaker{..}} = do
             let _bieBakerInfo = BaseAccounts.BakerInfo gbBakerId gbElectionVerifyKey gbSignatureVerifyKey gbAggregationVerifyKey
             let chainParameters = genesisChainParameters :: ChainParameters pv
@@ -3622,35 +3622,35 @@ genesisState gd = case protocolVersion @pv of
                                     }
                         in
                             BaseAccounts.BakerInfoExV1{..}
-            return (bakerInfoRef : infos, gbStake : stakes, total + gbStake)
+            return (Vec.snoc infos bakerInfoRef, Vec.snoc stakes gbStake, total + gbStake)
         updateEpochBakersState acc _ = return acc
         buildEpochBakers (bakerInfos', bakerStakes', _bakerTotalStake) = do
-            _bakerInfos <- refMake $ BakerInfos $ Vec.fromList bakerInfos'
-            _bakerStakes <- refMake $ BakerStakes $ Vec.fromList bakerStakes'
+            _bakerInfos <- refMake $ BakerInfos bakerInfos'
+            _bakerStakes <- refMake $ BakerStakes bakerStakes'
             return PersistentEpochBakers{..}
 
         -- Block reward details
-        initialRewardDetailsState = ([], [])
-        updateRewardDetailsState (capitals, rewards) GenesisAccount{gaBaker = Just GenesisBaker{..}} =
+        initialRewardDetailsState :: (Vec.Vector BakerCapital, LFMBT.LFMBTree Word64 BufferedRef BakerPoolRewardDetails)
+        initialRewardDetailsState = (Vec.empty, LFMBT.empty)
+        updateRewardDetailsState (capitals, rewards) GenesisAccount{gaBaker = Just GenesisBaker{..}} = do
             let capital =
                     BakerCapital
                         { bcBakerId = gbBakerId,
                           bcBakerEquityCapital = gbStake,
                           bcDelegatorCapital = Vec.empty
                         }
-                poolRewardDetailsRef = emptyBakerPoolRewardDetails
-            in  (capital : capitals, poolRewardDetailsRef : rewards)
-        updateRewardDetailsState acc _ = acc
-        buildRewardDetails (bakerCapitals, bakerPoolRewardsList) = case delegationSupport @av of
+            updatedRewards <- snd <$> LFMBT.append emptyBakerPoolRewardDetails rewards
+            return (Vec.snoc capitals capital, updatedRewards)
+        updateRewardDetailsState acc _ = return acc
+        buildRewardDetails (bakerCapitals, bakerPoolRewards) = case delegationSupport @av of
             SAVDelegationNotSupported -> return $ BlockRewardDetailsV0 emptyHashedEpochBlocks
             SAVDelegationSupported -> do
                 capRef :: HashedBufferedRef CapitalDistribution <-
                     refMake
                         CapitalDistribution
-                            { bakerPoolCapital = Vec.fromList bakerCapitals,
+                            { bakerPoolCapital = bakerCapitals,
                               passiveDelegatorsCapital = Vec.empty
                             }
-                bakerPoolRewards :: LFMBT.LFMBTree Word64 BufferedRef BakerPoolRewardDetails <- LFMBT.fromAscList bakerPoolRewardsList
                 case delegationChainParameters @pv of
                     DelegationChainParametersV1 ->
                         BlockRewardDetailsV1
