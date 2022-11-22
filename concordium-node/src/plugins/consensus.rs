@@ -11,7 +11,7 @@ use crate::{
         consensus::{
             self, ConsensusContainer, ConsensusRuntimeParameters, Regenesis, CALLBACK_QUEUE,
         },
-        ffi::{self, NotificationContext},
+        ffi::{self, ExecuteBlockCallback, NotificationContext},
         helpers::{
             ConsensusFfiResponse,
             PacketType::{self, *},
@@ -271,7 +271,19 @@ pub fn handle_consensus_inbound_msg(
         }
 
         // relay external messages to Consensus
-        let (consensus_result, _) = send_msg_to_consensus(node, source, consensus, &request)?;
+        let (consensus_result, finalizer) =
+            send_msg_to_consensus(node, source, consensus, &request)?;
+        // Execute any finalizer returned from the
+        // consensus layer.
+        match finalizer {
+            // Execute the block in the finalizer.
+            // There is nothing left to do afterwards.
+            ConsensusFinalizer::Block(callback) => {
+                let _ = consensus.execute_block(callback);
+            }
+            // Nothing to do in this case.
+            ConsensusFinalizer::None => (),
+        }
 
         // early blocks should be removed from the deduplication queue
         if consensus_result == ConsensusFfiResponse::BlockTooEarly {
@@ -306,9 +318,10 @@ pub fn handle_consensus_inbound_msg(
         // Execute any finalizer returned from the
         // consensus layer.
         match finalizer {
-            // We received a block now we execute it.
-            ConsensusFinalizer::Block(ptr) => {
-                let _ = consensus.execute_block(ptr);
+            // Execute the block in the finalizer.
+            // There is nothing left to do afterwards.
+            ConsensusFinalizer::Block(callback) => {
+                let _ = consensus.execute_block(callback);
             }
             // Nothing to do in this case.
             ConsensusFinalizer::None => (),
@@ -323,8 +336,11 @@ pub fn handle_consensus_inbound_msg(
 enum ConsensusFinalizer {
     /// Nothing to do.
     None,
-    /// Execute the 'ExecutableBlock' behind the opaque pointer.
-    Block(*mut ffi::executable_block),
+    /// Execute block via the callback.
+    /// Note. The callback may only be called if the
+    /// ptr to the execution continuation is populated i.e.,
+    /// 'ExecuteBlockCallback::Populated'.
+    Block(ExecuteBlockCallback),
 }
 
 fn send_msg_to_consensus(
@@ -338,15 +354,18 @@ fn send_msg_to_consensus(
     let consensus_response = match message.variant {
         Block => {
             let genesis_index = u32::deserial(&mut Cursor::new(&payload[..4]))?;
-            let (ffi_response, ptr_executable_block) =
-                consensus.receive_block(genesis_index, &payload[4..]);
-            // Success indicates that the block is ready for execution.
-            // If the block was deemed pending or invalid then there is nothing
-            // more to do.
-            let finalizer = if ffi_response == ConsensusFfiResponse::Success {
-                ConsensusFinalizer::Block(ptr_executable_block)
-            } else {
-                ConsensusFinalizer::None
+            let mut block_execute_callback =
+                ExecuteBlockCallback::Initialized(&mut std::ptr::null_mut());
+            let ffi_response =
+                consensus.receive_block(genesis_index, &payload[4..], &mut block_execute_callback);
+            // Create the finalizer from the result of the block execution callback.
+            let finalizer = match block_execute_callback {
+                // There is not callback present so the finalizer is a noop.
+                ExecuteBlockCallback::Initialized(_) => ConsensusFinalizer::None,
+                // The poiter has been populated o
+                ExecuteBlockCallback::Populated(_) => {
+                    ConsensusFinalizer::Block(block_execute_callback)
+                }
             };
             (ffi_response, finalizer)
         }
