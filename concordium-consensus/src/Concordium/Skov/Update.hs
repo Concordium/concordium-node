@@ -709,16 +709,19 @@ doReceiveBlock pb@GB.PendingBlock{pbBlock = BakedBlock{..}, ..} =
 -- we're about to add.
 doExecuteBlock :: (TreeStateMonad m, FinalizationMonad m, SkovMonad m, OnSkov m) => VerifiedPendingBlock -> m UpdateResult
 doExecuteBlock (VerifiedPendingBlock pb) = do
-    (timeSpent, res) <- clockIt $ do
-        -- Resolve the parent block of the one we're about to add to the tree.
-        -- We execute the provided block iff. the parent is live.
-        -- If the parent block is not live then we reject it.
-        getRecentBlockStatus (blockPointer pb) >>= \case
-            RecentBlock (BlockAlive parentP) -> execute parentP
-            RecentBlock (BlockFinalized parentP _) -> execute parentP
-            _ -> rejectInvalidBlock
-    logEvent Skov LLInfo $ "Block " ++ show blockHash ++ " executed in " ++ show timeSpent
-    return res
+    isShutDown >>= \case
+        True -> return ResultConsensusShutDown
+        False -> do
+            (timeSpent, res) <- clockIt $ do
+                -- Resolve the parent block of the one we're about to add to the tree.
+                -- We execute the provided block iff. the parent is live.
+                -- If the parent block is not live then we reject it.
+                getRecentBlockStatus (blockPointer pb) >>= \case
+                    RecentBlock (BlockAlive parentP) -> execute parentP
+                    RecentBlock (BlockFinalized parentP _) -> execute parentP
+                    _ -> rejectInvalidBlock
+            logEvent Skov LLInfo $ "Block " ++ show blockHash ++ " executed in " ++ show timeSpent
+            return res
   where
     execute parentP = do
         parentState <- blockState parentP
@@ -751,6 +754,15 @@ doExecuteBlock (VerifiedPendingBlock pb) = do
     rejectInvalidBlock = do
         blockArriveDead blockHash
         return ResultInvalid
+
+-- |Receive and execute the block immediately.
+-- See documentation for `doReceiveBlock` and `doExecuteBlock`
+-- Returns 'ResultSuccess' if the block was added to the tree.
+doReceiveExecuteBlock :: (TreeStateMonad m, SkovMonad m, FinalizationMonad m, OnSkov m) => PendingBlock -> m UpdateResult
+doReceiveExecuteBlock block = do
+    doReceiveBlock block >>= \case
+        (ResultSuccess, Just vpb) -> doExecuteBlock vpb
+        (ur, _) -> return ur
 
 -- |Add a transaction to the transaction table.
 -- This returns

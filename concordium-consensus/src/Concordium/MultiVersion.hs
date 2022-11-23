@@ -1012,7 +1012,6 @@ withLatestExpectedVersion' gi a = do
         LT -> return (Skov.ResultInvalidGenesisIndex, Nothing)
         GT -> return (Skov.ResultConsensusShutDown, Nothing)
 
--- |todo doc
 withLatestExpectedVersion ::
     GenesisIndex ->
     (EVersionedConfiguration gsconf finconf -> MVR gsconf finconf Skov.UpdateResult) ->
@@ -1238,17 +1237,20 @@ importBlocks importFile = do
                 Right _ -> return Skov.ResultSuccess
   where
     doImport (ImportBlock _ gi bs) = do
-        -- Check if the import should be stopped.
         shouldStop <- liftIO . readIORef =<< asks mvShouldStopImportingBlocks
+        -- Check if the import should be stopped.
         if shouldStop
             then return $ fixResult Skov.ResultConsensusShutDown
-            else do
-                (recvRes, mExecuteBlock) <- receiveBlock gi bs
-                case mExecuteBlock of
-                    Just eb -> liftIO $ do
-                        updateResult <- runBlock eb
-                        return $! fixResult updateResult
-                    Nothing -> return $! fixResult recvRes
+            else withLatestExpectedVersion gi $
+                \(EVersionedConfiguration (vc :: VersionedConfiguration gsconf finconf pv)) -> do
+                    now <- currentTime
+                    case deserializeExactVersionedPendingBlock (protocolVersion @pv) bs now of
+                        Left err -> do
+                            logEvent Runner LLDebug $ "Could not deserialize imported block: " ++ err
+                            return $! fixResult Skov.ResultSerializationFail
+                        Right pb -> do
+                            ur <- runSkovTransaction vc (Skov.receiveExecuteBlock pb)
+                            return $! fixResult ur
     doImport (ImportFinalizationRecord _ gi bs) = fixResult <$> receiveFinalizationRecord gi bs
     fixResult Skov.ResultSuccess = Right ()
     fixResult Skov.ResultDuplicate = Right ()

@@ -254,6 +254,9 @@ class (SkovQueryMonad m, TimeMonad m, MonadLogger m) => SkovMonad m where
     -- |Inserts a 'PendingBlock' given the provided 'VerifiedPendingBlock'.
     executeBlock :: VerifiedPendingBlock -> m UpdateResult
 
+    -- |Receive and execute a 'PendingBlock'. This is used for importing blocks into the tree.
+    receiveExecuteBlock :: PendingBlock -> m UpdateResult
+
     -- |Add a transaction to the transaction table.
     -- This must gracefully handle transactions from other (older) protocol versions.
     receiveTransaction :: BlockItem -> m UpdateResult
@@ -353,6 +356,7 @@ deriving via (MGSTrans (ExceptT e) m) instance SkovQueryMonad m => SkovQueryMona
 instance (MonadLogger (t m), MonadTrans t, SkovMonad m) => SkovMonad (MGSTrans t m) where
     receiveBlock = lift . receiveBlock
     executeBlock = lift . executeBlock
+    receiveExecuteBlock = lift . receiveExecuteBlock
     receiveTransaction = lift . receiveTransaction
     addPreverifiedTransaction bi res = lift $ addPreverifiedTransaction bi res
     trustedFinalize = lift . trustedFinalize

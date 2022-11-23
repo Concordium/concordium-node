@@ -594,6 +594,8 @@ instance
     where
     receiveBlock = doReceiveBlock
     executeBlock = doExecuteBlock
+
+    receiveExecuteBlock = doReceiveExecuteBlock
     receiveTransaction = doReceiveTransaction
     addPreverifiedTransaction = doAddPreverifiedTransaction
     trustedFinalize = doTrustedFinalize
