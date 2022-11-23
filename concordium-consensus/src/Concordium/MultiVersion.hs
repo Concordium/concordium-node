@@ -1223,6 +1223,18 @@ receiveTransaction transactionBS = do
                                                     Skov.receiveTransaction transaction
                                 _ -> return $! Skov.transactionVerificationResultToUpdateResult verRes
 
+-- |Receive and execute the block immediately.
+-- Used for importing blocks i.e. out of band catchup.
+receiveExecuteBlock :: GenesisIndex -> ByteString -> MVR gsconf finconf Skov.UpdateResult
+receiveExecuteBlock gi blockBS = withLatestExpectedVersion gi $
+    \(EVersionedConfiguration (vc :: VersionedConfiguration gsconf finconf pv)) -> do
+        now <- currentTime
+        case deserializeExactVersionedPendingBlock (protocolVersion @pv) blockBS now of
+            Left err -> do
+                logEvent Runner LLDebug err
+                return Skov.ResultSerializationFail
+            Right block -> runSkovTransaction vc (Skov.receiveExecuteBlock block)
+
 -- |Import a block file for out-of-band catch-up.
 importBlocks :: FilePath -> MVR gsconf finconf Skov.UpdateResult
 importBlocks importFile = do
@@ -1241,16 +1253,7 @@ importBlocks importFile = do
         -- Check if the import should be stopped.
         if shouldStop
             then return $ fixResult Skov.ResultConsensusShutDown
-            else withLatestExpectedVersion gi $
-                \(EVersionedConfiguration (vc :: VersionedConfiguration gsconf finconf pv)) -> do
-                    now <- currentTime
-                    case deserializeExactVersionedPendingBlock (protocolVersion @pv) bs now of
-                        Left err -> do
-                            logEvent Runner LLDebug $ "Could not deserialize imported block: " ++ err
-                            return $! fixResult Skov.ResultSerializationFail
-                        Right pb -> do
-                            ur <- runSkovTransaction vc (Skov.receiveExecuteBlock pb)
-                            return $! fixResult ur
+            else fixResult <$> receiveExecuteBlock gi bs
     doImport (ImportFinalizationRecord _ gi bs) = fixResult <$> receiveFinalizationRecord gi bs
     fixResult Skov.ResultSuccess = Right ()
     fixResult Skov.ResultDuplicate = Right ()
