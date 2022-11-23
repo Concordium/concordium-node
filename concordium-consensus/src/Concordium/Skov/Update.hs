@@ -277,9 +277,19 @@ addBlockAsPending block = do
     logEvent Skov LLDebug $ "Block " ++ show block ++ " is pending its parent (" ++ show parent ++ ")"
     return ResultPendingBlock
 
--- |Add a block where the parent block is known to be alive, and the transactions have been verified.
+-- |Add a block where the parent block is known to be alive and the transactions have been verified.
 -- If the block proves to be valid, it is added to the tree and this returns 'ResultSuccess'.
 -- Otherwise, the block is marked dead and 'ResultInvalid' is returned.
+--
+-- This function ensures that
+--
+-- 1. If a finalization record is present then it's verified.
+--
+-- 2. The block nonce is verified.
+--
+-- 3. The claimed state hash matches the one resulting from execution.
+--
+-- 4. The claimed transaction outcomes hash matches the one resulting from execution.
 --
 -- PRECONDITION: The parent of the block provided must be either alive or finalized.
 addBlockWithLiveParent ::
@@ -349,6 +359,9 @@ addBlockWithLiveParent block txvers parentP = do
     check reason q a = if q then a else invalidBlock reason
     blkSlot = blockSlot block
     blkHash = getHash block
+    -- Check the block nonce and execute the block.
+    -- If the execution went well we add it to the tree and return 'ResultSuccess'.
+    -- Otherwise we return 'ResultInvalid' for indicating that the block is not valid.
     execute mFinInfo lfbp = do
         parentState <- blockState parentP
         parentSeedState <- getSeedState parentState
@@ -395,14 +408,9 @@ addBlockWithLiveParent block txvers parentP = do
                                         return ResultSuccess
 
 -- |Process a block that has been awaiting its parent to become live.
--- If the child block can be verified:
--- - The parent is either alive or finalized.
--- - Block slot is later than then parent block.
--- - The baker is member of the baking committee.
--- - The claimed block baker key matches the baker key.
--- - The block nonce is valid.
--- - The block proof is valid.
--- - The transactions of the block could be verified.
+-- If the parent of the block is not alive or finalized then the block is marked as dead.
+-- Otherwise the block is verified in the same manner as if the block was received while the
+-- parent was alive or finalized.
 -- Iff. the above checks out then the block is executed and the block is marked as live.
 processPendingChild ::
     forall m.
@@ -458,9 +466,7 @@ processPendingChild block = do
 --
 -- 3. The baker key matches the block's claimed key.
 --
--- 4. The block nonce is valid.
---
--- 5. The block proof is valid.
+-- 4. The block proof is valid.
 --
 -- If any check fails, @Left e@ is returned, where @e@ is a 'String' describing the failure.
 -- Otherwise @Right ()@ is returned.
@@ -682,14 +688,8 @@ doReceiveBlock pb@GB.PendingBlock{pbBlock = BakedBlock{..}, ..} =
                 Nothing -> rejectInvalidBlock "Baker id not part of baker committee"
             Nothing -> continuePending
     -- Processes a block that is subject to become live.
-    -- I.e. its parent is either alive or finalized and current head of the tree.
-    -- Processing ensures that
-    -- - The block slot is is beyond the parent.
-    -- - The baker is member of the baking committee.
-    -- - The baker's key is correct.
-    -- - The block nonce is valid.
-    -- - The block proof is valid.
-    -- - The signature on the block is correct.
+    -- I.e. its parent is either alive or finalized.
+    -- See documentation of 'liveParentChecks' for the concrete checks that are carried out in this case.
     -- Note: we do not verify transactions here as we do for `processPending` since the transactions will be
     -- verified as part of `doExecuteBlock` which is called subsequently.
     processLive block parentP =
