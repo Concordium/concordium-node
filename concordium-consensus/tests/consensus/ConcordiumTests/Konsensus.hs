@@ -487,12 +487,8 @@ runKonsensusTest maxFinComSize collectedFinComParties steps g states es
                         continue fs' (es2 & esEventPool %~ (<> Seq.fromList ((rcpt, EBake (sl + 1)) : [(r, EBlock b) | r <- btargets])))
                     Just _ -> error "Baked genesis block"
             EBlock block -> do
-                myRunSkovT (receiveBlock (B.makePendingBlock block dummyTime)) handlers fi fs es1 >>= \case
-                    ((ResultSuccess, Just cont), fs', es') -> do
-                        (_, fs'', es'') <- myRunSkovT (executeBlock cont) handlers fi fs' es'
-                        continue fs'' es''
-                    ((recvRes, Just _), _, _) -> error $ "Unsuccessful block receive should not yield an execution continuation " ++ show recvRes
-                    ((_, Nothing), fs', es') -> continue fs' es' -- This case covers pending blocks etc where we should just resume execution i.e. there is no more work to do for now.
+                (_, fs', es') <- myRunSkovT (receiveExecuteBlock (B.makePendingBlock block dummyTime)) handlers fi fs es1
+                continue fs' es'
             ETransaction tr -> do
                 (_, fs', es') <- myRunSkovT (receiveTransaction tr) handlers fi fs es1
                 continue fs' es'
