@@ -42,6 +42,7 @@ import Concordium.Utils.Serialization.Put
 
 import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount, replaceUpTo)
 import Concordium.GlobalState.BakerInfo (BakerAdd (..), BakerKeyUpdate (..), bakerKeyUpdateToInfo)
+import Concordium.GlobalState.Basic.BlockState (genesisBakerInfo)
 import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
 import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as Transient
 import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseScheduleV0 as ARSV0
@@ -1105,6 +1106,44 @@ newAccount cryptoParams _accountAddress credential = do
     _accountEncryptedAmount <- refMake accountEncryptedAmountData
     let relSched = emptyAccountReleaseSchedule
     _accountReleaseSchedule <- refMake relSched
+    return PersistentAccount{..}
+
+-- |Make a persistent account from a genesis account.
+-- The data is flushed to disc immediately.
+makeFromGenesisAccount ::
+    forall pv av m.
+    (MonadBlobStore m, IsProtocolVersion pv, IsAccountVersion av, AVStructureV0 av, AccountVersionFor pv ~ av) =>
+    SProtocolVersion pv ->
+    GlobalContext ->
+    ChainParameters pv ->
+    GenesisAccount ->
+    m (PersistentAccount av)
+makeFromGenesisAccount spv cryptoParams chainParameters GenesisAccount{..} = do
+    _persistingData <-
+        refMakeFlushed $
+            PersistingAccountData
+                { _accountEncryptionKey =
+                    toRawEncryptionKey $
+                        makeEncryptionKey cryptoParams $
+                            credId $
+                                gaCredentials Map.! initialCredentialIndex,
+                  _accountCredentials = toRawAccountCredential <$> gaCredentials,
+                  _accountVerificationKeys = getAccountInformation gaThreshold gaCredentials,
+                  _accountRemovedCredentials = emptyHashedRemovedCredentials,
+                  _accountAddress = gaAddress
+                }
+    let _accountNonce = minNonce
+        _accountAmount = gaBalance
+    _accountStake <- case gaBaker of
+        Nothing -> return $ PersistentAccountStakeNone @av
+        Just baker -> do
+            let accountBaker' :: AccountBaker av = genesisBakerInfo spv chainParameters baker
+            persistentAccountBaker' <- makePersistentAccountBaker accountBaker'
+            accountBakerRef <- refMakeFlushed persistentAccountBaker'
+            return $ PersistentAccountStakeBaker @av accountBakerRef
+    accountEncryptedAmountData <- initialPersistentAccountEncryptedAmount
+    _accountEncryptedAmount <- refMakeFlushed accountEncryptedAmountData
+    _accountReleaseSchedule <- refMakeFlushed emptyAccountReleaseSchedule
     return PersistentAccount{..}
 
 -- |Make a 'PersistentAccount' from an 'Transient.Account'.

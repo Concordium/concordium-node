@@ -40,19 +40,12 @@ module Concordium.GlobalState.Persistent.BlockState (
 
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.Crypto.SHA256 as SHA256
-import qualified Concordium.Genesis.Data as GenesisData
-import qualified Concordium.Genesis.Data.P1 as P1
-import qualified Concordium.Genesis.Data.P2 as P2
-import qualified Concordium.Genesis.Data.P3 as P3
-import qualified Concordium.Genesis.Data.P4 as P4
-import qualified Concordium.Genesis.Data.P5 as P5
 import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount)
 import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import qualified Concordium.GlobalState.Basic.BlockState.Account as TransientAccount
 import qualified Concordium.GlobalState.Basic.BlockState.Accounts as TransientAccounts
 import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as BasicLFMBT
-import Concordium.GlobalState.Basic.BlockState.PoolRewards (emptyBakerPoolRewardDetails)
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.CapitalDistribution
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1

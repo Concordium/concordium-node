@@ -12,8 +12,6 @@ import qualified Concordium.Genesis.Data.P2 as P2
 import qualified Concordium.Genesis.Data.P3 as P3
 import qualified Concordium.Genesis.Data.P4 as P4
 import qualified Concordium.Genesis.Data.P5 as P5
-import qualified Concordium.GlobalState.Basic.BlockState as Basic
-import qualified Concordium.GlobalState.Basic.BlockState.Account as TransientAccount
 import qualified Concordium.GlobalState.Basic.BlockState.PoolRewards as Basic
 import qualified Concordium.GlobalState.CapitalDistribution as CapDist
 import qualified Concordium.GlobalState.Persistent.Account as Account
@@ -30,9 +28,7 @@ import qualified Concordium.GlobalState.Persistent.ReleaseSchedule as ReleaseSch
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
 import qualified Concordium.GlobalState.Rewards as Rewards
 import qualified Concordium.GlobalState.TransactionTable as TransactionTable
-import qualified Concordium.ID.Parameters as Id
 import qualified Concordium.Types as Types
-import qualified Concordium.Types.Accounts as Types
 import qualified Concordium.Types.Parameters as Types
 import qualified Concordium.Types.SeedState as Types
 
@@ -226,7 +222,12 @@ buildGenesisBlockState GenesisData.CoreGenesisParameters{..} GenesisData.Genesis
         MTL.ExceptT String m (AccumGenesisState pv)
     accumStateFromGenesisAccounts state index genesisAccount = do
         -- Create the persistent account
-        persistentAccount <- persistentAccountFromGenesis genesisCryptographicParameters genesisChainParameters genesisAccount
+        persistentAccount <-
+            Account.makeFromGenesisAccount
+                (Types.protocolVersion @pv)
+                genesisCryptographicParameters
+                genesisChainParameters
+                genesisAccount
         -- Insert the account
         (maybeIndex, nextAccounts) <- Accounts.putNewAccount persistentAccount $ agsAllAccounts state
         MTL.when (isNothing maybeIndex) $
@@ -262,26 +263,6 @@ buildGenesisBlockState GenesisData.CoreGenesisParameters{..} GenesisData.Genesis
                           agsBakerCapitals = nextBakerCapitals
                         }
             Nothing -> return updatedState
-
--- |Construct a persistent account from a genesis account.
-persistentAccountFromGenesis ::
-    forall pv av m.
-    (BS.SupportsPersistentState pv m, Types.AccountVersionFor pv ~ av) =>
-    Id.GlobalContext ->
-    Types.ChainParameters pv ->
-    GenesisData.GenesisAccount ->
-    m (Account.PersistentAccount av)
-persistentAccountFromGenesis cryptoParams chainParameters GenesisData.GenesisAccount{..} =
-    Account.makePersistentAccount
-        ( TransientAccount.newAccountMultiCredential cryptoParams gaThreshold gaAddress gaCredentials
-            & TransientAccount.accountAmount .~ gaBalance
-            & case gaBaker of
-                Nothing -> id
-                Just genBaker ->
-                    TransientAccount.accountStaking
-                        .~ Types.AccountStakeBaker
-                            (Basic.genesisBakerInfo (Types.protocolVersion @pv) chainParameters genBaker)
-        )
 
 -- |Construct baker capital from genesis baker.
 bakerCapitalFromGenesis :: GenesisData.GenesisBaker -> CapDist.BakerCapital
