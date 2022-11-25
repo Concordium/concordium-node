@@ -1,0 +1,327 @@
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
+
+module Concordium.GlobalState.Persistent.Genesis (genesisState) where
+
+import qualified Concordium.Genesis.Data as GenesisData
+import qualified Concordium.Genesis.Data.P1 as P1
+import qualified Concordium.Genesis.Data.P2 as P2
+import qualified Concordium.Genesis.Data.P3 as P3
+import qualified Concordium.Genesis.Data.P4 as P4
+import qualified Concordium.Genesis.Data.P5 as P5
+import qualified Concordium.GlobalState.Basic.BlockState as Basic
+import qualified Concordium.GlobalState.Basic.BlockState.Account as TransientAccount
+import qualified Concordium.GlobalState.Basic.BlockState.PoolRewards as Basic
+import qualified Concordium.GlobalState.CapitalDistribution as CapDist
+import qualified Concordium.GlobalState.Persistent.Account as Account
+import qualified Concordium.GlobalState.Persistent.Accounts as Accounts
+import qualified Concordium.GlobalState.Persistent.Bakers as Bakers
+import qualified Concordium.GlobalState.Persistent.BlobStore as Blob
+import qualified Concordium.GlobalState.Persistent.BlockState as BS
+import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
+import qualified Concordium.GlobalState.Persistent.BlockState.Updates as Updates
+import qualified Concordium.GlobalState.Persistent.Instances as Instances
+import qualified Concordium.GlobalState.Persistent.LFMBTree as LFMBT
+import qualified Concordium.GlobalState.Persistent.PoolRewards as Rewards
+import qualified Concordium.GlobalState.Persistent.ReleaseSchedule as ReleaseSchedule
+import qualified Concordium.GlobalState.Persistent.Trie as Trie
+import qualified Concordium.GlobalState.Rewards as Rewards
+import qualified Concordium.GlobalState.TransactionTable as TransactionTable
+import qualified Concordium.ID.Parameters as Id
+import qualified Concordium.Types as Types
+import qualified Concordium.Types.Accounts as Types
+import qualified Concordium.Types.Execution as Types
+import qualified Concordium.Types.Parameters as Types
+import qualified Concordium.Types.SeedState as Types
+
+import qualified Control.Monad.Except as MTL
+import Data.IORef (newIORef)
+import Data.Maybe (isNothing)
+import qualified Data.Vector as Vec
+import Data.Word (Word64)
+import Lens.Micro.Platform
+
+----------- API -----------
+
+-- |Initial block state based on 'GenesisData', for a given protocol version.
+-- This also returns the transaction table.
+genesisState ::
+    forall pv av m.
+    (BS.SupportsPersistentState pv m, Types.AccountVersionFor pv ~ av) =>
+    GenesisData.GenesisData pv ->
+    m (Either String (BS.HashedPersistentBlockState pv, TransactionTable.TransactionTable))
+genesisState gd = case Types.protocolVersion @pv of
+    Types.SP1 -> case gd of
+        GenesisData.GDP1 P1.GDP1Initial{..} ->
+            MTL.runExceptT $
+                buildGenesisBlockState genesisCore genesisInitialState
+    Types.SP2 -> case gd of
+        GenesisData.GDP2 P2.GDP2Initial{..} ->
+            MTL.runExceptT $
+                buildGenesisBlockState genesisCore genesisInitialState
+    Types.SP3 -> case gd of
+        GenesisData.GDP3 P3.GDP3Initial{..} ->
+            MTL.runExceptT $
+                buildGenesisBlockState genesisCore genesisInitialState
+    Types.SP4 -> case gd of
+        GenesisData.GDP4 P4.GDP4Initial{..} ->
+            MTL.runExceptT $
+                buildGenesisBlockState genesisCore genesisInitialState
+    Types.SP5 -> case gd of
+        GenesisData.GDP5 P5.GDP5Initial{..} ->
+            MTL.runExceptT $
+                buildGenesisBlockState genesisCore genesisInitialState
+
+-------- Types -----------
+
+-- |State being accumulated while iterating the accounts in genesis data.
+-- It is then used to construct the initial block state from genesis.
+data AccumGenesisState pv = AccumGenesisState
+    { -- | Tracking all the accounts.
+      agsAllAccounts :: Accounts.Accounts pv,
+      -- | Collection of the IDs of the active bakers.
+      agsBakerIds :: Bakers.BakerIdTrieMap (Types.AccountVersionFor pv),
+      -- | Collection of the aggregation keys of the active bakers.
+      agsBakerKeys :: Bakers.AggregationKeySet,
+      -- | Total amount owned by accounts.
+      agsTotal :: Types.Amount,
+      -- | Total staked amount by bakers.
+      agsStakedTotal :: Types.Amount,
+      -- | List of baker info refs in incremental order of the baker ID.
+      agsBakerInfoRefs :: Vec.Vector (Account.PersistentBakerInfoRef (Types.AccountVersionFor pv)),
+      -- | List of baker stake  in incremental order of the baker ID.
+      agsBakerStakes :: Vec.Vector Types.Amount,
+      -- | List of baker capital in incremental order of the baker ID.
+      agsBakerCapitals :: Vec.Vector CapDist.BakerCapital,
+      -- | Map of pool reward details
+      agsBakerPoolRewardDetails :: LFMBT.LFMBTree Word64 Blob.BufferedRef Basic.BakerPoolRewardDetails
+    }
+
+-- | The initial value for accumulating data from genesis data accounts.
+initialAccumGenesisState :: AccumGenesisState pv
+initialAccumGenesisState =
+    AccumGenesisState
+        { agsAllAccounts = Accounts.emptyAccounts,
+          agsBakerIds = Trie.empty,
+          agsBakerKeys = Trie.empty,
+          agsTotal = 0,
+          agsStakedTotal = 0,
+          agsBakerInfoRefs = Vec.empty,
+          agsBakerStakes = Vec.empty,
+          agsBakerCapitals = Vec.empty,
+          agsBakerPoolRewardDetails = LFMBT.empty
+        }
+
+-- | Construct a hashed persistent block state from the data in genesis
+buildGenesisBlockState ::
+    forall pv av m.
+    (BS.SupportsPersistentState pv m, Types.AccountVersionFor pv ~ av) =>
+    GenesisData.CoreGenesisParameters ->
+    GenesisData.GenesisState pv ->
+    MTL.ExceptT String m (BS.HashedPersistentBlockState pv, TransactionTable.TransactionTable)
+buildGenesisBlockState GenesisData.CoreGenesisParameters{..} GenesisData.GenesisState{..} = do
+    -- Iterate the accounts in genesis once and accumulate all relevant information.
+    AccumGenesisState{..} <- Vec.ifoldM' accumStateFromGenesisAccounts initialAccumGenesisState genesisAccounts
+
+    -- Birk parameters
+    persistentBirkParameters :: BS.PersistentBirkParameters av <- do
+        _birkActiveBakers <-
+            Blob.refMake $
+                Bakers.PersistentActiveBakers
+                    { _activeBakers = agsBakerIds,
+                      _aggregationKeys = agsBakerKeys,
+                      _passiveDelegators = Bakers.emptyPersistentActiveDelegators,
+                      _totalActiveCapital = case Types.delegationSupport @av of
+                        Types.SAVDelegationNotSupported -> Bakers.TotalActiveCapitalV0
+                        Types.SAVDelegationSupported -> Bakers.TotalActiveCapitalV1 agsTotal
+                    }
+
+        _birkNextEpochBakers <-
+            Blob.refMake =<< do
+                _bakerInfos <- Blob.refMake $ Bakers.BakerInfos agsBakerInfoRefs
+                _bakerStakes <- Blob.refMake $ Bakers.BakerStakes agsBakerStakes
+                return Bakers.PersistentEpochBakers{_bakerTotalStake = agsStakedTotal, ..}
+
+        return $
+            BS.PersistentBirkParameters
+                { _birkCurrentEpochBakers = _birkNextEpochBakers,
+                  _birkSeedState = Types.initialSeedState genesisLeadershipElectionNonce genesisEpochLength,
+                  ..
+                }
+
+    -- Reward details
+    rewardDetails <- case Types.delegationSupport @av of
+        Types.SAVDelegationNotSupported ->
+            return $ BS.BlockRewardDetailsV0 BS.emptyHashedEpochBlocks
+        Types.SAVDelegationSupported ->
+            case Types.delegationChainParameters @pv of
+                Types.DelegationChainParametersV1 -> do
+                    capRef :: Blob.HashedBufferedRef CapDist.CapitalDistribution <-
+                        Blob.refMake
+                            CapDist.CapitalDistribution
+                                { bakerPoolCapital = agsBakerCapitals,
+                                  passiveDelegatorsCapital = Vec.empty
+                                }
+                    BS.BlockRewardDetailsV1
+                        <$> Blob.refMake
+                            Rewards.PoolRewards
+                                { nextCapital = capRef,
+                                  currentCapital = capRef,
+                                  bakerPoolRewardDetails = agsBakerPoolRewardDetails,
+                                  passiveDelegationTransactionRewards = 0,
+                                  foundationTransactionRewards = 0,
+                                  nextPaydayEpoch =
+                                    genesisChainParameters
+                                        ^. Types.cpTimeParameters
+                                            . Types.tpRewardPeriodLength
+                                            . to Types.rewardPeriodEpochs,
+                                  nextPaydayMintRate =
+                                    genesisChainParameters
+                                        ^. Types.cpTimeParameters
+                                            . Types.tpMintPerPayday
+                                }
+
+    -- Module
+    modules <- Blob.refMake Modules.emptyModules
+
+    -- Identity providers and anonymity revokers
+    identityProviders <- Blob.bufferHashed $ Types.makeHashed genesisIdentityProviders
+    anonymityRevokers <- Blob.bufferHashed $ Types.makeHashed genesisAnonymityRevokers
+
+    cryptographicParameters <- Blob.bufferHashed $ Types.makeHashed genesisCryptographicParameters
+
+    persistentUpdates <- Updates.initialUpdates genesisUpdateKeys genesisChainParameters
+    updates <- Blob.makeBufferedRef persistentUpdates
+
+    releaseSchedule <- ReleaseSchedule.emptyReleaseSchedule
+    bsp <-
+        Blob.makeBufferedRef $
+            BS.BlockStatePointers
+                { bspAccounts = agsAllAccounts,
+                  bspInstances = Instances.emptyInstances,
+                  bspModules = modules,
+                  bspBank = Types.makeHashed $ Rewards.makeGenesisBankStatus agsTotal,
+                  bspIdentityProviders = identityProviders,
+                  bspAnonymityRevokers = anonymityRevokers,
+                  bspBirkParameters = persistentBirkParameters,
+                  bspCryptographicParameters = cryptographicParameters,
+                  bspTransactionOutcomes = BS.emptyPersistentTransactionOutcomes,
+                  bspUpdates = updates,
+                  bspReleaseSchedule = releaseSchedule,
+                  bspRewardDetails = rewardDetails
+                }
+    bps <- MTL.liftIO $ newIORef $! bsp
+    hashedBlockState <- BS.hashBlockState bps
+    return (hashedBlockState, TransactionTable.emptyTransactionTable)
+  where
+    -- For iterating the genesis accounts and accumulating relevant states to build up the genesis block.
+    accumStateFromGenesisAccounts ::
+        -- The state being accumulated so far.
+        AccumGenesisState pv ->
+        -- The index of the account
+        Int ->
+        -- Account from genesis to accumulate.
+        GenesisData.GenesisAccount ->
+        MTL.ExceptT String m (AccumGenesisState pv)
+    accumStateFromGenesisAccounts state index genesisAccount = do
+        -- Create the persistent account
+        persistentAccount <- persistentAccountFromGenesis genesisCryptographicParameters genesisChainParameters genesisAccount
+        -- Insert the account
+        (maybeIndex, nextAccounts) <- Accounts.putNewAccount persistentAccount $ agsAllAccounts state
+        MTL.when (isNothing maybeIndex) $
+            MTL.throwError "Duplicate account address in genesis accounts."
+
+        let !nextTotalAmount = agsTotal state + GenesisData.gaBalance genesisAccount
+        let !updatedState = state{agsAllAccounts = nextAccounts, agsTotal = nextTotalAmount}
+
+        case GenesisData.gaBaker genesisAccount of
+            Just baker@GenesisData.GenesisBaker{..} -> do
+                MTL.unless (gbBakerId == fromIntegral index) $
+                    MTL.throwError "Mismatch between assigned and chosen baker id."
+
+                let !nextStakedTotal = agsStakedTotal state + gbStake
+                nextBakerIds <-
+                    Trie.insert gbBakerId Bakers.emptyPersistentActiveDelegators $
+                        agsBakerIds state
+                nextBakerKeys <- Trie.insert gbAggregationVerifyKey () $ agsBakerKeys state
+                let !nextBakerStakes = Vec.snoc (agsBakerStakes state) gbStake
+                nextBakerInfoRefs <-
+                    Vec.snoc (agsBakerInfoRefs state)
+                        <$> makeBakerInfoRef genesisChainParameters baker
+                let !nextBakerCapitals = Vec.snoc (agsBakerCapitals state) $ makeBakerCapital baker
+                nextBakerPoolRewardDetails <-
+                    snd
+                        <$> LFMBT.append
+                            Basic.emptyBakerPoolRewardDetails
+                            (agsBakerPoolRewardDetails state)
+                return
+                    updatedState
+                        { agsBakerIds = nextBakerIds,
+                          agsBakerKeys = nextBakerKeys,
+                          agsStakedTotal = nextStakedTotal,
+                          agsBakerInfoRefs = nextBakerInfoRefs,
+                          agsBakerStakes = nextBakerStakes,
+                          agsBakerCapitals = nextBakerCapitals,
+                          agsBakerPoolRewardDetails = nextBakerPoolRewardDetails
+                        }
+            Nothing -> return updatedState
+
+-- |Construct a persistent account from a genesis account.
+persistentAccountFromGenesis ::
+    forall pv av m.
+    (BS.SupportsPersistentState pv m, Types.AccountVersionFor pv ~ av) =>
+    Id.GlobalContext ->
+    Types.ChainParameters pv ->
+    GenesisData.GenesisAccount ->
+    m (Account.PersistentAccount av)
+persistentAccountFromGenesis cryptoParams chainParameters GenesisData.GenesisAccount{..} =
+    Account.makePersistentAccount
+        ( TransientAccount.newAccountMultiCredential cryptoParams gaThreshold gaAddress gaCredentials
+            & TransientAccount.accountAmount .~ gaBalance
+            & case gaBaker of
+                Nothing -> id
+                Just genBaker ->
+                    TransientAccount.accountStaking
+                        .~ Types.AccountStakeBaker
+                            (Basic.genesisBakerInfo (Types.protocolVersion @pv) chainParameters genBaker)
+        )
+
+-- |Construct a persistent baker info ref from a genesis baker.
+makeBakerInfoRef ::
+    forall pv av m.
+    (BS.SupportsPersistentState pv m, Types.AccountVersionFor pv ~ av) =>
+    Types.ChainParameters pv ->
+    GenesisData.GenesisBaker ->
+    m (Account.PersistentBakerInfoRef av)
+makeBakerInfoRef chainParameters GenesisData.GenesisBaker{..} = do
+    let _bieBakerInfo = Types.BakerInfo gbBakerId gbElectionVerifyKey gbSignatureVerifyKey gbAggregationVerifyKey
+    Account.makePersistentBakerInfoRef @av $
+        case Types.delegationSupport @av of
+            Types.SAVDelegationNotSupported -> Types.BakerInfoExV0 _bieBakerInfo
+            Types.SAVDelegationSupported ->
+                let
+                    _bieBakerPoolInfo =
+                        Types.BakerPoolInfo
+                            { _poolOpenStatus = Types.OpenForAll,
+                              _poolMetadataUrl = Types.emptyUrlText,
+                              _poolCommissionRates = case Types.delegationChainParameters @pv of
+                                Types.DelegationChainParametersV1 ->
+                                    chainParameters
+                                        ^. Types.cpPoolParameters
+                                            . Types.ppCommissionBounds
+                                            . to Types.maximumCommissionRates
+                            }
+                in
+                    Types.BakerInfoExV1{..}
+
+-- |Construct baker capital from genesis baker.
+makeBakerCapital :: GenesisData.GenesisBaker -> CapDist.BakerCapital
+makeBakerCapital GenesisData.GenesisBaker{..} =
+    CapDist.BakerCapital
+        { bcBakerId = gbBakerId,
+          bcBakerEquityCapital = gbStake,
+          bcDelegatorCapital = Vec.empty
+        }
