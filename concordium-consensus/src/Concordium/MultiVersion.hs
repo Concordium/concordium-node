@@ -999,11 +999,11 @@ sendCatchUpStatus genIndex = MVR $ \mvr@MultiVersionRunner{..} -> do
 -- During a protocol update, it might be wise to cache messages for
 -- the forthcoming protocol version. For the time being, we will
 -- simply rely on catch-up.
-withLatestExpectedVersion' ::
+withLatestExpectedVersion ::
     GenesisIndex ->
     (EVersionedConfiguration gsconf finconf -> MVR gsconf finconf (Skov.UpdateResult, Maybe a)) ->
     MVR gsconf finconf (Skov.UpdateResult, Maybe a)
-withLatestExpectedVersion' gi a = do
+withLatestExpectedVersion gi a = do
     vvec <- liftIO . readIORef =<< asks mvVersions
     -- Length is an Int and GenesisIndex is a Word32.
     -- Assuming a 64-bit system, there is no risk of over/underflow.
@@ -1012,11 +1012,11 @@ withLatestExpectedVersion' gi a = do
         LT -> return (Skov.ResultInvalidGenesisIndex, Nothing)
         GT -> return (Skov.ResultConsensusShutDown, Nothing)
 
-withLatestExpectedVersion ::
+withLatestExpectedVersion_ ::
     GenesisIndex ->
     (EVersionedConfiguration gsconf finconf -> MVR gsconf finconf Skov.UpdateResult) ->
     MVR gsconf finconf Skov.UpdateResult
-withLatestExpectedVersion gi a = fst <$> withLatestExpectedVersion' gi (fmap (,Nothing) <$> a)
+withLatestExpectedVersion_ gi a = fst <$> withLatestExpectedVersion gi (fmap (,Nothing) <$> a)
 
 -- |A continuation for executing a block that has been received
 -- and verified.
@@ -1034,7 +1034,7 @@ newtype ExecuteBlock = ExecuteBlock {runBlock :: IO Skov.UpdateResult}
 --
 -- The continuation is expected to be invoked via 'executeBlock'.
 receiveBlock :: GenesisIndex -> ByteString -> MVR gsconf finconf (Skov.UpdateResult, Maybe ExecuteBlock)
-receiveBlock gi blockBS = withLatestExpectedVersion' gi $
+receiveBlock gi blockBS = withLatestExpectedVersion gi $
     \(EVersionedConfiguration (vc :: VersionedConfiguration gsconf finconf pv)) -> do
         MVR $ \mvr -> do
             now <- currentTime
@@ -1047,7 +1047,7 @@ receiveBlock gi blockBS = withLatestExpectedVersion' gi $
                     case mVerifiedPendingBlock of
                         Nothing -> return (updateResult, Nothing)
                         Just verifiedPendingBlock -> do
-                            let cont = ExecuteBlock $! runMVR (runSkovTransaction vc (Skov.executeBlock verifiedPendingBlock)) mvr
+                            let cont = ExecuteBlock $ runMVR (runSkovTransaction vc (Skov.executeBlock verifiedPendingBlock)) mvr
                             return (updateResult, Just cont)
 
 -- |Invoke the continuation yielded in a 'ExecuteBlock'.
@@ -1058,7 +1058,7 @@ executeBlock = liftIO . runBlock
 
 -- |Deserialize and receive a finalization message at a given genesis index.
 receiveFinalizationMessage :: GenesisIndex -> ByteString -> MVR gsconf finconf Skov.UpdateResult
-receiveFinalizationMessage gi finMsgBS = withLatestExpectedVersion gi $
+receiveFinalizationMessage gi finMsgBS = withLatestExpectedVersion_ gi $
     \(EVersionedConfiguration (vc :: VersionedConfiguration gsconf finconf pv)) ->
         case runGet getExactVersionedFPM finMsgBS of
             Left err -> do
@@ -1068,7 +1068,7 @@ receiveFinalizationMessage gi finMsgBS = withLatestExpectedVersion gi $
 
 -- |Deserialize and receive a finalization record at a given genesis index.
 receiveFinalizationRecord :: GenesisIndex -> ByteString -> MVR gsconf finconf Skov.UpdateResult
-receiveFinalizationRecord gi finRecBS = withLatestExpectedVersion gi $
+receiveFinalizationRecord gi finRecBS = withLatestExpectedVersion_ gi $
     \(EVersionedConfiguration (vc :: VersionedConfiguration gsconf finconf pv)) ->
         case runGet getExactVersionedFinalizationRecord finRecBS of
             Left err -> do
@@ -1228,7 +1228,7 @@ receiveTransaction transactionBS = do
 -- |Receive and execute the block immediately.
 -- Used for importing blocks i.e. out of band catchup.
 receiveExecuteBlock :: GenesisIndex -> ByteString -> MVR gsconf finconf Skov.UpdateResult
-receiveExecuteBlock gi blockBS = withLatestExpectedVersion gi $
+receiveExecuteBlock gi blockBS = withLatestExpectedVersion_ gi $
     \(EVersionedConfiguration (vc :: VersionedConfiguration gsconf finconf pv)) -> do
         now <- currentTime
         case deserializeExactVersionedPendingBlock (protocolVersion @pv) blockBS now of
