@@ -247,11 +247,11 @@ pub struct consensus_runner {
     private: [u8; 0],
 }
 
-/// An opaque reference to an
-/// executable block.
+/// An opaque reference to an 'executable block' i.e., a block that
+/// where the metadata has been verified.
 /// The value behind the reference i.e. the "execute block continuation"
 /// is created in the consensus module but its owned here on the rust side.
-/// Hence the reference must be freed after here from the rust side.
+/// The value is being freed by the consensus side via 'executeBlock'.
 #[repr(C)]
 pub struct execute_block {
     private: [u8; 0],
@@ -380,20 +380,17 @@ extern "C" {
         appdata_dir_len: i64,
         runner_ptr_ptr: *mut *mut consensus_runner,
     ) -> i64;
-    #[allow(improper_ctypes)]
     pub fn startBaker(consensus: *mut consensus_runner);
-    #[allow(improper_ctypes)]
     pub fn receiveBlock(
         consensus: *mut consensus_runner,
         genesis_index: u32,
         block_data: *const u8,
-        data_length: i64,
+        data_length: u64,
         // A mutable *pointer that will be written to
         // by the consensus layer with continuation required for
         // executing the just received block.
         execute_block_ptr_ptr: *mut *mut execute_block,
     ) -> i64;
-    #[allow(improper_ctypes)]
     pub fn executeBlock(
         consensus: *mut consensus_runner,
         // Pointer to the continuation for
@@ -1473,10 +1470,14 @@ impl ConsensusContainer {
 
         let mut ptr_block_to_execute = std::ptr::null_mut();
         let ptr_ptr_block_to_execute = &mut ptr_block_to_execute;
-        let ptr_block = block.as_ptr();
-        let len = block.len();
         let result = unsafe {
-            receiveBlock(consensus, genesis_index, ptr_block, len as i64, ptr_ptr_block_to_execute)
+            receiveBlock(
+                consensus,
+                genesis_index,
+                block.as_ptr(),
+                block.len() as u64,
+                ptr_ptr_block_to_execute,
+            )
         };
         let callback = if ptr_block_to_execute.is_null() {
             None

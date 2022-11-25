@@ -753,7 +753,7 @@ receiveBlock ::
     -- |The message.
     CString ->
     -- |The length of the message.
-    Int64 ->
+    Word64 ->
     -- |If the block was received succesfully i.e. 'receiveBlock' yields a
     -- 'ResultSuccess' then a continuation for executing the block is written to this ptr.
     -- IMPORTANT! If the continuation is present then it must also be called in order
@@ -1442,7 +1442,7 @@ foreign export ccall
 foreign export ccall stopConsensus :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall startBaker :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall stopBaker :: StablePtr ConsensusRunner -> IO ()
-foreign export ccall receiveBlock :: StablePtr ConsensusRunner -> GenesisIndex -> CString -> Int64 -> Ptr (StablePtr MV.ExecuteBlock) -> IO Int64
+foreign export ccall receiveBlock :: StablePtr ConsensusRunner -> GenesisIndex -> CString -> Word64 -> Ptr (StablePtr MV.ExecuteBlock) -> IO Int64
 foreign export ccall executeBlock :: StablePtr ConsensusRunner -> StablePtr MV.ExecuteBlock -> IO Int64
 foreign export ccall receiveFinalizationMessage :: StablePtr ConsensusRunner -> GenesisIndex -> CString -> Int64 -> IO Int64
 foreign export ccall receiveFinalizationRecord :: StablePtr ConsensusRunner -> GenesisIndex -> CString -> Int64 -> IO Int64

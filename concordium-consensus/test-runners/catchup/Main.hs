@@ -36,7 +36,7 @@ import Concordium.Kontrol (currentTimestamp)
 import Concordium.Logger
 import Concordium.MultiVersion
 import qualified Concordium.ProtocolUpdate.P1.Reboot as P1.Reboot
-import Concordium.Skov hiding (receiveTransaction, receiveExecuteBlock)
+import Concordium.Skov hiding (receiveExecuteBlock, receiveTransaction)
 import Concordium.Startup
 import Concordium.TimerMonad
 import Concordium.Types

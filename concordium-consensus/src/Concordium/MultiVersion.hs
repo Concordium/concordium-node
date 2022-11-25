@@ -1023,13 +1023,14 @@ withLatestExpectedVersion gi a = fst <$> withLatestExpectedVersion' gi (fmap (,N
 newtype ExecuteBlock = ExecuteBlock {runBlock :: IO Skov.UpdateResult}
 
 -- |Deserialize and receive a block at a given genesis index.
--- Return a continuation ('Maybe ExecuteBlock') iff. the 'Skov.UpdateResult' is 'ResultSuccess'.
+-- Return a continuation ('Maybe ExecuteBlock') only if the 'Skov.UpdateResult' is 'ResultSuccess'.
 --
--- An initial write lock is acquired for receiving the block.
+-- An initial write lock is acquired and released for receiving the block.
 -- This is used for marking blocks as pending or even dead
 --
--- The acquiring of the write lock for the later execution of the block is
--- yielded within the actual continuation for doing so.
+-- The continuation for executing the block is running a skov transaction thus
+-- the continuation when called is holding the write lock when exeuctuting the block
+-- and releasing it again when it is finished.
 --
 -- The continuation is expected to be invoked via 'executeBlock'.
 receiveBlock :: GenesisIndex -> ByteString -> MVR gsconf finconf (Skov.UpdateResult, Maybe ExecuteBlock)
@@ -1050,7 +1051,8 @@ receiveBlock gi blockBS = withLatestExpectedVersion' gi $
                             return (updateResult, Just cont)
 
 -- |Invoke the continuation yielded in a 'ExecuteBlock'.
--- *Acquiring* the write lock is captured in the continuation itself.
+-- The continuation yields a 'runSkovTransaction' which will acquire the write lock
+-- before trying to add the block to the tree and release the lock again afterwards.
 executeBlock :: ExecuteBlock -> MVR gsconf finconf Skov.UpdateResult
 executeBlock = liftIO . runBlock
 

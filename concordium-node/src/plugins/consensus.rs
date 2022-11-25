@@ -273,17 +273,13 @@ pub fn handle_consensus_inbound_msg(
         // relay external messages to Consensus
         let (consensus_result, finalizer) =
             send_msg_to_consensus(node, source, consensus, &request)?;
-        // Execute any finalizer returned from the
-        // consensus layer.
-        match finalizer {
+
+        // Execute any finalizer returned from the consensus layer.
+        if let Some(callback) = finalizer {
             // Execute the block in the finalizer.
             // There is nothing left to do afterwards.
-            Some(callback) => {
-                let _ = consensus.execute_block(callback);
-            }
-            // Nothing to do in this case.
-            None => (),
-        }
+            let _ = consensus.execute_block(callback);
+        } // Else there is nothing to do, the block is processed.
 
         // early blocks should be removed from the deduplication queue
         if consensus_result == ConsensusFfiResponse::BlockTooEarly {
@@ -315,17 +311,12 @@ pub fn handle_consensus_inbound_msg(
             );
         }
 
-        // Execute any finalizer returned from the
-        // consensus layer.
-        match finalizer {
+        // Execute any finalizer returned from the consensus layer.
+        if let Some(callback) = finalizer {
             // Execute the block in the finalizer.
             // There is nothing left to do afterwards.
-            Some(callback) => {
-                let _ = consensus.execute_block(callback);
-            }
-            // Nothing to do in this case.
-            None => (),
-        }
+            let _ = consensus.execute_block(callback);
+        } // Else there is nothing to do, the block is processed.
     }
 
     Ok(())
