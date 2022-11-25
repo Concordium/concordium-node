@@ -9,7 +9,7 @@ import Data.Foldable
 import Data.List (intercalate)
 import Data.Maybe (fromMaybe)
 import qualified Data.Sequence as Seq
-import Data.Time (NominalDiffTime, diffUTCTime)
+import Data.Time (diffUTCTime)
 import qualified Data.Vector as Vec
 import GHC.Stack
 import Lens.Micro.Platform
@@ -548,14 +548,6 @@ blockArrive block parentP lfBlockP ExecutionResult{..} = do
                     error errMsg
     return blockP
 
--- |Output the time that an action took together with the computed result.
-clockIt :: TimeMonad m => m a -> m (NominalDiffTime, a)
-clockIt a = do
-    now <- currentTime
-    res <- a
-    after <- currentTime
-    return (diffUTCTime after now, res)
-
 -- |Receive a block (as received from the network) in the tree.
 -- This checks for validity of the block, and may add the block
 -- to a pending queue if its prerequisites are not met.
@@ -568,7 +560,7 @@ doReceiveBlock pb@GB.PendingBlock{pbBlock = BakedBlock{..}, ..} =
     isShutDown >>= \case
         True -> return (ResultConsensusShutDown, Nothing)
         False -> do
-            (timeSpent, res) <- clockIt verify
+            (timeSpent, res) <- measureTime verify
             logEvent Skov LLInfo $ "Block " ++ show pbHash ++ " verified in " ++ show timeSpent
             return res
   where
@@ -706,7 +698,7 @@ doExecuteBlock (VerifiedPendingBlock pb) = do
     isShutDown >>= \case
         True -> return ResultConsensusShutDown
         False -> do
-            (timeSpent, res) <- clockIt $ do
+            (timeSpent, res) <- measureTime $ do
                 -- Resolve the parent block of the one we're about to add to the tree.
                 -- We execute the provided block iff. the parent is live.
                 -- If the parent block is not live then we reject it.
