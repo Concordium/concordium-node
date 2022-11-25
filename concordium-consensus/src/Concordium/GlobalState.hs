@@ -32,16 +32,16 @@ import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.Account (AccountCache, newAccountCache)
 import Concordium.GlobalState.Persistent.BlobStore (BlobStoreT (runBlobStoreT), closeBlobStore, createBlobStore, destroyBlobStore, loadBlobStore)
 import Concordium.GlobalState.Persistent.BlockState
+import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
+import Concordium.GlobalState.Persistent.Cache
+import Concordium.GlobalState.Persistent.Genesis
 import Concordium.GlobalState.Persistent.TreeState
 import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.TreeState as TS
 import Concordium.Logger
+import Concordium.TimeMonad
 import Concordium.Types.Block (AbsoluteBlockHeight)
 import Concordium.Types.ProtocolVersion
-
-import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
-import Concordium.GlobalState.Persistent.Cache
-import Concordium.GlobalState.Persistent.Genesis
 
 -- For the avid reader.
 -- The strategy followed in this module is the following: First `BlockStateM` and
@@ -399,7 +399,7 @@ deriving via
 -- is an additional context that manages auxiliary databases not needed by consensus.
 -- In particular this means the index of transactions that affect a given account.
 newtype GlobalStateM (pv :: ProtocolVersion) c r g s m a = GlobalStateM {runGlobalStateM :: m a}
-    deriving (Functor, Applicative, Monad, MonadReader r, MonadState s, MonadIO, MonadLogger)
+    deriving (Functor, Applicative, Monad, MonadReader r, MonadState s, MonadIO, MonadLogger, TimeMonad)
     deriving (BlockStateTypes) via (BlockStateM pv c r g s m)
 
 instance (IsProtocolVersion pv) => MonadProtocolVersion (GlobalStateM pv c r g s m) where

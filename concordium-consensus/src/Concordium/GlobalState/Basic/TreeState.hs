@@ -284,9 +284,8 @@ instance
                         Just s -> (sn, s) : Map.toAscList beyond
 
     addCommitTransaction bi@WithMetadata{..} verResCtx ts slot = do
-        let trHash = wmdHash
         tt <- use transactionTable
-        case tt ^. ttHashMap . at' trHash of
+        case tt ^. ttHashMap . at' wmdHash of
             Nothing -> do
                 -- If the transaction was not present in the `TransactionTable` then we verify it now
                 -- and add it based on the verification result.
@@ -297,38 +296,14 @@ instance
                 verRes <- TS.runTransactionVerifierT (TVer.verify ts bi) verResCtx
                 if TVer.definitelyNotValid verRes (verResCtx ^. TS.isTransactionFromBlock)
                     then return $ TS.NotAdded verRes
-                    else case wmdData of
-                        NormalTransaction tr -> do
-                            let sender = accountAddressEmbed (transactionSender tr)
-                                nonce = transactionNonce tr
-                            if (tt ^. ttNonFinalizedTransactions . at' sender . non emptyANFT . anftNextNonce) <= nonce
-                                then do
-                                    transactionTablePurgeCounter += 1
-                                    let wmdtr = WithMetadata{wmdData = tr, ..}
-                                    transactionTable
-                                        .= ( tt
-                                                & (ttNonFinalizedTransactions . at' sender . non emptyANFT . anftMap . at' nonce . non Map.empty . at' wmdtr ?~ verRes)
-                                                & (ttHashMap . at' trHash ?~ (bi, Received slot verRes))
-                                           )
-                                    return (TS.Added bi verRes)
-                                else return TS.ObsoleteNonce
-                        CredentialDeployment{} -> do
-                            transactionTable . ttHashMap . at' trHash ?= (bi, Received slot verRes)
-                            return (TS.Added bi verRes)
-                        ChainUpdate cu -> do
-                            let uty = updateType (uiPayload cu)
-                                sn = updateSeqNumber (uiHeader cu)
-                            if (tt ^. ttNonFinalizedChainUpdates . at' uty . non emptyNFCU . nfcuNextSequenceNumber) <= sn
-                                then do
-                                    transactionTablePurgeCounter += 1
-                                    let wmdcu = WithMetadata{wmdData = cu, ..}
-                                    transactionTable
-                                        .= ( tt
-                                                & (ttNonFinalizedChainUpdates . at' uty . non emptyNFCU . nfcuMap . at' sn . non Map.empty . at' wmdcu ?~ verRes)
-                                                & (ttHashMap . at' trHash ?~ (bi, Received slot verRes))
-                                           )
-                                    return (TS.Added bi verRes)
-                                else return TS.ObsoleteNonce
+                    else do
+                        let (added, newTT) = addTransaction bi slot verRes tt
+                        if added
+                            then do
+                                transactionTablePurgeCounter += 1
+                                transactionTable .=! newTT
+                                return (TS.Added bi verRes)
+                            else return TS.ObsoleteNonce
             Just (_, Finalized{}) -> return TS.ObsoleteNonce
             Just (tr', results) -> do
                 -- The `Finalized` case is not reachable as the cause would be that a finalized transaction
@@ -336,7 +311,26 @@ instance
                 let mVerRes = case results of
                         Received _ verRes -> Just verRes
                         Committed _ verRes _ -> Just verRes
-                when (slot > results ^. tsSlot) $ transactionTable . ttHashMap . at' trHash . mapped . _2 %= updateSlot slot
+                when (slot > results ^. tsSlot) $ transactionTable . ttHashMap . at' wmdHash . mapped . _2 %= updateSlot slot
+                return $ TS.Duplicate tr' mVerRes
+
+    addVerifiedTransaction bi@WithMetadata{..} okRes = do
+        let verRes = TVer.Ok okRes
+        tt <- use transactionTable
+        case tt ^. ttHashMap . at' wmdHash of
+            Nothing
+                | added -> do
+                    transactionTablePurgeCounter += 1
+                    transactionTable .=! newTT
+                    return (TS.Added bi verRes)
+                | otherwise -> return TS.ObsoleteNonce
+              where
+                (added, newTT) = addTransaction bi 0 verRes tt
+            Just (_, Finalized{}) -> return TS.ObsoleteNonce
+            Just (tr', results) -> do
+                let mVerRes = case results of
+                        Received _ verRes' -> Just verRes'
+                        Committed _ verRes' _ -> Just verRes'
                 return $ TS.Duplicate tr' mVerRes
 
     type FinTrans (PureTreeStateMonad bs m) = ()
@@ -450,8 +444,7 @@ instance
             lastFinalizedSlot <- TS.getLastFinalizedSlot
             transactionTable' <- use transactionTable
             pendingTransactions' <- use pendingTransactions
-            let
-                currentTransactionTime = utcTimeToTransactionTime currentTime
+            let currentTransactionTime = utcTimeToTransactionTime currentTime
                 oldestArrivalTime =
                     if currentTransactionTime > rpTransactionsKeepAliveTime
                         then currentTransactionTime - rpTransactionsKeepAliveTime

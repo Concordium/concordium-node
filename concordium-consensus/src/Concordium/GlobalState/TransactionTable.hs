@@ -226,6 +226,35 @@ emptyTransactionTableWithSequenceNumbers accs upds =
           _ttNonFinalizedChainUpdates = emptyNFCUWithSequenceNumber <$> Map.filter (/= minUpdateSequenceNumber) upds
         }
 
+-- |Add a transaction to a transaction table if its nonce/sequence number is at least the next
+-- non-finalized nonce/sequence number.  A return value of 'True' indicates that the transaction
+-- was added.  The caller should check that the transaction is not already present.
+addTransaction :: BlockItem -> Slot -> TVer.VerificationResult -> TransactionTable -> (Bool, TransactionTable)
+addTransaction blockItem@WithMetadata{..} slot !verRes tt0 =
+    case wmdData of
+        NormalTransaction tr
+            | tt0 ^. senderANFT . anftNextNonce <= nonce ->
+                (True, tt1 & senderANFT . anftMap . at' nonce . non Map.empty . at' wmdtr ?~ verRes)
+          where
+            sender = accountAddressEmbed (transactionSender tr)
+            senderANFT :: Lens' TransactionTable AccountNonFinalizedTransactions
+            senderANFT = ttNonFinalizedTransactions . at' sender . non emptyANFT
+            nonce = transactionNonce tr
+            wmdtr = WithMetadata{wmdData = tr, ..}
+        CredentialDeployment{} -> (True, tt1)
+        ChainUpdate cu
+            | tt0 ^. utNFCU . nfcuNextSequenceNumber <= sn ->
+                (True, tt1 & utNFCU . nfcuMap . at' sn . non Map.empty . at' wmdcu ?~ verRes)
+          where
+            uty = updateType (uiPayload cu)
+            sn = updateSeqNumber (uiHeader cu)
+            utNFCU :: Lens' TransactionTable NonFinalizedChainUpdates
+            utNFCU = ttNonFinalizedChainUpdates . at' uty . non emptyNFCU
+            wmdcu = WithMetadata{wmdData = cu, ..}
+        _ -> (False, tt0)
+  where
+    tt1 = tt0 & ttHashMap . at' wmdHash ?~ (blockItem, Received slot verRes)
+
 -- * Pending transaction table
 
 -- |A pending transaction table records whether transactions are pending after
