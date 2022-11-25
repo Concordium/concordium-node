@@ -6,9 +6,9 @@
   (Checking transaction signatures is done without acquiring the global
   state lock.)
 - Relay blocks earlier. In particular this means that blocks are now processed in 
-  two steps, `block receive` and `block execute`. The former performs meta verification on the block
+  two steps, `block receive` and `block execute`. The former performs verification of block meta data
   while the latter adds the block to the tree.
-  Blocks are now relayed in between the the two steps.
+  Blocks are now enqueued in the outgoing message queue in between the the two steps.
 
 ## 5.0.6
 

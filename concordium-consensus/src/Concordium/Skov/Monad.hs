@@ -245,13 +245,19 @@ class (SkovQueryMonad m, TimeMonad m, MonadLogger m) => SkovMonad m where
     -- |Receive a block from the network.
     -- This checks the validity of the block itself but no transactions are verified yet.
     --
-    -- Iff. the parent of the block is live and the block can be verified then this function returns a
-    -- 'VerifiedPendingBlock' which yields the information necessary for adding the block to the tree.
+    -- A 'Just VerifiedPendingBlock' will be returned only if the parent of the block is live
+    -- and the metadata of the block could be verified.
     --
     -- The caller is then expected to invoke 'executeBlock' with the returned 'VerifiedPendingBlock' if present.
+    --
+    -- Note. As `receiveBlock` and 'executeBlock' both acquire and release a write lock on the state then
+    -- it is possible that the state has changed in between the two calls, but this is OK as
+    -- 'executeBlock' must always ensure that the parent of the 'PendingBlock' is alive.
     receiveBlock :: PendingBlock -> m (UpdateResult, Maybe VerifiedPendingBlock)
 
     -- |Inserts a 'PendingBlock' given the provided 'VerifiedPendingBlock'.
+    -- Execute block must check that the parent block is 'alive'
+    -- before adding the block to the tree.
     executeBlock :: VerifiedPendingBlock -> m UpdateResult
 
     -- |Receive and execute a 'PendingBlock'. This is used for importing blocks into the tree.
