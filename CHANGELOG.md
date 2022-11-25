@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased changes
+- Removed the configuration option 'no_rebroadcast_consensus_validation' as it is never used.
 
 ## 5.1.0
 

@@ -256,51 +256,24 @@ pub fn handle_consensus_inbound_msg(
     };
 
     let source = request.source_peer();
+    // relay external messages to Consensus
+    let consensus_result = send_msg_to_consensus(node, source, consensus, &request)?;
 
-    if node.config.no_rebroadcast_consensus_validation {
-        if !drop_message
-            && request.distribution_mode() == DistributionMode::Broadcast
-            && request.variant.is_rebroadcastable()
-        {
-            send_consensus_msg_to_net(
-                node,
-                request.dont_relay_to(),
-                None,
-                (request.payload.clone(), request.variant),
-            );
-        }
+    // adjust the peer state(s) based on the feedback from Consensus
+    update_peer_states(node, &request, consensus_result);
 
-        // relay external messages to Consensus
-        let consensus_result = send_msg_to_consensus(node, source, consensus, &request)?;
-
-        // early blocks should be removed from the deduplication queue
-        if consensus_result == ConsensusFfiResponse::BlockTooEarly {
-            write_or_die!(&node.connection_handler.deduplication_queues.blocks)
-                .invalidate_if_exists(&request.payload);
-        }
-
-        // adjust the peer state(s) based on the feedback from Consensus
-        update_peer_states(node, &request, consensus_result);
-    } else {
-        // relay external messages to Consensus
-        let consensus_result = send_msg_to_consensus(node, source, consensus, &request)?;
-
-        // adjust the peer state(s) based on the feedback from Consensus
-        update_peer_states(node, &request, consensus_result);
-
-        // rebroadcast incoming broadcasts if applicable
-        if !drop_message
-            && request.distribution_mode() == DistributionMode::Broadcast
-            && request.variant.is_rebroadcastable()
-            && consensus_result.is_rebroadcastable(request.variant)
-        {
-            send_consensus_msg_to_net(
-                node,
-                request.dont_relay_to(),
-                None,
-                (request.payload, request.variant),
-            );
-        }
+    // rebroadcast incoming broadcasts if applicable
+    if !drop_message
+        && request.distribution_mode() == DistributionMode::Broadcast
+        && request.variant.is_rebroadcastable()
+        && consensus_result.is_rebroadcastable(request.variant)
+    {
+        send_consensus_msg_to_net(
+            node,
+            request.dont_relay_to(),
+            None,
+            (request.payload, request.variant),
+        );
     }
 
     Ok(())
