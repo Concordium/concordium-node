@@ -11,6 +11,7 @@
 -- in this package.
 module Concordium.GlobalState where
 
+import Control.Monad (forM)
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.Reader.Class
@@ -681,11 +682,9 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
             let pbsc = PersistentBlockStateContext{..}
             let initState = do
                     genesisStateResult <- genesisState genData
-                    case genesisStateResult of
-                        Left err -> return $ Left err
-                        Right (pbs, genTT) -> do
-                            _ <- saveBlockState pbs
-                            Right <$> Basic.initialSkovData mtdbRuntimeParameters (genesisConfiguration genData) pbs genTT Nothing
+                    forM genesisStateResult $ \(pbs, genTT) -> do
+                        _ <- saveBlockState pbs
+                        Basic.initialSkovData mtdbRuntimeParameters (genesisConfiguration genData) pbs genTT Nothing
             skovDataResult <- runReaderT (runPersistentBlockStateMonad initState) pbsc
             skovData <- case skovDataResult of
                 Left err -> logExceptionAndThrow GlobalState (InvalidGenesisData err)

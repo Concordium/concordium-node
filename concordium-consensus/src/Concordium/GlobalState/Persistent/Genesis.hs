@@ -33,15 +33,13 @@ import qualified Concordium.GlobalState.TransactionTable as TransactionTable
 import qualified Concordium.ID.Parameters as Id
 import qualified Concordium.Types as Types
 import qualified Concordium.Types.Accounts as Types
-import qualified Concordium.Types.Execution as Types
 import qualified Concordium.Types.Parameters as Types
 import qualified Concordium.Types.SeedState as Types
 
 import qualified Control.Monad.Except as MTL
 import Data.IORef (newIORef)
-import Data.Maybe (isNothing)
+import Data.Maybe (fromMaybe, isNothing)
 import qualified Data.Vector as Vec
-import Data.Word (Word64)
 import Lens.Micro.Platform
 
 ----------- API -----------
@@ -95,9 +93,7 @@ data AccumGenesisState pv = AccumGenesisState
       -- | List of baker stake  in incremental order of the baker ID.
       agsBakerStakes :: Vec.Vector Types.Amount,
       -- | List of baker capital in incremental order of the baker ID.
-      agsBakerCapitals :: Vec.Vector CapDist.BakerCapital,
-      -- | Map of pool reward details
-      agsBakerPoolRewardDetails :: LFMBT.LFMBTree Word64 Blob.BufferedRef Basic.BakerPoolRewardDetails
+      agsBakerCapitals :: Vec.Vector CapDist.BakerCapital
     }
 
 -- | The initial value for accumulating data from genesis data accounts.
@@ -111,8 +107,7 @@ initialAccumGenesisState =
           agsStakedTotal = 0,
           agsBakerInfoRefs = Vec.empty,
           agsBakerStakes = Vec.empty,
-          agsBakerCapitals = Vec.empty,
-          agsBakerPoolRewardDetails = LFMBT.empty
+          agsBakerCapitals = Vec.empty
         }
 
 -- | Construct a hashed persistent block state from the data in genesis
@@ -129,7 +124,7 @@ buildGenesisBlockState GenesisData.CoreGenesisParameters{..} GenesisData.Genesis
     -- Birk parameters
     persistentBirkParameters :: BS.PersistentBirkParameters av <- do
         _birkActiveBakers <-
-            Blob.refMake $
+            Blob.refMakeFlushed $
                 Bakers.PersistentActiveBakers
                     { _activeBakers = agsBakerIds,
                       _aggregationKeys = agsBakerKeys,
@@ -140,9 +135,9 @@ buildGenesisBlockState GenesisData.CoreGenesisParameters{..} GenesisData.Genesis
                     }
 
         _birkNextEpochBakers <-
-            Blob.refMake =<< do
-                _bakerInfos <- Blob.refMake $ Bakers.BakerInfos agsBakerInfoRefs
-                _bakerStakes <- Blob.refMake $ Bakers.BakerStakes agsBakerStakes
+            Blob.refMakeFlushed =<< do
+                _bakerInfos <- Blob.refMakeFlushed $ Bakers.BakerInfos agsBakerInfoRefs
+                _bakerStakes <- Blob.refMakeFlushed $ Bakers.BakerStakes agsBakerStakes
                 return Bakers.PersistentEpochBakers{_bakerTotalStake = agsStakedTotal, ..}
 
         return $
@@ -160,17 +155,20 @@ buildGenesisBlockState GenesisData.CoreGenesisParameters{..} GenesisData.Genesis
             case Types.delegationChainParameters @pv of
                 Types.DelegationChainParametersV1 -> do
                     capRef :: Blob.HashedBufferedRef CapDist.CapitalDistribution <-
-                        Blob.refMake
+                        Blob.refMakeFlushed
                             CapDist.CapitalDistribution
                                 { bakerPoolCapital = agsBakerCapitals,
                                   passiveDelegatorsCapital = Vec.empty
                                 }
+                    bakerPoolRewardDetails <-
+                        LFMBT.fromAscList $
+                            replicate (Vec.length agsBakerCapitals) Basic.emptyBakerPoolRewardDetails
                     BS.BlockRewardDetailsV1
-                        <$> Blob.refMake
+                        <$> Blob.refMakeFlushed
                             Rewards.PoolRewards
                                 { nextCapital = capRef,
                                   currentCapital = capRef,
-                                  bakerPoolRewardDetails = agsBakerPoolRewardDetails,
+                                  bakerPoolRewardDetails = bakerPoolRewardDetails,
                                   passiveDelegationTransactionRewards = 0,
                                   foundationTransactionRewards = 0,
                                   nextPaydayEpoch =
@@ -185,7 +183,7 @@ buildGenesisBlockState GenesisData.CoreGenesisParameters{..} GenesisData.Genesis
                                 }
 
     -- Module
-    modules <- Blob.refMake Modules.emptyModules
+    modules <- Blob.refMakeFlushed Modules.emptyModules
 
     -- Identity providers and anonymity revokers
     identityProviders <- Blob.bufferHashed $ Types.makeHashed genesisIdentityProviders
@@ -248,15 +246,12 @@ buildGenesisBlockState GenesisData.CoreGenesisParameters{..} GenesisData.Genesis
                         agsBakerIds state
                 nextBakerKeys <- Trie.insert gbAggregationVerifyKey () $ agsBakerKeys state
                 let !nextBakerStakes = Vec.snoc (agsBakerStakes state) gbStake
-                nextBakerInfoRefs <-
-                    Vec.snoc (agsBakerInfoRefs state)
-                        <$> makeBakerInfoRef genesisChainParameters baker
-                let !nextBakerCapitals = Vec.snoc (agsBakerCapitals state) $ makeBakerCapital baker
-                nextBakerPoolRewardDetails <-
-                    snd
-                        <$> LFMBT.append
-                            Basic.emptyBakerPoolRewardDetails
-                            (agsBakerPoolRewardDetails state)
+
+                infoRef <-
+                    fromMaybe (error "Invariant violation: genesis baker is not baker")
+                        <$> Account.accountBakerInfoRef persistentAccount
+                let !nextBakerInfoRefs = Vec.snoc (agsBakerInfoRefs state) infoRef
+                let !nextBakerCapitals = Vec.snoc (agsBakerCapitals state) $ bakerCapitalFromGenesis baker
                 return
                     updatedState
                         { agsBakerIds = nextBakerIds,
@@ -264,8 +259,7 @@ buildGenesisBlockState GenesisData.CoreGenesisParameters{..} GenesisData.Genesis
                           agsStakedTotal = nextStakedTotal,
                           agsBakerInfoRefs = nextBakerInfoRefs,
                           agsBakerStakes = nextBakerStakes,
-                          agsBakerCapitals = nextBakerCapitals,
-                          agsBakerPoolRewardDetails = nextBakerPoolRewardDetails
+                          agsBakerCapitals = nextBakerCapitals
                         }
             Nothing -> return updatedState
 
@@ -289,37 +283,9 @@ persistentAccountFromGenesis cryptoParams chainParameters GenesisData.GenesisAcc
                             (Basic.genesisBakerInfo (Types.protocolVersion @pv) chainParameters genBaker)
         )
 
--- |Construct a persistent baker info ref from a genesis baker.
-makeBakerInfoRef ::
-    forall pv av m.
-    (BS.SupportsPersistentState pv m, Types.AccountVersionFor pv ~ av) =>
-    Types.ChainParameters pv ->
-    GenesisData.GenesisBaker ->
-    m (Account.PersistentBakerInfoRef av)
-makeBakerInfoRef chainParameters GenesisData.GenesisBaker{..} = do
-    let _bieBakerInfo = Types.BakerInfo gbBakerId gbElectionVerifyKey gbSignatureVerifyKey gbAggregationVerifyKey
-    Account.makePersistentBakerInfoRef @av $
-        case Types.delegationSupport @av of
-            Types.SAVDelegationNotSupported -> Types.BakerInfoExV0 _bieBakerInfo
-            Types.SAVDelegationSupported ->
-                let
-                    _bieBakerPoolInfo =
-                        Types.BakerPoolInfo
-                            { _poolOpenStatus = Types.OpenForAll,
-                              _poolMetadataUrl = Types.emptyUrlText,
-                              _poolCommissionRates = case Types.delegationChainParameters @pv of
-                                Types.DelegationChainParametersV1 ->
-                                    chainParameters
-                                        ^. Types.cpPoolParameters
-                                            . Types.ppCommissionBounds
-                                            . to Types.maximumCommissionRates
-                            }
-                in
-                    Types.BakerInfoExV1{..}
-
 -- |Construct baker capital from genesis baker.
-makeBakerCapital :: GenesisData.GenesisBaker -> CapDist.BakerCapital
-makeBakerCapital GenesisData.GenesisBaker{..} =
+bakerCapitalFromGenesis :: GenesisData.GenesisBaker -> CapDist.BakerCapital
+bakerCapitalFromGenesis GenesisData.GenesisBaker{..} =
     CapDist.BakerCapital
         { bcBakerId = gbBakerId,
           bcBakerEquityCapital = gbStake,

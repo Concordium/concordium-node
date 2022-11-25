@@ -914,6 +914,12 @@ class Monad m => Reference m ref a where
     -- it will just be stored in memory as cached.
     refMake :: a -> m (ref a)
 
+    -- |Create a reference to a value and flush it. It returns the flushed reference.
+    refMakeFlushed :: a -> m (ref a)
+    refMakeFlushed v = do
+        ref <- refMake v
+        fst <$> refFlush ref
+
     -- |Given a reference, flush the data and return an uncached reference.
     refUncache :: ref a -> m (ref a)
 
