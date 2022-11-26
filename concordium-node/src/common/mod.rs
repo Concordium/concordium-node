@@ -15,3 +15,13 @@ pub use self::{
     p2p_node_id::P2PNodeId,
     p2p_peer::{P2PPeer, PeerStats, PeerType, RemotePeer},
 };
+
+/// Causes for shutting down the node. Used for notifying the main thread about
+/// signals and error conditions.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum NodeShutdownCause {
+    RPCServer,
+    GRPC2Server,
+    StatsServer,
+    Signal,
+}

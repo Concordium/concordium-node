@@ -2,7 +2,7 @@
 //! calls.
 
 use crate::{
-    common::{grpc_api::*, p2p_peer::RemotePeerId, PeerType},
+    common::{grpc_api::*, p2p_peer::RemotePeerId, NodeShutdownCause, PeerType},
     configuration,
     connection::ConnChange,
     consensus_ffi::{
@@ -61,10 +61,23 @@ impl RpcServerImpl {
     pub async fn start_server(
         &mut self,
         shutdown_signal: impl Future<Output = ()>,
+        shutdown_sender: tokio::sync::broadcast::Sender<NodeShutdownCause>,
     ) -> anyhow::Result<()> {
         let self_clone = self.clone();
         let server = Server::builder().add_service(P2pServer::new(self_clone));
-        server.serve_with_shutdown(self.listen_addr, shutdown_signal).await.map_err(|e| e.into())
+        let result = server
+            .serve_with_shutdown(self.listen_addr, shutdown_signal)
+            .await
+            .map_err(|e| e.into());
+        // If we are here, either an error occured, or the server was shut down.
+        if let Err(ref err) = result {
+            // Log an error and notify main thread that an error occured.
+            error!("A runtime error occurred in the GRPC2 server: {}", err);
+            if let Err(e) = shutdown_sender.send(NodeShutdownCause::RPCServer) {
+                error!("An error occurred while trying to signal the main node thread: {}.", e)
+            }
+        }
+        result
     }
 }
 
@@ -963,7 +976,8 @@ mod tests {
         config.cli.rpc.rpc_server_addr = "127.0.0.1".to_owned();
         config.cli.rpc.rpc_server_token = TOKEN.to_owned();
         let mut rpc_server = RpcServerImpl::new(node.clone(), None, &config.cli.rpc)?;
-        tokio::spawn(async move { rpc_server.start_server(future::pending()).await });
+        let (error_sender, _) = tokio::sync::broadcast::channel(1);
+        tokio::spawn(async move { rpc_server.start_server(future::pending(), error_sender).await });
         tokio::task::yield_now().await;
 
         let addr: &'static str =

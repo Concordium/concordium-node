@@ -6,6 +6,8 @@ use std::{
     path::Path,
 };
 
+use crate::common::NodeShutdownCause;
+
 /// Maximum allowed energy to use in the `invoke_instance` request.
 /// This is to make sure that there are no conversion errors to interpreter
 /// energy.
@@ -837,6 +839,7 @@ pub mod server {
             consensus: &ConsensusContainer,
             config: &GRPC2Config,
             notification_handlers: NotificationHandlers,
+            error_sender: tokio::sync::broadcast::Sender<NodeShutdownCause>,
         ) -> anyhow::Result<Option<Self>> {
             if let Some(listen_addr) = config.listen_addr {
                 // the error in the following line should never happen since the command-line
@@ -983,12 +986,24 @@ pub mod server {
                 };
 
                 let task = tokio::spawn(async move {
-                    router
+                    let result = router
                         .serve_with_shutdown(
                             std::net::SocketAddr::new(listen_addr, listen_port),
                             shutdown_receiver.map(|_| ()),
                         )
-                        .await
+                        .await;
+                    if let Err(ref err) = result {
+                        // Log an error and notify main thread that an error occured.
+                        error!("A runtime error occurred in the GRPC2 server: {}", err);
+                        if let Err(e) = error_sender.send(NodeShutdownCause::GRPC2Server) {
+                            error!(
+                                "An error occurred while trying to signal the main node thread: \
+                                 {}.",
+                                e
+                            )
+                        }
+                    }
+                    result
                 });
                 Ok(Some(Self {
                     task,
