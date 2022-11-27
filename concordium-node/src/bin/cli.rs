@@ -62,11 +62,6 @@ async fn main() -> anyhow::Result<()> {
         instantiate_node(&conf, &mut app_prefs, stats_export_service, regenesis_arc.clone())
             .context("Failed to create the node.")?;
 
-    // Setup task with signal handling before doing any irreversible operations
-    // to avoid being interrupted in the middle of sensitive operations, e.g.,
-    // creating the database.
-    let (mut shutdown_receiver, shutdown_sender) = setup_shutdown_signal_handling();
-
     let (gen_data, priv_data) = get_baker_data(&app_prefs, &conf.cli.baker)
         .context("Can't get genesis data or private data. Aborting")?;
 
@@ -113,7 +108,13 @@ async fn main() -> anyhow::Result<()> {
     )?;
     info!("Consensus layer started");
 
-    // A flag to record that the import was stopped by a signal handler.
+    // Setup task with signal handling before doing any irreversible operations
+    // to avoid being interrupted in the middle of sensitive operations, e.g.,
+    // creating the database.
+    let (mut shutdown_receiver, shutdown_sender) = setup_shutdown_signal_handling();
+
+    // A flag to record that out-of-band-catchup import was stopped by a signal
+    // handler.
     let import_stopped = Arc::new(atomic::AtomicBool::new(false));
     // Flag to record errors in the services running in the node.
     let rpc_error = Arc::new(atomic::AtomicBool::new(false));
@@ -170,6 +171,26 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
+    // Start the statistics server.
+    #[cfg(feature = "instrumentation")]
+    {
+        let shutdown_sender = shutdown_sender.clone();
+        let stats = node.stats.clone();
+        let pla = conf
+            .prometheus
+            .prometheus_listen_addr
+            .parse::<IpAddr>()
+            .context("Invalid Prometheus address")?;
+        let plp = conf.prometheus.prometheus_listen_port;
+        tokio::spawn(async move {
+            stats.start_server(SocketAddr::new(pla, plp), shutdown_sender).await
+        });
+    }
+
+    #[cfg(feature = "instrumentation")]
+    // The push gateway to Prometheus thread
+    start_push_gateway(&conf.prometheus, &node.stats, node.id());
+
     // Start the RPC server with a channel for shutting it down.
     let (shutdown_rpc_sender, shutdown_rpc_signal) = oneshot::channel();
     let rpc_server_task = if !conf.cli.rpc.no_rpc_server {
@@ -202,25 +223,6 @@ async fn main() -> anyhow::Result<()> {
     } else {
         None
     };
-
-    #[cfg(feature = "instrumentation")]
-    {
-        let shutdown_sender = shutdown_sender.clone();
-        let stats = node.stats.clone();
-        let pla = conf
-            .prometheus
-            .prometheus_listen_addr
-            .parse::<IpAddr>()
-            .context("Invalid Prometheus address")?;
-        let plp = conf.prometheus.prometheus_listen_port;
-        tokio::spawn(async move {
-            stats.start_server(SocketAddr::new(pla, plp), shutdown_sender).await
-        });
-    }
-
-    #[cfg(feature = "instrumentation")]
-    // The push gateway to Prometheus thread
-    start_push_gateway(&conf.prometheus, &node.stats, node.id());
 
     maybe_do_out_of_band_catchup(
         &consensus,
