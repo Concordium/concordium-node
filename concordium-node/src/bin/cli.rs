@@ -62,8 +62,14 @@ async fn main() -> anyhow::Result<()> {
         instantiate_node(&conf, &mut app_prefs, stats_export_service, regenesis_arc.clone())
             .context("Failed to create the node.")?;
 
+    // Setup task with signal handling before doing any irreversible operations
+    // to avoid being interrupted in the middle of sensitive operations, e.g.,
+    // creating the database.
+    let (mut shutdown_receiver, shutdown_sender) = setup_shutdown_signal_handling();
+
     #[cfg(feature = "instrumentation")]
     {
+        let shutdown_sender = shutdown_sender.clone();
         let stats = node.stats.clone();
         let pla = conf
             .prometheus
@@ -71,7 +77,9 @@ async fn main() -> anyhow::Result<()> {
             .parse::<IpAddr>()
             .context("Invalid Prometheus address")?;
         let plp = conf.prometheus.prometheus_listen_port;
-        tokio::spawn(async move { stats.start_server(SocketAddr::new(pla, plp)).await });
+        tokio::spawn(async move {
+            stats.start_server(SocketAddr::new(pla, plp), shutdown_sender).await
+        });
     }
 
     #[cfg(feature = "instrumentation")]
@@ -80,11 +88,6 @@ async fn main() -> anyhow::Result<()> {
 
     let (gen_data, priv_data) = get_baker_data(&app_prefs, &conf.cli.baker)
         .context("Can't get genesis data or private data. Aborting")?;
-
-    // Setup task with signal handling before doing any irreversible operations
-    // to avoid being interrupted in the middle of sensitive operations, e.g.,
-    // creating the database.
-    let (mut shutdown_receiver, shutdown_sender) = setup_shutdown_signal_handling();
 
     let data_dir_path = app_prefs.get_data_dir();
     let mut database_directory = data_dir_path.to_path_buf();
@@ -140,8 +143,6 @@ async fn main() -> anyhow::Result<()> {
         let import_stopped = Arc::clone(&import_stopped);
         let rpc_error = Arc::clone(&rpc_error);
         let grpc2_error = Arc::clone(&grpc2_error);
-        // A message sent to the following receiver indicates that the node should shut
-        // down.
         let mut shutdown_receiver = shutdown_sender.subscribe();
         tokio::spawn(async move {
             // Set flags indicating if a service crashed. This thread contains a loop since
@@ -156,9 +157,10 @@ async fn main() -> anyhow::Result<()> {
                     Ok(NodeShutdownCause::GRPC2Server) => {
                         grpc2_error.store(true, atomic::Ordering::Release);
                     }
+                    // The statistics service crashed.
+                    Ok(NodeShutdownCause::StatsServer) => {}
                     // Another service crashed.
                     Ok(_) => {}
-                    // This should not happen.
                     Err(e) => {
                         error!(
                             "Node shutdown channel was dropped unexpectedly. This should not \

@@ -3,7 +3,7 @@
 cfg_if! {
     if #[cfg(feature = "instrumentation")] {
         use prometheus::{self, Encoder, core::{AtomicI64, AtomicU64, GenericGauge}, IntCounter, IntGauge, Opts, Registry, TextEncoder};
-        use crate::{common::p2p_node_id::P2PNodeId, spawn_or_die, read_or_die};
+        use crate::{common::NodeShutdownCause, common::p2p_node_id::P2PNodeId, spawn_or_die, read_or_die};
         use std::{net::SocketAddr, thread, time, sync::RwLock};
         use gotham::{
             handler::IntoResponse,
@@ -497,19 +497,18 @@ impl StatsExportService {
     pub async fn start_server(
         &self,
         listen_addr: SocketAddr,
-        error_sender: tokio::sync::broadcast::Sender<()>,
+        error_sender: tokio::sync::broadcast::Sender<NodeShutdownCause>,
     ) -> Result<(), ()> {
         let result = gotham::plain::init_server(listen_addr, self.router()).await;
         if let Err(_) = result {
             // Log an error and notify main thread that an error occured.
             error!("A runtime error occurred in the statistics server.");
-            error_sender.send(()).expect(
+            error_sender.send(NodeShutdownCause::StatsServer).expect(
                 "A runtime error occurred in the statistics server, but it was unable to notify \
                  the owning thread.",
             );
         }
         result
-    }
     }
 
     #[cfg(feature = "instrumentation")]

@@ -72,7 +72,7 @@ impl RpcServerImpl {
         // If we are here, either an error occured, or the server was shut down.
         if let Err(ref err) = result {
             // Log an error and notify main thread that an error occured.
-            error!("A runtime error occurred in the GRPC2 server: {}", err);
+            error!("A runtime error occurred in the RPC server: {}", err);
             if let Err(e) = shutdown_sender.send(NodeShutdownCause::RPCServer) {
                 error!("An error occurred while trying to signal the main node thread: {}.", e)
             }
