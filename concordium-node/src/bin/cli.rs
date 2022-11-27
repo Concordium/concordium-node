@@ -67,25 +67,6 @@ async fn main() -> anyhow::Result<()> {
     // creating the database.
     let (mut shutdown_receiver, shutdown_sender) = setup_shutdown_signal_handling();
 
-    #[cfg(feature = "instrumentation")]
-    {
-        let shutdown_sender = shutdown_sender.clone();
-        let stats = node.stats.clone();
-        let pla = conf
-            .prometheus
-            .prometheus_listen_addr
-            .parse::<IpAddr>()
-            .context("Invalid Prometheus address")?;
-        let plp = conf.prometheus.prometheus_listen_port;
-        tokio::spawn(async move {
-            stats.start_server(SocketAddr::new(pla, plp), shutdown_sender).await
-        });
-    }
-
-    #[cfg(feature = "instrumentation")]
-    // The push gateway to Prometheus thread
-    start_push_gateway(&conf.prometheus, &node.stats, node.id());
-
     let (gen_data, priv_data) = get_baker_data(&app_prefs, &conf.cli.baker)
         .context("Can't get genesis data or private data. Aborting")?;
 
@@ -221,6 +202,25 @@ async fn main() -> anyhow::Result<()> {
     } else {
         None
     };
+
+    #[cfg(feature = "instrumentation")]
+    {
+        let shutdown_sender = shutdown_sender.clone();
+        let stats = node.stats.clone();
+        let pla = conf
+            .prometheus
+            .prometheus_listen_addr
+            .parse::<IpAddr>()
+            .context("Invalid Prometheus address")?;
+        let plp = conf.prometheus.prometheus_listen_port;
+        tokio::spawn(async move {
+            stats.start_server(SocketAddr::new(pla, plp), shutdown_sender).await
+        });
+    }
+
+    #[cfg(feature = "instrumentation")]
+    // The push gateway to Prometheus thread
+    start_push_gateway(&conf.prometheus, &node.stats, node.id());
 
     maybe_do_out_of_band_catchup(
         &consensus,

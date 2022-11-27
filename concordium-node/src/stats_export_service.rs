@@ -497,16 +497,15 @@ impl StatsExportService {
     pub async fn start_server(
         &self,
         listen_addr: SocketAddr,
-        error_sender: tokio::sync::broadcast::Sender<NodeShutdownCause>,
+        shutdown_sender: tokio::sync::broadcast::Sender<NodeShutdownCause>,
     ) -> Result<(), ()> {
         let result = gotham::plain::init_server(listen_addr, self.router()).await;
-        if let Err(_) = result {
+        if let Err(()) = result {
             // Log an error and notify main thread that an error occured.
             error!("A runtime error occurred in the statistics server.");
-            error_sender.send(NodeShutdownCause::StatsServer).expect(
-                "A runtime error occurred in the statistics server, but it was unable to notify \
-                 the owning thread.",
-            );
+            if let Err(e) = shutdown_sender.send(NodeShutdownCause::StatsServer) {
+                error!("An error occurred while trying to signal the main node thread: {}.", e)
+            }
         }
         result
     }
