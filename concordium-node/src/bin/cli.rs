@@ -159,8 +159,8 @@ async fn main() -> anyhow::Result<()> {
                     }
                     // The statistics service crashed.
                     Ok(NodeShutdownCause::StatsServer) => {}
-                    // Another service crashed.
-                    Ok(_) => {}
+                    // A signal was sent to terminate the node.
+                    Ok(NodeShutdownCause::Signal) => {}
                     Err(e) => {
                         error!(
                             "Node shutdown channel was dropped unexpectedly. This should not \
