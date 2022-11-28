@@ -717,7 +717,7 @@ doExecuteBlock (VerifiedPendingBlock pb) = do
     blockHash = getHash pb
     -- Verify the transactions of the block within the provided block state context.
     -- If transactions could successfully be verified then this function
-    -- outputs a 'Just (PendingBlock, [VerificationResult])' which should either be immediatly executed if the parent is
+    -- outputs a 'Just (PendingBlock, [VerificationResult])' which should either be immediately executed if the parent is
     -- alive or finalized.
     -- If the parent is pending as well or 'Unknown' then the block must be added as pending.
     -- If the transactions could not be verified we return 'Nothing'
