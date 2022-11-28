@@ -713,12 +713,6 @@ pub struct CliConfig {
     )]
     pub timeout_bucket_entry_period: u64,
     #[structopt(
-        long = "no-rebroadcast-consensus-validation",
-        help = "Disable consensus controlling whether to rebroadcast or not",
-        env = "CONCORDIUM_NODE_NO_REBROADCAST_CONSENSUS_VALIDATION"
-    )]
-    pub no_rebroadcast_consensus_validation: bool,
-    #[structopt(
         long = "drop-rebroadcast-probability",
         help = "Drop a message from being rebroadcasted by a certain probability",
         env = "CONCORDIUM_NODE_DROP_REBROADCSAT_PROBABILITY"
