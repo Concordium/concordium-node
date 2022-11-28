@@ -700,7 +700,7 @@ doExecuteBlock (VerifiedPendingBlock pb) = do
         False -> do
             (timeSpent, res) <- measureTime $ do
                 -- Resolve the parent block of the one we're about to add to the tree.
-                -- We execute the provided block iff. the parent is live.
+                -- We execute the provided block only if the parent is live.
                 -- If the parent block is not live then we reject it.
                 getRecentBlockStatus (blockPointer pb) >>= \case
                     RecentBlock (BlockAlive parentP) -> execute parentP
@@ -720,7 +720,7 @@ doExecuteBlock (VerifiedPendingBlock pb) = do
     -- outputs a 'Just (PendingBlock, [VerificationResult])' which should either be immediately executed if the parent is
     -- alive or finalized.
     -- If the parent is pending as well or 'Unknown' then the block must be added as pending.
-    -- If the transactions could not be verified we return 'Nothing'
+    -- If the transactions are deemed invalid we return 'Nothing'
     verifyBlockTransactions GB.PendingBlock{pbBlock = BakedBlock{..}, ..} contextState = do
         slotTime <- getSlotTimestamp (blockSlot pb)
         txListWithVerRes <-

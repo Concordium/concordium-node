@@ -744,7 +744,7 @@ toReceiveResult ResultInsufficientFunds = 30
 -- @ResultConsensusShutDown@, @ResultEarlyBlock@, and @ResultInvalidGenesisIndex@.
 -- 'receiveBlock' may invoke the callbacks for new finalization messages.
 -- If the block was successfully verified i.e. baker signature, finalization proofs etc. then
--- the a continuation for executing the block will be written to the 'Ptr' provided.
+-- the continuation for executing the block will be written to the 'Ptr' provided.
 receiveBlock ::
     -- |Pointer to the multi version runner.
     StablePtr ConsensusRunner ->

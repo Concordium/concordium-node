@@ -983,8 +983,11 @@ sendCatchUpStatus genIndex = MVR $ \mvr@MultiVersionRunner{..} -> do
             notifyCatchUpStatus mvCallbacks (vcIndex vc) $ runPut $ Skov.putVersionedCatchUpStatus cus
 
 -- |Perform an operation with the latest chain version, as long as
--- it is at the expected genesis index.  If the genesis index is
--- for an older version, this returns 'ResultConsensusShutDown'
+-- it is at the expected genesis index. The function returns a tuple consisting
+-- of a 'Skov.UpdateResult and an optional 'a'.
+-- This variant is used if the (typically) underlying 'Skov' action also returns some value 'a' in
+-- addition to the 'Skov.UpdateResult'.
+-- If the genesis index is for an older version, this returns 'ResultConsensusShutDown'
 -- instead.  If the genesis index is for an (as yet) unknown version,
 -- this returns 'ResultInvalidGenesisIndex'.
 --
@@ -1012,6 +1015,9 @@ withLatestExpectedVersion gi a = do
         LT -> return (Skov.ResultInvalidGenesisIndex, Nothing)
         GT -> return (Skov.ResultConsensusShutDown, Nothing)
 
+-- |Performs an operation with the latest chain version via 'withLatestExectedVersion'.
+-- This variant throws away the second component of the tuple result returned from 'withLatestExectedVersion',
+-- i.e. this version of 'withLatestExpectedVersion' only yields the 'Skov.UpdateResult'
 withLatestExpectedVersion_ ::
     GenesisIndex ->
     (EVersionedConfiguration gsconf finconf -> MVR gsconf finconf Skov.UpdateResult) ->

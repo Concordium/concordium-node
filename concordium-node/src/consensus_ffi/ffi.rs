@@ -247,7 +247,7 @@ pub struct consensus_runner {
     private: [u8; 0],
 }
 
-/// An opaque reference to an 'executable block' i.e., a block that
+/// An opaque reference to an 'executable block' i.e., a block
 /// where the metadata has been verified.
 /// The value behind the reference i.e. the "execute block continuation"
 /// is created in the consensus module but it's owned here on the rust side.
@@ -258,6 +258,7 @@ pub struct execute_block {
 }
 
 /// Abstracts the reference required to execute a block that has been received.
+#[repr(transparent)]
 pub struct ExecuteBlockCallback {
     callback: *mut execute_block,
 }
