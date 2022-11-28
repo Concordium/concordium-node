@@ -1254,7 +1254,7 @@ newAccount cryptoParams _accountAddress credential = do
             }
 
 -- |Make a persistent account from a genesis account.
--- The data is flushed to disc immediately.
+-- The data is immediately flushed to disc and cached.
 makeFromGenesisAccount ::
     forall pv m.
     (MonadBlobStore m, IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV2) =>
@@ -1265,7 +1265,7 @@ makeFromGenesisAccount ::
     m (PersistentAccount 'AccountV2)
 makeFromGenesisAccount spv cryptoParams chainParameters GenesisAccount{..} = do
     paedPersistingData <-
-        refMake $
+        refMakeFlushed $
             PersistingAccountData
                 { _accountEncryptionKey =
                     toRawEncryptionKey $
@@ -1281,7 +1281,7 @@ makeFromGenesisAccount spv cryptoParams chainParameters GenesisAccount{..} = do
     (accountStakedAmount, stakeEnduring) <- case gaBaker of
         Nothing -> return (0, PersistentAccountStakeEnduringNone)
         Just baker -> do
-            paseBakerInfo <- refMake $ genesisBakerInfoEx spv chainParameters baker
+            paseBakerInfo <- refMakeFlushed $ genesisBakerInfoEx spv chainParameters baker
             let enduringBaker =
                     PersistentAccountStakeEnduringBaker
                         { paseBakerRestakeEarnings = True,
@@ -1291,7 +1291,7 @@ makeFromGenesisAccount spv cryptoParams chainParameters GenesisAccount{..} = do
             return (gbStake baker, enduringBaker)
 
     accountEnduringData <-
-        refMake
+        refMakeFlushed
             =<< makeAccountEnduringData paedPersistingData Null Null stakeEnduring
     return $!
         PersistentAccount

@@ -1109,7 +1109,7 @@ newAccount cryptoParams _accountAddress credential = do
     return PersistentAccount{..}
 
 -- |Make a persistent account from a genesis account.
--- The data is flushed to disc immediately.
+-- The data is immediately flushed to disc and cached.
 makeFromGenesisAccount ::
     forall pv av m.
     (MonadBlobStore m, IsProtocolVersion pv, IsAccountVersion av, AVStructureV0 av, AccountVersionFor pv ~ av) =>

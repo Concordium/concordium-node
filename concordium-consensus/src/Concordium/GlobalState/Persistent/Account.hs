@@ -483,7 +483,7 @@ newAccount = case accountVersion @av of
     SAccountV2 -> \ctx addr cred -> PAV2 <$> V1.newAccount ctx addr cred
 
 -- |Make a persistent account from a genesis account.
--- The data is flushed to disc immediately.
+-- The data is immediately flushed to disc and cached.
 makeFromGenesisAccount ::
     forall pv av m.
     (IsProtocolVersion pv, MonadBlobStore m, AccountVersionFor pv ~ av) =>

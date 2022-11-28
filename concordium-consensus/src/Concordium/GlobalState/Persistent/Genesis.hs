@@ -4,6 +4,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
+-- |This module contains functions to construct an initial block state from genesis data.
 module Concordium.GlobalState.Persistent.Genesis (genesisState) where
 
 import qualified Concordium.Genesis.Data as GenesisData
@@ -42,6 +43,7 @@ import Lens.Micro.Platform
 
 -- |Initial block state based on 'GenesisData', for a given protocol version.
 -- This also returns the transaction table.
+-- The result is immediately flushed to disc and cached.
 genesisState ::
     forall pv av m.
     (BS.SupportsPersistentState pv m, Types.AccountVersionFor pv ~ av) =>
@@ -86,11 +88,17 @@ data AccumGenesisState pv = AccumGenesisState
       agsStakedTotal :: Types.Amount,
       -- | List of baker info refs in incremental order of the baker ID.
       agsBakerInfoRefs :: Vec.Vector (Account.PersistentBakerInfoRef (Types.AccountVersionFor pv)),
-      -- | List of baker stake  in incremental order of the baker ID.
+      -- | List of baker stake in incremental order of the baker ID.
+      -- Entries in this list should have a matching entry in agsBakerCapitals.
+      -- In the end result these are needed separately and are therefore constructed separately.
       agsBakerStakes :: Vec.Vector Types.Amount,
       -- | List of baker capital in incremental order of the baker ID.
+      -- Entries in this list should have a matching entry in agsBakerStakes.
+      -- In the end result these are needed separately and are therefore constructed separately.
       agsBakerCapitals :: Vec.Vector CapDist.BakerCapital
     }
+
+--------- Helper functions ----------
 
 -- | The initial value for accumulating data from genesis data accounts.
 initialAccumGenesisState :: AccumGenesisState pv
@@ -106,7 +114,8 @@ initialAccumGenesisState =
           agsBakerCapitals = Vec.empty
         }
 
--- | Construct a hashed persistent block state from the data in genesis
+-- | Construct a hashed persistent block state from the data in genesis.
+-- The result is immediately flushed to disc and cached.
 buildGenesisBlockState ::
     forall pv av m.
     (BS.SupportsPersistentState pv m, Types.AccountVersionFor pv ~ av) =>
@@ -188,11 +197,11 @@ buildGenesisBlockState GenesisData.CoreGenesisParameters{..} GenesisData.Genesis
     cryptographicParameters <- Blob.bufferHashed $ Types.makeHashed genesisCryptographicParameters
 
     persistentUpdates <- Updates.initialUpdates genesisUpdateKeys genesisChainParameters
-    updates <- Blob.makeBufferedRef persistentUpdates
+    updates <- Blob.refMakeFlushed persistentUpdates
 
     releaseSchedule <- ReleaseSchedule.emptyReleaseSchedule
     bsp <-
-        Blob.makeBufferedRef $
+        Blob.refMakeFlushed $
             BS.BlockStatePointers
                 { bspAccounts = agsAllAccounts,
                   bspInstances = Instances.emptyInstances,
@@ -222,7 +231,7 @@ buildGenesisBlockState GenesisData.CoreGenesisParameters{..} GenesisData.Genesis
         MTL.ExceptT String m (AccumGenesisState pv)
     accumStateFromGenesisAccounts state index genesisAccount = do
         -- Create the persistent account
-        persistentAccount <-
+        !persistentAccount <-
             Account.makeFromGenesisAccount
                 (Types.protocolVersion @pv)
                 genesisCryptographicParameters
@@ -249,6 +258,8 @@ buildGenesisBlockState GenesisData.CoreGenesisParameters{..} GenesisData.Genesis
                 let !nextBakerStakes = Vec.snoc (agsBakerStakes state) gbStake
 
                 infoRef <-
+                    -- If the result is Nothing, we have failed to construct the account as a baker
+                    -- which is a bug in the code, hence the usage of error and not throwError.
                     fromMaybe (error "Invariant violation: genesis baker is not baker")
                         <$> Account.accountBakerInfoRef persistentAccount
                 let !nextBakerInfoRefs = Vec.snoc (agsBakerInfoRefs state) infoRef

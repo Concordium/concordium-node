@@ -916,9 +916,9 @@ class Monad m => Reference m ref a where
 
     -- |Create a reference to a value and flush it. It returns the flushed reference.
     refMakeFlushed :: a -> m (ref a)
-    refMakeFlushed v = do
+    refMakeFlushed !v = do
         ref <- refMake v
-        fst <$> refFlush ref
+        fst <$!> refFlush ref
 
     -- |Given a reference, flush the data and return an uncached reference.
     refUncache :: ref a -> m (ref a)
