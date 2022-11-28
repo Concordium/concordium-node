@@ -260,6 +260,10 @@ pub struct execute_block {
 /// Abstracts the reference required to execute a block that has been received.
 #[repr(transparent)]
 pub struct ExecuteBlockCallback {
+    // We allow `dead_code` here as the 'ExecuteBlockCallback'
+    // is represented as 'transparent' thus the '*mut execute_block' is passed
+    // to the consensus layer.
+    #[allow(dead_code)]
     callback: *mut execute_block,
 }
 
@@ -396,7 +400,7 @@ extern "C" {
         consensus: *mut consensus_runner,
         // Pointer to the continuation for
         // adding the block to the tree.
-        execute_block_callback: *mut execute_block,
+        execute_block_callback: ExecuteBlockCallback,
     ) -> i64;
     pub fn receiveFinalizationMessage(
         consensus: *mut consensus_runner,
@@ -1501,7 +1505,7 @@ impl ConsensusContainer {
         execute_block_callback: ExecuteBlockCallback,
     ) -> ConsensusFfiResponse {
         let consensus = self.consensus.load(Ordering::SeqCst);
-        let result = unsafe { executeBlock(consensus, execute_block_callback.callback) };
+        let result = unsafe { executeBlock(consensus, execute_block_callback) };
         ConsensusFfiResponse::try_from(result)
             .unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code))
     }
