@@ -1029,7 +1029,7 @@ newtype ExecuteBlock = ExecuteBlock {runBlock :: IO Skov.UpdateResult}
 -- This is used for marking blocks as pending or even dead
 --
 -- The continuation for executing the block is running a skov transaction thus
--- the continuation when called is holding the write lock when exeuctuting the block
+-- the continuation when called is holding the write lock when executing the block
 -- and releasing it again when it is finished.
 --
 -- The continuation is expected to be invoked via 'executeBlock'.
