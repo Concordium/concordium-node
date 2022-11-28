@@ -250,7 +250,7 @@ pub struct consensus_runner {
 /// An opaque reference to an 'executable block' i.e., a block that
 /// where the metadata has been verified.
 /// The value behind the reference i.e. the "execute block continuation"
-/// is created in the consensus module but its owned here on the rust side.
+/// is created in the consensus module but it's owned here on the rust side.
 /// The value is being freed by the consensus side via 'executeBlock'.
 #[repr(C)]
 pub struct execute_block {
