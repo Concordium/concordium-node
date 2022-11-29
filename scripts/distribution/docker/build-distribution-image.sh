@@ -24,7 +24,7 @@
 set -euxo pipefail
 
 # Build the image and tag it as static-node-binaries
-GHC_VERSION="${ghc_version}" UBUNTU_VERSION=20.04 STATIC_LIBRARIES_IMAGE_TAG="${static_libraries_image_tag}" STATIC_BINARIES_IMAGE_TAG="${static_binaries_image_tag:-latest}" EXTRA_FEATURES="collector" ./scripts/static-binaries/build-static-binaries.sh
+GHC_VERSION="${ghc_version}" UBUNTU_VERSION=20.04 STATIC_LIBRARIES_IMAGE_TAG="${static_libraries_image_tag}" STATIC_BINARIES_IMAGE_TAG="${static_binaries_image_tag:-latest}" EXTRA_FEATURES="collector,instrumentation" ./scripts/static-binaries/build-static-binaries.sh
 
 # Then pack it all together with genesis
 DOCKER_BUILDKIT=1 docker build\
