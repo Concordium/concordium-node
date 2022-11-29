@@ -60,7 +60,8 @@
 -- > | (Null <-) r3 | (r3 <-) r2 | (r2 <-) r1 | [Just (r1 <-)] | [Just (r2 <-)] | (Null <-) s2 | (s2 <-) s1 | [Just (r2 <-), Just (s1 <-)] | [Nothing, Just (s1 <-)] | [] |
 module Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule (
     -- * Account Release Schedule type
-    AccountReleaseSchedule,
+    AccountReleaseSchedule (..),
+    Release,
 
     -- * Query
     isEmptyAccountReleaseSchedule,
@@ -80,6 +81,7 @@ module Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule (
     -- * Queries
     releaseScheduleLockedBalance,
     nextReleaseTimestamp,
+    listRelease,
 ) where
 
 import Concordium.Crypto.SHA256
@@ -370,3 +372,11 @@ releaseScheduleLockedBalance = _arsTotalLockedUpBalance
 -- |Get the timestamp at which the next scheduled release will occur (if any).
 nextReleaseTimestamp :: AccountReleaseSchedule -> Maybe Timestamp
 nextReleaseTimestamp = fmap fst . Map.lookupMin . _arsPrioQueue
+
+-- |List a release as timestamp and amount pairs.
+listRelease :: MonadBlobStore m => Release -> m [(Timestamp, Amount)]
+listRelease loadedRelease = do
+    next <- case _rNext loadedRelease of
+        Null -> return []
+        Some n -> refLoad n >>= listRelease
+    return $ (_rTimestamp loadedRelease, _rAmount loadedRelease) : next

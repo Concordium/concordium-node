@@ -24,7 +24,6 @@
 module Concordium.GlobalState.Persistent.BlockState.AccountReleaseScheduleV1 where
 
 import Control.Monad
-import Control.Monad.Trans
 import Data.Foldable
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as Map
@@ -35,15 +34,14 @@ import qualified Data.Vector.Mutable as MVec
 import Data.Word
 
 import qualified Concordium.Crypto.SHA256 as Hash
-import Concordium.Types
-import Concordium.Types.Accounts.Releases
-import Concordium.Utils
-import Concordium.Utils.Serialization
-
 import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseScheduleV1 as TARSV1
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule as ARSV0
+import Concordium.Types
+import Concordium.Types.Accounts.Releases
 import Concordium.Types.HashableTo
+import Concordium.Utils
+import Concordium.Utils.Serialization
 
 -- |Releases that belong to a single 'ReleaseScheduleEntry'.
 data Releases = Releases
@@ -242,10 +240,24 @@ migrateAccountReleaseSchedule AccountReleaseSchedule{..} = AccountReleaseSchedul
         newReleasesRef <- migrateReference return rseReleasesRef
         return $! ReleaseScheduleEntry{rseReleasesRef = newReleasesRef, ..}
 
-migrateAccountReleaseScheduleFromV0 :: SupportMigration m t => ARSV0.AccountReleaseSchedule -> t m AccountReleaseSchedule
-migrateAccountReleaseScheduleFromV0 ars = do
-    tarsV0 <- lift $ ARSV0.loadPersistentAccountReleaseSchedule ars
-    makePersistentAccountReleaseSchedule $ TARSV1.fromAccountReleaseScheduleV0 tarsV0
+migrateAccountReleaseScheduleFromV0 ::
+    forall t m.
+    SupportMigration m t =>
+    ARSV0.AccountReleaseSchedule ->
+    t m AccountReleaseSchedule
+migrateAccountReleaseScheduleFromV0 schedule = do
+    Vector.foldM' buildSchedule emptyAccountReleaseSchedule (ARSV0._arsValues schedule)
+  where
+    buildSchedule ::
+        AccountReleaseSchedule ->
+        Nullable (EagerlyHashedBufferedRef ARSV0.Release, TransactionHash) ->
+        t m AccountReleaseSchedule
+    buildSchedule schedule' value =
+        case value of
+            Null -> return schedule'
+            Some (release, transactionHash) -> do
+                releases <- refLoad release >>= ARSV0.listRelease
+                addReleases (releases, transactionHash) schedule'
 
 -- |Serialize an 'AccountReleaseSchedule' in the serialization format for
 -- 'TARSV1.AccountReleaseSchedule'.
