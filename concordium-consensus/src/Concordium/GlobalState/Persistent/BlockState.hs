@@ -26,8 +26,11 @@ module Concordium.GlobalState.Persistent.BlockState (
     makePersistent,
     initialPersistentState,
     emptyBlockState,
+    emptyHashedEpochBlocks,
+    emptyPersistentTransactionOutcomes,
     PersistentBlockStateContext (..),
     PersistentState,
+    BlockRewardDetails (..),
     PersistentBlockStateMonad (..),
     withNewAccountCache,
     cacheStateAndGetTransactionTable,
@@ -88,6 +91,7 @@ import Concordium.Utils.BinarySearch
 import Concordium.Utils.Serialization
 import Concordium.Utils.Serialization.Put
 import qualified Concordium.Wasm as Wasm
+
 import qualified Control.Monad.Except as MTL
 import Control.Monad.Reader
 import qualified Control.Monad.State.Strict as MTL
@@ -502,6 +506,12 @@ emptyMerkleTransactionOutcomes =
 data PersistentTransactionOutcomes (tov :: TransactionOutcomesVersion) where
     PTOV0 :: Transactions.TransactionOutcomes -> PersistentTransactionOutcomes 'TOV0
     PTOV1 :: MerkleTransactionOutcomes -> PersistentTransactionOutcomes 'TOV1
+
+-- |Create an empty persistent transaction outcome
+emptyPersistentTransactionOutcomes :: forall tov. IsTransactionOutcomesVersion tov => PersistentTransactionOutcomes tov
+emptyPersistentTransactionOutcomes = case transactionOutcomesVersion @tov of
+    STOV0 -> PTOV0 Transactions.emptyTransactionOutcomesV0
+    STOV1 -> PTOV1 emptyMerkleTransactionOutcomes
 
 instance BlobStorable m TransactionSummaryV1 => MHashableTo m Transactions.TransactionOutcomesHash (PersistentTransactionOutcomes tov) where
     getHashM (PTOV0 bto) = return (getHash bto)

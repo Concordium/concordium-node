@@ -256,68 +256,29 @@ pub fn handle_consensus_inbound_msg(
     };
 
     let source = request.source_peer();
-
-    if node.config.no_rebroadcast_consensus_validation {
-        if !drop_message
-            && request.distribution_mode() == DistributionMode::Broadcast
-            && request.variant.is_rebroadcastable()
-        {
-            send_consensus_msg_to_net(
-                node,
-                request.dont_relay_to(),
-                None,
-                (request.payload.clone(), request.variant),
-            );
-        }
-
-        // relay external messages to Consensus
-        let (consensus_result, finalizer) =
-            send_msg_to_consensus(node, source, consensus, &request)?;
-
-        // Execute any finalizer returned from the consensus layer.
-        if let Some(callback) = finalizer {
-            // Execute the block in the finalizer.
-            // There is nothing left to do afterwards.
-            let _ = consensus.execute_block(callback);
-        } // Else there is nothing to do, the block is processed.
-
-        // early blocks should be removed from the deduplication queue
-        if consensus_result == ConsensusFfiResponse::BlockTooEarly {
-            write_or_die!(&node.connection_handler.deduplication_queues.blocks)
-                .invalidate_if_exists(&request.payload);
-        }
-
-        // adjust the peer state(s) based on the feedback from Consensus
-        update_peer_states(node, &request, consensus_result);
-    } else {
-        // relay external messages to Consensus
-        let (consensus_result, finalizer) =
-            send_msg_to_consensus(node, source, consensus, &request)?;
-
-        // adjust the peer state(s) based on the feedback from Consensus
-        update_peer_states(node, &request, consensus_result);
-
-        // rebroadcast incoming broadcasts if applicable
-        if !drop_message
-            && request.distribution_mode() == DistributionMode::Broadcast
-            && request.variant.is_rebroadcastable()
-            && consensus_result.is_rebroadcastable(request.variant)
-        {
-            send_consensus_msg_to_net(
-                node,
-                request.dont_relay_to(),
-                None,
-                (request.payload, request.variant),
-            );
-        }
-
-        // Execute any finalizer returned from the consensus layer.
-        if let Some(callback) = finalizer {
-            // Execute the block in the finalizer.
-            // There is nothing left to do afterwards.
-            let _ = consensus.execute_block(callback);
-        } // Else there is nothing to do, the block is processed.
+    // relay external messages to Consensus
+    let (consensus_result, finalizer) = send_msg_to_consensus(node, source, consensus, &request)?;
+    // adjust the peer state(s) based on the feedback from Consensus
+    update_peer_states(node, &request, consensus_result);
+    // rebroadcast incoming broadcasts if applicable
+    if !drop_message
+        && request.distribution_mode() == DistributionMode::Broadcast
+        && request.variant.is_rebroadcastable()
+        && consensus_result.is_rebroadcastable(request.variant)
+    {
+        send_consensus_msg_to_net(
+            node,
+            request.dont_relay_to(),
+            None,
+            (request.payload, request.variant),
+        );
     }
+    // Execute any finalizer returned from the consensus layer.
+    if let Some(callback) = finalizer {
+        // Execute the block in the finalizer.
+        // There is nothing left to do afterwards.
+        let _ = consensus.execute_block(callback);
+    } // Else there is nothing to do, the block is processed.
 
     Ok(())
 }

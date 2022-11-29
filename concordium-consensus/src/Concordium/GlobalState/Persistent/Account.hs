@@ -19,6 +19,7 @@ import Concordium.Types.Accounts
 import Concordium.Types.Accounts.Releases
 import Concordium.Types.Execution
 import Concordium.Types.HashableTo
+import Concordium.Types.Parameters
 import Concordium.Utils.Serialization.Put
 
 import qualified Concordium.Crypto.SHA256 as Hash
@@ -480,6 +481,25 @@ newAccount = case accountVersion @av of
     SAccountV0 -> \ctx addr cred -> PAV0 <$> V0.newAccount ctx addr cred
     SAccountV1 -> \ctx addr cred -> PAV1 <$> V0.newAccount ctx addr cred
     SAccountV2 -> \ctx addr cred -> PAV2 <$> V1.newAccount ctx addr cred
+
+-- |Make a persistent account from a genesis account.
+-- The data is immediately flushed to disc and cached.
+makeFromGenesisAccount ::
+    forall pv av m.
+    (IsProtocolVersion pv, MonadBlobStore m, AccountVersionFor pv ~ av) =>
+    SProtocolVersion pv ->
+    GlobalContext ->
+    ChainParameters pv ->
+    GenesisAccount ->
+    m (PersistentAccount av)
+makeFromGenesisAccount spv =
+    case accountVersion @av of
+        SAccountV0 -> \cryptoParams chainParameters genesisAccount ->
+            PAV0 <$> V0.makeFromGenesisAccount spv cryptoParams chainParameters genesisAccount
+        SAccountV1 -> \cryptoParams chainParameters genesisAccount ->
+            PAV1 <$> V0.makeFromGenesisAccount spv cryptoParams chainParameters genesisAccount
+        SAccountV2 -> \cryptoParams chainParameters genesisAccount ->
+            PAV2 <$> V1.makeFromGenesisAccount spv cryptoParams chainParameters genesisAccount
 
 -- ** 'PersistentBakerInfoRef' creation
 

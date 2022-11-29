@@ -312,7 +312,7 @@ testRewardDistribution = do
         assertBool "persistent" resultPersistent
   where
     gd = genesis 5 ^. _1 :: GenesisData 'P4
-    (ibs, genTT) = case genesisState gd of
+    (ibs, genTT) = case Concordium.GlobalState.Basic.BlockState.genesisState gd of
         Right x -> x
         Left _ -> (_unhashedBlockState initialPureBlockState :: Concordium.GlobalState.Basic.BlockState.BlockState 'P4, emptyTransactionTable)
     blockParentPure = makeGenesisBasicBlockPointer (genesisConfiguration gd) initialPureBlockState

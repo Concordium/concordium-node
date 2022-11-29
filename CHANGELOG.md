@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased changes
+- Removed the configuration option 'no_rebroadcast_consensus_validation'.
+
+## 5.1.0
 
 - Improvements to allow greater concurrency with transaction processing.
   (Checking transaction signatures is done without acquiring the global
