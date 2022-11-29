@@ -257,7 +257,7 @@ class (SkovQueryMonad m, TimeMonad m, MonadLogger m) => SkovMonad m where
     --  - Consensus is running.
     --  - The block is not too early.
     --  - Whether the block is a duplicate.
-    --  - Whether the block is stale (the parent is either dead or the parent is older than the last finalized block)  
+    --  - Whether the block is stale (the parent is either dead or the parent is older than the last finalized block)
     --  - If the parent of the block is alive then:
     --      - Check the claimed signature on the block.
     --      - Check that the slot number exceeds the parent.
