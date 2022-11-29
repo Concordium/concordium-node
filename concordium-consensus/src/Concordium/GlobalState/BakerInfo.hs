@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -8,16 +9,16 @@
 module Concordium.GlobalState.BakerInfo where
 
 import qualified Concordium.Crypto.SHA256 as H
+import Concordium.Genesis.Data
+import Concordium.Scheduler.Types
 import Concordium.Types.Accounts
 import Concordium.Types.HashableTo
 import Concordium.Utils.BinarySearch
+
 import Data.Ratio
 import Data.Serialize
 import qualified Data.Vector as Vec
 import Lens.Micro.Platform
-
-import Concordium.Types
-import Concordium.Types.Execution (DelegationTarget, OpenStatus)
 
 data FullBakerInfo = FullBakerInfo
     { _theBakerInfo :: !BakerInfo,
@@ -277,3 +278,42 @@ data DelegationConfigureResult
     | -- |The delegated capital would become too large in comparison with pool owner's equity capital.
       DCPoolOverDelegated
     deriving (Eq, Show)
+
+-- |Construct an 'AccountBaker' from a 'GenesisBaker'.
+-- For 'P4', this creates the baker with the initial pool status being open for all, the
+-- empty metadata URL and the maximum commission rates allowable under the chain parameters.
+genesisBakerInfo :: forall pv. SProtocolVersion pv -> ChainParameters pv -> GenesisBaker -> AccountBaker (AccountVersionFor pv)
+genesisBakerInfo spv cp baker@GenesisBaker{..} = AccountBaker{..}
+  where
+    _stakedAmount = gbStake
+    _stakeEarnings = gbRestakeEarnings
+    _accountBakerInfo = genesisBakerInfoEx spv cp baker
+    _bakerPendingChange = NoChange
+
+-- |Construct an 'BakerInfoEx' from a 'GenesisBaker'.
+-- For 'P4', this creates the baker with the initial pool status being open for all, the
+-- empty metadata URL and the maximum commission rates allowable under the chain parameters.
+genesisBakerInfoEx :: forall pv. SProtocolVersion pv -> ChainParameters pv -> GenesisBaker -> BakerInfoEx (AccountVersionFor pv)
+genesisBakerInfoEx spv cp GenesisBaker{..} = case spv of
+    SP1 -> BakerInfoExV0 bkrInfo
+    SP2 -> BakerInfoExV0 bkrInfo
+    SP3 -> BakerInfoExV0 bkrInfo
+    SP4 -> binfoV1
+    SP5 -> binfoV1
+  where
+    bkrInfo =
+        BakerInfo
+            { _bakerIdentity = gbBakerId,
+              _bakerSignatureVerifyKey = gbSignatureVerifyKey,
+              _bakerElectionVerifyKey = gbElectionVerifyKey,
+              _bakerAggregationVerifyKey = gbAggregationVerifyKey
+            }
+    binfoV1 :: (SupportsDelegation pv, ChainParametersVersionFor pv ~ 'ChainParametersV1) => BakerInfoEx (AccountVersionFor pv)
+    binfoV1 =
+        BakerInfoExV1
+            bkrInfo
+            BakerPoolInfo
+                { _poolOpenStatus = OpenForAll,
+                  _poolMetadataUrl = emptyUrlText,
+                  _poolCommissionRates = cp ^. cpPoolParameters . ppCommissionBounds . to maximumCommissionRates
+                }
