@@ -285,11 +285,9 @@ addBlockAsPending block = do
 --
 -- 1. If a finalization record is present then it's verified.
 --
--- 2. The block nonce is verified.
+-- 2. The claimed state hash matches the one resulting from execution.
 --
--- 3. The claimed state hash matches the one resulting from execution.
---
--- 4. The claimed transaction outcomes hash matches the one resulting from execution.
+-- 3. The claimed transaction outcomes hash matches the one resulting from execution.
 --
 -- PRECONDITION: The parent of the block provided must be alive.
 addBlockWithLiveParent ::
@@ -449,7 +447,9 @@ processPendingChild block = do
 --
 -- 3. The baker key matches the block's claimed key.
 --
--- 4. The block proof is valid.
+-- 4. The block nonce is valid.
+--
+-- 5. The block proof is valid.
 --
 -- If any check fails, @Left e@ is returned, where @e@ is a 'String' describing the failure.
 -- Otherwise @Right ()@ is returned.
@@ -631,11 +631,10 @@ doReceiveBlock pb@GB.PendingBlock{pbBlock = BakedBlock{..}, ..} =
     -- Processes a pending block that cannot be immediately be executed.
     processPending slotTime maybeParentBlockSlot = do
         -- Check:
-        -- - Check signature on block
-        -- - Claimed baker key is valid in committee
-        -- - Proof is valid
+        -- - Claimed baker key is valid in committee (if possible to check).
+        -- - Proof is valid (if possible to check).
         -- - Signature is correct with the claimed key.
-        -- - Assert that transactions can be verified wtr. the last finalized block.
+        -- - Assert that transactions can be verified with reference to the last finalized block.
         lastFin <- fst <$> getLastFinalized
         lastFinBS <- blockState lastFin
         gd <- getGenesisData

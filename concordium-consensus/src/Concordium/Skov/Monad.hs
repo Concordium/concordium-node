@@ -243,7 +243,7 @@ newtype VerifiedPendingBlock = VerifiedPendingBlock PendingBlock
 
 class (SkovQueryMonad m, TimeMonad m, MonadLogger m) => SkovMonad m where
     -- |Receive a block from the network.
-    -- This checks the validity of the block itself but no transactions are verified yet.
+    -- This checks the authenticity of the block itself but no transactions are verified yet.
     --
     -- A 'Just VerifiedPendingBlock' will be returned only if the parent of the block is live
     -- and the metadata of the block could be verified.
@@ -253,10 +253,26 @@ class (SkovQueryMonad m, TimeMonad m, MonadLogger m) => SkovMonad m where
     -- Note. As `receiveBlock` and 'executeBlock' both acquire and release a write lock on the state then
     -- it is possible that the state has changed in between the two calls, but this is OK as
     -- 'executeBlock' must always ensure that the parent of the 'PendingBlock' is alive.
+    -- 'receiveBlock' checks the following:
+    --  - Consensus is running.
+    --  - The block is not too early.
+    --  - Whether the block is a duplicate.
+    --  - Whether the block is stale (the parent is either dead or the parent is older than the last finalized block)  
+    --  - If the parent of the block is alive then:
+    --      - Check the claimed signature on the block.
+    --      - Check that the slot number exceeds the parent.
+    --      - Check that the block baker is valid.
+    --      - Check that the baker key matches the one claimed in the block.
+    --      - Check that the block proof is valid (i.e. that the baker is entitled to bake the block for the given slot)
+    --  - If the parent block is pending (awaiting its parent to become alive)
+    --      - If possible check the claimed baker key is valid in the baking committee.
+    --      - If possible check that the block proof is valid (i.e. that the baker is entitled to bake the block for the given slot).
+    --      - Check that block the claimed signature is valid and stems from a valid baker.
+    --      - Check that the transactions can be verified with reference to the last finalized block.
     receiveBlock :: PendingBlock -> m (UpdateResult, Maybe VerifiedPendingBlock)
 
     -- |Inserts a 'PendingBlock' given the provided 'VerifiedPendingBlock'.
-    -- Execute block must check that the parent block is 'alive'
+    -- Execute block must check that the parent block is alive.
     -- before adding the block to the tree.
     executeBlock :: VerifiedPendingBlock -> m UpdateResult
 

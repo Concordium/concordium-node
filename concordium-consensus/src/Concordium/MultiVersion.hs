@@ -1056,8 +1056,8 @@ receiveBlock gi blockBS = withLatestExpectedVersion gi $
                             let cont = ExecuteBlock $ runMVR (runSkovTransaction vc (Skov.executeBlock verifiedPendingBlock)) mvr
                             return (updateResult, Just cont)
 
--- |Invoke the continuation yielded in a 'ExecuteBlock'.
--- The continuation yields a 'runSkovTransaction' which will acquire the write lock
+-- |Invoke the continuation yielded by 'receiveBlock'.
+-- The continuation performs a 'runSkovTransaction' which will acquire the write lock
 -- before trying to add the block to the tree and release the lock again afterwards.
 executeBlock :: ExecuteBlock -> MVR gsconf finconf Skov.UpdateResult
 executeBlock = liftIO . runBlock

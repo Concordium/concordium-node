@@ -258,14 +258,11 @@ pub struct execute_block {
 }
 
 /// Abstracts the reference required to execute a block that has been received.
+/// This wrapper type exists so we make sure that the same '*mut execute_block'
+/// is not called twice as we pass ownership of 'ExecuteBlockCallback' to
+/// 'executeBlock'.
 #[repr(transparent)]
-pub struct ExecuteBlockCallback {
-    // We allow `dead_code` here as the 'ExecuteBlockCallback'
-    // is represented as 'transparent' thus the '*mut execute_block' is passed
-    // to the consensus layer.
-    #[allow(dead_code)]
-    callback: *mut execute_block,
-}
+pub struct ExecuteBlockCallback(*mut execute_block);
 
 type LogCallback = extern "C" fn(c_char, c_char, *const u8);
 type BroadcastCallback = extern "C" fn(i64, u32, *const u8, i64);
@@ -1487,10 +1484,7 @@ impl ConsensusContainer {
         let callback = if ptr_block_to_execute.is_null() {
             None
         } else {
-            let cbk = ExecuteBlockCallback {
-                callback: ptr_block_to_execute,
-            };
-            Some(cbk)
+            Some(ExecuteBlockCallback(ptr_block_to_execute))
         };
 
         (
