@@ -170,16 +170,16 @@ bake bid n = do
 -- |Attempts to store a block, and throws an error if it fails
 store :: (SkovMonad m, MonadFail m) => BakedBlock -> m ()
 store block =
-    storeBlock (makePendingBlock block dummyTime) >>= \case
+    receiveExecuteBlock (makePendingBlock block dummyTime) >>= \case
         ResultSuccess -> return ()
-        result -> fail $ "Failed to store un-dirtied block " ++ show block ++ ". Reason: " ++ show result
+        result -> fail $ "Failed to execute un-dirtied block " ++ show block ++ ". Reason: " ++ show result
 
 -- |Attempts to store a block, and throws an error if it succeeds
 -- Used for verifying that dirtied blocks are rejected
 failStore :: (SkovMonad m, MonadFail m) => BakedBlock -> m ()
 failStore block =
-    storeBlock (makePendingBlock block dummyTime) >>= \case
-        ResultSuccess -> fail $ "Successfully stored dirtied block: " ++ show block
+    receiveExecuteBlock (makePendingBlock block dummyTime) >>= \case
+        ResultSuccess -> fail $ "Successfully executed dirtied block: " ++ show block
         _ -> return ()
 
 -- * Helper functions for dirtying fields of blocks

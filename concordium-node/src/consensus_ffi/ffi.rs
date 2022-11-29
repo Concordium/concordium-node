@@ -247,6 +247,23 @@ pub struct consensus_runner {
     private: [u8; 0],
 }
 
+/// An opaque reference to an 'executable block' i.e., a block
+/// where the metadata has been verified.
+/// The value behind the reference i.e. the "execute block continuation"
+/// is created in the consensus module but it's owned here on the rust side.
+/// The value is being freed by the consensus side via 'executeBlock'.
+#[repr(C)]
+pub struct execute_block {
+    private: [u8; 0],
+}
+
+/// Abstracts the reference required to execute a block that has been received.
+/// This wrapper type exists so we make sure that the same '*mut execute_block'
+/// is not called twice as we pass ownership of 'ExecuteBlockCallback' to
+/// 'executeBlock'.
+#[repr(transparent)]
+pub struct ExecuteBlockCallback(*mut execute_block);
+
 type LogCallback = extern "C" fn(c_char, c_char, *const u8);
 type BroadcastCallback = extern "C" fn(i64, u32, *const u8, i64);
 type CatchUpStatusCallback = extern "C" fn(u32, *const u8, i64);
@@ -365,13 +382,22 @@ extern "C" {
         appdata_dir_len: i64,
         runner_ptr_ptr: *mut *mut consensus_runner,
     ) -> i64;
-    #[allow(improper_ctypes)]
     pub fn startBaker(consensus: *mut consensus_runner);
     pub fn receiveBlock(
         consensus: *mut consensus_runner,
         genesis_index: u32,
         block_data: *const u8,
-        data_length: i64,
+        data_length: u64,
+        // A mutable *pointer that will be written to
+        // by the consensus layer with continuation required for
+        // executing the just received block.
+        execute_block_ptr_ptr: *mut *mut execute_block,
+    ) -> i64;
+    pub fn executeBlock(
+        consensus: *mut consensus_runner,
+        // Pointer to the continuation for
+        // adding the block to the tree.
+        execute_block_callback: ExecuteBlockCallback,
     ) -> i64;
     pub fn receiveFinalizationMessage(
         consensus: *mut consensus_runner,
@@ -1437,8 +1463,45 @@ pub fn get_consensus_ptr(
 }
 
 impl ConsensusContainer {
-    pub fn send_block(&self, genesis_index: u32, block: &[u8]) -> ConsensusFfiResponse {
-        wrap_send_data_to_c!(self, genesis_index, block, receiveBlock)
+    pub fn receive_block(
+        &self,
+        genesis_index: u32,
+        block: &[u8],
+    ) -> (ConsensusFfiResponse, Option<ExecuteBlockCallback>) {
+        let consensus = self.consensus.load(Ordering::SeqCst);
+
+        let mut ptr_block_to_execute = std::ptr::null_mut();
+        let ptr_ptr_block_to_execute = &mut ptr_block_to_execute;
+        let result = unsafe {
+            receiveBlock(
+                consensus,
+                genesis_index,
+                block.as_ptr(),
+                block.len() as u64,
+                ptr_ptr_block_to_execute,
+            )
+        };
+        let callback = if ptr_block_to_execute.is_null() {
+            None
+        } else {
+            Some(ExecuteBlockCallback(ptr_block_to_execute))
+        };
+
+        (
+            ConsensusFfiResponse::try_from(result)
+                .unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code)),
+            callback,
+        )
+    }
+
+    pub fn execute_block(
+        &self,
+        execute_block_callback: ExecuteBlockCallback,
+    ) -> ConsensusFfiResponse {
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let result = unsafe { executeBlock(consensus, execute_block_callback) };
+        ConsensusFfiResponse::try_from(result)
+            .unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code))
     }
 
     pub fn send_finalization(&self, genesis_index: u32, msg: &[u8]) -> ConsensusFfiResponse {
