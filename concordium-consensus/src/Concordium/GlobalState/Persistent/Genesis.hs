@@ -49,27 +49,22 @@ genesisState ::
     (BS.SupportsPersistentState pv m, Types.AccountVersionFor pv ~ av) =>
     GenesisData.GenesisData pv ->
     m (Either String (BS.HashedPersistentBlockState pv, TransactionTable.TransactionTable))
-genesisState gd = case Types.protocolVersion @pv of
+genesisState gd = MTL.runExceptT $ case Types.protocolVersion @pv of
     Types.SP1 -> case gd of
         GenesisData.GDP1 P1.GDP1Initial{..} ->
-            MTL.runExceptT $
-                buildGenesisBlockState genesisCore genesisInitialState
+            buildGenesisBlockState genesisCore genesisInitialState
     Types.SP2 -> case gd of
         GenesisData.GDP2 P2.GDP2Initial{..} ->
-            MTL.runExceptT $
-                buildGenesisBlockState genesisCore genesisInitialState
+            buildGenesisBlockState genesisCore genesisInitialState
     Types.SP3 -> case gd of
         GenesisData.GDP3 P3.GDP3Initial{..} ->
-            MTL.runExceptT $
-                buildGenesisBlockState genesisCore genesisInitialState
+            buildGenesisBlockState genesisCore genesisInitialState
     Types.SP4 -> case gd of
         GenesisData.GDP4 P4.GDP4Initial{..} ->
-            MTL.runExceptT $
-                buildGenesisBlockState genesisCore genesisInitialState
+            buildGenesisBlockState genesisCore genesisInitialState
     Types.SP5 -> case gd of
         GenesisData.GDP5 P5.GDP5Initial{..} ->
-            MTL.runExceptT $
-                buildGenesisBlockState genesisCore genesisInitialState
+            buildGenesisBlockState genesisCore genesisInitialState
 
 -------- Types -----------
 
@@ -77,25 +72,25 @@ genesisState gd = case Types.protocolVersion @pv of
 -- It is then used to construct the initial block state from genesis.
 data AccumGenesisState pv = AccumGenesisState
     { -- | Tracking all the accounts.
-      agsAllAccounts :: Accounts.Accounts pv,
+      agsAllAccounts :: !(Accounts.Accounts pv),
       -- | Collection of the IDs of the active bakers.
-      agsBakerIds :: Bakers.BakerIdTrieMap (Types.AccountVersionFor pv),
+      agsBakerIds :: !(Bakers.BakerIdTrieMap (Types.AccountVersionFor pv)),
       -- | Collection of the aggregation keys of the active bakers.
-      agsBakerKeys :: Bakers.AggregationKeySet,
+      agsBakerKeys :: !Bakers.AggregationKeySet,
       -- | Total amount owned by accounts.
-      agsTotal :: Types.Amount,
+      agsTotal :: !Types.Amount,
       -- | Total staked amount by bakers.
-      agsStakedTotal :: Types.Amount,
+      agsStakedTotal :: !Types.Amount,
       -- | List of baker info refs in incremental order of the baker ID.
-      agsBakerInfoRefs :: Vec.Vector (Account.PersistentBakerInfoRef (Types.AccountVersionFor pv)),
+      agsBakerInfoRefs :: !(Vec.Vector (Account.PersistentBakerInfoRef (Types.AccountVersionFor pv))),
       -- | List of baker stake in incremental order of the baker ID.
       -- Entries in this list should have a matching entry in agsBakerCapitals.
       -- In the end result these are needed separately and are therefore constructed separately.
-      agsBakerStakes :: Vec.Vector Types.Amount,
+      agsBakerStakes :: !(Vec.Vector Types.Amount),
       -- | List of baker capital in incremental order of the baker ID.
       -- Entries in this list should have a matching entry in agsBakerStakes.
       -- In the end result these are needed separately and are therefore constructed separately.
-      agsBakerCapitals :: Vec.Vector CapDist.BakerCapital
+      agsBakerCapitals :: !(Vec.Vector CapDist.BakerCapital)
     }
 
 --------- Helper functions ----------
@@ -264,7 +259,7 @@ buildGenesisBlockState GenesisData.CoreGenesisParameters{..} GenesisData.Genesis
                         <$> Account.accountBakerInfoRef persistentAccount
                 let !nextBakerInfoRefs = Vec.snoc (agsBakerInfoRefs state) infoRef
                 let !nextBakerCapitals = Vec.snoc (agsBakerCapitals state) $ bakerCapitalFromGenesis baker
-                return
+                return $!
                     updatedState
                         { agsBakerIds = nextBakerIds,
                           agsBakerKeys = nextBakerKeys,

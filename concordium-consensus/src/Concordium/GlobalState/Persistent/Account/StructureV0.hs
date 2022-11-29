@@ -41,8 +41,7 @@ import Concordium.Utils.Serialization
 import Concordium.Utils.Serialization.Put
 
 import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount, replaceUpTo)
-import Concordium.GlobalState.BakerInfo (BakerAdd (..), BakerKeyUpdate (..), bakerKeyUpdateToInfo)
-import Concordium.GlobalState.Basic.BlockState (genesisBakerInfo)
+import Concordium.GlobalState.BakerInfo (BakerAdd (..), BakerKeyUpdate (..), bakerKeyUpdateToInfo, genesisBakerInfo)
 import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
 import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as Transient
 import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseScheduleV0 as ARSV0

@@ -31,7 +31,6 @@ import Concordium.Utils
 import Concordium.Genesis.Data
 import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount, replaceUpTo)
 import Concordium.GlobalState.BakerInfo
-import Concordium.GlobalState.Basic.BlockState (genesisBakerInfoEx)
 import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
 import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as TARS
 import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseScheduleV1 as TARSV1

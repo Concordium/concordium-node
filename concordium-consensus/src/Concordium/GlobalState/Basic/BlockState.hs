@@ -2293,45 +2293,6 @@ genesisStakesAndRewardDetails spv = case spv of
                             (_tpMintPerPayday tp)
             return (birkParams, rewardDetails)
 
--- |Construct an 'AccountBaker' from a 'GenesisBaker'.
--- For 'P4', this creates the baker with the initial pool status being open for all, the
--- empty metadata URL and the maximum commission rates allowable under the chain parameters.
-genesisBakerInfo :: forall pv. SProtocolVersion pv -> ChainParameters pv -> GenesisBaker -> AccountBaker (AccountVersionFor pv)
-genesisBakerInfo spv cp baker@GenesisBaker{..} = AccountBaker{..}
-  where
-    _stakedAmount = gbStake
-    _stakeEarnings = gbRestakeEarnings
-    _accountBakerInfo = genesisBakerInfoEx spv cp baker
-    _bakerPendingChange = NoChange
-
--- |Construct an 'BakerInfoEx' from a 'GenesisBaker'.
--- For 'P4', this creates the baker with the initial pool status being open for all, the
--- empty metadata URL and the maximum commission rates allowable under the chain parameters.
-genesisBakerInfoEx :: forall pv. SProtocolVersion pv -> ChainParameters pv -> GenesisBaker -> BakerInfoEx (AccountVersionFor pv)
-genesisBakerInfoEx spv cp GenesisBaker{..} = case spv of
-    SP1 -> BakerInfoExV0 bkrInfo
-    SP2 -> BakerInfoExV0 bkrInfo
-    SP3 -> BakerInfoExV0 bkrInfo
-    SP4 -> binfoV1
-    SP5 -> binfoV1
-  where
-    bkrInfo =
-        BakerInfo
-            { _bakerIdentity = gbBakerId,
-              _bakerSignatureVerifyKey = gbSignatureVerifyKey,
-              _bakerElectionVerifyKey = gbElectionVerifyKey,
-              _bakerAggregationVerifyKey = gbAggregationVerifyKey
-            }
-    binfoV1 :: (SupportsDelegation pv, ChainParametersVersionFor pv ~ 'ChainParametersV1) => BakerInfoEx (AccountVersionFor pv)
-    binfoV1 =
-        BakerInfoExV1
-            bkrInfo
-            BakerPoolInfo
-                { _poolOpenStatus = OpenForAll,
-                  _poolMetadataUrl = emptyUrlText,
-                  _poolCommissionRates = cp ^. cpPoolParameters . ppCommissionBounds . to maximumCommissionRates
-                }
-
 -- |Initial block state based on 'GenesisData', for a given protocol version.
 -- This also returns the transaction table.
 genesisState ::
