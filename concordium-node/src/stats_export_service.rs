@@ -494,8 +494,20 @@ impl StatsExportService {
 
     /// Starts the statistics server.
     #[cfg(feature = "instrumentation")]
-    pub async fn start_server(&self, listen_addr: SocketAddr) -> Result<(), ()> {
-        gotham::plain::init_server(listen_addr, self.router()).await
+    pub async fn start_server(
+        &self,
+        listen_addr: SocketAddr,
+        error_sender: tokio::sync::broadcast::Sender<()>,
+    ) -> Result<(), ()> {
+        let result = gotham::plain::init_server(listen_addr, self.router()).await;
+        if let Err(()) = result {
+            // Log an error and notify main thread that an error occured.
+            error!("A runtime error occurred in the statistics server.");
+            if let Err(e) = error_sender.send(()) {
+                error!("An error occurred while trying to signal the main node thread: {}.", e)
+            }
+        }
+        result
     }
 
     #[cfg(feature = "instrumentation")]
