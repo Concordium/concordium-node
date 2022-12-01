@@ -180,6 +180,7 @@ async fn main() -> anyhow::Result<()> {
         import_stopped,
         conf.cli.baker.import_blocks_from.as_deref(),
         conf.cli.baker.download_blocks_from.as_ref(),
+        conf.cli.baker.download_blocks_timeout,
         data_dir_path,
     )
     .await;
@@ -504,6 +505,7 @@ async fn maybe_do_out_of_band_catchup(
     import_stopped: Arc<atomic::AtomicBool>,
     import_blocks_from: Option<&Path>,
     download_blocks_from: Option<&reqwest::Url>,
+    download_blocks_timeout: u32,
     data_dir_path: &Path,
 ) {
     // Out-of-band catch-up
@@ -530,6 +532,7 @@ async fn maybe_do_out_of_band_catchup(
             import_stopped.clone(),
             &genesis_block_hashes,
             download_url,
+            download_blocks_timeout,
             data_dir_path,
         )
         .await
@@ -565,6 +568,7 @@ async fn import_missing_blocks(
     import_stopped: Arc<atomic::AtomicBool>,
     genesis_block_hashes: &[concordium_base::hashes::BlockHash],
     index_url: &url::Url,
+    request_timeout: u32,
     data_dir_path: &Path,
 ) -> anyhow::Result<()> {
     let current_genesis_index = genesis_block_hashes.len() - 1;
@@ -573,7 +577,11 @@ async fn import_missing_blocks(
     trace!("Current genesis index: {}", current_genesis_index);
     trace!("Local last finalized block height: {}", last_finalized_block_height);
 
-    let http_client = Client::builder().build()?;
+    let connect_timeout = std::time::Duration::from_secs(10);
+    let request_timeout = std::time::Duration::from_secs(request_timeout.into());
+
+    let http_client =
+        Client::builder().connect_timeout(connect_timeout).timeout(request_timeout).build()?;
     let index_response = http_client.get(index_url.clone()).send().await?;
     anyhow::ensure!(
         index_response.status().is_success(),
@@ -660,38 +668,22 @@ async fn download_chunk(
         tempfile::NamedTempFile::new_in(data_dir_path).context("Cannot create output file.")?;
     info!("Downloading the catch-up file from {} to {}", download_url, temp_file.path().display());
     {
-        // Use a 5 minute timeout for downloading the block chunk file.
-        let timeout_duration = std::time::Duration::from_secs(300);
+        let chunk_response = http_client.get(download_url.clone()).send().await?;
+        anyhow::ensure!(
+            chunk_response.status().is_success(),
+            "Unable to download the block chunk file from {}: {} {}",
+            download_url,
+            chunk_response.status().as_str(),
+            chunk_response.status().canonical_reason().unwrap()
+        );
 
-        // Download the block chunk file.
-        match tokio::time::timeout(timeout_duration, http_client.get(download_url.clone()).send())
-            .await
-        {
-            Err(timed_out) => {
-                error!(
-                    "Unable to download the block chunk file from {}: {}",
-                    download_url, timed_out
-                );
-            }
-            Ok(result) => {
-                let chunk_response = result?;
-                anyhow::ensure!(
-                    chunk_response.status().is_success(),
-                    "Unable to download the block chunk file from {}: {} {}",
-                    download_url,
-                    chunk_response.status().as_str(),
-                    chunk_response.status().canonical_reason().unwrap()
-                );
-
-                let file = temp_file.as_file_mut();
-                let mut buffer = std::io::BufWriter::new(file);
-                let mut stream = chunk_response.bytes_stream();
-                while let Some(Ok(bytes)) = stream.next().await {
-                    buffer.write_all(&bytes)?;
-                }
-                buffer.flush()?;
-            }
-        };
+        let file = temp_file.as_file_mut();
+        let mut buffer = std::io::BufWriter::new(file);
+        let mut stream = chunk_response.bytes_stream();
+        while let Some(Ok(bytes)) = stream.next().await {
+            buffer.write_all(&bytes)?;
+        }
+        buffer.flush()?;
     }
     Ok(temp_file.into_temp_path())
 }
