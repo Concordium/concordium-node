@@ -374,6 +374,7 @@ nextReleaseTimestamp :: AccountReleaseSchedule -> Maybe Timestamp
 nextReleaseTimestamp = fmap fst . Map.lookupMin . _arsPrioQueue
 
 -- |List a release as timestamp and amount pairs.
+-- The list will always be non-empty.
 listRelease :: MonadBlobStore m => Release -> m [(Timestamp, Amount)]
 listRelease loadedRelease = do
     next <- case _rNext loadedRelease of

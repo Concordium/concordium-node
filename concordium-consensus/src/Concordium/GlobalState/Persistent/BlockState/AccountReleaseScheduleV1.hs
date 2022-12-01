@@ -24,6 +24,7 @@
 module Concordium.GlobalState.Persistent.BlockState.AccountReleaseScheduleV1 where
 
 import Control.Monad
+import Control.Monad.Trans
 import Data.Foldable
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as Map
@@ -34,14 +35,15 @@ import qualified Data.Vector.Mutable as MVec
 import Data.Word
 
 import qualified Concordium.Crypto.SHA256 as Hash
-import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseScheduleV1 as TARSV1
-import Concordium.GlobalState.Persistent.BlobStore
-import qualified Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule as ARSV0
 import Concordium.Types
 import Concordium.Types.Accounts.Releases
 import Concordium.Types.HashableTo
 import Concordium.Utils
 import Concordium.Utils.Serialization
+
+import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseScheduleV1 as TARSV1
+import Concordium.GlobalState.Persistent.BlobStore
+import qualified Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule as ARSV0
 
 -- |Releases that belong to a single 'ReleaseScheduleEntry'.
 data Releases = Releases
@@ -240,6 +242,7 @@ migrateAccountReleaseSchedule AccountReleaseSchedule{..} = AccountReleaseSchedul
         newReleasesRef <- migrateReference return rseReleasesRef
         return $! ReleaseScheduleEntry{rseReleasesRef = newReleasesRef, ..}
 
+-- | Migrate a V0 account release schedule to a V1 account release schedule.
 migrateAccountReleaseScheduleFromV0 ::
     forall t m.
     SupportMigration m t =>
@@ -256,7 +259,7 @@ migrateAccountReleaseScheduleFromV0 schedule = do
         case value of
             Null -> return schedule'
             Some (release, transactionHash) -> do
-                releases <- refLoad release >>= ARSV0.listRelease
+                releases <- lift $ refLoad release >>= ARSV0.listRelease
                 addReleases (releases, transactionHash) schedule'
 
 -- |Serialize an 'AccountReleaseSchedule' in the serialization format for
