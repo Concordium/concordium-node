@@ -660,22 +660,38 @@ async fn download_chunk(
         tempfile::NamedTempFile::new_in(data_dir_path).context("Cannot create output file.")?;
     info!("Downloading the catch-up file from {} to {}", download_url, temp_file.path().display());
     {
-        let chunk_response = http_client.get(download_url.clone()).send().await?;
-        anyhow::ensure!(
-            chunk_response.status().is_success(),
-            "Unable to download the block chunk file from {}: {} {}",
-            download_url,
-            chunk_response.status().as_str(),
-            chunk_response.status().canonical_reason().unwrap()
-        );
+        // Use a 5 minute timeout for downloading the block chunk file.
+        let timeout_duration = std::time::Duration::from_secs(300);
 
-        let file = temp_file.as_file_mut();
-        let mut buffer = std::io::BufWriter::new(file);
-        let mut stream = chunk_response.bytes_stream();
-        while let Some(Ok(bytes)) = stream.next().await {
-            buffer.write_all(&bytes)?;
-        }
-        buffer.flush()?;
+        // Download the block chunk file.
+        match tokio::time::timeout(timeout_duration, http_client.get(download_url.clone()).send())
+            .await
+        {
+            Err(timed_out) => {
+                error!(
+                    "Unable to download the block chunk file from {}: {}",
+                    download_url, timed_out
+                );
+            }
+            Ok(result) => {
+                let chunk_response = result?;
+                anyhow::ensure!(
+                    chunk_response.status().is_success(),
+                    "Unable to download the block chunk file from {}: {} {}",
+                    download_url,
+                    chunk_response.status().as_str(),
+                    chunk_response.status().canonical_reason().unwrap()
+                );
+
+                let file = temp_file.as_file_mut();
+                let mut buffer = std::io::BufWriter::new(file);
+                let mut stream = chunk_response.bytes_stream();
+                while let Some(Ok(bytes)) = stream.next().await {
+                    buffer.write_all(&bytes)?;
+                }
+                buffer.flush()?;
+            }
+        };
     }
     Ok(temp_file.into_temp_path())
 }
