@@ -45,9 +45,7 @@ use tokio::signal::unix as unix_signal;
 use tokio::signal::windows as windows_signal;
 use tokio::sync::{broadcast, oneshot};
 
-#[cfg(feature = "instrumentation")]
 use concordium_node::stats_export_service::start_push_gateway;
-#[cfg(feature = "instrumentation")]
 use std::net::{IpAddr, SocketAddr};
 
 #[tokio::main]
@@ -62,24 +60,24 @@ async fn main() -> anyhow::Result<()> {
         instantiate_node(&conf, &mut app_prefs, stats_export_service, regenesis_arc.clone())
             .context("Failed to create the node.")?;
 
-    #[cfg(feature = "instrumentation")]
-    {
-        let stats = node.stats.clone();
-        let pla = conf
-            .prometheus
-            .prometheus_listen_addr
-            .parse::<IpAddr>()
-            .context("Invalid Prometheus address")?;
-        let plp = conf.prometheus.prometheus_listen_port;
-        tokio::spawn(async move { stats.start_server(SocketAddr::new(pla, plp)).await });
-    }
-
-    #[cfg(feature = "instrumentation")]
-    // The push gateway to Prometheus thread
-    start_push_gateway(&conf.prometheus, &node.stats, node.id());
-
     let (gen_data, priv_data) = get_baker_data(&app_prefs, &conf.cli.baker)
         .context("Can't get genesis data or private data. Aborting")?;
+
+    // Start the prometheus server if the user requested it.
+    {
+        if let Some(plp) = conf.prometheus.prometheus_listen_port {
+            let stats = node.stats.clone();
+            let pla = conf
+                .prometheus
+                .prometheus_listen_addr
+                .parse::<IpAddr>()
+                .context("Invalid Prometheus address")?;
+            tokio::spawn(async move { stats.start_server(SocketAddr::new(pla, plp)).await });
+        }
+    }
+
+    // The push gateway to Prometheus thread if the user requested it.
+    start_push_gateway(&conf.prometheus, &node.stats, node.id());
 
     // Setup task with signal handling before doing any irreversible operations
     // to avoid being interrupted in the middle of sensitive operations, e.g.,

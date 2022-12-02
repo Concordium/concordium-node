@@ -21,4 +21,4 @@ RUN tar -C /tmp -xf /tmp/static-consensus.tar.gz && \
     mv /tmp/target /build/concordium-node/deps/static-libs/linux && \
     rm /tmp/static-consensus.tar.gz
 # Build in release mode.
-RUN cargo build --manifest-path=./concordium-node/Cargo.toml --features=instrumentation,collector,static --release
+RUN cargo build --manifest-path=./concordium-node/Cargo.toml --features=collector,static --release
