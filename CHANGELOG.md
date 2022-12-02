@@ -2,6 +2,10 @@
 
 ## Unreleased changes
 
+- Added command-line option for specifying a timeout when downloading
+  block indices and catch-up chunk files specified by an URL. The default
+  timeout is 5 now minutes per chunk instead of waiting indefinitely.
+
 ## 5.1.1
 
 - Relay blocks earlier. In particular this means that blocks are now processed in 
