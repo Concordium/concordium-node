@@ -348,6 +348,7 @@ impl StatsExportService {
 
     /// Starts the statistics server.
     pub async fn start_server(&self, listen_addr: SocketAddr) -> Result<(), ()> {
+        log::info!("Starting Prometheus server listening on {}", listen_addr);
         gotham::plain::init_server(listen_addr, self.router()).await
     }
 
