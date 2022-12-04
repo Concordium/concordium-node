@@ -84,7 +84,6 @@ pub const DATABASE_SUB_DIRECTORY_NAME: &str = "database-v4";
 /// being dropped prematurely.
 const KEEP_ALIVE_FACTOR: u8 = 3;
 
-#[cfg(feature = "instrumentation")]
 #[derive(StructOpt, Debug)]
 // Parameters related to Prometheus.
 pub struct PrometheusConfig {
@@ -97,17 +96,11 @@ pub struct PrometheusConfig {
     pub prometheus_listen_addr:   String,
     #[structopt(
         long = "prometheus-listen-port",
-        help = "Port for prometheus to listen on",
-        default_value = "9090",
+        help = "Port for prometheus to listen on. If set the prometheus server will start \
+                listening on the given port",
         env = "CONCORDIUM_NODE_PROMETHEUS_LISTEN_PORT"
     )]
-    pub prometheus_listen_port:   u16,
-    #[structopt(
-        long = "prometheus-server",
-        help = "Enable prometheus server for metrics",
-        env = "CONCORDIUM_NODE_PROMETHEUS_SERVER"
-    )]
-    pub prometheus_server:        bool,
+    pub prometheus_listen_port:   Option<u16>,
     #[structopt(
         long = "prometheus-push-gateway",
         help = "Enable prometheus via push gateway",
@@ -117,7 +110,7 @@ pub struct PrometheusConfig {
     #[structopt(
         long = "prometheus-job-name",
         help = "Job name to send to push gateway",
-        default_value = "p2p_node_push",
+        default_value = "concordium_node_push",
         env = "CONCORDIUM_NODE_PROMETHEUS_JOB_NAME"
     )]
     pub prometheus_job_name:      String,
@@ -713,12 +706,6 @@ pub struct CliConfig {
     )]
     pub timeout_bucket_entry_period: u64,
     #[structopt(
-        long = "no-rebroadcast-consensus-validation",
-        help = "Disable consensus controlling whether to rebroadcast or not",
-        env = "CONCORDIUM_NODE_NO_REBROADCAST_CONSENSUS_VALIDATION"
-    )]
-    pub no_rebroadcast_consensus_validation: bool,
-    #[structopt(
         long = "drop-rebroadcast-probability",
         help = "Drop a message from being rebroadcasted by a certain probability",
         env = "CONCORDIUM_NODE_DROP_REBROADCSAT_PROBABILITY"
@@ -788,7 +775,6 @@ pub struct MacOsConfig {
 pub struct Config {
     #[structopt(flatten)]
     pub common:       CommonConfig,
-    #[cfg(feature = "instrumentation")]
     #[structopt(flatten)]
     pub prometheus:   PrometheusConfig,
     #[structopt(flatten)]
@@ -887,15 +873,6 @@ pub fn parse_config() -> anyhow::Result<Config> {
         KEEP_ALIVE_FACTOR,
         conf.connection.housekeeping_interval
     );
-
-    #[cfg(feature = "instrumentation")]
-    {
-        ensure!(
-            conf.prometheus.prometheus_server || conf.prometheus.prometheus_push_gateway.is_some(),
-            "The instrumentation feature requires either prometheus-server or \
-             prometheus-push-gateway argument to be set"
-        );
-    }
 
     Ok(conf)
 }

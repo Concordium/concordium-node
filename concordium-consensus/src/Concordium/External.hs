@@ -741,14 +741,51 @@ toReceiveResult ResultInsufficientFunds = 30
 -- |Handle receipt of a block.
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@,
 -- @ResultInvalid@, @ResultPendingBlock@, @ResultDuplicate@, @ResultStale@,
--- @ResultConsensusShutDown@, and @ResultInvalidGenesisIndex@.
+-- @ResultConsensusShutDown@, @ResultEarlyBlock@, and @ResultInvalidGenesisIndex@.
 -- 'receiveBlock' may invoke the callbacks for new finalization messages.
-receiveBlock :: StablePtr ConsensusRunner -> GenesisIndex -> CString -> Int64 -> IO ReceiveResult
-receiveBlock bptr genIndex msg msgLen = do
+-- If the block was successfully verified i.e. baker signature, finalization proofs etc. then
+-- the continuation for executing the block will be written to the 'Ptr' provided.
+receiveBlock ::
+    -- |Pointer to the multi version runner.
+    StablePtr ConsensusRunner ->
+    -- |The genesis index.
+    GenesisIndex ->
+    -- |The message.
+    CString ->
+    -- |The length of the message.
+    Word64 ->
+    -- |If the block was received succesfully i.e. 'receiveBlock' yields a
+    -- 'ResultSuccess' then a continuation for executing the block is written to this ptr.
+    -- IMPORTANT! If the continuation is present then it must also be called in order
+    -- to avoid a memory leak.
+    -- The 'StablePtr' is freed in 'executeBlock'.
+    Ptr (StablePtr MV.ExecuteBlock) ->
+    IO ReceiveResult
+receiveBlock bptr genIndex msg msgLen ptrPtrExecuteBlock = do
     (ConsensusRunner mvr) <- deRefStablePtr bptr
     mvLog mvr External LLTrace $ "Received block data, size = " ++ show msgLen ++ "."
     blockBS <- BS.packCStringLen (msg, fromIntegral msgLen)
-    toReceiveResult <$> runMVR (MV.receiveBlock genIndex blockBS) mvr
+    (receiveResult, mExecuteBlock) <- runMVR (MV.receiveBlock genIndex blockBS) mvr
+    case mExecuteBlock of
+        Nothing -> return $ toReceiveResult receiveResult
+        Just eb -> do
+            poke ptrPtrExecuteBlock =<< newStablePtr eb
+            return $ toReceiveResult receiveResult
+
+-- |Execute a block that has been received and succesfully verified.
+-- The 'MV.ExecuteBlock' continuation is obtained via first calling 'receiveBlock' which in return
+-- will construct a pointer to the continuation.
+-- The 'StablePtr' is freed here and so this function should only be called once for each 'MV.ExecuteBlock'.
+-- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@
+-- and @ResultConsensusShutDown@.
+executeBlock :: StablePtr ConsensusRunner -> StablePtr MV.ExecuteBlock -> IO ReceiveResult
+executeBlock ptrConsensus ptrCont = do
+    (ConsensusRunner mvr) <- deRefStablePtr ptrConsensus
+    executableBlock <- deRefStablePtr ptrCont
+    freeStablePtr ptrCont
+    mvLog mvr External LLTrace "Executing block."
+    res <- MV.runBlock executableBlock
+    return $ toReceiveResult res
 
 -- |Handle receipt of a finalization message.
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,
@@ -1405,7 +1442,8 @@ foreign export ccall
 foreign export ccall stopConsensus :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall startBaker :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall stopBaker :: StablePtr ConsensusRunner -> IO ()
-foreign export ccall receiveBlock :: StablePtr ConsensusRunner -> GenesisIndex -> CString -> Int64 -> IO Int64
+foreign export ccall receiveBlock :: StablePtr ConsensusRunner -> GenesisIndex -> CString -> Word64 -> Ptr (StablePtr MV.ExecuteBlock) -> IO Int64
+foreign export ccall executeBlock :: StablePtr ConsensusRunner -> StablePtr MV.ExecuteBlock -> IO Int64
 foreign export ccall receiveFinalizationMessage :: StablePtr ConsensusRunner -> GenesisIndex -> CString -> Int64 -> IO Int64
 foreign export ccall receiveFinalizationRecord :: StablePtr ConsensusRunner -> GenesisIndex -> CString -> Int64 -> IO Int64
 foreign export ccall receiveTransaction :: StablePtr ConsensusRunner -> CString -> Int64 -> Ptr Word8 -> IO Int64

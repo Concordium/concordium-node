@@ -86,7 +86,6 @@ pub struct NodeConfig {
     pub dedup_size_short: usize,
     pub socket_read_size: usize,
     pub socket_write_size: usize,
-    pub no_rebroadcast_consensus_validation: bool,
     pub drop_rebroadcast_probability: Option<f64>,
     pub bootstrapper_peer_list_size: usize,
     pub default_network: NetworkId,
@@ -360,7 +359,6 @@ impl P2PNode {
             dedup_size_short: conf.connection.dedup_size_short,
             socket_read_size: conf.connection.socket_read_size,
             socket_write_size: conf.connection.socket_write_size,
-            no_rebroadcast_consensus_validation: conf.cli.no_rebroadcast_consensus_validation,
             drop_rebroadcast_probability: match peer_type {
                 PeerType::Node => conf.cli.drop_rebroadcast_probability,
                 _ => None,

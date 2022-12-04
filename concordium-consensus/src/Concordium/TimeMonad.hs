@@ -22,6 +22,16 @@ class Monad m => TimeMonad m where
     default currentTime :: MonadIO m => m UTCTime
     currentTime = liftIO getCurrentTime
 
+-- |Measure the time of a given action m a.
+-- Note. One has to remember to factor in laziness when
+-- reasoning about the returned 'NominalDiffTime'.
+measureTime :: TimeMonad m => m a -> m (NominalDiffTime, a)
+measureTime a = do
+    now <- currentTime
+    res <- a
+    after <- currentTime
+    return (diffUTCTime after now, res)
+
 instance TimeMonad IO
 
 instance TimeMonad m => TimeMonad (StateT s m) where

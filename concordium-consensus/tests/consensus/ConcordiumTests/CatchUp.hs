@@ -71,7 +71,7 @@ runKonsensus steps g states es
                         continue fs' (es2 & esEventPool %~ (<> Seq.fromList ((rcpt, EBake (sl + 1)) : [(r, EBlock b) | r <- btargets])))
                     Just _ -> error "Baked genesis block"
             EBlock block -> do
-                (_, fs', es') <- myRunSkovT (storeBlock (B.makePendingBlock block dummyTime)) handlers fi fs es1
+                (_, fs', es') <- myRunSkovT (receiveExecuteBlock (B.makePendingBlock block dummyTime)) handlers fi fs es1
                 continue fs' es'
             ETransaction tr -> do
                 (_, fs', es') <- myRunSkovT (receiveTransaction tr) handlers fi fs es1
