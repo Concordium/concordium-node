@@ -5,18 +5,6 @@ extern crate log;
 #[macro_use]
 extern crate lazy_static;
 
-cfg_if! {
-    if #[cfg(feature = "instrumentation")] {
-        #[macro_use]
-        extern crate prometheus;
-        #[macro_use]
-        extern crate gotham_derive;
-    }
-}
-
-#[macro_use]
-extern crate cfg_if;
-
 #[cfg(test)]
 #[macro_use]
 extern crate quickcheck;

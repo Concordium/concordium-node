@@ -13,7 +13,7 @@ stack build
 if ($LASTEXITCODE -ne 0) { throw "Failed building consensus" }
 
 Write-Output "Building node..."
-stack exec -- cargo build --manifest-path concordium-node\Cargo.toml --release --features collector,instrumentation
+stack exec -- cargo build --manifest-path concordium-node\Cargo.toml --release --features collector
 if ($LASTEXITCODE -ne 0) { throw "Failed building node" }
 
 Write-Output "Building node runner service..."

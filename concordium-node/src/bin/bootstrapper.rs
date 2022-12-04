@@ -15,7 +15,6 @@ use concordium_node::{
     utils::get_config_and_logging_setup,
 };
 
-#[cfg(feature = "instrumentation")]
 use concordium_node::stats_export_service::start_push_gateway;
 
 fn main() -> anyhow::Result<()> {
@@ -50,7 +49,6 @@ fn main() -> anyhow::Result<()> {
     )
     .context("Failed to create the network node.")?;
 
-    #[cfg(feature = "instrumentation")]
     start_push_gateway(&conf.prometheus, &node.stats, node.id());
 
     spawn(&node, server, poll, None);

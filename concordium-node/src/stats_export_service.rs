@@ -1,100 +1,72 @@
 //! Node's statistics and their exposure.
 
-cfg_if! {
-    if #[cfg(feature = "instrumentation")] {
-        use prometheus::{self, Encoder, core::{AtomicI64, AtomicU64, GenericGauge}, IntCounter, IntGauge, Opts, Registry, TextEncoder};
-        use crate::{common::p2p_node_id::P2PNodeId, spawn_or_die, read_or_die};
-        use std::{net::SocketAddr, thread, time, sync::RwLock};
-        use gotham::{
-            handler::IntoResponse,
-            helpers::http::response::create_response,
-            middleware::state::StateMiddleware,
-            pipeline::{single::single_pipeline, single_middleware},
-            router::{builder::*, Router},
-            state::{FromState, State},
-        };
-        use http::{status::StatusCode, Response};
-        use hyper::Body;
-    } else {
-        use std::sync::atomic::{AtomicI64, AtomicU64, AtomicUsize, Ordering};
-    }
-}
+use crate::{common::p2p_node_id::P2PNodeId, read_or_die, spawn_or_die};
+use anyhow::Context;
+use gotham::{
+    handler::IntoResponse,
+    helpers::http::response::create_response,
+    middleware::state::StateMiddleware,
+    pipeline::{single::single_pipeline, single_middleware},
+    router::{builder::*, Router},
+    state::{FromState, State},
+};
+use http::{status::StatusCode, Response};
+use hyper::Body;
+use prometheus::{
+    self,
+    core::{AtomicI64, AtomicU64, GenericGauge},
+    Encoder, IntCounter, IntGauge, Opts, Registry, TextEncoder,
+};
+use std::{net::SocketAddr, sync::RwLock, thread, time};
+
 use crate::configuration;
 use std::sync::Arc;
 
-cfg_if! {
-    if #[cfg(feature = "instrumentation")] {
-        struct HTMLStringResponse(pub String);
+struct HTMLStringResponse(pub String);
 
-        impl IntoResponse for HTMLStringResponse {
-            fn into_response(self, state: &State) -> Response<Body> {
-                create_response(state, StatusCode::OK, mime::TEXT_HTML, self.0)
-            }
-        }
+impl IntoResponse for HTMLStringResponse {
+    fn into_response(self, state: &State) -> Response<Body> {
+        create_response(state, StatusCode::OK, mime::TEXT_HTML, self.0)
+    }
+}
 
-        #[derive(Clone, StateData)]
-        struct PrometheusStateData {
-            registry: Arc<RwLock<Registry>>,
-        }
+#[derive(Clone, gotham_derive::StateData)]
+struct PrometheusStateData {
+    registry: Arc<RwLock<Registry>>,
+}
 
-        impl PrometheusStateData {
-            fn new(registry: Registry) -> Self {
-                Self {
-                    registry: Arc::new(RwLock::new(registry)),
-                }
-            }
-        }
-
-        /// Collects statistics pertaining to the node.
-        pub struct StatsExportService {
-            registry: Registry,
-            pkts_received_counter: IntCounter,
-            pkts_sent_counter: IntCounter,
-            peers_gauge: IntGauge,
-            connections_received: IntCounter,
-            inbound_high_priority_consensus_drops_counter: IntCounter,
-            inbound_low_priority_consensus_drops_counter: IntCounter,
-            inbound_high_priority_consensus_counter: IntCounter,
-            inbound_low_priority_consensus_counter: IntCounter,
-            inbound_high_priority_consensus_size: IntGauge,
-            inbound_low_priority_consensus_size: IntGauge,
-            outbound_high_priority_consensus_size: IntGauge,
-            outbound_low_priority_consensus_size: IntGauge,
-            last_throughput_measurement_timestamp: GenericGauge<AtomicI64>,
-            bytes_received: GenericGauge<AtomicU64>,
-            bytes_sent: GenericGauge<AtomicU64>,
-            avg_bps_in: GenericGauge<AtomicU64>,
-            avg_bps_out: GenericGauge<AtomicU64>,
+impl PrometheusStateData {
+    fn new(registry: Registry) -> Self {
+        Self {
+            registry: Arc::new(RwLock::new(registry)),
         }
     }
 }
 
 /// Collects statistics pertaining to the node.
-#[cfg(not(feature = "instrumentation"))]
-#[derive(Default)]
 pub struct StatsExportService {
-    pkts_received_counter: AtomicUsize,
-    pkts_sent_counter: AtomicUsize,
-    peers_gauge: AtomicUsize,
-    connections_received: AtomicUsize,
-    inbound_high_priority_consensus_drops_counter: AtomicUsize,
-    inbound_low_priority_consensus_drops_counter: AtomicUsize,
-    inbound_high_priority_consensus_counter: AtomicUsize,
-    inbound_low_priority_consensus_counter: AtomicUsize,
-    inbound_high_priority_consensus_size: AtomicUsize,
-    inbound_low_priority_consensus_size: AtomicUsize,
-    outbound_high_priority_consensus_size: AtomicUsize,
-    outbound_low_priority_consensus_size: AtomicUsize,
-    last_throughput_measurement_timestamp: AtomicI64,
-    bytes_received: AtomicU64,
-    bytes_sent: AtomicU64,
-    avg_bps_in: AtomicU64,
-    avg_bps_out: AtomicU64,
+    registry: Registry,
+    pkts_received_counter: IntCounter,
+    pkts_sent_counter: IntCounter,
+    peers_gauge: IntGauge,
+    connections_received: IntCounter,
+    inbound_high_priority_consensus_drops_counter: IntCounter,
+    inbound_low_priority_consensus_drops_counter: IntCounter,
+    inbound_high_priority_consensus_counter: IntCounter,
+    inbound_low_priority_consensus_counter: IntCounter,
+    inbound_high_priority_consensus_size: IntGauge,
+    inbound_low_priority_consensus_size: IntGauge,
+    outbound_high_priority_consensus_size: IntGauge,
+    outbound_low_priority_consensus_size: IntGauge,
+    last_throughput_measurement_timestamp: GenericGauge<AtomicI64>,
+    bytes_received: GenericGauge<AtomicU64>,
+    bytes_sent: GenericGauge<AtomicU64>,
+    avg_bps_in: GenericGauge<AtomicU64>,
+    avg_bps_out: GenericGauge<AtomicU64>,
 }
 
 impl StatsExportService {
     /// Creates a new instance of the starts export service object.
-    #[cfg(feature = "instrumentation")]
     pub fn new() -> anyhow::Result<Self> {
         let registry = Registry::new();
         let pg_opts = Opts::new("peer_number", "current peers connected");
@@ -251,213 +223,97 @@ impl StatsExportService {
         })
     }
 
-    /// Creates a new instance of the starts export service object.
-    #[cfg(not(feature = "instrumentation"))]
-    pub fn new() -> anyhow::Result<Self> { Ok(Default::default()) }
-
     /// Increases the peer count.
-    pub fn peers_inc(&self) {
-        #[cfg(feature = "instrumentation")]
-        self.peers_gauge.inc();
-        #[cfg(not(feature = "instrumentation"))]
-        self.peers_gauge.fetch_add(1, Ordering::Relaxed);
-    }
+    pub fn peers_inc(&self) { self.peers_gauge.inc(); }
 
     /// Decreases the peer count.
-    pub fn peers_dec(&self) {
-        #[cfg(feature = "instrumentation")]
-        self.peers_gauge.dec();
-        #[cfg(not(feature = "instrumentation"))]
-        self.peers_gauge.fetch_sub(1, Ordering::Relaxed);
-    }
+    pub fn peers_dec(&self) { self.peers_gauge.dec(); }
 
     /// Increases the number of received packets.
-    pub fn pkt_received_inc(&self) {
-        #[cfg(feature = "instrumentation")]
-        self.pkts_received_counter.inc();
-        #[cfg(not(feature = "instrumentation"))]
-        self.pkts_received_counter.fetch_add(1, Ordering::Relaxed);
-    }
+    pub fn pkt_received_inc(&self) { self.pkts_received_counter.inc(); }
 
     /// Increases the number of sent packets.
-    pub fn pkt_sent_inc(&self) {
-        #[cfg(feature = "instrumentation")]
-        self.pkts_sent_counter.inc();
-        #[cfg(not(feature = "instrumentation"))]
-        self.pkts_sent_counter.fetch_add(1, Ordering::Relaxed);
-    }
+    pub fn pkt_sent_inc(&self) { self.pkts_sent_counter.inc(); }
 
     /// Increases the number of received connections.
-    pub fn conn_received_inc(&self) {
-        #[cfg(feature = "instrumentation")]
-        self.connections_received.inc();
-        #[cfg(not(feature = "instrumentation"))]
-        self.connections_received.fetch_add(1, Ordering::Relaxed);
-    }
+    pub fn conn_received_inc(&self) { self.connections_received.inc(); }
 
     /// Increases the number of high priority consensus messages dropped due to
     /// the queue being full.
     pub fn inbound_high_priority_consensus_drops_inc(&self) {
-        #[cfg(feature = "instrumentation")]
         self.inbound_high_priority_consensus_drops_counter.inc();
-        #[cfg(not(feature = "instrumentation"))]
-        self.inbound_high_priority_consensus_drops_counter.fetch_add(1, Ordering::Relaxed);
     }
 
     /// Increases the number of low priority consensus messages dropped due to
     /// the queue being full.
     pub fn inbound_low_priority_consensus_drops_inc(&self) {
-        #[cfg(feature = "instrumentation")]
         self.inbound_low_priority_consensus_drops_counter.inc();
-        #[cfg(not(feature = "instrumentation"))]
-        self.inbound_low_priority_consensus_drops_counter.fetch_add(1, Ordering::Relaxed);
     }
 
     /// Increases the number of received high priority consensus messages.
     pub fn inbound_high_priority_consensus_inc(&self) {
-        #[cfg(feature = "instrumentation")]
         self.inbound_high_priority_consensus_counter.inc();
-        #[cfg(not(feature = "instrumentation"))]
-        self.inbound_high_priority_consensus_counter.fetch_add(1, Ordering::Relaxed);
     }
 
     /// Increases the number of received low priority consensus messages.
     pub fn inbound_low_priority_consensus_inc(&self) {
-        #[cfg(feature = "instrumentation")]
         self.inbound_low_priority_consensus_counter.inc();
-        #[cfg(not(feature = "instrumentation"))]
-        self.inbound_low_priority_consensus_counter.fetch_add(1, Ordering::Relaxed);
     }
 
     /// Sets the size value of the high priority inbound consensus queue.
     pub fn set_inbound_high_priority_consensus_size(&self, value: i64) {
-        #[cfg(feature = "instrumentation")]
         self.inbound_high_priority_consensus_size.set(value);
-        #[cfg(not(feature = "instrumentation"))]
-        self.inbound_high_priority_consensus_size.store(value as usize, Ordering::Relaxed);
     }
 
     /// Sets the size value of the low priority inbound consensus queue.
     pub fn set_inbound_low_priority_consensus_size(&self, value: i64) {
-        #[cfg(feature = "instrumentation")]
         self.inbound_low_priority_consensus_size.set(value);
-        #[cfg(not(feature = "instrumentation"))]
-        self.inbound_low_priority_consensus_size.store(value as usize, Ordering::Relaxed);
     }
 
     /// Sets the size value of the high priority outbound consensus queue.
     pub fn set_outbound_high_priority_consensus_size(&self, value: i64) {
-        #[cfg(feature = "instrumentation")]
         self.outbound_high_priority_consensus_size.set(value);
-        #[cfg(not(feature = "instrumentation"))]
-        self.outbound_high_priority_consensus_size.store(value as usize, Ordering::Relaxed);
     }
 
     /// Sets the size value of the low priority outbound consensus queue.
     pub fn set_outbound_low_priority_consensus_size(&self, value: i64) {
-        #[cfg(feature = "instrumentation")]
         self.outbound_low_priority_consensus_size.set(value);
-        #[cfg(not(feature = "instrumentation"))]
-        self.outbound_low_priority_consensus_size.store(value as usize, Ordering::Relaxed);
     }
 
     /// Gets the timestamp for the last throughput check.
     pub fn get_last_throughput_measurement_timestamp(&self) -> i64 {
-        #[cfg(feature = "instrumentation")]
-        {
-            self.last_throughput_measurement_timestamp.get()
-        }
-        #[cfg(not(feature = "instrumentation"))]
-        {
-            self.last_throughput_measurement_timestamp.load(std::sync::atomic::Ordering::Relaxed)
-        }
+        self.last_throughput_measurement_timestamp.get()
     }
 
     /// Sets the value of throughput timestamp.
     pub fn set_last_throughput_measurement_timestamp(&self, value: i64) {
-        #[cfg(feature = "instrumentation")]
         self.last_throughput_measurement_timestamp.set(value);
-        #[cfg(not(feature = "instrumentation"))]
-        self.last_throughput_measurement_timestamp.store(value, Ordering::Relaxed);
     }
 
     /// Gets the count of received bytes.
-    pub fn get_bytes_received(&self) -> u64 {
-        #[cfg(feature = "instrumentation")]
-        {
-            self.bytes_received.get()
-        }
-        #[cfg(not(feature = "instrumentation"))]
-        {
-            self.bytes_received.load(std::sync::atomic::Ordering::Relaxed)
-        }
-    }
+    pub fn get_bytes_received(&self) -> u64 { self.bytes_received.get() }
 
     /// Gets the count of sent bytes.
-    pub fn get_bytes_sent(&self) -> u64 {
-        #[cfg(feature = "instrumentation")]
-        {
-            self.bytes_sent.get()
-        }
-        #[cfg(not(feature = "instrumentation"))]
-        {
-            self.bytes_sent.load(std::sync::atomic::Ordering::Relaxed)
-        }
-    }
+    pub fn get_bytes_sent(&self) -> u64 { self.bytes_sent.get() }
 
     /// Sets the value of received bytes.
-    pub fn set_bytes_received(&self, value: u64) {
-        #[cfg(feature = "instrumentation")]
-        self.bytes_received.set(value);
-        #[cfg(not(feature = "instrumentation"))]
-        self.bytes_received.store(value, Ordering::Relaxed);
-    }
+    pub fn set_bytes_received(&self, value: u64) { self.bytes_received.set(value); }
 
     /// Sets the value of sent bytes.
-    pub fn set_bytes_sent(&self, value: u64) {
-        #[cfg(feature = "instrumentation")]
-        self.bytes_sent.set(value);
-        #[cfg(not(feature = "instrumentation"))]
-        self.bytes_sent.store(value, Ordering::Relaxed);
-    }
+    pub fn set_bytes_sent(&self, value: u64) { self.bytes_sent.set(value); }
 
     /// Gets the value of average inbound throughput.
-    pub fn get_avg_bps_in(&self) -> u64 {
-        #[cfg(feature = "instrumentation")]
-        {
-            self.avg_bps_in.get()
-        }
-        #[cfg(not(feature = "instrumentation"))]
-        self.avg_bps_in.load(std::sync::atomic::Ordering::Relaxed)
-    }
+    pub fn get_avg_bps_in(&self) -> u64 { self.avg_bps_in.get() }
 
     /// Gets the value of average outbound throughput.
-    pub fn get_avg_bps_out(&self) -> u64 {
-        #[cfg(feature = "instrumentation")]
-        {
-            self.avg_bps_out.get()
-        }
-        #[cfg(not(feature = "instrumentation"))]
-        self.avg_bps_out.load(std::sync::atomic::Ordering::Relaxed)
-    }
+    pub fn get_avg_bps_out(&self) -> u64 { self.avg_bps_out.get() }
 
     /// Sets the value of average inbound throughput.
-    pub fn set_avg_bps_in(&self, value: u64) {
-        #[cfg(feature = "instrumentation")]
-        self.avg_bps_in.set(value);
-        #[cfg(not(feature = "instrumentation"))]
-        self.avg_bps_in.store(value, Ordering::Relaxed);
-    }
+    pub fn set_avg_bps_in(&self, value: u64) { self.avg_bps_in.set(value); }
 
     /// Sets the value of average outbound throughput.
-    pub fn set_avg_bps_out(&self, value: u64) {
-        #[cfg(feature = "instrumentation")]
-        self.avg_bps_out.set(value);
-        #[cfg(not(feature = "instrumentation"))]
-        self.avg_bps_out.store(value, Ordering::Relaxed);
-    }
+    pub fn set_avg_bps_out(&self, value: u64) { self.avg_bps_out.set(value); }
 
-    #[cfg(feature = "instrumentation")]
     fn metrics(state: State) -> (State, String) {
         let state_data = PrometheusStateData::borrow_from(&state);
         let encoder = TextEncoder::new();
@@ -470,7 +326,6 @@ impl StatsExportService {
         }
     }
 
-    #[cfg(feature = "instrumentation")]
     fn index(state: State) -> (State, HTMLStringResponse) {
         let message = HTMLStringResponse(format!(
             "<html><body><h1>Prometheus for {} v{}</h1>Operational!</p></body></html>",
@@ -480,7 +335,6 @@ impl StatsExportService {
         (state, message)
     }
 
-    #[cfg(feature = "instrumentation")]
     fn router(&self) -> Router {
         let state_data = PrometheusStateData::new(self.registry.clone());
         let middleware = StateMiddleware::new(state_data);
@@ -493,12 +347,11 @@ impl StatsExportService {
     }
 
     /// Starts the statistics server.
-    #[cfg(feature = "instrumentation")]
     pub async fn start_server(&self, listen_addr: SocketAddr) -> Result<(), ()> {
+        log::info!("Starting Prometheus server listening on {}", listen_addr);
         gotham::plain::init_server(listen_addr, self.router()).await
     }
 
-    #[cfg(feature = "instrumentation")]
     fn start_push_to_gateway(
         &self,
         prometheus_push_gateway: String,
@@ -520,7 +373,7 @@ impl StatsExportService {
             thread::sleep(time::Duration::from_secs(prometheus_push_interval));
             prometheus::push_metrics(
                 &prometheus_job_name,
-                labels! {
+                prometheus::labels! {
                     "instance".to_owned() => prometheus_instance_name.clone(),
                 },
                 &prometheus_push_gateway,
@@ -534,32 +387,20 @@ impl StatsExportService {
 }
 
 /// Starts the stats export engine.
-#[cfg(feature = "instrumentation")]
 pub fn instantiate_stats_export_engine(
     conf: &configuration::Config,
 ) -> anyhow::Result<Arc<StatsExportService>> {
-    let prom = if conf.prometheus.prometheus_server {
+    if conf.prometheus.prometheus_listen_port.is_some() {
         info!("Enabling prometheus server");
-        StatsExportService::new()?
     } else if let Some(ref push_gateway) = conf.prometheus.prometheus_push_gateway {
         info!("Enabling prometheus push gateway at {}", push_gateway);
-        StatsExportService::new()?
-    } else {
-        unreachable!(); // ensured in configuration.rs
     };
+    let prom =
+        StatsExportService::new().context("Could not start statistics collection engine.")?;
     Ok(Arc::new(prom))
 }
 
-/// Starts the stats export engine.
-#[cfg(not(feature = "instrumentation"))]
-pub fn instantiate_stats_export_engine(
-    _: &configuration::Config,
-) -> anyhow::Result<Arc<StatsExportService>> {
-    Ok(Arc::new(StatsExportService::new()?))
-}
-
-/// Starts the push gateway to Prometheus.
-#[cfg(feature = "instrumentation")]
+/// Starts the push gateway to Prometheus if the configuration specifies it.
 pub fn start_push_gateway(
     conf: &configuration::PrometheusConfig,
     service: &StatsExportService,

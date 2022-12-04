@@ -163,7 +163,7 @@ function compileConsensus() {
 function compileNodeAndCollector() {
     cd "$nodeDir"
     logInfo "Building Node and Collector..."
-    cargo build --bin concordium-node --bin node-collector --features collector,instrumentation --release
+    cargo build --bin concordium-node --bin node-collector --features collector --release
     logInfo "Done"
 }
 
