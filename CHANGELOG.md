@@ -2,6 +2,7 @@
 
 ## Unreleased changes
 
+- Avoid deadlocks during node shutdown in specific scenarios.
 - Remove the "instrumentation" feature of the node and build the node with
   Prometheus support enabled by default.
   - Remove the `CONCORDIUM_NODE_PROMETHEUS_SERVER` environment variable.
