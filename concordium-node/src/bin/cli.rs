@@ -154,9 +154,7 @@ async fn main() -> anyhow::Result<()> {
             .context("Cannot create RPC server.")?;
 
         let task = tokio::spawn(async move {
-            serv.start_server(shutdown_rpc_signal.map(|_| ()), shutdown_sender)
-                .await
-                .expect("Can't start the RPC server");
+            serv.start_server(shutdown_rpc_signal.map(|_| ()), shutdown_sender).await
         });
         Some(task)
     } else {
