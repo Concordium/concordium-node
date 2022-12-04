@@ -357,7 +357,7 @@ impl StatsExportService {
         if let Err(()) = result {
             // Log an error and notify main thread that an error occured.
             error!("A runtime error occurred in the Prometheus server.");
-            if let Err(_) = error_sender.send(()) {
+            if error_sender.send(()).is_err() {
                 error!("An error occurred while trying to signal the main node thread.")
             }
         }
