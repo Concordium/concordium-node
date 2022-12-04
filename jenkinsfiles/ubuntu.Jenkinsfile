@@ -79,7 +79,7 @@ pipeline {
         stage('Build static-node-binaries') {
             environment {
                 STATIC_LIBRARIES_IMAGE_TAG = "latest"
-                EXTRA_FEATURES = "collector,instrumentation"
+                EXTRA_FEATURES = "collector"
             }
             steps {
                 sh './scripts/static-binaries/build-static-binaries.sh'

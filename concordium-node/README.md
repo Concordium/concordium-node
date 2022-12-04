@@ -17,8 +17,6 @@
 
 ## Supported features
 
-- instrumentation - switches the default internal counter implementation out with prometheus
-- instrumentation - enables stats data exporting to [prometheus](https://crates.io/crates/prometheus)
 - network_dump - makes the network dumping capabilites available.
 - static - build against static haskell libraries (Linux only)
 - profiling - build against haskell libraries with profiling support enabled (Linux only)

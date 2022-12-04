@@ -17,7 +17,7 @@ if ! docker inspect --type=image static-node-binaries:$STATIC_BINARIES_IMAGE_TAG
     # build static binaries
     export STATIC_LIBRARIES_IMAGE_TAG="${STATIC_LIBRARIES_IMAGE_TAG:-latest}"
     export GHC_VERSION="${GHC_VERSION:-9.0.2}"
-    export EXTRA_FEATURES="collector,instrumentation"
+    export EXTRA_FEATURES="collector"
     (cd ../../../; ./scripts/static-binaries/build-static-binaries.sh)
 fi
 

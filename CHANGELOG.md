@@ -2,6 +2,12 @@
 
 ## Unreleased changes
 
+- Remove the "instrumentation" feature of the node and build the node with
+  Prometheus support enabled by default.
+  - Remove the `CONCORDIUM_NODE_PROMETHEUS_SERVER` environment variable.
+    The prometheus server is now started if
+    `CONCORDIUM_NODE_PROMETHEUS_LISTEN_PORT` is set.
+
 ## 5.1.1
 
 - Relay blocks earlier. In particular this means that blocks are now processed in 

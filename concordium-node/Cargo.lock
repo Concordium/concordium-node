@@ -615,7 +615,6 @@ dependencies = [
  "rpassword",
  "semver 1.0.14",
  "serde 1.0.145",
- "serde_derive",
  "serde_json 1.0.86",
  "sha2 0.10.6",
  "structopt",
