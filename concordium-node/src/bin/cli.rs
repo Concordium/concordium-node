@@ -48,6 +48,12 @@ use tokio::sync::{broadcast, oneshot};
 use concordium_node::stats_export_service::start_push_gateway;
 use std::net::{IpAddr, SocketAddr};
 
+/// Maximum time that threads that process inbound and outbound consensus
+/// messages are blocked on the condition variable per iteration of the loop.
+/// 100ms seems like a reasonable value. The loop which this controls is cheap
+/// if nothing has happened and the wakeup due to timeout was needless.
+const MESSAGE_THREAD_WAIT_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(100);
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let (conf, mut app_prefs) = get_config_and_logging_setup()?;
@@ -433,9 +439,14 @@ fn start_consensus_message_threads(
                     break 'outer_loop;
                 }
             }
-
             if exhausted {
-                cvar.wait(&mut lock_guard);
+                // Only wait for a limited amount of time.
+                // This is necessary since `notify_one` and `notify_all` are not buffered,
+                // and so events can be missed. In particular this happens during shutdown
+                // but it can also happen during normal operation. However in that case
+                // another message will likely be enqueued waking up the condvar, so
+                // the node would likely proceed correctly.
+                cvar.wait_for(&mut lock_guard, MESSAGE_THREAD_WAIT_TIMEOUT);
             }
         }
     }));
@@ -487,7 +498,13 @@ fn start_consensus_message_threads(
             }
 
             if exhausted {
-                cvar.wait(&mut lock_guard);
+                // Only wait for a limited amount of time.
+                // This is necessary since `notify_one` and `notify_all` are not buffered,
+                // and so events can be missed. In particular this happens during shutdown
+                // but it can also happen during normal operation. However in that case
+                // another message will likely be enqueued waking up the condvar, so
+                // the node would likely proceed correctly, albeit after some delay perhaps.
+                cvar.wait_for(&mut lock_guard, MESSAGE_THREAD_WAIT_TIMEOUT);
             }
         }
     }));

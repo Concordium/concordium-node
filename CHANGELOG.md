@@ -2,16 +2,15 @@
 
 ## Unreleased changes
 
+- Avoid deadlocks during node shutdown in specific scenarios.
 - The node will now shut down to start if an error occurs in a required service
   (e.g., grpc server). In particular, the node will shut down if a required
   service could not be started.
-
 - Add timeout to downloading out of band catchup files when block indices and
   catch-up chunk files are specified by an URL. The timeout is controlled
-  by the option `--download-blocks-timeout` (environment variable 
+  by the option `--download-blocks-timeout` (environment variable
   `CONCORDIUM_NODE_CONSENSUS_DOWNLOAD_BLOCKS_TIMEOUT`) and defaults to 5 min.
   timeout is 5 now minutes per chunk instead of waiting indefinitely.
-
 - Remove the "instrumentation" feature of the node and build the node with
   Prometheus support enabled by default.
   - Remove the `CONCORDIUM_NODE_PROMETHEUS_SERVER` environment variable.
