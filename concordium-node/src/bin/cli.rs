@@ -178,6 +178,7 @@ async fn main() -> anyhow::Result<()> {
         import_stopped,
         conf.cli.baker.import_blocks_from.as_deref(),
         conf.cli.baker.download_blocks_from.as_ref(),
+        conf.cli.baker.download_blocks_timeout,
         data_dir_path,
     )
     .await;
@@ -502,6 +503,7 @@ async fn maybe_do_out_of_band_catchup(
     import_stopped: Arc<atomic::AtomicBool>,
     import_blocks_from: Option<&Path>,
     download_blocks_from: Option<&reqwest::Url>,
+    download_blocks_timeout: u32,
     data_dir_path: &Path,
 ) {
     // Out-of-band catch-up
@@ -528,6 +530,7 @@ async fn maybe_do_out_of_band_catchup(
             import_stopped.clone(),
             &genesis_block_hashes,
             download_url,
+            download_blocks_timeout,
             data_dir_path,
         )
         .await
@@ -563,6 +566,7 @@ async fn import_missing_blocks(
     import_stopped: Arc<atomic::AtomicBool>,
     genesis_block_hashes: &[concordium_base::hashes::BlockHash],
     index_url: &url::Url,
+    request_timeout: u32,
     data_dir_path: &Path,
 ) -> anyhow::Result<()> {
     let current_genesis_index = genesis_block_hashes.len() - 1;
@@ -571,7 +575,11 @@ async fn import_missing_blocks(
     trace!("Current genesis index: {}", current_genesis_index);
     trace!("Local last finalized block height: {}", last_finalized_block_height);
 
-    let http_client = Client::builder().build()?;
+    let connect_timeout = std::time::Duration::from_secs(10);
+    let request_timeout = std::time::Duration::from_secs(request_timeout.into());
+
+    let http_client =
+        Client::builder().connect_timeout(connect_timeout).timeout(request_timeout).build()?;
     let index_response = http_client.get(index_url.clone()).send().await?;
     anyhow::ensure!(
         index_response.status().is_success(),
