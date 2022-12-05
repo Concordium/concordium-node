@@ -2,6 +2,10 @@
 
 ## Unreleased changes
 
+- The node will now shut down to start if an error occurs in a required service
+  (e.g., grpc server). In particular, the node will shut down if a required
+  service could not be started.
+
 ## 5.1.0
 
 - Improvements to allow greater concurrency with transaction processing.
