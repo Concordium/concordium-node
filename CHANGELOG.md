@@ -2,7 +2,7 @@
 
 ## Unreleased changes
 
-- Added command-line option for specifying a timeout when downloading
+- Add timeout to downloading out of band catchup files. The timeout is controlled by the option `--download-blocks-timeout` (environment variable `CONCORDIUM_NODE_CONSENSUS_DOWNLOAD_BLOCKS_TIMEOUT`) and defaults to 5min.
   block indices and catch-up chunk files specified by an URL. The default
   timeout is 5 now minutes per chunk instead of waiting indefinitely.
 - Remove the "instrumentation" feature of the node and build the node with
