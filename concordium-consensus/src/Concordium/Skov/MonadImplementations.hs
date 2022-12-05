@@ -592,7 +592,9 @@ instance
     ) =>
     SkovMonad (SkovT pv h c m)
     where
-    storeBlock = doStoreBlock
+    receiveBlock = doReceiveBlock
+    executeBlock = doExecuteBlock
+    receiveExecuteBlock = doReceiveExecuteBlock
     receiveTransaction = doReceiveTransaction
     addPreverifiedTransaction = doAddPreverifiedTransaction
     trustedFinalize = doTrustedFinalize

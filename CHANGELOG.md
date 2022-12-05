@@ -6,6 +6,20 @@
   (e.g., grpc server). In particular, the node will shut down if a required
   service could not be started.
 
+- Remove the "instrumentation" feature of the node and build the node with
+  Prometheus support enabled by default.
+  - Remove the `CONCORDIUM_NODE_PROMETHEUS_SERVER` environment variable.
+    The prometheus server is now started if
+    `CONCORDIUM_NODE_PROMETHEUS_LISTEN_PORT` is set.
+
+## 5.1.1
+
+- Relay blocks earlier. In particular this means that blocks are now processed in
+  two steps, `block receive` and `block execute`. The former performs verification of block meta data
+  while the latter adds the block to the tree.
+  Blocks are now enqueued in the outgoing message queue in between the the two steps.
+- Removed the configuration option 'no_rebroadcast_consensus_validation'.
+
 ## 5.1.0
 
 - Improvements to allow greater concurrency with transaction processing.

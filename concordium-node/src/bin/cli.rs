@@ -45,9 +45,7 @@ use tokio::signal::unix as unix_signal;
 use tokio::signal::windows as windows_signal;
 use tokio::sync::{broadcast, oneshot};
 
-#[cfg(feature = "instrumentation")]
 use concordium_node::stats_export_service::start_push_gateway;
-#[cfg(feature = "instrumentation")]
 use std::net::{IpAddr, SocketAddr};
 
 #[tokio::main]
@@ -67,22 +65,21 @@ async fn main() -> anyhow::Result<()> {
     // creating the database.
     let (shutdown_sender, mut shutdown_receiver) = setup_shutdown_signal_handling();
 
-    #[cfg(feature = "instrumentation")]
     {
         let shutdown_sender = shutdown_sender.clone();
-        let stats = node.stats.clone();
-        let pla = conf
-            .prometheus
-            .prometheus_listen_addr
-            .parse::<IpAddr>()
-            .context("Invalid Prometheus address")?;
-        let plp = conf.prometheus.prometheus_listen_port;
-        tokio::spawn(async move {
-            stats.start_server(SocketAddr::new(pla, plp), shutdown_sender).await
-        });
+        if let Some(plp) = conf.prometheus.prometheus_listen_port {
+            let stats = node.stats.clone();
+            let pla = conf
+                .prometheus
+                .prometheus_listen_addr
+                .parse::<IpAddr>()
+                .context("Invalid Prometheus address")?;
+            tokio::spawn(async move {
+                stats.start_server(SocketAddr::new(pla, plp), shutdown_sender).await
+            });
+        }
     }
 
-    #[cfg(feature = "instrumentation")]
     // The push gateway to Prometheus thread
     start_push_gateway(&conf.prometheus, &node.stats, node.id());
 
@@ -157,9 +154,7 @@ async fn main() -> anyhow::Result<()> {
             .context("Cannot create RPC server.")?;
 
         let task = tokio::spawn(async move {
-            serv.start_server(shutdown_rpc_signal.map(|_| ()), shutdown_sender)
-                .await
-                .expect("Can't start the RPC server");
+            serv.start_server(shutdown_rpc_signal.map(|_| ()), shutdown_sender).await
         });
         Some(task)
     } else {

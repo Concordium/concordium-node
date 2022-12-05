@@ -564,7 +564,7 @@ dependencies = [
 
 [[package]]
 name = "concordium_node"
-version = "5.1.0"
+version = "5.1.1"
 dependencies = [
  "anyhow",
  "app_dirs2",
@@ -615,7 +615,6 @@ dependencies = [
  "rpassword",
  "semver 1.0.14",
  "serde 1.0.145",
- "serde_derive",
  "serde_json 1.0.86",
  "sha2 0.10.6",
  "structopt",

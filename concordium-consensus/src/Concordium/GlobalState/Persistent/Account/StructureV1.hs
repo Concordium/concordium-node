@@ -25,6 +25,7 @@ import Concordium.Types
 import Concordium.Types.Accounts
 import Concordium.Types.Execution
 import Concordium.Types.HashableTo
+import Concordium.Types.Parameters
 import Concordium.Utils
 
 import Concordium.Genesis.Data
@@ -1248,6 +1249,53 @@ newAccount cryptoParams _accountAddress credential = do
             { accountNonce = minNonce,
               accountAmount = 0,
               accountStakedAmount = 0,
+              ..
+            }
+
+-- |Make a persistent account from a genesis account.
+-- The data is immediately flushed to disc and cached.
+makeFromGenesisAccount ::
+    forall pv m.
+    (MonadBlobStore m, IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV2) =>
+    SProtocolVersion pv ->
+    GlobalContext ->
+    ChainParameters pv ->
+    GenesisAccount ->
+    m (PersistentAccount 'AccountV2)
+makeFromGenesisAccount spv cryptoParams chainParameters GenesisAccount{..} = do
+    paedPersistingData <-
+        refMakeFlushed $
+            PersistingAccountData
+                { _accountEncryptionKey =
+                    toRawEncryptionKey $
+                        makeEncryptionKey cryptoParams $
+                            credId $
+                                gaCredentials Map.! initialCredentialIndex,
+                  _accountCredentials = toRawAccountCredential <$> gaCredentials,
+                  _accountVerificationKeys = getAccountInformation gaThreshold gaCredentials,
+                  _accountRemovedCredentials = emptyHashedRemovedCredentials,
+                  _accountAddress = gaAddress
+                }
+
+    (accountStakedAmount, stakeEnduring) <- case gaBaker of
+        Nothing -> return (0, PersistentAccountStakeEnduringNone)
+        Just baker -> do
+            paseBakerInfo <- refMakeFlushed $ genesisBakerInfoEx spv chainParameters baker
+            let enduringBaker =
+                    PersistentAccountStakeEnduringBaker
+                        { paseBakerRestakeEarnings = True,
+                          paseBakerPendingChange = NoChange,
+                          ..
+                        }
+            return (gbStake baker, enduringBaker)
+
+    accountEnduringData <-
+        refMakeFlushed
+            =<< makeAccountEnduringData paedPersistingData Null Null stakeEnduring
+    return $!
+        PersistentAccount
+            { accountNonce = minNonce,
+              accountAmount = gaBalance,
               ..
             }
 
