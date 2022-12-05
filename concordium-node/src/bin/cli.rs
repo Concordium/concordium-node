@@ -66,11 +66,13 @@ async fn main() -> anyhow::Result<()> {
         instantiate_node(&conf, &mut app_prefs, stats_export_service, regenesis_arc.clone())
             .context("Failed to create the node.")?;
 
-    let (gen_data, priv_data) = get_baker_data(&app_prefs, &conf.cli.baker)
-        .context("Can't get genesis data or private data. Aborting")?;
+    // Setup task with signal handling before doing any irreversible operations
+    // to avoid being interrupted in the middle of sensitive operations, e.g.,
+    // creating the database.
+    let (shutdown_sender, mut shutdown_receiver) = setup_shutdown_signal_handling();
 
-    // Start the prometheus server if the user requested it.
     {
+        let shutdown_sender = shutdown_sender.clone();
         if let Some(plp) = conf.prometheus.prometheus_listen_port {
             let stats = node.stats.clone();
             let pla = conf
@@ -78,17 +80,17 @@ async fn main() -> anyhow::Result<()> {
                 .prometheus_listen_addr
                 .parse::<IpAddr>()
                 .context("Invalid Prometheus address")?;
-            tokio::spawn(async move { stats.start_server(SocketAddr::new(pla, plp)).await });
+            tokio::spawn(async move {
+                stats.start_server(SocketAddr::new(pla, plp), shutdown_sender).await
+            });
         }
     }
 
-    // The push gateway to Prometheus thread if the user requested it.
+    // The push gateway to Prometheus thread
     start_push_gateway(&conf.prometheus, &node.stats, node.id());
 
-    // Setup task with signal handling before doing any irreversible operations
-    // to avoid being interrupted in the middle of sensitive operations, e.g.,
-    // creating the database.
-    let (mut shutdown_signal_1, mut shutdown_signal_2) = setup_shutdown_signal_handling();
+    let (gen_data, priv_data) = get_baker_data(&app_prefs, &conf.cli.baker)
+        .context("Can't get genesis data or private data. Aborting")?;
 
     let data_dir_path = app_prefs.get_data_dir();
     let mut database_directory = data_dir_path.to_path_buf();
@@ -136,11 +138,12 @@ async fn main() -> anyhow::Result<()> {
     // A flag to record that the import was stopped by a signal handler.
     let import_stopped = Arc::new(atomic::AtomicBool::new(false));
     {
+        let mut shutdown_receiver = shutdown_sender.subscribe();
         // set up the handler for terminating block state import.
         let consensus = consensus.clone();
         let import_stopped = Arc::clone(&import_stopped);
         tokio::spawn(async move {
-            if shutdown_signal_2.recv().await.is_err() {
+            if shutdown_receiver.recv().await.is_err() {
                 error!("Signal handler dropped. This should not happen.");
             }
             import_stopped.store(true, atomic::Ordering::Release);
@@ -151,15 +154,13 @@ async fn main() -> anyhow::Result<()> {
     // Start the RPC server with a channel for shutting it down.
     let (shutdown_rpc_sender, shutdown_rpc_signal) = oneshot::channel();
     let rpc_server_task = if !conf.cli.rpc.no_rpc_server {
+        let shutdown_sender = shutdown_sender.clone();
         info!("Starting RPC server");
         let mut serv = RpcServerImpl::new(node.clone(), Some(consensus.clone()), &conf.cli.rpc)
             .context("Cannot create RPC server.")?;
 
         let task = tokio::spawn(async move {
-            serv.start_server(shutdown_rpc_signal.map(|_| ()))
-                .await
-                .expect("Can't start the RPC server");
-            serv.start_server(shutdown_rpc_signal.map(|_| ())).await
+            serv.start_server(shutdown_rpc_signal.map(|_| ()), shutdown_sender).await
         });
         Some(task)
     } else {
@@ -168,11 +169,13 @@ async fn main() -> anyhow::Result<()> {
 
     // Start the grpc2 server, if so configured.
     let rpc2 = if let Some(handlers) = notification_handlers {
+        let shutdown_sender = shutdown_sender.clone();
         concordium_node::grpc2::server::GRPC2Server::new(
             &node,
             &consensus,
             &conf.cli.grpc2,
             handlers,
+            shutdown_sender,
         )
         .context("Unable to start GRPC2 server.")?
     } else {
@@ -185,6 +188,7 @@ async fn main() -> anyhow::Result<()> {
         import_stopped,
         conf.cli.baker.import_blocks_from.as_deref(),
         conf.cli.baker.download_blocks_from.as_ref(),
+        conf.cli.baker.download_blocks_timeout,
         data_dir_path,
     )
     .await;
@@ -203,38 +207,51 @@ async fn main() -> anyhow::Result<()> {
     // Start baking
     consensus.start_baker();
 
-    // Everything is running, so we wait for a signal to shutdown.
-    if shutdown_signal_1.recv().await.is_err() {
+    // Everything is running, so we wait for a signal to shutdown or for an error to
+    // occur.
+    if shutdown_receiver.recv().await.is_err() {
         error!("Shutdown signal handler was dropped unexpectedly. Shutting down.");
     }
 
+    info!("Initiating shutdown.");
+
     // Message rpc to shutdown first
     if let Some(task) = rpc_server_task {
-        if shutdown_rpc_sender.send(()).is_err() {
-            error!("Could not stop the RPC server correctly. Forcing shutdown.");
-            task.abort();
-        }
-        // Force the rpc server to shut down in at most 10 seconds.
-        let timeout_duration = std::time::Duration::from_secs(10);
-        match tokio::time::timeout(timeout_duration, task).await {
-            Ok(res) => {
-                if let Err(err) = res {
-                    if err.is_cancelled() {
-                        info!("RPC server was successfully shutdown by force.");
-                    } else if err.is_panic() {
-                        error!("RPC server panicked: {}", err);
+        // Only attempt shut down the RPC server in case it is not running.
+        // Note that if the RPC server was configured, it stops running iff.
+        // an error occurred.
+        if !task.is_finished() {
+            if shutdown_rpc_sender.send(()).is_err() {
+                error!("Could not stop the RPC server correctly. Forcing shutdown.");
+                task.abort();
+            }
+            // Force the rpc server to shut down in at most 10 seconds.
+            let timeout_duration = std::time::Duration::from_secs(10);
+            match tokio::time::timeout(timeout_duration, task).await {
+                Ok(res) => {
+                    if let Err(err) = res {
+                        if err.is_cancelled() {
+                            info!("RPC server was successfully shutdown by force.");
+                        } else if err.is_panic() {
+                            error!("RPC server panicked: {}", err);
+                        }
                     }
                 }
-            }
-            Err(timed_out) => {
-                warn!("RPC server was forcefully shut down due to: {}", timed_out);
+                Err(timed_out) => {
+                    warn!("RPC server was forcefully shut down due to: {}", timed_out);
+                }
             }
         }
     }
 
     // Message grpc2 to shutdown if it exists.
     if let Some(rpc2) = rpc2 {
-        rpc2.shutdown().await
+        // Only attempt shut down the GRPC2 server in case it is not running.
+        // Note that if the RPC server was configured, it stops running iff.
+        // an error occurred.
+        if !rpc2.is_finished() {
+            rpc2.shutdown().await
+        }
     }
 
     // Shutdown node
@@ -267,17 +284,19 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Set up shutdown signal handling.
-/// Return two receivers that will be notified when the handled signals are
-/// triggered. See documentation of [get_shutdown_signal] for details on which
+/// Set up channel for shutting down the node.
+/// Used for initiating a shutdown of the node in case a signal was triggered or
+/// if an error occurred somewhere in the node. Sending a message on the channel
+/// stops the out-of-band-catchup if it is running and initiates a shutdown of
+/// the node. See documentation of [get_shutdown_signal] for details on which
 /// signals are handled.
-fn setup_shutdown_signal_handling() -> (broadcast::Receiver<()>, broadcast::Receiver<()>) {
-    let (sender, receiver1) = broadcast::channel(1);
-    let receiver2 = sender.subscribe();
+fn setup_shutdown_signal_handling() -> (broadcast::Sender<()>, broadcast::Receiver<()>) {
+    let (sender1, receiver) = broadcast::channel(4);
+    let sender2 = sender1.clone();
     tokio::spawn(async move {
         get_shutdown_signal().await.unwrap();
         info!("Signal received attempting to shutdown node cleanly");
-        sender.send(()).unwrap();
+        sender1.send(()).unwrap();
         loop {
             get_shutdown_signal().await.unwrap();
             info!(
@@ -286,7 +305,7 @@ fn setup_shutdown_signal_handling() -> (broadcast::Receiver<()>, broadcast::Rece
             );
         }
     });
-    (receiver1, receiver2)
+    (sender2, receiver)
 }
 
 /// Construct a future for shutdown signals (for unix: SIGINT and SIGTERM) (for
@@ -520,6 +539,7 @@ async fn maybe_do_out_of_band_catchup(
     import_stopped: Arc<atomic::AtomicBool>,
     import_blocks_from: Option<&Path>,
     download_blocks_from: Option<&reqwest::Url>,
+    download_blocks_timeout: u32,
     data_dir_path: &Path,
 ) {
     // Out-of-band catch-up
@@ -546,6 +566,7 @@ async fn maybe_do_out_of_band_catchup(
             import_stopped.clone(),
             &genesis_block_hashes,
             download_url,
+            download_blocks_timeout,
             data_dir_path,
         )
         .await
@@ -581,6 +602,7 @@ async fn import_missing_blocks(
     import_stopped: Arc<atomic::AtomicBool>,
     genesis_block_hashes: &[concordium_base::hashes::BlockHash],
     index_url: &url::Url,
+    request_timeout: u32,
     data_dir_path: &Path,
 ) -> anyhow::Result<()> {
     let current_genesis_index = genesis_block_hashes.len() - 1;
@@ -589,7 +611,11 @@ async fn import_missing_blocks(
     trace!("Current genesis index: {}", current_genesis_index);
     trace!("Local last finalized block height: {}", last_finalized_block_height);
 
-    let http_client = Client::builder().build()?;
+    let connect_timeout = std::time::Duration::from_secs(10);
+    let request_timeout = std::time::Duration::from_secs(request_timeout.into());
+
+    let http_client =
+        Client::builder().connect_timeout(connect_timeout).timeout(request_timeout).build()?;
     let index_response = http_client.get(index_url.clone()).send().await?;
     anyhow::ensure!(
         index_response.status().is_success(),

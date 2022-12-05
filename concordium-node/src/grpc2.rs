@@ -837,6 +837,7 @@ pub mod server {
             consensus: &ConsensusContainer,
             config: &GRPC2Config,
             notification_handlers: NotificationHandlers,
+            error_sender: tokio::sync::broadcast::Sender<()>,
         ) -> anyhow::Result<Option<Self>> {
             if let Some(listen_addr) = config.listen_addr {
                 // the error in the following line should never happen since the command-line
@@ -983,12 +984,20 @@ pub mod server {
                 };
 
                 let task = tokio::spawn(async move {
-                    router
+                    let result = router
                         .serve_with_shutdown(
                             std::net::SocketAddr::new(listen_addr, listen_port),
                             shutdown_receiver.map(|_| ()),
                         )
-                        .await
+                        .await;
+                    if let Err(ref err) = result {
+                        // Log an error and notify main thread that an error occured.
+                        error!("A runtime error occurred in the GRPC2 server: {}", err);
+                        if error_sender.send(()).is_err() {
+                            error!("An error occurred while trying to signal the main node thread.")
+                        }
+                    }
+                    result
                 });
                 Ok(Some(Self {
                     task,
@@ -1000,6 +1009,9 @@ pub mod server {
                 Ok(None)
             }
         }
+
+        /// Query whether the server task thread is still running.
+        pub fn is_finished(&self) -> bool { self.task.is_finished() }
 
         /// Stop the server and any associated tasks.
         /// If the server does not stop on its own, the server task will be

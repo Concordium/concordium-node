@@ -252,6 +252,15 @@ pub struct BakerConfig {
     )]
     pub download_blocks_from: Option<url::Url>,
     #[structopt(
+        long = "download-blocks-timeout",
+        help = "Time limit before aborting download of the exported block database when it is \
+                specified by an URL, in seconds. If the time limit is exceeded the node will use \
+                peers for the catch-up",
+        default_value = "300",
+        env = "CONCORDIUM_NODE_CONSENSUS_DOWNLOAD_BLOCKS_TIMEOUT"
+    )]
+    pub download_blocks_timeout: u32,
+    #[structopt(
         long = "genesis-data-file",
         help = "Path to the data that constitutes the genesis block. If the path is relative it \
                 is interpreted relative to the supplied data directory.",

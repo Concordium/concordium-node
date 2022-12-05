@@ -347,9 +347,21 @@ impl StatsExportService {
     }
 
     /// Starts the statistics server.
-    pub async fn start_server(&self, listen_addr: SocketAddr) -> Result<(), ()> {
+    pub async fn start_server(
+        &self,
+        listen_addr: SocketAddr,
+        error_sender: tokio::sync::broadcast::Sender<()>,
+    ) -> Result<(), ()> {
         log::info!("Starting Prometheus server listening on {}", listen_addr);
-        gotham::plain::init_server(listen_addr, self.router()).await
+        let result = gotham::plain::init_server(listen_addr, self.router()).await;
+        if let Err(()) = result {
+            // Log an error and notify main thread that an error occured.
+            error!("A runtime error occurred in the Prometheus server.");
+            if error_sender.send(()).is_err() {
+                error!("An error occurred while trying to signal the main node thread.")
+            }
+        }
+        result
     }
 
     fn start_push_to_gateway(
