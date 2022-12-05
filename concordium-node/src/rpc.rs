@@ -73,8 +73,8 @@ impl RpcServerImpl {
         if let Err(ref err) = result {
             // Log an error and notify main thread that an error occured.
             error!("A runtime error occurred in the RPC server: {}", err);
-            if let Err(e) = error_sender.send(()) {
-                error!("An error occurred while trying to signal the main node thread: {}.", e)
+            if error_sender.send(()).is_err() {
+                error!("An error occurred while trying to signal the main node thread.")
             }
         }
         result
