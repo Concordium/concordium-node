@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+## 5.1.2
+
 - Avoid deadlocks during node shutdown in specific scenarios.
 - The node will now shut down to start if an error occurs in a required service
   (e.g., grpc server). In particular, the node will shut down if a required
