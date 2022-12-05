@@ -215,6 +215,9 @@ async fn main() -> anyhow::Result<()> {
 
     // Message rpc to shutdown first
     if let Some(task) = rpc_server_task {
+        // Only attempt shut down the RPC server in case it is not running.
+        // Note that if the RPC server was configured, it stops running iff.
+        // an error occurred.
         if !task.is_finished() {
             if shutdown_rpc_sender.send(()).is_err() {
                 error!("Could not stop the RPC server correctly. Forcing shutdown.");
@@ -241,6 +244,9 @@ async fn main() -> anyhow::Result<()> {
 
     // Message grpc2 to shutdown if it exists.
     if let Some(rpc2) = rpc2 {
+        // Only attempt shut down the GRPC2 server in case it is not running.
+        // Note that if the RPC server was configured, it stops running iff.
+        // an error occurred.
         if !rpc2.is_finished() {
             rpc2.shutdown().await
         }
