@@ -1,39 +1,43 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module SchedulerTests.AccountTransactionSpecs where
 
+import Data.Maybe
 import Test.HUnit
 import Test.Hspec
 
 import qualified Concordium.ID.Types as Types
 import qualified Concordium.Scheduler as Sch
-import qualified Concordium.Scheduler.EnvironmentImplementation as Types
+import qualified Concordium.Scheduler.EnvironmentImplementation as EI
 import qualified Concordium.Scheduler.Types as Types
+
 import Concordium.TransactionVerification
-
-import Concordium.GlobalState.Basic.BlockState
-import Concordium.GlobalState.Basic.BlockState.Account
-import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
-import Concordium.GlobalState.Basic.BlockState.Invariants
 import Concordium.Types
-import Control.Monad.IO.Class
-import Lens.Micro.Platform
 
+import Concordium.GlobalState.Basic.BlockState.Account as Basic
+import qualified Concordium.GlobalState.BlockState as BS
+import qualified Concordium.GlobalState.Persistent.BlockState as BS
+
+import Concordium.Crypto.DummyData
 import Concordium.GlobalState.DummyData
 import Concordium.Scheduler.DummyData
 import Concordium.Types.DummyData
 
-import SchedulerTests.Helpers
-import SchedulerTests.TestUtils
-
-shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
-shouldReturnP action f = action >>= (`shouldSatisfy` f)
+import qualified SchedulerTests.Helpers as H
 
 initialAmount :: Types.Amount
 initialAmount = 0
 
-initialBlockState :: BlockState PV1
-initialBlockState = blockStateWithAlesAccount initialAmount Acc.emptyAccounts
+accountA :: (IsAccountVersion av) => Basic.Account av
+accountA = mkAccount alesVK alesAccount initialAmount
+
+initialBlockState ::
+    (IsProtocolVersion pv) =>
+    H.PersistentBSM pv (BS.HashedPersistentBlockState pv)
+initialBlockState = H.createTestBlockStateWithAccounts [accountA]
 
 -- cdi7, but with lowest possible expiry
 cdi7' :: Types.AccountCreation
@@ -56,57 +60,31 @@ transactionsInput =
           cdi7'
         ]
 
-testAccountCreation ::
-    IO
-        ( [(BlockItemWithStatus, Types.ValidResult)],
-          [(CredentialDeploymentWithStatus, Types.FailureKind)],
-          [Maybe (Account (AccountVersionFor PV1))],
-          Account (AccountVersionFor PV1),
-          Amount
-        )
-testAccountCreation = do
-    let transactions = Types.TGCredentialDeployment <$> transactionsInput
-    let (Sch.FilteredTransactions{..}, finState) =
-            Types.runSI
-                (Sch.filterTransactions dummyBlockSize dummyBlockTimeout transactions)
-                dummyChainMeta{slotTime = 250} -- we set slot time to non-zero so that the deployment of the last credential fails due to message expiry
-                maxBound
-                maxBound
-                initialBlockState
-    let state = finState ^. Types.ssBlockState
-    let accounts = state ^. blockAccounts
-    let accAddrs = map (accountAddressFromCredential . Types.credential) [cdi1, cdi2, cdi3, cdi5, cdi7]
-    case invariantBlockState state (finState ^. Types.schedulerExecutionCosts) of
-        Left f -> liftIO $ assertFailure $ f ++ "\n" ++ show state
-        _ -> return ()
-    return
-        ( getResults ftAdded,
-          ftFailedCredentials,
-          map (\addr -> accounts ^? ix addr) accAddrs,
-          accounts ^. singular (ix alesAccount),
-          finState ^. Types.schedulerExecutionCosts
-        )
-
-checkAccountCreationResult ::
-    ( [(BlockItemWithStatus, Types.ValidResult)],
-      [(CredentialDeploymentWithStatus, Types.FailureKind)],
-      [Maybe (Account (AccountVersionFor PV1))],
-      Account (AccountVersionFor PV1),
-      Amount
-    ) ->
+accountTest ::
+    forall pv av.
+    (AccountVersionFor pv ~ av, IsProtocolVersion pv) =>
+    Types.SProtocolVersion pv ->
     Assertion
-checkAccountCreationResult (suc, fails, stateAccs, stateAles, executionCost) = do
-    -- this is in reverse order since failed transactions are returned in reverse order of the order tried.
-    assertEqual "Fourth and eighth credential deployment should fail." [Types.ExpiredTransaction, (Types.DuplicateAccountRegistrationID (Types.credId . Types.credential $ cdi3))] (map snd fails)
-    assertEqual "Account should keep the initial amount." initialAmount (stateAles ^. accountAmount)
-    assertEqual "Execution cost should be 0." 0 executionCost
-    assertEqual "Total amount of tokens is maintained." initialAmount (stateAles ^. accountAmount + executionCost)
-
-    -- FIXME: Make these more fine-grained so that failures are understandable.
-    assertBool "Successful transaction results." txsuc
-    assertBool "Newly created accounts." txstateAccs
-  where
-    txsuc = case suc of
+accountTest _ = do
+    let transactions = Types.TGCredentialDeployment <$> transactionsInput
+    let contextState =
+            H.defaultContextState
+                { EI._chainMetadata = dummyChainMeta{slotTime = 250}
+                }
+    let testConfig =
+            H.defaultTestConfig
+                { H.tcContextState = contextState
+                }
+    (H.SchedulerResult{..}, doBlockStateAssertions) <-
+        H.runSchedulerTest
+            @pv
+            testConfig
+            initialBlockState
+            checkState
+            transactions
+    let Sch.FilteredTransactions{..} = srTransactions
+    doBlockStateAssertions
+    assertBool "Successful transaction results." $ case H.getResults ftAdded of
         [(_, a11), (_, a12), (_, a13), (_, a15), (_, a17)]
             | Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed{}] <- a11,
               Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed{}] <- a12,
@@ -115,12 +93,48 @@ checkAccountCreationResult (suc, fails, stateAccs, stateAles, executionCost) = d
               Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed{}] <- a17 ->
                 True
         _ -> False
-    txstateAccs = case stateAccs of
-        [Just _, Just _, Just _, Just _, Just _] -> True
-        _ -> False
+    assertEqual
+        "Fourth and eighth credential deployment should fail."
+        [ Types.ExpiredTransaction,
+          Types.DuplicateAccountRegistrationID (Types.credId . Types.credential $ cdi3)
+        ]
+        (map snd ftFailedCredentials)
+    assertEqual "Execution cost should be 0." 0 srExecutionCosts
+  where
+    checkState :: BS.PersistentBlockState pv -> H.PersistentBSM pv Assertion
+    checkState state = do
+        doAssertState <- blockStateAssertions state
+        reloadedState <- H.reloadBlockState state
+        doAssertReloadedState <- blockStateAssertions reloadedState
+        return $ do
+            doAssertState
+            doAssertReloadedState
+
+    blockStateAssertions :: BS.PersistentBlockState pv -> H.PersistentBSM pv Assertion
+    blockStateAssertions state = do
+        hashedState <- BS.hashBlockState state
+        doInvariantAssertions <- H.assertBlockStateInvariants hashedState 0
+        let addedAccountAddresses =
+                map
+                    (accountAddressFromCredential . Types.credential)
+                    [cdi1, cdi2, cdi3, cdi5, cdi7]
+        lookups <- mapM (BS.bsoGetAccount state) addedAccountAddresses
+        maybeAccount <- BS.bsoGetAccount state alesAccount
+        maybeAmount <- mapM (BS.getAccountAmount . snd) maybeAccount
+        return $ do
+            doInvariantAssertions
+            assertBool "Newly created accounts." $ all isJust lookups
+            case maybeAmount of
+                Nothing -> assertFailure "Account was created."
+                Just accAmount ->
+                    assertEqual "Account should keep the initial amount." initialAmount accAmount
 
 tests :: Spec
 tests =
-    describe "Account creation" $
-        specify "4 accounts created, fifth rejected, credential deployed, and one more account created." $
-            testAccountCreation >>= checkAccountCreationResult
+    describe "Account creation" $ do
+        sequence_ $ H.forEveryProtocolVersion $ \spv pvString ->
+            specify
+                ( pvString
+                    ++ ": 4 accounts created, fifth rejected, credential deployed, and one more account created."
+                )
+                $ accountTest spv
