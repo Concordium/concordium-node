@@ -35,7 +35,6 @@ use concordium_node::{
     utils::get_config_and_logging_setup,
 };
 use mio::{net::TcpListener, Poll};
-use parking_lot::Mutex as ParkingMutex;
 use rand::Rng;
 use reqwest::Client;
 use std::{path::Path, sync::Arc, thread::JoinHandle};
@@ -47,12 +46,6 @@ use tokio::sync::{broadcast, oneshot};
 
 use concordium_node::stats_export_service::start_push_gateway;
 use std::net::{IpAddr, SocketAddr};
-
-/// Maximum time that threads that process inbound and outbound consensus
-/// messages are blocked on the condition variable per iteration of the loop.
-/// 100ms seems like a reasonable value. The loop which this controls is cheap
-/// if nothing has happened and the wakeup due to timeout was needless.
-const MESSAGE_THREAD_WAIT_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(100);
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -400,9 +393,6 @@ fn start_consensus_message_threads(
             CALLBACK_QUEUE.inbound.receiver_high_priority.lock().unwrap();
         let consensus_receiver_low_priority =
             CALLBACK_QUEUE.inbound.receiver_low_priority.lock().unwrap();
-        let cvar = &CALLBACK_QUEUE.inbound.signaler;
-        let lock = ParkingMutex::new(false);
-        let mut lock_guard = lock.lock();
         let mut exhausted: bool;
 
         'outer_loop: loop {
@@ -440,13 +430,27 @@ fn start_consensus_message_threads(
                 }
             }
             if exhausted {
-                // Only wait for a limited amount of time.
-                // This is necessary since `notify_one` and `notify_all` are not buffered,
-                // and so events can be missed. In particular this happens during shutdown
-                // but it can also happen during normal operation. However in that case
-                // another message will likely be enqueued waking up the condvar, so
-                // the node would likely proceed correctly.
-                cvar.wait_for(&mut lock_guard, MESSAGE_THREAD_WAIT_TIMEOUT);
+                // Both queues were emptied, so wait for a message in either of them.
+                let msg = crossbeam_channel::select! {
+                    recv(consensus_receiver_high_priority) -> msg => msg,
+                    recv(consensus_receiver_low_priority) -> msg => msg,
+                };
+                match msg {
+                    Ok(message) => {
+                        let stop_loop = !handle_queue_stop(message, "inbound", |msg| {
+                            handle_consensus_inbound_msg(&node_ref, &consensus, msg)
+                        });
+                        if stop_loop {
+                            break 'outer_loop;
+                        }
+                    }
+                    Err(_) => {
+                        // This should not happen because QueueMsg::Stop should be sent before
+                        // the queue sender is dropped.
+                        error!("Inbound consensus queue was disconnected unexpectedly.");
+                        break 'outer_loop;
+                    }
+                }
             }
         }
     }));
@@ -457,9 +461,6 @@ fn start_consensus_message_threads(
             CALLBACK_QUEUE.outbound.receiver_high_priority.lock().unwrap();
         let consensus_receiver_low_priority =
             CALLBACK_QUEUE.outbound.receiver_low_priority.lock().unwrap();
-        let cvar = &CALLBACK_QUEUE.outbound.signaler;
-        let lock = ParkingMutex::new(false);
-        let mut lock_guard = lock.lock();
         let mut exhausted: bool;
 
         'outer_loop: loop {
@@ -498,13 +499,27 @@ fn start_consensus_message_threads(
             }
 
             if exhausted {
-                // Only wait for a limited amount of time.
-                // This is necessary since `notify_one` and `notify_all` are not buffered,
-                // and so events can be missed. In particular this happens during shutdown
-                // but it can also happen during normal operation. However in that case
-                // another message will likely be enqueued waking up the condvar, so
-                // the node would likely proceed correctly, albeit after some delay perhaps.
-                cvar.wait_for(&mut lock_guard, MESSAGE_THREAD_WAIT_TIMEOUT);
+                // Both queues were emptied, so wait for a message in either of them.
+                let msg = crossbeam_channel::select! {
+                    recv(consensus_receiver_high_priority) -> msg => msg,
+                    recv(consensus_receiver_low_priority) -> msg => msg,
+                };
+                match msg {
+                    Ok(message) => {
+                        let stop_loop = !handle_queue_stop(message, "outbound", |msg| {
+                            handle_consensus_outbound_msg(&node_ref, msg)
+                        });
+                        if stop_loop {
+                            break 'outer_loop;
+                        }
+                    }
+                    Err(_) => {
+                        // This should not happen because QueueMsg::Stop should be sent before
+                        // the queue sender is dropped.
+                        error!("Outbound consensus queue was disconnected unexpectedly.");
+                        break 'outer_loop;
+                    }
+                }
             }
         }
     }));
