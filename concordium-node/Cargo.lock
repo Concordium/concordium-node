@@ -601,7 +601,6 @@ dependencies = [
  "mio 0.7.14",
  "nohash-hasher",
  "noiseexplorer_xx",
- "parking_lot",
  "preferences",
  "prometheus",
  "prost",
