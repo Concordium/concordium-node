@@ -64,7 +64,7 @@ thiserror = "1.0"
 futures = { version = "0.3" }
 url = "2.2"
 reqwest = { version = "0.11", features = ["stream", "native-tls-vendored"] }
-csv = "1.1.6"
+csv = "1.1"
 tokio-util = { version = "0.7.3", features = ["io"] }
 libc = "0.2"
 mime = { version = "0.3" }
