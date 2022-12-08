@@ -630,14 +630,13 @@ async fn import_missing_blocks(
         .await
         .context("Unable to get the catchup index file response text.")?;
 
-    let mut reader = csv::ReaderBuilder::new().has_headers(false).from_reader(index_str.as_bytes());
-    let first_line = reader.records().next().context(
+    let mut lines = index_str.lines();
+    let first_line = lines.next().context(
         "The catchup index file was empty. Please verify that you specified a correct catchup \
          service URL. If the specified URL is correct, contact the catchup service administrator.",
-    )??;
+    )?;
 
     let index_genesis_block_hash = first_line
-        .as_slice()
         .strip_prefix("# genesis hash ")
         .context(
             "The catchup index file does not begin with a line containing the genesis block hash. \
