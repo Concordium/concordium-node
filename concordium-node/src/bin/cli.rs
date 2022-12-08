@@ -3,7 +3,7 @@
 extern crate log;
 
 // Force the system allocator on every platform
-use futures::{stream::StreamExt, AsyncBufReadExt, FutureExt, TryStreamExt};
+use futures::{stream::StreamExt, FutureExt};
 use std::{alloc::System, io::Write, sync::atomic};
 use tempfile::TempPath;
 #[global_allocator]
@@ -625,14 +625,19 @@ async fn import_missing_blocks(
         index_response.status().canonical_reason().unwrap()
     );
 
-    let mut index_reader = index_response
-        .bytes_stream()
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
-        .into_async_read();
-    let mut first_line: String = String::new();
-    index_reader.read_line(&mut first_line).await?;
+    let index_str = index_response
+        .text()
+        .await
+        .context("Unable to get the catchup index file response text.")?;
+
+    let mut reader = csv::ReaderBuilder::new().has_headers(false).from_reader(index_str.as_bytes());
+    let first_line = reader.records().next().context(
+        "The catchup index file was empty. Please verify that you specified a correct catchup \
+         service URL. If the specified URL is correct, contact the catchup service administrator.",
+    )??;
 
     let index_genesis_block_hash = first_line
+        .as_slice()
         .strip_prefix("# genesis hash ")
         .context(
             "The catchup index file does not begin with a line containing the genesis block hash. \
@@ -640,6 +645,7 @@ async fn import_missing_blocks(
              is correct, contact the catchup service administrator.",
         )?
         .trim();
+
     let genesis_hash = genesis_block_hashes[0].to_string();
     anyhow::ensure!(
         index_genesis_block_hash == genesis_hash,
@@ -654,12 +660,11 @@ async fn import_missing_blocks(
     // index and finalized height relative to genesis. Once we have found one
     // such chunk, we do not skip any further chunks.
     let mut mayskip = true;
-    let mut chunk_records = csv_async::AsyncReaderBuilder::new()
-        .comment(Some(b'#'))
+    let mut chunk_records = csv::ReaderBuilder::new()
         .has_headers(false)
-        .create_deserializer(index_reader)
-        .into_deserialize();
-    while let Some(result) = chunk_records.next().await {
+        .comment(Some(b'#'))
+        .from_reader(index_str.as_bytes());
+    for result in chunk_records.deserialize() {
         anyhow::ensure!(
             !import_stopped.load(atomic::Ordering::Acquire),
             "Import stopped by the user."
