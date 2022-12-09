@@ -1051,6 +1051,7 @@ mintAndReward bshandle blockParent slotNumber bid newEpoch mintParams mfinInfo t
         SP3 -> mintAndRewardCPV0AccountV0
         SP4 -> mintAndRewardCPV1AccountV1
         SP5 -> mintAndRewardCPV1AccountV1
+        SP6 -> mintAndRewardCPV1AccountV1
   where
     mintAndRewardCPV0AccountV0 ::
         ( AccountVersionFor (MPV m) ~ 'AccountV0,
@@ -1150,6 +1151,7 @@ updateBirkParameters newSeedState bs0 oldChainParameters updates = case protocol
     SP3 -> updateCPV0AccountV0
     SP4 -> updateCPV1AccountV1
     SP5 -> updateCPV1AccountV1
+    SP6 -> updateCPV1AccountV1
   where
     updateCPV0AccountV0 ::
         AccountVersionFor (MPV m) ~ 'AccountV0 =>
@@ -1259,6 +1261,7 @@ putBakerCommissionsInRange ::
 putBakerCommissionsInRange ranges bs (BakerId ai) = case protocolVersion @(MPV m) of
     SP4 -> bsoConstrainBakerCommission bs ai ranges
     SP5 -> bsoConstrainBakerCommission bs ai ranges
+    SP6 -> bsoConstrainBakerCommission bs ai ranges
 
 -- |The result of executing the block prologue.
 data PrologueResult m = PrologueResult

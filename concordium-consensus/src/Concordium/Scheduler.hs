@@ -1200,6 +1200,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                                             P3 -> events
                                                             P4 -> events
                                                             P5 -> resumeEvent False : interruptEvent : events
+                                                            P6 -> resumeEvent False : interruptEvent : events
                                                 go newEvents =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.Error (WasmV1.EnvFailure (WasmV1.MissingContract imcTo))) Nothing)
                                             Just (InstanceInfoV0 targetInstance) -> do
                                                 -- we are invoking a V0 instance.

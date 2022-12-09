@@ -395,6 +395,7 @@ getSlotBakers genData = case protocolVersion @(MPV m) of
     SP3 -> getSlotBakersP1
     SP4 -> getSlotBakersP4 genData
     SP5 -> getSlotBakersP4 genData
+    SP6 -> getSlotBakersP4 genData
 
 -- |Determine the bakers that apply to a future slot, given the state at a particular block.
 -- This will return 'Nothing' if the projected bakers could change before then (depending on
@@ -490,3 +491,4 @@ getDefiniteSlotBakers genData = case protocolVersion @(MPV m) of
     SP3 -> getDefiniteSlotBakersP1
     SP4 -> getDefiniteSlotBakersP4 genData
     SP5 -> getDefiniteSlotBakersP4 genData
+    SP6 -> getDefiniteSlotBakersP4 genData

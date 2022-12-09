@@ -264,6 +264,7 @@ instance (MonadBlobStore m, IsProtocolVersion pv) => BlobStorable m (ReleaseSche
         SP3 -> fmap ReleaseScheduleP0 <$> load
         SP4 -> fmap ReleaseScheduleP0 <$> load
         SP5 -> fmap ReleaseScheduleP5 <$> load
+        SP6 -> fmap ReleaseScheduleP5 <$> load
 
 instance (MonadBlobStore m) => Cacheable m (ReleaseSchedule pv) where
     cache (ReleaseScheduleP0 rs) = ReleaseScheduleP0 <$> cache rs
@@ -292,6 +293,7 @@ emptyReleaseSchedule = case protocolVersion @pv of
     SP3 -> rsP0
     SP4 -> rsP0
     SP5 -> rsP1
+    SP6 -> rsP1
   where
     rsP0 :: (RSAccountRef pv ~ AccountAddress) => m (ReleaseSchedule pv)
     rsP0 = do
@@ -340,6 +342,7 @@ trivialReleaseScheduleMigration = case protocolVersion @pv of
     SP3 -> RSMLegacyToLegacy
     SP4 -> RSMLegacyToLegacy
     SP5 -> RSMNewToNew
+    SP6 -> RSMNewToNew
 
 -- |Migrate a release schedule from one protocol version to another, given by a
 -- 'ReleaseScheduleMigration'.
@@ -392,6 +395,7 @@ makePersistentReleaseSchedule getAddr tRS = case protocolVersion @pv of
     SP3 -> rsP0
     SP4 -> rsP0
     SP5 -> rsP1
+    SP6 -> rsP1
   where
     rsP0 :: (RSAccountRef pv ~ AccountAddress) => m (ReleaseSchedule pv)
     rsP0 = do
