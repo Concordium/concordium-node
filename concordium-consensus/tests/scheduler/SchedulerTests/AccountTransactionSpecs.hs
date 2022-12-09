@@ -26,7 +26,7 @@ import Concordium.GlobalState.DummyData
 import Concordium.Scheduler.DummyData
 import Concordium.Types.DummyData
 
-import qualified SchedulerTests.Helpers as H
+import qualified SchedulerTests.Helpers as Helpers
 
 initialAmount :: Types.Amount
 initialAmount = 0
@@ -36,8 +36,8 @@ accountA = mkAccount alesVK alesAccount initialAmount
 
 initialBlockState ::
     (IsProtocolVersion pv) =>
-    H.PersistentBSM pv (BS.HashedPersistentBlockState pv)
-initialBlockState = H.createTestBlockStateWithAccounts [accountA]
+    Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
+initialBlockState = Helpers.createTestBlockStateWithAccounts [accountA]
 
 -- cdi7, but with lowest possible expiry
 cdi7' :: Types.AccountCreation
@@ -68,15 +68,15 @@ accountTest ::
 accountTest _ = do
     let transactions = Types.TGCredentialDeployment <$> transactionsInput
     let contextState =
-            H.defaultContextState
+            Helpers.defaultContextState
                 { EI._chainMetadata = dummyChainMeta{slotTime = 250}
                 }
     let testConfig =
-            H.defaultTestConfig
-                { H.tcContextState = contextState
+            Helpers.defaultTestConfig
+                { Helpers.tcContextState = contextState
                 }
-    (H.SchedulerResult{..}, doBlockStateAssertions) <-
-        H.runSchedulerTest
+    (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
+        Helpers.runSchedulerTest
             @pv
             testConfig
             initialBlockState
@@ -84,7 +84,7 @@ accountTest _ = do
             transactions
     let Sch.FilteredTransactions{..} = srTransactions
     doBlockStateAssertions
-    assertBool "Successful transaction results." $ case H.getResults ftAdded of
+    assertBool "Successful transaction results." $ case Helpers.getResults ftAdded of
         [(_, a11), (_, a12), (_, a13), (_, a15), (_, a17)]
             | Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed{}] <- a11,
               Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed{}] <- a12,
@@ -101,19 +101,19 @@ accountTest _ = do
         (map snd ftFailedCredentials)
     assertEqual "Execution cost should be 0." 0 srExecutionCosts
   where
-    checkState :: BS.PersistentBlockState pv -> H.PersistentBSM pv Assertion
+    checkState :: BS.PersistentBlockState pv -> Helpers.PersistentBSM pv Assertion
     checkState state = do
         doAssertState <- blockStateAssertions state
-        reloadedState <- H.reloadBlockState state
+        reloadedState <- Helpers.reloadBlockState state
         doAssertReloadedState <- blockStateAssertions reloadedState
         return $ do
             doAssertState
             doAssertReloadedState
 
-    blockStateAssertions :: BS.PersistentBlockState pv -> H.PersistentBSM pv Assertion
+    blockStateAssertions :: BS.PersistentBlockState pv -> Helpers.PersistentBSM pv Assertion
     blockStateAssertions state = do
         hashedState <- BS.hashBlockState state
-        doInvariantAssertions <- H.assertBlockStateInvariants hashedState 0
+        doInvariantAssertions <- Helpers.assertBlockStateInvariants hashedState 0
         let addedAccountAddresses =
                 map
                     (accountAddressFromCredential . Types.credential)
@@ -132,7 +132,7 @@ accountTest _ = do
 tests :: Spec
 tests =
     describe "Account creation" $ do
-        sequence_ $ H.forEveryProtocolVersion $ \spv pvString ->
+        sequence_ $ Helpers.forEveryProtocolVersion $ \spv pvString ->
             specify
                 ( pvString
                     ++ ": 4 accounts created, fifth rejected, credential deployed, and one more account created."

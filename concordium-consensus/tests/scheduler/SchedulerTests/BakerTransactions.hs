@@ -35,8 +35,9 @@ import qualified Concordium.Crypto.VRF as VRF
 import Concordium.GlobalState.DummyData
 import Concordium.Scheduler.DummyData
 import Concordium.Types.DummyData
+import System.IO.Unsafe
 
-import qualified SchedulerTests.Helpers as H
+import qualified SchedulerTests.Helpers as Helpers
 import SchedulerTests.TestUtils
 
 keyPair :: Int -> SigScheme.KeyPair
@@ -48,8 +49,8 @@ account = accountAddressFrom
 accounts :: (Types.IsAccountVersion av) => [Basic.Account av]
 accounts = [mkAccount (SigScheme.correspondingVerifyKey (keyPair i)) (account i) 400_000_000_000 | i <- [0 .. 3]]
 
-initialBlockState :: (Types.IsProtocolVersion pv) => H.PersistentBSM pv (BS.HashedPersistentBlockState pv)
-initialBlockState = H.createTestBlockStateWithAccounts accounts
+initialBlockState :: (Types.IsProtocolVersion pv) => Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
+initialBlockState = Helpers.createTestBlockStateWithAccounts accounts
 
 baker0 :: (FullBakerInfo, VRF.SecretKey, BlockSig.SignKey, Bls.SecretKey)
 baker0 = mkFullBaker 0 0
@@ -265,23 +266,31 @@ transactionsInput =
         }
     ]
 
-type TestResult pv = ([(H.SchedulerResult, [Types.BakerId])], BS.HashedPersistentBlockState pv)
+type TestResult pv = ([(Helpers.SchedulerResult, [Types.BakerId])], BS.HashedPersistentBlockState pv)
 
 tests :: Spec
 tests = do
-    (outcomes, endState) <- runIO $ do
-        txs <- processUngroupedTransactions transactionsInput
-        H.runSchedulerTestWithIntermediateStates @PV1 H.defaultTestConfig initialBlockState BS.bsoGetActiveBakers txs
-    let results = first (H.getResults . Sch.ftAdded . H.srTransactions) <$> outcomes
+    let (outcomes, endState) = unsafePerformIO $ do
+            txs <- processUngroupedTransactions transactionsInput
+            Helpers.runSchedulerTestWithIntermediateStates
+                @PV1
+                Helpers.defaultTestConfig
+                initialBlockState
+                BS.bsoGetActiveBakers
+                txs
+    let results = first (Helpers.getResults . Sch.ftAdded . Helpers.srTransactions) <$> outcomes
 
     describe "P1: Baker transactions." $ do
         specify "Result state satisfies invariant" $ do
-            let feeTotal = sum $ H.srExecutionCosts . fst <$> outcomes
-            join $ H.runTestBlockState $ H.assertBlockStateInvariants endState feeTotal
+            let feeTotal = sum $ Helpers.srExecutionCosts . fst <$> outcomes
+            join $ Helpers.runTestBlockState $ Helpers.assertBlockStateInvariants endState feeTotal
         specify "Correct number of transactions" $
             length results `shouldBe` length transactionsInput
         specify "No failed transactions" $ do
-            let failedTransactions = List.concatMap (Sch.ftFailed . H.srTransactions . fst) outcomes
+            let failedTransactions =
+                    List.concatMap
+                        (Sch.ftFailed . Helpers.srTransactions . fst)
+                        outcomes
             failedTransactions `shouldSatisfy` List.null
         specify "Adding two bakers from initial empty state" $
             case take 2 results of

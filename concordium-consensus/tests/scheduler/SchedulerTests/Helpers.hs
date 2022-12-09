@@ -143,7 +143,7 @@ runTestBlockStateWithCacheSize cacheSize computation =
 runTestBlockState :: PersistentBSM pv a -> IO a
 runTestBlockState = runTestBlockStateWithCacheSize 100
 
--- |Config the for running the scheduler in a test environment.
+-- |Config for running the scheduler in a test environment.
 data TestConfig = TestConfig
     { -- | Maximum block size in bytes.
       tcBlockSize :: Integer,
@@ -310,6 +310,7 @@ checkBlockStateInvariants bs extraBalance = do
     -- Iterate all of the accounts in block state, check and accumulate the total public balance.
     allAccounts <- BS.getAccountList bs
     allActiveBakers <- Set.fromList <$> BS.getActiveBakers bs
+
     (_, _, bakerIdsLeft, totalAmountAccounts) <-
         foldM
             checkAccount
@@ -320,10 +321,10 @@ checkBlockStateInvariants bs extraBalance = do
         Except.throwError $
             "Active bakers with no baker record: " ++ show bakerIdsLeft
 
-    -- Check the totol amount of CCD matches the one being tracked in block state.
-    allInstances <- lift $ BS.getContractInstanceList bs
+    -- Check the total amount of CCD matches the one being tracked in block state.
+    allInstances <- BS.getContractInstanceList bs
     totalAmountInstances <- foldM sumInstanceBalance 0 allInstances
-    bankStatus <- lift $ BS.bsoGetBankStatus =<< BS.thawBlockState bs
+    bankStatus <- BS.bsoGetBankStatus =<< BS.thawBlockState bs
     let totalAmountCalculated =
             totalAmountAccounts
                 + (bankStatus ^. Rewards.totalEncryptedGTU)
@@ -348,7 +349,7 @@ checkBlockStateInvariants bs extraBalance = do
             Except.throwError $
                 "Duplicate account address: " ++ show accountAddress
 
-        maybeAccount <- lift $ BS.getAccount bs accountAddress
+        maybeAccount <- BS.getAccount bs accountAddress
         (accountIndex, account) <-
             maybe
                 (Except.throwError $ "No account information for address: " ++ show accountAddress)
@@ -358,7 +359,7 @@ checkBlockStateInvariants bs extraBalance = do
         let nextAccountsSoFar = Map.insert accountAddress accountIndex accountsSoFar
 
         -- check that we didn't already find this credential
-        credentials <- lift $ BS.accountCredentials account
+        credentials <- BS.accountCredentials account
         nextCredentialsSoFar <-
             foldM
                 (checkAndInsertAccountCredential accountIndex)
@@ -366,8 +367,8 @@ checkBlockStateInvariants bs extraBalance = do
                 credentials
 
         -- check that the locked balance is the same as the sum of the pending releases
-        lockedBalance <- lift $ BS.accountLockedAmount account
-        sumOfReleases <- lift $ Types.releaseTotal <$> BS.accountReleaseSummary account
+        lockedBalance <- BS.accountLockedAmount account
+        sumOfReleases <- Types.releaseTotal <$> BS.accountReleaseSummary account
         unless (sumOfReleases == lockedBalance) $
             Except.throwError $
                 "Sum of pending releases ("
@@ -377,7 +378,7 @@ checkBlockStateInvariants bs extraBalance = do
                     ++ " for account "
                     ++ show accountAddress
 
-        maybeAccountBakerInfoRef <- lift $ BS.accountBakerInfoRef account
+        maybeAccountBakerInfoRef <- BS.accountBakerInfoRef account
         nextBakerIdsLeft <- case maybeAccountBakerInfoRef of
             Nothing -> return bakerIdsLeft
             Just bakerInfoRef -> do
@@ -398,14 +399,14 @@ checkBlockStateInvariants bs extraBalance = do
                             ++ show accountAddress
                 return $ Set.delete bakerId bakerIdsLeft
 
-        publicBalance <- lift $ BS.accountAmount account
+        publicBalance <- BS.accountAmount account
         let nextTotalAccountAmount = totalAccountAmount + publicBalance
 
         return (nextAccountsSoFar, nextCredentialsSoFar, nextBakerIdsLeft, nextTotalAccountAmount)
 
     sumInstanceBalance :: Types.Amount -> Types.ContractAddress -> Except.ExceptT String (PersistentBSM pv) Types.Amount
     sumInstanceBalance totalInstanceAmount instanceAddress = do
-        maybeInstance <- lift $ BS.getContractInstance bs instanceAddress
+        maybeInstance <- BS.getContractInstance bs instanceAddress
         instanceInfo <-
             maybe
                 (Except.throwError $ "No instance information for address: " ++ show instanceAddress)
@@ -414,7 +415,7 @@ checkBlockStateInvariants bs extraBalance = do
         let instanceAmount = case instanceInfo of
                 BS.InstanceInfoV0 info -> BS.iiBalance info
                 BS.InstanceInfoV1 info -> BS.iiBalance info
-        return $ totalInstanceAmount + instanceAmount
+        return $! totalInstanceAmount + instanceAmount
 
     checkAndInsertAccountCredential ::
         Types.AccountIndex ->
