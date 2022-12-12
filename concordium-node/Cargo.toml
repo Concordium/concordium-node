@@ -28,7 +28,6 @@ concordium_base = { path = "../concordium-base/rust-src/concordium_base" }
 wasm-chain-integration = { path = "../concordium-base/smart-contracts/wasm-chain-integration", default-features=false }
 
 # External dependencies
-parking_lot = "0.12"
 structopt = "0.3"
 rand = "0.7"
 mio = { version = "0.7", features = ["os-poll", "tcp"] }

@@ -4,7 +4,6 @@ use crate::consensus_ffi::{
     messaging::ConsensusMessage,
 };
 use concordium_base::hashes::BlockHash;
-use parking_lot::Condvar;
 use std::{
     convert::TryFrom,
     path::Path,
@@ -49,7 +48,6 @@ pub struct ConsensusInboundQueues {
     pub sender_high_priority:   QueueSyncSender<ConsensusMessage>,
     pub receiver_low_priority:  Mutex<QueueReceiver<ConsensusMessage>>,
     pub sender_low_priority:    QueueSyncSender<ConsensusMessage>,
-    pub signaler:               Condvar,
 }
 
 impl Default for ConsensusInboundQueues {
@@ -63,7 +61,6 @@ impl Default for ConsensusInboundQueues {
             sender_high_priority,
             receiver_low_priority: Mutex::new(receiver_low_priority),
             sender_low_priority,
-            signaler: Default::default(),
         }
     }
 }
@@ -73,7 +70,6 @@ pub struct ConsensusOutboundQueues {
     pub sender_high_priority:   QueueSyncSender<ConsensusMessage>,
     pub receiver_low_priority:  Mutex<QueueReceiver<ConsensusMessage>>,
     pub sender_low_priority:    QueueSyncSender<ConsensusMessage>,
-    pub signaler:               Condvar,
 }
 
 impl Default for ConsensusOutboundQueues {
@@ -87,7 +83,6 @@ impl Default for ConsensusOutboundQueues {
             sender_high_priority,
             receiver_low_priority: Mutex::new(receiver_low_priority),
             sender_low_priority,
-            signaler: Default::default(),
         }
     }
 }
@@ -100,43 +95,19 @@ pub struct ConsensusQueues {
 
 impl ConsensusQueues {
     pub fn send_in_high_priority_message(&self, message: ConsensusMessage) -> anyhow::Result<()> {
-        self.inbound
-            .sender_high_priority
-            .send_msg(message)
-            .map(|_| {
-                self.inbound.signaler.notify_one();
-            })
-            .map_err(|e| e.into())
+        self.inbound.sender_high_priority.send_msg(message).map_err(|e| e.into())
     }
 
     pub fn send_in_low_priority_message(&self, message: ConsensusMessage) -> anyhow::Result<()> {
-        self.inbound
-            .sender_low_priority
-            .send_msg(message)
-            .map(|_| {
-                self.inbound.signaler.notify_one();
-            })
-            .map_err(|e| e.into())
+        self.inbound.sender_low_priority.send_msg(message).map_err(|e| e.into())
     }
 
     pub fn send_out_message(&self, message: ConsensusMessage) -> anyhow::Result<()> {
-        self.outbound
-            .sender_low_priority
-            .send_msg(message)
-            .map(|_| {
-                self.outbound.signaler.notify_one();
-            })
-            .map_err(|e| e.into())
+        self.outbound.sender_low_priority.send_msg(message).map_err(|e| e.into())
     }
 
     pub fn send_out_blocking_msg(&self, message: ConsensusMessage) -> anyhow::Result<()> {
-        self.outbound
-            .sender_high_priority
-            .send_blocking_msg(message)
-            .map(|_| {
-                self.outbound.signaler.notify_one();
-            })
-            .map_err(|e| e.into())
+        self.outbound.sender_high_priority.send_blocking_msg(message).map_err(|e| e.into())
     }
 
     pub fn clear(&self) {
@@ -169,10 +140,8 @@ impl ConsensusQueues {
     pub fn stop(&self) -> anyhow::Result<()> {
         self.outbound.sender_low_priority.send_stop()?;
         self.outbound.sender_high_priority.send_stop()?;
-        self.outbound.signaler.notify_one();
         self.inbound.sender_low_priority.send_stop()?;
         self.inbound.sender_high_priority.send_stop()?;
-        self.inbound.signaler.notify_one();
         Ok(())
     }
 }
