@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -21,6 +22,7 @@ import Test.HUnit
 
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.ID.Types as Types
+import qualified Concordium.Types.Accounts as Types
 import qualified Concordium.Types.Accounts.Releases as Types
 import Concordium.Types.SeedState (initialSeedState)
 
@@ -282,10 +284,11 @@ reloadBlockState persistentState = do
 
 -- | Information accumulated when iterating the accounts in block state during
 -- checkBlockStateInvariants.
-type AccountAccumulated =
+type AccountAccumulated av =
     ( Map.Map Types.AccountAddress Types.AccountIndex,
       Map.Map Types.RawCredentialRegistrationID Types.AccountIndex,
       Set.Set Types.BakerId,
+      DefinedWhenSupportDelegation av (Set.Set Types.DelegatorId),
       Types.Amount
     )
 
@@ -299,27 +302,53 @@ assertBlockStateInvariants bs extraBalance = do
     result <- Except.runExceptT $ checkBlockStateInvariants bs extraBalance
     return $ either assertFailure return result
 
+-- | Data type for holding data which is only defined for account versions supporting delegation.
+data DefinedWhenSupportDelegation (av :: Types.AccountVersion) a where
+    Defined :: (Types.AVSupportsDelegation av) => a -> DefinedWhenSupportDelegation av a
+    NotDefined :: DefinedWhenSupportDelegation 'Types.AccountV0 a
+
 -- | Check block state for a number of invariants.
 checkBlockStateInvariants ::
-    forall pv.
-    (Types.IsProtocolVersion pv) =>
+    forall pv av.
+    (Types.IsProtocolVersion pv, Types.IsAccountVersion av, Types.AccountVersionFor pv ~ av) =>
     BS.HashedPersistentBlockState pv ->
     Types.Amount ->
     Except.ExceptT String (PersistentBSM pv) ()
 checkBlockStateInvariants bs extraBalance = do
     -- Iterate all of the accounts in block state, check and accumulate the total public balance.
     allAccounts <- BS.getAccountList bs
-    allActiveBakers <- Set.fromList <$> BS.getActiveBakers bs
 
-    (_, _, bakerIdsLeft, totalAmountAccounts) <-
+    -- Get the active bakers and for protocol versions supporting delegation, get the active delegators.
+    (allActiveBakers, allActiveDelegators) <- case Types.delegationSupport @av of
+        Types.SAVDelegationNotSupported -> do
+            allActiveBakers <- Set.fromList <$> BS.getActiveBakers bs
+            return (allActiveBakers, NotDefined)
+        Types.SAVDelegationSupported -> do
+            (allActiveBakerInfoList, allActiveDelegatorInfoList) <- BS.getActiveBakersAndDelegators bs
+            allActiveBakerList <- mapM (BS.loadBakerId . BS.activeBakerInfoRef) allActiveBakerInfoList
+            let allActiveDelegatorList = BS.activeDelegatorId <$> allActiveDelegatorInfoList
+            return (Set.fromList allActiveBakerList, Defined @av $ Set.fromList allActiveDelegatorList)
+
+    -- Iterates all of the accounts, running checks and accumulates the total public balance.
+    (_, _, bakerIdsLeft, delegatorIdsLeft, totalAmountAccounts) <-
         foldM
             checkAccount
-            (Map.empty, Map.empty, allActiveBakers, 0)
+            (Map.empty, Map.empty, allActiveBakers, allActiveDelegators, 0)
             allAccounts
+
     -- Ensure all of the active bakers were covered by the above iteration of accounts.
     unless (Set.null bakerIdsLeft) $
         Except.throwError $
             "Active bakers with no baker record: " ++ show bakerIdsLeft
+
+    -- For protocol versions with delegation:
+    -- ensure all of the active bakers were covered by the above iteration of accounts.
+    _ :: () <- case delegatorIdsLeft of
+        NotDefined -> return ()
+        Defined idsLeft ->
+            unless (Set.null idsLeft) $
+                Except.throwError $
+                    "Active delegators with no delegator record: " ++ show idsLeft
 
     -- Check the total amount of CCD matches the one being tracked in block state.
     allInstances <- BS.getContractInstanceList bs
@@ -340,10 +369,10 @@ checkBlockStateInvariants bs extraBalance = do
                 ++ show totalAmountCalculated
   where
     checkAccount ::
-        AccountAccumulated ->
+        AccountAccumulated av ->
         Types.AccountAddress ->
-        Except.ExceptT String (PersistentBSM pv) AccountAccumulated
-    checkAccount (accountsSoFar, credentialsSoFar, bakerIdsLeft, totalAccountAmount) accountAddress = do
+        Except.ExceptT String (PersistentBSM pv) (AccountAccumulated av)
+    checkAccount (accountsSoFar, credentialsSoFar, bakerIdsLeft, delegatorIdsLeft, totalAccountAmount) accountAddress = do
         -- check that we didn't already find this same account
         when (Map.member accountAddress accountsSoFar) $
             Except.throwError $
@@ -378,6 +407,8 @@ checkBlockStateInvariants bs extraBalance = do
                     ++ " for account "
                     ++ show accountAddress
 
+        -- If the account is a baker, check the baker ID matches account index and it is part of the
+        -- set of active bakers.
         maybeAccountBakerInfoRef <- BS.accountBakerInfoRef account
         nextBakerIdsLeft <- case maybeAccountBakerInfoRef of
             Nothing -> return bakerIdsLeft
@@ -399,12 +430,49 @@ checkBlockStateInvariants bs extraBalance = do
                             ++ show accountAddress
                 return $ Set.delete bakerId bakerIdsLeft
 
+        -- When protocol version supports delegation, see if the account is an active delegator.
+        -- If so, check the delegator ID matches account index and it is part of the
+        -- set of active delegators.
+        nextDelegatorIdsLeft <- case delegatorIdsLeft of
+            NotDefined -> return delegatorIdsLeft
+            Defined idsLeft -> do
+                maybeAccountDelegation <- BS.accountDelegator account
+                case maybeAccountDelegation of
+                    Nothing -> return delegatorIdsLeft
+                    Just accountDelegation -> do
+                        let delegatorId = Types._delegationIdentity accountDelegation
+
+                        unless (delegatorId == fromIntegral accountIndex) $
+                            Except.throwError $
+                                "Delegator ID ("
+                                    ++ show delegatorId
+                                    ++ ") does not match the account index ("
+                                    ++ show accountIndex
+                                    ++ ") for account "
+                                    ++ show accountAddress
+                        unless (Set.member delegatorId idsLeft) $
+                            Except.throwError $
+                                "Account has delegator record, but is not an active delegator "
+                                    ++ show delegatorId
+                                    ++ " account "
+                                    ++ show accountAddress
+
+                        return $ Defined $ Set.delete delegatorId idsLeft
+
+        -- Add the public balance to the accumulated total public balance of accounts.
         publicBalance <- BS.accountAmount account
         let nextTotalAccountAmount = totalAccountAmount + publicBalance
 
-        return (nextAccountsSoFar, nextCredentialsSoFar, nextBakerIdsLeft, nextTotalAccountAmount)
+        return
+            ( nextAccountsSoFar,
+              nextCredentialsSoFar,
+              nextBakerIdsLeft,
+              nextDelegatorIdsLeft,
+              nextTotalAccountAmount
+            )
 
-    sumInstanceBalance :: Types.Amount -> Types.ContractAddress -> Except.ExceptT String (PersistentBSM pv) Types.Amount
+    sumInstanceBalance ::
+        Types.Amount -> Types.ContractAddress -> Except.ExceptT String (PersistentBSM pv) Types.Amount
     sumInstanceBalance totalInstanceAmount instanceAddress = do
         maybeInstance <- BS.getContractInstance bs instanceAddress
         instanceInfo <-
@@ -421,7 +489,10 @@ checkBlockStateInvariants bs extraBalance = do
         Types.AccountIndex ->
         Map.Map Types.RawCredentialRegistrationID Types.AccountIndex ->
         Types.RawAccountCredential ->
-        Except.ExceptT String (PersistentBSM pv) (Map.Map Types.RawCredentialRegistrationID Types.AccountIndex)
+        Except.ExceptT
+            String
+            (PersistentBSM pv)
+            (Map.Map Types.RawCredentialRegistrationID Types.AccountIndex)
     checkAndInsertAccountCredential accountIndex credentialsSoFar credential = do
         let credentialRegistrationId = Types.credId credential
         when (Map.member credentialRegistrationId credentialsSoFar) $
