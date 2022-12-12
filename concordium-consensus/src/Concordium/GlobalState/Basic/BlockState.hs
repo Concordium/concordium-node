@@ -36,6 +36,7 @@ import qualified Concordium.Genesis.Data.P2 as P2
 import qualified Concordium.Genesis.Data.P3 as P3
 import qualified Concordium.Genesis.Data.P4 as P4
 import qualified Concordium.Genesis.Data.P5 as P5
+import qualified Concordium.Genesis.Data.P6 as P6
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Basic.BlockState.Account
 import qualified Concordium.GlobalState.Basic.BlockState.Accounts as Accounts
@@ -2243,6 +2244,7 @@ genesisStakesAndRewardDetails spv = case spv of
     SP3 -> gsc1
     SP4 -> gsc4
     SP5 -> gsc4
+    SP6 -> gsc4
   where
     gsc1 accounts seedState _ _ =
         ( initialBirkParameters accounts seedState,
@@ -2311,6 +2313,8 @@ genesisState gd = case protocolVersion @pv of
         GDP4 P4.GDP4Initial{..} -> mkGenesisStateInitial genesisCore genesisInitialState
     SP5 -> case gd of
         GDP5 P5.GDP5Initial{..} -> mkGenesisStateInitial genesisCore genesisInitialState
+    SP6 -> case gd of
+        GDP6 P6.GDP6Initial{..} -> mkGenesisStateInitial genesisCore genesisInitialState
   where
     mkGenesisStateInitial :: CoreGenesisParameters -> GenesisState pv -> Either String (BlockState pv, TransactionTable.TransactionTable)
     mkGenesisStateInitial GenesisData.CoreGenesisParameters{..} GenesisData.GenesisState{..} = do

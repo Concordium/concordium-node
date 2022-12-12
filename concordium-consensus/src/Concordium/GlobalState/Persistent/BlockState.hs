@@ -1947,6 +1947,7 @@ doGetRewardStatus pbs = do
         SP3 -> return rewardsV0
         SP4 -> rewardsV1
         SP5 -> rewardsV1
+        SP6 -> rewardsV1
 
 doRewardFoundationAccount :: (SupportsPersistentState pv m) => PersistentBlockState pv -> Amount -> m (PersistentBlockState pv)
 doRewardFoundationAccount pbs reward = do
@@ -2063,6 +2064,7 @@ doModifyAccount pbs aUpd@AccountUpdate{..} = do
                     SP3 -> accountCanonicalAddress acc'
                     SP4 -> accountCanonicalAddress acc'
                     SP5 -> return _auIndex
+                    SP6 -> return _auIndex
                 !oldRel <- accountNextReleaseTimestamp acc
                 !newRel <- accountNextReleaseTimestamp acc'
                 return (acctRef :: RSAccountRef pv, oldRel, newRel)
@@ -2586,6 +2588,7 @@ doProcessReleaseSchedule pbs ts = do
                     SP3 -> processAccountP1
                     SP4 -> processAccountP1
                     SP5 -> processAccountP5
+                    SP6 -> processAccountP5
             (newAccs, newRS) <- foldM processAccount (bspAccounts bsp, remRS) affectedAccounts
             storePBS pbs (bsp{bspAccounts = newAccs, bspReleaseSchedule = newRS})
 
