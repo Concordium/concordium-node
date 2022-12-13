@@ -15,7 +15,6 @@ import qualified Control.Monad.Except as Except
 import Control.Monad.RWS.Strict
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
-import Data.Time
 import Data.Word
 import Lens.Micro.Platform
 import Test.HUnit
@@ -303,13 +302,19 @@ reloadBlockState persistentState = do
 
 -- | Information accumulated when iterating the accounts in block state during
 -- checkBlockStateInvariants.
-type AccountAccumulated av =
-    ( Map.Map Types.AccountAddress Types.AccountIndex,
-      Map.Map Types.RawCredentialRegistrationID Types.AccountIndex,
-      Set.Set Types.BakerId,
-      DefinedWhenSupportDelegation av (Set.Set Types.DelegatorId),
-      Types.Amount
-    )
+data AccountAccumulated av = AccountAccumulated
+    { -- | Account addresses seen so far. Used to ensure no duplicates between accounts.
+      aaAccountsSoFar :: Map.Map Types.AccountAddress Types.AccountIndex,
+      -- | Credentials seen so far. Used to ensure no duplicates between accounts.
+      aaCredentialsSoFar :: Map.Map Types.RawCredentialRegistrationID Types.AccountIndex,
+      -- | Set of baker IDs of the active bakers not seen yet.
+      aaBakerIdsLeft :: Set.Set Types.BakerId,
+      -- | Set of Delegator IDs of the active delegators not seen yet.
+      -- This is only defined for relevant protocol versions.
+      aaDelegatorIdsLeft :: DefinedWhenSupportDelegation av (Set.Set Types.DelegatorId),
+      -- | Accumulated total public balance.
+      aaTotalAccountAmount :: Types.Amount
+    }
 
 -- | Check block state for a number of invariants.
 --
@@ -380,21 +385,30 @@ checkBlockStateInvariants bs extraBalance = do
             let allActiveDelegatorList = BS.activeDelegatorId <$> allActiveDelegatorInfoList
             return (Set.fromList allActiveBakerList, Defined @av $ Set.fromList allActiveDelegatorList)
 
+    let initialAccountAccumulated =
+            AccountAccumulated
+                { aaAccountsSoFar = Map.empty,
+                  aaCredentialsSoFar = Map.empty,
+                  aaBakerIdsLeft = allActiveBakers,
+                  aaDelegatorIdsLeft = allActiveDelegators,
+                  aaTotalAccountAmount = 0
+                }
+
     -- Iterates all of the accounts, running checks and accumulates the total public balance.
-    (_, _, bakerIdsLeft, delegatorIdsLeft, totalAmountAccounts) <-
+    accountAccumulated <-
         foldM
             checkAccount
-            (Map.empty, Map.empty, allActiveBakers, allActiveDelegators, 0)
+            initialAccountAccumulated
             allAccounts
 
     -- Ensure all of the active bakers were covered by the above iteration of accounts.
-    unless (Set.null bakerIdsLeft) $
+    unless (Set.null $ aaBakerIdsLeft accountAccumulated) $
         Except.throwError $
-            "Active bakers with no baker record: " ++ show bakerIdsLeft
+            "Active bakers with no baker record: " ++ show (aaBakerIdsLeft accountAccumulated)
 
     -- For protocol versions with delegation:
     -- ensure all of the active bakers were covered by the above iteration of accounts.
-    _ :: () <- case delegatorIdsLeft of
+    _ :: () <- case aaDelegatorIdsLeft accountAccumulated of
         NotDefined -> return ()
         Defined idsLeft ->
             unless (Set.null idsLeft) $
@@ -406,7 +420,7 @@ checkBlockStateInvariants bs extraBalance = do
     totalAmountInstances <- foldM sumInstanceBalance 0 allInstances
     bankStatus <- BS.bsoGetBankStatus =<< BS.thawBlockState bs
     let totalAmountCalculated =
-            totalAmountAccounts
+            aaTotalAccountAmount accountAccumulated
                 + (bankStatus ^. Rewards.totalEncryptedGTU)
                 + totalAmountInstances
                 + (bankStatus ^. Rewards.bankRewardAccounts . to Rewards.rewardsTotal)
@@ -424,9 +438,9 @@ checkBlockStateInvariants bs extraBalance = do
         AccountAccumulated av ->
         Types.AccountAddress ->
         Except.ExceptT String (PersistentBSM pv) (AccountAccumulated av)
-    checkAccount (accountsSoFar, credentialsSoFar, bakerIdsLeft, delegatorIdsLeft, totalAccountAmount) accountAddress = do
+    checkAccount AccountAccumulated{..} accountAddress = do
         -- Check that we didn't already find this same account.
-        when (Map.member accountAddress accountsSoFar) $
+        when (Map.member accountAddress aaAccountsSoFar) $
             Except.throwError $
                 "Duplicate account address: " ++ show accountAddress
 
@@ -437,14 +451,14 @@ checkBlockStateInvariants bs extraBalance = do
                 return
                 maybeAccount
 
-        let nextAccountsSoFar = Map.insert accountAddress accountIndex accountsSoFar
+        let nextAccountsSoFar = Map.insert accountAddress accountIndex aaAccountsSoFar
 
         -- Check that we didn't already find this credential.
         credentials <- BS.accountCredentials account
         nextCredentialsSoFar <-
             foldM
                 (checkAndInsertAccountCredential accountIndex)
-                credentialsSoFar
+                aaCredentialsSoFar
                 credentials
 
         -- Check that the locked balance is the same as the sum of the pending releases.
@@ -463,7 +477,7 @@ checkBlockStateInvariants bs extraBalance = do
         -- set of active bakers.
         maybeAccountBakerInfoRef <- BS.accountBakerInfoRef account
         nextBakerIdsLeft <- case maybeAccountBakerInfoRef of
-            Nothing -> return bakerIdsLeft
+            Nothing -> return aaBakerIdsLeft
             Just bakerInfoRef -> do
                 bakerId <- BS.loadBakerId bakerInfoRef
                 unless (bakerId == fromIntegral accountIndex) $
@@ -474,23 +488,23 @@ checkBlockStateInvariants bs extraBalance = do
                             ++ show accountIndex
                             ++ ") for account "
                             ++ show accountAddress
-                unless (Set.member bakerId bakerIdsLeft) $
+                unless (Set.member bakerId aaBakerIdsLeft) $
                     Except.throwError $
                         "Account has baker record, but is not an active baker "
                             ++ show bakerId
                             ++ " account "
                             ++ show accountAddress
-                return $ Set.delete bakerId bakerIdsLeft
+                return $ Set.delete bakerId aaBakerIdsLeft
 
         -- When protocol version supports delegation, see if the account is an active delegator.
         -- If so, check the delegator ID matches account index and it is part of the
         -- set of active delegators.
-        nextDelegatorIdsLeft <- case delegatorIdsLeft of
-            NotDefined -> return delegatorIdsLeft
+        nextDelegatorIdsLeft <- case aaDelegatorIdsLeft of
+            NotDefined -> return aaDelegatorIdsLeft
             Defined idsLeft -> do
                 maybeAccountDelegation <- BS.accountDelegator account
                 case maybeAccountDelegation of
-                    Nothing -> return delegatorIdsLeft
+                    Nothing -> return aaDelegatorIdsLeft
                     Just accountDelegation -> do
                         let delegatorId = Types._delegationIdentity accountDelegation
 
@@ -513,15 +527,16 @@ checkBlockStateInvariants bs extraBalance = do
 
         -- Add the public balance to the accumulated total public balance of accounts.
         publicBalance <- BS.accountAmount account
-        let nextTotalAccountAmount = totalAccountAmount + publicBalance
+        let nextTotalAccountAmount = aaTotalAccountAmount + publicBalance
 
         return
-            ( nextAccountsSoFar,
-              nextCredentialsSoFar,
-              nextBakerIdsLeft,
-              nextDelegatorIdsLeft,
-              nextTotalAccountAmount
-            )
+            AccountAccumulated
+                { aaAccountsSoFar = nextAccountsSoFar,
+                  aaCredentialsSoFar = nextCredentialsSoFar,
+                  aaBakerIdsLeft = nextBakerIdsLeft,
+                  aaDelegatorIdsLeft = nextDelegatorIdsLeft,
+                  aaTotalAccountAmount = nextTotalAccountAmount
+                }
 
     -- Ensure the provided contract address have and entry in the block state and accumulate the
     -- total balance of instances.
