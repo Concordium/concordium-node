@@ -26,6 +26,7 @@ import qualified Concordium.Types.Accounts as Types
 import qualified Concordium.Types.Accounts.Releases as Types
 import Concordium.Types.SeedState (initialSeedState)
 
+import qualified Concordium.Common.Time as Time
 import qualified Concordium.Cost as Cost
 import qualified Concordium.GlobalState.Basic.BlockState.Account as Basic
 import qualified Concordium.GlobalState.BlockState as BS
@@ -106,6 +107,8 @@ instance TimeMonad (PersistentBSM pv) where
     currentTime = return $ read "1970-01-01 13:27:13.257285424 UTC"
 
 -- |Call a function for each protocol version, returning a list of results.
+-- Notice the return type for the function must be independent of the protocol version.
+--
 -- This is used to run a test against every protocol version.
 forEveryProtocolVersion ::
     (forall pv. (Types.IsProtocolVersion pv) => Types.SProtocolVersion pv -> String -> a) ->
@@ -133,7 +136,12 @@ createTestBlockStateWithAccounts accounts =
         DummyData.dummyKeyCollection
         DummyData.dummyChainParameters
 
--- |Run test block state computation provided a cache size.
+-- |Run test block state computation provided an account cache size.
+-- The module cache size is 100.
+--
+-- This function creates a temporary file for the blobstore, which is removed right after the
+-- running the computation, meaning the result of the computation should not retain any references
+-- and should be fully evaluated.
 runTestBlockStateWithCacheSize :: Int -> PersistentBSM pv a -> IO a
 runTestBlockStateWithCacheSize cacheSize computation =
     Blob.runBlobStoreTemp "." $
@@ -141,7 +149,11 @@ runTestBlockStateWithCacheSize cacheSize computation =
             BS.runPersistentBlockStateMonad $
                 _runPersistentBSM computation
 
--- |Run test block state computation with a cache size of 100.
+-- |Run test block state computation with a account cache size and module cache size of 100.
+--
+-- This function creates a temporary file for the blobstore, which is removed right after the
+-- running the computation, meaning the result of the computation should not retain any references
+-- and should be fully evaluated.
 runTestBlockState :: PersistentBSM pv a -> IO a
 runTestBlockState = runTestBlockStateWithCacheSize 100
 
@@ -149,9 +161,9 @@ runTestBlockState = runTestBlockStateWithCacheSize 100
 data TestConfig = TestConfig
     { -- | Maximum block size in bytes.
       tcBlockSize :: Integer,
-      -- |Timeout for block construction.
+      -- |Timeout for block construction in milliseconds.
       -- This is the absolute time after which we stop trying to add new transctions to the block.
-      tcBlockTimeout :: UTCTime,
+      tcBlockTimeout :: Time.Timestamp,
       -- |The context state used for running the scheduler.
       tcContextState :: EI.ContextState
     }
@@ -161,7 +173,7 @@ defaultTestConfig :: TestConfig
 defaultTestConfig =
     TestConfig
         { tcBlockSize = DummyData.dummyBlockSize,
-          tcBlockTimeout = DummyData.dummyBlockTimeout,
+          tcBlockTimeout = Time.utcTimeToTimestamp DummyData.dummyBlockTimeout,
           tcContextState = defaultContextState
         }
 
@@ -193,7 +205,7 @@ runScheduler ::
     PersistentBSM pv (SchedulerResult, BS.PersistentBlockState pv)
 runScheduler TestConfig{..} stateBefore transactions = do
     blockStateBefore <- BS.thawBlockState stateBefore
-    let txs = filterTransactions tcBlockSize tcBlockTimeout transactions
+    let txs = filterTransactions tcBlockSize (Time.timestampToUTCTime tcBlockTimeout) transactions
     let schedulerState = EI.mkInitialSS @(PersistentBSM pv) blockStateBefore
     (filteredTransactions, stateAfter, ()) <- runRWST (_runBSM txs) tcContextState schedulerState
 
@@ -208,6 +220,10 @@ runScheduler TestConfig{..} stateBefore transactions = do
 -- | Run the scheduler on transactions in a test environment.
 -- Allows for a block state monad computation for constructing the initial block state and takes a
 -- block state monad computation for extracting relevant values.
+--
+-- This function creates a temporary file for the blobstore, which is removed right after the
+-- running transactions and the extractor, meaning the result of the extractor should not retain any
+-- references and should be fully evaluated.
 runSchedulerTest ::
     forall pv a.
     (Types.IsProtocolVersion pv) =>
@@ -273,6 +289,9 @@ runSchedulerTestWithIntermediateStates config constructState extractor transacti
         return (acc ++ [(result, extracted)], nextState)
 
 -- | Save and load block state, used to test the block state written to disc.
+--
+-- This can be used together with `runSchedulerTest*` functions for creating assertions about the
+-- block state on disc.
 reloadBlockState ::
     (Types.IsProtocolVersion pv) =>
     BS.PersistentBlockState pv ->
@@ -293,6 +312,22 @@ type AccountAccumulated av =
     )
 
 -- | Check block state for a number of invariants.
+--
+-- The invariants being check are:
+-- - No dublicate account addresses.
+-- - No dublicate account credentials.
+-- - For each account
+--   - Ensure the tracking of the total locked amount matches the sum of the pending releases.
+--   - If the account is a baker, check the baker ID matches account index and it is part of the set
+--     of active bakers.
+--   - When protocol version supports delegation, see if the account is an active delegator.
+--     If so, check the delegator ID matches account index and it is part of the set of active
+--     delegators.
+-- - Ensure all of the active bakers have a corresponding account in block state.
+-- - When protocol version supports delegation, ensure all of the active delegators have a
+--   corresponding account in block state.
+-- - Ensure the total balance of accounts and instances, matches the total amount tracked in the
+--   block state.
 assertBlockStateInvariants ::
     (Types.IsProtocolVersion pv) =>
     BS.HashedPersistentBlockState pv ->
@@ -308,6 +343,22 @@ data DefinedWhenSupportDelegation (av :: Types.AccountVersion) a where
     NotDefined :: DefinedWhenSupportDelegation 'Types.AccountV0 a
 
 -- | Check block state for a number of invariants.
+--
+-- The invariants being check are:
+-- - No dublicate account addresses.
+-- - No dublicate account credentials.
+-- - For each account
+--   - Ensure the tracking of the total locked amount matches the sum of the pending releases.
+--   - If the account is a baker, check the baker ID matches account index and it is part of the set
+--     of active bakers.
+--   - When protocol version supports delegation, see if the account is an active delegator.
+--     If so, check the delegator ID matches account index and it is part of the set of active
+--     delegators.
+-- - Ensure all of the active bakers have a corresponding account in block state.
+-- - When protocol version supports delegation, ensure all of the active delegators have a
+--   corresponding account in block state.
+-- - Ensure the total balance of accounts and instances, matches the total amount tracked in the
+--   block state.
 checkBlockStateInvariants ::
     forall pv av.
     (Types.IsProtocolVersion pv, Types.IsAccountVersion av, Types.AccountVersionFor pv ~ av) =>
@@ -368,12 +419,13 @@ checkBlockStateInvariants bs extraBalance = do
                 ++ " does not match the sum of all accounts, instances and rewards "
                 ++ show totalAmountCalculated
   where
+    -- Check account and accumulate the total public balance.
     checkAccount ::
         AccountAccumulated av ->
         Types.AccountAddress ->
         Except.ExceptT String (PersistentBSM pv) (AccountAccumulated av)
     checkAccount (accountsSoFar, credentialsSoFar, bakerIdsLeft, delegatorIdsLeft, totalAccountAmount) accountAddress = do
-        -- check that we didn't already find this same account
+        -- Check that we didn't already find this same account.
         when (Map.member accountAddress accountsSoFar) $
             Except.throwError $
                 "Duplicate account address: " ++ show accountAddress
@@ -387,7 +439,7 @@ checkBlockStateInvariants bs extraBalance = do
 
         let nextAccountsSoFar = Map.insert accountAddress accountIndex accountsSoFar
 
-        -- check that we didn't already find this credential
+        -- Check that we didn't already find this credential.
         credentials <- BS.accountCredentials account
         nextCredentialsSoFar <-
             foldM
@@ -395,7 +447,7 @@ checkBlockStateInvariants bs extraBalance = do
                 credentialsSoFar
                 credentials
 
-        -- check that the locked balance is the same as the sum of the pending releases
+        -- Check that the locked balance is the same as the sum of the pending releases.
         lockedBalance <- BS.accountLockedAmount account
         sumOfReleases <- Types.releaseTotal <$> BS.accountReleaseSummary account
         unless (sumOfReleases == lockedBalance) $
@@ -471,6 +523,8 @@ checkBlockStateInvariants bs extraBalance = do
               nextTotalAccountAmount
             )
 
+    -- Ensure the provided contract address have and entry in the block state and accumulate the
+    -- total balance of instances.
     sumInstanceBalance ::
         Types.Amount -> Types.ContractAddress -> Except.ExceptT String (PersistentBSM pv) Types.Amount
     sumInstanceBalance totalInstanceAmount instanceAddress = do
@@ -485,6 +539,7 @@ checkBlockStateInvariants bs extraBalance = do
                 BS.InstanceInfoV1 info -> BS.iiBalance info
         return $! totalInstanceAmount + instanceAmount
 
+    -- Check whether this is the first time we see a credential.
     checkAndInsertAccountCredential ::
         Types.AccountIndex ->
         Map.Map Types.RawCredentialRegistrationID Types.AccountIndex ->

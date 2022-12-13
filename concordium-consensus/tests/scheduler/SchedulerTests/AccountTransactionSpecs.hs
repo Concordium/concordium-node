@@ -53,23 +53,26 @@ transactionsInput =
         [ cdi1,
           cdi2,
           cdi3,
-          cdi4, -- should fail because repeated credential ID
+          cdi4, -- should fail because repeated credential ID.
           cdi5,
-          -- cdi6, -- deploy just a new predicate
           cdi7,
-          cdi7'
+          cdi7' -- Should fail because of transaction expiry.
         ]
 
-accountTest ::
+-- | Test which runs the scheduler with a number of account creations.
+-- Creating 4 accounts, fifth rejected, credential deployed, and one more account created.
+testAccountCreation ::
     forall pv av.
     (AccountVersionFor pv ~ av, IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     Assertion
-accountTest _ = do
+testAccountCreation _ = do
     let transactions = Types.TGCredentialDeployment <$> transactionsInput
     let contextState =
             Helpers.defaultContextState
-                { EI._chainMetadata = dummyChainMeta{slotTime = 250}
+                { -- Set slot time to non-zero, causing the deployment of the last credential to fails
+                  -- due to message expiry.
+                  EI._chainMetadata = dummyChainMeta{slotTime = 250}
                 }
     let testConfig =
             Helpers.defaultTestConfig
@@ -82,6 +85,7 @@ accountTest _ = do
             initialBlockState
             checkState
             transactions
+
     let Sch.FilteredTransactions{..} = srTransactions
     doBlockStateAssertions
     assertBool "Successful transaction results." $ case Helpers.getResults ftAdded of
@@ -120,14 +124,15 @@ accountTest _ = do
                     [cdi1, cdi2, cdi3, cdi5, cdi7]
         lookups <- mapM (BS.bsoGetAccount state) addedAccountAddresses
         maybeAccount <- BS.bsoGetAccount state alesAccount
-        maybeAmount <- mapM (BS.getAccountAmount . snd) maybeAccount
+        accountAmountAssertion <- case maybeAccount of
+            Nothing -> return $ assertFailure "Account was created."
+            Just (_, account) -> do
+                accAmount <- BS.getAccountAmount account
+                return $ assertEqual "Account should keep the initial amount." initialAmount accAmount
         return $ do
             doInvariantAssertions
             assertBool "Newly created accounts." $ all isJust lookups
-            case maybeAmount of
-                Nothing -> assertFailure "Account was created."
-                Just accAmount ->
-                    assertEqual "Account should keep the initial amount." initialAmount accAmount
+            accountAmountAssertion
 
 tests :: Spec
 tests =
@@ -137,4 +142,4 @@ tests =
                 ( pvString
                     ++ ": 4 accounts created, fifth rejected, credential deployed, and one more account created."
                 )
-                $ accountTest spv
+                $ testAccountCreation spv
