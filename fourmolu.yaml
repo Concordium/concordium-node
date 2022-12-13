@@ -9,4 +9,9 @@ haddock-style: single-line # Use -- |, {- |, or {-| for multiline haddocks (sing
 let-style: auto # How to style let blocks (auto uses newline if there's a newline in the input and inline otherwise, and mixed uses inline only when the let has exactly one binding).
 in-style: left-align # How to align the in keyword with respect to let.
 respectful: true # Be less aggressive in reformatting input, e.g. keep empty lines in import list.
-fixities: [] # Override fixities of operators.
+fixities: # Provide fixities of operators. This is needed to format without relying on the cabal file, which seems to be the behavior of some IDEs.
+  - infixr 0 ==>
+  - infixr 1 .||., .&&., .&.
+  - infix 4 .=, ===, =/=
+  - infixl 8 ^?, ^?!, ^.
+  - "infixl 9 .:"
