@@ -167,8 +167,11 @@ createAccountWith a bs = do
                 (YearMonth 2021 01)
                 (YearMonth 2021 12)
             )
-    ~(Just ai) <- bsoGetAccountIndex bs' thomasAccount
-    (,ai) <$> bsoModifyAccount bs' (emptyAccountUpdate ai & auAmount ?~ a)
+    accIndexM <- bsoGetAccountIndex bs' thomasAccount
+    case accIndexM of
+        Just ai -> (,ai) <$> bsoModifyAccount bs' (emptyAccountUpdate ai & auAmount ?~ a)
+        -- This does not happen
+        _ -> error "accIndexM should be Just"
 
 -- | Add a baker with the given staked amount.
 addBakerWith :: Amount -> (TheBlockStates, AccountIndex) -> ThisMonadConcrete (BakerConfigureResult, (TheBlockStates, AccountIndex))
@@ -272,7 +275,10 @@ testing2'1 = do
         getBlockStates
             >>= createAccountWith limitDelta
             >>= addBakerWith limit
-            >>= \(BCSuccess _ _, a) -> modifyStakeTo (limit - 1) a
+            >>= \bs -> case bs of
+                (BCSuccess _ _, a) -> modifyStakeTo (limit - 1) a
+                -- this does not happen
+                _ -> error "bs should be BCSuccess"
     case res of
         BCStakeUnderThreshold -> return ()
         e -> error $ "Got (" ++ show e ++ ") but wanted BCStakeUnderThreshold"
@@ -284,7 +290,10 @@ testing2'2 = do
         getBlockStates
             >>= createAccountWith (limitDelta + 100)
             >>= addBakerWith (limit + 100)
-            >>= \(BCSuccess _ _, a) -> modifyStakeTo limit a
+            >>= \bs -> case bs of
+                (BCSuccess _ _, a) -> modifyStakeTo limit a
+                -- this does not happen
+                _ -> error "bs should be BCSuccess"
     case res of
         BCSuccess [BakerConfigureStakeReduced _] _ -> return ()
         e -> error $ "Got (" ++ show e ++ ") but wanted BakerConfigureStakeReduced"
@@ -296,7 +305,10 @@ testing2'3 = do
         getBlockStates
             >>= createAccountWith (limitDelta + 100)
             >>= addBakerWith limit
-            >>= \(BCSuccess _ _, a) -> modifyStakeTo (limit + 100) a
+            >>= \bs -> case bs of
+                (BCSuccess _ _, a) -> modifyStakeTo (limit + 100) a
+                -- this does not happen
+                _ -> error "bs should be BCSuccess"
     case res of
         BCSuccess [BakerConfigureStakeIncreased _] _ -> return ()
         e -> error $ "Got (" ++ show e ++ ") but wanted BakerConfigureStakeIncreased"
@@ -309,7 +321,11 @@ testing3'1 = do
         getBlockStates
             >>= createAccountWith limitDelta
             >>= addBakerWith limit
-            >>= (\(BCSuccess _ _, a) -> increaseLimit (limit * 2) a)
+            >>= ( \bs -> case bs of
+                    (BCSuccess _ _, a) -> increaseLimit (limit * 2) a
+                    -- this does not happen
+                    _ -> error "bs should be BCSuccess"
+                )
             >>= modifyStakeTo (limit - 1)
     case res of
         BCStakeUnderThreshold -> return ()
@@ -324,7 +340,11 @@ testing3'2 = do
         getBlockStates
             >>= createAccountWith limitDelta
             >>= addBakerWith limit
-            >>= (\(BCSuccess _ _, a) -> increaseLimit (limit * 2) a)
+            >>= ( \bs -> case bs of
+                    (BCSuccess _ _, a) -> increaseLimit (limit * 2) a
+                    -- this does not happen
+                    _ -> error "bs should be BCSuccess"
+                )
             >>= modifyStakeTo (limit + 1)
     case res of
         BCStakeUnderThreshold -> return ()
@@ -338,7 +358,11 @@ testing3'3 = do
         getBlockStates
             >>= createAccountWith limitDelta
             >>= addBakerWith limit
-            >>= (\(BCSuccess _ _, a) -> increaseLimit (limit * 2) a)
+            >>= ( \bs -> case bs of
+                    (BCSuccess _ _, a) -> increaseLimit (limit * 2) a
+                    -- this does not happen
+                    _ -> error "bs should be BCSuccess"
+                )
             >>= modifyStakeTo (limit * 2 + 1)
     case res of
         BCSuccess [BakerConfigureStakeIncreased _] _ -> return ()

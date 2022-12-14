@@ -1888,13 +1888,20 @@ doRewardAccount pbs ai reward = do
         return $!
             activeBkrs
                 & passiveDelegators %~ \dlgs ->
-                    dlgs{adDelegatorTotalCapital = tot + reward}
+                    case dlgs of
+                        PersistentActiveDelegatorsV1{} -> dlgs{adDelegatorTotalCapital = tot + reward}
+                        _ -> error "dlgs should be PersistentActiveDelegatorsV1"
     updateDelegationPoolCapital activeBkrs (Transactions.DelegateToBaker bid) = do
         let activeBkrsMap = activeBkrs ^. activeBakers
             adj Nothing = error "Invariant violation: active baker account is not in active bakers map"
             adj (Just dlgs) = do
                 let tot = adDelegatorTotalCapital dlgs
-                return ((), Trie.Insert $ dlgs{adDelegatorTotalCapital = tot + reward})
+                return
+                    ( (),
+                      Trie.Insert $ case dlgs of
+                        PersistentActiveDelegatorsV1{} -> dlgs{adDelegatorTotalCapital = tot + reward}
+                        _ -> error "dlgs should be PersistentActiveDelegatorsV1"
+                    )
         (_, newActiveBkrsMap) <- Trie.adjust adj bid activeBkrsMap
         return $! activeBkrs & activeBakers .~ newActiveBkrsMap
 
@@ -2153,20 +2160,24 @@ doPutNewInstance pbs NewInstanceData{..} = do
                 -- We retrieve the module interface here so that we only have a single copy of it, meaning that
                 -- all instances created from the same module share a reference to the module.
                 -- Seeing that we know that the instance is V0, and that the module exists, this cannot fail.
-                ~(Just modRef) <- Modules.getModuleReference (GSWasm.miModuleRef nidInterface) mods
+                modRefM <- Modules.getModuleReference (GSWasm.miModuleRef nidInterface) mods
                 (csHash, initialState) <- freezeContractState nidInitialState
-                -- The module version is V0 because of the 'WasmVersion' is V0.
-                return $!!
-                    ( ca,
-                      PersistentInstanceV0
-                        Instances.PersistentInstanceV
-                            { pinstanceModuleInterface = modRef,
-                              pinstanceModel = initialState,
-                              pinstanceAmount = nidInitialAmount,
-                              pinstanceHash = Instances.makeInstanceHashV0 (pinstanceParameterHash params) csHash nidInitialAmount,
-                              ..
-                            }
-                    )
+                case modRefM of
+                    Just modRef ->
+                        -- The module version is V0 because of the 'WasmVersion' is V0.
+                        return $!!
+                            ( ca,
+                              PersistentInstanceV0
+                                Instances.PersistentInstanceV
+                                    { pinstanceModuleInterface = modRef,
+                                      pinstanceModel = initialState,
+                                      pinstanceAmount = nidInitialAmount,
+                                      pinstanceHash = Instances.makeInstanceHashV0 (pinstanceParameterHash params) csHash nidInitialAmount,
+                                      ..
+                                    }
+                            )
+                    -- this does not happen, see the comment above
+                    Nothing -> error "modRefM should not be Nothing"
             Wasm.SV1 -> do
                 let params =
                         PersistentInstanceParameters
@@ -2181,20 +2192,24 @@ doPutNewInstance pbs NewInstanceData{..} = do
                 -- We retrieve the module interface here so that we only have a single copy of it, meaning that
                 -- all instances created from the same module share a reference to the module.
                 -- Seeing that we know that the instance is V1, and that the module exists, this cannot fail.
-                ~(Just modRef) <- Modules.getModuleReference (GSWasm.miModuleRef nidInterface) mods
+                modRefM <- Modules.getModuleReference (GSWasm.miModuleRef nidInterface) mods
                 (csHash, initialState) <- freezeContractState nidInitialState
                 let pinstanceHash = Instances.makeInstanceHashV1 (pinstanceParameterHash params) csHash nidInitialAmount
-                -- The module version is V1 because of the 'WasmVersion' is V1.
-                return $!!
-                    ( ca,
-                      PersistentInstanceV1
-                        Instances.PersistentInstanceV
-                            { pinstanceModuleInterface = modRef,
-                              pinstanceModel = initialState,
-                              pinstanceAmount = nidInitialAmount,
-                              ..
-                            }
-                    )
+                case modRefM of
+                    Just modRef ->
+                        -- The module version is V1 because of the 'WasmVersion' is V1.
+                        return $!!
+                            ( ca,
+                              PersistentInstanceV1
+                                Instances.PersistentInstanceV
+                                    { pinstanceModuleInterface = modRef,
+                                      pinstanceModel = initialState,
+                                      pinstanceAmount = nidInitialAmount,
+                                      ..
+                                    }
+                            )
+                    -- this does not happen, see the comment above
+                    Nothing -> error "modRefM should not be Nothing"
 
 doModifyInstance ::
     forall pv m v.

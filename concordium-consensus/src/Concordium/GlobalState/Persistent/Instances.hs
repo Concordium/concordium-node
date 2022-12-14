@@ -490,7 +490,7 @@ conditionalSetBit :: (Bits a) => Int -> Bool -> a -> a
 conditionalSetBit _ False x = x
 conditionalSetBit b True x = setBit x b
 
-instance (IsProtocolVersion pv, BlobStorable m r, MonadIO m, Cache.MonadCache ModuleCache m) => BlobStorable m (IT pv r) where
+instance (IsProtocolVersion pv, BlobStorable m r, Cache.MonadCache ModuleCache m) => BlobStorable m (IT pv r) where
     storeUpdate (Branch{..}) = do
         (pl, l') <- storeUpdate branchLeft
         (pr, r') <- storeUpdate branchRight
@@ -783,20 +783,25 @@ makePersistent mods (Transient.Instances (Transient.Tree s t)) = InstancesTree s
                           pinstanceParameterHash = getHash params,
                           pinstanceReceiveFuns = instanceReceiveFuns
                         }
-            -- This pattern is irrefutable because if the instance exists in the Basic version,
-            -- then the module must be present in the persistent implementation.
-            -- Moreover, it will be of the same module version (i.e. V0).
-            ~(Just pIModuleInterface) <- Modules.getModuleReference (GSWasm.miModuleRef instanceModuleInterface) mods
-            return $
-                PersistentInstanceV0
-                    PersistentInstanceV
-                        { pinstanceParameters = pIParams,
-                          -- The module version is V0 as we're caching an instance of version V1.
-                          pinstanceModuleInterface = pIModuleInterface,
-                          pinstanceModel = InstanceStateV0 transientModel,
-                          pinstanceAmount = _instanceVAmount,
-                          pinstanceHash = _instanceVHash
-                        }
+            -- This pattern always matches the first case, since if the instance
+            -- exists in the Basic version, then the module must be present in the
+            -- persistent implementation. Moreover, it will be of the same module
+            -- version (i.e. V0).
+            pIModuleInterfaceM <- Modules.getModuleReference (GSWasm.miModuleRef instanceModuleInterface) mods
+            case pIModuleInterfaceM of
+                Just pIModuleInterface ->
+                    return $
+                        PersistentInstanceV0
+                            PersistentInstanceV
+                                { pinstanceParameters = pIParams,
+                                  -- The module version is V0 as we're caching an instance of version V1.
+                                  pinstanceModuleInterface = pIModuleInterface,
+                                  pinstanceModel = InstanceStateV0 transientModel,
+                                  pinstanceAmount = _instanceVAmount,
+                                  pinstanceHash = _instanceVHash
+                                }
+                -- this does not happen, see the comment above
+                Nothing -> error "pIModuleInterfaceM should not be Nothing"
     convInst
         ( Instance.InstanceV1
             Instance.InstanceV
@@ -815,20 +820,25 @@ makePersistent mods (Transient.Instances (Transient.Tree s t)) = InstancesTree s
                           pinstanceParameterHash = getHash params,
                           pinstanceReceiveFuns = instanceReceiveFuns
                         }
-            -- This pattern is irrefutable because if the instance exists in the Basic version,
-            -- then the module must be present in the persistent implementation.
-            -- Moreover, it will be of the same module version (i.e. V1).
-            ~(Just pIModuleInterface) <- Modules.getModuleReference (GSWasm.miModuleRef instanceModuleInterface) mods
-            return $
-                PersistentInstanceV1
-                    PersistentInstanceV
-                        { pinstanceParameters = pIParams,
-                          -- The module version is V0 as we're caching an instance of version V1.
-                          pinstanceModuleInterface = pIModuleInterface,
-                          pinstanceModel = InstanceStateV1 (StateV1.makePersistent transientModel),
-                          pinstanceAmount = _instanceVAmount,
-                          pinstanceHash = _instanceVHash
-                        }
+            -- This pattern always matches the first case, since if the instance
+            -- exists in the Basic version, then the module must be present in the
+            -- persistent implementation. Moreover, it will be of the same module
+            -- version (i.e. V1).
+            pIModuleInterfaceM <- Modules.getModuleReference (GSWasm.miModuleRef instanceModuleInterface) mods
+            case pIModuleInterfaceM of
+                Just pIModuleInterface ->
+                    return $
+                        PersistentInstanceV1
+                            PersistentInstanceV
+                                { pinstanceParameters = pIParams,
+                                  -- The module version is V0 as we're caching an instance of version V1.
+                                  pinstanceModuleInterface = pIModuleInterface,
+                                  pinstanceModel = InstanceStateV1 (StateV1.makePersistent transientModel),
+                                  pinstanceAmount = _instanceVAmount,
+                                  pinstanceHash = _instanceVHash
+                                }
+                -- this does not happen, see the comment above
+                Nothing -> error "pIModuleInterfaceM should not be Nothing"
 
 -- |Serialize instances in V0 format.
 putInstancesV0 :: (IsProtocolVersion pv, SupportsPersistentModule m, MonadPut m) => Instances pv -> m ()

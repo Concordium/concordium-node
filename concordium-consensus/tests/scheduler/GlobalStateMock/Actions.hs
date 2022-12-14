@@ -43,7 +43,7 @@ generateAct typName = do
     let eqActDec =
             FunD (mkName "eqAct") $
                 [ Clause
-                    [ConP n (VarP <$> xs l), ConP n (VarP <$> ys l)]
+                    [ConP n [] (VarP <$> xs l), ConP n [] (VarP <$> ys l)]
                     (GuardedB [(eqGuard l, ConE (mkName "Just") `AppE` ConE (mkName "Refl"))])
                     []
                   | (n, l) <- constrs
@@ -52,7 +52,7 @@ generateAct typName = do
     let showResDec =
             FunD
                 (mkName "showRes")
-                [ Clause [ConP n (replicate l WildP)] (NormalB (VarE (mkName "show"))) []
+                [ Clause [ConP n [] (replicate l WildP)] (NormalB (VarE (mkName "show"))) []
                   | (n, l) <- constrs
                 ]
     return

@@ -356,8 +356,7 @@ deriving via
 deriving via
     Basic.PureTreeStateMonad bs m
     instance
-        ( Monad m,
-          MPV m ~ pv,
+        ( MPV m ~ pv,
           MonadProtocolVersion m,
           BlockStateStorage m,
           TreeStateMonad (Basic.PureTreeStateMonad bs m)
@@ -384,8 +383,7 @@ deriving via
 deriving via
     PersistentTreeStateMonad bs m
     instance
-        ( Monad m,
-          MonadProtocolVersion m,
+        ( MonadProtocolVersion m,
           BlockStateStorage m,
           TreeStateMonad (PersistentTreeStateMonad bs m),
           MPV m ~ pv

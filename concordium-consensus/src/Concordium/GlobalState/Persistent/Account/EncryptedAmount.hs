@@ -187,32 +187,35 @@ addIncomingEncryptedAmount !newAmount old = do
         Nothing ->
             -- we need to aggregate if we have 'maxNumIncoming' or more incoming amounts
             if Seq.length (_incomingEncryptedAmounts old) >= maxNumIncoming
-                then do
-                    -- irrefutable because of check above
-                    let ~(x Seq.:<| y Seq.:<| rest) = _incomingEncryptedAmounts old
-                    xVal <- refLoad x
-                    yVal <- refLoad y
-                    xPlusY <- refMake (xVal <> yVal)
-                    return $!
-                        old
-                            { _incomingEncryptedAmounts = rest Seq.|> newAmountRef,
-                              _aggregatedAmount = Just (xPlusY, 2),
-                              _startIndex = _startIndex old + 1
-                            }
+                then case _incomingEncryptedAmounts old of
+                    (x Seq.:<| y Seq.:<| rest) -> do
+                        xVal <- refLoad x
+                        yVal <- refLoad y
+                        xPlusY <- refMake (xVal <> yVal)
+                        return $!
+                            old
+                                { _incomingEncryptedAmounts = rest Seq.|> newAmountRef,
+                                  _aggregatedAmount = Just (xPlusY, 2),
+                                  _startIndex = _startIndex old + 1
+                                }
+                    -- this does not happen due to the check above
+                    _ -> error "_incomingEncryptedAmounts should have two or more elements."
                 else return $ old{_incomingEncryptedAmounts = _incomingEncryptedAmounts old Seq.|> newAmountRef}
         Just (e, n) -> do
             -- we have to aggregate always
-            -- irrefutable because of check above
-            let ~(x Seq.:<| rest) = _incomingEncryptedAmounts old
-            xVal <- refLoad x
-            aggVal <- refLoad e
-            xPlusY <- refMake (aggVal <> xVal)
-            return $!
-                old
-                    { _incomingEncryptedAmounts = rest Seq.|> newAmountRef,
-                      _aggregatedAmount = Just $!! (xPlusY, n + 1),
-                      _startIndex = _startIndex old + 1
-                    }
+            -- VH/TODO: This seems fishy - it was claimed to be irrefutable before.
+            case _incomingEncryptedAmounts old of
+                (x Seq.:<| rest) -> do
+                    xVal <- refLoad x
+                    aggVal <- refLoad e
+                    xPlusY <- refMake (aggVal <> xVal)
+                    return $!
+                        old
+                            { _incomingEncryptedAmounts = rest Seq.|> newAmountRef,
+                              _aggregatedAmount = Just $!! (xPlusY, n + 1),
+                              _startIndex = _startIndex old + 1
+                            }
+                Seq.Empty -> error "_incomingEncryptedAmounts should have one or more elements."
 
 -- | Drop the encrypted amount with indices up to (but not including) the given one, and add the new amount at the end.
 -- This is used when an account is transfering from from an encrypted balance, and the newly added

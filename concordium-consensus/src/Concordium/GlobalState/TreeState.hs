@@ -584,10 +584,7 @@ deriving via (ReaderT r) m instance BlockStateTypes (TransactionVerifierT' r m)
 type TransactionVerifierT m = TransactionVerifierT' (Context (BlockState m)) m
 
 instance
-    ( Monad m,
-      BlockStateQuery m,
-      AccountOperations m,
-      TreeStateMonad m,
+    ( TreeStateMonad m,
       r ~ Context (BlockState m)
     ) =>
     TVer.TransactionVerifier (TransactionVerifierT' r m)

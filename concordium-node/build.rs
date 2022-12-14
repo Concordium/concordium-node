@@ -3,11 +3,11 @@ use std::{env, path::Path};
 use std::{process::Command, str};
 
 #[cfg(all(not(feature = "static"), target_os = "linux"))]
-const GHC_VARIANT: &str = "x86_64-linux-ghc-9.0.2";
+const GHC_VARIANT: &str = "x86_64-linux-ghc-9.2.5";
 #[cfg(all(not(feature = "static"), target_os = "macos", target_arch = "x86_64"))]
-const GHC_VARIANT: &str = "x86_64-osx-ghc-9.0.2";
+const GHC_VARIANT: &str = "x86_64-osx-ghc-9.2.5";
 #[cfg(all(not(feature = "static"), target_os = "macos", target_arch = "aarch64"))]
-const GHC_VARIANT: &str = "aarch64-osx-ghc-9.0.2";
+const GHC_VARIANT: &str = "aarch64-osx-ghc-9.2.5";
 
 #[cfg(not(feature = "static"))]
 fn command_output(cmd: &mut Command) -> String {

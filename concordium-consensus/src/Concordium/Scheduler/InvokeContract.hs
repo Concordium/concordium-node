@@ -74,7 +74,7 @@ deriving via (MGSTrans InvokeContractMonad m) instance BS.AccountOperations m =>
 deriving via (MGSTrans InvokeContractMonad m) instance BS.ContractStateOperations m => BS.ContractStateOperations (InvokeContractMonad m)
 deriving via (MGSTrans InvokeContractMonad m) instance BS.ModuleQuery m => BS.ModuleQuery (InvokeContractMonad m)
 
-instance (Monad m, BS.BlockStateQuery m) => StaticInformation (InvokeContractMonad m) where
+instance (BS.BlockStateQuery m) => StaticInformation (InvokeContractMonad m) where
     {-# INLINE getMaxBlockEnergy #-}
     getMaxBlockEnergy = view (_1 . maxBlockEnergy)
 

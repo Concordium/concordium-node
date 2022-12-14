@@ -101,7 +101,11 @@ type BakerInformation = (FullBakerInfo, BakerIdentity, Account (AccountVersionFo
 createInitStates :: IO (BakerState, BakerState)
 createInitStates = do
     let bakerAmount = 10 ^ (4 :: Int)
-        bis@[baker1, baker2] = makeBakersByStake [bakerAmount, bakerAmount]
+        bis = makeBakersByStake [bakerAmount, bakerAmount]
+        (baker1, baker2) = case bis of
+            [b1, b2] -> (b1, b2)
+            -- This does not happen due to how `bis` is constructed
+            _ -> error "bis should be a list with two elements"
         bakerAccounts = (^. _3) <$> bis
         cps = Dummy.dummyChainParameters & cpElectionDifficulty .~ makeElectionDifficultyUnchecked 100000
         gen =
@@ -164,7 +168,11 @@ bake bid n = do
     mb <- bakeForSlot bid n
     maybe
         (fail $ "Could not bake for slot " ++ show n)
-        (\BS.BlockPointer{_bpBlock = NormalBlock block} -> return block)
+        ( \bs -> case bs of
+            BS.BlockPointer{_bpBlock = NormalBlock block} -> return block
+            -- This does not happen
+            _ -> error "bs should be BlockPointer"
+        )
         mb
 
 -- |Attempts to store a block, and throws an error if it fails

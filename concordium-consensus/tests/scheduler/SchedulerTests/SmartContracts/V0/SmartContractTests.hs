@@ -34,7 +34,7 @@ import Concordium.Scheduler.Types (Amount, ContractAddress (..), Event, RejectRe
 import qualified Concordium.Scheduler.Types as Types
 import Concordium.Types.DummyData
 import Concordium.Wasm (WasmVersion (..))
-import Data.ByteString.Short as BSS
+import qualified Data.ByteString.Short as BSS
 import Data.Serialize as S
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -44,7 +44,7 @@ import Test.Hspec
 -- ** Test runners **
 
 -- | Run a number of init tests from a specific file.
-runInitTestsFromFile :: FilePath -> [(Text, ShortByteString, TResultSpec)] -> [TestCase PV1]
+runInitTestsFromFile :: FilePath -> [(Text, BSS.ShortByteString, TResultSpec)] -> [TestCase PV1]
 runInitTestsFromFile testFile = map f
   where
     f (testName, initParam, resSpec) =
@@ -73,7 +73,7 @@ runInitTestsFromFile testFile = map f
 --   Each test is run in isolation, i.e., with a new state.
 --   The file is expected to have an init function named 'init_test'
 --   and a number of receive functions, each prefixed with 'test.'.
-runReceiveTestsFromFile :: FilePath -> [(Text, ShortByteString, TResultSpec)] -> [TestCase PV1]
+runReceiveTestsFromFile :: FilePath -> [(Text, BSS.ShortByteString, TResultSpec)] -> [TestCase PV1]
 runReceiveTestsFromFile testFile = map f
   where
     f (testName, rcvParam, resSpec) =
@@ -113,10 +113,10 @@ initialBlockState =
         100000000
         (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 100000000) Acc.emptyAccounts)
 
-emptyParam :: ShortByteString
+emptyParam :: BSS.ShortByteString
 emptyParam = ""
 
-mkParamOfSize :: Int -> ShortByteString
+mkParamOfSize :: Int -> BSS.ShortByteString
 mkParamOfSize n = BSS.pack $ replicate n 1
 
 encodedThomasAcc :: BSS.ShortByteString
@@ -317,7 +317,10 @@ simpleTransferTestCases =
     contractAddr = Types.AddressContract $ ContractAddress 0 0
 
     -- When using pointing to 32 0s in memory, this is the address that is used.
-    Right accRef = addressFromText "2wkBET2rRgE8pahuaczxKbmv7ciehqsne57F9gtzf1PVdr2VP3"
+    accRef = case addressFromText "2wkBET2rRgE8pahuaczxKbmv7ciehqsne57F9gtzf1PVdr2VP3" of
+        Right ref -> ref
+        -- This should not happen, since addressFromText was passed a valid address string.
+        Left _ -> error "addressFromText did not return an account reference"
 
 sendTestCases :: [TestCase PV1]
 sendTestCases =

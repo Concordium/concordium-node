@@ -294,7 +294,11 @@ invariantSkovFinalization :: SkovState (Config t) -> FullBakerInfo -> Finalizati
 invariantSkovFinalization (SkovState sd@TS.SkovData{..} FinalizationState{..} _) baker maxFinComSize = do
     let finParams = finalizationParameters maxFinComSize
     invariantSkovData sd
-    let (flHead Seq.:|> (lfr, lfb)) = _finalizationList
+    let (flHead, lfr, lfb) =
+            case _finalizationList of
+                (flHead' Seq.:|> (lfr', lfb')) -> (flHead', lfr', lfb')
+                -- This does not happen
+                _ -> error "_finalizationList should not be empty"
     checkBinary (==) _finsIndex (succ $ finalizationIndex lfr) "==" "current finalization index" "successor of last finalized index"
     let nextGap = case flHead of
             Seq.Empty -> (1 + _finsMinSkip)

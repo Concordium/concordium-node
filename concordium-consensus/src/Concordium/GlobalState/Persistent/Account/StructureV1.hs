@@ -106,20 +106,23 @@ migratePersistentBakerInfoEx StateMigrationParametersTrivial = migrateReference 
 -- |Migrate a 'V0.PersistentBakerInfoEx' to a 'PersistentBakerInfoEx'.
 -- See documentation of @migratePersistentBlockState@.
 migratePersistentBakerInfoExFromV0 ::
-    ( AccountVersionFor oldpv ~ 'AccountV1,
-      AccountVersionFor pv ~ 'AccountV2,
-      SupportMigration m t
-    ) =>
+    SupportMigration m t =>
     StateMigrationParameters oldpv pv ->
     V0.PersistentBakerInfoEx (AccountVersionFor oldpv) ->
     t m (PersistentBakerInfoEx (AccountVersionFor pv))
-migratePersistentBakerInfoExFromV0 StateMigrationParametersP4ToP5{} V0.PersistentBakerInfoEx{..} = do
-    bkrInfoEx <- lift $ do
-        bkrInfo <- refLoad bakerInfoRef
-        bkrPoolInfo <- refLoad (V0._theExtraBakerInfo bakerInfoExtra)
-        return $! BakerInfoExV1 bkrInfo bkrPoolInfo
-    (ref, _) <- refFlush =<< refMake bkrInfoEx
-    return $! ref
+migratePersistentBakerInfoExFromV0 migrationParams v0BakerInfo =
+    case (migrationParams, v0BakerInfo) of
+        (StateMigrationParametersP4ToP5{}, V0.PersistentBakerInfoEx{..}) -> do
+            bkrInfoEx <- lift $ do
+                bkrInfo <- refLoad bakerInfoRef
+                bkrPoolInfo <- refLoad (V0._theExtraBakerInfo bakerInfoExtra)
+                return $! BakerInfoExV1 bkrInfo bkrPoolInfo
+            (ref, _) <- refFlush =<< refMake bkrInfoEx
+            return $! ref
+        _ ->
+            error $
+                "migratePersistentBakerInfoExFromV0 invariant violation: "
+                    <> "migrationParams should be StateMigrationParametersP4ToP5"
 
 -- * Enduring account stake data
 
@@ -1340,72 +1343,75 @@ migratePersistentAccount StateMigrationParametersTrivial acc = do
 -- |Migration for 'PersistentAccount' from 'V0.PersistentAccount'. This supports migration from
 -- 'P4' to 'P5'.
 migratePersistentAccountFromV0 ::
-    ( SupportMigration m t,
-      AccountVersionFor oldpv ~ 'AccountV1,
-      AccountVersionFor pv ~ 'AccountV2
-    ) =>
+    SupportMigration m t =>
     StateMigrationParameters oldpv pv ->
     V0.PersistentAccount (AccountVersionFor oldpv) ->
     t m (PersistentAccount (AccountVersionFor pv))
-migratePersistentAccountFromV0 StateMigrationParametersP4ToP5{} V0.PersistentAccount{..} = do
-    paedPersistingData <- migrateReference return _persistingData
-    (accountStakedAmount, !paedStake) <- case _accountStake of
-        V0.PersistentAccountStakeNone -> return (0, PersistentAccountStakeEnduringNone)
-        V0.PersistentAccountStakeBaker bkrRef -> do
-            V0.PersistentAccountBaker{..} <- lift $ refLoad bkrRef
-            bkrInfoEx <- lift $ do
-                bkrInfo <- refLoad _accountBakerInfo
-                bkrPoolInfo <- refLoad (V0._theExtraBakerInfo _extraBakerInfo)
-                return $! BakerInfoExV1 bkrInfo bkrPoolInfo
-            paseBakerInfo' <- refMake bkrInfoEx
-            (paseBakerInfo, _) <- refFlush paseBakerInfo'
-            let baker =
-                    PersistentAccountStakeEnduringBaker
-                        { paseBakerRestakeEarnings = _stakeEarnings,
-                          paseBakerPendingChange = pendingChangeEffectiveTimestamp <$> _bakerPendingChange,
-                          ..
-                        }
-            return (_stakedAmount, baker)
-        V0.PersistentAccountStakeDelegate dlgRef -> do
-            AccountDelegationV1{..} <- lift $ refLoad dlgRef
-            let del =
-                    PersistentAccountStakeEnduringDelegator
-                        { paseDelegatorRestakeEarnings = _delegationStakeEarnings,
-                          paseDelegatorId = _delegationIdentity,
-                          paseDelegatorTarget = _delegationTarget,
-                          paseDelegatorPendingChange = pendingChangeEffectiveTimestamp <$> _delegationPendingChange
-                        }
-            return (_delegationStakedAmount, del)
-    paedEncryptedAmount <- do
-        mea <- lift $ do
-            ea <- refLoad _accountEncryptedAmount
-            isInit <- isInitialPersistentAccountEncryptedAmount ea
-            return $ if isInit then Null else Some ea
-        forM mea $ \ea -> do
-            newEA <- migratePersistentEncryptedAmount ea
-            refMake $! newEA
-    paedReleaseSchedule <- do
-        mrs <- lift $ do
-            rs <- refLoad _accountReleaseSchedule
-            return $ if ARSV0.isEmptyAccountReleaseSchedule rs then Null else Some rs
-        forM mrs $ \rs -> do
-            newRS <- migrateAccountReleaseScheduleFromV0 rs
-            rsRef <- refMake $! newRS
-            return (rsRef, ARSV0.releaseScheduleLockedBalance rs)
-    (accountEnduringData, _) <-
-        refFlush
-            =<< refMake
-            =<< makeAccountEnduringData
-                paedPersistingData
-                paedEncryptedAmount
-                paedReleaseSchedule
-                paedStake
-    return $!
-        PersistentAccount
-            { accountNonce = _accountNonce,
-              accountAmount = _accountAmount,
-              ..
-            }
+migratePersistentAccountFromV0 migrationParams v0PersistentAcc =
+    case (migrationParams, v0PersistentAcc) of
+        (StateMigrationParametersP4ToP5{}, V0.PersistentAccount{..}) -> do
+            paedPersistingData <- migrateReference return _persistingData
+            (accountStakedAmount, !paedStake) <- case _accountStake of
+                V0.PersistentAccountStakeNone -> return (0, PersistentAccountStakeEnduringNone)
+                V0.PersistentAccountStakeBaker bkrRef -> do
+                    V0.PersistentAccountBaker{..} <- lift $ refLoad bkrRef
+                    bkrInfoEx <- lift $ do
+                        bkrInfo <- refLoad _accountBakerInfo
+                        bkrPoolInfo <- refLoad (V0._theExtraBakerInfo _extraBakerInfo)
+                        return $! BakerInfoExV1 bkrInfo bkrPoolInfo
+                    paseBakerInfo' <- refMake bkrInfoEx
+                    (paseBakerInfo, _) <- refFlush paseBakerInfo'
+                    let baker =
+                            PersistentAccountStakeEnduringBaker
+                                { paseBakerRestakeEarnings = _stakeEarnings,
+                                  paseBakerPendingChange = pendingChangeEffectiveTimestamp <$> _bakerPendingChange,
+                                  ..
+                                }
+                    return (_stakedAmount, baker)
+                V0.PersistentAccountStakeDelegate dlgRef -> do
+                    AccountDelegationV1{..} <- lift $ refLoad dlgRef
+                    let del =
+                            PersistentAccountStakeEnduringDelegator
+                                { paseDelegatorRestakeEarnings = _delegationStakeEarnings,
+                                  paseDelegatorId = _delegationIdentity,
+                                  paseDelegatorTarget = _delegationTarget,
+                                  paseDelegatorPendingChange = pendingChangeEffectiveTimestamp <$> _delegationPendingChange
+                                }
+                    return (_delegationStakedAmount, del)
+            paedEncryptedAmount <- do
+                mea <- lift $ do
+                    ea <- refLoad _accountEncryptedAmount
+                    isInit <- isInitialPersistentAccountEncryptedAmount ea
+                    return $ if isInit then Null else Some ea
+                forM mea $ \ea -> do
+                    newEA <- migratePersistentEncryptedAmount ea
+                    refMake $! newEA
+            paedReleaseSchedule <- do
+                mrs <- lift $ do
+                    rs <- refLoad _accountReleaseSchedule
+                    return $ if ARSV0.isEmptyAccountReleaseSchedule rs then Null else Some rs
+                forM mrs $ \rs -> do
+                    newRS <- migrateAccountReleaseScheduleFromV0 rs
+                    rsRef <- refMake $! newRS
+                    return (rsRef, ARSV0.releaseScheduleLockedBalance rs)
+            (accountEnduringData, _) <-
+                refFlush
+                    =<< refMake
+                    =<< makeAccountEnduringData
+                        paedPersistingData
+                        paedEncryptedAmount
+                        paedReleaseSchedule
+                        paedStake
+            return $!
+                PersistentAccount
+                    { accountNonce = _accountNonce,
+                      accountAmount = _accountAmount,
+                      ..
+                    }
+        _ ->
+            error $
+                "migratePersistentAccountFromV0 invariant violation: "
+                    <> "migrationParams should be StateMigrationParametersP4ToP5"
 
 -- ** Serialization
 

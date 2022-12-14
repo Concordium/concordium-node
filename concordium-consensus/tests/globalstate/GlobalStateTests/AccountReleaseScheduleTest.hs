@@ -129,7 +129,13 @@ testing = do
         bs1 = _unhashedBlockState $ _bpState (bs ^. pairStateLeft . Concordium.GlobalState.Basic.TreeState.focusBlock)
         bs2 = PBS.hpbsPointers $ _bpState (bs ^. pairStateRight . Concordium.GlobalState.Persistent.TreeState.focusBlock)
 
-    let [(accA, aiA), (accB, aiB)] = take 2 $ map (\(ai, ac) -> (ac ^. accountAddress, ai)) $ AT.toList $ accountTable (bs1 ^. blockAccounts)
+    let accountInfos = take 2 $ map (\(ai, ac) -> (ac ^. accountAddress, ai)) $ AT.toList $ accountTable (bs1 ^. blockAccounts)
+
+    let ((accA, aiA), (accB, aiB)) =
+            case accountInfos of
+                [a, b] -> (a, b)
+                -- this does not happen due to how `accountInfos` is constructed
+                _ -> error "accountInfos should be be a list with two elements"
     bs'' <-
         foldlM
             ( \b e@((_, ai), rels) -> do
@@ -190,7 +196,12 @@ checkEqualBlockReleaseSchedule expected (blockstateBasic, blockStatePersistent) 
 -- | Check that an account has the same Account release schedule in the two implementations of the blockstate
 checkEqualAccountReleaseSchedule :: (BS.BlockState PV, PBS.PersistentBlockState PV) -> AccountAddress -> ThisMonadConcrete ()
 checkEqualAccountReleaseSchedule (blockStateBasic, blockStatePersistent) acc = do
-    let Just newBasicAccount = Concordium.GlobalState.Basic.BlockState.Accounts.getAccount acc (blockStateBasic ^. blockAccounts)
+    let newBasicAccountM = Concordium.GlobalState.Basic.BlockState.Accounts.getAccount acc (blockStateBasic ^. blockAccounts)
+    let newBasicAccount =
+            case newBasicAccountM of
+                Just acc' -> acc'
+                -- This does not happen
+                Nothing -> error "newBasicAccountM should be Just"
     ctx <- _pairContextRight <$> R.ask
     newPersistentAccountReleaseScheduleHash <-
         liftIO $
@@ -212,8 +223,18 @@ checkEqualAccountReleaseSchedule (blockStateBasic, blockStatePersistent) acc = d
 -- | Check that an an account was correctly updated in the two blockstates with the given release schedule
 checkCorrectAccountReleaseSchedule :: (BS.BlockState PV, PBS.PersistentBlockState PV) -> (BS.BlockState PV, PBS.PersistentBlockState PV) -> ((AccountAddress, AccountIndex), [(Timestamp, Amount)]) -> ThisMonadConcrete ()
 checkCorrectAccountReleaseSchedule (blockStateBasic, blockStatePersistent) (oldBlockStateBasic, _) ((acc, _), rel) = do
-    let Just newBasicAccount = Concordium.GlobalState.Basic.BlockState.Accounts.getAccount acc (blockStateBasic ^. blockAccounts)
-    let Just oldBasicAccount = Concordium.GlobalState.Basic.BlockState.Accounts.getAccount acc (oldBlockStateBasic ^. blockAccounts)
+    let newBasicAccountM = Concordium.GlobalState.Basic.BlockState.Accounts.getAccount acc (blockStateBasic ^. blockAccounts)
+    let newBasicAccount =
+            case newBasicAccountM of
+                Just acc' -> acc'
+                -- This does not happen
+                Nothing -> error "newBasicAccountM should be Just"
+    let oldBasicAccountM = Concordium.GlobalState.Basic.BlockState.Accounts.getAccount acc (oldBlockStateBasic ^. blockAccounts)
+    let oldBasicAccount =
+            case oldBasicAccountM of
+                Just acc' -> acc'
+                -- This does not happen
+                Nothing -> error "oldBasicAccountM should be Just"
     checkEqualAccountReleaseSchedule (blockStateBasic, blockStatePersistent) acc
     liftIO $
         assertEqual
@@ -239,8 +260,18 @@ checkCorrectAccountReleaseSchedule (blockStateBasic, blockStatePersistent) (oldB
 checkCorrectShrinkingAccountReleaseSchedule :: (BS.BlockState PV, PBS.PersistentBlockState PV) -> (BS.BlockState PV, PBS.PersistentBlockState PV) -> Timestamp -> [(AccountAddress, Amount)] -> ThisMonadConcrete ()
 checkCorrectShrinkingAccountReleaseSchedule (blockStateBasic, blockStatePersistent) (oldBlockStateBasic, _) ts accs =
     let f (acc, rel) = do
-            let Just newBasicAccount = Concordium.GlobalState.Basic.BlockState.Accounts.getAccount acc (blockStateBasic ^. blockAccounts)
-            let Just oldBasicAccount = Concordium.GlobalState.Basic.BlockState.Accounts.getAccount acc (oldBlockStateBasic ^. blockAccounts)
+            let newBasicAccountM = Concordium.GlobalState.Basic.BlockState.Accounts.getAccount acc (blockStateBasic ^. blockAccounts)
+            let newBasicAccount =
+                    case newBasicAccountM of
+                        Just acc' -> acc'
+                        -- This does not happen
+                        Nothing -> error "newBasicAccountM should be Just"
+            let oldBasicAccountM = Concordium.GlobalState.Basic.BlockState.Accounts.getAccount acc (oldBlockStateBasic ^. blockAccounts)
+            let oldBasicAccount =
+                    case oldBasicAccountM of
+                        Just acc' -> acc'
+                        -- This does not happen
+                        Nothing -> error "oldBasicAccountM should be Just"
             checkEqualAccountReleaseSchedule (blockStateBasic, blockStatePersistent) acc
             liftIO $
                 assertEqual

@@ -13,6 +13,15 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
+-- FIXME: GHC 9.2.5 reports that `MonadBlobStore m` is a redundant constraint in a
+-- number if instance declarations such as:
+--
+--   instance (MonadBlobStore m, BlobStorable m a) => DirectBlobStorable m a where
+--       ...
+--
+-- but throws an error complaining it is missing once removed. The following is added
+-- to squelch it. Comment it out to reproduce.
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
 -- |
 --    Module      : Concordium.GlobalState.Persistent.BlobStore
