@@ -10,6 +10,7 @@
 module Concordium.GlobalState.Persistent.Accounts where
 
 import Control.Monad
+import Data.Foldable (foldlM)
 import qualified Data.Map.Strict as Map
 import Data.Maybe
 import Data.Serialize
@@ -148,6 +149,12 @@ putNewAccount !acct accts0 = do
         else return (Nothing, accts0)
   where
     acctIndex = fromIntegral $ L.size (accountTable accts0)
+
+-- |Construct an 'Accounts' from a list of accounts. Inserted in the order of the list.
+fromList :: SupportsPersistentAccount pv m => [PersistentAccount (AccountVersionFor pv)] -> m (Accounts pv)
+fromList = foldlM insert emptyAccounts
+  where
+    insert accounts account = snd <$> putNewAccount account accounts
 
 -- |Determine if an account with the given address exists.
 exists :: (IsProtocolVersion pv, MonadBlobStore m) => AccountAddress -> Accounts pv -> m Bool

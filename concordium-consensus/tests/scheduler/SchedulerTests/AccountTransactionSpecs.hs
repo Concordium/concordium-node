@@ -17,12 +17,10 @@ import qualified Concordium.Scheduler.Types as Types
 import Concordium.TransactionVerification
 import Concordium.Types
 
-import Concordium.GlobalState.Basic.BlockState.Account as Basic
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Persistent.BlockState as BS
 
 import Concordium.Crypto.DummyData
-import Concordium.GlobalState.DummyData
 import Concordium.Scheduler.DummyData
 import Concordium.Types.DummyData
 
@@ -31,13 +29,12 @@ import qualified SchedulerTests.Helpers as Helpers
 initialAmount :: Types.Amount
 initialAmount = 0
 
-accountA :: (IsAccountVersion av) => Basic.Account av
-accountA = mkAccount alesVK alesAccount initialAmount
-
 initialBlockState ::
     (IsProtocolVersion pv) =>
     Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
-initialBlockState = Helpers.createTestBlockStateWithAccounts [accountA]
+initialBlockState = do
+    accountA <- Helpers.makeTestAccount alesVK alesAccount initialAmount
+    Helpers.createTestBlockStateWithAccounts [accountA]
 
 -- cdi7, but with lowest possible expiry
 cdi7' :: Types.AccountCreation

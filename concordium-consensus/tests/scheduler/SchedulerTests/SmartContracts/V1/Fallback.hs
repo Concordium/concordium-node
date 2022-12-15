@@ -12,50 +12,45 @@ import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Short as BSS
 import Data.Serialize
 
-import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Scheduler.Types as Types
 
 import Concordium.GlobalState.BlockState
-import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.BlockState
 import qualified Concordium.GlobalState.Wasm as GSWasm
 import qualified Concordium.Scheduler.InvokeContract as InvokeContract
 import qualified Concordium.Types.InvokeContract as InvokeContract
-import Concordium.Types.SeedState (initialSeedState)
 import Concordium.Wasm
 
 import Concordium.Crypto.DummyData
-import Concordium.GlobalState.DummyData
 import Concordium.Types.DummyData
 
+import qualified SchedulerTests.Helpers as Helpers
 import qualified SchedulerTests.SmartContracts.V1.InvokeHelpers as InvokeHelpers
 import SchedulerTests.TestUtils
 
-type ContextM = PersistentBlockStateMonad PV4 (PersistentBlockStateContext PV4) (BlobStoreM' (PersistentBlockStateContext PV4))
-
 -- empty state, no accounts, no modules, no instances
-initialBlockState :: ContextM (HashedPersistentBlockState PV4)
-initialBlockState =
-    initialPersistentState
-        (initialSeedState (Hash.hash "") 1000)
-        dummyCryptographicParameters
-        [mkAccount alesVK alesAccount 1000]
-        dummyIdentityProviders
-        dummyArs
-        dummyKeyCollection
-        dummyChainParameters
+initialBlockState :: Helpers.PersistentBSM PV4 (HashedPersistentBlockState PV4)
+initialBlockState = do
+    accountA <- Helpers.makeTestAccount alesVK alesAccount 1000
+    Helpers.createTestBlockStateWithAccounts [accountA]
 
 fallbackSourceFile :: FilePath
 fallbackSourceFile = "./testdata/contracts/v1/fallback.wasm"
 
-deployModule :: ContextM (PersistentBlockState PV4, InvokeHelpers.PersistentModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1)
+deployModule ::
+    Helpers.PersistentBSM
+        PV4
+        ( PersistentBlockState PV4,
+          InvokeHelpers.PersistentModuleInterfaceV GSWasm.V1,
+          WasmModuleV GSWasm.V1
+        )
 deployModule = do
     ((x, y), z) <- InvokeHelpers.deployModuleV1 fallbackSourceFile . hpbsPointers =<< initialBlockState
     return (z, x, y)
 
 initContracts ::
     (PersistentBlockState PV4, InvokeHelpers.PersistentModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1) ->
-    ContextM ((Types.ContractAddress, Types.ContractAddress), HashedPersistentBlockState PV4)
+    Helpers.PersistentBSM PV4 ((Types.ContractAddress, Types.ContractAddress), HashedPersistentBlockState PV4)
 initContracts (bs, miv, wm) = do
     (ca2, pbs2) <- InvokeHelpers.initContractV1 alesAccount (InitName "init_two") emptyParameter (0 :: Types.Amount) bs (miv, wm)
     -- initialize the "one" contract with the address of the "two" contract
@@ -65,7 +60,10 @@ initContracts (bs, miv, wm) = do
 -- |Invoke the fallback directly. This should fail with execution failure/trap
 -- because it will redirect to "two." which does not exist. Hence this will fail
 -- and the fallback will try to look up a non-existing return value.
-invokeContract1 :: Types.ContractAddress -> HashedPersistentBlockState PV4 -> ContextM InvokeContract.InvokeContractResult
+invokeContract1 ::
+    Types.ContractAddress ->
+    HashedPersistentBlockState PV4 ->
+    Helpers.PersistentBSM PV4 InvokeContract.InvokeContractResult
 invokeContract1 ccContract bs = do
     let cm = Types.ChainMetadata 0
     let ctx =
@@ -80,7 +78,10 @@ invokeContract1 ccContract bs = do
     InvokeContract.invokeContract ctx cm bs
 
 -- |Invoke "two.do" via "one.do" and the fallback.
-invokeContract2 :: Types.ContractAddress -> HashedPersistentBlockState PV4 -> ContextM InvokeContract.InvokeContractResult
+invokeContract2 ::
+    Types.ContractAddress ->
+    HashedPersistentBlockState PV4 ->
+    Helpers.PersistentBSM PV4 InvokeContract.InvokeContractResult
 invokeContract2 ccContract bs = do
     let cm = Types.ChainMetadata 0
     let ccParameter = Parameter $ BSS.toShort $ "ASDF"
@@ -96,7 +97,7 @@ invokeContract2 ccContract bs = do
 
 runFallbackTests :: Assertion
 runFallbackTests = do
-    runBlobStoreTemp "." . withNewAccountCache 100 . runPersistentBlockStateMonad $ do
+    Helpers.runTestBlockState $ do
         bsWithMod <- deployModule
         ((addr1, _), stateWithContract) <- initContracts bsWithMod
         invokeContract1 addr1 stateWithContract >>= \case

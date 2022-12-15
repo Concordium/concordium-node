@@ -14,7 +14,6 @@ import System.Random
 import Test.Hspec
 
 import Concordium.GlobalState.BakerInfo
-import qualified Concordium.GlobalState.Basic.BlockState.Account as Basic
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Persistent.BlockState as BS
 import qualified Concordium.Scheduler as Sch
@@ -46,11 +45,17 @@ keyPair = uncurry SigScheme.KeyPairEd25519 . fst . randomEd25519KeyPair . mkStdG
 account :: Int -> Types.AccountAddress
 account = accountAddressFrom
 
-accounts :: (Types.IsAccountVersion av) => [Basic.Account av]
-accounts = [mkAccount (SigScheme.correspondingVerifyKey (keyPair i)) (account i) 400_000_000_000 | i <- [0 .. 3]]
-
-initialBlockState :: (Types.IsProtocolVersion pv) => Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
-initialBlockState = Helpers.createTestBlockStateWithAccounts accounts
+initialBlockState ::
+    (Types.IsProtocolVersion pv) =>
+    Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
+initialBlockState = do
+    let accountFrom i =
+            Helpers.makeTestAccount
+                (SigScheme.correspondingVerifyKey (keyPair i))
+                (account i)
+                400_000_000_000
+    accounts <- mapM accountFrom [0 .. 3]
+    Helpers.createTestBlockStateWithAccounts accounts
 
 baker0 :: (FullBakerInfo, VRF.SecretKey, BlockSig.SignKey, Bls.SecretKey)
 baker0 = mkFullBaker 0 0

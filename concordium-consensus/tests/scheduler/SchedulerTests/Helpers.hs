@@ -20,6 +20,8 @@ import Lens.Micro.Platform
 import Test.HUnit
 
 import qualified Concordium.Crypto.SHA256 as Hash
+import qualified Concordium.Crypto.SignatureScheme as SigScheme
+import qualified Concordium.ID.DummyData as DummyData
 import qualified Concordium.ID.Types as Types
 import qualified Concordium.Types.Accounts as Types
 import qualified Concordium.Types.Accounts.Releases as Types
@@ -27,7 +29,6 @@ import Concordium.Types.SeedState (initialSeedState)
 
 import qualified Concordium.Common.Time as Time
 import qualified Concordium.Cost as Cost
-import qualified Concordium.GlobalState.Basic.BlockState.Account as Basic
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.DummyData as DummyData
 import qualified Concordium.GlobalState.Persistent.Account as BS
@@ -68,6 +69,24 @@ simpleTransferCostWithMemo2 memoSize =
         (Types.transactionHeaderSize + 41 + 2 + memoSize)
         1
         + Cost.simpleTransferCost
+
+-- | Construct an account with the provided amount as public balance.
+makeTestAccount ::
+    (Types.IsAccountVersion av, Blob.MonadBlobStore m) =>
+    SigScheme.VerifyKey ->
+    Types.AccountAddress ->
+    Types.Amount ->
+    m (BS.PersistentAccount av)
+makeTestAccount key accountAddress amount = do
+    let credential =
+            DummyData.dummyCredential
+                DummyData.dummyCryptographicParameters
+                accountAddress
+                key
+                DummyData.dummyMaxValidTo
+                DummyData.dummyCreatedAt
+    account <- BS.newAccount DummyData.dummyCryptographicParameters accountAddress credential
+    BS.addAccountAmount amount account
 
 -- | Monad that implements the necessary constraints to be used for running the scheduler.
 newtype PersistentBSM pv a = PersistentBSM
@@ -123,7 +142,7 @@ forEveryProtocolVersion check =
 -- |Construct a test block state containing the provided accounts.
 createTestBlockStateWithAccounts ::
     (Types.IsProtocolVersion pv) =>
-    [Basic.Account (Types.AccountVersionFor pv)] ->
+    [BS.PersistentAccount (Types.AccountVersionFor pv)] ->
     PersistentBSM pv (BS.HashedPersistentBlockState pv)
 createTestBlockStateWithAccounts accounts =
     BS.initialPersistentState

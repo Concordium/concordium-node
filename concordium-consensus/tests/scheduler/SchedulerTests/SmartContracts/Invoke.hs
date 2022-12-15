@@ -12,54 +12,63 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Short as BSS
 import Data.Serialize
 
-import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Scheduler.Types as Types
 
 import Concordium.GlobalState.BlockState
-import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.BlockState
 import qualified Concordium.GlobalState.Wasm as GSWasm
 import qualified Concordium.Scheduler.InvokeContract as InvokeContract
 import qualified Concordium.Types.InvokeContract as InvokeContract
-import Concordium.Types.SeedState (initialSeedState)
 import Concordium.Wasm
 
 import Concordium.Crypto.DummyData
-import Concordium.GlobalState.DummyData
 import Concordium.Types.DummyData
 
+import qualified SchedulerTests.Helpers as Helpers
 import qualified SchedulerTests.SmartContracts.V1.InvokeHelpers as InvokeHelpers
 import SchedulerTests.TestUtils
 
-type ContextM = PersistentBlockStateMonad PV4 (PersistentBlockStateContext PV4) (BlobStoreM' (PersistentBlockStateContext PV4))
-
--- empty state, no accounts, no modules, no instances
-initialBlockState :: ContextM (HashedPersistentBlockState PV4)
-initialBlockState =
-    initialPersistentState
-        (initialSeedState (Hash.hash "") 1000)
-        dummyCryptographicParameters
-        [mkAccount alesVK alesAccount 1000]
-        dummyIdentityProviders
-        dummyArs
-        dummyKeyCollection
-        dummyChainParameters
+initialBlockState :: Helpers.PersistentBSM PV4 (HashedPersistentBlockState PV4)
+initialBlockState = do
+    accountA <- Helpers.makeTestAccount alesVK alesAccount 1000
+    Helpers.createTestBlockStateWithAccounts [accountA]
 
 counterSourceFile :: FilePath
 counterSourceFile = "./testdata/contracts/v1/call-counter.wasm"
 
-deployModule :: ContextM (PersistentBlockState PV4, InvokeHelpers.PersistentModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1)
+deployModule ::
+    Helpers.PersistentBSM
+        PV4
+        ( PersistentBlockState PV4,
+          InvokeHelpers.PersistentModuleInterfaceV GSWasm.V1,
+          WasmModuleV GSWasm.V1
+        )
 deployModule = do
     ((x, y), z) <- InvokeHelpers.deployModuleV1 counterSourceFile . hpbsPointers =<< initialBlockState
     return (z, x, y)
 
-initContract :: (PersistentBlockState PV4, InvokeHelpers.PersistentModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1) -> ContextM (Types.ContractAddress, HashedPersistentBlockState PV4)
+initContract ::
+    ( PersistentBlockState PV4,
+      InvokeHelpers.PersistentModuleInterfaceV GSWasm.V1,
+      WasmModuleV GSWasm.V1
+    ) ->
+    Helpers.PersistentBSM PV4 (Types.ContractAddress, HashedPersistentBlockState PV4)
 initContract (bs, miv, wm) = do
-    (ca, pbs) <- InvokeHelpers.initContractV1 alesAccount (InitName "init_counter") emptyParameter (0 :: Types.Amount) bs (miv, wm)
+    (ca, pbs) <-
+        InvokeHelpers.initContractV1
+            alesAccount
+            (InitName "init_counter")
+            emptyParameter
+            (0 :: Types.Amount)
+            bs
+            (miv, wm)
     (ca,) <$> freezeBlockState pbs
 
 -- |Invoke the contract without an invoker expecting success.
-invokeContract1 :: Types.ContractAddress -> HashedPersistentBlockState PV4 -> ContextM InvokeContract.InvokeContractResult
+invokeContract1 ::
+    Types.ContractAddress ->
+    HashedPersistentBlockState PV4 ->
+    Helpers.PersistentBSM PV4 InvokeContract.InvokeContractResult
 invokeContract1 ccContract bs = do
     let cm = Types.ChainMetadata 0
     let ctx =
@@ -75,7 +84,10 @@ invokeContract1 ccContract bs = do
 
 -- |Invoke an entrypoint that calls other entrypoints, and expects a parameter.
 -- This entrypoint does not return anything, meaning the return value is an empty byte array.
-invokeContract2 :: Types.ContractAddress -> HashedPersistentBlockState PV4 -> ContextM InvokeContract.InvokeContractResult
+invokeContract2 ::
+    Types.ContractAddress ->
+    HashedPersistentBlockState PV4 ->
+    Helpers.PersistentBSM PV4 InvokeContract.InvokeContractResult
 invokeContract2 ccContract bs = do
     let cm = Types.ChainMetadata 0
     let ccParameter = Parameter $ BSS.toShort $ runPut $ do
@@ -97,7 +109,10 @@ invokeContract2 ccContract bs = do
 
 -- |Same as 2, but a wrong parameter is passed.
 -- Expects runtime failure
-invokeContract3 :: Types.ContractAddress -> HashedPersistentBlockState PV4 -> ContextM InvokeContract.InvokeContractResult
+invokeContract3 ::
+    Types.ContractAddress ->
+    HashedPersistentBlockState PV4 ->
+    Helpers.PersistentBSM PV4 InvokeContract.InvokeContractResult
 invokeContract3 ccContract bs = do
     let cm = Types.ChainMetadata 0
     let ctx =
@@ -112,7 +127,10 @@ invokeContract3 ccContract bs = do
     InvokeContract.invokeContract ctx cm bs
 
 -- |Same as 2, but with an invoker.
-invokeContract4 :: Types.ContractAddress -> HashedPersistentBlockState PV4 -> ContextM InvokeContract.InvokeContractResult
+invokeContract4 ::
+    Types.ContractAddress ->
+    HashedPersistentBlockState PV4 ->
+    Helpers.PersistentBSM PV4 InvokeContract.InvokeContractResult
 invokeContract4 ccContract bs = do
     let cm = Types.ChainMetadata 0
     let ccParameter = Parameter $ BSS.toShort $ runPut $ do
@@ -134,7 +152,7 @@ invokeContract4 ccContract bs = do
 
 runCounterTests :: Assertion
 runCounterTests = do
-    runBlobStoreTemp "." . withNewAccountCache 100 . runPersistentBlockStateMonad $ do
+    Helpers.runTestBlockState $ do
         bsWithMod <- deployModule
         (addr, stateWithContract) <- initContract bsWithMod
         invokeContract1 addr stateWithContract >>= \case
