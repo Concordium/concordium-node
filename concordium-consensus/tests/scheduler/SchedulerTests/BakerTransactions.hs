@@ -54,8 +54,7 @@ initialBlockState = do
                 (SigScheme.correspondingVerifyKey (keyPair i))
                 (account i)
                 400_000_000_000
-    accounts <- mapM accountFrom [0 .. 3]
-    Helpers.createTestBlockStateWithAccounts accounts
+    Helpers.createTestBlockStateWithAccountsM $ fmap accountFrom [0 .. 3]
 
 baker0 :: (FullBakerInfo, VRF.SecretKey, BlockSig.SignKey, Bls.SecretKey)
 baker0 = mkFullBaker 0 0

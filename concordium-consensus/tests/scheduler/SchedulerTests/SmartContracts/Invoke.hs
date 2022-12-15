@@ -29,9 +29,9 @@ import qualified SchedulerTests.SmartContracts.V1.InvokeHelpers as InvokeHelpers
 import SchedulerTests.TestUtils
 
 initialBlockState :: Helpers.PersistentBSM PV4 (HashedPersistentBlockState PV4)
-initialBlockState = do
-    accountA <- Helpers.makeTestAccount alesVK alesAccount 1000
-    Helpers.createTestBlockStateWithAccounts [accountA]
+initialBlockState =
+    Helpers.createTestBlockStateWithAccountsM
+        [Helpers.makeTestAccount alesVK alesAccount 1000]
 
 counterSourceFile :: FilePath
 counterSourceFile = "./testdata/contracts/v1/call-counter.wasm"

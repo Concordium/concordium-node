@@ -32,9 +32,9 @@ initialAmount = 0
 initialBlockState ::
     (IsProtocolVersion pv) =>
     Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
-initialBlockState = do
-    accountA <- Helpers.makeTestAccount alesVK alesAccount initialAmount
-    Helpers.createTestBlockStateWithAccounts [accountA]
+initialBlockState =
+    Helpers.createTestBlockStateWithAccountsM
+        [Helpers.makeTestAccount alesVK alesAccount initialAmount]
 
 -- cdi7, but with lowest possible expiry
 cdi7' :: Types.AccountCreation

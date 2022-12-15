@@ -50,9 +50,9 @@ targetSourceFile :: FilePath
 targetSourceFile = "./testdata/contracts/v1/upgrading-cases-target.wasm"
 
 initialBlockState :: Helpers.PersistentBSM PV5 (HashedPersistentBlockState PV5)
-initialBlockState = do
-    accountA <- Helpers.makeTestAccount alesVK alesAccount 10_000_000
-    Helpers.createTestBlockStateWithAccounts [accountA]
+initialBlockState =
+    Helpers.createTestBlockStateWithAccountsM
+        [Helpers.makeTestAccount alesVK alesAccount 10_000_000]
 
 -- |Get a 'ModuleRef' from a given V1 'Module' specified via the 'FilePath'.
 {-# NOINLINE getModuleRefFromV1File #-}

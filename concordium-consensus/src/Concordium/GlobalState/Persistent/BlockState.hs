@@ -148,7 +148,7 @@ migratePersistentBirkParameters migration accounts PersistentBirkParameters{..} 
               _birkSeedState = _birkSeedState
             }
 
--- |Accumulated state when iterating accounts, ment for constructing PersistentBirkParameters.
+-- |Accumulated state when iterating accounts, meant for constructing PersistentBirkParameters.
 -- Used internally by initialBirkParameters.
 data IBPFromAccountsAccum av = IBPFromAccountsAccum
     { -- | Collection of the IDs of the active bakers.
@@ -215,7 +215,7 @@ initialBirkParameters accounts seedState = do
     IBPFromAccountsAccum{..} <- foldM (accumFromAccounts ibpcdToBaker) initialIBPFromAccountsAccum accounts
 
     persistentActiveBakers <-
-        refMake $
+        refMake $!
             PersistentActiveBakers
                 { _activeBakers = aibpBakerIds,
                   _aggregationKeys = aibpBakerKeys,
@@ -230,7 +230,7 @@ initialBirkParameters accounts seedState = do
         _bakerStakes <- refMake $ BakerStakes aibpBakerStakes
         refMake PersistentEpochBakers{_bakerTotalStake = aibpStakedTotal, ..}
 
-    return $
+    return $!
         PersistentBirkParameters
             { _birkSeedState = seedState,
               _birkCurrentEpochBakers = nextEpochBakers,

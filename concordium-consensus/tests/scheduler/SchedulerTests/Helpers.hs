@@ -50,7 +50,7 @@ import Concordium.TimeMonad
 getResults :: [(a, Types.TransactionSummary)] -> [(a, Types.ValidResult)]
 getResults = map (\(x, r) -> (x, Types.tsResult r))
 
--- | The cost for processing a simple transfer (account to account)
+-- |The cost for processing a simple transfer (account to account)
 -- with one signature in the transaction.
 --
 -- * @SPEC: <$DOCS/Transactions#transaction-cost-header-simple-transfer>
@@ -70,7 +70,8 @@ simpleTransferCostWithMemo2 memoSize =
         1
         + Cost.simpleTransferCost
 
--- | Construct an account with the provided amount as public balance.
+-- |Generate an account with a single credential and single keypair, which has sufficiently
+-- late expiry date, but is otherwise not well-formed.
 makeTestAccount ::
     (Types.IsAccountVersion av, Blob.MonadBlobStore m) =>
     SigScheme.VerifyKey ->
@@ -153,6 +154,14 @@ createTestBlockStateWithAccounts accounts =
         DummyData.dummyArs
         DummyData.dummyKeyCollection
         DummyData.dummyChainParameters
+
+-- |Construct a test block state containing the provided accounts.
+createTestBlockStateWithAccountsM ::
+    (Types.IsProtocolVersion pv) =>
+    [PersistentBSM pv (BS.PersistentAccount (Types.AccountVersionFor pv))] ->
+    PersistentBSM pv (BS.HashedPersistentBlockState pv)
+createTestBlockStateWithAccountsM accounts =
+    createTestBlockStateWithAccounts =<< sequence accounts
 
 -- |Run test block state computation provided an account cache size.
 -- The module cache size is 100.

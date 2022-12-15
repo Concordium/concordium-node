@@ -22,19 +22,10 @@ import qualified Concordium.Scheduler.WasmIntegration as WasmV0
 import qualified Concordium.Scheduler.WasmIntegration.V1 as WasmV1
 import Concordium.Wasm
 
-import Concordium.Crypto.DummyData
-import Concordium.Types.DummyData
-
 import qualified SchedulerTests.Helpers as Helpers
 import SchedulerTests.TestUtils
 
 type PersistentModuleInterfaceV v = GSWasm.ModuleInterfaceA (PersistentInstrumentedModuleV v)
-
--- empty state, no accounts, no modules, no instances
-initialBlockState :: Helpers.PersistentBSM PV4 (BS.HashedPersistentBlockState PV4)
-initialBlockState = do
-    accountA <- Helpers.makeTestAccount alesVK alesAccount 1000
-    Helpers.createTestBlockStateWithAccounts [accountA]
 
 callerSourceFile :: FilePath
 callerSourceFile = "./testdata/contracts/v1/caller.wasm"

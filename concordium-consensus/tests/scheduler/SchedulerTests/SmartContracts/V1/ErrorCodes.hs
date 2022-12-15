@@ -32,9 +32,9 @@ import SchedulerTests.TestUtils
 
 -- empty state, no accounts, no modules, no instances
 initialBlockState :: Helpers.PersistentBSM PV4 (HashedPersistentBlockState PV4)
-initialBlockState = do
-    accountA <- Helpers.makeTestAccount alesVK alesAccount 1000
-    Helpers.createTestBlockStateWithAccounts [accountA]
+initialBlockState =
+    Helpers.createTestBlockStateWithAccountsM
+        [Helpers.makeTestAccount alesVK alesAccount 1000]
 
 callerSourceFile :: FilePath
 callerSourceFile = "./testdata/contracts/v1/caller.wasm"
