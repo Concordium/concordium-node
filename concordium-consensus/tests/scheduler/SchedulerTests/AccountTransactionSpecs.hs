@@ -101,8 +101,8 @@ testAccountCreation _ = do
         (map snd ftFailedCredentials)
     assertEqual "Execution cost should be 0." 0 srExecutionCosts
   where
-    checkState :: BS.PersistentBlockState pv -> Helpers.PersistentBSM pv Assertion
-    checkState state = do
+    checkState :: Helpers.SchedulerResult -> BS.PersistentBlockState pv -> Helpers.PersistentBSM pv Assertion
+    checkState _ state = do
         doAssertState <- blockStateAssertions state
         reloadedState <- Helpers.reloadBlockState state
         doAssertReloadedState <- blockStateAssertions reloadedState

@@ -284,7 +284,7 @@ runSchedulerTest ::
     (Types.IsProtocolVersion pv) =>
     TestConfig ->
     PersistentBSM pv (BS.HashedPersistentBlockState pv) ->
-    (BS.PersistentBlockState pv -> PersistentBSM pv a) ->
+    (SchedulerResult -> BS.PersistentBlockState pv -> PersistentBSM pv a) ->
     Types.GroupedTransactions ->
     IO (SchedulerResult, a)
 runSchedulerTest config constructState extractor transactions = runTestBlockState computation
@@ -293,7 +293,7 @@ runSchedulerTest config constructState extractor transactions = runTestBlockStat
     computation = do
         blockStateBefore <- constructState
         (result, blockStateAfter) <- runScheduler config blockStateBefore transactions
-        (result,) <$> extractor blockStateAfter
+        (result,) <$> extractor result blockStateAfter
 
 -- | Run the scheduler on transactions in a test environment.
 -- Allows for a block state monad computation for constructing the initial block state and takes a
@@ -305,7 +305,7 @@ runSchedulerTestTransactionJson ::
     (Types.IsProtocolVersion pv) =>
     TestConfig ->
     PersistentBSM pv (BS.HashedPersistentBlockState pv) ->
-    (BS.PersistentBlockState pv -> PersistentBSM pv a) ->
+    (SchedulerResult -> BS.PersistentBlockState pv -> PersistentBSM pv a) ->
     [SchedTest.TransactionJSON] ->
     IO (SchedulerResult, a)
 runSchedulerTestTransactionJson config constructState extractor transactionJsonList = do
@@ -322,7 +322,7 @@ runSchedulerTestWithIntermediateStates ::
     (Types.IsProtocolVersion pv) =>
     TestConfig ->
     PersistentBSM pv (BS.HashedPersistentBlockState pv) ->
-    (BS.PersistentBlockState pv -> PersistentBSM pv a) ->
+    (SchedulerResult -> BS.PersistentBlockState pv -> PersistentBSM pv a) ->
     Types.GroupedTransactions ->
     IO (IntermediateResults a, BS.HashedPersistentBlockState pv)
 runSchedulerTestWithIntermediateStates config constructState extractor transactions =
@@ -339,7 +339,7 @@ runSchedulerTestWithIntermediateStates config constructState extractor transacti
         PersistentBSM pv (IntermediateResults a, BS.HashedPersistentBlockState pv)
     transactionRunner (acc, currentState) tx = do
         (result, updatedState) <- runScheduler config currentState [tx]
-        extracted <- extractor updatedState
+        extracted <- extractor result updatedState
         nextState <- BS.freezeBlockState updatedState
         return (acc ++ [(result, extracted)], nextState)
 
