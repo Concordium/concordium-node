@@ -23,18 +23,15 @@ import qualified Concordium.Scheduler.InvokeContract as InvokeContract
 import qualified Concordium.Types.InvokeContract as InvokeContract
 import Concordium.Wasm
 
-import Concordium.Crypto.DummyData
-import Concordium.Types.DummyData
-
 import qualified SchedulerTests.Helpers as Helpers
 import qualified SchedulerTests.SmartContracts.V1.InvokeHelpers as InvokeHelpers
 import SchedulerTests.TestUtils
 
--- empty state, no accounts, no modules, no instances
+-- Test block state only containing one account, no modules, no instances.
 initialBlockState :: Helpers.PersistentBSM PV4 (HashedPersistentBlockState PV4)
 initialBlockState =
     Helpers.createTestBlockStateWithAccountsM
-        [Helpers.makeTestAccount alesVK alesAccount 1000]
+        [Helpers.makeTestAccountFromSeed 1000 0]
 
 callerSourceFile :: FilePath
 callerSourceFile = "./testdata/contracts/v1/caller.wasm"
@@ -55,18 +52,32 @@ initContract1 ::
     PersistentBlockState PV4 ->
     (InvokeHelpers.PersistentModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1) ->
     Helpers.PersistentBSM PV4 (Types.ContractAddress, PersistentBlockState PV4)
-initContract1 = InvokeHelpers.initContractV1 alesAccount (InitName "init_caller") emptyParameter 0
+initContract1 =
+    InvokeHelpers.initContractV1
+        (Helpers.accountAddressFromSeed 0)
+        (InitName "init_caller")
+        emptyParameter
+        0
 
 deployModule0 ::
     PersistentBlockState PV4 ->
-    Helpers.PersistentBSM PV4 ((InvokeHelpers.PersistentModuleInterfaceV GSWasm.V0, WasmModuleV GSWasm.V0), PersistentBlockState PV4)
+    Helpers.PersistentBSM
+        PV4
+        ( (InvokeHelpers.PersistentModuleInterfaceV GSWasm.V0, WasmModuleV GSWasm.V0),
+          PersistentBlockState PV4
+        )
 deployModule0 = InvokeHelpers.deployModuleV0 emptyContractSourceFile
 
 initContract0 ::
     PersistentBlockState PV4 ->
     (InvokeHelpers.PersistentModuleInterfaceV GSWasm.V0, WasmModuleV GSWasm.V0) ->
     Helpers.PersistentBSM PV4 (Types.ContractAddress, PersistentBlockState PV4)
-initContract0 = InvokeHelpers.initContractV0 alesAccount (InitName "init_empty") emptyParameter 0
+initContract0 =
+    InvokeHelpers.initContractV0
+        (Helpers.accountAddressFromSeed 0)
+        (InitName "init_empty")
+        emptyParameter
+        0
 
 -- |Invoke an entrypoint that calls the "fail" entrypoint.
 -- The expected return code is
@@ -238,7 +249,7 @@ invokeContract2 ccContract bs = do
     let cm = Types.ChainMetadata 0
     let ccParameter = Parameter $ BSS.toShort $ runPut $ do
             putWord32le 0 -- instruction
-            put thomasAccount
+            put (Helpers.accountAddressFromSeed 1)
             putWord64le 0 -- amount
     let ctx =
             InvokeContract.ContractContext
@@ -285,7 +296,9 @@ invokeContract5 ccContract targetContract bs = do
 checkSuccess :: MonadIO m => String -> Word64 -> InvokeContract.InvokeContractResult -> m ()
 checkSuccess msg targetValue icr = liftIO $
     case icr of
-        InvokeContract.Failure{..} -> assertFailure $ "Invocation failed ( " ++ show msg ++ "): " ++ show rcrReason
+        InvokeContract.Failure{..} ->
+            assertFailure $
+                "Invocation failed ( " ++ show msg ++ "): " ++ show rcrReason
         InvokeContract.Success{..} ->
             case rcrReturnValue of
                 Nothing -> assertFailure "Invoking a V1 contract must produce a return value."

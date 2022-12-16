@@ -31,9 +31,7 @@ import qualified Concordium.Scheduler.Runner as SchedTest
 import Concordium.Types.Execution
 import qualified Concordium.Wasm as Wasm
 
-import Concordium.Crypto.DummyData
 import Concordium.Scheduler.DummyData
-import Concordium.Types.DummyData
 
 import qualified SchedulerTests.Helpers as Helpers
 import SchedulerTests.TestUtils
@@ -45,7 +43,7 @@ testModuleSourceFile = "./testdata/contracts/v1/transfer-cases.wasm"
 initialBlockState :: Helpers.PersistentBSM PV5 (HashedPersistentBlockState PV5)
 initialBlockState =
     Helpers.createTestBlockStateWithAccountsM
-        [Helpers.makeTestAccount alesVK alesAccount 10_000_000]
+        [Helpers.makeTestAccountFromSeed 10_000_000 0]
 
 -- Construct a basic upgrade test case.
 -- Deploy two modules, initialize an instance from the module that supports an upgrade,
@@ -56,23 +54,33 @@ testCase :: Word8 -> [SchedTest.TransactionJSON]
 testCase changeState =
     [ SchedTest.TJSON
         { payload = SchedTest.DeployModule Wasm.V1 testModuleSourceFile,
-          metadata = makeDummyHeader alesAccount 1 1_000,
-          keys = [(0, [(0, alesKP)])]
+          metadata = makeDummyHeader (Helpers.accountAddressFromSeed 0) 1 1_000,
+          keys = [(0, [(0, Helpers.keyPairFromSeed 0)])]
         },
       SchedTest.TJSON
         { payload = SchedTest.InitContract 1_000 Wasm.V1 testModuleSourceFile "init_contract" "",
-          metadata = makeDummyHeader alesAccount 2 1_000,
-          keys = [(0, [(0, alesKP)])]
+          metadata = makeDummyHeader (Helpers.accountAddressFromSeed 0) 2 1_000,
+          keys = [(0, [(0, Helpers.keyPairFromSeed 0)])]
         },
       SchedTest.TJSON
-        { payload = SchedTest.Update 0 (Types.ContractAddress 0 0) "contract.transfer" upgradeParameters,
-          metadata = makeDummyHeader alesAccount 3 10_000,
-          keys = [(0, [(0, alesKP)])]
+        { payload =
+            SchedTest.Update
+                0
+                (Types.ContractAddress 0 0)
+                "contract.transfer"
+                upgradeParameters,
+          metadata = makeDummyHeader (Helpers.accountAddressFromSeed 0) 3 10_000,
+          keys = [(0, [(0, Helpers.keyPairFromSeed 0)])]
         }
     ]
   where
     -- the upgrade parameters are the address to send to, the amount, and the tag stating whether the state should or should not be updated
-    upgradeParameters = BSS.toShort (S.runPut (S.put alesAccount <> S.putWord64le 123 <> S.putWord8 changeState))
+    upgradeParameters =
+        BSS.toShort $
+            S.runPut $
+                S.put (Helpers.accountAddressFromSeed 0)
+                    <> S.putWord64le 123
+                    <> S.putWord8 changeState
 
 -- Run the transfer tests in different scenarios. The Word8 indicates how the state should be changed.
 -- 0 for no change, 1 for change before transfer, 2 for change after transfer.

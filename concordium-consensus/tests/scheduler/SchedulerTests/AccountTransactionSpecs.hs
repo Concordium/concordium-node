@@ -20,7 +20,6 @@ import Concordium.Types
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Persistent.BlockState as BS
 
-import Concordium.Crypto.DummyData
 import Concordium.Scheduler.DummyData
 import Concordium.Types.DummyData
 
@@ -34,7 +33,7 @@ initialBlockState ::
     Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
 initialBlockState =
     Helpers.createTestBlockStateWithAccountsM
-        [Helpers.makeTestAccount alesVK alesAccount initialAmount]
+        [Helpers.makeTestAccountFromSeed initialAmount 0]
 
 -- cdi7, but with lowest possible expiry
 cdi7' :: Types.AccountCreation
@@ -120,7 +119,7 @@ testAccountCreation _ = do
                     (accountAddressFromCredential . Types.credential)
                     [cdi1, cdi2, cdi3, cdi5, cdi7]
         lookups <- mapM (BS.bsoGetAccount state) addedAccountAddresses
-        maybeAccount <- BS.bsoGetAccount state alesAccount
+        maybeAccount <- BS.bsoGetAccount state (Helpers.accountAddressFromSeed 0)
         accountAmountAssertion <- case maybeAccount of
             Nothing -> return $ assertFailure "Account was created."
             Just (_, account) -> do

@@ -17,14 +17,17 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Word
 import Lens.Micro.Platform
+import qualified System.Random as Random
 import Test.HUnit
 
+import qualified Concordium.Crypto.DummyData as DummyData
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.ID.DummyData as DummyData
 import qualified Concordium.ID.Types as Types
 import qualified Concordium.Types.Accounts as Types
 import qualified Concordium.Types.Accounts.Releases as Types
+import qualified Concordium.Types.DummyData as DummyData
 import Concordium.Types.SeedState (initialSeedState)
 
 import qualified Concordium.Common.Time as Time
@@ -70,8 +73,8 @@ simpleTransferCostWithMemo2 memoSize =
         1
         + Cost.simpleTransferCost
 
--- |Generate an account with a single credential and single keypair, which has sufficiently
--- late expiry date, but is otherwise not well-formed.
+-- |Generate an account with the provided amount as balance. The generated account have a single
+-- credential and single keypair, which has sufficiently late expiry date.
 makeTestAccount ::
     (Types.IsAccountVersion av, Blob.MonadBlobStore m) =>
     SigScheme.VerifyKey ->
@@ -88,6 +91,31 @@ makeTestAccount key accountAddress amount = do
                 DummyData.dummyCreatedAt
     account <- BS.newAccount DummyData.dummyCryptographicParameters accountAddress credential
     BS.addAccountAmount amount account
+
+-- |Generate a test account keypair deterministically from a seed.
+keyPairFromSeed :: Int -> SigScheme.KeyPair
+keyPairFromSeed =
+    uncurry SigScheme.KeyPairEd25519
+        . fst
+        . DummyData.randomEd25519KeyPair
+        . Random.mkStdGen
+
+-- |Generate an account address deterministically from a seed.
+accountAddressFromSeed :: Int -> Types.AccountAddress
+accountAddressFromSeed = DummyData.accountAddressFrom
+
+-- |Generate a test account with the provided amount as balance. The generated account have a single
+-- credential and single keypair, which has sufficiently late expiry date. The keypair and address
+-- is generated deterministically from a seed.
+makeTestAccountFromSeed ::
+    (Types.IsAccountVersion av, Blob.MonadBlobStore m) =>
+    Types.Amount ->
+    Int ->
+    m (BS.PersistentAccount av)
+makeTestAccountFromSeed amount seed =
+    let keyPair = keyPairFromSeed seed
+        address = accountAddressFromSeed seed
+    in  makeTestAccount (SigScheme.correspondingVerifyKey keyPair) address amount
 
 -- | Monad that implements the necessary constraints to be used for running the scheduler.
 newtype PersistentBSM pv a = PersistentBSM

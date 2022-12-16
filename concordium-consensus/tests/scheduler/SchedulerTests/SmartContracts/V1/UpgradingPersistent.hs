@@ -34,9 +34,7 @@ import qualified Concordium.Scheduler.Runner as SchedTest
 import Concordium.Types.Execution
 import qualified Concordium.Wasm as Wasm
 
-import Concordium.Crypto.DummyData
 import Concordium.Scheduler.DummyData
-import Concordium.Types.DummyData
 
 import qualified SchedulerTests.Helpers as Helpers
 import SchedulerTests.TestUtils
@@ -52,7 +50,7 @@ targetSourceFile = "./testdata/contracts/v1/upgrading-cases-target.wasm"
 initialBlockState :: Helpers.PersistentBSM PV5 (HashedPersistentBlockState PV5)
 initialBlockState =
     Helpers.createTestBlockStateWithAccountsM
-        [Helpers.makeTestAccount alesVK alesAccount 10_000_000]
+        [Helpers.makeTestAccountFromSeed 10_000_000 0]
 
 -- |Get a 'ModuleRef' from a given V1 'Module' specified via the 'FilePath'.
 {-# NOINLINE getModuleRefFromV1File #-}
@@ -69,28 +67,37 @@ testCase :: Bool -> Word8 -> [SchedTest.TransactionJSON]
 testCase changeAmount changeState =
     [ SchedTest.TJSON
         { payload = SchedTest.DeployModule Wasm.V1 testModuleSourceFile,
-          metadata = makeDummyHeader alesAccount 1 1_000,
-          keys = [(0, [(0, alesKP)])]
+          metadata = makeDummyHeader (Helpers.accountAddressFromSeed 0) 1 1_000,
+          keys = [(0, [(0, Helpers.keyPairFromSeed 0)])]
         },
       SchedTest.TJSON
         { payload = SchedTest.DeployModule Wasm.V1 targetSourceFile,
-          metadata = makeDummyHeader alesAccount 2 1_000,
-          keys = [(0, [(0, alesKP)])]
+          metadata = makeDummyHeader (Helpers.accountAddressFromSeed 0) 2 1_000,
+          keys = [(0, [(0, Helpers.keyPairFromSeed 0)])]
         },
       SchedTest.TJSON
         { payload = SchedTest.InitContract 0 Wasm.V1 testModuleSourceFile "init_contract" "",
-          metadata = makeDummyHeader alesAccount 3 1_000,
-          keys = [(0, [(0, alesKP)])]
+          metadata = makeDummyHeader (Helpers.accountAddressFromSeed 0) 3 1_000,
+          keys = [(0, [(0, Helpers.keyPairFromSeed 0)])]
         },
       SchedTest.TJSON
-        { payload = SchedTest.Update (if changeAmount then 123 else 0) (Types.ContractAddress 0 0) "contract.upgrade" upgradeParameters,
-          metadata = makeDummyHeader alesAccount 4 10_000,
-          keys = [(0, [(0, alesKP)])]
+        { payload =
+            SchedTest.Update
+                (if changeAmount then 123 else 0)
+                (Types.ContractAddress 0 0)
+                "contract.upgrade"
+                upgradeParameters,
+          metadata = makeDummyHeader (Helpers.accountAddressFromSeed 0) 4 10_000,
+          keys = [(0, [(0, Helpers.keyPairFromSeed 0)])]
         }
     ]
   where
-    -- the upgrade parameters are the module to upgrade to and a tag stating whether the state should or should not be updated
-    upgradeParameters = BSS.toShort (S.runPut (S.put (getModuleRefFromV1File targetSourceFile) <> S.putWord8 changeState))
+    -- the upgrade parameters are the module to upgrade to and a tag stating whether the state
+    -- should or should not be updated.
+    upgradeParameters =
+        BSS.toShort $
+            S.runPut $
+                S.put (getModuleRefFromV1File targetSourceFile) <> S.putWord8 changeState
 
 -- Run the upgrade tests in different scenarios. The boolean flags indicate
 -- whether the amount should be changed, the balance should be changed, or the
@@ -108,9 +115,15 @@ runUpgradeTests changeAmount changeState reloadState = do
         case result of
             TxSuccess{} -> return ()
             TxReject{..} -> assertFailure $ "Transaction rejected: " ++ show vrRejectReason
-    assertEqual "No entrypoints in the upgraded contract" Set.empty (Types.instanceReceiveFuns params)
+    assertEqual
+        "No entrypoints in the upgraded contract"
+        Set.empty
+        (Types.instanceReceiveFuns params)
     let mi = Types.instanceModuleInterface params
-    assertEqual "Upgrade to the new module interface" (getModuleRefFromV1File targetSourceFile) (GSWasm.miModuleRef mi)
+    assertEqual
+        "Upgrade to the new module interface"
+        (getModuleRefFromV1File targetSourceFile)
+        (GSWasm.miModuleRef mi)
     if changeAmount
         then assertEqual "Amount was updated" 123 bal
         else assertEqual "Amount was not updated" 0 bal
