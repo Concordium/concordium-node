@@ -10,11 +10,9 @@ import Control.Monad
 import Data.Bifunctor (first)
 import qualified Data.List as List
 import Lens.Micro.Platform
-import System.Random
 import Test.Hspec
 
 import Concordium.GlobalState.BakerInfo
-import qualified Concordium.GlobalState.Basic.BlockState.Account as Basic
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Persistent.BlockState as BS
 import qualified Concordium.Scheduler as Sch
@@ -29,28 +27,27 @@ import Concordium.Types.Accounts (
 
 import qualified Concordium.Crypto.BlockSignature as BlockSig
 import qualified Concordium.Crypto.BlsSignature as Bls
-import Concordium.Crypto.DummyData
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.GlobalState.DummyData
 import Concordium.Scheduler.DummyData
-import Concordium.Types.DummyData
 import System.IO.Unsafe
 
 import qualified SchedulerTests.Helpers as Helpers
 import SchedulerTests.TestUtils
 
 keyPair :: Int -> SigScheme.KeyPair
-keyPair = uncurry SigScheme.KeyPairEd25519 . fst . randomEd25519KeyPair . mkStdGen
+keyPair = Helpers.keyPairFromSeed
 
 account :: Int -> Types.AccountAddress
-account = accountAddressFrom
+account = Helpers.accountAddressFromSeed
 
-accounts :: (Types.IsAccountVersion av) => [Basic.Account av]
-accounts = [mkAccount (SigScheme.correspondingVerifyKey (keyPair i)) (account i) 400_000_000_000 | i <- [0 .. 3]]
-
-initialBlockState :: (Types.IsProtocolVersion pv) => Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
-initialBlockState = Helpers.createTestBlockStateWithAccounts accounts
+initialBlockState ::
+    (Types.IsProtocolVersion pv) =>
+    Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
+initialBlockState =
+    Helpers.createTestBlockStateWithAccountsM $
+        fmap (Helpers.makeTestAccountFromSeed 400_000_000_000) [0 .. 3]
 
 baker0 :: (FullBakerInfo, VRF.SecretKey, BlockSig.SignKey, Bls.SecretKey)
 baker0 = mkFullBaker 0 0

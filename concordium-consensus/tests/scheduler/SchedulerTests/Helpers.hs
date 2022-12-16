@@ -17,17 +17,21 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Word
 import Lens.Micro.Platform
+import qualified System.Random as Random
 import Test.HUnit
 
+import qualified Concordium.Crypto.DummyData as DummyData
 import qualified Concordium.Crypto.SHA256 as Hash
+import qualified Concordium.Crypto.SignatureScheme as SigScheme
+import qualified Concordium.ID.DummyData as DummyData
 import qualified Concordium.ID.Types as Types
 import qualified Concordium.Types.Accounts as Types
 import qualified Concordium.Types.Accounts.Releases as Types
+import qualified Concordium.Types.DummyData as DummyData
 import Concordium.Types.SeedState (initialSeedState)
 
 import qualified Concordium.Common.Time as Time
 import qualified Concordium.Cost as Cost
-import qualified Concordium.GlobalState.Basic.BlockState.Account as Basic
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.DummyData as DummyData
 import qualified Concordium.GlobalState.Persistent.Account as BS
@@ -49,7 +53,7 @@ import Concordium.TimeMonad
 getResults :: [(a, Types.TransactionSummary)] -> [(a, Types.ValidResult)]
 getResults = map (\(x, r) -> (x, Types.tsResult r))
 
--- | The cost for processing a simple transfer (account to account)
+-- |The cost for processing a simple transfer (account to account)
 -- with one signature in the transaction.
 --
 -- * @SPEC: <$DOCS/Transactions#transaction-cost-header-simple-transfer>
@@ -68,6 +72,50 @@ simpleTransferCostWithMemo2 memoSize =
         (Types.transactionHeaderSize + 41 + 2 + memoSize)
         1
         + Cost.simpleTransferCost
+
+-- |Generate an account with the provided amount as balance. The generated account have a single
+-- credential and single keypair, which has sufficiently late expiry date.
+makeTestAccount ::
+    (Types.IsAccountVersion av, Blob.MonadBlobStore m) =>
+    SigScheme.VerifyKey ->
+    Types.AccountAddress ->
+    Types.Amount ->
+    m (BS.PersistentAccount av)
+makeTestAccount key accountAddress amount = do
+    let credential =
+            DummyData.dummyCredential
+                DummyData.dummyCryptographicParameters
+                accountAddress
+                key
+                DummyData.dummyMaxValidTo
+                DummyData.dummyCreatedAt
+    account <- BS.newAccount DummyData.dummyCryptographicParameters accountAddress credential
+    BS.addAccountAmount amount account
+
+-- |Generate a test account keypair deterministically from a seed.
+keyPairFromSeed :: Int -> SigScheme.KeyPair
+keyPairFromSeed =
+    uncurry SigScheme.KeyPairEd25519
+        . fst
+        . DummyData.randomEd25519KeyPair
+        . Random.mkStdGen
+
+-- |Generate an account address deterministically from a seed.
+accountAddressFromSeed :: Int -> Types.AccountAddress
+accountAddressFromSeed = DummyData.accountAddressFrom
+
+-- |Generate a test account with the provided amount as balance. The generated account have a single
+-- credential and single keypair, which has sufficiently late expiry date. The keypair and address
+-- is generated deterministically from a seed.
+makeTestAccountFromSeed ::
+    (Types.IsAccountVersion av, Blob.MonadBlobStore m) =>
+    Types.Amount ->
+    Int ->
+    m (BS.PersistentAccount av)
+makeTestAccountFromSeed amount seed =
+    let keyPair = keyPairFromSeed seed
+        address = accountAddressFromSeed seed
+    in  makeTestAccount (SigScheme.correspondingVerifyKey keyPair) address amount
 
 -- | Monad that implements the necessary constraints to be used for running the scheduler.
 newtype PersistentBSM pv a = PersistentBSM
@@ -123,7 +171,7 @@ forEveryProtocolVersion check =
 -- |Construct a test block state containing the provided accounts.
 createTestBlockStateWithAccounts ::
     (Types.IsProtocolVersion pv) =>
-    [Basic.Account (Types.AccountVersionFor pv)] ->
+    [BS.PersistentAccount (Types.AccountVersionFor pv)] ->
     PersistentBSM pv (BS.HashedPersistentBlockState pv)
 createTestBlockStateWithAccounts accounts =
     BS.initialPersistentState
@@ -134,6 +182,14 @@ createTestBlockStateWithAccounts accounts =
         DummyData.dummyArs
         DummyData.dummyKeyCollection
         DummyData.dummyChainParameters
+
+-- |Construct a test block state containing the provided accounts.
+createTestBlockStateWithAccountsM ::
+    (Types.IsProtocolVersion pv) =>
+    [PersistentBSM pv (BS.PersistentAccount (Types.AccountVersionFor pv))] ->
+    PersistentBSM pv (BS.HashedPersistentBlockState pv)
+createTestBlockStateWithAccountsM accounts =
+    createTestBlockStateWithAccounts =<< sequence accounts
 
 -- |Run test block state computation provided an account cache size.
 -- The module cache size is 100.
