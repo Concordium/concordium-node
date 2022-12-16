@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module SchedulerTests.ChainMetatest where
 
@@ -6,87 +7,98 @@ import Test.HUnit
 import Test.Hspec
 
 import qualified Concordium.Scheduler as Sch
-import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import Concordium.Scheduler.Runner
 import qualified Concordium.Scheduler.Types as Types
-import Concordium.TransactionVerification
 import Concordium.Wasm (WasmVersion (..))
+import qualified Concordium.Scheduler.EnvironmentImplementation as EI
 
-import Concordium.GlobalState.Basic.BlockState
-import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
-import Concordium.GlobalState.Basic.BlockState.Instances as Ins
-import Concordium.GlobalState.Basic.BlockState.Invariants
+import qualified Concordium.GlobalState.BlockState as BS
+import qualified Concordium.GlobalState.Persistent.BlockState as BS
 
-import Lens.Micro.Platform
-
-import Control.Monad.IO.Class
-
-import Concordium.Crypto.DummyData
-import Concordium.GlobalState.DummyData
 import Concordium.Scheduler.DummyData
-import Concordium.Types.DummyData
 
-import SchedulerTests.Helpers
-import SchedulerTests.TestUtils
+import qualified SchedulerTests.Helpers as Helpers
 
-initialBlockState :: BlockState PV1
-initialBlockState = blockStateWithAlesAccount 1000000000 Acc.emptyAccounts
+initialBlockState ::
+    (Types.IsProtocolVersion pv) =>
+    Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
+initialBlockState =
+    Helpers.createTestBlockStateWithAccountsM
+        [Helpers.makeTestAccountFromSeed 1000000000 0]
 
-chainMeta :: Types.ChainMetadata
-chainMeta = Types.ChainMetadata{slotTime = 444}
+testConfig :: Helpers.TestConfig
+testConfig =
+    Helpers.defaultTestConfig
+        { Helpers.tcContextState = contextState
+        }
+  where
+    contextState =
+        Helpers.defaultContextState
+            { -- Set slot time to match the expected slot time hardcoded in the test smart contract.
+              EI._chainMetadata = dummyChainMeta{Types.slotTime = 444}
+            }
 
 transactionInputs :: [TransactionJSON]
 transactionInputs =
     [ TJSON
-        { metadata = makeDummyHeader alesAccount 1 100000,
+        { metadata = makeDummyHeader (Helpers.accountAddressFromSeed 0) 1 100000,
           payload = DeployModule V0 "./testdata/contracts/chain-meta-test.wasm",
-          keys = [(0, [(0, alesKP)])]
+          keys = [(0, [(0, Helpers.keyPairFromSeed 0)])]
         },
       TJSON
-        { metadata = makeDummyHeader alesAccount 2 100000,
+        { metadata = makeDummyHeader (Helpers.accountAddressFromSeed 0) 2 100000,
           payload = InitContract 9 V0 "./testdata/contracts/chain-meta-test.wasm" "init_check_slot_time" "",
-          keys = [(0, [(0, alesKP)])]
+          keys = [(0, [(0, Helpers.keyPairFromSeed 0)])]
         }
     ]
 
-type TestResult =
-    ( [(BlockItemWithStatus, Types.ValidResult)],
-      [(TransactionWithStatus, Types.FailureKind)],
-      [(Types.ContractAddress, Types.BasicInstance)]
-    )
-
-testChainMeta :: IO TestResult
-testChainMeta = do
-    transactions <- processUngroupedTransactions transactionInputs
-    let (Sch.FilteredTransactions{..}, finState) =
-            Types.runSI
-                (Sch.filterTransactions dummyBlockSize dummyBlockTimeout transactions)
-                chainMeta
-                maxBound
-                maxBound
-                initialBlockState
-    let gs = finState ^. Types.ssBlockState
-    case invariantBlockState gs (finState ^. Types.schedulerExecutionCosts) of
-        Left f -> liftIO $ assertFailure $ f ++ " " ++ show gs
-        _ -> return ()
-    return (getResults ftAdded, ftFailed, gs ^.. blockInstances . foldInstances . to (\i -> (instanceAddress i, i)))
-
-checkChainMetaResult :: TestResult -> Assertion
-checkChainMetaResult (suc, fails, instances) = do
-    assertEqual "There should be no failed transactions." [] fails
-    assertEqual "There should be no rejected transactions." [] reject
-    assertEqual "There should be 1 instance." 1 (length instances)
-  where
-    reject =
-        filter
+testChainMeta :: forall pv. (Types.IsProtocolVersion pv) => Types.SProtocolVersion pv -> Assertion
+testChainMeta _ = do
+    (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
+        Helpers.runSchedulerTestTransactionJson
+            testConfig
+            initialBlockState
+            checkState
+            transactionInputs
+    let Sch.FilteredTransactions{..} = srTransactions
+    assertEqual "There should be no failed transactions." [] ftFailed
+    assertEqual "There should be no rejected transactions." []
+        $ filter
             ( \case
                 (_, Types.TxSuccess{}) -> False
                 (_, Types.TxReject{}) -> True
             )
-            suc
+        $ Helpers.getResults ftAdded
+    doBlockStateAssertions
+  where
+    checkState ::
+        Helpers.SchedulerResult ->
+        BS.PersistentBlockState pv ->
+        Helpers.PersistentBSM pv Assertion
+    checkState result state = do
+        doAssertState <- blockStateAssertions result state
+        reloadedState <- Helpers.reloadBlockState state
+        doAssertReloadedState <- blockStateAssertions result reloadedState
+        return $ do
+            doAssertState
+            doAssertReloadedState
 
-tests :: SpecWith ()
-tests =
-    describe "Chain metadata in transactions." $
-        specify "Reading chain metadata." $
-            testChainMeta >>= checkChainMetaResult
+    blockStateAssertions ::
+        Helpers.SchedulerResult ->
+        BS.PersistentBlockState pv ->
+        Helpers.PersistentBSM pv Assertion
+    blockStateAssertions result state = do
+        hashedState <- BS.hashBlockState state
+        doInvariantAssertions <- Helpers.assertBlockStateInvariants hashedState (Helpers.srExecutionCosts result)
+        instances <- BS.getContractInstanceList hashedState
+        return $ do
+            doInvariantAssertions
+            assertEqual "There should be 1 instance." 1 (length instances)
+
+tests :: Spec
+tests = do
+    describe "Chain metadata in transactions:" $
+        sequence_ $
+            Helpers.forEveryProtocolVersion $ \spv pvString ->
+                specify (pvString ++ ": Reading chain metadata. ") $
+                    testChainMeta spv

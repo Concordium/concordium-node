@@ -12,6 +12,7 @@ import qualified Concordium.GlobalState.Persistent.BlockState as BS
 import qualified Concordium.Scheduler as Sch
 import Concordium.Scheduler.Runner
 import qualified Concordium.Scheduler.Types as Types
+import qualified Concordium.Scheduler.EnvironmentImplementation as EI
 
 import Concordium.Scheduler.DummyData
 
@@ -30,6 +31,18 @@ usedTransactionEnergy = Helpers.simpleTransferCost
 
 maxBlockEnergy :: Types.Energy
 maxBlockEnergy = usedTransactionEnergy * 2
+
+testConfig :: Helpers.TestConfig
+testConfig =
+    Helpers.defaultTestConfig
+        { Helpers.tcContextState = contextState
+        }
+  where
+    contextState =
+        Helpers.defaultContextState
+            { -- Set the max energy block energy to enough for 2 successful transfers.
+              EI._maxBlockEnergy = maxBlockEnergy
+            }
 
 transactions :: [TransactionJSON]
 transactions =
@@ -67,7 +80,7 @@ testMaxBlockEnergy _ = do
                 : ts' -- dummy arrival time of 0
     (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
         Helpers.runSchedulerTest
-            Helpers.defaultTestConfig
+            testConfig
             initialBlockState
             checkState
             ts
