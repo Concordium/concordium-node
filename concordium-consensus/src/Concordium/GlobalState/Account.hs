@@ -143,7 +143,6 @@ addIncomingEncryptedAmount newAmount old =
                 else old & incomingEncryptedAmounts %~ (Seq.|> newAmount)
         Just (e, n) ->
             -- we have to aggregate always
-            -- VH/TODO: This seems fishy - it was claimed to be irrefutable before.
             case _incomingEncryptedAmounts old of
                 (x Seq.:<| rest) ->
                     old
@@ -151,7 +150,8 @@ addIncomingEncryptedAmount newAmount old =
                           _startIndex = _startIndex old + 1,
                           _aggregatedAmount = Just (e <> x, n + 1)
                         }
-                -- this does not happen due to the check above
+                -- this does not happen, since if _aggregatedAmount is @Just@, then the length of
+                -- `incomingEncryptedAmounts` is 31 or 32, see @AccountEncryptedAmount@.
                 Seq.Empty -> error "_incomingEncryptedAmounts should should consist of one or more elements"
 
 -- | Drop the encrypted amount with indices up to (but not including) the given one, and add the new amount at the end.

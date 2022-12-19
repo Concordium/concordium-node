@@ -278,7 +278,9 @@ foldAccountsDesc f a accts = L.mfoldDesc f a (accountTable accts)
 -- |See documentation of @migratePersistentBlockState@.
 migrateAccounts ::
     forall oldpv pv t m.
-    ( SupportMigration m t,
+    ( IsProtocolVersion oldpv,
+      IsProtocolVersion pv,
+      SupportMigration m t,
       SupportsPersistentAccount oldpv m,
       SupportsPersistentAccount pv (t m)
     ) =>

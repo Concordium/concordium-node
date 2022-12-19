@@ -313,7 +313,7 @@ invariantSkovFinalization (SkovState sd@TS.SkovData{..} FinalizationState{..} _)
     when (null (parties _finsCommittee)) $ Left "Empty finalization committee"
     let bakerInFinCommittee = Vec.any bakerEqParty (parties _finsCommittee)
         bakerEqParty PartyInfo{..} = baker ^. bakerInfo . bakerSignatureVerifyKey == partySignKey
-    checkBinary (==) bakerInFinCommittee (isActiveCurrentRound _finsCurrentRound) "<->" "baker is in finalization committee" "baker has current finalization round"
+    checkBinary (==) bakerInFix`nCommittee (isActiveCurrentRound _finsCurrentRound) "<->" "baker is in finalization committee" "baker has current finalization round"
     onActiveCurrentRound _finsCurrentRound $ \FinalizationRound{..} -> do
         -- The following checks are performed only for the baker; the baker is part of the in the current finalization round
         checkBinary (>=) roundDelta (nextFinalizationDelay finParams lfr) ">=" "round delta" "starting delta for this finalization"

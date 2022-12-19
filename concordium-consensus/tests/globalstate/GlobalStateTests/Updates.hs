@@ -37,6 +37,7 @@ import Control.Exception
 import Control.Monad.Identity
 import Control.Monad.RWS.Strict as RWS hiding (state)
 import Control.Monad.Trans.Reader
+import Data.Maybe (fromJust)
 import Data.IORef
 import Data.Proxy
 import Data.Time.Clock.POSIX
@@ -167,11 +168,8 @@ createAccountWith a bs = do
                 (YearMonth 2021 01)
                 (YearMonth 2021 12)
             )
-    accIndexM <- bsoGetAccountIndex bs' thomasAccount
-    case accIndexM of
-        Just ai -> (,ai) <$> bsoModifyAccount bs' (emptyAccountUpdate ai & auAmount ?~ a)
-        -- This does not happen
-        _ -> error "accIndexM should be Just"
+    accIndex <- fromJust <$> bsoGetAccountIndex bs' thomasAccount
+    (, accIndex) <$> bsoModifyAccount bs' (emptyAccountUpdate accIndex & auAmount ?~ a)
 
 -- | Add a baker with the given staked amount.
 addBakerWith :: Amount -> (TheBlockStates, AccountIndex) -> ThisMonadConcrete (BakerConfigureResult, (TheBlockStates, AccountIndex))

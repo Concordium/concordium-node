@@ -48,9 +48,9 @@ doHandleCatchUp peerCUS@CatchUpStatus{} limit = do
                 if cusIsRequest peerCUS
                     then do
                         myCUS <- getCatchUpStatus False
-                        case myCUS of
-                            CatchUpStatus{} -> return $ Just ([], myCUS{cusIsResponse = True})
-                            _ -> error "myCUS should be CatchUpStatusV1"
+                        return $ case myCUS of
+                                     CatchUpStatus{} -> return $ Just ([], myCUS{cusIsResponse = True})
+                                     status -> return $ Just ([], status)
                     else return Nothing
             -- We are behind, so we mark the peer as pending, unless it is in progress
             -- and the message is not a response.

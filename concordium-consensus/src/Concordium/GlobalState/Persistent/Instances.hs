@@ -787,21 +787,17 @@ makePersistent mods (Transient.Instances (Transient.Tree s t)) = InstancesTree s
             -- exists in the Basic version, then the module must be present in the
             -- persistent implementation. Moreover, it will be of the same module
             -- version (i.e. V0).
-            pIModuleInterfaceM <- Modules.getModuleReference (GSWasm.miModuleRef instanceModuleInterface) mods
-            case pIModuleInterfaceM of
-                Just pIModuleInterface ->
-                    return $
-                        PersistentInstanceV0
-                            PersistentInstanceV
-                                { pinstanceParameters = pIParams,
-                                  -- The module version is V0 as we're caching an instance of version V1.
-                                  pinstanceModuleInterface = pIModuleInterface,
-                                  pinstanceModel = InstanceStateV0 transientModel,
-                                  pinstanceAmount = _instanceVAmount,
-                                  pinstanceHash = _instanceVHash
-                                }
-                -- this does not happen, see the comment above
-                Nothing -> error "pIModuleInterfaceM should not be Nothing"
+            pIModuleInterface <- fromJust <$> Modules.getModuleReference (GSWasm.miModuleRef instanceModuleInterface) mods
+            return $
+                PersistentInstanceV0
+                    PersistentInstanceV
+                        { pinstanceParameters = pIParams,
+                            -- The module version is V0 as we're caching an instance of version V1.
+                            pinstanceModuleInterface = pIModuleInterface,
+                            pinstanceModel = InstanceStateV0 transientModel,
+                            pinstanceAmount = _instanceVAmount,
+                            pinstanceHash = _instanceVHash
+                        }
     convInst
         ( Instance.InstanceV1
             Instance.InstanceV
@@ -824,21 +820,17 @@ makePersistent mods (Transient.Instances (Transient.Tree s t)) = InstancesTree s
             -- exists in the Basic version, then the module must be present in the
             -- persistent implementation. Moreover, it will be of the same module
             -- version (i.e. V1).
-            pIModuleInterfaceM <- Modules.getModuleReference (GSWasm.miModuleRef instanceModuleInterface) mods
-            case pIModuleInterfaceM of
-                Just pIModuleInterface ->
-                    return $
-                        PersistentInstanceV1
-                            PersistentInstanceV
-                                { pinstanceParameters = pIParams,
-                                  -- The module version is V0 as we're caching an instance of version V1.
-                                  pinstanceModuleInterface = pIModuleInterface,
-                                  pinstanceModel = InstanceStateV1 (StateV1.makePersistent transientModel),
-                                  pinstanceAmount = _instanceVAmount,
-                                  pinstanceHash = _instanceVHash
-                                }
-                -- this does not happen, see the comment above
-                Nothing -> error "pIModuleInterfaceM should not be Nothing"
+            pIModuleInterface <- fromJust <$> Modules.getModuleReference (GSWasm.miModuleRef instanceModuleInterface) mods
+            return $
+                PersistentInstanceV1
+                    PersistentInstanceV
+                        { pinstanceParameters = pIParams,
+                            -- The module version is V0 as we're caching an instance of version V1.
+                            pinstanceModuleInterface = pIModuleInterface,
+                            pinstanceModel = InstanceStateV1 (StateV1.makePersistent transientModel),
+                            pinstanceAmount = _instanceVAmount,
+                            pinstanceHash = _instanceVHash
+                        }
 
 -- |Serialize instances in V0 format.
 putInstancesV0 :: (IsProtocolVersion pv, SupportsPersistentModule m, MonadPut m) => Instances pv -> m ()

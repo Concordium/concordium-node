@@ -249,17 +249,14 @@ addReleases (l, txh) ars = do
             let thisPrioQueue' = Map.alter (maybe (Just [itemIndex]) (Just . (itemIndex :))) thisTimestamp thisPrioQueue
                 thisBalance' = thisBalance + thisAmount
             return (Some thisReleaseRef, thisPrioQueue', thisBalance')
-    res <- foldrM f (Null, ars ^. arsPrioQueue, ars ^. arsTotalLockedUpBalance) l
+    (firstM, arsPrioQueue', arsTotalLockedUpBalance') <- foldrM f (Null, ars ^. arsPrioQueue, ars ^. arsTotalLockedUpBalance) l
 
-    case res of
-        (Some first, arsPrioQueue', arsTotalLockedUpBalance') ->
-            return $
-                ars
-                    & arsValues %~ flip Vector.snoc (Some (first, txh))
-                    & arsPrioQueue .~ arsPrioQueue'
-                    & arsTotalLockedUpBalance .~ arsTotalLockedUpBalance'
-        -- this should not happen as l must not be empty
-        _ -> error "First element of res should not be Null"
+    -- the following is safe due to the precondition of `addReleases`.
+    return $
+        ars
+            & arsValues %~ flip Vector.snoc (Some (fromJust firstM, txh))
+            & arsPrioQueue .~ arsPrioQueue'
+            & arsTotalLockedUpBalance .~ arsTotalLockedUpBalance'
 
 -- | Returns the amount that was unlocked, the next timestamp for this account
 -- (if there is one) and the new account release schedule after removing the
