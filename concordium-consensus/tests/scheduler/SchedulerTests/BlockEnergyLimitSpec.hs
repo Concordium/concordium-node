@@ -10,9 +10,9 @@ import Test.Hspec
 
 import qualified Concordium.GlobalState.Persistent.BlockState as BS
 import qualified Concordium.Scheduler as Sch
+import qualified Concordium.Scheduler.EnvironmentImplementation as EI
 import Concordium.Scheduler.Runner
 import qualified Concordium.Scheduler.Types as Types
-import qualified Concordium.Scheduler.EnvironmentImplementation as EI
 
 import Concordium.Scheduler.DummyData
 
@@ -151,7 +151,7 @@ testMaxBlockEnergy _ = do
         Helpers.assertBlockStateInvariants hashedState (Helpers.srExecutionCosts result)
 
 tests :: Spec
-tests = do
+tests =
     describe "Maximum block energy limit test:" $
         sequence_ $
             Helpers.forEveryProtocolVersion $ \spv pvString ->

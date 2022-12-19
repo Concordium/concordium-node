@@ -7,10 +7,10 @@ import Test.HUnit
 import Test.Hspec
 
 import qualified Concordium.Scheduler as Sch
+import qualified Concordium.Scheduler.EnvironmentImplementation as EI
 import Concordium.Scheduler.Runner
 import qualified Concordium.Scheduler.Types as Types
 import Concordium.Wasm (WasmVersion (..))
-import qualified Concordium.Scheduler.EnvironmentImplementation as EI
 
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Persistent.BlockState as BS
@@ -58,7 +58,7 @@ testChainMeta _ = do
         Helpers.runSchedulerTestTransactionJson
             testConfig
             initialBlockState
-            checkState
+            (Helpers.checkReloadCheck checkState)
             transactionInputs
     let Sch.FilteredTransactions{..} = srTransactions
     assertEqual "There should be no failed transactions." [] ftFailed
@@ -76,18 +76,6 @@ testChainMeta _ = do
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState result state = do
-        doAssertState <- blockStateAssertions result state
-        reloadedState <- Helpers.reloadBlockState state
-        doAssertReloadedState <- blockStateAssertions result reloadedState
-        return $ do
-            doAssertState
-            doAssertReloadedState
-
-    blockStateAssertions ::
-        Helpers.SchedulerResult ->
-        BS.PersistentBlockState pv ->
-        Helpers.PersistentBSM pv Assertion
-    blockStateAssertions result state = do
         hashedState <- BS.hashBlockState state
         doInvariantAssertions <- Helpers.assertBlockStateInvariants hashedState (Helpers.srExecutionCosts result)
         instances <- BS.getContractInstanceList hashedState

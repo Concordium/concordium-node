@@ -315,7 +315,7 @@ runSchedulerTestTransactionJson config constructState extractor transactionJsonL
 -- | Intermediate results collected while running a number of transactions.
 type IntermediateResults a = [(SchedulerResult, a)]
 
--- | Run the scheduler on transactions in a test environment, while collecting all of the
+-- |Run the scheduler on transactions in a test environment, while collecting all of the
 -- intermediate results and extracted values.
 runSchedulerTestWithIntermediateStates ::
     forall pv a.
@@ -343,7 +343,7 @@ runSchedulerTestWithIntermediateStates config constructState extractor transacti
         nextState <- BS.freezeBlockState updatedState
         return (acc ++ [(result, extracted)], nextState)
 
--- | Save and load block state, used to test the block state written to disc.
+-- |Save and load block state, used to test the block state written to disc.
 --
 -- This can be used together with `runSchedulerTest*` functions for creating assertions about the
 -- block state on disc.
@@ -356,7 +356,26 @@ reloadBlockState persistentState = do
     br <- BS.saveBlockState frozen
     BS.thawBlockState =<< BS.loadBlockState (BS.hpbsHash frozen) br
 
--- | Information accumulated when iterating the accounts in block state during
+-- |Takes a function for checking the block state, which is then run on the block state, the block
+-- state is reloaded and the check is run again.
+checkReloadCheck ::
+    (Types.IsProtocolVersion pv) =>
+    ( SchedulerResult ->
+      BS.PersistentBlockState pv ->
+      PersistentBSM pv Assertion
+    ) ->
+    SchedulerResult ->
+    BS.PersistentBlockState pv ->
+    PersistentBSM pv Assertion
+checkReloadCheck check result blockState = do
+    doCheck <- check result blockState
+    reloadedState <- reloadBlockState blockState
+    doCheckReloadedState <- check result reloadedState
+    return $ do
+        doCheck
+        doCheckReloadedState
+
+-- |Information accumulated when iterating the accounts in block state during
 -- checkBlockStateInvariants.
 data AccountAccumulated av = AccountAccumulated
     { -- | Account addresses seen so far. Used to ensure no duplicates between accounts.
@@ -371,6 +390,32 @@ data AccountAccumulated av = AccountAccumulated
       -- | Accumulated total public balance.
       aaTotalAccountAmount :: Types.Amount
     }
+
+-- | Hash and check block state for a number of invariants.
+--
+-- The invariants being check are:
+-- - No dublicate account addresses.
+-- - No dublicate account credentials.
+-- - For each account
+--   - Ensure the tracking of the total locked amount matches the sum of the pending releases.
+--   - If the account is a baker, check the baker ID matches account index and it is part of the set
+--     of active bakers.
+--   - When protocol version supports delegation, see if the account is an active delegator.
+--     If so, check the delegator ID matches account index and it is part of the set of active
+--     delegators.
+-- - Ensure all of the active bakers have a corresponding account in block state.
+-- - When protocol version supports delegation, ensure all of the active delegators have a
+--   corresponding account in block state.
+-- - Ensure the total balance of accounts and instances, matches the total amount tracked in the
+--   block state.
+assertBlockStateInvariantsH ::
+    (Types.IsProtocolVersion pv) =>
+    BS.PersistentBlockState pv ->
+    Types.Amount ->
+    PersistentBSM pv Assertion
+assertBlockStateInvariantsH blockState extraBalance = do
+    hashedState <- BS.hashBlockState blockState
+    assertBlockStateInvariants hashedState extraBalance
 
 -- | Check block state for a number of invariants.
 --
@@ -436,9 +481,21 @@ checkBlockStateInvariants bs extraBalance = do
             allActiveBakers <- Set.fromList <$> BS.getActiveBakers bs
             return (allActiveBakers, NotDefined)
         Types.SAVDelegationSupported -> do
-            (allActiveBakerInfoList, allActiveDelegatorInfoList) <- BS.getActiveBakersAndDelegators bs
+            (allActiveBakerInfoList, passiveActiveDelegatorInfoList) <-
+                BS.getActiveBakersAndDelegators bs
             allActiveBakerList <- mapM (BS.loadBakerId . BS.activeBakerInfoRef) allActiveBakerInfoList
-            let allActiveDelegatorList = BS.activeDelegatorId <$> allActiveDelegatorInfoList
+            let getDelegators bakerId = do
+                    maybeDelegators <- BS.getActiveDelegators bs (Just bakerId)
+                    delegators <-
+                        maybe
+                            (Except.throwError "Delegation to non-existing pool")
+                            return
+                            maybeDelegators
+                    return $ snd <$> delegators
+            nonPassiveActiveDelegatorInfoList <- concat <$> mapM getDelegators allActiveBakerList
+            let allActiveDelegatorList =
+                    BS.activeDelegatorId
+                        <$> passiveActiveDelegatorInfoList ++ nonPassiveActiveDelegatorInfoList
             return (Set.fromList allActiveBakerList, Defined @av $ Set.fromList allActiveDelegatorList)
 
     let initialAccountAccumulated =
