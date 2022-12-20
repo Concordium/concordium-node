@@ -73,6 +73,27 @@ simpleTransferCostWithMemo2 memoSize =
         1
         + Cost.simpleTransferCost
 
+-- |Generate an account credential with a single keypair and sufficiently late expiry date.
+makeTestCredential ::
+    SigScheme.VerifyKey ->
+    Types.AccountAddress ->
+    Types.AccountCredential
+makeTestCredential key accountAddress =
+    DummyData.dummyCredential
+        DummyData.dummyCryptographicParameters
+        accountAddress
+        key
+        DummyData.dummyMaxValidTo
+        DummyData.dummyCreatedAt
+
+-- |Generate an account credential with a single keypair and sufficiently late expiry date
+-- deterministically from a seed.
+makeTestCredentialFromSeed :: Int -> Types.AccountCredential
+makeTestCredentialFromSeed seed =
+    let keyPair = keyPairFromSeed seed
+        address = accountAddressFromSeed seed
+    in  makeTestCredential (SigScheme.correspondingVerifyKey keyPair) address
+
 -- |Generate an account with the provided amount as balance. The generated account have a single
 -- credential and single keypair, which has sufficiently late expiry date.
 makeTestAccount ::
@@ -82,13 +103,7 @@ makeTestAccount ::
     Types.Amount ->
     m (BS.PersistentAccount av)
 makeTestAccount key accountAddress amount = do
-    let credential =
-            DummyData.dummyCredential
-                DummyData.dummyCryptographicParameters
-                accountAddress
-                key
-                DummyData.dummyMaxValidTo
-                DummyData.dummyCreatedAt
+    let credential = makeTestCredential key accountAddress
     account <- BS.newAccount DummyData.dummyCryptographicParameters accountAddress credential
     BS.addAccountAmount amount account
 
@@ -311,6 +326,43 @@ runSchedulerTestTransactionJson ::
 runSchedulerTestTransactionJson config constructState extractor transactionJsonList = do
     transactions <- SchedTest.processUngroupedTransactions transactionJsonList
     runSchedulerTest config constructState extractor transactions
+
+type TransactionAssertion pv =
+    SchedulerResult ->
+    BS.PersistentBlockState pv ->
+    PersistentBSM pv Assertion
+type TransactionsAndAssertion pv = (SchedTest.TransactionJSON, TransactionAssertion pv)
+
+-- |Run the scheduler on transactions in a test environment, provided a list of transactions and
+-- assertions.
+runSchedulerTestAssertIntermediateStates ::
+    forall pv.
+    (Types.IsProtocolVersion pv) =>
+    TestConfig ->
+    PersistentBSM pv (BS.HashedPersistentBlockState pv) ->
+    [TransactionsAndAssertion pv] ->
+    Assertion
+runSchedulerTestAssertIntermediateStates config constructState transactionsAndAssertions =
+    join $ runTestBlockState blockStateComputation
+  where
+    blockStateComputation :: PersistentBSM pv Assertion
+    blockStateComputation = do
+        blockStateBefore <- constructState
+        fst <$> foldM transactionRunner (return (), blockStateBefore) transactionsAndAssertions
+
+    transactionRunner ::
+        (Assertion, BS.HashedPersistentBlockState pv) ->
+        TransactionsAndAssertion pv ->
+        PersistentBSM pv (Assertion, BS.HashedPersistentBlockState pv)
+    transactionRunner (assertedSoFar, currentState) (transactionJson, assertTransactionComputation) = do
+        transactions <- liftIO $ SchedTest.processUngroupedTransactions [transactionJson]
+        (result, updatedState) <- runScheduler config currentState transactions
+        doAssertTransaction <- assertTransactionComputation result updatedState
+        let nextAssertedSoFar = do
+                assertedSoFar
+                doAssertTransaction
+        nextState <- BS.freezeBlockState updatedState
+        return (nextAssertedSoFar, nextState)
 
 -- | Intermediate results collected while running a number of transactions.
 type IntermediateResults a = [(SchedulerResult, a)]
