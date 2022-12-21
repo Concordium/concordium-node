@@ -792,11 +792,11 @@ makePersistent mods (Transient.Instances (Transient.Tree s t)) = InstancesTree s
                 PersistentInstanceV0
                     PersistentInstanceV
                         { pinstanceParameters = pIParams,
-                            -- The module version is V0 as we're caching an instance of version V1.
-                            pinstanceModuleInterface = pIModuleInterface,
-                            pinstanceModel = InstanceStateV0 transientModel,
-                            pinstanceAmount = _instanceVAmount,
-                            pinstanceHash = _instanceVHash
+                          -- The module version is V0 as we're caching an instance of version V1.
+                          pinstanceModuleInterface = pIModuleInterface,
+                          pinstanceModel = InstanceStateV0 transientModel,
+                          pinstanceAmount = _instanceVAmount,
+                          pinstanceHash = _instanceVHash
                         }
     convInst
         ( Instance.InstanceV1
@@ -825,11 +825,11 @@ makePersistent mods (Transient.Instances (Transient.Tree s t)) = InstancesTree s
                 PersistentInstanceV1
                     PersistentInstanceV
                         { pinstanceParameters = pIParams,
-                            -- The module version is V0 as we're caching an instance of version V1.
-                            pinstanceModuleInterface = pIModuleInterface,
-                            pinstanceModel = InstanceStateV1 (StateV1.makePersistent transientModel),
-                            pinstanceAmount = _instanceVAmount,
-                            pinstanceHash = _instanceVHash
+                          -- The module version is V0 as we're caching an instance of version V1.
+                          pinstanceModuleInterface = pIModuleInterface,
+                          pinstanceModel = InstanceStateV1 (StateV1.makePersistent transientModel),
+                          pinstanceAmount = _instanceVAmount,
+                          pinstanceHash = _instanceVHash
                         }
 
 -- |Serialize instances in V0 format.

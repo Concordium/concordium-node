@@ -1841,7 +1841,7 @@ doRemoveBaker pbs ai = do
         -- The account is not valid or has no baker
         _ -> return (BRInvalidBaker, pbs)
 
-doRewardAccount :: forall pv m. (SupportsPersistentState pv m) => PersistentBlockState pv -> AccountIndex -> Amount -> m (Maybe AccountAddress, PersistentBlockState pv)
+doRewardAccount :: forall pv m. (AVSupportsDelegationB (AccountVersionFor pv) ~ 'DelegationSupported (AccountVersionFor pv), SupportsPersistentState pv m) => PersistentBlockState pv -> AccountIndex -> Amount -> m (Maybe AccountAddress, PersistentBlockState pv)
 doRewardAccount pbs ai reward = do
     bsp <- loadPBS pbs
     (mRes, newAccounts) <- Accounts.updateAccountsAtIndex updAcc ai (bspAccounts bsp)
@@ -1879,7 +1879,7 @@ doRewardAccount pbs ai reward = do
         return ((addr, restaked), acc2)
 
     updateDelegationPoolCapital ::
-        (IsAccountVersion av) =>
+        (IsAccountVersion av, AVSupportsDelegation av) =>
         PersistentActiveBakers av ->
         Transactions.DelegationTarget ->
         m (PersistentActiveBakers av)
@@ -2158,13 +2158,13 @@ doPutNewInstance pbs NewInstanceData{..} = do
                 -- The module version is V0 because of the 'WasmVersion' is V0.
                 return $!!
                     ( ca,
-                    PersistentInstanceV0
+                      PersistentInstanceV0
                         Instances.PersistentInstanceV
                             { pinstanceModuleInterface = modRef,
-                            pinstanceModel = initialState,
-                            pinstanceAmount = nidInitialAmount,
-                            pinstanceHash = Instances.makeInstanceHashV0 (pinstanceParameterHash params) csHash nidInitialAmount,
-                            ..
+                              pinstanceModel = initialState,
+                              pinstanceAmount = nidInitialAmount,
+                              pinstanceHash = Instances.makeInstanceHashV0 (pinstanceParameterHash params) csHash nidInitialAmount,
+                              ..
                             }
                     )
             Wasm.SV1 -> do
@@ -2183,15 +2183,16 @@ doPutNewInstance pbs NewInstanceData{..} = do
                 -- Seeing that we know that the instance is V1, and that the module exists, this cannot fail.
                 modRef <- fromJust <$> Modules.getModuleReference (GSWasm.miModuleRef nidInterface) mods
                 (csHash, initialState) <- freezeContractState nidInitialState
+                let pinstanceHash = Instances.makeInstanceHashV1 (pinstanceParameterHash params) csHash nidInitialAmount
                 -- The module version is V1 because of the 'WasmVersion' is V1.
                 return $!!
                     ( ca,
-                        PersistentInstanceV1
+                      PersistentInstanceV1
                         Instances.PersistentInstanceV
                             { pinstanceModuleInterface = modRef,
-                                pinstanceModel = initialState,
-                                pinstanceAmount = nidInitialAmount,
-                                ..
+                              pinstanceModel = initialState,
+                              pinstanceAmount = nidInitialAmount,
+                              ..
                             }
                     )
 
@@ -3207,7 +3208,7 @@ instance (PersistentState av pv r m, IsProtocolVersion pv) => AccountOperations 
 
     getAccountHash = accountHash
 
-instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperations (PersistentBlockStateMonad pv r m) where
+instance (AVSupportsDelegationB av ~ 'DelegationSupported av, IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperations (PersistentBlockStateMonad pv r m) where
     bsoGetModule pbs mref = doGetModule pbs mref
     bsoGetAccount bs = doGetAccount bs
     bsoGetAccountIndex = doGetAccountIndex
@@ -3279,7 +3280,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperatio
     bsoGetBankStatus = doGetBankStatus
     bsoSetRewardAccounts = doSetRewardAccounts
 
-instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage (PersistentBlockStateMonad pv r m) where
+instance (AVSupportsDelegationB av  ~ 'DelegationSupported av, IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage (PersistentBlockStateMonad pv r m) where
     thawBlockState HashedPersistentBlockState{..} =
         liftIO $ newIORef =<< readIORef hpbsPointers
 

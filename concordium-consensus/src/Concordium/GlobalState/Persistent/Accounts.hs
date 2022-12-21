@@ -6,6 +6,9 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
+-- We suppress redundant constraint warnings since GHC does not detect when a constraint is used
+-- for pattern matching. (See: https://gitlab.haskell.org/ghc/ghc/-/issues/20896)
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
 module Concordium.GlobalState.Persistent.Accounts where
 

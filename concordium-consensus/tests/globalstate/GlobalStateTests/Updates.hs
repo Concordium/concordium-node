@@ -37,8 +37,8 @@ import Control.Exception
 import Control.Monad.Identity
 import Control.Monad.RWS.Strict as RWS hiding (state)
 import Control.Monad.Trans.Reader
-import Data.Maybe (fromJust)
 import Data.IORef
+import Data.Maybe (fromJust)
 import Data.Proxy
 import Data.Time.Clock.POSIX
 import Lens.Micro.Platform
@@ -169,7 +169,7 @@ createAccountWith a bs = do
                 (YearMonth 2021 12)
             )
     accIndex <- fromJust <$> bsoGetAccountIndex bs' thomasAccount
-    (, accIndex) <$> bsoModifyAccount bs' (emptyAccountUpdate accIndex & auAmount ?~ a)
+    (,accIndex) <$> bsoModifyAccount bs' (emptyAccountUpdate accIndex & auAmount ?~ a)
 
 -- | Add a baker with the given staked amount.
 addBakerWith :: Amount -> (TheBlockStates, AccountIndex) -> ThisMonadConcrete (BakerConfigureResult, (TheBlockStates, AccountIndex))
