@@ -28,39 +28,27 @@ use std::{
 // which now marks code as unsafe.
 
 fn handshake_init_from_table(table: Table) -> network::Handshake {
-    unsafe {
-        return network::Handshake::init_from_table(table);
-    }
+    unsafe { network::Handshake::init_from_table(table) }
 }
 
 fn network_ids_init_from_table(table: Table) -> network::NetworkIds {
-    unsafe {
-        return network::NetworkIds::init_from_table(table);
-    }
+    unsafe { network::NetworkIds::init_from_table(table) }
 }
 
 fn network_id_init_from_table(table: Table) -> network::NetworkId {
-    unsafe {
-        return network::NetworkId::init_from_table(table);
-    }
+    unsafe { network::NetworkId::init_from_table(table) }
 }
 
 fn network_response_init_from_table(table: Table) -> network::NetworkResponse {
-    unsafe {
-        return network::NetworkResponse::init_from_table(table);
-    }
+    unsafe { network::NetworkResponse::init_from_table(table) }
 }
 
 fn network_packet_init_from_table(table: Table) -> network::NetworkPacket {
-    unsafe {
-        return network::NetworkPacket::init_from_table(table);
-    }
+    unsafe { network::NetworkPacket::init_from_table(table) }
 }
 
 fn network_request_init_from_table(table: Table) -> network::NetworkRequest {
-    unsafe {
-        return network::NetworkRequest::init_from_table(table);
-    }
+    unsafe { network::NetworkRequest::init_from_table(table) }
 }
 
 /// The HANDSHAKE message version. In order to make the handshake robust, we
