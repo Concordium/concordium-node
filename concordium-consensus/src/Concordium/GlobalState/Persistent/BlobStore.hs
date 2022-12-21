@@ -1681,8 +1681,8 @@ instance
     BlobStorable m (HashedBufferedRefForCPV1 cpv a)
     where
     load = case chainParametersVersion @cpv of
-        SCPV0 -> return (pure NothingForCPV1)
-        SCPV1 -> fmap (fmap JustForCPV1) load
+        SChainParametersV0 -> return (pure NothingForCPV1)
+        SChainParametersV1 -> fmap (fmap JustForCPV1) load
     storeUpdate NothingForCPV1 = return (pure (), NothingForCPV1)
     storeUpdate (JustForCPV1 v) = do
         (!r, !v') <- storeUpdate v

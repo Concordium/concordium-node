@@ -950,8 +950,8 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
 
     {-# INLINE getPendingTimeParameters #-}
     getPendingTimeParameters = case chainParametersVersion @(ChainParametersVersionFor pv) of
-        SCPV0 -> const $ return []
-        SCPV1 -> \bs ->
+        SChainParametersV0 -> const $ return []
+        SChainParametersV1 -> \bs ->
             return
                 (bs ^. blockUpdates . pendingUpdates . pTimeParametersQueue . to unJustForCPV1 . uqQueue)
 

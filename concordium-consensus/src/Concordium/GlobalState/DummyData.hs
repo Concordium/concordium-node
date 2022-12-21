@@ -338,7 +338,7 @@ dummyRewardParametersV1 =
 
 dummyChainParameters :: forall cpv. IsChainParametersVersion cpv => ChainParameters' cpv
 dummyChainParameters = case chainParametersVersion @cpv of
-    SCPV0 ->
+    SChainParametersV0 ->
         ChainParameters
             { _cpElectionDifficulty = makeElectionDifficulty 50000,
               _cpExchangeRates = makeExchangeRates 0.0001 1000000,
@@ -355,7 +355,7 @@ dummyChainParameters = case chainParametersVersion @cpv of
                     { _ppBakerStakeThreshold = 300000000000
                     }
             }
-    SCPV1 ->
+    SChainParametersV1 ->
         ChainParameters
             { _cpElectionDifficulty = makeElectionDifficulty 50000,
               _cpExchangeRates = makeExchangeRates 0.0001 1000000,

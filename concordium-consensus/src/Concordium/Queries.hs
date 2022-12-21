@@ -549,22 +549,22 @@ getBlockPendingUpdates = liftSkovQueryBHI query
             queueMapper PUERootKeys _pRootKeysUpdateQueue
                 `merge` queueMapper PUELevel1Keys _pLevel1KeysUpdateQueue
                 `merge` ( case chainParametersVersion @cpv of
-                            SCPV0 -> queueMapper PUELevel2KeysV0 _pLevel2KeysUpdateQueue
-                            SCPV1 -> queueMapper PUELevel2KeysV1 _pLevel2KeysUpdateQueue
+                            SChainParametersV0 -> queueMapper PUELevel2KeysV0 _pLevel2KeysUpdateQueue
+                            SChainParametersV1 -> queueMapper PUELevel2KeysV1 _pLevel2KeysUpdateQueue
                         )
                 `merge` queueMapper PUEProtocol _pProtocolQueue
                 `merge` queueMapper PUEElectionDifficulty _pElectionDifficultyQueue
                 `merge` queueMapper PUEEuroPerEnergy _pEuroPerEnergyQueue
                 `merge` queueMapper PUEMicroCCDPerEuro _pMicroGTUPerEuroQueue
                 `merge` ( case chainParametersVersion @cpv of
-                            SCPV0 -> queueMapper PUEMintDistributionV0 _pMintDistributionQueue
-                            SCPV1 -> queueMapper PUEMintDistributionV1 _pMintDistributionQueue
+                            SChainParametersV0 -> queueMapper PUEMintDistributionV0 _pMintDistributionQueue
+                            SChainParametersV1 -> queueMapper PUEMintDistributionV1 _pMintDistributionQueue
                         )
                 `merge` queueMapper PUETransactionFeeDistribution _pTransactionFeeDistributionQueue
                 `merge` queueMapper PUEGASRewards _pGASRewardsQueue
                 `merge` ( case chainParametersVersion @cpv of
-                            SCPV0 -> queueMapper PUEPoolParametersV0 _pPoolParametersQueue
-                            SCPV1 -> queueMapper PUEPoolParametersV1 _pPoolParametersQueue
+                            SChainParametersV0 -> queueMapper PUEPoolParametersV0 _pPoolParametersQueue
+                            SChainParametersV1 -> queueMapper PUEPoolParametersV1 _pPoolParametersQueue
                         )
                 `merge` queueMapper PUEAddAnonymityRevoker _pAddAnonymityRevokerQueue
                 `merge` queueMapper PUEAddIdentityProvider _pAddIdentityProviderQueue

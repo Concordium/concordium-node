@@ -1021,8 +1021,8 @@ instance IsChainParametersVersion cpv => ToProto (Updates.Authorizations cpv) wh
                 ProtoFields.addIdentityProvider .= toProto (Updates.asAddIdentityProvider auth)
         in
             case chainParametersVersion @cpv of
-                SCPV0 -> v0
-                SCPV1 -> Proto.make $ do
+                SChainParametersV0 -> v0
+                SChainParametersV1 -> Proto.make $ do
                     ProtoFields.v0 .= v0
                     case Updates.asCooldownParameters auth of
                         JustForCPV1 as -> ProtoFields.parameterCooldown .= toProto as
@@ -1968,7 +1968,7 @@ instance ToProto (AccountAddress, Q.EChainParametersAndKeys) where
 
     toProto (foundationAddr, Q.EChainParametersAndKeys (params :: Parameters.ChainParameters' cpv) keys) =
         case chainParametersVersion @cpv of
-            SCPV0 ->
+            SChainParametersV0 ->
                 let Parameters.ChainParameters
                         { _cpCooldownParameters = Parameters.CooldownParametersV0 epochs,
                           _cpPoolParameters = Parameters.PoolParametersV0 minThreshold,
@@ -1992,7 +1992,7 @@ instance ToProto (AccountAddress, Q.EChainParametersAndKeys) where
                                     ProtoFields.level1Keys .= toProto (Updates.level1Keys keys)
                                     ProtoFields.level2Keys .= toProto (Updates.level2Keys keys)
                                 )
-            SCPV1 ->
+            SChainParametersV1 ->
                 let Parameters.ChainParameters{..} = params
                 in  Proto.make $
                         ProtoFields.v1

@@ -2406,13 +2406,13 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, mVerRes
     checkSigAndEnqueueOnlyCPV0 :: UpdateValue 'ChainParametersV0 -> m TxResult
     checkSigAndEnqueueOnlyCPV0 = do
         case chainParametersVersion @(ChainParametersVersionFor (MPV m)) of
-            SCPV0 -> checkSigAndEnqueue
-            SCPV1 -> const $ return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+            SChainParametersV0 -> checkSigAndEnqueue
+            SChainParametersV1 -> const $ return $ TxInvalid NotSupportedAtCurrentProtocolVersion
     checkSigAndEnqueueOnlyCPV1 :: UpdateValue 'ChainParametersV1 -> m TxResult
     checkSigAndEnqueueOnlyCPV1 = do
         case chainParametersVersion @(ChainParametersVersionFor (MPV m)) of
-            SCPV0 -> const $ return $ TxInvalid NotSupportedAtCurrentProtocolVersion
-            SCPV1 -> checkSigAndEnqueue
+            SChainParametersV0 -> const $ return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+            SChainParametersV1 -> checkSigAndEnqueue
     checkSigAndEnqueue :: UpdateValue (ChainParametersVersionFor (MPV m)) -> m TxResult
     checkSigAndEnqueue change = do
         case mVerRes of

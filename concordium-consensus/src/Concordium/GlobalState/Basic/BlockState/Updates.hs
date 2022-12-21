@@ -41,15 +41,16 @@ processValueUpdates t a0 uq = (getLast (sconcat (Last <$> a0 :| (snd <$> ql))), 
 -- |Process the update queue to determine the new value of a parameter for a parameter introduced
 -- in 'ChainParametersV1'.  The return value is the current value of the parameter, the new queue,
 -- and a map of updates to the parameter by time.
-processValueUpdatesForCPV1 ::
+processValueUpdatesO ::
+    (IsSupported pt cpv ~ 'True) =>
     -- |Current timestamp
     Timestamp ->
     -- |Current value
     v ->
     -- |Current queue
-    UpdateQueueForCPV1 'ChainParametersV1 v ->
-    (v, UpdateQueueForCPV1 'ChainParametersV1 v, Map.Map TransactionTime v)
-processValueUpdatesForCPV1 t a0 uq =
+    OUpdateQueue pt cpv v ->
+    (v, OUpdateQueue pt cpv v, Map.Map TransactionTime v)
+processValueUpdatesO t a0 uq =
     let (v, uq1, m) = processValueUpdates t a0 (unJustForCPV1 uq)
     in  (v, JustForCPV1 uq1, m)
 
@@ -110,7 +111,7 @@ processUpdateQueues t (theUpdates, ars, ips) =
               _currentProtocolUpdate = newProtocolUpdate,
               _currentParameters =
                 ChainParameters
-                    { _cpElectionDifficulty = newElectionDifficulty,
+                    { _cpConsensusParameters = newElectionDifficulty,
                       _cpExchangeRates = makeExchangeRates newEuroPerEnergy newMicroGTUPerEuro,
                       _cpTimeParameters = newTimeParameters,
                       _cpCooldownParameters = newCooldownParameters,
@@ -167,12 +168,12 @@ processUpdateQueues t (theUpdates, ars, ips) =
     (updatedIPs, newAddIdentityProviderQueue, resAddIdentityProvider) = processARsAndIPsUpdates (IPS.idProviders ips) IPS.ipIdentity t _pAddIdentityProviderQueue
     (newTimeParameters, newTimeParametersQueue, resTimeParameters) =
         case chainParametersVersion @cpv of
-            SCPV0 -> (_cpTimeParameters, NothingForCPV1, Map.empty)
-            SCPV1 -> processValueUpdatesForCPV1 t _cpTimeParameters _pTimeParametersQueue & _3 %~ fmap UVTimeParameters
+            SChainParametersV0 -> (_cpTimeParameters, NothingForCPV1, Map.empty)
+            SChainParametersV1 -> processValueUpdatesForCPV1 t _cpTimeParameters _pTimeParametersQueue & _3 %~ fmap UVTimeParameters
     (newCooldownParameters, newCooldownParametersQueue, resCooldownParameters) =
         case chainParametersVersion @cpv of
-            SCPV0 -> (_cpCooldownParameters, NothingForCPV1, Map.empty)
-            SCPV1 -> processValueUpdatesForCPV1 t _cpCooldownParameters _pCooldownParametersQueue & _3 %~ fmap UVCooldownParameters
+            SChainParametersV0 -> (_cpCooldownParameters, NothingForCPV1, Map.empty)
+            SChainParametersV1 -> processValueUpdatesForCPV1 t _cpCooldownParameters _pCooldownParametersQueue & _3 %~ fmap UVCooldownParameters
     res =
         (UVRootKeys <$> resRootKeys)
             <> (UVLevel1Keys <$> resLevel1Keys)
@@ -205,17 +206,16 @@ protocolUpdateStatus Updates{_pendingUpdates = PendingUpdates{..}, ..} =
         Nothing -> PendingProtocolUpdates (_uqQueue _pProtocolQueue)
         Just pu -> ProtocolUpdated pu
 
--- |Get next update sequence number from update queue if @cpv@ is 'ChainParametersV1',
--- and return 'minUpdateSequenceNumber' on 'ChainParametersV0'.
-nextUpdateSequenceNumberForCPV1 ::
-    forall cpv v.
+-- |Get next update sequence number from an update queue that may not be present for all chain
+-- parameter versions.  If queue is missing, this returns 'minUpdateSequenceNumber'.
+nextUpdateSequenceNumberO ::
+    forall pt cpv v.
     IsChainParametersVersion cpv =>
-    UpdateQueueForCPV1 cpv v ->
+    OUpdateQueue pt cpv v ->
     UpdateSequenceNumber
-nextUpdateSequenceNumberForCPV1 uq =
-    case chainParametersVersion @cpv of
-        SCPV0 -> minUpdateSequenceNumber
-        SCPV1 -> unJustForCPV1 uq ^. uqNextSequenceNumber
+nextUpdateSequenceNumberO uq = case uq of
+    NoParam -> minUpdateSequenceNumber
+    SomeParam q -> q ^. uqNextSequenceNumber
 
 -- |Determine the next sequence number for a given update type.
 lookupNextUpdateSequenceNumber :: forall cpv. IsChainParametersVersion cpv => Updates' cpv -> UpdateType -> UpdateSequenceNumber
