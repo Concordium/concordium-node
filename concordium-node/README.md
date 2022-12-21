@@ -7,7 +7,7 @@
   - For macOS one should use the binutils provided by Xcode.
 - cmake >= 3.8.0
 - [flatc](http://google.github.io/flatbuffers/flatbuffers_guide_building.html)
-  v2.1.2 is what we currently use. Either build from the v2.1.2 tag of the repository using CMake and copy the `flatc` binary somewhere in your PATH, or download a released binary from <https://github.com/google/flatbuffers/releases/tag/v2.1.2> and place it somewhere in your PATH.
+  v22.12.06 is what we currently use. Either build from the v22.12.06 tag of the repository using CMake and copy the `flatc` binary somewhere in your PATH, or download a released binary from <https://github.com/google/flatbuffers/releases/tag/v22.12.06> and place it somewhere in your PATH.
 - protobuf >= 3.15
 - LLVM and Clang >= 3.9
 
@@ -149,7 +149,7 @@ Before building the node, you should install the following dependencies:
 - [Rust](https://www.rust-lang.org/tools/install)
   - For building the node, the toolchain `1.62.1-x86_64-pc-windows-gnu` is required, which can be installed with the command: `rustup toolchain install 1.62.1-x86_64-pc-windows-gnu`.
   - For building the node runner service (optional), the toolchain `1.62.1-x86_64-pc-windows-msvc`  is required, which can be installed with the command: `rustup toolchain install 1.62.1-x86_64-pc-windows-msvc`.
-- [flatc](https://github.com/google/flatbuffers/releases/tag/v2.0.0) 2.0.0 (should be in the path)
+- [flatc](https://github.com/google/flatbuffers/releases/tag/v22.12.06) 22.12.06 (should be in the path)
 - [protoc](https://github.com/protocolbuffers/protobuf/releases) >= 3.15
 - LMDB should be installed under `stack`'s `msys2` installation, which can be done with the following commands:
 
