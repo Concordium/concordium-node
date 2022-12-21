@@ -1841,7 +1841,7 @@ doRemoveBaker pbs ai = do
         -- The account is not valid or has no baker
         _ -> return (BRInvalidBaker, pbs)
 
-doRewardAccount :: forall pv m. (AVSupportsDelegationB (AccountVersionFor pv) ~ 'DelegationSupported (AccountVersionFor pv), SupportsPersistentState pv m) => PersistentBlockState pv -> AccountIndex -> Amount -> m (Maybe AccountAddress, PersistentBlockState pv)
+doRewardAccount :: forall pv m. (SupportsPersistentState pv m) => PersistentBlockState pv -> AccountIndex -> Amount -> m (Maybe AccountAddress, PersistentBlockState pv)
 doRewardAccount pbs ai reward = do
     bsp <- loadPBS pbs
     (mRes, newAccounts) <- Accounts.updateAccountsAtIndex updAcc ai (bspAccounts bsp)
@@ -1878,18 +1878,22 @@ doRewardAccount pbs ai reward = do
         acc2 <- addAccountAmount reward acc1
         return ((addr, restaked), acc2)
 
-    updateDelegationPoolCapital ::
-        (IsAccountVersion av, AVSupportsDelegation av) =>
+    updateDelegationPoolCapital :: forall (av :: AccountVersion) . 
+        (IsAccountVersion av) =>
         PersistentActiveBakers av ->
         Transactions.DelegationTarget ->
         m (PersistentActiveBakers av)
-    updateDelegationPoolCapital activeBkrs Transactions.DelegatePassive = do
-        let tot = adDelegatorTotalCapital $ activeBkrs ^. passiveDelegators
-        return $!
-            activeBkrs
-                & passiveDelegators %~ \dlgs ->
-                    dlgs{adDelegatorTotalCapital = tot + reward}
-    updateDelegationPoolCapital activeBkrs (Transactions.DelegateToBaker bid) = do
+    updateDelegationPoolCapital activeBkrs Transactions.DelegatePassive = case delegationSupport @av of
+        SAVDelegationNotSupported -> return activeBkrs
+        SAVDelegationSupported -> do
+            let tot = adDelegatorTotalCapital $ activeBkrs ^. passiveDelegators
+            return $!
+                activeBkrs
+                    & passiveDelegators %~ \dlgs ->
+                        dlgs{adDelegatorTotalCapital = tot + reward}
+    updateDelegationPoolCapital activeBkrs (Transactions.DelegateToBaker bid) = case delegationSupport @av of
+      SAVDelegationNotSupported -> return activeBkrs
+      SAVDelegationSupported -> do
         let activeBkrsMap = activeBkrs ^. activeBakers
             adj Nothing = error "Invariant violation: active baker account is not in active bakers map"
             adj (Just dlgs) = do
@@ -3208,7 +3212,7 @@ instance (PersistentState av pv r m, IsProtocolVersion pv) => AccountOperations 
 
     getAccountHash = accountHash
 
-instance (AVSupportsDelegationB av ~ 'DelegationSupported av, IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperations (PersistentBlockStateMonad pv r m) where
+instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperations (PersistentBlockStateMonad pv r m) where
     bsoGetModule pbs mref = doGetModule pbs mref
     bsoGetAccount bs = doGetAccount bs
     bsoGetAccountIndex = doGetAccountIndex
@@ -3280,7 +3284,7 @@ instance (AVSupportsDelegationB av ~ 'DelegationSupported av, IsProtocolVersion 
     bsoGetBankStatus = doGetBankStatus
     bsoSetRewardAccounts = doSetRewardAccounts
 
-instance (AVSupportsDelegationB av  ~ 'DelegationSupported av, IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage (PersistentBlockStateMonad pv r m) where
+instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage (PersistentBlockStateMonad pv r m) where
     thawBlockState HashedPersistentBlockState{..} =
         liftIO $ newIORef =<< readIORef hpbsPointers
 

@@ -51,7 +51,7 @@ noiseexplorer_xx = { path = "../deps/external/noiseexplorer_xx" }
 bytesize = "1.0"
 crossbeam-channel = "0.5"
 semver = { version = "1", features = ["serde"] }
-flatbuffers = { version = "2.1.2" }
+flatbuffers = { version = "22.10.26" }
 flatc-rust = { version = "0.2" }
 sha2 = "0.10"
 lazy_static = "^1.2"
