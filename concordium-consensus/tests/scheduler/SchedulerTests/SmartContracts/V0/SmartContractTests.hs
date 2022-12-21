@@ -315,12 +315,10 @@ simpleTransferTestCases =
         ]
   where
     contractAddr = Types.AddressContract $ ContractAddress 0 0
-
     -- When using pointing to 32 0s in memory, this is the address that is used.
-    accRef = case addressFromText "2wkBET2rRgE8pahuaczxKbmv7ciehqsne57F9gtzf1PVdr2VP3" of
-        Right ref -> ref
-        -- This should not happen, since addressFromText was passed a valid address string.
-        Left _ -> error "addressFromText did not return an account reference"
+    accRefM = addressFromText "2wkBET2rRgE8pahuaczxKbmv7ciehqsne57F9gtzf1PVdr2VP3"
+    -- This is safe, since addressFromText was passed a valid address string.
+    accRef = fromRight (error "addressFromText did not return an account reference") accRefM
 
 sendTestCases :: [TestCase PV1]
 sendTestCases =
