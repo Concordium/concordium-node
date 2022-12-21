@@ -51,6 +51,7 @@ dependencies:
 - concordium-base
 - base16-bytestring
 - aeson >= 1.4.2
+- attoparsec >= 0.14.4
 - text >= 1.2
 - filepath >= 1.4
 - directory >= 1.3
@@ -59,7 +60,6 @@ dependencies:
 - file-embed >= 0.0.11
 - lmdb
 - primitive
-- split
 - proto-lens >= 0.7
 - proto-lens-protobuf-types >= 0.7
 - proto-lens-runtime >= 0.7
