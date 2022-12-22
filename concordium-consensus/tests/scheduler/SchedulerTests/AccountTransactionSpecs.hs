@@ -79,7 +79,7 @@ testAccountCreation _ = do
             @pv
             testConfig
             initialBlockState
-            checkState
+            (Helpers.checkReloadCheck checkState)
             transactions
 
     let Sch.FilteredTransactions{..} = srTransactions
@@ -103,17 +103,7 @@ testAccountCreation _ = do
   where
     checkState :: Helpers.SchedulerResult -> BS.PersistentBlockState pv -> Helpers.PersistentBSM pv Assertion
     checkState _ state = do
-        doAssertState <- blockStateAssertions state
-        reloadedState <- Helpers.reloadBlockState state
-        doAssertReloadedState <- blockStateAssertions reloadedState
-        return $ do
-            doAssertState
-            doAssertReloadedState
-
-    blockStateAssertions :: BS.PersistentBlockState pv -> Helpers.PersistentBSM pv Assertion
-    blockStateAssertions state = do
-        hashedState <- BS.hashBlockState state
-        doInvariantAssertions <- Helpers.assertBlockStateInvariants hashedState 0
+        doInvariantAssertions <- Helpers.assertBlockStateInvariantsH state 0
         let addedAccountAddresses =
                 map
                     (accountAddressFromCredential . Types.credential)
