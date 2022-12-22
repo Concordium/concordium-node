@@ -157,7 +157,7 @@ testCase1 _ pvString =
         return $ do
             -- Check that the contract state contains the n-th Fib number.
             case maybeInstance of
-                Nothing -> assertFailure "Instnace at <0,0> does not exist."
+                Nothing -> assertFailure "Instance at <0,0> does not exist."
                 Just (BS.InstanceInfoV0 ii) -> do
                     let Instances.InstanceStateV0 s = BS.iiState ii
                     assertEqual "State contains the n-th Fibonacci number." (fibNBytes 10) s
