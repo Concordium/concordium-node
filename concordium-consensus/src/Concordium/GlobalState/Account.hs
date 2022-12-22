@@ -496,16 +496,16 @@ applyBakerPoolInfoUpdate
 -- Compared to 'AccountStake' this omits the 'BakerInfoEx' and the 'DelegatorId'.
 -- It is more efficient to query these details on an account than to get the full baker on
 -- an account, as it avoids loading the baker keys and pool parameters where possible.
-data StakeDetails av
-    = StakeDetailsNone
-    | StakeDetailsBaker
+data StakeDetails (av :: AccountVersion) where
+    StakeDetailsNone :: StakeDetails av
+    StakeDetailsBaker ::
         { sdStakedCapital :: !Amount,
           sdRestakeEarnings :: !Bool,
           sdPendingChange :: !(StakePendingChange av)
-        }
-    | StakeDetailsDelegator
+        } -> StakeDetails av
+    StakeDetailsDelegator :: (AVSupportsDelegation av) =>
         { sdStakedCapital :: !Amount,
           sdRestakeEarnings :: !Bool,
           sdPendingChange :: !(StakePendingChange av),
           sdDelegationTarget :: !DelegationTarget
-        }
+        } -> StakeDetails av

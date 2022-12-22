@@ -1878,22 +1878,18 @@ doRewardAccount pbs ai reward = do
         acc2 <- addAccountAmount reward acc1
         return ((addr, restaked), acc2)
 
-    updateDelegationPoolCapital :: forall (av :: AccountVersion) . 
-        (IsAccountVersion av) =>
+    updateDelegationPoolCapital ::
+        (AVSupportsDelegation av, IsAccountVersion av) =>
         PersistentActiveBakers av ->
         Transactions.DelegationTarget ->
         m (PersistentActiveBakers av)
-    updateDelegationPoolCapital activeBkrs Transactions.DelegatePassive = case delegationSupport @av of
-        SAVDelegationNotSupported -> return activeBkrs
-        SAVDelegationSupported -> do
-            let tot = adDelegatorTotalCapital $ activeBkrs ^. passiveDelegators
-            return $!
-                activeBkrs
-                    & passiveDelegators %~ \dlgs ->
-                        dlgs{adDelegatorTotalCapital = tot + reward}
-    updateDelegationPoolCapital activeBkrs (Transactions.DelegateToBaker bid) = case delegationSupport @av of
-      SAVDelegationNotSupported -> return activeBkrs
-      SAVDelegationSupported -> do
+    updateDelegationPoolCapital activeBkrs Transactions.DelegatePassive = do
+        let tot = adDelegatorTotalCapital $ activeBkrs ^. passiveDelegators
+        return $!
+            activeBkrs
+                & passiveDelegators %~ \dlgs ->
+                    dlgs{adDelegatorTotalCapital = tot + reward}
+    updateDelegationPoolCapital activeBkrs (Transactions.DelegateToBaker bid) = do
         let activeBkrsMap = activeBkrs ^. activeBakers
             adj Nothing = error "Invariant violation: active baker account is not in active bakers map"
             adj (Just dlgs) = do
