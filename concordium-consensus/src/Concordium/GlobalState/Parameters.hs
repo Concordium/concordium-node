@@ -150,7 +150,7 @@ data UpdateValue (cpv :: ChainParametersVersion) where
     -- |Protocol updates.
     UVProtocol :: forall cpv. !ProtocolUpdate -> UpdateValue cpv
     -- |Updates to the election difficulty parameter.
-    UVElectionDifficulty :: forall cpv. !ElectionDifficulty -> UpdateValue cpv
+    UVElectionDifficulty :: IsSupported 'PTElectionDifficulty cpv ~ 'True => !ElectionDifficulty -> UpdateValue cpv
     -- |Updates to the euro:energy exchange rate.
     UVEuroPerEnergy :: forall cpv. !ExchangeRate -> UpdateValue cpv
     -- |Updates to the GTU:euro exchange rate.
@@ -176,9 +176,15 @@ data UpdateValue (cpv :: ChainParametersVersion) where
     -- |Updates to level 2 keys.
     UVLevel2Keys :: forall cpv. !(Authorizations cpv) -> UpdateValue cpv
     -- |Updates to cooldown parameters for chain parameter version 1.
-    UVCooldownParameters :: !(CooldownParameters 'ChainParametersV1) -> UpdateValue 'ChainParametersV1
+    UVCooldownParameters :: IsSupported 'PTCooldownParametersAccessStructure cpv ~ 'True => !(CooldownParameters cpv) -> UpdateValue cpv
     -- |Updates to time parameters for chain parameters version 1.
     UVTimeParameters :: !(TimeParameters 'ChainParametersV1) -> UpdateValue 'ChainParametersV1
+    -- |Updates to timeout parameters for chain parameters version 2.
+    UVTimeoutParameters :: IsSupported 'PTTimeoutParameters cpv ~ 'True => !TimeoutParameters -> UpdateValue cpv
+    -- |Updates to minimum block time for chain parameters version 2.
+    UVMinBlockTime :: IsSupported 'PTMinBlockTime cpv ~ 'True => !Duration -> UpdateValue cpv
+    -- |Updates to block energy limit for chain parameters version 2.
+    UVBlockEnergyLimit :: IsSupported 'PTBlockEnergyLimit cpv ~ 'True => !Energy -> UpdateValue cpv
 
 deriving instance Eq (UpdateValue cpv)
 deriving instance Show (UpdateValue cpv)
