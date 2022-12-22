@@ -43,7 +43,6 @@ import qualified Concordium.Crypto.SHA256 as SHA256
 import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount)
 import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
-import qualified Concordium.GlobalState.Basic.BlockState.Account as TransientAccount
 import qualified Concordium.GlobalState.Basic.BlockState.Accounts as TransientAccounts
 import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as BasicLFMBT
 import Concordium.GlobalState.BlockState
@@ -77,7 +76,7 @@ import Concordium.Types
 import Concordium.Types.Accounts (AccountBaker (..))
 import qualified Concordium.Types.Accounts as BaseAccounts
 import qualified Concordium.Types.AnonymityRevokers as ARS
-import Concordium.Types.Execution (DelegationTarget, TransactionIndex, TransactionSummary)
+import Concordium.Types.Execution (DelegationTarget (..), TransactionIndex, TransactionSummary)
 import qualified Concordium.Types.Execution as Transactions
 import Concordium.Types.HashableTo
 import qualified Concordium.Types.IdentityProviders as IPS
@@ -148,6 +147,158 @@ migratePersistentBirkParameters migration accounts PersistentBirkParameters{..} 
               _birkCurrentEpochBakers = newCurrentEpochBakers,
               _birkSeedState = _birkSeedState
             }
+
+-- |Accumulated state when iterating accounts, meant for constructing PersistentBirkParameters.
+-- Used internally by initialBirkParameters.
+data IBPFromAccountsAccum av = IBPFromAccountsAccum
+    { -- | Collection of the IDs of the active bakers.
+      aibpBakerIds :: !(BakerIdTrieMap av),
+      -- | Collection of the aggregation keys of the active bakers.
+      aibpBakerKeys :: !AggregationKeySet,
+      -- | Total amount owned by accounts.
+      aibpTotal :: !Amount,
+      -- | Total staked amount by bakers.
+      aibpStakedTotal :: !Amount,
+      -- | List of baker info refs in incremental order of the baker ID.
+      aibpBakerInfoRefs :: !(Vec.Vector (PersistentBakerInfoRef av)),
+      -- | List of baker stake in incremental order of the baker ID.
+      -- Entries in this list should have a matching entry in agsBakerCapitals.
+      -- In the end result these are needed separately and are therefore constructed separately.
+      aibpBakerStakes :: !(Vec.Vector Amount)
+    }
+
+-- |Initial state for iterating accounts.
+initialIBPFromAccountsAccum :: IBPFromAccountsAccum pv
+initialIBPFromAccountsAccum =
+    IBPFromAccountsAccum
+        { aibpBakerIds = Trie.empty,
+          aibpBakerKeys = Trie.empty,
+          aibpTotal = 0,
+          aibpStakedTotal = 0,
+          aibpBakerInfoRefs = Vec.empty,
+          aibpBakerStakes = Vec.empty
+        }
+
+-- |Collections of delegators, grouped by the pool they are delegating to.
+-- Used internally by initialBirkParameters.
+data IBPCollectedDelegators av = IBPCollectedDelegators
+    { -- |Delegators delegating to the passive pool.
+      ibpcdToPassive :: !(PersistentActiveDelegators av),
+      -- |Delegators delegating to bakers
+      ibpcdToBaker :: !(Map.Map BakerId (PersistentActiveDelegators av))
+    }
+
+-- |Empty collections of delegators.
+emptyIBPCollectedDelegators :: (IsAccountVersion av) => IBPCollectedDelegators av
+emptyIBPCollectedDelegators =
+    IBPCollectedDelegators
+        { ibpcdToPassive = emptyPersistentActiveDelegators,
+          ibpcdToBaker = Map.empty
+        }
+
+-- |Generate initial birk parameters from accounts and seed state.
+initialBirkParameters ::
+    forall av m.
+    (MonadBlobStore m, IsAccountVersion av) =>
+    -- |The accounts in ascending order of the account index.
+    [PersistentAccount av] ->
+    -- |The seed state
+    SeedState ->
+    m (PersistentBirkParameters av)
+initialBirkParameters accounts seedState = do
+    -- Iterate accounts and collect delegators.
+    IBPCollectedDelegators{..} <- case delegationSupport @av of
+        SAVDelegationNotSupported -> return emptyIBPCollectedDelegators
+        SAVDelegationSupported -> foldM collectDelegator emptyIBPCollectedDelegators accounts
+
+    -- Iterate the accounts again accumulate all relevant information.
+    IBPFromAccountsAccum{..} <- foldM (accumFromAccounts ibpcdToBaker) initialIBPFromAccountsAccum accounts
+
+    persistentActiveBakers <-
+        refMake $!
+            PersistentActiveBakers
+                { _activeBakers = aibpBakerIds,
+                  _aggregationKeys = aibpBakerKeys,
+                  _passiveDelegators = ibpcdToPassive,
+                  _totalActiveCapital = case delegationSupport @av of
+                    SAVDelegationNotSupported -> TotalActiveCapitalV0
+                    SAVDelegationSupported -> TotalActiveCapitalV1 aibpTotal
+                }
+
+    nextEpochBakers <- do
+        _bakerInfos <- refMake $ BakerInfos aibpBakerInfoRefs
+        _bakerStakes <- refMake $ BakerStakes aibpBakerStakes
+        refMake PersistentEpochBakers{_bakerTotalStake = aibpStakedTotal, ..}
+
+    return $!
+        PersistentBirkParameters
+            { _birkSeedState = seedState,
+              _birkCurrentEpochBakers = nextEpochBakers,
+              _birkNextEpochBakers = nextEpochBakers,
+              _birkActiveBakers = persistentActiveBakers
+            }
+  where
+    -- If the account is delegating, add it to the collection.
+    collectDelegator ::
+        (AVSupportsDelegation av) =>
+        IBPCollectedDelegators av ->
+        PersistentAccount av ->
+        m (IBPCollectedDelegators av)
+    collectDelegator accum account = do
+        maybeDelegation <- accountDelegator account
+        case maybeDelegation of
+            Nothing -> return accum
+            Just accountDelegationV1 ->
+                let delegatorId = accountDelegationV1 ^. BaseAccounts.delegationIdentity
+                    staked = accountDelegationV1 ^. BaseAccounts.delegationStakedAmount
+                    insertDelegator = addDelegatorHelper delegatorId staked
+                in  case accountDelegationV1 ^. BaseAccounts.delegationTarget of
+                        DelegatePassive -> do
+                            nextToPassive <- insertDelegator (ibpcdToPassive accum)
+                            return accum{ibpcdToPassive = nextToPassive}
+                        DelegateToBaker targetBaker -> do
+                            let activeDelegators =
+                                    fromMaybe emptyPersistentActiveDelegators $
+                                        Map.lookup targetBaker $
+                                            ibpcdToBaker accum
+                            nextActiveDelegators <- insertDelegator activeDelegators
+                            let nextToBaker =
+                                    Map.insert targetBaker nextActiveDelegators $
+                                        ibpcdToBaker accum
+                            return accum{ibpcdToBaker = nextToBaker}
+
+    -- Add account information to the state accumulator.
+    accumFromAccounts ::
+        Map.Map BakerId (PersistentActiveDelegators av) ->
+        IBPFromAccountsAccum av ->
+        PersistentAccount av ->
+        m (IBPFromAccountsAccum av)
+    accumFromAccounts delegatorMap accum account = do
+        publicBalance <- accountAmount account
+        let !updatedAccum = accum{aibpTotal = aibpTotal accum + publicBalance}
+
+        maybeInfoRef <- accountBakerInfoRef account
+        case maybeInfoRef of
+            Just infoRef -> do
+                bakerInfo <- loadBakerInfo infoRef
+
+                let bakerId = bakerInfo ^. BaseAccounts.bakerIdentity
+                let aggregationKey = bakerInfo ^. BaseAccounts.bakerAggregationVerifyKey
+                let activeDelegators = fromMaybe emptyPersistentActiveDelegators $ Map.lookup bakerId delegatorMap
+
+                nextBakerIds <- Trie.insert bakerId activeDelegators $ aibpBakerIds accum
+                nextBakerKeys <- Trie.insert aggregationKey () $ aibpBakerKeys accum
+                stake <- accountStakedAmount account
+
+                return
+                    updatedAccum
+                        { aibpBakerIds = nextBakerIds,
+                          aibpBakerKeys = nextBakerKeys,
+                          aibpBakerInfoRefs = Vec.snoc (aibpBakerInfoRefs accum) infoRef,
+                          aibpBakerStakes = Vec.snoc (aibpBakerStakes accum) stake,
+                          aibpStakedTotal = aibpStakedTotal accum + stake
+                        }
+            Nothing -> return updatedAccum
 
 freezeContractState :: forall v m. (Wasm.IsWasmVersion v, MonadBlobStore m) => UpdatableContractState v -> m (SHA256.Hash, Instances.InstanceStateV v)
 freezeContractState cs = case Wasm.getWasmVersion @v of
@@ -731,13 +882,42 @@ initialPersistentState ::
     (SupportsPersistentState pv m) =>
     SeedState ->
     CryptographicParameters ->
-    [TransientAccount.Account (AccountVersionFor pv)] ->
+    [PersistentAccount (AccountVersionFor pv)] ->
     IPS.IdentityProviders ->
     ARS.AnonymityRevokers ->
     UpdateKeysCollection (ChainParametersVersionFor pv) ->
     ChainParameters pv ->
     m (HashedPersistentBlockState pv)
-initialPersistentState ss cps accts ips ars keysCollection chainParams = makePersistent $ Basic.initialState ss cps accts ips ars keysCollection chainParams
+initialPersistentState seedState cryptoParams accounts ips ars keysCollection chainParams = do
+    persistentBirkParameters <- initialBirkParameters accounts seedState
+    modules <- refMake Modules.emptyModules
+    identityProviders <- bufferHashed $ makeHashed ips
+    anonymityRevokers <- bufferHashed $ makeHashed ars
+    cryptographicParameters <- bufferHashed $ makeHashed cryptoParams
+    blockAccounts <- Accounts.fromList accounts
+    initialAmount <- foldM (\sumSoFar account -> (+ sumSoFar) <$> accountAmount account) 0 accounts
+    updates <- refMake =<< initialUpdates keysCollection chainParams
+    releaseSchedule <- emptyReleaseSchedule
+    red <- emptyBlockRewardDetails
+
+    bsp <-
+        makeBufferedRef $
+            BlockStatePointers
+                { bspAccounts = blockAccounts,
+                  bspInstances = Instances.emptyInstances,
+                  bspModules = modules,
+                  bspBank = makeHashed $ Rewards.makeGenesisBankStatus initialAmount,
+                  bspIdentityProviders = identityProviders,
+                  bspAnonymityRevokers = anonymityRevokers,
+                  bspBirkParameters = persistentBirkParameters,
+                  bspCryptographicParameters = cryptographicParameters,
+                  bspTransactionOutcomes = emptyPersistentTransactionOutcomes,
+                  bspUpdates = updates,
+                  bspReleaseSchedule = releaseSchedule,
+                  bspRewardDetails = red
+                }
+    bps <- liftIO $ newIORef $! bsp
+    hashBlockState bps
 
 -- |A mostly empty block state, but with the given birk parameters,
 -- cryptographic parameters, update authorizations and chain parameters.

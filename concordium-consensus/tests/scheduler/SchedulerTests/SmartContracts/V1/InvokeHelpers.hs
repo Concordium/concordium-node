@@ -11,40 +11,21 @@ import qualified Data.ByteString as BS
 import qualified Data.Map.Strict as OrdMap
 import qualified Data.Set as Set
 
-import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Scheduler.Types as Types
 
-import Concordium.GlobalState.BlockState
-import Concordium.GlobalState.Persistent.BlobStore
-import Concordium.GlobalState.Persistent.BlockState
+import qualified Concordium.GlobalState.BlockState as BS
+import qualified Concordium.GlobalState.Persistent.BlobStore as Blob
+import qualified Concordium.GlobalState.Persistent.BlockState as BS
 import Concordium.GlobalState.Persistent.BlockState.Modules (PersistentInstrumentedModuleV)
 import qualified Concordium.GlobalState.Wasm as GSWasm
 import qualified Concordium.Scheduler.WasmIntegration as WasmV0
 import qualified Concordium.Scheduler.WasmIntegration.V1 as WasmV1
-import Concordium.Types.SeedState (initialSeedState)
 import Concordium.Wasm
 
-import Concordium.Crypto.DummyData
-import Concordium.GlobalState.DummyData
-import Concordium.Types.DummyData
-
+import qualified SchedulerTests.Helpers as Helpers
 import SchedulerTests.TestUtils
 
-type ContextM = PersistentBlockStateMonad PV4 (PersistentBlockStateContext PV4) (BlobStoreM' (PersistentBlockStateContext PV4))
-
 type PersistentModuleInterfaceV v = GSWasm.ModuleInterfaceA (PersistentInstrumentedModuleV v)
-
--- empty state, no accounts, no modules, no instances
-initialBlockState :: ContextM (HashedPersistentBlockState PV4)
-initialBlockState =
-    initialPersistentState
-        (initialSeedState (Hash.hash "") 1000)
-        dummyCryptographicParameters
-        [mkAccount alesVK alesAccount 1000]
-        dummyIdentityProviders
-        dummyArs
-        dummyKeyCollection
-        dummyChainParameters
 
 callerSourceFile :: FilePath
 callerSourceFile = "./testdata/contracts/v1/caller.wasm"
@@ -58,16 +39,16 @@ deployModuleV1 ::
     -- |Source file.
     FilePath ->
     -- |State to add the module to.
-    PersistentBlockState PV4 ->
-    ContextM ((PersistentModuleInterfaceV V1, WasmModuleV V1), PersistentBlockState PV4)
+    BS.PersistentBlockState PV4 ->
+    Helpers.PersistentBSM PV4 ((PersistentModuleInterfaceV V1, WasmModuleV V1), BS.PersistentBlockState PV4)
 deployModuleV1 sourceFile bs = do
     ws <- liftIO $ BS.readFile sourceFile
     let wm = WasmModuleV (ModuleSource ws)
     case WasmV1.processModule True wm of
         Nothing -> liftIO $ assertFailure "Invalid module."
         Just miv -> do
-            (_, modState) <- bsoPutNewModule bs (miv, wm)
-            bsoGetModule modState (GSWasm.miModuleRef miv) >>= \case
+            (_, modState) <- BS.bsoPutNewModule bs (miv, wm)
+            BS.bsoGetModule modState (GSWasm.miModuleRef miv) >>= \case
                 Just (GSWasm.ModuleInterfaceV1 miv') -> return ((miv', wm), modState)
                 _ -> liftIO $ assertFailure "bsoGetModule failed to return put module."
 
@@ -77,16 +58,16 @@ deployModuleV0 ::
     -- |Source file.
     FilePath ->
     -- |State to add the module to.
-    PersistentBlockState PV4 ->
-    ContextM ((PersistentModuleInterfaceV V0, WasmModuleV V0), PersistentBlockState PV4)
+    BS.PersistentBlockState PV4 ->
+    Helpers.PersistentBSM PV4 ((PersistentModuleInterfaceV V0, WasmModuleV V0), BS.PersistentBlockState PV4)
 deployModuleV0 sourceFile bs = do
     ws <- liftIO $ BS.readFile sourceFile
     let wm = WasmModuleV (ModuleSource ws)
     case WasmV0.processModule wm of
         Nothing -> liftIO $ assertFailure "Invalid module."
         Just miv -> do
-            (_, modState) <- bsoPutNewModule bs (miv, wm)
-            bsoGetModule modState (GSWasm.miModuleRef miv) >>= \case
+            (_, modState) <- BS.bsoPutNewModule bs (miv, wm)
+            BS.bsoGetModule modState (GSWasm.miModuleRef miv) >>= \case
                 Just (GSWasm.ModuleInterfaceV0 miv') -> return ((miv', wm), modState)
                 _ -> liftIO $ assertFailure "bsoGetModule failed to return put module."
 
@@ -101,9 +82,9 @@ initContractV1 ::
     Parameter ->
     -- |Initial balance.
     Types.Amount ->
-    PersistentBlockState PV4 ->
+    BS.PersistentBlockState PV4 ->
     (PersistentModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1) ->
-    ContextM (Types.ContractAddress, PersistentBlockState PV4)
+    Helpers.PersistentBSM PV4 (Types.ContractAddress, BS.PersistentBlockState PV4)
 initContractV1 senderAddress initName initParam initAmount bs (miv, _) = do
     let cm = Types.ChainMetadata 0
     let initContext =
@@ -112,8 +93,8 @@ initContractV1 senderAddress initName initParam initAmount bs (miv, _) = do
                   icSenderPolicies = []
                 }
     let initInterpreterEnergy = 1_000_000_000
-    (cbk, _) <- getCallbacks
-    artifact <- getModuleArtifact (GSWasm.miModule miv)
+    (cbk, _) <- Blob.getCallbacks
+    artifact <- BS.getModuleArtifact (GSWasm.miModule miv)
     case WasmV1.applyInitFun cbk artifact cm initContext initName initParam False initAmount initInterpreterEnergy of
         Nothing ->
             -- out of energy
@@ -123,7 +104,7 @@ initContractV1 senderAddress initName initParam initAmount bs (miv, _) = do
         Just (Right WasmV1.InitSuccess{..}, _) -> do
             let receiveMethods = OrdMap.findWithDefault Set.empty initName (GSWasm.miExposedReceive miv)
             let ins =
-                    NewInstanceData
+                    BS.NewInstanceData
                         { nidInitName = initName,
                           nidEntrypoints = receiveMethods,
                           nidInterface = miv,
@@ -131,7 +112,7 @@ initContractV1 senderAddress initName initParam initAmount bs (miv, _) = do
                           nidInitialAmount = initAmount,
                           nidOwner = senderAddress
                         }
-            bsoPutNewInstance bs ins
+            BS.bsoPutNewInstance bs ins
 
 -- |Initialize a contract from the supplied module in the given state, and return its address.
 -- The state is assumed to contain the module.
@@ -144,9 +125,9 @@ initContractV0 ::
     Parameter ->
     -- |Initial balance.
     Types.Amount ->
-    PersistentBlockState PV4 ->
+    BS.PersistentBlockState PV4 ->
     (PersistentModuleInterfaceV GSWasm.V0, WasmModuleV GSWasm.V0) ->
-    ContextM (Types.ContractAddress, PersistentBlockState PV4)
+    Helpers.PersistentBSM PV4 (Types.ContractAddress, BS.PersistentBlockState PV4)
 initContractV0 senderAddress initName initParam initAmount bs (miv, _) = do
     let cm = Types.ChainMetadata 0
     let initContext =
@@ -155,7 +136,7 @@ initContractV0 senderAddress initName initParam initAmount bs (miv, _) = do
                   icSenderPolicies = []
                 }
     let initInterpreterEnergy = 1_000_000_000
-    artifact <- getModuleArtifact (GSWasm.miModule miv)
+    artifact <- BS.getModuleArtifact (GSWasm.miModule miv)
     case WasmV0.applyInitFun artifact cm initContext initName initParam False initAmount initInterpreterEnergy of
         Nothing ->
             -- out of energy
@@ -165,7 +146,7 @@ initContractV0 senderAddress initName initParam initAmount bs (miv, _) = do
         Just (Right SuccessfulResultData{..}, _) -> do
             let receiveMethods = OrdMap.findWithDefault Set.empty initName (GSWasm.miExposedReceive miv)
             let ins =
-                    NewInstanceData
+                    BS.NewInstanceData
                         { nidInitName = initName,
                           nidEntrypoints = receiveMethods,
                           nidInterface = miv,
@@ -173,4 +154,4 @@ initContractV0 senderAddress initName initParam initAmount bs (miv, _) = do
                           nidInitialAmount = initAmount,
                           nidOwner = senderAddress
                         }
-            bsoPutNewInstance bs ins
+            BS.bsoPutNewInstance bs ins

@@ -13,37 +13,24 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Short as BSS
 import Data.Serialize
 
-import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Scheduler.Types as Types
 
 import Concordium.GlobalState.BlockState
-import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.BlockState
 import qualified Concordium.GlobalState.Wasm as GSWasm
 import qualified Concordium.Scheduler.InvokeContract as InvokeContract
 import qualified Concordium.Types.InvokeContract as InvokeContract
-import Concordium.Types.SeedState (initialSeedState)
 import Concordium.Wasm
 
-import Concordium.Crypto.DummyData
-import Concordium.GlobalState.DummyData
-import Concordium.Types.DummyData
-
-import SchedulerTests.SmartContracts.V1.InvokeHelpers (ContextM)
+import qualified SchedulerTests.Helpers as Helpers
 import qualified SchedulerTests.SmartContracts.V1.InvokeHelpers as InvokeHelpers
 import SchedulerTests.TestUtils
 
 -- empty state, no accounts, no modules, no instances
-initialBlockState :: ContextM (HashedPersistentBlockState PV4)
+initialBlockState :: Helpers.PersistentBSM PV4 (HashedPersistentBlockState PV4)
 initialBlockState =
-    initialPersistentState
-        (initialSeedState (Hash.hash "") 1_000)
-        dummyCryptographicParameters
-        [mkAccount alesVK alesAccount 1_000]
-        dummyIdentityProviders
-        dummyArs
-        dummyKeyCollection
-        dummyChainParameters
+    Helpers.createTestBlockStateWithAccountsM
+        [Helpers.makeTestAccountFromSeed 1000 0]
 
 selfBalanceSourceFile :: FilePath
 selfBalanceSourceFile = "./testdata/contracts/v1/self-balance.wasm"
@@ -51,16 +38,33 @@ selfBalanceSourceFile = "./testdata/contracts/v1/self-balance.wasm"
 nestedSelfBalanceSourceFile :: FilePath
 nestedSelfBalanceSourceFile = "./testdata/contracts/v1/self-balance-nested.wasm"
 
-deployModule1 :: PersistentBlockState PV4 -> ContextM ((InvokeHelpers.PersistentModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1), PersistentBlockState PV4)
+deployModule1 ::
+    PersistentBlockState PV4 ->
+    Helpers.PersistentBSM
+        PV4
+        ( (InvokeHelpers.PersistentModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1),
+          PersistentBlockState PV4
+        )
 deployModule1 = InvokeHelpers.deployModuleV1 selfBalanceSourceFile
 
 -- Initialize a contract with 0 CCD in its balance.
-initContract1 :: PersistentBlockState PV4 -> (InvokeHelpers.PersistentModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1) -> ContextM (Types.ContractAddress, PersistentBlockState PV4)
-initContract1 = InvokeHelpers.initContractV1 alesAccount (InitName "init_transfer") emptyParameter 0
+initContract1 ::
+    PersistentBlockState PV4 ->
+    (InvokeHelpers.PersistentModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1) ->
+    Helpers.PersistentBSM PV4 (Types.ContractAddress, PersistentBlockState PV4)
+initContract1 =
+    InvokeHelpers.initContractV1
+        (Helpers.accountAddressFromSeed 0)
+        (InitName "init_transfer")
+        emptyParameter
+        0
 
 -- |Invoke an entrypoint and transfer to ourselves.
 -- The before and after self-balances are the same.
-invokeContract1 :: Types.ContractAddress -> HashedPersistentBlockState PV4 -> ContextM InvokeContract.InvokeContractResult
+invokeContract1 ::
+    Types.ContractAddress ->
+    HashedPersistentBlockState PV4 ->
+    Helpers.PersistentBSM PV4 InvokeContract.InvokeContractResult
 invokeContract1 ccContract bs = do
     let cm = Types.ChainMetadata 0
     let ccParameter = Parameter $ BSS.toShort $ runPut $ do
@@ -84,7 +88,10 @@ invokeContract1 ccContract bs = do
 -- |Invoke an entrypoint and transfer to another instance. The before and after
 -- self-balances are different. The key difference from invokeContract1 test is
 -- that the address (the contract index) in the parameter is different.
-invokeContract2 :: Types.ContractAddress -> HashedPersistentBlockState PV4 -> ContextM InvokeContract.InvokeContractResult
+invokeContract2 ::
+    Types.ContractAddress ->
+    HashedPersistentBlockState PV4 ->
+    Helpers.PersistentBSM PV4 InvokeContract.InvokeContractResult
 invokeContract2 ccContract bs = do
     let cm = Types.ChainMetadata 0
     let ccParameter = Parameter $ BSS.toShort $ runPut $ do
@@ -107,12 +114,15 @@ invokeContract2 ccContract bs = do
 
 -- |Invoke an entrypoint and transfer to an account.
 -- The before and after balances are different.
-invokeContract3 :: Types.ContractAddress -> HashedPersistentBlockState PV4 -> ContextM InvokeContract.InvokeContractResult
+invokeContract3 ::
+    Types.ContractAddress ->
+    HashedPersistentBlockState PV4 ->
+    Helpers.PersistentBSM PV4 InvokeContract.InvokeContractResult
 invokeContract3 ccContract bs = do
     let cm = Types.ChainMetadata 0
     let ccParameter = Parameter $ BSS.toShort $ runPut $ do
             putWord32le 0 -- instruction
-            put alesAccount
+            put (Helpers.accountAddressFromSeed 0)
             putWord64le 100 -- amount to transfer
     let ctx =
             InvokeContract.ContractContext
@@ -136,18 +146,30 @@ checkSuccess ::
     m ()
 checkSuccess msg expectBefore expectAfter icr = liftIO $
     case icr of
-        InvokeContract.Failure{..} -> assertFailure $ "Invocation failed ( " ++ show msg ++ "): " ++ show rcrReason
+        InvokeContract.Failure{..} ->
+            assertFailure $
+                "Invocation failed ( " ++ show msg ++ "): " ++ show rcrReason
         InvokeContract.Success{..} ->
             case rcrReturnValue of
                 Nothing -> assertFailure "Invoking a V1 contract must produce a return value."
                 Just rv ->
                     assertEqual
                         msg
-                        (BS.unpack (runPut $ (putWord64le . Types._amount $ expectBefore) <> (putWord64le . Types._amount $ expectAfter)))
+                        ( BS.unpack $
+                            runPut $
+                                (putWord64le . Types._amount $ expectBefore)
+                                    <> (putWord64le . Types._amount $ expectAfter)
+                        )
                         (BS.unpack rv)
 
 -- |Deploy the module that contains the @test@ contract to test nested self-transfers.
-deployModule2 :: PersistentBlockState PV4 -> ContextM ((InvokeHelpers.PersistentModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1), PersistentBlockState PV4)
+deployModule2 ::
+    PersistentBlockState PV4 ->
+    Helpers.PersistentBSM
+        PV4
+        ( (InvokeHelpers.PersistentModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1),
+          PersistentBlockState PV4
+        )
 deployModule2 = InvokeHelpers.deployModuleV1 nestedSelfBalanceSourceFile
 
 -- |Initialize the @test@ contract for testing nested self transfers.
@@ -160,12 +182,16 @@ initContract2 ::
     -- |And the module from which to initialize the contract.
     (InvokeHelpers.PersistentModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1) ->
     -- |The address of the created contract, and the new state.
-    ContextM (Types.ContractAddress, PersistentBlockState PV4)
-initContract2 = InvokeHelpers.initContractV1 alesAccount (InitName "init_test") emptyParameter
+    Helpers.PersistentBSM PV4 (Types.ContractAddress, PersistentBlockState PV4)
+initContract2 =
+    InvokeHelpers.initContractV1
+        (Helpers.accountAddressFromSeed 0)
+        (InitName "init_test")
+        emptyParameter
 
 runSelfBalanceTests :: Assertion
 runSelfBalanceTests = do
-    runBlobStoreTemp "." . withNewAccountCache 10_000 . runPersistentBlockStateMonad $ do
+    Helpers.runTestBlockState $ do
         initState <- thawBlockState =<< initialBlockState
         (mod1, bsWithMod) <- deployModule1 initState
         (addr1, stateWithContract1) <- initContract1 bsWithMod mod1
@@ -180,7 +206,7 @@ invokeNestedSelfBalanceTest ::
     -- |Address of the contract to invoke.
     Types.ContractAddress ->
     HashedPersistentBlockState PV4 ->
-    ContextM InvokeContract.InvokeContractResult
+    Helpers.PersistentBSM PV4 InvokeContract.InvokeContractResult
 invokeNestedSelfBalanceTest ccContract bs = do
     let cm = Types.ChainMetadata 0
     let innerEntrypointName = "accept"
@@ -238,7 +264,9 @@ checkNestedSelfBalanceTest ::
     m ()
 checkNestedSelfBalanceTest icr = liftIO $
     case icr of
-        InvokeContract.Failure{..} -> assertFailure $ "Invocation failed for nested self balance test: " ++ show rcrReason
+        InvokeContract.Failure{..} ->
+            assertFailure $
+                "Invocation failed for nested self balance test: " ++ show rcrReason
         InvokeContract.Success{..} ->
             case rcrReturnValue of
                 Nothing -> assertFailure "Invoking a V1 contract must produce a return value."
@@ -252,7 +280,7 @@ checkNestedSelfBalanceTest icr = liftIO $
 -- This tests that the balance is correctly reported in case of re-entrancy.
 runNestedSelfBalanceTests :: Assertion
 runNestedSelfBalanceTests = do
-    runBlobStoreTemp "." . withNewAccountCache 10_000 . runPersistentBlockStateMonad $ do
+    Helpers.runTestBlockState $ do
         initState <- thawBlockState =<< initialBlockState
         (mod1, bsWithMod) <- deployModule2 initState
         -- we will invoke the second contract with the address of the first.
