@@ -152,8 +152,8 @@ getBlockStates = do
         bs2 = PBS.hpbsPointers $ _bpState (bs ^. pairStateRight . Concordium.GlobalState.Persistent.TreeState.focusBlock)
     return (bs1, bs2)
 
--- | Create the thomasAccount with a dummy credential and the provided amount. Return the account index of the newly created account
--- and the updated block state.
+-- | Create the thomasAccount with a dummy credential and the provided amount. Return the account index of the newly
+-- created account and the updated block state. Note that this account is valid, it is not a baker nor a delegator.
 createAccountWith :: AmountDelta -> TheBlockStates -> ThisMonadConcrete (TheBlockStates, AccountIndex)
 createAccountWith a bs = do
     (_, bs') <-
@@ -273,9 +273,14 @@ testing2'1 = do
         getBlockStates
             >>= createAccountWith limitDelta
             >>= addBakerWith limit
-            >>= \bs -> case bs of
+            >>= \case
                 (BCSuccess _ _, a) -> modifyStakeTo (limit - 1) a
-                -- this does not happen
+                -- this does not happen, since
+                -- * the account is valid;
+                -- * the account is not a baker;
+                -- * the account is not a delegator;
+                -- * the account has sufficient balance to cover the stake,
+                -- @(BCSuccess [], _)@ is returned, see `bsoConfigureBaker`.
                 _ -> error "bs should be BCSuccess"
     case res of
         BCStakeUnderThreshold -> return ()
@@ -288,9 +293,14 @@ testing2'2 = do
         getBlockStates
             >>= createAccountWith (limitDelta + 100)
             >>= addBakerWith (limit + 100)
-            >>= \bs -> case bs of
+            >>= \case
                 (BCSuccess _ _, a) -> modifyStakeTo limit a
-                -- this does not happen
+                -- this does not happen, since
+                -- * the account is valid;
+                -- * the account is not a baker;
+                -- * the account is not a delegator;
+                -- * the account has sufficient balance to cover the stake,
+                -- @(BCSuccess [], _)@ is returned, see `bsoConfigureBaker`.
                 _ -> error "bs should be BCSuccess"
     case res of
         BCSuccess [BakerConfigureStakeReduced _] _ -> return ()
@@ -303,9 +313,14 @@ testing2'3 = do
         getBlockStates
             >>= createAccountWith (limitDelta + 100)
             >>= addBakerWith limit
-            >>= \bs -> case bs of
+            >>= \case
                 (BCSuccess _ _, a) -> modifyStakeTo (limit + 100) a
-                -- this does not happen
+                -- this does not happen, since
+                -- * the account is valid;
+                -- * the account is not a baker;
+                -- * the account is not a delegator;
+                -- * the account has sufficient balance to cover the stake,
+                -- @(BCSuccess [], _)@ is returned, see `bsoConfigureBaker`.
                 _ -> error "bs should be BCSuccess"
     case res of
         BCSuccess [BakerConfigureStakeIncreased _] _ -> return ()
@@ -319,9 +334,14 @@ testing3'1 = do
         getBlockStates
             >>= createAccountWith limitDelta
             >>= addBakerWith limit
-            >>= ( \bs -> case bs of
+            >>= ( \case
                     (BCSuccess _ _, a) -> increaseLimit (limit * 2) a
-                    -- this does not happen
+                    -- this does not happen, since
+                    -- * the account is valid;
+                    -- * the account is not a baker;
+                    -- * the account is not a delegator;
+                    -- * the account has sufficient balance to cover the stake,
+                    -- @(BCSuccess [], _)@ is returned, see `bsoConfigureBaker`.
                     _ -> error "bs should be BCSuccess"
                 )
             >>= modifyStakeTo (limit - 1)
@@ -338,9 +358,14 @@ testing3'2 = do
         getBlockStates
             >>= createAccountWith limitDelta
             >>= addBakerWith limit
-            >>= ( \bs -> case bs of
+            >>= ( \case
                     (BCSuccess _ _, a) -> increaseLimit (limit * 2) a
-                    -- this does not happen
+                    -- this does not happen, since
+                    -- * the account is valid;
+                    -- * the account is not a baker;
+                    -- * the account is not a delegator;
+                    -- * the account has sufficient balance to cover the stake,
+                    -- @(BCSuccess [], _)@ is returned, see `bsoConfigureBaker`.
                     _ -> error "bs should be BCSuccess"
                 )
             >>= modifyStakeTo (limit + 1)
@@ -356,9 +381,14 @@ testing3'3 = do
         getBlockStates
             >>= createAccountWith limitDelta
             >>= addBakerWith limit
-            >>= ( \bs -> case bs of
+            >>= ( \case
                     (BCSuccess _ _, a) -> increaseLimit (limit * 2) a
-                    -- this does not happen
+                    -- this does not happen, since
+                    -- * the account is valid;
+                    -- * the account is not a baker;
+                    -- * the account is not a delegator;
+                    -- * the account has sufficient balance to cover the stake,
+                    -- @(BCSuccess [], _)@ is returned, see `bsoConfigureBaker`.
                     _ -> error "bs should be BCSuccess"
                 )
             >>= modifyStakeTo (limit * 2 + 1)

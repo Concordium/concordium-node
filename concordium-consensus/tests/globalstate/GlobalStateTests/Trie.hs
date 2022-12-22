@@ -59,7 +59,9 @@ tests = describe "GlobalStateTests.Trie" $ do
             let loadRes = runGet load (runPut p)
             let me2' = case loadRes of
                     Right me2 -> me2
-                    -- This does not happen
+                    -- This does not happen since we are
+                    -- able to deserialize the Trie from
+                    -- the bytestring it was serialized to.
                     Left _ -> error "loadRes should be Right"
             (e2' :: Trie.TrieN BufferedFix Word64 (SerializeStorable String)) <- me2'
             r <- Trie.lookup 27 e2'

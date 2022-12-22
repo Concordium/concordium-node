@@ -290,6 +290,7 @@ invariantSkovData TS.SkovData{..} = addContext $ do
     addContext (Left err) = Left $ "Blocks: " ++ show _blockTable ++ "\n\n" ++ err
     addContext r = r
 
+-- Test Skov finalization. Assumes that `_finalizationList sd` is not empty.
 invariantSkovFinalization :: SkovState (Config t) -> FullBakerInfo -> FinalizationCommitteeSize -> Either String ()
 invariantSkovFinalization (SkovState sd@TS.SkovData{..} FinalizationState{..} _) baker maxFinComSize = do
     let finParams = finalizationParameters maxFinComSize
@@ -297,7 +298,7 @@ invariantSkovFinalization (SkovState sd@TS.SkovData{..} FinalizationState{..} _)
     let (flHead, lfr, lfb) =
             case _finalizationList of
                 (flHead' Seq.:|> (lfr', lfb')) -> (flHead', lfr', lfb')
-                -- This does not happen
+                -- This does not happen due to the precondition.
                 _ -> error "_finalizationList should not be empty"
     checkBinary (==) _finsIndex (succ $ finalizationIndex lfr) "==" "current finalization index" "successor of last finalized index"
     let nextGap = case flHead of

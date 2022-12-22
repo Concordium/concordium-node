@@ -168,7 +168,7 @@ bake bid n = do
     mb <- bakeForSlot bid n
     maybe
         (fail $ "Could not bake for slot " ++ show n)
-        ( \bs -> case bs of
+        ( \case
             BS.BlockPointer{_bpBlock = NormalBlock block} -> return block
             -- This does not happen
             _ -> error "bs should be BlockPointer"
