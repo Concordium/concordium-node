@@ -35,12 +35,12 @@ import qualified Concordium.Scheduler.Types as Types
 import Concordium.Types.DummyData
 import Concordium.Wasm (WasmVersion (..))
 import qualified Data.ByteString.Short as BSS
+import Data.Either (fromRight)
 import Data.Serialize as S
 import Data.Text (Text)
 import qualified Data.Text as Text
 import SchedulerTests.TestUtils
 import Test.Hspec
-import Data.Either (fromRight)
 
 -- ** Test runners **
 
@@ -318,9 +318,10 @@ simpleTransferTestCases =
     contractAddr = Types.AddressContract $ ContractAddress 0 0
     -- When using pointing to 32 0s in memory, this is the address that is used.
     -- This is safe, since addressFromText was passed a valid address string.
-    accRef = fromRight
-                 (error "addressFromText did not return an account reference")
-                 $ addressFromText "2wkBET2rRgE8pahuaczxKbmv7ciehqsne57F9gtzf1PVdr2VP3"
+    accRef =
+        fromRight
+            (error "addressFromText did not return an account reference")
+            $ addressFromText "2wkBET2rRgE8pahuaczxKbmv7ciehqsne57F9gtzf1PVdr2VP3"
 
 sendTestCases :: [TestCase PV1]
 sendTestCases =

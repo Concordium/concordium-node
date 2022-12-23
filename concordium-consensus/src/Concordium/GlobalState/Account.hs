@@ -502,10 +502,13 @@ data StakeDetails (av :: AccountVersion) where
         { sdStakedCapital :: !Amount,
           sdRestakeEarnings :: !Bool,
           sdPendingChange :: !(StakePendingChange av)
-        } -> StakeDetails av
-    StakeDetailsDelegator :: (AVSupportsDelegation av) =>
+        } ->
+        StakeDetails av
+    StakeDetailsDelegator ::
+        (AVSupportsDelegation av) =>
         { sdStakedCapital :: !Amount,
           sdRestakeEarnings :: !Bool,
           sdPendingChange :: !(StakePendingChange av),
           sdDelegationTarget :: !DelegationTarget
-        } -> StakeDetails av
+        } ->
+        StakeDetails av
