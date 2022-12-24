@@ -40,6 +40,7 @@ import Control.Monad.Reader
 import Control.Monad.State
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
+import Data.Kind (Type)
 import Data.List (partition)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
@@ -193,7 +194,7 @@ emptyBlockTable = BlockTable emptyDeadCache HM.empty
 -- The first type parameter, @pv@, is the protocol version.
 -- The second type parameter, @ati@, is a type determining the account transaction index to use.
 -- The third type parameter, @bs@, is the type of block states.
-data SkovPersistentData (pv :: ProtocolVersion) bs = SkovPersistentData
+data SkovPersistentData (pv :: ProtocolVersion) (bs :: Type) = SkovPersistentData
     { -- |Map of all received blocks by hash.
       _blockTable :: !(BlockTable pv bs),
       -- |Map of (possibly) pending blocks by hash
@@ -494,7 +495,7 @@ closeSkovPersistentData = closeDatabase . _db
 --
 -- This newtype establishes types for the @GlobalStateTypes@. The type variable @bs@ stands for the BlockState
 -- type used in the implementation.
-newtype PersistentTreeStateMonad bs m a = PersistentTreeStateMonad {runPersistentTreeStateMonad :: m a}
+newtype PersistentTreeStateMonad (bs :: Type) (m :: Type -> Type) (a :: Type) = PersistentTreeStateMonad {runPersistentTreeStateMonad :: m a}
     deriving
         ( Functor,
           Applicative,

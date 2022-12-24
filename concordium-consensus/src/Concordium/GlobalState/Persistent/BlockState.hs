@@ -96,6 +96,7 @@ import Control.Monad.Reader
 import qualified Control.Monad.State.Strict as MTL
 import qualified Control.Monad.Writer.Strict as MTL
 import Data.IORef
+import Data.Kind (Type)
 import qualified Data.Map.Strict as Map
 import Data.Maybe
 import Data.Proxy
@@ -3258,7 +3259,7 @@ withNewAccountCache size bsm = do
     mc <- liftIO $ Modules.newModuleCache 100
     alterBlobStoreT (\bs -> PersistentBlockStateContext bs ac mc) bsm
 
-newtype PersistentBlockStateMonad (pv :: ProtocolVersion) r m a = PersistentBlockStateMonad {runPersistentBlockStateMonad :: m a}
+newtype PersistentBlockStateMonad (pv :: ProtocolVersion) (r :: Type) (m :: Type -> Type) (a :: Type) = PersistentBlockStateMonad {runPersistentBlockStateMonad :: m a}
     deriving (Functor, Applicative, Monad, MonadIO, MonadReader r, MonadLogger)
 
 type PersistentState av pv r m =
