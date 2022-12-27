@@ -12,9 +12,9 @@ use crate::{
         NetworkResponse, PacketDestination,
     },
 };
-use anyhow::{bail, Error};
+use anyhow::{bail, Context, Error};
 use concordium_base::hashes::BlockHash;
-use flatbuffers::{FlatBufferBuilder, Table};
+use flatbuffers::FlatBufferBuilder;
 use semver::Version;
 use std::{
     convert::TryFrom,
@@ -144,7 +144,7 @@ fn deserialize_request(root: &network::NetworkMessage) -> anyhow::Result<Network
         network::RequestVariant::Ping => Ok(NetworkPayload::NetworkRequest(NetworkRequest::Ping)),
         network::RequestVariant::GetPeers => {
             if let Some(network_ids) =
-                request.payload().map(root.payload_as_network_ids).and_then(|payload| payload.ids())
+                request.payload_as_network_ids().and_then(|payload| payload.ids())
             {
                 let network_ids = network_ids.iter().map(NetworkId::from).collect();
                 Ok(NetworkPayload::NetworkRequest(NetworkRequest::GetPeers(network_ids)))
@@ -153,7 +153,7 @@ fn deserialize_request(root: &network::NetworkMessage) -> anyhow::Result<Network
             }
         }
         network::RequestVariant::Handshake => {
-            if let Some(handshake) = request.payload().map(root.payload_as_handshake) {
+            if let Some(handshake) = request.payload_as_handshake() {
                 if handshake.version() != HANDSHAKE_MESSAGE_VERSION {
                     warn!(
                         "Received handshake version ({}) is higher than our version ({}). \
@@ -213,9 +213,7 @@ fn deserialize_request(root: &network::NetworkMessage) -> anyhow::Result<Network
             }
         }
         network::RequestVariant::JoinNetwork | network::RequestVariant::LeaveNetwork => {
-            if let Some(id) =
-                request.payload().map(root.payload_as_network_id).map(|id| NetworkId::from(id.id()))
-            {
+            if let Some(id) = request.payload_as_network_id().map(|id| NetworkId::from(id.id())) {
                 Ok(NetworkPayload::NetworkRequest(match request.variant() {
                     network::RequestVariant::JoinNetwork => NetworkRequest::JoinNetwork(id),
                     network::RequestVariant::LeaveNetwork => NetworkRequest::LeaveNetwork(id),
