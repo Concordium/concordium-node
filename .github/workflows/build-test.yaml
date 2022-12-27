@@ -134,7 +134,7 @@ jobs:
       run: |
         sudo apt-get update && sudo apt-get -y install liblmdb-dev gcc-mingw-w64-x86-64 binutils-mingw-w64-x86-64
         wget https://github.com/google/flatbuffers/archive/refs/tags/v22.12.06.zip
-        unzip flatbuffers-22.12.06.zip
+        unzip v22.12.06.zip
         cd flatbuffers-22.12.06
         cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release
         make
