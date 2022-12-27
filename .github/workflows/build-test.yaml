@@ -136,6 +136,7 @@ jobs:
         wget https://github.com/google/flatbuffers/releases/download/v22.12.06/Linux.flatc.binary.g++-10.zip
         unzip Linux.flatc.binary.g++-10.zip
         sudo mv ./flatc /usr/bin/flatc
+        flatc --version
         wget https://github.com/protocolbuffers/protobuf/releases/download/v3.15.3/protoc-3.15.3-linux-x86_64.zip
         unzip protoc-3.15.3-linux-x86_64.zip
         sudo mv ./bin/protoc /usr/bin/protoc
