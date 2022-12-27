@@ -133,9 +133,13 @@ jobs:
     - name: Install system packages and protoc
       run: |
         sudo apt-get update && sudo apt-get -y install liblmdb-dev gcc-mingw-w64-x86-64 binutils-mingw-w64-x86-64
-        wget https://github.com/google/flatbuffers/releases/download/v22.12.06/Linux.flatc.binary.clang++-12.zip
-        unzip Linux.flatc.binary.clang++-12.zip
-        sudo mv ./flatc /usr/bin/flatc
+        wget https://github.com/google/flatbuffers/archive/refs/tags/v22.12.06.zip
+        unzip flatbuffers-22.12.06.zip
+        cd flatbuffers-22.12.06
+        cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release
+        make
+        sudo make install
+        cd ..
         flatc --version
         wget https://github.com/protocolbuffers/protobuf/releases/download/v3.15.3/protoc-3.15.3-linux-x86_64.zip
         unzip protoc-3.15.3-linux-x86_64.zip
