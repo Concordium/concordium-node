@@ -23,34 +23,6 @@ use std::{
     panic,
 };
 
-// FIXME: "Safe" wrappers for `init_from_table` functions. These
-// are here due to changes in the API of generated code,
-// which now marks code as unsafe.
-
-fn handshake_init_from_table(table: Table) -> network::Handshake {
-    unsafe { network::Handshake::init_from_table(table) }
-}
-
-fn network_ids_init_from_table(table: Table) -> network::NetworkIds {
-    unsafe { network::NetworkIds::init_from_table(table) }
-}
-
-fn network_id_init_from_table(table: Table) -> network::NetworkId {
-    unsafe { network::NetworkId::init_from_table(table) }
-}
-
-fn network_response_init_from_table(table: Table) -> network::NetworkResponse {
-    unsafe { network::NetworkResponse::init_from_table(table) }
-}
-
-fn network_packet_init_from_table(table: Table) -> network::NetworkPacket {
-    unsafe { network::NetworkPacket::init_from_table(table) }
-}
-
-fn network_request_init_from_table(table: Table) -> network::NetworkRequest {
-    unsafe { network::NetworkRequest::init_from_table(table) }
-}
-
 /// The HANDSHAKE message version. In order to make the handshake robust, we
 /// need to version the message itself. Higher versions are assumed to append
 /// new fields at the end of the message so it should be still deserializable
@@ -132,11 +104,9 @@ fn _deserialize(buffer: &[u8]) -> anyhow::Result<NetworkMessage> {
 }
 
 fn deserialize_packet(root: &network::NetworkMessage) -> anyhow::Result<NetworkPayload> {
-    let packet = if let Some(payload) = root.payload() {
-        network_packet_init_from_table(payload)
-    } else {
-        bail!("missing network message payload (expected a packet)")
-    };
+    let packet = root
+        .payload_as_network_packet()
+        .context("missing network message payload (expected a packet)")?;
 
     let destination = if let Some(destination) = packet.destination() {
         match destination.variant() {
@@ -166,17 +136,15 @@ fn deserialize_packet(root: &network::NetworkMessage) -> anyhow::Result<NetworkP
 }
 
 fn deserialize_request(root: &network::NetworkMessage) -> anyhow::Result<NetworkPayload> {
-    let request = if let Some(payload) = root.payload() {
-        network_request_init_from_table(payload)
-    } else {
-        bail!("missing network message payload (expected a request)")
-    };
+    let request = root
+        .payload_as_network_request()
+        .context("missing network message payload (expected a request)")?;
 
     match request.variant() {
         network::RequestVariant::Ping => Ok(NetworkPayload::NetworkRequest(NetworkRequest::Ping)),
         network::RequestVariant::GetPeers => {
             if let Some(network_ids) =
-                request.payload().map(network_ids_init_from_table).and_then(|payload| payload.ids())
+                request.payload().map(root.payload_as_network_ids).and_then(|payload| payload.ids())
             {
                 let network_ids = network_ids.iter().map(NetworkId::from).collect();
                 Ok(NetworkPayload::NetworkRequest(NetworkRequest::GetPeers(network_ids)))
@@ -185,7 +153,7 @@ fn deserialize_request(root: &network::NetworkMessage) -> anyhow::Result<Network
             }
         }
         network::RequestVariant::Handshake => {
-            if let Some(handshake) = request.payload().map(handshake_init_from_table) {
+            if let Some(handshake) = request.payload().map(root.payload_as_handshake) {
                 if handshake.version() != HANDSHAKE_MESSAGE_VERSION {
                     warn!(
                         "Received handshake version ({}) is higher than our version ({}). \
@@ -246,7 +214,7 @@ fn deserialize_request(root: &network::NetworkMessage) -> anyhow::Result<Network
         }
         network::RequestVariant::JoinNetwork | network::RequestVariant::LeaveNetwork => {
             if let Some(id) =
-                request.payload().map(network_id_init_from_table).map(|id| NetworkId::from(id.id()))
+                request.payload().map(root.payload_as_network_id).map(|id| NetworkId::from(id.id()))
             {
                 Ok(NetworkPayload::NetworkRequest(match request.variant() {
                     network::RequestVariant::JoinNetwork => NetworkRequest::JoinNetwork(id),
@@ -262,11 +230,9 @@ fn deserialize_request(root: &network::NetworkMessage) -> anyhow::Result<Network
 }
 
 fn deserialize_response(root: &network::NetworkMessage) -> anyhow::Result<NetworkPayload> {
-    let response = if let Some(payload) = root.payload() {
-        network_response_init_from_table(payload)
-    } else {
-        bail!("missing network message payload (expected a request)")
-    };
+    let response = root
+        .payload_as_network_response()
+        .context("missing network message payload (expected a response)")?;
 
     match response.variant() {
         network::ResponseVariant::Pong => {

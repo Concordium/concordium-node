@@ -150,9 +150,9 @@ addIncomingEncryptedAmount newAmount old =
                           _startIndex = _startIndex old + 1,
                           _aggregatedAmount = Just (e <> x, n + 1)
                         }
-                -- this does not happen, since if _aggregatedAmount is @Just@, then the length of
-                -- `incomingEncryptedAmounts` is 31 or 32, see @AccountEncryptedAmount@.
-                Seq.Empty -> error "_incomingEncryptedAmounts should should consist of one or more elements"
+                -- this does not happen, since if _aggregatedAmount is @Just@, then
+                -- the length of `incomingEncryptedAmounts` is `maxNumIncoming - 1`.
+                Seq.Empty -> error "_incomingEncryptedAmounts should not be empty since there is an aggregated incoming amount."
 
 -- | Drop the encrypted amount with indices up to (but not including) the given one, and add the new amount at the end.
 -- This is used when an account is transfering from from an encrypted balance, and the newly added

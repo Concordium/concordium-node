@@ -202,7 +202,7 @@ addIncomingEncryptedAmount !newAmount old = do
                     _ -> error "_incomingEncryptedAmounts should have two or more elements."
                 else return $ old{_incomingEncryptedAmounts = _incomingEncryptedAmounts old Seq.|> newAmountRef}
         Just (e, n) -> do
-            -- we have to aggregate always=
+            -- we have to aggregate always
             case _incomingEncryptedAmounts old of
                 (x Seq.:<| rest) -> do
                     xVal <- refLoad x
@@ -214,8 +214,8 @@ addIncomingEncryptedAmount !newAmount old = do
                               _aggregatedAmount = Just $!! (xPlusY, n + 1),
                               _startIndex = _startIndex old + 1
                             }
-                -- this does not happen, since if _aggregatedAmount is @Just@, then the length of
-                -- `incomingEncryptedAmounts` is 31 or 32, see @AccountEncryptedAmount@.
+                -- this does not happen, since if _aggregatedAmount is @Just@, then
+                -- the length of `incomingEncryptedAmounts` is `maxNumIncoming - 1`.
                 Seq.Empty -> error "_incomingEncryptedAmounts should have one or more elements."
 
 -- | Drop the encrypted amount with indices up to (but not including) the given one, and add the new amount at the end.
