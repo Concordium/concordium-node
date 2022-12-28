@@ -78,9 +78,6 @@ pipeline {
         }
         stage('Build static-node-binaries') {
             environment {
-                // FIXME: Use this for now, since it is not latest; change it back later.
-                STATIC_LIBRARIES_IMAGE_TAG = "rust-1.62.1_ghc-9.2.5"
-                // STATIC_LIBRARIES_IMAGE_TAG = "latest"
                 EXTRA_FEATURES = "collector"
             }
             steps {
