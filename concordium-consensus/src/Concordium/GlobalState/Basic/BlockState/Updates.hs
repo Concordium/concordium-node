@@ -154,7 +154,7 @@ processUpdateQueues t (theUpdates, ars, ips) =
     )
   where
     Updates{_pendingUpdates = PendingUpdates{..}, _currentParameters = ChainParameters{_cpRewardParameters = RewardParameters{..}, _cpConsensusParameters  = consensusParams, ..}, ..} = theUpdates
-    
+
 
     (newRootKeys, newRootKeysQueue, resRootKeys) = processValueUpdates t (rootKeys $ _unhashed _currentKeyCollection) _pRootKeysUpdateQueue
     (newLevel1Keys, newLevel1KeysQueue, resLevel1Keys) = processValueUpdates t (level1Keys $ _unhashed _currentKeyCollection) _pLevel1KeysUpdateQueue
@@ -170,44 +170,45 @@ processUpdateQueues t (theUpdates, ars, ips) =
     (updatedARs, newAddAnonymityRevokerQueue, resAddAnonymityRevoker) = processARsAndIPsUpdates (ARS.arRevokers ars) ARS.arIdentity t _pAddAnonymityRevokerQueue
     (updatedIPs, newAddIdentityProviderQueue, resAddIdentityProvider) = processARsAndIPsUpdates (IPS.idProviders ips) IPS.ipIdentity t _pAddIdentityProviderQueue
     (newTimeParameters, newTimeParametersQueue, resTimeParameters) =
-        if isSupported PTTimeParameters $ demoteChainParameterVersion (chainParametersVersion @cpv)
-        then
-            let (newTP, newTPQueue, resTP) = processValueUpdatesO t (unOParam _cpTimeParameters) _pTimeParametersQueue & _3 %~ fmap UVTimeParameters
-            in (SomeParam newTP, newTPQueue, resTP)
-        else (_cpTimeParameters, NoParam, Map.empty)
+        case chainParametersVersion @cpv of
+            SChainParametersV0 -> (_cpTimeParameters, NoParam, Map.empty)
+            SChainParametersV1 -> processValueUpdatesO t (unOParam _cpTimeParameters) _pTimeParametersQueue & _3 %~ fmap UVTimeParameters & _1 %~ SomeParam
+            SChainParametersV2 -> processValueUpdatesO t (unOParam _cpTimeParameters) _pTimeParametersQueue & _3 %~ fmap UVTimeParameters & _1 %~ SomeParam
+
     (newCooldownParameters, newCooldownParametersQueue, resCooldownParameters) =
-        if isSupported PTCooldownParametersAccessStructure $ demoteChainParameterVersion (chainParametersVersion @cpv)
-        then processValueUpdatesO t _cpCooldownParameters _pCooldownParametersQueue & _3 %~ fmap UVCooldownParameters
-        else (_cpCooldownParameters, NoParam, Map.empty)
+        case chainParametersVersion @cpv of
+            SChainParametersV0 -> (_cpCooldownParameters, NoParam, Map.empty)
+            SChainParametersV1 -> processValueUpdatesO t _cpCooldownParameters _pCooldownParametersQueue & _3 %~ fmap UVCooldownParameters
+            SChainParametersV2 -> processValueUpdatesO t _cpCooldownParameters _pCooldownParametersQueue & _3 %~ fmap UVCooldownParameters
     (newConsensusParameters, newElectionDifficultyQueue, newTimeoutParametersQueue, newMinBlockTimeQueue, newBlockEnergyLimitQueue, resElectionDifficulty, resTimeoutParameters, resMinBlockTime, resBlockEnergyLimit) =
-        case sConsensusParametersVersionFor (chainParametersVersion @cpv) of
-            SConsensusParametersVersion0 ->
+        case chainParametersVersion @cpv of
+            SChainParametersV0 ->
                 let electionDifficulty = _cpElectionDifficulty consensusParams
-                    (newElectionDifficulty, newEDQueue, resElectionDifficulty) =
-                        case chainParametersVersion @cpv of
-                            SChainParametersV0 -> processValueUpdatesO t electionDifficulty _pElectionDifficultyQueue
-                            SChainParametersV1 -> processValueUpdatesO t electionDifficulty _pElectionDifficultyQueue
-                            SChainParametersV2 -> error "shit"
-                in (ConsensusParametersV0 newElectionDifficulty, newEDQueue, NoParam, NoParam, NoParam, resElectionDifficulty, NoParam, NoParam, NoParam)
-            SConsensusParametersVersion1 ->
-                let (newTimeoutParameters, newTOQueue, resTimeoutParameters) = processValueUpdatesO t _cpTimeoutParameters _pTimeoutParametersQueue
-                    (newMinBlockTime, newMBTQueue, resMinBlockTime) = processValueUpdatesO t _cpMinBlockTime _pMinBlockTimeQueue
-                    (newBlockEnergyLimit, newBELQueue, resBlockEnergyLimit) = processValueUpdatesO t _cpBlockEnergyLimit _pBlockEnergyLimitQueue
+                    (newElectionDifficulty, newEDQueue, resElectionDifficulty') = processValueUpdatesO t electionDifficulty _pElectionDifficultyQueue & _3 %~ fmap UVElectionDifficulty
+                in (ConsensusParametersV0 newElectionDifficulty, newEDQueue, NoParam, NoParam, NoParam, resElectionDifficulty', Map.empty, Map.empty, Map.empty)
+            SChainParametersV1 ->
+                let electionDifficulty = _cpElectionDifficulty consensusParams
+                    (newElectionDifficulty, newEDQueue, resElectionDifficulty') = processValueUpdatesO t electionDifficulty _pElectionDifficultyQueue & _3 %~ fmap UVElectionDifficulty
+                in (ConsensusParametersV0 newElectionDifficulty, newEDQueue, NoParam, NoParam, NoParam, resElectionDifficulty', Map.empty, Map.empty, Map.empty)
+            SChainParametersV2 ->
+                let (newTimeoutParameters, newTOQueue, resTimeoutParameters') = processValueUpdatesO t (_cpTimeoutParameters consensusParams) _pTimeoutParametersQueue & _3 %~ fmap UVTimeoutParameters
+                    (newMinBlockTime, newMBTQueue, resMinBlockTime') = processValueUpdatesO t (_cpMinBlockTime consensusParams) _pMinBlockTimeQueue  & _3 %~ fmap UVMinBlockTime
+                    (newBlockEnergyLimit, newBELQueue, resBlockEnergyLimit') = processValueUpdatesO t (_cpBlockEnergyLimit consensusParams) _pBlockEnergyLimitQueue  & _3 %~ fmap UVBlockEnergyLimit
                 in (ConsensusParametersV1 newTimeoutParameters newMinBlockTime newBlockEnergyLimit,
                     NoParam,
                     newTOQueue,
                     newMBTQueue,
                     newBELQueue,
-                    NoParam,
-                    resTimeoutParameters,
-                    resMinBlockTime,
-                    resBlockEnergyLimit)
+                    Map.empty,
+                    resTimeoutParameters',
+                    resMinBlockTime',
+                    resBlockEnergyLimit')
     res =
         (UVRootKeys <$> resRootKeys)
             <> (UVLevel1Keys <$> resLevel1Keys)
             <> (UVLevel2Keys <$> resLevel2Keys)
             <> (UVProtocol <$> resProtocol)
-            <> (UVElectionDifficulty <$> resElectionDifficulty)
+            <> resElectionDifficulty
             <> (UVEuroPerEnergy <$> resEuroPerEnergy)
             <> (UVMicroGTUPerEuro <$> resMicroGTUPerEuro)
             <> (UVFoundationAccount <$> resFoundationAccount)
@@ -219,9 +220,9 @@ processUpdateQueues t (theUpdates, ars, ips) =
             <> (UVAddIdentityProvider <$> resAddIdentityProvider)
             <> resCooldownParameters
             <> resTimeParameters
-            <> (UVTimeoutParameters <$> resTimeoutParameters)
-            <> (UVMinBlockTime <$> resMinBlockTime)
-            <> (UVBlockEnergyLimit <$> resBlockEnergyLimit)
+            <> resTimeoutParameters
+            <> resMinBlockTime
+            <> resBlockEnergyLimit
 
 -- |Determine the future election difficulty (at a given time) based
 -- on a current 'Updates'.

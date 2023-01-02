@@ -162,7 +162,7 @@ data UpdateValue (cpv :: ChainParametersVersion) where
     -- |Updates to the transaction fee distribution.
     UVTransactionFeeDistribution :: forall cpv. !TransactionFeeDistribution -> UpdateValue cpv
     -- |Updates to the GAS rewards.
-    UVGASRewards :: forall cpv. !GASRewards -> UpdateValue cpv
+    UVGASRewards :: forall cpv. !(GASRewards cpv) -> UpdateValue cpv
     -- |Updates to the pool parameters.
     UVPoolParameters :: forall cpv. !(PoolParameters cpv) -> UpdateValue cpv
     -- |Adds a new anonymity revoker
@@ -178,7 +178,7 @@ data UpdateValue (cpv :: ChainParametersVersion) where
     -- |Updates to cooldown parameters for chain parameter version 1.
     UVCooldownParameters :: IsSupported 'PTCooldownParametersAccessStructure cpv ~ 'True => !(CooldownParameters cpv) -> UpdateValue cpv
     -- |Updates to time parameters for chain parameters version 1.
-    UVTimeParameters :: !(TimeParameters 'ChainParametersV1) -> UpdateValue 'ChainParametersV1
+    UVTimeParameters :: IsSupported 'PTTimeParameters cpv ~ 'True => !(TimeParameters cpv) -> UpdateValue cpv
     -- |Updates to timeout parameters for chain parameters version 2.
     UVTimeoutParameters :: IsSupported 'PTTimeoutParameters cpv ~ 'True => !TimeoutParameters -> UpdateValue cpv
     -- |Updates to minimum block time for chain parameters version 2.
