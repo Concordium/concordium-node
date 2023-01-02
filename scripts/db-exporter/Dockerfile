@@ -2,7 +2,7 @@ ARG ubuntu_version
 ARG ghc_version
 ARG static_libraries_image_tag
 # Build static libraries
-FROM concordium/static-libraries:static_libraries_image_tag as static-builder
+FROM concordium/static-libraries:${static_libraries_image_tag} as static-builder
 COPY . /build
 WORKDIR /build
 RUN GHC_VERSION="${ghc_version}" \
