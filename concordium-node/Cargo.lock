@@ -501,7 +501,7 @@ dependencies = [
 
 [[package]]
 name = "concordium-contracts-common"
-version = "4.1.0"
+version = "5.1.0"
 dependencies = [
  "bs58",
  "chrono",
@@ -564,7 +564,7 @@ dependencies = [
 
 [[package]]
 name = "concordium_node"
-version = "5.1.2"
+version = "5.1.3"
 dependencies = [
  "anyhow",
  "app_dirs2",

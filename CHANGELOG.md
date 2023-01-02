@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased changes
+
+## 5.1.3
+
 - Fix a bug in the `GetAccountInfo` endpoint in GRPCv2 where the `ar_data` field
   always would be empty.
 
