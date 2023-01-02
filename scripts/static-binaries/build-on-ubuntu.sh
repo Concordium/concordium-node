@@ -50,8 +50,6 @@ rustup default "$rust_toolchain_version"
 
 # Install flatbuffers.
 
-# Must be kept in sync with 'base-images/base.Dockerfile'.
-# See 'https://gitlab.com/Concordium/devops/-/commit/f41ac413c3583ec53d06a2c0fe5c8795e35f1a46'.
 git clone https://github.com/google/flatbuffers.git
 ( cd flatbuffers && git checkout "$flatbuffers_version" && cmake -G "Unix Makefiles" && make -j"$(nproc)" && make install )
 

@@ -783,10 +783,10 @@ makePersistent mods (Transient.Instances (Transient.Tree s t)) = InstancesTree s
                           pinstanceParameterHash = getHash params,
                           pinstanceReceiveFuns = instanceReceiveFuns
                         }
-            -- This pattern always matches the first case, since if the instance
-            -- exists in the Basic version, then the module must be present in the
-            -- persistent implementation. Moreover, it will be of the same module
-            -- version (i.e. V0).
+            -- Using `fromJust`here is safe, since if the instance exists in the
+            -- Basic version, then the module must be present in the persistent
+            -- implementation. Moreover, it will be of the same module version
+            -- (i.e. V0).
             pIModuleInterface <- fromJust <$> Modules.getModuleReference (GSWasm.miModuleRef instanceModuleInterface) mods
             return $
                 PersistentInstanceV0
@@ -816,10 +816,10 @@ makePersistent mods (Transient.Instances (Transient.Tree s t)) = InstancesTree s
                           pinstanceParameterHash = getHash params,
                           pinstanceReceiveFuns = instanceReceiveFuns
                         }
-            -- This pattern always matches the first case, since if the instance
-            -- exists in the Basic version, then the module must be present in the
-            -- persistent implementation. Moreover, it will be of the same module
-            -- version (i.e. V1).
+            -- Using `fromJust`here is safe, since if the instance exists in the
+            -- Basic version, then the module must be present in the persistent
+            -- implementation. Moreover, it will be of the same module version
+            -- (i.e. V0).
             pIModuleInterface <- fromJust <$> Modules.getModuleReference (GSWasm.miModuleRef instanceModuleInterface) mods
             return $
                 PersistentInstanceV1

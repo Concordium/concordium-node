@@ -21,6 +21,8 @@
 --
 -- but throws an error complaining it is missing once removed. The following is added
 -- to squelch it. Comment it out to reproduce.
+--
+-- An issue for this exists at https://gitlab.haskell.org/ghc/ghc/-/issues/22151
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
 -- |

@@ -233,8 +233,8 @@ bake bid n = do
         (fail $ "Could not bake for slot " ++ show n)
         ( \case
             BS.BlockPointer{_bpBlock = NormalBlock block} -> return block
-            -- This should not happen
-            _ -> fail "bs should be BlockPointer"
+            -- This does not happen, since baking always produces a non-genesis block
+            _ -> fail "baking always produces a normal (non-genesis) block"
         )
         mb
 
