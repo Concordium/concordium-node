@@ -46,6 +46,7 @@ import Control.Monad.Reader.Class
 import Control.Monad.State.Class
 import Control.Monad.State.Strict (runState)
 import Data.Bits
+import Data.Kind (Type)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe
@@ -1133,7 +1134,7 @@ nextFinalizationRecord parentBlock = do
 
 -- |'ActiveFinalizationM' provides an implementation of 'FinalizationMonad' that
 -- actively participates in finalization.
-newtype ActiveFinalizationM (pv :: ProtocolVersion) r s m a = ActiveFinalizationM {runActiveFinalizationM :: m a}
+newtype ActiveFinalizationM (pv :: ProtocolVersion) (r :: Type) (s :: Type) (m :: Type -> Type) (a :: Type) = ActiveFinalizationM {runActiveFinalizationM :: m a}
     deriving
         ( Functor,
           Applicative,

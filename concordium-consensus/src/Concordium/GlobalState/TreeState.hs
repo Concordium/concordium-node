@@ -15,6 +15,7 @@ module Concordium.GlobalState.TreeState (
 import Control.Monad.Reader
 import Control.Monad.Trans.Except
 import Control.Monad.Trans.Maybe
+import Data.Kind (Type)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (isJust)
 import qualified Data.Sequence as Seq
@@ -574,7 +575,7 @@ makeLenses ''Context
 -- |Helper type for defining 'TransactionVerifierT'. While we only instantiate @r@ with
 -- @Context (BlockState m)@, it is simpler to derive the 'MonadTrans' instance using the present
 -- definition.
-newtype TransactionVerifierT' r m a = TransactionVerifierT {runTransactionVerifierT :: r -> m a}
+newtype TransactionVerifierT' (r :: Type) (m :: Type -> Type) (a :: Type) = TransactionVerifierT {runTransactionVerifierT :: r -> m a}
     deriving (Functor, Applicative, Monad, MonadReader r) via (ReaderT r m)
     deriving (MonadTrans) via (ReaderT r)
 

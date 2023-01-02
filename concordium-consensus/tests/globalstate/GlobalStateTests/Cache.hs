@@ -8,11 +8,12 @@ module GlobalStateTests.Cache where
 import Concordium.GlobalState.Persistent.BlobStore (BlobRef (BlobRef))
 import Concordium.GlobalState.Persistent.Cache
 import Control.Monad.Reader
+import Data.Kind (Type)
 import Data.Proxy
 import Test.Hspec
 
 -- |A reader monad transformer that is used to provide a 'MonadCache' instance.
-newtype CacheM c m a = CacheM {runCacheM :: c -> m a}
+newtype CacheM (c :: Type) (m :: Type -> Type) (a :: Type) = CacheM {runCacheM :: c -> m a}
     deriving (Functor, Applicative, Monad, MonadReader (CacheContext c), MonadIO) via (ReaderT (CacheContext c) m)
     deriving (MonadTrans) via (ReaderT (CacheContext c))
 
