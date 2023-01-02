@@ -33,7 +33,7 @@ instance HasGlobalStateContext g (Identity g) where
 -- |A newtype wrapper that provides instances of @MonadReader c@ and
 -- @MonadState g@ when the underlying monad @m@ satisfies @MonadReader r@
 -- and @MonadState s@, with @HasGlobalStateContext c r@ and @HasGlobalState g s@.
-newtype FocusGlobalStateM c g m a = FocusGlobalStateM {runFocusGlobalStateM :: m a}
+newtype FocusGlobalStateM (c :: Type) (g :: Type) (m :: Type -> Type) (a :: Type) = FocusGlobalStateM {runFocusGlobalStateM :: m a}
     deriving (Functor, Applicative, Monad, MonadIO)
 
 instance (MonadState s m, HasGlobalState g s) => MonadState g (FocusGlobalStateM c g m) where

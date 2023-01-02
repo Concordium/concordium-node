@@ -122,8 +122,7 @@ deriving instance (Show v, Show (ref (T ref v))) => (Show (T ref v))
 -}
 
 instance
-    ( Monad m,
-      MHashableTo m H.Hash v, -- values must be hashable
+    ( MHashableTo m H.Hash v, -- values must be hashable
       MHashableTo m H.Hash (ref (T ref v)) -- references to nodes must be hashable
     ) =>
     MHashableTo m H.Hash (T ref v)
@@ -137,8 +136,7 @@ instance
 -- | The hash of a LFMBTree is defined as the hash of the string "EmptyLFMBTree" if it
 -- is empty or the hash of the tree otherwise.
 instance
-    ( Monad m,
-      MHashableTo m H.Hash v, -- values must be hashable
+    ( MHashableTo m H.Hash v, -- values must be hashable
       MHashableTo m H.Hash (ref (T ref v)) -- references to nodes must be hashable
     ) =>
     MHashableTo m H.Hash (LFMBTree' k ref v)

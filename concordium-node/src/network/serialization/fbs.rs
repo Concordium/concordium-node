@@ -12,7 +12,7 @@ use crate::{
         NetworkResponse, PacketDestination,
     },
 };
-use anyhow::{bail, Error};
+use anyhow::{bail, Context, Error};
 use concordium_base::hashes::BlockHash;
 use flatbuffers::FlatBufferBuilder;
 use semver::Version;
@@ -104,11 +104,9 @@ fn _deserialize(buffer: &[u8]) -> anyhow::Result<NetworkMessage> {
 }
 
 fn deserialize_packet(root: &network::NetworkMessage) -> anyhow::Result<NetworkPayload> {
-    let packet = if let Some(payload) = root.payload() {
-        network::NetworkPacket::init_from_table(payload)
-    } else {
-        bail!("missing network message payload (expected a packet)")
-    };
+    let packet = root
+        .payload_as_network_packet()
+        .context("missing network message payload (expected a packet)")?;
 
     let destination = if let Some(destination) = packet.destination() {
         match destination.variant() {
@@ -125,7 +123,7 @@ fn deserialize_packet(root: &network::NetworkMessage) -> anyhow::Result<NetworkP
     let network_id = NetworkId::from(packet.network_id());
 
     let payload = if let Some(payload) = packet.payload() {
-        payload.to_vec()
+        payload.bytes().to_vec()
     } else {
         bail!("missing packet payload")
     };
@@ -138,29 +136,24 @@ fn deserialize_packet(root: &network::NetworkMessage) -> anyhow::Result<NetworkP
 }
 
 fn deserialize_request(root: &network::NetworkMessage) -> anyhow::Result<NetworkPayload> {
-    let request = if let Some(payload) = root.payload() {
-        network::NetworkRequest::init_from_table(payload)
-    } else {
-        bail!("missing network message payload (expected a request)")
-    };
+    let request = root
+        .payload_as_network_request()
+        .context("missing network message payload (expected a request)")?;
 
     match request.variant() {
         network::RequestVariant::Ping => Ok(NetworkPayload::NetworkRequest(NetworkRequest::Ping)),
         network::RequestVariant::GetPeers => {
-            if let Some(network_ids) = request
-                .payload()
-                .map(network::NetworkIds::init_from_table)
-                .and_then(|payload| payload.ids())
+            if let Some(network_ids) =
+                request.payload_as_network_ids().and_then(|payload| payload.ids())
             {
-                let network_ids =
-                    network_ids.safe_slice().iter().copied().map(NetworkId::from).collect();
+                let network_ids = network_ids.iter().map(NetworkId::from).collect();
                 Ok(NetworkPayload::NetworkRequest(NetworkRequest::GetPeers(network_ids)))
             } else {
                 bail!("missing network ids in a GetPeers request")
             }
         }
         network::RequestVariant::Handshake => {
-            if let Some(handshake) = request.payload().map(network::Handshake::init_from_table) {
+            if let Some(handshake) = request.payload_as_handshake() {
                 if handshake.version() != HANDSHAKE_MESSAGE_VERSION {
                     warn!(
                         "Received handshake version ({}) is higher than our version ({}). \
@@ -172,7 +165,7 @@ fn deserialize_request(root: &network::NetworkMessage) -> anyhow::Result<Network
                 let remote_id = P2PNodeId(handshake.node_id());
                 let remote_port = handshake.port();
                 let networks = if let Some(networks) = handshake.network_ids() {
-                    networks.safe_slice().iter().copied().map(NetworkId::from).collect()
+                    networks.iter().map(NetworkId::from).collect()
                 } else {
                     bail!("missing network ids in a Handshake")
                 };
@@ -180,13 +173,13 @@ fn deserialize_request(root: &network::NetworkMessage) -> anyhow::Result<Network
                 let node_version = if let Some(node_version) =
                     handshake.node_version().and_then(|x| x.version())
                 {
-                    Version::parse(std::str::from_utf8(node_version)?)?
+                    Version::parse(std::str::from_utf8(node_version.bytes())?)?
                 } else {
                     bail!("missing node version in a Handshake")
                 };
 
                 let wire_versions = if let Some(wire_versions) = handshake.wire_versions() {
-                    wire_versions.to_vec()
+                    wire_versions.bytes().to_vec()
                 } else {
                     bail!("missing wire version in a Handshake")
                 };
@@ -197,7 +190,7 @@ fn deserialize_request(root: &network::NetworkMessage) -> anyhow::Result<Network
                         .map(|wv| match wv.genesis_block() {
                             None => bail!("Missing block hash"),
                             Some(bh) => {
-                                let hash = BlockHash::try_from(bh)?;
+                                let hash = BlockHash::try_from(bh.bytes())?;
                                 Ok(hash)
                             }
                         })
@@ -220,11 +213,7 @@ fn deserialize_request(root: &network::NetworkMessage) -> anyhow::Result<Network
             }
         }
         network::RequestVariant::JoinNetwork | network::RequestVariant::LeaveNetwork => {
-            if let Some(id) = request
-                .payload()
-                .map(network::NetworkId::init_from_table)
-                .map(|id| NetworkId::from(id.id()))
-            {
+            if let Some(id) = request.payload_as_network_id().map(|id| NetworkId::from(id.id())) {
                 Ok(NetworkPayload::NetworkRequest(match request.variant() {
                     network::RequestVariant::JoinNetwork => NetworkRequest::JoinNetwork(id),
                     network::RequestVariant::LeaveNetwork => NetworkRequest::LeaveNetwork(id),
@@ -239,11 +228,9 @@ fn deserialize_request(root: &network::NetworkMessage) -> anyhow::Result<Network
 }
 
 fn deserialize_response(root: &network::NetworkMessage) -> anyhow::Result<NetworkPayload> {
-    let response = if let Some(payload) = root.payload() {
-        network::NetworkResponse::init_from_table(payload)
-    } else {
-        bail!("missing network message payload (expected a request)")
-    };
+    let response = root
+        .payload_as_network_response()
+        .context("missing network message payload (expected a response)")?;
 
     match response.variant() {
         network::ResponseVariant::Pong => {
@@ -256,16 +243,16 @@ fn deserialize_response(root: &network::NetworkMessage) -> anyhow::Result<Networ
                     let peer = peers.get(i);
 
                     let addr = if let Some(addr) = peer.addr() {
-                        if let Some(mut ip) = addr.octets() {
+                        if let Some(ip) = addr.octets() {
                             match addr.variant() {
                                 network::IpVariant::V4 => {
                                     let mut octets = [0u8; 4];
-                                    ip.read_exact(&mut octets)?;
+                                    ip.bytes().read_exact(&mut octets)?;
                                     SocketAddr::new(IpAddr::from(octets), peer.port())
                                 }
                                 network::IpVariant::V6 => {
                                     let mut octets = [0u8; 16];
-                                    ip.read_exact(&mut octets)?;
+                                    ip.bytes().read_exact(&mut octets)?;
                                     SocketAddr::new(IpAddr::from(octets), peer.port())
                                 }
                                 ip_variant => bail!("Unsupported IP variant {:?}", ip_variant),
@@ -322,7 +309,7 @@ fn serialize_packet(
         }
     };
 
-    let payload_offset = builder.create_vector_direct::<u8>(&packet.message);
+    let payload_offset = builder.create_vector(&packet.message);
 
     let packet_offset = network::NetworkPacket::create(builder, &network::NetworkPacketArgs {
         destination: Some(destination_offset),
