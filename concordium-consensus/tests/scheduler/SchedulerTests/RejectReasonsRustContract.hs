@@ -1,40 +1,44 @@
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
-module SchedulerTests.RejectReasonsRustContract where
-
-import Test.HUnit
-import Test.Hspec
+module SchedulerTests.RejectReasonsRustContract (tests) where
 
 import Data.Maybe (catMaybes)
 import Data.Text (Text)
+import Test.HUnit
+import Test.Hspec
 
+import qualified Concordium.Crypto.SignatureScheme as SigScheme
+import qualified Concordium.GlobalState.BlockState as BS
+import qualified Concordium.GlobalState.Persistent.BlockState as BS
 import qualified Concordium.Scheduler as Sch
-import qualified Concordium.Scheduler.EnvironmentImplementation as Types
+import Concordium.Scheduler.DummyData
 import Concordium.Scheduler.Runner
 import qualified Concordium.Scheduler.Types as Types
-import Concordium.TransactionVerification
-
-import Concordium.GlobalState.Basic.BlockState
-import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
-import Concordium.GlobalState.Basic.BlockState.Instances as Ins
-import Concordium.GlobalState.Basic.BlockState.Invariants
-import Lens.Micro.Platform
-
-import Concordium.Crypto.DummyData
-import Concordium.GlobalState.DummyData
-import Concordium.Scheduler.DummyData
-import Concordium.Types.DummyData
 import Concordium.Wasm (ReceiveName (..), WasmVersion (..))
-import Control.Monad.IO.Class
+import qualified SchedulerTests.Helpers as Helpers
 
-import SchedulerTests.Helpers
-import SchedulerTests.TestUtils
+tests :: Spec
+tests =
+    describe "Testing error codes in Rust smart contracts." $
+        sequence_ $
+            Helpers.forEveryProtocolVersion $ \spv pvString ->
+                testRejectReasons spv pvString
 
-initialBlockState :: BlockState PV1
-initialBlockState = blockStateWithAlesAccount 1000000000 Acc.emptyAccounts
+initialBlockState ::
+    (Types.IsProtocolVersion pv) =>
+    Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
+initialBlockState =
+    Helpers.createTestBlockStateWithAccountsM
+        [Helpers.makeTestAccountFromSeed 1_000_000_000 0]
 
-chainMeta :: Types.ChainMetadata
-chainMeta = Types.ChainMetadata{slotTime = 444}
+accountAddress0 :: Types.AccountAddress
+accountAddress0 = Helpers.accountAddressFromSeed 0
+
+keyPair0 :: SigScheme.KeyPair
+keyPair0 = Helpers.keyPairFromSeed 0
 
 wasmPath :: String
 wasmPath = "./testdata/contracts/error_code/target/concordium/wasm32-unknown-unknown/release/error_code.wasm"
@@ -42,9 +46,9 @@ wasmPath = "./testdata/contracts/error_code/target/concordium/wasm32-unknown-unk
 transaction :: PayloadJSON -> Types.Nonce -> TransactionJSON
 transaction payload n =
     TJSON
-        { metadata = makeDummyHeader alesAccount n 100000,
+        { metadata = makeDummyHeader accountAddress0 n 100_000,
           payload = payload,
-          keys = [(0, [(0, alesKP)])]
+          keys = [(0, [(0, keyPair0)])]
         }
 
 initWithAmount :: Types.Amount -> Types.Nonce -> TransactionJSON
@@ -108,51 +112,66 @@ transactionInputs = zipWith ($) transactionFunctionList [1 ..]
           transaction (Update 0 (Types.ContractAddress 1 0) "error_codes.receive_send" "")
         ]
 
-type TestResult =
-    ( [(BlockItemWithStatus, Types.ValidResult)],
-      [(TransactionWithStatus, Types.FailureKind)],
-      [(Types.ContractAddress, Types.BasicInstance)]
-    )
-
-testRejectReasons :: IO TestResult
-testRejectReasons = do
-    transactions <- processUngroupedTransactions transactionInputs
-    let (Sch.FilteredTransactions{..}, finState) =
-            Types.runSI
-                (Sch.filterTransactions dummyBlockSize dummyBlockTimeout transactions)
-                chainMeta
-                maxBound
-                maxBound
+testRejectReasons ::
+    forall pv.
+    (Types.IsProtocolVersion pv) =>
+    Types.SProtocolVersion pv ->
+    String ->
+    SpecWith (Arg Assertion)
+testRejectReasons _ pvString =
+    specify (pvString ++ ": Processing error_codes.wasm smart contract") $ do
+        (result, doBlockStateAssertions) <-
+            Helpers.runSchedulerTestTransactionJson
+                Helpers.defaultTestConfig
                 initialBlockState
-    let gs = finState ^. Types.ssBlockState
-    case invariantBlockState gs (finState ^. Types.schedulerExecutionCosts) of
-        Left f -> liftIO $ assertFailure $ f ++ " " ++ show gs
-        _ -> return ()
-    return (getResults ftAdded, ftFailed, gs ^.. blockInstances . foldInstances . to (\i -> (instanceAddress i, i)))
+                (Helpers.checkReloadCheck checkState)
+                transactionInputs
+        let Sch.FilteredTransactions{..} = Helpers.srTransactions result
+        let results = Helpers.getResults ftAdded
+        assertEqual "There should be 16 successful transactions." 16 (length results)
+        assertEqual "There should be no failed transactions." [] ftFailed
+        let runtimeFailures =
+                filter
+                    ( \case
+                        (_, Types.TxReject{vrRejectReason = Types.RuntimeFailure}) -> True
+                        _ -> False
+                    )
+                    results
 
-checkTransactionResults :: TestResult -> Assertion
-checkTransactionResults (suc, fails, instances) = do
-    assertEqual "There should be 16 successful transactions." 16 (length suc)
-    assertEqual "There should be no failed transactions." 0 (length fails)
-    assertEqual "There should be no runtime failures." 0 (length runtimeFailures)
-    assertEqual "There should be 6 rejected init and 7 rejected update transactions." (rejectedInitsExpected ++ rejectedReceivesExpected) (catMaybes rejects)
-    assertEqual "There should be 2 instances." 2 (length instances)
+        assertEqual
+            "There should be no runtime failures."
+            0
+            (length runtimeFailures)
+        let rejects =
+                map
+                    ( \case
+                        ( _,
+                          Types.TxReject
+                            { vrRejectReason =
+                                Types.RejectedInit{Types.rejectReason = reason}
+                            }
+                            ) -> Just (reason, Nothing)
+                        ( _,
+                          Types.TxReject
+                            { vrRejectReason =
+                                Types.RejectedReceive
+                                    { Types.rejectReason = reason,
+                                      Types.receiveName = name,
+                                      Types.contractAddress = ca
+                                    }
+                            }
+                            ) -> Just (reason, Just (name, ca))
+                        _ -> Nothing
+                    )
+                    results
+
+        assertEqual
+            "There should be 6 rejected init and 7 rejected update transactions."
+            (rejectedInitsExpected ++ rejectedReceivesExpected)
+            (catMaybes rejects)
+
+        doBlockStateAssertions
   where
-    rejects =
-        map
-            ( \case
-                (_, Types.TxReject{vrRejectReason = Types.RejectedInit{Types.rejectReason = reason}}) -> Just (reason, Nothing)
-                (_, Types.TxReject{vrRejectReason = Types.RejectedReceive{Types.rejectReason = reason, Types.receiveName = name, Types.contractAddress = ca}}) -> Just (reason, Just (name, ca))
-                _ -> Nothing
-            )
-            suc
-    runtimeFailures =
-        filter
-            ( \case
-                (_, Types.TxReject{vrRejectReason = Types.RuntimeFailure}) -> True
-                _ -> False
-            )
-            suc
     rejectedInitsExpected = (,Nothing) <$> [-1, -2, -2, -2, -3, -3]
 
     rejectedReceivesExpected =
@@ -165,8 +184,17 @@ checkTransactionResults (suc, fails, instances) = do
           (minBound + 2, Just (ReceiveName{receiveName = "error_codes.receive2"}, firstAddress))
         ]
 
-tests :: SpecWith ()
-tests =
-    describe "Testing error codes in Rust smart contracts." $
-        specify "Processing error_codes.wasm smart contract" $
-            testRejectReasons >>= checkTransactionResults
+    checkState ::
+        Helpers.SchedulerResult ->
+        BS.PersistentBlockState pv ->
+        Helpers.PersistentBSM pv Assertion
+    checkState result state = do
+        hashedState <- BS.hashBlockState state
+        doInvariantAssertions <-
+            Helpers.assertBlockStateInvariants
+                hashedState
+                (Helpers.srExecutionCosts result)
+        instances <- BS.getContractInstanceList hashedState
+        return $ do
+            doInvariantAssertions
+            assertEqual "There should be 2 instance." 2 (length instances)
