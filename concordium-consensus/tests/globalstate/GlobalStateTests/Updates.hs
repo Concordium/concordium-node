@@ -274,14 +274,14 @@ testing2'1 = do
             >>= createAccountWith limitDelta
             >>= addBakerWith limit
             >>= \case
-                (BCSuccess _ _, a) -> modifyStakeTo (limit - 1) a
-                -- this does not happen, since
+                -- this always happens, since when
                 -- \* the account is valid;
                 -- \* the account is not a baker;
                 -- \* the account is not a delegator;
                 -- \* the account has sufficient balance to cover the stake,
                 -- @(BCSuccess [], _)@ is returned, see `bsoConfigureBaker`.
-                _ -> error "bs should be BCSuccess"
+                (BCSuccess _ _, a) -> modifyStakeTo (limit - 1) a
+                t -> return t
     case res of
         BCStakeUnderThreshold -> return ()
         e -> error $ "Got (" ++ show e ++ ") but wanted BCStakeUnderThreshold"
@@ -294,14 +294,14 @@ testing2'2 = do
             >>= createAccountWith (limitDelta + 100)
             >>= addBakerWith (limit + 100)
             >>= \case
-                (BCSuccess _ _, a) -> modifyStakeTo limit a
-                -- this does not happen, since
+                -- this always happens, since when
                 -- \* the account is valid;
                 -- \* the account is not a baker;
                 -- \* the account is not a delegator;
                 -- \* the account has sufficient balance to cover the stake,
                 -- @(BCSuccess [], _)@ is returned, see `bsoConfigureBaker`.
-                _ -> error "bs should be BCSuccess"
+                (BCSuccess _ _, a) -> modifyStakeTo limit a
+                _ -> error "result of modifyStakeTo should be BCSuccess"
     case res of
         BCSuccess [BakerConfigureStakeReduced _] _ -> return ()
         e -> error $ "Got (" ++ show e ++ ") but wanted BakerConfigureStakeReduced"
@@ -314,14 +314,14 @@ testing2'3 = do
             >>= createAccountWith (limitDelta + 100)
             >>= addBakerWith limit
             >>= \case
-                (BCSuccess _ _, a) -> modifyStakeTo (limit + 100) a
-                -- this does not happen, since
+                -- this always happens, since when
                 -- \* the account is valid;
                 -- \* the account is not a baker;
                 -- \* the account is not a delegator;
                 -- \* the account has sufficient balance to cover the stake,
                 -- @(BCSuccess [], _)@ is returned, see `bsoConfigureBaker`.
-                _ -> error "bs should be BCSuccess"
+                (BCSuccess _ _, a) -> modifyStakeTo (limit + 100) a
+                _ -> error "result of modifyStakeTo should be BCSuccess"
     case res of
         BCSuccess [BakerConfigureStakeIncreased _] _ -> return ()
         e -> error $ "Got (" ++ show e ++ ") but wanted BakerConfigureStakeIncreased"
@@ -335,14 +335,14 @@ testing3'1 = do
             >>= createAccountWith limitDelta
             >>= addBakerWith limit
             >>= ( \case
-                    (BCSuccess _ _, a) -> increaseLimit (limit * 2) a
-                    -- this does not happen, since
+                    -- this always happens, since when
                     -- \* the account is valid;
                     -- \* the account is not a baker;
                     -- \* the account is not a delegator;
                     -- \* the account has sufficient balance to cover the stake,
                     -- @(BCSuccess [], _)@ is returned, see `bsoConfigureBaker`.
-                    _ -> error "bs should be BCSuccess"
+                    (BCSuccess _ _, a) -> increaseLimit (limit * 2) a
+                    (_, bsAccIdx) -> return bsAccIdx
                 )
             >>= modifyStakeTo (limit - 1)
     case res of
@@ -359,14 +359,14 @@ testing3'2 = do
             >>= createAccountWith limitDelta
             >>= addBakerWith limit
             >>= ( \case
-                    (BCSuccess _ _, a) -> increaseLimit (limit * 2) a
-                    -- this does not happen, since
+                    -- this always happens, since when
                     -- \* the account is valid;
                     -- \* the account is not a baker;
                     -- \* the account is not a delegator;
                     -- \* the account has sufficient balance to cover the stake,
                     -- @(BCSuccess [], _)@ is returned, see `bsoConfigureBaker`.
-                    _ -> error "bs should be BCSuccess"
+                    (BCSuccess _ _, a) -> increaseLimit (limit * 2) a
+                    (_, bsAccIdx) -> return bsAccIdx
                 )
             >>= modifyStakeTo (limit + 1)
     case res of
@@ -382,14 +382,14 @@ testing3'3 = do
             >>= createAccountWith limitDelta
             >>= addBakerWith limit
             >>= ( \case
-                    (BCSuccess _ _, a) -> increaseLimit (limit * 2) a
-                    -- this does not happen, since
+                    -- this always happens, since when
                     -- \* the account is valid;
                     -- \* the account is not a baker;
                     -- \* the account is not a delegator;
                     -- \* the account has sufficient balance to cover the stake,
                     -- @(BCSuccess [], _)@ is returned, see `bsoConfigureBaker`.
-                    _ -> error "bs should be BCSuccess"
+                    (BCSuccess _ _, a) -> increaseLimit (limit * 2) a
+                    _ -> error "result of increaseLimit should be BCSuccess"
                 )
             >>= modifyStakeTo (limit * 2 + 1)
     case res of
