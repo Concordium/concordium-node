@@ -12,6 +12,7 @@ import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Control.Monad.Writer.Strict (WriterT)
 import qualified Data.IntMap.Strict as IntMap
+import Data.Kind (Type)
 import Data.Proxy
 import qualified Data.Vector.Primitive.Mutable as Vec
 
@@ -97,7 +98,7 @@ instance HasCache c (CacheContext c) where
 
 -- |A null cache that does not store any values.
 -- That is, all lookups are cache misses.
-data NullCache v = NullCache
+data NullCache (v :: Type) = NullCache
 
 instance Cache (NullCache v) where
     type CacheKey (NullCache v) = BlobRef v

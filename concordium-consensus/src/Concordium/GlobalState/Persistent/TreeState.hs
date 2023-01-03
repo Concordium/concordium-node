@@ -7,9 +7,6 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
--- FIXME: This is to suppress compiler warnings for derived instances of BlockStateOperations.
--- This may be fixed in GHC 9.0.1.
-{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
 -- |This module provides a monad that is an instance of both `LMDBStoreMonad`, `LMDBQueryMonad`,
 -- and `TreeStateMonad` effectively adding persistence to the tree state.
@@ -43,6 +40,7 @@ import Control.Monad.Reader
 import Control.Monad.State
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
+import Data.Kind (Type)
 import Data.List (partition)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
@@ -196,7 +194,7 @@ emptyBlockTable = BlockTable emptyDeadCache HM.empty
 -- The first type parameter, @pv@, is the protocol version.
 -- The second type parameter, @ati@, is a type determining the account transaction index to use.
 -- The third type parameter, @bs@, is the type of block states.
-data SkovPersistentData (pv :: ProtocolVersion) bs = SkovPersistentData
+data SkovPersistentData (pv :: ProtocolVersion) (bs :: Type) = SkovPersistentData
     { -- |Map of all received blocks by hash.
       _blockTable :: !(BlockTable pv bs),
       -- |Map of (possibly) pending blocks by hash
@@ -247,7 +245,7 @@ instance
 
 -- |Initial skov data with default runtime parameters (block size = 10MB).
 initialSkovPersistentDataDefault ::
-    (IsProtocolVersion pv, FixedSizeSerialization (TS.BlockStatePointer bs), BlockStateQuery m, bs ~ BlockState m, MonadIO m) =>
+    (IsProtocolVersion pv, FixedSizeSerialization (TS.BlockStatePointer bs), MonadIO m) =>
     FilePath ->
     GenesisConfiguration ->
     bs ->
@@ -262,7 +260,7 @@ initialSkovPersistentDataDefault = initialSkovPersistentData defaultRuntimeParam
 -- The state does not need to be activated if the supplied 'TransactionTable' is correctly
 -- initialised with the nonces and sequence numbers of the accounts and update types.
 initialSkovPersistentData ::
-    (IsProtocolVersion pv, FixedSizeSerialization (TS.BlockStatePointer bs), BlockStateQuery m, bs ~ BlockState m, MonadIO m) =>
+    (IsProtocolVersion pv, FixedSizeSerialization (TS.BlockStatePointer bs), MonadIO m) =>
     -- |Runtime parameters
     RuntimeParameters ->
     -- |Tree state directory
@@ -497,7 +495,7 @@ closeSkovPersistentData = closeDatabase . _db
 --
 -- This newtype establishes types for the @GlobalStateTypes@. The type variable @bs@ stands for the BlockState
 -- type used in the implementation.
-newtype PersistentTreeStateMonad bs m a = PersistentTreeStateMonad {runPersistentTreeStateMonad :: m a}
+newtype PersistentTreeStateMonad (bs :: Type) (m :: Type -> Type) (a :: Type) = PersistentTreeStateMonad {runPersistentTreeStateMonad :: m a}
     deriving
         ( Functor,
           Applicative,
@@ -517,7 +515,7 @@ newtype PersistentTreeStateMonad bs m a = PersistentTreeStateMonad {runPersisten
 deriving instance (MonadProtocolVersion m) => MonadProtocolVersion (PersistentTreeStateMonad bs m)
 
 deriving instance
-    (Monad m, MonadState (SkovPersistentData pv bs) m) =>
+    (MonadState (SkovPersistentData pv bs) m) =>
     MonadState (SkovPersistentData pv bs) (PersistentTreeStateMonad bs m)
 
 instance (IsProtocolVersion pv, pv ~ MPV m) => GlobalStateTypes (PersistentTreeStateMonad bs m) where
@@ -561,8 +559,8 @@ getWeakPointer weakPtr ptrHash name = do
                                 logErrorAndThrowTS ("Could not retrieve " ++ name ++ " block. Block hash: " ++ show ptrHash ++ ", block status " ++ show other)
 
 instance
-    ( MonadLogger (PersistentTreeStateMonad bs m),
-      Monad (PersistentTreeStateMonad bs m),
+    ( Monad m,
+      MonadLogger (PersistentTreeStateMonad bs m),
       MonadIO (PersistentTreeStateMonad bs m),
       TS.BlockState m ~ bs,
       BlockStateStorage (PersistentTreeStateMonad bs m),

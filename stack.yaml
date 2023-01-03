@@ -1,7 +1,7 @@
 # This should be kept in line with concordium-consensus/stack.yaml and
 # concordium-base/stack.yaml
 
-resolver: lts-19.6
+resolver: lts-20.4
 
 packages:
 - ./concordium-base

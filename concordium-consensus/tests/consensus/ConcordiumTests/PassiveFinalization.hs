@@ -231,7 +231,11 @@ bake bid n = do
     mb <- bakeForSlot bid n
     maybe
         (fail $ "Could not bake for slot " ++ show n)
-        (\BS.BlockPointer{_bpBlock = NormalBlock block} -> return block)
+        ( \case
+            BS.BlockPointer{_bpBlock = NormalBlock block} -> return block
+            -- This does not happen, since baking always produces a non-genesis block
+            _ -> fail "baking always produces a normal (non-genesis) block"
+        )
         mb
 
 store :: (SkovMonad m, MonadFail m) => BakedBlock -> m ()
@@ -328,7 +332,12 @@ createInitStates :: Int -> IO (BakerState, BakerState, BakerState, [BakerState])
 createInitStates additionalFinMembers = do
     let bakerAmount = 10 ^ (4 :: Int)
         finMemberAmount = bakerAmount * 10 ^ (6 :: Int)
-    let bis@(baker1 : baker2 : finMember : finMembers) = makeBakersByStake ([bakerAmount, bakerAmount, finMemberAmount] ++ take additionalFinMembers (repeat finMemberAmount))
+    let bis = makeBakersByStake ([bakerAmount, bakerAmount, finMemberAmount] ++ take additionalFinMembers (repeat finMemberAmount))
+    let (baker1, baker2, finMember, finMembers) =
+            case bis of
+                (b1 : b2 : fm : fms) -> (b1, b2, fm, fms)
+                -- This does not happen due to how `bis` is constructed
+                _ -> error "bis should be a list with four elements"
     let
         bakerAccounts = map (\(_, _, acc, _) -> acc) bis
         cps = dummyChainParameters & cpElectionDifficulty .~ makeElectionDifficultyUnchecked 100000

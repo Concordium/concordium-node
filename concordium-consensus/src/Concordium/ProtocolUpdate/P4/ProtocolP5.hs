@@ -81,7 +81,7 @@ updateHash = read "af5684e70c1438e442066d017e4410af6da2b53bfa651a07d81efa2aa668d
 -- i.e. it is the first (and only) explicitly-finalized block with timestamp after the
 -- update takes effect.
 updateRegenesis ::
-    (MPV m ~ 'P4, BlockPointerMonad m, BlockStateStorage m, SkovMonad m) =>
+    (MPV m ~ 'P4, BlockStateStorage m, SkovMonad m) =>
     m (PVInit m)
 updateRegenesis = do
     lfb <- lastFinalizedBlock

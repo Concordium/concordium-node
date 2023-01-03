@@ -819,7 +819,7 @@ computeExecutionCharge meta energy =
 -- is the only one affected by the transaction, either because a transaction was
 -- rejected, or because it was a transaction which only affects one account's
 -- balance such as DeployCredential, or DeployModule.
-chargeExecutionCost :: forall m. (AccountOperations m) => SchedulerMonad m => IndexedAccount m -> Amount -> m ()
+chargeExecutionCost :: forall m. SchedulerMonad m => IndexedAccount m -> Amount -> m ()
 chargeExecutionCost (ai, acc) amnt = do
     balance <- getAccountAmount acc
     let csWithAccountDelta = emptyCS (Proxy @m) & accountUpdates . at ai ?~ (emptyAccountUpdate ai & auAmount ?~ amountDiff 0 amnt)

@@ -1,7 +1,7 @@
 // Parameters:
 // - VERSION
 // - UBUNTU_VERSION (default: "20.04")
-// - GHC_VERSION (default: "9.0.2")
+// - GHC_VERSION (default: "9.2.5")
 
 pipeline {
     agent any
@@ -53,9 +53,11 @@ pipeline {
                         --build-arg ubuntu_version="${UBUNTU_VERSION}" \
                         --build-arg version="${TAG}" \
                         --build-arg ghc_version="${GHC_VERSION}" \
+                        --build-arg static_libraries_image_tag="${STATIC_LIBRARIES_IMAGE_TAG}" \
                         --label ubuntu_version="${UBUNTU_VERSION}" \
                         --label version="${TAG}" \
                         --label ghc_version="${GHC_VERSION}" \
+                        --label static_libraries_image_tag="${STATIC_LIBRARIES_IMAGE_TAG}" \
                         -f "scripts/db-exporter/Dockerfile" \
                         -t build-deb:${BUILD_TAG} \
                         --no-cache \

@@ -38,6 +38,7 @@ import Control.Monad.Identity
 import Control.Monad.RWS.Strict as RWS hiding (state)
 import Control.Monad.Trans.Reader
 import Data.IORef
+import Data.Maybe (fromJust)
 import Data.Proxy
 import Data.Time.Clock.POSIX
 import Lens.Micro.Platform
@@ -151,8 +152,8 @@ getBlockStates = do
         bs2 = PBS.hpbsPointers $ _bpState (bs ^. pairStateRight . Concordium.GlobalState.Persistent.TreeState.focusBlock)
     return (bs1, bs2)
 
--- | Create the thomasAccount with a dummy credential and the provided amount. Return the account index of the newly created account
--- and the updated block state.
+-- | Create the thomasAccount with a dummy credential and the provided amount. Return the account index of the newly
+-- created account and the updated block state. Note that this account is valid, it is not a baker nor a delegator.
 createAccountWith :: AmountDelta -> TheBlockStates -> ThisMonadConcrete (TheBlockStates, AccountIndex)
 createAccountWith a bs = do
     (_, bs') <-
@@ -167,8 +168,8 @@ createAccountWith a bs = do
                 (YearMonth 2021 01)
                 (YearMonth 2021 12)
             )
-    ~(Just ai) <- bsoGetAccountIndex bs' thomasAccount
-    (,ai) <$> bsoModifyAccount bs' (emptyAccountUpdate ai & auAmount ?~ a)
+    accIndex <- fromJust <$> bsoGetAccountIndex bs' thomasAccount
+    (,accIndex) <$> bsoModifyAccount bs' (emptyAccountUpdate accIndex & auAmount ?~ a)
 
 -- | Add a baker with the given staked amount.
 addBakerWith :: Amount -> (TheBlockStates, AccountIndex) -> ThisMonadConcrete (BakerConfigureResult, (TheBlockStates, AccountIndex))
@@ -272,7 +273,15 @@ testing2'1 = do
         getBlockStates
             >>= createAccountWith limitDelta
             >>= addBakerWith limit
-            >>= \(BCSuccess _ _, a) -> modifyStakeTo (limit - 1) a
+            >>= \case
+                -- this always happens, since when
+                -- \* the account is valid;
+                -- \* the account is not a baker;
+                -- \* the account is not a delegator;
+                -- \* the account has sufficient balance to cover the stake,
+                -- @(BCSuccess [], _)@ is returned, see `bsoConfigureBaker`.
+                (BCSuccess _ _, a) -> modifyStakeTo (limit - 1) a
+                t -> return t
     case res of
         BCStakeUnderThreshold -> return ()
         e -> error $ "Got (" ++ show e ++ ") but wanted BCStakeUnderThreshold"
@@ -284,7 +293,15 @@ testing2'2 = do
         getBlockStates
             >>= createAccountWith (limitDelta + 100)
             >>= addBakerWith (limit + 100)
-            >>= \(BCSuccess _ _, a) -> modifyStakeTo limit a
+            >>= \case
+                -- this always happens, since when
+                -- \* the account is valid;
+                -- \* the account is not a baker;
+                -- \* the account is not a delegator;
+                -- \* the account has sufficient balance to cover the stake,
+                -- @(BCSuccess [], _)@ is returned, see `bsoConfigureBaker`.
+                (BCSuccess _ _, a) -> modifyStakeTo limit a
+                _ -> error "result of modifyStakeTo should be BCSuccess"
     case res of
         BCSuccess [BakerConfigureStakeReduced _] _ -> return ()
         e -> error $ "Got (" ++ show e ++ ") but wanted BakerConfigureStakeReduced"
@@ -296,7 +313,15 @@ testing2'3 = do
         getBlockStates
             >>= createAccountWith (limitDelta + 100)
             >>= addBakerWith limit
-            >>= \(BCSuccess _ _, a) -> modifyStakeTo (limit + 100) a
+            >>= \case
+                -- this always happens, since when
+                -- \* the account is valid;
+                -- \* the account is not a baker;
+                -- \* the account is not a delegator;
+                -- \* the account has sufficient balance to cover the stake,
+                -- @(BCSuccess [], _)@ is returned, see `bsoConfigureBaker`.
+                (BCSuccess _ _, a) -> modifyStakeTo (limit + 100) a
+                _ -> error "result of modifyStakeTo should be BCSuccess"
     case res of
         BCSuccess [BakerConfigureStakeIncreased _] _ -> return ()
         e -> error $ "Got (" ++ show e ++ ") but wanted BakerConfigureStakeIncreased"
@@ -309,7 +334,16 @@ testing3'1 = do
         getBlockStates
             >>= createAccountWith limitDelta
             >>= addBakerWith limit
-            >>= (\(BCSuccess _ _, a) -> increaseLimit (limit * 2) a)
+            >>= ( \case
+                    -- this always happens, since when
+                    -- \* the account is valid;
+                    -- \* the account is not a baker;
+                    -- \* the account is not a delegator;
+                    -- \* the account has sufficient balance to cover the stake,
+                    -- @(BCSuccess [], _)@ is returned, see `bsoConfigureBaker`.
+                    (BCSuccess _ _, a) -> increaseLimit (limit * 2) a
+                    (_, bsAccIdx) -> return bsAccIdx
+                )
             >>= modifyStakeTo (limit - 1)
     case res of
         BCStakeUnderThreshold -> return ()
@@ -324,7 +358,16 @@ testing3'2 = do
         getBlockStates
             >>= createAccountWith limitDelta
             >>= addBakerWith limit
-            >>= (\(BCSuccess _ _, a) -> increaseLimit (limit * 2) a)
+            >>= ( \case
+                    -- this always happens, since when
+                    -- \* the account is valid;
+                    -- \* the account is not a baker;
+                    -- \* the account is not a delegator;
+                    -- \* the account has sufficient balance to cover the stake,
+                    -- @(BCSuccess [], _)@ is returned, see `bsoConfigureBaker`.
+                    (BCSuccess _ _, a) -> increaseLimit (limit * 2) a
+                    (_, bsAccIdx) -> return bsAccIdx
+                )
             >>= modifyStakeTo (limit + 1)
     case res of
         BCStakeUnderThreshold -> return ()
@@ -338,7 +381,16 @@ testing3'3 = do
         getBlockStates
             >>= createAccountWith limitDelta
             >>= addBakerWith limit
-            >>= (\(BCSuccess _ _, a) -> increaseLimit (limit * 2) a)
+            >>= ( \case
+                    -- this always happens, since when
+                    -- \* the account is valid;
+                    -- \* the account is not a baker;
+                    -- \* the account is not a delegator;
+                    -- \* the account has sufficient balance to cover the stake,
+                    -- @(BCSuccess [], _)@ is returned, see `bsoConfigureBaker`.
+                    (BCSuccess _ _, a) -> increaseLimit (limit * 2) a
+                    _ -> error "result of increaseLimit should be BCSuccess"
+                )
             >>= modifyStakeTo (limit * 2 + 1)
     case res of
         BCSuccess [BakerConfigureStakeIncreased _] _ -> return ()
