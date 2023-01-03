@@ -2,6 +2,7 @@
 // - VERSION
 // - UBUNTU_VERSION (default: "20.04")
 // - GHC_VERSION (default: "9.2.5")
+// - STATIC_LIBRARIES_IMAGE_TAG (default: "rust-1.62.1_ghc-9.2.5")
 
 pipeline {
     agent any
@@ -45,7 +46,7 @@ pipeline {
         }
         stage('Build static-node-binaries') {
             environment {
-                STATIC_LIBRARIES_IMAGE_TAG = "latest"
+                STATIC_LIBRARIES_IMAGE_TAG = "${STATIC_LIBRARIES_IMAGE_TAG}"
             }
             steps {
                 sh './scripts/static-binaries/build-static-binaries.sh'
