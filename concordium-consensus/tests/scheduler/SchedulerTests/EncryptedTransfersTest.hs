@@ -35,45 +35,54 @@ import Test.Hspec
 -- This test will perform the following transactions and check that the resulting
 -- blockstate is correct:
 --
---- |----------------------------------+-----------------+-----------+---------------|
---- | After transaction                |                 |      Ales |        Thomas |
---- |----------------------------------+-----------------+-----------+---------------|
---- | A, PubToSec(1000)                | selfAmount      |      1000 |             0 |
---- |                                  | startIdx        |         0 |             0 |
---- |                                  | incomingAmounts |        [] |            [] |
---- |----------------------------------+-----------------+-----------+---------------|
---- | A->T, Send 100 from self         | selfAmount      |       900 |             0 |
---- |                                  | startIdx        |         0 |             0 |
---- |                                  | incomingAmounts |        [] |         [100] |
---- |----------------------------------+-----------------+-----------+---------------|
---- | A->T, Send 100 from self         | selfAmount      |       800 |             0 |
---- |                                  | startIdx        |         0 |             0 |
---- |                                  | incomingAmounts |        [] |     [100,100] |
---- |----------------------------------+-----------------+-----------+---------------|
---- | A->T, Send 100 from self         | selfAmount      |       700 |             0 |
---- |                                  | startIdx        |         0 |             0 |
---- |                                  | incomingAmounts |        [] | [100,100,100] |
---- |----------------------------------+-----------------+-----------+---------------|
---- | T->A, Send 150 combining up to 2 | selfAmount      |       700 |            50 |
---- |                                  | startIdx        |         0 |             2 |
---- |                                  | incomingAmounts |     [150] |         [100] |
---- |----------------------------------+-----------------+-----------+---------------|
---- | T->A, Send 150 combining up to 3 | selfAmount      |       700 |             0 |
---- |                                  | startIdx        |         0 |             3 |
---- |                                  | incomingAmounts | [150,150] |            [] |
---- |----------------------------------+-----------------+-----------+---------------|
---- | A, SecToPub(650)                 | selfAmount      |        50 |             0 |
---- |                                  | startIdx        |         0 |             3 |
---- |                                  | incomingAmounts | [150,150] |            [] |
---- |----------------------------------+-----------------+-----------+---------------|
---- | A, SecToPub(150)                 | selfAmount      |        50 |             0 |
---- |                                  | startIdx        |         1 |             3 |
---- |                                  | incomingAmounts |     [150] |            [] |
---- |----------------------------------+-----------------+-----------+---------------|
---- | A, SecToPub(200)                 | selfAmount      |         0 |             0 |
---- |                                  | startIdx        |         2 |             3 |
---- |                                  | incomingAmounts |        [] |            [] |
---- |----------------------------------+-----------------+-----------+---------------|
+--- |------------------------------------+-----------------+-----------+---------------|
+--- | After transaction                  |                 |  Account0 |      Account1 |
+--- |------------------------------------+-----------------+-----------+---------------|
+--- | A0, PubToSec(1000)                 | selfAmount      |      1000 |             0 |
+--- |                                    | startIdx        |         0 |             0 |
+--- |                                    | incomingAmounts |        [] |            [] |
+--- |------------------------------------+-----------------+-----------+---------------|
+--- | A0->A1, Send 100 from self         | selfAmount      |       900 |             0 |
+--- |                                    | startIdx        |         0 |             0 |
+--- |                                    | incomingAmounts |        [] |         [100] |
+--- |------------------------------------+-----------------+-----------+---------------|
+--- | A0->A1, Send 100 from self         | selfAmount      |       800 |             0 |
+--- |                                    | startIdx        |         0 |             0 |
+--- |                                    | incomingAmounts |        [] |     [100,100] |
+--- |------------------------------------+-----------------+-----------+---------------|
+--- | A0->A1, Send 100 from self         | selfAmount      |       700 |             0 |
+--- |                                    | startIdx        |         0 |             0 |
+--- |                                    | incomingAmounts |        [] | [100,100,100] |
+--- |------------------------------------+-----------------+-----------+---------------|
+--- | A1->A0, Send 150 combining up to 2 | selfAmount      |       700 |            50 |
+--- |                                    | startIdx        |         0 |             2 |
+--- |                                    | incomingAmounts |     [150] |         [100] |
+--- |------------------------------------+-----------------+-----------+---------------|
+--- | A1->A0, Send 150 combining up to 3 | selfAmount      |       700 |             0 |
+--- |                                    | startIdx        |         0 |             3 |
+--- |                                    | incomingAmounts | [150,150] |            [] |
+--- |------------------------------------+-----------------+-----------+---------------|
+--- | A0, SecToPub(650)                  | selfAmount      |        50 |             0 |
+--- |                                    | startIdx        |         0 |             3 |
+--- |                                    | incomingAmounts | [150,150] |            [] |
+--- |------------------------------------+-----------------+-----------+---------------|
+--- | A0, SecToPub(150)                  | selfAmount      |        50 |             0 |
+--- |                                    | startIdx        |         1 |             3 |
+--- |                                    | incomingAmounts |     [150] |            [] |
+--- |------------------------------------+-----------------+-----------+---------------|
+--- | A0, SecToPub(200)                  | selfAmount      |         0 |             0 |
+--- |                                    | startIdx        |         2 |             3 |
+--- |                                    | incomingAmounts |        [] |            [] |
+--- |------------------------------------+-----------------+-----------+---------------|
+
+tests :: Spec
+tests = do
+    describe "Encrypted transfers:" $
+        sequence_ $
+            Helpers.forEveryProtocolVersion $ \spv pvString -> do
+                testCase0 spv pvString
+                testCase1 spv pvString
+                testCase2 spv pvString
 
 initialBlockState ::
     Types.IsProtocolVersion pv =>
@@ -132,15 +141,6 @@ assertEncryptedBalance expectedEncryptedAmount address blockState = do
                     accountEncryptedAmount
                     expectedEncryptedAmount
 
-tests :: Spec
-tests = do
-    describe "Encrypted transfers:" $
-        sequence_ $
-            Helpers.forEveryProtocolVersion $ \spv pvString -> do
-                testCase0 spv pvString
-                testCase1 spv pvString
-                testCase2 spv pvString
-
 createEncryptedTransferData ::
     ID.AccountEncryptionKey ->
     ElgamalSecretKey ->
@@ -153,6 +153,7 @@ createEncryptedTransferData (ID.AccountEncryptionKey receiverPK) =
 createSecToPubTransferData :: ElgamalSecretKey -> AggregatedDecryptedAmount -> Types.Amount -> IO (Maybe SecToPubAmountTransferData)
 createSecToPubTransferData = makeSecToPubAmountTransferData dummyCryptographicParameters
 
+-- | Test running a series of encrypted transfers as described in this module documentation.
 testCase0 ::
     forall pv.
     (Types.IsProtocolVersion pv) =>
@@ -169,6 +170,7 @@ testCase0 _ pvString = specify
             initialBlockState
             transactionsAndAssertions
   where
+    makeTransactions :: IO [Helpers.TransactionAndAssertion pv]
     makeTransactions = do
         -- Transaction 1. Pub to sec (1000)
         let encryptedAmount1000 :: EncryptedAmount
@@ -341,12 +343,14 @@ testCase0 _ pvString = specify
             incomingAmounts8account0 = Seq.empty
 
         return
-            [   ( Runner.TJSON
-                    { payload = Runner.TransferToEncrypted 1_000,
-                      metadata = makeDummyHeader accountAddress0 1 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-                  \Helpers.SchedulerResult{..} state -> do
+            [ Helpers.TransactionAndAssertion
+                { taaTransaction =
+                    Runner.TJSON
+                        { payload = Runner.TransferToEncrypted 1_000,
+                          metadata = makeDummyHeader accountAddress0 1 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+                  taaAssertion = \Helpers.SchedulerResult{..} state -> do
                     doInvariantAssertions <-
                         Helpers.assertBlockStateInvariantsH
                             state
@@ -373,16 +377,18 @@ testCase0 _ pvString = specify
                             _ -> assertFailure "First transaction should succeed"
                         doInvariantAssertions
                         doEncryptedBalanceAssertions
-                ),
-                ( Runner.TJSON
-                    { payload =
-                        Runner.EncryptedAmountTransfer
-                            accountAddress1
-                            encryptedTransferData1,
-                      metadata = makeDummyHeader accountAddress0 2 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-                  \Helpers.SchedulerResult{..} state -> do
+                },
+              Helpers.TransactionAndAssertion
+                { taaTransaction =
+                    Runner.TJSON
+                        { payload =
+                            Runner.EncryptedAmountTransfer
+                                accountAddress1
+                                encryptedTransferData1,
+                          metadata = makeDummyHeader accountAddress0 2 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+                  taaAssertion = \Helpers.SchedulerResult{..} state -> do
                     doEncryptedBalanceAssertionSender <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -422,16 +428,18 @@ testCase0 _ pvString = specify
                             _ -> assertFailure "Third transaction should succeed"
                         doEncryptedBalanceAssertionSender
                         doEncryptedBalanceAssertionReceiver
-                ),
-                ( Runner.TJSON
-                    { payload =
-                        Runner.EncryptedAmountTransfer
-                            accountAddress1
-                            encryptedTransferData2,
-                      metadata = makeDummyHeader accountAddress0 3 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-                  \Helpers.SchedulerResult{..} state -> do
+                },
+              Helpers.TransactionAndAssertion
+                { taaTransaction =
+                    Runner.TJSON
+                        { payload =
+                            Runner.EncryptedAmountTransfer
+                                accountAddress1
+                                encryptedTransferData2,
+                          metadata = makeDummyHeader accountAddress0 3 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+                  taaAssertion = \Helpers.SchedulerResult{..} state -> do
                     doEncryptedBalanceAssertionSender <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -472,16 +480,18 @@ testCase0 _ pvString = specify
                             _ -> assertFailure "Forth transaction should succeed"
                         doEncryptedBalanceAssertionSender
                         doEncryptedBalanceAssertionReceiver
-                ),
-                ( Runner.TJSON
-                    { payload =
-                        Runner.EncryptedAmountTransfer
-                            accountAddress1
-                            encryptedTransferData3,
-                      metadata = makeDummyHeader accountAddress0 4 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-                  \Helpers.SchedulerResult{..} state -> do
+                },
+              Helpers.TransactionAndAssertion
+                { taaTransaction =
+                    Runner.TJSON
+                        { payload =
+                            Runner.EncryptedAmountTransfer
+                                accountAddress1
+                                encryptedTransferData3,
+                          metadata = makeDummyHeader accountAddress0 4 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+                  taaAssertion = \Helpers.SchedulerResult{..} state -> do
                     doEncryptedBalanceAssertionSender <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -522,13 +532,15 @@ testCase0 _ pvString = specify
                             _ -> assertFailure "Fifth transaction should succeed"
                         doEncryptedBalanceAssertionSender
                         doEncryptedBalanceAssertionReceiver
-                ),
-                ( Runner.TJSON
-                    { payload = Runner.EncryptedAmountTransfer accountAddress0 encryptedTransferData4,
-                      metadata = makeDummyHeader accountAddress1 1 100_000,
-                      keys = [(0, [(0, keyPair1)])]
-                    },
-                  \Helpers.SchedulerResult{..} state -> do
+                },
+              Helpers.TransactionAndAssertion
+                { taaTransaction =
+                    Runner.TJSON
+                        { payload = Runner.EncryptedAmountTransfer accountAddress0 encryptedTransferData4,
+                          metadata = makeDummyHeader accountAddress1 1 100_000,
+                          keys = [(0, [(0, keyPair1)])]
+                        },
+                  taaAssertion = \Helpers.SchedulerResult{..} state -> do
                     doEncryptedBalanceAssertionSender <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -570,16 +582,18 @@ testCase0 _ pvString = specify
                             _ -> assertFailure "Sixth transaction should succeed"
                         doEncryptedBalanceAssertionSender
                         doEncryptedBalanceAssertionReceiver
-                ),
-                ( Runner.TJSON
-                    { payload =
-                        Runner.EncryptedAmountTransfer
-                            accountAddress0
-                            encryptedTransferData5,
-                      metadata = makeDummyHeader accountAddress1 2 100_000,
-                      keys = [(0, [(0, keyPair1)])]
-                    },
-                  \Helpers.SchedulerResult{..} state -> do
+                },
+              Helpers.TransactionAndAssertion
+                { taaTransaction =
+                    Runner.TJSON
+                        { payload =
+                            Runner.EncryptedAmountTransfer
+                                accountAddress0
+                                encryptedTransferData5,
+                          metadata = makeDummyHeader accountAddress1 2 100_000,
+                          keys = [(0, [(0, keyPair1)])]
+                        },
+                  taaAssertion = \Helpers.SchedulerResult{..} state -> do
                     doEncryptedBalanceAssertionSender <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -621,13 +635,15 @@ testCase0 _ pvString = specify
                             _ -> assertFailure "Seventh transaction should succeed"
                         doEncryptedBalanceAssertionSender
                         doEncryptedBalanceAssertionReceiver
-                ),
-                ( Runner.TJSON
-                    { payload = Runner.TransferToPublic secToPubTransferData1,
-                      metadata = makeDummyHeader accountAddress0 5 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-                  \Helpers.SchedulerResult{..} state -> do
+                },
+              Helpers.TransactionAndAssertion
+                { taaTransaction =
+                    Runner.TJSON
+                        { payload = Runner.TransferToPublic secToPubTransferData1,
+                          metadata = makeDummyHeader accountAddress0 5 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+                  taaAssertion = \Helpers.SchedulerResult{..} state -> do
                     doEncryptedBalanceAssertion <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -660,13 +676,15 @@ testCase0 _ pvString = specify
                                     vrEvents
                             _ -> assertFailure "Eigth transaction should succeed"
                         doEncryptedBalanceAssertion
-                ),
-                ( Runner.TJSON
-                    { payload = Runner.TransferToPublic secToPubTransferData2,
-                      metadata = makeDummyHeader accountAddress0 6 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-                  \Helpers.SchedulerResult{..} state -> do
+                },
+              Helpers.TransactionAndAssertion
+                { taaTransaction =
+                    Runner.TJSON
+                        { payload = Runner.TransferToPublic secToPubTransferData2,
+                          metadata = makeDummyHeader accountAddress0 6 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+                  taaAssertion = \Helpers.SchedulerResult{..} state -> do
                     doEncryptedBalanceAssertion <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -697,13 +715,15 @@ testCase0 _ pvString = specify
                                     vrEvents
                             _ -> assertFailure "Nineth transaction should succeed"
                         doEncryptedBalanceAssertion
-                ),
-                ( Runner.TJSON
-                    { payload = Runner.TransferToPublic secToPubTransferData3,
-                      metadata = makeDummyHeader accountAddress0 7 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-                  \Helpers.SchedulerResult{..} state -> do
+                },
+              Helpers.TransactionAndAssertion
+                { taaTransaction =
+                    Runner.TJSON
+                        { payload = Runner.TransferToPublic secToPubTransferData3,
+                          metadata = makeDummyHeader accountAddress0 7 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+                  taaAssertion = \Helpers.SchedulerResult{..} state -> do
                     doEncryptedBalanceAssertion <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -734,9 +754,11 @@ testCase0 _ pvString = specify
                                     vrEvents
                             _ -> assertFailure "Tenth transaction should succeed"
                         doEncryptedBalanceAssertion
-                )
+                }
             ]
 
+-- | Test ensuring an encrypted transfer with memo fails correctly in protocol versions not
+-- supporting memos.
 testCase1 ::
     forall pv.
     (Types.IsProtocolVersion pv) =>
@@ -755,6 +777,7 @@ testCase1 spv pvString =
                 initialBlockState
                 transactionsAndAssertions
   where
+    makeTransactions :: IO [Helpers.TransactionAndAssertion pv]
     makeTransactions = do
         -- Transaction 1. Pub to sec (1000)
         let encryptedAmount1000 :: EncryptedAmount
@@ -775,12 +798,14 @@ testCase1 spv pvString =
         let memo = Types.Memo $ BSS.pack [0, 1, 2, 3]
 
         return
-            [   ( Runner.TJSON
-                    { payload = Runner.TransferToEncrypted 1_000,
-                      metadata = makeDummyHeader accountAddress0 1 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-                  \Helpers.SchedulerResult{..} state -> do
+            [ Helpers.TransactionAndAssertion
+                { taaTransaction =
+                    Runner.TJSON
+                        { payload = Runner.TransferToEncrypted 1_000,
+                          metadata = makeDummyHeader accountAddress0 1 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+                  taaAssertion = \Helpers.SchedulerResult{..} state -> do
                     doInvariantAssertions <-
                         Helpers.assertBlockStateInvariantsH
                             state
@@ -807,17 +832,19 @@ testCase1 spv pvString =
                             _ -> assertFailure "First transaction should succeed"
                         doInvariantAssertions
                         doEncryptedBalanceAssertions
-                ),
-                ( Runner.TJSON
-                    { payload =
-                        Runner.EncryptedAmountTransferWithMemo
-                            accountAddress1
-                            memo
-                            encryptedTransferData1,
-                      metadata = makeDummyHeader accountAddress0 2 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-                  \Helpers.SchedulerResult{..} state -> do
+                },
+              Helpers.TransactionAndAssertion
+                { taaTransaction =
+                    Runner.TJSON
+                        { payload =
+                            Runner.EncryptedAmountTransferWithMemo
+                                accountAddress1
+                                memo
+                                encryptedTransferData1,
+                          metadata = makeDummyHeader accountAddress0 2 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+                  taaAssertion = \Helpers.SchedulerResult{..} state -> do
                     doEncryptedBalanceAssertions <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -834,9 +861,11 @@ testCase1 spv pvString =
                                     vrRejectReason
                             _ -> assertFailure "Second transaction should reject"
                         doEncryptedBalanceAssertions
-                )
+                }
             ]
 
+-- | Test running a series of encrypted transfers with memo as described in this module
+-- documentation.
 testCase2 ::
     forall pv.
     (Types.IsProtocolVersion pv) =>
@@ -1029,12 +1058,14 @@ testCase2 spv pvString =
         let memo = Types.Memo $ BSS.pack [0, 1, 2, 3]
 
         return
-            [   ( Runner.TJSON
-                    { payload = Runner.TransferToEncrypted 1_000,
-                      metadata = makeDummyHeader accountAddress0 1 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-                  \Helpers.SchedulerResult{..} state -> do
+            [ Helpers.TransactionAndAssertion
+                { taaTransaction =
+                    Runner.TJSON
+                        { payload = Runner.TransferToEncrypted 1_000,
+                          metadata = makeDummyHeader accountAddress0 1 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+                  taaAssertion = \Helpers.SchedulerResult{..} state -> do
                     doInvariantAssertions <-
                         Helpers.assertBlockStateInvariantsH
                             state
@@ -1061,17 +1092,19 @@ testCase2 spv pvString =
                             _ -> assertFailure "First transaction should succeed"
                         doInvariantAssertions
                         doEncryptedBalanceAssertions
-                ),
-                ( Runner.TJSON
-                    { payload =
-                        Runner.EncryptedAmountTransferWithMemo
-                            accountAddress1
-                            memo
-                            encryptedTransferData1,
-                      metadata = makeDummyHeader accountAddress0 2 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-                  \Helpers.SchedulerResult{..} state -> do
+                },
+              Helpers.TransactionAndAssertion
+                { taaTransaction =
+                    Runner.TJSON
+                        { payload =
+                            Runner.EncryptedAmountTransferWithMemo
+                                accountAddress1
+                                memo
+                                encryptedTransferData1,
+                          metadata = makeDummyHeader accountAddress0 2 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+                  taaAssertion = \Helpers.SchedulerResult{..} state -> do
                     doEncryptedBalanceAssertionSender <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -1112,17 +1145,19 @@ testCase2 spv pvString =
                             _ -> assertFailure "Third transaction should succeed"
                         doEncryptedBalanceAssertionSender
                         doEncryptedBalanceAssertionReceiver
-                ),
-                ( Runner.TJSON
-                    { payload =
-                        Runner.EncryptedAmountTransferWithMemo
-                            accountAddress1
-                            memo
-                            encryptedTransferData2,
-                      metadata = makeDummyHeader accountAddress0 3 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-                  \Helpers.SchedulerResult{..} state -> do
+                },
+              Helpers.TransactionAndAssertion
+                { taaTransaction =
+                    Runner.TJSON
+                        { payload =
+                            Runner.EncryptedAmountTransferWithMemo
+                                accountAddress1
+                                memo
+                                encryptedTransferData2,
+                          metadata = makeDummyHeader accountAddress0 3 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+                  taaAssertion = \Helpers.SchedulerResult{..} state -> do
                     doEncryptedBalanceAssertionSender <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -1164,17 +1199,19 @@ testCase2 spv pvString =
                             _ -> assertFailure "Forth transaction should succeed"
                         doEncryptedBalanceAssertionSender
                         doEncryptedBalanceAssertionReceiver
-                ),
-                ( Runner.TJSON
-                    { payload =
-                        Runner.EncryptedAmountTransferWithMemo
-                            accountAddress1
-                            memo
-                            encryptedTransferData3,
-                      metadata = makeDummyHeader accountAddress0 4 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-                  \Helpers.SchedulerResult{..} state -> do
+                },
+              Helpers.TransactionAndAssertion
+                { taaTransaction =
+                    Runner.TJSON
+                        { payload =
+                            Runner.EncryptedAmountTransferWithMemo
+                                accountAddress1
+                                memo
+                                encryptedTransferData3,
+                          metadata = makeDummyHeader accountAddress0 4 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+                  taaAssertion = \Helpers.SchedulerResult{..} state -> do
                     doEncryptedBalanceAssertionSender <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -1216,17 +1253,19 @@ testCase2 spv pvString =
                             _ -> assertFailure "Fifth transaction should succeed"
                         doEncryptedBalanceAssertionSender
                         doEncryptedBalanceAssertionReceiver
-                ),
-                ( Runner.TJSON
-                    { payload =
-                        Runner.EncryptedAmountTransferWithMemo
-                            accountAddress0
-                            memo
-                            encryptedTransferData4,
-                      metadata = makeDummyHeader accountAddress1 1 100_000,
-                      keys = [(0, [(0, keyPair1)])]
-                    },
-                  \Helpers.SchedulerResult{..} state -> do
+                },
+              Helpers.TransactionAndAssertion
+                { taaTransaction =
+                    Runner.TJSON
+                        { payload =
+                            Runner.EncryptedAmountTransferWithMemo
+                                accountAddress0
+                                memo
+                                encryptedTransferData4,
+                          metadata = makeDummyHeader accountAddress1 1 100_000,
+                          keys = [(0, [(0, keyPair1)])]
+                        },
+                  taaAssertion = \Helpers.SchedulerResult{..} state -> do
                     doEncryptedBalanceAssertionSender <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -1269,17 +1308,19 @@ testCase2 spv pvString =
                             _ -> assertFailure "Sixth transaction should succeed"
                         doEncryptedBalanceAssertionSender
                         doEncryptedBalanceAssertionReceiver
-                ),
-                ( Runner.TJSON
-                    { payload =
-                        Runner.EncryptedAmountTransferWithMemo
-                            accountAddress0
-                            memo
-                            encryptedTransferData5,
-                      metadata = makeDummyHeader accountAddress1 2 100_000,
-                      keys = [(0, [(0, keyPair1)])]
-                    },
-                  \Helpers.SchedulerResult{..} state -> do
+                },
+              Helpers.TransactionAndAssertion
+                { taaTransaction =
+                    Runner.TJSON
+                        { payload =
+                            Runner.EncryptedAmountTransferWithMemo
+                                accountAddress0
+                                memo
+                                encryptedTransferData5,
+                          metadata = makeDummyHeader accountAddress1 2 100_000,
+                          keys = [(0, [(0, keyPair1)])]
+                        },
+                  taaAssertion = \Helpers.SchedulerResult{..} state -> do
                     doEncryptedBalanceAssertionSender <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -1322,13 +1363,15 @@ testCase2 spv pvString =
                             _ -> assertFailure "Seventh transaction should succeed"
                         doEncryptedBalanceAssertionSender
                         doEncryptedBalanceAssertionReceiver
-                ),
-                ( Runner.TJSON
-                    { payload = Runner.TransferToPublic secToPubTransferData1,
-                      metadata = makeDummyHeader accountAddress0 5 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-                  \Helpers.SchedulerResult{..} state -> do
+                },
+              Helpers.TransactionAndAssertion
+                { taaTransaction =
+                    Runner.TJSON
+                        { payload = Runner.TransferToPublic secToPubTransferData1,
+                          metadata = makeDummyHeader accountAddress0 5 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+                  taaAssertion = \Helpers.SchedulerResult{..} state -> do
                     doEncryptedBalanceAssertion <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -1361,13 +1404,15 @@ testCase2 spv pvString =
                                     vrEvents
                             _ -> assertFailure "Eigth transaction should succeed"
                         doEncryptedBalanceAssertion
-                ),
-                ( Runner.TJSON
-                    { payload = Runner.TransferToPublic secToPubTransferData2,
-                      metadata = makeDummyHeader accountAddress0 6 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-                  \Helpers.SchedulerResult{..} state -> do
+                },
+              Helpers.TransactionAndAssertion
+                { taaTransaction =
+                    Runner.TJSON
+                        { payload = Runner.TransferToPublic secToPubTransferData2,
+                          metadata = makeDummyHeader accountAddress0 6 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+                  taaAssertion = \Helpers.SchedulerResult{..} state -> do
                     doEncryptedBalanceAssertion <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -1398,13 +1443,15 @@ testCase2 spv pvString =
                                     vrEvents
                             _ -> assertFailure "Nineth transaction should succeed"
                         doEncryptedBalanceAssertion
-                ),
-                ( Runner.TJSON
-                    { payload = Runner.TransferToPublic secToPubTransferData3,
-                      metadata = makeDummyHeader accountAddress0 7 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-                  \Helpers.SchedulerResult{..} state -> do
+                },
+              Helpers.TransactionAndAssertion
+                { taaTransaction =
+                    Runner.TJSON
+                        { payload = Runner.TransferToPublic secToPubTransferData3,
+                          metadata = makeDummyHeader accountAddress0 7 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+                  taaAssertion = \Helpers.SchedulerResult{..} state -> do
                     doEncryptedBalanceAssertion <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -1435,5 +1482,5 @@ testCase2 spv pvString =
                                     vrEvents
                             _ -> assertFailure "Tenth transaction should succeed"
                         doEncryptedBalanceAssertion
-                )
+                }
             ]

@@ -106,7 +106,7 @@ testInit spv pvString = specify
                 Just (BS.InstanceInfoV0 ii) -> do
                     let Instances.InstanceStateV0 model = BS.iiState ii
                     assertEqual
-                        "Instance model is the sender address of the account which inialized it."
+                        "Instance model is the sender address of the account which initialized it."
                         model
                         (ContractState $ encode $ senderAccount spv)
                 Just _ -> assertFailure "Expected V0 instance."

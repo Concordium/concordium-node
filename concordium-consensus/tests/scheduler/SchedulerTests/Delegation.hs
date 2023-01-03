@@ -34,11 +34,39 @@ import qualified SchedulerTests.Helpers as Helpers
 import Test.HUnit
 import Test.Hspec
 
+tests :: Spec
+tests =
+    describe "Delegate in different scenarios" $
+        sequence_ $
+            Helpers.forEveryProtocolVersion testCases
+  where
+    testCases :: forall pv. IsProtocolVersion pv => SProtocolVersion pv -> String -> SpecWith (Arg Assertion)
+    testCases spv pvString =
+        case delegationSupport @(AccountVersionFor pv) of
+            SAVDelegationNotSupported -> return ()
+            SAVDelegationSupported -> do
+                testCase1 spv pvString
+                testCase2 spv pvString
+                testCase3 spv pvString
+                testCase4 spv pvString
+                testCase5 spv pvString
+                testCase6 spv pvString
+                testCase7 spv pvString
+                testCase8 spv pvString
+                testCase9 spv pvString
+
+-- | Deterministically generate a baker account from a seed.
 makeTestBakerV1FromSeed ::
     (IsAccountVersion av, Blob.MonadBlobStore m, AVSupportsDelegation av) =>
+    -- | The initial balance of the account.
     Amount ->
+    -- | The initial staked amount of the account.
+    -- Must be less than or equal to the initial balance.
     Amount ->
+    -- | The baker id of the account.
+    -- Must match the account index, which is the index of the account in the initial block state.
     BakerId ->
+    -- | Seed used to generate account and baker keys.
     Int ->
     m (BS.PersistentAccount av)
 makeTestBakerV1FromSeed amount stake bakerId seed = do
@@ -63,10 +91,14 @@ makeTestBakerV1FromSeed amount stake bakerId seed = do
                     }
             }
 
+-- | Deterministically generate a delegator account from a seed.
 makeTestDelegatorFromSeed ::
     (IsAccountVersion av, Blob.MonadBlobStore m, AVSupportsDelegation av) =>
+    -- | The initial balance of the account.
     Amount ->
+    -- | The delegating details added to the account.
     AccountDelegation av ->
+    -- | Seed used to generate the account.
     Int ->
     m (BS.PersistentAccount av)
 makeTestDelegatorFromSeed amount accountDelegation seed = do
@@ -168,7 +200,7 @@ initialBlockState =
           baker4Account
         ]
 
--- Test removing a delegator even if the stake is over the threshold.
+-- | Test removing a delegator even if the stake is over the threshold.
 testCase1 ::
     forall pv.
     (IsProtocolVersion pv, SupportsDelegation pv) =>
@@ -214,7 +246,7 @@ testCase1 _ pvString =
     checkState result blockState = do
         Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
 
--- Test reducing delegator stake in such a way that it stays above the cap threshold.
+-- | Test reducing delegator stake in such a way that it stays above the cap threshold.
 testCase2 ::
     forall pv.
     (IsProtocolVersion pv, SupportsDelegation pv) =>
@@ -258,7 +290,7 @@ testCase2 _ pvString =
     checkState result blockState =
         Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
 
--- Test transaction rejects if increasing stake above the threshold of the pool
+-- |Test transaction rejects if increasing stake above the threshold of the pool
 testCase3 ::
     forall pv.
     (IsProtocolVersion pv, SupportsDelegation pv) =>
@@ -302,7 +334,7 @@ testCase3 _ pvString =
     checkState result blockState =
         Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
 
--- Test reducing delegator stake **and changing target** such that the new stake is above the cap
+-- |Test reducing delegator stake **and changing target** such that the new stake is above the cap
 -- for the new target.
 testCase4 ::
     forall pv.
@@ -347,7 +379,7 @@ testCase4 _ pvString =
     checkState result blockState =
         Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
 
--- Test changing the target and decreasing stake such that the new stake is acceptable for the new target.
+-- |Test changing the target and decreasing stake such that the new stake is acceptable for the new target.
 -- This still fails because the change of target is only effected after the cooldown period.
 testCase5 ::
     forall pv.
@@ -392,7 +424,7 @@ testCase5 _ pvString =
     checkState result blockState =
         Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
 
--- Increase stake successfully.
+-- |Increase stake successfully.
 testCase6 ::
     forall pv.
     (IsProtocolVersion pv, SupportsDelegation pv) =>
@@ -433,7 +465,7 @@ testCase6 _ pvString =
     checkState result blockState =
         Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
 
--- Increase stake and change target successfully.
+-- |Increase stake and change target successfully.
 testCase7 ::
     forall pv.
     (IsProtocolVersion pv, SupportsDelegation pv) =>
@@ -479,7 +511,7 @@ testCase7 _ pvString =
     checkState result blockState =
         Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
 
--- Increase stake and change target rejects with reason: maximum threshold for pool.
+-- |Increase stake and change target rejects with reason: maximum threshold for pool.
 testCase8 ::
     forall pv.
     (IsProtocolVersion pv, SupportsDelegation pv) =>
@@ -523,7 +555,7 @@ testCase8 _ pvString =
     checkState result blockState =
         Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
 
--- Increase stake and change target rejects with reason: maximum threshold for pool.
+-- |Increase stake and change target rejects with reason: maximum threshold for pool.
 testCase9 ::
     forall pv.
     (IsProtocolVersion pv, SupportsDelegation pv) =>
@@ -566,24 +598,3 @@ testCase9 _ pvString =
         Helpers.PersistentBSM pv Assertion
     checkState result blockState =
         Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
-
-tests :: Spec
-tests =
-    describe "Delegate in different scenarios" $
-        sequence_ $
-            Helpers.forEveryProtocolVersion testCases
-  where
-    testCases :: forall pv. IsProtocolVersion pv => SProtocolVersion pv -> String -> SpecWith (Arg Assertion)
-    testCases spv pvString =
-        case delegationSupport @(AccountVersionFor pv) of
-            SAVDelegationNotSupported -> return ()
-            SAVDelegationSupported -> do
-                testCase1 spv pvString
-                testCase2 spv pvString
-                testCase3 spv pvString
-                testCase4 spv pvString
-                testCase5 spv pvString
-                testCase6 spv pvString
-                testCase7 spv pvString
-                testCase8 spv pvString
-                testCase9 spv pvString

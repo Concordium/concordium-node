@@ -13,6 +13,7 @@ module SchedulerTests.Helpers where
 
 import qualified Control.Monad.Except as Except
 import Control.Monad.RWS.Strict
+import qualified Data.ByteString as ByteString
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Word
@@ -29,6 +30,7 @@ import qualified Concordium.Types.Accounts as Types
 import qualified Concordium.Types.Accounts.Releases as Types
 import qualified Concordium.Types.DummyData as DummyData
 import Concordium.Types.SeedState (initialSeedState)
+import qualified Concordium.Wasm as Wasm
 
 import qualified Concordium.Common.Time as Time
 import qualified Concordium.Cost as Cost
@@ -94,8 +96,9 @@ makeTestCredentialFromSeed seed =
         address = accountAddressFromSeed seed
     in  makeTestCredential (SigScheme.correspondingVerifyKey keyPair) address
 
--- |Generate an account with the provided amount as balance. The generated account have a single
--- credential and single keypair, which has sufficiently late expiry date.
+-- |Generate an account providing a verify key, account address and the initial balance.
+-- The generated account have a single credential and single keypair, which has sufficiently late
+-- expiry date.
 makeTestAccount ::
     (Types.IsAccountVersion av, Blob.MonadBlobStore m) =>
     SigScheme.VerifyKey ->
@@ -108,6 +111,8 @@ makeTestAccount key accountAddress amount = do
     BS.addAccountAmount amount account
 
 -- |Generate a test account keypair deterministically from a seed.
+-- Note this is also used internally by `makeTestAccountFromSeed` and providing the same seed
+-- results in the same keypair as used for the generated account.
 keyPairFromSeed :: Int -> SigScheme.KeyPair
 keyPairFromSeed =
     uncurry SigScheme.KeyPairEd25519
@@ -116,6 +121,8 @@ keyPairFromSeed =
         . Random.mkStdGen
 
 -- |Generate an account address deterministically from a seed.
+-- Note this is also used internally by `makeTestAccountFromSeed` and providing the same seed
+-- results in the same account address as used for the generated account.
 accountAddressFromSeed :: Int -> Types.AccountAddress
 accountAddressFromSeed = DummyData.accountAddressFrom
 
@@ -328,20 +335,30 @@ runSchedulerTestTransactionJson config constructState extractor transactionJsonL
     transactions <- SchedTest.processUngroupedTransactions transactionJsonList
     runSchedulerTest config constructState extractor transactions
 
+-- | Check assertions on the result of running a transaction in the scheduler and the resulting
+-- block state.
 type TransactionAssertion pv =
     SchedulerResult ->
     BS.PersistentBlockState pv ->
     PersistentBSM pv Assertion
-type TransactionsAndAssertion pv = (SchedTest.TransactionJSON, TransactionAssertion pv)
 
--- |Run the scheduler on transactions in a test environment, provided a list of transactions and
--- assertions.
+-- |A test transaction paired with assertions to run on the scheduler result and block state.
+data TransactionAndAssertion pv = TransactionAndAssertion
+    { -- | A transaction to run in the scheduler.
+      taaTransaction :: SchedTest.TransactionJSON,
+      -- | Assertions to make about the outcome from the scheduler and the resulting block state.
+      taaAssertion :: TransactionAssertion pv
+    }
+
+-- |Run the scheduler on transactions in a test environment. Each transaction in the list of
+-- transactions is paired with the assertions to run on the scheduler result and the resulting block
+-- state right after executing each transaction in the intermediate block state.
 runSchedulerTestAssertIntermediateStates ::
     forall pv.
     (Types.IsProtocolVersion pv) =>
     TestConfig ->
     PersistentBSM pv (BS.HashedPersistentBlockState pv) ->
-    [TransactionsAndAssertion pv] ->
+    [TransactionAndAssertion pv] ->
     Assertion
 runSchedulerTestAssertIntermediateStates config constructState transactionsAndAssertions =
     join $ runTestBlockState blockStateComputation
@@ -353,12 +370,12 @@ runSchedulerTestAssertIntermediateStates config constructState transactionsAndAs
 
     transactionRunner ::
         (Assertion, BS.HashedPersistentBlockState pv) ->
-        TransactionsAndAssertion pv ->
+        TransactionAndAssertion pv ->
         PersistentBSM pv (Assertion, BS.HashedPersistentBlockState pv)
-    transactionRunner (assertedSoFar, currentState) (transactionJson, assertTransactionComputation) = do
-        transactions <- liftIO $ SchedTest.processUngroupedTransactions [transactionJson]
+    transactionRunner (assertedSoFar, currentState) step = do
+        transactions <- liftIO $ SchedTest.processUngroupedTransactions [taaTransaction step]
         (result, updatedState) <- runScheduler config currentState transactions
-        doAssertTransaction <- assertTransactionComputation result updatedState
+        doAssertTransaction <- taaAssertion step result updatedState
         let nextAssertedSoFar = do
                 assertedSoFar
                 doAssertTransaction
@@ -410,16 +427,14 @@ reloadBlockState persistentState = do
     BS.thawBlockState =<< BS.loadBlockState (BS.hpbsHash frozen) br
 
 -- |Takes a function for checking the block state, which is then run on the block state, the block
--- state is reloaded and the check is run again.
+-- state is reloaded (save to the blobstore and loaded again) and the check is run again against the
+-- reloaded state.
+-- This is useful to run checks against both the current in-memory block state and on the block
+-- state read from the disc.
 checkReloadCheck ::
     (Types.IsProtocolVersion pv) =>
-    ( SchedulerResult ->
-      BS.PersistentBlockState pv ->
-      PersistentBSM pv Assertion
-    ) ->
-    SchedulerResult ->
-    BS.PersistentBlockState pv ->
-    PersistentBSM pv Assertion
+    TransactionAssertion pv ->
+    TransactionAssertion pv
 checkReloadCheck check result blockState = do
     doCheck <- check result blockState
     reloadedState <- reloadBlockState blockState
@@ -446,9 +461,9 @@ data AccountAccumulated av = AccountAccumulated
 
 -- | Hash and check block state for a number of invariants.
 --
--- The invariants being check are:
--- - No dublicate account addresses.
--- - No dublicate account credentials.
+-- The invariants being checked are:
+-- - No duplicate account addresses.
+-- - No duplicate account credentials.
 -- - For each account
 --   - Ensure the tracking of the total locked amount matches the sum of the pending releases.
 --   - If the account is a baker, check the baker ID matches account index and it is part of the set
@@ -472,9 +487,9 @@ assertBlockStateInvariantsH blockState extraBalance = do
 
 -- | Check block state for a number of invariants.
 --
--- The invariants being check are:
--- - No dublicate account addresses.
--- - No dublicate account credentials.
+-- The invariants being checked are:
+-- - No duplicate account addresses.
+-- - No duplicate account credentials.
 -- - For each account
 --   - Ensure the tracking of the total locked amount matches the sum of the pending releases.
 --   - If the account is a baker, check the baker ID matches account index and it is part of the set
@@ -503,9 +518,9 @@ data DefinedWhenSupportDelegation (av :: Types.AccountVersion) a where
 
 -- | Check block state for a number of invariants.
 --
--- The invariants being check are:
--- - No dublicate account addresses.
--- - No dublicate account credentials.
+-- The invariants being checked are:
+-- - No duplicate account addresses.
+-- - No duplicate account credentials.
 -- - For each account
 --   - Ensure the tracking of the total locked amount matches the sum of the pending releases.
 --   - If the account is a baker, check the baker ID matches account index and it is part of the set
@@ -735,3 +750,15 @@ checkBlockStateInvariants bs extraBalance = do
             Except.throwError $
                 "Duplicate account credentials: " ++ show credential
         return $ Map.insert credentialRegistrationId accountIndex credentialsSoFar
+
+-- |Read a WASM file as a smart contract module V0.
+readV0ModuleFile :: FilePath -> IO Wasm.WasmModule
+readV0ModuleFile filePath = do
+    moduleSource <- ByteString.readFile filePath
+    return $ Wasm.WasmModuleV0 $ Wasm.WasmModuleV Wasm.ModuleSource{..}
+
+-- |Read a WASM file as a smart contract module V1.
+readV1ModuleFile :: FilePath -> IO Wasm.WasmModule
+readV1ModuleFile filePath = do
+    moduleSource <- ByteString.readFile filePath
+    return $ Wasm.WasmModuleV1 $ Wasm.WasmModuleV Wasm.ModuleSource{..}
