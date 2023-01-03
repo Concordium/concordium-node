@@ -77,43 +77,47 @@ testCase1 _ pvString =
             transactions
   where
     transactions =
-        [   ( Runner.TJSON
-                { payload = Runner.DeployModule V0 fibSourceFile,
-                  metadata = makeDummyHeader accountAddress0 1 100_000,
-                  keys = [(0, [(0, Helpers.keyPairFromSeed 0)])]
-                },
-              deploymentCostCheck
-            ),
-            ( Runner.TJSON
-                { payload = Runner.InitContract 0 V0 fibSourceFile "init_fib" "",
-                  metadata = makeDummyHeader accountAddress0 2 100_000,
-                  keys = [(0, [(0, Helpers.keyPairFromSeed 0)])]
-                },
-              initializationCostCheck
-            ),
+        [ Helpers.TransactionAndAssertion
+            { taaTransaction =
+                Runner.TJSON
+                    { payload = Runner.DeployModule V0 fibSourceFile,
+                      metadata = makeDummyHeader accountAddress0 1 100_000,
+                      keys = [(0, [(0, Helpers.keyPairFromSeed 0)])]
+                    },
+              taaAssertion = deploymentCostCheck
+            },
+          Helpers.TransactionAndAssertion
+            { taaTransaction =
+                Runner.TJSON
+                    { payload = Runner.InitContract 0 V0 fibSourceFile "init_fib" "",
+                      metadata = makeDummyHeader accountAddress0 2 100_000,
+                      keys = [(0, [(0, Helpers.keyPairFromSeed 0)])]
+                    },
+              taaAssertion = initializationCostCheck
+            },
           -- compute F(10)
-            ( Runner.TJSON
-                { payload = Runner.Update 0 (Types.ContractAddress 0 0) "fib.receive" (fibParamBytes 10),
-                  metadata = makeDummyHeader accountAddress0 3 700_000,
-                  keys = [(0, [(0, Helpers.keyPairFromSeed 0)])]
-                },
-              ensureAllUpdates
-            )
+          Helpers.TransactionAndAssertion
+            { taaTransaction =
+                Runner.TJSON
+                    { payload = Runner.Update 0 (Types.ContractAddress 0 0) "fib.receive" (fibParamBytes 10),
+                      metadata = makeDummyHeader accountAddress0 3 700_000,
+                      keys = [(0, [(0, Helpers.keyPairFromSeed 0)])]
+                    },
+              taaAssertion = ensureAllUpdates
+            }
         ]
     deploymentCostCheck ::
         Helpers.SchedulerResult ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     deploymentCostCheck Helpers.SchedulerResult{..} _ = return $ do
-        moduleSource <- BS.readFile fibSourceFile
-        let len = fromIntegral $ BS.length moduleSource
+        contractModule <- Helpers.readV0ModuleFile fibSourceFile
+        let len = fromIntegral $ BS.length (wasmSource contractModule)
             -- size of the module deploy payload
             payloadSize =
                 Types.payloadSize $
                     Types.encodePayload $
-                        Types.DeployModule $
-                            WasmModuleV0 $
-                                WasmModuleV ModuleSource{..}
+                        Types.DeployModule contractModule
             -- size of the transaction minus the signatures.
             txSize = Types.transactionHeaderSize + fromIntegral payloadSize
         -- transaction is signed with 1 signature
@@ -130,9 +134,9 @@ testCase1 _ pvString =
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     initializationCostCheck Helpers.SchedulerResult{..} _ = return $ do
-        moduleSource <- BS.readFile fibSourceFile
+        moduleSource <- wasmSource <$> Helpers.readV0ModuleFile fibSourceFile
         let modLen = fromIntegral $ BS.length moduleSource
-            modRef = Types.ModuleRef (Hash.hash moduleSource)
+            modRef = Types.ModuleRef $ Hash.hash moduleSource
             payloadSize =
                 Types.payloadSize $
                     Types.encodePayload $
@@ -167,9 +171,12 @@ testCase1 _ pvString =
                 [(_, Types.TxSuccess evs)] -> do
                     mapM_ p evs -- check that all updates are the right ones
                     -- and check that the cost was adequate (we again only check the lower bound only)
-                    moduleSource <- BS.readFile fibSourceFile
+                    moduleSource <- wasmSource <$> Helpers.readV0ModuleFile fibSourceFile
                     let modLen = fromIntegral $ BS.length moduleSource
-                        payloadSize = Types.payloadSize (Types.encodePayload (Types.Update 0 (Types.ContractAddress 0 0) (ReceiveName "fib.receive") (Parameter (fibParamBytes 10))))
+                        payloadSize =
+                            Types.payloadSize $
+                                Types.encodePayload $
+                                    Types.Update 0 (Types.ContractAddress 0 0) (ReceiveName "fib.receive") (Parameter (fibParamBytes 10))
                         -- size of the transaction minus the signatures.
                         txSize = Types.transactionHeaderSize + fromIntegral payloadSize
                         -- transaction is signed with 1 signature

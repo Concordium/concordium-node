@@ -66,7 +66,7 @@ testCase0 _ pvString = specify
             initialBlockState
             transactionsAndAssertions
   where
-    makeTransactionsAndAssertions :: IO [Helpers.TransactionsAndAssertion pv]
+    makeTransactionsAndAssertions :: IO [Helpers.TransactionAndAssertion pv]
     makeTransactionsAndAssertions = do
         -- Transaction 1. Pub to sec (1000)
         let encryptedAmount1000 :: EncryptedAmount
@@ -125,12 +125,14 @@ testCase0 _ pvString = specify
                     (numberOfTransactions * 10)
 
         return $
-            [   ( Runner.TJSON
-                    { payload = Runner.TransferToEncrypted 1_000,
-                      metadata = makeDummyHeader accountAddress0 1 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-                  \Helpers.SchedulerResult{..} state -> do
+            [ Helpers.TransactionAndAssertion
+                { taaTransaction =
+                    Runner.TJSON
+                        { payload = Runner.TransferToEncrypted 1_000,
+                          metadata = makeDummyHeader accountAddress0 1 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+                  taaAssertion = \Helpers.SchedulerResult{..} state -> do
                     doInvariantAssertions <-
                         Helpers.assertBlockStateInvariantsH
                             state
@@ -157,17 +159,19 @@ testCase0 _ pvString = specify
                             _ -> assertFailure "First transaction should succeed"
                         doInvariantAssertions
                         doEncryptedBalanceAssertions
-                )
+                }
             ]
                 -- Now send 34 transactions of 10 tokens from account0 to account1
                 ++ generatedTransactions
                 -- Send the encrypted 340 tokens on account1 to public balance
-                ++ [   ( Runner.TJSON
-                            { payload = Runner.TransferToPublic secToPubTransferData,
-                              metadata = makeDummyHeader accountAddress1 1 100000,
-                              keys = [(0, [(0, keyPair1)])]
-                            },
-                         \Helpers.SchedulerResult{..} state -> do
+                ++ [ Helpers.TransactionAndAssertion
+                        { taaTransaction =
+                            Runner.TJSON
+                                { payload = Runner.TransferToPublic secToPubTransferData,
+                                  metadata = makeDummyHeader accountAddress1 1 100_000,
+                                  keys = [(0, [(0, keyPair1)])]
+                                },
+                          taaAssertion = \Helpers.SchedulerResult{..} state -> do
                             doEncryptedBalanceAssertions <-
                                 assertEncryptedBalance
                                     Types.initialAccountEncryptedAmount
@@ -208,7 +212,7 @@ testCase0 _ pvString = specify
                                         assertFailure $
                                             "Last transaction should succeed: " ++ show other
                                 doEncryptedBalanceAssertions
-                       )
+                        }
                    ]
 
 initialBlockState ::
@@ -382,27 +386,29 @@ makeTransaction ::
     Helpers.TransactionAssertion pv ->
     EncryptedAmountTransferData ->
     EncryptedAmountAggIndex ->
-    (Runner.TransactionJSON, Helpers.TransactionAssertion pv)
+    Helpers.TransactionAndAssertion pv
 makeTransaction blockStateChecks transferData idx =
-    ( Runner.TJSON
-        { payload = Runner.EncryptedAmountTransfer accountAddress1 transferData, -- create an encrypted transfer to account1
-          metadata = makeDummyHeader accountAddress0 (fromIntegral idx + 1) 100000, -- from account0 with nonce idx + 1
-          keys = [(0, [(0, keyPair0)])]
-        },
-      \result state -> do
-        doBlockStateChecks <- blockStateChecks result state
-        return $ do
-            case Helpers.getResults $ Sch.ftAdded $ Helpers.srTransactions result of
-                [(_, Types.TxSuccess events)] ->
-                    case events of
-                        [Types.EncryptedAmountsRemoved{..}, Types.NewEncryptedAmount{..}] -> do
-                            assertEqual "Account encrypted amounts removed" earAccount accountAddress0
-                            assertEqual "Used up indices" earUpToIndex 0
-                            assertEqual "New amount" earNewAmount (eatdRemainingAmount transferData)
-                            assertEqual "Receiver address" neaAccount accountAddress1
-                            assertEqual "New receiver index" neaNewIndex $ fromIntegral idx - 1
-                            assertEqual "Received amount" neaEncryptedAmount (eatdTransferAmount transferData)
-                        e -> assertFailure $ "Unexpected outcome: " ++ show e
-                e -> assertFailure $ "Transaction should succeed: " ++ show e
-            doBlockStateChecks
-    )
+    Helpers.TransactionAndAssertion
+        { taaTransaction =
+            Runner.TJSON
+                { payload = Runner.EncryptedAmountTransfer accountAddress1 transferData, -- create an encrypted transfer to account1
+                  metadata = makeDummyHeader accountAddress0 (fromIntegral idx + 1) 100_000, -- from account0 with nonce idx + 1
+                  keys = [(0, [(0, keyPair0)])]
+                },
+          taaAssertion = \result state -> do
+            doBlockStateChecks <- blockStateChecks result state
+            return $ do
+                case Helpers.getResults $ Sch.ftAdded $ Helpers.srTransactions result of
+                    [(_, Types.TxSuccess events)] ->
+                        case events of
+                            [Types.EncryptedAmountsRemoved{..}, Types.NewEncryptedAmount{..}] -> do
+                                assertEqual "Account encrypted amounts removed" earAccount accountAddress0
+                                assertEqual "Used up indices" earUpToIndex 0
+                                assertEqual "New amount" earNewAmount (eatdRemainingAmount transferData)
+                                assertEqual "Receiver address" neaAccount accountAddress1
+                                assertEqual "New receiver index" neaNewIndex $ fromIntegral idx - 1
+                                assertEqual "Received amount" neaEncryptedAmount (eatdTransferAmount transferData)
+                            e -> assertFailure $ "Unexpected outcome: " ++ show e
+                    e -> assertFailure $ "Transaction should succeed: " ++ show e
+                doBlockStateChecks
+        }
