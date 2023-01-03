@@ -14,6 +14,7 @@ import Control.Exception
 import Control.Monad.State
 import Data.Foldable
 import Data.Functor.Identity
+import Data.Kind (Type)
 import Data.List (intercalate, partition)
 import Data.Maybe (fromMaybe)
 import Lens.Micro.Platform
@@ -146,7 +147,7 @@ initialSkovData rp gd genState genTT mPending =
 --
 -- This newtype establishes types for the @GlobalStateTypes@. The type variable @bs@ stands for the BlockState
 -- type used in the implementation.
-newtype PureTreeStateMonad bs m a = PureTreeStateMonad {runPureTreeStateMonad :: m a}
+newtype PureTreeStateMonad (bs :: Type) (m :: Type -> Type) (a :: Type) = PureTreeStateMonad {runPureTreeStateMonad :: m a}
     deriving
         ( Functor,
           Applicative,

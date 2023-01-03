@@ -96,6 +96,7 @@ import Control.Monad.Reader
 import qualified Control.Monad.State.Strict as MTL
 import qualified Control.Monad.Writer.Strict as MTL
 import Data.IORef
+import Data.Kind (Type)
 import qualified Data.Map.Strict as Map
 import Data.Maybe
 import Data.Proxy
@@ -2059,7 +2060,7 @@ doRewardAccount pbs ai reward = do
         return ((addr, restaked), acc2)
 
     updateDelegationPoolCapital ::
-        (IsAccountVersion av) =>
+        (AVSupportsDelegation av, IsAccountVersion av) =>
         PersistentActiveBakers av ->
         Transactions.DelegationTarget ->
         m (PersistentActiveBakers av)
@@ -2333,7 +2334,7 @@ doPutNewInstance pbs NewInstanceData{..} = do
                 -- We retrieve the module interface here so that we only have a single copy of it, meaning that
                 -- all instances created from the same module share a reference to the module.
                 -- Seeing that we know that the instance is V0, and that the module exists, this cannot fail.
-                ~(Just modRef) <- Modules.getModuleReference (GSWasm.miModuleRef nidInterface) mods
+                modRef <- fromJust <$> Modules.getModuleReference (GSWasm.miModuleRef nidInterface) mods
                 (csHash, initialState) <- freezeContractState nidInitialState
                 -- The module version is V0 because of the 'WasmVersion' is V0.
                 return $!!
@@ -2361,7 +2362,7 @@ doPutNewInstance pbs NewInstanceData{..} = do
                 -- We retrieve the module interface here so that we only have a single copy of it, meaning that
                 -- all instances created from the same module share a reference to the module.
                 -- Seeing that we know that the instance is V1, and that the module exists, this cannot fail.
-                ~(Just modRef) <- Modules.getModuleReference (GSWasm.miModuleRef nidInterface) mods
+                modRef <- fromJust <$> Modules.getModuleReference (GSWasm.miModuleRef nidInterface) mods
                 (csHash, initialState) <- freezeContractState nidInitialState
                 let pinstanceHash = Instances.makeInstanceHashV1 (pinstanceParameterHash params) csHash nidInitialAmount
                 -- The module version is V1 because of the 'WasmVersion' is V1.
@@ -3258,7 +3259,7 @@ withNewAccountCache size bsm = do
     mc <- liftIO $ Modules.newModuleCache 100
     alterBlobStoreT (\bs -> PersistentBlockStateContext bs ac mc) bsm
 
-newtype PersistentBlockStateMonad (pv :: ProtocolVersion) r m a = PersistentBlockStateMonad {runPersistentBlockStateMonad :: m a}
+newtype PersistentBlockStateMonad (pv :: ProtocolVersion) (r :: Type) (m :: Type -> Type) (a :: Type) = PersistentBlockStateMonad {runPersistentBlockStateMonad :: m a}
     deriving (Functor, Applicative, Monad, MonadIO, MonadReader r, MonadLogger)
 
 type PersistentState av pv r m =

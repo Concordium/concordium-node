@@ -131,24 +131,28 @@ addIncomingEncryptedAmount newAmount old =
         Nothing ->
             -- we have to aggregate if we have >= maxNumIncoming amounts on the sequence
             if Seq.length (_incomingEncryptedAmounts old) >= maxNumIncoming
-                then -- irrefutable because of check above
-
-                    let ~(x Seq.:<| y Seq.:<| rest) = _incomingEncryptedAmounts old
-                    in  old
+                then case _incomingEncryptedAmounts old of
+                    (x Seq.:<| y Seq.:<| rest) ->
+                        old
                             { _incomingEncryptedAmounts = rest Seq.|> newAmount,
                               _startIndex = _startIndex old + 1,
                               _aggregatedAmount = Just (x <> y, 2)
                             }
+                    -- this does not happen due to the check above
+                    _ -> error "_incomingEncryptedAmounts should consist of two or more elements"
                 else old & incomingEncryptedAmounts %~ (Seq.|> newAmount)
         Just (e, n) ->
             -- we have to aggregate always
-            -- irrefutable because of check above
-            let ~(x Seq.:<| rest) = _incomingEncryptedAmounts old
-            in  old
-                    { _incomingEncryptedAmounts = rest Seq.|> newAmount,
-                      _startIndex = _startIndex old + 1,
-                      _aggregatedAmount = Just (e <> x, n + 1)
-                    }
+            case _incomingEncryptedAmounts old of
+                (x Seq.:<| rest) ->
+                    old
+                        { _incomingEncryptedAmounts = rest Seq.|> newAmount,
+                          _startIndex = _startIndex old + 1,
+                          _aggregatedAmount = Just (e <> x, n + 1)
+                        }
+                -- this does not happen, since if _aggregatedAmount is @Just@, then
+                -- the length of `incomingEncryptedAmounts` is `maxNumIncoming - 1`.
+                Seq.Empty -> error "_incomingEncryptedAmounts should not be empty since there is an aggregated incoming amount."
 
 -- | Drop the encrypted amount with indices up to (but not including) the given one, and add the new amount at the end.
 -- This is used when an account is transfering from from an encrypted balance, and the newly added
@@ -492,16 +496,19 @@ applyBakerPoolInfoUpdate
 -- Compared to 'AccountStake' this omits the 'BakerInfoEx' and the 'DelegatorId'.
 -- It is more efficient to query these details on an account than to get the full baker on
 -- an account, as it avoids loading the baker keys and pool parameters where possible.
-data StakeDetails av
-    = StakeDetailsNone
-    | StakeDetailsBaker
+data StakeDetails (av :: AccountVersion) where
+    StakeDetailsNone :: StakeDetails av
+    StakeDetailsBaker ::
         { sdStakedCapital :: !Amount,
           sdRestakeEarnings :: !Bool,
           sdPendingChange :: !(StakePendingChange av)
-        }
-    | StakeDetailsDelegator
+        } ->
+        StakeDetails av
+    StakeDetailsDelegator ::
+        (AVSupportsDelegation av) =>
         { sdStakedCapital :: !Amount,
           sdRestakeEarnings :: !Bool,
           sdPendingChange :: !(StakePendingChange av),
           sdDelegationTarget :: !DelegationTarget
-        }
+        } ->
+        StakeDetails av

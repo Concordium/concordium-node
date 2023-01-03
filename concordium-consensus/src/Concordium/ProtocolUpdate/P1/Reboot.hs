@@ -109,7 +109,7 @@ updateHash = SHA256.hash "P1.Reboot"
 -- i.e. it is the first (and only) explicitly-finalized block with timestamp after the
 -- update takes effect.
 updateRegenesis ::
-    (MPV m ~ 'P1, BlockPointerMonad m, BlockStateStorage m, SkovMonad m) =>
+    (MPV m ~ 'P1, BlockStateStorage m, SkovMonad m) =>
     UpdateData ->
     m (PVInit m)
 updateRegenesis UpdateData{..} = do

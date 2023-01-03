@@ -490,7 +490,7 @@ conditionalSetBit :: (Bits a) => Int -> Bool -> a -> a
 conditionalSetBit _ False x = x
 conditionalSetBit b True x = setBit x b
 
-instance (IsProtocolVersion pv, BlobStorable m r, MonadIO m, Cache.MonadCache ModuleCache m) => BlobStorable m (IT pv r) where
+instance (IsProtocolVersion pv, BlobStorable m r, Cache.MonadCache ModuleCache m) => BlobStorable m (IT pv r) where
     storeUpdate (Branch{..}) = do
         (pl, l') <- storeUpdate branchLeft
         (pr, r') <- storeUpdate branchRight
@@ -783,10 +783,11 @@ makePersistent mods (Transient.Instances (Transient.Tree s t)) = InstancesTree s
                           pinstanceParameterHash = getHash params,
                           pinstanceReceiveFuns = instanceReceiveFuns
                         }
-            -- This pattern is irrefutable because if the instance exists in the Basic version,
-            -- then the module must be present in the persistent implementation.
-            -- Moreover, it will be of the same module version (i.e. V0).
-            ~(Just pIModuleInterface) <- Modules.getModuleReference (GSWasm.miModuleRef instanceModuleInterface) mods
+            -- Using `fromJust`here is safe, since if the instance exists in the
+            -- Basic version, then the module must be present in the persistent
+            -- implementation. Moreover, it will be of the same module version
+            -- (i.e. V0).
+            pIModuleInterface <- fromJust <$> Modules.getModuleReference (GSWasm.miModuleRef instanceModuleInterface) mods
             return $
                 PersistentInstanceV0
                     PersistentInstanceV
@@ -815,10 +816,11 @@ makePersistent mods (Transient.Instances (Transient.Tree s t)) = InstancesTree s
                           pinstanceParameterHash = getHash params,
                           pinstanceReceiveFuns = instanceReceiveFuns
                         }
-            -- This pattern is irrefutable because if the instance exists in the Basic version,
-            -- then the module must be present in the persistent implementation.
-            -- Moreover, it will be of the same module version (i.e. V1).
-            ~(Just pIModuleInterface) <- Modules.getModuleReference (GSWasm.miModuleRef instanceModuleInterface) mods
+            -- Using `fromJust`here is safe, since if the instance exists in the
+            -- Basic version, then the module must be present in the persistent
+            -- implementation. Moreover, it will be of the same module version
+            -- (i.e. V0).
+            pIModuleInterface <- fromJust <$> Modules.getModuleReference (GSWasm.miModuleRef instanceModuleInterface) mods
             return $
                 PersistentInstanceV1
                     PersistentInstanceV

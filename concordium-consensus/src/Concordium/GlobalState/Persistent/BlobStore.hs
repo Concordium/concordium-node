@@ -13,6 +13,17 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
+-- FIXME: GHC 9.2.5 reports that `MonadBlobStore m` is a redundant constraint in a
+-- number if instance declarations such as:
+--
+--   instance (MonadBlobStore m, BlobStorable m a) => DirectBlobStorable m a where
+--       ...
+--
+-- but throws an error complaining it is missing once removed. The following is added
+-- to squelch it. Comment it out to reproduce.
+--
+-- An issue for this exists at https://gitlab.haskell.org/ghc/ghc/-/issues/22151
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
 -- |
 --    Module      : Concordium.GlobalState.Persistent.BlobStore
@@ -554,7 +565,7 @@ type SupportMigration m t = (MonadBlobStore m, MonadTrans t, MonadBlobStore (t m
 
 -- |A monad transformer that is equivalent to 'ReaderT' but provides a 'MonadBlobStore' instance
 -- based on the context (rather than lifting).
-newtype BlobStoreT r m a = BlobStoreT {runBlobStoreT :: r -> m a}
+newtype BlobStoreT (r :: Type) (m :: Type -> Type) (a :: Type) = BlobStoreT {runBlobStoreT :: r -> m a}
     deriving
         (Functor, Applicative, Monad, MonadReader r, MonadIO, MonadFail, MonadLogger, MonadCatch.MonadThrow, MonadCatch.MonadCatch)
         via (ReaderT r m)
@@ -583,7 +594,7 @@ runBlobStoreM = runBlobStoreT
 -- |A wrapper type for lifting 'MonadBlobStore' instances over monad transformers.
 -- Lifted instances are provided for 'WriterT', 'StateT' and 'ExceptT', which are used for
 -- conveniently implementing some block state operations.
-newtype LiftMonadBlobStore t (m :: Type -> Type) a = LiftMonadBlobStore (t m a)
+newtype LiftMonadBlobStore (t :: (Type -> Type) -> Type -> Type) (m :: Type -> Type) (a :: Type) = LiftMonadBlobStore (t m a)
     deriving (MonadTrans, Functor, Applicative, Monad, MonadIO)
 
 instance (MonadTrans t, MonadBlobStore m, MonadIO (t m)) => MonadBlobStore (LiftMonadBlobStore t m) where
@@ -697,7 +708,7 @@ getMemCallbacks mbs@MemBlobStore{..} =
                     getMemCallbacks mbs
 
 -- |A monad transformer that provides an instance of 'MonadBlobStore' based on a 'MemBlobStore'.
-newtype MemBlobStoreT m a = MemBlobStoreT {runMemBlobStoreT :: MemBlobStore -> m a}
+newtype MemBlobStoreT (m :: (Type -> Type)) (a :: Type) = MemBlobStoreT {runMemBlobStoreT :: MemBlobStore -> m a}
     deriving
         (Functor, Applicative, Monad, MonadReader MemBlobStore, MonadIO, MonadFail, MonadLogger, MonadCatch.MonadThrow, MonadCatch.MonadCatch)
         via (ReaderT MemBlobStore m)

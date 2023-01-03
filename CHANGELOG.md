@@ -2,6 +2,11 @@
 
 ## Unreleased changes
 
+## 5.1.3
+
+- Fix a bug in the `GetAccountInfo` endpoint in GRPCv2 where the `ar_data` field
+  always would be empty.
+
 ## 5.1.2
 
 - Avoid deadlocks during node shutdown in specific scenarios.

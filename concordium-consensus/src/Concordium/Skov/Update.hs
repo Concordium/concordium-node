@@ -111,7 +111,7 @@ class OnSkov m where
 -- been in the tree before, and now it never can be.  Any descendants of
 -- this block that have previously arrived cannot have been added to the
 -- tree, and we purge them recursively from '_skovPossiblyPendingTable'.
-blockArriveDead :: (HasCallStack, BlockPointerMonad m, MonadLogger m, TreeStateMonad m) => BlockHash -> m ()
+blockArriveDead :: (HasCallStack, MonadLogger m, TreeStateMonad m) => BlockHash -> m ()
 blockArriveDead cbp = do
     markDead cbp
     logEvent Skov LLDebug $ "Block " ++ show cbp ++ " arrived dead"

@@ -77,7 +77,7 @@ updateHash = read "9b1f206bbe230fef248c9312805460b4f1b05c1ef3964946981a8d4abb58b
 -- It is assumed that the last finalized block is the terminal block of the old chain:
 -- i.e. it is the first (and only) explicitly-finalized block with timestamp after the
 -- update takes effect.
-updateRegenesis :: (MPV m ~ 'P1, BlockPointerMonad m, BlockStateStorage m, SkovMonad m) => m (PVInit m)
+updateRegenesis :: (MPV m ~ 'P1, BlockStateStorage m, SkovMonad m) => m (PVInit m)
 updateRegenesis = do
     lfb <- lastFinalizedBlock
     -- Genesis time is the timestamp of the terminal block

@@ -592,6 +592,12 @@ instance ToProto CredentialDeploymentCommitments where
                 cmmAttributes
         ProtoFields.idCredSecSharingCoeff .= map toProto cmmIdCredSecSharingCoeff
 
+instance ToProto (Map.Map ArIdentity ChainArData) where
+    type Output (Map.Map ArIdentity ChainArData) = Map.Map Word32 Proto.ChainArData
+    toProto = Map.fromAscList . map (\(k, v) -> (coerce k, dataToProto v)) . Map.toAscList
+      where
+        dataToProto d = Proto.make (ProtoFields.encIdCredPubShare .= S.encode d)
+
 instance ToProto RawAccountCredential where
     type Output RawAccountCredential = Proto.AccountCredential
     toProto (InitialAC InitialCredentialDeploymentValues{..}) =
@@ -614,6 +620,7 @@ instance ToProto RawAccountCredential where
                         ProtoFields.ipId .= toProto cdvIpId
                         ProtoFields.policy .= toProto cdvPolicy
                         ProtoFields.arThreshold .= toProto cdvThreshold
+                        ProtoFields.arData .= toProto cdvArData
                         ProtoFields.commitments .= toProto commitments
                     )
 
