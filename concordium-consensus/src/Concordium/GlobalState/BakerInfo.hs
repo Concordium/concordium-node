@@ -309,7 +309,7 @@ genesisBakerInfoEx spv cp GenesisBaker{..} = case spv of
               _bakerElectionVerifyKey = gbElectionVerifyKey,
               _bakerAggregationVerifyKey = gbAggregationVerifyKey
             }
-    binfoV1 :: (SupportsDelegation pv, ChainParametersVersionFor pv ~ 'ChainParametersV1) => BakerInfoEx (AccountVersionFor pv)
+    binfoV1 :: (AVSupportsDelegation (AccountVersionFor pv), PoolParametersVersionFor (ChainParametersVersionFor pv) ~ 'PoolParametersVersion1) => BakerInfoEx (AccountVersionFor pv)
     binfoV1 =
         BakerInfoExV1
             bkrInfo

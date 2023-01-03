@@ -99,7 +99,7 @@ module Concordium.GlobalState.Persistent.BlobStore (
     makeHashedBufferedRef,
     migrateHashedBufferedRef,
     migrateHashedBufferedRefKeepHash,
-    HashedBufferedRefForCPV1,
+    HashedBufferedRefO,
 
     -- ** 'EagerlyHashedBufferedRef'
     EagerlyHashedBufferedRef',
@@ -167,6 +167,7 @@ import qualified Concordium.Types.AnonymityRevokers as ARS
 import qualified Concordium.Types.IdentityProviders as IPS
 import Concordium.Types.Transactions
 import Concordium.Types.Updates
+import Concordium.Types.Parameters
 import Concordium.Wasm
 
 import qualified Concordium.Crypto.SHA256 as H
@@ -1518,7 +1519,7 @@ instance MonadBlobStore m => BlobStorable m ElectionDifficulty
 instance MonadBlobStore m => BlobStorable m MintRate
 instance (MonadBlobStore m, IsChainParametersVersion cpv) => BlobStorable m (Parameters.MintDistribution cpv)
 instance MonadBlobStore m => BlobStorable m Parameters.TransactionFeeDistribution
-instance MonadBlobStore m => BlobStorable m Parameters.GASRewards
+instance (MonadBlobStore m, IsChainParametersVersion cpv) => BlobStorable m (Parameters.GASRewards cpv)
 instance (MonadBlobStore m, IsChainParametersVersion cpv) => BlobStorable m (Parameters.PoolParameters cpv)
 instance (MonadBlobStore m, IsChainParametersVersion cpv) => BlobStorable m (Parameters.CooldownParameters cpv)
 instance (MonadBlobStore m, IsChainParametersVersion cpv) => BlobStorable m (Parameters.TimeParameters cpv)
@@ -1673,20 +1674,24 @@ instance (DirectBlobStorable m a) => BlobStorable m (Nullable (HashedBufferedRef
         (!r, !v') <- storeUpdate v
         return (r, Some v')
 
-type HashedBufferedRefForCPV1 (cpv :: ChainParametersVersion) a =
-    JustForCPV1 cpv (HashedBufferedRef a)
+-- type HashedBufferedRefForCPV1 (cpv :: ChainParametersVersion) a =
+--     JustForCPV1 cpv (HashedBufferedRef a)
+
+type HashedBufferedRefO (pt :: ParameterType) (cpv :: ChainParametersVersion) a = OParam pt cpv (HashedBufferedRef a)
+
 
 instance
-    (DirectBlobStorable m a, IsChainParametersVersion cpv) =>
-    BlobStorable m (HashedBufferedRefForCPV1 cpv a)
+    (DirectBlobStorable m a, IsParameterType pt, IsChainParametersVersion cpv) =>
+    BlobStorable m (HashedBufferedRefO pt cpv a)
     where
-    load = case chainParametersVersion @cpv of
-        SChainParametersV0 -> return (pure NothingForCPV1)
-        SChainParametersV1 -> fmap (fmap JustForCPV1) load
-    storeUpdate NothingForCPV1 = return (pure (), NothingForCPV1)
-    storeUpdate (JustForCPV1 v) = do
+    load = whenSupported <$> load
+        -- case isSupported @pt @cpv of
+        --     False -> return (pure NoParam)
+        --     True -> fmap (fmap SomeParam) load
+    storeUpdate NoParam = return (pure (), NoParam)
+    storeUpdate (SomeParam v) = do
         (!r, !v') <- storeUpdate v
-        return (r, JustForCPV1 v')
+        return (r, SomeParam v')
 
 -- |An 'EagerBufferedRef' accompanied by a hash.
 -- Both the value and the hash are retained in memory by this reference.
@@ -1801,7 +1806,7 @@ instance (Applicative m, Cacheable m a) => Cacheable m (Nullable a) where
     cache Null = pure Null
     cache (Some v) = Some <$> cache v
 
-instance (Applicative m, Cacheable m a) => Cacheable m (JustForCPV1 cpv a) where
+instance (Applicative m, Cacheable m a) => Cacheable m (OParam pt cpv a) where
     cache = traverse cache
 
 instance (DirectBlobStorable m a, Cacheable m a) => Cacheable m (BufferedRef a) where

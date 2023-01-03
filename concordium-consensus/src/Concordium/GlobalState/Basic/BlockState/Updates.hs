@@ -226,9 +226,9 @@ processUpdateQueues t (theUpdates, ars, ips) =
 
 -- |Determine the future election difficulty (at a given time) based
 -- on a current 'Updates'.
-futureElectionDifficulty :: Updates' cpv -> Timestamp -> ElectionDifficulty
+futureElectionDifficulty :: IsSupported 'PTElectionDifficulty cpv ~ 'True => Updates' cpv -> Timestamp -> ElectionDifficulty
 futureElectionDifficulty Updates{_pendingUpdates = PendingUpdates{..}, ..} ts =
-    processValueUpdates ts (_cpElectionDifficulty _currentParameters) _pElectionDifficultyQueue ^. _1
+    processValueUpdatesO ts (_cpElectionDifficulty $ _cpConsensusParameters _currentParameters) _pElectionDifficultyQueue ^. _1
 
 -- |Get the protocol update status: either an effective protocol update or
 -- a list of pending future protocol updates.
@@ -252,7 +252,8 @@ nextUpdateSequenceNumberO uq = case uq of
 -- |Determine the next sequence number for a given update type.
 lookupNextUpdateSequenceNumber :: forall cpv. IsChainParametersVersion cpv => Updates' cpv -> UpdateType -> UpdateSequenceNumber
 lookupNextUpdateSequenceNumber u UpdateProtocol = u ^. pendingUpdates . pProtocolQueue . uqNextSequenceNumber
-lookupNextUpdateSequenceNumber u UpdateElectionDifficulty = u ^. pendingUpdates . pElectionDifficultyQueue . uqNextSequenceNumber
+lookupNextUpdateSequenceNumber u UpdateElectionDifficulty =
+    nextUpdateSequenceNumberO (u ^. pendingUpdates . pElectionDifficultyQueue)
 lookupNextUpdateSequenceNumber u UpdateEuroPerEnergy = u ^. pendingUpdates . pEuroPerEnergyQueue . uqNextSequenceNumber
 lookupNextUpdateSequenceNumber u UpdateMicroGTUPerEuro = u ^. pendingUpdates . pMicroGTUPerEuroQueue . uqNextSequenceNumber
 lookupNextUpdateSequenceNumber u UpdateFoundationAccount = u ^. pendingUpdates . pFoundationAccountQueue . uqNextSequenceNumber
@@ -266,9 +267,15 @@ lookupNextUpdateSequenceNumber u UpdateRootKeys = u ^. pendingUpdates . pRootKey
 lookupNextUpdateSequenceNumber u UpdateLevel1Keys = u ^. pendingUpdates . pLevel1KeysUpdateQueue . uqNextSequenceNumber
 lookupNextUpdateSequenceNumber u UpdateLevel2Keys = u ^. pendingUpdates . pLevel2KeysUpdateQueue . uqNextSequenceNumber
 lookupNextUpdateSequenceNumber u UpdateCooldownParameters =
-    nextUpdateSequenceNumberForCPV1 (u ^. pendingUpdates . pCooldownParametersQueue)
+    nextUpdateSequenceNumberO (u ^. pendingUpdates . pCooldownParametersQueue)
 lookupNextUpdateSequenceNumber u UpdateTimeParameters =
-    nextUpdateSequenceNumberForCPV1 (u ^. pendingUpdates . pTimeParametersQueue)
+    nextUpdateSequenceNumberO (u ^. pendingUpdates . pTimeParametersQueue)
+lookupNextUpdateSequenceNumber u UpdateTimeoutParameters =
+    nextUpdateSequenceNumberO (u ^. pendingUpdates . pTimeoutParametersQueue)
+lookupNextUpdateSequenceNumber u UpdateMinBlockTime =
+    nextUpdateSequenceNumberO (u ^. pendingUpdates . pMinBlockTimeQueue)
+lookupNextUpdateSequenceNumber u UpdateBlockEnergyLimit =
+    nextUpdateSequenceNumberO (u ^. pendingUpdates . pBlockEnergyLimitQueue)
 
 -- |Enqueue an update in the appropriate queue.
 enqueueUpdate :: TransactionTime -> UpdateValue cpv -> Updates' cpv -> Updates' cpv
@@ -276,7 +283,7 @@ enqueueUpdate effectiveTime (UVRootKeys rk) = pendingUpdates . pRootKeysUpdateQu
 enqueueUpdate effectiveTime (UVLevel1Keys l1k) = pendingUpdates . pLevel1KeysUpdateQueue %~ enqueue effectiveTime l1k
 enqueueUpdate effectiveTime (UVLevel2Keys l2k) = pendingUpdates . pLevel2KeysUpdateQueue %~ enqueue effectiveTime l2k
 enqueueUpdate effectiveTime (UVProtocol protUp) = pendingUpdates . pProtocolQueue %~ enqueue effectiveTime protUp
-enqueueUpdate effectiveTime (UVElectionDifficulty edUp) = pendingUpdates . pElectionDifficultyQueue %~ enqueue effectiveTime edUp
+enqueueUpdate effectiveTime (UVElectionDifficulty edUp) = pendingUpdates . pElectionDifficultyQueue %~ fmap (enqueue effectiveTime edUp)
 enqueueUpdate effectiveTime (UVEuroPerEnergy epeUp) = pendingUpdates . pEuroPerEnergyQueue %~ enqueue effectiveTime epeUp
 enqueueUpdate effectiveTime (UVMicroGTUPerEuro mgtupeUp) = pendingUpdates . pMicroGTUPerEuroQueue %~ enqueue effectiveTime mgtupeUp
 enqueueUpdate effectiveTime (UVFoundationAccount upd) = pendingUpdates . pFoundationAccountQueue %~ enqueue effectiveTime upd
@@ -287,16 +294,26 @@ enqueueUpdate effectiveTime (UVPoolParameters upd) = pendingUpdates . pPoolParam
 enqueueUpdate effectiveTime (UVAddAnonymityRevoker upd) = pendingUpdates . pAddAnonymityRevokerQueue %~ enqueue effectiveTime upd
 enqueueUpdate effectiveTime (UVAddIdentityProvider upd) = pendingUpdates . pAddIdentityProviderQueue %~ enqueue effectiveTime upd
 enqueueUpdate effectiveTime (UVCooldownParameters upd) =
-    pendingUpdates . pCooldownParametersQueue %~ JustForCPV1 . enqueue effectiveTime upd . unJustForCPV1
+    pendingUpdates . pCooldownParametersQueue %~ fmap (enqueue effectiveTime upd)
 enqueueUpdate effectiveTime (UVTimeParameters upd) =
-    pendingUpdates . pTimeParametersQueue %~ JustForCPV1 . enqueue effectiveTime upd . unJustForCPV1
+    pendingUpdates . pTimeParametersQueue %~ fmap (enqueue effectiveTime upd)
+enqueueUpdate effectiveTime (UVTimeoutParameters upd) =
+    pendingUpdates . pTimeoutParametersQueue %~ fmap (enqueue effectiveTime upd)
+enqueueUpdate effectiveTime (UVMinBlockTime upd) =
+    pendingUpdates . pMinBlockTimeQueue %~ fmap (enqueue effectiveTime upd)
+enqueueUpdate effectiveTime (UVBlockEnergyLimit upd) =
+    pendingUpdates . pBlockEnergyLimitQueue %~ fmap (enqueue effectiveTime upd)
+
+-- |Empty the queue of an OUpdateQueue.
+emptyQueueO :: (IsSupported pt cpv ~ 'True) => OUpdateQueue pt cpv a -> OUpdateQueue pt cpv a
+emptyQueueO (SomeParam q) = SomeParam (q{_uqQueue = []})
 
 -- |Overwrite the election difficulty with the specified value and remove
 -- any pending updates to the election difficulty from the queue.
-overwriteElectionDifficulty :: ElectionDifficulty -> Updates' cpv -> Updates' cpv
+overwriteElectionDifficulty :: (IsSupported 'PTElectionDifficulty cpv ~ 'True, ConsensusParametersVersionFor cpv ~ 'ConsensusParametersVersion0) => ElectionDifficulty -> Updates' cpv -> Updates' cpv
 overwriteElectionDifficulty newDifficulty =
-    (currentParameters . cpElectionDifficulty .~ newDifficulty)
-        . (pendingUpdates . pElectionDifficultyQueue . uqQueue .~ [])
+    (currentParameters . cpConsensusParameters . cpElectionDifficulty .~ newDifficulty)
+        . (pendingUpdates . pElectionDifficultyQueue %~ emptyQueueO)
 
 -- |Clear the protocol update and remove any pending protocol updates from
 -- the queue.

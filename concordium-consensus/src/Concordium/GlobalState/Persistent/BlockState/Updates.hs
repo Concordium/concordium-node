@@ -208,7 +208,7 @@ data PendingUpdates (cpv :: ChainParametersVersion) = PendingUpdates
       -- |Protocol updates.
       pProtocolQueue :: !(HashedBufferedRef (UpdateQueue ProtocolUpdate)),
       -- |Updates to the election difficulty parameter.
-      pElectionDifficultyQueue :: !(HashedBufferedRef (UpdateQueue ElectionDifficulty)),
+      pElectionDifficultyQueue :: !(HashedBufferedRefO 'PTElectionDifficulty cpv (UpdateQueue ElectionDifficulty)),
       -- |Updates to the euro:energy exchange rate.
       pEuroPerEnergyQueue :: !(HashedBufferedRef (UpdateQueue ExchangeRate)),
       -- |Updates to the GTU:euro exchange rate.
@@ -220,7 +220,7 @@ data PendingUpdates (cpv :: ChainParametersVersion) = PendingUpdates
       -- |Updates to the transaction fee distribution.
       pTransactionFeeDistributionQueue :: !(HashedBufferedRef (UpdateQueue TransactionFeeDistribution)),
       -- |Updates to the GAS rewards.
-      pGASRewardsQueue :: !(HashedBufferedRef (UpdateQueue GASRewards)),
+      pGASRewardsQueue :: !(HashedBufferedRef (UpdateQueue (GASRewards cpv))),
       -- |Updates to the baker minimum threshold
       pPoolParametersQueue :: !(HashedBufferedRef (UpdateQueue (PoolParameters cpv))),
       -- |Additions to the set of anonymity revokers
@@ -228,9 +228,9 @@ data PendingUpdates (cpv :: ChainParametersVersion) = PendingUpdates
       -- |Additions to the set of identity providers
       pAddIdentityProviderQueue :: !(HashedBufferedRef (UpdateQueue IPS.IpInfo)),
       -- |Updates cooldown parameters
-      pCooldownParametersQueue :: !(HashedBufferedRefForCPV1 cpv (UpdateQueue (CooldownParameters 'ChainParametersV1))),
+      pCooldownParametersQueue :: !(HashedBufferedRefO 'PTCooldownParametersAccessStructure cpv (UpdateQueue (CooldownParameters cpv))),
       -- |Updates time parameters.
-      pTimeParametersQueue :: !(HashedBufferedRefForCPV1 cpv (UpdateQueue (TimeParameters 'ChainParametersV1)))
+      pTimeParametersQueue :: !(HashedBufferedRefO 'PTTimeParameters cpv (UpdateQueue (TimeParameters cpv)))
     }
 
 -- |See documentation of @migratePersistentBlockState@.
@@ -254,36 +254,36 @@ migratePendingUpdates migration PendingUpdates{..} = do
     newFoundationAccount <- migrateHashedBufferedRef (migrateUpdateQueue id) pFoundationAccountQueue
     newMintDistribution <- migrateHashedBufferedRef (migrateUpdateQueue (migrateMintDistribution migration)) pMintDistributionQueue
     newTransactionFeeDistribution <- migrateHashedBufferedRef (migrateUpdateQueue id) pTransactionFeeDistributionQueue
-    newGASRewards <- migrateHashedBufferedRef (migrateUpdateQueue id) pGASRewardsQueue
+    newGASRewards <- migrateHashedBufferedRef (migrateUpdateQueue (migrateGASRewards migration)) pGASRewardsQueue
     newPoolParameters <- migrateHashedBufferedRef (migrateUpdateQueue (migratePoolParameters migration)) pPoolParametersQueue
     newAddAnonymityRevokers <- migrateHashedBufferedRef (migrateUpdateQueue id) pAddAnonymityRevokerQueue
     newAddIdentityProviders <- migrateHashedBufferedRef (migrateUpdateQueue id) pAddIdentityProviderQueue
     newTimeParameters <- case migration of
         StateMigrationParametersTrivial -> case pTimeParametersQueue of
-            NothingForCPV1 -> return NothingForCPV1
-            JustForCPV1 hbr -> JustForCPV1 <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
+            NoParam -> return NoParam
+            SomeParam hbr -> SomeParam <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
         StateMigrationParametersP1P2 -> case pTimeParametersQueue of
-            NothingForCPV1 -> return NothingForCPV1
+            NoParam -> return NoParam
         StateMigrationParametersP2P3 -> case pTimeParametersQueue of
-            NothingForCPV1 -> return NothingForCPV1
+            NoParam -> return NoParam
         StateMigrationParametersP3ToP4{} -> do
             (!hbr, _) <- refFlush =<< refMake emptyUpdateQueue
-            return (JustForCPV1 hbr)
+            return (SomeParam hbr)
         StateMigrationParametersP4ToP5{} -> case pTimeParametersQueue of
-            JustForCPV1 hbr -> JustForCPV1 <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
+            SomeParam hbr -> SomeParam <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
     newCooldownParameters <- case migration of
         StateMigrationParametersTrivial -> case pCooldownParametersQueue of
-            NothingForCPV1 -> return NothingForCPV1
-            JustForCPV1 hbr -> JustForCPV1 <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
+            NoParam -> return NoParam
+            SomeParam hbr -> SomeParam <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
         StateMigrationParametersP1P2 -> case pCooldownParametersQueue of
-            NothingForCPV1 -> return NothingForCPV1
+            NoParam -> return NoParam
         StateMigrationParametersP2P3 -> case pCooldownParametersQueue of
-            NothingForCPV1 -> return NothingForCPV1
+            NoParam -> return NoParam
         StateMigrationParametersP3ToP4{} -> do
             (!hbr, _) <- refFlush =<< refMake emptyUpdateQueue
-            return (JustForCPV1 hbr)
+            return (SomeParam hbr)
         StateMigrationParametersP4ToP5{} -> case pCooldownParametersQueue of
-            JustForCPV1 hbr -> JustForCPV1 <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
+            SomeParam hbr -> SomeParam <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
     return $!
         PendingUpdates
             { pRootKeysUpdateQueue = newRootKeys,
@@ -313,7 +313,7 @@ instance
         hLevel1KeysUpdateQueue <- H.hashToByteString <$> getHashM pLevel1KeysUpdateQueue
         hLevel2KeysUpdateQueue <- H.hashToByteString <$> getHashM pLevel2KeysUpdateQueue
         hProtocolQueue <- H.hashToByteString <$> getHashM pProtocolQueue
-        hElectionDifficultyQueue <- H.hashToByteString <$> getHashM pElectionDifficultyQueue
+        hElectionDifficultyQueue <- whenSupported $ H.hashToByteString <$> getHashM pElectionDifficultyQueue
         hEuroPerEnergyQueue <- H.hashToByteString <$> getHashM pEuroPerEnergyQueue
         hMicroGTUPerEuroQueue <- H.hashToByteString <$> getHashM pMicroGTUPerEuroQueue
         hFoundationAccountQueue <- H.hashToByteString <$> getHashM pFoundationAccountQueue
@@ -323,7 +323,8 @@ instance
         hPoolParametersQueue <- H.hashToByteString <$> getHashM pPoolParametersQueue
         hAddAnonymityRevokerQueue <- H.hashToByteString <$> getHashM pAddAnonymityRevokerQueue
         hAddIdentityProviderQueue <- H.hashToByteString <$> getHashM pAddIdentityProviderQueue
-        hCooldownParametersQueue <- maybeForCPV1 (return mempty) (fmap H.hashToByteString . getHashM) pCooldownParametersQueue
+        hCooldownParametersQueue <- whenSupported $ H.hashToByteString <$> getHashM pCooldownParametersQueue
+        -- hCooldownParametersQueue <- maybeForCPV1 (return mempty) (fmap H.hashToByteString . getHashM) pCooldownParametersQueue
         hTimeParametersQueue <- maybeForCPV1 (return mempty) (fmap H.hashToByteString . getHashM) pTimeParametersQueue
         return $!
             H.hash $
@@ -942,8 +943,8 @@ processCooldownParametersUpdates ::
 processCooldownParametersUpdates t bu = do
     u@Updates{..} <- refLoad bu
     case pCooldownParametersQueue pendingUpdates of
-        NothingForCPV1 -> return (Map.empty, bu)
-        JustForCPV1 qref -> do
+        NoParam -> return (Map.empty, bu)
+        SomeParam qref -> do
             oldQ <- refLoad qref
             processValueUpdates t oldQ (return (Map.empty, bu)) $ \newParamPtr newQ m ->
                 (UVCooldownParameters <$> m,) <$> do
@@ -954,7 +955,7 @@ processCooldownParametersUpdates t bu = do
                     refMake
                         u
                             { currentParameters = newParameters,
-                              pendingUpdates = pendingUpdates{pCooldownParametersQueue = JustForCPV1 newpQ}
+                              pendingUpdates = pendingUpdates{pCooldownParametersQueue = SomeParam newpQ}
                             }
 
 -- |Process time parameters updates.
@@ -966,8 +967,8 @@ processTimeParametersUpdates ::
 processTimeParametersUpdates t bu = do
     u@Updates{..} <- refLoad bu
     case pTimeParametersQueue pendingUpdates of
-        NothingForCPV1 -> return (Map.empty, bu)
-        JustForCPV1 qref -> do
+        NoParam -> return (Map.empty, bu)
+        SomeParam qref -> do
             oldQ <- refLoad qref
             processValueUpdates t oldQ (return (Map.empty, bu)) $ \newParamPtr newQ m ->
                 (UVTimeParameters <$> m,) <$> do
@@ -978,7 +979,7 @@ processTimeParametersUpdates t bu = do
                     refMake
                         u
                             { currentParameters = newParameters,
-                              pendingUpdates = pendingUpdates{pTimeParametersQueue = JustForCPV1 newpQ}
+                              pendingUpdates = pendingUpdates{pTimeParametersQueue = SomeParam newpQ}
                             }
 
 -- |Process the add anonymity revoker update queue.
@@ -1301,8 +1302,8 @@ lookupPendingTimeParameters ::
 lookupPendingTimeParameters uref = do
     Updates{..} <- refLoad uref
     case pTimeParametersQueue pendingUpdates of
-        NothingForCPV1 -> return []
-        JustForCPV1 tpq -> loadQueue tpq
+        NoParam -> return []
+        SomeParam tpq -> loadQueue tpq
 
 -- |Look up the pending changes to the pool parameters.
 lookupPendingPoolParameters ::
