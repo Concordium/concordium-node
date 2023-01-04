@@ -1,251 +1,418 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
-module SchedulerTests.TransfersWithScheduleTest where
+module SchedulerTests.TransfersWithScheduleTest (tests) where
 
+import Control.Monad
+import qualified Data.ByteString.Short as BSS
+import Test.HUnit
 import Test.Hspec
 
-import qualified Concordium.Crypto.SignatureScheme as Sig
-
-import Concordium.GlobalState.Basic.BlockState
-import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
-
-import Concordium.Crypto.DummyData
-import Concordium.GlobalState.DummyData
-import Concordium.ID.Types as ID
+import qualified Concordium.Crypto.SignatureScheme as SigScheme
+import qualified Concordium.GlobalState.Persistent.BlockState as BS
+import Concordium.ID.Types as Types
+import qualified Concordium.Scheduler as Sch
 import Concordium.Scheduler.DummyData
+import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Concordium.Scheduler.Runner as Runner
 import Concordium.Scheduler.Types
-import Concordium.Types.DummyData
-import qualified Data.ByteString.Short as BSS
+import qualified Concordium.Scheduler.Types as Types
+import qualified SchedulerTests.Helpers as Helpers
 import SchedulerTests.TestUtils
 
-initialBlockState :: BlockState PV1
-initialBlockState =
-    blockStateWithAlesAccount
-        10000000000
-        (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 10000000000) Acc.emptyAccounts)
-
-initialBlockState2 :: BlockState PV2
-initialBlockState2 =
-    blockStateWithAlesAccount
-        10000000000
-        (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 10000000000) Acc.emptyAccounts)
-
-initialBlockState3 :: BlockState PV3
-initialBlockState3 =
-    blockStateWithAlesAccount
-        10000000000
-        (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 10000000000) Acc.emptyAccounts)
-
-cdiKeys :: CredentialDeploymentInformation -> CredentialPublicKeys
-cdiKeys cdi = credPubKeys (NormalACWP cdi)
-
-vk :: Sig.KeyPair -> Sig.VerifyKey
-vk = Sig.correspondingVerifyKey
-
-testCases1 :: [TestCase PV1]
-testCases1 =
-    [ TestCase
-        { tcName = "Transfers with schedule",
-          tcParameters = (defaultParams @PV1){tpInitialBlockState = initialBlockState, tpChainMeta = ChainMetadata{slotTime = 100}},
-          tcTransactions =
-            [ -- trying to do a scheduled transfer with memo - should get rejected since we have protocol version 1
-                ( Runner.TJSON
-                    { payload = Runner.TransferWithScheduleAndMemo thomasAccount (Memo $ BSS.pack [0, 1, 2, 3]) [(101, 10), (102, 11), (103, 12)],
-                      metadata = makeDummyHeader alesAccount 1 100000,
-                      keys = [(0, [(0, alesKP)])]
-                    },
-                    ( Reject SerializationFailure,
-                      emptySpec
-                    )
-                ),
-              -- make a scheduled transfer
-                ( Runner.TJSON
-                    { payload = Runner.TransferWithSchedule thomasAccount [(101, 10), (102, 11), (103, 12)],
-                      metadata = makeDummyHeader alesAccount 2 100000,
-                      keys = [(0, [(0, alesKP)])]
-                    },
-                    ( SuccessE [TransferredWithSchedule alesAccount thomasAccount [(101, 10), (102, 11), (103, 12)]],
-                      emptySpec
-                    )
-                ),
-              -- should get rejected since timestamps are not increasing
-                ( Runner.TJSON
-                    { payload = Runner.TransferWithSchedule thomasAccount [(101, 10), (103, 11), (102, 12)],
-                      metadata = makeDummyHeader alesAccount 3 100000,
-                      keys = [(0, [(0, alesKP)])]
-                    },
-                    ( Reject NonIncreasingSchedule,
-                      emptySpec
-                    )
-                ),
-              -- should get rejected since first timestamp has expired
-                ( Runner.TJSON
-                    { payload = Runner.TransferWithSchedule thomasAccount [(99, 10), (102, 11), (103, 12)],
-                      metadata = makeDummyHeader alesAccount 4 100000,
-                      keys = [(0, [(0, alesKP)])]
-                    },
-                    ( Reject FirstScheduledReleaseExpired,
-                      emptySpec
-                    )
-                ),
-              -- should get rejected since sender = receiver
-                ( Runner.TJSON
-                    { payload = Runner.TransferWithSchedule alesAccount [(101, 10), (102, 11), (103, 12)],
-                      metadata = makeDummyHeader alesAccount 5 100000,
-                      keys = [(0, [(0, alesKP)])]
-                    },
-                    ( Reject $ ScheduledSelfTransfer alesAccount,
-                      emptySpec
-                    )
-                ),
-              -- should get rejected since one of the amounts is 0
-                ( Runner.TJSON
-                    { payload = Runner.TransferWithSchedule thomasAccount [(101, 10), (102, 0), (103, 12)],
-                      metadata = makeDummyHeader alesAccount 6 100000,
-                      keys = [(0, [(0, alesKP)])]
-                    },
-                    ( Reject ZeroScheduledAmount,
-                      emptySpec
-                    )
-                )
-            ]
-        }
-    ]
-
-testCases2 :: [TestCase PV2]
-testCases2 =
-    [ TestCase
-        { tcName = "Transfers with schedule and memo",
-          tcParameters = (defaultParams @PV1){tpInitialBlockState = initialBlockState2, tpChainMeta = ChainMetadata{slotTime = 100}},
-          tcTransactions =
-            [ -- make a scheduled transfer with memo - should succeed since protocol version is 2
-                ( Runner.TJSON
-                    { payload = Runner.TransferWithScheduleAndMemo thomasAccount (Memo $ BSS.pack [0, 1, 2, 3]) [(101, 10), (102, 11), (103, 12)],
-                      metadata = makeDummyHeader alesAccount 1 100000,
-                      keys = [(0, [(0, alesKP)])]
-                    },
-                    ( SuccessE [TransferredWithSchedule alesAccount thomasAccount [(101, 10), (102, 11), (103, 12)], TransferMemo (Memo $ BSS.pack [0, 1, 2, 3])],
-                      emptySpec
-                    )
-                ),
-              -- make a scheduled transfer
-                ( Runner.TJSON
-                    { payload = Runner.TransferWithSchedule thomasAccount [(101, 10), (102, 11), (103, 12)],
-                      metadata = makeDummyHeader alesAccount 2 100000,
-                      keys = [(0, [(0, alesKP)])]
-                    },
-                    ( SuccessE [TransferredWithSchedule alesAccount thomasAccount [(101, 10), (102, 11), (103, 12)]],
-                      emptySpec
-                    )
-                ),
-              -- should get rejected since timestamps are not increasing
-                ( Runner.TJSON
-                    { payload = Runner.TransferWithSchedule thomasAccount [(101, 10), (103, 11), (102, 12)],
-                      metadata = makeDummyHeader alesAccount 3 100000,
-                      keys = [(0, [(0, alesKP)])]
-                    },
-                    ( Reject NonIncreasingSchedule,
-                      emptySpec
-                    )
-                ),
-              -- should get rejected since first timestamp has expired
-                ( Runner.TJSON
-                    { payload = Runner.TransferWithSchedule thomasAccount [(99, 10), (102, 11), (103, 12)],
-                      metadata = makeDummyHeader alesAccount 4 100000,
-                      keys = [(0, [(0, alesKP)])]
-                    },
-                    ( Reject FirstScheduledReleaseExpired,
-                      emptySpec
-                    )
-                ),
-              -- should get rejected since sender = receiver
-                ( Runner.TJSON
-                    { payload = Runner.TransferWithSchedule alesAccount [(101, 10), (102, 11), (103, 12)],
-                      metadata = makeDummyHeader alesAccount 5 100000,
-                      keys = [(0, [(0, alesKP)])]
-                    },
-                    ( Reject $ ScheduledSelfTransfer alesAccount,
-                      emptySpec
-                    )
-                ),
-              -- should get rejected since one of the amounts is 0
-                ( Runner.TJSON
-                    { payload = Runner.TransferWithSchedule thomasAccount [(101, 10), (102, 0), (103, 12)],
-                      metadata = makeDummyHeader alesAccount 6 100000,
-                      keys = [(0, [(0, alesKP)])]
-                    },
-                    ( Reject ZeroScheduledAmount,
-                      emptySpec
-                    )
-                ),
-              -- should get rejected since timestamps are not increasing
-                ( Runner.TJSON
-                    { payload = Runner.TransferWithScheduleAndMemo thomasAccount (Memo $ BSS.pack [0, 1, 2, 3]) [(101, 10), (103, 11), (102, 12)],
-                      metadata = makeDummyHeader alesAccount 7 100000,
-                      keys = [(0, [(0, alesKP)])]
-                    },
-                    ( Reject NonIncreasingSchedule,
-                      emptySpec
-                    )
-                ),
-              -- should get rejected since first timestamp has expired
-                ( Runner.TJSON
-                    { payload = Runner.TransferWithScheduleAndMemo thomasAccount (Memo $ BSS.pack [0, 1, 2, 3]) [(99, 10), (102, 11), (103, 12)],
-                      metadata = makeDummyHeader alesAccount 8 100000,
-                      keys = [(0, [(0, alesKP)])]
-                    },
-                    ( Reject FirstScheduledReleaseExpired,
-                      emptySpec
-                    )
-                ),
-              -- should get rejected since sender = receiver
-                ( Runner.TJSON
-                    { payload = Runner.TransferWithScheduleAndMemo alesAccount (Memo $ BSS.pack [0, 1, 2, 3]) [(101, 10), (102, 11), (103, 12)],
-                      metadata = makeDummyHeader alesAccount 9 100000,
-                      keys = [(0, [(0, alesKP)])]
-                    },
-                    ( Reject $ ScheduledSelfTransfer alesAccount,
-                      emptySpec
-                    )
-                ),
-              -- should get rejected since one of the amounts is 0
-                ( Runner.TJSON
-                    { payload = Runner.TransferWithScheduleAndMemo thomasAccount (Memo $ BSS.pack [0, 1, 2, 3]) [(101, 10), (102, 0), (103, 12)],
-                      metadata = makeDummyHeader alesAccount 10 100000,
-                      keys = [(0, [(0, alesKP)])]
-                    },
-                    ( Reject ZeroScheduledAmount,
-                      emptySpec
-                    )
-                )
-            ]
-        }
-    ]
-
-testCases3 :: [TestCase PV3]
-testCases3 =
-    [ TestCase
-        { tcName = "Transfers with schedule P3",
-          tcParameters = (defaultParams @PV1){tpInitialBlockState = initialBlockState3, tpChainMeta = ChainMetadata{slotTime = 100}},
-          tcTransactions =
-            [ -- should get rejected since sender = receiver, even if addresses are not exactly the same, but refer to the same account.
-                ( Runner.TJSON
-                    { payload = Runner.TransferWithSchedule (createAlias alesAccount 2) [(101, 10), (102, 11), (103, 12)],
-                      metadata = makeDummyHeader (createAlias alesAccount 1) 1 100000,
-                      keys = [(0, [(0, alesKP)])]
-                    },
-                    ( Reject $ ScheduledSelfTransfer (createAlias alesAccount 1), -- the rejection reason is meant to have the sender address.
-                      emptySpec
-                    )
-                )
-            ]
-        }
-    ]
-
 tests :: Spec
-tests = do
-    describe "TransfersWithSchedule" $ mkSpecs testCases1
-    describe "TransfersWithScheduleAndMemo" $ mkSpecs testCases2
-    describe "TransfersWithScheduleP3" $ mkSpecs testCases3
+tests =
+    describe "TransfersWithSchedule" $ do
+        scheduledTransferWithMemoRejectsP1
+        sequence_ $
+            Helpers.forEveryProtocolVersion $ \spv pvString -> do
+                scheduledTransferTest spv pvString
+                when (supportsMemo spv) $
+                    scheduledTransferWithMemoTest spv pvString
+                when (supportsAccountAliases spv) $
+                    scheduledTransferRejectsSelfTransferUsingAliases spv pvString
+
+initialBlockState ::
+    (IsProtocolVersion pv) =>
+    Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
+initialBlockState =
+    Helpers.createTestBlockStateWithAccountsM
+        [ Helpers.makeTestAccountFromSeed 10_000_000_000 0,
+          Helpers.makeTestAccountFromSeed 10_000_000_000 1
+        ]
+
+accountAddress0 :: Types.AccountAddress
+accountAddress0 = Helpers.accountAddressFromSeed 0
+
+accountAddress1 :: Types.AccountAddress
+accountAddress1 = Helpers.accountAddressFromSeed 1
+
+keyPair0 :: SigScheme.KeyPair
+keyPair0 = Helpers.keyPairFromSeed 0
+
+scheduledTransferWithMemoRejectsP1 :: SpecWith (Arg Assertion)
+scheduledTransferWithMemoRejectsP1 =
+    specify "P1: Scheduled transfer with memo rejects in protocol version 1" $ do
+        let transactions =
+                [ Runner.TJSON
+                    { payload = Runner.TransferWithScheduleAndMemo accountAddress1 (Memo $ BSS.pack [0, 1, 2, 3]) [(101, 10), (102, 11), (103, 12)],
+                      metadata = makeDummyHeader accountAddress0 1 100_000,
+                      keys = [(0, [(0, keyPair0)])]
+                    }
+                ]
+        (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
+            Helpers.runSchedulerTestTransactionJson
+                @'Types.P1
+                Helpers.defaultTestConfig
+                initialBlockState
+                (Helpers.checkReloadCheck checkState)
+                transactions
+        let Sch.FilteredTransactions{..} = srTransactions
+        assertEqual "There should be no failed transactions." [] ftFailed
+
+        case Helpers.getResults ftAdded of
+            [(_, Types.TxReject Types.SerializationFailure)] -> return ()
+            err -> assertFailure $ "Incorrect transaction result: " ++ show err
+
+        doBlockStateAssertions
+  where
+    checkState ::
+        Helpers.SchedulerResult ->
+        BS.PersistentBlockState PV1 ->
+        Helpers.PersistentBSM PV1 Assertion
+    checkState result state =
+        Helpers.assertBlockStateInvariantsH state (Helpers.srExecutionCosts result)
+
+scheduledTransferTest ::
+    forall pv.
+    Types.IsProtocolVersion pv =>
+    Types.SProtocolVersion pv ->
+    String ->
+    SpecWith (Arg Assertion)
+scheduledTransferTest _ pvString =
+    specify (pvString ++ ": Transfers with schedule") $
+        do
+            let transactionsAndAssertions =
+                    [ -- make a scheduled transfer
+                      Helpers.TransactionAndAssertion
+                        { taaTransaction =
+                            Runner.TJSON
+                                { payload =
+                                    Runner.TransferWithSchedule
+                                        accountAddress1
+                                        [(101, 10), (102, 11), (103, 12)],
+                                  metadata = makeDummyHeader accountAddress0 1 100_000,
+                                  keys = [(0, [(0, keyPair0)])]
+                                },
+                          taaAssertion = \Helpers.SchedulerResult{..} state -> do
+                            doInvariantAssertions <-
+                                Helpers.assertBlockStateInvariantsH
+                                    state
+                                    srExecutionCosts
+                            return $ do
+                                case Helpers.getResults $ Sch.ftAdded srTransactions of
+                                    [(_, Types.TxSuccess{..})] ->
+                                        assertEqual
+                                            "The correct scheduled transfer event is produced"
+                                            [ TransferredWithSchedule
+                                                accountAddress0
+                                                accountAddress1
+                                                [(101, 10), (102, 11), (103, 12)]
+                                            ]
+                                            vrEvents
+                                    _ -> assertFailure "Transaction rejected unexpectedly"
+                                doInvariantAssertions
+                        },
+                      -- should get rejected since timestamps are not increasing
+                      Helpers.TransactionAndAssertion
+                        { taaTransaction =
+                            Runner.TJSON
+                                { payload =
+                                    Runner.TransferWithSchedule
+                                        accountAddress1
+                                        [(101, 10), (103, 11), (102, 12)],
+                                  metadata = makeDummyHeader accountAddress0 2 100_000,
+                                  keys = [(0, [(0, keyPair0)])]
+                                },
+                          taaAssertion = \Helpers.SchedulerResult{..} _ ->
+                            return $ do
+                                case Helpers.getResults $ Sch.ftAdded srTransactions of
+                                    [(_, Types.TxReject{..})] ->
+                                        assertEqual
+                                            "The correct scheduled transfer rejection reason is produced"
+                                            NonIncreasingSchedule
+                                            vrRejectReason
+                                    _ -> assertFailure "Transaction succeded unexpectedly"
+                        },
+                      -- should get rejected since first timestamp has expired
+                      Helpers.TransactionAndAssertion
+                        { taaTransaction =
+                            Runner.TJSON
+                                { payload =
+                                    Runner.TransferWithSchedule
+                                        accountAddress1
+                                        [(99, 10), (102, 11), (103, 12)],
+                                  metadata = makeDummyHeader accountAddress0 3 100_000,
+                                  keys = [(0, [(0, keyPair0)])]
+                                },
+                          taaAssertion = \Helpers.SchedulerResult{..} _ ->
+                            return $ do
+                                case Helpers.getResults $ Sch.ftAdded srTransactions of
+                                    [(_, Types.TxReject{..})] ->
+                                        assertEqual
+                                            "The correct scheduled transfer rejection reason is produced"
+                                            FirstScheduledReleaseExpired
+                                            vrRejectReason
+                                    _ -> assertFailure "Transaction succeded unexpectedly"
+                        },
+                      -- should get rejected since sender = receiver
+                      Helpers.TransactionAndAssertion
+                        { taaTransaction =
+                            Runner.TJSON
+                                { payload =
+                                    Runner.TransferWithSchedule
+                                        accountAddress0
+                                        [(101, 10), (102, 11), (103, 12)],
+                                  metadata = makeDummyHeader accountAddress0 4 100_000,
+                                  keys = [(0, [(0, keyPair0)])]
+                                },
+                          taaAssertion = \Helpers.SchedulerResult{..} _ ->
+                            return $ do
+                                case Helpers.getResults $ Sch.ftAdded srTransactions of
+                                    [(_, Types.TxReject{..})] ->
+                                        assertEqual
+                                            "The correct scheduled transfer rejection reason is produced"
+                                            (ScheduledSelfTransfer accountAddress0)
+                                            vrRejectReason
+                                    _ -> assertFailure "Transaction succeded unexpectedly"
+                        },
+                      -- should get rejected since one of the amounts is 0
+                      Helpers.TransactionAndAssertion
+                        { taaTransaction =
+                            Runner.TJSON
+                                { payload =
+                                    Runner.TransferWithSchedule
+                                        accountAddress1
+                                        [(101, 10), (102, 0), (103, 12)],
+                                  metadata = makeDummyHeader accountAddress0 5 100_000,
+                                  keys = [(0, [(0, keyPair0)])]
+                                },
+                          taaAssertion = \Helpers.SchedulerResult{..} _ ->
+                            return $ do
+                                case Helpers.getResults $ Sch.ftAdded srTransactions of
+                                    [(_, Types.TxReject{..})] ->
+                                        assertEqual
+                                            "The correct scheduled transfer rejection reason is produced"
+                                            ZeroScheduledAmount
+                                            vrRejectReason
+                                    _ -> assertFailure "Transaction succeded unexpectedly"
+                        }
+                    ]
+            let contextState =
+                    Helpers.defaultContextState
+                        { Types._chainMetadata = dummyChainMeta{Types.slotTime = 100}
+                        }
+            let testConfig =
+                    Helpers.defaultTestConfig
+                        { Helpers.tcContextState = contextState
+                        }
+
+            Helpers.runSchedulerTestAssertIntermediateStates
+                @pv
+                testConfig
+                initialBlockState
+                transactionsAndAssertions
+
+scheduledTransferWithMemoTest ::
+    forall pv.
+    Types.IsProtocolVersion pv =>
+    Types.SProtocolVersion pv ->
+    String ->
+    SpecWith (Arg Assertion)
+scheduledTransferWithMemoTest _ pvString =
+    specify (pvString ++ ": Transfers with schedule and memo") $
+        do
+            let transactionsAndAssertions =
+                    [ -- make a scheduled transfer
+                      Helpers.TransactionAndAssertion
+                        { taaTransaction =
+                            Runner.TJSON
+                                { payload =
+                                    Runner.TransferWithScheduleAndMemo
+                                        accountAddress1
+                                        (Memo $ BSS.pack [0, 1, 2, 3])
+                                        [(101, 10), (102, 11), (103, 12)],
+                                  metadata = makeDummyHeader accountAddress0 1 100_000,
+                                  keys = [(0, [(0, keyPair0)])]
+                                },
+                          taaAssertion = \Helpers.SchedulerResult{..} state -> do
+                            doInvariantAssertions <-
+                                Helpers.assertBlockStateInvariantsH
+                                    state
+                                    srExecutionCosts
+                            return $ do
+                                case Helpers.getResults $ Sch.ftAdded srTransactions of
+                                    [(_, Types.TxSuccess{..})] ->
+                                        assertEqual
+                                            "The correct scheduled transfer event is produced"
+                                            [ TransferredWithSchedule
+                                                accountAddress0
+                                                accountAddress1
+                                                [(101, 10), (102, 11), (103, 12)],
+                                              TransferMemo (Memo $ BSS.pack [0, 1, 2, 3])
+                                            ]
+                                            vrEvents
+                                    _ -> assertFailure "Transaction rejected unexpectedly"
+                                doInvariantAssertions
+                        },
+                      -- should get rejected since timestamps are not increasing
+                      Helpers.TransactionAndAssertion
+                        { taaTransaction =
+                            Runner.TJSON
+                                { payload =
+                                    Runner.TransferWithScheduleAndMemo
+                                        accountAddress1
+                                        (Memo $ BSS.pack [0, 1, 2, 3])
+                                        [(101, 10), (103, 11), (102, 12)],
+                                  metadata = makeDummyHeader accountAddress0 2 100_000,
+                                  keys = [(0, [(0, keyPair0)])]
+                                },
+                          taaAssertion = \Helpers.SchedulerResult{..} _ ->
+                            return $ do
+                                case Helpers.getResults $ Sch.ftAdded srTransactions of
+                                    [(_, Types.TxReject{..})] ->
+                                        assertEqual
+                                            "The correct scheduled transfer rejection reason is produced"
+                                            NonIncreasingSchedule
+                                            vrRejectReason
+                                    _ -> assertFailure "Transaction succeded unexpectedly"
+                        },
+                      -- should get rejected since first timestamp has expired
+                      Helpers.TransactionAndAssertion
+                        { taaTransaction =
+                            Runner.TJSON
+                                { payload =
+                                    Runner.TransferWithScheduleAndMemo
+                                        accountAddress1
+                                        (Memo $ BSS.pack [0, 1, 2, 3])
+                                        [(99, 10), (102, 11), (103, 12)],
+                                  metadata = makeDummyHeader accountAddress0 3 100_000,
+                                  keys = [(0, [(0, keyPair0)])]
+                                },
+                          taaAssertion = \Helpers.SchedulerResult{..} _ ->
+                            return $ do
+                                case Helpers.getResults $ Sch.ftAdded srTransactions of
+                                    [(_, Types.TxReject{..})] ->
+                                        assertEqual
+                                            "The correct scheduled transfer rejection reason is produced"
+                                            FirstScheduledReleaseExpired
+                                            vrRejectReason
+                                    _ -> assertFailure "Transaction succeded unexpectedly"
+                        },
+                      -- should get rejected since sender = receiver
+                      Helpers.TransactionAndAssertion
+                        { taaTransaction =
+                            Runner.TJSON
+                                { payload =
+                                    Runner.TransferWithScheduleAndMemo
+                                        accountAddress0
+                                        (Memo $ BSS.pack [0, 1, 2, 3])
+                                        [(101, 10), (102, 11), (103, 12)],
+                                  metadata = makeDummyHeader accountAddress0 4 100_000,
+                                  keys = [(0, [(0, keyPair0)])]
+                                },
+                          taaAssertion = \Helpers.SchedulerResult{..} _ ->
+                            return $ do
+                                case Helpers.getResults $ Sch.ftAdded srTransactions of
+                                    [(_, Types.TxReject{..})] ->
+                                        assertEqual
+                                            "The correct scheduled transfer rejection reason is produced"
+                                            (ScheduledSelfTransfer accountAddress0)
+                                            vrRejectReason
+                                    _ -> assertFailure "Transaction succeded unexpectedly"
+                        },
+                      -- should get rejected since one of the amounts is 0
+                      Helpers.TransactionAndAssertion
+                        { taaTransaction =
+                            Runner.TJSON
+                                { payload =
+                                    Runner.TransferWithScheduleAndMemo
+                                        accountAddress1
+                                        (Memo $ BSS.pack [0, 1, 2, 3])
+                                        [(101, 10), (102, 0), (103, 12)],
+                                  metadata = makeDummyHeader accountAddress0 5 100000,
+                                  keys = [(0, [(0, keyPair0)])]
+                                },
+                          taaAssertion = \Helpers.SchedulerResult{..} _ ->
+                            return $ do
+                                case Helpers.getResults $ Sch.ftAdded srTransactions of
+                                    [(_, Types.TxReject{..})] ->
+                                        assertEqual
+                                            "The correct scheduled transfer rejection reason is produced"
+                                            ZeroScheduledAmount
+                                            vrRejectReason
+                                    _ -> assertFailure "Transaction succeded unexpectedly"
+                        }
+                    ]
+            let contextState =
+                    Helpers.defaultContextState
+                        { Types._chainMetadata = dummyChainMeta{Types.slotTime = 100}
+                        }
+            let testConfig =
+                    Helpers.defaultTestConfig
+                        { Helpers.tcContextState = contextState
+                        }
+
+            Helpers.runSchedulerTestAssertIntermediateStates
+                @pv
+                testConfig
+                initialBlockState
+                transactionsAndAssertions
+
+scheduledTransferRejectsSelfTransferUsingAliases ::
+    forall pv.
+    Types.IsProtocolVersion pv =>
+    Types.SProtocolVersion pv ->
+    String ->
+    SpecWith (Arg Assertion)
+scheduledTransferRejectsSelfTransferUsingAliases _ pvString =
+    specify (pvString ++ ": Transfers with schedule to self rejects for account aliases for self") $
+        do
+            let transactions =
+                    [ Runner.TJSON
+                        { payload =
+                            Runner.TransferWithSchedule
+                                (createAlias accountAddress0 2)
+                                [(101, 10), (102, 11), (103, 12)],
+                          metadata = makeDummyHeader (createAlias accountAddress0 1) 1 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        }
+                    ]
+            (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
+                Helpers.runSchedulerTestTransactionJson
+                    Helpers.defaultTestConfig
+                    initialBlockState
+                    (Helpers.checkReloadCheck checkState)
+                    transactions
+            let Sch.FilteredTransactions{..} = srTransactions
+            assertEqual "There should be no failed transactions." [] ftFailed
+
+            case Helpers.getResults ftAdded of
+                [(_, Types.TxReject reason)] ->
+                    assertEqual
+                        "The correct scheduled transfer rejection reason is produced"
+                        (ScheduledSelfTransfer (createAlias accountAddress0 1)) -- the rejection reason is meant to have the sender address.
+                        reason
+                err -> assertFailure $ "Incorrect transaction result: " ++ show err
+
+            doBlockStateAssertions
+  where
+    checkState ::
+        Helpers.SchedulerResult ->
+        BS.PersistentBlockState pv ->
+        Helpers.PersistentBSM pv Assertion
+    checkState result state =
+        Helpers.assertBlockStateInvariantsH state (Helpers.srExecutionCosts result)
