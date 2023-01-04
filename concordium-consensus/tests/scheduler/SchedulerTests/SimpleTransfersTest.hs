@@ -7,9 +7,9 @@
 
 module SchedulerTests.SimpleTransfersTest (tests) where
 
+import Control.Monad (when)
 import Test.HUnit
 import Test.Hspec
-import Control.Monad (when)
 
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.GlobalState.BlockState as BS
@@ -32,9 +32,9 @@ tests =
             Helpers.forEveryProtocolVersion $ \spv pvString -> do
                 simpleTransferTest spv pvString
                 when (Types.supportsMemo spv) $
-                  simpleTransferWithMemoTest spv pvString
+                    simpleTransferWithMemoTest spv pvString
                 when (Types.supportsAccountAliases spv) $
-                  simpleTransferUsingAccountAliasesTest spv pvString
+                    simpleTransferUsingAccountAliasesTest spv pvString
 
 initialBlockState ::
     (IsProtocolVersion pv) =>
@@ -140,7 +140,7 @@ simpleTransferTest _ pvString = specify
                       keys = [(0, [(0, keyPair0)])]
                     },
                   -- transfer everything from from account0 to account1
-                  -- the (100 *) is conversion between NRG and GTU
+                  -- the (100 *) is conversion between NRG and CCD
                   TJSON
                     { payload =
                         Transfer
@@ -237,67 +237,67 @@ simpleTransferWithMemoTest _ pvString = specify
     (pvString ++ ": simple transfers with memo")
     $ do
         let transactions =
-              -- transfer 10000 from A to A
-              [ TJSON
-                { payload =
-                    TransferWithMemo
-                    { twmToAddress = accountAddress0,
-                      twmAmount = 10_000,
-                      twmMemo = Types.Memo $ BSS.pack [0, 1, 2, 3]
+                -- transfer 10000 from A0 to A0
+                [ TJSON
+                    { payload =
+                        TransferWithMemo
+                            { twmToAddress = accountAddress0,
+                              twmAmount = 10_000,
+                              twmMemo = Types.Memo $ BSS.pack [0, 1, 2, 3]
+                            },
+                      metadata = makeDummyHeader accountAddress0 1 $ Helpers.simpleTransferCostWithMemo2 4,
+                      keys = [(0, [(0, keyPair0)])]
                     },
-                  metadata = makeDummyHeader accountAddress0 1 $ Helpers.simpleTransferCostWithMemo2 4,
-                  keys = [(0, [(0, keyPair0)])]
-                },
-                -- transfer 8800 from A to T
-                TJSON
-                { payload =
-                    TransferWithMemo
-                    { twmToAddress = accountAddress1,
-                      twmAmount = 8_800,
-                      twmMemo = Types.Memo $ BSS.pack [0, 1, 2, 3]
+                  -- transfer 8800 from A to T
+                  TJSON
+                    { payload =
+                        TransferWithMemo
+                            { twmToAddress = accountAddress1,
+                              twmAmount = 8_800,
+                              twmMemo = Types.Memo $ BSS.pack [0, 1, 2, 3]
+                            },
+                      metadata = makeDummyHeader accountAddress0 2 $ Helpers.simpleTransferCostWithMemo2 4,
+                      keys = [(0, [(0, keyPair0)])]
                     },
-                  metadata = makeDummyHeader accountAddress0 2 $ Helpers.simpleTransferCostWithMemo2 4,
-                  keys = [(0, [(0, keyPair0)])]
-                },
-                -- transfer everything from from A to T
-                -- the (100 *) is conversion between NRG and GTU
-                TJSON
-                { payload =
-                    TransferWithMemo
-                    { twmToAddress = accountAddress1,
-                      twmAmount =
-                        1_000_000
-                        - 8_800
-                        - 3 * 100 * fromIntegral (Helpers.simpleTransferCostWithMemo2 4),
-                      twmMemo = Types.Memo $ BSS.pack [0, 1, 2, 3]
+                  -- transfer everything from from A0 to A1
+                  -- the (100 *) is conversion between NRG and CCD
+                  TJSON
+                    { payload =
+                        TransferWithMemo
+                            { twmToAddress = accountAddress1,
+                              twmAmount =
+                                1_000_000
+                                    - 8_800
+                                    - 3 * 100 * fromIntegral (Helpers.simpleTransferCostWithMemo2 4),
+                              twmMemo = Types.Memo $ BSS.pack [0, 1, 2, 3]
+                            },
+                      metadata = makeDummyHeader accountAddress0 3 $ Helpers.simpleTransferCostWithMemo2 4,
+                      keys = [(0, [(0, keyPair0)])]
                     },
-                  metadata = makeDummyHeader accountAddress0 3 $ Helpers.simpleTransferCostWithMemo2 4,
-                  keys = [(0, [(0, keyPair0)])]
-                },
-                -- transfer 10000 back from T to A
-                TJSON
-                { payload =
-                    TransferWithMemo
-                  { twmToAddress = accountAddress0,
-                    twmAmount = 100 * fromIntegral (Helpers.simpleTransferCostWithMemo2 4),
-                    twmMemo = Types.Memo $ BSS.pack [0, 1, 2, 3]
-                  },
-                  metadata = makeDummyHeader accountAddress1 1 $ Helpers.simpleTransferCostWithMemo2 4,
-                  keys = [(0, [(0, keyPair1)])]
-                },
-                -- the next transaction should fail because the balance on A is now exactly enough to cover
-                -- the transfer cost
-                TJSON
-                { payload =
-                  TransferWithMemo
-                  { twmToAddress = accountAddress1,
-                    twmAmount = 1,
-                    twmMemo = Types.Memo $ BSS.pack [0, 1, 2, 3]
-                  },
-                  metadata = makeDummyHeader accountAddress0 4 $ Helpers.simpleTransferCostWithMemo2 4,
-                  keys = [(0, [(0, keyPair0)])]
-                }
-              ]
+                  -- transfer 10000 back from A1 to A0
+                  TJSON
+                    { payload =
+                        TransferWithMemo
+                            { twmToAddress = accountAddress0,
+                              twmAmount = 100 * fromIntegral (Helpers.simpleTransferCostWithMemo2 4),
+                              twmMemo = Types.Memo $ BSS.pack [0, 1, 2, 3]
+                            },
+                      metadata = makeDummyHeader accountAddress1 1 $ Helpers.simpleTransferCostWithMemo2 4,
+                      keys = [(0, [(0, keyPair1)])]
+                    },
+                  -- the next transaction should fail because the balance on A0 is now exactly enough to cover
+                  -- the transfer cost
+                  TJSON
+                    { payload =
+                        TransferWithMemo
+                            { twmToAddress = accountAddress1,
+                              twmAmount = 1,
+                              twmMemo = Types.Memo $ BSS.pack [0, 1, 2, 3]
+                            },
+                      metadata = makeDummyHeader accountAddress0 4 $ Helpers.simpleTransferCostWithMemo2 4,
+                      keys = [(0, [(0, keyPair0)])]
+                    }
+                ]
 
         (_, doBlockStateAssertions) <-
             Helpers.runSchedulerTestTransactionJson
@@ -368,40 +368,48 @@ simpleTransferUsingAccountAliasesTest _ pvString = specify
     $ do
         let transactions =
                 -- transfer 10000 from account0 to account0
-              [ TJSON
-                { payload = Transfer{toaddress = createAlias accountAddress0 0, amount = 10_000},
-                  metadata = makeDummyHeader accountAddress0 1 Helpers.simpleTransferCost,
-                  keys = [(0, [(0, keyPair0)])]
-                },
-                -- transfer 8800 from account0 to account1
-                TJSON
-                { payload = Transfer{toaddress = createAlias accountAddress1 0, amount = 8_800},
-                  metadata = makeDummyHeader accountAddress0 2 Helpers.simpleTransferCost,
-                  keys = [(0, [(0, keyPair0)])]
-                },
-                -- transfer everything from from account0 to account1
-                -- the (100 *) is conversion between NRG and CCD
-                TJSON
-                { payload = Transfer{toaddress = createAlias accountAddress1 1,
-                                     amount = 1_000_000
-                                        - 8_800 - 3 * 100 * fromIntegral Helpers.simpleTransferCost},
-                  metadata = makeDummyHeader accountAddress0 3 Helpers.simpleTransferCost,
-                  keys = [(0, [(0, keyPair0)])]
-                },
-                -- transfer 10000 back from account1 to account0
-                TJSON
-                { payload = Transfer{toaddress = createAlias accountAddress0 1,
-                                     amount = 100 * fromIntegral Helpers.simpleTransferCost},
-                  metadata = makeDummyHeader accountAddress1 1 Helpers.simpleTransferCost,
-                  keys = [(0, [(0, keyPair1)])]
-                },
-                -- the next transaction should fail because the balance on account0 is now exactly enough to cover the transfer cost
-                TJSON
-                { payload = Transfer{toaddress = createAlias accountAddress1 2, amount = 1},
-                  metadata = makeDummyHeader (createAlias accountAddress0 4) 4 Helpers.simpleTransferCost,
-                  keys = [(0, [(0, keyPair0)])]
-                }
-              ]
+                [ TJSON
+                    { payload = Transfer{toaddress = createAlias accountAddress0 0, amount = 10_000},
+                      metadata = makeDummyHeader accountAddress0 1 Helpers.simpleTransferCost,
+                      keys = [(0, [(0, keyPair0)])]
+                    },
+                  -- transfer 8800 from account0 to account1
+                  TJSON
+                    { payload = Transfer{toaddress = createAlias accountAddress1 0, amount = 8_800},
+                      metadata = makeDummyHeader accountAddress0 2 Helpers.simpleTransferCost,
+                      keys = [(0, [(0, keyPair0)])]
+                    },
+                  -- transfer everything from from account0 to account1
+                  -- the (100 *) is conversion between NRG and CCD
+                  TJSON
+                    { payload =
+                        Transfer
+                            { toaddress = createAlias accountAddress1 1,
+                              amount =
+                                1_000_000
+                                    - 8_800
+                                    - 3 * 100 * fromIntegral Helpers.simpleTransferCost
+                            },
+                      metadata = makeDummyHeader accountAddress0 3 Helpers.simpleTransferCost,
+                      keys = [(0, [(0, keyPair0)])]
+                    },
+                  -- transfer 10000 back from account1 to account0
+                  TJSON
+                    { payload =
+                        Transfer
+                            { toaddress = createAlias accountAddress0 1,
+                              amount = 100 * fromIntegral Helpers.simpleTransferCost
+                            },
+                      metadata = makeDummyHeader accountAddress1 1 Helpers.simpleTransferCost,
+                      keys = [(0, [(0, keyPair1)])]
+                    },
+                  -- the next transaction should fail because the balance on account0 is now exactly enough to cover the transfer cost
+                  TJSON
+                    { payload = Transfer{toaddress = createAlias accountAddress1 2, amount = 1},
+                      metadata = makeDummyHeader (createAlias accountAddress0 4) 4 Helpers.simpleTransferCost,
+                      keys = [(0, [(0, keyPair0)])]
+                    }
+                ]
 
         (_, doBlockStateAssertions) <-
             Helpers.runSchedulerTestTransactionJson
@@ -434,10 +442,10 @@ simpleTransferUsingAccountAliasesTest _ pvString = specify
             assertEqual "There should be no failed transactions." [] ftFailed
 
             case last results of
-              (_, Types.TxReject (Types.AmountTooLarge addr amnt)) -> do
-                assertEqual "Sending from account0" (Types.AddressAccount (createAlias accountAddress0 4)) addr
-                assertEqual "Exactly 1 microCCD" 1 amnt
-              err -> assertFailure $ "Incorrect result of the last transaction: " ++ show (snd err)
+                (_, Types.TxReject (Types.AmountTooLarge addr amnt)) -> do
+                    assertEqual "Sending from account0" (Types.AddressAccount (createAlias accountAddress0 4)) addr
+                    assertEqual "Exactly 1 microCCD" 1 amnt
+                err -> assertFailure $ "Incorrect result of the last transaction: " ++ show (snd err)
 
             let nonreject =
                     all

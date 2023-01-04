@@ -1,112 +1,151 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies #-}
 
-module SchedulerTests.StakedAmountLocked where
+module SchedulerTests.StakedAmountLocked (tests) where
 
+import Control.Monad
+import Lens.Micro.Platform
 import Test.HUnit
 import Test.Hspec
 
-import qualified Concordium.Scheduler as Sch
-import qualified Concordium.Scheduler.EnvironmentImplementation as Types
-import Concordium.Scheduler.Runner
-import qualified Concordium.Scheduler.Types as Types
-import Control.Monad
-import System.Random
-
-import Concordium.Types.Accounts
-
-import Concordium.GlobalState.BakerInfo
-import Concordium.GlobalState.Basic.BlockState
-import Concordium.GlobalState.Basic.BlockState.Account
-import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
-import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
-
-import qualified Concordium.Crypto.BlockSignature as BlockSig
-import qualified Concordium.Crypto.BlsSignature as Bls
-import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
-import qualified Concordium.Crypto.VRF as VRF
-import Concordium.Scheduler.Types hiding (Transfer)
-import Concordium.TransactionVerification
-
-import Lens.Micro.Platform
-
-import Concordium.Crypto.DummyData
+import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.DummyData
+import qualified Concordium.GlobalState.Persistent.Account as BS
+import qualified Concordium.GlobalState.Persistent.BlobStore as Blob
+import qualified Concordium.GlobalState.Persistent.BlockState as BS
+import qualified Concordium.Scheduler as Sch
 import Concordium.Scheduler.DummyData
-import Concordium.Types.DummyData
-
--- |Protocol version
-type PV1 = 'Types.P1
-
-keyPair :: Int -> SigScheme.KeyPair
-keyPair = uncurry SigScheme.KeyPairEd25519 . fst . randomEd25519KeyPair . mkStdGen
-
-account :: Int -> Types.AccountAddress
-account = accountAddressFrom
-
-baker0 :: (FullBakerInfo, VRF.SecretKey, BlockSig.SignKey, Bls.SecretKey)
-baker0 = mkFullBaker 0 0
-
-initialBlockState :: BlockState PV1
-initialBlockState = createBlockState $ foldr putAccountWithRegIds Acc.emptyAccounts [acc, accWithLockup]
-  where
-    acc = mkAccount @'AccountV0 (SigScheme.correspondingVerifyKey (keyPair 0)) (account 0) 10_000_058 & accountStaking .~ AccountStakeBaker baker
-    baker =
-        AccountBaker
-            { _stakedAmount = 10_000_000,
-              _stakeEarnings = False,
-              _accountBakerInfo = BakerInfoExV0 $ baker0 ^. _1 . bakerInfo,
-              _bakerPendingChange = NoChange
-            }
-    accWithLockup = mkAccount (SigScheme.correspondingVerifyKey (keyPair 1)) (account 1) 10_000_033 & accountReleaseSchedule .~ lockup
-    lockup = addReleases releases emptyAccountReleaseSchedule
-    releases = ([(1, 10_000_000)], TransactionHashV0 $ Hash.hash "")
-
-baker1 :: (FullBakerInfo, VRF.SecretKey, BlockSig.SignKey, Bls.SecretKey)
-baker1 = mkFullBaker 1 1
-
-transactionsInput :: [TransactionJSON]
-transactionsInput =
-    [ TJSON
-        { payload = Transfer (account 0) 0,
-          metadata = makeDummyHeader (account 0) 1 10000,
-          keys = [(0, [(0, keyPair 0)])]
-        },
-      TJSON
-        { payload = Transfer (account 1) 0,
-          metadata = makeDummyHeader (account 1) 1 10000,
-          keys = [(0, [(0, keyPair 1)])]
-        }
-    ]
-
-type TestResult = ([(BlockItemWithStatus, Types.TransactionSummary)], [(TransactionWithStatus, FailureKind)])
-
-runTransactions :: IO TestResult
-runTransactions = do
-    txs <- processUngroupedTransactions transactionsInput
-    let (Sch.FilteredTransactions{..}, _) =
-            Types.runSI
-                (Sch.filterTransactions dummyBlockSize dummyBlockTimeout txs)
-                dummyChainMeta
-                maxBound
-                maxBound
-                initialBlockState
-    return (ftAdded, ftFailed)
+import Concordium.Scheduler.Runner
+import Concordium.Scheduler.Types hiding (Transfer, TransferWithSchedule)
+import qualified Concordium.Scheduler.Types as Types
+import Concordium.Types.Accounts
+import qualified SchedulerTests.Helpers as Helpers
 
 tests :: Spec
-tests = do
-    (valid, invalid) <- runIO runTransactions
+tests =
     describe "Insufficient available amount." $ do
-        specify "Correct number of valid transactions" $
-            assertEqual "There are some valid transactions" [] valid
-        specify "Invalid transactions fail for the right reason" $ do
-            assertEqual "Incorrect number of invalid transactions" 2 (length invalid)
+        sequence_ $
+            Helpers.forEveryProtocolVersion $ \spv pvString -> do
+                case accountVersionFor spv of
+                    SAccountV0 -> testCase0 spv pvString
+                    _ -> return ()
+
+initialBlockState ::
+    (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV0) =>
+    Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
+initialBlockState =
+    Helpers.createTestBlockStateWithAccountsM
+        [ makeTestBakerV0FromSeed 10_000_058 10_000_000 0 0,
+          Helpers.makeTestAccountFromSeed 33 1,
+          Helpers.makeTestAccountFromSeed 100_000_000 2
+        ]
+
+accountAddress0 :: AccountAddress
+accountAddress0 = Helpers.accountAddressFromSeed 0
+
+accountAddress1 :: AccountAddress
+accountAddress1 = Helpers.accountAddressFromSeed 1
+
+accountAddress2 :: AccountAddress
+accountAddress2 = Helpers.accountAddressFromSeed 2
+
+keyPair0 :: SigScheme.KeyPair
+keyPair0 = Helpers.keyPairFromSeed 0
+
+keyPair1 :: SigScheme.KeyPair
+keyPair1 = Helpers.keyPairFromSeed 1
+
+keyPair2 :: SigScheme.KeyPair
+keyPair2 = Helpers.keyPairFromSeed 2
+
+makeTestBakerV0FromSeed ::
+    Blob.MonadBlobStore m =>
+    -- | The initial balance of the account.
+    Amount ->
+    -- | The initial staked amount of the account.
+    -- Must be less than or equal to the initial balance.
+    Amount ->
+    -- | The baker id of the account.
+    -- Must match the account index, which is the index of the account in the initial block state.
+    BakerId ->
+    -- | Seed used to generate account and baker keys.
+    Int ->
+    m (BS.PersistentAccount 'AccountV0)
+makeTestBakerV0FromSeed amount stake bakerId seed = do
+    account <- Helpers.makeTestAccountFromSeed amount seed
+    BS.addAccountBakerV0 bakerId info account
+  where
+    info =
+        BakerAdd
+            { baKeys = bakerKeys,
+              baStake = stake,
+              baStakeEarnings = False
+            }
+    bakerKeys =
+        BakerKeyUpdate
+            { bkuSignKey = bakrInfo ^. bakerSignatureVerifyKey,
+              bkuAggregationKey = bakrInfo ^. bakerAggregationVerifyKey,
+              bkuElectionKey = bakrInfo ^. bakerElectionVerifyKey
+            }
+    bakrInfo :: BakerInfo
+    bakrInfo =
+        let (fullBakr, _, _, _) = mkFullBaker seed bakerId
+        in  fullBakr ^. theBakerInfo
+
+testCase0 ::
+    forall pv.
+    (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV0) =>
+    SProtocolVersion pv ->
+    String ->
+    SpecWith (Arg Assertion)
+testCase0 _ pvString =
+    specify
+        (pvString ++ ": Attempt transfer insufficient amount due to amount being stake and locked")
+        $ do
+            let transactions =
+                    [ TJSON
+                        { payload = Transfer accountAddress0 0,
+                          metadata = makeDummyHeader accountAddress0 1 10_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+                      TJSON
+                        { payload = TransferWithSchedule accountAddress1 [(1, 10_000_000)],
+                          metadata = makeDummyHeader accountAddress2 1 10_000,
+                          keys = [(0, [(0, keyPair2)])]
+                        },
+                      TJSON
+                        { payload = Transfer accountAddress1 1,
+                          metadata = makeDummyHeader accountAddress1 1 10_000,
+                          keys = [(0, [(0, keyPair1)])]
+                        }
+                    ]
+
+            -- Run the test
+            (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
+                Helpers.runSchedulerTestTransactionJson
+                    Helpers.defaultTestConfig
+                    initialBlockState
+                    (Helpers.checkReloadCheck checkState)
+                    transactions
+
+            let Sch.FilteredTransactions{..} = srTransactions
+            assertEqual "There are 1 valid transactions" 1 (length ftAdded)
+            assertEqual "Incorrect number of invalid transactions" 2 (length ftFailed)
             zipWithM_
                 ( \(_, invalidReason) idx ->
                     assertEqual ("Incorrect failure reason for transaction " ++ show idx) Types.InsufficientFunds invalidReason
                 )
-                invalid
+                ftFailed
                 [0 :: Int ..]
+            doBlockStateAssertions
+  where
+    checkState ::
+        Helpers.SchedulerResult ->
+        BS.PersistentBlockState pv ->
+        Helpers.PersistentBSM pv Assertion
+    checkState result blockState =
+        Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
