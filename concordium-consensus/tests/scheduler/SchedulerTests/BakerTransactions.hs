@@ -273,7 +273,7 @@ tests = do
                 @PV1
                 Helpers.defaultTestConfig
                 initialBlockState
-                BS.bsoGetActiveBakers
+                (const BS.bsoGetActiveBakers)
                 txs
     let results = first (Helpers.getResults . Sch.ftAdded . Helpers.srTransactions) <$> outcomes
 

@@ -79,7 +79,7 @@ testAccountCreation _ = do
             @pv
             testConfig
             initialBlockState
-            checkState
+            (Helpers.checkReloadCheck checkState)
             transactions
 
     let Sch.FilteredTransactions{..} = srTransactions
@@ -101,19 +101,9 @@ testAccountCreation _ = do
         (map snd ftFailedCredentials)
     assertEqual "Execution cost should be 0." 0 srExecutionCosts
   where
-    checkState :: BS.PersistentBlockState pv -> Helpers.PersistentBSM pv Assertion
-    checkState state = do
-        doAssertState <- blockStateAssertions state
-        reloadedState <- Helpers.reloadBlockState state
-        doAssertReloadedState <- blockStateAssertions reloadedState
-        return $ do
-            doAssertState
-            doAssertReloadedState
-
-    blockStateAssertions :: BS.PersistentBlockState pv -> Helpers.PersistentBSM pv Assertion
-    blockStateAssertions state = do
-        hashedState <- BS.hashBlockState state
-        doInvariantAssertions <- Helpers.assertBlockStateInvariants hashedState 0
+    checkState :: Helpers.SchedulerResult -> BS.PersistentBlockState pv -> Helpers.PersistentBSM pv Assertion
+    checkState _ state = do
+        doInvariantAssertions <- Helpers.assertBlockStateInvariantsH state 0
         let addedAccountAddresses =
                 map
                     (accountAddressFromCredential . Types.credential)

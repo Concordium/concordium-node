@@ -1,7 +1,10 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- | Test that reducing delegation and removing delegators always works, regardless
 --  of whether the new stake would violate any of the cap bounds.
@@ -12,189 +15,172 @@ module SchedulerTests.Delegation (tests) where
 
 import Lens.Micro.Platform
 
-import Concordium.Crypto.DummyData
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import Concordium.ID.Types as ID
 import Concordium.Types.Accounts
-import Concordium.Types.DummyData
 
 import Concordium.GlobalState.BakerInfo
-import Concordium.GlobalState.Basic.BlockState
-import Concordium.GlobalState.Basic.BlockState.Account
-import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
+import qualified Concordium.GlobalState.Persistent.Account as BS
+import qualified Concordium.GlobalState.Persistent.BlobStore as Blob
+import qualified Concordium.GlobalState.Persistent.BlockState as BS
+import qualified Concordium.Scheduler as Sch
 import qualified Concordium.Scheduler.Runner as Runner
 import Concordium.Scheduler.Types
+import qualified Concordium.Scheduler.Types as Types
 
 import Concordium.GlobalState.DummyData
 import Concordium.Scheduler.DummyData
-import SchedulerTests.TestUtils
-import System.Random
-import Test.HUnit (assertEqual)
+import qualified SchedulerTests.Helpers as Helpers
+import Test.HUnit
 import Test.Hspec
 
--- |Account of the baker 0
-baker0Address :: AccountAddress
-baker0Address = accountAddressFrom 16
+tests :: Spec
+tests =
+    describe "Delegate in different scenarios" $
+        sequence_ $
+            Helpers.forEveryProtocolVersion testCases
+  where
+    testCases :: forall pv. IsProtocolVersion pv => SProtocolVersion pv -> String -> SpecWith (Arg Assertion)
+    testCases spv pvString =
+        case delegationSupport @(AccountVersionFor pv) of
+            SAVDelegationNotSupported -> return ()
+            SAVDelegationSupported -> do
+                testCase1 spv pvString
+                testCase2 spv pvString
+                testCase3 spv pvString
+                testCase4 spv pvString
+                testCase5 spv pvString
+                testCase6 spv pvString
+                testCase7 spv pvString
+                testCase8 spv pvString
+                testCase9 spv pvString
 
--- |Account keys of the baker0 account.
-baker0KP :: SigScheme.KeyPair
-baker0KP = uncurry SigScheme.KeyPairEd25519 . fst $ randomEd25519KeyPair (mkStdGen 16)
-
-baker0VK :: SigScheme.VerifyKey
-baker0VK = SigScheme.correspondingVerifyKey baker0KP
-
-baker0Account :: Account 'AccountV1
-baker0Account =
-    (mkAccount @'AccountV1 baker0VK baker0Address 1_000_000)
-        { _accountStaking =
-            AccountStakeBaker
-                AccountBaker
-                    { _stakedAmount = 1_000_000,
-                      _stakeEarnings = True,
-                      _accountBakerInfo =
-                        BakerInfoExV1
-                            { _bieBakerInfo = mkFullBaker 16 0 ^. _1 . theBakerInfo,
-                              _bieBakerPoolInfo =
-                                BakerPoolInfo
-                                    { _poolOpenStatus = OpenForAll,
-                                      _poolMetadataUrl = UrlText "Some URL",
-                                      _poolCommissionRates =
-                                        CommissionRates
-                                            { _finalizationCommission = makeAmountFraction 50_000,
-                                              _bakingCommission = makeAmountFraction 50_000,
-                                              _transactionCommission = makeAmountFraction 50_000
-                                            }
-                                    }
-                            },
-                      _bakerPendingChange = NoChange
+-- | Deterministically generate a baker account from a seed.
+makeTestBakerV1FromSeed ::
+    (IsAccountVersion av, Blob.MonadBlobStore m, AVSupportsDelegation av) =>
+    -- | The initial balance of the account.
+    Amount ->
+    -- | The initial staked amount of the account.
+    -- Must be less than or equal to the initial balance.
+    Amount ->
+    -- | The baker id of the account.
+    -- Must match the account index, which is the index of the account in the initial block state.
+    BakerId ->
+    -- | Seed used to generate account and baker keys.
+    Int ->
+    m (BS.PersistentAccount av)
+makeTestBakerV1FromSeed amount stake bakerId seed = do
+    account <- Helpers.makeTestAccountFromSeed amount seed
+    let (fulBaker, _, _, _) = mkFullBaker seed bakerId
+    let bakerInfoEx =
+            BakerInfoExV1
+                { _bieBakerInfo = fulBaker ^. theBakerInfo,
+                  _bieBakerPoolInfo = poolInfo
+                }
+    BS.addAccountBakerV1 bakerInfoEx stake True account
+  where
+    poolInfo =
+        BakerPoolInfo
+            { _poolOpenStatus = OpenForAll,
+              _poolMetadataUrl = UrlText "Some URL",
+              _poolCommissionRates =
+                CommissionRates
+                    { _finalizationCommission = makeAmountFraction 50_000,
+                      _bakingCommission = makeAmountFraction 50_000,
+                      _transactionCommission = makeAmountFraction 50_000
                     }
-        }
+            }
 
--- |Account of the baker 2
-baker2Address :: AccountAddress
-baker2Address = accountAddressFrom 18
+-- | Deterministically generate a delegator account from a seed.
+makeTestDelegatorFromSeed ::
+    (IsAccountVersion av, Blob.MonadBlobStore m, AVSupportsDelegation av) =>
+    -- | The initial balance of the account.
+    Amount ->
+    -- | The delegating details added to the account.
+    AccountDelegation av ->
+    -- | Seed used to generate the account.
+    Int ->
+    m (BS.PersistentAccount av)
+makeTestDelegatorFromSeed amount accountDelegation seed = do
+    account <- Helpers.makeTestAccountFromSeed amount seed
+    BS.addAccountDelegator accountDelegation account
 
--- |Account keys of the baker2 account.
-baker2KP :: SigScheme.KeyPair
-baker2KP = uncurry SigScheme.KeyPairEd25519 . fst $ randomEd25519KeyPair (mkStdGen 18)
+-- Accounts
 
-baker2VK :: SigScheme.VerifyKey
-baker2VK = SigScheme.correspondingVerifyKey baker2KP
+-- |Account of the baker 0.
+baker0Account ::
+    (IsAccountVersion av, Blob.MonadBlobStore m, AVSupportsDelegation av) =>
+    m (BS.PersistentAccount av)
+baker0Account = makeTestBakerV1FromSeed 1_000_000 1_000_000 bakerId seed
+  where
+    bakerId = 0
+    seed = 16
 
-baker2Account :: Account 'AccountV1
-baker2Account =
-    (mkAccount @'AccountV1 baker2VK baker2Address 1_000_000)
-        { _accountStaking =
-            AccountStakeBaker
-                AccountBaker
-                    { _stakedAmount = 1_000,
-                      _stakeEarnings = True,
-                      _accountBakerInfo =
-                        BakerInfoExV1
-                            { _bieBakerInfo = mkFullBaker 18 2 ^. _1 . theBakerInfo,
-                              _bieBakerPoolInfo =
-                                BakerPoolInfo
-                                    { _poolOpenStatus = OpenForAll,
-                                      _poolMetadataUrl = UrlText "Some URL",
-                                      _poolCommissionRates =
-                                        CommissionRates
-                                            { _finalizationCommission = makeAmountFraction 50_000,
-                                              _bakingCommission = makeAmountFraction 50_000,
-                                              _transactionCommission = makeAmountFraction 50_000
-                                            }
-                                    }
-                            },
-                      _bakerPendingChange = NoChange
-                    }
-        }
+-- |Account of the delegator1.
+delegator1Account ::
+    (IsAccountVersion av, Blob.MonadBlobStore m, AVSupportsDelegation av) =>
+    m (BS.PersistentAccount av)
+delegator1Account = makeTestDelegatorFromSeed 20_000_000 accountDelegation 17
+  where
+    accountDelegation =
+        AccountDelegationV1
+            { _delegationIdentity = 1,
+              _delegationStakedAmount = 19_000_000, -- leverage cap is set to 5 in createBlockState, so this puts it over the cap.
+              _delegationStakeEarnings = False,
+              _delegationTarget = DelegateToBaker 0,
+              _delegationPendingChange = NoChange
+            }
 
--- |Account of the delegator1
+-- |Account address of the delegator1.
 delegator1Address :: AccountAddress
-delegator1Address = accountAddressFrom 17
+delegator1Address = Helpers.accountAddressFromSeed 17
 
 -- |Account keys of the delegator1 account.
 delegator1KP :: SigScheme.KeyPair
-delegator1KP = uncurry SigScheme.KeyPairEd25519 . fst $ randomEd25519KeyPair (mkStdGen 17)
+delegator1KP = Helpers.keyPairFromSeed 17
 
-delegator1VK :: SigScheme.VerifyKey
-delegator1VK = SigScheme.correspondingVerifyKey delegator1KP
+-- |Account of the baker 2.
+baker2Account ::
+    (IsAccountVersion av, Blob.MonadBlobStore m, AVSupportsDelegation av) =>
+    m (BS.PersistentAccount av)
+baker2Account = makeTestBakerV1FromSeed balance stake bakerId seed
+  where
+    balance = 1_000_000
+    stake = 1_000
+    bakerId = 2
+    seed = 18
 
-delegator1Account :: Account 'AccountV1
-delegator1Account =
-    (mkAccount @'AccountV1 delegator1VK delegator1Address 20_000_000)
-        { _accountStaking =
-            AccountStakeDelegate
-                AccountDelegationV1
-                    { _delegationIdentity = 1,
-                      _delegationStakedAmount = 19_000_000, -- leverage cap is set to 5 in createBlockState, so this puts it over the cap.
-                      _delegationStakeEarnings = False,
-                      _delegationTarget = DelegateToBaker 0,
-                      _delegationPendingChange = NoChange
-                    }
-        }
+-- |Account of the delegator3.
+delegator3Account ::
+    (IsAccountVersion av, Blob.MonadBlobStore m, AVSupportsDelegation av) =>
+    m (BS.PersistentAccount av)
+delegator3Account = makeTestDelegatorFromSeed 20_000_000 accountDelegation 19
+  where
+    accountDelegation =
+        AccountDelegationV1
+            { _delegationIdentity = 3,
+              _delegationStakedAmount = 1_000, -- leverage cap is set to 5 in createBlockState, so this puts it over the cap.
+              _delegationStakeEarnings = False,
+              _delegationTarget = DelegateToBaker 2,
+              _delegationPendingChange = NoChange
+            }
 
--- |Account of the delegator3
+-- |Account address of the delegator3.
 delegator3Address :: AccountAddress
-delegator3Address = accountAddressFrom 19
+delegator3Address = Helpers.accountAddressFromSeed 19
 
 -- |Account keys of the delegator3 account.
 delegator3KP :: SigScheme.KeyPair
-delegator3KP = uncurry SigScheme.KeyPairEd25519 . fst $ randomEd25519KeyPair (mkStdGen 19)
+delegator3KP = Helpers.keyPairFromSeed 19
 
-delegator3VK :: SigScheme.VerifyKey
-delegator3VK = SigScheme.correspondingVerifyKey delegator3KP
-
-delegator3Account :: Account 'AccountV1
-delegator3Account =
-    (mkAccount @'AccountV1 delegator3VK delegator3Address 20_000_000)
-        { _accountStaking =
-            AccountStakeDelegate
-                AccountDelegationV1
-                    { _delegationIdentity = 3,
-                      _delegationStakedAmount = 1_000,
-                      _delegationStakeEarnings = False,
-                      _delegationTarget = DelegateToBaker 2,
-                      _delegationPendingChange = NoChange
-                    }
-        }
-
--- |Account of the baker 2
-baker4Address :: AccountAddress
-baker4Address = accountAddressFrom 20
-
--- |Account keys of the baker4 account.
-baker4KP :: SigScheme.KeyPair
-baker4KP = uncurry SigScheme.KeyPairEd25519 . fst $ randomEd25519KeyPair (mkStdGen 20)
-
-baker4VK :: SigScheme.VerifyKey
-baker4VK = SigScheme.correspondingVerifyKey baker4KP
-
-baker4Account :: Account 'AccountV1
-baker4Account =
-    (mkAccount @'AccountV1 baker4VK baker4Address 1_000_000)
-        { _accountStaking =
-            AccountStakeBaker
-                AccountBaker
-                    { _stakedAmount = 1_000,
-                      _stakeEarnings = True,
-                      _accountBakerInfo =
-                        BakerInfoExV1
-                            { _bieBakerInfo = mkFullBaker 20 4 ^. _1 . theBakerInfo,
-                              _bieBakerPoolInfo =
-                                BakerPoolInfo
-                                    { _poolOpenStatus = OpenForAll,
-                                      _poolMetadataUrl = UrlText "Some URL",
-                                      _poolCommissionRates =
-                                        CommissionRates
-                                            { _finalizationCommission = makeAmountFraction 50_000,
-                                              _bakingCommission = makeAmountFraction 50_000,
-                                              _transactionCommission = makeAmountFraction 50_000
-                                            }
-                                    }
-                            },
-                      _bakerPendingChange = NoChange
-                    }
-        }
+-- |Account of the baker 4.
+baker4Account ::
+    (IsAccountVersion av, Blob.MonadBlobStore m, AVSupportsDelegation av) =>
+    m (BS.PersistentAccount av)
+baker4Account = makeTestBakerV1FromSeed 1_000_000 1_000 bakerId seed
+  where
+    bakerId = 4
+    seed = 20
 
 -- |Create initial block state with account
 -- account index 0 is baker0
@@ -202,28 +188,29 @@ baker4Account =
 -- account index 2 is baker 2
 -- account index 3 is delegator3 (delegates to baker 2)
 -- account index 4 is baker 4
-initialBlockState :: BlockState PV4
+initialBlockState ::
+    (IsProtocolVersion pv, SupportsDelegation pv) =>
+    Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
 initialBlockState =
-    createBlockState
-        ( foldr
-            Acc.putAccountWithRegIds
-            Acc.emptyAccounts
-            [ baker4Account,
-              delegator3Account,
-              baker2Account,
-              delegator1Account,
-              baker0Account
-            ]
-        )
+    Helpers.createTestBlockStateWithAccountsM
+        [ baker0Account,
+          delegator1Account,
+          baker2Account,
+          delegator3Account,
+          baker4Account
+        ]
 
--- Test removing a delegator even if the stake is over the threshold.
-testCases1 :: [TestCase PV4]
-testCases1 =
-    [ TestCase
-        { tcName = "Remove delegation",
-          tcParameters = (defaultParams @PV4){tpInitialBlockState = initialBlockState, tpChainMeta = ChainMetadata{slotTime = 100}},
-          tcTransactions =
-            [   ( Runner.TJSON
+-- | Test removing a delegator even if the stake is over the threshold.
+testCase1 ::
+    forall pv.
+    (IsProtocolVersion pv, SupportsDelegation pv) =>
+    SProtocolVersion pv ->
+    String ->
+    SpecWith (Arg Assertion)
+testCase1 _ pvString =
+    specify (pvString ++ ": Remove delegation") $ do
+        let transactions =
+                [ Runner.TJSON
                     { payload =
                         Runner.ConfigureDelegation
                             { cdCapital = Just 0,
@@ -232,21 +219,44 @@ testCases1 =
                             },
                       metadata = makeDummyHeader delegator1Address 1 1_000,
                       keys = [(0, [(0, delegator1KP)])]
-                    },
-                  (Success (assertEqual "Remove delegation" [DelegationRemoved 1 delegator1Address]), const (return ()))
-                )
-            ]
-        }
-    ]
+                    }
+                ]
+        -- Run the test
+        (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
+            Helpers.runSchedulerTestTransactionJson
+                Helpers.defaultTestConfig
+                (initialBlockState @pv)
+                (Helpers.checkReloadCheck checkState)
+                transactions
+        -- Assertions
+        let Sch.FilteredTransactions{..} = srTransactions
+        events <- case Helpers.getResults ftAdded of
+            [(_, Types.TxSuccess{vrEvents})] -> return vrEvents
+            _ -> assertFailure "Transaction should succeed"
+        assertEqual
+            "Delegator was removed"
+            [DelegationRemoved 1 delegator1Address]
+            events
+        doBlockStateAssertions
+  where
+    checkState ::
+        Helpers.SchedulerResult ->
+        BS.PersistentBlockState pv ->
+        Helpers.PersistentBSM pv Assertion
+    checkState result blockState = do
+        Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
 
--- Test reducing delegator stake in such a way that it stays above the cap threshold.
-testCases2 :: [TestCase PV4]
-testCases2 =
-    [ TestCase
-        { tcName = "Reduce delegation stake with overstaking",
-          tcParameters = (defaultParams @PV4){tpInitialBlockState = initialBlockState, tpChainMeta = ChainMetadata{slotTime = 100}},
-          tcTransactions =
-            [   ( Runner.TJSON
+-- | Test reducing delegator stake in such a way that it stays above the cap threshold.
+testCase2 ::
+    forall pv.
+    (IsProtocolVersion pv, SupportsDelegation pv) =>
+    SProtocolVersion pv ->
+    String ->
+    SpecWith (Arg Assertion)
+testCase2 _ pvString =
+    specify (pvString ++ ": Reduce delegation stake with overstaking") $ do
+        let transactions =
+                [ Runner.TJSON
                     { payload =
                         Runner.ConfigureDelegation
                             { cdCapital = Just 18_999_999,
@@ -255,21 +265,42 @@ testCases2 =
                             },
                       metadata = makeDummyHeader delegator1Address 1 1_000,
                       keys = [(0, [(0, delegator1KP)])]
-                    },
-                  (Success (assertEqual "Reduce delegation stake" [DelegationStakeDecreased 1 delegator1Address 18_999_999]), const (return ()))
-                )
-            ]
-        }
-    ]
+                    }
+                ]
+        (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
+            Helpers.runSchedulerTestTransactionJson
+                Helpers.defaultTestConfig
+                (initialBlockState @pv)
+                (Helpers.checkReloadCheck checkState)
+                transactions
+        let Sch.FilteredTransactions{..} = srTransactions
+        events <- case Helpers.getResults ftAdded of
+            [(_, Types.TxSuccess{vrEvents})] -> return vrEvents
+            _ -> assertFailure "Transaction should succeed"
+        assertEqual
+            "Stake was decreased"
+            [DelegationStakeDecreased 1 delegator1Address 18_999_999]
+            events
+        doBlockStateAssertions
+  where
+    checkState ::
+        Helpers.SchedulerResult ->
+        BS.PersistentBlockState pv ->
+        Helpers.PersistentBSM pv Assertion
+    checkState result blockState =
+        Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
 
--- Test increasing stake.
-testCases3 :: [TestCase PV4]
-testCases3 =
-    [ TestCase
-        { tcName = "Increase stake with overstaking",
-          tcParameters = (defaultParams @PV4){tpInitialBlockState = initialBlockState, tpChainMeta = ChainMetadata{slotTime = 100}},
-          tcTransactions =
-            [   ( Runner.TJSON
+-- |Test transaction rejects if increasing stake above the threshold of the pool
+testCase3 ::
+    forall pv.
+    (IsProtocolVersion pv, SupportsDelegation pv) =>
+    SProtocolVersion pv ->
+    String ->
+    SpecWith (Arg Assertion)
+testCase3 _ pvString =
+    specify (pvString ++ ": Increase stake with overstaking") $ do
+        let transactions =
+                [ Runner.TJSON
                     { payload =
                         Runner.ConfigureDelegation
                             { cdCapital = Just 19_000_001,
@@ -278,21 +309,43 @@ testCases3 =
                             },
                       metadata = makeDummyHeader delegator1Address 1 1_000,
                       keys = [(0, [(0, delegator1KP)])]
-                    },
-                  (Reject StakeOverMaximumThresholdForPool, const (return ()))
-                )
-            ]
-        }
-    ]
+                    }
+                ]
+        (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
+            Helpers.runSchedulerTestTransactionJson
+                Helpers.defaultTestConfig
+                (initialBlockState @pv)
+                (Helpers.checkReloadCheck checkState)
+                transactions
+        let Sch.FilteredTransactions{..} = srTransactions
+        reason <- case Helpers.getResults ftAdded of
+            [(_, Types.TxReject{vrRejectReason})] -> return vrRejectReason
+            _ -> assertFailure "Transaction should reject"
+        assertEqual
+            "Reject with reason: stake over maximum threshold for pool"
+            reason
+            StakeOverMaximumThresholdForPool
+        doBlockStateAssertions
+  where
+    checkState ::
+        Helpers.SchedulerResult ->
+        BS.PersistentBlockState pv ->
+        Helpers.PersistentBSM pv Assertion
+    checkState result blockState =
+        Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
 
--- Test reducing delegator stake **and changing target** such that the new stake is above the cap for the new target.
-testCases4 :: [TestCase PV4]
-testCases4 =
-    [ TestCase
-        { tcName = "Reduce stake and change target 1",
-          tcParameters = (defaultParams @PV4){tpInitialBlockState = initialBlockState, tpChainMeta = ChainMetadata{slotTime = 100}},
-          tcTransactions =
-            [   ( Runner.TJSON
+-- |Test reducing delegator stake **and changing target** such that the new stake is above the cap
+-- for the new target.
+testCase4 ::
+    forall pv.
+    (IsProtocolVersion pv, SupportsDelegation pv) =>
+    SProtocolVersion pv ->
+    String ->
+    SpecWith (Arg Assertion)
+testCase4 _ pvString =
+    specify (pvString ++ ": Reduce stake and change target 1") $ do
+        let transactions =
+                [ Runner.TJSON
                     { payload =
                         Runner.ConfigureDelegation
                             { cdCapital = Just 18_000_000,
@@ -301,22 +354,43 @@ testCases4 =
                             },
                       metadata = makeDummyHeader delegator1Address 1 1_000,
                       keys = [(0, [(0, delegator1KP)])]
-                    },
-                  (Reject StakeOverMaximumThresholdForPool, const (return ()))
-                )
-            ]
-        }
-    ]
+                    }
+                ]
+        (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
+            Helpers.runSchedulerTestTransactionJson
+                Helpers.defaultTestConfig
+                (initialBlockState @pv)
+                (Helpers.checkReloadCheck checkState)
+                transactions
+        let Sch.FilteredTransactions{..} = srTransactions
+        reason <- case Helpers.getResults ftAdded of
+            [(_, Types.TxReject{vrRejectReason})] -> return vrRejectReason
+            _ -> assertFailure "Transaction should reject"
+        assertEqual
+            "Reject with reason: stake over maximum threshold for pool"
+            reason
+            StakeOverMaximumThresholdForPool
+        doBlockStateAssertions
+  where
+    checkState ::
+        Helpers.SchedulerResult ->
+        BS.PersistentBlockState pv ->
+        Helpers.PersistentBSM pv Assertion
+    checkState result blockState =
+        Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
 
--- Test changing the target and decreasing stake such that the new stake is acceptable for the new target.
+-- |Test changing the target and decreasing stake such that the new stake is acceptable for the new target.
 -- This still fails because the change of target is only effected after the cooldown period.
-testCases5 :: [TestCase PV4]
-testCases5 =
-    [ TestCase
-        { tcName = "Reduce stake and change target 2",
-          tcParameters = (defaultParams @PV4){tpInitialBlockState = initialBlockState, tpChainMeta = ChainMetadata{slotTime = 100}},
-          tcTransactions =
-            [   ( Runner.TJSON
+testCase5 ::
+    forall pv.
+    (IsProtocolVersion pv, SupportsDelegation pv) =>
+    SProtocolVersion pv ->
+    String ->
+    SpecWith (Arg Assertion)
+testCase5 _ pvString =
+    specify (pvString ++ ": Reduce stake and change target 2") $ do
+        let transactions =
+                [ Runner.TJSON
                     { payload =
                         Runner.ConfigureDelegation
                             { cdCapital = Just 1,
@@ -325,21 +399,42 @@ testCases5 =
                             },
                       metadata = makeDummyHeader delegator1Address 1 1_000,
                       keys = [(0, [(0, delegator1KP)])]
-                    },
-                  (Reject StakeOverMaximumThresholdForPool, const (return ()))
-                )
-            ]
-        }
-    ]
+                    }
+                ]
+        (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
+            Helpers.runSchedulerTestTransactionJson
+                Helpers.defaultTestConfig
+                (initialBlockState @pv)
+                (Helpers.checkReloadCheck checkState)
+                transactions
+        let Sch.FilteredTransactions{..} = srTransactions
+        reason <- case Helpers.getResults ftAdded of
+            [(_, Types.TxReject{vrRejectReason})] -> return vrRejectReason
+            _ -> assertFailure "Transaction should reject"
+        assertEqual
+            "Reject with reason: stake over maximum threshold for pool"
+            reason
+            StakeOverMaximumThresholdForPool
+        doBlockStateAssertions
+  where
+    checkState ::
+        Helpers.SchedulerResult ->
+        BS.PersistentBlockState pv ->
+        Helpers.PersistentBSM pv Assertion
+    checkState result blockState =
+        Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
 
--- Increase stake successfully.
-testCases6 :: [TestCase PV4]
-testCases6 =
-    [ TestCase
-        { tcName = "Increase stake successfully.",
-          tcParameters = (defaultParams @PV4){tpInitialBlockState = initialBlockState, tpChainMeta = ChainMetadata{slotTime = 100}},
-          tcTransactions =
-            [   ( Runner.TJSON
+-- |Increase stake successfully.
+testCase6 ::
+    forall pv.
+    (IsProtocolVersion pv, SupportsDelegation pv) =>
+    SProtocolVersion pv ->
+    String ->
+    SpecWith (Arg Assertion)
+testCase6 _ pvString =
+    specify (pvString ++ ": Increase stake successfully.") $ do
+        let transactions =
+                [ Runner.TJSON
                     { payload =
                         Runner.ConfigureDelegation
                             { cdCapital = Just 1_001,
@@ -348,16 +443,39 @@ testCases6 =
                             },
                       metadata = makeDummyHeader delegator3Address 1 1_000,
                       keys = [(0, [(0, delegator3KP)])]
-                    },
-                  (Success (assertEqual "Increase delegation stake" [DelegationStakeIncreased 3 delegator3Address 1_001]), const (return ()))
-                )
-            ]
-        },
-      TestCase
-        { tcName = "Increase stake and change target successfully.",
-          tcParameters = (defaultParams @PV4){tpInitialBlockState = initialBlockState, tpChainMeta = ChainMetadata{slotTime = 100}},
-          tcTransactions =
-            [   ( Runner.TJSON
+                    }
+                ]
+        (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
+            Helpers.runSchedulerTestTransactionJson
+                Helpers.defaultTestConfig
+                (initialBlockState @pv)
+                (Helpers.checkReloadCheck checkState)
+                transactions
+        let Sch.FilteredTransactions{..} = srTransactions
+        events <- case Helpers.getResults ftAdded of
+            [(_, Types.TxSuccess{vrEvents})] -> return vrEvents
+            _ -> assertFailure "Transaction should succeed"
+        assertEqual "Increase delegation stake" [DelegationStakeIncreased 3 delegator3Address 1_001] events
+        doBlockStateAssertions
+  where
+    checkState ::
+        Helpers.SchedulerResult ->
+        BS.PersistentBlockState pv ->
+        Helpers.PersistentBSM pv Assertion
+    checkState result blockState =
+        Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
+
+-- |Increase stake and change target successfully.
+testCase7 ::
+    forall pv.
+    (IsProtocolVersion pv, SupportsDelegation pv) =>
+    SProtocolVersion pv ->
+    String ->
+    SpecWith (Arg Assertion)
+testCase7 _ pvString =
+    specify (pvString ++ ": Increase stake and change target successfully.") $ do
+        let transactions =
+                [ Runner.TJSON
                     { payload =
                         Runner.ConfigureDelegation
                             { cdCapital = Just 1_001,
@@ -366,24 +484,44 @@ testCases6 =
                             },
                       metadata = makeDummyHeader delegator3Address 1 1_000,
                       keys = [(0, [(0, delegator3KP)])]
-                    },
-                    ( Success
-                        ( assertEqual
-                            "Increase delegation stake"
-                            [ DelegationSetDelegationTarget 3 delegator3Address (DelegateToBaker 4),
-                              DelegationStakeIncreased 3 delegator3Address 1_001
-                            ]
-                        ),
-                      const (return ())
-                    )
-                )
+                    }
+                ]
+        (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
+            Helpers.runSchedulerTestTransactionJson
+                Helpers.defaultTestConfig
+                (initialBlockState @pv)
+                (Helpers.checkReloadCheck checkState)
+                transactions
+        let Sch.FilteredTransactions{..} = srTransactions
+        events <- case Helpers.getResults ftAdded of
+            [(_, Types.TxSuccess{vrEvents})] -> return vrEvents
+            _ -> assertFailure "Transaction should succeed"
+        assertEqual
+            "Increase delegation stake"
+            [ DelegationSetDelegationTarget 3 delegator3Address (DelegateToBaker 4),
+              DelegationStakeIncreased 3 delegator3Address 1_001
             ]
-        },
-      TestCase
-        { tcName = "Increase stake and change target so that results is overdelegation.",
-          tcParameters = (defaultParams @PV4){tpInitialBlockState = initialBlockState, tpChainMeta = ChainMetadata{slotTime = 100}},
-          tcTransactions =
-            [   ( Runner.TJSON
+            events
+        doBlockStateAssertions
+  where
+    checkState ::
+        Helpers.SchedulerResult ->
+        BS.PersistentBlockState pv ->
+        Helpers.PersistentBSM pv Assertion
+    checkState result blockState =
+        Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
+
+-- |Increase stake and change target rejects with reason: maximum threshold for pool.
+testCase8 ::
+    forall pv.
+    (IsProtocolVersion pv, SupportsDelegation pv) =>
+    SProtocolVersion pv ->
+    String ->
+    SpecWith (Arg Assertion)
+testCase8 _ pvString =
+    specify (pvString ++ ": Increase stake and change target so that results is overdelegation.") $ do
+        let transactions =
+                [ Runner.TJSON
                     { payload =
                         Runner.ConfigureDelegation
                             { cdCapital = Just 1_000_001,
@@ -392,16 +530,42 @@ testCases6 =
                             },
                       metadata = makeDummyHeader delegator3Address 1 1_000,
                       keys = [(0, [(0, delegator3KP)])]
-                    },
-                  (Reject StakeOverMaximumThresholdForPool, const (return ()))
-                )
-            ]
-        },
-      TestCase
-        { tcName = "Change target to overdelegated pool.",
-          tcParameters = (defaultParams @PV4){tpInitialBlockState = initialBlockState, tpChainMeta = ChainMetadata{slotTime = 100}},
-          tcTransactions =
-            [   ( Runner.TJSON
+                    }
+                ]
+        (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
+            Helpers.runSchedulerTestTransactionJson
+                Helpers.defaultTestConfig
+                (initialBlockState @pv)
+                (Helpers.checkReloadCheck checkState)
+                transactions
+        let Sch.FilteredTransactions{..} = srTransactions
+        reason <- case Helpers.getResults ftAdded of
+            [(_, Types.TxReject{vrRejectReason})] -> return vrRejectReason
+            _ -> assertFailure "Transaction should reject"
+        assertEqual
+            "Reject with reason: stake over maximum threshold for pool"
+            reason
+            StakeOverMaximumThresholdForPool
+        doBlockStateAssertions
+  where
+    checkState ::
+        Helpers.SchedulerResult ->
+        BS.PersistentBlockState pv ->
+        Helpers.PersistentBSM pv Assertion
+    checkState result blockState =
+        Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
+
+-- |Increase stake and change target rejects with reason: maximum threshold for pool.
+testCase9 ::
+    forall pv.
+    (IsProtocolVersion pv, SupportsDelegation pv) =>
+    SProtocolVersion pv ->
+    String ->
+    SpecWith (Arg Assertion)
+testCase9 _ pvString =
+    specify (pvString ++ ": Change target to overdelegated pool.") $ do
+        let transactions =
+                [ Runner.TJSON
                     { payload =
                         Runner.ConfigureDelegation
                             { cdCapital = Nothing,
@@ -410,18 +574,27 @@ testCases6 =
                             },
                       metadata = makeDummyHeader delegator3Address 1 1_000,
                       keys = [(0, [(0, delegator3KP)])]
-                    },
-                  (Reject StakeOverMaximumThresholdForPool, const (return ()))
-                )
-            ]
-        }
-    ]
-
-tests :: Spec
-tests = describe "Delegate in different scenarios" $ do
-    mkSpecs testCases1
-    mkSpecs testCases2
-    mkSpecs testCases3
-    mkSpecs testCases4
-    mkSpecs testCases5
-    mkSpecs testCases6
+                    }
+                ]
+        (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
+            Helpers.runSchedulerTestTransactionJson
+                Helpers.defaultTestConfig
+                (initialBlockState @pv)
+                (Helpers.checkReloadCheck checkState)
+                transactions
+        let Sch.FilteredTransactions{..} = srTransactions
+        reason <- case Helpers.getResults ftAdded of
+            [(_, Types.TxReject{vrRejectReason})] -> return vrRejectReason
+            _ -> assertFailure "Transaction should reject"
+        assertEqual
+            "Reject with reason: stake over maximum threshold for pool"
+            reason
+            StakeOverMaximumThresholdForPool
+        doBlockStateAssertions
+  where
+    checkState ::
+        Helpers.SchedulerResult ->
+        BS.PersistentBlockState pv ->
+        Helpers.PersistentBSM pv Assertion
+    checkState result blockState =
+        Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)

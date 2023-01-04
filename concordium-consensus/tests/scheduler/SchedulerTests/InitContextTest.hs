@@ -2,114 +2,111 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 
 -- | Test that the init context of a contract is passed correctly by the scheduler.
 module SchedulerTests.InitContextTest where
 
-import Concordium.Types.ProtocolVersion
-import Control.Monad.IO.Class
-import Data.Proxy
 import Data.Serialize
-import Lens.Micro.Platform
 import Test.HUnit
 import Test.Hspec
 
+import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.Scheduler as Sch
-import qualified Concordium.Scheduler.EnvironmentImplementation as Types
-import Concordium.Scheduler.Runner
+import qualified Concordium.Scheduler.Runner as Runner
 import qualified Concordium.Scheduler.Types as Types
-import Concordium.TransactionVerification
+import Concordium.Types.ProtocolVersion
 
-import Concordium.GlobalState.Basic.BlockState
-import Concordium.GlobalState.Basic.BlockState.Accounts
-import Concordium.GlobalState.Basic.BlockState.Instances
-import Concordium.GlobalState.Basic.BlockState.Invariants
-import Concordium.GlobalState.Instance
+import qualified Concordium.GlobalState.BlockState as BS
+import qualified Concordium.GlobalState.Persistent.BlockState as BS
 import Concordium.Wasm
 
-import Concordium.Crypto.DummyData
-import Concordium.GlobalState.DummyData
 import Concordium.Scheduler.DummyData
-import Concordium.Types.DummyData
 
-import SchedulerTests.Helpers
+import qualified Concordium.GlobalState.Persistent.Instances as Instances
+import qualified SchedulerTests.Helpers as Helpers
 import SchedulerTests.TestUtils
 
-initialBlockState :: (IsProtocolVersion pv) => BlockState pv
-initialBlockState = blockStateWithAlesAccount 1000000000 emptyAccounts
+tests :: Spec
+tests =
+    describe "Init context in transactions." $ do
+        sequence_ $ Helpers.forEveryProtocolVersion $ \spv pvString ->
+            testInit spv pvString
+
+initialBlockState ::
+    (IsProtocolVersion pv) =>
+    Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
+initialBlockState =
+    Helpers.createTestBlockStateWithAccountsM
+        [Helpers.makeTestAccountFromSeed 1000000000 0]
+
+accountAddress0 :: Types.AccountAddress
+accountAddress0 = Helpers.accountAddressFromSeed 0
+
+keyPair0 :: SigScheme.KeyPair
+keyPair0 = Helpers.keyPairFromSeed 0
 
 chainMeta :: Types.ChainMetadata
 chainMeta = Types.ChainMetadata{slotTime = 444}
 
-senderAccount :: forall pv. IsProtocolVersion pv => Proxy pv -> Types.AccountAddress
-senderAccount Proxy
-    | demoteProtocolVersion (protocolVersion @pv) >= P3 = createAlias alesAccount 17
-    | otherwise = alesAccount
+senderAccount :: forall pv. IsProtocolVersion pv => SProtocolVersion pv -> Types.AccountAddress
+senderAccount spv
+    | demoteProtocolVersion spv >= P3 = createAlias accountAddress0 17
+    | otherwise = accountAddress0
 
-transactionInputs :: forall pv. IsProtocolVersion pv => Proxy pv -> [TransactionJSON]
-transactionInputs proxy =
-    [ TJSON
-        { metadata = makeDummyHeader (senderAccount proxy) 1 100000,
-          payload = DeployModule V0 "./testdata/contracts/chain-meta-test.wasm",
-          keys = [(0, [(0, alesKP)])]
+transactionInputs :: forall pv. IsProtocolVersion pv => SProtocolVersion pv -> [Runner.TransactionJSON]
+transactionInputs spv =
+    [ Runner.TJSON
+        { metadata = makeDummyHeader (senderAccount spv) 1 100000,
+          payload = Runner.DeployModule V0 "./testdata/contracts/chain-meta-test.wasm",
+          keys = [(0, [(0, keyPair0)])]
         },
-      TJSON
-        { metadata = makeDummyHeader (senderAccount proxy) 2 100000,
-          payload = InitContract 9 V0 "./testdata/contracts/chain-meta-test.wasm" "init_origin" "",
-          keys = [(0, [(0, alesKP)])]
+      Runner.TJSON
+        { metadata = makeDummyHeader (senderAccount spv) 2 100000,
+          payload = Runner.InitContract 9 V0 "./testdata/contracts/chain-meta-test.wasm" "init_origin" "",
+          keys = [(0, [(0, keyPair0)])]
         }
     ]
 
-type TestResult =
-    ( [(BlockItemWithStatus, Types.ValidResult)],
-      [(TransactionWithStatus, Types.FailureKind)],
-      [(Types.ContractAddress, Types.BasicInstance)]
-    )
-
-testInit :: forall pv. IsProtocolVersion pv => Proxy pv -> IO TestResult
-testInit proxy = do
-    transactions <- processUngroupedTransactions (transactionInputs proxy)
-    let (Sch.FilteredTransactions{..}, finState) =
-            Types.runSI
-                (Sch.filterTransactions dummyBlockSize dummyBlockTimeout transactions)
-                chainMeta
-                maxBound
-                maxBound
+testInit :: forall pv. IsProtocolVersion pv => SProtocolVersion pv -> String -> SpecWith (Arg Assertion)
+testInit spv pvString = specify
+    (pvString ++ ": Passing init context to contract")
+    $ do
+        (result, doBlockStateAssertions) <-
+            Helpers.runSchedulerTestTransactionJson
+                Helpers.defaultTestConfig
                 initialBlockState
-    let gs = finState ^. Types.ssBlockState
-    case invariantBlockState @pv gs (finState ^. Types.schedulerExecutionCosts) of
-        Left f -> liftIO $ assertFailure $ f ++ " " ++ show gs
-        _ -> return ()
-    return (getResults ftAdded, ftFailed, gs ^.. blockInstances . foldInstances . to (\i -> (instanceAddress i, i)))
-
-checkInitResult :: forall pv. IsProtocolVersion pv => Proxy pv -> TestResult -> Assertion
-checkInitResult proxy (suc, fails, instances) = do
-    assertEqual "There should be no failed transactions." [] fails
-    assertEqual "There should be no rejected transactions." [] reject
-    assertEqual "There should be 1 instance." 1 (length instances)
-    model <- case snd . head $ instances of
-        InstanceV0 InstanceV{_instanceVModel = InstanceStateV0 s} -> return (contractState s)
-        _ -> assertFailure "Expected instance version 0"
-    assertEqual "Instance model is the sender address of the account which inialized it." model (encode (senderAccount proxy))
+                (Helpers.checkReloadCheck checkState)
+                (transactionInputs spv)
+        let Sch.FilteredTransactions{..} = Helpers.srTransactions result
+        assertEqual "There should be no failed transactions." [] ftFailed
+        assertEqual "There should be no rejected transactions." []
+            $ filter
+                ( \case
+                    (_, Types.TxSuccess{}) -> False
+                    (_, Types.TxReject{}) -> True
+                )
+            $ Helpers.getResults ftAdded
+        doBlockStateAssertions
   where
-    reject =
-        filter
-            ( \case
-                (_, Types.TxSuccess{}) -> False
-                (_, Types.TxReject{}) -> True
-            )
-            suc
+    checkState ::
+        Helpers.SchedulerResult ->
+        BS.PersistentBlockState pv ->
+        Helpers.PersistentBSM pv Assertion
+    checkState result state = do
+        hashedState <- BS.hashBlockState state
+        doInvariantAssertions <- Helpers.assertBlockStateInvariants hashedState (Helpers.srExecutionCosts result)
+        instances <- BS.getContractInstanceList hashedState
+        maybeInstance <- BS.bsoGetInstance state (Types.ContractAddress 0 0)
+        return $ do
+            doInvariantAssertions
+            assertEqual "There should be 1 instance." 1 (length instances)
 
-tests :: SpecWith ()
-tests =
-    describe "Init context in transactions." $ do
-        specify
-            "Passing init context to contract P1"
-            (testInit (Proxy @'P1) >>= checkInitResult (Proxy @'P1))
-        specify "Passing init context to contract P2" $
-            testInit (Proxy @'P2) >>= checkInitResult (Proxy @'P2)
-        specify "Passing init context to contract P3" $
-            testInit (Proxy @'P3) >>= checkInitResult (Proxy @'P3)
-        specify "Passing init context to contract P4" $
-            testInit (Proxy @'P4) >>= checkInitResult (Proxy @'P4)
+            case maybeInstance of
+                Nothing -> assertFailure "Instance at <0,0> does not exist."
+                Just (BS.InstanceInfoV0 ii) -> do
+                    let Instances.InstanceStateV0 model = BS.iiState ii
+                    assertEqual
+                        "Instance model is the sender address of the account which initialized it."
+                        model
+                        (ContractState $ encode $ senderAccount spv)
+                Just _ -> assertFailure "Expected V0 instance."

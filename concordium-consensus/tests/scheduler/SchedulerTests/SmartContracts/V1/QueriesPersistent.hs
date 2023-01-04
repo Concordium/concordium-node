@@ -101,7 +101,7 @@ runQueryTests changeState reloadState = do
         then assertEqual "State was updated" 1 (BS.index newState 0) -- non-empty state serialization starts with a 1 tag.
         else assertEqual "State was not updated" (BS.singleton 0) newState -- empty state serialization just puts a 0 tag.
   where
-    extractor ubs = do
+    extractor _ ubs = do
         blockState <-
             if reloadState
                 then Helpers.reloadBlockState ubs

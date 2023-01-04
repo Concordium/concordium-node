@@ -13,6 +13,7 @@ module SchedulerTests.Helpers where
 
 import qualified Control.Monad.Except as Except
 import Control.Monad.RWS.Strict
+import qualified Data.ByteString as ByteString
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Word
@@ -29,6 +30,7 @@ import qualified Concordium.Types.Accounts as Types
 import qualified Concordium.Types.Accounts.Releases as Types
 import qualified Concordium.Types.DummyData as DummyData
 import Concordium.Types.SeedState (initialSeedState)
+import qualified Concordium.Wasm as Wasm
 
 import qualified Concordium.Common.Time as Time
 import qualified Concordium.Cost as Cost
@@ -73,8 +75,30 @@ simpleTransferCostWithMemo2 memoSize =
         1
         + Cost.simpleTransferCost
 
--- |Generate an account with the provided amount as balance. The generated account have a single
--- credential and single keypair, which has sufficiently late expiry date.
+-- |Generate an account credential with a single keypair and sufficiently late expiry date.
+makeTestCredential ::
+    SigScheme.VerifyKey ->
+    Types.AccountAddress ->
+    Types.AccountCredential
+makeTestCredential key accountAddress =
+    DummyData.dummyCredential
+        DummyData.dummyCryptographicParameters
+        accountAddress
+        key
+        DummyData.dummyMaxValidTo
+        DummyData.dummyCreatedAt
+
+-- |Generate an account credential with a single keypair and sufficiently late expiry date
+-- deterministically from a seed.
+makeTestCredentialFromSeed :: Int -> Types.AccountCredential
+makeTestCredentialFromSeed seed =
+    let keyPair = keyPairFromSeed seed
+        address = accountAddressFromSeed seed
+    in  makeTestCredential (SigScheme.correspondingVerifyKey keyPair) address
+
+-- |Generate an account providing a verify key, account address and the initial balance.
+-- The generated account have a single credential and single keypair, which has sufficiently late
+-- expiry date.
 makeTestAccount ::
     (Types.IsAccountVersion av, Blob.MonadBlobStore m) =>
     SigScheme.VerifyKey ->
@@ -82,17 +106,13 @@ makeTestAccount ::
     Types.Amount ->
     m (BS.PersistentAccount av)
 makeTestAccount key accountAddress amount = do
-    let credential =
-            DummyData.dummyCredential
-                DummyData.dummyCryptographicParameters
-                accountAddress
-                key
-                DummyData.dummyMaxValidTo
-                DummyData.dummyCreatedAt
+    let credential = makeTestCredential key accountAddress
     account <- BS.newAccount DummyData.dummyCryptographicParameters accountAddress credential
     BS.addAccountAmount amount account
 
 -- |Generate a test account keypair deterministically from a seed.
+-- Note this is also used internally by `makeTestAccountFromSeed` and providing the same seed
+-- results in the same keypair as used for the generated account.
 keyPairFromSeed :: Int -> SigScheme.KeyPair
 keyPairFromSeed =
     uncurry SigScheme.KeyPairEd25519
@@ -101,6 +121,8 @@ keyPairFromSeed =
         . Random.mkStdGen
 
 -- |Generate an account address deterministically from a seed.
+-- Note this is also used internally by `makeTestAccountFromSeed` and providing the same seed
+-- results in the same account address as used for the generated account.
 accountAddressFromSeed :: Int -> Types.AccountAddress
 accountAddressFromSeed = DummyData.accountAddressFrom
 
@@ -165,7 +187,8 @@ forEveryProtocolVersion check =
       check Types.SP2 "P2",
       check Types.SP3 "P3",
       check Types.SP4 "P4",
-      check Types.SP5 "P5"
+      check Types.SP5 "P5",
+      check Types.SP6 "P6"
     ]
 
 -- |Construct a test block state containing the provided accounts.
@@ -284,7 +307,7 @@ runSchedulerTest ::
     (Types.IsProtocolVersion pv) =>
     TestConfig ->
     PersistentBSM pv (BS.HashedPersistentBlockState pv) ->
-    (BS.PersistentBlockState pv -> PersistentBSM pv a) ->
+    (SchedulerResult -> BS.PersistentBlockState pv -> PersistentBSM pv a) ->
     Types.GroupedTransactions ->
     IO (SchedulerResult, a)
 runSchedulerTest config constructState extractor transactions = runTestBlockState computation
@@ -293,7 +316,7 @@ runSchedulerTest config constructState extractor transactions = runTestBlockStat
     computation = do
         blockStateBefore <- constructState
         (result, blockStateAfter) <- runScheduler config blockStateBefore transactions
-        (result,) <$> extractor blockStateAfter
+        (result,) <$> extractor result blockStateAfter
 
 -- | Run the scheduler on transactions in a test environment.
 -- Allows for a block state monad computation for constructing the initial block state and takes a
@@ -305,24 +328,71 @@ runSchedulerTestTransactionJson ::
     (Types.IsProtocolVersion pv) =>
     TestConfig ->
     PersistentBSM pv (BS.HashedPersistentBlockState pv) ->
-    (BS.PersistentBlockState pv -> PersistentBSM pv a) ->
+    (SchedulerResult -> BS.PersistentBlockState pv -> PersistentBSM pv a) ->
     [SchedTest.TransactionJSON] ->
     IO (SchedulerResult, a)
 runSchedulerTestTransactionJson config constructState extractor transactionJsonList = do
     transactions <- SchedTest.processUngroupedTransactions transactionJsonList
     runSchedulerTest config constructState extractor transactions
 
+-- | Check assertions on the result of running a transaction in the scheduler and the resulting
+-- block state.
+type TransactionAssertion pv =
+    SchedulerResult ->
+    BS.PersistentBlockState pv ->
+    PersistentBSM pv Assertion
+
+-- |A test transaction paired with assertions to run on the scheduler result and block state.
+data TransactionAndAssertion pv = TransactionAndAssertion
+    { -- | A transaction to run in the scheduler.
+      taaTransaction :: SchedTest.TransactionJSON,
+      -- | Assertions to make about the outcome from the scheduler and the resulting block state.
+      taaAssertion :: TransactionAssertion pv
+    }
+
+-- |Run the scheduler on transactions in a test environment. Each transaction in the list of
+-- transactions is paired with the assertions to run on the scheduler result and the resulting block
+-- state right after executing each transaction in the intermediate block state.
+runSchedulerTestAssertIntermediateStates ::
+    forall pv.
+    (Types.IsProtocolVersion pv) =>
+    TestConfig ->
+    PersistentBSM pv (BS.HashedPersistentBlockState pv) ->
+    [TransactionAndAssertion pv] ->
+    Assertion
+runSchedulerTestAssertIntermediateStates config constructState transactionsAndAssertions =
+    join $ runTestBlockState blockStateComputation
+  where
+    blockStateComputation :: PersistentBSM pv Assertion
+    blockStateComputation = do
+        blockStateBefore <- constructState
+        fst <$> foldM transactionRunner (return (), blockStateBefore) transactionsAndAssertions
+
+    transactionRunner ::
+        (Assertion, BS.HashedPersistentBlockState pv) ->
+        TransactionAndAssertion pv ->
+        PersistentBSM pv (Assertion, BS.HashedPersistentBlockState pv)
+    transactionRunner (assertedSoFar, currentState) step = do
+        transactions <- liftIO $ SchedTest.processUngroupedTransactions [taaTransaction step]
+        (result, updatedState) <- runScheduler config currentState transactions
+        doAssertTransaction <- taaAssertion step result updatedState
+        let nextAssertedSoFar = do
+                assertedSoFar
+                doAssertTransaction
+        nextState <- BS.freezeBlockState updatedState
+        return (nextAssertedSoFar, nextState)
+
 -- | Intermediate results collected while running a number of transactions.
 type IntermediateResults a = [(SchedulerResult, a)]
 
--- | Run the scheduler on transactions in a test environment, while collecting all of the
+-- |Run the scheduler on transactions in a test environment, while collecting all of the
 -- intermediate results and extracted values.
 runSchedulerTestWithIntermediateStates ::
     forall pv a.
     (Types.IsProtocolVersion pv) =>
     TestConfig ->
     PersistentBSM pv (BS.HashedPersistentBlockState pv) ->
-    (BS.PersistentBlockState pv -> PersistentBSM pv a) ->
+    (SchedulerResult -> BS.PersistentBlockState pv -> PersistentBSM pv a) ->
     Types.GroupedTransactions ->
     IO (IntermediateResults a, BS.HashedPersistentBlockState pv)
 runSchedulerTestWithIntermediateStates config constructState extractor transactions =
@@ -339,11 +409,11 @@ runSchedulerTestWithIntermediateStates config constructState extractor transacti
         PersistentBSM pv (IntermediateResults a, BS.HashedPersistentBlockState pv)
     transactionRunner (acc, currentState) tx = do
         (result, updatedState) <- runScheduler config currentState [tx]
-        extracted <- extractor updatedState
+        extracted <- extractor result updatedState
         nextState <- BS.freezeBlockState updatedState
         return (acc ++ [(result, extracted)], nextState)
 
--- | Save and load block state, used to test the block state written to disc.
+-- |Save and load block state, used to test the block state written to disc.
 --
 -- This can be used together with `runSchedulerTest*` functions for creating assertions about the
 -- block state on disc.
@@ -356,7 +426,24 @@ reloadBlockState persistentState = do
     br <- BS.saveBlockState frozen
     BS.thawBlockState =<< BS.loadBlockState (BS.hpbsHash frozen) br
 
--- | Information accumulated when iterating the accounts in block state during
+-- |Takes a function for checking the block state, which is then run on the block state, the block
+-- state is reloaded (save to the blobstore and loaded again) and the check is run again against the
+-- reloaded state.
+-- This is useful to run checks against both the current in-memory block state and on the block
+-- state read from the disc.
+checkReloadCheck ::
+    (Types.IsProtocolVersion pv) =>
+    TransactionAssertion pv ->
+    TransactionAssertion pv
+checkReloadCheck check result blockState = do
+    doCheck <- check result blockState
+    reloadedState <- reloadBlockState blockState
+    doCheckReloadedState <- check result reloadedState
+    return $ do
+        doCheck
+        doCheckReloadedState
+
+-- |Information accumulated when iterating the accounts in block state during
 -- checkBlockStateInvariants.
 data AccountAccumulated av = AccountAccumulated
     { -- | Account addresses seen so far. Used to ensure no duplicates between accounts.
@@ -372,11 +459,37 @@ data AccountAccumulated av = AccountAccumulated
       aaTotalAccountAmount :: Types.Amount
     }
 
+-- | Hash and check block state for a number of invariants.
+--
+-- The invariants being checked are:
+-- - No duplicate account addresses.
+-- - No duplicate account credentials.
+-- - For each account
+--   - Ensure the tracking of the total locked amount matches the sum of the pending releases.
+--   - If the account is a baker, check the baker ID matches account index and it is part of the set
+--     of active bakers.
+--   - When protocol version supports delegation, see if the account is an active delegator.
+--     If so, check the delegator ID matches account index and it is part of the set of active
+--     delegators.
+-- - Ensure all of the active bakers have a corresponding account in block state.
+-- - When protocol version supports delegation, ensure all of the active delegators have a
+--   corresponding account in block state.
+-- - Ensure the total balance of accounts and instances, matches the total amount tracked in the
+--   block state.
+assertBlockStateInvariantsH ::
+    (Types.IsProtocolVersion pv) =>
+    BS.PersistentBlockState pv ->
+    Types.Amount ->
+    PersistentBSM pv Assertion
+assertBlockStateInvariantsH blockState extraBalance = do
+    hashedState <- BS.hashBlockState blockState
+    assertBlockStateInvariants hashedState extraBalance
+
 -- | Check block state for a number of invariants.
 --
--- The invariants being check are:
--- - No dublicate account addresses.
--- - No dublicate account credentials.
+-- The invariants being checked are:
+-- - No duplicate account addresses.
+-- - No duplicate account credentials.
 -- - For each account
 --   - Ensure the tracking of the total locked amount matches the sum of the pending releases.
 --   - If the account is a baker, check the baker ID matches account index and it is part of the set
@@ -405,9 +518,9 @@ data DefinedWhenSupportDelegation (av :: Types.AccountVersion) a where
 
 -- | Check block state for a number of invariants.
 --
--- The invariants being check are:
--- - No dublicate account addresses.
--- - No dublicate account credentials.
+-- The invariants being checked are:
+-- - No duplicate account addresses.
+-- - No duplicate account credentials.
 -- - For each account
 --   - Ensure the tracking of the total locked amount matches the sum of the pending releases.
 --   - If the account is a baker, check the baker ID matches account index and it is part of the set
@@ -436,9 +549,21 @@ checkBlockStateInvariants bs extraBalance = do
             allActiveBakers <- Set.fromList <$> BS.getActiveBakers bs
             return (allActiveBakers, NotDefined)
         Types.SAVDelegationSupported -> do
-            (allActiveBakerInfoList, allActiveDelegatorInfoList) <- BS.getActiveBakersAndDelegators bs
+            (allActiveBakerInfoList, passiveActiveDelegatorInfoList) <-
+                BS.getActiveBakersAndDelegators bs
             allActiveBakerList <- mapM (BS.loadBakerId . BS.activeBakerInfoRef) allActiveBakerInfoList
-            let allActiveDelegatorList = BS.activeDelegatorId <$> allActiveDelegatorInfoList
+            let getDelegators bakerId = do
+                    maybeDelegators <- BS.getActiveDelegators bs (Just bakerId)
+                    delegators <-
+                        maybe
+                            (Except.throwError "Delegation to non-existing pool")
+                            return
+                            maybeDelegators
+                    return $ snd <$> delegators
+            nonPassiveActiveDelegatorInfoList <- concat <$> mapM getDelegators allActiveBakerList
+            let allActiveDelegatorList =
+                    BS.activeDelegatorId
+                        <$> passiveActiveDelegatorInfoList ++ nonPassiveActiveDelegatorInfoList
             return (Set.fromList allActiveBakerList, Defined @av $ Set.fromList allActiveDelegatorList)
 
     let initialAccountAccumulated =
@@ -625,3 +750,15 @@ checkBlockStateInvariants bs extraBalance = do
             Except.throwError $
                 "Duplicate account credentials: " ++ show credential
         return $ Map.insert credentialRegistrationId accountIndex credentialsSoFar
+
+-- |Read a WASM file as a smart contract module V0.
+readV0ModuleFile :: FilePath -> IO Wasm.WasmModule
+readV0ModuleFile filePath = do
+    moduleSource <- ByteString.readFile filePath
+    return $ Wasm.WasmModuleV0 $ Wasm.WasmModuleV Wasm.ModuleSource{..}
+
+-- |Read a WASM file as a smart contract module V1.
+readV1ModuleFile :: FilePath -> IO Wasm.WasmModule
+readV1ModuleFile filePath = do
+    moduleSource <- ByteString.readFile filePath
+    return $ Wasm.WasmModuleV1 $ Wasm.WasmModuleV Wasm.ModuleSource{..}
