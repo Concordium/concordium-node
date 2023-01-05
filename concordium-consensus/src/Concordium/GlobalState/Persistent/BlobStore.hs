@@ -156,6 +156,7 @@ import Concordium.GlobalState.ContractStateFFIHelpers
 import Concordium.GlobalState.Persistent.MonadicRecursive
 
 -- Imports for providing instances
+import Concordium.Common.Time
 import Concordium.GlobalState.Account
 import Concordium.GlobalState.Basic.BlockState.PoolRewards
 import Concordium.GlobalState.CapitalDistribution
@@ -1523,6 +1524,9 @@ instance (MonadBlobStore m, IsChainParametersVersion cpv) => BlobStorable m (Par
 instance (MonadBlobStore m, IsChainParametersVersion cpv) => BlobStorable m (Parameters.PoolParameters cpv)
 instance (MonadBlobStore m, IsChainParametersVersion cpv) => BlobStorable m (Parameters.CooldownParameters cpv)
 instance (MonadBlobStore m, IsChainParametersVersion cpv) => BlobStorable m (Parameters.TimeParameters cpv)
+instance (MonadBlobStore m) => BlobStorable m Parameters.TimeoutParameters
+instance (MonadBlobStore m) => BlobStorable m Duration
+instance (MonadBlobStore m) => BlobStorable m Energy
 instance MonadBlobStore m => BlobStorable m (Map AccountAddress Timestamp)
 instance MonadBlobStore m => BlobStorable m WasmModule
 instance (IsWasmVersion v, MonadBlobStore m) => BlobStorable m (WasmModuleV v)
@@ -1674,11 +1678,10 @@ instance (DirectBlobStorable m a) => BlobStorable m (Nullable (HashedBufferedRef
         (!r, !v') <- storeUpdate v
         return (r, Some v')
 
--- type HashedBufferedRefForCPV1 (cpv :: ChainParametersVersion) a =
---     JustForCPV1 cpv (HashedBufferedRef a)
-
+-- |A wrapped 'HashedBufferedRef'.
+-- If the constraint for the 'OParam' is satisfied this yields a 'HashedBufferedRef' otherwise
+-- it yields a 'NoParam'.
 type HashedBufferedRefO (pt :: ParameterType) (cpv :: ChainParametersVersion) a = OParam pt cpv (HashedBufferedRef a)
-
 
 instance
     (DirectBlobStorable m a, IsParameterType pt, IsChainParametersVersion cpv) =>
