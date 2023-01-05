@@ -7,7 +7,6 @@ module SchedulerTests.UpdateAccountKeys (tests) where
 
 import Control.Monad
 import qualified Data.Map as Map
-import qualified SchedulerTests.Helpers as Helpers
 import Test.HUnit
 import Test.Hspec
 
@@ -24,6 +23,7 @@ import Concordium.Scheduler.DummyData
 import qualified Concordium.Scheduler.Runner as Runner
 import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.Types as Types
+import qualified SchedulerTests.Helpers as Helpers
 
 tests :: Spec
 tests = do

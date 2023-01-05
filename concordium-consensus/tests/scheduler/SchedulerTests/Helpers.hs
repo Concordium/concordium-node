@@ -762,3 +762,50 @@ readV1ModuleFile :: FilePath -> IO Wasm.WasmModule
 readV1ModuleFile filePath = do
     moduleSource <- ByteString.readFile filePath
     return $ Wasm.WasmModuleV1 $ Wasm.WasmModuleV Wasm.ModuleSource{..}
+
+-- | Assert the scheduler result have added one successful transaction.
+assertSuccess :: SchedulerResult -> Assertion
+assertSuccess result =
+    case getResults $ ftAdded (srTransactions result) of
+        [(_, Types.TxSuccess _)] -> return ()
+        [(_, Types.TxReject reason)] -> assertFailure $ "Transaction rejected unexpectedly: " ++ show reason
+        [] -> assertFailure "No transactions were added"
+        other -> assertFailure $ "Multiple transactions were added " ++ show other
+
+-- | Assert the scheduler result have added one successful transaction and check the events.
+assertSuccessWithEvents :: [Types.Event] -> SchedulerResult -> Assertion
+assertSuccessWithEvents expectedEvents result =
+    case getResults $ ftAdded (srTransactions result) of
+        [(_, Types.TxSuccess events)] ->
+            assertEqual
+                "The correct event is produced"
+                expectedEvents
+                events
+        [(_, Types.TxReject reason)] -> assertFailure $ "Transaction rejected unexpectedly: " ++ show reason
+        [] -> assertFailure "No transactions were added"
+        other -> assertFailure $ "Multiple transactions were added " ++ show other
+
+-- | Assert the scheduler result have added one rejected transaction and check the reason.
+assertRejectWithReason :: Types.RejectReason -> SchedulerResult -> Assertion
+assertRejectWithReason expectedReason result =
+    case getResults $ ftAdded (srTransactions result) of
+        [(_, Types.TxReject reason)] ->
+            assertEqual
+                "The correct reject reason is produced"
+                expectedReason
+                reason
+        [(_, Types.TxSuccess reason)] -> assertFailure $ "Transaction succeeded unexpectedly: " ++ show reason
+        [] -> assertFailure "No transactions were added"
+        other -> assertFailure $ "Multiple transactions were added " ++ show other
+
+-- | Assert the scheduler result have failed one transaction and check the reason.
+assertFailureWithReason :: Types.FailureKind -> SchedulerResult -> Assertion
+assertFailureWithReason expectedReason result =
+    case ftFailed $ srTransactions result of
+        [(_, reason)] ->
+            assertEqual
+                "The correct reason for failure is produced"
+                expectedReason
+                reason
+        [] -> assertFailure "No transaction failed"
+        other -> assertFailure $ "Multiple transactions failed: " ++ show other
