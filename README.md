@@ -45,9 +45,6 @@ cloning this repository, or after changing branches.
 - The [scripts](./scripts/) directory contains a variety of bash scripts,
   Dockerfiles, and similar, to build different configurations of the node for
   testing and deployment.
-- The [docker-compose](./docker-compose/) directory contains a number of
-  different [docker-compose](https://docs.docker.com/compose/) configurations
-  that can be used for setting up small local network for testing.
 
 ## Building the node
 
