@@ -370,7 +370,7 @@ instance
         hLevel1KeysUpdateQueue <- H.hashToByteString <$> getHashM pLevel1KeysUpdateQueue
         hLevel2KeysUpdateQueue <- H.hashToByteString <$> getHashM pLevel2KeysUpdateQueue
         hProtocolQueue <- H.hashToByteString <$> getHashM pProtocolQueue
-        hElectionDifficultyQueue <- foldMap H.hashToByteString <$> getHashM pElectionDifficultyQueue
+        hElectionDifficultyQueue <- maybeWhenSupported (return mempty) (fmap H.hashToByteString . getHashM) pElectionDifficultyQueue
         hEuroPerEnergyQueue <- H.hashToByteString <$> getHashM pEuroPerEnergyQueue
         hMicroGTUPerEuroQueue <- H.hashToByteString <$> getHashM pMicroGTUPerEuroQueue
         hFoundationAccountQueue <- H.hashToByteString <$> getHashM pFoundationAccountQueue
@@ -380,10 +380,8 @@ instance
         hPoolParametersQueue <- H.hashToByteString <$> getHashM pPoolParametersQueue
         hAddAnonymityRevokerQueue <- H.hashToByteString <$> getHashM pAddAnonymityRevokerQueue
         hAddIdentityProviderQueue <- H.hashToByteString <$> getHashM pAddIdentityProviderQueue
-        hCooldownParametersQueue <- foldMap H.hashToByteString <$> getHashM pCooldownParametersQueue
-        hTimeParametersQueue <- foldMap H.hashToByteString <$> getHashM pTimeParametersQueue
-        -- hCooldownParametersQueue <- foldMap (fmap H.hashToByteString . getHashM) pCooldownParametersQueue
-        -- hTimeParametersQueue <- foldMap (fmap H.hashToByteString . getHashM) pTimeParametersQueue
+        hCooldownParametersQueue <- maybeWhenSupported (return mempty) (fmap H.hashToByteString . getHashM) pCooldownParametersQueue
+        hTimeParametersQueue <- maybeWhenSupported (return mempty) (fmap H.hashToByteString . getHashM) pTimeParametersQueue
         return $!
             H.hash $
                 hRootKeysUpdateQueue
@@ -466,6 +464,9 @@ instance
                     >> putAddIdentityProviderQueue
                     >> putCooldownParametersQueue
                     >> putTimeParametersQueue
+                    >> putTimeoutParametersQueue
+                    >> putMinBlockTimeQueue
+                    >> putBlockEnergyLimitQueue
         return (putPU, newPU)
     load = do
         mRKQ <- label "Root keys update queue" load
@@ -1291,6 +1292,21 @@ lookupNextUpdateSequenceNumber uref uty = do
                 (pure minUpdateSequenceNumber)
                 (fmap uqNextSequenceNumber . refLoad)
                 (pTimeParametersQueue pendingUpdates)
+        UpdateTimeoutParameters ->
+            maybeWhenSupported
+                (pure minUpdateSequenceNumber)
+                (fmap uqNextSequenceNumber . refLoad)
+                (pTimeoutParametersQueue pendingUpdates)
+        UpdateMinBlockTime ->
+            maybeWhenSupported
+                (pure minUpdateSequenceNumber)
+                (fmap uqNextSequenceNumber . refLoad)
+                (pMinBlockTimeQueue pendingUpdates)
+        UpdateBlockEnergyLimit ->
+            maybeWhenSupported
+                (pure minUpdateSequenceNumber)
+                (fmap uqNextSequenceNumber . refLoad)
+                (pBlockEnergyLimitQueue pendingUpdates)
 
 -- |Enqueue an update in the appropriate queue.
 enqueueUpdate ::
@@ -1303,9 +1319,10 @@ enqueueUpdate effectiveTime payload uref = do
     u@Updates{pendingUpdates = p@PendingUpdates{..}} <- refLoad uref
     newPendingUpdates <- case payload of
         UVProtocol auths -> enqueue effectiveTime auths pProtocolQueue <&> \newQ -> p{pProtocolQueue = newQ}
-        UVElectionDifficulty v ->
-            enqueue effectiveTime v (unOParam pElectionDifficultyQueue)
-                <&> \newQ -> p{pElectionDifficultyQueue = SomeParam newQ}
+        UVElectionDifficulty v -> case pElectionDifficultyQueue of
+          NoParam -> return p -- This will not happen as the update instruction will not be deserialized.
+          SomeParam q -> enqueue effectiveTime v q
+                            <&> \newQ -> p{pElectionDifficultyQueue = SomeParam newQ}
         UVEuroPerEnergy auths -> enqueue effectiveTime auths pEuroPerEnergyQueue <&> \newQ -> p{pEuroPerEnergyQueue = newQ}
         UVMicroGTUPerEuro auths -> enqueue effectiveTime auths pMicroGTUPerEuroQueue <&> \newQ -> p{pMicroGTUPerEuroQueue = newQ}
         UVFoundationAccount v -> enqueue effectiveTime v pFoundationAccountQueue <&> \newQ -> p{pFoundationAccountQueue = newQ}
@@ -1318,12 +1335,25 @@ enqueueUpdate effectiveTime payload uref = do
         UVRootKeys v -> enqueue effectiveTime v pRootKeysUpdateQueue <&> \newQ -> p{pRootKeysUpdateQueue = newQ}
         UVLevel1Keys v -> enqueue effectiveTime v pLevel1KeysUpdateQueue <&> \newQ -> p{pLevel1KeysUpdateQueue = newQ}
         UVLevel2Keys v -> enqueue effectiveTime v pLevel2KeysUpdateQueue <&> \newQ -> p{pLevel2KeysUpdateQueue = newQ}
-        UVCooldownParameters v ->
-            enqueue effectiveTime v (unOParam pCooldownParametersQueue)
-                <&> \newQ -> p{pCooldownParametersQueue = SomeParam newQ}
-        UVTimeParameters v ->
-            enqueue effectiveTime v (unOParam pTimeParametersQueue)
-                <&> \newQ -> p{pTimeParametersQueue = SomeParam newQ}
+        UVCooldownParameters v -> case pCooldownParametersQueue of
+          NoParam -> return p -- This will not happen as the update instruction will not be deserialized.
+          SomeParam q -> enqueue effectiveTime v q <&> \newQ -> p{pCooldownParametersQueue = SomeParam newQ}
+        UVTimeParameters v -> case pTimeParametersQueue of
+          NoParam -> return p -- This will not happen as the update instruction will not be deserialized.p
+          SomeParam q -> enqueue effectiveTime v q
+                            <&> \newQ -> p{pTimeParametersQueue = SomeParam newQ}
+        UVTimeoutParameters v -> case pTimeoutParametersQueue of
+          NoParam -> return p -- This will not happen as the update instruction will not be deserialized.
+          SomeParam q -> enqueue effectiveTime v q
+                            <&> \newQ -> p{pTimeoutParametersQueue = SomeParam newQ}
+        UVMinBlockTime v -> case pMinBlockTimeQueue of
+          NoParam -> return p -- This will not happen as the update instruction will not be deserialized.
+          SomeParam q -> enqueue effectiveTime v q
+                            <&> \newQ -> p{pMinBlockTimeQueue = SomeParam newQ}
+        UVBlockEnergyLimit v -> case pBlockEnergyLimitQueue of
+            NoParam -> return p -- This will not happen as the update instruction will not be deserialized.
+            SomeParam q -> enqueue effectiveTime v q
+                             <&> \newQ -> p{pBlockEnergyLimitQueue = SomeParam newQ}
     refMake u{pendingUpdates = newPendingUpdates}
 
 -- |Overwrite the election difficulty with the specified value and remove

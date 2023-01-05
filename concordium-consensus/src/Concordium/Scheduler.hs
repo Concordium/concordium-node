@@ -346,7 +346,7 @@ dispatch (msg, mVerRes) = do
         _ -> error "Operation unsupported at this protocol version."
     -- Function @onlyWithDelegation k@ fails if the protocol version @MPV m@ does not support
     -- delegation. Otherwise, it continues with @k@, which may assume that delegation is supported.
-    onlyWithDelegation :: (SupportsDelegation (MPV m) => a) -> a
+    onlyWithDelegation :: (AVSupportsDelegation (AccountVersionFor (MPV m)) => a) -> a
     onlyWithDelegation c = case delegationSupport @(AccountVersionFor (MPV m)) of
         SAVDelegationNotSupported -> error "Operation unsupported at this protocol version."
         SAVDelegationSupported -> c
@@ -1764,7 +1764,7 @@ data ConfigureDelegationCont
     | ConfigureUpdateDelegationCont
 
 handleConfigureBaker ::
-    ( SupportsDelegation (MPV m),
+    (AVSupportsDelegation (AccountVersionFor (MPV m)),
       SchedulerMonad m
     ) =>
     WithDepositContext m ->
@@ -1969,7 +1969,7 @@ handleConfigureBaker
             return (TxReject (NotABaker senderAddress), energyCost, usedEnergy)
 
 handleConfigureDelegation ::
-    (SupportsDelegation (MPV m), SchedulerMonad m) =>
+    (AVSupportsDelegation (AccountVersionFor (MPV m)), SchedulerMonad m) =>
     WithDepositContext m ->
     Maybe Amount ->
     Maybe Bool ->
@@ -2378,7 +2378,7 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, mVerRes
                             -- Convert the payload to an update
                             case uiPayload of
                                 ProtocolUpdatePayload u -> checkSigAndEnqueue $ UVProtocol u
-                                ElectionDifficultyUpdatePayload u -> checkSigAndEnqueue $ UVElectionDifficulty u
+                                ElectionDifficultyUpdatePayload u -> checkSigAndEnqueueOnlyCPV0AndCPV1 $ UVElectionDifficulty u
                                 EuroPerEnergyUpdatePayload u -> checkSigAndEnqueue $ UVEuroPerEnergy u
                                 MicroGTUPerEuroUpdatePayload u -> checkSigAndEnqueue $ UVMicroGTUPerEuro u
                                 FoundationAccountUpdatePayload u ->
@@ -2387,32 +2387,88 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, mVerRes
                                         Nothing -> return (TxInvalid (UnknownAccount u))
                                 MintDistributionUpdatePayload u -> checkSigAndEnqueueOnlyCPV0 $ UVMintDistribution u
                                 TransactionFeeDistributionUpdatePayload u -> checkSigAndEnqueue $ UVTransactionFeeDistribution u
-                                GASRewardsUpdatePayload u -> checkSigAndEnqueue $ UVGASRewards u
+                                GASRewardsUpdatePayload u -> checkSigAndEnqueueOnlyCPV0AndCPV1 $ UVGASRewards $ coerceGASRwardsCPV0CPV1 u
                                 BakerStakeThresholdUpdatePayload u -> checkSigAndEnqueueOnlyCPV0 $ UVPoolParameters u
                                 AddAnonymityRevokerUpdatePayload u -> checkSigAndEnqueue $ UVAddAnonymityRevoker u
                                 AddIdentityProviderUpdatePayload u -> checkSigAndEnqueue $ UVAddIdentityProvider u
-                                CooldownParametersCPV1UpdatePayload u -> checkSigAndEnqueueOnlyCPV1 $ UVCooldownParameters u
-                                PoolParametersCPV1UpdatePayload u -> checkSigAndEnqueueOnlyCPV1 $ UVPoolParameters u
-                                TimeParametersCPV1UpdatePayload u -> checkSigAndEnqueueOnlyCPV1 $ UVTimeParameters u
-                                MintDistributionCPV1UpdatePayload u -> checkSigAndEnqueueOnlyCPV1 $ UVMintDistribution u
+                                CooldownParametersCPV1UpdatePayload u -> checkSigAndEnqueueFromCPV1 $ UVCooldownParameters $ coerceCooldownParametersCPV1CPV2 u
+                                PoolParametersCPV1UpdatePayload u -> checkSigAndEnqueueFromCPV1 $ UVPoolParameters $ coercePoolParametersCPV1CPV2 u
+                                TimeParametersCPV1UpdatePayload u -> checkSigAndEnqueueFromCPV1 $ UVTimeParameters $ coerceTimeParametersCPV1CPV2 u
+                                MintDistributionCPV1UpdatePayload u -> checkSigAndEnqueueFromCPV1 $ UVMintDistribution $ coerceMintDistributionCPV1CPV2 u
                                 RootUpdatePayload (RootKeysRootUpdate u) -> checkSigAndEnqueue $ UVRootKeys u
                                 RootUpdatePayload (Level1KeysRootUpdate u) -> checkSigAndEnqueue $ UVLevel1Keys u
                                 RootUpdatePayload (Level2KeysRootUpdate u) -> checkSigAndEnqueueOnlyCPV0 $ UVLevel2Keys u
                                 RootUpdatePayload (Level2KeysRootUpdateV1 u) -> checkSigAndEnqueueOnlyCPV1 $ UVLevel2Keys u
+                                RootUpdatePayload (Level2KeysRootUpdateV2 u) -> checkSigAndEnqueueFromCPV2 $ UVLevel2Keys u
                                 Level1UpdatePayload (Level1KeysLevel1Update u) -> checkSigAndEnqueue $ UVLevel1Keys u
                                 Level1UpdatePayload (Level2KeysLevel1Update u) -> checkSigAndEnqueueOnlyCPV0 $ UVLevel2Keys u
                                 Level1UpdatePayload (Level2KeysLevel1UpdateV1 u) -> checkSigAndEnqueueOnlyCPV1 $ UVLevel2Keys u
+                                Level1UpdatePayload (Level2KeysLevel1UpdateV2 u) -> checkSigAndEnqueueFromCPV2 $ UVLevel2Keys u
+                                TimeoutParametersUpdatePayload u -> checkSigAndEnqueueFromCPV2 $ UVTimeoutParameters u
+                                MinBlockTimeUpdatePayload u -> checkSigAndEnqueueFromCPV2 $ UVMinBlockTime u
+                                BlockEnergyLimitUpdatePayload u -> checkSigAndEnqueueFromCPV2 $ UVBlockEnergyLimit u
+                                GASRewardsCPV2UpdatePayload u -> checkSigAndEnqueueFromCPV2 $ UVGASRewards u
   where
+    coerceMintDistributionCPV1CPV2 :: MintDistribution 'ChainParametersV1 -> MintDistribution (ChainParametersVersionFor (MPV m))
+    coerceMintDistributionCPV1CPV2 MintDistribution{..} =
+        case chainParametersVersion @(ChainParametersVersionFor (MPV m)) of
+           SChainParametersV0 -> undefined
+           SChainParametersV1 -> MintDistribution{_mdMintPerSlot = NoParam,..}
+           SChainParametersV2 -> MintDistribution{_mdMintPerSlot = NoParam,..}
+    coerceTimeParametersCPV1CPV2 :: TimeParameters 'ChainParametersV1 -> TimeParameters (ChainParametersVersionFor (MPV m))
+    coerceTimeParametersCPV1CPV2 TimeParametersV1{..} = do
+        case chainParametersVersion @(ChainParametersVersionFor (MPV m)) of
+           SChainParametersV0 -> undefined
+           SChainParametersV1 -> TimeParametersV1{..}
+           SChainParametersV2 -> TimeParametersV1{..}
+    coerceCooldownParametersCPV1CPV2 :: CooldownParameters 'ChainParametersV1 -> CooldownParameters (ChainParametersVersionFor (MPV m))
+    coerceCooldownParametersCPV1CPV2 CooldownParametersV1{..} = do
+         case chainParametersVersion @(ChainParametersVersionFor (MPV m)) of
+           SChainParametersV0 -> undefined
+           SChainParametersV1 -> CooldownParametersV1{..}
+           SChainParametersV2 -> CooldownParametersV1{..}
+    coerceGASRwardsCPV0CPV1 :: GASRewards 'ChainParametersV0 -> GASRewards (ChainParametersVersionFor (MPV m))
+    coerceGASRwardsCPV0CPV1 GASRewards{_gasFinalizationProof = (SomeParam gfp),..} = do
+      case chainParametersVersion @(ChainParametersVersionFor (MPV m)) of
+          SChainParametersV0 -> GASRewards{_gasFinalizationProof = SomeParam gfp, ..}
+          SChainParametersV1 -> GASRewards{_gasFinalizationProof = SomeParam gfp,..}
+          SChainParametersV2 -> undefined -- 
+    coercePoolParametersCPV1CPV2 :: PoolParameters 'ChainParametersV1 -> PoolParameters (ChainParametersVersionFor (MPV m))
+    coercePoolParametersCPV1CPV2 PoolParametersV1{..} = do
+        case chainParametersVersion @(ChainParametersVersionFor (MPV m)) of
+          SChainParametersV0 -> undefined
+          SChainParametersV1 -> PoolParametersV1{..}
+          SChainParametersV2 -> PoolParametersV1{..}
     checkSigAndEnqueueOnlyCPV0 :: UpdateValue 'ChainParametersV0 -> m TxResult
     checkSigAndEnqueueOnlyCPV0 = do
         case chainParametersVersion @(ChainParametersVersionFor (MPV m)) of
             SChainParametersV0 -> checkSigAndEnqueue
             SChainParametersV1 -> const $ return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+            SChainParametersV2 -> const $ return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+    checkSigAndEnqueueOnlyCPV0AndCPV1 :: UpdateValue (ChainParametersVersionFor (MPV m)) -> m TxResult
+    checkSigAndEnqueueOnlyCPV0AndCPV1 = do
+        case chainParametersVersion @(ChainParametersVersionFor (MPV m)) of
+            SChainParametersV0 -> checkSigAndEnqueue
+            SChainParametersV1 -> checkSigAndEnqueue
+            SChainParametersV2 -> const $ return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+    checkSigAndEnqueueFromCPV1 :: UpdateValue (ChainParametersVersionFor (MPV m)) -> m TxResult
+    checkSigAndEnqueueFromCPV1 = do
+        case chainParametersVersion @(ChainParametersVersionFor (MPV m)) of
+            SChainParametersV0 -> const $ return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+            SChainParametersV1 -> checkSigAndEnqueue
+            SChainParametersV2 -> checkSigAndEnqueue
     checkSigAndEnqueueOnlyCPV1 :: UpdateValue 'ChainParametersV1 -> m TxResult
     checkSigAndEnqueueOnlyCPV1 = do
         case chainParametersVersion @(ChainParametersVersionFor (MPV m)) of
             SChainParametersV0 -> const $ return $ TxInvalid NotSupportedAtCurrentProtocolVersion
             SChainParametersV1 -> checkSigAndEnqueue
+            SChainParametersV2 -> const $ return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+    checkSigAndEnqueueFromCPV2 :: UpdateValue 'ChainParametersV2 -> m TxResult
+    checkSigAndEnqueueFromCPV2 = do
+        case chainParametersVersion @(ChainParametersVersionFor (MPV m)) of
+            SChainParametersV0 -> const $ return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+            SChainParametersV1 -> const $ return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+            SChainParametersV2 -> checkSigAndEnqueue
     checkSigAndEnqueue :: UpdateValue (ChainParametersVersionFor (MPV m)) -> m TxResult
     checkSigAndEnqueue change = do
         case mVerRes of

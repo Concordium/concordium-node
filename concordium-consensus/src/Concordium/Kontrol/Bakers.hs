@@ -198,7 +198,7 @@ computeBakerStakesAndCapital poolParams activeBakers passiveDelegators = BakerSt
 -- |Generate and set the next epoch bakers and next capital based on the current active bakers.
 generateNextBakers ::
     ( TreeStateMonad m,
-      SupportsDelegation (MPV m),
+      AVSupportsDelegation (AccountVersionFor (MPV m)),
       ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1
     ) =>
     -- |The payday epoch
@@ -307,8 +307,9 @@ timeParametersAtSlot targetSlot tp0 upds =
 getSlotBakersP4 ::
     forall m.
     ( BlockStateQuery m,
-      SupportsDelegation (MPV m),
-      ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1
+      AVSupportsDelegation (AccountVersionFor (MPV m)),
+      ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
+      IsSupported 'PTTimeParameters (ChainParametersVersionFor (MPV m)) ~ 'True
     ) =>
     GenesisConfiguration ->
     BlockState m ->
@@ -332,7 +333,7 @@ getSlotBakersP4 genData bs slot = do
             let paydayTimeParameters =
                     timeParametersAtSlot
                         nextPaydaySlot
-                        blockTimeParameters
+                        (unOParam blockTimeParameters)
                         pendingTimeParameters
             let nextPaydayLength =
                     paydayTimeParameters
@@ -344,7 +345,7 @@ getSlotBakersP4 genData bs slot = do
                     -- First we compute the epoch of last payday that is no later than the given slot.
                     let latestPayday =
                             paydayEpochBefore
-                                blockTimeParameters
+                                (unOParam blockTimeParameters)
                                 pendingTimeParameters
                                 (gdEpochLength genData)
                                 nextPayday
@@ -395,7 +396,7 @@ getSlotBakers genData = case protocolVersion @(MPV m) of
     SP3 -> getSlotBakersP1
     SP4 -> getSlotBakersP4 genData
     SP5 -> getSlotBakersP4 genData
-    SP6 -> getSlotBakersP4 genData
+    SP6 -> undefined -- FIXME
 
 -- |Determine the bakers that apply to a future slot, given the state at a particular block.
 -- This will return 'Nothing' if the projected bakers could change before then (depending on
@@ -464,7 +465,7 @@ getDefiniteSlotBakersP4 genData bs slot = do
             let paydayTimeParameters =
                     timeParametersAtSlot
                         nextPaydaySlot
-                        blockTimeParameters
+                        (unOParam blockTimeParameters)
                         pendingTimeParameters
             let nextPaydayLength =
                     paydayTimeParameters
@@ -491,4 +492,4 @@ getDefiniteSlotBakers genData = case protocolVersion @(MPV m) of
     SP3 -> getDefiniteSlotBakersP1
     SP4 -> getDefiniteSlotBakersP4 genData
     SP5 -> getDefiniteSlotBakersP4 genData
-    SP6 -> getDefiniteSlotBakersP4 genData
+    SP6 -> undefined -- FIXME
