@@ -309,7 +309,7 @@ pub struct RpcCliConfig {
     )]
     pub no_rpc_server:         bool,
     #[structopt(
-        long = "no-rpc-server",
+        long = "no-rpc-server-node-endpoints",
         help = "Disable the node related endpoints of the RPC server. Only consensus related \
                 queries are allowed.",
         env = "CONCORDIUM_NODE_DISABLE_RPC_SERVER_NODE_ENDPOINTS"
