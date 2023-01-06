@@ -50,7 +50,7 @@ impl RpcServerImpl {
 
         Ok(RpcServerImpl {
             node: Arc::clone(&node),
-            disable_node_endpoints: conf.no_rpc_node_endpoints,
+            disable_node_endpoints: conf.no_rpc_server_node_endpoints,
             listen_addr,
             access_token: conf.rpc_server_token.clone(),
             consensus,
