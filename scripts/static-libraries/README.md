@@ -32,7 +32,6 @@ RUN tar -C /tmp -xf /tmp/static-consensus.tar.gz && \
 ```
 
 It's considered a best practice to let this be followed by a final stage that copies the build artifacts into a fresh image.
-See [`universal.Dockerfile`](../docker/universal.Dockerfile) for a full example.
 
 # Replacement of integer-simple
 
