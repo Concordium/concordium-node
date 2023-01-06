@@ -307,21 +307,28 @@ pub struct RpcCliConfig {
         help = "Disable the built-in RPC server",
         env = "CONCORDIUM_NODE_DISABLE_RPC_SERVER"
     )]
-    pub no_rpc_server:    bool,
+    pub no_rpc_server:         bool,
+    #[structopt(
+        long = "no-rpc-server",
+        help = "Disable the node related endpoints of the RPC server. Only consensus related \
+                queries are allowed.",
+        env = "CONCORDIUM_NODE_DISABLE_RPC_SERVER_NODE_ENDPOINTS"
+    )]
+    pub no_rpc_node_endpoints: bool,
     #[structopt(
         long = "rpc-server-port",
         help = "RPC server port",
         default_value = "10000",
         env = "CONCORDIUM_NODE_RPC_SERVER_PORT"
     )]
-    pub rpc_server_port:  u16,
+    pub rpc_server_port:       u16,
     #[structopt(
         long = "rpc-server-addr",
         help = "RPC server listen address",
         default_value = "127.0.0.1",
         env = "CONCORDIUM_NODE_RPC_SERVER_ADDR"
     )]
-    pub rpc_server_addr:  String,
+    pub rpc_server_addr:       String,
     #[structopt(
         long = "rpc-server-token",
         help = "RPC server access token",
@@ -329,7 +336,7 @@ pub struct RpcCliConfig {
         env = "CONCORDIUM_NODE_RPC_SERVER_TOKEN",
         hide_env_values = true
     )]
-    pub rpc_server_token: String,
+    pub rpc_server_token:      String,
 }
 
 #[derive(StructOpt, Debug)]

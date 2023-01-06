@@ -30,11 +30,12 @@ use tonic::{transport::Server, Code, Request, Response, Status};
 /// The object used to initiate a gRPC server.
 #[derive(Clone)]
 pub struct RpcServerImpl {
-    node:         Arc<P2PNode>,
-    listen_addr:  SocketAddr,
-    access_token: String,
+    node:                   Arc<P2PNode>,
+    disable_node_endpoints: bool,
+    listen_addr:            SocketAddr,
+    access_token:           String,
     // this field is optional only for test purposes
-    consensus:    Option<ConsensusContainer>,
+    consensus:              Option<ConsensusContainer>,
 }
 
 impl RpcServerImpl {
@@ -49,6 +50,7 @@ impl RpcServerImpl {
 
         Ok(RpcServerImpl {
             node: Arc::clone(&node),
+            disable_node_endpoints: conf.no_rpc_node_endpoints,
             listen_addr,
             access_token: conf.rpc_server_token.clone(),
             consensus,
@@ -136,6 +138,9 @@ impl P2p for RpcServerImpl {
         &self,
         req: Request<PeerConnectRequest>,
     ) -> Result<Response<BoolResponse>, Status> {
+        if self.disable_node_endpoints {
+            return Err(Status::unimplemented("The method is not enabled."));
+        }
         authenticate!(req, self.access_token);
 
         if self.node.is_network_stopped() {
@@ -172,6 +177,9 @@ impl P2p for RpcServerImpl {
         &self,
         req: Request<PeerConnectRequest>,
     ) -> Result<Response<BoolResponse>, Status> {
+        if self.disable_node_endpoints {
+            return Err(Status::unimplemented("The method is not enabled."));
+        }
         authenticate!(req, self.access_token);
 
         if self.node.is_network_stopped() {
@@ -201,6 +209,9 @@ impl P2p for RpcServerImpl {
     }
 
     async fn peer_version(&self, req: Request<Empty>) -> Result<Response<StringResponse>, Status> {
+        if self.disable_node_endpoints {
+            return Err(Status::unimplemented("The method is not enabled."));
+        }
         authenticate!(req, self.access_token);
         let resp = StringResponse {
             value: crate::VERSION.to_owned(),
@@ -212,6 +223,9 @@ impl P2p for RpcServerImpl {
         &self,
         req: Request<Empty>,
     ) -> Result<tonic::Response<NumberResponse>, Status> {
+        if self.disable_node_endpoints {
+            return Err(Status::unimplemented("The method is not enabled."));
+        }
         authenticate!(req, self.access_token);
         Ok(Response::new(NumberResponse {
             value: self.node.get_uptime() as u64,
@@ -222,6 +236,9 @@ impl P2p for RpcServerImpl {
         &self,
         req: Request<Empty>,
     ) -> Result<Response<NumberResponse>, Status> {
+        if self.disable_node_endpoints {
+            return Err(Status::unimplemented("The method is not enabled."));
+        }
         authenticate!(req, self.access_token);
         let value = self.node.connection_handler.total_received.load(Ordering::Relaxed);
         Ok(Response::new(NumberResponse {
@@ -233,6 +250,9 @@ impl P2p for RpcServerImpl {
         &self,
         req: Request<Empty>,
     ) -> Result<Response<NumberResponse>, Status> {
+        if self.disable_node_endpoints {
+            return Err(Status::unimplemented("The method is not enabled."));
+        }
         authenticate!(req, self.access_token);
         let value = self.node.connection_handler.total_sent.load(Ordering::Relaxed);
         Ok(Response::new(NumberResponse {
@@ -326,6 +346,9 @@ impl P2p for RpcServerImpl {
         &self,
         req: Request<NetworkChangeRequest>,
     ) -> Result<Response<BoolResponse>, Status> {
+        if self.disable_node_endpoints {
+            return Err(Status::unimplemented("The method is not enabled."));
+        }
         authenticate!(req, self.access_token);
 
         if self.node.is_network_stopped() {
@@ -355,6 +378,9 @@ impl P2p for RpcServerImpl {
         &self,
         req: Request<NetworkChangeRequest>,
     ) -> Result<Response<BoolResponse>, Status> {
+        if self.disable_node_endpoints {
+            return Err(Status::unimplemented("The method is not enabled."));
+        }
         authenticate!(req, self.access_token);
 
         if self.node.is_network_stopped() {
@@ -384,6 +410,9 @@ impl P2p for RpcServerImpl {
         &self,
         req: Request<PeersRequest>,
     ) -> Result<Response<PeerStatsResponse>, Status> {
+        if self.disable_node_endpoints {
+            return Err(Status::unimplemented("The method is not enabled."));
+        }
         authenticate!(req, self.access_token);
         let peer_stats = self.node.get_peer_stats(None);
         let peerstats = peer_stats
@@ -411,6 +440,9 @@ impl P2p for RpcServerImpl {
         &self,
         req: Request<PeersRequest>,
     ) -> Result<Response<PeerListResponse>, Status> {
+        if self.disable_node_endpoints {
+            return Err(Status::unimplemented("The method is not enabled."));
+        }
         authenticate!(req, self.access_token);
         let peer_catchup_stats = (*read_or_die!(self.node.peers)).peer_states.clone();
         let list = self
@@ -442,6 +474,9 @@ impl P2p for RpcServerImpl {
     #[allow(deprecated)] // this is allowed until we remove the staging_net_username from the RPC
                          // specification.
     async fn node_info(&self, req: Request<Empty>) -> Result<Response<NodeInfoResponse>, Status> {
+        if self.disable_node_endpoints {
+            return Err(Status::unimplemented("The method is not enabled."));
+        }
         authenticate!(req, self.access_token);
         let node_id = Some(self.node.id().to_string());
         let peer_type = self.node.peer_type().to_string();
@@ -503,6 +538,9 @@ impl P2p for RpcServerImpl {
     }
 
     async fn ban_node(&self, req: Request<PeerElement>) -> Result<Response<BoolResponse>, Status> {
+        if self.disable_node_endpoints {
+            return Err(Status::unimplemented("The method is not enabled."));
+        }
         authenticate!(req, self.access_token);
         let req = req.get_ref();
         let banned_node = match (&req.node_id, &req.ip) {
@@ -546,6 +584,9 @@ impl P2p for RpcServerImpl {
         &self,
         req: Request<PeerElement>,
     ) -> Result<Response<BoolResponse>, Status> {
+        if self.disable_node_endpoints {
+            return Err(Status::unimplemented("The method is not enabled."));
+        }
         authenticate!(req, self.access_token);
         let req = req.get_ref();
         let banned_node = match req.ip {
@@ -582,6 +623,9 @@ impl P2p for RpcServerImpl {
     }
 
     async fn start_baker(&self, req: Request<Empty>) -> Result<Response<BoolResponse>, Status> {
+        if self.disable_node_endpoints {
+            return Err(Status::unimplemented("The method is not enabled."));
+        }
         authenticate!(req, self.access_token);
         call_consensus!(self, "StartBaker", BoolResponse, |cc: &ConsensusContainer| {
             Ok::<_, anyhow::Error>(cc.start_baker())
@@ -589,6 +633,9 @@ impl P2p for RpcServerImpl {
     }
 
     async fn stop_baker(&self, req: Request<Empty>) -> Result<Response<BoolResponse>, Status> {
+        if self.disable_node_endpoints {
+            return Err(Status::unimplemented("The method is not enabled."));
+        }
         authenticate!(req, self.access_token);
         call_consensus!(self, "StopBaker", BoolResponse, |cc: &ConsensusContainer| {
             Ok::<_, anyhow::Error>(cc.stop_baker())
@@ -855,6 +902,9 @@ impl P2p for RpcServerImpl {
         &self,
         req: Request<Empty>,
     ) -> Result<Response<PeerListResponse>, Status> {
+        if self.disable_node_endpoints {
+            return Err(Status::unimplemented("The method is not enabled."));
+        }
         authenticate!(req, self.access_token);
         let peers = if let Ok(banlist) = self.node.get_banlist() {
             banlist
@@ -887,6 +937,9 @@ impl P2p for RpcServerImpl {
     }
 
     async fn shutdown(&self, req: Request<Empty>) -> Result<Response<BoolResponse>, Status> {
+        if self.disable_node_endpoints {
+            return Err(Status::unimplemented("The method is not enabled."));
+        }
         authenticate!(req, self.access_token);
         Ok(Response::new(BoolResponse {
             value: self.node.close().is_ok(),
@@ -898,6 +951,9 @@ impl P2p for RpcServerImpl {
         &self,
         req: Request<DumpRequest>,
     ) -> Result<Response<BoolResponse>, Status> {
+        if self.disable_node_endpoints {
+            return Err(Status::unimplemented("The method is not enabled."));
+        }
         authenticate!(req, self.access_token);
         warn!("DumpStart RPC request received, but the \"network_dump\" feature is not active");
         Err(Status::new(Code::Unavailable, "Feature \"network_dump\" is not active"))
@@ -908,6 +964,9 @@ impl P2p for RpcServerImpl {
         &self,
         req: Request<DumpRequest>,
     ) -> Result<Response<BoolResponse>, Status> {
+        if self.disable_node_endpoints {
+            return Err(Status::unimplemented("The method is not enabled."));
+        }
         authenticate!(req, self.access_token);
         let file_path = req.get_ref().file.to_owned();
         let result = self
@@ -928,6 +987,9 @@ impl P2p for RpcServerImpl {
 
     #[cfg(not(feature = "network_dump"))]
     async fn dump_stop(&self, req: Request<Empty>) -> Result<Response<BoolResponse>, Status> {
+        if self.disable_node_endpoints {
+            return Err(Status::unimplemented("The method is not enabled."));
+        }
         authenticate!(req, self.access_token);
         warn!("DumpStop RPC request received, but the \"network_dump\" feature is not active");
         Err(Status::new(Code::Unavailable, "Feature \"network_dump\" is not active"))
@@ -935,6 +997,9 @@ impl P2p for RpcServerImpl {
 
     #[cfg(feature = "network_dump")]
     async fn dump_stop(&self, req: Request<Empty>) -> Result<Response<BoolResponse>, Status> {
+        if self.disable_node_endpoints {
+            return Err(Status::unimplemented("The method is not enabled."));
+        }
         authenticate!(req, self.access_token);
         Ok(Response::new(BoolResponse {
             value: self.node.stop_dump().is_ok(),
