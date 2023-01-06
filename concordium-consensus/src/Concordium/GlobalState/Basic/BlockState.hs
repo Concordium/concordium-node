@@ -362,13 +362,13 @@ data BlockState (pv :: ProtocolVersion) = BlockState
       _blockTransactionOutcomes :: !(BasicTransactionOutcomes (TransactionOutcomesVersionFor pv)),
       _blockRewardDetails :: !(BlockRewardDetails (AccountVersionFor pv))
     }
-    deriving (Show)
+    -- deriving (Show)
 
 data HashedBlockState pv = HashedBlockState
     { _unhashedBlockState :: !(BlockState pv),
       _blockStateHash :: !StateHash
     }
-    deriving (Show)
+    -- deriving (Show)
 
 makeLenses ''BasicBirkParameters
 makeClassy ''BlockState
@@ -377,7 +377,7 @@ makeLenses ''HashedBlockState
 blockEpochBlocksBaked :: (AccountVersionFor pv ~ 'AccountV0) => Lens' (BlockState pv) (BlockRewardDetails 'AccountV0)
 blockEpochBlocksBaked = blockRewardDetails . lens id (const id)
 
-blockPoolRewards :: (SupportsDelegation pv, HasBlockState c pv) => Lens' c PoolRewards.PoolRewards
+blockPoolRewards :: (AVSupportsDelegation (AccountVersionFor pv), HasBlockState c pv) => Lens' c PoolRewards.PoolRewards
 blockPoolRewards =
     blockRewardDetails
         . lens
@@ -517,10 +517,10 @@ getBlockState migration = do
     let _blockRewardDetails = case migration of
             StateMigrationParametersTrivial -> case preBlockRewardDetails of
                 brd@BlockRewardDetailsV0{} -> brd
-                BlockRewardDetailsV1 brd -> case delegationChainParameters @pv of
-                    DelegationChainParametersV1 ->
-                        BlockRewardDetailsV1 . makeHashed $
-                            (_unhashed brd){PoolRewards.nextPaydayEpoch = rewardPeriodEpochs $ _blockUpdates ^. currentParameters . cpTimeParameters . tpRewardPeriodLength}
+                BlockRewardDetailsV1 brd ->
+                    if isSupported PTTimeParameters @(ChainParametersVersionFor pv)
+                        then BlockRewardDetailsV1 . makeHashed $ (_unhashed brd){PoolRewards.nextPaydayEpoch = rewardPeriodEpochs $ _blockUpdates ^. currentParameters . cpTimeParameters . tpRewardPeriodLength}
+                        else undefined -- FIXME: not good
             StateMigrationParametersP1P2 -> preBlockRewardDetails
             StateMigrationParametersP2P3 -> preBlockRewardDetails
             StateMigrationParametersP3ToP4 migrationParams ->
@@ -628,7 +628,7 @@ doGetActiveBakersAndDelegators ::
     ( HasBlockState s pv,
       IsProtocolVersion pv,
       Monad m,
-      SupportsDelegation pv
+      AVSupportsDelegation (AccountVersionFor pv)
     ) =>
     s ->
     m ([BS.ActiveBakerInfo' (BakerInfoEx (AccountVersionFor pv))], [BS.ActiveDelegatorInfo])
@@ -662,7 +662,7 @@ doGetActiveDelegators ::
     ( HasBlockState s pv,
       IsProtocolVersion pv,
       Monad m,
-      SupportsDelegation pv
+      AVSupportsDelegation (AccountVersionFor pv)
     ) =>
     s ->
     Maybe BakerId ->
@@ -693,7 +693,7 @@ doGetCurrentDelegators ::
     ( HasBlockState s pv,
       IsProtocolVersion pv,
       Monad m,
-      SupportsDelegation pv
+      AVSupportsDelegation (AccountVersionFor pv)
     ) =>
     s ->
     Maybe BakerId ->
@@ -984,9 +984,9 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
             Just
                 PassiveDelegationStatus
                     { psDelegatedCapital = passiveDelegationCapital bs,
-                      psCommissionRates = case delegationChainParameters @pv of
-                        DelegationChainParametersV1 ->
-                            bs ^. blockUpdates . currentParameters . cpPoolParameters . to _ppPassiveCommissions,
+                      psCommissionRates = case sPoolParametersVersionFor (chainParametersVersion @(ChainParametersVersionFor pv)) of
+                        SPoolParametersVersion0 -> undefined -- FIXME: not good
+                        SPoolParametersVersion1 -> bs ^. blockUpdates . currentParameters . cpPoolParameters . to _ppPassiveCommissions,
                       psCurrentPaydayTransactionFeesEarned = PoolRewards.passiveDelegationTransactionRewards poolRewards,
                       psCurrentPaydayDelegatedCapital = PoolRewards.currentPassiveDelegationCapital poolRewards,
                       psAllPoolTotalCapital = totalCapital bs
@@ -998,13 +998,14 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
         baker :: AccountBaker (AccountVersionFor pv) <- account ^? accountBaker
         let psBakerEquityCapital = baker ^. stakedAmount
             psDelegatedCapital = poolDelegatorCapital bs bid
-            psDelegatedCapitalCap = case delegationChainParameters @pv of
-                DelegationChainParametersV1 ->
-                    delegatedCapitalCap
-                        (bs ^. blockUpdates . currentParameters . cpPoolParameters)
-                        (totalCapital bs)
-                        psBakerEquityCapital
-                        psDelegatedCapital
+            psDelegatedCapitalCap = case sPoolParametersVersionFor (chainParametersVersion @(ChainParametersVersionFor pv)) of
+                    SPoolParametersVersion0 -> undefined -- FIXME: not good
+                    SPoolParametersVersion1 ->
+                        delegatedCapitalCap
+                            (bs ^. blockUpdates . currentParameters . cpPoolParameters)
+                            (totalCapital bs)
+                            psBakerEquityCapital
+                            psDelegatedCapital
             ceBakers = bs ^. blockBirkParameters . birkCurrentEpochBakers . unhashed
             psCurrentPaydayStatus = do
                 (_, effectiveStake) <- epochBaker bid ceBakers
@@ -1100,7 +1101,7 @@ delegationConfigureDisallowOverdelegation bs poolParams target = case target of
 
 -- |This function updates the baker pool rewards details of a baker. It is a precondition that
 -- the given baker is active.
-modifyBakerPoolRewardDetailsInPoolRewards :: (Monad m, SupportsDelegation pv) => BlockState pv -> BakerId -> (PoolRewards.BakerPoolRewardDetails -> PoolRewards.BakerPoolRewardDetails) -> PureBlockStateMonad pv m (BlockState pv)
+modifyBakerPoolRewardDetailsInPoolRewards :: (Monad m, AVSupportsDelegation (AccountVersionFor pv)) => BlockState pv -> BakerId -> (PoolRewards.BakerPoolRewardDetails -> PoolRewards.BakerPoolRewardDetails) -> PureBlockStateMonad pv m (BlockState pv)
 modifyBakerPoolRewardDetailsInPoolRewards bs bid f = do
     let bprs = PoolRewards.bakerPoolRewardDetails (bs ^. blockPoolRewards)
     let bpc = bakerPoolCapital $ _unhashed (PoolRewards.currentCapital $ bs ^. blockPoolRewards)
@@ -1474,8 +1475,9 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
 
     bsoConfigureBaker bs ai BakerConfigureAdd{..} = do
         -- It is assumed here that this account is NOT a baker and NOT a delegator.
-        chainParams <- case delegationChainParameters @pv of
-            DelegationChainParametersV1 -> BS.bsoGetChainParameters bs
+        chainParams <- case sPoolParametersVersionFor (chainParametersVersion @(ChainParametersVersionFor pv)) of
+                    SPoolParametersVersion0 -> undefined -- FIXME: not good
+                    SPoolParametersVersion1 -> BS.bsoGetChainParameters bs
         let poolParams = chainParams ^. cpPoolParameters
         let capitalMin = poolParams ^. ppMinimumEquityCapital
         let ranges = poolParams ^. ppCommissionBounds
@@ -1546,8 +1548,9 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             Right (newBS, changes) -> (BCSuccess changes bid, newBS)
       where
         bid = BakerId ai
-        currentChainParameters = case delegationChainParameters @pv of
-            DelegationChainParametersV1 -> (^. blockUpdates . currentParameters)
+        currentChainParameters = case sPoolParametersVersionFor (chainParametersVersion @(ChainParametersVersionFor pv)) of
+                    SPoolParametersVersion0 -> undefined -- FIXME: not good
+                    SPoolParametersVersion1 -> (^. blockUpdates . currentParameters)
         getAccount = do
             s <- MTL.get
             case s ^? blockAccounts . Accounts.indexedAccount ai of
@@ -1666,8 +1669,9 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
 
     bsoConfigureDelegation bs ai DelegationConfigureAdd{..} = do
         -- It is assumed here that this account is NOT a baker and NOT a delegator.
-        poolParams <- case delegationChainParameters @pv of
-            DelegationChainParametersV1 -> _cpPoolParameters <$> BS.bsoGetChainParameters bs
+        poolParams <- case sPoolParametersVersionFor (chainParametersVersion @(ChainParametersVersionFor pv)) of
+                    SPoolParametersVersion0 -> undefined -- FIXME: not good
+                    SPoolParametersVersion1 -> _cpPoolParameters <$> BS.bsoGetChainParameters bs
         let result = MTL.runExcept $ do
                 newBS <- updateBlockState
                 delegationConfigureDisallowOverdelegation newBS poolParams dcaDelegationTarget
@@ -1726,8 +1730,9 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                                     & totalActiveCapital +~ dcaCapital
                         return $! _blockBirkParameters bs & birkActiveBakers .~ newAB
     bsoConfigureDelegation origBS ai DelegationConfigureUpdate{..} = do
-        poolParams <- case delegationChainParameters @pv of
-            DelegationChainParametersV1 -> _cpPoolParameters <$> BS.bsoGetChainParameters origBS
+        poolParams <- case sPoolParametersVersionFor (chainParametersVersion @(ChainParametersVersionFor pv)) of
+                    SPoolParametersVersion0 -> undefined -- FIXME: not good
+                    SPoolParametersVersion1 -> _cpPoolParameters <$> BS.bsoGetChainParameters origBS
         let res = MTL.runExcept $ MTL.runWriterT $ flip MTL.execStateT origBS $ do
                 oldTarget <- updateDelegationTarget
                 updateRestakeEarnings
@@ -1755,16 +1760,18 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                 when (_delegationPendingChange ad /= NoChange) (MTL.throwError DCChangePending)
                 if capital == 0
                     then do
-                        let cooldownDuration = case delegationChainParameters @pv of
-                                DelegationChainParametersV1 -> origBS ^. blockUpdates . currentParameters . cpCooldownParameters . cpDelegatorCooldown
+                        let cooldownDuration = case sCooldownParametersVersionFor (chainParametersVersion @(ChainParametersVersionFor pv)) of
+                                SCooldownParametersVersion0 -> undefined -- FIXME: not good
+                                SCooldownParametersVersion1 -> origBS ^. blockUpdates . currentParameters . cpCooldownParameters . cpDelegatorCooldown
                             cooldownElapsed = addDurationSeconds dcuSlotTimestamp cooldownDuration
                             dpc = RemoveStake (PendingChangeEffectiveV1 cooldownElapsed)
                         modifyAccount (delegationPendingChange .~ dpc)
                         MTL.tell [DelegationConfigureStakeReduced capital]
                     else case compare capital (ad ^. delegationStakedAmount) of
                         LT -> do
-                            let cooldownDuration = case delegationChainParameters @pv of
-                                    DelegationChainParametersV1 -> origBS ^. blockUpdates . currentParameters . cpCooldownParameters . cpDelegatorCooldown
+                            let cooldownDuration = case sCooldownParametersVersionFor (chainParametersVersion @(ChainParametersVersionFor pv)) of
+                                    SCooldownParametersVersion0 -> undefined -- FIXME: not good
+                                    SCooldownParametersVersion1 -> origBS ^. blockUpdates . currentParameters . cpCooldownParameters . cpDelegatorCooldown
                                 cooldownElapsed = addDurationSeconds dcuSlotTimestamp cooldownDuration
                             let dpc = ReduceStake capital (PendingChangeEffectiveV1 cooldownElapsed)
                             modifyAccount (delegationPendingChange .~ dpc)
