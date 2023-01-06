@@ -5,7 +5,7 @@ readonly version=${1:?"Please provide a version number (e.g. '1.0.2')"}
 year="$(date +"%Y")" # Used for copyright notices.
 readonly year
 
-if [[ ! "$(git diff --quiet --exit-code)" ]]; then
+if ! git diff --quiet --exit-code; then
     echo "Uncommitted changes in the repository.";
     git --no-pager diff
     exit 1
