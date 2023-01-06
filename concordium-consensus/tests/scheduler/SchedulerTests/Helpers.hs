@@ -773,17 +773,20 @@ assertSuccess result =
         other -> assertFailure $ "Multiple transactions were added " ++ show other
 
 -- | Assert the scheduler result have added one successful transaction and check the events.
-assertSuccessWithEvents :: [Types.Event] -> SchedulerResult -> Assertion
-assertSuccessWithEvents expectedEvents result =
+assertSuccessWhere :: ([Types.Event] -> Assertion) -> SchedulerResult -> Assertion
+assertSuccessWhere assertEvents result =
     case getResults $ ftAdded (srTransactions result) of
         [(_, Types.TxSuccess events)] ->
-            assertEqual
-                "The correct event is produced"
-                expectedEvents
-                events
+            assertEvents events
         [(_, Types.TxReject reason)] -> assertFailure $ "Transaction rejected unexpectedly: " ++ show reason
         [] -> assertFailure "No transactions were added"
         other -> assertFailure $ "Multiple transactions were added " ++ show other
+
+-- | Assert the scheduler result have added one successful transaction and check the events are
+-- equal to the provided events.
+assertSuccessWithEvents :: [Types.Event] -> SchedulerResult -> Assertion
+assertSuccessWithEvents expectedEvents =
+    assertSuccessWhere (assertEqual "The correct event is produced" expectedEvents)
 
 -- | Assert the scheduler result have added one rejected transaction and check the reason.
 assertRejectWithReason :: Types.RejectReason -> SchedulerResult -> Assertion
