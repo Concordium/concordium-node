@@ -14,6 +14,7 @@ import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.DummyData
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
+import Concordium.Scheduler.DummyData
 import Concordium.Types
 import Control.Monad
 import Control.Monad.RWS.Strict as RWS hiding (state)
@@ -21,18 +22,11 @@ import Data.Foldable
 import Data.List (nub, sort)
 import qualified Data.Map.Strict as OrdMap
 import Data.Maybe
-import qualified System.Random as Random
 
-import Concordium.Crypto.DummyData
 import qualified Concordium.Crypto.SHA256 as Hash
-import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import Concordium.GlobalState.Persistent.Account (PersistentAccount (..))
 import qualified Concordium.GlobalState.Persistent.Account as BS
 import Concordium.GlobalState.Persistent.Account.StructureV1
-import Concordium.ID.DummyData
-import qualified Concordium.ID.Types as Types
-import qualified Concordium.Scheduler.Types as Types
-import Concordium.Types.DummyData
 import Concordium.Types.SeedState (initialSeedState)
 import Test.HUnit
 import Test.Hspec
@@ -70,64 +64,6 @@ setOfTransactions numTxs = do
     let amounts = OrdMap.fromListWith (+) . concat $ txs
     let timestamps = OrdMap.keys amounts
     return (txs, amounts, timestamps)
-
-------------------------------- Helper functions -------------------------------
-
--- |Generate an account credential with a single keypair and sufficiently late expiry date.
-makeTestCredential ::
-    SigScheme.VerifyKey ->
-    Types.AccountAddress ->
-    Types.AccountCredential
-makeTestCredential key addr =
-    dummyCredential
-        dummyCryptographicParameters
-        addr
-        key
-        dummyMaxValidTo
-        dummyCreatedAt
-
--- |Generate an account providing a verify key, account address and the initial balance.
--- The generated account have a single credential and single keypair, which has sufficiently late
--- expiry date.
-makeTestAccount ::
-    (Types.IsAccountVersion av) =>
-    SigScheme.VerifyKey ->
-    Types.AccountAddress ->
-    Types.Amount ->
-    ThisMonadConcrete PV (BS.PersistentAccount av)
-makeTestAccount key addr amount = do
-    let credential = makeTestCredential key addr
-    account <- BS.newAccount dummyCryptographicParameters addr credential
-    BS.addAccountAmount amount account
-
--- |Generate a test account keypair deterministically from a seed.
--- Note this is also used internally by `makeTestAccountFromSeed` and providing the same seed
--- results in the same keypair as used for the generated account.
-keyPairFromSeed :: Int -> SigScheme.KeyPair
-keyPairFromSeed =
-    uncurry SigScheme.KeyPairEd25519
-        . fst
-        . randomEd25519KeyPair
-        . Random.mkStdGen
-
--- |Generate an account address deterministically from a seed.
--- Note this is also used internally by `makeTestAccountFromSeed` and providing the same seed
--- results in the same account address as used for the generated account.
-accountAddressFromSeed :: Int -> Types.AccountAddress
-accountAddressFromSeed = accountAddressFrom
-
--- |Generate a test account with the provided amount as balance. The generated account have a single
--- credential and single keypair, which has sufficiently late expiry date. The keypair and address
--- is generated deterministically from a seed.
-makeTestAccountFromSeed ::
-    (Types.IsAccountVersion av) =>
-    Types.Amount ->
-    Int ->
-    ThisMonadConcrete PV (BS.PersistentAccount av)
-makeTestAccountFromSeed amount seed =
-    let keyPair = keyPairFromSeed seed
-        address = accountAddressFromSeed seed
-    in  makeTestAccount (SigScheme.correspondingVerifyKey keyPair) address amount
 
 createGS :: ThisMonadConcrete PV (AccountAddress, AccountIndex, AccountAddress, AccountIndex, PBS.PersistentBlockState PV)
 createGS = do
