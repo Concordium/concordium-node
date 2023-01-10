@@ -231,7 +231,7 @@ data PendingUpdates (cpv :: ChainParametersVersion) = PendingUpdates
       -- |Updates cooldown parameters
       pCooldownParametersQueue :: !(HashedBufferedRefO 'PTCooldownParametersAccessStructure cpv (UpdateQueue (CooldownParameters cpv))),
       -- |Updates time parameters.
-      pTimeParametersQueue :: !(HashedBufferedRefO 'PTTimeParameters cpv (UpdateQueue (TimeParameters cpv))),
+      pTimeParametersQueue :: !(HashedBufferedRefO 'PTTimeParameters cpv (UpdateQueue TimeParameters)),
       -- |Updates to the consensus version 2 timeout parameters (CPV2 onwards).
       pTimeoutParametersQueue :: !(HashedBufferedRefO 'PTTimeoutParameters cpv (UpdateQueue TimeoutParameters)),
       -- |Minimum block time for consensus version 2 (CPV2 onwards).
@@ -1445,7 +1445,7 @@ putUpdatesV0 Updates{..} = do
 lookupPendingTimeParameters ::
     (MonadBlobStore m, IsChainParametersVersion cpv) =>
     BufferedRef (Updates' cpv) ->
-    m [(TransactionTime, TimeParameters cpv)]
+    m [(TransactionTime, TimeParameters)]
 lookupPendingTimeParameters uref = do
     Updates{..} <- refLoad uref
     case pTimeParametersQueue pendingUpdates of

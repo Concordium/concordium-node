@@ -879,10 +879,10 @@ updatedTimeParameters ::
     -- |Target slot
     Slot ->
     -- |Original time parameters
-    TimeParameters cpv ->
+    TimeParameters ->
     -- |Updates
     [(Slot, UpdateValue cpv)] ->
-    TimeParameters cpv
+    TimeParameters
 updatedTimeParameters targetSlot tp0 upds =
     timeParametersAtSlot
         targetSlot

@@ -178,7 +178,7 @@ data UpdateValue (cpv :: ChainParametersVersion) where
     -- |Updates to cooldown parameters for chain parameter version 1.
     UVCooldownParameters :: !(CooldownParameters cpv) -> UpdateValue cpv
     -- |Updates to time parameters for chain parameters version 1.
-    UVTimeParameters :: !(TimeParameters cpv) -> UpdateValue cpv
+    UVTimeParameters :: !TimeParameters -> UpdateValue cpv
     -- |Updates to timeout parameters for chain parameters version 2.
     UVTimeoutParameters :: !TimeoutParameters -> UpdateValue cpv
     -- |Updates to minimum block time for chain parameters version 2.

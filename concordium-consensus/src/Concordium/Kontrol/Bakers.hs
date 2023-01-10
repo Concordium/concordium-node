@@ -278,10 +278,10 @@ timeParametersAtSlot ::
     -- |Target slot
     Slot ->
     -- |Original time parameters
-    TimeParameters cpv ->
+    TimeParameters ->
     -- |Updates to the time parameters in ascending order of slot time
-    [(Slot, TimeParameters cpv)] ->
-    TimeParameters cpv
+    [(Slot, TimeParameters)] ->
+    TimeParameters
 timeParametersAtSlot targetSlot tp0 upds =
     fromMaybe tp0 $
         getLast $
