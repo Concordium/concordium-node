@@ -26,7 +26,7 @@ import Data.Word (Word16, Word32)
 
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.GlobalState.Persistent.BlockState as BS
-import Concordium.ID.Types as ID
+import qualified Concordium.ID.Types as ID
 import Concordium.Scheduler.DummyData
 import Concordium.Scheduler.Runner
 import qualified Concordium.Scheduler.Types as Types
