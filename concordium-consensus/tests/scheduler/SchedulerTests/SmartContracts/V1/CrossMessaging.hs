@@ -1,41 +1,52 @@
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- | This module tests calling a V0 contract from a V1 contract and sending a message from a V0 to V1 contract.
 module SchedulerTests.SmartContracts.V1.CrossMessaging (tests) where
 
-import Test.HUnit (assertEqual, assertFailure)
+import Test.HUnit (Assertion, assertEqual, assertFailure)
 import Test.Hspec
 
+import Control.Monad
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Short as BSS
 import Data.Serialize (putByteString, putWord16le, putWord64le, runPut)
-import Lens.Micro.Platform
+import Data.Word (Word64)
+import System.IO.Unsafe (unsafePerformIO)
 
+import qualified Concordium.Crypto.SignatureScheme as SigScheme
+import qualified Concordium.GlobalState.BlockState as BS
+import qualified Concordium.GlobalState.ContractStateV1 as StateV1
+import qualified Concordium.GlobalState.Persistent.BlockState as BS
+import qualified Concordium.ID.Types as ID
+import Concordium.Scheduler.DummyData
 import Concordium.Scheduler.Runner
 import qualified Concordium.Scheduler.Types as Types
-import qualified Concordium.TransactionVerification as TVer
-
-import Concordium.GlobalState.Basic.BlockState
-import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
-import Concordium.GlobalState.Basic.BlockState.Instances
-import qualified Concordium.GlobalState.ContractStateV1 as StateV1
-import Concordium.GlobalState.Instance
 import Concordium.Wasm
+import qualified SchedulerTests.Helpers as Helpers
 
-import Concordium.Crypto.DummyData
-import Concordium.GlobalState.DummyData
-import Concordium.Scheduler.DummyData
-import Concordium.Types.DummyData
+tests :: Spec
+tests =
+    describe "V1: Counter with cross-messaging." $
+        sequence_ $
+            Helpers.forEveryProtocolVersion $ \spv pvString -> do
+                test1 spv pvString
 
-import SchedulerTests.TestUtils
-
-initialBlockState :: BlockState PV4
+initialBlockState ::
+    (Types.IsProtocolVersion pv) =>
+    Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
 initialBlockState =
-    blockStateWithAlesAccount
-        100000000
-        (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 100000000) Acc.emptyAccounts)
+    Helpers.createTestBlockStateWithAccountsM
+        [Helpers.makeTestAccountFromSeed 100_000_000 0]
+
+accountAddress0 :: ID.AccountAddress
+accountAddress0 = Helpers.accountAddressFromSeed 0
+
+keyPair0 :: SigScheme.KeyPair
+keyPair0 = Helpers.keyPairFromSeed 0
 
 counterSourceFile :: FilePath
 counterSourceFile = "./testdata/contracts/v1/call-counter.wasm"
@@ -54,53 +65,80 @@ version0 = V0
 -- contract. That method calls the forward method on the proxy contract which
 -- forwards the call to the inc method of the counter contract, which finally
 -- increments the counter.
-testCases :: [TestCase PV4]
-testCases =
-    [ TestCase
-        { tcName = "CrossMessaging via a proxy",
-          tcParameters = (defaultParams @PV4){tpInitialBlockState = initialBlockState},
-          tcTransactions =
-            [   ( TJSON
-                    { payload = DeployModule version1 counterSourceFile,
-                      metadata = makeDummyHeader alesAccount 1 100000,
-                      keys = [(0, [(0, alesKP)])]
-                    },
-                  (SuccessWithSummary ensureSuccess, emptySpec)
-                ),
-                ( TJSON
-                    { payload = DeployModule version0 proxySourceFile,
-                      metadata = makeDummyHeader alesAccount 2 100000,
-                      keys = [(0, [(0, alesKP)])]
-                    },
-                  (SuccessWithSummary ensureSuccess, emptySpec)
-                ),
-                ( TJSON
-                    { payload = InitContract 0 version1 counterSourceFile "init_counter" "",
-                      metadata = makeDummyHeader alesAccount 3 100000,
-                      keys = [(0, [(0, alesKP)])]
-                    },
-                  (SuccessWithSummary ensureSuccess, counterSpec 0)
-                ),
-                ( TJSON
-                    { payload = InitContract 0 version0 proxySourceFile "init_proxy" "",
-                      metadata = makeDummyHeader alesAccount 4 100000,
-                      keys = [(0, [(0, alesKP)])]
-                    },
-                  (SuccessWithSummary ensureSuccess, emptySpec)
-                ),
-              -- run the nocheck entrypoint since the @inc10@ one checks the return value, and since
-              -- we are invoking a V0 contract there is no return value.
-                ( TJSON
-                    { payload = Update 0 (Types.ContractAddress 0 0) "counter.inc10nocheck" callArgs,
-                      metadata = makeDummyHeader alesAccount 5 700000,
-                      keys = [(0, [(0, alesKP)])]
-                    },
-                  (SuccessWithSummary ensureSuccess, counterSpec 10)
-                )
-            ]
-        }
-    ]
+test1 ::
+    forall pv.
+    Types.IsProtocolVersion pv =>
+    Types.SProtocolVersion pv ->
+    String ->
+    SpecWith (Arg Assertion)
+test1 spv pvString =
+    when (Types.supportsV1Contracts spv) $
+        specify (pvString ++ ": CrossMessaging via a proxy") $
+            Helpers.runSchedulerTestAssertIntermediateStates
+                @pv
+                Helpers.defaultTestConfig
+                initialBlockState
+                transactionsAndAssertions
   where
+    transactionsAndAssertions :: [Helpers.TransactionAndAssertion pv]
+    transactionsAndAssertions =
+        [ Helpers.TransactionAndAssertion
+            { taaTransaction =
+                TJSON
+                    { payload = DeployModule version1 counterSourceFile,
+                      metadata = makeDummyHeader accountAddress0 1 100_000,
+                      keys = [(0, [(0, keyPair0)])]
+                    },
+              taaAssertion = \result _ ->
+                return $ Helpers.assertSuccess result
+            },
+          Helpers.TransactionAndAssertion
+            { taaTransaction =
+                TJSON
+                    { payload = DeployModule version0 proxySourceFile,
+                      metadata = makeDummyHeader accountAddress0 2 100_000,
+                      keys = [(0, [(0, keyPair0)])]
+                    },
+              taaAssertion = \result _ -> do
+                return $ Helpers.assertSuccess result
+            },
+          Helpers.TransactionAndAssertion
+            { taaTransaction =
+                TJSON
+                    { payload = InitContract 0 version1 counterSourceFile "init_counter" "",
+                      metadata = makeDummyHeader accountAddress0 3 100_000,
+                      keys = [(0, [(0, keyPair0)])]
+                    },
+              taaAssertion = \result state -> do
+                doAssertState <- assertCounterState 0 state
+                return $ do
+                    Helpers.assertSuccess result
+                    doAssertState
+            },
+          Helpers.TransactionAndAssertion
+            { taaTransaction =
+                TJSON
+                    { payload = InitContract 0 version0 proxySourceFile "init_proxy" "",
+                      metadata = makeDummyHeader accountAddress0 4 100_000,
+                      keys = [(0, [(0, keyPair0)])]
+                    },
+              taaAssertion = \result _ -> do
+                return $ Helpers.assertSuccess result
+            },
+          Helpers.TransactionAndAssertion
+            { taaTransaction =
+                TJSON
+                    { payload = Update 0 (Types.ContractAddress 0 0) "counter.inc10nocheck" callArgs,
+                      metadata = makeDummyHeader accountAddress0 5 700_000,
+                      keys = [(0, [(0, keyPair0)])]
+                    },
+              taaAssertion = \result state -> do
+                doAssertState <- assertCounterState 10 state
+                return $ do
+                    Helpers.assertSuccess result
+                    doAssertState
+            }
+        ]
     forwardParameter = runPut $ do
         putWord64le 0 -- index of the counter
         putWord64le 0 -- subindex of the counter contract
@@ -116,27 +154,115 @@ testCases =
         putByteString "forward" -- entrypoint name, calls for V1 contracts use just the entrypoint name
         putWord64le 0 -- amount
 
-    -- ensure the transaction is successful
-    ensureSuccess :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
-    ensureSuccess _ Types.TransactionSummary{..} = checkSuccess "Update failed" tsResult
-
-    checkSuccess msg Types.TxReject{..} = assertFailure $ msg ++ show vrRejectReason
-    checkSuccess _ _ = return ()
-
     -- Check that the contract state contains n.
-    counterSpec n bs = specify "Contract state" $
-        case getInstance (Types.ContractAddress 0 0) (bs ^. blockInstances) of
-            Nothing -> assertFailure "Instance at <0,0> does not exist."
-            Just istance -> do
-                case istance of
-                    InstanceV0 _ -> assertFailure "Expected V1 instance since a V1 module is deployed, but V0 encountered."
-                    InstanceV1 InstanceV{_instanceVModel = InstanceStateV1 s} -> do
-                        -- the contract stores the state at key = [0u8; 8]
-                        StateV1.lookupKey s (runPut (putWord64le 0)) >>= \case
+    assertCounterState ::
+        Word64 ->
+        BS.PersistentBlockState pv ->
+        Helpers.PersistentBSM pv Assertion
+    assertCounterState expectedCount blockState = do
+        BS.bsoGetInstance blockState (Types.ContractAddress 0 0) >>= \case
+            Nothing -> return $ assertFailure "Missing instance."
+            Just (BS.InstanceInfoV0 _) -> return $ assertFailure "Expected V1 instance, but got V0."
+            Just (BS.InstanceInfoV1 ii) -> do
+                contractState <- BS.externalContractState $ BS.iiState ii
+                -- the contract stores the state at key = [0u8; 8]
+                return $
+                    unsafePerformIO $ do
+                        value <-
+                            StateV1.lookupKey
+                                (StateV1.InMemoryPersistentState contractState)
+                                (runPut (putWord64le 0))
+                        return $ case value of
                             Nothing -> assertFailure "Failed to find key [0,0,0,0,0,0,0,0]"
-                            Just stateContents -> assertEqual ("State contains " ++ show n ++ ".") (runPut (putWord64le n)) stateContents
+                            Just stateContents ->
+                                assertEqual
+                                    ("State contains " ++ show expectedCount ++ ".")
+                                    (runPut (putWord64le expectedCount))
+                                    stateContents
 
-tests :: Spec
-tests =
-    describe "V1: Counter with cross-messaging." $
-        mkSpecs testCases
+-- -- This test sets up two contracts. The counter contract on address 0,0 and the
+-- -- proxy contract on address 1,0. Then it invokes a single method on the counter
+-- -- contract. That method calls the forward method on the proxy contract which
+-- -- forwards the call to the inc method of the counter contract, which finally
+-- -- increments the counter.
+-- testCases :: [TestCase PV4]
+-- testCases =
+--     [ TestCase
+--         { tcName = "CrossMessaging via a proxy",
+--           tcParameters = (defaultParams @PV4){tpInitialBlockState = initialBlockState},
+--           tcTransactions =
+--             [   ( TJSON
+--                     { payload = DeployModule version1 counterSourceFile,
+--                       metadata = makeDummyHeader accountAddress0 1 100_000,
+--                       keys = [(0, [(0, keyPair0)])]
+--                     },
+--                   (SuccessWithSummary ensureSuccess, emptySpec)
+--                 ),
+--                 ( TJSON
+--                     { payload = DeployModule version0 proxySourceFile,
+--                       metadata = makeDummyHeader accountAddress0 2 100_000,
+--                       keys = [(0, [(0, keyPair0)])]
+--                     },
+--                   (SuccessWithSummary ensureSuccess, emptySpec)
+--                 ),
+--                 ( TJSON
+--                     { payload = InitContract 0 version1 counterSourceFile "init_counter" "",
+--                       metadata = makeDummyHeader accountAddress0 3 100_000,
+--                       keys = [(0, [(0, keyPair0)])]
+--                     },
+--                   (SuccessWithSummary ensureSuccess, counterSpec 0)
+--                 ),
+--                 ( TJSON
+--                     { payload = InitContract 0 version0 proxySourceFile "init_proxy" "",
+--                       metadata = makeDummyHeader accountAddress0 4 100_000,
+--                       keys = [(0, [(0, keyPair0)])]
+--                     },
+--                   (SuccessWithSummary ensureSuccess, emptySpec)
+--                 ),
+--               -- run the nocheck entrypoint since the @inc10@ one checks the return value, and since
+--               -- we are invoking a V0 contract there is no return value.
+--                 ( TJSON
+--                     { payload = Update 0 (Types.ContractAddress 0 0) "counter.inc10nocheck" callArgs,
+--                       metadata = makeDummyHeader accountAddress0 5 700_000,
+--                       keys = [(0, [(0, keyPair0)])]
+--                     },
+--                   (SuccessWithSummary ensureSuccess, counterSpec 10)
+--                 )
+--             ]
+--         }
+--     ]
+--   where
+--     forwardParameter = runPut $ do
+--         putWord64le 0 -- index of the counter
+--         putWord64le 0 -- subindex of the counter contract
+--         putWord16le (fromIntegral (BSS.length "counter.inc"))
+--         putByteString "counter.inc" -- receive name, actions for V0 contracts must still use the full name
+--         putWord16le 0 -- length of parameter
+--     callArgs = BSS.toShort $ runPut $ do
+--         putWord64le 1 -- contract index (the proxy contract)
+--         putWord64le 0 -- contract subindex
+--         putWord16le (fromIntegral (BS.length forwardParameter)) -- length of parameter
+--         putByteString forwardParameter
+--         putWord16le (fromIntegral (BSS.length "forward"))
+--         putByteString "forward" -- entrypoint name, calls for V1 contracts use just the entrypoint name
+--         putWord64le 0 -- amount
+
+--     -- ensure the transaction is successful
+--     ensureSuccess :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
+--     ensureSuccess _ Types.TransactionSummary{..} = checkSuccess "Update failed" tsResult
+
+--     checkSuccess msg Types.TxReject{..} = assertFailure $ msg ++ show vrRejectReason
+--     checkSuccess _ _ = return ()
+
+--     -- Check that the contract state contains n.
+--     counterSpec n bs = specify "Contract state" $
+--         case getInstance (Types.ContractAddress 0 0) (bs ^. blockInstances) of
+--             Nothing -> assertFailure "Instance at <0,0> does not exist."
+--             Just istance -> do
+--                 case istance of
+--                     InstanceV0 _ -> assertFailure "Expected V1 instance since a V1 module is deployed, but V0 encountered."
+--                     InstanceV1 InstanceV{_instanceVModel = InstanceStateV1 s} -> do
+--                         -- the contract stores the state at key = [0u8; 8]
+--                         StateV1.lookupKey s (runPut (putWord64le 0)) >>= \case
+--                             Nothing -> assertFailure "Failed to find key [0,0,0,0,0,0,0,0]"
+--                             Just stateContents -> assertEqual ("State contains " ++ show n ++ ".") (runPut (putWord64le n)) stateContents
