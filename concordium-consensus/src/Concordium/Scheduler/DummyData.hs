@@ -7,19 +7,21 @@ module Concordium.Scheduler.DummyData {-# WARNING "This module should not be use
 import qualified Data.Aeson as AE
 import qualified Data.ByteString.Lazy as BSL
 import Data.FileEmbed
+import qualified Data.Map.Strict as Map
+import Data.Time
+import qualified System.Random as Random
 
 import Concordium.Common.Version
-import Concordium.ID.Types
-import Concordium.Scheduler.Types
-import Data.Time
-
-import qualified Concordium.Scheduler.Runner as Runner
-
-import Concordium.Types.DummyData
-
+import Concordium.Crypto.DummyData
 import qualified Concordium.Crypto.SignatureScheme as Sig
+import Concordium.GlobalState.DummyData
+import qualified Concordium.GlobalState.Persistent.Account as BS
+import qualified Concordium.GlobalState.Persistent.BlobStore as Blob
 import Concordium.ID.DummyData
-import qualified Data.Map.Strict as Map
+import Concordium.ID.Types
+import qualified Concordium.Scheduler.Runner as Runner
+import Concordium.Scheduler.Types
+import Concordium.Types.DummyData
 
 -- |Maximum possible expiry of a message.
 maxExpiry :: TransactionExpiryTime
@@ -144,3 +146,67 @@ dummyChainMeta = ChainMetadata{slotTime = 0}
 
 dummyMaxCredentials :: CredentialsPerBlockLimit
 dummyMaxCredentials = 10
+
+-- |Generate an account credential with a single keypair and sufficiently late expiry date.
+makeTestCredential ::
+    Sig.VerifyKey ->
+    AccountAddress ->
+    AccountCredential
+makeTestCredential key accountAddress =
+    dummyCredential
+        dummyCryptographicParameters
+        accountAddress
+        key
+        dummyMaxValidTo
+        dummyCreatedAt
+
+-- |Generate an account credential with a single keypair and sufficiently late expiry date
+-- deterministically from a seed.
+makeTestCredentialFromSeed :: Int -> AccountCredential
+makeTestCredentialFromSeed seed =
+    let keyPair = keyPairFromSeed seed
+        address = accountAddressFromSeed seed
+    in  makeTestCredential (Sig.correspondingVerifyKey keyPair) address
+
+-- |Generate an account providing a verify key, account address and the initial balance.
+-- The generated account have a single credential and single keypair, which has sufficiently late
+-- expiry date.
+makeTestAccount ::
+    (IsAccountVersion av, Blob.MonadBlobStore m) =>
+    Sig.VerifyKey ->
+    AccountAddress ->
+    Amount ->
+    m (BS.PersistentAccount av)
+makeTestAccount key accountAddress amount = do
+    let credential = makeTestCredential key accountAddress
+    account <- BS.newAccount dummyCryptographicParameters accountAddress credential
+    BS.addAccountAmount amount account
+
+-- |Generate a test account keypair deterministically from a seed.
+-- Note this is also used internally by `makeTestAccountFromSeed` and providing the same seed
+-- results in the same keypair as used for the generated account.
+keyPairFromSeed :: Int -> Sig.KeyPair
+keyPairFromSeed =
+    uncurry Sig.KeyPairEd25519
+        . fst
+        . randomEd25519KeyPair
+        . Random.mkStdGen
+
+-- |Generate an account address deterministically from a seed.
+-- Note this is also used internally by `makeTestAccountFromSeed` and providing the same seed
+-- results in the same account address as used for the generated account.
+accountAddressFromSeed :: Int -> AccountAddress
+accountAddressFromSeed = accountAddressFrom
+
+-- |Generate a test account with the provided amount as balance. The generated account have a single
+-- credential and single keypair, which has sufficiently late expiry date. The keypair and address
+-- is generated deterministically from a seed.
+makeTestAccountFromSeed ::
+    (IsAccountVersion av, Blob.MonadBlobStore m) =>
+    Amount ->
+    Int ->
+    m (BS.PersistentAccount av)
+makeTestAccountFromSeed amount seed =
+    let keyPair = keyPairFromSeed seed
+        address = accountAddressFromSeed seed
+    in  makeTestAccount (Sig.correspondingVerifyKey keyPair) address amount

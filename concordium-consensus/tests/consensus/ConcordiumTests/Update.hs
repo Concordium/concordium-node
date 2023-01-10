@@ -9,7 +9,7 @@
 -- falsify some element of the second block, then check to make sure the dirtied second block is rejected.
 --
 -- Does not currently verify which error gets thrown, could refactor to do this?
-module ConcordiumTests.Update where
+module ConcordiumTests.Update (test) where
 
 import Control.Monad
 import Control.Monad.IO.Class
@@ -29,8 +29,6 @@ import qualified Concordium.Crypto.BlockSignature as Sig
 
 import Concordium.Genesis.Data.P1
 import Concordium.GlobalState
-import Concordium.GlobalState.BakerInfo
-import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.Block
 import qualified Concordium.GlobalState.BlockPointer as BS
 import Concordium.GlobalState.Parameters
@@ -95,7 +93,6 @@ myRunSkovT a handlers ctx st = liftIO $ flip runLoggerT doLog $ do
     doLog _ _ _ = return () -- traceM $ show src ++ ": " ++ msg
 
 type BakerState = (BakerIdentity, SkovContext (Config DummyTimer), SkovState (Config DummyTimer))
-type BakerInformation = (FullBakerInfo, BakerIdentity, Account (AccountVersionFor PV))
 
 -- |Create initial states for two bakers
 createInitStates :: IO (BakerState, BakerState)
@@ -191,9 +188,6 @@ failStore block =
         _ -> return ()
 
 -- * Helper functions for dirtying fields of blocks
-
-stubBlockHash :: BlockHash
-stubBlockHash = BlockHash (Hash (FBS.pack (Prelude.replicate 32 (fromIntegral (3 :: Word)))))
 
 stubStateHash :: StateHash
 stubStateHash = StateHashV0 (Hash (FBS.pack (Prelude.replicate 32 (fromIntegral (3 :: Word)))))
