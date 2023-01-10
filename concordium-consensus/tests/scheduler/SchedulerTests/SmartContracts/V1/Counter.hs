@@ -1,5 +1,7 @@
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- | This module tests calling a contract from a contract and inspecting the return
@@ -7,40 +9,44 @@
 --    counter in its state.
 module SchedulerTests.SmartContracts.V1.Counter (tests) where
 
-import Test.HUnit (assertEqual, assertFailure)
-import Test.Hspec
-
 import Control.Monad
-import qualified Data.ByteString as BS
 import qualified Data.ByteString.Short as BSS
 import Data.Serialize (putByteString, putWord16le, putWord64le, runPut)
-import Lens.Micro.Platform
+import Data.Word (Word64)
+import System.IO.Unsafe (unsafePerformIO)
+import Test.HUnit (Assertion, assertEqual, assertFailure)
+import Test.Hspec
 
-import qualified Concordium.Crypto.SHA256 as Hash
+import qualified Concordium.Crypto.SignatureScheme as SigScheme
+import qualified Concordium.GlobalState.BlockState as BS
+import qualified Concordium.GlobalState.ContractStateV1 as StateV1
+import qualified Concordium.GlobalState.Persistent.BlockState as BS
+import qualified Concordium.ID.Types as ID
+import Concordium.Scheduler.DummyData
 import Concordium.Scheduler.Runner
 import qualified Concordium.Scheduler.Types as Types
-import qualified Concordium.TransactionVerification as TVer
-
-import qualified Concordium.Cost as Cost
-import Concordium.GlobalState.Basic.BlockState
-import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
-import Concordium.GlobalState.Basic.BlockState.Instances
-import qualified Concordium.GlobalState.ContractStateV1 as StateV1
-import Concordium.GlobalState.Instance
 import Concordium.Wasm
+import qualified SchedulerTests.Helpers as Helpers
 
-import Concordium.Crypto.DummyData
-import Concordium.GlobalState.DummyData
-import Concordium.Scheduler.DummyData
-import Concordium.Types.DummyData
+tests :: Spec
+tests =
+    describe "V1: Counter counts." $
+        sequence_ $
+            Helpers.forEveryProtocolVersion $ \spv pvString -> do
+                test1 spv pvString
 
-import SchedulerTests.TestUtils
-
-initialBlockState :: BlockState PV4
+initialBlockState ::
+    (Types.IsProtocolVersion pv) =>
+    Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
 initialBlockState =
-    blockStateWithAlesAccount
-        100000000
-        (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 100000000) Acc.emptyAccounts)
+    Helpers.createTestBlockStateWithAccountsM
+        [Helpers.makeTestAccountFromSeed 100_000_000 0]
+
+accountAddress0 :: ID.AccountAddress
+accountAddress0 = Helpers.accountAddressFromSeed 0
+
+keyPair0 :: SigScheme.KeyPair
+keyPair0 = Helpers.keyPairFromSeed 0
 
 counterSourceFile :: FilePath
 counterSourceFile = "./testdata/contracts/v1/call-counter.wasm"
@@ -49,51 +55,86 @@ counterSourceFile = "./testdata/contracts/v1/call-counter.wasm"
 wasmModVersion :: WasmVersion
 wasmModVersion = V1
 
-testCases :: [TestCase PV4]
-testCases =
-    [ TestCase
-        { tcName = "Counter updates and returns.",
-          tcParameters = (defaultParams @PV4){tpInitialBlockState = initialBlockState},
-          tcTransactions =
-            [   ( TJSON
-                    { payload = DeployModule wasmModVersion counterSourceFile,
-                      metadata = makeDummyHeader alesAccount 1 100000,
-                      keys = [(0, [(0, alesKP)])]
-                    },
-                  (SuccessWithSummary deploymentCostCheck, emptySpec)
-                ),
-                ( TJSON
-                    { payload = InitContract 0 wasmModVersion counterSourceFile "init_counter" "",
-                      metadata = makeDummyHeader alesAccount 2 100000,
-                      keys = [(0, [(0, alesKP)])]
-                    },
-                  (SuccessWithSummary initializationCostCheck, counterSpec 0)
-                ),
-                ( TJSON
-                    { payload = Update 0 (Types.ContractAddress 0 0) "counter.inc" BSS.empty,
-                      metadata = makeDummyHeader alesAccount 3 700000,
-                      keys = [(0, [(0, alesKP)])]
-                    },
-                  (SuccessWithSummary ensureSuccess, counterSpec 1)
-                ),
-                ( TJSON
-                    { payload = Update 0 (Types.ContractAddress 0 0) "counter.inc" BSS.empty,
-                      metadata = makeDummyHeader alesAccount 4 700000,
-                      keys = [(0, [(0, alesKP)])]
-                    },
-                  (SuccessWithSummary ensureSuccess, counterSpec 2)
-                ),
-                ( TJSON
-                    { payload = Update 0 (Types.ContractAddress 0 0) "counter.inc10" callArgs,
-                      metadata = makeDummyHeader alesAccount 5 700000,
-                      keys = [(0, [(0, alesKP)])]
-                    },
-                  (SuccessWithSummary ensureSuccess, counterSpec 12)
-                )
-            ]
-        }
-    ]
+test1 ::
+    forall pv.
+    Types.IsProtocolVersion pv =>
+    Types.SProtocolVersion pv ->
+    String ->
+    SpecWith (Arg Assertion)
+test1 spv pvString =
+    when (Types.supportsV1Contracts spv) $
+        specify (pvString ++ ": Counter updates and returns.") $
+            Helpers.runSchedulerTestAssertIntermediateStates
+                @pv
+                Helpers.defaultTestConfig
+                initialBlockState
+                transactionsAndAssertions
   where
+    transactionsAndAssertions :: [Helpers.TransactionAndAssertion pv]
+    transactionsAndAssertions =
+        [ Helpers.TransactionAndAssertion
+            { taaTransaction =
+                TJSON
+                    { payload = DeployModule wasmModVersion counterSourceFile,
+                      metadata = makeDummyHeader accountAddress0 1 100000,
+                      keys = [(0, [(0, keyPair0)])]
+                    },
+              taaAssertion = \result _ ->
+                return $ Helpers.assertSuccess result
+            },
+          Helpers.TransactionAndAssertion
+            { taaTransaction =
+                TJSON
+                    { payload = InitContract 0 wasmModVersion counterSourceFile "init_counter" "",
+                      metadata = makeDummyHeader accountAddress0 2 100_000,
+                      keys = [(0, [(0, keyPair0)])]
+                    },
+              taaAssertion = \result state -> do
+                doAssertState <- assertCounterState 0 state
+                return $ do
+                    Helpers.assertSuccess result
+                    doAssertState
+            },
+          Helpers.TransactionAndAssertion
+            { taaTransaction =
+                TJSON
+                    { payload = Update 0 (Types.ContractAddress 0 0) "counter.inc" BSS.empty,
+                      metadata = makeDummyHeader accountAddress0 3 700_000,
+                      keys = [(0, [(0, keyPair0)])]
+                    },
+              taaAssertion = \result state -> do
+                doAssertState <- assertCounterState 1 state
+                return $ do
+                    Helpers.assertSuccess result
+                    doAssertState
+            },
+          Helpers.TransactionAndAssertion
+            { taaTransaction =
+                TJSON
+                    { payload = Update 0 (Types.ContractAddress 0 0) "counter.inc" BSS.empty,
+                      metadata = makeDummyHeader accountAddress0 4 700_000,
+                      keys = [(0, [(0, keyPair0)])]
+                    },
+              taaAssertion = \result state -> do
+                doAssertState <- assertCounterState 2 state
+                return $ do
+                    Helpers.assertSuccess result
+                    doAssertState
+            },
+          Helpers.TransactionAndAssertion
+            { taaTransaction =
+                TJSON
+                    { payload = Update 0 (Types.ContractAddress 0 0) "counter.inc10" callArgs,
+                      metadata = makeDummyHeader accountAddress0 5 700_000,
+                      keys = [(0, [(0, keyPair0)])]
+                    },
+              taaAssertion = \result state -> do
+                doAssertState <- assertCounterState 12 state
+                return $ do
+                    Helpers.assertSuccess result
+                    doAssertState
+            }
+        ]
     callArgs = BSS.toShort $ runPut $ do
         putWord64le 0 -- contract index
         putWord64le 0 -- contract subindex
@@ -101,61 +142,29 @@ testCases =
         putWord16le (fromIntegral (BSS.length "inc"))
         putByteString "inc" -- entrypoint name
         putWord64le 0 -- amount
-    deploymentCostCheck :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
-    deploymentCostCheck _ Types.TransactionSummary{..} = do
-        checkSuccess "Module deployment failed: " tsResult
-        moduleSource <- BS.readFile counterSourceFile
-        let len = fromIntegral $ BS.length moduleSource
-            -- size of the module deploy payload
-            payloadSize = Types.payloadSize (Types.encodePayload (Types.DeployModule (WasmModuleV0 (WasmModuleV ModuleSource{..}))))
-            -- size of the transaction minus the signatures.
-            txSize = Types.transactionHeaderSize + fromIntegral payloadSize
-        -- transaction is signed with 1 signature
-        assertEqual "Deployment has correct cost " (Cost.baseCost txSize 1 + Cost.deployModuleCost len) tsEnergyCost
-
-    -- check that the initialization cost was at least the administrative cost.
-    -- It is not practical to check the exact cost because the execution cost of the init function is hard to
-    -- have an independent number for, other than executing.
-    initializationCostCheck :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
-    initializationCostCheck _ Types.TransactionSummary{..} = do
-        checkSuccess "Contract initialization failed: " tsResult
-        moduleSource <- BS.readFile counterSourceFile
-        let modLen = fromIntegral $ BS.length moduleSource
-            modRef = Types.ModuleRef (Hash.hash moduleSource)
-            payloadSize = Types.payloadSize (Types.encodePayload (Types.InitContract 0 modRef (InitName "init_counter") (Parameter "")))
-            -- size of the transaction minus the signatures.
-            txSize = Types.transactionHeaderSize + fromIntegral payloadSize
-            -- transaction is signed with 1 signature
-            baseTxCost = Cost.baseCost txSize 1
-            -- lower bound on the cost of the transaction, assuming no interpreter energy
-            -- we know the size of the state should be 8 bytes
-            costLowerBound = baseTxCost + Cost.initializeContractInstanceCost 0 modLen (Just 8)
-        return ()
-        unless (tsEnergyCost >= costLowerBound) $
-            assertFailure $
-                "Actual initialization cost " ++ show tsEnergyCost ++ " not more than lower bound " ++ show costLowerBound
-
-    -- ensure the transaction is successful
-    ensureSuccess :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
-    ensureSuccess _ Types.TransactionSummary{..} = checkSuccess "Update failed" tsResult
-
-    checkSuccess msg Types.TxReject{..} = assertFailure $ msg ++ show vrRejectReason
-    checkSuccess _ _ = return ()
 
     -- Check that the contract state contains n.
-    counterSpec n bs = specify "Contract state" $
-        case getInstance (Types.ContractAddress 0 0) (bs ^. blockInstances) of
-            Nothing -> assertFailure "Instance at <0,0> does not exist."
-            Just istance -> do
-                case istance of
-                    InstanceV0 _ -> assertFailure "Expected V1 instance since a V1 module is deployed, but V0 encountered."
-                    InstanceV1 InstanceV{_instanceVModel = InstanceStateV1 s} -> do
-                        -- the contract stores the state at key = [0u8; 8]
-                        StateV1.lookupKey s (runPut (putWord64le 0)) >>= \case
+    assertCounterState ::
+        Word64 ->
+        BS.PersistentBlockState pv ->
+        Helpers.PersistentBSM pv Assertion
+    assertCounterState expectedCount blockState = do
+        BS.bsoGetInstance blockState (Types.ContractAddress 0 0) >>= \case
+            Nothing -> return $ assertFailure "Missing instance."
+            Just (BS.InstanceInfoV0 _) -> return $ assertFailure "Expected V1 instance, but got V0."
+            Just (BS.InstanceInfoV1 ii) -> do
+                contractState <- BS.externalContractState $ BS.iiState ii
+                -- the contract stores the state at key = [0u8; 8]
+                return $
+                    unsafePerformIO $ do
+                        value <-
+                            StateV1.lookupKey
+                                (StateV1.InMemoryPersistentState contractState)
+                                (runPut (putWord64le 0))
+                        return $ case value of
                             Nothing -> assertFailure "Failed to find key [0,0,0,0,0,0,0,0]"
-                            Just stateContents -> assertEqual ("State contains " ++ show n ++ ".") (runPut (putWord64le n)) stateContents
-
-tests :: Spec
-tests =
-    describe "V1: Counter counts." $
-        mkSpecs testCases
+                            Just stateContents ->
+                                assertEqual
+                                    ("State contains " ++ show expectedCount ++ ".")
+                                    (runPut (putWord64le expectedCount))
+                                    stateContents
