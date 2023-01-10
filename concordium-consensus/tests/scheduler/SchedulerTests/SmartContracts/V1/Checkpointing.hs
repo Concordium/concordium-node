@@ -133,7 +133,7 @@ checkpointingTest1 spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccessWhere (assertNumberOfEvents 3) result
+                return $ Helpers.assertSuccessWhere (Helpers.assertNumberOfEvents 3) result
             }
         ]
     parameters = BSS.toShort $ runPut $ do
@@ -223,7 +223,7 @@ checkpointingTest2 spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccessWhere (assertNumberOfEvents 6) result
+                return $ Helpers.assertSuccessWhere (Helpers.assertNumberOfEvents 6) result
             }
         ]
     parameters = BSS.toShort $ runPut $ do
@@ -307,7 +307,7 @@ checkpointingTest3 spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccessWhere (assertNumberOfEvents 4) result
+                return $ Helpers.assertSuccessWhere (Helpers.assertNumberOfEvents 4) result
             }
         ]
 
@@ -379,7 +379,7 @@ checkpointingTest4 spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccessWhere (assertNumberOfEvents 7) result
+                return $ Helpers.assertSuccessWhere (Helpers.assertNumberOfEvents 7) result
             }
         ]
     parameters = BSS.toShort $ runPut $ do
@@ -488,7 +488,7 @@ checkpointingTest5 spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccessWhere (assertNumberOfEvents 3) result
+                return $ Helpers.assertSuccessWhere (Helpers.assertNumberOfEvents 3) result
             }
         ]
     parameters = BSS.toShort $ runPut $ do
@@ -608,7 +608,7 @@ checkpointingTest6 spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccessWhere (assertNumberOfEvents 8) result
+                return $ Helpers.assertSuccessWhere (Helpers.assertNumberOfEvents 8) result
             }
         ]
     parameters = BSS.toShort $ runPut $ do
@@ -636,7 +636,3 @@ checkpointingTest6 spv pvString =
         putWord16le (fromIntegral (BSS.length "a_modify"))
         putByteString "a_modify" -- entrypoint name
         putWord64le 0 -- amount
-
-assertNumberOfEvents :: Int -> [Types.Event] -> Assertion
-assertNumberOfEvents expectedLength events =
-    assertEqual "Correct number of events produced" expectedLength (length events)

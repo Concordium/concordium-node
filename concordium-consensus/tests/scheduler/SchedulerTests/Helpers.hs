@@ -788,6 +788,11 @@ assertSuccessWithEvents :: [Types.Event] -> SchedulerResult -> Assertion
 assertSuccessWithEvents expectedEvents =
     assertSuccessWhere (assertEqual "The correct event is produced" expectedEvents)
 
+-- | Assert the number of events produced.
+assertNumberOfEvents :: Int -> [Types.Event] -> Assertion
+assertNumberOfEvents expectedLength events =
+    assertEqual "Correct number of events produced" expectedLength (length events)
+
 -- | Assert the scheduler result have added one rejected transaction and check the reason.
 assertRejectWithReason :: Types.RejectReason -> SchedulerResult -> Assertion
 assertRejectWithReason expectedReason result =
