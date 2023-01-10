@@ -213,7 +213,7 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
         if index >= _startIndex && numOfAmounts >= index - _startIndex
             then
                 let toTake = Seq.take (fromIntegral (index - _startIndex)) $ maybe id ((Seq.:<|) . fst) _aggregatedAmount _incomingEncryptedAmounts
-                in  return $ Just $! foldl' aggregateAmounts _selfAmount toTake
+                 in return $ Just $! foldl' aggregateAmounts _selfAmount toTake
             else return Nothing
 
     -- |Get the release schedule for an account.
@@ -569,13 +569,20 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
 
     -- |Get the value of the election difficulty parameter for a future timestamp.
     -- This function applies queued election difficultly updates as appropriate.
-    getElectionDifficulty :: BlockState m -> Timestamp -> m ElectionDifficulty
+    getElectionDifficulty ::
+        (IsSupported 'PTElectionDifficulty (ChainParametersVersionFor (MPV m)) ~ 'True) =>
+        BlockState m ->
+        Timestamp ->
+        m ElectionDifficulty
 
     -- |Get the next sequence number for a particular update type.
     getNextUpdateSequenceNumber :: BlockState m -> UpdateType -> m UpdateSequenceNumber
 
     -- |Get the value of the election difficulty that was used to bake this block.
-    getCurrentElectionDifficulty :: BlockState m -> m ElectionDifficulty
+    getCurrentElectionDifficulty ::
+        (ConsensusParametersVersionFor (ChainParametersVersionFor (MPV m)) ~ 'ConsensusParametersVersion0) =>
+        BlockState m ->
+        m ElectionDifficulty
 
     -- |Get the current chain parameters and pending updates.
     getUpdates :: BlockState m -> m (UQ.Updates (MPV m))
@@ -1253,7 +1260,12 @@ class (BlockStateQuery m) => BlockStateOperations m where
     -- This is intended to be used for protocol updates that affect the election difficulty in
     -- tandem with the slot duration.
     -- Note that this does not affect the next sequence number for election difficulty updates.
-    bsoOverwriteElectionDifficulty :: UpdatableBlockState m -> ElectionDifficulty -> m (UpdatableBlockState m)
+    bsoOverwriteElectionDifficulty ::
+        ( ConsensusParametersVersionFor (ChainParametersVersionFor (MPV m)) ~ 'ConsensusParametersVersion0
+        ) =>
+        UpdatableBlockState m ->
+        ElectionDifficulty ->
+        m (UpdatableBlockState m)
 
     -- |Clear the protocol update and any queued protocol updates.
     -- This is intended to be used to reset things after a protocol update has taken effect.

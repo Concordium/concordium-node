@@ -242,7 +242,6 @@ protocolUpdateStatus Updates{_pendingUpdates = PendingUpdates{..}, ..} =
 -- parameter versions.  If queue is missing, this returns 'minUpdateSequenceNumber'.
 nextUpdateSequenceNumberO ::
     forall pt cpv v.
-    IsChainParametersVersion cpv =>
     OUpdateQueue pt cpv v ->
     UpdateSequenceNumber
 nextUpdateSequenceNumberO uq = case uq of
@@ -310,7 +309,7 @@ emptyQueueO (SomeParam q) = SomeParam (q{_uqQueue = []})
 
 -- |Overwrite the election difficulty with the specified value and remove
 -- any pending updates to the election difficulty from the queue.
-overwriteElectionDifficulty :: (IsSupported 'PTElectionDifficulty cpv ~ 'True, ConsensusParametersVersionFor cpv ~ 'ConsensusParametersVersion0) => ElectionDifficulty -> Updates' cpv -> Updates' cpv
+overwriteElectionDifficulty :: (ConsensusParametersVersionFor cpv ~ 'ConsensusParametersVersion0) => ElectionDifficulty -> Updates' cpv -> Updates' cpv
 overwriteElectionDifficulty newDifficulty =
     (currentParameters . cpConsensusParameters . cpElectionDifficulty .~ newDifficulty)
         . (pendingUpdates . pElectionDifficultyQueue %~ emptyQueueO)

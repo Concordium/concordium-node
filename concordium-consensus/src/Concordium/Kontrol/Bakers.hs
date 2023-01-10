@@ -37,8 +37,9 @@ data PoolCaps = PoolCaps
 -- It is assumed that the total capital is at least the baker equity capital plus the baker
 -- delegated capital.
 delegatedCapitalCaps ::
+    (PoolParametersVersionFor cpv ~ 'PoolParametersVersion1) =>
     -- |Pool parameters
-    PoolParameters 'ChainParametersV1 ->
+    PoolParameters cpv ->
     -- |Current total capital
     Amount ->
     -- |Baker equity capital
@@ -64,8 +65,9 @@ delegatedCapitalCaps poolParams totalCap bakerCap delCap = PoolCaps{..}
 -- It is assumed that the total capital is at least the baker equity capital plus the baker
 -- delegated capital.
 delegatedCapitalCap ::
+    (PoolParametersVersionFor cpv ~ 'PoolParametersVersion1) =>
     -- |Pool parameters
-    PoolParameters 'ChainParametersV1 ->
+    PoolParameters cpv ->
     -- |Current total capital
     Amount ->
     -- |Baker equity capital
@@ -158,9 +160,9 @@ data BakerStakesAndCapital m = BakerStakesAndCapital
 
 -- |Compute the baker stakes and capital distribution.
 computeBakerStakesAndCapital ::
-    forall m.
-    (AccountOperations m) =>
-    PoolParameters 'ChainParametersV1 ->
+    forall m cpv.
+    (AccountOperations m, PoolParametersVersionFor cpv ~ 'PoolParametersVersion1) =>
+    PoolParameters cpv ->
     [ActiveBakerInfo m] ->
     [ActiveDelegatorInfo] ->
     BakerStakesAndCapital m
@@ -337,7 +339,8 @@ getSlotBakersP4 genData bs slot = do
                         pendingTimeParameters
             let nextPaydayLength =
                     paydayTimeParameters
-                        ^. tpRewardPeriodLength . to (epochToSlot . rewardPeriodEpochs)
+                        ^. tpRewardPeriodLength
+                        . to (epochToSlot . rewardPeriodEpochs)
             if blockEpoch + 1 == nextPayday && slot < nextPaydaySlot + nextPaydayLength
                 then getNextEpochBakers bs
                 else do
@@ -469,7 +472,8 @@ getDefiniteSlotBakersP4 genData bs slot = do
                         pendingTimeParameters
             let nextPaydayLength =
                     paydayTimeParameters
-                        ^. tpRewardPeriodLength . to (epochToSlot . rewardPeriodEpochs)
+                        ^. tpRewardPeriodLength
+                        . to (epochToSlot . rewardPeriodEpochs)
             if blockEpoch + 1 == nextPayday && slot < nextPaydaySlot + nextPaydayLength
                 then Just <$> getNextEpochBakers bs
                 else return Nothing

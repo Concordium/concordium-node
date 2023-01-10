@@ -3,6 +3,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 -- |Implementation of the chain update mechanism with persistent storage: https://concordium.gitlab.io/whitepapers/update-mechanism/main.pdf
@@ -292,7 +293,9 @@ migratePendingUpdates migration PendingUpdates{..} = do
     newCooldownParameters <- case migration of
         StateMigrationParametersTrivial -> case pCooldownParametersQueue of
             NoParam -> return NoParam
-            SomeParam hbr -> SomeParam <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
+            SomeParam hbr ->
+                withIsCooldownParametersVersionFor (chainParametersVersion @(ChainParametersVersionFor oldpv)) $
+                    SomeParam <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
         StateMigrationParametersP1P2 -> case pCooldownParametersQueue of
             NoParam -> return NoParam
         StateMigrationParametersP2P3 -> case pCooldownParametersQueue of
@@ -380,7 +383,9 @@ instance
         hPoolParametersQueue <- H.hashToByteString <$> getHashM pPoolParametersQueue
         hAddAnonymityRevokerQueue <- H.hashToByteString <$> getHashM pAddAnonymityRevokerQueue
         hAddIdentityProviderQueue <- H.hashToByteString <$> getHashM pAddIdentityProviderQueue
-        hCooldownParametersQueue <- maybeWhenSupported (return mempty) (fmap H.hashToByteString . getHashM) pCooldownParametersQueue
+        hCooldownParametersQueue <-
+            withIsCooldownParametersVersionFor (chainParametersVersion @cpv) $
+                maybeWhenSupported (return mempty) (fmap H.hashToByteString . getHashM) pCooldownParametersQueue
         hTimeParametersQueue <- maybeWhenSupported (return mempty) (fmap H.hashToByteString . getHashM) pTimeParametersQueue
         return $!
             H.hash $
@@ -420,7 +425,9 @@ instance
         (putPoolParametersQueue, newPoolParametersQueue) <- storeUpdate pPoolParametersQueue
         (putAddAnonymityRevokerQueue, newAddAnonymityRevokerQueue) <- storeUpdate pAddAnonymityRevokerQueue
         (putAddIdentityProviderQueue, newAddIdentityProviderQueue) <- storeUpdate pAddIdentityProviderQueue
-        (putCooldownParametersQueue, newCooldownParametersQueue) <- storeUpdate pCooldownParametersQueue
+        (putCooldownParametersQueue, newCooldownParametersQueue) <-
+            withIsCooldownParametersVersionFor (chainParametersVersion @cpv) $
+                storeUpdate pCooldownParametersQueue
         (putTimeParametersQueue, newTimeParametersQueue) <- storeUpdate pTimeParametersQueue
         (putTimeoutParametersQueue, newTimeoutParametersQueue) <- storeUpdate pTimeoutParametersQueue
         (putMinBlockTimeQueue, newMinBlockTimeQueue) <- storeUpdate pMinBlockTimeQueue
@@ -483,7 +490,9 @@ instance
         mPoolParametersQueue <- label "Baker minimum threshold update queue" load
         mAddAnonymityRevokerQueue <- label "Add anonymity revoker update queue" load
         mAddIdentityProviderQueue <- label "Add identity provider update queue" load
-        mCooldownParametersQueue <- label "Cooldown parameters update queue" load
+        mCooldownParametersQueue <-
+            withIsCooldownParametersVersionFor (chainParametersVersion @cpv) $
+                label "Cooldown parameters update queue" load
         mTimeParametersQueue <- label "Time parameters update queue" load
         mTimeoutParametersQueue <- label "Time parameters update queue" load
         mMinBlockTimeQueue <- label "Time parameters update queue" load
@@ -515,26 +524,27 @@ instance
     Cacheable m (PendingUpdates cpv)
     where
     cache PendingUpdates{..} =
-        PendingUpdates
-            <$> cache pRootKeysUpdateQueue
-            <*> cache pLevel1KeysUpdateQueue
-            <*> cache pLevel2KeysUpdateQueue
-            <*> cache pProtocolQueue
-            <*> cache pElectionDifficultyQueue
-            <*> cache pEuroPerEnergyQueue
-            <*> cache pMicroGTUPerEuroQueue
-            <*> cache pFoundationAccountQueue
-            <*> cache pMintDistributionQueue
-            <*> cache pTransactionFeeDistributionQueue
-            <*> cache pGASRewardsQueue
-            <*> cache pPoolParametersQueue
-            <*> cache pAddAnonymityRevokerQueue
-            <*> cache pAddIdentityProviderQueue
-            <*> cache pCooldownParametersQueue
-            <*> cache pTimeParametersQueue
-            <*> cache pTimeoutParametersQueue
-            <*> cache pMinBlockTimeQueue
-            <*> cache pBlockEnergyLimitQueue
+        withIsCooldownParametersVersionFor (chainParametersVersion @cpv) $
+            PendingUpdates
+                <$> cache pRootKeysUpdateQueue
+                <*> cache pLevel1KeysUpdateQueue
+                <*> cache pLevel2KeysUpdateQueue
+                <*> cache pProtocolQueue
+                <*> cache pElectionDifficultyQueue
+                <*> cache pEuroPerEnergyQueue
+                <*> cache pMicroGTUPerEuroQueue
+                <*> cache pFoundationAccountQueue
+                <*> cache pMintDistributionQueue
+                <*> cache pTransactionFeeDistributionQueue
+                <*> cache pGASRewardsQueue
+                <*> cache pPoolParametersQueue
+                <*> cache pAddAnonymityRevokerQueue
+                <*> cache pAddIdentityProviderQueue
+                <*> cache pCooldownParametersQueue
+                <*> cache pTimeParametersQueue
+                <*> cache pTimeoutParametersQueue
+                <*> cache pMinBlockTimeQueue
+                <*> cache pBlockEnergyLimitQueue
 
 -- |Serialize the pending updates.
 putPendingUpdatesV0 ::
@@ -557,7 +567,8 @@ putPendingUpdatesV0 PendingUpdates{..} = do
     putUpdateQueueV0 =<< refLoad pPoolParametersQueue
     putUpdateQueueV0 =<< refLoad pAddAnonymityRevokerQueue
     putUpdateQueueV0 =<< refLoad pAddIdentityProviderQueue
-    mapM_ (putUpdateQueueV0 <=< refLoad) pCooldownParametersQueue
+    withIsCooldownParametersVersionFor (chainParametersVersion @cpv) $
+        mapM_ (putUpdateQueueV0 <=< refLoad) pCooldownParametersQueue
     mapM_ (putUpdateQueueV0 <=< refLoad) pTimeParametersQueue
 
 -- |Initial pending updates with empty queues.
@@ -572,6 +583,7 @@ emptyPendingUpdates = PendingUpdates <$> e <*> e <*> e <*> e <*> whenSupported e
 
 -- |Construct a persistent 'PendingUpdates' from an in-memory one.
 makePersistentPendingUpdates ::
+    forall m cpv.
     (MonadBlobStore m, IsChainParametersVersion cpv) =>
     UQ.PendingUpdates cpv ->
     m (PendingUpdates cpv)
@@ -590,7 +602,9 @@ makePersistentPendingUpdates UQ.PendingUpdates{..} = do
     pPoolParametersQueue <- refMake =<< makePersistentUpdateQueue _pPoolParametersQueue
     pAddAnonymityRevokerQueue <- refMake =<< makePersistentUpdateQueue _pAddAnonymityRevokerQueue
     pAddIdentityProviderQueue <- refMake =<< makePersistentUpdateQueue _pAddIdentityProviderQueue
-    pCooldownParametersQueue <- mapM ((refMake =<<) . makePersistentUpdateQueue) _pCooldownParametersQueue
+    pCooldownParametersQueue <-
+        withIsCooldownParametersVersionFor (chainParametersVersion @cpv) $
+            mapM ((refMake =<<) . makePersistentUpdateQueue) _pCooldownParametersQueue
     pTimeParametersQueue <- mapM ((refMake =<<) . makePersistentUpdateQueue) _pTimeParametersQueue
     pTimeoutParametersQueue <- mapM ((refMake =<<) . makePersistentUpdateQueue) _pTimeoutParametersQueue
     pMinBlockTimeQueue <- mapM ((refMake =<<) . makePersistentUpdateQueue) _pMinBlockTimeQueue
@@ -599,6 +613,7 @@ makePersistentPendingUpdates UQ.PendingUpdates{..} = do
 
 -- |Convert a persistent 'PendingUpdates' to an in-memory 'UQ.PendingUpdates'.
 makeBasicPendingUpdates ::
+    forall m cpv.
     (MonadBlobStore m, IsChainParametersVersion cpv) =>
     PendingUpdates cpv ->
     m (UQ.PendingUpdates cpv)
@@ -617,7 +632,9 @@ makeBasicPendingUpdates PendingUpdates{..} = do
     _pPoolParametersQueue <- makeBasicUpdateQueue =<< refLoad pPoolParametersQueue
     _pAddAnonymityRevokerQueue <- makeBasicUpdateQueue =<< refLoad pAddAnonymityRevokerQueue
     _pAddIdentityProviderQueue <- makeBasicUpdateQueue =<< refLoad pAddIdentityProviderQueue
-    _pCooldownParametersQueue <- mapM ((makeBasicUpdateQueue =<<) . refLoad) pCooldownParametersQueue
+    _pCooldownParametersQueue <-
+        withIsCooldownParametersVersionFor (chainParametersVersion @cpv) $
+            mapM ((makeBasicUpdateQueue =<<) . refLoad) pCooldownParametersQueue
     _pTimeParametersQueue <- mapM ((makeBasicUpdateQueue =<<) . refLoad) pTimeParametersQueue
     _pTimeoutParametersQueue <- mapM ((makeBasicUpdateQueue =<<) . refLoad) pTimeoutParametersQueue
     _pMinBlockTimeQueue <- mapM ((makeBasicUpdateQueue =<<) . refLoad) pMinBlockTimeQueue
@@ -870,12 +887,11 @@ processElectionDifficultyUpdates t bu = do
                     StoreSerialized newED <- refLoad newEDp
                     let newConsensusParameters = case oldCP ^. cpConsensusParameters of
                             ConsensusParametersV0{} -> ConsensusParametersV0 newED
-                            ConsensusParametersV1{..} -> ConsensusParametersV1{..} -- Impossible case, becaause IsSupported 'PTElectionDifficulty cpv ~ 'True iff ConsensusParametersVersionFor cpv ~ 'ConsensusParametersVersion0
                     newParameters <- refMake $ StoreSerialized $ oldCP & (cpConsensusParameters .~ newConsensusParameters)
                     refMake
                         u
                             { currentParameters = newParameters,
-                            pendingUpdates = pendingUpdates{pElectionDifficultyQueue = SomeParam newpQ}
+                              pendingUpdates = pendingUpdates{pElectionDifficultyQueue = SomeParam newpQ}
                             }
 
 -- |Process Euro:energy rate updates.
@@ -1022,6 +1038,7 @@ processPoolParamatersUpdates t bu = do
 
 -- |Process cooldown parameters updates.
 processCooldownParametersUpdates ::
+    forall m cpv.
     (MonadBlobStore m, IsChainParametersVersion cpv) =>
     Timestamp ->
     BufferedRef (Updates' cpv) ->
@@ -1030,7 +1047,7 @@ processCooldownParametersUpdates t bu = do
     u@Updates{..} <- refLoad bu
     case pCooldownParametersQueue pendingUpdates of
         NoParam -> return (Map.empty, bu)
-        SomeParam qref -> do
+        SomeParam qref -> withIsCooldownParametersVersionFor (chainParametersVersion @cpv) $ do
             oldQ <- refLoad qref
             processValueUpdates t oldQ (return (Map.empty, bu)) $ \newParamPtr newQ m ->
                 (UVCooldownParameters <$> m,) <$> do
@@ -1257,6 +1274,7 @@ protocolUpdateStatus uref = do
 
 -- |Determine the next sequence number for a given update type.
 lookupNextUpdateSequenceNumber ::
+    forall m cpv.
     (MonadBlobStore m, IsChainParametersVersion cpv) =>
     BufferedRef (Updates' cpv) ->
     UpdateType ->
@@ -1283,10 +1301,11 @@ lookupNextUpdateSequenceNumber uref uty = do
         UpdateLevel1Keys -> uqNextSequenceNumber <$> refLoad (pLevel1KeysUpdateQueue pendingUpdates)
         UpdateLevel2Keys -> uqNextSequenceNumber <$> refLoad (pLevel2KeysUpdateQueue pendingUpdates)
         UpdateCooldownParameters ->
-            maybeWhenSupported
-                (pure minUpdateSequenceNumber)
-                (fmap uqNextSequenceNumber . refLoad)
-                (pCooldownParametersQueue pendingUpdates)
+            withIsCooldownParametersVersionFor (chainParametersVersion @cpv) $
+                maybeWhenSupported
+                    (pure minUpdateSequenceNumber)
+                    (fmap uqNextSequenceNumber . refLoad)
+                    (pCooldownParametersQueue pendingUpdates)
         UpdateTimeParameters ->
             maybeWhenSupported
                 (pure minUpdateSequenceNumber)
@@ -1310,6 +1329,7 @@ lookupNextUpdateSequenceNumber uref uty = do
 
 -- |Enqueue an update in the appropriate queue.
 enqueueUpdate ::
+    forall m cpv.
     (MonadBlobStore m, IsChainParametersVersion cpv) =>
     TransactionTime ->
     UpdateValue cpv ->
@@ -1320,9 +1340,10 @@ enqueueUpdate effectiveTime payload uref = do
     newPendingUpdates <- case payload of
         UVProtocol auths -> enqueue effectiveTime auths pProtocolQueue <&> \newQ -> p{pProtocolQueue = newQ}
         UVElectionDifficulty v -> case pElectionDifficultyQueue of
-          NoParam -> return p -- This will not happen as the update instruction will not be deserialized.
-          SomeParam q -> enqueue effectiveTime v q
-                            <&> \newQ -> p{pElectionDifficultyQueue = SomeParam newQ}
+            NoParam -> return p -- This will not happen as the update instruction will not be deserialized.
+            SomeParam q ->
+                enqueue effectiveTime v q
+                    <&> \newQ -> p{pElectionDifficultyQueue = SomeParam newQ}
         UVEuroPerEnergy auths -> enqueue effectiveTime auths pEuroPerEnergyQueue <&> \newQ -> p{pEuroPerEnergyQueue = newQ}
         UVMicroGTUPerEuro auths -> enqueue effectiveTime auths pMicroGTUPerEuroQueue <&> \newQ -> p{pMicroGTUPerEuroQueue = newQ}
         UVFoundationAccount v -> enqueue effectiveTime v pFoundationAccountQueue <&> \newQ -> p{pFoundationAccountQueue = newQ}
@@ -1335,25 +1356,30 @@ enqueueUpdate effectiveTime payload uref = do
         UVRootKeys v -> enqueue effectiveTime v pRootKeysUpdateQueue <&> \newQ -> p{pRootKeysUpdateQueue = newQ}
         UVLevel1Keys v -> enqueue effectiveTime v pLevel1KeysUpdateQueue <&> \newQ -> p{pLevel1KeysUpdateQueue = newQ}
         UVLevel2Keys v -> enqueue effectiveTime v pLevel2KeysUpdateQueue <&> \newQ -> p{pLevel2KeysUpdateQueue = newQ}
-        UVCooldownParameters v -> case pCooldownParametersQueue of
-          NoParam -> return p -- This will not happen as the update instruction will not be deserialized.
-          SomeParam q -> enqueue effectiveTime v q <&> \newQ -> p{pCooldownParametersQueue = SomeParam newQ}
+        UVCooldownParameters v -> withIsCooldownParametersVersionFor (chainParametersVersion @cpv) $
+            case pCooldownParametersQueue of
+                NoParam -> return p -- This will not happen as the update instruction will not be deserialized.
+                SomeParam q -> enqueue effectiveTime v q <&> \newQ -> p{pCooldownParametersQueue = SomeParam newQ}
         UVTimeParameters v -> case pTimeParametersQueue of
-          NoParam -> return p -- This will not happen as the update instruction will not be deserialized.p
-          SomeParam q -> enqueue effectiveTime v q
-                            <&> \newQ -> p{pTimeParametersQueue = SomeParam newQ}
+            NoParam -> return p -- This will not happen as the update instruction will not be deserialized.p
+            SomeParam q ->
+                enqueue effectiveTime v q
+                    <&> \newQ -> p{pTimeParametersQueue = SomeParam newQ}
         UVTimeoutParameters v -> case pTimeoutParametersQueue of
-          NoParam -> return p -- This will not happen as the update instruction will not be deserialized.
-          SomeParam q -> enqueue effectiveTime v q
-                            <&> \newQ -> p{pTimeoutParametersQueue = SomeParam newQ}
+            NoParam -> return p -- This will not happen as the update instruction will not be deserialized.
+            SomeParam q ->
+                enqueue effectiveTime v q
+                    <&> \newQ -> p{pTimeoutParametersQueue = SomeParam newQ}
         UVMinBlockTime v -> case pMinBlockTimeQueue of
-          NoParam -> return p -- This will not happen as the update instruction will not be deserialized.
-          SomeParam q -> enqueue effectiveTime v q
-                            <&> \newQ -> p{pMinBlockTimeQueue = SomeParam newQ}
+            NoParam -> return p -- This will not happen as the update instruction will not be deserialized.
+            SomeParam q ->
+                enqueue effectiveTime v q
+                    <&> \newQ -> p{pMinBlockTimeQueue = SomeParam newQ}
         UVBlockEnergyLimit v -> case pBlockEnergyLimitQueue of
             NoParam -> return p -- This will not happen as the update instruction will not be deserialized.
-            SomeParam q -> enqueue effectiveTime v q
-                             <&> \newQ -> p{pBlockEnergyLimitQueue = SomeParam newQ}
+            SomeParam q ->
+                enqueue effectiveTime v q
+                    <&> \newQ -> p{pBlockEnergyLimitQueue = SomeParam newQ}
     refMake u{pendingUpdates = newPendingUpdates}
 
 -- |Overwrite the election difficulty with the specified value and remove

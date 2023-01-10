@@ -1522,7 +1522,7 @@ instance (MonadBlobStore m, IsChainParametersVersion cpv) => BlobStorable m (Par
 instance MonadBlobStore m => BlobStorable m Parameters.TransactionFeeDistribution
 instance (MonadBlobStore m, IsChainParametersVersion cpv) => BlobStorable m (Parameters.GASRewards cpv)
 instance (MonadBlobStore m, IsChainParametersVersion cpv) => BlobStorable m (Parameters.PoolParameters cpv)
-instance (MonadBlobStore m, IsChainParametersVersion cpv) => BlobStorable m (Parameters.CooldownParameters cpv)
+instance (MonadBlobStore m, IsCooldownParametersVersion cpv) => BlobStorable m (Parameters.CooldownParameters' cpv)
 instance (MonadBlobStore m, IsChainParametersVersion cpv) => BlobStorable m (Parameters.TimeParameters cpv)
 instance (MonadBlobStore m) => BlobStorable m Parameters.TimeoutParameters
 instance (MonadBlobStore m) => BlobStorable m Duration
@@ -1867,7 +1867,7 @@ instance (Applicative m) => Cacheable m Amount
 -- Required for caching Updates
 instance (Applicative m) => Cacheable m (StoreSerialized a)
 instance (Applicative m) => Cacheable m (Parameters.PoolParameters cpv)
-instance (Applicative m) => Cacheable m (Parameters.CooldownParameters cpv)
+instance (Applicative m) => Cacheable m (Parameters.CooldownParameters' cpv)
 instance (Applicative m) => Cacheable m (Parameters.TimeParameters cpv)
 instance (Applicative m) => Cacheable m BakerPoolRewardDetails
 instance (Applicative m) => Cacheable m DelegatorCapital
