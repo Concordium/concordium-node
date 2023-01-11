@@ -7,7 +7,7 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
 
 -- |Tests for the payday-related functionality.
-module SchedulerTests.Payday where
+module SchedulerTests.Payday (tests) where
 
 import Control.Exception (bracket)
 import Control.Monad.Trans.State
@@ -19,16 +19,13 @@ import Data.Ratio
 import qualified Data.Vector as Vec
 import System.FilePath.Posix
 import System.IO.Temp
-import System.Random
 import Test.HUnit
 import Test.Hspec
 import Test.QuickCheck
 
 import Lens.Micro.Platform
 
-import Concordium.Crypto.DummyData
 import qualified Concordium.Crypto.SHA256 as Hash
-import Concordium.Crypto.SignatureScheme
 import Concordium.GlobalState
 import Concordium.GlobalState.DummyData
 import Concordium.Logger
@@ -39,11 +36,7 @@ import Concordium.Types.SeedState
 
 import Concordium.Birk.Bake
 import Concordium.GlobalState.BakerInfo
-import Concordium.GlobalState.Basic.BlockPointer (makeGenesisBasicBlockPointer)
-import Concordium.GlobalState.Basic.BlockState
-import Concordium.GlobalState.Basic.BlockState.Accounts
 import Concordium.GlobalState.Basic.BlockState.PoolRewards (BakerPoolRewardDetails (transactionFeesAccrued))
-import Concordium.GlobalState.Basic.TreeState
 import Concordium.GlobalState.BlockPointer (BlockPointer (_bpState))
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.CapitalDistribution
@@ -51,12 +44,19 @@ import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.BlockPointer
 import Concordium.GlobalState.Persistent.BlockState
 import Concordium.GlobalState.Persistent.TreeState
-import Concordium.GlobalState.TransactionTable (TransactionTable, emptyTransactionTable)
 import Concordium.GlobalState.TreeState
-import Concordium.ID.Types
 import Concordium.Startup
 import GlobalStateMock
-import SchedulerTests.TestUtils ()
+import qualified SchedulerTests.Helpers as Helpers
+
+tests :: Spec
+tests = describe "Payday" $ do
+    describe "Minting" testDoMintingP4
+    describe "Reward balance" testRewardDistribution
+    describe "scaleAmount" $ do
+        it "div-mod" testScaleAmount1
+        it "via Rational" testScaleAmount2
+    testRewardDelegators
 
 foundationAccount :: AccountAddress
 foundationAccount = accountAddressFrom 0
@@ -204,29 +204,12 @@ propTransactionFeesDistributionP4 transFees freeCounts bid bs0 = do
         rewardsTotal rewardAccountsBefore + atfPassiveBefore + atfFoundationAccountBefore + transactionFeesAccrued (bakerPoolRewardDetailsBefore ! bid) + transFees
             == rewardsTotal rewardAccountsAfter + atfPassiveAfter + atfFoundationAccountAfter + transactionFeesAccrued (bakerPoolRewardDetailsAfter ! bid)
 
--- Creates some test accounts with random keys to be used with the initial block state.
--- Adapted from SchedulerTests.RandomBakerTransactions.
-
-initialAccounts :: (IsProtocolVersion pv) => Accounts pv
-initialAccounts = foldr addAcc emptyAccounts (take numAccounts staticKeys)
+initialPersistentBlockState ::
+    IsProtocolVersion pv => Helpers.PersistentBSM pv (HashedPersistentBlockState pv)
+initialPersistentBlockState =
+    Helpers.createTestBlockStateWithAccountsM $ fmap (Helpers.makeTestAccountFromSeed initBal) [0 .. 10]
   where
-    addAcc (kp, addr) = putAccountWithRegIds (mkAccount (correspondingVerifyKey kp) addr initBal)
-    staticKeys = ks (mkStdGen 1333)
-      where
-        ks g =
-            let (k, g') = randomEd25519KeyPair g
-                (addr, g'') = randomAccountAddress g'
-            in  (uncurry KeyPairEd25519 k, addr) : ks g''
     initBal = 10 ^ (12 :: Int) :: Amount
-    numAccounts = 10 :: Int
-
--- I snatched `initial(Pure|Persistent)BlockState` and `genesis` from other tests, many seem to have done the same over the years.
-
-initialPureBlockState :: (IsProtocolVersion pv) => HashedBlockState pv
-initialPureBlockState = Concordium.GlobalState.Basic.BlockState.hashBlockState $ createBlockState initialAccounts
-
-initialPersistentBlockState :: (SupportsPersistentState pv m) => m (HashedPersistentBlockState pv)
-initialPersistentBlockState = makePersistent . _unhashedBlockState $ initialPureBlockState
 
 genesis :: (IsProtocolVersion pv) => Word -> (GenesisData pv, [(BakerIdentity, FullBakerInfo)], Amount)
 genesis nBakers =
@@ -243,23 +226,10 @@ genesis nBakers =
         dummyKeyCollection
         dummyChainParameters
 
--- this is, perhaps, the smallest effect type that makes these tests run
-
-type MyPureBlockState pv = HashedBlockState pv
-type MyPureTreeState pv = SkovData pv (MyPureBlockState pv)
-type MyPureMonad pv = PureTreeStateMonad (MyPureBlockState pv) (PureBlockStateMonad pv (StateT (MyPureTreeState pv) IO))
-
-runMyPureMonad :: (IsProtocolVersion pv) => MyPureTreeState pv -> MyPureMonad pv a -> IO (a, MyPureTreeState pv)
-runMyPureMonad is = (`runStateT` is) . runPureBlockStateMonad . runPureTreeStateMonad
-
-runMyPureMonad' :: (IsProtocolVersion pv) => GenesisData pv -> TransactionTable -> MyPureMonad pv a -> IO (a, MyPureTreeState pv)
-runMyPureMonad' gd genTT = runPureBlockStateMonad (initialSkovDataDefault (genesisConfiguration gd) initialPureBlockState genTT Nothing) >>= runMyPureMonad
-
-type MyPersistentBlockState pv = HashedPersistentBlockState pv
-type MyPersistentTreeState pv = SkovPersistentData pv (MyPersistentBlockState pv)
+type MyPersistentTreeState pv = SkovPersistentData pv (HashedPersistentBlockState pv)
 type MyPersistentMonad pv =
     PersistentTreeStateMonad
-        (MyPersistentBlockState pv)
+        (HashedPersistentBlockState pv)
         ( MGSTrans
             (StateT (MyPersistentTreeState pv))
             ( PersistentBlockStateMonad
@@ -272,7 +242,7 @@ type MyPersistentMonad pv =
 fakeLogMethod :: LogMethod IO
 fakeLogMethod _ _ _ = return ()
 
-withPersistentState :: (IsProtocolVersion pv) => PersistentBlockStateContext pv -> MyPersistentTreeState pv -> (MyPersistentBlockState pv -> MyPersistentMonad pv a) -> IO (a, MyPersistentTreeState pv)
+withPersistentState :: (IsProtocolVersion pv) => PersistentBlockStateContext pv -> MyPersistentTreeState pv -> (HashedPersistentBlockState pv -> MyPersistentMonad pv a) -> IO (a, MyPersistentTreeState pv)
 withPersistentState pbsc is f =
     (`runLoggerT` fakeLogMethod)
         . (`runBlobStoreT` pbsc)
@@ -295,7 +265,7 @@ createGlobalState dbDir = do
 destroyGlobalState :: (IsProtocolVersion pv) => (PersistentBlockStateContext pv, MyPersistentTreeState pv) -> IO ()
 destroyGlobalState (c, s) = shutdownGlobalState protocolVersion (Proxy :: Proxy DiskTreeDiskBlockConfig) c s
 
-withPersistentState' :: (IsProtocolVersion pv) => (MyPersistentBlockState pv -> MyPersistentMonad pv a) -> IO (a, MyPersistentTreeState pv)
+withPersistentState' :: (IsProtocolVersion pv) => (HashedPersistentBlockState pv -> MyPersistentMonad pv a) -> IO (a, MyPersistentTreeState pv)
 withPersistentState' f = withTempDirectory "." "test-directory" $
     \dbDir -> bracket (createGlobalState dbDir) destroyGlobalState $
         \(pbsc, mySkovPersistentData) ->
@@ -303,28 +273,39 @@ withPersistentState' f = withTempDirectory "." "test-directory" $
 
 testRewardDistribution :: Spec
 testRewardDistribution = do
-    it "splits the minted amount three ways" $ withMaxSuccess 10000 $ property propMintAmountsEqNewMint
-    it "chooses the most recent mint distribution before payday" $ withMaxSuccess 10000 $ property propMintDistributionMostRecent
-    it "does not change after mint distribution (in-memory)" $ do
-        (resultPure, _) <- runMyPureMonad' gd genTT (propMintDistributionImmediate ibs blockParentPure slot bid epoch mfinInfo newSeedState transFees freeCounts updates)
-        assertBool "in-memory" resultPure
+    it "splits the minted amount three ways" $
+        withMaxSuccess 10000 $
+            property propMintAmountsEqNewMint
+    it "chooses the most recent mint distribution before payday" $
+        withMaxSuccess 10000 $
+            property propMintDistributionMostRecent
     it "does not change after mint distribution (persistent)" $ do
-        ipbs :: MyPersistentBlockState 'P4 <- runBlobStoreTemp "." $ withNewAccountCache @_ @'P4 1 initialPersistentBlockState
-        blockParentPersistent :: PersistentBlockPointer 'P4 (MyPersistentBlockState 'P4) <- makeGenesisPersistentBlockPointer (genesisConfiguration gd) ipbs
-        (resultPersistent, _) <- withPersistentState' (\x -> propMintDistributionImmediate (hpbsPointers x) blockParentPersistent slot bid epoch mfinInfo newSeedState transFees freeCounts updates)
+        ipbs :: HashedPersistentBlockState 'P4 <- Helpers.runTestBlockState initialPersistentBlockState
+        blockParentPersistent :: PersistentBlockPointer 'P4 (HashedPersistentBlockState 'P4) <-
+            makeGenesisPersistentBlockPointer (genesisConfiguration gd) ipbs
+        (resultPersistent, _) <-
+            withPersistentState'
+                ( \x ->
+                    propMintDistributionImmediate
+                        (hpbsPointers x)
+                        blockParentPersistent
+                        slot
+                        bid
+                        epoch
+                        mfinInfo
+                        newSeedState
+                        transFees
+                        freeCounts
+                        updates
+                )
         assertBool "persistent" resultPersistent
-    it "does not change after block reward distribution (in-memory)" $ do
-        (resultPure, _) <- runMyPureMonad' gd genTT (propTransactionFeesDistributionP4 transFees freeCounts bid ibs)
-        assertBool "in-memory" resultPure
     it "does not change after block reward distribution (persistent)" $ do
-        (resultPersistent, _ :: MyPersistentTreeState 'P4) <- withPersistentState' (propTransactionFeesDistributionP4 transFees freeCounts bid . hpbsPointers)
+        (resultPersistent, _ :: MyPersistentTreeState 'P4) <-
+            withPersistentState'
+                (propTransactionFeesDistributionP4 transFees freeCounts bid . hpbsPointers)
         assertBool "persistent" resultPersistent
   where
     gd = genesis 5 ^. _1 :: GenesisData 'P4
-    (ibs, genTT) = case Concordium.GlobalState.Basic.BlockState.genesisState gd of
-        Right x -> x
-        Left _ -> (_unhashedBlockState initialPureBlockState :: Concordium.GlobalState.Basic.BlockState.BlockState 'P4, emptyTransactionTable)
-    blockParentPure = makeGenesisBasicBlockPointer (genesisConfiguration gd) initialPureBlockState
     slot = 400
     bid = BakerId 1
     epoch = 4
@@ -476,12 +457,3 @@ testRewardDelegators = describe "rewardDelegators" $ mapM_ p drtcs
                 drtcDelegatorExpectedRewards
         totCap = drtcBakerCapital + sum (dcDelegatorCapital <$> dels)
         dels = Vec.fromList (zipWith DelegatorCapital [0 ..] drtcDelegatorCapitals)
-
-tests :: Spec
-tests = describe "Payday" $ do
-    describe "Minting" testDoMintingP4
-    describe "Reward balance" testRewardDistribution
-    describe "scaleAmount" $ do
-        it "div-mod" testScaleAmount1
-        it "via Rational" testScaleAmount2
-    testRewardDelegators
