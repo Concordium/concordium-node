@@ -794,17 +794,20 @@ assertNumberOfEvents expectedLength events =
     assertEqual "Correct number of events produced" expectedLength (length events)
 
 -- | Assert the scheduler result have added one rejected transaction and check the reason.
-assertRejectWithReason :: Types.RejectReason -> SchedulerResult -> Assertion
-assertRejectWithReason expectedReason result =
+assertRejectWhere :: (Types.RejectReason -> Assertion) -> SchedulerResult -> Assertion
+assertRejectWhere assertReason result =
     case getResults $ ftAdded (srTransactions result) of
         [(_, Types.TxReject reason)] ->
-            assertEqual
-                "The correct reject reason is produced"
-                expectedReason
-                reason
+            assertReason reason
         [(_, Types.TxSuccess reason)] -> assertFailure $ "Transaction succeeded unexpectedly: " ++ show reason
         [] -> assertFailure "No transactions were added"
         other -> assertFailure $ "Multiple transactions were added " ++ show other
+
+-- | Assert the scheduler result have added one rejected transaction and check the reason.
+assertRejectWithReason :: Types.RejectReason -> SchedulerResult -> Assertion
+assertRejectWithReason expectedReason =
+    assertRejectWhere $
+        assertEqual "The correct reject reason is produced" expectedReason
 
 -- | Assert the scheduler result have failed one transaction and check the reason.
 assertFailureWithReason :: Types.FailureKind -> SchedulerResult -> Assertion
