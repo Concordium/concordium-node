@@ -913,7 +913,10 @@ impl AppPreferences {
 
             let mut reader = BufReader::new(&file);
             let load_result = PreferencesMap::<String>::load_from(&mut reader);
-            let prefs = load_result.unwrap_or_else(|_| PreferencesMap::<String>::new());
+            let prefs = load_result.unwrap_or_else(|e| {
+                error!("Unable to parse the configuration file: {}", e);
+                PreferencesMap::<String>::new()
+            });
 
             AppPreferences {
                 preferences_map:     prefs,
@@ -953,7 +956,7 @@ impl AppPreferences {
         };
         let file_path =
             Self::calculate_config_file_path(&self.override_config_dir, APP_PREFERENCES_MAIN);
-        match OpenOptions::new().read(true).write(true).open(&file_path) {
+        match OpenOptions::new().read(true).write(true).truncate(true).open(&file_path) {
             Ok(ref mut file) => {
                 let mut writer = BufWriter::new(file);
                 if self.preferences_map.save_to(&mut writer).is_err() {

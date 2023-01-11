@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+- Fix an issue where the node configuration file (`main.config.json`) was
+  sometimes corrupted.
 - Add an option to disable only the node specific grpc V1 endpoints that can be
   used to control the node. All the endpoints that are consensus related are
   kept allowing the node to be used as a gateway to the chain. The mentioned can
