@@ -97,7 +97,7 @@ library:
   when:
     - condition: os(windows)
       then:
-        ghc-options: -static -shared lib.def -L../concordium-base/smart-contracts/lib -lwasm_chain_integration
+        ghc-options: -threaded -static -shared lib.def -L../concordium-base/smart-contracts/lib -lwasm_chain_integration
       else:
         when:
           - condition: flag(dynamic)
@@ -267,6 +267,7 @@ tests:
     - hspec-expectations >= 0.8
     - vector >= 0.12
     - math-functions >= 0.2
+    - temporary >= 1.3
 
   globalstate:
     main:                Spec.hs

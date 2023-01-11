@@ -9,7 +9,7 @@
 -- falsify some element of the second block, then check to make sure the dirtied second block is rejected.
 --
 -- Does not currently verify which error gets thrown, could refactor to do this?
-module ConcordiumTests.Update where
+module ConcordiumTests.Update (test) where
 
 import Control.Monad
 import Control.Monad.IO.Class
@@ -18,6 +18,8 @@ import Data.Time.Clock
 import Data.Time.Clock.POSIX
 import qualified Data.Vector as Vec
 import Lens.Micro.Platform
+import System.FilePath
+import System.IO.Temp
 
 import Test.Hspec
 
@@ -29,8 +31,6 @@ import qualified Concordium.Crypto.BlockSignature as Sig
 
 import Concordium.Genesis.Data.P1
 import Concordium.GlobalState
-import Concordium.GlobalState.BakerInfo
-import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.Block
 import qualified Concordium.GlobalState.BlockPointer as BS
 import Concordium.GlobalState.Parameters
@@ -58,7 +58,7 @@ type PV = 'P1
 dummyTime :: UTCTime
 dummyTime = posixSecondsToUTCTime 0
 
-type Config t = SkovConfig PV MemoryTreeMemoryBlockConfig (ActiveFinalization t) NoHandler
+type Config t = SkovConfig PV DiskTreeDiskBlockConfig (ActiveFinalization t) NoHandler
 
 finalizationParameters :: FinalizationParameters
 finalizationParameters = defaultFinalizationParameters{finalizationMinimumSkip = 100} -- setting minimum skip to 100 to prevent finalizers to finalize blocks when they store them
@@ -95,11 +95,10 @@ myRunSkovT a handlers ctx st = liftIO $ flip runLoggerT doLog $ do
     doLog _ _ _ = return () -- traceM $ show src ++ ": " ++ msg
 
 type BakerState = (BakerIdentity, SkovContext (Config DummyTimer), SkovState (Config DummyTimer))
-type BakerInformation = (FullBakerInfo, BakerIdentity, Account (AccountVersionFor PV))
 
 -- |Create initial states for two bakers
-createInitStates :: IO (BakerState, BakerState)
-createInitStates = do
+createInitStates :: FilePath -> IO (BakerState, BakerState)
+createInitStates dir = do
     let bakerAmount = 10 ^ (4 :: Int)
         bis = makeBakersByStake [bakerAmount, bakerAmount]
         (baker1, baker2) = case bis of
@@ -130,20 +129,20 @@ createInitStates = do
                               genesisAccounts = Vec.fromList bakerAccounts
                             }
                     }
-        createState =
+        createState uni =
             liftIO
                 . ( \(bid, _, _, _) -> do
                         let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                             config =
                                 SkovConfig
-                                    (MTMBConfig defaultRuntimeParameters)
+                                    (DTDBConfig defaultRuntimeParameters (dir </> uni) (dir </> uni <.> "dat"))
                                     (ActiveFinalization fininst)
                                     NoHandler
                         (initCtx, initState) <- runSilentLogger (initialiseSkov gen config)
                         return (bid, initCtx, initState)
                   )
-    b1 <- createState baker1
-    b2 <- createState baker2
+    b1 <- createState "baker1" baker1
+    b2 <- createState "baker2" baker2
     return (b1, b2)
 
 instance Show BakerIdentity where
@@ -151,8 +150,12 @@ instance Show BakerIdentity where
 
 withInitialStates :: (BakerState -> BakerState -> IO ()) -> IO ()
 withInitialStates r = do
-    (b1, b2) <- createInitStates
-    r b1 b2
+    withTempDirectory "." "blockstate" $ \dir -> do
+        (b1@(_, b1ctx, b1state), b2@(_, b2ctx, b2state)) <- createInitStates dir
+        r b1 b2
+        runSilentLogger $! do
+            shutdownSkov b1ctx b1state
+            shutdownSkov b2ctx b2state
 
 -- |Helper function to resign blocks after dirtying
 reSign :: BakerSignPrivateKey -> BakedBlock -> BakedBlock
@@ -191,9 +194,6 @@ failStore block =
         _ -> return ()
 
 -- * Helper functions for dirtying fields of blocks
-
-stubBlockHash :: BlockHash
-stubBlockHash = BlockHash (Hash (FBS.pack (Prelude.replicate 32 (fromIntegral (3 :: Word)))))
 
 stubStateHash :: StateHash
 stubStateHash = StateHashV0 (Hash (FBS.pack (Prelude.replicate 32 (fromIntegral (3 :: Word)))))
