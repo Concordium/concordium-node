@@ -63,6 +63,7 @@ dependencies:
 - proto-lens >= 0.7
 - proto-lens-protobuf-types >= 0.7
 - proto-lens-runtime >= 0.7
+- singletons-base
 
 default-extensions:
 - FlexibleContexts

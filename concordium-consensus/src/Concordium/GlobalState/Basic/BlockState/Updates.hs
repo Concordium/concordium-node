@@ -226,7 +226,7 @@ processUpdateQueues t (theUpdates, ars, ips) =
 
 -- |Determine the future election difficulty (at a given time) based
 -- on a current 'Updates'.
-futureElectionDifficulty :: IsSupported 'PTElectionDifficulty cpv ~ 'True => Updates' cpv -> Timestamp -> ElectionDifficulty
+futureElectionDifficulty :: (ConsensusParametersVersionFor cpv ~ 'ConsensusParametersVersion0) => Updates' cpv -> Timestamp -> ElectionDifficulty
 futureElectionDifficulty Updates{_pendingUpdates = PendingUpdates{..}, ..} ts =
     processValueUpdatesO ts (_cpElectionDifficulty $ _cpConsensusParameters _currentParameters) _pElectionDifficultyQueue ^. _1
 
@@ -249,7 +249,7 @@ nextUpdateSequenceNumberO uq = case uq of
     SomeParam q -> q ^. uqNextSequenceNumber
 
 -- |Determine the next sequence number for a given update type.
-lookupNextUpdateSequenceNumber :: forall cpv. IsChainParametersVersion cpv => Updates' cpv -> UpdateType -> UpdateSequenceNumber
+lookupNextUpdateSequenceNumber :: forall cpv. Updates' cpv -> UpdateType -> UpdateSequenceNumber
 lookupNextUpdateSequenceNumber u UpdateProtocol = u ^. pendingUpdates . pProtocolQueue . uqNextSequenceNumber
 lookupNextUpdateSequenceNumber u UpdateElectionDifficulty =
     nextUpdateSequenceNumberO (u ^. pendingUpdates . pElectionDifficultyQueue)

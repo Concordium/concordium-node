@@ -378,11 +378,15 @@ newtype RWSTBS pv m a = RWSTBS {_runRWSTBS :: RWST ContextState [(LogSource, Log
 newtype SchedulerImplementation pv a = SchedulerImplementation {_runScheduler :: RWSTBS pv (PureBlockStateMonad pv Identity) a}
     deriving (Functor, Applicative, Monad, MonadReader ContextState, MonadState (PBSSS pv))
     deriving
-        (AccountOperations, ContractStateOperations, ModuleQuery, MonadLogger)
+        (ContractStateOperations, ModuleQuery, MonadLogger)
         via (BSOMonadWrapper ContextState (PBSSS pv) (MGSTrans (RWSTBS pv) (PureBlockStateMonad pv Identity)))
 
 deriving via (BSOMonadWrapper ContextState (PBSSS pv) (MGSTrans (RWSTBS pv) (PureBlockStateMonad pv Identity)))
-    instance (StaticInformation (SchedulerImplementation pv))
+    instance IsProtocolVersion pv => StaticInformation (SchedulerImplementation pv)
+
+deriving via (BSOMonadWrapper ContextState (PBSSS pv) (MGSTrans (RWSTBS pv) (PureBlockStateMonad pv Identity)))
+    instance IsProtocolVersion pv => AccountOperations (SchedulerImplementation pv)
+
 
 instance IsProtocolVersion pv => GS.MonadProtocolVersion (SchedulerImplementation pv) where
     type MPV (SchedulerImplementation pv) = pv

@@ -52,8 +52,10 @@ import qualified Concordium.Scheduler.WasmIntegration as WasmV0
 import qualified Concordium.Scheduler.WasmIntegration.V1 as WasmV1
 import Concordium.TimeMonad
 import qualified Concordium.Wasm as Wasm
+import Data.Bool.Singletons
 import qualified Data.ByteString as BS
 import qualified Data.Serialize as S
+import qualified Data.Singletons.Decide as Singletons
 import Data.Time
 
 import qualified Concordium.ID.Account as AH
@@ -1146,7 +1148,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                                   euContractVersion = Wasm.V1,
                                                   euEvents = rrdLogs
                                                 }
-                                    in  Right (rrdReturnValue, event : events)
+                                     in Right (rrdReturnValue, event : events)
                             -- execution terminated, commit the new state if it changed
                             if rrdStateChanged
                                 then do
@@ -1561,7 +1563,7 @@ foldEvents originAddr istance initEvent = fmap (initEvent :) . go
                             erAmount
                             erName
                             erParameter
-                in  snd <$> (c `rejectingWith'` WasmV1.cerToRejectReasonReceive erAddr erName erParameter)
+                 in snd <$> (c `rejectingWith'` WasmV1.cerToRejectReasonReceive erAddr erName erParameter)
     go Wasm.TSimpleTransfer{..} = do
         handleTransferAccount erTo (snd istance) erAmount
     go (Wasm.And l r) = do
@@ -1764,7 +1766,7 @@ data ConfigureDelegationCont
     | ConfigureUpdateDelegationCont
 
 handleConfigureBaker ::
-    (AVSupportsDelegation (AccountVersionFor (MPV m)),
+    ( AVSupportsDelegation (AccountVersionFor (MPV m)),
       SchedulerMonad m
     ) =>
     WithDepositContext m ->
@@ -1829,7 +1831,7 @@ handleConfigureBaker
                 electionP = checkElectionKeyProof challenge bkwpElectionVerifyKey bkwpProofElection
                 signP = checkSignatureVerifyKeyProof challenge bkwpSignatureVerifyKey bkwpProofSig
                 aggregationP = Bls.checkProofOfKnowledgeSK challenge bkwpProofAggregation bkwpAggregationVerifyKey
-            in  electionP && signP && aggregationP
+             in electionP && signP && aggregationP
         tickGetArgAndBalance = do
             -- Charge the energy cost before checking the validity of the parameters.
             if isJust cbKeysWithProofs
@@ -2378,97 +2380,67 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, mVerRes
                             -- Convert the payload to an update
                             case uiPayload of
                                 ProtocolUpdatePayload u -> checkSigAndEnqueue $ UVProtocol u
-                                ElectionDifficultyUpdatePayload u -> checkSigAndEnqueueOnlyCPV0AndCPV1 $ UVElectionDifficulty u
+                                ElectionDifficultyUpdatePayload u -> case sIsSupported SPTElectionDifficulty scpv of
+                                    STrue -> checkSigAndEnqueue $ UVElectionDifficulty u
+                                    SFalse -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
                                 EuroPerEnergyUpdatePayload u -> checkSigAndEnqueue $ UVEuroPerEnergy u
                                 MicroGTUPerEuroUpdatePayload u -> checkSigAndEnqueue $ UVMicroGTUPerEuro u
                                 FoundationAccountUpdatePayload u ->
                                     getAccountIndex u >>= \case
                                         Just ai -> checkSigAndEnqueue $ UVFoundationAccount ai
                                         Nothing -> return (TxInvalid (UnknownAccount u))
-                                MintDistributionUpdatePayload u -> checkSigAndEnqueueOnlyCPV0 $ UVMintDistribution u
+                                MintDistributionUpdatePayload u -> case sMintDistributionVersionFor scpv of
+                                    SMintDistributionVersion0 -> checkSigAndEnqueue $ UVMintDistribution u
+                                    SMintDistributionVersion1 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
                                 TransactionFeeDistributionUpdatePayload u -> checkSigAndEnqueue $ UVTransactionFeeDistribution u
-                                GASRewardsUpdatePayload u -> checkSigAndEnqueueOnlyCPV0AndCPV1 $ UVGASRewards $ coerceGASRwardsCPV0CPV1 u
-                                BakerStakeThresholdUpdatePayload u -> checkSigAndEnqueueOnlyCPV0 $ UVPoolParameters u
+                                GASRewardsUpdatePayload u -> case sGasRewardsVersionFor scpv of
+                                    SGASRewardsVersion0 -> checkSigAndEnqueue $ UVGASRewards u
+                                    SGASRewardsVersion1 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                BakerStakeThresholdUpdatePayload u -> case sPoolParametersVersionFor scpv of
+                                    SPoolParametersVersion0 -> checkSigAndEnqueue $ UVPoolParameters u
+                                    SPoolParametersVersion1 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
                                 AddAnonymityRevokerUpdatePayload u -> checkSigAndEnqueue $ UVAddAnonymityRevoker u
                                 AddIdentityProviderUpdatePayload u -> checkSigAndEnqueue $ UVAddIdentityProvider u
-                                CooldownParametersCPV1UpdatePayload u -> checkSigAndEnqueueFromCPV1 $ UVCooldownParameters $ coerceCooldownParametersCPV1CPV2 u
-                                PoolParametersCPV1UpdatePayload u -> checkSigAndEnqueueFromCPV1 $ UVPoolParameters $ coercePoolParametersCPV1CPV2 u
-                                TimeParametersCPV1UpdatePayload u -> checkSigAndEnqueueFromCPV1 $ UVTimeParameters $ coerceTimeParametersCPV1CPV2 u
-                                MintDistributionCPV1UpdatePayload u -> checkSigAndEnqueueFromCPV1 $ UVMintDistribution $ coerceMintDistributionCPV1CPV2 u
+                                CooldownParametersCPV1UpdatePayload u -> case sCooldownParametersVersionFor scpv of
+                                    SCooldownParametersVersion0 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                    SCooldownParametersVersion1 -> checkSigAndEnqueue $ UVCooldownParameters u
+                                PoolParametersCPV1UpdatePayload u -> case sPoolParametersVersionFor scpv of
+                                    SPoolParametersVersion0 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                    SPoolParametersVersion1 -> checkSigAndEnqueue $ UVPoolParameters u
+                                TimeParametersCPV1UpdatePayload u -> case sIsSupported SPTTimeParameters scpv of
+                                    STrue -> checkSigAndEnqueue $ UVTimeParameters u
+                                    SFalse -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                MintDistributionCPV1UpdatePayload u -> case sMintDistributionVersionFor scpv of
+                                    SMintDistributionVersion0 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                    SMintDistributionVersion1 -> checkSigAndEnqueue $ UVMintDistribution u
                                 RootUpdatePayload (RootKeysRootUpdate u) -> checkSigAndEnqueue $ UVRootKeys u
                                 RootUpdatePayload (Level1KeysRootUpdate u) -> checkSigAndEnqueue $ UVLevel1Keys u
-                                RootUpdatePayload (Level2KeysRootUpdate u) -> checkSigAndEnqueueOnlyCPV0 $ UVLevel2Keys u
-                                RootUpdatePayload (Level2KeysRootUpdateV1 u) -> checkSigAndEnqueueOnlyCPV1 $ UVLevel2Keys u
-                                RootUpdatePayload (Level2KeysRootUpdateV2 u) -> checkSigAndEnqueueFromCPV2 $ UVLevel2Keys u
+                                RootUpdatePayload (Level2KeysRootUpdate u) -> checkSigAndEnqueueAt $ UVLevel2Keys u
+                                RootUpdatePayload (Level2KeysRootUpdateV1 u) -> checkSigAndEnqueueAt $ UVLevel2Keys u
+                                RootUpdatePayload (Level2KeysRootUpdateV2 u) -> checkSigAndEnqueueAt $ UVLevel2Keys u
                                 Level1UpdatePayload (Level1KeysLevel1Update u) -> checkSigAndEnqueue $ UVLevel1Keys u
-                                Level1UpdatePayload (Level2KeysLevel1Update u) -> checkSigAndEnqueueOnlyCPV0 $ UVLevel2Keys u
-                                Level1UpdatePayload (Level2KeysLevel1UpdateV1 u) -> checkSigAndEnqueueOnlyCPV1 $ UVLevel2Keys u
-                                Level1UpdatePayload (Level2KeysLevel1UpdateV2 u) -> checkSigAndEnqueueFromCPV2 $ UVLevel2Keys u
-                                TimeoutParametersUpdatePayload u -> checkSigAndEnqueueFromCPV2 $ UVTimeoutParameters u
-                                MinBlockTimeUpdatePayload u -> checkSigAndEnqueueFromCPV2 $ UVMinBlockTime u
-                                BlockEnergyLimitUpdatePayload u -> checkSigAndEnqueueFromCPV2 $ UVBlockEnergyLimit u
-                                GASRewardsCPV2UpdatePayload u -> checkSigAndEnqueueFromCPV2 $ UVGASRewards u
+                                Level1UpdatePayload (Level2KeysLevel1Update u) -> checkSigAndEnqueueAt $ UVLevel2Keys u
+                                Level1UpdatePayload (Level2KeysLevel1UpdateV1 u) -> checkSigAndEnqueueAt $ UVLevel2Keys u
+                                Level1UpdatePayload (Level2KeysLevel1UpdateV2 u) -> checkSigAndEnqueueAt $ UVLevel2Keys u
+                                TimeoutParametersUpdatePayload u -> case sIsSupported SPTTimeoutParameters scpv of
+                                    STrue -> checkSigAndEnqueue $ UVTimeoutParameters u
+                                    SFalse -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                MinBlockTimeUpdatePayload u -> case sIsSupported SPTMinBlockTime scpv of
+                                    STrue -> checkSigAndEnqueue $ UVMinBlockTime u
+                                    SFalse -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                BlockEnergyLimitUpdatePayload u -> case sIsSupported SPTBlockEnergyLimit scpv of
+                                    STrue -> checkSigAndEnqueue $ UVBlockEnergyLimit u
+                                    SFalse -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                GASRewardsCPV2UpdatePayload u -> case sGasRewardsVersionFor scpv of
+                                    SGASRewardsVersion0 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                    SGASRewardsVersion1 -> checkSigAndEnqueue $ UVGASRewards u
   where
-    coerceMintDistributionCPV1CPV2 :: MintDistribution 'ChainParametersV1 -> MintDistribution (ChainParametersVersionFor (MPV m))
-    coerceMintDistributionCPV1CPV2 MintDistribution{..} =
-        case chainParametersVersion @(ChainParametersVersionFor (MPV m)) of
-           SChainParametersV0 -> undefined
-           SChainParametersV1 -> MintDistribution{_mdMintPerSlot = NoParam,..}
-           SChainParametersV2 -> MintDistribution{_mdMintPerSlot = NoParam,..}
-    coerceTimeParametersCPV1CPV2 :: TimeParameters 'ChainParametersV1 -> TimeParameters (ChainParametersVersionFor (MPV m))
-    coerceTimeParametersCPV1CPV2 TimeParametersV1{..} = do
-        case chainParametersVersion @(ChainParametersVersionFor (MPV m)) of
-           SChainParametersV0 -> undefined
-           SChainParametersV1 -> TimeParametersV1{..}
-           SChainParametersV2 -> TimeParametersV1{..}
-    coerceCooldownParametersCPV1CPV2 :: CooldownParameters 'ChainParametersV1 -> CooldownParameters (ChainParametersVersionFor (MPV m))
-    coerceCooldownParametersCPV1CPV2 CooldownParametersV1{..} = do
-         case chainParametersVersion @(ChainParametersVersionFor (MPV m)) of
-           SChainParametersV0 -> undefined
-           SChainParametersV1 -> CooldownParametersV1{..}
-           SChainParametersV2 -> CooldownParametersV1{..}
-    coerceGASRwardsCPV0CPV1 :: GASRewards 'ChainParametersV0 -> GASRewards (ChainParametersVersionFor (MPV m))
-    coerceGASRwardsCPV0CPV1 GASRewards{_gasFinalizationProof = (SomeParam gfp),..} = do
-      case chainParametersVersion @(ChainParametersVersionFor (MPV m)) of
-          SChainParametersV0 -> GASRewards{_gasFinalizationProof = SomeParam gfp, ..}
-          SChainParametersV1 -> GASRewards{_gasFinalizationProof = SomeParam gfp,..}
-          SChainParametersV2 -> undefined -- 
-    coercePoolParametersCPV1CPV2 :: PoolParameters 'ChainParametersV1 -> PoolParameters (ChainParametersVersionFor (MPV m))
-    coercePoolParametersCPV1CPV2 PoolParametersV1{..} = do
-        case chainParametersVersion @(ChainParametersVersionFor (MPV m)) of
-          SChainParametersV0 -> undefined
-          SChainParametersV1 -> PoolParametersV1{..}
-          SChainParametersV2 -> PoolParametersV1{..}
-    checkSigAndEnqueueOnlyCPV0 :: UpdateValue 'ChainParametersV0 -> m TxResult
-    checkSigAndEnqueueOnlyCPV0 = do
-        case chainParametersVersion @(ChainParametersVersionFor (MPV m)) of
-            SChainParametersV0 -> checkSigAndEnqueue
-            SChainParametersV1 -> const $ return $ TxInvalid NotSupportedAtCurrentProtocolVersion
-            SChainParametersV2 -> const $ return $ TxInvalid NotSupportedAtCurrentProtocolVersion
-    checkSigAndEnqueueOnlyCPV0AndCPV1 :: UpdateValue (ChainParametersVersionFor (MPV m)) -> m TxResult
-    checkSigAndEnqueueOnlyCPV0AndCPV1 = do
-        case chainParametersVersion @(ChainParametersVersionFor (MPV m)) of
-            SChainParametersV0 -> checkSigAndEnqueue
-            SChainParametersV1 -> checkSigAndEnqueue
-            SChainParametersV2 -> const $ return $ TxInvalid NotSupportedAtCurrentProtocolVersion
-    checkSigAndEnqueueFromCPV1 :: UpdateValue (ChainParametersVersionFor (MPV m)) -> m TxResult
-    checkSigAndEnqueueFromCPV1 = do
-        case chainParametersVersion @(ChainParametersVersionFor (MPV m)) of
-            SChainParametersV0 -> const $ return $ TxInvalid NotSupportedAtCurrentProtocolVersion
-            SChainParametersV1 -> checkSigAndEnqueue
-            SChainParametersV2 -> checkSigAndEnqueue
-    checkSigAndEnqueueOnlyCPV1 :: UpdateValue 'ChainParametersV1 -> m TxResult
-    checkSigAndEnqueueOnlyCPV1 = do
-        case chainParametersVersion @(ChainParametersVersionFor (MPV m)) of
-            SChainParametersV0 -> const $ return $ TxInvalid NotSupportedAtCurrentProtocolVersion
-            SChainParametersV1 -> checkSigAndEnqueue
-            SChainParametersV2 -> const $ return $ TxInvalid NotSupportedAtCurrentProtocolVersion
-    checkSigAndEnqueueFromCPV2 :: UpdateValue 'ChainParametersV2 -> m TxResult
-    checkSigAndEnqueueFromCPV2 = do
-        case chainParametersVersion @(ChainParametersVersionFor (MPV m)) of
-            SChainParametersV0 -> const $ return $ TxInvalid NotSupportedAtCurrentProtocolVersion
-            SChainParametersV1 -> const $ return $ TxInvalid NotSupportedAtCurrentProtocolVersion
-            SChainParametersV2 -> checkSigAndEnqueue
+    scpv :: SChainParametersVersion (ChainParametersVersionFor (MPV m))
+    scpv = chainParametersVersion
+    checkSigAndEnqueueAt :: forall target. IsChainParametersVersion target => UpdateValue target -> m TxResult
+    checkSigAndEnqueueAt u = case chainParametersVersion @target Singletons.%~ scpv of
+        Singletons.Proved Singletons.Refl -> checkSigAndEnqueue u
+        Singletons.Disproved _ -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
     checkSigAndEnqueue :: UpdateValue (ChainParametersVersionFor (MPV m)) -> m TxResult
     checkSigAndEnqueue change = do
         case mVerRes of
@@ -2551,10 +2523,10 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
                 -- Because we should never have duplicate regids on the chain, each of them will only
                 -- map to the unique key index. Thus the following map is well-defined.
                 let existingCredIds = OrdMap.fromList . map (\(ki, v) -> (ID.credId v, ki)) . OrdMap.toList $ existingCredentials
-                in  foldl'
+                 in foldl'
                         ( \(nonExisting, existing, remList) rid ->
                             let rrid = ID.toRawCredRegId rid
-                            in  case rrid `OrdMap.lookup` existingCredIds of
+                             in case rrid `OrdMap.lookup` existingCredIds of
                                     Nothing -> (rid : nonExisting, existing, remList)
                                     Just ki -> (nonExisting, Set.insert ki existing, if Set.member ki existing then remList else ki : remList)
                         )
@@ -2566,7 +2538,7 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
                 null nonExistingRegIds
                     && let existingIndices = OrdMap.keysSet existingCredentials
                            newIndices = OrdMap.keysSet cdis
-                       in  Set.intersection existingIndices newIndices `Set.isSubsetOf` indicesToRemove
+                        in Set.intersection existingIndices newIndices `Set.isSubsetOf` indicesToRemove
 
         -- check that the new threshold is no more than the number of credentials
         --
@@ -2770,13 +2742,13 @@ filterTransactions maxSize timeout groups0 = do
     runNext maxEnergy size credLimit True fts (g : groups) = case g of -- Time is up. Mark subsequent groups as unprocessed.
         TGAccountTransactions group ->
             let newFts = fts{ftUnprocessed = group ++ ftUnprocessed fts}
-            in  runNext maxEnergy size credLimit True newFts groups
+             in runNext maxEnergy size credLimit True newFts groups
         TGCredentialDeployment c ->
             let newFts = fts{ftUnprocessedCredentials = c : ftUnprocessedCredentials fts}
-            in  runNext maxEnergy size credLimit True newFts groups
+             in runNext maxEnergy size credLimit True newFts groups
         TGUpdateInstructions group ->
             let newFts = fts{ftUnprocessedUpdates = group ++ ftUnprocessedUpdates fts}
-            in  runNext maxEnergy size credLimit True newFts groups
+             in runNext maxEnergy size credLimit True newFts groups
     runNext maxEnergy size credLimit False fts (g : groups) = case g of -- Time isn't up yet. Process groups until time is up.
         TGAccountTransactions group -> runTransactionGroup size fts group
         TGCredentialDeployment c -> runCredential c
@@ -2829,11 +2801,11 @@ filterTransactions maxSize timeout groups0 = do
                                 | ((==) `on` (updateSeqNumber . uiHeader . wmdData . fst)) ui nui ->
                                     -- There is another update with the same sequence number, so try that
                                     let newFts = currentFts{ftUnprocessedUpdates = ui : ftUnprocessedUpdates currentFts}
-                                    in  runUpdateInstructions currentSize newFts uis
+                                     in runUpdateInstructions currentSize newFts uis
                             _ ->
                                 -- Otherwise, there's no chance of processing remaining updates
                                 let newFts = currentFts{ftUnprocessedUpdates = ui : uis ++ ftUnprocessedUpdates currentFts}
-                                in  runNext maxEnergy currentSize credLimit False newFts groups
+                                 in runNext maxEnergy currentSize credLimit False newFts groups
 
         -- Run a single credential and continue with 'runNext'.
         runCredential :: TVer.CredentialDeploymentWithStatus -> m FilteredTransactions
@@ -2868,10 +2840,10 @@ filterTransactions maxSize timeout groups0 = do
                                 -- but we keep it just in case.
 
                                     let newFts = fts{ftFailedCredentials = (cws, ExceedsMaxBlockEnergy) : ftFailedCredentials fts}
-                                    in  runNext maxEnergy size credLimit False newFts groups
+                                     in runNext maxEnergy size credLimit False newFts groups
                                 else
                                     let newFts = fts{ftUnprocessedCredentials = cws : ftUnprocessedCredentials fts}
-                                    in  runNext maxEnergy size credLimit False newFts groups
+                                     in runNext maxEnergy size credLimit False newFts groups
 
         -- Run all transactions in a group and continue with 'runNext'.
         runTransactionGroup ::
@@ -2905,7 +2877,7 @@ filterTransactions maxSize timeout groups0 = do
                                 -- determine whether the following transactions have to fail as well.
                                 Just (TxInvalid reason) ->
                                     let (newFts, rest) = invalidTs t reason currentFts ts
-                                    in  runTransactionGroup currentSize newFts rest
+                                     in runTransactionGroup currentSize newFts rest
                                 Nothing -> error "Unreachable. Dispatch honors maximum transaction energy."
                         else -- If the stated energy of a single transaction exceeds the block energy limit the
                         -- transaction is invalid. Add it to the list of failed transactions and
@@ -2914,17 +2886,17 @@ filterTransactions maxSize timeout groups0 = do
                             if tenergy > maxEnergy
                                 then
                                     let (newFts, rest) = invalidTs t ExceedsMaxBlockEnergy currentFts ts
-                                    in  runTransactionGroup currentSize newFts rest
+                                     in runTransactionGroup currentSize newFts rest
                                 else -- otherwise still try the remaining transactions in the group to avoid deadlocks from
                                 -- one single too-big transaction (with same nonce).
                                 case ts of
                                     (nt : _)
                                         | transactionNonce (fst nt) == transactionNonce (fst t) ->
                                             let newFts = currentFts{ftUnprocessed = t : ftUnprocessed currentFts}
-                                            in  runTransactionGroup currentSize newFts ts
+                                             in runTransactionGroup currentSize newFts ts
                                     _ ->
                                         let newFts = currentFts{ftUnprocessed = t : ts ++ ftUnprocessed currentFts}
-                                        in  runNext maxEnergy currentSize credLimit False newFts groups
+                                         in runNext maxEnergy currentSize credLimit False newFts groups
 
         -- Group processed, continue with the next group or credential
         runTransactionGroup currentSize currentFts [] =
@@ -2958,13 +2930,13 @@ filterTransactions maxSize timeout groups0 = do
         -- Returns the updated 'FilteredTransactions' and the yet to be processed transactions.
         invalidTs t failure currentFts ts =
             let newFailedEntry = (t, failure)
-            in  -- NOTE: Following transactions with the same nonce could be valid. Therefore,
+             in -- NOTE: Following transactions with the same nonce could be valid. Therefore,
                 -- if the next transaction has the same nonce as the failed, we continue with 'runNext'.
                 -- Note that we rely on the precondition of transactions being ordered by nonce.
                 if not (null ts) && transactionNonce (fst (head ts)) > transactionNonce (fst t)
                     then
                         let failedSuccessors = map (,SuccessorOfInvalidTransaction) ts
-                        in  ( currentFts{ftFailed = newFailedEntry : failedSuccessors ++ ftFailed currentFts},
+                         in ( currentFts{ftFailed = newFailedEntry : failedSuccessors ++ ftFailed currentFts},
                               []
                             )
                     else (currentFts{ftFailed = newFailedEntry : ftFailed currentFts}, ts)

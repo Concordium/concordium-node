@@ -137,7 +137,15 @@ transactionVerificationResultToUpdateResult (TV.NotOk TV.Expired) = ResultStale
 transactionVerificationResultToUpdateResult (TV.NotOk TV.InvalidPayloadSize) = ResultSerializationFail
 
 class
-    (Monad m, Eq (BlockPointerType m), HashableTo BlockHash (BlockPointerType m), BlockPointerData (BlockPointerType m), BlockPointerMonad m, BlockStateQuery m, MonadProtocolVersion m) =>
+    ( Monad m,
+      Eq (BlockPointerType m),
+      HashableTo BlockHash (BlockPointerType m),
+      BlockPointerData (BlockPointerType m),
+      BlockPointerMonad m,
+      BlockStateQuery m,
+      MonadProtocolVersion m,
+      ConsensusParametersVersionFor (ChainParametersVersionFor (MPV m)) ~ 'ConsensusParametersVersion0
+    ) =>
     SkovQueryMonad m
     where
     -- |Look up a block in the table given its hash.
@@ -437,7 +445,10 @@ deriving via (MGSTrans SkovQueryMonadT m) instance BlockStateOperations m => Blo
 deriving via (MGSTrans SkovQueryMonadT m) instance TimeMonad m => TimeMonad (SkovQueryMonadT m)
 
 instance
-    (TS.TreeStateMonad m, TimeMonad m) =>
+    ( TS.TreeStateMonad m,
+      TimeMonad m,
+      ConsensusParametersVersionFor (ChainParametersVersionFor (MPV m)) ~ 'ConsensusParametersVersion0
+    ) =>
     SkovQueryMonad (SkovQueryMonadT m)
     where
     {- - INLINE resolveBlock - -}
@@ -510,6 +521,7 @@ deriving via
           MonadProtocolVersion (BlockStateM pv c r g s m),
           BlockStateQuery (BlockStateM pv c r g s m),
           BlockStateStorage (BlockStateM pv c r g s m),
-          TS.TreeStateMonad (TreeStateBlockStateM pv g c r s m)
+          TS.TreeStateMonad (TreeStateBlockStateM pv g c r s m),
+          ConsensusParametersVersionFor (ChainParametersVersionFor pv) ~ 'ConsensusParametersVersion0
         ) =>
         SkovQueryMonad (GlobalStateM pv c r g s m)

@@ -10,6 +10,9 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
+-- We suppress redundant constraint warnings since GHC does not detect when a constraint is used
+-- for pattern matching. (See: https://gitlab.haskell.org/ghc/ghc/-/issues/20896)
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
 module Concordium.GlobalState.Basic.BlockState where
 
@@ -756,7 +759,7 @@ doGetIndexedAccount ::
     m (Maybe (AccountIndex, Account (AccountVersionFor pv)))
 doGetIndexedAccount bs aaddr = return $! Accounts.getAccountWithIndex aaddr (bs ^. blockAccounts)
 
-doGetNextUpdateSequenceNumber :: (Monad m, HasBlockState s pv, IsProtocolVersion pv) => s -> UpdateType -> m UpdateSequenceNumber
+doGetNextUpdateSequenceNumber :: (Monad m, HasBlockState s pv) => s -> UpdateType -> m UpdateSequenceNumber
 doGetNextUpdateSequenceNumber bs uty = return $! lookupNextUpdateSequenceNumber (bs ^. blockUpdates) uty
 
 doGetCryptographicParameters :: (Monad m, HasBlockState s pv) => s -> m CryptographicParameters
@@ -956,9 +959,10 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
     getUpdates bs = return (bs ^. blockUpdates)
 
     {-# INLINE getPendingTimeParameters #-}
-    getPendingTimeParameters bs = return $! case bs ^. blockUpdates . pendingUpdates . pTimeParametersQueue of
-        NoParam -> []
-        SomeParam q -> q ^. uqQueue
+    getPendingTimeParameters bs =
+        return $! case bs ^. blockUpdates . pendingUpdates . pTimeParametersQueue of
+            NoParam -> []
+            SomeParam q -> q ^. uqQueue
 
     {-# INLINE getPendingPoolParameters #-}
     getPendingPoolParameters bs =
@@ -1083,8 +1087,10 @@ instance (Monad m, IsProtocolVersion pv) => BS.AccountOperations (PureBlockState
 --
 -- The delegation target must be an active baker or passive.
 delegationConfigureDisallowOverdelegation ::
-    (IsProtocolVersion pv, PoolParametersVersionFor (ChainParametersVersionFor pv) ~ 'PoolParametersVersion1,
-     MTL.MonadError DelegationConfigureResult m) =>
+    ( IsProtocolVersion pv,
+      PoolParametersVersionFor (ChainParametersVersionFor pv) ~ 'PoolParametersVersion1,
+      MTL.MonadError DelegationConfigureResult m
+    ) =>
     BlockState pv ->
     PoolParameters (ChainParametersVersionFor pv) ->
     DelegationTarget ->
@@ -1634,8 +1640,10 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             bs <- MTL.get
             let cp = currentChainParameters bs
             let (capitalMin, cooldownDuration) = case delegationChainParameters @pv of
-                    DelegationChainParameters -> (cp ^. cpPoolParameters . ppMinimumEquityCapital, 
-                        cp ^. cpCooldownParameters . cpPoolOwnerCooldown)
+                    DelegationChainParameters ->
+                        ( cp ^. cpPoolParameters . ppMinimumEquityCapital,
+                          cp ^. cpCooldownParameters . cpPoolOwnerCooldown
+                        )
                 cooldownElapsed = addDurationSeconds bcuSlotTimestamp cooldownDuration
             if capital == 0
                 then do
@@ -2245,7 +2253,7 @@ genesisStakesAndRewardDetails ::
     [Account (AccountVersionFor pv)] ->
     SeedState ->
     PoolParameters (ChainParametersVersionFor pv) ->
-    TimeParameters (ChainParametersVersionFor pv) ->
+    OParam 'PTTimeParameters (ChainParametersVersionFor pv) TimeParameters ->
     (BasicBirkParameters (AccountVersionFor pv), BlockRewardDetails (AccountVersionFor pv))
 genesisStakesAndRewardDetails spv = case spv of
     SP1 -> gsc1
@@ -2260,13 +2268,16 @@ genesisStakesAndRewardDetails spv = case spv of
           BlockRewardDetailsV0 emptyHashedEpochBlocks
         )
     gsc4 ::
-        (AVSupportsDelegation av, av ~ AccountVersionFor pv) =>
+        ( AVSupportsDelegation av,
+          av ~ AccountVersionFor pv,
+          IsSupported 'PTTimeParameters (ChainParametersVersionFor pv) ~ 'True
+        ) =>
         [Account av] ->
         SeedState ->
         PoolParameters 'ChainParametersV1 ->
-        TimeParameters 'ChainParametersV1 ->
+        OParam 'PTTimeParameters (ChainParametersVersionFor pv) TimeParameters ->
         (BasicBirkParameters av, BlockRewardDetails av)
-    gsc4 accounts _birkSeedState pp tp = runIdentity $
+    gsc4 accounts _birkSeedState pp (SomeParam tp) = runIdentity $
         runPureBlockStateMonad @pv $ do
             let (bakers, passiveDelegatorInfos) = collateBakersAndDelegators accounts
                 bsc = computeBakerStakesAndCapital pp bakers passiveDelegatorInfos
@@ -2304,13 +2315,16 @@ genesisStakesAndRewardDetails spv = case spv of
                             (_tpMintPerPayday tp)
             return (birkParams, rewardDetails)
     gsc6 ::
-        (AVSupportsDelegation av, av ~ AccountVersionFor pv) =>
+        ( AVSupportsDelegation av,
+          av ~ AccountVersionFor pv,
+          IsSupported 'PTTimeParameters (ChainParametersVersionFor pv) ~ 'True
+        ) =>
         [Account av] ->
         SeedState ->
         PoolParameters 'ChainParametersV2 ->
-        TimeParameters 'ChainParametersV2 ->
+        OParam 'PTTimeParameters (ChainParametersVersionFor pv) TimeParameters ->
         (BasicBirkParameters av, BlockRewardDetails av)
-    gsc6 accounts _birkSeedState pp tp = runIdentity $
+    gsc6 accounts _birkSeedState pp (SomeParam tp) = runIdentity $
         runPureBlockStateMonad @pv $ do
             let (bakers, passiveDelegatorInfos) = collateBakersAndDelegators accounts
                 bsc = computeBakerStakesAndCapital pp bakers passiveDelegatorInfos

@@ -570,7 +570,7 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
     -- |Get the value of the election difficulty parameter for a future timestamp.
     -- This function applies queued election difficultly updates as appropriate.
     getElectionDifficulty ::
-        (IsSupported 'PTElectionDifficulty (ChainParametersVersionFor (MPV m)) ~ 'True) =>
+        (ConsensusParametersVersionFor (ChainParametersVersionFor (MPV m)) ~ 'ConsensusParametersVersion0) =>
         BlockState m ->
         Timestamp ->
         m ElectionDifficulty
@@ -588,7 +588,7 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
     getUpdates :: BlockState m -> m (UQ.Updates (MPV m))
 
     -- |Get pending changes to the time parameters.
-    getPendingTimeParameters :: BlockState m -> m [(TransactionTime, TimeParameters (ChainParametersVersionFor (MPV m)))]
+    getPendingTimeParameters :: BlockState m -> m [(TransactionTime, TimeParameters)]
 
     -- |Get pending changes to the pool parameters.
     getPendingPoolParameters :: BlockState m -> m [(TransactionTime, PoolParameters (ChainParametersVersionFor (MPV m)))]

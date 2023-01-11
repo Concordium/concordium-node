@@ -37,9 +37,8 @@ data PoolCaps = PoolCaps
 -- It is assumed that the total capital is at least the baker equity capital plus the baker
 -- delegated capital.
 delegatedCapitalCaps ::
-    (PoolParametersVersionFor cpv ~ 'PoolParametersVersion1) =>
     -- |Pool parameters
-    PoolParameters cpv ->
+    PoolParameters' 'PoolParametersVersion1 ->
     -- |Current total capital
     Amount ->
     -- |Baker equity capital
@@ -65,9 +64,8 @@ delegatedCapitalCaps poolParams totalCap bakerCap delCap = PoolCaps{..}
 -- It is assumed that the total capital is at least the baker equity capital plus the baker
 -- delegated capital.
 delegatedCapitalCap ::
-    (PoolParametersVersionFor cpv ~ 'PoolParametersVersion1) =>
     -- |Pool parameters
-    PoolParameters cpv ->
+    PoolParameters' 'PoolParametersVersion1 ->
     -- |Current total capital
     Amount ->
     -- |Baker equity capital
@@ -160,9 +158,9 @@ data BakerStakesAndCapital m = BakerStakesAndCapital
 
 -- |Compute the baker stakes and capital distribution.
 computeBakerStakesAndCapital ::
-    forall m cpv.
-    (AccountOperations m, PoolParametersVersionFor cpv ~ 'PoolParametersVersion1) =>
-    PoolParameters cpv ->
+    forall m.
+    (AccountOperations m) =>
+    PoolParameters' 'PoolParametersVersion1 ->
     [ActiveBakerInfo m] ->
     [ActiveDelegatorInfo] ->
     BakerStakesAndCapital m
@@ -238,9 +236,9 @@ generateNextBakers paydayEpoch bs0 = do
 -- TODO: Add tests
 paydayEpochBefore ::
     -- |Current time parameters
-    TimeParameters 'ChainParametersV1 ->
+    TimeParameters ->
     -- |Pending updates to the time parameters
-    [(Slot, TimeParameters 'ChainParametersV1)] ->
+    [(Slot, TimeParameters)] ->
     -- |Epoch length
     Slot ->
     -- |Next payday epoch
@@ -310,8 +308,7 @@ getSlotBakersP4 ::
     forall m.
     ( BlockStateQuery m,
       AVSupportsDelegation (AccountVersionFor (MPV m)),
-      ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
-      IsSupported 'PTTimeParameters (ChainParametersVersionFor (MPV m)) ~ 'True
+      ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1
     ) =>
     GenesisConfiguration ->
     BlockState m ->

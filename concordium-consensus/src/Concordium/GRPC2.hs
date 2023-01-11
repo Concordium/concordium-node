@@ -808,7 +808,7 @@ instance ToProto Updates.ProtocolUpdate where
 instance ToProto (Parameters.MintDistribution 'ChainParametersV0) where
     type Output (Parameters.MintDistribution 'ChainParametersV0) = Proto.MintDistributionCpv0
     toProto md = Proto.make $ do
-        ProtoFields.mintPerSlot .= toProto (md ^. Parameters.mdMintPerSlot . Parameters.mpsMintPerSlot)
+        ProtoFields.mintPerSlot .= toProto (md ^. Parameters.mdMintPerSlot . Parameters.unconditionally)
         ProtoFields.bakingReward .= toProto (Parameters._mdBakingReward md)
         ProtoFields.finalizationReward .= toProto (Parameters._mdFinalizationReward md)
 

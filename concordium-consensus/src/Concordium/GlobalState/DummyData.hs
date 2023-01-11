@@ -27,6 +27,7 @@ import Concordium.Types.AnonymityRevokers
 import Concordium.Types.IdentityProviders
 import Concordium.Types.Updates
 import qualified Data.Map.Strict as Map
+import Data.Ratio
 import qualified Data.Set as Set
 import qualified Data.Vector as Vec
 import Lens.Micro.Platform
@@ -93,7 +94,7 @@ dummyAuthorizations =
         { asKeys = Vec.singleton (correspondingVerifyKey dummyAuthorizationKeyPair),
           asEmergency = theOnly,
           asProtocol = theOnly,
-          asParamElectionDifficulty = theOnly,
+          asParamConsensusParameters = theOnly,
           asParamEuroPerEnergy = theOnly,
           asParamMicroGTUPerEuro = theOnly,
           asParamFoundationAccount = theOnly,
@@ -103,8 +104,8 @@ dummyAuthorizations =
           asPoolParameters = theOnly,
           asAddAnonymityRevoker = theOnly,
           asAddIdentityProvider = theOnly,
-          asCooldownParameters = justForCPV1 theOnly,
-          asTimeParameters = justForCPV1 theOnly
+          asCooldownParameters = pureWhenSupported theOnly,
+          asTimeParameters = pureWhenSupported theOnly
         }
   where
     theOnly = AccessStructure (Set.singleton 0) 1
@@ -295,7 +296,7 @@ dummyRewardParametersV0 =
     RewardParameters
         { _rpMintDistribution =
             MintDistribution
-                { _mdMintPerSlot = MintPerSlotForCPV0Some $ MintRate 1 12,
+                { _mdMintPerSlot = CTrue $ MintRate 1 12,
                   _mdBakingReward = AmountFraction 60000, -- 60%
                   _mdFinalizationReward = AmountFraction 30000 -- 30%
                 },
@@ -307,7 +308,7 @@ dummyRewardParametersV0 =
           _rpGASRewards =
             GASRewards
                 { _gasBaker = AmountFraction 25000, -- 25%
-                  _gasFinalizationProof = AmountFraction 50, -- 0.05%
+                  _gasFinalizationProof = CTrue $ AmountFraction 50, -- 0.05%
                   _gasAccountCreation = AmountFraction 200, -- 0.2%
                   _gasChainUpdate = AmountFraction 50 -- 0.05%
                 }
@@ -318,7 +319,7 @@ dummyRewardParametersV1 =
     RewardParameters
         { _rpMintDistribution =
             MintDistribution
-                { _mdMintPerSlot = MintPerSlotForCPV0None,
+                { _mdMintPerSlot = CFalse,
                   _mdBakingReward = AmountFraction 60000, -- 60%
                   _mdFinalizationReward = AmountFraction 30000 -- 30%
                 },
@@ -330,23 +331,59 @@ dummyRewardParametersV1 =
           _rpGASRewards =
             GASRewards
                 { _gasBaker = AmountFraction 25000, -- 25%
-                  _gasFinalizationProof = AmountFraction 50, -- 0.05%
+                  _gasFinalizationProof = CTrue $ AmountFraction 50, -- 0.05%
                   _gasAccountCreation = AmountFraction 200, -- 0.2%
                   _gasChainUpdate = AmountFraction 50 -- 0.05%
                 }
+        }
+
+dummyRewardParametersV2 :: RewardParameters 'ChainParametersV2
+dummyRewardParametersV2 =
+    RewardParameters
+        { _rpMintDistribution =
+            MintDistribution
+                { _mdMintPerSlot = CFalse,
+                  _mdBakingReward = AmountFraction 60000, -- 60%
+                  _mdFinalizationReward = AmountFraction 30000 -- 30%
+                },
+          _rpTransactionFeeDistribution =
+            TransactionFeeDistribution
+                { _tfdBaker = AmountFraction 45000, -- 45%
+                  _tfdGASAccount = AmountFraction 45000 -- 45%
+                },
+          _rpGASRewards =
+            GASRewards
+                { _gasBaker = AmountFraction 25000, -- 25%
+                  _gasFinalizationProof = CFalse,
+                  _gasAccountCreation = AmountFraction 200, -- 0.2%
+                  _gasChainUpdate = AmountFraction 50 -- 0.05%
+                }
+        }
+
+dummyConsensusParametersV1 :: ConsensusParameters' 'ConsensusParametersVersion1
+dummyConsensusParametersV1 =
+    ConsensusParametersV1
+        { _cpTimeoutParameters =
+            TimeoutParameters
+                { tpTimeoutBase = 10000,
+                  tpTimeoutIncrease = 2 % 1,
+                  tpTimeoutDecrease = 4 % 5
+                },
+          _cpMinBlockTime = 1000,
+          _cpBlockEnergyLimit = maxBound
         }
 
 dummyChainParameters :: forall cpv. IsChainParametersVersion cpv => ChainParameters' cpv
 dummyChainParameters = case chainParametersVersion @cpv of
     SChainParametersV0 ->
         ChainParameters
-            { _cpElectionDifficulty = makeElectionDifficulty 50000,
+            { _cpConsensusParameters = ConsensusParametersV0 $ makeElectionDifficulty 50000,
               _cpExchangeRates = makeExchangeRates 0.0001 1000000,
               _cpCooldownParameters =
                 CooldownParametersV0
                     { _cpBakerExtraCooldownEpochs = 168
                     },
-              _cpTimeParameters = TimeParametersV0,
+              _cpTimeParameters = NoParam,
               _cpAccountCreationLimit = 10,
               _cpRewardParameters = dummyRewardParametersV0,
               _cpFoundationAccount = 0,
@@ -357,7 +394,7 @@ dummyChainParameters = case chainParametersVersion @cpv of
             }
     SChainParametersV1 ->
         ChainParameters
-            { _cpElectionDifficulty = makeElectionDifficulty 50000,
+            { _cpConsensusParameters = ConsensusParametersV0 $ makeElectionDifficulty 50000,
               _cpExchangeRates = makeExchangeRates 0.0001 1000000,
               _cpCooldownParameters =
                 CooldownParametersV1
@@ -365,10 +402,11 @@ dummyChainParameters = case chainParametersVersion @cpv of
                       _cpDelegatorCooldown = cooldown
                     },
               _cpTimeParameters =
-                TimeParametersV1
-                    { _tpRewardPeriodLength = 2,
-                      _tpMintPerPayday = MintRate 1 8
-                    },
+                SomeParam
+                    TimeParametersV1
+                        { _tpRewardPeriodLength = 2,
+                          _tpMintPerPayday = MintRate 1 8
+                        },
               _cpAccountCreationLimit = 10,
               _cpRewardParameters = dummyRewardParametersV1,
               _cpFoundationAccount = 0,
@@ -391,9 +429,46 @@ dummyChainParameters = case chainParametersVersion @cpv of
                             }
                     }
             }
-      where
-        fullRange = InclusiveRange (makeAmountFraction 0) (makeAmountFraction 100000)
-        cooldown = DurationSeconds (24 * 60 * 60)
+    SChainParametersV2 ->
+        ChainParameters
+            { _cpConsensusParameters = dummyConsensusParametersV1,
+              _cpExchangeRates = makeExchangeRates 0.0001 1000000,
+              _cpCooldownParameters =
+                CooldownParametersV1
+                    { _cpPoolOwnerCooldown = cooldown,
+                      _cpDelegatorCooldown = cooldown
+                    },
+              _cpTimeParameters =
+                SomeParam
+                    TimeParametersV1
+                        { _tpRewardPeriodLength = 2,
+                          _tpMintPerPayday = MintRate 1 8
+                        },
+              _cpAccountCreationLimit = 10,
+              _cpRewardParameters = dummyRewardParametersV2,
+              _cpFoundationAccount = 0,
+              _cpPoolParameters =
+                PoolParametersV1
+                    { _ppMinimumEquityCapital = 300000000000,
+                      _ppCapitalBound = CapitalBound (makeAmountFraction 100000),
+                      _ppLeverageBound = 5,
+                      _ppPassiveCommissions =
+                        CommissionRates
+                            { _finalizationCommission = makeAmountFraction 100000,
+                              _bakingCommission = makeAmountFraction 5000,
+                              _transactionCommission = makeAmountFraction 5000
+                            },
+                      _ppCommissionBounds =
+                        CommissionRanges
+                            { _finalizationCommissionRange = fullRange,
+                              _bakingCommissionRange = fullRange,
+                              _transactionCommissionRange = fullRange
+                            }
+                    }
+            }
+  where
+    fullRange = InclusiveRange (makeAmountFraction 0) (makeAmountFraction 100000)
+    cooldown = DurationSeconds (24 * 60 * 60)
 
 createPoolRewards :: Accounts pv -> PoolRewards.PoolRewards
 createPoolRewards accounts = PoolRewards.makeInitialPoolRewards capDist 1 (MintRate 1 10)
