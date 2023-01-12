@@ -18,6 +18,7 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe
 import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
+import Data.Time
 import qualified Data.Vector as Vec
 import Lens.Micro.Platform
 
@@ -285,7 +286,7 @@ data BlockFinalizationSummary
 getConsensusStatus :: MVR gsconf finconf ConsensusStatus
 getConsensusStatus = MVR $ \mvr -> do
     versions <- readIORef (mvVersions mvr)
-    (csGenesisBlock, csGenesisTime) <- liftSkovQuery mvr (Vec.head versions) $ do
+    (csGenesisBlock, csGenesisTime) <- liftSkovQuery @_ @_ @(BlockHash, UTCTime) mvr (Vec.head versions) $ do
         genesis <- genesisBlock
         genTime <- getGenesisTime
         return (getHash genesis :: BlockHash, timestampToUTCTime genTime)
@@ -548,35 +549,44 @@ getBlockPendingUpdates = liftSkovQueryBHI query
         flattenUpdateQueues UQ.PendingUpdates{..} =
             queueMapper PUERootKeys _pRootKeysUpdateQueue
                 `merge` queueMapper PUELevel1Keys _pLevel1KeysUpdateQueue
-                `merge` ( case chainParametersVersion @cpv of
+                `merge` ( case cpv of
                             SChainParametersV0 -> queueMapper PUELevel2KeysV0 _pLevel2KeysUpdateQueue
                             SChainParametersV1 -> queueMapper PUELevel2KeysV1 _pLevel2KeysUpdateQueue
+                            SChainParametersV2 -> queueMapper PUELevel2KeysV2 _pLevel2KeysUpdateQueue
                         )
                 `merge` queueMapper PUEProtocol _pProtocolQueue
-                `merge` queueMapper PUEElectionDifficulty _pElectionDifficultyQueue
+                `merge` queueMapperO PUEElectionDifficulty _pElectionDifficultyQueue
                 `merge` queueMapper PUEEuroPerEnergy _pEuroPerEnergyQueue
                 `merge` queueMapper PUEMicroCCDPerEuro _pMicroGTUPerEuroQueue
-                `merge` ( case chainParametersVersion @cpv of
-                            SChainParametersV0 -> queueMapper PUEMintDistributionV0 _pMintDistributionQueue
-                            SChainParametersV1 -> queueMapper PUEMintDistributionV1 _pMintDistributionQueue
+                `merge` ( case sMintDistributionVersionFor cpv of
+                            SMintDistributionVersion0 -> queueMapper PUEMintDistributionV0 _pMintDistributionQueue
+                            SMintDistributionVersion1 -> queueMapper PUEMintDistributionV1 _pMintDistributionQueue
                         )
                 `merge` queueMapper PUETransactionFeeDistribution _pTransactionFeeDistributionQueue
-                `merge` queueMapper PUEGASRewards _pGASRewardsQueue
-                `merge` ( case chainParametersVersion @cpv of
-                            SChainParametersV0 -> queueMapper PUEPoolParametersV0 _pPoolParametersQueue
-                            SChainParametersV1 -> queueMapper PUEPoolParametersV1 _pPoolParametersQueue
+                `merge` ( case sGasRewardsVersionFor cpv of
+                            SGASRewardsVersion0 -> queueMapper PUEGASRewardsV0 _pGASRewardsQueue
+                            SGASRewardsVersion1 -> queueMapper PUEGASRewardsV1 _pGASRewardsQueue
+                        ) 
+                `merge` ( case sPoolParametersVersionFor cpv of
+                            SPoolParametersVersion0 -> queueMapper PUEPoolParametersV0 _pPoolParametersQueue
+                            SPoolParametersVersion1 -> queueMapper PUEPoolParametersV1 _pPoolParametersQueue
                         )
                 `merge` queueMapper PUEAddAnonymityRevoker _pAddAnonymityRevokerQueue
                 `merge` queueMapper PUEAddIdentityProvider _pAddIdentityProviderQueue
-                `merge` queueMapperForCPV1 PUECooldownParameters _pCooldownParametersQueue
-                `merge` queueMapperForCPV1 PUETimeParameters _pTimeParametersQueue
+                `merge` ( case sCooldownParametersVersionFor cpv of
+                            SCooldownParametersVersion0 -> []
+                            SCooldownParametersVersion1 -> case _pCooldownParametersQueue of
+                                SomeParam queue -> queueMapper PUECooldownParameters queue)
+                `merge` queueMapperO PUETimeParameters _pTimeParametersQueue
           where
+            cpv :: SChainParametersVersion cpv
+            cpv = chainParametersVersion
             queueMapper :: (a -> PendingUpdateEffect) -> UQ.UpdateQueue a -> [(TransactionTime, PendingUpdateEffect)]
             queueMapper constructor UQ.UpdateQueue{..} = second constructor <$> _uqQueue
 
-            queueMapperForCPV1 :: (a -> PendingUpdateEffect) -> UQ.UpdateQueueForCPV1 cpv a -> [(TransactionTime, PendingUpdateEffect)]
-            queueMapperForCPV1 _ NothingForCPV1 = []
-            queueMapperForCPV1 constructor (JustForCPV1 queue) = queueMapper constructor queue
+            queueMapperO :: (a -> PendingUpdateEffect) -> UQ.OUpdateQueue pt cpv a -> [(TransactionTime, PendingUpdateEffect)]
+            queueMapperO _ NoParam = []
+            queueMapperO constructor (SomeParam queue) = queueMapper constructor queue
 
         -- Merge two ascending lists into an ascending list.
         merge ::

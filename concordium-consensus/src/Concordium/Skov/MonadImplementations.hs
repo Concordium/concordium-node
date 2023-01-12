@@ -69,7 +69,7 @@ type TreeStateType pv c =
         (Identity (GSState c pv))
         (RWSTIO c pv)
 
-type GlobalStateQuery pv c = (BlockStateStorage (BlockStateType pv c), TreeStateMonad (TreeStateType pv c))
+type GlobalStateQuery pv c = (BlockStateStorage (BlockStateType pv c), TreeStateMonad (TreeStateType pv c), IsConsensusV0 pv)
 
 -- |This is a convenience wrapper that automatically implements SkovQueryMonad via SkovQueryMonadT
 -- instance.
@@ -573,6 +573,7 @@ deriving via
     SkovQueryMonadT (SkovT pv h c m)
     instance
         ( IsProtocolVersion pv,
+          IsConsensusV0 pv,
           Monad m,
           TimeMonad m,
           BlockStateQuery (SkovT pv h c m),
@@ -588,7 +589,8 @@ instance
       OnSkov (SkovT pv h c m),
       BlockStateStorage (SkovT pv h c m),
       TreeStateMonad (SkovT pv h c m),
-      FinalizationMonad (SkovT pv h c m)
+      FinalizationMonad (SkovT pv h c m),
+      IsConsensusV0 pv
     ) =>
     SkovMonad (SkovT pv h c m)
     where

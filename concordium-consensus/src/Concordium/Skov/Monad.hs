@@ -1,3 +1,4 @@
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE DerivingVia #-}
@@ -136,6 +137,9 @@ transactionVerificationResultToUpdateResult (TV.NotOk (TV.NormalTransactionDupli
 transactionVerificationResultToUpdateResult (TV.NotOk TV.Expired) = ResultStale
 transactionVerificationResultToUpdateResult (TV.NotOk TV.InvalidPayloadSize) = ResultSerializationFail
 
+type IsConsensusV0 (pv :: ProtocolVersion) =
+    ConsensusParametersVersionFor (ChainParametersVersionFor pv) ~ 'ConsensusParametersVersion0
+
 class
     ( Monad m,
       Eq (BlockPointerType m),
@@ -144,7 +148,7 @@ class
       BlockPointerMonad m,
       BlockStateQuery m,
       MonadProtocolVersion m,
-      ConsensusParametersVersionFor (ChainParametersVersionFor (MPV m)) ~ 'ConsensusParametersVersion0
+      IsConsensusV0 (MPV m)
     ) =>
     SkovQueryMonad m
     where
