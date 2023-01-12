@@ -1,19 +1,20 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 -- |
---The ReceiveTransactionsTest is testing verification of transactions received
---either individualy or via a block.
+-- The ReceiveTransactionsTest is testing verification of transactions received
+-- either individualy or via a block.
 --
---In particular this module tests `doReceiveTransaction` and `doReceiveTransactionInternal` of `Update.hs`.
+-- In particular this module tests `doReceiveTransaction` and `doReceiveTransactionInternal` of `Update.hs`.
 --
---The module tests that `CredentialDeployments`, `ChainUpdates` and `NormalTransactions` are being verified according to the protocol
---specified by the `TransactionVerification` module.
-module ConcordiumTests.ReceiveTransactionsTest where
+-- The module tests that `CredentialDeployments`, `ChainUpdates` and `NormalTransactions` are being verified according to the protocol
+-- specified by the `TransactionVerification` module.
+module ConcordiumTests.ReceiveTransactionsTest (test) where
 
 import Test.Hspec
 
@@ -24,6 +25,7 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BSL
 import Data.FileEmbed
 import qualified Data.HashMap.Strict as HM
+import Data.Kind (Type)
 import qualified Data.Map.Strict as Map
 import Data.Time.Clock
 import Data.Time.Clock.POSIX
@@ -38,19 +40,22 @@ import qualified Concordium.Cost as Cost
 import Concordium.Crypto.DummyData
 import Concordium.Crypto.FFIDataTypes
 import qualified Concordium.Crypto.SHA256 as SHA256
-import Concordium.Crypto.SignatureScheme
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import Concordium.Genesis.Data
-import Concordium.GlobalState.Basic.BlockState hiding (initialState)
-import Concordium.GlobalState.Basic.BlockState.Account
-import Concordium.GlobalState.Basic.BlockState.Accounts
-import Concordium.GlobalState.Basic.BlockState.Updates
-import Concordium.GlobalState.Basic.TreeState
+import Concordium.GlobalState.Account
+import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.DummyData
 import Concordium.GlobalState.Parameters hiding (getExactVersionedCryptographicParameters)
+import qualified Concordium.GlobalState.Persistent.BlobStore as Blob
+import Concordium.GlobalState.Persistent.BlockState
+import qualified Concordium.GlobalState.Persistent.BlockState as BS
+import Concordium.GlobalState.Persistent.Genesis
+import Concordium.GlobalState.Persistent.TreeState
 import Concordium.GlobalState.TransactionTable
 import Concordium.ID.Parameters
 import Concordium.ID.Types
+import Concordium.Logger
+import Concordium.Scheduler.DummyData
 import Concordium.Skov.Monad
 import Concordium.Skov.Update
 import Concordium.TimeMonad
@@ -61,6 +66,7 @@ import Concordium.Types.Execution
 import Concordium.Types.IdentityProviders
 import Concordium.Types.Transactions
 import Concordium.Types.Updates
+import System.IO.Temp (withTempDirectory)
 
 -- |Tests of doReceiveTransaction and doReceiveTransactionInternal.
 test :: Spec
@@ -197,46 +203,73 @@ runTransactions f txs now gData = do
   where
     slot = 0
 
-runPurgeTransactions :: UTCTime -> MyState -> IO ((), MyState)
-runPurgeTransactions = runMyMonad doPurgeTransactions
-
 type PV = 'P1
-type MyBlockState = HashedBlockState PV
-type MyState = SkovData PV MyBlockState
+type MyBlockState = HashedPersistentBlockState PV
+type MyState = SkovPersistentData PV MyBlockState
 
-newtype FixedTime a = FixedTime {runDeterministic :: ReaderT UTCTime IO a}
-    deriving (Functor, Applicative, Monad, MonadIO)
+newtype FixedTimeT (m :: Type -> Type) a = FixedTime {runDeterministic :: UTCTime -> m a}
+    deriving (Functor, Applicative, Monad, MonadIO) via ReaderT UTCTime m
+    deriving (MonadTrans) via ReaderT UTCTime
 
-instance TimeMonad FixedTime where
-    currentTime = FixedTime ask
+instance MonadReader r m => MonadReader r (FixedTimeT m) where
+    ask = lift ask
+    local f (FixedTime k) = FixedTime $ local f . k
+
+instance Monad m => MonadLogger (FixedTimeT m) where
+    logEvent _ _ _ = return ()
+
+instance Monad m => TimeMonad (FixedTimeT m) where
+    currentTime = FixedTime return
 
 -- |A composition that implements TreeStateMonad, TimeMonad (via FixedTime) and SkovQueryMonadT.
-type MyMonad = SkovQueryMonadT (PureTreeStateMonad MyBlockState (PureBlockStateMonad PV (StateT MyState FixedTime)))
+type MyMonad =
+    SkovQueryMonadT
+        ( PersistentTreeStateMonad
+            MyBlockState
+            ( BS.PersistentBlockStateMonad
+                PV
+                (BS.PersistentBlockStateContext PV)
+                (StateT MyState (NoLoggerT (FixedTimeT (Blob.BlobStoreM' (BS.PersistentBlockStateContext PV)))))
+            )
+        )
 
--- |Run the computation in the given initial state. All queries to
--- 'currentTimeStamp' will return the given time. The IO is unfortunate, but it
--- is needed since PureBlockStateMonad is otherwise not a BlockStateStorage.
--- This should probably be revised at some point.
-runMyMonad :: MyMonad a -> UTCTime -> MyState -> IO (a, MyState)
-runMyMonad act time initialState = runReaderT (runDeterministic (runStateT (runPureBlockStateMonad . runPureTreeStateMonad . runSkovQueryMonad $ act) initialState)) time
+newtype NoLoggerT m a = NoLoggerT {runNoLoggerT :: m a}
+    deriving (Functor, Applicative, Monad, MonadIO, MonadReader r, TimeMonad)
+
+instance Monad m => MonadLogger (NoLoggerT m) where
+    logEvent _ _ _ = return ()
 
 -- |Run the given computation in a state consisting of only the genesis block and the state determined by it.
 runMyMonad' :: MyMonad a -> UTCTime -> GenesisData PV -> IO (a, MyState)
-runMyMonad' act time gd = runPureBlockStateMonad (initialSkovDataDefault (genesisConfiguration gd) (hashBlockState $ mock bs) genTT Nothing) >>= runMyMonad act time
+runMyMonad' act time gd = do
+    withTempDirectory "." "treestate" $ \tsDir -> do
+        Blob.runBlobStoreTemp "." $
+            BS.withNewAccountCache 1000 $ do
+                initState <- runPersistentBlockStateMonad $ initialData tsDir
+                runDeterministic (runNoLoggerT (runStateT (runPersistentBlockStateMonad . runPersistentTreeStateMonad . runSkovQueryMonad $ act) initState)) time
   where
-    (bs, genTT) = case genesisState gd of
-        Left err -> error $ "Invalid genesis state: " ++ err
-        Right x -> x
-    mock = mockChainUpdate . mockAccount
-    mockChainUpdate blockstate =
+    -- initialData :: FilePath -> IO MyState
+    initialData tsDir = do
+        (bs, genTT) <-
+            genesisState gd >>= \case
+                Left err -> error $ "Invalid genesis state: " ++ err
+                Right x -> return x
+        cryptoParams <- getCryptographicParameters bs
+        updBS <- thawBlockState bs
         let now = utcTimeToTransactionTime time
-        in  blockstate & blockUpdates %~ enqueueUpdate (now - 1) (UVAddIdentityProvider myipInfo)
-    mockAccount blockstate = do
-        let (_, newAccounts) = putNewAccount dummyAccount (blockstate ^. blockAccounts)
-        blockstate & blockAccounts .~ newAccounts
+        bsWithUpdate <- bsoEnqueueUpdate updBS (now - 1) (UVAddIdentityProvider myipInfo)
+        bsWithAccount <-
+            bsoCreateAccount bsWithUpdate cryptoParams (accountAddressFromSeed 1) (makeTestCredentialFromSeed 1) >>= \case
+                (Nothing, _) -> error "Account should not already exist."
+                (Just _, newBS) -> do
+                    newAccIdx <- fromIntegral . length <$> getAccountList bs
+                    bsoModifyAccount newBS (emptyAccountUpdate newAccIdx & (auAmount ?~ amountToDelta 10 ^ (10 :: Int)))
+        finalBS <- freezeBlockState bsWithAccount
+        serializedState <- saveBlockState finalBS
+        initialSkovPersistentDataDefault tsDir (genesisConfiguration gd) finalBS serializedState genTT Nothing
 
 maxBlockEnergy :: Energy
-maxBlockEnergy = 3000000
+maxBlockEnergy = 3_000_000
 
 -- |Construct a genesis state with hardcoded values for parameters that should not affect this test.
 -- Modify as you see fit.
@@ -352,13 +385,7 @@ toBlockItem now bbi =
         NormalTransaction tx -> normalTransaction $ addMetadata (\x -> NormalTransaction{biTransaction = x}) now tx
 
 duplicateRegId :: CredentialRegistrationID
-duplicateRegId = cred
-  where
-    cred =
-        maybe
-            undefined
-            credId
-            (Map.lookup 0 (gaCredentials $ head (makeFakeBakers 1)))
+duplicateRegId = credId (makeTestCredentialFromSeed 1)
 
 -- |Specification of the supplied energy for a transaction
 data TestEnergyParam
@@ -536,9 +563,6 @@ mkArData valid = if valid then validAr else Map.empty
     arData = ChainArData{ardIdCredPubShare = AREnc zeroElgamalCipher}
     key = head $ Map.keys $ arRevokers dummyArs
 
-mkCredentialKeyPair :: IO KeyPair
-mkCredentialKeyPair = newKeyPair Ed25519
-
 dummyHash :: SHA256.Hash
 dummyHash = SHA256.hash B.empty
 
@@ -571,12 +595,6 @@ myCryptoParams =
         Nothing -> error "Could not read cryptographic parameters."
         Just params -> params
 
-readAccountCreation :: BSL.ByteString -> AccountCreation
-readAccountCreation bs =
-    case AE.eitherDecode bs of
-        Left err -> error $ "Cannot read account creation " ++ err
-        Right d -> if vVersion d == 0 then vValue d else error "Incorrect account creation version."
-
 readIps :: BSL.ByteString -> Maybe IdentityProviders
 readIps bs = do
     v <- AE.decode bs
@@ -603,16 +621,6 @@ getExactVersionedCryptographicParameters bs = do
     -- version, and then decoding based on that.
     guard (vVersion v == 0)
     return (vValue v)
-
-dummyAccount :: Account (AccountVersionFor PV)
-dummyAccount = mkDummyAccount 1
-
-mkDummyAccount :: Int -> Account (AccountVersionFor PV)
-mkDummyAccount seed =
-    let publicKey = SigScheme.correspondingVerifyKey (dummyKeyPair seed)
-        aaddr = dummyAccountAddress seed
-        balance = 10 ^ (10 :: Int)
-    in  mkAccount publicKey aaddr balance
 
 dummyAccountAddress :: Int -> AccountAddress
 dummyAccountAddress seed = fst $ randomAccountAddress (mkStdGen seed)
