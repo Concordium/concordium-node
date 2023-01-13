@@ -1,5 +1,3 @@
-import Data.ProtoLens.Setup
-
 import Distribution.PackageDescription
 import Distribution.Simple
 import Distribution.Simple.LocalBuildInfo
@@ -41,8 +39,6 @@ makeRust args flags = do
 
 main =
     defaultMainWithHooks $
-        generatingProtos
-            "../concordium-grpc-api/v2"
-            simpleUserHooks
-                { preConf = makeRust
-                }
+        simpleUserHooks
+            { preConf = makeRust
+            }
