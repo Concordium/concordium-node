@@ -31,6 +31,7 @@ import Data.Time.Clock
 import Data.Time.Clock.POSIX
 import Data.Word
 import Lens.Micro.Platform
+import System.IO.Temp (withTempDirectory)
 import System.Random
 
 import Concordium.Common.Time
@@ -66,7 +67,6 @@ import Concordium.Types.Execution
 import Concordium.Types.IdentityProviders
 import Concordium.Types.Transactions
 import Concordium.Types.Updates
-import System.IO.Temp (withTempDirectory)
 
 -- |Tests of doReceiveTransaction and doReceiveTransactionInternal.
 test :: Spec
@@ -221,17 +221,17 @@ instance Monad m => MonadLogger (FixedTimeT m) where
 instance Monad m => TimeMonad (FixedTimeT m) where
     currentTime = FixedTime return
 
--- |A composition that implements TreeStateMonad, TimeMonad (via FixedTime) and SkovQueryMonadT.
-type MyMonad =
-    SkovQueryMonadT
-        ( PersistentTreeStateMonad
-            MyBlockState
-            ( BS.PersistentBlockStateMonad
-                PV
-                (BS.PersistentBlockStateContext PV)
-                (StateT MyState (NoLoggerT (FixedTimeT (Blob.BlobStoreM' (BS.PersistentBlockStateContext PV)))))
-            )
+type MyBlockStateMonad =
+    BS.PersistentBlockStateMonad
+        PV
+        (BS.PersistentBlockStateContext PV)
+        ( StateT
+            MyState
+            (NoLoggerT (FixedTimeT (Blob.BlobStoreM' (BS.PersistentBlockStateContext PV))))
         )
+
+-- |A composition that implements TreeStateMonad, TimeMonad (via FixedTime) and SkovQueryMonadT.
+type MyMonad = SkovQueryMonadT (PersistentTreeStateMonad MyBlockState MyBlockStateMonad)
 
 newtype NoLoggerT m a = NoLoggerT {runNoLoggerT :: m a}
     deriving (Functor, Applicative, Monad, MonadIO, MonadReader r, TimeMonad)
@@ -248,7 +248,13 @@ runMyMonad' act time gd = do
                 initState <- runPersistentBlockStateMonad $ initialData tsDir
                 runDeterministic (runNoLoggerT (runStateT (runPersistentBlockStateMonad . runPersistentTreeStateMonad . runSkovQueryMonad $ act) initState)) time
   where
-    -- initialData :: FilePath -> IO MyState
+    initialData ::
+        FilePath ->
+        BS.PersistentBlockStateMonad
+            PV
+            (BS.PersistentBlockStateContext PV)
+            (Blob.BlobStoreM' (BS.PersistentBlockStateContext PV))
+            MyState
     initialData tsDir = do
         (bs, genTT) <-
             genesisState gd >>= \case
