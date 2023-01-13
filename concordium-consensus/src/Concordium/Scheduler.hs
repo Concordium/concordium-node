@@ -55,7 +55,6 @@ import qualified Concordium.Wasm as Wasm
 import Data.Bool.Singletons
 import qualified Data.ByteString as BS
 import qualified Data.Serialize as S
-import qualified Data.Singletons.Decide as Singletons
 import Data.Time
 
 import qualified Concordium.ID.Account as AH
@@ -2401,9 +2400,10 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, mVerRes
                                     SPoolParametersVersion1 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
                                 AddAnonymityRevokerUpdatePayload u -> checkSigAndEnqueue $ UVAddAnonymityRevoker u
                                 AddIdentityProviderUpdatePayload u -> checkSigAndEnqueue $ UVAddIdentityProvider u
-                                CooldownParametersCPV1UpdatePayload u -> case sCooldownParametersVersionFor scpv of
-                                    SCooldownParametersVersion0 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
-                                    SCooldownParametersVersion1 -> checkSigAndEnqueue $ UVCooldownParameters u
+                                CooldownParametersCPV1UpdatePayload u -> case scpv of
+                                    SChainParametersV0 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                    SChainParametersV1 -> checkSigAndEnqueue $ UVCooldownParameters u
+                                    SChainParametersV2 -> checkSigAndEnqueue $ UVCooldownParameters u
                                 PoolParametersCPV1UpdatePayload u -> case sPoolParametersVersionFor scpv of
                                     SPoolParametersVersion0 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
                                     SPoolParametersVersion1 -> checkSigAndEnqueue $ UVPoolParameters u
@@ -2415,13 +2415,19 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, mVerRes
                                     SMintDistributionVersion1 -> checkSigAndEnqueue $ UVMintDistribution u
                                 RootUpdatePayload (RootKeysRootUpdate u) -> checkSigAndEnqueue $ UVRootKeys u
                                 RootUpdatePayload (Level1KeysRootUpdate u) -> checkSigAndEnqueue $ UVLevel1Keys u
-                                RootUpdatePayload (Level2KeysRootUpdate u) -> checkSigAndEnqueueAt $ UVLevel2Keys u
-                                RootUpdatePayload (Level2KeysRootUpdateV1 u) -> checkSigAndEnqueueAt $ UVLevel2Keys u
-                                RootUpdatePayload (Level2KeysRootUpdateV2 u) -> checkSigAndEnqueueAt $ UVLevel2Keys u
+                                RootUpdatePayload (Level2KeysRootUpdate u) -> case sAuthorizationsVersionFor scpv of
+                                    SAuthorizationsVersion0 -> checkSigAndEnqueue $ UVLevel2Keys u
+                                    SAuthorizationsVersion1 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                RootUpdatePayload (Level2KeysRootUpdateV1 u) -> case sAuthorizationsVersionFor scpv of
+                                    SAuthorizationsVersion0 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                    SAuthorizationsVersion1 -> checkSigAndEnqueue $ UVLevel2Keys u
                                 Level1UpdatePayload (Level1KeysLevel1Update u) -> checkSigAndEnqueue $ UVLevel1Keys u
-                                Level1UpdatePayload (Level2KeysLevel1Update u) -> checkSigAndEnqueueAt $ UVLevel2Keys u
-                                Level1UpdatePayload (Level2KeysLevel1UpdateV1 u) -> checkSigAndEnqueueAt $ UVLevel2Keys u
-                                Level1UpdatePayload (Level2KeysLevel1UpdateV2 u) -> checkSigAndEnqueueAt $ UVLevel2Keys u
+                                Level1UpdatePayload (Level2KeysLevel1Update u) -> case sAuthorizationsVersionFor scpv of
+                                    SAuthorizationsVersion0 -> checkSigAndEnqueue $ UVLevel2Keys u
+                                    SAuthorizationsVersion1 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                Level1UpdatePayload (Level2KeysLevel1UpdateV1 u) -> case sAuthorizationsVersionFor scpv of
+                                    SAuthorizationsVersion0 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                    SAuthorizationsVersion1 -> checkSigAndEnqueue $ UVLevel2Keys u
                                 TimeoutParametersUpdatePayload u -> case sIsSupported SPTTimeoutParameters scpv of
                                     STrue -> checkSigAndEnqueue $ UVTimeoutParameters u
                                     SFalse -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
@@ -2437,10 +2443,6 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, mVerRes
   where
     scpv :: SChainParametersVersion (ChainParametersVersionFor (MPV m))
     scpv = chainParametersVersion
-    checkSigAndEnqueueAt :: forall target. IsChainParametersVersion target => UpdateValue target -> m TxResult
-    checkSigAndEnqueueAt u = case chainParametersVersion @target Singletons.%~ scpv of
-        Singletons.Proved Singletons.Refl -> checkSigAndEnqueue u
-        Singletons.Disproved _ -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
     checkSigAndEnqueue :: UpdateValue (ChainParametersVersionFor (MPV m)) -> m TxResult
     checkSigAndEnqueue change = do
         case mVerRes of

@@ -1511,7 +1511,7 @@ instance MonadBlobStore m => BlobStorable m Word64
 
 instance MonadBlobStore m => BlobStorable m AccountEncryptedAmount
 instance MonadBlobStore m => BlobStorable m PersistingAccountData
-instance (MonadBlobStore m, IsChainParametersVersion cpv) => BlobStorable m (Authorizations cpv)
+instance (MonadBlobStore m, IsAuthorizationsVersion auv) => BlobStorable m (Authorizations auv)
 instance (MonadBlobStore m, IsAccountVersion av, AVSupportsDelegation av) => BlobStorable m (AccountDelegation av)
 instance MonadBlobStore m => BlobStorable m (HigherLevelKeys a)
 instance MonadBlobStore m => BlobStorable m ProtocolUpdate

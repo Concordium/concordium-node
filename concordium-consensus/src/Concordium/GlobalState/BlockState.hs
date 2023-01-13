@@ -603,7 +603,7 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
     getCryptographicParameters :: BlockState m -> m CryptographicParameters
 
     -- |Get the block's UpdateKeysCollection
-    getUpdateKeysCollection :: BlockState m -> m (UpdateKeysCollection (ChainParametersVersionFor (MPV m)))
+    getUpdateKeysCollection :: BlockState m -> m (UpdateKeysCollection (AuthorizationsVersionForPV (MPV m)))
 
     -- |Get the current exchange rates, which are the Euro per NRG, micro CCD per Euro and the derived energy to microCCD rate.
     getExchangeRates :: BlockState m -> m ExchangeRates
@@ -1244,7 +1244,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
     -- |Get the current 'Authorizations' for validating updates.
     bsoGetUpdateKeyCollection ::
         UpdatableBlockState m ->
-        m (UpdateKeysCollection (ChainParametersVersionFor (MPV m)))
+        m (UpdateKeysCollection (AuthorizationsVersionForPV (MPV m)))
 
     -- |Get the next 'UpdateSequenceNumber' for a given update type.
     bsoGetNextUpdateSequenceNumber :: UpdatableBlockState m -> UpdateType -> m UpdateSequenceNumber

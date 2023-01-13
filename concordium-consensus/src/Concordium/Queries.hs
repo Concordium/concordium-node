@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -549,10 +550,9 @@ getBlockPendingUpdates = liftSkovQueryBHI query
         flattenUpdateQueues UQ.PendingUpdates{..} =
             queueMapper PUERootKeys _pRootKeysUpdateQueue
                 `merge` queueMapper PUELevel1Keys _pLevel1KeysUpdateQueue
-                `merge` ( case cpv of
-                            SChainParametersV0 -> queueMapper PUELevel2KeysV0 _pLevel2KeysUpdateQueue
-                            SChainParametersV1 -> queueMapper PUELevel2KeysV1 _pLevel2KeysUpdateQueue
-                            SChainParametersV2 -> queueMapper PUELevel2KeysV2 _pLevel2KeysUpdateQueue
+                `merge` ( case sAuthorizationsVersionFor cpv of
+                            SAuthorizationsVersion0 -> queueMapper PUELevel2KeysV0 _pLevel2KeysUpdateQueue
+                            SAuthorizationsVersion1 -> queueMapper PUELevel2KeysV1 _pLevel2KeysUpdateQueue
                         )
                 `merge` queueMapper PUEProtocol _pProtocolQueue
                 `merge` queueMapperO PUEElectionDifficulty _pElectionDifficultyQueue
@@ -566,7 +566,7 @@ getBlockPendingUpdates = liftSkovQueryBHI query
                 `merge` ( case sGasRewardsVersionFor cpv of
                             SGASRewardsVersion0 -> queueMapper PUEGASRewardsV0 _pGASRewardsQueue
                             SGASRewardsVersion1 -> queueMapper PUEGASRewardsV1 _pGASRewardsQueue
-                        ) 
+                        )
                 `merge` ( case sPoolParametersVersionFor cpv of
                             SPoolParametersVersion0 -> queueMapper PUEPoolParametersV0 _pPoolParametersQueue
                             SPoolParametersVersion1 -> queueMapper PUEPoolParametersV1 _pPoolParametersQueue
@@ -576,8 +576,13 @@ getBlockPendingUpdates = liftSkovQueryBHI query
                 `merge` ( case sCooldownParametersVersionFor cpv of
                             SCooldownParametersVersion0 -> []
                             SCooldownParametersVersion1 -> case _pCooldownParametersQueue of
-                                SomeParam queue -> queueMapper PUECooldownParameters queue)
+                                SomeParam queue -> queueMapper PUECooldownParameters queue
+                                NoParam -> case cpv of {}
+                        )
                 `merge` queueMapperO PUETimeParameters _pTimeParametersQueue
+                `merge` queueMapperO PUETimeoutParameters _pTimeoutParametersQueue
+                `merge` queueMapperO PUEMinBlockTime _pMinBlockTimeQueue
+                `merge` queueMapperO PUEBlockEnergyLimit _pBlockEnergyLimitQueue
           where
             cpv :: SChainParametersVersion cpv
             cpv = chainParametersVersion
@@ -611,7 +616,7 @@ data EChainParametersAndKeys = forall (cpv :: ChainParametersVersion).
       IsChainParametersVersion cpv =>
     EChainParametersAndKeys
     { ecpParams :: !(ChainParameters' cpv),
-      ecpKeys :: !(UpdateKeysCollection cpv)
+      ecpKeys :: !(UpdateKeysCollection (AuthorizationsVersionFor cpv))
     }
 
 -- |Get the chain parameters valid at the end of a given block, as well as the address of the foundation account.

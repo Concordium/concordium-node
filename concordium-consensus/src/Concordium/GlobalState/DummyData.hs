@@ -47,6 +47,7 @@ import Concordium.Types.Execution
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy.Char8 as BSL
 import Data.FileEmbed
+import Data.Singletons
 import System.Random
 
 cryptoParamsFileContents :: BS.ByteString
@@ -88,7 +89,7 @@ dummyAuthorizationKeyPair = uncurry SigScheme.KeyPairEd25519 . fst $ randomEd255
 
 {-# NOINLINE dummyAuthorizations #-}
 {-# WARNING dummyAuthorizations "Do not use in production." #-}
-dummyAuthorizations :: IsChainParametersVersion cpv => Authorizations cpv
+dummyAuthorizations :: forall auv. IsAuthorizationsVersion auv => Authorizations auv
 dummyAuthorizations =
     Authorizations
         { asKeys = Vec.singleton (correspondingVerifyKey dummyAuthorizationKeyPair),
@@ -104,8 +105,8 @@ dummyAuthorizations =
           asPoolParameters = theOnly,
           asAddAnonymityRevoker = theOnly,
           asAddIdentityProvider = theOnly,
-          asCooldownParameters = pureWhenSupported theOnly,
-          asTimeParameters = pureWhenSupported theOnly
+          asCooldownParameters = conditionally (sSupportsCooldownParametersAccessStructure (sing @auv)) theOnly,
+          asTimeParameters = conditionally (sSupportsTimeParameters (sing @auv)) theOnly
         }
   where
     theOnly = AccessStructure (Set.singleton 0) 1
@@ -121,7 +122,7 @@ dummyHigherLevelKeys =
 
 {-# NOINLINE dummyKeyCollection #-}
 {-# WARNING dummyKeyCollection "Do not use in production." #-}
-dummyKeyCollection :: IsChainParametersVersion cpv => UpdateKeysCollection cpv
+dummyKeyCollection :: IsAuthorizationsVersion auv => UpdateKeysCollection auv
 dummyKeyCollection =
     UpdateKeysCollection
         { rootKeys = dummyHigherLevelKeys,
@@ -193,7 +194,7 @@ makeTestingGenesisDataP1 ::
     -- |Maximum limit on the total stated energy of the transactions in a block
     Energy ->
     -- |Initial update authorizations
-    UpdateKeysCollection 'ChainParametersV0 ->
+    UpdateKeysCollection 'AuthorizationsVersion0 ->
     -- |Initial chain parameters
     ChainParameters 'P1 ->
     GenesisData 'P1
@@ -250,7 +251,7 @@ makeTestingGenesisDataP5 ::
     -- |Maximum limit on the total stated energy of the transactions in a block
     Energy ->
     -- |Initial update authorizations
-    UpdateKeysCollection 'ChainParametersV1 ->
+    UpdateKeysCollection 'AuthorizationsVersion1 ->
     -- |Initial chain parameters
     ChainParameters 'P5 ->
     GenesisData 'P5
@@ -492,13 +493,14 @@ createRewardDetails accounts = case accountVersion @(AccountVersionFor pv) of
     SAccountV2 -> BlockRewardDetailsV1 $ makeHashed $ createPoolRewards accounts
 
 {-# WARNING createBlockState "Do not use in production" #-}
-createBlockState :: (IsProtocolVersion pv) => Accounts pv -> BlockState pv
+createBlockState :: forall pv. (IsProtocolVersion pv) => Accounts pv -> BlockState pv
 createBlockState accounts =
-    emptyBlockState (emptyBirkParameters accounts) (createRewardDetails accounts) dummyCryptographicParameters dummyKeyCollection dummyChainParameters
-        & (blockAccounts .~ accounts)
-            . (blockBank . unhashed . Rewards.totalGTU .~ sum (map (_accountAmount . snd) (toList (accountTable accounts))))
-            . (blockIdentityProviders . unhashed .~ dummyIdentityProviders)
-            . (blockAnonymityRevokers . unhashed .~ dummyArs)
+    withIsAuthorizationsVersionForPV (protocolVersion @pv) $
+        emptyBlockState (emptyBirkParameters accounts) (createRewardDetails accounts) dummyCryptographicParameters dummyKeyCollection dummyChainParameters
+            & (blockAccounts .~ accounts)
+                . (blockBank . unhashed . Rewards.totalGTU .~ sum (map (_accountAmount . snd) (toList (accountTable accounts))))
+                . (blockIdentityProviders . unhashed .~ dummyIdentityProviders)
+                . (blockAnonymityRevokers . unhashed .~ dummyArs)
 
 {-# WARNING blockStateWithAlesAccount "Do not use in production" #-}
 blockStateWithAlesAccount :: (IsProtocolVersion pv) => Amount -> Accounts pv -> BlockState pv

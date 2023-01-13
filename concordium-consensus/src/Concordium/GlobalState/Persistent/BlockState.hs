@@ -734,7 +734,7 @@ initialPersistentState ::
     [TransientAccount.Account (AccountVersionFor pv)] ->
     IPS.IdentityProviders ->
     ARS.AnonymityRevokers ->
-    UpdateKeysCollection (ChainParametersVersionFor pv) ->
+    UpdateKeysCollection (AuthorizationsVersionForPV pv) ->
     ChainParameters pv ->
     m (HashedPersistentBlockState pv)
 initialPersistentState ss cps accts ips ars keysCollection chainParams = makePersistent $ Basic.initialState ss cps accts ips ars keysCollection chainParams
@@ -746,7 +746,7 @@ emptyBlockState ::
     (SupportsPersistentState pv m) =>
     PersistentBirkParameters (AccountVersionFor pv) ->
     CryptographicParameters ->
-    UpdateKeysCollection (ChainParametersVersionFor pv) ->
+    UpdateKeysCollection (AuthorizationsVersionForPV pv) ->
     ChainParameters pv ->
     m (PersistentBlockState pv)
 {-# WARNING emptyBlockState "should only be used for testing" #-}
@@ -1244,9 +1244,12 @@ redelegatePassive accounts (DelegatorId accId) =
 
 doConfigureBaker ::
     forall pv m.
-    (SupportsPersistentState pv m, PVSupportsDelegation pv, IsSupported 'PTTimeParameters (ChainParametersVersionFor pv) ~ 'True,
-          PoolParametersVersionFor (ChainParametersVersionFor pv) ~ 'PoolParametersVersion1,
-          CooldownParametersVersionFor (ChainParametersVersionFor pv) ~ 'CooldownParametersVersion1) =>
+    ( SupportsPersistentState pv m,
+      PVSupportsDelegation pv,
+      IsSupported 'PTTimeParameters (ChainParametersVersionFor pv) ~ 'True,
+      PoolParametersVersionFor (ChainParametersVersionFor pv) ~ 'PoolParametersVersion1,
+      CooldownParametersVersionFor (ChainParametersVersionFor pv) ~ 'CooldownParametersVersion1
+    ) =>
     PersistentBlockState pv ->
     AccountIndex ->
     BakerConfigure ->
@@ -1548,9 +1551,12 @@ delegationCheckTargetOpen bsp (Transactions.DelegateToBaker bid@(BakerId baid)) 
 
 doConfigureDelegation ::
     forall pv m.
-    (SupportsPersistentState pv m, PVSupportsDelegation pv, IsSupported 'PTTimeParameters (ChainParametersVersionFor pv) ~ 'True,
-          PoolParametersVersionFor (ChainParametersVersionFor pv) ~ 'PoolParametersVersion1,
-          CooldownParametersVersionFor (ChainParametersVersionFor pv) ~ 'CooldownParametersVersion1) =>
+    ( SupportsPersistentState pv m,
+      PVSupportsDelegation pv,
+      IsSupported 'PTTimeParameters (ChainParametersVersionFor pv) ~ 'True,
+      PoolParametersVersionFor (ChainParametersVersionFor pv) ~ 'PoolParametersVersion1,
+      CooldownParametersVersionFor (ChainParametersVersionFor pv) ~ 'CooldownParametersVersion1
+    ) =>
     PersistentBlockState pv ->
     AccountIndex ->
     DelegationConfigure ->
@@ -2607,13 +2613,15 @@ doProcessReleaseSchedule pbs ts = do
             storePBS pbs (bsp{bspAccounts = newAccs, bspReleaseSchedule = newRS})
 
 doGetUpdateKeyCollection ::
+    forall pv m.
     (SupportsPersistentState pv m) =>
     PersistentBlockState pv ->
-    m (UpdateKeysCollection (ChainParametersVersionFor pv))
+    m (UpdateKeysCollection (AuthorizationsVersionForPV pv))
 doGetUpdateKeyCollection pbs = do
     bsp <- loadPBS pbs
     u <- refLoad (bspUpdates bsp)
-    unStoreSerialized <$> refLoad (currentKeyCollection u)
+    withIsAuthorizationsVersionForPV (protocolVersion @pv) $
+        unStoreSerialized <$> refLoad (currentKeyCollection u)
 
 doEnqueueUpdate ::
     (SupportsPersistentState pv m) =>
@@ -2626,10 +2634,15 @@ doEnqueueUpdate pbs effectiveTime payload = do
     u' <- enqueueUpdate effectiveTime payload (bspUpdates bsp)
     storePBS pbs bsp{bspUpdates = u'}
 
-doOverwriteElectionDifficulty :: (SupportsPersistentState pv m,
- ConsensusParametersVersionFor
-                      (ChainParametersVersionFor pv)
-                    ~ 'ConsensusParametersVersion0) => PersistentBlockState pv -> ElectionDifficulty -> m (PersistentBlockState pv)
+doOverwriteElectionDifficulty ::
+    ( SupportsPersistentState pv m,
+      ConsensusParametersVersionFor
+        (ChainParametersVersionFor pv)
+        ~ 'ConsensusParametersVersion0
+    ) =>
+    PersistentBlockState pv ->
+    ElectionDifficulty ->
+    m (PersistentBlockState pv)
 doOverwriteElectionDifficulty pbs newElectionDifficulty = do
     bsp <- loadPBS pbs
     u' <- overwriteElectionDifficulty newElectionDifficulty (bspUpdates bsp)

@@ -290,7 +290,7 @@ class
     -- * Chain updates
 
     -- |Get the current authorized keys for updates.
-    getUpdateKeyCollection :: m (UpdateKeysCollection (ChainParametersVersionFor (MPV m)))
+    getUpdateKeyCollection :: m (UpdateKeysCollection (AuthorizationsVersionForPV (MPV m)))
 
     -- |Get the next sequence number of updates of a given type.
     getNextUpdateSequenceNumber :: UpdateType -> m UpdateSequenceNumber

@@ -206,7 +206,7 @@ data PendingUpdates (cpv :: ChainParametersVersion) = PendingUpdates
       -- |Updates to the level 1 keys.
       pLevel1KeysUpdateQueue :: !(HashedBufferedRef (UpdateQueue (HigherLevelKeys Level1KeysKind))),
       -- |Updates to the level 2 keys.
-      pLevel2KeysUpdateQueue :: !(HashedBufferedRef (UpdateQueue (Authorizations cpv))),
+      pLevel2KeysUpdateQueue :: !(HashedBufferedRef (UpdateQueue (Authorizations (AuthorizationsVersionFor cpv)))),
       -- |Protocol updates.
       pProtocolQueue :: !(HashedBufferedRef (UpdateQueue ProtocolUpdate)),
       -- |Updates to the election difficulty parameter.
@@ -643,7 +643,7 @@ makeBasicPendingUpdates PendingUpdates{..} = withCPVConstraints (chainParameters
 -- |Current state of updatable parameters and update queues.
 data Updates' (cpv :: ChainParametersVersion) = Updates
     { -- |Current update authorizations.
-      currentKeyCollection :: !(HashedBufferedRef (StoreSerialized (UpdateKeysCollection cpv))),
+      currentKeyCollection :: !(HashedBufferedRef (StoreSerialized (UpdateKeysCollection (AuthorizationsVersionFor cpv)))),
       -- |Current protocol update.
       currentProtocolUpdate :: !(Nullable (HashedBufferedRef (StoreSerialized ProtocolUpdate))),
       -- |Current chain parameters.
@@ -669,7 +669,12 @@ migrateUpdates migration Updates{..} = do
                 { level2Keys = migrateAuthorizations migration level2Keys,
                   ..
                 }
-    newKeyCollection <- migrateHashedBufferedRef (return . StoreSerialized . migrateKeysCollection . unStoreSerialized) currentKeyCollection
+    newKeyCollection <-
+        withIsAuthorizationsVersionForPV (protocolVersion @oldpv) $
+            withIsAuthorizationsVersionForPV (protocolVersion @pv) $
+                migrateHashedBufferedRef
+                    (return . StoreSerialized . migrateKeysCollection . unStoreSerialized)
+                    currentKeyCollection
     newParameters <- migrateHashedBufferedRef (return . StoreSerialized . migrateChainParameters migration . unStoreSerialized) currentParameters
     newCurrentProtocolUpdate <- case currentProtocolUpdate of
         Null -> return Null
@@ -686,7 +691,9 @@ type Updates (pv :: ProtocolVersion) = Updates' (ChainParametersVersionFor pv)
 
 instance (MonadBlobStore m, IsChainParametersVersion cpv) => MHashableTo m H.Hash (Updates' cpv) where
     getHashM Updates{..} = do
-        hCA <- getHashM currentKeyCollection
+        hCA <-
+            withIsAuthorizationsVersionFor (chainParametersVersion @cpv) $
+                getHashM currentKeyCollection
         mHCPU <- mapM getHashM currentProtocolUpdate
         hCP <- getHashM currentParameters
         hPU <- getHashM pendingUpdates
@@ -704,7 +711,9 @@ instance
     BlobStorable m (Updates' cpv)
     where
     storeUpdate Updates{..} = do
-        (pKC, kC) <- storeUpdate currentKeyCollection
+        (pKC, kC) <-
+            withIsAuthorizationsVersionFor (chainParametersVersion @cpv) $
+                storeUpdate currentKeyCollection
         (pCPU, cPU) <- storeUpdate currentProtocolUpdate
         (pCP, cP) <- storeUpdate currentParameters
         (pPU, pU) <- storeUpdate pendingUpdates
@@ -717,7 +726,9 @@ instance
                     }
         return (pKC >> pCPU >> pCP >> pPU, newUpdates)
     load = do
-        mKC <- label "Current key collection" load
+        mKC <-
+            withIsAuthorizationsVersionFor (chainParametersVersion @cpv) $
+                label "Current key collection" load
         mCPU <- label "Current protocol update" load
         mCP <- label "Current parameters" load
         mPU <- label "Pending updates" load
@@ -731,7 +742,7 @@ instance
 instance (MonadBlobStore m, IsChainParametersVersion cpv) => Cacheable m (Updates' cpv) where
     cache Updates{..} =
         Updates
-            <$> cache currentKeyCollection
+            <$> withIsAuthorizationsVersionFor (chainParametersVersion @cpv) (cache currentKeyCollection)
             <*> cache currentProtocolUpdate
             <*> cache currentParameters
             <*> cache pendingUpdates
@@ -740,7 +751,7 @@ instance (MonadBlobStore m, IsChainParametersVersion cpv) => Cacheable m (Update
 -- and 'ChainParameters'.
 initialUpdates ::
     (MonadBlobStore m, IsChainParametersVersion cpv) =>
-    UpdateKeysCollection cpv ->
+    UpdateKeysCollection (AuthorizationsVersionFor cpv) ->
     ChainParameters' cpv ->
     m (Updates' cpv)
 initialUpdates initialKeyCollection chainParams = do
@@ -752,10 +763,11 @@ initialUpdates initialKeyCollection chainParams = do
 
 -- |Make a persistent 'Updates' from an in-memory one.
 makePersistentUpdates ::
+    forall m cpv.
     (MonadBlobStore m, IsChainParametersVersion cpv) =>
     UQ.Updates' cpv ->
     m (Updates' cpv)
-makePersistentUpdates UQ.Updates{..} = do
+makePersistentUpdates UQ.Updates{..} = withIsAuthorizationsVersionFor (chainParametersVersion @cpv) $ do
     currentKeyCollection <- refMake (StoreSerialized (_unhashed _currentKeyCollection))
     currentProtocolUpdate <- case _currentProtocolUpdate of
         Nothing -> return Null
@@ -766,10 +778,11 @@ makePersistentUpdates UQ.Updates{..} = do
 
 -- |Convert a persistent 'Updates' to an in-memory 'UQ.Updates'.
 makeBasicUpdates ::
+    forall m cpv.
     (MonadBlobStore m, IsChainParametersVersion cpv) =>
     (Updates' cpv) ->
     m (UQ.Updates' cpv)
-makeBasicUpdates Updates{..} = do
+makeBasicUpdates Updates{..} = withIsAuthorizationsVersionFor (chainParametersVersion @cpv) $ do
     hKC <- getHashM currentKeyCollection
     kc <- unStoreSerialized <$> refLoad currentKeyCollection
     let _currentKeyCollection = Hashed kc hKC
@@ -806,11 +819,12 @@ processValueUpdates t uq noUpdate doUpdate = case ql of
 
 -- |Process root keys updates.
 processRootKeysUpdates ::
+    forall m cpv.
     (MonadBlobStore m, IsChainParametersVersion cpv) =>
     Timestamp ->
     BufferedRef (Updates' cpv) ->
     m (Map.Map TransactionTime (UpdateValue cpv), BufferedRef (Updates' cpv))
-processRootKeysUpdates t bu = do
+processRootKeysUpdates t bu = withIsAuthorizationsVersionFor (chainParametersVersion @cpv) $ do
     u@Updates{..} <- refLoad bu
     rootKeysQueue <- refLoad (pRootKeysUpdateQueue pendingUpdates)
     previousKeyCollection <- unStoreSerialized <$> refLoad currentKeyCollection
@@ -827,11 +841,12 @@ processRootKeysUpdates t bu = do
 
 -- |Process level 1 keys updates.
 processLevel1KeysUpdates ::
+    forall m cpv.
     (MonadBlobStore m, IsChainParametersVersion cpv) =>
     Timestamp ->
     BufferedRef (Updates' cpv) ->
     m (Map.Map TransactionTime (UpdateValue cpv), BufferedRef (Updates' cpv))
-processLevel1KeysUpdates t bu = do
+processLevel1KeysUpdates t bu = withIsAuthorizationsVersionFor (chainParametersVersion @cpv) $ do
     u@Updates{..} <- refLoad bu
     level1KeysQueue <- refLoad (pLevel1KeysUpdateQueue pendingUpdates)
     previousKeyCollection <- unStoreSerialized <$> refLoad currentKeyCollection
@@ -848,11 +863,12 @@ processLevel1KeysUpdates t bu = do
 
 -- |Process level 2 keys updates.
 processLevel2KeysUpdates ::
+    forall m cpv.
     (MonadBlobStore m, IsChainParametersVersion cpv) =>
     Timestamp ->
     BufferedRef (Updates' cpv) ->
     m (Map.Map TransactionTime (UpdateValue cpv), BufferedRef (Updates' cpv))
-processLevel2KeysUpdates t bu = do
+processLevel2KeysUpdates t bu = withIsAuthorizationsVersionFor (chainParametersVersion @cpv) $ do
     u@Updates{..} <- refLoad bu
     level2KeysQueue <- refLoad (pLevel2KeysUpdateQueue pendingUpdates)
     previousKeyCollection <- unStoreSerialized <$> refLoad currentKeyCollection
@@ -1423,11 +1439,13 @@ lookupCurrentParameters uref = do
 
 -- |Serialize updates in V0 format.
 putUpdatesV0 ::
+    forall m cpv.
     (MonadBlobStore m, MonadPut m, IsChainParametersVersion cpv) =>
     Updates' cpv ->
     m ()
 putUpdatesV0 Updates{..} = do
-    sPut . unStoreSerialized =<< refLoad currentKeyCollection
+    withIsAuthorizationsVersionFor (chainParametersVersion @cpv) $
+        sPut . unStoreSerialized =<< refLoad currentKeyCollection
     case currentProtocolUpdate of
         Null -> liftPut $ putWord8 0
         Some pu -> do
@@ -1448,7 +1466,8 @@ lookupPendingTimeParameters uref = do
         SomeParam tpq -> loadQueue tpq
 
 -- |Look up the pending changes to the pool parameters.
-lookupPendingPoolParameters :: forall m cpv.
+lookupPendingPoolParameters ::
+    forall m cpv.
     (MonadBlobStore m, IsChainParametersVersion cpv) =>
     BufferedRef (Updates' cpv) ->
     m [(TransactionTime, PoolParameters cpv)]

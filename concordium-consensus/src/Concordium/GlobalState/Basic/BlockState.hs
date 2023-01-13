@@ -404,7 +404,7 @@ emptyBlockState ::
     BasicBirkParameters (AccountVersionFor pv) ->
     BlockRewardDetails (AccountVersionFor pv) ->
     CryptographicParameters ->
-    UpdateKeysCollection (ChainParametersVersionFor pv) ->
+    UpdateKeysCollection (AuthorizationsVersionForPV pv) ->
     ChainParameters pv ->
     BlockState pv
 {-# WARNING emptyBlockState "should only be used for testing" #-}
@@ -774,7 +774,7 @@ doGetAnonymityRevokers bs arIds =
         let ars = bs ^. blockAnonymityRevokers . unhashed . to ARS.arRevokers
          in forM arIds (`Map.lookup` ars)
 
-doGetUpdateKeysCollection :: (Monad m, HasBlockState s pv, IsProtocolVersion pv) => s -> m (UpdateKeysCollection (ChainParametersVersionFor pv))
+doGetUpdateKeysCollection :: (Monad m, HasBlockState s pv, IsProtocolVersion pv) => s -> m (UpdateKeysCollection (AuthorizationsVersionForPV pv))
 doGetUpdateKeysCollection bs = return $! bs ^. blockUpdates . currentKeyCollection . unhashed
 
 doGetExchangeRates :: (Monad m, HasBlockState s pv) => s -> m ExchangeRates
@@ -2176,7 +2176,7 @@ initialState ::
     [Account (AccountVersionFor pv)] ->
     IPS.IdentityProviders ->
     ARS.AnonymityRevokers ->
-    UpdateKeysCollection (ChainParametersVersionFor pv) ->
+    UpdateKeysCollection (AuthorizationsVersionForPV pv) ->
     ChainParameters pv ->
     BlockState pv
 initialState seedState cryptoParams genesisAccounts ips anonymityRevokers keysCollection chainParams = BlockState{..}

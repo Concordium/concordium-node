@@ -174,7 +174,7 @@ data UpdateValue (cpv :: ChainParametersVersion) where
     -- |Updates to level 1 keys.
     UVLevel1Keys :: forall cpv. !(HigherLevelKeys Level1KeysKind) -> UpdateValue cpv
     -- |Updates to level 2 keys.
-    UVLevel2Keys :: forall cpv. !(Authorizations cpv) -> UpdateValue cpv
+    UVLevel2Keys :: forall cpv. !(Authorizations (AuthorizationsVersionFor cpv)) -> UpdateValue cpv
     -- |Updates to cooldown parameters for chain parameter version 1.
     UVCooldownParameters :: (IsSupported 'PTCooldownParametersAccessStructure cpv ~ 'True) => !(CooldownParameters cpv) -> UpdateValue cpv
     -- |Updates to time parameters for chain parameters version 1.
