@@ -195,17 +195,17 @@ test = do
         let tt = resultingState ^. (transactionTable . ttHashMap)
         HM.member (fst result) tt `shouldBe` expectedInTransactionTable
 
-type TestFunction = [BlockItem] -> Slot -> MyMonad [(TransactionHash, UpdateResult)]
+type TestFunction = [BlockItem] -> Slot -> TestSkovQueryMonad [(TransactionHash, UpdateResult)]
 
-runTransactions :: TestFunction -> [BlockItem] -> UTCTime -> GenesisData PV -> IO ([(TransactionHash, UpdateResult)], MyState)
+runTransactions :: TestFunction -> [BlockItem] -> UTCTime -> GenesisData PV -> IO ([(TransactionHash, UpdateResult)], TestSkovState)
 runTransactions f txs now gData = do
-    runMyMonad' (f txs slot) now gData
+    runTestSkovQueryMonad' (f txs slot) now gData
   where
     slot = 0
 
-type PV = 'P1
-type MyBlockState = HashedPersistentBlockState PV
-type MyState = SkovPersistentData PV MyBlockState
+type PV = 'P5
+type TestBlockState = HashedPersistentBlockState PV
+type TestSkovState = SkovPersistentData PV TestBlockState
 
 newtype FixedTimeT (m :: Type -> Type) a = FixedTime {runDeterministic :: UTCTime -> m a}
     deriving (Functor, Applicative, Monad, MonadIO) via ReaderT UTCTime m
@@ -221,17 +221,17 @@ instance Monad m => MonadLogger (FixedTimeT m) where
 instance Monad m => TimeMonad (FixedTimeT m) where
     currentTime = FixedTime return
 
-type MyBlockStateMonad =
+type TestBlockStateMonad =
     BS.PersistentBlockStateMonad
         PV
         (BS.PersistentBlockStateContext PV)
         ( StateT
-            MyState
+            TestSkovState
             (NoLoggerT (FixedTimeT (Blob.BlobStoreM' (BS.PersistentBlockStateContext PV))))
         )
 
 -- |A composition that implements TreeStateMonad, TimeMonad (via FixedTime) and SkovQueryMonadT.
-type MyMonad = SkovQueryMonadT (PersistentTreeStateMonad MyBlockState MyBlockStateMonad)
+type TestSkovQueryMonad = SkovQueryMonadT (PersistentTreeStateMonad TestBlockState TestBlockStateMonad)
 
 newtype NoLoggerT m a = NoLoggerT {runNoLoggerT :: m a}
     deriving (Functor, Applicative, Monad, MonadIO, MonadReader r, TimeMonad)
@@ -240,8 +240,8 @@ instance Monad m => MonadLogger (NoLoggerT m) where
     logEvent _ _ _ = return ()
 
 -- |Run the given computation in a state consisting of only the genesis block and the state determined by it.
-runMyMonad' :: MyMonad a -> UTCTime -> GenesisData PV -> IO (a, MyState)
-runMyMonad' act time gd = do
+runTestSkovQueryMonad' :: TestSkovQueryMonad a -> UTCTime -> GenesisData PV -> IO (a, TestSkovState)
+runTestSkovQueryMonad' act time gd = do
     withTempDirectory "." "treestate" $ \tsDir -> do
         Blob.runBlobStoreTemp "." $
             BS.withNewAccountCache 1000 $ do
@@ -254,7 +254,7 @@ runMyMonad' act time gd = do
             PV
             (BS.PersistentBlockStateContext PV)
             (Blob.BlobStoreM' (BS.PersistentBlockStateContext PV))
-            MyState
+            TestSkovState
     initialData tsDir = do
         (bs, genTT) <-
             genesisState gd >>= \case
@@ -280,10 +280,10 @@ maxBlockEnergy = 3_000_000
 -- |Construct a genesis state with hardcoded values for parameters that should not affect this test.
 -- Modify as you see fit.
 testGenesisData :: UTCTime -> IdentityProviders -> AnonymityRevokers -> CryptographicParameters -> GenesisData PV
-testGenesisData now ips ars cryptoParams = makeTestingGenesisDataP1 (utcTimeToTimestamp now) 1 1 1 dummyFinalizationCommitteeMaxSize cryptoParams ips ars maxBlockEnergy dummyKeyCollection dummyChainParameters
+testGenesisData now ips ars cryptoParams = makeTestingGenesisDataP5 (utcTimeToTimestamp now) 1 1 1 dummyFinalizationCommitteeMaxSize cryptoParams ips ars maxBlockEnergy dummyKeyCollection dummyChainParameters
 
 -- |Run the doReceiveTransaction function and obtain the results
-testDoReceiveTransaction :: [BlockItem] -> Slot -> MyMonad [(TransactionHash, UpdateResult)]
+testDoReceiveTransaction :: [BlockItem] -> Slot -> TestSkovQueryMonad [(TransactionHash, UpdateResult)]
 testDoReceiveTransaction trs _ =
     mapM
         ( \tr ->
@@ -293,7 +293,7 @@ testDoReceiveTransaction trs _ =
         trs
 
 -- |Run the doReceiveTransactionInternal function and obtain the results
-testDoReceiveTransactionInternal :: [BlockItem] -> Slot -> MyMonad [(TransactionHash, UpdateResult)]
+testDoReceiveTransactionInternal :: [BlockItem] -> Slot -> TestSkovQueryMonad [(TransactionHash, UpdateResult)]
 testDoReceiveTransactionInternal trs slot = do
     theTime <- currentTime
     bs <- queryBlockState =<< lastFinalizedBlock
