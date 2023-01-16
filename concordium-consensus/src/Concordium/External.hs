@@ -19,8 +19,8 @@ import Data.Word
 import Foreign
 import Foreign.C
 import Lens.Micro.Platform
-import qualified Proto.Concordium.Types as Proto
-import qualified Proto.Concordium.Types_Fields as ProtoFields
+import qualified Proto.V2.Concordium.Types as Proto
+import qualified Proto.V2.Concordium.Types_Fields as ProtoFields
 import System.Directory
 import System.FilePath
 import Text.Read (readMaybe)

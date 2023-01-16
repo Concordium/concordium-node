@@ -31,7 +31,7 @@ fn main() -> std::io::Result<()> {
 
     // Build GRPC
 
-    let proto_root_input = format!("{}/../concordium-grpc-api", cargo_dir);
+    let proto_root_input = format!("{}/../concordium-base/concordium-grpc-api", cargo_dir);
     let proto = format!("{}/concordium_p2p_rpc.proto", proto_root_input);
 
     println!("cargo:rerun-if-changed={}", proto);
