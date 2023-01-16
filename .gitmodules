@@ -1,6 +1,3 @@
-[submodule "concordium-grpc-api"]
-	path = concordium-grpc-api
-	url = ../concordium-grpc-api.git
 [submodule "deps/external/noiseexplorer_xx"]
 	path = deps/external/noiseexplorer_xx
 	url = ../noiseexplorer_xx.git

@@ -72,6 +72,7 @@ import qualified Concordium.ID.Parameters as ID
 import qualified Concordium.ID.Types as ID
 import Concordium.Kontrol.Bakers
 import Concordium.Logger (MonadLogger)
+import Concordium.TimeMonad (TimeMonad)
 import Concordium.Types
 import Concordium.Types.Accounts (AccountBaker (..))
 import qualified Concordium.Types.Accounts as BaseAccounts
@@ -3260,7 +3261,7 @@ withNewAccountCache size bsm = do
     alterBlobStoreT (\bs -> PersistentBlockStateContext bs ac mc) bsm
 
 newtype PersistentBlockStateMonad (pv :: ProtocolVersion) (r :: Type) (m :: Type -> Type) (a :: Type) = PersistentBlockStateMonad {runPersistentBlockStateMonad :: m a}
-    deriving (Functor, Applicative, Monad, MonadIO, MonadReader r, MonadLogger)
+    deriving (Functor, Applicative, Monad, MonadIO, MonadReader r, MonadLogger, TimeMonad, MTL.MonadState s)
 
 type PersistentState av pv r m =
     ( MonadIO m,
