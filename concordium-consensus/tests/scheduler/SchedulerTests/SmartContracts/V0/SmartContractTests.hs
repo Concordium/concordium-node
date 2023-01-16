@@ -41,7 +41,7 @@ import Concordium.Scheduler.DummyData
 import Concordium.Scheduler.Runner (PayloadJSON (..), TransactionJSON (..))
 import Concordium.Scheduler.Types (Amount, ContractAddress (..), Event, RejectReason (..))
 import qualified Concordium.Scheduler.Types as Types
-import Concordium.Wasm (WasmVersion (..))
+import Concordium.Wasm (InitName (..), Parameter (..), WasmVersion (..))
 import qualified SchedulerTests.Helpers as Helpers
 
 tests :: Spec
@@ -92,7 +92,9 @@ runInitTestsFromFile _ testCaseDescription testFile testCases =
                               keys = [(0, [(0, keyPair0)])]
                             },
                       taaAssertion = \result _ ->
-                        return $ Helpers.assertSuccess result
+                        return $ do
+                            Helpers.assertSuccess result
+                            Helpers.assertUsedEnergyDeploymentV0 testFile result
                     },
                   Helpers.TransactionAndAssertion
                     { taaTransaction =
@@ -102,7 +104,14 @@ runInitTestsFromFile _ testCaseDescription testFile testCases =
                               keys = [(0, [(0, keyPair0)])]
                             },
                       taaAssertion = \result _ ->
-                        return $ resSpec result
+                        return $ do
+                            Helpers.assertUsedEnergyInitialization
+                                testFile
+                                (InitName testName)
+                                (Parameter initParam)
+                                Nothing
+                                result
+                            resSpec result
                     }
                 ]
 
@@ -136,7 +145,9 @@ runReceiveTestsFromFile _ testCaseDescription testFile testCases =
                               keys = [(0, [(0, keyPair0)])]
                             },
                       taaAssertion = \result _ ->
-                        return $ Helpers.assertSuccess result
+                        return $ do
+                            Helpers.assertSuccess result
+                            Helpers.assertUsedEnergyDeploymentV0 testFile result
                     },
                   Helpers.TransactionAndAssertion
                     { taaTransaction =
@@ -146,7 +157,14 @@ runReceiveTestsFromFile _ testCaseDescription testFile testCases =
                               keys = [(0, [(0, keyPair0)])]
                             },
                       taaAssertion = \result _ ->
-                        return $ Helpers.assertSuccess result
+                        return $ do
+                            Helpers.assertSuccess result
+                            Helpers.assertUsedEnergyInitialization
+                                testFile
+                                (InitName "init_test")
+                                (Parameter "")
+                                Nothing
+                                result
                     },
                   Helpers.TransactionAndAssertion
                     { taaTransaction =

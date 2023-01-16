@@ -128,7 +128,9 @@ accountBalanceTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV1 accountBalanceSourceFile result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -138,7 +140,14 @@ accountBalanceTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyInitialization
+                        accountBalanceSourceFile
+                        (InitName "init_contract")
+                        (Parameter "")
+                        Nothing
+                        result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -193,7 +202,9 @@ accountBalanceInvokerTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV1 accountBalanceSourceFile result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -203,7 +214,14 @@ accountBalanceInvokerTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyInitialization
+                        accountBalanceSourceFile
+                        (InitName "init_contract")
+                        (Parameter "")
+                        Nothing
+                        result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -253,7 +271,9 @@ accountBalanceTransferTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV1 accountBalanceTransferSourceFile result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -263,7 +283,14 @@ accountBalanceTransferTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyInitialization
+                        accountBalanceTransferSourceFile
+                        (InitName "init_contract")
+                        (Parameter "")
+                        Nothing
+                        result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -314,7 +341,9 @@ accountBalanceMissingAccountTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV1 accountBalanceMissingAccountSourceFile result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -324,7 +353,14 @@ accountBalanceMissingAccountTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyInitialization
+                        accountBalanceMissingAccountSourceFile
+                        (InitName "init_contract")
+                        (Parameter "")
+                        Nothing
+                        result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -370,7 +406,9 @@ contractBalanceTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV1 contractBalanceSourceFile result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -380,7 +418,14 @@ contractBalanceTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyInitialization
+                        contractBalanceSourceFile
+                        (InitName "init_contract")
+                        (Parameter "")
+                        Nothing
+                        result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -436,7 +481,9 @@ contractBalanceSelfTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV1 contractBalanceSourceFile result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -446,7 +493,14 @@ contractBalanceSelfTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyInitialization
+                        contractBalanceSourceFile
+                        (InitName "init_contract")
+                        (Parameter "")
+                        Nothing
+                        result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -479,7 +533,7 @@ contractBalanceTransferTestCase ::
     SpecWith (Arg Assertion)
 contractBalanceTransferTestCase spv pvString =
     when (Types.supportsChainQueryContracts spv) $
-        specify (pvString ++ ": Query the balance a contract") $
+        specify (pvString ++ ": Query the balance of a contract") $
             Helpers.runSchedulerTestAssertIntermediateStates
                 @pv
                 Helpers.defaultTestConfig
@@ -496,7 +550,9 @@ contractBalanceTransferTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV1 contractBalanceTransferSourceFile result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -506,7 +562,14 @@ contractBalanceTransferTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyInitialization
+                        contractBalanceTransferSourceFile
+                        (InitName "init_contract")
+                        (Parameter "")
+                        Nothing
+                        result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -561,7 +624,9 @@ contractBalanceMissingContractTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV1 contractBalanceMissingContractSourceFile result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -571,7 +636,14 @@ contractBalanceMissingContractTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyInitialization
+                        contractBalanceMissingContractSourceFile
+                        (InitName "init_contract")
+                        (Parameter "")
+                        Nothing
+                        result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -618,7 +690,9 @@ exchangeRatesTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV1 exchangeRatesSourceFile result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -628,7 +702,14 @@ exchangeRatesTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyInitialization
+                        exchangeRatesSourceFile
+                        (InitName "init_contract")
+                        (Parameter "")
+                        Nothing
+                        result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -679,7 +760,9 @@ allTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV1 allSourceFile result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -689,7 +772,14 @@ allTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyInitialization
+                        allSourceFile
+                        (InitName "init_contract")
+                        (Parameter "")
+                        Nothing
+                        result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =

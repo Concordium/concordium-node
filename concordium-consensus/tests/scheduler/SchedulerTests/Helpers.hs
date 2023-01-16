@@ -765,8 +765,8 @@ assertFailureWithReason expectedReason result =
 -- |Assert the scheduler have used energy the exact energy needed to deploy a provided V0 smart
 -- contract module. Assuming the transaction was signed with a single signature.
 -- The provided module should be a WASM module and without the smart contract version prefix.
-assertDeploymentV0Energy :: FilePath -> SchedulerResult -> Assertion
-assertDeploymentV0Energy sourceFile result = do
+assertUsedEnergyDeploymentV0 :: FilePath -> SchedulerResult -> Assertion
+assertUsedEnergyDeploymentV0 sourceFile result = do
     contractModule <- readV0ModuleFile sourceFile
     let len = fromIntegral $ ByteString.length $ Wasm.wasmSource contractModule
         -- size of the module deploy payload
@@ -781,3 +781,53 @@ assertDeploymentV0Energy sourceFile result = do
         "Deployment has correct cost "
         (Cost.baseCost txSize 1 + Cost.deployModuleCost len)
         (srUsedEnergy result)
+
+-- |Assert the scheduler have used energy the exact energy needed to deploy a provided V1 smart
+-- contract module. Assuming the transaction was signed with a single signature.
+-- The provided module should be a WASM module and without the smart contract version prefix.
+assertUsedEnergyDeploymentV1 :: FilePath -> SchedulerResult -> Assertion
+assertUsedEnergyDeploymentV1 sourceFile result = do
+    contractModule <- readV0ModuleFile sourceFile
+    let len = fromIntegral $ ByteString.length $ Wasm.wasmSource contractModule
+        payload = Types.DeployModule contractModule
+        -- size of the module deploy payload
+        payloadSize = Types.payloadSize $ Types.encodePayload payload
+        -- size of the transaction minus the signatures.
+        txSize = Types.transactionHeaderSize + fromIntegral payloadSize
+    -- transaction is signed with 1 signature
+    assertEqual
+        "Deployment has correct cost "
+        (Cost.baseCost txSize 1 + Cost.deployModuleCost len)
+        (srUsedEnergy result)
+
+-- |Assert the scheduler have used energy at least the administrative energy needed to
+-- initialization a smart contract. Assuming the transaction was signed with a single signature.
+-- The provided module should be a WASM module and without the smart contract version prefix.
+--
+-- It is not practical to check the exact cost because the execution cost of the init function is hard to
+-- have an independent number for, other than executing.
+assertUsedEnergyInitialization ::
+    FilePath ->
+    Wasm.InitName ->
+    Wasm.Parameter ->
+    Maybe Wasm.ByteSize ->
+    SchedulerResult ->
+    Assertion
+assertUsedEnergyInitialization sourceFile initName parameter initialStateSize result = do
+    moduleSource <- ByteString.readFile sourceFile
+    let modLen = fromIntegral $ ByteString.length moduleSource
+        modRef = Types.ModuleRef (Hash.hash moduleSource)
+        payload = Types.InitContract 0 modRef initName parameter
+        payloadSize = Types.payloadSize $ Types.encodePayload payload
+        -- size of the transaction minus the signatures.
+        txSize = Types.transactionHeaderSize + fromIntegral payloadSize
+        -- transaction is signed with 1 signature
+        baseTxCost = Cost.baseCost txSize 1
+        -- lower bound on the cost of the transaction, assuming no interpreter energy
+        costLowerBound = baseTxCost + Cost.initializeContractInstanceCost 0 modLen initialStateSize
+    unless (srUsedEnergy result >= costLowerBound) $
+        assertFailure $
+            "Actual initialization cost "
+                ++ show (srUsedEnergy result)
+                ++ " not more than lower bound "
+                ++ show costLowerBound

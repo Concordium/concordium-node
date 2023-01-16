@@ -70,11 +70,13 @@ testCase spv pvString =
             { taaTransaction =
                 TJSON
                     { payload = DeployModule wasmModVersion transferSourceFile,
-                      metadata = makeDummyHeader accountAddress0 1 100000,
+                      metadata = makeDummyHeader accountAddress0 1 100_000,
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV1 transferSourceFile result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -87,6 +89,12 @@ testCase spv pvString =
                 doStateAssertion <- transferSpec state
                 return $ do
                     Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyInitialization
+                        transferSourceFile
+                        (InitName "init_transfer")
+                        (Parameter "")
+                        Nothing
+                        result
                     doStateAssertion
             },
           Helpers.TransactionAndAssertion
@@ -150,7 +158,7 @@ testCase spv pvString =
         return $ case maybeInstance of
             Nothing -> assertFailure "Instance at <0,0> does not exist."
             Just (BS.InstanceInfoV0 _) -> assertFailure "Expected V1 instance, but got V0."
-            Just (BS.InstanceInfoV1 ii) -> do
+            Just (BS.InstanceInfoV1 ii) ->
                 assertEqual "Contract has 0 CCD." (Types.Amount 0) (BS.iiBalance ii)
 
     -- Check that the contract has the deposited amount (1000) minus 17 microCCD on its account.
@@ -160,5 +168,5 @@ testCase spv pvString =
         return $ case maybeInstance of
             Nothing -> assertFailure "Instance at <0,0> does not exist."
             Just (BS.InstanceInfoV0 _) -> assertFailure "Expected V1 instance, but got V0."
-            Just (BS.InstanceInfoV1 ii) -> do
+            Just (BS.InstanceInfoV1 ii) ->
                 assertEqual "Contract has 983 CCD." (Types.Amount (1000 - 17)) (BS.iiBalance ii)

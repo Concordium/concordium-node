@@ -49,6 +49,9 @@ keyPair0 = Helpers.keyPairFromSeed 0
 toAddr :: BSS.ShortByteString
 toAddr = BSS.toShort (encode accountAddress0)
 
+contractSourceFile :: FilePath
+contractSourceFile = "./testdata/contracts/try-send-test.wasm"
+
 errorHandlingTest ::
     forall pv.
     Types.IsProtocolVersion pv =>
@@ -70,29 +73,38 @@ errorHandlingTest _ pvString =
         [ Helpers.TransactionAndAssertion
             { taaTransaction =
                 TJSON
-                    { payload = DeployModule V0 "./testdata/contracts/try-send-test.wasm",
+                    { payload = DeployModule V0 contractSourceFile,
                       metadata = makeDummyHeader accountAddress0 1 100_000,
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV0 contractSourceFile result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
                 TJSON
-                    { payload = InitContract 0 V0 "./testdata/contracts/try-send-test.wasm" "init_try" "",
-                      metadata = makeDummyHeader accountAddress0 2 100000,
+                    { payload = InitContract 0 V0 contractSourceFile "init_try" "",
+                      metadata = makeDummyHeader accountAddress0 2 100_000,
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyInitialization
+                        contractSourceFile
+                        (InitName "init_try")
+                        (Parameter "")
+                        Nothing
+                        result
             },
           -- valid account, should succeed in transferring
           Helpers.TransactionAndAssertion
             { taaTransaction =
                 TJSON
                     { payload = Update 11 (Types.ContractAddress 0 0) "try.receive" toAddr,
-                      metadata = makeDummyHeader accountAddress0 3 70000,
+                      metadata = makeDummyHeader accountAddress0 3 70_000,
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
@@ -120,7 +132,7 @@ errorHandlingTest _ pvString =
             { taaTransaction =
                 TJSON
                     { payload = Update 11 (Types.ContractAddress 0 0) "try.receive" (BSS.pack (replicate 32 0)),
-                      metadata = makeDummyHeader accountAddress0 4 70000,
+                      metadata = makeDummyHeader accountAddress0 4 70_000,
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->

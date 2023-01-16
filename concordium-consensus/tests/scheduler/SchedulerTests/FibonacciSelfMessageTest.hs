@@ -21,7 +21,6 @@ import Data.Serialize (putWord64le, runPut)
 import Data.Word
 
 import qualified Concordium.Cost as Cost
-import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Persistent.BlockState as BS
 import qualified Concordium.GlobalState.Persistent.Instances as Instances
@@ -85,8 +84,9 @@ testCase1 _ pvString =
                       keys = [(0, [(0, Helpers.keyPairFromSeed 0)])]
                     },
               taaAssertion = \result _ ->
-                return $
-                    Helpers.assertDeploymentV0Energy fibSourceFile result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV0 fibSourceFile result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -95,7 +95,15 @@ testCase1 _ pvString =
                       metadata = makeDummyHeader accountAddress0 2 100_000,
                       keys = [(0, [(0, Helpers.keyPairFromSeed 0)])]
                     },
-              taaAssertion = initializationCostCheck
+              taaAssertion = \result _ ->
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyInitialization
+                        fibSourceFile
+                        (InitName "init_fib")
+                        (Parameter "")
+                        (Just 8) -- The initial state size should be 8 bytes.
+                        result
             },
           -- compute F(10)
           Helpers.TransactionAndAssertion
@@ -108,33 +116,6 @@ testCase1 _ pvString =
               taaAssertion = ensureAllUpdates
             }
         ]
-
-    -- check that the initialization cost was at least the administrative cost.
-    -- It is not practical to check the exact cost because the execution cost of the init function is hard to
-    -- have an independent number for, other than executing.
-    initializationCostCheck ::
-        Helpers.SchedulerResult ->
-        BS.PersistentBlockState pv ->
-        Helpers.PersistentBSM pv Assertion
-    initializationCostCheck Helpers.SchedulerResult{..} _ = return $ do
-        moduleSource <- wasmSource <$> Helpers.readV0ModuleFile fibSourceFile
-        let modLen = fromIntegral $ BS.length moduleSource
-            modRef = Types.ModuleRef $ Hash.hash moduleSource
-            payloadSize =
-                Types.payloadSize $
-                    Types.encodePayload $
-                        Types.InitContract 0 modRef (InitName "init_fib") (Parameter "")
-            -- size of the transaction minus the signatures.
-            txSize = Types.transactionHeaderSize + fromIntegral payloadSize
-            -- transaction is signed with 1 signature
-            baseTxCost = Cost.baseCost txSize 1
-            -- lower bound on the cost of the transaction, assuming no interpreter energy
-            -- we know the size of the state should be 8 bytes
-            costLowerBound = baseTxCost + Cost.initializeContractInstanceCost 0 modLen (Just 8)
-        unless (srUsedEnergy >= costLowerBound) $
-            assertFailure $
-                "Actual initialization cost " ++ show srUsedEnergy ++ " not more than lower bound " ++ show costLowerBound
-
     ensureAllUpdates ::
         Helpers.SchedulerResult ->
         BS.PersistentBlockState pv ->

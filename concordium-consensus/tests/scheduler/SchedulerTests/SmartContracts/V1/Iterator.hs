@@ -71,27 +71,36 @@ test1 spv pvString =
             { taaTransaction =
                 TJSON
                     { payload = DeployModule wasmModVersion iteratorSourceFile,
-                      metadata = makeDummyHeader accountAddress0 1 100000,
+                      metadata = makeDummyHeader accountAddress0 1 100_000,
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV1 iteratorSourceFile result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
                 TJSON
                     { payload = InitContract 0 wasmModVersion iteratorSourceFile "init_iterator" "",
-                      metadata = makeDummyHeader accountAddress0 2 100000,
+                      metadata = makeDummyHeader accountAddress0 2 100_000,
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyInitialization
+                        iteratorSourceFile
+                        (InitName "init_iterator")
+                        (Parameter "")
+                        Nothing
+                        result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
                 TJSON
                     { payload = Update 0 (Types.ContractAddress 0 0) "iterator.iteratetest" BSS.empty,
-                      metadata = makeDummyHeader accountAddress0 3 100000,
+                      metadata = makeDummyHeader accountAddress0 3 100_000,
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
@@ -101,7 +110,7 @@ test1 spv pvString =
             { taaTransaction =
                 TJSON
                     { payload = Update 0 (Types.ContractAddress 0 0) "iterator.lockingtest" BSS.empty,
-                      metadata = makeDummyHeader accountAddress0 4 100000,
+                      metadata = makeDummyHeader accountAddress0 4 100_000,
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->

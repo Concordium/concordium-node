@@ -242,7 +242,9 @@ deployAndInitTransactions =
                   keys = [(0, [(0, keyPair0)])]
                 },
           taaAssertion = \result _ ->
-            return $ Helpers.assertSuccess result
+            return $ do
+                Helpers.assertSuccess result
+                Helpers.assertUsedEnergyDeploymentV0 sourceFile result
         },
       Helpers.TransactionAndAssertion
         { taaTransaction =
@@ -252,7 +254,14 @@ deployAndInitTransactions =
                   keys = [(0, [(0, keyPair0)])]
                 },
           taaAssertion = \result _ ->
-            return $ Helpers.assertSuccess result
+            return $ do
+                Helpers.assertSuccess result
+                Helpers.assertUsedEnergyInitialization
+                    sourceFile
+                    (InitName "init_relax")
+                    (Parameter "")
+                    Nothing
+                    result
         }
     ]
 

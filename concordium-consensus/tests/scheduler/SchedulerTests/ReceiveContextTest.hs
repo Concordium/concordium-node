@@ -45,15 +45,21 @@ initialBlockState ::
     Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
 initialBlockState =
     Helpers.createTestBlockStateWithAccountsM
-        [ Helpers.makeTestAccount (SigScheme.correspondingVerifyKey keyPair1) (sender1 $ protocolVersion @pv) 1_000_000_000,
-          Helpers.makeTestAccount (SigScheme.correspondingVerifyKey keyPair2) (sender2 $ protocolVersion @pv) 1_000_000_000
+        [ Helpers.makeTestAccount
+            (SigScheme.correspondingVerifyKey keyPair1)
+            (sender1 $ protocolVersion @pv)
+            1_000_000_000,
+          Helpers.makeTestAccount
+            (SigScheme.correspondingVerifyKey keyPair2)
+            (sender2 $ protocolVersion @pv)
+            1_000_000_000
         ]
 
 accountAddress1 :: Types.AccountAddress
-accountAddress1 = AccountAddress $ pack $ take accountAddressSize $ repeat 1
+accountAddress1 = AccountAddress $ pack $ replicate accountAddressSize 1
 
 accountAddress2 :: Types.AccountAddress
-accountAddress2 = AccountAddress $ pack $ take accountAddressSize $ repeat 2
+accountAddress2 = AccountAddress $ pack $ replicate accountAddressSize 2
 
 keyPair1 :: SigScheme.KeyPair
 keyPair1 = Helpers.keyPairFromSeed 1
@@ -63,12 +69,12 @@ keyPair2 = Helpers.keyPairFromSeed 2
 
 sender1 :: forall pv. IsProtocolVersion pv => SProtocolVersion pv -> Types.AccountAddress
 sender1 spv
-    | demoteProtocolVersion spv >= P3 = createAlias accountAddress1 17
+    | supportsAccountAliases spv = createAlias accountAddress1 17
     | otherwise = accountAddress1
 
 sender2 :: forall pv. IsProtocolVersion pv => SProtocolVersion pv -> Types.AccountAddress
 sender2 spv
-    | demoteProtocolVersion spv >= P3 = createAlias accountAddress2 77
+    | supportsAccountAliases spv = createAlias accountAddress2 77
     | otherwise = accountAddress2
 
 wasmPath :: String
@@ -77,27 +83,27 @@ wasmPath = "./testdata/contracts/send/target/concordium/wasm32-unknown-unknown/r
 transactionInputs :: [TransactionJSON]
 transactionInputs =
     [ TJSON
-        { metadata = makeDummyHeader accountAddress1 1 100000,
+        { metadata = makeDummyHeader accountAddress1 1 100_000,
           payload = DeployModule V0 wasmPath,
           keys = [(0, [(0, keyPair1)])]
         },
       TJSON
-        { metadata = makeDummyHeader accountAddress1 2 100000,
+        { metadata = makeDummyHeader accountAddress1 2 100_000,
           payload = InitContract 0 V0 wasmPath "init_c10" "",
           keys = [(0, [(0, keyPair1)])]
         },
       TJSON
-        { metadata = makeDummyHeader accountAddress1 3 100000,
+        { metadata = makeDummyHeader accountAddress1 3 100_000,
           payload = InitContract 42 V0 wasmPath "init_c10" "",
           keys = [(0, [(0, keyPair1)])]
         },
       TJSON
-        { metadata = makeDummyHeader accountAddress1 4 100000,
+        { metadata = makeDummyHeader accountAddress1 4 100_000,
           payload = InitContract 0 V0 wasmPath "init_c20" "",
           keys = [(0, [(0, keyPair1)])]
         },
       TJSON
-        { metadata = makeDummyHeader accountAddress2 1 100000,
+        { metadata = makeDummyHeader accountAddress2 1 100_000,
           payload = Update 5 (Types.ContractAddress 2 0) "c20.call_c10" "",
           keys = [(0, [(0, keyPair2)])]
         }

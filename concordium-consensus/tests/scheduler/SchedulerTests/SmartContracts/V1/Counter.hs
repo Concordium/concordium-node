@@ -79,7 +79,9 @@ test1 spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV1 counterSourceFile result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -92,6 +94,12 @@ test1 spv pvString =
                 doAssertState <- assertCounterState 0 state
                 return $ do
                     Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyInitialization
+                        counterSourceFile
+                        (InitName "init_counter")
+                        (Parameter "")
+                        Nothing
+                        result
                     doAssertState
             },
           Helpers.TransactionAndAssertion

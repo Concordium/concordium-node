@@ -60,12 +60,6 @@ accountAddress0 = Helpers.accountAddressFromSeed 0
 keyPair0 :: SigScheme.KeyPair
 keyPair0 = Helpers.keyPairFromSeed 0
 
--- initialBlockState :: BlockState PV5
--- initialBlockState =
---     blockStateWithAlesAccount
---         100000000
---         (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 100000000) Acc.emptyAccounts)
-
 -- |A module that is used as a base for upgrading.
 upgrading0SourceFile :: FilePath
 upgrading0SourceFile = "./testdata/contracts/v1/upgrading_0.wasm"
@@ -108,7 +102,9 @@ upgradingTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV1 upgrading0SourceFile result
             },
           -- Deploy upgrading_1.wasm
           Helpers.TransactionAndAssertion
@@ -119,7 +115,9 @@ upgradingTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV1 upgrading1SourceFile result
             },
           -- Initialize upgrading_0.wasm
           Helpers.TransactionAndAssertion
@@ -130,7 +128,14 @@ upgradingTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyInitialization
+                        upgrading0SourceFile
+                        (InitName "init_a")
+                        (Parameter "")
+                        Nothing
+                        result
             },
           -- Invoke the `upgrade` by calling 'a.upgrade' with the resulting 'ModuleRef' of
           -- deploying upgrade_1.wasm.
@@ -202,7 +207,7 @@ selfInvokeSourceFile0 = "./testdata/contracts/v1/upgrading-self-invoke0.wasm"
 selfInvokeSourceFile1 :: FilePath
 selfInvokeSourceFile1 = "./testdata/contracts/v1/upgrading-self-invoke1.wasm"
 
--- | The contract in this test, triggers an upgrade and then in the same invocation, calls a
+-- | The contract in this test triggers an upgrade and then in the same invocation calls a
 -- function in the upgraded module. Checking the new module is being used.
 selfInvokeTestCase ::
     forall pv.
@@ -229,7 +234,9 @@ selfInvokeTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV1 selfInvokeSourceFile0 result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -239,7 +246,14 @@ selfInvokeTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyInitialization
+                        selfInvokeSourceFile0
+                        (InitName "init_contract")
+                        (Parameter "")
+                        Nothing
+                        result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -249,7 +263,9 @@ selfInvokeTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV1 selfInvokeSourceFile1 result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -315,7 +331,9 @@ missingModuleTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV1 missingModuleSourceFile result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -325,7 +343,14 @@ missingModuleTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyInitialization
+                        missingModuleSourceFile
+                        (InitName "init_contract")
+                        (Parameter "")
+                        Nothing
+                        result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -379,7 +404,9 @@ missingContractTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV1 missingContractSourceFile0 result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -389,7 +416,14 @@ missingContractTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyInitialization
+                        missingContractSourceFile0
+                        (InitName "init_contract")
+                        (Parameter "")
+                        Nothing
+                        result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -399,7 +433,9 @@ missingContractTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV1 missingContractSourceFile1 result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -454,7 +490,9 @@ unsupportedVersionTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV1 unsupportedVersionSourceFile0 result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -464,7 +502,14 @@ unsupportedVersionTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyInitialization
+                        unsupportedVersionSourceFile0
+                        (InitName "init_contract")
+                        (Parameter "")
+                        Nothing
+                        result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -533,7 +578,9 @@ twiceTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV1 twiceSourceFile0 result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -543,7 +590,14 @@ twiceTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyInitialization
+                        upgrading0SourceFile
+                        (InitName "init_contract")
+                        (Parameter "")
+                        Nothing
+                        result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -553,7 +607,9 @@ twiceTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV1 twiceSourceFile1 result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -563,7 +619,9 @@ twiceTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV1 twiceSourceFile2 result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -625,7 +683,9 @@ chainedTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV1 chainedSourceFile0 result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -635,7 +695,14 @@ chainedTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyInitialization
+                        chainedSourceFile0
+                        (InitName "init_contract")
+                        (Parameter "")
+                        Nothing
+                        result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -699,7 +766,9 @@ rejectTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV1 rejectSourceFile0 result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -709,7 +778,14 @@ rejectTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyInitialization
+                        upgrading0SourceFile
+                        (InitName "init_contract")
+                        (Parameter "")
+                        Nothing
+                        result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -719,7 +795,9 @@ rejectTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV1 rejectSourceFile1 result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -784,7 +862,9 @@ changingEntrypointsTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV1 changingEntrypointsSourceFile0 result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -794,7 +874,14 @@ changingEntrypointsTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyInitialization
+                        changingEntrypointsSourceFile0
+                        (InitName "init_contract")
+                        (Parameter "")
+                        Nothing
+                        result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -804,7 +891,9 @@ changingEntrypointsTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV1 changingEntrypointsSourceFile1 result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -914,7 +1003,9 @@ persistingStateTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV1 persistingStateSourceFile0 result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -924,7 +1015,14 @@ persistingStateTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyInitialization
+                        persistingStateSourceFile0
+                        (InitName "init_contract")
+                        (Parameter "")
+                        Nothing
+                        result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -934,7 +1032,9 @@ persistingStateTestCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV1 persistingStateSourceFile1 result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =

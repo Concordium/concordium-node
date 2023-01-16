@@ -101,7 +101,9 @@ checkpointingTest1 spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV1 checkpointingSourceFile result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -111,7 +113,14 @@ checkpointingTest1 spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyInitialization
+                        checkpointingSourceFile
+                        (InitName "init_a")
+                        (Parameter "")
+                        Nothing
+                        result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -121,7 +130,14 @@ checkpointingTest1 spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyInitialization
+                        checkpointingSourceFile
+                        (InitName "init_b")
+                        (Parameter "")
+                        Nothing
+                        result
             },
           -- We supply one micro CCD as we expect a trap from a v1 contract.
           -- See the contract for details.
@@ -189,7 +205,9 @@ checkpointingTest2 spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV1 checkpointingSourceFile result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -199,7 +217,14 @@ checkpointingTest2 spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyInitialization
+                        checkpointingSourceFile
+                        (InitName "init_a")
+                        (Parameter "")
+                        Nothing
+                        result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -209,7 +234,14 @@ checkpointingTest2 spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyInitialization
+                        checkpointingSourceFile
+                        (InitName "init_b")
+                        (Parameter "")
+                        Nothing
+                        result
             },
           -- We supply zero micro CCDs as we're instructing the contract to not expect state modifications also the contract
           -- does not expect errors i.e. a trap signal from underlying invocations.
@@ -219,7 +251,7 @@ checkpointingTest2 spv pvString =
             { taaTransaction =
                 TJSON
                     { payload = Update 0 (Types.ContractAddress 0 0) "a.a_modify_proxy" parameters,
-                      metadata = makeDummyHeader accountAddress0 4 100000,
+                      metadata = makeDummyHeader accountAddress0 4 100_000,
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
@@ -275,7 +307,9 @@ checkpointingTest3 spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV1 checkpointingSourceFile result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -285,7 +319,14 @@ checkpointingTest3 spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyInitialization
+                        checkpointingSourceFile
+                        (InitName "init_a")
+                        (Parameter "")
+                        Nothing
+                        result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -295,7 +336,14 @@ checkpointingTest3 spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyInitialization
+                        checkpointingSourceFile
+                        (InitName "init_b")
+                        (Parameter "")
+                        Nothing
+                        result
             },
           -- We supply three micro CCDs as we're instructing the contract to carry out a transfer instead of a call.
           -- See the contract for details.
@@ -303,7 +351,7 @@ checkpointingTest3 spv pvString =
             { taaTransaction =
                 TJSON
                     { payload = Update 3 (Types.ContractAddress 0 0) "a.a_modify_proxy" (BSS.toShort (encode accountAddress1)),
-                      metadata = makeDummyHeader accountAddress0 4 100000,
+                      metadata = makeDummyHeader accountAddress0 4 100_000,
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
@@ -346,7 +394,9 @@ checkpointingTest4 spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV1 checkpointingSourceFile result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -356,7 +406,14 @@ checkpointingTest4 spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyInitialization
+                        checkpointingSourceFile
+                        (InitName "init_a")
+                        (Parameter "")
+                        Nothing
+                        result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -366,7 +423,14 @@ checkpointingTest4 spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyInitialization
+                        checkpointingSourceFile
+                        (InitName "init_b")
+                        (Parameter "")
+                        Nothing
+                        result
             },
           -- We supply four micro CCDs as we're instructing the contract to expect state modifications
           -- being made from the 'inner' contract A call to be in effect when returned to the caller (a.a_modify_proxy)
@@ -375,7 +439,7 @@ checkpointingTest4 spv pvString =
             { taaTransaction =
                 TJSON
                     { payload = Update 4 (Types.ContractAddress 0 0) "a.a_modify_proxy" parameters,
-                      metadata = makeDummyHeader accountAddress0 4 100000,
+                      metadata = makeDummyHeader accountAddress0 4 100_000,
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
@@ -436,7 +500,9 @@ checkpointingTest5 spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV1 checkpointingSourceFile result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -446,7 +512,9 @@ checkpointingTest5 spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV0 v0ProxySourceFile result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -456,7 +524,14 @@ checkpointingTest5 spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyInitialization
+                        checkpointingSourceFile
+                        (InitName "init_a")
+                        (Parameter "")
+                        Nothing
+                        result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -466,7 +541,14 @@ checkpointingTest5 spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyInitialization
+                        checkpointingSourceFile
+                        (InitName "init_b")
+                        (Parameter "")
+                        Nothing
+                        result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -476,7 +558,14 @@ checkpointingTest5 spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyInitialization
+                        v0ProxySourceFile
+                        (InitName "init_proxy")
+                        (Parameter "")
+                        Nothing
+                        result
             },
           -- We supply two micro CCDs as we expect a trap from a v0 contract.
           -- See the contract for details.
@@ -555,7 +644,9 @@ checkpointingTest6 spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV1 checkpointingSourceFile result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -565,7 +656,9 @@ checkpointingTest6 spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV0 v0ProxySourceFile result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -575,7 +668,14 @@ checkpointingTest6 spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyInitialization
+                        checkpointingSourceFile
+                        (InitName "init_a")
+                        (Parameter "")
+                        Nothing
+                        result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -585,7 +685,14 @@ checkpointingTest6 spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyInitialization
+                        checkpointingSourceFile
+                        (InitName "init_b")
+                        (Parameter "")
+                        Nothing
+                        result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -595,7 +702,14 @@ checkpointingTest6 spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyInitialization
+                        v0ProxySourceFile
+                        (InitName "init_proxy")
+                        (Parameter "")
+                        Nothing
+                        result
             },
           -- We supply four micro CCDs as we're instructing the contract to expect state modifications
           -- being made from the 'inner' contract A call to be in effect when returned to the caller (a.a_modify_proxy)

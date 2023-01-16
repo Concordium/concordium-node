@@ -78,7 +78,9 @@ testCase spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccess result
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV1 recorderSourceFile result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -91,6 +93,12 @@ testCase spv pvString =
                 doStateAssertion <- recorderSpec 0 state
                 return $ do
                     Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyInitialization
+                        recorderSourceFile
+                        (InitName "init_recorder")
+                        (Parameter "")
+                        Nothing
+                        result
                     doStateAssertion
             },
           Helpers.TransactionAndAssertion
