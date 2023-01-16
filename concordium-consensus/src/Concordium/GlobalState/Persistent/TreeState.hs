@@ -28,6 +28,7 @@ import Concordium.GlobalState.TransactionTable
 import qualified Concordium.GlobalState.TreeState as TS
 import Concordium.GlobalState.Types
 import Concordium.Logger
+import Concordium.TimeMonad (TimeMonad)
 import qualified Concordium.TransactionVerification as TVer
 import Concordium.Types
 import Concordium.Types.HashableTo
@@ -509,10 +510,15 @@ newtype PersistentTreeStateMonad (bs :: Type) (m :: Type -> Type) (a :: Type) = 
           BlockStateOperations,
           BlockStateStorage,
           ContractStateOperations,
-          ModuleQuery
+          ModuleQuery,
+          TimeMonad
         )
 
 deriving instance (MonadProtocolVersion m) => MonadProtocolVersion (PersistentTreeStateMonad bs m)
+
+instance MonadTrans (PersistentTreeStateMonad bs) where
+    lift = PersistentTreeStateMonad
+    {-# INLINE lift #-}
 
 deriving instance
     (MonadState (SkovPersistentData pv bs) m) =>
