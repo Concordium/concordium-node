@@ -21,7 +21,6 @@ import qualified Concordium.Scheduler.Types as Types
 
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.GlobalState.Persistent.BlockState as BS
-import qualified Concordium.Scheduler as Sch
 import Concordium.Wasm
 import qualified SchedulerTests.Helpers as Helpers
 
@@ -56,100 +55,87 @@ errorHandlingTest ::
     Types.SProtocolVersion pv ->
     String ->
     SpecWith (Arg Assertion)
-errorHandlingTest _ pvString = specify
-    (pvString ++ ": Error handling in contracts.")
-    $ do
-        -- NOTE: Could also check resulting balances on each affected account or contract, but
-        -- the block state invariant at least tests that the total amount is preserved.
-        let transactionsAndAssertions =
-                [ Helpers.TransactionAndAssertion
-                    { taaTransaction =
-                        TJSON
-                            { payload = DeployModule V0 "./testdata/contracts/try-send-test.wasm",
-                              metadata = makeDummyHeader accountAddress0 1 100_000,
-                              keys = [(0, [(0, keyPair0)])]
-                            },
-                      taaAssertion = \Helpers.SchedulerResult{..} state -> do
-                        Helpers.assertBlockStateInvariantsH
-                            state
-                            srExecutionCosts
-                    },
-                  Helpers.TransactionAndAssertion
-                    { taaTransaction =
-                        TJSON
-                            { payload = InitContract 0 V0 "./testdata/contracts/try-send-test.wasm" "init_try" "",
-                              metadata = makeDummyHeader accountAddress0 2 100000,
-                              keys = [(0, [(0, keyPair0)])]
-                            },
-                      taaAssertion = \Helpers.SchedulerResult{..} _ -> do
-                        return $ do
-                            case Helpers.getResults $ Sch.ftAdded srTransactions of
-                                [(_, Types.TxSuccess _)] -> return ()
-                                _ -> assertFailure "Transaction rejected unexpectedly"
-                    },
-                  -- valid account, should succeed in transferring
-                  Helpers.TransactionAndAssertion
-                    { taaTransaction =
-                        TJSON
-                            { payload = Update 11 (Types.ContractAddress 0 0) "try.receive" toAddr,
-                              metadata = makeDummyHeader accountAddress0 3 70000,
-                              keys = [(0, [(0, keyPair0)])]
-                            },
-                      taaAssertion = \Helpers.SchedulerResult{..} _ -> do
-                        return $ do
-                            case Helpers.getResults $ Sch.ftAdded srTransactions of
-                                [(_, Types.TxSuccess events)] ->
-                                    assertEqual
-                                        "The correct update and transfer event is produced"
-                                        [ Types.Updated
-                                            { euAddress = Types.ContractAddress 0 0,
-                                              euInstigator = Types.AddressAccount accountAddress0,
-                                              euAmount = 11,
-                                              euMessage = Parameter toAddr,
-                                              euReceiveName = ReceiveName "try.receive",
-                                              euContractVersion = V0,
-                                              euEvents = []
-                                            },
-                                          Types.Transferred
-                                            { etFrom = Types.AddressContract (Types.ContractAddress 0 0),
-                                              etAmount = 11,
-                                              etTo = Types.AddressAccount accountAddress0
-                                            }
-                                        ]
-                                        events
-                                _ -> assertFailure "Transaction rejected unexpectedly"
-                    },
-                  -- transfer did not happen
-                  Helpers.TransactionAndAssertion
-                    { taaTransaction =
-                        TJSON
-                            { payload = Update 11 (Types.ContractAddress 0 0) "try.receive" (BSS.pack (replicate 32 0)),
-                              metadata = makeDummyHeader accountAddress0 4 70000,
-                              keys = [(0, [(0, keyPair0)])]
-                            },
-                      taaAssertion = \Helpers.SchedulerResult{..} _ -> do
-                        return $ do
-                            case Helpers.getResults $ Sch.ftAdded srTransactions of
-                                [(_, Types.TxSuccess events)] ->
-                                    assertEqual
-                                        "The correct update event is produced"
-                                        [ Types.Updated
-                                            { euAddress = Types.ContractAddress 0 0,
-                                              euInstigator = Types.AddressAccount accountAddress0,
-                                              euAmount = 11,
-                                              euMessage = Parameter (BSS.pack (replicate 32 0)),
-                                              euReceiveName = ReceiveName "try.receive",
-                                              euContractVersion = V0,
-                                              euEvents = []
-                                            }
-                                        ]
-                                        events
-                                _ -> assertFailure "Transaction rejected unexpectedly"
-                    }
-                ]
-
-        Helpers.runSchedulerTestAssertIntermediateStates
+errorHandlingTest _ pvString =
+    specify
+        (pvString ++ ": Error handling in contracts.")
+        $ Helpers.runSchedulerTestAssertIntermediateStates
             @pv
             Helpers.defaultTestConfig
             initialBlockState
             transactionsAndAssertions
+  where
+    -- NOTE: Could also check resulting balances on each affected account or contract, but
+    -- the block state invariant at least tests that the total amount is preserved.
+    transactionsAndAssertions =
+        [ Helpers.TransactionAndAssertion
+            { taaTransaction =
+                TJSON
+                    { payload = DeployModule V0 "./testdata/contracts/try-send-test.wasm",
+                      metadata = makeDummyHeader accountAddress0 1 100_000,
+                      keys = [(0, [(0, keyPair0)])]
+                    },
+              taaAssertion = \result _ ->
+                return $ Helpers.assertSuccess result
+            },
+          Helpers.TransactionAndAssertion
+            { taaTransaction =
+                TJSON
+                    { payload = InitContract 0 V0 "./testdata/contracts/try-send-test.wasm" "init_try" "",
+                      metadata = makeDummyHeader accountAddress0 2 100000,
+                      keys = [(0, [(0, keyPair0)])]
+                    },
+              taaAssertion = \result _ ->
+                return $ Helpers.assertSuccess result
+            },
+          -- valid account, should succeed in transferring
+          Helpers.TransactionAndAssertion
+            { taaTransaction =
+                TJSON
+                    { payload = Update 11 (Types.ContractAddress 0 0) "try.receive" toAddr,
+                      metadata = makeDummyHeader accountAddress0 3 70000,
+                      keys = [(0, [(0, keyPair0)])]
+                    },
+              taaAssertion = \result _ ->
+                return $
+                    Helpers.assertSuccessWithEvents
+                        [ Types.Updated
+                            { euAddress = Types.ContractAddress 0 0,
+                              euInstigator = Types.AddressAccount accountAddress0,
+                              euAmount = 11,
+                              euMessage = Parameter toAddr,
+                              euReceiveName = ReceiveName "try.receive",
+                              euContractVersion = V0,
+                              euEvents = []
+                            },
+                          Types.Transferred
+                            { etFrom = Types.AddressContract (Types.ContractAddress 0 0),
+                              etAmount = 11,
+                              etTo = Types.AddressAccount accountAddress0
+                            }
+                        ]
+                        result
+            },
+          -- transfer did not happen
+          Helpers.TransactionAndAssertion
+            { taaTransaction =
+                TJSON
+                    { payload = Update 11 (Types.ContractAddress 0 0) "try.receive" (BSS.pack (replicate 32 0)),
+                      metadata = makeDummyHeader accountAddress0 4 70000,
+                      keys = [(0, [(0, keyPair0)])]
+                    },
+              taaAssertion = \result _ ->
+                return $
+                    Helpers.assertSuccessWithEvents
+                        [ Types.Updated
+                            { euAddress = Types.ContractAddress 0 0,
+                              euInstigator = Types.AddressAccount accountAddress0,
+                              euAmount = 11,
+                              euMessage = Parameter (BSS.pack (replicate 32 0)),
+                              euReceiveName = ReceiveName "try.receive",
+                              euContractVersion = V0,
+                              euEvents = []
+                            }
+                        ]
+                        result
+            }
+        ]

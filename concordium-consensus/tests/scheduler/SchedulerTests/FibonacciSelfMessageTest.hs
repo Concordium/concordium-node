@@ -84,7 +84,9 @@ testCase1 _ pvString =
                       metadata = makeDummyHeader accountAddress0 1 100_000,
                       keys = [(0, [(0, Helpers.keyPairFromSeed 0)])]
                     },
-              taaAssertion = deploymentCostCheck
+              taaAssertion = \result _ ->
+                return $
+                    Helpers.assertDeploymentV0Energy fibSourceFile result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -106,25 +108,6 @@ testCase1 _ pvString =
               taaAssertion = ensureAllUpdates
             }
         ]
-    deploymentCostCheck ::
-        Helpers.SchedulerResult ->
-        BS.PersistentBlockState pv ->
-        Helpers.PersistentBSM pv Assertion
-    deploymentCostCheck Helpers.SchedulerResult{..} _ = return $ do
-        contractModule <- Helpers.readV0ModuleFile fibSourceFile
-        let len = fromIntegral $ BS.length (wasmSource contractModule)
-            -- size of the module deploy payload
-            payloadSize =
-                Types.payloadSize $
-                    Types.encodePayload $
-                        Types.DeployModule contractModule
-            -- size of the transaction minus the signatures.
-            txSize = Types.transactionHeaderSize + fromIntegral payloadSize
-        -- transaction is signed with 1 signature
-        assertEqual
-            "Deployment has correct cost "
-            (Cost.baseCost txSize 1 + Cost.deployModuleCost len)
-            srUsedEnergy
 
     -- check that the initialization cost was at least the administrative cost.
     -- It is not practical to check the exact cost because the execution cost of the init function is hard to

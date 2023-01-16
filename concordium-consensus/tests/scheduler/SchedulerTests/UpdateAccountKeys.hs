@@ -18,7 +18,6 @@ import qualified Concordium.GlobalState.Persistent.BlobStore as Blob
 import qualified Concordium.GlobalState.Persistent.BlockState as BS
 import Concordium.ID.DummyData
 import Concordium.ID.Types as ID
-import qualified Concordium.Scheduler as Sch
 import Concordium.Scheduler.DummyData
 import qualified Concordium.Scheduler.Runner as Runner
 import Concordium.Scheduler.Types
@@ -97,16 +96,10 @@ credentialKeyUpdateTest _ pvString =
                       metadata = makeDummyHeader accountAddress0 1 10_000,
                       keys = [(0, [(0, keyPair0), (1, keyPair1)])]
                     },
-              taaAssertion = \Helpers.SchedulerResult{..} state -> do
+              taaAssertion = \result state -> do
                 doCheckKeys <- checkKeys state [(0, verifyKey keyPair2), (1, verifyKey keyPair1)] 2
                 return $ do
-                    case Helpers.getResults $ Sch.ftAdded srTransactions of
-                        [(_, Types.TxSuccess events)] ->
-                            assertEqual
-                                "The correct update event is produced"
-                                [CredentialKeysUpdated credentialRegistrationId0]
-                                events
-                        other -> assertFailure $ "Transaction rejected unexpectedly: " ++ show other
+                    Helpers.assertSuccessWithEvents [CredentialKeysUpdated credentialRegistrationId0] result
                     doCheckKeys
             }
         ]

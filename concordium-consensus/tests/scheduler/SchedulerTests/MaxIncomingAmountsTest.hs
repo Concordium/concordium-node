@@ -132,11 +132,7 @@ testCase0 _ pvString = specify
                           metadata = makeDummyHeader accountAddress0 1 100_000,
                           keys = [(0, [(0, keyPair0)])]
                         },
-                  taaAssertion = \Helpers.SchedulerResult{..} state -> do
-                    doInvariantAssertions <-
-                        Helpers.assertBlockStateInvariantsH
-                            state
-                            srExecutionCosts
+                  taaAssertion = \result state -> do
                     doEncryptedBalanceAssertions <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -145,19 +141,14 @@ testCase0 _ pvString = specify
                             accountAddress0
                             state
                     return $ do
-                        case Helpers.getResults $ Sch.ftAdded srTransactions of
-                            [(_, Types.TxSuccess events)] ->
-                                assertEqual
-                                    "The correct encrypt self amount event is produced"
-                                    [ Types.EncryptedSelfAmountAdded
-                                        { eaaAccount = accountAddress0,
-                                          eaaNewAmount = encryptedAmount1000,
-                                          eaaAmount = 1_000
-                                        }
-                                    ]
-                                    events
-                            _ -> assertFailure "First transaction should succeed"
-                        doInvariantAssertions
+                        Helpers.assertSuccessWithEvents
+                            [ Types.EncryptedSelfAmountAdded
+                                { eaaAccount = accountAddress0,
+                                  eaaNewAmount = encryptedAmount1000,
+                                  eaaAmount = 1_000
+                                }
+                            ]
+                            result
                         doEncryptedBalanceAssertions
                 }
             ]
@@ -171,7 +162,7 @@ testCase0 _ pvString = specify
                                   metadata = makeDummyHeader accountAddress1 1 100_000,
                                   keys = [(0, [(0, keyPair1)])]
                                 },
-                          taaAssertion = \Helpers.SchedulerResult{..} state -> do
+                          taaAssertion = \result state -> do
                             doEncryptedBalanceAssertions <-
                                 assertEncryptedBalance
                                     Types.initialAccountEncryptedAmount
@@ -182,35 +173,32 @@ testCase0 _ pvString = specify
                                     accountAddress1
                                     state
                             return $ do
-                                case Helpers.getResults $ Sch.ftAdded srTransactions of
-                                    [ ( _,
-                                        Types.TxSuccess
+                                Helpers.assertSuccessWhere
+                                    ( \events ->
+                                        case events of
                                             [ Types.EncryptedAmountsRemoved{..},
                                               Types.AmountAddedByDecryption{..}
-                                                ]
-                                        )
-                                        ] -> do
-                                            assertEqual
-                                                "Account encrypted amounts removed"
-                                                earAccount
-                                                accountAddress1
-                                            assertEqual
-                                                "Used up indices"
-                                                earUpToIndex
-                                                numberOfTransactions
-                                            assertEqual "New amount" earNewAmount $
-                                                stpatdRemainingAmount secToPubTransferData
-                                            assertEqual
-                                                "Decryption address"
-                                                aabdAccount
-                                                accountAddress1
-                                            assertEqual "Amount added" aabdAmount $
-                                                numberOfTransactions * 10
-                                    [(_, Types.TxSuccess e)] ->
-                                        assertFailure $ "Unexpected final outcome: " ++ show e
-                                    other ->
-                                        assertFailure $
-                                            "Last transaction should succeed: " ++ show other
+                                                ] -> do
+                                                    assertEqual
+                                                        "Account encrypted amounts removed"
+                                                        earAccount
+                                                        accountAddress1
+                                                    assertEqual
+                                                        "Used up indices"
+                                                        earUpToIndex
+                                                        numberOfTransactions
+                                                    assertEqual "New amount" earNewAmount $
+                                                        stpatdRemainingAmount secToPubTransferData
+                                                    assertEqual
+                                                        "Decryption address"
+                                                        aabdAccount
+                                                        accountAddress1
+                                                    assertEqual "Amount added" aabdAmount $
+                                                        numberOfTransactions * 10
+                                            other -> assertFailure $ "Unexpected final outcome: " ++ show other
+                                    )
+                                    result
+
                                 doEncryptedBalanceAssertions
                         }
                    ]

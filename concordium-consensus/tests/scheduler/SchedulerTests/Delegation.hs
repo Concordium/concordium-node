@@ -267,20 +267,13 @@ testCase2 _ pvString =
                       keys = [(0, [(0, delegator1KP)])]
                     }
                 ]
-        (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
+        (result, doBlockStateAssertions) <-
             Helpers.runSchedulerTestTransactionJson
                 Helpers.defaultTestConfig
                 (initialBlockState @pv)
                 (Helpers.checkReloadCheck checkState)
                 transactions
-        let Sch.FilteredTransactions{..} = srTransactions
-        events <- case Helpers.getResults ftAdded of
-            [(_, Types.TxSuccess{vrEvents})] -> return vrEvents
-            _ -> assertFailure "Transaction should succeed"
-        assertEqual
-            "Stake was decreased"
-            [DelegationStakeDecreased 1 delegator1Address 18_999_999]
-            events
+        Helpers.assertSuccessWithEvents [DelegationStakeDecreased 1 delegator1Address 18_999_999] result
         doBlockStateAssertions
   where
     checkState ::
@@ -311,20 +304,13 @@ testCase3 _ pvString =
                       keys = [(0, [(0, delegator1KP)])]
                     }
                 ]
-        (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
+        (result, doBlockStateAssertions) <-
             Helpers.runSchedulerTestTransactionJson
                 Helpers.defaultTestConfig
                 (initialBlockState @pv)
                 (Helpers.checkReloadCheck checkState)
                 transactions
-        let Sch.FilteredTransactions{..} = srTransactions
-        reason <- case Helpers.getResults ftAdded of
-            [(_, Types.TxReject{vrRejectReason})] -> return vrRejectReason
-            _ -> assertFailure "Transaction should reject"
-        assertEqual
-            "Reject with reason: stake over maximum threshold for pool"
-            reason
-            StakeOverMaximumThresholdForPool
+        Helpers.assertRejectWithReason StakeOverMaximumThresholdForPool result
         doBlockStateAssertions
   where
     checkState ::
@@ -356,20 +342,13 @@ testCase4 _ pvString =
                       keys = [(0, [(0, delegator1KP)])]
                     }
                 ]
-        (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
+        (result, doBlockStateAssertions) <-
             Helpers.runSchedulerTestTransactionJson
                 Helpers.defaultTestConfig
                 (initialBlockState @pv)
                 (Helpers.checkReloadCheck checkState)
                 transactions
-        let Sch.FilteredTransactions{..} = srTransactions
-        reason <- case Helpers.getResults ftAdded of
-            [(_, Types.TxReject{vrRejectReason})] -> return vrRejectReason
-            _ -> assertFailure "Transaction should reject"
-        assertEqual
-            "Reject with reason: stake over maximum threshold for pool"
-            reason
-            StakeOverMaximumThresholdForPool
+        Helpers.assertRejectWithReason StakeOverMaximumThresholdForPool result
         doBlockStateAssertions
   where
     checkState ::
@@ -401,20 +380,13 @@ testCase5 _ pvString =
                       keys = [(0, [(0, delegator1KP)])]
                     }
                 ]
-        (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
+        (result, doBlockStateAssertions) <-
             Helpers.runSchedulerTestTransactionJson
                 Helpers.defaultTestConfig
                 (initialBlockState @pv)
                 (Helpers.checkReloadCheck checkState)
                 transactions
-        let Sch.FilteredTransactions{..} = srTransactions
-        reason <- case Helpers.getResults ftAdded of
-            [(_, Types.TxReject{vrRejectReason})] -> return vrRejectReason
-            _ -> assertFailure "Transaction should reject"
-        assertEqual
-            "Reject with reason: stake over maximum threshold for pool"
-            reason
-            StakeOverMaximumThresholdForPool
+        Helpers.assertRejectWithReason StakeOverMaximumThresholdForPool result
         doBlockStateAssertions
   where
     checkState ::
@@ -445,17 +417,13 @@ testCase6 _ pvString =
                       keys = [(0, [(0, delegator3KP)])]
                     }
                 ]
-        (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
+        (result, doBlockStateAssertions) <-
             Helpers.runSchedulerTestTransactionJson
                 Helpers.defaultTestConfig
                 (initialBlockState @pv)
                 (Helpers.checkReloadCheck checkState)
                 transactions
-        let Sch.FilteredTransactions{..} = srTransactions
-        events <- case Helpers.getResults ftAdded of
-            [(_, Types.TxSuccess{vrEvents})] -> return vrEvents
-            _ -> assertFailure "Transaction should succeed"
-        assertEqual "Increase delegation stake" [DelegationStakeIncreased 3 delegator3Address 1_001] events
+        Helpers.assertSuccessWithEvents [DelegationStakeIncreased 3 delegator3Address 1_001] result
         doBlockStateAssertions
   where
     checkState ::
@@ -486,22 +454,17 @@ testCase7 _ pvString =
                       keys = [(0, [(0, delegator3KP)])]
                     }
                 ]
-        (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
+        (result, doBlockStateAssertions) <-
             Helpers.runSchedulerTestTransactionJson
                 Helpers.defaultTestConfig
                 (initialBlockState @pv)
                 (Helpers.checkReloadCheck checkState)
                 transactions
-        let Sch.FilteredTransactions{..} = srTransactions
-        events <- case Helpers.getResults ftAdded of
-            [(_, Types.TxSuccess{vrEvents})] -> return vrEvents
-            _ -> assertFailure "Transaction should succeed"
-        assertEqual
-            "Increase delegation stake"
+        Helpers.assertSuccessWithEvents
             [ DelegationSetDelegationTarget 3 delegator3Address (DelegateToBaker 4),
               DelegationStakeIncreased 3 delegator3Address 1_001
             ]
-            events
+            result
         doBlockStateAssertions
   where
     checkState ::
@@ -532,20 +495,13 @@ testCase8 _ pvString =
                       keys = [(0, [(0, delegator3KP)])]
                     }
                 ]
-        (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
+        (result, doBlockStateAssertions) <-
             Helpers.runSchedulerTestTransactionJson
                 Helpers.defaultTestConfig
                 (initialBlockState @pv)
                 (Helpers.checkReloadCheck checkState)
                 transactions
-        let Sch.FilteredTransactions{..} = srTransactions
-        reason <- case Helpers.getResults ftAdded of
-            [(_, Types.TxReject{vrRejectReason})] -> return vrRejectReason
-            _ -> assertFailure "Transaction should reject"
-        assertEqual
-            "Reject with reason: stake over maximum threshold for pool"
-            reason
-            StakeOverMaximumThresholdForPool
+        Helpers.assertRejectWithReason StakeOverMaximumThresholdForPool result
         doBlockStateAssertions
   where
     checkState ::
@@ -576,20 +532,13 @@ testCase9 _ pvString =
                       keys = [(0, [(0, delegator3KP)])]
                     }
                 ]
-        (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
+        (result, doBlockStateAssertions) <-
             Helpers.runSchedulerTestTransactionJson
                 Helpers.defaultTestConfig
                 (initialBlockState @pv)
                 (Helpers.checkReloadCheck checkState)
                 transactions
-        let Sch.FilteredTransactions{..} = srTransactions
-        reason <- case Helpers.getResults ftAdded of
-            [(_, Types.TxReject{vrRejectReason})] -> return vrRejectReason
-            _ -> assertFailure "Transaction should reject"
-        assertEqual
-            "Reject with reason: stake over maximum threshold for pool"
-            reason
-            StakeOverMaximumThresholdForPool
+        Helpers.assertRejectWithReason StakeOverMaximumThresholdForPool result
         doBlockStateAssertions
   where
     checkState ::

@@ -19,6 +19,13 @@ import Concordium.Scheduler.DummyData
 
 import qualified SchedulerTests.Helpers as Helpers
 
+tests :: Spec
+tests = do
+    describe "Chain metadata in transactions:" $
+        sequence_ $
+            Helpers.forEveryProtocolVersion $ \spv pvString ->
+                testChainMeta spv pvString
+
 initialBlockState ::
     (Types.IsProtocolVersion pv) =>
     Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
@@ -52,24 +59,30 @@ transactionInputs =
         }
     ]
 
-testChainMeta :: forall pv. (Types.IsProtocolVersion pv) => Types.SProtocolVersion pv -> Assertion
-testChainMeta _ = do
-    (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
-        Helpers.runSchedulerTestTransactionJson
-            testConfig
-            initialBlockState
-            (Helpers.checkReloadCheck checkState)
-            transactionInputs
-    let Sch.FilteredTransactions{..} = srTransactions
-    assertEqual "There should be no failed transactions." [] ftFailed
-    assertEqual "There should be no rejected transactions." []
-        $ filter
-            ( \case
-                (_, Types.TxSuccess{}) -> False
-                (_, Types.TxReject{}) -> True
-            )
-        $ Helpers.getResults ftAdded
-    doBlockStateAssertions
+testChainMeta ::
+    forall pv.
+    (Types.IsProtocolVersion pv) =>
+    Types.SProtocolVersion pv ->
+    String ->
+    SpecWith (Arg Assertion)
+testChainMeta _ pvString =
+    specify (pvString ++ ": Reading chain metadata. ") $ do
+        (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
+            Helpers.runSchedulerTestTransactionJson
+                testConfig
+                initialBlockState
+                (Helpers.checkReloadCheck checkState)
+                transactionInputs
+        let Sch.FilteredTransactions{..} = srTransactions
+        assertEqual "There should be no failed transactions." [] ftFailed
+        assertEqual "There should be no rejected transactions." []
+            $ filter
+                ( \case
+                    (_, Types.TxSuccess{}) -> False
+                    (_, Types.TxReject{}) -> True
+                )
+            $ Helpers.getResults ftAdded
+        doBlockStateAssertions
   where
     checkState ::
         Helpers.SchedulerResult ->
@@ -82,11 +95,3 @@ testChainMeta _ = do
         return $ do
             doInvariantAssertions
             assertEqual "There should be 1 instance." 1 (length instances)
-
-tests :: Spec
-tests = do
-    describe "Chain metadata in transactions:" $
-        sequence_ $
-            Helpers.forEveryProtocolVersion $ \spv pvString ->
-                specify (pvString ++ ": Reading chain metadata. ") $
-                    testChainMeta spv

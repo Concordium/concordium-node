@@ -292,6 +292,9 @@ data TransactionAndAssertion pv = TransactionAndAssertion
 -- |Run the scheduler on transactions in a test environment. Each transaction in the list of
 -- transactions is paired with the assertions to run on the scheduler result and the resulting block
 -- state right after executing each transaction in the intermediate block state.
+--
+-- This will also run invariant assertions on each intermediate block state, see
+-- @assertBlockStateInvariantsH@ for more details.
 runSchedulerTestAssertIntermediateStates ::
     forall pv.
     (Types.IsProtocolVersion pv) =>
@@ -305,21 +308,25 @@ runSchedulerTestAssertIntermediateStates config constructState transactionsAndAs
     blockStateComputation :: PersistentBSM pv Assertion
     blockStateComputation = do
         blockStateBefore <- constructState
-        fst <$> foldM transactionRunner (return (), blockStateBefore) transactionsAndAssertions
+        (assertions, _, _) <- foldM transactionRunner (return (), blockStateBefore, 0) transactionsAndAssertions
+        return assertions
 
     transactionRunner ::
-        (Assertion, BS.HashedPersistentBlockState pv) ->
+        (Assertion, BS.HashedPersistentBlockState pv, Types.Amount) ->
         TransactionAndAssertion pv ->
-        PersistentBSM pv (Assertion, BS.HashedPersistentBlockState pv)
-    transactionRunner (assertedSoFar, currentState) step = do
+        PersistentBSM pv (Assertion, BS.HashedPersistentBlockState pv, Types.Amount)
+    transactionRunner (assertedSoFar, currentState, costsSoFar) step = do
         transactions <- liftIO $ SchedTest.processUngroupedTransactions [taaTransaction step]
         (result, updatedState) <- runScheduler config currentState transactions
+        let nextCostsSoFar = costsSoFar + srExecutionCosts result
+        doStateAssertions <- assertBlockStateInvariantsH updatedState nextCostsSoFar
         doAssertTransaction <- taaAssertion step result updatedState
         let nextAssertedSoFar = do
                 assertedSoFar
                 doAssertTransaction
+                doStateAssertions
         nextState <- BS.freezeBlockState updatedState
-        return (nextAssertedSoFar, nextState)
+        return (nextAssertedSoFar, nextState, nextCostsSoFar)
 
 -- | Intermediate results collected while running a number of transactions.
 type IntermediateResults a = [(SchedulerResult, a)]
@@ -704,12 +711,7 @@ readV1ModuleFile filePath = do
 
 -- | Assert the scheduler result have added one successful transaction.
 assertSuccess :: SchedulerResult -> Assertion
-assertSuccess result =
-    case getResults $ ftAdded (srTransactions result) of
-        [(_, Types.TxSuccess _)] -> return ()
-        [(_, Types.TxReject reason)] -> assertFailure $ "Transaction rejected unexpectedly: " ++ show reason
-        [] -> assertFailure "No transactions were added"
-        other -> assertFailure $ "Multiple transactions were added " ++ show other
+assertSuccess = assertSuccessWhere (const (return ()))
 
 -- | Assert the scheduler result have added one successful transaction and check the events.
 assertSuccessWhere :: ([Types.Event] -> Assertion) -> SchedulerResult -> Assertion
@@ -759,3 +761,23 @@ assertFailureWithReason expectedReason result =
                 reason
         [] -> assertFailure "No transaction failed"
         other -> assertFailure $ "Multiple transactions failed: " ++ show other
+
+-- |Assert the scheduler have used energy the exact energy needed to deploy a provided V0 smart
+-- contract module. Assuming the transaction was signed with a single signature.
+-- The provided module should be a WASM module and without the smart contract version prefix.
+assertDeploymentV0Energy :: FilePath -> SchedulerResult -> Assertion
+assertDeploymentV0Energy sourceFile result = do
+    contractModule <- readV0ModuleFile sourceFile
+    let len = fromIntegral $ ByteString.length $ Wasm.wasmSource contractModule
+        -- size of the module deploy payload
+        payloadSize =
+            Types.payloadSize $
+                Types.encodePayload $
+                    Types.DeployModule contractModule
+        -- size of the transaction minus the signatures.
+        txSize = Types.transactionHeaderSize + fromIntegral payloadSize
+    -- transaction is signed with 1 signature
+    assertEqual
+        "Deployment has correct cost "
+        (Cost.baseCost txSize 1 + Cost.deployModuleCost len)
+        (srUsedEnergy result)

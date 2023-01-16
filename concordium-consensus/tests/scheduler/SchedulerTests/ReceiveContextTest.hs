@@ -133,4 +133,4 @@ testReceive _ pvString =
         instances <- BS.getContractInstanceList hashedState
         return $ do
             doInvariantAssertions
-            assertEqual "There should be 3 instance." 3 (length instances)
+            assertEqual "There should be 3 instances." 3 (length instances)
