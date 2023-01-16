@@ -128,7 +128,7 @@ destroyGS (Identity c, Identity s) =
 --------------------------------------------------------------------------------
 
 limit :: Amount
-limit = dummyChainParameters ^. cpPoolParameters . ppBakerStakeThreshold
+limit = dummyChainParameters @'ChainParametersV0 ^. cpPoolParameters . ppBakerStakeThreshold
 limitDelta :: AmountDelta
 limitDelta = fromIntegral limit
 

@@ -253,7 +253,7 @@ freeze cs = case Wasm.getWasmVersion @v of
     Wasm.SV0 -> (getHash cs, Instance.InstanceStateV0 cs)
     Wasm.SV1 ->
         let (hsh, persistent) = StateV1.freezeInMemoryPersistent cs
-         in (hsh, Instance.InstanceStateV1 persistent)
+        in  (hsh, Instance.InstanceStateV1 persistent)
 
 data BlockRewardDetails (av :: AccountVersion) where
     BlockRewardDetailsV0 :: !HashedEpochBlocks -> BlockRewardDetails 'AccountV0
@@ -319,7 +319,7 @@ instance HashableTo Transactions.TransactionOutcomesHash MerkleTransactionOutcom
     getHash MerkleTransactionOutcomes{..} =
         let out = getHash mtoOutcomes
             special = getHash mtoSpecials
-         in Transactions.TransactionOutcomesHash (H.hashShort ("TransactionOutcomesHashV1" <> H.hashToShortByteString out <> H.hashToShortByteString special))
+        in  Transactions.TransactionOutcomesHash (H.hashShort ("TransactionOutcomesHashV1" <> H.hashToShortByteString out <> H.hashToShortByteString special))
 
 -- |Transaction outcomes are kept in this gadt based on the 'TransactionOutcomesVersion'.
 -- The surjective type family 'TransactionOutcomesVersionFor' (From 'ProtocolVersion' to 'TransactionOutcomesVersion')
@@ -366,14 +366,14 @@ data BlockState (pv :: ProtocolVersion) = BlockState
       _blockRewardDetails :: !(BlockRewardDetails (AccountVersionFor pv))
     }
 
--- deriving (Show)
+deriving instance (IsProtocolVersion pv) => Show (BlockState pv)
 
 data HashedBlockState pv = HashedBlockState
     { _unhashedBlockState :: !(BlockState pv),
       _blockStateHash :: !StateHash
     }
 
--- deriving (Show)
+deriving instance (IsProtocolVersion pv) => Show (HashedBlockState pv)
 
 makeLenses ''BasicBirkParameters
 makeClassy ''BlockState
@@ -575,7 +575,7 @@ getBlockState migration = do
                                 bkrs
                                     & passiveDelegators
                                         %~ (apDelegators %~ Set.insert _delegationIdentity)
-                                            . (apDelegatorTotalCapital +~ _delegationStakedAmount)
+                                        . (apDelegatorTotalCapital +~ _delegationStakedAmount)
                                     & totalActiveCapital +~ _delegationStakedAmount
                         DelegateToBaker bid ->
                             case Map.lookup bid (bkrs ^. activeBakers) of
@@ -611,11 +611,11 @@ poolDelegatorCapital ::
 poolDelegatorCapital bs bid =
     bs
         ^. blockBirkParameters
-        . birkActiveBakers
-        . activeBakers
-        . at bid
-        . non emptyActivePool
-        . apDelegatorTotalCapital
+            . birkActiveBakers
+            . activeBakers
+            . at bid
+            . non emptyActivePool
+            . apDelegatorTotalCapital
 
 -- | Get the total passively-delegated capital.
 passiveDelegationCapital :: (HasBlockState s pv) => s -> Amount
@@ -719,7 +719,7 @@ doGetCurrentDelegators bs mPoolId = return v
                 Just BakerCapital{..} -> Just . fmap mkReturn . Vec.toList $ bcDelegatorCapital
     mkReturn dc@DelegatorCapital{dcDelegatorId = DelegatorId acct} =
         let addr = bs ^. blockAccounts . Accounts.unsafeIndexedAccount acct . accountAddress
-         in (addr, dc)
+        in  (addr, dc)
 
 newtype PureBlockStateMonad (pv :: ProtocolVersion) m a = PureBlockStateMonad {runPureBlockStateMonad :: m a}
     deriving (Functor, Applicative, Monad, MonadIO, MTL.MonadState s, TimeMonad)
@@ -772,7 +772,7 @@ doGetAnonymityRevokers :: (Monad m, HasBlockState s pv, Traversable t) => s -> t
 doGetAnonymityRevokers bs arIds =
     return $!
         let ars = bs ^. blockAnonymityRevokers . unhashed . to ARS.arRevokers
-         in forM arIds (`Map.lookup` ars)
+        in  forM arIds (`Map.lookup` ars)
 
 doGetUpdateKeysCollection :: (Monad m, HasBlockState s pv, IsProtocolVersion pv) => s -> m (UpdateKeysCollection (AuthorizationsVersionForPV pv))
 doGetUpdateKeysCollection bs = return $! bs ^. blockUpdates . currentKeyCollection . unhashed
@@ -780,7 +780,7 @@ doGetUpdateKeysCollection bs = return $! bs ^. blockUpdates . currentKeyCollecti
 doGetExchangeRates :: (Monad m, HasBlockState s pv) => s -> m ExchangeRates
 doGetExchangeRates bs =
     let p = bs ^. blockUpdates . currentParameters
-     in return
+    in  return
             ExchangeRates
                 { _erEuroPerEnergy = p ^. euroPerEnergy,
                   _erEnergyRate = p ^. energyRate,
@@ -824,7 +824,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
     {-# INLINE getAccountByCredId #-}
     getAccountByCredId bs cid =
         let mai = bs ^? blockAccounts . to Accounts.accountRegIds . ix cid
-         in case mai of
+        in  case mai of
                 Nothing -> return Nothing
                 Just ai -> return $ (ai,) <$> bs ^? blockAccounts . Accounts.indexedAccount ai
 
@@ -1207,7 +1207,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             Wasm.SV0 ->
                 let params = mkParams addr
                     (_, state) = freeze nidInitialState
-                 in Instance.InstanceV0
+                in  Instance.InstanceV0
                         Instance.InstanceV
                             { _instanceVParameters = params,
                               _instanceVModel = state,
@@ -1217,7 +1217,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             Wasm.SV1 ->
                 let params = mkParams addr
                     (_, state) = freeze nidInitialState
-                 in Instance.InstanceV1
+                in  Instance.InstanceV1
                         Instance.InstanceV
                             { _instanceVParameters = params,
                               _instanceVModel = state,
@@ -1426,7 +1426,8 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                         -- Reduction is complete, so update the account accordingly.
                         | redEpoch <= newEpoch ->
                             ( bs0
-                                & blockAccounts . Accounts.indexedAccount bid
+                                & blockAccounts
+                                    . Accounts.indexedAccount bid
                                     %~ (accountStaking .~ AccountStakeBaker abkr{_stakedAmount = newAmt, _bakerPendingChange = NoChange}),
                               (abkr ^. accountBakerInfo, newAmt) : bkrs0
                             )
@@ -1468,7 +1469,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                 -- All checks pass, add the baker
                 | otherwise ->
                     let bid = BakerId ai
-                     in ( BASuccess bid,
+                    in  ( BASuccess bid,
                           bs
                             & blockAccounts . Accounts.indexedAccount ai . accountStaking
                                 .~ AccountStakeBaker
@@ -1540,7 +1541,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                                 & blockBirkParameters . birkActiveBakers . aggregationKeys %~ Set.insert (bkuAggregationKey bcaKeys)
                                 & blockBirkParameters . birkActiveBakers . activeBakers %~ Map.insert bid emptyActivePool
                                 & blockBirkParameters . birkActiveBakers . totalActiveCapital +~ bcaCapital
-                     in (BCSuccess [] bid, newBlockState)
+                    in  (BCSuccess [] bid, newBlockState)
     bsoConfigureBaker origBS ai BakerConfigureUpdate{..} = do
         let res = MTL.runExcept $ MTL.runWriterT $ flip MTL.execStateT origBS $ do
                 updateKeys
@@ -1580,8 +1581,11 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             when (not sameAgg && membAgg) (MTL.throwError (BCDuplicateAggregationKey key))
             putAccount (ab & accountBakerInfo . bieBakerInfo .~ bakerKeyUpdateToInfo bid keys)
             MTL.modify'
-                ( blockBirkParameters . birkActiveBakers . aggregationKeys
-                    %~ Set.insert (bkuAggregationKey keys) . Set.delete (ab ^. bakerAggregationVerifyKey)
+                ( blockBirkParameters
+                    . birkActiveBakers
+                    . aggregationKeys
+                    %~ Set.insert (bkuAggregationKey keys)
+                    . Set.delete (ab ^. bakerAggregationVerifyKey)
                 )
             MTL.tell [BakerConfigureUpdateKeys keys]
         updateRestakeEarnings = forM_ bcuRestakeEarnings $ \restakeEarnings -> do
@@ -1721,14 +1725,15 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
         updateBirk DelegatePassive =
             return $!
                 bs ^. blockBirkParameters
-                    & birkActiveBakers . passiveDelegators
+                    & birkActiveBakers
+                        . passiveDelegators
                         %~ (apDelegators %~ Set.insert did)
-                            . (apDelegatorTotalCapital +~ dcaCapital)
+                        . (apDelegatorTotalCapital +~ dcaCapital)
                     & birkActiveBakers . totalActiveCapital +~ dcaCapital
         updateBirk (DelegateToBaker bid) =
             let ab = bs ^. blockBirkParameters . birkActiveBakers
                 mDels = Map.lookup bid (ab ^. activeBakers)
-             in case mDels of
+            in  case mDels of
                     Nothing -> MTL.throwError (DCInvalidDelegationTarget bid)
                     Just dels -> do
                         let newDels =
@@ -1825,16 +1830,16 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             return (ad ^. delegationTarget)
         addTotalsInActiveBakers ab0 ad delta =
             let ab1 = ab0 & totalActiveCapital +~ delta
-             in case ad ^. delegationTarget of
+            in  case ad ^. delegationTarget of
                     DelegatePassive ->
                         let ActivePool dset dtot = ab1 ^. passiveDelegators
-                         in ab1 & passiveDelegators .~ ActivePool dset (dtot + delta)
+                        in  ab1 & passiveDelegators .~ ActivePool dset (dtot + delta)
                     DelegateToBaker bid ->
                         case Map.lookup bid (ab1 ^. activeBakers) of
                             Nothing -> error "Invariant violation: delegation target is not an active baker"
                             Just (ActivePool dset dtot) ->
                                 let newActiveMap = Map.insert bid (ActivePool dset (dtot + delta)) (ab1 ^. activeBakers)
-                                 in ab1 & activeBakers .~ newActiveMap
+                                in  ab1 & activeBakers .~ newActiveMap
         checkOverdelegation oldCapital oldTarget poolParams = do
             let doCheckOverDelegation = do
                     ad <- getAccount
@@ -1880,12 +1885,12 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                             LT ->
                                 let curEpoch = epoch $ bs ^. blockBirkParameters . birkSeedState
                                     cooldown = 2 + bs ^. blockUpdates . currentParameters . cpCooldownParameters . cpBakerExtraCooldownEpochs
-                                 in if newStake < bakerStakeThreshold
+                                in  if newStake < bakerStakeThreshold
                                         then Left BSUStakeUnderThreshold
                                         else Right (BSUStakeReduced (BakerId ai) (curEpoch + cooldown), bakerPendingChange .~ ReduceStake newStake (PendingChangeEffectiveV0 $ curEpoch + cooldown))
                             EQ -> Right (BSUStakeUnchanged (BakerId ai), id)
                             GT -> Right (BSUStakeIncreased (BakerId ai), stakedAmount .~ newStake)
-                     in case mres of
+                    in  case mres of
                             Right (res, updateStake) -> (res, bs & blockAccounts . Accounts.indexedAccount ai . accountStaking .~ AccountStakeBaker (ab & updateStake))
                             Left e -> (e, bs)
             -- The account is not valid or has no baker
@@ -1912,7 +1917,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                 | otherwise ->
                     let curEpoch = epoch $ bs ^. blockBirkParameters . birkSeedState
                         cooldown = 2 + bs ^. blockUpdates . currentParameters . cpCooldownParameters . cpBakerExtraCooldownEpochs
-                     in ( BRRemoved (BakerId ai) (curEpoch + cooldown),
+                    in  ( BRRemoved (BakerId ai) (curEpoch + cooldown),
                           bs & blockAccounts . Accounts.indexedAccount ai . accountStaking .~ AccountStakeBaker (ab & bakerPendingChange .~ RemoveStake (PendingChangeEffectiveV0 $ curEpoch + cooldown))
                         )
             -- The account is not valid or has no baker
@@ -1930,12 +1935,13 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                     AccountStakeDelegate AccountDelegationV1{..}
                         | _delegationStakeEarnings ->
                             ( accountDelegator . delegationStakedAmount +~ reward,
-                              blockBirkParameters . birkActiveBakers
+                              blockBirkParameters
+                                . birkActiveBakers
                                 %~ (totalActiveCapital +~ reward)
-                                    . ( case _delegationTarget of
-                                            DelegatePassive -> passiveDelegators . apDelegatorTotalCapital +~ reward
-                                            DelegateToBaker bid -> activeBakers . singular (ix bid) . apDelegatorTotalCapital +~ reward
-                                      )
+                                . ( case _delegationTarget of
+                                        DelegatePassive -> passiveDelegators . apDelegatorTotalCapital +~ reward
+                                        DelegateToBaker bid -> activeBakers . singular (ix bid) . apDelegatorTotalCapital +~ reward
+                                  )
                             )
                     _ -> (id, id)
                 bs' =
@@ -1948,7 +1954,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
         let bprds = PoolRewards.bakerPoolRewardDetails $ bs ^. blockPoolRewards
             capitals = PoolRewards.currentCapital (bs ^. blockPoolRewards) ^. unhashed
             toKV bc prd = (bcBakerId bc, prd)
-         in -- Note that the lists will be the same length, since the bakerPoolRewardDetails are reset
+        in  -- Note that the lists will be the same length, since the bakerPoolRewardDetails are reset
             -- when the currentCapital changes.
             return $! Map.fromList (zipWith toKV (Vec.toList $ bakerPoolCapital capitals) (LFMBT.toAscList bprds))
 
@@ -2001,7 +2007,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
 
     bsoUpdateAccruedTransactionFeesBaker bs bid delta =
         let accrueAmountBPR bpr = bpr{PoolRewards.transactionFeesAccrued = applyAmountDelta delta (PoolRewards.transactionFeesAccrued bpr)}
-         in modifyBakerPoolRewardDetailsInPoolRewards bs bid accrueAmountBPR
+        in  modifyBakerPoolRewardDetailsInPoolRewards bs bid accrueAmountBPR
 
     bsoMarkFinalizationAwakeBakers bs bids = do
         let bprs0 = PoolRewards.bakerPoolRewardDetails (bs ^. blockPoolRewards)
@@ -2050,7 +2056,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             BTOV0 bto -> return $! (bs & (blockTransactionOutcomes .~ BTOV0 (bto & Transactions.outcomeSpecial %~ (Seq.|> o))))
             BTOV1 bto ->
                 let (_, newSpecials) = LFMBT.append o (mtoSpecials bto)
-                 in return (bs & (blockTransactionOutcomes .~ BTOV1 (bto{mtoSpecials = newSpecials})))
+                in  return (bs & (blockTransactionOutcomes .~ BTOV1 (bto{mtoSpecials = newSpecials})))
 
     {-# INLINE bsoProcessUpdateQueues #-}
     bsoProcessUpdateQueues bs ts =
@@ -2073,16 +2079,16 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             else
                 let f (ba, brs) aid =
                         let mUnlocked = unlockAmountsUntil ts <$> (ba ^? Accounts.indexedAccount aid . accountReleaseSchedule)
-                         in case mUnlocked of
+                        in  case mUnlocked of
                                 Nothing -> (ba, brs)
                                 Just (_, newTs, ars') ->
                                     let ba' = ba & Accounts.indexedAccount aid . accountReleaseSchedule .~ ars'
                                         brs' = case newTs of
                                             Just k -> RS.addAccountRelease k aid brs
                                             Nothing -> brs
-                                     in (ba', brs')
+                                    in  (ba', brs')
                     (blockAccounts', blockReleaseSchedule'') = foldl' f (bs ^. blockAccounts, blockReleaseSchedule') accountsToRemove
-                 in return $!
+                in  return $!
                         bs
                             & blockAccounts .~ blockAccounts'
                             & blockReleaseSchedule .~ blockReleaseSchedule''
@@ -2119,16 +2125,16 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                 accumBakers (t, m) b =
                     let !t' = t + 1
                         !m' = m & at b . non 0 +~ 1
-                     in (t', m')
+                    in  (t', m')
             SAVDelegationSupported ->
                 let bcs = bs ^. blockPoolRewards . to PoolRewards.bakerBlockCounts
-                 in (sum (snd <$> bcs), bcs)
+                in  (sum (snd <$> bcs), bcs)
 
     bsoNotifyBlockBaked = case delegationSupport @(AccountVersionFor pv) of
         SAVDelegationNotSupported -> \(bs :: BlockState pv) bid -> return $! bs & blockEpochBlocksBaked %~ consBlockRewardDetails bid
         SAVDelegationSupported -> \bs bid ->
             let incBPR bpr = bpr{PoolRewards.blockCount = PoolRewards.blockCount bpr + 1}
-             in modifyBakerPoolRewardDetailsInPoolRewards bs bid incBPR
+            in  modifyBakerPoolRewardDetailsInPoolRewards bs bid incBPR
 
     bsoClearEpochBlocksBaked bs = return $! bs & blockEpochBlocksBaked .~ emptyBlockRewardDetails
 
@@ -2233,7 +2239,7 @@ collateBakersAndDelegators accounts = (bakers, passiveDelegatorInfos)
                       activeBakerPendingChange = pendingChangeEffectiveTimestamp <$> bkr ^. bakerPendingChange,
                       activeBakerDelegators = []
                     }
-         in (Map.insert bid abi bkrs, dlgs, passive)
+        in  (Map.insert bid abi bkrs, dlgs, passive)
     accum Account{_accountStaking = AccountStakeDelegate dlg} (bkrs, dlgs, passive) =
         let adi =
                 BS.ActiveDelegatorInfo
@@ -2241,7 +2247,7 @@ collateBakersAndDelegators accounts = (bakers, passiveDelegatorInfos)
                       activeDelegatorStake = dlg ^. delegationStakedAmount,
                       activeDelegatorPendingChange = pendingChangeEffectiveTimestamp <$> dlg ^. delegationPendingChange
                     }
-         in case dlg ^. delegationTarget of
+        in  case dlg ^. delegationTarget of
                 DelegatePassive -> (bkrs, dlgs, adi : passive)
                 DelegateToBaker bid -> (bkrs, dlgs & at' bid . non [] %~ (adi :), passive)
     accum _ bdl = bdl
@@ -2451,7 +2457,7 @@ getInitialTransactionTable bs = tt2
     accInTT tt acct =
         let nonce = acct ^. accountNonce
             addr = acct ^. accountAddress
-         in if nonce /= minNonce
+        in  if nonce /= minNonce
                 then
                     tt
                         & TransactionTable.ttNonFinalizedTransactions . at' (accountAddressEmbed addr)
@@ -2459,7 +2465,7 @@ getInitialTransactionTable bs = tt2
                 else tt
     updInTT tt uty =
         let sn = lookupNextUpdateSequenceNumber (bs ^. blockUpdates) uty
-         in if sn /= minUpdateSequenceNumber
+        in  if sn /= minUpdateSequenceNumber
                 then
                     tt
                         & TransactionTable.ttNonFinalizedChainUpdates . at' uty

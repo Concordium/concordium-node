@@ -358,7 +358,8 @@ getBranches = liftSkovQueryLatest $ do
             ( \b ma -> do
                 parent <- bpParent b
                 return $
-                    ( at (getHash parent) . non []
+                    ( at (getHash parent)
+                        . non []
                         %~ (Branch (getHash b) (Map.findWithDefault [] (getHash b) childrenMap) :)
                     )
                         ma

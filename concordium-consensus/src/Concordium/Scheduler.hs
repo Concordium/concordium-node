@@ -1147,7 +1147,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                                   euContractVersion = Wasm.V1,
                                                   euEvents = rrdLogs
                                                 }
-                                     in Right (rrdReturnValue, event : events)
+                                    in  Right (rrdReturnValue, event : events)
                             -- execution terminated, commit the new state if it changed
                             if rrdStateChanged
                                 then do
@@ -1562,7 +1562,7 @@ foldEvents originAddr istance initEvent = fmap (initEvent :) . go
                             erAmount
                             erName
                             erParameter
-                 in snd <$> (c `rejectingWith'` WasmV1.cerToRejectReasonReceive erAddr erName erParameter)
+                in  snd <$> (c `rejectingWith'` WasmV1.cerToRejectReasonReceive erAddr erName erParameter)
     go Wasm.TSimpleTransfer{..} = do
         handleTransferAccount erTo (snd istance) erAmount
     go (Wasm.And l r) = do
@@ -1830,7 +1830,7 @@ handleConfigureBaker
                 electionP = checkElectionKeyProof challenge bkwpElectionVerifyKey bkwpProofElection
                 signP = checkSignatureVerifyKeyProof challenge bkwpSignatureVerifyKey bkwpProofSig
                 aggregationP = Bls.checkProofOfKnowledgeSK challenge bkwpProofAggregation bkwpAggregationVerifyKey
-             in electionP && signP && aggregationP
+            in  electionP && signP && aggregationP
         tickGetArgAndBalance = do
             -- Charge the energy cost before checking the validity of the parameters.
             if isJust cbKeysWithProofs
@@ -2525,10 +2525,10 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
                 -- Because we should never have duplicate regids on the chain, each of them will only
                 -- map to the unique key index. Thus the following map is well-defined.
                 let existingCredIds = OrdMap.fromList . map (\(ki, v) -> (ID.credId v, ki)) . OrdMap.toList $ existingCredentials
-                 in foldl'
+                in  foldl'
                         ( \(nonExisting, existing, remList) rid ->
                             let rrid = ID.toRawCredRegId rid
-                             in case rrid `OrdMap.lookup` existingCredIds of
+                            in  case rrid `OrdMap.lookup` existingCredIds of
                                     Nothing -> (rid : nonExisting, existing, remList)
                                     Just ki -> (nonExisting, Set.insert ki existing, if Set.member ki existing then remList else ki : remList)
                         )
@@ -2540,7 +2540,7 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
                 null nonExistingRegIds
                     && let existingIndices = OrdMap.keysSet existingCredentials
                            newIndices = OrdMap.keysSet cdis
-                        in Set.intersection existingIndices newIndices `Set.isSubsetOf` indicesToRemove
+                       in  Set.intersection existingIndices newIndices `Set.isSubsetOf` indicesToRemove
 
         -- check that the new threshold is no more than the number of credentials
         --
@@ -2744,13 +2744,13 @@ filterTransactions maxSize timeout groups0 = do
     runNext maxEnergy size credLimit True fts (g : groups) = case g of -- Time is up. Mark subsequent groups as unprocessed.
         TGAccountTransactions group ->
             let newFts = fts{ftUnprocessed = group ++ ftUnprocessed fts}
-             in runNext maxEnergy size credLimit True newFts groups
+            in  runNext maxEnergy size credLimit True newFts groups
         TGCredentialDeployment c ->
             let newFts = fts{ftUnprocessedCredentials = c : ftUnprocessedCredentials fts}
-             in runNext maxEnergy size credLimit True newFts groups
+            in  runNext maxEnergy size credLimit True newFts groups
         TGUpdateInstructions group ->
             let newFts = fts{ftUnprocessedUpdates = group ++ ftUnprocessedUpdates fts}
-             in runNext maxEnergy size credLimit True newFts groups
+            in  runNext maxEnergy size credLimit True newFts groups
     runNext maxEnergy size credLimit False fts (g : groups) = case g of -- Time isn't up yet. Process groups until time is up.
         TGAccountTransactions group -> runTransactionGroup size fts group
         TGCredentialDeployment c -> runCredential c
@@ -2803,11 +2803,11 @@ filterTransactions maxSize timeout groups0 = do
                                 | ((==) `on` (updateSeqNumber . uiHeader . wmdData . fst)) ui nui ->
                                     -- There is another update with the same sequence number, so try that
                                     let newFts = currentFts{ftUnprocessedUpdates = ui : ftUnprocessedUpdates currentFts}
-                                     in runUpdateInstructions currentSize newFts uis
+                                    in  runUpdateInstructions currentSize newFts uis
                             _ ->
                                 -- Otherwise, there's no chance of processing remaining updates
                                 let newFts = currentFts{ftUnprocessedUpdates = ui : uis ++ ftUnprocessedUpdates currentFts}
-                                 in runNext maxEnergy currentSize credLimit False newFts groups
+                                in  runNext maxEnergy currentSize credLimit False newFts groups
 
         -- Run a single credential and continue with 'runNext'.
         runCredential :: TVer.CredentialDeploymentWithStatus -> m FilteredTransactions
@@ -2842,10 +2842,10 @@ filterTransactions maxSize timeout groups0 = do
                                 -- but we keep it just in case.
 
                                     let newFts = fts{ftFailedCredentials = (cws, ExceedsMaxBlockEnergy) : ftFailedCredentials fts}
-                                     in runNext maxEnergy size credLimit False newFts groups
+                                    in  runNext maxEnergy size credLimit False newFts groups
                                 else
                                     let newFts = fts{ftUnprocessedCredentials = cws : ftUnprocessedCredentials fts}
-                                     in runNext maxEnergy size credLimit False newFts groups
+                                    in  runNext maxEnergy size credLimit False newFts groups
 
         -- Run all transactions in a group and continue with 'runNext'.
         runTransactionGroup ::
@@ -2879,7 +2879,7 @@ filterTransactions maxSize timeout groups0 = do
                                 -- determine whether the following transactions have to fail as well.
                                 Just (TxInvalid reason) ->
                                     let (newFts, rest) = invalidTs t reason currentFts ts
-                                     in runTransactionGroup currentSize newFts rest
+                                    in  runTransactionGroup currentSize newFts rest
                                 Nothing -> error "Unreachable. Dispatch honors maximum transaction energy."
                         else -- If the stated energy of a single transaction exceeds the block energy limit the
                         -- transaction is invalid. Add it to the list of failed transactions and
@@ -2888,17 +2888,17 @@ filterTransactions maxSize timeout groups0 = do
                             if tenergy > maxEnergy
                                 then
                                     let (newFts, rest) = invalidTs t ExceedsMaxBlockEnergy currentFts ts
-                                     in runTransactionGroup currentSize newFts rest
+                                    in  runTransactionGroup currentSize newFts rest
                                 else -- otherwise still try the remaining transactions in the group to avoid deadlocks from
                                 -- one single too-big transaction (with same nonce).
                                 case ts of
                                     (nt : _)
                                         | transactionNonce (fst nt) == transactionNonce (fst t) ->
                                             let newFts = currentFts{ftUnprocessed = t : ftUnprocessed currentFts}
-                                             in runTransactionGroup currentSize newFts ts
+                                            in  runTransactionGroup currentSize newFts ts
                                     _ ->
                                         let newFts = currentFts{ftUnprocessed = t : ts ++ ftUnprocessed currentFts}
-                                         in runNext maxEnergy currentSize credLimit False newFts groups
+                                        in  runNext maxEnergy currentSize credLimit False newFts groups
 
         -- Group processed, continue with the next group or credential
         runTransactionGroup currentSize currentFts [] =
@@ -2932,13 +2932,13 @@ filterTransactions maxSize timeout groups0 = do
         -- Returns the updated 'FilteredTransactions' and the yet to be processed transactions.
         invalidTs t failure currentFts ts =
             let newFailedEntry = (t, failure)
-             in -- NOTE: Following transactions with the same nonce could be valid. Therefore,
+            in  -- NOTE: Following transactions with the same nonce could be valid. Therefore,
                 -- if the next transaction has the same nonce as the failed, we continue with 'runNext'.
                 -- Note that we rely on the precondition of transactions being ordered by nonce.
                 if not (null ts) && transactionNonce (fst (head ts)) > transactionNonce (fst t)
                     then
                         let failedSuccessors = map (,SuccessorOfInvalidTransaction) ts
-                         in ( currentFts{ftFailed = newFailedEntry : failedSuccessors ++ ftFailed currentFts},
+                        in  ( currentFts{ftFailed = newFailedEntry : failedSuccessors ++ ftFailed currentFts},
                               []
                             )
                     else (currentFts{ftFailed = newFailedEntry : ftFailed currentFts}, ts)

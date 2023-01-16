@@ -213,7 +213,7 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
         if index >= _startIndex && numOfAmounts >= index - _startIndex
             then
                 let toTake = Seq.take (fromIntegral (index - _startIndex)) $ maybe id ((Seq.:<|) . fst) _aggregatedAmount _incomingEncryptedAmounts
-                 in return $ Just $! foldl' aggregateAmounts _selfAmount toTake
+                in  return $ Just $! foldl' aggregateAmounts _selfAmount toTake
             else return Nothing
 
     -- |Get the release schedule for an account.

@@ -1095,7 +1095,7 @@ doGetActiveBakersAndDelegators pbs = do
                           activeDelegatorPendingChange =
                             BaseAccounts.pendingChangeEffectiveTimestamp
                                 <$> theDelegator
-                                ^. BaseAccounts.delegationPendingChange,
+                                    ^. BaseAccounts.delegationPendingChange,
                           ..
                         }
 
@@ -1140,7 +1140,7 @@ doGetActiveDelegators pbs mPoolId = do
                   activeDelegatorPendingChange =
                     BaseAccounts.pendingChangeEffectiveTimestamp
                         <$> theDelegator
-                        ^. BaseAccounts.delegationPendingChange,
+                            ^. BaseAccounts.delegationPendingChange,
                   ..
                 }
             )
@@ -1980,8 +1980,8 @@ doMint pbs mint = do
             bspBank bsp
                 & unhashed
                     %~ (Rewards.totalGTU +~ mintTotal mint)
-                        . (Rewards.bakingRewardAccount +~ mintBakingReward mint)
-                        . (Rewards.finalizationRewardAccount +~ mintFinalizationReward mint)
+                    . (Rewards.bakingRewardAccount +~ mintBakingReward mint)
+                    . (Rewards.finalizationRewardAccount +~ mintFinalizationReward mint)
     let updAcc = addAccountAmount $ mintDevelopmentCharge mint
     foundationAccount <- (^. cpFoundationAccount) <$> lookupCurrentParameters (bspUpdates bsp)
     newAccounts <- Accounts.updateAccountsAtIndex' updAcc foundationAccount (bspAccounts bsp)
@@ -2361,7 +2361,7 @@ doGetAnonymityRevokers pbs arIds = do
     ars <- refLoad (bspAnonymityRevokers bsp)
     return $!
         let arsMap = ARS.arRevokers ars
-         in forM arIds (`Map.lookup` arsMap)
+        in  forM arIds (`Map.lookup` arsMap)
 
 doGetAllAnonymityRevokers :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m [ARS.ArInfo]
 doGetAllAnonymityRevokers pbs = do
@@ -2750,7 +2750,7 @@ doNotifyBlockBaked pbs bid = do
             storePBS pbs bsp{bspRewardDetails = newBlockRewardDetails}
         SAVDelegationSupported ->
             let incBPR bpr = bpr{blockCount = blockCount bpr + 1}
-             in storePBS pbs =<< modifyBakerPoolRewardDetailsInPoolRewards bsp bid incBPR
+            in  storePBS pbs =<< modifyBakerPoolRewardDetailsInPoolRewards bsp bid incBPR
 
 doUpdateAccruedTransactionFeesBaker :: forall pv m. (PVSupportsDelegation pv, SupportsPersistentState pv m) => PersistentBlockState pv -> BakerId -> AmountDelta -> m (PersistentBlockState pv)
 doUpdateAccruedTransactionFeesBaker pbs bid delta = do

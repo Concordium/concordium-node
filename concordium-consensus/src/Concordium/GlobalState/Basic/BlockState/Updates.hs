@@ -153,8 +153,7 @@ processUpdateQueues t (theUpdates, ars, ips) =
         )
     )
   where
-    Updates{_pendingUpdates = PendingUpdates{..}, _currentParameters = ChainParameters{_cpRewardParameters = RewardParameters{..}, _cpConsensusParameters  = consensusParams, ..}, ..} = theUpdates
-
+    Updates{_pendingUpdates = PendingUpdates{..}, _currentParameters = ChainParameters{_cpRewardParameters = RewardParameters{..}, _cpConsensusParameters = consensusParams, ..}, ..} = theUpdates
 
     (newRootKeys, newRootKeysQueue, resRootKeys) = processValueUpdates t (rootKeys $ _unhashed _currentKeyCollection) _pRootKeysUpdateQueue
     (newLevel1Keys, newLevel1KeysQueue, resLevel1Keys) = processValueUpdates t (level1Keys $ _unhashed _currentKeyCollection) _pLevel1KeysUpdateQueue
@@ -185,24 +184,25 @@ processUpdateQueues t (theUpdates, ars, ips) =
             SChainParametersV0 ->
                 let electionDifficulty = _cpElectionDifficulty consensusParams
                     (newElectionDifficulty, newEDQueue, resElectionDifficulty') = processValueUpdatesO t electionDifficulty _pElectionDifficultyQueue & _3 %~ fmap UVElectionDifficulty
-                in (ConsensusParametersV0 newElectionDifficulty, newEDQueue, NoParam, NoParam, NoParam, resElectionDifficulty', Map.empty, Map.empty, Map.empty)
+                in  (ConsensusParametersV0 newElectionDifficulty, newEDQueue, NoParam, NoParam, NoParam, resElectionDifficulty', Map.empty, Map.empty, Map.empty)
             SChainParametersV1 ->
                 let electionDifficulty = _cpElectionDifficulty consensusParams
                     (newElectionDifficulty, newEDQueue, resElectionDifficulty') = processValueUpdatesO t electionDifficulty _pElectionDifficultyQueue & _3 %~ fmap UVElectionDifficulty
-                in (ConsensusParametersV0 newElectionDifficulty, newEDQueue, NoParam, NoParam, NoParam, resElectionDifficulty', Map.empty, Map.empty, Map.empty)
+                in  (ConsensusParametersV0 newElectionDifficulty, newEDQueue, NoParam, NoParam, NoParam, resElectionDifficulty', Map.empty, Map.empty, Map.empty)
             SChainParametersV2 ->
                 let (newTimeoutParameters, newTOQueue, resTimeoutParameters') = processValueUpdatesO t (_cpTimeoutParameters consensusParams) _pTimeoutParametersQueue & _3 %~ fmap UVTimeoutParameters
-                    (newMinBlockTime, newMBTQueue, resMinBlockTime') = processValueUpdatesO t (_cpMinBlockTime consensusParams) _pMinBlockTimeQueue  & _3 %~ fmap UVMinBlockTime
-                    (newBlockEnergyLimit, newBELQueue, resBlockEnergyLimit') = processValueUpdatesO t (_cpBlockEnergyLimit consensusParams) _pBlockEnergyLimitQueue  & _3 %~ fmap UVBlockEnergyLimit
-                in (ConsensusParametersV1 newTimeoutParameters newMinBlockTime newBlockEnergyLimit,
-                    NoParam,
-                    newTOQueue,
-                    newMBTQueue,
-                    newBELQueue,
-                    Map.empty,
-                    resTimeoutParameters',
-                    resMinBlockTime',
-                    resBlockEnergyLimit')
+                    (newMinBlockTime, newMBTQueue, resMinBlockTime') = processValueUpdatesO t (_cpMinBlockTime consensusParams) _pMinBlockTimeQueue & _3 %~ fmap UVMinBlockTime
+                    (newBlockEnergyLimit, newBELQueue, resBlockEnergyLimit') = processValueUpdatesO t (_cpBlockEnergyLimit consensusParams) _pBlockEnergyLimitQueue & _3 %~ fmap UVBlockEnergyLimit
+                in  ( ConsensusParametersV1 newTimeoutParameters newMinBlockTime newBlockEnergyLimit,
+                      NoParam,
+                      newTOQueue,
+                      newMBTQueue,
+                      newBELQueue,
+                      Map.empty,
+                      resTimeoutParameters',
+                      resMinBlockTime',
+                      resBlockEnergyLimit'
+                    )
     res =
         (UVRootKeys <$> resRootKeys)
             <> (UVLevel1Keys <$> resLevel1Keys)

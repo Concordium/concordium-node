@@ -104,8 +104,8 @@ testDoMintingP4 = do
               mintFinalizationReward = 1000000000,
               mintDevelopmentCharge = 0
             }
-    md1 = MintDistribution MintPerSlotForCPV0None (makeAmountFraction 100000) (makeAmountFraction 0)
-    md2 = MintDistribution MintPerSlotForCPV0None (makeAmountFraction 0) (makeAmountFraction 100000)
+    md1 = MintDistribution CFalse (makeAmountFraction 100000) (makeAmountFraction 0)
+    md2 = MintDistribution CFalse (makeAmountFraction 0) (makeAmountFraction 100000)
     mintSto amts =
         Mint
             { stoMintBakingReward = mintBakingReward amts,
@@ -115,14 +115,14 @@ testDoMintingP4 = do
             }
 
 -- rewards distributed after minting are equal to the minted amount
-propMintAmountsEqNewMint :: MintDistribution 'ChainParametersV1 -> MintRate -> Amount -> Bool
+propMintAmountsEqNewMint :: MintDistribution 'MintDistributionVersion1 -> MintRate -> Amount -> Bool
 propMintAmountsEqNewMint md mr amt = mintTotal (doCalculatePaydayMintAmounts md mr amt) == mintAmount mr amt
 
 instance Arbitrary (UpdateValue 'ChainParametersV1) where
     arbitrary = UVMintDistribution <$> arbitrary
 
 -- the most recent update of mint distribution parameters is used to determine mint distribution
-propMintDistributionMostRecent :: MintDistribution 'ChainParametersV1 -> MintRate -> Slot -> [(Slot, UpdateValue 'ChainParametersV1)] -> Amount -> Bool
+propMintDistributionMostRecent :: MintDistribution 'MintDistributionVersion1 -> MintRate -> Slot -> [(Slot, UpdateValue 'ChainParametersV1)] -> Amount -> Bool
 propMintDistributionMostRecent md mr ps updates amt =
     let updatesSorted = sortBy (\(a, _) (b, _) -> compare a b) $ map (& (_1 +~ 1)) updates
         (UVMintDistribution mostRecentMintDistribution) =
@@ -219,7 +219,7 @@ initialPureBlockState = Concordium.GlobalState.Basic.BlockState.hashBlockState $
 initialPersistentBlockState :: (SupportsPersistentState pv m) => m (HashedPersistentBlockState pv)
 initialPersistentBlockState = makePersistent . _unhashedBlockState $ initialPureBlockState
 
-genesis :: (IsProtocolVersion pv) => Word -> (GenesisData pv, [(BakerIdentity, FullBakerInfo)], Amount)
+genesis :: forall pv. (IsProtocolVersion pv) => Word -> (GenesisData pv, [(BakerIdentity, FullBakerInfo)], Amount)
 genesis nBakers =
     makeGenesisData
         0
@@ -231,7 +231,7 @@ genesis nBakers =
         dummyArs
         []
         1234
-        dummyKeyCollection
+        (withIsAuthorizationsVersionForPV (protocolVersion @pv) dummyKeyCollection)
         dummyChainParameters
 
 -- this is, perhaps, the smallest effect type that makes these tests run

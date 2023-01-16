@@ -381,12 +381,15 @@ newtype SchedulerImplementation pv a = SchedulerImplementation {_runScheduler ::
         (ContractStateOperations, ModuleQuery, MonadLogger)
         via (BSOMonadWrapper ContextState (PBSSS pv) (MGSTrans (RWSTBS pv) (PureBlockStateMonad pv Identity)))
 
-deriving via (BSOMonadWrapper ContextState (PBSSS pv) (MGSTrans (RWSTBS pv) (PureBlockStateMonad pv Identity)))
-    instance IsProtocolVersion pv => StaticInformation (SchedulerImplementation pv)
+deriving via
+    (BSOMonadWrapper ContextState (PBSSS pv) (MGSTrans (RWSTBS pv) (PureBlockStateMonad pv Identity)))
+    instance
+        IsProtocolVersion pv => StaticInformation (SchedulerImplementation pv)
 
-deriving via (BSOMonadWrapper ContextState (PBSSS pv) (MGSTrans (RWSTBS pv) (PureBlockStateMonad pv Identity)))
-    instance IsProtocolVersion pv => AccountOperations (SchedulerImplementation pv)
-
+deriving via
+    (BSOMonadWrapper ContextState (PBSSS pv) (MGSTrans (RWSTBS pv) (PureBlockStateMonad pv Identity)))
+    instance
+        IsProtocolVersion pv => AccountOperations (SchedulerImplementation pv)
 
 instance IsProtocolVersion pv => GS.MonadProtocolVersion (SchedulerImplementation pv) where
     type MPV (SchedulerImplementation pv) = pv

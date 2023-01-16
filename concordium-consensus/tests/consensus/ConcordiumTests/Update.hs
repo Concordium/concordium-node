@@ -103,7 +103,7 @@ createInitStates = do
     let bakerAmount = 10 ^ (4 :: Int)
         bis@[baker1, baker2] = makeBakersByStake [bakerAmount, bakerAmount]
         bakerAccounts = (^. _3) <$> bis
-        cps = Dummy.dummyChainParameters & cpElectionDifficulty .~ makeElectionDifficultyUnchecked 100000
+        cps = Dummy.dummyChainParameters & cpConsensusParameters . cpElectionDifficulty .~ makeElectionDifficultyUnchecked 100000
         gen =
             GDP1
                 GDP1Initial

@@ -166,9 +166,9 @@ import Concordium.Types
 import Concordium.Types.Accounts
 import qualified Concordium.Types.AnonymityRevokers as ARS
 import qualified Concordium.Types.IdentityProviders as IPS
+import Concordium.Types.Parameters
 import Concordium.Types.Transactions
 import Concordium.Types.Updates
-import Concordium.Types.Parameters
 import Concordium.Wasm
 
 import qualified Concordium.Crypto.SHA256 as H
@@ -1688,9 +1688,10 @@ instance
     BlobStorable m (HashedBufferedRefO pt cpv a)
     where
     load = whenSupported <$> load
-        -- case isSupported @pt @cpv of
-        --     False -> return (pure NoParam)
-        --     True -> fmap (fmap SomeParam) load
+
+    -- case isSupported @pt @cpv of
+    --     False -> return (pure NoParam)
+    --     True -> fmap (fmap SomeParam) load
     storeUpdate NoParam = return (pure (), NoParam)
     storeUpdate (SomeParam v) = do
         (!r, !v') <- storeUpdate v

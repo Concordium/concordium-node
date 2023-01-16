@@ -117,9 +117,9 @@ data BlockStateQueryAction (pv :: ProtocolVersion) a where
     GetAccountByIndex :: MockBlockState -> AccountIndex -> BlockStateQueryAction pv (Maybe (AccountIndex, MockAccount))
     AccountExists :: MockBlockState -> AccountAddress -> BlockStateQueryAction pv Bool
     GetActiveBakers :: MockBlockState -> BlockStateQueryAction pv [BakerId]
-    GetActiveBakersAndDelegators :: (SupportsDelegation pv) => MockBlockState -> BlockStateQueryAction pv ([ActiveBakerInfo' MockBakerInfoRef], [ActiveDelegatorInfo])
-    GetActiveDelegators :: (SupportsDelegation pv) => MockBlockState -> Maybe BakerId -> BlockStateQueryAction pv (Maybe [(AccountAddress, ActiveDelegatorInfo)])
-    GetCurrentDelegators :: (SupportsDelegation pv) => MockBlockState -> Maybe BakerId -> BlockStateQueryAction pv (Maybe [(AccountAddress, DelegatorCapital)])
+    GetActiveBakersAndDelegators :: (PVSupportsDelegation pv) => MockBlockState -> BlockStateQueryAction pv ([ActiveBakerInfo' MockBakerInfoRef], [ActiveDelegatorInfo])
+    GetActiveDelegators :: (PVSupportsDelegation pv) => MockBlockState -> Maybe BakerId -> BlockStateQueryAction pv (Maybe [(AccountAddress, ActiveDelegatorInfo)])
+    GetCurrentDelegators :: (PVSupportsDelegation pv) => MockBlockState -> Maybe BakerId -> BlockStateQueryAction pv (Maybe [(AccountAddress, DelegatorCapital)])
     GetAccountByCredId :: MockBlockState -> ID.RawCredentialRegistrationID -> BlockStateQueryAction pv (Maybe (AccountIndex, MockAccount))
     GetContractInstance :: MockBlockState -> ContractAddress -> BlockStateQueryAction pv (Maybe (InstanceInfoType MockInstrumentedModuleRef MockContractState))
     GetModuleList :: MockBlockState -> BlockStateQueryAction pv [ModuleRef]
@@ -144,14 +144,14 @@ data BlockStateQueryAction (pv :: ProtocolVersion) a where
     GetNextUpdateSequenceNumber :: MockBlockState -> UpdateType -> BlockStateQueryAction pv UpdateSequenceNumber
     GetCurrentElectionDifficulty :: MockBlockState -> BlockStateQueryAction pv ElectionDifficulty
     GetUpdates :: MockBlockState -> BlockStateQueryAction pv (UQ.Updates pv)
-    GetPendingTimeParameters :: MockBlockState -> BlockStateQueryAction pv [(TransactionTime, TimeParameters (ChainParametersVersionFor pv))]
+    GetPendingTimeParameters :: MockBlockState -> BlockStateQueryAction pv [(TransactionTime, TimeParameters)]
     GetPendingPoolParameters :: MockBlockState -> BlockStateQueryAction pv [(TransactionTime, PoolParameters (ChainParametersVersionFor pv))]
     GetProtocolUpdateStatus :: MockBlockState -> BlockStateQueryAction pv UQ.ProtocolUpdateStatus
     GetCryptographicParameters :: MockBlockState -> BlockStateQueryAction pv CryptographicParameters
-    GetUpdateKeysCollection :: MockBlockState -> BlockStateQueryAction pv (UpdateKeysCollection (ChainParametersVersionFor pv))
+    GetUpdateKeysCollection :: MockBlockState -> BlockStateQueryAction pv (UpdateKeysCollection (AuthorizationsVersionForPV pv))
     GetExchangeRates :: MockBlockState -> BlockStateQueryAction pv ExchangeRates
-    GetPaydayEpoch :: (SupportsDelegation pv) => MockBlockState -> BlockStateQueryAction pv Epoch
-    GetPoolStatus :: (SupportsDelegation pv) => MockBlockState -> Maybe BakerId -> BlockStateQueryAction pv (Maybe PoolStatus)
+    GetPaydayEpoch :: (PVSupportsDelegation pv) => MockBlockState -> BlockStateQueryAction pv Epoch
+    GetPoolStatus :: (PVSupportsDelegation pv) => MockBlockState -> Maybe BakerId -> BlockStateQueryAction pv (Maybe PoolStatus)
 
 deriving instance Eq (BlockStateQueryAction pv a)
 deriving instance Show (BlockStateQueryAction pv a)
@@ -177,44 +177,44 @@ data BlockStateOperationsAction pv a where
     BsoGetSeedState :: MockUpdatableBlockState -> BlockStateOperationsAction pv SeedState
     BsoSetSeedState :: MockUpdatableBlockState -> SeedState -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoRotateCurrentEpochBakers :: MockUpdatableBlockState -> BlockStateOperationsAction pv MockUpdatableBlockState
-    BsoSetNextEpochBakers :: (SupportsDelegation pv) => MockUpdatableBlockState -> [(MockBakerInfoRef, Amount)] -> BlockStateOperationsAction pv MockUpdatableBlockState
+    BsoSetNextEpochBakers :: (PVSupportsDelegation pv) => MockUpdatableBlockState -> [(MockBakerInfoRef, Amount)] -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoTransitionEpochBakers :: (AccountVersionFor pv ~ 'AccountV0) => MockUpdatableBlockState -> Epoch -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoGetActiveBakers :: MockUpdatableBlockState -> BlockStateOperationsAction pv [BakerId]
-    BsoGetActiveBakersAndDelegators :: (SupportsDelegation pv) => MockUpdatableBlockState -> BlockStateOperationsAction pv ([ActiveBakerInfo' MockBakerInfoRef], [ActiveDelegatorInfo])
+    BsoGetActiveBakersAndDelegators :: (PVSupportsDelegation pv) => MockUpdatableBlockState -> BlockStateOperationsAction pv ([ActiveBakerInfo' MockBakerInfoRef], [ActiveDelegatorInfo])
     BsoGetCurrentEpochBakers :: MockUpdatableBlockState -> BlockStateOperationsAction pv FullBakers
-    BsoGetCurrentEpochFullBakersEx :: (SupportsDelegation pv) => MockUpdatableBlockState -> BlockStateOperationsAction pv FullBakersEx
-    BsoGetCurrentCapitalDistribution :: (SupportsDelegation pv) => MockUpdatableBlockState -> BlockStateOperationsAction pv CapitalDistribution
+    BsoGetCurrentEpochFullBakersEx :: (PVSupportsDelegation pv) => MockUpdatableBlockState -> BlockStateOperationsAction pv FullBakersEx
+    BsoGetCurrentCapitalDistribution :: (PVSupportsDelegation pv) => MockUpdatableBlockState -> BlockStateOperationsAction pv CapitalDistribution
     BsoAddBaker :: (AccountVersionFor pv ~ 'AccountV0, ChainParametersVersionFor pv ~ 'ChainParametersV0) => MockUpdatableBlockState -> AccountIndex -> BakerAdd -> BlockStateOperationsAction pv (BakerAddResult, MockUpdatableBlockState)
-    BsoConfigureBaker :: (SupportsDelegation pv) => MockUpdatableBlockState -> AccountIndex -> BakerConfigure -> BlockStateOperationsAction pv (BakerConfigureResult, MockUpdatableBlockState)
-    BsoConstrainBakerCommission :: (SupportsDelegation pv) => MockUpdatableBlockState -> AccountIndex -> CommissionRanges -> BlockStateOperationsAction pv MockUpdatableBlockState
-    BsoConfigureDelegation :: (SupportsDelegation pv) => MockUpdatableBlockState -> AccountIndex -> DelegationConfigure -> BlockStateOperationsAction pv (DelegationConfigureResult, MockUpdatableBlockState)
+    BsoConfigureBaker :: (PVSupportsDelegation pv) => MockUpdatableBlockState -> AccountIndex -> BakerConfigure -> BlockStateOperationsAction pv (BakerConfigureResult, MockUpdatableBlockState)
+    BsoConstrainBakerCommission :: (PVSupportsDelegation pv) => MockUpdatableBlockState -> AccountIndex -> CommissionRanges -> BlockStateOperationsAction pv MockUpdatableBlockState
+    BsoConfigureDelegation :: (PVSupportsDelegation pv) => MockUpdatableBlockState -> AccountIndex -> DelegationConfigure -> BlockStateOperationsAction pv (DelegationConfigureResult, MockUpdatableBlockState)
     BsoUpdateBakerKeys :: (AccountVersionFor pv ~ 'AccountV0) => MockUpdatableBlockState -> AccountIndex -> BakerKeyUpdate -> BlockStateOperationsAction pv (BakerKeyUpdateResult, MockUpdatableBlockState)
     BsoUpdateBakerStake :: (AccountVersionFor pv ~ 'AccountV0, ChainParametersVersionFor pv ~ 'ChainParametersV0) => MockUpdatableBlockState -> AccountIndex -> Amount -> BlockStateOperationsAction pv (BakerStakeUpdateResult, MockUpdatableBlockState)
     BsoUpdateBakerRestakeEarnings :: (AccountVersionFor pv ~ 'AccountV0) => MockUpdatableBlockState -> AccountIndex -> Bool -> BlockStateOperationsAction pv (BakerRestakeEarningsUpdateResult, MockUpdatableBlockState)
     BsoRemoveBaker :: (AccountVersionFor pv ~ 'AccountV0, ChainParametersVersionFor pv ~ 'ChainParametersV0) => MockUpdatableBlockState -> AccountIndex -> BlockStateOperationsAction pv (BakerRemoveResult, MockUpdatableBlockState)
     BsoRewardAccount :: MockUpdatableBlockState -> AccountIndex -> Amount -> BlockStateOperationsAction pv (Maybe AccountAddress, MockUpdatableBlockState)
-    BsoGetBakerPoolRewardDetails :: SupportsDelegation pv => MockUpdatableBlockState -> BlockStateOperationsAction pv (Map.Map BakerId BakerPoolRewardDetails)
-    BsoUpdateAccruedTransactionFeesBaker :: SupportsDelegation pv => MockUpdatableBlockState -> BakerId -> AmountDelta -> BlockStateOperationsAction pv MockUpdatableBlockState
-    BsoMarkFinalizationAwakeBakers :: SupportsDelegation pv => MockUpdatableBlockState -> [BakerId] -> BlockStateOperationsAction pv MockUpdatableBlockState
-    BsoUpdateAccruedTransactionFeesPassive :: SupportsDelegation pv => MockUpdatableBlockState -> AmountDelta -> BlockStateOperationsAction pv MockUpdatableBlockState
-    BsoGetAccruedTransactionFeesPassive :: SupportsDelegation pv => MockUpdatableBlockState -> BlockStateOperationsAction pv Amount
-    BsoUpdateAccruedTransactionFeesFoundationAccount :: SupportsDelegation pv => MockUpdatableBlockState -> AmountDelta -> BlockStateOperationsAction pv MockUpdatableBlockState
-    BsoGetAccruedTransactionFeesFoundationAccount :: SupportsDelegation pv => MockUpdatableBlockState -> BlockStateOperationsAction pv Amount
+    BsoGetBakerPoolRewardDetails :: PVSupportsDelegation pv => MockUpdatableBlockState -> BlockStateOperationsAction pv (Map.Map BakerId BakerPoolRewardDetails)
+    BsoUpdateAccruedTransactionFeesBaker :: PVSupportsDelegation pv => MockUpdatableBlockState -> BakerId -> AmountDelta -> BlockStateOperationsAction pv MockUpdatableBlockState
+    BsoMarkFinalizationAwakeBakers :: PVSupportsDelegation pv => MockUpdatableBlockState -> [BakerId] -> BlockStateOperationsAction pv MockUpdatableBlockState
+    BsoUpdateAccruedTransactionFeesPassive :: PVSupportsDelegation pv => MockUpdatableBlockState -> AmountDelta -> BlockStateOperationsAction pv MockUpdatableBlockState
+    BsoGetAccruedTransactionFeesPassive :: PVSupportsDelegation pv => MockUpdatableBlockState -> BlockStateOperationsAction pv Amount
+    BsoUpdateAccruedTransactionFeesFoundationAccount :: PVSupportsDelegation pv => MockUpdatableBlockState -> AmountDelta -> BlockStateOperationsAction pv MockUpdatableBlockState
+    BsoGetAccruedTransactionFeesFoundationAccount :: PVSupportsDelegation pv => MockUpdatableBlockState -> BlockStateOperationsAction pv Amount
     BsoRewardFoundationAccount :: MockUpdatableBlockState -> Amount -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoGetFoundationAccount :: MockUpdatableBlockState -> BlockStateOperationsAction pv MockAccount
     BsoMint :: MockUpdatableBlockState -> MintAmounts -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoGetIdentityProvider :: MockUpdatableBlockState -> ID.IdentityProviderIdentity -> BlockStateOperationsAction pv (Maybe IpInfo)
     BsoGetAnonymityRevokers :: MockUpdatableBlockState -> [ID.ArIdentity] -> BlockStateOperationsAction pv (Maybe [ArInfo])
     BsoGetCryptoParams :: MockUpdatableBlockState -> BlockStateOperationsAction pv CryptographicParameters
-    BsoGetPaydayEpoch :: (SupportsDelegation pv) => MockUpdatableBlockState -> BlockStateOperationsAction pv Epoch
-    BsoGetPaydayMintRate :: (SupportsDelegation pv) => MockUpdatableBlockState -> BlockStateOperationsAction pv MintRate
-    BsoSetPaydayEpoch :: (SupportsDelegation pv) => MockUpdatableBlockState -> Epoch -> BlockStateOperationsAction pv MockUpdatableBlockState
-    BsoSetPaydayMintRate :: (SupportsDelegation pv) => MockUpdatableBlockState -> MintRate -> BlockStateOperationsAction pv MockUpdatableBlockState
+    BsoGetPaydayEpoch :: (PVSupportsDelegation pv) => MockUpdatableBlockState -> BlockStateOperationsAction pv Epoch
+    BsoGetPaydayMintRate :: (PVSupportsDelegation pv) => MockUpdatableBlockState -> BlockStateOperationsAction pv MintRate
+    BsoSetPaydayEpoch :: (PVSupportsDelegation pv) => MockUpdatableBlockState -> Epoch -> BlockStateOperationsAction pv MockUpdatableBlockState
+    BsoSetPaydayMintRate :: (PVSupportsDelegation pv) => MockUpdatableBlockState -> MintRate -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoSetTransactionOutcomes :: MockUpdatableBlockState -> [TransactionSummary] -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoAddSpecialTransactionOutcome :: MockUpdatableBlockState -> SpecialTransactionOutcome -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoProcessUpdateQueues :: MockUpdatableBlockState -> Timestamp -> BlockStateOperationsAction pv (Map.Map TransactionTime (UpdateValue (ChainParametersVersionFor pv)), MockUpdatableBlockState)
     BsoProcessReleaseSchedule :: MockUpdatableBlockState -> Timestamp -> BlockStateOperationsAction pv MockUpdatableBlockState
-    BsoGetUpdateKeyCollection :: MockUpdatableBlockState -> BlockStateOperationsAction pv (UpdateKeysCollection (ChainParametersVersionFor pv))
+    BsoGetUpdateKeyCollection :: MockUpdatableBlockState -> BlockStateOperationsAction pv (UpdateKeysCollection (AuthorizationsVersionForPV pv))
     BsoGetNextUpdateSequenceNumber :: MockUpdatableBlockState -> UpdateType -> BlockStateOperationsAction pv UpdateSequenceNumber
     BsoEnqueueUpdate :: MockUpdatableBlockState -> TransactionTime -> UpdateValue (ChainParametersVersionFor pv) -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoOverwriteElectionDifficulty :: MockUpdatableBlockState -> ElectionDifficulty -> BlockStateOperationsAction pv MockUpdatableBlockState
@@ -224,8 +224,8 @@ data BlockStateOperationsAction pv a where
     BsoGetEpochBlocksBaked :: MockUpdatableBlockState -> BlockStateOperationsAction pv (Word64, [(BakerId, Word64)])
     BsoNotifyBlockBaked :: MockUpdatableBlockState -> BakerId -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoClearEpochBlocksBaked :: (AccountVersionFor pv ~ 'AccountV0) => MockUpdatableBlockState -> BlockStateOperationsAction pv MockUpdatableBlockState
-    BsoSetNextCapitalDistribution :: (SupportsDelegation pv) => MockUpdatableBlockState -> CapitalDistribution -> BlockStateOperationsAction pv MockUpdatableBlockState
-    BsoRotateCurrentCapitalDistribution :: (SupportsDelegation pv) => MockUpdatableBlockState -> BlockStateOperationsAction pv MockUpdatableBlockState
+    BsoSetNextCapitalDistribution :: (PVSupportsDelegation pv) => MockUpdatableBlockState -> CapitalDistribution -> BlockStateOperationsAction pv MockUpdatableBlockState
+    BsoRotateCurrentCapitalDistribution :: (PVSupportsDelegation pv) => MockUpdatableBlockState -> BlockStateOperationsAction pv MockUpdatableBlockState
     BsoGetBankStatus :: MockUpdatableBlockState -> BlockStateOperationsAction pv BankStatus
     BsoSetRewardAccounts :: MockUpdatableBlockState -> RewardAccounts -> BlockStateOperationsAction pv MockUpdatableBlockState
 

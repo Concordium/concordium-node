@@ -252,7 +252,8 @@ doCalculatePaydayMintAmounts md mr amt =
     in  MintAmounts{..}
 
 -- |Determine the amount and distribution of minting for one payday, taking updates to mint distribution and mint rate into account.
-calculatePaydayMintAmounts :: (MintDistributionVersionFor cpv ~ 'MintDistributionVersion1) =>
+calculatePaydayMintAmounts ::
+    (MintDistributionVersionFor cpv ~ 'MintDistributionVersion1) =>
     -- |Initial mint distribution
     MintDistribution 'MintDistributionVersion1 ->
     -- |Payday mint rate

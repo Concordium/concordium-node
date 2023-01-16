@@ -331,7 +331,7 @@ createInitStates additionalFinMembers = do
     let bis@(baker1 : baker2 : finMember : finMembers) = makeBakersByStake ([bakerAmount, bakerAmount, finMemberAmount] ++ take additionalFinMembers (repeat finMemberAmount))
     let
         bakerAccounts = map (\(_, _, acc, _) -> acc) bis
-        cps = dummyChainParameters & cpElectionDifficulty .~ makeElectionDifficultyUnchecked 100000
+        cps = dummyChainParameters & cpConsensusParameters . cpElectionDifficulty .~ makeElectionDifficultyUnchecked 100000
         gen =
             GDP1
                 GDP1Initial

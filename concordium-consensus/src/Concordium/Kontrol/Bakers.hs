@@ -337,7 +337,7 @@ getSlotBakersP4 genData bs slot = do
             let nextPaydayLength =
                     paydayTimeParameters
                         ^. tpRewardPeriodLength
-                        . to (epochToSlot . rewardPeriodEpochs)
+                            . to (epochToSlot . rewardPeriodEpochs)
             if blockEpoch + 1 == nextPayday && slot < nextPaydaySlot + nextPaydayLength
                 then getNextEpochBakers bs
                 else do
@@ -470,7 +470,7 @@ getDefiniteSlotBakersP4 genData bs slot = do
             let nextPaydayLength =
                     paydayTimeParameters
                         ^. tpRewardPeriodLength
-                        . to (epochToSlot . rewardPeriodEpochs)
+                            . to (epochToSlot . rewardPeriodEpochs)
             if blockEpoch + 1 == nextPayday && slot < nextPaydaySlot + nextPaydayLength
                 then Just <$> getNextEpochBakers bs
                 else return Nothing

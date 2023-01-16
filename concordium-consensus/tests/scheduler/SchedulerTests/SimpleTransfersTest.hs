@@ -1,3 +1,4 @@
+{-# LANGUAGE MonoLocalBinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 
