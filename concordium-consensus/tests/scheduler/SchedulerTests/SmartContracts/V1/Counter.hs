@@ -13,7 +13,6 @@ import Control.Monad
 import qualified Data.ByteString.Short as BSS
 import Data.Serialize (putByteString, putWord16le, putWord64le, runPut)
 import Data.Word (Word64)
-import System.IO.Unsafe (unsafePerformIO)
 import Test.HUnit (Assertion, assertEqual, assertFailure)
 import Test.Hspec
 
@@ -76,7 +75,7 @@ test1 spv pvString =
             { taaTransaction =
                 TJSON
                     { payload = DeployModule wasmModVersion counterSourceFile,
-                      metadata = makeDummyHeader accountAddress0 1 100000,
+                      metadata = makeDummyHeader accountAddress0 1 100_000,
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
@@ -155,13 +154,10 @@ test1 spv pvString =
             Just (BS.InstanceInfoV1 ii) -> do
                 contractState <- BS.externalContractState $ BS.iiState ii
                 -- the contract stores the state at key = [0u8; 8]
+                value <- StateV1.lookupKey contractState (runPut (putWord64le 0))
                 return $
-                    unsafePerformIO $ do
-                        value <-
-                            StateV1.lookupKey
-                                (StateV1.InMemoryPersistentState contractState)
-                                (runPut (putWord64le 0))
-                        return $ case value of
+                    do
+                        case value of
                             Nothing -> assertFailure "Failed to find key [0,0,0,0,0,0,0,0]"
                             Just stateContents ->
                                 assertEqual

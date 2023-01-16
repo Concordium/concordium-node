@@ -14,7 +14,6 @@ import Control.Monad
 import qualified Data.ByteString.Short as BSS
 import Data.Serialize (putWord64le, runPut)
 import Data.Word (Word64)
-import System.IO.Unsafe (unsafePerformIO)
 
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.GlobalState.BlockState as BS
@@ -140,22 +139,17 @@ testCase spv pvString =
             Just (BS.InstanceInfoV1 ii) -> do
                 contractState <- BS.externalContractState $ BS.iiState ii
                 -- since we inserted 60 values we expect to find keys on all those indices
-                let stateAssert = unsafePerformIO $ do
-                        forM_ [1 .. n] $ \idx -> do
-                            maybeValue <-
-                                StateV1.lookupKey
-                                    (StateV1.InMemoryPersistentState contractState)
-                                    (runPut (putWord64le (idx - 1)))
-                            return $ case maybeValue of
-                                Nothing -> assertFailure $ "Failed to find key " ++ show (idx - 1)
-                                Just _ -> return ()
-                        maybeValue <-
-                            StateV1.lookupKey
-                                (StateV1.InMemoryPersistentState contractState)
-                                (runPut (putWord64le n))
-                        return $ case maybeValue of
-                            Nothing -> return ()
-                            Just _ -> assertFailure $ "Found key " ++ show n ++ ", but did not expect to."
+                doAssertInserted <- forM [1 .. n] $ \idx -> do
+                    maybeValue <- StateV1.lookupKey contractState (runPut (putWord64le (idx - 1)))
+                    return $ case maybeValue of
+                        Nothing -> assertFailure $ "Failed to find key " ++ show (idx - 1)
+                        Just _ -> return ()
+                doAssertRemoved <- do
+                    maybeValue <- StateV1.lookupKey contractState (runPut (putWord64le n))
+                    return $ case maybeValue of
+                        Nothing -> return ()
+                        Just _ -> assertFailure $ "Found key " ++ show n ++ ", but did not expect to."
                 return $ do
                     assertEqual "Contract has 0 CCD." (Types.Amount 0) (BS.iiBalance ii)
-                    stateAssert
+                    sequence_ doAssertInserted
+                    doAssertRemoved

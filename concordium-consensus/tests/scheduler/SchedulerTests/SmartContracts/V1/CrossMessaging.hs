@@ -15,7 +15,6 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Short as BSS
 import Data.Serialize (putByteString, putWord16le, putWord64le, runPut)
 import Data.Word (Word64)
-import System.IO.Unsafe (unsafePerformIO)
 
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.GlobalState.BlockState as BS
@@ -166,16 +165,11 @@ test1 spv pvString =
             Just (BS.InstanceInfoV1 ii) -> do
                 contractState <- BS.externalContractState $ BS.iiState ii
                 -- the contract stores the state at key = [0u8; 8]
-                return $
-                    unsafePerformIO $ do
-                        value <-
-                            StateV1.lookupKey
-                                (StateV1.InMemoryPersistentState contractState)
-                                (runPut (putWord64le 0))
-                        return $ case value of
-                            Nothing -> assertFailure "Failed to find key [0,0,0,0,0,0,0,0]"
-                            Just stateContents ->
-                                assertEqual
-                                    ("State contains " ++ show expectedCount ++ ".")
-                                    (runPut (putWord64le expectedCount))
-                                    stateContents
+                maybeValue <- StateV1.lookupKey contractState (runPut (putWord64le 0))
+                return $ case maybeValue of
+                    Nothing -> assertFailure "Failed to find key [0,0,0,0,0,0,0,0]"
+                    Just stateContents ->
+                        assertEqual
+                            ("State contains " ++ show expectedCount ++ ".")
+                            (runPut (putWord64le expectedCount))
+                            stateContents
