@@ -49,7 +49,6 @@ import Concordium.GlobalState
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockPointer (BlockPointerData (..))
 import Concordium.GlobalState.Finalization
-import Concordium.GlobalState.Paired
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.TreeState (PVInit (..), TreeStateMonad (getLastFinalizedHeight))
 import Concordium.ImportExport
@@ -170,17 +169,6 @@ instance MultiVersionStateConfig DiskTreeDiskBlockConfig where
               dtdbBlockStateFile = stateBasePath </> ("blockstate-" ++ show gi) <.> "dat"
             }
         )
-
-instance
-    (MultiVersionStateConfig c1, MultiVersionStateConfig c2) =>
-    MultiVersionStateConfig (PairGSConfig c1 c2)
-    where
-    type StateConfig (PairGSConfig c1 c2) = (StateConfig c1, StateConfig c2)
-    globalStateConfig (sc1, sc2) rtp gi gh =
-        PairGSConfig
-            ( globalStateConfig sc1 rtp gi gh,
-              globalStateConfig sc2 rtp gi gh
-            )
 
 -- |Callback functions for communicating with the network layer.
 data Callbacks = Callbacks

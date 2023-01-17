@@ -677,7 +677,7 @@ import Test.Hspec
 --             )
 
 tests :: Word -> Spec
-tests lvl = parallel $ describe "Concordium.Konsensus" $ do
+tests _lvl = parallel $ describe "Concordium.Konsensus" $ do
     return ()
 
 -- it "2 parties, 100 steps, 20 transactions with duplicates, check at every step" $ withMaxSuccess (10 ^ lvl) $ withInitialStatesDoubleTransactions 2 10 defaultMaxFinComSize $ runKonsensusTestDefault 100

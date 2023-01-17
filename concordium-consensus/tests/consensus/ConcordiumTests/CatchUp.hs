@@ -235,7 +235,7 @@ import Test.Hspec
 --     return $ simpleCatchUpCheck s1
 
 tests :: Word -> Spec
-tests lvl = parallel $ describe "Concordium.CatchUp" $ do
+tests _lvl = parallel $ describe "Concordium.CatchUp" $ do
     return ()
 
 -- it "catch-up check 5 parties, 1000 steps" $ withMaxSuccess (10 * 10 ^ lvl) $ doCatchUpCheck 5 1000
