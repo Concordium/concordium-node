@@ -161,10 +161,6 @@ class
         AbsoluteBlockHeight ->
         gsconf
 
-instance MultiVersionStateConfig MemoryTreeMemoryBlockConfig where
-    type StateConfig MemoryTreeMemoryBlockConfig = ()
-    globalStateConfig _ rtp _ _ = MTMBConfig rtp
-
 instance MultiVersionStateConfig DiskTreeDiskBlockConfig where
     type StateConfig DiskTreeDiskBlockConfig = DiskStateConfig
     globalStateConfig DiskStateConfig{..} rtp gi _ =

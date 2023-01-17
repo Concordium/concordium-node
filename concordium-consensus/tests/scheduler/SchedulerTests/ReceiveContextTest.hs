@@ -25,7 +25,6 @@ import Concordium.ID.Types (AccountAddress (..), accountAddressSize)
 import Concordium.Scheduler.DummyData
 
 import qualified SchedulerTests.Helpers as Helpers
-import SchedulerTests.TestUtils
 
 -- See the contract in /testdata/contracts/send/src/lib.rs from which the wasm
 -- module is derived. The contract calls check that the invoker or sender is the
@@ -63,12 +62,12 @@ keyPair2 = Helpers.keyPairFromSeed 2
 
 sender1 :: forall pv. IsProtocolVersion pv => SProtocolVersion pv -> Types.AccountAddress
 sender1 spv
-    | supportsAccountAliases spv = createAlias accountAddress1 17
+    | supportsAccountAliases spv = Types.createAlias accountAddress1 17
     | otherwise = accountAddress1
 
 sender2 :: forall pv. IsProtocolVersion pv => SProtocolVersion pv -> Types.AccountAddress
 sender2 spv
-    | supportsAccountAliases spv = createAlias accountAddress2 77
+    | supportsAccountAliases spv = Types.createAlias accountAddress2 77
     | otherwise = accountAddress2
 
 wasmPath :: String

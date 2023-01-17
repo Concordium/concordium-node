@@ -14,13 +14,11 @@ import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.GlobalState.BakerInfo
-import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Account
 import qualified Concordium.GlobalState.Basic.BlockState.AccountTable as AT
 import Concordium.GlobalState.Basic.BlockState.Accounts
 import Concordium.GlobalState.CapitalDistribution
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.Rewards as Rewards
 import Concordium.ID.Types
 import Concordium.Types.Accounts
 import Concordium.Types.AnonymityRevokers
@@ -31,9 +29,7 @@ import qualified Data.Set as Set
 import qualified Data.Vector as Vec
 import Lens.Micro.Platform
 
-import Concordium.GlobalState.Basic.BlockState.AccountTable (toList)
 import qualified Concordium.GlobalState.Basic.BlockState.PoolRewards as PoolRewards
-import qualified Concordium.Types.SeedState as SeedState
 
 import Concordium.Crypto.DummyData
 import qualified Concordium.Genesis.Data as GenesisData
@@ -286,10 +282,6 @@ makeTestingGenesisDataP5
                 }
         genesisAccounts = Vec.fromList $ makeFakeBakers nBakers
 
-{-# WARNING emptyBirkParameters "Do not use in production." #-}
-emptyBirkParameters :: IsProtocolVersion pv => Accounts pv -> BasicBirkParameters (AccountVersionFor pv)
-emptyBirkParameters accounts = initialBirkParameters (snd <$> AT.toList (accountTable accounts)) (SeedState.initialSeedState (Hash.hash "NONCE") 360)
-
 dummyRewardParametersV0 :: RewardParameters 'ChainParametersV0
 dummyRewardParametersV0 =
     RewardParameters
@@ -409,54 +401,6 @@ createPoolRewards accounts = PoolRewards.makeInitialPoolRewards capDist 1 (MintR
             DelegateToBaker bkrid -> (bm & at bkrid . non (0, []) . _2 %~ (d :), lp)
           where
             d = (dlg ^. delegationIdentity, dlg ^. delegationStakedAmount)
-
-createRewardDetails :: forall pv. (IsProtocolVersion pv) => Accounts pv -> BlockRewardDetails (AccountVersionFor pv)
-createRewardDetails accounts = case accountVersion @(AccountVersionFor pv) of
-    SAccountV0 -> emptyBlockRewardDetails
-    SAccountV1 -> BlockRewardDetailsV1 $ makeHashed $ createPoolRewards accounts
-    SAccountV2 -> BlockRewardDetailsV1 $ makeHashed $ createPoolRewards accounts
-
-{-# WARNING createBlockState "Do not use in production" #-}
-createBlockState :: (IsProtocolVersion pv) => Accounts pv -> BlockState pv
-createBlockState accounts =
-    emptyBlockState (emptyBirkParameters accounts) (createRewardDetails accounts) dummyCryptographicParameters dummyKeyCollection dummyChainParameters
-        & (blockAccounts .~ accounts)
-            . (blockBank . unhashed . Rewards.totalGTU .~ sum (map (_accountAmount . snd) (toList (accountTable accounts))))
-            . (blockIdentityProviders . unhashed .~ dummyIdentityProviders)
-            . (blockAnonymityRevokers . unhashed .~ dummyArs)
-
-{-# WARNING blockStateWithAlesAccount "Do not use in production" #-}
-blockStateWithAlesAccount :: (IsProtocolVersion pv) => Amount -> Accounts pv -> BlockState pv
-blockStateWithAlesAccount alesAmount otherAccounts =
-    createBlockState $ putAccountWithRegIds (mkAccount alesVK alesAccount alesAmount) otherAccounts
-
--- This generates an account with a single credential and single keypair, which has sufficiently
--- late expiry date, but is otherwise not well-formed.
-{-# WARNING mkAccount "Do not use in production." #-}
-mkAccount :: IsAccountVersion av => SigScheme.VerifyKey -> AccountAddress -> Amount -> Account av
-mkAccount key addr amnt = newAccount dummyCryptographicParameters addr cred & accountAmount .~ amnt
-  where
-    cred = dummyCredential dummyCryptographicParameters addr key dummyMaxValidTo dummyCreatedAt
-
--- This generates an account with a single credential and single keypair, where
--- the credential should already be considered expired. (Its valid-to date will be
--- Jan 1000, which precedes the earliest expressible timestamp by 970 years.)
-{-# WARNING mkAccountExpiredCredential "Do not use in production." #-}
-mkAccountExpiredCredential :: IsAccountVersion av => SigScheme.VerifyKey -> AccountAddress -> Amount -> Account av
-mkAccountExpiredCredential key addr amnt = newAccount dummyCryptographicParameters addr cred & accountAmount .~ amnt
-  where
-    cred = dummyCredential dummyCryptographicParameters addr key dummyLowValidTo dummyCreatedAt
-
--- This generates an account with a single credential, the given list of keys and signature threshold,
--- which has sufficiently late expiry date, but is otherwise not well-formed.
--- The keys are indexed in ascending order starting from 0
--- The list of keys should be non-empty.
-{-# WARNING mkAccountMultipleKeys "Do not use in production." #-}
-mkAccountMultipleKeys :: IsAccountVersion av => [SigScheme.VerifyKey] -> SignatureThreshold -> AccountAddress -> Amount -> Account av
-mkAccountMultipleKeys keys threshold addr amount = newAccount dummyCryptographicParameters addr cred & accountAmount .~ amount & accountVerificationKeys .~ ai
-  where
-    cred = dummyCredential dummyCryptographicParameters addr (head keys) dummyMaxValidTo dummyCreatedAt
-    ai = AccountInformation (Map.singleton 0 $ makeCredentialPublicKeys keys threshold) 1
 
 -- |Make a baker account with the given baker verification keys and account keys that are seeded from the baker id.
 {-# WARNING makeFakeBakerAccount "Do not use in production." #-}

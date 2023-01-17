@@ -24,7 +24,6 @@ import Concordium.Scheduler.DummyData
 
 import qualified Concordium.GlobalState.Persistent.Instances as Instances
 import qualified SchedulerTests.Helpers as Helpers
-import SchedulerTests.TestUtils
 
 initialBlockState ::
     (IsProtocolVersion pv) =>
@@ -41,7 +40,7 @@ keyPair0 = Helpers.keyPairFromSeed 0
 
 senderAccount :: forall pv. IsProtocolVersion pv => SProtocolVersion pv -> Types.AccountAddress
 senderAccount spv
-    | demoteProtocolVersion spv >= P3 = createAlias accountAddress0 17
+    | demoteProtocolVersion spv >= P3 = Types.createAlias accountAddress0 17
     | otherwise = accountAddress0
 
 transactionInputs :: forall pv. IsProtocolVersion pv => SProtocolVersion pv -> [Runner.TransactionJSON]

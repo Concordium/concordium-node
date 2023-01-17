@@ -22,8 +22,6 @@ module Concordium.GlobalState.Persistent.BlockState (
     HashedPersistentBlockState (..),
     hashBlockState,
     PersistentBirkParameters (..),
-    makePersistentBirkParameters,
-    makePersistent,
     initialPersistentState,
     emptyBlockState,
     emptyHashedEpochBlocks,
@@ -42,9 +40,6 @@ import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.Crypto.SHA256 as SHA256
 import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount)
 import Concordium.GlobalState.BakerInfo
-import qualified Concordium.GlobalState.Basic.BlockState as Basic
-import qualified Concordium.GlobalState.Basic.BlockState.Accounts as TransientAccounts
-import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as BasicLFMBT
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.CapitalDistribution
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
@@ -60,7 +55,6 @@ import qualified Concordium.GlobalState.Persistent.Cache as Cache
 import Concordium.GlobalState.Persistent.Instances (PersistentInstance (..), PersistentInstanceParameters (..), PersistentInstanceV (..))
 import qualified Concordium.GlobalState.Persistent.Instances as Instances
 import qualified Concordium.GlobalState.Persistent.LFMBTree as LFMBT
-import qualified Concordium.GlobalState.Persistent.LFMBTree as LMFBT
 import Concordium.GlobalState.Persistent.PoolRewards
 import Concordium.GlobalState.Persistent.ReleaseSchedule
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
@@ -367,16 +361,6 @@ instance (MonadBlobStore m, IsAccountVersion av) => Cacheable m (PersistentBirkP
                   ..
                 }
 
-makePersistentBirkParameters ::
-    (IsAccountVersion av, MonadBlobStore m) => Basic.BasicBirkParameters av -> m (PersistentBirkParameters av)
-makePersistentBirkParameters bbps = do
-    _birkActiveBakers <- refMake =<< makePersistentActiveBakers (Basic._birkActiveBakers bbps)
-    _birkNextEpochBakers <-
-        refMake =<< makePersistentEpochBakers (_unhashed $ Basic._birkNextEpochBakers bbps)
-    _birkCurrentEpochBakers <- refMake =<< makePersistentEpochBakers (_unhashed (Basic._birkCurrentEpochBakers bbps))
-    let _birkSeedState = Basic._birkSeedState bbps
-    return $ PersistentBirkParameters{..}
-
 -- * Epoch baked blocks
 
 type EpochBlocks = Nullable (BufferedRef EpochBlock)
@@ -494,13 +478,6 @@ consEpochBlock b hebbs = do
               hebHash = Rewards.epochBlockHash b (hebHash hebbs)
             }
 
--- |Make a 'HashedEpochBlocks' from a list of 'BakerId's of the blocks (most recent first).
-makeHashedEpochBlocks :: (MonadBlobStore m) => [BakerId] -> m HashedEpochBlocks
-makeHashedEpochBlocks [] = return emptyHashedEpochBlocks
-makeHashedEpochBlocks (b : bs) = do
-    hebbs <- makeHashedEpochBlocks bs
-    consEpochBlock b hebbs
-
 -- |Serialize the 'HashedEpochBlocks' structure in V0 format.
 putHashedEpochBlocksV0 :: (MonadBlobStore m, MonadPut m) => HashedEpochBlocks -> m ()
 putHashedEpochBlocksV0 HashedEpochBlocks{..} = do
@@ -573,35 +550,6 @@ instance MonadBlobStore m => Cacheable m (BlockRewardDetails av) where
 putBlockRewardDetails :: (MonadBlobStore m, MonadPut m) => BlockRewardDetails av -> m ()
 putBlockRewardDetails (BlockRewardDetailsV0 heb) = putHashedEpochBlocksV0 heb
 putBlockRewardDetails (BlockRewardDetailsV1 hpr) = refLoad hpr >>= putPoolRewards
-
-makePersistentBlockRewardDetails ::
-    MonadBlobStore m =>
-    Basic.BlockRewardDetails av ->
-    m (BlockRewardDetails av)
-makePersistentBlockRewardDetails (Basic.BlockRewardDetailsV0 heb) =
-    BlockRewardDetailsV0 <$> makeHashedEpochBlocks (Basic.hebBlocks heb)
-makePersistentBlockRewardDetails (Basic.BlockRewardDetailsV1 pre) =
-    BlockRewardDetailsV1 <$> (makerPersistentPoolRewards (_unhashed pre) >>= refMake)
-
--- |Convert a 'Basic.TransactionOutcomes' to the persistent one ie. 'PersistentTransactionOutcomes'.
--- Theere are two versions of the transaction outcomes that must be handled i.e. 'PTOV0' and 'PTOV1'
--- In the former case the conversion is straight forward as they are stored as 'Transactions.TransactionOutcomes'
--- in both block states. In the latter case we need to convert the transient LMFB trees to  persistent ones.
--- (There's a LMFB tree each for normal outcomes and special outcomes.)
-makePersistentTransactionOutcomes ::
-    (MonadBlobStore m, MonadProtocolVersion m) =>
-    Basic.BasicTransactionOutcomes tov ->
-    m (PersistentTransactionOutcomes tov)
-makePersistentTransactionOutcomes (Basic.BTOV0 outcomes) = return $! PTOV0 outcomes
-makePersistentTransactionOutcomes (Basic.BTOV1 Basic.MerkleTransactionOutcomes{..}) = do
-    normals <- LMFBT.fromAscList $! BasicLFMBT.toAscList mtoOutcomes
-    specials <- LMFBT.fromAscList $! BasicLFMBT.toAscList mtoSpecials
-    return $!
-        PTOV1
-            MerkleTransactionOutcomes
-                { mtoOutcomes = normals,
-                  mtoSpecials = specials
-                }
 
 -- |Extend a 'BlockRewardDetails' ''AccountV0' with an additional baker.
 consBlockRewardDetails ::
@@ -843,41 +791,6 @@ instance (SupportsPersistentState pv m) => BlobStorable m (BlockStatePointers pv
 bspPoolRewards :: SupportsDelegation pv => BlockStatePointers pv -> HashedBufferedRef' Rewards.PoolRewardsHash PoolRewards
 bspPoolRewards bsp = case bspRewardDetails bsp of
     BlockRewardDetailsV1 pr -> pr
-
--- |Convert an in-memory 'Basic.BlockState' to a disk-backed 'HashedPersistentBlockState'.
-makePersistent :: forall pv m. (SupportsPersistentState pv m) => Basic.BlockState pv -> m (HashedPersistentBlockState pv)
-makePersistent Basic.BlockState{..} = do
-    persistentBirkParameters <- makePersistentBirkParameters _blockBirkParameters
-    persistentMods <- Modules.makePersistentModules _blockModules
-    persistentBlockInstances <- Instances.makePersistent persistentMods _blockInstances
-    modules <- refMake persistentMods
-    identityProviders <- bufferHashed _blockIdentityProviders
-    anonymityRevokers <- bufferHashed _blockAnonymityRevokers
-    cryptographicParameters <- bufferHashed _blockCryptographicParameters
-    blockAccounts <- Accounts.makePersistent _blockAccounts
-    updates <- makeBufferedRef =<< makePersistentUpdates _blockUpdates
-    let accAddr ai = _blockAccounts ^. TransientAccounts.unsafeIndexedAccount ai . accountAddress
-    rels <- makePersistentReleaseSchedule accAddr _blockReleaseSchedule
-    red <- makePersistentBlockRewardDetails _blockRewardDetails
-    tos <- makePersistentTransactionOutcomes _blockTransactionOutcomes
-    bsp <-
-        makeBufferedRef $
-            BlockStatePointers
-                { bspAccounts = blockAccounts,
-                  bspInstances = persistentBlockInstances,
-                  bspModules = modules,
-                  bspBank = _blockBank,
-                  bspIdentityProviders = identityProviders,
-                  bspAnonymityRevokers = anonymityRevokers,
-                  bspBirkParameters = persistentBirkParameters,
-                  bspCryptographicParameters = cryptographicParameters,
-                  bspTransactionOutcomes = tos,
-                  bspUpdates = updates,
-                  bspReleaseSchedule = rels,
-                  bspRewardDetails = red
-                }
-    bps <- liftIO $ newIORef $! bsp
-    hashBlockState bps
 
 -- |An initial 'HashedPersistentBlockState', which may be used for testing purposes.
 initialPersistentState ::
