@@ -30,8 +30,7 @@ tests :: Spec
 tests =
     describe "V1: Record 20 + 40 strings." $
         sequence_ $
-            Helpers.forEveryProtocolVersion $ \spv pvString -> do
-                testCase spv pvString
+            Helpers.forEveryProtocolVersion testCase
 
 initialBlockState ::
     (Types.IsProtocolVersion pv) =>

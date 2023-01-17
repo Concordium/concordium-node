@@ -33,11 +33,10 @@ import Concordium.Wasm
 import qualified SchedulerTests.Helpers as Helpers
 
 tests :: Spec
-tests = do
+tests =
     describe "Self-referential Fibonacci." $
         sequence_ $
-            Helpers.forEveryProtocolVersion $ \spv pvString -> do
-                testCase1 spv pvString
+            Helpers.forEveryProtocolVersion testCase1
 
 initialBlockState ::
     Types.IsProtocolVersion pv =>

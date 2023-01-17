@@ -26,8 +26,7 @@ tests :: Spec
 tests =
     describe "V1: Transfer from contract to account." $
         sequence_ $
-            Helpers.forEveryProtocolVersion $ \spv pvString -> do
-                testCase spv pvString
+            Helpers.forEveryProtocolVersion testCase
 
 initialBlockState ::
     (Types.IsProtocolVersion pv) =>

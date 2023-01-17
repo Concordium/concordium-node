@@ -23,8 +23,7 @@ tests :: Spec
 tests =
     describe "Testing error codes in rejected smart contracts." $
         sequence_ $
-            Helpers.forEveryProtocolVersion $ \spv pvString ->
-                testRejectReasons spv pvString
+            Helpers.forEveryProtocolVersion testRejectReasons
 
 initialBlockState ::
     (Types.IsProtocolVersion pv) =>

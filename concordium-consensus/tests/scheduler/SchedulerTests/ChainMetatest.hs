@@ -20,11 +20,10 @@ import Concordium.Scheduler.DummyData
 import qualified SchedulerTests.Helpers as Helpers
 
 tests :: Spec
-tests = do
+tests =
     describe "Chain metadata in transactions:" $
         sequence_ $
-            Helpers.forEveryProtocolVersion $ \spv pvString ->
-                testChainMeta spv pvString
+            Helpers.forEveryProtocolVersion testChainMeta
 
 initialBlockState ::
     (Types.IsProtocolVersion pv) =>

@@ -23,8 +23,7 @@ tests :: Spec
 tests =
     describe "Account creation" $
         sequence_ $
-            Helpers.forEveryProtocolVersion $ \spv pvString ->
-                testAccountCreation spv pvString
+            Helpers.forEveryProtocolVersion testAccountCreation
 
 initialBlockState ::
     (Types.IsProtocolVersion pv) =>

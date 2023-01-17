@@ -145,5 +145,6 @@ runFallbackTests = do
                                 (BS8.unpack rv)
 
 tests :: Spec
-tests = describe "Invoke contract" $ do
-    specify "V1: Fallback contract" runFallbackTests
+tests =
+    describe "Invoke contract" $
+        specify "V1: Fallback contract" runFallbackTests

@@ -30,8 +30,7 @@ tests :: Spec
 tests =
     describe "SimpleTransfer from contract to account." $
         sequence_ $
-            Helpers.forEveryProtocolVersion $ \spv pvString -> do
-                errorHandlingTest spv pvString
+            Helpers.forEveryProtocolVersion errorHandlingTest
 
 initialBlockState ::
     (Types.IsProtocolVersion pv) =>

@@ -29,9 +29,9 @@ import SchedulerTests.TestUtils
 
 tests :: Spec
 tests =
-    describe "Receive context in transactions." $ do
-        sequence_ $ Helpers.forEveryProtocolVersion $ \spv pvString ->
-            testReceive spv pvString
+    describe "Receive context in transactions." $
+        sequence_ $
+            Helpers.forEveryProtocolVersion testReceive
 
 -- See the contract in /testdata/contracts/send/src/lib.rs from which the wasm
 -- module is derived. The contract calls check that the invoker or sender is the

@@ -1,7 +1,6 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 
 {- Testing the SimpleTransfer transaction.
 NOTE: See also 'SchedulerTests.SimpleTransfersTest'.
@@ -23,9 +22,9 @@ import qualified SchedulerTests.Helpers as Helpers
 
 tests :: Spec
 tests =
-    describe "SimpleTransfer from contract to account." $ do
-        sequence_ $ Helpers.forEveryProtocolVersion $ \spv pvString ->
-            testCase0 spv pvString
+    describe "SimpleTransfer from contract to account." $
+        sequence_ $
+            Helpers.forEveryProtocolVersion testCase0
 
 initialBlockState ::
     (IsProtocolVersion pv) =>
@@ -46,17 +45,17 @@ transactionInputs :: [TransactionJSON]
 transactionInputs =
     [ TJSON
         { payload = DeployModule V0 "./testdata/contracts/send-tokens-test.wasm",
-          metadata = makeDummyHeader accountAddress0 1 100000,
+          metadata = makeDummyHeader accountAddress0 1 100_000,
           keys = [(0, [(0, keyPair0)])]
         },
       TJSON
         { payload = InitContract 0 V0 "./testdata/contracts/send-tokens-test.wasm" "init_send" "",
-          metadata = makeDummyHeader accountAddress0 2 100000,
+          metadata = makeDummyHeader accountAddress0 2 100_000,
           keys = [(0, [(0, keyPair0)])]
         },
       TJSON
         { payload = Update 11 (Types.ContractAddress 0 0) "send.receive" "",
-          metadata = makeDummyHeader accountAddress0 3 70000,
+          metadata = makeDummyHeader accountAddress0 3 70_000,
           keys = [(0, [(0, keyPair0)])]
         }
     ]

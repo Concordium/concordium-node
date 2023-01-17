@@ -75,7 +75,7 @@ import Test.Hspec
 --- |------------------------------------+-----------------+-----------+---------------|
 
 tests :: Spec
-tests = do
+tests =
     describe "Encrypted transfers:" $
         sequence_ $
             Helpers.forEveryProtocolVersion $ \spv pvString -> do

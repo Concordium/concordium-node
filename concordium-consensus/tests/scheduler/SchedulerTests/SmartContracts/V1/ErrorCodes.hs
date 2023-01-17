@@ -334,5 +334,6 @@ runCallerTests = do
         invokeContract5 addr1 addr0 stateWithContracts >>= checkSuccess "Invoking a V0 contract that fails." targetValue5
 
 tests :: Spec
-tests = describe "V1: Invoke contract" $ do
-    specify "Caller contract" runCallerTests
+tests =
+    describe "V1: Invoke contract" $
+        specify "Caller contract" runCallerTests

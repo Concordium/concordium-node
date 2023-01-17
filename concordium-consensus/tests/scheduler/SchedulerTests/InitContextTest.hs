@@ -28,9 +28,9 @@ import SchedulerTests.TestUtils
 
 tests :: Spec
 tests =
-    describe "Init context in transactions." $ do
-        sequence_ $ Helpers.forEveryProtocolVersion $ \spv pvString ->
-            testInit spv pvString
+    describe "Init context in transactions." $
+        sequence_ $
+            Helpers.forEveryProtocolVersion testInit
 
 initialBlockState ::
     (IsProtocolVersion pv) =>

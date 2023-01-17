@@ -44,11 +44,10 @@ import Concordium.Types
 import qualified SchedulerTests.Helpers as Helpers
 
 tests :: Spec
-tests = do
+tests =
     describe "Encrypted transfers with aggregation." $
         sequence_ $
-            Helpers.forEveryProtocolVersion $ \spv pvString -> do
-                testCase0 spv pvString
+            Helpers.forEveryProtocolVersion testCase0
 
 testCase0 ::
     forall pv.

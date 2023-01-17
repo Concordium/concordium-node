@@ -25,11 +25,10 @@ import qualified Concordium.Scheduler.Types as Types
 import qualified SchedulerTests.Helpers as Helpers
 
 tests :: Spec
-tests = do
+tests =
     describe "UpdateCredentialKeys" $
         sequence_ $
-            Helpers.forEveryProtocolVersion $ \spv pvString -> do
-                credentialKeyUpdateTest spv pvString
+            Helpers.forEveryProtocolVersion credentialKeyUpdateTest
 
 accountAddress0 :: ID.AccountAddress
 accountAddress0 = Helpers.accountAddressFromSeed 0

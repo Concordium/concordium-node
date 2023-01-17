@@ -30,10 +30,10 @@ import qualified SchedulerTests.Helpers as Helpers
 
 tests :: Spec
 tests =
-    describe "Transaction expiry test:" $ do
+    describe "Transaction expiry test:" $
         sequence_ $
             Helpers.forEveryProtocolVersion $ \spv pvString -> do
-                specify (pvString ++ ": Valid transactions of all payloads with expiry after slot time pass") $ do
+                specify (pvString ++ ": Valid transactions of all payloads with expiry after slot time pass") $
                     testExpiryTime (expiryTime + 1) (allTransactions spv) spv
                 specify (pvString ++ ": Same transactions with expiry set to slot time pass") $
                     testExpiryTime expiryTime (allTransactions spv) spv

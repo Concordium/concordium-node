@@ -31,8 +31,7 @@ tests :: Spec
 tests =
     describe "V1: Counter counts." $
         sequence_ $
-            Helpers.forEveryProtocolVersion $ \spv pvString -> do
-                test1 spv pvString
+            Helpers.forEveryProtocolVersion test1
 
 initialBlockState ::
     (Types.IsProtocolVersion pv) =>
