@@ -133,7 +133,8 @@ forEveryProtocolVersion check =
 
 -- |Construct a test block state containing the provided accounts.
 createTestBlockStateWithAccounts ::
-    forall pv. Types.IsProtocolVersion pv =>
+    forall pv.
+    Types.IsProtocolVersion pv =>
     [BS.PersistentAccount (Types.AccountVersionFor pv)] ->
     PersistentBSM pv (BS.HashedPersistentBlockState pv)
 createTestBlockStateWithAccounts accounts =
@@ -145,8 +146,8 @@ createTestBlockStateWithAccounts accounts =
         DummyData.dummyArs
         keys
         DummyData.dummyChainParameters
-    where
-      keys = Types.withIsAuthorizationsVersionForPV (Types.protocolVersion @pv) $ DummyData.dummyKeyCollection
+  where
+    keys = Types.withIsAuthorizationsVersionForPV (Types.protocolVersion @pv) $ DummyData.dummyKeyCollection
 
 -- |Construct a test block state containing the provided accounts.
 createTestBlockStateWithAccountsM ::

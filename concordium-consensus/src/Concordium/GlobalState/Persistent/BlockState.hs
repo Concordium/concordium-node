@@ -2162,8 +2162,8 @@ doMint pbs mint = do
             bspBank bsp
                 & unhashed
                     %~ (Rewards.totalGTU +~ mintTotal mint)
-                    . (Rewards.bakingRewardAccount +~ mintBakingReward mint)
-                    . (Rewards.finalizationRewardAccount +~ mintFinalizationReward mint)
+                        . (Rewards.bakingRewardAccount +~ mintBakingReward mint)
+                        . (Rewards.finalizationRewardAccount +~ mintFinalizationReward mint)
     let updAcc = addAccountAmount $ mintDevelopmentCharge mint
     foundationAccount <- (^. cpFoundationAccount) <$> lookupCurrentParameters (bspUpdates bsp)
     newAccounts <- Accounts.updateAccountsAtIndex' updAcc foundationAccount (bspAccounts bsp)
