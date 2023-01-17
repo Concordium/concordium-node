@@ -125,12 +125,21 @@ instance Arbitrary (UpdateValue 'ChainParametersV1) where
 propMintDistributionMostRecent :: MintDistribution 'MintDistributionVersion1 -> MintRate -> Slot -> [(Slot, UpdateValue 'ChainParametersV1)] -> Amount -> Bool
 propMintDistributionMostRecent md mr ps updates amt =
     let updatesSorted = sortBy (\(a, _) (b, _) -> compare a b) $ map (& (_1 +~ 1)) updates
-        (UVMintDistribution mostRecentMintDistribution) =
+        chainParams =
             snd
                 . maximumBy (\(a, _) (b, _) -> compare a b)
                 . takeWhile ((<= ps) . fst)
-                . filter (\(_, UVMintDistribution _) -> True)
+                . filter
+                    ( \pair ->
+                        case pair of
+                            (_, UVMintDistribution _) -> True
+                            _ -> error "pair should match (a, UVMintDistribution)"
+                    )
                 $ (0, UVMintDistribution md) : updatesSorted
+        mostRecentMintDistribution = case chainParams of
+            (UVMintDistribution mintDist) -> mintDist
+            -- this does not happen due to how `chainParams` is constructed
+            _ -> error "chainParams should be UVMintDistribution"
     in  calculatePaydayMintAmounts md mr ps updatesSorted amt == doCalculatePaydayMintAmounts mostRecentMintDistribution mr amt
 
 -- `mintAndReward` doesn't change the baking and finalization reward accounts balance

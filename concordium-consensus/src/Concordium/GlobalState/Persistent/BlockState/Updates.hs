@@ -1164,7 +1164,7 @@ processAddIdentityProviderUpdates t bu hbip = do
 -- Instead, it is handled here by ignoring updates with duplicate IPs/ARs.
 -- It also accumulates the actual changes that occured.
 addAndAccumNonduplicateUpdates ::
-    (MonadBlobStore m, Foldable f, Reference m ref (StoreSerialized v), Ord k) =>
+    (Foldable f, Reference m ref (StoreSerialized v), Ord k) =>
     -- | The existing IPs / ARs.
     Map.Map k v ->
     -- | Getter for the key field.

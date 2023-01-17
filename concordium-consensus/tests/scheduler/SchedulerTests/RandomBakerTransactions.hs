@@ -1,54 +1,47 @@
+{-# LANGUAGE MonoLocalBinds #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 
-module SchedulerTests.RandomBakerTransactions where
+module SchedulerTests.RandomBakerTransactions (tests) where
 
 import Test.Hspec
 import Test.QuickCheck
 
 import Control.Monad
+import qualified Control.Monad.Except as Except
+import qualified Data.List as List
 import qualified Data.Map as Map
+import Lens.Micro.Platform
+import System.Random
 
 import qualified Concordium.Scheduler as Sch
-import qualified Concordium.Scheduler.EnvironmentImplementation as EI
 import Concordium.Scheduler.Runner
 
-import Concordium.GlobalState.Basic.BlockState
-import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
-import Concordium.GlobalState.Basic.BlockState.Invariants
-
+import Concordium.Crypto.DummyData
 import Concordium.Crypto.SignatureScheme as Sig
+import Concordium.GlobalState.DummyData
+import qualified Concordium.GlobalState.Persistent.BlockState as BS
 import Concordium.ID.Types (randomAccountAddress)
-
+import Concordium.Scheduler.DummyData
+import Concordium.Scheduler.Types hiding (Payload (..))
 import Concordium.Types.Accounts (
     bakerAggregationVerifyKey,
     bakerElectionVerifyKey,
     bakerInfo,
     bakerSignatureVerifyKey,
  )
-
-import Concordium.Scheduler.Types hiding (Payload (..))
-
-import Lens.Micro.Platform
-import System.Random
-
-import Concordium.Crypto.DummyData
-import Concordium.GlobalState.DummyData
-import Concordium.Scheduler.DummyData
-
-import SchedulerTests.Helpers
-import SchedulerTests.TestUtils
-
-import qualified Data.List as List
+import qualified SchedulerTests.Helpers as Helpers
 
 -- | The amount of energy to deposit in every test transaction.
 energy :: Energy
-energy = 10000
+energy = 10_000
 
 staticKeys :: [(KeyPair, AccountAddress)]
-staticKeys = ks (mkStdGen 1333)
+staticKeys = ks (mkStdGen 1_333)
   where
     ks g =
         let (k, g') = randomEd25519KeyPair g
@@ -58,12 +51,14 @@ staticKeys = ks (mkStdGen 1333)
 numAccounts :: Int
 numAccounts = 10
 
-initialBlockState :: BlockState PV1
+initialBlockState ::
+    (IsProtocolVersion pv) =>
+    Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
 initialBlockState =
-    createBlockState
-        (foldr addAcc Acc.emptyAccounts (take numAccounts staticKeys))
+    Helpers.createTestBlockStateWithAccountsM $
+        toTestAccount <$> take numAccounts staticKeys
   where
-    addAcc (kp, addr) = Acc.putAccountWithRegIds (mkAccount (correspondingVerifyKey kp) addr initBal)
+    toTestAccount (kp, addr) = Helpers.makeTestAccount (correspondingVerifyKey kp) addr initBal
     initBal = 10 ^ (12 :: Int) :: Amount
 
 data BakerStatus
@@ -145,7 +140,7 @@ updateBaker m0 = do
                     )
 
         updateBakerStake = do
-            newStake <- elements [0, 100000, 100_000_000_000, 300_000_000_000, 300_000_000_100]
+            newStake <- elements [0, 100_000, 100_000_000_000, 300_000_000_000, 300_000_000_100]
             let update (Baker v)
                     -- if stake is decreased and under threshold, no change is done
                     | v > newStake, newStake < 300_000_000_000 = Baker v
@@ -196,7 +191,7 @@ updateBaker m0 = do
             let (fbkr, electionSecretKey, signKey, aggregationKey) = mkFullBaker (m0 ^. mNextSeed) 0
                 bkr = fbkr ^. bakerInfo
 
-            initStake <- elements [0, 100000, 100_000_000_000, 300_000_000_000, 300_000_000_100]
+            initStake <- elements [0, 100_000, 100_000_000_000, 300_000_000_000, 300_000_000_100]
             let update NoBaker =
                     if initStake < 300_000_000_000
                         then NoBaker
@@ -230,7 +225,7 @@ simpleTransfer :: Model -> Gen (TransactionJSON, Model)
 simpleTransfer m0 = do
     (srcAcct, (srcKp, srcN, _)) <- elements (Map.toList $ _mAccounts m0)
     destAcct <- elements $ Map.keys $ _mAccounts m0
-    amt <- fromIntegral <$> choose (0, 1000 :: Word)
+    amt <- fromIntegral <$> choose (0, 1_000 :: Word)
     return
         ( TJSON
             { payload = Transfer{toaddress = destAcct, amount = amt},
@@ -250,20 +245,23 @@ makeTransactions = sized (mt initialModel)
             (_1 %~ (t :)) <$> mt m' (sz - 1)
         | otherwise = return ([], reverse (m ^. mRejects))
 
-testTransactions :: Property
-testTransactions = forAll makeTransactions (ioProperty . tt)
+testTransactions :: forall pv. (IsProtocolVersion pv) => SProtocolVersion pv -> Property
+testTransactions spv = forAll makeTransactions (ioProperty . tt)
   where
     tt (tl, predRejects) = do
-        transactions <- processUngroupedTransactions tl
-        let (Sch.FilteredTransactions{..}, finState) =
-                EI.runSI
-                    (Sch.filterTransactions dummyBlockSize dummyBlockTimeout transactions)
-                    dummyChainMeta
-                    maxBound
-                    maxBound
-                    initialBlockState
-        let gs = finState ^. EI.ssBlockState
-        let rejs = [(z, decodePayload SP1 (thPayloadSize . atrHeader $ z) (atrPayload z), rr) | ((WithMetadata{wmdData = NormalTransaction z}, _), TxReject rr) <- getResults ftAdded]
+        (result, doCheckState) <-
+            Helpers.runSchedulerTestTransactionJson
+                Helpers.defaultTestConfig
+                initialBlockState
+                constructStateChecks
+                tl
+        let Sch.FilteredTransactions{..} = Helpers.srTransactions result
+
+        let rejs =
+                [ (z, decodePayload spv (thPayloadSize . atrHeader $ z) (atrPayload z), rr)
+                  | ((WithMetadata{wmdData = NormalTransaction z}, _), TxReject rr) <-
+                        Helpers.getResults ftAdded
+                ]
         let checkRejects [] [] = return ()
             checkRejects [] _ = Left "Expected additional rejected transactions"
             checkRejects rs [] = Left $ "Unexpected rejected transactions:" ++ show rs
@@ -273,15 +271,31 @@ testTransactions = forAll makeTransactions (ioProperty . tt)
                     checkRejects rs prs
                 | otherwise = Left $ "Unexpected rejected transaction:" ++ show r
         let checkResults = do
-                invariantBlockState gs (finState ^. EI.schedulerExecutionCosts)
                 unless (null ftFailed) $ Left $ "some transactions failed: " ++ show ftFailed
                 checkRejects rejs $ map head $ List.group predRejects
+                doCheckState
         case checkResults of
             Left f -> return $ counterexample f False
             Right _ -> return $ property True
+    constructStateChecks ::
+        Helpers.SchedulerResult ->
+        BS.PersistentBlockState pv ->
+        Helpers.PersistentBSM pv (Either String ())
+    constructStateChecks result state = do
+        hashedState <- BS.hashBlockState @pv state
+        Except.runExceptT $
+            Helpers.checkBlockStateInvariants
+                hashedState
+                (Helpers.srExecutionCosts result)
 
 tests :: Spec
-tests =
+tests = do
     describe "SchedulerTests.RandomBakerTransactions" $
-        it "Random baker transactions" $
-            withMaxSuccess 100 testTransactions
+        sequence_ $
+            Helpers.forEveryProtocolVersion testCases
+  where
+    testCases :: forall pv. IsProtocolVersion pv => SProtocolVersion pv -> String -> Spec
+    testCases spv pvString =
+        unless (protocolSupportsDelegation spv) $ do
+            specify (pvString ++ ": Random baker transactions") $
+                withMaxSuccess 100 (testTransactions spv)

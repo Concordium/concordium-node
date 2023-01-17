@@ -23,6 +23,7 @@ import qualified Control.Monad.State.Strict as MTL
 import qualified Control.Monad.Writer.Strict as MTL
 import Data.Foldable
 import Data.Functor.Identity
+import Data.Kind (Type)
 import qualified Data.List as List
 import qualified Data.Map.Strict as Map
 import Data.Maybe
@@ -721,7 +722,7 @@ doGetCurrentDelegators bs mPoolId = return v
         let addr = bs ^. blockAccounts . Accounts.unsafeIndexedAccount acct . accountAddress
         in  (addr, dc)
 
-newtype PureBlockStateMonad (pv :: ProtocolVersion) m a = PureBlockStateMonad {runPureBlockStateMonad :: m a}
+newtype PureBlockStateMonad (pv :: ProtocolVersion) (m :: Type -> Type) (a :: Type) = PureBlockStateMonad {runPureBlockStateMonad :: m a}
     deriving (Functor, Applicative, Monad, MonadIO, MTL.MonadState s, TimeMonad)
 
 type instance GT.BlockStatePointer (BlockState pv) = ()

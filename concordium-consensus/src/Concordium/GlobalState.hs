@@ -103,7 +103,7 @@ import Concordium.Types.ProtocolVersion
 --
 -- * If @c@ is 'PersistentBlockStateContext', the block state is a persistent, Haskell
 --   implementation using 'PersistentBlockStateMonad'.
-newtype BlockStateM (pv :: ProtocolVersion) c r g s m a = BlockStateM {runBlockStateM :: m a}
+newtype BlockStateM (pv :: ProtocolVersion) (c :: Type) (r :: Type) (g :: Type) (s :: Type) (m :: Type -> Type) (a :: Type) = BlockStateM {runBlockStateM :: m a}
     deriving (Functor, Applicative, Monad, MonadIO, MonadLogger)
 
 instance (IsProtocolVersion pv) => MonadProtocolVersion (BlockStateM pv c r g s m) where
@@ -111,8 +111,8 @@ instance (IsProtocolVersion pv) => MonadProtocolVersion (BlockStateM pv c r g s 
 
 -- * Specializations
 
-type MemoryBlockStateM pv r g s m = BlockStateM pv () r g s m
-type PersistentBlockStateM pv r g s m = BlockStateM pv (PersistentBlockStateContext pv) r g s m
+type MemoryBlockStateM pv (r :: Type) (g :: Type) (s :: Type) (m :: Type -> Type) = BlockStateM pv () r g s m
+type PersistentBlockStateM pv (r :: Type) (g :: Type) (s :: Type) (m :: Type -> Type) = BlockStateM pv (PersistentBlockStateContext pv) r g s m
 
 -- * Generic implementations
 
@@ -312,7 +312,7 @@ instance
 --
 -- * If @s@ is 'SkovData pv bs', then the in-memory, Haskell tree state is used.
 -- * If @s@ is 'SkovPersistentData pv bs', then the persistent Haskell tree state is used.
-newtype TreeStateM s m a = TreeStateM {runTreeStateM :: m a}
+newtype TreeStateM (s :: Type) (m :: Type -> Type) (a :: Type) = TreeStateM {runTreeStateM :: m a}
     deriving
         ( Functor,
           Applicative,
@@ -331,8 +331,8 @@ newtype TreeStateM s m a = TreeStateM {runTreeStateM :: m a}
 deriving instance MonadProtocolVersion m => MonadProtocolVersion (TreeStateM s m)
 
 -- * Specializations
-type MemoryTreeStateM pv bs m = TreeStateM (Basic.SkovData pv bs) m
-type PersistentTreeStateM pv bs m = TreeStateM (SkovPersistentData pv bs) m
+type MemoryTreeStateM pv (bs :: Type) (m :: Type -> Type) = TreeStateM (Basic.SkovData pv bs) m
+type PersistentTreeStateM pv (bs :: Type) (m :: Type -> Type) = TreeStateM (SkovPersistentData pv bs) m
 
 -- * Specialized implementations
 
@@ -356,8 +356,7 @@ deriving via
 deriving via
     Basic.PureTreeStateMonad bs m
     instance
-        ( Monad m,
-          MPV m ~ pv,
+        ( MPV m ~ pv,
           MonadProtocolVersion m,
           BlockStateStorage m,
           TreeStateMonad (Basic.PureTreeStateMonad bs m)
@@ -384,8 +383,7 @@ deriving via
 deriving via
     PersistentTreeStateMonad bs m
     instance
-        ( Monad m,
-          MonadProtocolVersion m,
+        ( MonadProtocolVersion m,
           BlockStateStorage m,
           TreeStateMonad (PersistentTreeStateMonad bs m),
           MPV m ~ pv
@@ -398,7 +396,7 @@ deriving via
 -- The arguments c, r, g, s, m, a are as in BlockStateM, whereas the argument @db@
 -- is an additional context that manages auxiliary databases not needed by consensus.
 -- In particular this means the index of transactions that affect a given account.
-newtype GlobalStateM (pv :: ProtocolVersion) c r g s m a = GlobalStateM {runGlobalStateM :: m a}
+newtype GlobalStateM (pv :: ProtocolVersion) (c :: Type) (r :: Type) (g :: Type) (s :: Type) (m :: Type -> Type) (a :: Type) = GlobalStateM {runGlobalStateM :: m a}
     deriving (Functor, Applicative, Monad, MonadReader r, MonadState s, MonadIO, MonadLogger, TimeMonad)
     deriving (BlockStateTypes) via (BlockStateM pv c r g s m)
 
@@ -407,7 +405,7 @@ instance (IsProtocolVersion pv) => MonadProtocolVersion (GlobalStateM pv c r g s
 
 -- * Specializations
 
-type TreeStateBlockStateM pv g c r s m = TreeStateM g (BlockStateM pv c r g s m)
+type TreeStateBlockStateM pv (g :: Type) (c :: Type) (r :: Type) (s :: Type) (m :: Type -> Type) = TreeStateM g (BlockStateM pv c r g s m)
 
 -- * Generic implementations
 

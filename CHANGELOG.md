@@ -2,6 +2,19 @@
 
 ## Unreleased changes
 
+- Fix an issue where the node configuration file (`main.config.json`) was
+  sometimes corrupted.
+- Add an option to disable only the node specific grpc V1 endpoints that can be
+  used to control the node. All the endpoints that are consensus related are
+  kept allowing the node to be used as a gateway to the chain. The mentioned can
+  be disabled by setting `CONCORDIUM_NODE_DISABLE_RPC_SERVER_NODE_ENDPOINTS`
+  or using the flag `--no-rpc-server-node-endpoints`.
+
+## 5.1.3
+
+- Fix a bug in the `GetAccountInfo` endpoint in GRPCv2 where the `ar_data` field
+  always would be empty.
+
 ## 5.1.2
 
 - Avoid deadlocks during node shutdown in specific scenarios.

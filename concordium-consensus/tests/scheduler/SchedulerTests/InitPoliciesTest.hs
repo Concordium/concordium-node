@@ -19,7 +19,8 @@ import Concordium.Scheduler.WasmIntegration
 import Concordium.Wasm
 
 import Concordium.Scheduler.DummyData
-import Concordium.Types.DummyData
+
+import qualified SchedulerTests.Helpers as Helpers
 
 setup :: String -> IO (ModuleInterfaceV V0)
 setup errString = do
@@ -29,13 +30,16 @@ setup errString = do
     assertBool ("Module not valid " ++ errString) (isJust miface)
     return (fromJust miface)
 
+accountAddress0 :: AccountAddress
+accountAddress0 = Helpers.accountAddressFromSeed 0
+
 testNoAttributes :: Assertion
 testNoAttributes = do
     iface <- setup "testNoAttributes"
     let artifact = miModule iface
     let initCtx1 =
             InitContext
-                { initOrigin = alesAccount,
+                { initOrigin = accountAddress0,
                   icSenderPolicies = []
                 }
     let res1 = applyInitFun artifact dummyChainMeta initCtx1 (InitName "init_context_test") (Parameter mempty) False 0 100000
@@ -48,7 +52,7 @@ testNoAttributes = do
 
     let initCtx2 =
             InitContext
-                { initOrigin = alesAccount,
+                { initOrigin = accountAddress0,
                   icSenderPolicies =
                     [ SenderPolicy
                         { spIdentityProvider = IP_ID 17,
@@ -72,7 +76,7 @@ testSingleAttribute = do
     let artifact = miModule iface
     let initCtx3 =
             InitContext
-                { initOrigin = alesAccount,
+                { initOrigin = accountAddress0,
                   icSenderPolicies =
                     [ SenderPolicy
                         { spIdentityProvider = IP_ID 17,
@@ -100,7 +104,7 @@ testTwoPoliciesTwoAttributes = do
     let artifact = miModule iface
     let initCtx4 =
             InitContext
-                { initOrigin = alesAccount,
+                { initOrigin = accountAddress0,
                   icSenderPolicies =
                     [ SenderPolicy
                         { spIdentityProvider = IP_ID 17,

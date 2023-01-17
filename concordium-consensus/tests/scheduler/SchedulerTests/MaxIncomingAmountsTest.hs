@@ -1,6 +1,9 @@
+{-# LANGUAGE MonoLocalBinds #-}
+{-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
-module SchedulerTests.MaxIncomingAmountsTest where
+module SchedulerTests.MaxIncomingAmountsTest (tests) where
 
 {-
 This test will:
@@ -19,29 +22,232 @@ For now `numberOfTransactions == maxNumIncoming + 2`.
 import Data.Foldable
 import Data.Maybe (fromJust)
 import qualified Data.Sequence as Seq
-import Lens.Micro.Platform
-
-import SchedulerTests.TestUtils
-
-import qualified Test.HUnit as HUnit
+import Test.HUnit
 import Test.Hspec
 
 import Concordium.Constants
-import Concordium.Crypto.DummyData
 import Concordium.Crypto.EncryptedTransfers
 import Concordium.Crypto.FFIDataTypes (ElgamalSecretKey)
-import Concordium.GlobalState.Basic.BlockState
-import Concordium.GlobalState.Basic.BlockState.Account
-import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
+import qualified Concordium.Crypto.SignatureScheme as SigScheme
+import qualified Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.DummyData
+import qualified Concordium.GlobalState.Persistent.Account as BS
+import qualified Concordium.GlobalState.Persistent.BlockState as BS
 import Concordium.ID.DummyData (dummyEncryptionSecretKey)
-import Concordium.ID.Types (AccountEncryptionKey (..), unsafeEncryptionKeyFromRaw)
-import Concordium.Types
-import Concordium.Types.DummyData
-
+import Concordium.ID.Types (AccountEncryptionKey (..))
+import qualified Concordium.ID.Types as ID
+import qualified Concordium.Scheduler as Sch
 import Concordium.Scheduler.DummyData
 import qualified Concordium.Scheduler.Runner as Runner
 import qualified Concordium.Scheduler.Types as Types
+import Concordium.Types
+
+import qualified SchedulerTests.Helpers as Helpers
+
+tests :: Spec
+tests = do
+    describe "Encrypted transfers with aggregation." $
+        sequence_ $
+            Helpers.forEveryProtocolVersion $ \spv pvString -> do
+                testCase0 spv pvString
+
+testCase0 ::
+    forall pv.
+    (Types.IsProtocolVersion pv) =>
+    Types.SProtocolVersion pv ->
+    String ->
+    SpecWith (Arg Assertion)
+testCase0 _ pvString = specify
+    (pvString ++ ": Makes a chain of encrypted transfers testing maxNumIncoming")
+    $ do
+        transactionsAndAssertions <- makeTransactionsAndAssertions
+        Helpers.runSchedulerTestAssertIntermediateStates
+            @pv
+            Helpers.defaultTestConfig
+            initialBlockState
+            transactionsAndAssertions
+  where
+    makeTransactionsAndAssertions :: IO [Helpers.TransactionAndAssertion pv]
+    makeTransactionsAndAssertions = do
+        -- Transaction 1. Pub to sec (1000)
+        let encryptedAmount1000 :: EncryptedAmount
+            encryptedAmount1000 = encryptAmountZeroRandomness dummyCryptographicParameters 1_000
+
+        encryptedTransferData1 <-
+            fromJust
+                <$> createEncryptedTransferData
+                    encryptionPublicKey1
+                    encryptionSecretKey0
+                    (makeAggregatedDecryptedAmount encryptedAmount1000 1_000 0)
+                    10
+
+        allTransferData <-
+            fmap fst
+                <$> iterateLimitM
+                    numberOfTransactions
+                    makeNext
+                    (encryptedTransferData1, 990)
+        -- A normal transaction is a transfer before maxNumIncoming amounts have been received.
+        let (normal, interesting) = splitAt maxNumIncoming $ zip [1 ..] allTransferData
+
+        let generatedTransactions =
+                ( fmap
+                    ( \(idx, x) ->
+                        makeTransaction
+                            (makeNormalBlockStateAssertion allTransferData x idx)
+                            x
+                            idx
+                    )
+                    normal
+                )
+                    ++ fmap
+                        ( \(idx, x) ->
+                            makeTransaction
+                                (makeInterestingBlockStateAssertion allTransferData x idx)
+                                x
+                                idx
+                        )
+                        interesting
+
+        -- Transaction that will transfer 340 to account1 public balancesecToPubTransferData.
+
+        let allAmounts = foldl' aggregateAmounts mempty (eatdTransferAmount <$> allTransferData)
+            aggAmount =
+                makeAggregatedDecryptedAmount
+                    allAmounts
+                    (numberOfTransactions * 10)
+                    numberOfTransactions
+
+        secToPubTransferData <-
+            fromJust
+                <$> createSecToPubTransferData
+                    encryptionSecretKey1
+                    aggAmount
+                    (numberOfTransactions * 10)
+
+        return $
+            [ Helpers.TransactionAndAssertion
+                { taaTransaction =
+                    Runner.TJSON
+                        { payload = Runner.TransferToEncrypted 1_000,
+                          metadata = makeDummyHeader accountAddress0 1 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+                  taaAssertion = \Helpers.SchedulerResult{..} state -> do
+                    doInvariantAssertions <-
+                        Helpers.assertBlockStateInvariantsH
+                            state
+                            srExecutionCosts
+                    doEncryptedBalanceAssertions <-
+                        assertEncryptedBalance
+                            Types.initialAccountEncryptedAmount
+                                { Types._selfAmount = encryptedAmount1000
+                                }
+                            accountAddress0
+                            state
+                    return $ do
+                        case Helpers.getResults $ Sch.ftAdded srTransactions of
+                            [(_, Types.TxSuccess events)] ->
+                                assertEqual
+                                    "The correct encrypt self amount event is produced"
+                                    [ Types.EncryptedSelfAmountAdded
+                                        { eaaAccount = accountAddress0,
+                                          eaaNewAmount = encryptedAmount1000,
+                                          eaaAmount = 1_000
+                                        }
+                                    ]
+                                    events
+                            _ -> assertFailure "First transaction should succeed"
+                        doInvariantAssertions
+                        doEncryptedBalanceAssertions
+                }
+            ]
+                -- Now send 34 transactions of 10 tokens from account0 to account1
+                ++ generatedTransactions
+                -- Send the encrypted 340 tokens on account1 to public balance
+                ++ [ Helpers.TransactionAndAssertion
+                        { taaTransaction =
+                            Runner.TJSON
+                                { payload = Runner.TransferToPublic secToPubTransferData,
+                                  metadata = makeDummyHeader accountAddress1 1 100_000,
+                                  keys = [(0, [(0, keyPair1)])]
+                                },
+                          taaAssertion = \Helpers.SchedulerResult{..} state -> do
+                            doEncryptedBalanceAssertions <-
+                                assertEncryptedBalance
+                                    Types.initialAccountEncryptedAmount
+                                        { _selfAmount = stpatdRemainingAmount secToPubTransferData,
+                                          _startIndex = numberOfTransactions,
+                                          _incomingEncryptedAmounts = Seq.empty
+                                        }
+                                    accountAddress1
+                                    state
+                            return $ do
+                                case Helpers.getResults $ Sch.ftAdded srTransactions of
+                                    [ ( _,
+                                        Types.TxSuccess
+                                            [ Types.EncryptedAmountsRemoved{..},
+                                              Types.AmountAddedByDecryption{..}
+                                                ]
+                                        )
+                                        ] -> do
+                                            assertEqual
+                                                "Account encrypted amounts removed"
+                                                earAccount
+                                                accountAddress1
+                                            assertEqual
+                                                "Used up indices"
+                                                earUpToIndex
+                                                numberOfTransactions
+                                            assertEqual "New amount" earNewAmount $
+                                                stpatdRemainingAmount secToPubTransferData
+                                            assertEqual
+                                                "Decryption address"
+                                                aabdAccount
+                                                accountAddress1
+                                            assertEqual "Amount added" aabdAmount $
+                                                numberOfTransactions * 10
+                                    [(_, Types.TxSuccess e)] ->
+                                        assertFailure $ "Unexpected final outcome: " ++ show e
+                                    other ->
+                                        assertFailure $
+                                            "Last transaction should succeed: " ++ show other
+                                doEncryptedBalanceAssertions
+                        }
+                   ]
+
+initialBlockState ::
+    Types.IsProtocolVersion pv =>
+    Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
+initialBlockState =
+    Helpers.createTestBlockStateWithAccountsM
+        [ Helpers.makeTestAccountFromSeed 10_000_000_000 0,
+          Helpers.makeTestAccountFromSeed 10_000_000_000 1
+        ]
+
+accountAddress0 :: Types.AccountAddress
+accountAddress0 = Helpers.accountAddressFromSeed 0
+
+accountAddress1 :: Types.AccountAddress
+accountAddress1 = Helpers.accountAddressFromSeed 1
+
+keyPair0 :: SigScheme.KeyPair
+keyPair0 = Helpers.keyPairFromSeed 0
+
+keyPair1 :: SigScheme.KeyPair
+keyPair1 = Helpers.keyPairFromSeed 1
+
+encryptionSecretKey0 :: ElgamalSecretKey
+encryptionSecretKey0 = dummyEncryptionSecretKey dummyCryptographicParameters accountAddress0
+
+encryptionSecretKey1 :: ElgamalSecretKey
+encryptionSecretKey1 = dummyEncryptionSecretKey dummyCryptographicParameters accountAddress1
+
+encryptionPublicKey1 :: ID.AccountEncryptionKey
+encryptionPublicKey1 =
+    ID.makeEncryptionKey dummyCryptographicParameters $
+        ID.credId $
+            Helpers.makeTestCredentialFromSeed 1
 
 iterateLimitM :: Monad m => Int -> (a -> m a) -> a -> m [a]
 iterateLimitM n f = go 0
@@ -51,24 +257,6 @@ iterateLimitM n f = go 0
         | otherwise = do
             y <- f x
             (x :) <$> go (m + 1) y
-
-initialBlockState :: BlockState PV1
-initialBlockState =
-    blockStateWithAlesAccount
-        10000000000
-        (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 10000000000) Acc.emptyAccounts)
-
--- Ales' keys
-alesEncryptionSecretKey :: ElgamalSecretKey
-alesEncryptionSecretKey = dummyEncryptionSecretKey dummyCryptographicParameters alesAccount
-alesEncryptionPublicKey :: AccountEncryptionKey
-alesEncryptionPublicKey = unsafeEncryptionKeyFromRaw (fromJust (Acc.getAccount alesAccount (initialBlockState ^. blockAccounts)) ^. accountEncryptionKey)
-
--- Thomas' keys
-thomasEncryptionSecretKey :: ElgamalSecretKey
-thomasEncryptionSecretKey = dummyEncryptionSecretKey dummyCryptographicParameters thomasAccount
-thomasEncryptionPublicKey :: AccountEncryptionKey
-thomasEncryptionPublicKey = unsafeEncryptionKeyFromRaw (fromJust (Acc.getAccount thomasAccount (initialBlockState ^. blockAccounts)) ^. accountEncryptionKey)
 
 -- Helpers for creating the transfer datas
 createEncryptedTransferData ::
@@ -82,177 +270,146 @@ createEncryptedTransferData ::
     Amount ->
     IO (Maybe EncryptedAmountTransferData)
 createEncryptedTransferData (AccountEncryptionKey receiverPK) =
-    makeEncryptedAmountTransferData (initialBlockState ^. blockCryptographicParameters . unhashed) receiverPK
+    makeEncryptedAmountTransferData dummyCryptographicParameters receiverPK
 
-createSecToPubTransferData :: ElgamalSecretKey -> AggregatedDecryptedAmount -> Amount -> IO (Maybe SecToPubAmountTransferData)
-createSecToPubTransferData =
-    makeSecToPubAmountTransferData (initialBlockState ^. blockCryptographicParameters . unhashed)
+createSecToPubTransferData :: ElgamalSecretKey -> AggregatedDecryptedAmount -> Types.Amount -> IO (Maybe SecToPubAmountTransferData)
+createSecToPubTransferData = makeSecToPubAmountTransferData dummyCryptographicParameters
 
 -- Helper for checking the encrypted balance of an account.
-checkEncryptedBalance :: AccountEncryptedAmount -> AccountAddress -> BlockState PV1 -> SpecWith ()
-checkEncryptedBalance accEncAmount acc bs =
-    specify ("Correct final balance on " ++ show acc) $
-        case Acc.getAccount acc (bs ^. blockAccounts) of
-            Nothing -> HUnit.assertFailure $ "Account with id '" ++ show acc ++ "' not found"
-            Just account -> HUnit.assertEqual "Expected encrypted amount matches" accEncAmount (account ^. accountEncryptedAmount)
-
---------------------------------- Transactions ---------------------------------
+assertEncryptedBalance ::
+    Types.IsProtocolVersion pv =>
+    Types.AccountEncryptedAmount ->
+    Types.AccountAddress ->
+    BS.PersistentBlockState pv ->
+    Helpers.PersistentBSM pv Assertion
+assertEncryptedBalance expectedEncryptedAmount address blockState = do
+    maybeAccount <- BS.bsoGetAccount blockState address
+    case maybeAccount of
+        Nothing -> return $ assertFailure $ "No account found for address: " ++ show address
+        Just (_, account) -> do
+            accountEncryptedAmount <- BS.accountEncryptedAmount account
+            return $
+                assertEqual
+                    "Encrypted amounts matches"
+                    accountEncryptedAmount
+                    expectedEncryptedAmount
 
 numberOfTransactions :: Num a => a
 numberOfTransactions = fromIntegral maxNumIncoming + 2
-
--- Transaction 1. Pub to sec (1000)
-encryptedAmount1000 :: EncryptedAmount
-encryptedAmount1000 = encryptAmountZeroRandomness (initialBlockState ^. blockCryptographicParameters . unhashed) 1000
-
--- Initial transfer transaction
-encryptedTransferData1 :: IO EncryptedAmountTransferData
-encryptedTransferData1 = fromJust <$> createEncryptedTransferData thomasEncryptionPublicKey alesEncryptionSecretKey (makeAggregatedDecryptedAmount encryptedAmount1000 1000 0) 10
 
 -- Function used to generate all the transfer datas based on encryptedTransferData1
 -- each transaction sends 10 tokens from Ales' self amount to Thomas
 makeNext :: (EncryptedAmountTransferData, Amount) -> IO (EncryptedAmountTransferData, Amount)
 makeNext (d, a) = do
-    newData <- fromJust <$> createEncryptedTransferData thomasEncryptionPublicKey alesEncryptionSecretKey (makeAggregatedDecryptedAmount (eatdRemainingAmount d) a 0) 10
+    newData <-
+        fromJust
+            <$> createEncryptedTransferData
+                encryptionPublicKey1
+                encryptionSecretKey0
+                (makeAggregatedDecryptedAmount (eatdRemainingAmount d) a 0)
+                10
     return (newData, a - 10)
 
--- A list of all the input transactions 'numberOfTransactions'.
-allTxsIO :: IO [(EncryptedAmountTransferData, Amount)]
-allTxsIO = do
-    start <- encryptedTransferData1
-    iterateLimitM numberOfTransactions makeNext (start, 990)
+makeNormalBlockStateAssertion ::
+    (Types.IsProtocolVersion pv) =>
+    [EncryptedAmountTransferData] ->
+    EncryptedAmountTransferData ->
+    EncryptedAmountAggIndex ->
+    Helpers.TransactionAssertion pv
+makeNormalBlockStateAssertion allTxs transferData idx = \_ state -> do
+    -- Account0 amount should be the remaining amount on the transaction
+    doEncryptedBalanceAssertionsSender <-
+        assertEncryptedBalance
+            initialAccountEncryptedAmount{_selfAmount = eatdRemainingAmount transferData}
+            accountAddress0
+            state
+    doEncryptedBalanceAssertionsReceiver <-
+        assertEncryptedBalance
+            initialAccountEncryptedAmount
+                { -- no amounts have been used on account1.
+                  _startIndex = 0,
+                  -- It should have all the received amounts until this index.
+                  _incomingEncryptedAmounts =
+                    Seq.fromList $ take (fromIntegral idx) (eatdTransferAmount <$> allTxs)
+                }
+            accountAddress1
+            state
 
--- Infinite list of transaction specs that before `maxNumIncoming` transactions
--- considers that transferred amounts are added to the incoming amounts and
--- after that it checks that the initial incoming amounts are being
--- automatically aggregated.
-transactionsIO ::
-    IO
-        ( [(Runner.TransactionJSON, (TResultSpec, BlockState PV1 -> Spec))],
-          [(EncryptedAmountTransferData, Amount)]
-        )
-transactionsIO = do
-    allTxs <- allTxsIO
-    let (normal, interesting) = splitAt maxNumIncoming allTxs
-    -- A normal transaction is a transfer before maxNumIncoming amounts have been received.
-    let makeNormalTransaction :: EncryptedAmountTransferData -> EncryptedAmountAggIndex -> (Runner.TransactionJSON, (TResultSpec, BlockState PV1 -> Spec))
-        makeNormalTransaction x idx = makeTransaction x idx $
-            \bs -> do
-                checkEncryptedBalance initialAccountEncryptedAmount{_selfAmount = eatdRemainingAmount x} alesAccount bs -- Ales amount should be the remaining amount on the transaction
-                checkEncryptedBalance
-                    initialAccountEncryptedAmount
-                        { _startIndex = 0, -- no amounts have been used on Thomas account
-                          _incomingEncryptedAmounts = Seq.fromList [eatdTransferAmount n | (n, _) <- take (fromIntegral idx) normal] -- It should have all the received amounts until this index
-                        }
-                    thomasAccount
-                    bs
+    return $ do
+        doEncryptedBalanceAssertionsSender
+        doEncryptedBalanceAssertionsReceiver
 
-        -- An interesting transaction is a transfer after maxNumIncoming amounts have been received.
-        makeInterestingTransaction :: EncryptedAmountTransferData -> EncryptedAmountAggIndex -> (Runner.TransactionJSON, (TResultSpec, BlockState PV1 -> Spec))
-        makeInterestingTransaction x idx = makeTransaction x idx $
-            \bs -> do
-                checkEncryptedBalance initialAccountEncryptedAmount{_selfAmount = eatdRemainingAmount x} alesAccount bs -- Ales amount should be the remaining amount on the transaction
-                let (combined, kept) = Seq.splitAt ((fromIntegral idx - fromIntegral maxNumIncoming) + 1) (Seq.fromList [eatdTransferAmount n | (n, _) <- take (fromIntegral idx) allTxs]) -- get which amounts should be combined into combinedAmount
-                    combinedAmount = foldl' aggregateAmounts mempty combined -- combine them
-                checkEncryptedBalance
-                    initialAccountEncryptedAmount
-                        { _startIndex = idx - fromIntegral maxNumIncoming, -- the start index should have increased
-                          _incomingEncryptedAmounts = kept, -- the list of incoming amounts will hold the `rest` of the amounts
-                          _aggregatedAmount = Just (combinedAmount, fromIntegral (idx - fromIntegral maxNumIncoming + 1)) -- the combined amount goes into the `_aggregatedAmount` field together with the number of aggregated amounts until this point.
-                        }
-                    thomasAccount
-                    bs
-        makeTransaction :: EncryptedAmountTransferData -> EncryptedAmountAggIndex -> (BlockState PV1 -> Spec) -> (Runner.TransactionJSON, (TResultSpec, BlockState PV1 -> Spec))
-        makeTransaction x@EncryptedAmountTransferData{..} idx checks =
-            ( Runner.TJSON
-                { payload = Runner.EncryptedAmountTransfer thomasAccount x, -- create an encrypted transfer to Thomas
-                  metadata = makeDummyHeader alesAccount (fromIntegral idx + 1) 100000, -- from Ales with nonce idx + 1
-                  keys = [(0, [(0, alesKP)])]
+-- An interesting transaction is a transfer after maxNumIncoming amounts have been received.
+makeInterestingBlockStateAssertion ::
+    (Types.IsProtocolVersion pv) =>
+    [EncryptedAmountTransferData] ->
+    EncryptedAmountTransferData ->
+    EncryptedAmountAggIndex ->
+    Helpers.TransactionAssertion pv
+makeInterestingBlockStateAssertion allTxs transferData idx = \_ state -> do
+    -- Account0 amount should be the remaining amount on the transaction
+    doEncryptedBalanceAssertionsSender <-
+        assertEncryptedBalance
+            initialAccountEncryptedAmount{_selfAmount = eatdRemainingAmount transferData}
+            accountAddress0
+            state
+
+    let (combined, kept) =
+            Seq.splitAt
+                ((fromIntegral idx - fromIntegral maxNumIncoming) + 1)
+                -- get which amounts should be combined into combinedAmount
+                (Seq.fromList $ take (fromIntegral idx) (eatdTransferAmount <$> allTxs))
+
+        combinedAmount = foldl' aggregateAmounts mempty combined -- combine them
+    doEncryptedBalanceAssertionsReceiver <-
+        assertEncryptedBalance
+            initialAccountEncryptedAmount
+                { -- the start index should have increased
+                  _startIndex = idx - fromIntegral maxNumIncoming,
+                  -- the list of incoming amounts will hold the `rest` of the amounts
+                  _incomingEncryptedAmounts = kept,
+                  -- the combined amount goes into the `_aggregatedAmount` field together with the
+                  -- number of aggregated amounts until this point.
+                  _aggregatedAmount =
+                    Just
+                        ( combinedAmount,
+                          fromIntegral (idx - fromIntegral maxNumIncoming + 1)
+                        )
+                }
+            accountAddress1
+            state
+    return $ do
+        doEncryptedBalanceAssertionsSender
+        doEncryptedBalanceAssertionsReceiver
+
+makeTransaction ::
+    (Types.IsProtocolVersion pv) =>
+    Helpers.TransactionAssertion pv ->
+    EncryptedAmountTransferData ->
+    EncryptedAmountAggIndex ->
+    Helpers.TransactionAndAssertion pv
+makeTransaction blockStateChecks transferData idx =
+    Helpers.TransactionAndAssertion
+        { taaTransaction =
+            Runner.TJSON
+                { payload = Runner.EncryptedAmountTransfer accountAddress1 transferData, -- create an encrypted transfer to account1
+                  metadata = makeDummyHeader accountAddress0 (fromIntegral idx + 1) 100_000, -- from account0 with nonce idx + 1
+                  keys = [(0, [(0, keyPair0)])]
                 },
-                ( Success $ \case
-                    [Types.EncryptedAmountsRemoved{..}, Types.NewEncryptedAmount{..}] -> do
-                        HUnit.assertEqual "Account encrypted amounts removed" earAccount alesAccount
-                        HUnit.assertEqual "Used up indices" earUpToIndex 0
-                        HUnit.assertEqual "New amount" earNewAmount eatdRemainingAmount
-                        HUnit.assertEqual "Receiver address" neaAccount thomasAccount
-                        HUnit.assertEqual "New receiver index" neaNewIndex $ fromIntegral idx - 1
-                        HUnit.assertEqual "Received amount" neaEncryptedAmount eatdTransferAmount
-                    e -> HUnit.assertFailure $ "Unexpected outcome: " ++ show e,
-                  checks
-                )
-            )
-
-    return
-        ( [makeNormalTransaction x idx | (idx, (x, _)) <- zip [1 ..] normal]
-            ++ [makeInterestingTransaction tx (fromIntegral idx) | (idx, (tx, _)) <- zip [maxNumIncoming + 1 ..] interesting],
-          allTxs
-        )
-
--- Transaction that will transfer 340 to Thomas's public balancesecToPubTransferData :: IO SecToPubAmountTransferData
-mkSecToPubTransferData :: [(EncryptedAmountTransferData, a)] -> IO SecToPubAmountTransferData
-mkSecToPubTransferData transactions = fromJust <$> createSecToPubTransferData thomasEncryptionSecretKey aggAmount (numberOfTransactions * 10)
-  where
-    aggAmount = makeAggregatedDecryptedAmount allAmounts (numberOfTransactions * 10) numberOfTransactions
-    allAmounts = foldl' aggregateAmounts mempty [eatdTransferAmount n | (n, _) <- transactions]
-
-------------------------------------- Test -------------------------------------
-
-testCases :: [(Runner.TransactionJSON, (TResultSpec, BlockState PV1 -> Spec))] -> [TestCase PV1]
-testCases transactions =
-    [ TestCase
-        { tcName = "Makes an encrypted transfer",
-          tcParameters = (defaultParams @PV1){tpInitialBlockState = initialBlockState},
-          tcTransactions =
-            -- First transfer some money to Ales' private balance
-            ( Runner.TJSON
-                { payload = Runner.TransferToEncrypted 1000,
-                  metadata = makeDummyHeader alesAccount 1 100000,
-                  keys = [(0, [(0, alesKP)])]
-                },
-                ( SuccessE
-                    [ Types.EncryptedSelfAmountAdded
-                        { eaaAccount = alesAccount,
-                          eaaNewAmount = encryptedAmount1000,
-                          eaaAmount = 1000
-                        }
-                    ],
-                  checkEncryptedBalance initialAccountEncryptedAmount{_selfAmount = encryptedAmount1000} alesAccount
-                )
-            )
-                :
-                -- Now send 34 transactions of 10 tokens from Ales to Thomas
-                transactions
+          taaAssertion = \result state -> do
+            doBlockStateChecks <- blockStateChecks result state
+            return $ do
+                case Helpers.getResults $ Sch.ftAdded $ Helpers.srTransactions result of
+                    [(_, Types.TxSuccess events)] ->
+                        case events of
+                            [Types.EncryptedAmountsRemoved{..}, Types.NewEncryptedAmount{..}] -> do
+                                assertEqual "Account encrypted amounts removed" earAccount accountAddress0
+                                assertEqual "Used up indices" earUpToIndex 0
+                                assertEqual "New amount" earNewAmount (eatdRemainingAmount transferData)
+                                assertEqual "Receiver address" neaAccount accountAddress1
+                                assertEqual "New receiver index" neaNewIndex $ fromIntegral idx - 1
+                                assertEqual "Received amount" neaEncryptedAmount (eatdTransferAmount transferData)
+                            e -> assertFailure $ "Unexpected outcome: " ++ show e
+                    e -> assertFailure $ "Transaction should succeed: " ++ show e
+                doBlockStateChecks
         }
-    ]
-
-tests :: Spec
-tests = do
-    (transactions, allTxs) <- runIO transactionsIO
-    lastTransaction <- runIO $ do
-        secToPubTransferData <- mkSecToPubTransferData allTxs
-        -- Send the encrypted 340 tokens on Thomas' account to his public balance
-        return
-            [   ( Runner.TJSON
-                    { payload = Runner.TransferToPublic secToPubTransferData,
-                      metadata = makeDummyHeader thomasAccount 1 100000,
-                      keys = [(0, [(0, thomasKP)])]
-                    },
-                    ( Success $ \case
-                        [Types.EncryptedAmountsRemoved{..}, Types.AmountAddedByDecryption{..}] -> do
-                            HUnit.assertEqual "Account encrypted amounts removed" earAccount thomasAccount
-                            HUnit.assertEqual "Used up indices" earUpToIndex numberOfTransactions
-                            HUnit.assertEqual "New amount" earNewAmount $ stpatdRemainingAmount secToPubTransferData
-                            HUnit.assertEqual "Decryption address" aabdAccount thomasAccount
-                            HUnit.assertEqual "Amount added" aabdAmount $ numberOfTransactions * 10
-                        e -> HUnit.assertFailure $ "Unexpected final outcome: " ++ show e,
-                      checkEncryptedBalance
-                        initialAccountEncryptedAmount
-                            { _selfAmount = stpatdRemainingAmount secToPubTransferData,
-                              _startIndex = numberOfTransactions,
-                              _incomingEncryptedAmounts = Seq.empty
-                            }
-                        thomasAccount
-                    )
-                )
-            ]
-    describe "Encrypted transfers with aggregation." $ mkSpecs (testCases (transactions ++ lastTransaction))

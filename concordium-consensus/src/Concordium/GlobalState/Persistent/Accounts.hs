@@ -6,10 +6,14 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
+-- We suppress redundant constraint warnings since GHC does not detect when a constraint is used
+-- for pattern matching. (See: https://gitlab.haskell.org/ghc/ghc/-/issues/20896)
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
 module Concordium.GlobalState.Persistent.Accounts where
 
 import Control.Monad
+import Data.Foldable (foldlM)
 import qualified Data.Map.Strict as Map
 import Data.Maybe
 import Data.Serialize
@@ -148,6 +152,12 @@ putNewAccount !acct accts0 = do
         else return (Nothing, accts0)
   where
     acctIndex = fromIntegral $ L.size (accountTable accts0)
+
+-- |Construct an 'Accounts' from a list of accounts. Inserted in the order of the list.
+fromList :: SupportsPersistentAccount pv m => [PersistentAccount (AccountVersionFor pv)] -> m (Accounts pv)
+fromList = foldlM insert emptyAccounts
+  where
+    insert accounts account = snd <$> putNewAccount account accounts
 
 -- |Determine if an account with the given address exists.
 exists :: (IsProtocolVersion pv, MonadBlobStore m) => AccountAddress -> Accounts pv -> m Bool

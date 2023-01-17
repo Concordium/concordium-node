@@ -84,7 +84,7 @@ instance HasSchedulerState (NoLogSchedulerState m) where
     schedulerExecutionCosts = ssSchedulerExecutionCosts
     nextIndex = ssNextIndex
 
-newtype BSOMonadWrapper r state m a = BSOMonadWrapper (m a)
+newtype BSOMonadWrapper (r :: DK.Type) (state :: DK.Type) (m :: DK.Type -> DK.Type) (a :: DK.Type) = BSOMonadWrapper (m a)
     deriving
         ( Functor,
           Applicative,
@@ -371,11 +371,11 @@ deriving instance ModuleQuery m => ModuleQuery (BSOMonadWrapper r state m)
 type PBSSS pv = NoLogSchedulerState (PureBlockStateMonad pv Identity)
 
 -- newtype wrapper to forget the automatic writer instance so we can repurpose it for logging.
-newtype RWSTBS pv m a = RWSTBS {_runRWSTBS :: RWST ContextState [(LogSource, LogLevel, String)] (PBSSS pv) m a}
+newtype RWSTBS (pv :: ProtocolVersion) (m :: DK.Type -> DK.Type) (a :: DK.Type) = RWSTBS {_runRWSTBS :: RWST ContextState [(LogSource, LogLevel, String)] (PBSSS pv) m a}
     deriving (Functor, Applicative, Monad, MonadReader ContextState, MonadState (PBSSS pv), MonadTrans)
 
 -- |Basic implementation of the scheduler.
-newtype SchedulerImplementation pv a = SchedulerImplementation {_runScheduler :: RWSTBS pv (PureBlockStateMonad pv Identity) a}
+newtype SchedulerImplementation (pv :: ProtocolVersion) (a :: DK.Type) = SchedulerImplementation {_runScheduler :: RWSTBS pv (PureBlockStateMonad pv Identity) a}
     deriving (Functor, Applicative, Monad, MonadReader ContextState, MonadState (PBSSS pv))
     deriving
         (ContractStateOperations, ModuleQuery, MonadLogger)

@@ -3,6 +3,7 @@
 -- blocks is correctly serialized.
 module Main where
 
+import Control.Monad
 import Data.Functor.Identity
 import Data.Serialize (runGet)
 import Data.Time
@@ -47,8 +48,12 @@ main = do
     Identity conf <- execParser opts
     case conf of
         Check file -> checkDatabase file
-        Export db filepath n | n > 0 -> exportDatabaseV3 db filepath n
-        Export _ _ _ -> putStrLn "Chunk size should be larger than 0"
+        Export db filepath n | n > 0 -> do
+            exportError <- exportDatabaseV3 db filepath n
+            when exportError $ exitWith $ ExitFailure 1
+        Export{} -> do
+            putStrLn "Chunk size should be larger than 0"
+            exitWith $ ExitFailure 2
   where
     opts =
         info

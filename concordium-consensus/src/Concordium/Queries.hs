@@ -39,7 +39,6 @@ import Concordium.Types.Queries
 import Concordium.Types.SeedState
 import Concordium.Types.Transactions
 import qualified Concordium.Types.UpdateQueues as UQ
-import Concordium.Types.Updates
 import qualified Concordium.Wasm as Wasm
 
 import qualified Concordium.Scheduler.InvokeContract as InvokeContract
@@ -259,29 +258,6 @@ liftSkovQueryBlockAndVersion a bh = MVR $ \mvr ->
                 mvr
         )
         mvr
-
--- | Information about a registered delegator in a block.
-data DelegatorInfo = DelegatorInfo
-    { -- | The delegator account address.
-      pdiAccount :: !AccountAddress,
-      -- | The amount of stake currently staked to the pool.
-      pdiStake :: !Amount,
-      -- | Pending change to the current stake of the delegator.
-      pdiPendingChanges :: !(StakePendingChange' Timestamp)
-    }
-
--- | Information about a fixed delegator in the reward period for a block.
-data DelegatorRewardPeriodInfo = DelegatorRewardPeriodInfo
-    { -- | The delegator account address.
-      pdrpiAccount :: !AccountAddress,
-      -- | The amount of stake fixed to the pool in the current reward period.
-      pdrpiStake :: !Amount
-    }
-
--- |Information about the finalization record included in a block.
-data BlockFinalizationSummary
-    = NoSummary
-    | Summary !FinalizationSummary
 
 -- |Retrieve the consensus status.
 getConsensusStatus :: MVR gsconf finconf ConsensusStatus
@@ -611,14 +587,6 @@ getBlockPendingUpdates = liftSkovQueryBHI query
                     Nothing -> error "Invariant violation. Foundation account index does not exist in the account table."
                     Just (_, acc) -> do
                         (t,) . PUEFoundationAccount <$> BS.getAccountCanonicalAddress acc
-
--- |An existentially qualified pair of chain parameters and update keys currently in effect.
-data EChainParametersAndKeys = forall (cpv :: ChainParametersVersion).
-      IsChainParametersVersion cpv =>
-    EChainParametersAndKeys
-    { ecpParams :: !(ChainParameters' cpv),
-      ecpKeys :: !(UpdateKeysCollection (AuthorizationsVersionFor cpv))
-    }
 
 -- |Get the chain parameters valid at the end of a given block, as well as the address of the foundation account.
 -- The chain parameters contain only the account index of the foundation account.

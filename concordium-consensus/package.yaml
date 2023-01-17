@@ -10,15 +10,12 @@ copyright:           "Concordium"
 extra-source-files:
 - README.md
 - ChangeLog.md
-- ../concordium-grpc-api/v2/concordium/types.proto
-
 
 custom-setup:
   dependencies:
     - base  >= 4.7
     - Cabal >= 2.2
     - directory >= 1.3
-    - proto-lens-setup >= 0.4
 
 # Metadata used when publishing your package
 # synopsis:            Short description of your package
@@ -51,6 +48,7 @@ dependencies:
 - concordium-base
 - base16-bytestring
 - aeson >= 1.4.2
+- attoparsec >= 0.14.4
 - text >= 1.2
 - filepath >= 1.4
 - directory >= 1.3
@@ -59,7 +57,6 @@ dependencies:
 - file-embed >= 0.0.11
 - lmdb
 - primitive
-- split
 - proto-lens >= 0.7
 - proto-lens-protobuf-types >= 0.7
 - proto-lens-runtime >= 0.7
@@ -98,7 +95,7 @@ library:
   when:
     - condition: os(windows)
       then:
-        ghc-options: -static -shared lib.def -L../concordium-base/smart-contracts/lib -lwasm_chain_integration
+        ghc-options: -threaded -static -shared lib.def -L../concordium-base/smart-contracts/lib -lwasm_chain_integration
       else:
         when:
           - condition: flag(dynamic)
@@ -106,11 +103,6 @@ library:
               ghc-options: -shared -dynamic
             else:
               ghc-options: -static
-
-
-  generated-exposed-modules:
-    Proto.Concordium.Types
-    Proto.Concordium.Types_Fields
 
 # Other options might be needed, such has -dynamic -lHSrts or -lHSrts-ghc8.4.3
 # Possibly this depends on the platform
@@ -268,6 +260,7 @@ tests:
     - hspec-expectations >= 0.8
     - vector >= 0.12
     - math-functions >= 0.2
+    - temporary >= 1.3
 
   globalstate:
     main:                Spec.hs

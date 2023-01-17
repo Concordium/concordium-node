@@ -307,21 +307,28 @@ pub struct RpcCliConfig {
         help = "Disable the built-in RPC server",
         env = "CONCORDIUM_NODE_DISABLE_RPC_SERVER"
     )]
-    pub no_rpc_server:    bool,
+    pub no_rpc_server:                bool,
+    #[structopt(
+        long = "no-rpc-server-node-endpoints",
+        help = "Disable the node related endpoints of the RPC server. Only consensus related \
+                queries are allowed.",
+        env = "CONCORDIUM_NODE_DISABLE_RPC_SERVER_NODE_ENDPOINTS"
+    )]
+    pub no_rpc_server_node_endpoints: bool,
     #[structopt(
         long = "rpc-server-port",
         help = "RPC server port",
         default_value = "10000",
         env = "CONCORDIUM_NODE_RPC_SERVER_PORT"
     )]
-    pub rpc_server_port:  u16,
+    pub rpc_server_port:              u16,
     #[structopt(
         long = "rpc-server-addr",
         help = "RPC server listen address",
         default_value = "127.0.0.1",
         env = "CONCORDIUM_NODE_RPC_SERVER_ADDR"
     )]
-    pub rpc_server_addr:  String,
+    pub rpc_server_addr:              String,
     #[structopt(
         long = "rpc-server-token",
         help = "RPC server access token",
@@ -329,7 +336,7 @@ pub struct RpcCliConfig {
         env = "CONCORDIUM_NODE_RPC_SERVER_TOKEN",
         hide_env_values = true
     )]
-    pub rpc_server_token: String,
+    pub rpc_server_token:             String,
 }
 
 #[derive(StructOpt, Debug)]
@@ -906,7 +913,10 @@ impl AppPreferences {
 
             let mut reader = BufReader::new(&file);
             let load_result = PreferencesMap::<String>::load_from(&mut reader);
-            let prefs = load_result.unwrap_or_else(|_| PreferencesMap::<String>::new());
+            let prefs = load_result.unwrap_or_else(|e| {
+                error!("Unable to parse the configuration file: {}", e);
+                PreferencesMap::<String>::new()
+            });
 
             AppPreferences {
                 preferences_map:     prefs,
@@ -946,7 +956,7 @@ impl AppPreferences {
         };
         let file_path =
             Self::calculate_config_file_path(&self.override_config_dir, APP_PREFERENCES_MAIN);
-        match OpenOptions::new().read(true).write(true).open(&file_path) {
+        match OpenOptions::new().read(true).write(true).truncate(true).open(&file_path) {
             Ok(ref mut file) => {
                 let mut writer = BufWriter::new(file);
                 if self.preferences_map.save_to(&mut writer).is_err() {

@@ -52,6 +52,7 @@ hie.yaml
 **/**/TAGS
 .DS_Store
 /concordium-node/*.log
+/stack.yaml.lock
 
 # MacOS distribution
 /scripts/distribution/macOS-package/tools
