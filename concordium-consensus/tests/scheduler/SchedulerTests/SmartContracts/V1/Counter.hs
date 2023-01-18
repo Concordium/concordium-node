@@ -27,12 +27,6 @@ import qualified Concordium.Scheduler.Types as Types
 import Concordium.Wasm
 import qualified SchedulerTests.Helpers as Helpers
 
-tests :: Spec
-tests =
-    describe "V1: Counter counts." $
-        sequence_ $
-            Helpers.forEveryProtocolVersion test1
-
 initialBlockState ::
     (Types.IsProtocolVersion pv) =>
     Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
@@ -58,7 +52,7 @@ test1 ::
     Types.IsProtocolVersion pv =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 test1 spv pvString =
     when (Types.supportsV1Contracts spv) $
         specify (pvString ++ ": Counter updates and returns.") $
@@ -171,3 +165,9 @@ test1 spv pvString =
                                     ("State contains " ++ show expectedCount ++ ".")
                                     (runPut (putWord64le expectedCount))
                                     stateContents
+
+tests :: Spec
+tests =
+    describe "V1: Counter counts." $
+        sequence_ $
+            Helpers.forEveryProtocolVersion test1

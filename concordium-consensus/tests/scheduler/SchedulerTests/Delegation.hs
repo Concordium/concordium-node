@@ -34,27 +34,6 @@ import qualified SchedulerTests.Helpers as Helpers
 import Test.HUnit
 import Test.Hspec
 
-tests :: Spec
-tests =
-    describe "Delegate in different scenarios" $
-        sequence_ $
-            Helpers.forEveryProtocolVersion testCases
-  where
-    testCases :: forall pv. IsProtocolVersion pv => SProtocolVersion pv -> String -> SpecWith (Arg Assertion)
-    testCases spv pvString =
-        case delegationSupport @(AccountVersionFor pv) of
-            SAVDelegationNotSupported -> return ()
-            SAVDelegationSupported -> do
-                testCase1 spv pvString
-                testCase2 spv pvString
-                testCase3 spv pvString
-                testCase4 spv pvString
-                testCase5 spv pvString
-                testCase6 spv pvString
-                testCase7 spv pvString
-                testCase8 spv pvString
-                testCase9 spv pvString
-
 -- | Deterministically generate a baker account from a seed.
 makeTestBakerV1FromSeed ::
     (IsAccountVersion av, Blob.MonadBlobStore m, AVSupportsDelegation av) =>
@@ -206,7 +185,7 @@ testCase1 ::
     (IsProtocolVersion pv, SupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 testCase1 _ pvString =
     specify (pvString ++ ": Remove delegation") $ do
         let transactions =
@@ -252,7 +231,7 @@ testCase2 ::
     (IsProtocolVersion pv, SupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 testCase2 _ pvString =
     specify (pvString ++ ": Reduce delegation stake with overstaking") $ do
         let transactions =
@@ -289,7 +268,7 @@ testCase3 ::
     (IsProtocolVersion pv, SupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 testCase3 _ pvString =
     specify (pvString ++ ": Increase stake with overstaking") $ do
         let transactions =
@@ -327,7 +306,7 @@ testCase4 ::
     (IsProtocolVersion pv, SupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 testCase4 _ pvString =
     specify (pvString ++ ": Reduce stake and change target 1") $ do
         let transactions =
@@ -365,7 +344,7 @@ testCase5 ::
     (IsProtocolVersion pv, SupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 testCase5 _ pvString =
     specify (pvString ++ ": Reduce stake and change target 2") $ do
         let transactions =
@@ -402,7 +381,7 @@ testCase6 ::
     (IsProtocolVersion pv, SupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 testCase6 _ pvString =
     specify (pvString ++ ": Increase stake successfully.") $ do
         let transactions =
@@ -439,7 +418,7 @@ testCase7 ::
     (IsProtocolVersion pv, SupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 testCase7 _ pvString =
     specify (pvString ++ ": Increase stake and change target successfully.") $ do
         let transactions =
@@ -480,7 +459,7 @@ testCase8 ::
     (IsProtocolVersion pv, SupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 testCase8 _ pvString =
     specify (pvString ++ ": Increase stake and change target so that results is overdelegation.") $ do
         let transactions =
@@ -517,7 +496,7 @@ testCase9 ::
     (IsProtocolVersion pv, SupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 testCase9 _ pvString =
     specify (pvString ++ ": Change target to overdelegated pool.") $ do
         let transactions =
@@ -547,3 +526,24 @@ testCase9 _ pvString =
         Helpers.PersistentBSM pv Assertion
     checkState result blockState =
         Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
+
+tests :: Spec
+tests =
+    describe "Delegate in different scenarios" $
+        sequence_ $
+            Helpers.forEveryProtocolVersion testCases
+  where
+    testCases :: forall pv. IsProtocolVersion pv => SProtocolVersion pv -> String -> Spec
+    testCases spv pvString =
+        case delegationSupport @(AccountVersionFor pv) of
+            SAVDelegationNotSupported -> return ()
+            SAVDelegationSupported -> do
+                testCase1 spv pvString
+                testCase2 spv pvString
+                testCase3 spv pvString
+                testCase4 spv pvString
+                testCase5 spv pvString
+                testCase6 spv pvString
+                testCase7 spv pvString
+                testCase8 spv pvString
+                testCase9 spv pvString

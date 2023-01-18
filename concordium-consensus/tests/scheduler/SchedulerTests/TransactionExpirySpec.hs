@@ -28,18 +28,6 @@ import Concordium.Types.Accounts (
  )
 import qualified SchedulerTests.Helpers as Helpers
 
-tests :: Spec
-tests =
-    describe "Transaction expiry test:" $
-        sequence_ $
-            Helpers.forEveryProtocolVersion $ \spv pvString -> do
-                specify (pvString ++ ": Valid transactions of all payloads with expiry after slot time pass") $
-                    testExpiryTime (expiryTime + 1) (allTransactions spv) spv
-                specify (pvString ++ ": Same transactions with expiry set to slot time pass") $
-                    testExpiryTime expiryTime (allTransactions spv) spv
-                specify (pvString ++ ": Same transactions with expiry set before slot time fail") $
-                    testExpiryTime (expiryTime - 1) (allTransactions spv) spv
-
 initialBlockState ::
     (Types.IsProtocolVersion pv) =>
     Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
@@ -185,3 +173,15 @@ testExpiryTime expiry transactions _ =
         Helpers.PersistentBSM pv Assertion
     checkState result blockstate =
         Helpers.assertBlockStateInvariantsH blockstate (Helpers.srExecutionCosts result)
+
+tests :: Spec
+tests =
+    describe "Transaction expiry test:" $
+        sequence_ $
+            Helpers.forEveryProtocolVersion $ \spv pvString -> do
+                specify (pvString ++ ": Valid transactions of all payloads with expiry after slot time pass") $
+                    testExpiryTime (expiryTime + 1) (allTransactions spv) spv
+                specify (pvString ++ ": Same transactions with expiry set to slot time pass") $
+                    testExpiryTime expiryTime (allTransactions spv) spv
+                specify (pvString ++ ": Same transactions with expiry set before slot time fail") $
+                    testExpiryTime (expiryTime - 1) (allTransactions spv) spv

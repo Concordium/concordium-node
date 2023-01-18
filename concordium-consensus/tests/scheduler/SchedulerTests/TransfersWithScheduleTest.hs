@@ -23,18 +23,6 @@ import qualified Concordium.Scheduler.Types as Types
 import qualified SchedulerTests.Helpers as Helpers
 import SchedulerTests.TestUtils
 
-tests :: Spec
-tests =
-    describe "TransfersWithSchedule" $ do
-        scheduledTransferWithMemoRejectsP1
-        sequence_ $
-            Helpers.forEveryProtocolVersion $ \spv pvString -> do
-                scheduledTransferTest spv pvString
-                when (supportsMemo spv) $
-                    scheduledTransferWithMemoTest spv pvString
-                when (supportsAccountAliases spv) $
-                    scheduledTransferRejectsSelfTransferUsingAliases spv pvString
-
 initialBlockState ::
     (IsProtocolVersion pv) =>
     Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
@@ -53,12 +41,16 @@ accountAddress1 = Helpers.accountAddressFromSeed 1
 keyPair0 :: SigScheme.KeyPair
 keyPair0 = Helpers.keyPairFromSeed 0
 
-scheduledTransferWithMemoRejectsP1 :: SpecWith (Arg Assertion)
+scheduledTransferWithMemoRejectsP1 :: Spec
 scheduledTransferWithMemoRejectsP1 =
     specify "P1: Scheduled transfer with memo rejects in protocol version 1" $ do
         let transactions =
                 [ Runner.TJSON
-                    { payload = Runner.TransferWithScheduleAndMemo accountAddress1 (Memo $ BSS.pack [0, 1, 2, 3]) [(101, 10), (102, 11), (103, 12)],
+                    { payload =
+                        Runner.TransferWithScheduleAndMemo
+                            accountAddress1
+                            (Memo $ BSS.pack [0, 1, 2, 3])
+                            [(101, 10), (102, 11), (103, 12)],
                       metadata = makeDummyHeader accountAddress0 1 100_000,
                       keys = [(0, [(0, keyPair0)])]
                     }
@@ -91,7 +83,7 @@ scheduledTransferTest ::
     Types.IsProtocolVersion pv =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 scheduledTransferTest _ pvString =
     specify (pvString ++ ": Transfers with schedule") $
         do
@@ -195,7 +187,7 @@ scheduledTransferWithMemoTest ::
     Types.IsProtocolVersion pv =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 scheduledTransferWithMemoTest _ pvString =
     specify (pvString ++ ": Transfers with schedule and memo") $
         do
@@ -292,7 +284,7 @@ scheduledTransferWithMemoTest _ pvString =
                             accountAddress1
                             (Memo $ BSS.pack [0, 1, 2, 3])
                             [(101, 10), (102, 0), (103, 12)],
-                      metadata = makeDummyHeader accountAddress0 5 100000,
+                      metadata = makeDummyHeader accountAddress0 5 100_000,
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
@@ -305,7 +297,7 @@ scheduledTransferRejectsSelfTransferUsingAliases ::
     Types.IsProtocolVersion pv =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 scheduledTransferRejectsSelfTransferUsingAliases _ pvString =
     specify (pvString ++ ": Transfers with schedule to self rejects for account aliases for self") $
         do
@@ -338,3 +330,15 @@ scheduledTransferRejectsSelfTransferUsingAliases _ pvString =
         Helpers.PersistentBSM pv Assertion
     checkState result state =
         Helpers.assertBlockStateInvariantsH state (Helpers.srExecutionCosts result)
+
+tests :: Spec
+tests =
+    describe "TransfersWithSchedule" $ do
+        scheduledTransferWithMemoRejectsP1
+        sequence_ $
+            Helpers.forEveryProtocolVersion $ \spv pvString -> do
+                scheduledTransferTest spv pvString
+                when (supportsMemo spv) $
+                    scheduledTransferWithMemoTest spv pvString
+                when (supportsAccountAliases spv) $
+                    scheduledTransferRejectsSelfTransferUsingAliases spv pvString

@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module SchedulerTests.ChainMetatest where
+module SchedulerTests.ChainMetatest (tests) where
 
 import Test.HUnit
 import Test.Hspec
@@ -18,12 +18,6 @@ import qualified Concordium.GlobalState.Persistent.BlockState as BS
 import Concordium.Scheduler.DummyData
 
 import qualified SchedulerTests.Helpers as Helpers
-
-tests :: Spec
-tests =
-    describe "Chain metadata in transactions:" $
-        sequence_ $
-            Helpers.forEveryProtocolVersion testChainMeta
 
 initialBlockState ::
     (Types.IsProtocolVersion pv) =>
@@ -63,7 +57,7 @@ testChainMeta ::
     (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 testChainMeta _ pvString =
     specify (pvString ++ ": Reading chain metadata. ") $ do
         (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
@@ -94,3 +88,9 @@ testChainMeta _ pvString =
         return $ do
             doInvariantAssertions
             assertEqual "There should be 1 instance." 1 (length instances)
+
+tests :: Spec
+tests =
+    describe "Chain metadata in transactions:" $
+        sequence_ $
+            Helpers.forEveryProtocolVersion testChainMeta

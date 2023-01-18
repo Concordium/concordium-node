@@ -24,18 +24,6 @@ import qualified Data.ByteString.Short as BSS
 import qualified SchedulerTests.Helpers as Helpers
 import SchedulerTests.TestUtils
 
-tests :: Spec
-tests =
-    describe "Simple transfers test." $ do
-        transferWithMemoRejectTestP1
-        sequence_ $
-            Helpers.forEveryProtocolVersion $ \spv pvString -> do
-                simpleTransferTest spv pvString
-                when (Types.supportsMemo spv) $
-                    simpleTransferWithMemoTest spv pvString
-                when (Types.supportsAccountAliases spv) $
-                    simpleTransferUsingAccountAliasesTest spv pvString
-
 initialBlockState ::
     (IsProtocolVersion pv) =>
     Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
@@ -58,7 +46,7 @@ keyPair1 :: SigScheme.KeyPair
 keyPair1 = Helpers.keyPairFromSeed 1
 
 transferWithMemoRejectTestP1 ::
-    SpecWith (Arg Assertion)
+    Spec
 transferWithMemoRejectTestP1 = specify
     "P1: Transfer with memo - should get rejected because protocol version is 1"
     $ do
@@ -122,7 +110,7 @@ simpleTransferTest ::
     Types.IsProtocolVersion pv =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 simpleTransferTest _ pvString = specify
     (pvString ++ ": 4 successful and 1 failed transaction")
     $ do
@@ -232,7 +220,7 @@ simpleTransferWithMemoTest ::
     Types.IsProtocolVersion pv =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 simpleTransferWithMemoTest _ pvString = specify
     (pvString ++ ": simple transfers with memo")
     $ do
@@ -362,7 +350,7 @@ simpleTransferUsingAccountAliasesTest ::
     Types.IsProtocolVersion pv =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 simpleTransferUsingAccountAliasesTest _ pvString = specify
     (pvString ++ ": 4 successful and 1 failed transaction using aliases")
     $ do
@@ -468,3 +456,15 @@ simpleTransferUsingAccountAliasesTest _ pvString = specify
                 maybeAmount1
 
             doCheckBlockStateInvariants
+
+tests :: Spec
+tests =
+    describe "Simple transfers test." $ do
+        transferWithMemoRejectTestP1
+        sequence_ $
+            Helpers.forEveryProtocolVersion $ \spv pvString -> do
+                simpleTransferTest spv pvString
+                when (Types.supportsMemo spv) $
+                    simpleTransferWithMemoTest spv pvString
+                when (Types.supportsAccountAliases spv) $
+                    simpleTransferUsingAccountAliasesTest spv pvString

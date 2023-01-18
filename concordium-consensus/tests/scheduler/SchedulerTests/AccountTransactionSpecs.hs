@@ -3,7 +3,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
-module SchedulerTests.AccountTransactionSpecs where
+module SchedulerTests.AccountTransactionSpecs (tests) where
 
 import Data.Maybe
 import Test.HUnit
@@ -61,45 +61,48 @@ testAccountCreation ::
     forall pv av.
     (AccountVersionFor pv ~ av, IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
-    Assertion
-testAccountCreation _ = do
-    let transactions = Types.TGCredentialDeployment <$> transactionsInput
-    let contextState =
-            Helpers.defaultContextState
-                { -- Set slot time to non-zero, causing the deployment of the last credential to fails
-                  -- due to message expiry.
-                  EI._chainMetadata = dummyChainMeta{slotTime = 250}
-                }
-    let testConfig =
-            Helpers.defaultTestConfig
-                { Helpers.tcContextState = contextState
-                }
-    (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
-        Helpers.runSchedulerTest
-            @pv
-            testConfig
-            initialBlockState
-            (Helpers.checkReloadCheck checkState)
-            transactions
+    String ->
+    Spec
+testAccountCreation _ pvString = specify
+    (pvString ++ ": 4 accounts created, fifth rejected, credential deployed, and one more account created.")
+    $ do
+        let transactions = Types.TGCredentialDeployment <$> transactionsInput
+        let contextState =
+                Helpers.defaultContextState
+                    { -- Set slot time to non-zero, causing the deployment of the last credential to fails
+                      -- due to message expiry.
+                      EI._chainMetadata = dummyChainMeta{slotTime = 250}
+                    }
+        let testConfig =
+                Helpers.defaultTestConfig
+                    { Helpers.tcContextState = contextState
+                    }
+        (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
+            Helpers.runSchedulerTest
+                @pv
+                testConfig
+                initialBlockState
+                (Helpers.checkReloadCheck checkState)
+                transactions
 
-    let Sch.FilteredTransactions{..} = srTransactions
-    doBlockStateAssertions
-    assertBool "Successful transaction results." $ case Helpers.getResults ftAdded of
-        [(_, a11), (_, a12), (_, a13), (_, a15), (_, a17)]
-            | Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed{}] <- a11,
-              Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed{}] <- a12,
-              Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed{}] <- a13,
-              Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed{}] <- a15,
-              Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed{}] <- a17 ->
-                True
-        _ -> False
-    assertEqual
-        "Fourth and eighth credential deployment should fail."
-        [ Types.ExpiredTransaction,
-          Types.DuplicateAccountRegistrationID (Types.credId . Types.credential $ cdi3)
-        ]
-        (map snd ftFailedCredentials)
-    assertEqual "Execution cost should be 0." 0 srExecutionCosts
+        let Sch.FilteredTransactions{..} = srTransactions
+        doBlockStateAssertions
+        assertBool "Successful transaction results." $ case Helpers.getResults ftAdded of
+            [(_, a11), (_, a12), (_, a13), (_, a15), (_, a17)]
+                | Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed{}] <- a11,
+                  Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed{}] <- a12,
+                  Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed{}] <- a13,
+                  Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed{}] <- a15,
+                  Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed{}] <- a17 ->
+                    True
+            _ -> False
+        assertEqual
+            "Fourth and eighth credential deployment should fail."
+            [ Types.ExpiredTransaction,
+              Types.DuplicateAccountRegistrationID (Types.credId . Types.credential $ cdi3)
+            ]
+            (map snd ftFailedCredentials)
+        assertEqual "Execution cost should be 0." 0 srExecutionCosts
   where
     checkState :: Helpers.SchedulerResult -> BS.PersistentBlockState pv -> Helpers.PersistentBSM pv Assertion
     checkState _ state = do
@@ -122,10 +125,6 @@ testAccountCreation _ = do
 
 tests :: Spec
 tests =
-    describe "Account creation" $ do
-        sequence_ $ Helpers.forEveryProtocolVersion $ \spv pvString ->
-            specify
-                ( pvString
-                    ++ ": 4 accounts created, fifth rejected, credential deployed, and one more account created."
-                )
-                $ testAccountCreation spv
+    describe "Account creation" $
+        sequence_ $
+            Helpers.forEveryProtocolVersion testAccountCreation

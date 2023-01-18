@@ -9,7 +9,7 @@
 --    by repeatedly sending itself messages.
 --
 --    See ../smart-contracts/rust-contracts/example-contracts/fib for the source code.
-module SchedulerTests.FibonacciSelfMessageTest where
+module SchedulerTests.FibonacciSelfMessageTest (tests) where
 
 import Test.HUnit
 import Test.Hspec
@@ -32,12 +32,6 @@ import Concordium.Wasm
 
 import qualified SchedulerTests.Helpers as Helpers
 
-tests :: Spec
-tests =
-    describe "Self-referential Fibonacci." $
-        sequence_ $
-            Helpers.forEveryProtocolVersion testCase1
-
 initialBlockState ::
     Types.IsProtocolVersion pv =>
     Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
@@ -50,9 +44,6 @@ initialBlockState =
 accountAddress0 :: Types.AccountAddress
 accountAddress0 = Helpers.accountAddressFromSeed 0
 
-accountAddress1 :: Types.AccountAddress
-accountAddress1 = Helpers.accountAddressFromSeed 1
-
 fibParamBytes :: Word64 -> BSS.ShortByteString
 fibParamBytes n = BSS.toShort $ runPut (putWord64le n)
 
@@ -64,7 +55,7 @@ testCase1 ::
     (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 testCase1 _ pvString =
     specify
         (pvString ++ ": Error handling in contracts.")
@@ -171,3 +162,9 @@ testCase1 _ pvString =
 
     -- the number of invocations of the contract follows https://oeis.org/A001595
     fibOne n = 2 * fib n - 1
+
+tests :: Spec
+tests =
+    describe "Self-referential Fibonacci." $
+        sequence_ $
+            Helpers.forEveryProtocolVersion testCase1

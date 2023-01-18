@@ -13,7 +13,6 @@ module SchedulerTests.TrySendTest (tests) where
 
 import qualified Data.ByteString.Short as BSS
 import Data.Serialize (encode)
-import Test.HUnit
 import Test.Hspec
 
 import Concordium.Scheduler.Runner
@@ -25,12 +24,6 @@ import Concordium.Wasm
 import qualified SchedulerTests.Helpers as Helpers
 
 import Concordium.Scheduler.DummyData
-
-tests :: Spec
-tests =
-    describe "SimpleTransfer from contract to account." $
-        sequence_ $
-            Helpers.forEveryProtocolVersion errorHandlingTest
 
 initialBlockState ::
     (Types.IsProtocolVersion pv) =>
@@ -56,7 +49,7 @@ errorHandlingTest ::
     Types.IsProtocolVersion pv =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 errorHandlingTest _ pvString =
     specify
         (pvString ++ ": Error handling in contracts.")
@@ -150,3 +143,9 @@ errorHandlingTest _ pvString =
                         result
             }
         ]
+
+tests :: Spec
+tests =
+    describe "SimpleTransfer from contract to account." $
+        sequence_ $
+            Helpers.forEveryProtocolVersion errorHandlingTest

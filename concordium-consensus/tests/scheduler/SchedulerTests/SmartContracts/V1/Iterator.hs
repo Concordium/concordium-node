@@ -11,7 +11,6 @@ module SchedulerTests.SmartContracts.V1.Iterator (tests) where
 
 import Control.Monad
 import qualified Data.ByteString.Short as BSS
-import Test.HUnit
 import Test.Hspec
 
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
@@ -22,13 +21,6 @@ import Concordium.Scheduler.Runner
 import qualified Concordium.Scheduler.Types as Types
 import Concordium.Wasm
 import qualified SchedulerTests.Helpers as Helpers
-
-tests :: Spec
-tests =
-    describe "V1: Iterator." $
-        sequence_ $
-            Helpers.forEveryProtocolVersion $ \spv pvString -> do
-                test1 spv pvString
 
 initialBlockState ::
     (Types.IsProtocolVersion pv) =>
@@ -55,7 +47,7 @@ test1 ::
     Types.IsProtocolVersion pv =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 test1 spv pvString =
     when (Types.supportsV1Contracts spv) $
         specify (pvString ++ ": Iterator") $
@@ -117,3 +109,9 @@ test1 spv pvString =
                 return $ Helpers.assertSuccess result
             }
         ]
+
+tests :: Spec
+tests =
+    describe "V1: Iterator." $
+        sequence_ $
+            Helpers.forEveryProtocolVersion test1

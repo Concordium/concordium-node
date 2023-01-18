@@ -24,12 +24,6 @@ import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.Types as Types
 import qualified SchedulerTests.Helpers as Helpers
 
-tests :: Spec
-tests =
-    describe "UpdateCredentialKeys" $
-        sequence_ $
-            Helpers.forEveryProtocolVersion credentialKeyUpdateTest
-
 accountAddress0 :: ID.AccountAddress
 accountAddress0 = Helpers.accountAddressFromSeed 0
 
@@ -71,7 +65,7 @@ credentialKeyUpdateTest ::
     Types.IsProtocolVersion pv =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 credentialKeyUpdateTest _ pvString =
     specify (pvString ++ ": Credential key updates") $
         Helpers.runSchedulerTestAssertIntermediateStates
@@ -129,3 +123,9 @@ checkCredentialKeys keys threshold ID.CredentialPublicKeys{..} = do
 
 checkKeysInCredential :: [(ID.KeyIndex, AccountVerificationKey)] -> ID.SignatureThreshold -> ID.RawAccountCredential -> Assertion
 checkKeysInCredential keys threshold credential = checkCredentialKeys keys threshold $ credPubKeys credential
+
+tests :: Spec
+tests =
+    describe "UpdateCredentialKeys" $
+        sequence_ $
+            Helpers.forEveryProtocolVersion credentialKeyUpdateTest

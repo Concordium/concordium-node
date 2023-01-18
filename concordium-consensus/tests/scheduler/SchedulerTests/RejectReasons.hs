@@ -1,7 +1,6 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 
 module SchedulerTests.RejectReasons (tests) where
 
@@ -18,12 +17,6 @@ import Concordium.Scheduler.Runner
 import qualified Concordium.Scheduler.Types as Types
 import Concordium.Wasm (WasmVersion (..))
 import qualified SchedulerTests.Helpers as Helpers
-
-tests :: Spec
-tests =
-    describe "Testing error codes in rejected smart contracts." $
-        sequence_ $
-            Helpers.forEveryProtocolVersion testRejectReasons
 
 initialBlockState ::
     (Types.IsProtocolVersion pv) =>
@@ -44,52 +37,52 @@ wasmPath = "./testdata/contracts/reject-reasons.wasm"
 transactionInputs :: [TransactionJSON]
 transactionInputs =
     [ TJSON
-        { metadata = makeDummyHeader accountAddress0 1 100000,
+        { metadata = makeDummyHeader accountAddress0 1 100_000,
           payload = DeployModule V0 wasmPath,
           keys = [(0, [(0, keyPair0)])]
         },
       TJSON
-        { metadata = makeDummyHeader accountAddress0 2 100000,
+        { metadata = makeDummyHeader accountAddress0 2 100_000,
           payload = InitContract 0 V0 wasmPath "init_success" "",
           keys = [(0, [(0, keyPair0)])]
         },
       TJSON
-        { metadata = makeDummyHeader accountAddress0 3 100000,
+        { metadata = makeDummyHeader accountAddress0 3 100_000,
           payload = InitContract 0 V0 wasmPath "init_error_pos" "",
           keys = [(0, [(0, keyPair0)])]
         },
       TJSON
-        { metadata = makeDummyHeader accountAddress0 4 100000,
+        { metadata = makeDummyHeader accountAddress0 4 100_000,
           payload = InitContract 0 V0 wasmPath "init_fail_minus2" "",
           keys = [(0, [(0, keyPair0)])]
         },
       TJSON
-        { metadata = makeDummyHeader accountAddress0 5 100000,
+        { metadata = makeDummyHeader accountAddress0 5 100_000,
           payload = InitContract 0 V0 wasmPath "init_fail_big" "",
           keys = [(0, [(0, keyPair0)])]
         },
       TJSON
-        { metadata = makeDummyHeader accountAddress0 6 100000,
+        { metadata = makeDummyHeader accountAddress0 6 100_000,
           payload = Update 0 (Types.ContractAddress 0 0) "success.receive_error_no_action" "",
           keys = [(0, [(0, keyPair0)])]
         },
       TJSON
-        { metadata = makeDummyHeader accountAddress0 7 100000,
+        { metadata = makeDummyHeader accountAddress0 7 100_000,
           payload = Update 0 (Types.ContractAddress 0 0) "success.receive_success" "",
           keys = [(0, [(0, keyPair0)])]
         },
       TJSON
-        { metadata = makeDummyHeader accountAddress0 8 100000,
+        { metadata = makeDummyHeader accountAddress0 8 100_000,
           payload = Update 0 (Types.ContractAddress 0 0) "success.receive_error_pos" "",
           keys = [(0, [(0, keyPair0)])]
         },
       TJSON
-        { metadata = makeDummyHeader accountAddress0 9 100000,
+        { metadata = makeDummyHeader accountAddress0 9 100_000,
           payload = Update 0 (Types.ContractAddress 0 0) "success.receive_fail_minus5" "",
           keys = [(0, [(0, keyPair0)])]
         },
       TJSON
-        { metadata = makeDummyHeader accountAddress0 10 100000,
+        { metadata = makeDummyHeader accountAddress0 10 100_000,
           payload = Update 0 (Types.ContractAddress 0 0) "success.receive_fail_big" "",
           keys = [(0, [(0, keyPair0)])]
         }
@@ -100,7 +93,7 @@ testRejectReasons ::
     (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 testRejectReasons _ pvString =
     specify (pvString ++ ": Processing reject-reasons.wasm smart contract") $ do
         (result, doBlockStateAssertions) <-
@@ -145,7 +138,7 @@ testRejectReasons _ pvString =
                     results
         assertEqual
             "There should be 2 rejected init and 2 rejected update transactions."
-            [-2, -2147483648, -5, -2147483648]
+            [-2, -2_147_483_648, -5, -2_147_483_648]
             (catMaybes rejects)
         doBlockStateAssertions
   where
@@ -163,3 +156,9 @@ testRejectReasons _ pvString =
         return $ do
             doInvariantAssertions
             assertEqual "There should be 1 instance." 1 (length instances)
+
+tests :: Spec
+tests =
+    describe "Testing error codes in rejected smart contracts." $
+        sequence_ $
+            Helpers.forEveryProtocolVersion testRejectReasons

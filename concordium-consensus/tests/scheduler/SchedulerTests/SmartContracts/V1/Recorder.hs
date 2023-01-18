@@ -26,12 +26,6 @@ import qualified Concordium.Scheduler.Types as Types
 import Concordium.Wasm
 import qualified SchedulerTests.Helpers as Helpers
 
-tests :: Spec
-tests =
-    describe "V1: Record 20 + 40 strings." $
-        sequence_ $
-            Helpers.forEveryProtocolVersion testCase
-
 initialBlockState ::
     (Types.IsProtocolVersion pv) =>
     Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
@@ -57,7 +51,7 @@ testCase ::
     Types.IsProtocolVersion pv =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 testCase spv pvString =
     when (Types.supportsV1Contracts spv) $
         specify (pvString ++ ": Record data in a contract.") $
@@ -160,3 +154,9 @@ testCase spv pvString =
                     assertEqual "Contract has 0 CCD." (Types.Amount 0) (BS.iiBalance ii)
                     sequence_ doAssertInserted
                     doAssertRemoved
+
+tests :: Spec
+tests =
+    describe "V1: Record 20 + 40 strings." $
+        sequence_ $
+            Helpers.forEveryProtocolVersion testCase

@@ -20,12 +20,6 @@ import Concordium.Types.ProtocolVersion
 import Concordium.Wasm
 import qualified SchedulerTests.Helpers as Helpers
 
-tests :: Spec
-tests =
-    describe "SimpleTransfer from contract to account." $
-        sequence_ $
-            Helpers.forEveryProtocolVersion testCase0
-
 initialBlockState ::
     (IsProtocolVersion pv) =>
     Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
@@ -65,7 +59,7 @@ testCase0 ::
     (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 testCase0 _ pvString = specify
     (pvString ++ ": Transfers from a contract to accounts.")
     $ do
@@ -117,3 +111,9 @@ testCase0 _ pvString = specify
         -- NOTE: Could also check resulting balances on each affected account or contract, but
         -- the block state invariant at least tests that the total amount is preserved.
         Helpers.assertBlockStateInvariantsH state (Helpers.srExecutionCosts result)
+
+tests :: Spec
+tests =
+    describe "SimpleTransfer from contract to account." $
+        sequence_ $
+            Helpers.forEveryProtocolVersion testCase0

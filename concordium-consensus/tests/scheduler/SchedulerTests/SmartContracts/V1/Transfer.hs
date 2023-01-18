@@ -22,12 +22,6 @@ import qualified Concordium.Scheduler.Types as Types
 import Concordium.Wasm
 import qualified SchedulerTests.Helpers as Helpers
 
-tests :: Spec
-tests =
-    describe "V1: Transfer from contract to account." $
-        sequence_ $
-            Helpers.forEveryProtocolVersion testCase
-
 initialBlockState ::
     (Types.IsProtocolVersion pv) =>
     Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
@@ -53,7 +47,7 @@ testCase ::
     Types.IsProtocolVersion pv =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 testCase spv pvString =
     when (Types.supportsV1Contracts spv) $
         specify (pvString ++ ": Transfer from V1 contract to account.") $
@@ -168,4 +162,10 @@ testCase spv pvString =
             Nothing -> assertFailure "Instance at <0,0> does not exist."
             Just (BS.InstanceInfoV0 _) -> assertFailure "Expected V1 instance, but got V0."
             Just (BS.InstanceInfoV1 ii) ->
-                assertEqual "Contract has 983 CCD." (Types.Amount (1000 - 17)) (BS.iiBalance ii)
+                assertEqual "Contract has 983 CCD." (Types.Amount (1_000 - 17)) (BS.iiBalance ii)
+
+tests :: Spec
+tests =
+    describe "V1: Transfer from contract to account." $
+        sequence_ $
+            Helpers.forEveryProtocolVersion testCase

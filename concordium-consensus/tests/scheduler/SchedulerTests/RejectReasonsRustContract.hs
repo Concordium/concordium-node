@@ -1,7 +1,6 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 
 module SchedulerTests.RejectReasonsRustContract (tests) where
 
@@ -19,13 +18,6 @@ import Concordium.Scheduler.Runner
 import qualified Concordium.Scheduler.Types as Types
 import Concordium.Wasm (ReceiveName (..), WasmVersion (..))
 import qualified SchedulerTests.Helpers as Helpers
-
-tests :: Spec
-tests =
-    describe "Testing error codes in Rust smart contracts." $
-        sequence_ $
-            Helpers.forEveryProtocolVersion $ \spv pvString ->
-                testRejectReasons spv pvString
 
 initialBlockState ::
     (Types.IsProtocolVersion pv) =>
@@ -117,7 +109,7 @@ testRejectReasons ::
     (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 testRejectReasons _ pvString =
     specify (pvString ++ ": Processing error_codes.wasm smart contract") $ do
         (result, doBlockStateAssertions) <-
@@ -198,3 +190,10 @@ testRejectReasons _ pvString =
         return $ do
             doInvariantAssertions
             assertEqual "There should be 2 instance." 2 (length instances)
+
+tests :: Spec
+tests =
+    describe "Testing error codes in Rust smart contracts." $
+        sequence_ $
+            Helpers.forEveryProtocolVersion $ \spv pvString ->
+                testRejectReasons spv pvString

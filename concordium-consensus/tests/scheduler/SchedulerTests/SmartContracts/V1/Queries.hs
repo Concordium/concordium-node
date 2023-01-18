@@ -12,7 +12,6 @@ import Control.Monad
 import qualified Data.ByteString.Short as BSS
 import Data.Serialize (Serialize (put), putWord64le, runPut)
 import Lens.Micro.Platform
-import Test.HUnit
 import Test.Hspec
 
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
@@ -28,22 +27,6 @@ import Concordium.Types.DummyData
 import Concordium.Wasm
 import qualified Concordium.Wasm as Wasm
 import qualified SchedulerTests.Helpers as Helpers
-
-tests :: Spec
-tests =
-    describe "V1: Queries" $
-        sequence_ $
-            Helpers.forEveryProtocolVersion $ \spv pvString -> do
-                accountBalanceTestCase spv pvString
-                accountBalanceInvokerTestCase spv pvString
-                accountBalanceTransferTestCase spv pvString
-                accountBalanceMissingAccountTestCase spv pvString
-                contractBalanceTestCase spv pvString
-                contractBalanceSelfTestCase spv pvString
-                contractBalanceTransferTestCase spv pvString
-                contractBalanceMissingContractTestCase spv pvString
-                exchangeRatesTestCase spv pvString
-                allTestCase spv pvString
 
 initialBlockState ::
     (Types.IsProtocolVersion pv) =>
@@ -105,7 +88,7 @@ accountBalanceTestCase ::
     Types.IsProtocolVersion pv =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 accountBalanceTestCase spv pvString =
     case Types.delegationSupport @(AccountVersionFor pv) of
         Types.SAVDelegationNotSupported -> return ()
@@ -182,7 +165,7 @@ accountBalanceInvokerTestCase ::
     Types.IsProtocolVersion pv =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 accountBalanceInvokerTestCase spv pvString =
     when (Types.supportsChainQueryContracts spv) $
         specify (pvString ++ ": Query the account balance of the invoker") $
@@ -251,7 +234,7 @@ accountBalanceTransferTestCase ::
     Types.IsProtocolVersion pv =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 accountBalanceTransferTestCase spv pvString =
     when (Types.supportsChainQueryContracts spv) $
         specify (pvString ++ ": Contracts transfers to an account and then queries") $
@@ -321,7 +304,7 @@ accountBalanceMissingAccountTestCase ::
     Types.IsProtocolVersion pv =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 accountBalanceMissingAccountTestCase spv pvString =
     when (Types.supportsChainQueryContracts spv) $
         specify (pvString ++ ": Query the balance of a missing account") $
@@ -386,7 +369,7 @@ contractBalanceTestCase ::
     Types.IsProtocolVersion pv =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 contractBalanceTestCase spv pvString =
     when (Types.supportsChainQueryContracts spv) $
         specify (pvString ++ ": Query the balance a contract") $
@@ -461,7 +444,7 @@ contractBalanceSelfTestCase ::
     Types.IsProtocolVersion pv =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 contractBalanceSelfTestCase spv pvString =
     when (Types.supportsChainQueryContracts spv) $
         specify (pvString ++ ": Query the balance of the contract itself") $
@@ -530,7 +513,7 @@ contractBalanceTransferTestCase ::
     Types.IsProtocolVersion pv =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 contractBalanceTransferTestCase spv pvString =
     when (Types.supportsChainQueryContracts spv) $
         specify (pvString ++ ": Query the balance of a contract") $
@@ -604,7 +587,7 @@ contractBalanceMissingContractTestCase ::
     Types.IsProtocolVersion pv =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 contractBalanceMissingContractTestCase spv pvString =
     when (Types.supportsChainQueryContracts spv) $
         specify (pvString ++ ": Query the balance of a missing contract") $
@@ -670,7 +653,7 @@ exchangeRatesTestCase ::
     Types.IsProtocolVersion pv =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 exchangeRatesTestCase spv pvString =
     when (Types.supportsChainQueryContracts spv) $
         specify (pvString ++ ": Query the exchange rates") $
@@ -739,7 +722,7 @@ allTestCase ::
     Types.IsProtocolVersion pv =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 allTestCase spv pvString =
     when (Types.supportsV1Contracts spv) $
         unless (Types.supportsChainQueryContracts spv) $
@@ -812,3 +795,19 @@ allTestCase spv pvString =
                 return $ Helpers.assertRejectWithReason Types.RuntimeFailure result
             }
         ]
+
+tests :: Spec
+tests =
+    describe "V1: Queries" $
+        sequence_ $
+            Helpers.forEveryProtocolVersion $ \spv pvString -> do
+                accountBalanceTestCase spv pvString
+                accountBalanceInvokerTestCase spv pvString
+                accountBalanceTransferTestCase spv pvString
+                accountBalanceMissingAccountTestCase spv pvString
+                contractBalanceTestCase spv pvString
+                contractBalanceSelfTestCase spv pvString
+                contractBalanceTransferTestCase spv pvString
+                contractBalanceMissingContractTestCase spv pvString
+                exchangeRatesTestCase spv pvString
+                allTestCase spv pvString

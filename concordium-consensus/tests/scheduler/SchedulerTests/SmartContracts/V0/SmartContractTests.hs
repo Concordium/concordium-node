@@ -44,25 +44,6 @@ import qualified Concordium.Scheduler.Types as Types
 import Concordium.Wasm (InitName (..), Parameter (..), WasmVersion (..))
 import qualified SchedulerTests.Helpers as Helpers
 
-tests :: Spec
-tests = do
-    describe "Smart contract V0 host functions" $
-        sequence_ $
-            Helpers.forEveryProtocolVersion $ \spv pvString -> do
-                logEventTestCases spv pvString
-                getParameterSizeTestCases spv pvString
-                getParameterSectionTestCases spv pvString
-                stateSizeTestCases spv pvString
-                loadStateTestCases spv pvString
-                writeStateTestCases spv pvString
-                resizeStateTestCases spv pvString
-                onlyInInitTestCases spv pvString
-                onlyInReceiveTestCases spv pvString
-                simpleTransferTestCases spv pvString
-                sendTestCases spv pvString
-                actionTreeTestCases spv pvString
-                memoryTestCases spv pvString
-
 -- ** Test runners **
 
 -- | Run a number of init tests from a specific file.
@@ -250,7 +231,7 @@ getParameterSizeTestCases spv pvString =
         ]
   where
     -- Value must stay in sync with MAX_PARAMETER_SIZE from 'wasm-chain-integration/src/constants.src'
-    maxSizedParam = mkParamOfSize 1024
+    maxSizedParam = mkParamOfSize 1_024
 
 getParameterSectionTestCases ::
     Types.IsProtocolVersion pv =>
@@ -564,3 +545,22 @@ memoryTestCases spv pvString =
         (pvString ++ ": memory-tests")
         "./testdata/contracts/memory-tests.wasm"
         [("memory_size_is_correct_and_growable__succeed", emptyParam, Helpers.assertSuccess)]
+
+tests :: Spec
+tests =
+    describe "Smart contract V0 host functions" $
+        sequence_ $
+            Helpers.forEveryProtocolVersion $ \spv pvString -> do
+                logEventTestCases spv pvString
+                getParameterSizeTestCases spv pvString
+                getParameterSectionTestCases spv pvString
+                stateSizeTestCases spv pvString
+                loadStateTestCases spv pvString
+                writeStateTestCases spv pvString
+                resizeStateTestCases spv pvString
+                onlyInInitTestCases spv pvString
+                onlyInReceiveTestCases spv pvString
+                simpleTransferTestCases spv pvString
+                sendTestCases spv pvString
+                actionTreeTestCases spv pvString
+                memoryTestCases spv pvString

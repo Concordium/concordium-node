@@ -3,7 +3,6 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 
 -- |Tests for the payday-related functionality.
@@ -49,15 +48,6 @@ import Concordium.Startup
 import GlobalStateMock
 import qualified SchedulerTests.Helpers as Helpers
 
-tests :: Spec
-tests = describe "Payday" $ do
-    describe "Minting" testDoMintingP4
-    describe "Reward balance" testRewardDistribution
-    describe "scaleAmount" $ do
-        it "div-mod" testScaleAmount1
-        it "via Rational" testScaleAmount2
-    testRewardDelegators
-
 foundationAccount :: AccountAddress
 foundationAccount = accountAddressFrom 0
 
@@ -82,30 +72,30 @@ testDoMintingP4 = do
     result = bs 2
     bs = MockUpdatableBlockState
     mintRate = MintRate 1 0 -- 100% mint rate
-    bank = emptyBankStatus{_totalGTU = 1000000000}
+    bank = emptyBankStatus{_totalGTU = 1_000_000_000}
     targetEpoch = 4
     epochLength = 100
     seedState = initialSeedState (Hash.hash "NONCE") epochLength
     mintAmts0 =
         MintAmounts
-            { mintBakingReward = 600000000,
-              mintFinalizationReward = 300000000,
-              mintDevelopmentCharge = 100000000
+            { mintBakingReward = 600_000_000,
+              mintFinalizationReward = 300_000_000,
+              mintDevelopmentCharge = 100_000_000
             }
     mintAmts1 =
         MintAmounts
-            { mintBakingReward = 1000000000,
+            { mintBakingReward = 1_000_000_000,
               mintFinalizationReward = 0,
               mintDevelopmentCharge = 0
             }
     mintAmts2 =
         MintAmounts
             { mintBakingReward = 0,
-              mintFinalizationReward = 1000000000,
+              mintFinalizationReward = 1_000_000_000,
               mintDevelopmentCharge = 0
             }
-    md1 = MintDistribution MintPerSlotForCPV0None (makeAmountFraction 100000) (makeAmountFraction 0)
-    md2 = MintDistribution MintPerSlotForCPV0None (makeAmountFraction 0) (makeAmountFraction 100000)
+    md1 = MintDistribution MintPerSlotForCPV0None (makeAmountFraction 100_000) (makeAmountFraction 0)
+    md2 = MintDistribution MintPerSlotForCPV0None (makeAmountFraction 0) (makeAmountFraction 100_000)
     mintSto amts =
         Mint
             { stoMintBakingReward = mintBakingReward amts,
@@ -130,10 +120,9 @@ propMintDistributionMostRecent md mr ps updates amt =
                 . maximumBy (\(a, _) (b, _) -> compare a b)
                 . takeWhile ((<= ps) . fst)
                 . filter
-                    ( \pair ->
-                        case pair of
-                            (_, UVMintDistribution _) -> True
-                            _ -> error "pair should match (a, UVMintDistribution)"
+                    ( \case
+                        (_, UVMintDistribution _) -> True
+                        _ -> error "pair should match (a, UVMintDistribution)"
                     )
                 $ (0, UVMintDistribution md) : updatesSorted
         mostRecentMintDistribution = case chainParams of
@@ -216,13 +205,13 @@ genesis nBakers =
     makeGenesisData
         0
         nBakers
-        1000
+        1_000
         defaultFinalizationParameters
         dummyCryptographicParameters
         emptyIdentityProviders
         dummyArs
         []
-        1234
+        1_234
         dummyKeyCollection
         dummyChainParameters
 
@@ -274,10 +263,10 @@ withPersistentState' f = withTempDirectory "." "test-directory" $
 testRewardDistribution :: Spec
 testRewardDistribution = do
     it "splits the minted amount three ways" $
-        withMaxSuccess 10000 $
+        withMaxSuccess 10_000 $
             property propMintAmountsEqNewMint
     it "chooses the most recent mint distribution before payday" $
-        withMaxSuccess 10000 $
+        withMaxSuccess 10_000 $
             property propMintDistributionMostRecent
     it "does not change after mint distribution (persistent)" $ do
         ipbs :: HashedPersistentBlockState 'P4 <- Helpers.runTestBlockState initialPersistentBlockState
@@ -457,3 +446,12 @@ testRewardDelegators = describe "rewardDelegators" $ mapM_ p drtcs
                 drtcDelegatorExpectedRewards
         totCap = drtcBakerCapital + sum (dcDelegatorCapital <$> dels)
         dels = Vec.fromList (zipWith DelegatorCapital [0 ..] drtcDelegatorCapitals)
+
+tests :: Spec
+tests = describe "Payday" $ do
+    describe "Minting" testDoMintingP4
+    describe "Reward balance" testRewardDistribution
+    describe "scaleAmount" $ do
+        it "div-mod" testScaleAmount1
+        it "via Rational" testScaleAmount2
+    testRewardDelegators

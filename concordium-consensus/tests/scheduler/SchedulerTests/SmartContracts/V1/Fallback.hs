@@ -29,7 +29,7 @@ import SchedulerTests.TestUtils
 initialBlockState :: Helpers.PersistentBSM PV4 (HashedPersistentBlockState PV4)
 initialBlockState =
     Helpers.createTestBlockStateWithAccountsM
-        [Helpers.makeTestAccountFromSeed 1000 0]
+        [Helpers.makeTestAccountFromSeed 1_000 0]
 
 fallbackSourceFile :: FilePath
 fallbackSourceFile = "./testdata/contracts/v1/fallback.wasm"
@@ -103,7 +103,7 @@ invokeContract2 ::
     Helpers.PersistentBSM PV4 InvokeContract.InvokeContractResult
 invokeContract2 ccContract bs = do
     let cm = Types.ChainMetadata 0
-    let ccParameter = Parameter $ BSS.toShort $ "ASDF"
+    let ccParameter = Parameter $ BSS.toShort "ASDF"
     let ctx =
             InvokeContract.ContractContext
                 { ccInvoker = Nothing,

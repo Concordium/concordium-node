@@ -23,13 +23,6 @@ import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.Types as Types
 import qualified SchedulerTests.Helpers as Helpers
 
-tests :: Spec
-tests =
-    describe "UpdateCredentials" $
-        sequence_ $
-            Helpers.forEveryProtocolVersion $ \spv pvString ->
-                updateAccountCredentialTest spv pvString
-
 initialBlockState ::
     (Types.IsProtocolVersion pv) =>
     Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
@@ -91,7 +84,7 @@ updateAccountCredentialTest ::
     Types.IsProtocolVersion pv =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 updateAccountCredentialTest _ pvString =
     specify (pvString ++ ": Credential key updates") $
         Helpers.runSchedulerTestAssertIntermediateStates
@@ -321,7 +314,7 @@ updateAccountCredentialTest _ pvString =
             { taaTransaction =
                 Runner.TJSON
                     { payload = Runner.UpdateCredentials (Map.singleton 3 cdi7'') [] 2,
-                      metadata = makeDummyHeader cdi8address 13 100000,
+                      metadata = makeDummyHeader cdi8address 13 100_000,
                       keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (2, [(0, cdi11kp0), (1, cdi11kp1)])]
                     },
               taaAssertion = \result state -> do
@@ -368,3 +361,9 @@ checkAllCredentialKeys keys credentials = do
             Nothing -> assertFailure $ "Found no credential with index " ++ show idx
             Just actualKey -> assertEqual ("Key at index " ++ show idx ++ " should be equal") key actualKey
         )
+
+tests :: Spec
+tests =
+    describe "UpdateCredentials" $
+        sequence_ $
+            Helpers.forEveryProtocolVersion updateAccountCredentialTest

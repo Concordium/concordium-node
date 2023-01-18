@@ -25,15 +25,6 @@ import qualified Concordium.Scheduler.Types as Types
 import Concordium.Types.Accounts
 import qualified SchedulerTests.Helpers as Helpers
 
-tests :: Spec
-tests =
-    describe "Insufficient available amount." $
-        sequence_ $
-            Helpers.forEveryProtocolVersion $ \spv pvString ->
-                case accountVersionFor spv of
-                    SAccountV0 -> testCase0 spv pvString
-                    _ -> return ()
-
 initialBlockState ::
     (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV0) =>
     Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
@@ -101,7 +92,7 @@ testCase0 ::
     (IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV0) =>
     SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 testCase0 _ pvString =
     specify
         (pvString ++ ": Attempt transfer insufficient amount due to amount being stake and locked")
@@ -149,3 +140,12 @@ testCase0 _ pvString =
         Helpers.PersistentBSM pv Assertion
     checkState result blockState =
         Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
+
+tests :: Spec
+tests =
+    describe "Insufficient available amount." $
+        sequence_ $
+            Helpers.forEveryProtocolVersion $ \spv pvString ->
+                case accountVersionFor spv of
+                    SAccountV0 -> testCase0 spv pvString
+                    _ -> return ()

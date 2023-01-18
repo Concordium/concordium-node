@@ -3,7 +3,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
-module SchedulerTests.EncryptedTransfersTest where
+module SchedulerTests.EncryptedTransfersTest (tests) where
 
 import qualified Data.ByteString.Short as BSS
 import Data.Maybe
@@ -73,15 +73,6 @@ import Test.Hspec
 --- |                                    | startIdx        |         2 |             3 |
 --- |                                    | incomingAmounts |        [] |            [] |
 --- |------------------------------------+-----------------+-----------+---------------|
-
-tests :: Spec
-tests =
-    describe "Encrypted transfers:" $
-        sequence_ $
-            Helpers.forEveryProtocolVersion $ \spv pvString -> do
-                testCase0 spv pvString
-                testCase1 spv pvString
-                testCase2 spv pvString
 
 initialBlockState ::
     Types.IsProtocolVersion pv =>
@@ -158,7 +149,7 @@ testCase0 ::
     (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 testCase0 _ pvString = specify
     (pvString ++ ": Chain of encrypted transfer")
     $ do
@@ -722,7 +713,7 @@ testCase1 ::
     (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 testCase1 spv pvString =
     unless (Types.supportsMemo spv)
         $ specify
@@ -816,7 +807,7 @@ testCase2 ::
     (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 testCase2 spv pvString =
     when (Types.supportsMemo spv)
         $ specify
@@ -1392,3 +1383,12 @@ testCase2 spv pvString =
                         doEncryptedBalanceAssertion
                 }
             ]
+
+tests :: Spec
+tests =
+    describe "Encrypted transfers:" $
+        sequence_ $
+            Helpers.forEveryProtocolVersion $ \spv pvString -> do
+                testCase0 spv pvString
+                testCase1 spv pvString
+                testCase2 spv pvString

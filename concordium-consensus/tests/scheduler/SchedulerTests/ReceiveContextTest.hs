@@ -27,12 +27,6 @@ import Concordium.Scheduler.DummyData
 import qualified SchedulerTests.Helpers as Helpers
 import SchedulerTests.TestUtils
 
-tests :: Spec
-tests =
-    describe "Receive context in transactions." $
-        sequence_ $
-            Helpers.forEveryProtocolVersion testReceive
-
 -- See the contract in /testdata/contracts/send/src/lib.rs from which the wasm
 -- module is derived. The contract calls check that the invoker or sender is the
 -- account address consisting of only 2's, and that the owner is an account
@@ -109,7 +103,7 @@ transactionInputs =
         }
     ]
 
-testReceive :: forall pv. (IsProtocolVersion pv) => SProtocolVersion pv -> String -> SpecWith (Arg Assertion)
+testReceive :: forall pv. (IsProtocolVersion pv) => SProtocolVersion pv -> String -> Spec
 testReceive _ pvString =
     specify (pvString ++ ": Passing receive context to contract") $ do
         (result, doBlockStateAssertions) <-
@@ -140,3 +134,9 @@ testReceive _ pvString =
         return $ do
             doInvariantAssertions
             assertEqual "There should be 3 instances." 3 (length instances)
+
+tests :: Spec
+tests =
+    describe "Receive context in transactions." $
+        sequence_ $
+            Helpers.forEveryProtocolVersion testReceive

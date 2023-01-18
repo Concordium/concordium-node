@@ -3,7 +3,7 @@
 {-# OPTIONS_GHC -Wall #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 
-module SchedulerTests.BlockEnergyLimitSpec where
+module SchedulerTests.BlockEnergyLimitSpec (tests) where
 
 import Test.HUnit
 import Test.Hspec
@@ -69,66 +69,72 @@ transactions =
         }
     ]
 
-testMaxBlockEnergy :: forall pv. (Types.IsProtocolVersion pv) => Types.SProtocolVersion pv -> Assertion
-testMaxBlockEnergy _ = do
-    ts' <- processUngroupedTransactions transactions
-    -- invalid transaction: its used and stated energy of 10000 exceeds the maximum
-    -- block energy limit
-    let ts =
-            Types.TGCredentialDeployment
-                (Types.addMetadata Types.CredentialDeployment 0 cdi1, Nothing)
-                : ts' -- dummy arrival time of 0
-    (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
-        Helpers.runSchedulerTest
-            testConfig
-            initialBlockState
-            checkState
-            ts
-    let Sch.FilteredTransactions{..} = srTransactions
+testMaxBlockEnergy ::
+    forall pv.
+    (Types.IsProtocolVersion pv) =>
+    Types.SProtocolVersion pv ->
+    String ->
+    Spec
+testMaxBlockEnergy _ pvString = specify (pvString ++ ": One valid, two invalid, one unprocessed transaction") $
+    do
+        ts' <- processUngroupedTransactions transactions
+        -- invalid transaction: its used and stated energy of 10000 exceeds the maximum
+        -- block energy limit
+        let ts =
+                Types.TGCredentialDeployment
+                    (Types.addMetadata Types.CredentialDeployment 0 cdi1, Nothing)
+                    : ts' -- dummy arrival time of 0
+        (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
+            Helpers.runSchedulerTest
+                testConfig
+                initialBlockState
+                checkState
+                ts
+        let Sch.FilteredTransactions{..} = srTransactions
 
-    (t1, t3, t4) <- case concat (Types.perAccountTransactions ts) of
-        [t1, t3, t4] -> return (t1, t3, t4)
-        _ -> assertFailure "There should be three filtered transactions."
+        (t1, t3, t4) <- case concat (Types.perAccountTransactions ts) of
+            [t1, t3, t4] -> return (t1, t3, t4)
+            _ -> assertFailure "There should be three filtered transactions."
 
-    case ftAdded of
-        [ ( t,
-            Types.TransactionSummary
-                { tsResult = Types.TxSuccess{vrEvents = [Types.Transferred{}]},
-                  tsEnergyCost = energyCost
-                }
-            )
-            ] -> do
-                assertEqual
-                    "The first transaction should be valid:"
-                    (Types.normalTransaction $ fst t1)
-                    $ fst t
-                assertEqual "Correct energy cost: " Helpers.simpleTransferCost energyCost
-        _ -> assertFailure "There should be one valid transaction with a TxSuccess result."
+        case ftAdded of
+            [ ( t,
+                Types.TransactionSummary
+                    { tsResult = Types.TxSuccess{vrEvents = [Types.Transferred{}]},
+                      tsEnergyCost = energyCost
+                    }
+                )
+                ] -> do
+                    assertEqual
+                        "The first transaction should be valid:"
+                        (Types.normalTransaction $ fst t1)
+                        $ fst t
+                    assertEqual "Correct energy cost: " Helpers.simpleTransferCost energyCost
+            _ -> assertFailure "There should be one valid transaction with a TxSuccess result."
 
-    let (invalidTs, failures) = unzip ftFailed
-    let (invalidCreds, credFailures) = unzip ftFailedCredentials
-    assertEqual
-        "The second transaction is invalid because it would exceed max block energy:"
-        [t3]
-        invalidTs
-    assertEqual
-        "The credential deployment is invalid."
-        [Types.addMetadata Types.CredentialDeployment 0 cdi1]
-        $ map fst invalidCreds
-    assertEqual
-        "There is one normal transaction whose energy exceeds the block energy limit, and one with non-sequential nonce:"
-        [Types.ExceedsMaxBlockEnergy]
-        failures
-    assertEqual
-        "There is one credential deployment whose energy exceeds the block energy limit:"
-        [Types.ExceedsMaxBlockEnergy]
-        credFailures
+        let (invalidTs, failures) = unzip ftFailed
+        let (invalidCreds, credFailures) = unzip ftFailedCredentials
+        assertEqual
+            "The second transaction is invalid because it would exceed max block energy:"
+            [t3]
+            invalidTs
+        assertEqual
+            "The credential deployment is invalid."
+            [Types.addMetadata Types.CredentialDeployment 0 cdi1]
+            $ map fst invalidCreds
+        assertEqual
+            "There is one normal transaction whose energy exceeds the block energy limit, and one with non-sequential nonce:"
+            [Types.ExceedsMaxBlockEnergy]
+            failures
+        assertEqual
+            "There is one credential deployment whose energy exceeds the block energy limit:"
+            [Types.ExceedsMaxBlockEnergy]
+            credFailures
 
-    assertEqual
-        "The last transaction does not fit into the block since the block has reached the energy limit"
-        [t4]
-        ftUnprocessed
-    doBlockStateAssertions
+        assertEqual
+            "The last transaction does not fit into the block since the block has reached the energy limit"
+            [t4]
+            ftUnprocessed
+        doBlockStateAssertions
   where
     checkState ::
         Helpers.SchedulerResult ->
@@ -154,6 +160,4 @@ tests :: Spec
 tests =
     describe "Maximum block energy limit test:" $
         sequence_ $
-            Helpers.forEveryProtocolVersion $ \spv pvString ->
-                specify (pvString ++ ": One valid, two invalid, one unprocessed transaction") $
-                    testMaxBlockEnergy spv
+            Helpers.forEveryProtocolVersion testMaxBlockEnergy

@@ -15,7 +15,6 @@
 --        - Of size > 1 kb: base cost + 1NRG / 1 *byte*
 module SchedulerTests.SmartContracts.V1.RelaxedRestrictions (tests) where
 
-import Test.HUnit
 import Test.Hspec
 
 import Control.Monad
@@ -32,19 +31,6 @@ import Concordium.Scheduler.Runner
 import qualified Concordium.Scheduler.Types as Types
 import Concordium.Wasm
 import qualified SchedulerTests.Helpers as Helpers
-
-tests :: Spec
-tests = do
-    describe "Smart contracts V1: Relax restrictions." $
-        sequence_ $
-            Helpers.forEveryProtocolVersion $ \spv pvString -> do
-                when (Types.supportsV1Contracts spv) $ do
-                    oldParameterLimitTest spv pvString
-                    oldReturnValueLimitTest spv pvString
-                    oldLogLimitTest spv pvString
-                    newParameterLimitTest spv pvString
-                    newLogLimitTest spv pvString
-                    newReturnValueLimitTest spv pvString
 
 initialBlockState ::
     (Types.IsProtocolVersion pv) =>
@@ -72,7 +58,7 @@ oldParameterLimitTest ::
     Types.IsProtocolVersion pv =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 oldParameterLimitTest spv pvString =
     -- The relaxed restrictions was introduced together with upgradable smart contracts.
     unless (Types.supportsUpgradableContracts spv) $
@@ -91,7 +77,7 @@ oldParameterLimitTest spv pvString =
                  Helpers.TransactionAndAssertion
                     { taaTransaction =
                         TJSON
-                            { payload = Update 0 (Types.ContractAddress 0 0) "relax.param" (callArgsParam 1024 1024),
+                            { payload = Update 0 (Types.ContractAddress 0 0) "relax.param" (callArgsParam 1_024 1_024),
                               metadata = makeDummyHeader accountAddress0 3 700_000,
                               keys = [(0, [(0, keyPair0)])]
                             },
@@ -102,7 +88,7 @@ oldParameterLimitTest spv pvString =
                  Helpers.TransactionAndAssertion
                     { taaTransaction =
                         TJSON
-                            { payload = Update 0 (Types.ContractAddress 0 0) "relax.param" (callArgsParam 1024 1025),
+                            { payload = Update 0 (Types.ContractAddress 0 0) "relax.param" (callArgsParam 1_024 1_025),
                               metadata = makeDummyHeader accountAddress0 4 700_000,
                               keys = [(0, [(0, keyPair0)])]
                             },
@@ -113,7 +99,7 @@ oldParameterLimitTest spv pvString =
                  Helpers.TransactionAndAssertion
                     { taaTransaction =
                         TJSON
-                            { payload = Update 0 (Types.ContractAddress 0 0) "relax.param" (callArgsParam 1025 1024),
+                            { payload = Update 0 (Types.ContractAddress 0 0) "relax.param" (callArgsParam 1_025 1_024),
                               metadata = makeDummyHeader accountAddress0 5 700_000,
                               keys = [(0, [(0, keyPair0)])]
                             },
@@ -128,7 +114,7 @@ oldReturnValueLimitTest ::
     Types.IsProtocolVersion pv =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 oldReturnValueLimitTest spv pvString =
     -- The relaxed restrictions was introduced together with upgradable smart contracts.
     unless (Types.supportsUpgradableContracts spv) $
@@ -173,7 +159,7 @@ oldLogLimitTest ::
     Types.IsProtocolVersion pv =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 oldLogLimitTest spv pvString =
     -- The relaxed restrictions was introduced together with upgradable smart contracts.
     unless (Types.supportsUpgradableContracts spv) $
@@ -218,7 +204,7 @@ newParameterLimitTest ::
     Types.IsProtocolVersion pv =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 newParameterLimitTest spv pvString =
     -- The relaxed restrictions was introduced together with upgradable smart contracts.
     when (Types.supportsUpgradableContracts spv) $
@@ -253,7 +239,7 @@ newReturnValueLimitTest ::
     Types.IsProtocolVersion pv =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 newReturnValueLimitTest spv pvString =
     -- The relaxed restrictions was introduced together with upgradable smart contracts.
     when (Types.supportsUpgradableContracts spv) $
@@ -287,7 +273,7 @@ newLogLimitTest ::
     Types.IsProtocolVersion pv =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 newLogLimitTest spv pvString =
     when (Types.supportsUpgradableContracts spv) $
         specify (pvString ++ ": Correct number of logs limits (new)") $
@@ -381,3 +367,16 @@ callArgsParam internalParamSize desiredLen = BSS.toShort $ runPut $ do
 -- |Create a Word32 parameter.
 callArgsWord32 :: Word32 -> BSS.ShortByteString
 callArgsWord32 = BSS.toShort . runPut . putWord32le
+
+tests :: Spec
+tests =
+    describe "Smart contracts V1: Relax restrictions." $
+        sequence_ $
+            Helpers.forEveryProtocolVersion $ \spv pvString ->
+                when (Types.supportsV1Contracts spv) $ do
+                    oldParameterLimitTest spv pvString
+                    oldReturnValueLimitTest spv pvString
+                    oldLogLimitTest spv pvString
+                    newParameterLimitTest spv pvString
+                    newLogLimitTest spv pvString
+                    newReturnValueLimitTest spv pvString

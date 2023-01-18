@@ -31,22 +31,6 @@ import Concordium.Wasm
 import qualified SchedulerTests.Helpers as Helpers
 import System.IO.Unsafe
 
-tests :: Spec
-tests =
-    describe "V1: Upgrade" $
-        sequence_ $
-            Helpers.forEveryProtocolVersion $ \spv pvString -> do
-                upgradingTestCase spv pvString
-                selfInvokeTestCase spv pvString
-                missingModuleTestCase spv pvString
-                missingContractTestCase spv pvString
-                unsupportedVersionTestCase spv pvString
-                twiceTestCase spv pvString
-                chainedTestCase spv pvString
-                rejectTestCase spv pvString
-                changingEntrypointsTestCase spv pvString
-                persistingStateTestCase spv pvString
-
 initialBlockState ::
     (Types.IsProtocolVersion pv) =>
     Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
@@ -81,7 +65,7 @@ upgradingTestCase ::
     Types.IsProtocolVersion pv =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 upgradingTestCase spv pvString =
     when (Types.supportsUpgradableContracts spv) $
         specify (pvString ++ ": Upgrading 1") $
@@ -214,7 +198,7 @@ selfInvokeTestCase ::
     Types.IsProtocolVersion pv =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 selfInvokeTestCase spv pvString =
     when (Types.supportsUpgradableContracts spv) $
         specify (pvString ++ ": Upgrading self invoke") $
@@ -311,7 +295,7 @@ missingModuleTestCase ::
     Types.IsProtocolVersion pv =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 missingModuleTestCase spv pvString =
     when (Types.supportsUpgradableContracts spv) $
         specify (pvString ++ ": Upgrading to a missing module fails") $
@@ -384,7 +368,7 @@ missingContractTestCase ::
     Types.IsProtocolVersion pv =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 missingContractTestCase spv pvString =
     when (Types.supportsUpgradableContracts spv) $
         specify (pvString ++ ": Upgrading to a module without matching contract fails") $
@@ -470,7 +454,7 @@ unsupportedVersionTestCase ::
     Types.IsProtocolVersion pv =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 unsupportedVersionTestCase spv pvString =
     when (Types.supportsUpgradableContracts spv) $
         specify (pvString ++ ": Upgrading to a module with an unsupported version") $
@@ -558,7 +542,7 @@ twiceTestCase ::
     Types.IsProtocolVersion pv =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 twiceTestCase spv pvString =
     when (Types.supportsUpgradableContracts spv) $
         specify (pvString ++ ": Upgrading twice in the same invocation") $
@@ -663,7 +647,7 @@ chainedTestCase ::
     Types.IsProtocolVersion pv =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 chainedTestCase spv pvString =
     when (Types.supportsUpgradableContracts spv) $
         specify (pvString ++ ": Upgrading chained") $
@@ -746,7 +730,7 @@ rejectTestCase ::
     Types.IsProtocolVersion pv =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 rejectTestCase spv pvString =
     when (Types.supportsUpgradableContracts spv) $
         specify (pvString ++ ": Upgrading reject") $
@@ -842,7 +826,7 @@ changingEntrypointsTestCase ::
     Types.IsProtocolVersion pv =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 changingEntrypointsTestCase spv pvString =
     when (Types.supportsUpgradableContracts spv) $
         specify (pvString ++ ": Check added and removed entrypoints of a contract") $
@@ -983,7 +967,7 @@ persistingStateTestCase ::
     Types.IsProtocolVersion pv =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 persistingStateTestCase spv pvString =
     when (Types.supportsUpgradableContracts spv) $
         specify (pvString ++ ": Check writing to state before and after calling the upgrade contract") $
@@ -1097,3 +1081,19 @@ assertInvalidReceiveMethod reason =
     case reason of
         Types.InvalidReceiveMethod _ _ -> return ()
         other -> assertFailure $ "Unexpected reject reason" ++ show other
+
+tests :: Spec
+tests =
+    describe "V1: Upgrade" $
+        sequence_ $
+            Helpers.forEveryProtocolVersion $ \spv pvString -> do
+                upgradingTestCase spv pvString
+                selfInvokeTestCase spv pvString
+                missingModuleTestCase spv pvString
+                missingContractTestCase spv pvString
+                unsupportedVersionTestCase spv pvString
+                twiceTestCase spv pvString
+                chainedTestCase spv pvString
+                rejectTestCase spv pvString
+                changingEntrypointsTestCase spv pvString
+                persistingStateTestCase spv pvString

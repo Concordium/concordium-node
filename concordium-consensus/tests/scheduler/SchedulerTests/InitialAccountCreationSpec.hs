@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module SchedulerTests.InitialAccountCreationSpec where
+module SchedulerTests.InitialAccountCreationSpec (tests) where
 
 import Data.Maybe
 import Test.HUnit
@@ -18,12 +18,6 @@ import Concordium.Scheduler.DummyData
 import Concordium.Types.DummyData
 
 import qualified SchedulerTests.Helpers as Helpers
-
-tests :: Spec
-tests =
-    describe "Account creation" $
-        sequence_ $
-            Helpers.forEveryProtocolVersion testAccountCreation
 
 initialBlockState ::
     (Types.IsProtocolVersion pv) =>
@@ -45,7 +39,7 @@ testAccountCreation ::
     (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 testAccountCreation _ pvString = specify
     (pvString ++ ": 2 accounts created, next two rejected.")
     $ do
@@ -88,3 +82,9 @@ testAccountCreation _ pvString = specify
 
             doInvariantAssertions
             assertBool "Newly created accounts." $ all isJust lookups
+
+tests :: Spec
+tests =
+    describe "Account creation" $
+        sequence_ $
+            Helpers.forEveryProtocolVersion testAccountCreation

@@ -17,7 +17,6 @@ import Control.Monad
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Short as BSS
 import Data.Serialize (encode, putByteString, putWord16le, putWord64le, runPut)
-import Test.HUnit
 import Test.Hspec
 
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
@@ -28,18 +27,6 @@ import Concordium.Scheduler.Runner
 import qualified Concordium.Scheduler.Types as Types
 import Concordium.Wasm
 import qualified SchedulerTests.Helpers as Helpers
-
-tests :: Spec
-tests =
-    describe "V1: Checkpointing." $
-        sequence_ $
-            Helpers.forEveryProtocolVersion $ \spv pvString -> do
-                checkpointingTest1 spv pvString
-                checkpointingTest2 spv pvString
-                checkpointingTest3 spv pvString
-                checkpointingTest4 spv pvString
-                checkpointingTest5 spv pvString
-                checkpointingTest6 spv pvString
 
 initialBlockState ::
     (Types.IsProtocolVersion pv) =>
@@ -81,7 +68,7 @@ checkpointingTest1 ::
     Types.IsProtocolVersion pv =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 checkpointingTest1 spv pvString =
     when (Types.supportsV1Contracts spv) $
         specify (pvString ++ ": Checkpointing 1") $
@@ -185,7 +172,7 @@ checkpointingTest2 ::
     Types.IsProtocolVersion pv =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 checkpointingTest2 spv pvString =
     when (Types.supportsV1Contracts spv) $
         specify (pvString ++ ": Checkpointing 2") $
@@ -287,7 +274,7 @@ checkpointingTest3 ::
     Types.IsProtocolVersion pv =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 checkpointingTest3 spv pvString =
     when (Types.supportsV1Contracts spv) $
         specify (pvString ++ ": Checkpointing 3") $
@@ -374,7 +361,7 @@ checkpointingTest4 ::
     Types.IsProtocolVersion pv =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 checkpointingTest4 spv pvString =
     when (Types.supportsV1Contracts spv) $
         specify (pvString ++ ": Checkpointing 4") $
@@ -480,7 +467,7 @@ checkpointingTest5 ::
     Types.IsProtocolVersion pv =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 checkpointingTest5 spv pvString =
     when (Types.supportsV1Contracts spv) $
         specify (pvString ++ ": Cross Checkpointing 1") $
@@ -624,7 +611,7 @@ checkpointingTest6 ::
     Types.IsProtocolVersion pv =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 checkpointingTest6 spv pvString =
     when (Types.supportsV1Contracts spv) $
         specify (pvString ++ ": Cross Checkpointing 2") $
@@ -750,3 +737,15 @@ checkpointingTest6 spv pvString =
         putWord16le (fromIntegral (BSS.length "a_modify"))
         putByteString "a_modify" -- entrypoint name
         putWord64le 0 -- amount
+
+tests :: Spec
+tests =
+    describe "V1: Checkpointing." $
+        sequence_ $
+            Helpers.forEveryProtocolVersion $ \spv pvString -> do
+                checkpointingTest1 spv pvString
+                checkpointingTest2 spv pvString
+                checkpointingTest3 spv pvString
+                checkpointingTest4 spv pvString
+                checkpointingTest5 spv pvString
+                checkpointingTest6 spv pvString
