@@ -9,7 +9,7 @@
 --    by repeatedly sending itself messages.
 --
 --    See ../smart-contracts/rust-contracts/example-contracts/fib for the source code.
-module SchedulerTests.FibonacciSelfMessageTest where
+module SchedulerTests.FibonacciSelfMessageTest (tests) where
 
 import Test.HUnit
 import Test.Hspec
@@ -21,7 +21,6 @@ import Data.Serialize (putWord64le, runPut)
 import Data.Word
 
 import qualified Concordium.Cost as Cost
-import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Persistent.BlockState as BS
 import qualified Concordium.GlobalState.Persistent.Instances as Instances
@@ -32,13 +31,6 @@ import qualified Concordium.Scheduler.Types as Types
 import Concordium.Wasm
 
 import qualified SchedulerTests.Helpers as Helpers
-
-tests :: Spec
-tests = do
-    describe "Self-referential Fibonacci." $
-        sequence_ $
-            Helpers.forEveryProtocolVersion $ \spv pvString -> do
-                testCase1 spv pvString
 
 initialBlockState ::
     Types.IsProtocolVersion pv =>
@@ -52,9 +44,6 @@ initialBlockState =
 accountAddress0 :: Types.AccountAddress
 accountAddress0 = Helpers.accountAddressFromSeed 0
 
-accountAddress1 :: Types.AccountAddress
-accountAddress1 = Helpers.accountAddressFromSeed 1
-
 fibParamBytes :: Word64 -> BSS.ShortByteString
 fibParamBytes n = BSS.toShort $ runPut (putWord64le n)
 
@@ -66,7 +55,7 @@ testCase1 ::
     (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 testCase1 _ pvString =
     specify
         (pvString ++ ": Error handling in contracts.")
@@ -84,7 +73,10 @@ testCase1 _ pvString =
                       metadata = makeDummyHeader accountAddress0 1 100_000,
                       keys = [(0, [(0, Helpers.keyPairFromSeed 0)])]
                     },
-              taaAssertion = deploymentCostCheck
+              taaAssertion = \result _ ->
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV0 fibSourceFile result
             },
           Helpers.TransactionAndAssertion
             { taaTransaction =
@@ -93,7 +85,15 @@ testCase1 _ pvString =
                       metadata = makeDummyHeader accountAddress0 2 100_000,
                       keys = [(0, [(0, Helpers.keyPairFromSeed 0)])]
                     },
-              taaAssertion = initializationCostCheck
+              taaAssertion = \result _ ->
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyInitialization
+                        fibSourceFile
+                        (InitName "init_fib")
+                        (Parameter "")
+                        (Just 8) -- The initial state size should be 8 bytes.
+                        result
             },
           -- compute F(10)
           Helpers.TransactionAndAssertion
@@ -106,52 +106,6 @@ testCase1 _ pvString =
               taaAssertion = ensureAllUpdates
             }
         ]
-    deploymentCostCheck ::
-        Helpers.SchedulerResult ->
-        BS.PersistentBlockState pv ->
-        Helpers.PersistentBSM pv Assertion
-    deploymentCostCheck Helpers.SchedulerResult{..} _ = return $ do
-        contractModule <- Helpers.readV0ModuleFile fibSourceFile
-        let len = fromIntegral $ BS.length (wasmSource contractModule)
-            -- size of the module deploy payload
-            payloadSize =
-                Types.payloadSize $
-                    Types.encodePayload $
-                        Types.DeployModule contractModule
-            -- size of the transaction minus the signatures.
-            txSize = Types.transactionHeaderSize + fromIntegral payloadSize
-        -- transaction is signed with 1 signature
-        assertEqual
-            "Deployment has correct cost "
-            (Cost.baseCost txSize 1 + Cost.deployModuleCost len)
-            srUsedEnergy
-
-    -- check that the initialization cost was at least the administrative cost.
-    -- It is not practical to check the exact cost because the execution cost of the init function is hard to
-    -- have an independent number for, other than executing.
-    initializationCostCheck ::
-        Helpers.SchedulerResult ->
-        BS.PersistentBlockState pv ->
-        Helpers.PersistentBSM pv Assertion
-    initializationCostCheck Helpers.SchedulerResult{..} _ = return $ do
-        moduleSource <- wasmSource <$> Helpers.readV0ModuleFile fibSourceFile
-        let modLen = fromIntegral $ BS.length moduleSource
-            modRef = Types.ModuleRef $ Hash.hash moduleSource
-            payloadSize =
-                Types.payloadSize $
-                    Types.encodePayload $
-                        Types.InitContract 0 modRef (InitName "init_fib") (Parameter "")
-            -- size of the transaction minus the signatures.
-            txSize = Types.transactionHeaderSize + fromIntegral payloadSize
-            -- transaction is signed with 1 signature
-            baseTxCost = Cost.baseCost txSize 1
-            -- lower bound on the cost of the transaction, assuming no interpreter energy
-            -- we know the size of the state should be 8 bytes
-            costLowerBound = baseTxCost + Cost.initializeContractInstanceCost 0 modLen (Just 8)
-        unless (srUsedEnergy >= costLowerBound) $
-            assertFailure $
-                "Actual initialization cost " ++ show srUsedEnergy ++ " not more than lower bound " ++ show costLowerBound
-
     ensureAllUpdates ::
         Helpers.SchedulerResult ->
         BS.PersistentBlockState pv ->
@@ -208,3 +162,9 @@ testCase1 _ pvString =
 
     -- the number of invocations of the contract follows https://oeis.org/A001595
     fibOne n = 2 * fib n - 1
+
+tests :: Spec
+tests =
+    describe "Self-referential Fibonacci." $
+        sequence_ $
+            Helpers.forEveryProtocolVersion testCase1

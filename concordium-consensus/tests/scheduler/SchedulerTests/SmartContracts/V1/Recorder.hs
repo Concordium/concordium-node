@@ -1,44 +1,43 @@
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- | This module tests basic V1 state operations with the recorder contract.
 module SchedulerTests.SmartContracts.V1.Recorder (tests) where
 
-import Test.HUnit (assertEqual, assertFailure)
+import Test.HUnit (Assertion, assertEqual, assertFailure)
 import Test.Hspec
 
 import Control.Monad
-import qualified Data.ByteString as BS
 import qualified Data.ByteString.Short as BSS
 import Data.Serialize (putWord64le, runPut)
-import Lens.Micro.Platform
+import Data.Word (Word64)
 
-import qualified Concordium.Crypto.SHA256 as Hash
+import qualified Concordium.Crypto.SignatureScheme as SigScheme
+import qualified Concordium.GlobalState.BlockState as BS
+import qualified Concordium.GlobalState.ContractStateV1 as StateV1
+import qualified Concordium.GlobalState.Persistent.BlockState as BS
+import qualified Concordium.ID.Types as ID
+import Concordium.Scheduler.DummyData
 import Concordium.Scheduler.Runner
 import qualified Concordium.Scheduler.Types as Types
-import qualified Concordium.TransactionVerification as TVer
-
-import qualified Concordium.Cost as Cost
-import Concordium.GlobalState.Basic.BlockState
-import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
-import Concordium.GlobalState.Basic.BlockState.Instances
-import qualified Concordium.GlobalState.ContractStateV1 as StateV1
-import Concordium.GlobalState.Instance
 import Concordium.Wasm
+import qualified SchedulerTests.Helpers as Helpers
 
-import Concordium.Crypto.DummyData
-import Concordium.GlobalState.DummyData
-import Concordium.Scheduler.DummyData
-import Concordium.Types.DummyData
-
-import SchedulerTests.TestUtils
-
-initialBlockState :: BlockState PV4
+initialBlockState ::
+    (Types.IsProtocolVersion pv) =>
+    Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
 initialBlockState =
-    blockStateWithAlesAccount
-        100000000
-        (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 100000000) Acc.emptyAccounts)
+    Helpers.createTestBlockStateWithAccountsM
+        [Helpers.makeTestAccountFromSeed 100_000_000 0]
+
+accountAddress0 :: ID.AccountAddress
+accountAddress0 = Helpers.accountAddressFromSeed 0
+
+keyPair0 :: SigScheme.KeyPair
+keyPair0 = Helpers.keyPairFromSeed 0
 
 recorderSourceFile :: FilePath
 recorderSourceFile = "./testdata/contracts/v1/record-parameters.wasm"
@@ -47,103 +46,117 @@ recorderSourceFile = "./testdata/contracts/v1/record-parameters.wasm"
 wasmModVersion :: WasmVersion
 wasmModVersion = V1
 
-testCases :: [TestCase PV4]
-testCases =
-    [ TestCase
-        { tcName = "Record data in a contract.",
-          tcParameters = (defaultParams @PV4){tpInitialBlockState = initialBlockState},
-          tcTransactions =
-            [   ( TJSON
-                    { payload = DeployModule wasmModVersion recorderSourceFile,
-                      metadata = makeDummyHeader alesAccount 1 100000,
-                      keys = [(0, [(0, alesKP)])]
-                    },
-                  (SuccessWithSummary deploymentCostCheck, emptySpec)
-                ),
-                ( TJSON
-                    { payload = InitContract 0 wasmModVersion recorderSourceFile "init_recorder" "",
-                      metadata = makeDummyHeader alesAccount 2 100000,
-                      keys = [(0, [(0, alesKP)])]
-                    },
-                  (SuccessWithSummary initializationCostCheck, recorderSpec 0)
-                ),
-                ( TJSON
-                    { payload = Update 0 (Types.ContractAddress 0 0) "recorder.record_u64" (BSS.toShort (runPut (putWord64le 20))),
-                      metadata = makeDummyHeader alesAccount 3 700000,
-                      keys = [(0, [(0, alesKP)])]
-                    },
-                  (SuccessWithSummary ensureSuccess, recorderSpec 20)
-                ),
-              -- and then again
-                ( TJSON
-                    { payload = Update 0 (Types.ContractAddress 0 0) "recorder.record_u64" (BSS.toShort (runPut (putWord64le 40))),
-                      metadata = makeDummyHeader alesAccount 4 700000,
-                      keys = [(0, [(0, alesKP)])]
-                    },
-                  (SuccessWithSummary ensureSuccess, recorderSpec 60)
-                )
-            ]
-        }
-    ]
+testCase ::
+    forall pv.
+    Types.IsProtocolVersion pv =>
+    Types.SProtocolVersion pv ->
+    String ->
+    Spec
+testCase spv pvString =
+    when (Types.supportsV1Contracts spv) $
+        specify (pvString ++ ": Record data in a contract.") $
+            Helpers.runSchedulerTestAssertIntermediateStates
+                @pv
+                Helpers.defaultTestConfig
+                initialBlockState
+                transactionsAndAssertions
   where
-    deploymentCostCheck :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
-    deploymentCostCheck _ Types.TransactionSummary{..} = do
-        checkSuccess "Module deployment failed: " tsResult
-        moduleSource <- BS.readFile recorderSourceFile
-        let len = fromIntegral $ BS.length moduleSource
-            -- size of the module deploy payload
-            payloadSize = Types.payloadSize (Types.encodePayload (Types.DeployModule (WasmModuleV1 (WasmModuleV ModuleSource{..}))))
-            -- size of the transaction minus the signatures.
-            txSize = Types.transactionHeaderSize + fromIntegral payloadSize
-        -- transaction is signed with 1 signature
-        assertEqual "Deployment has correct cost " (Cost.baseCost txSize 1 + Cost.deployModuleCost len) tsEnergyCost
-
-    -- check that the initialization cost was at least the administrative cost.
-    -- It is not practical to check the exact cost because the execution cost of the init function is hard to
-    -- have an independent number for, other than executing.
-    initializationCostCheck :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
-    initializationCostCheck _ Types.TransactionSummary{..} = do
-        checkSuccess "Contract initialization failed: " tsResult
-        moduleSource <- BS.readFile recorderSourceFile
-        let modLen = fromIntegral $ BS.length moduleSource
-            modRef = Types.ModuleRef (Hash.hash moduleSource)
-            payloadSize = Types.payloadSize (Types.encodePayload (Types.InitContract 0 modRef (InitName "init_recorder") (Parameter "")))
-            -- size of the transaction minus the signatures.
-            txSize = Types.transactionHeaderSize + fromIntegral payloadSize
-            -- transaction is signed with 1 signature
-            baseTxCost = Cost.baseCost txSize 1
-            -- lower bound on the cost of the transaction, assuming no interpreter energy
-            -- we know the size of the state should be 8 bytes
-            costLowerBound = baseTxCost + Cost.initializeContractInstanceCost 0 modLen (Just 0)
-        unless (tsEnergyCost >= costLowerBound) $
-            assertFailure $
-                "Actual initialization cost " ++ show tsEnergyCost ++ " not more than lower bound " ++ show costLowerBound
-
-    -- ensure the transaction is successful
-    ensureSuccess :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
-    ensureSuccess _ Types.TransactionSummary{..} = checkSuccess "Update failed: " tsResult
-
-    checkSuccess msg Types.TxReject{..} = assertFailure $ msg ++ show vrRejectReason
-    checkSuccess _ _ = return ()
-
-    recorderSpec n bs = specify "Contract state" $
-        case getInstance (Types.ContractAddress 0 0) (bs ^. blockInstances) of
-            Nothing -> assertFailure "Instance at <0,0> does not exist."
-            Just istance -> do
-                case istance of
-                    InstanceV0 _ -> assertFailure "Expected V1 instance since a V1 module is deployed, but V0 encountered."
-                    InstanceV1 InstanceV{_instanceVModel = InstanceStateV1 s} -> do
-                        -- since we inserted 60 values we expect to find keys on all those indices
-                        forM_ [1 .. n] $ \idx ->
-                            StateV1.lookupKey s (runPut (putWord64le (idx - 1))) >>= \case
-                                Nothing -> assertFailure $ "Failed to find key " ++ show (idx - 1)
-                                Just _ -> return ()
-                        StateV1.lookupKey s (runPut (putWord64le n)) >>= \case
-                            Nothing -> return ()
-                            Just _ -> assertFailure $ "Found key " ++ show n ++ ", but did not expect to."
-                assertEqual "Contract has 0 CCD." (Types.Amount 0) (instanceAmount istance)
+    transactionsAndAssertions :: [Helpers.TransactionAndAssertion pv]
+    transactionsAndAssertions =
+        [ Helpers.TransactionAndAssertion
+            { taaTransaction =
+                TJSON
+                    { payload = DeployModule wasmModVersion recorderSourceFile,
+                      metadata = makeDummyHeader accountAddress0 1 100_000,
+                      keys = [(0, [(0, keyPair0)])]
+                    },
+              taaAssertion = \result _ ->
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV1 recorderSourceFile result
+            },
+          Helpers.TransactionAndAssertion
+            { taaTransaction =
+                TJSON
+                    { payload = InitContract 0 wasmModVersion recorderSourceFile "init_recorder" "",
+                      metadata = makeDummyHeader accountAddress0 2 100_000,
+                      keys = [(0, [(0, keyPair0)])]
+                    },
+              taaAssertion = \result state -> do
+                doStateAssertion <- recorderSpec 0 state
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyInitialization
+                        recorderSourceFile
+                        (InitName "init_recorder")
+                        (Parameter "")
+                        Nothing
+                        result
+                    doStateAssertion
+            },
+          Helpers.TransactionAndAssertion
+            { taaTransaction =
+                TJSON
+                    { payload =
+                        Update
+                            0
+                            (Types.ContractAddress 0 0)
+                            "recorder.record_u64"
+                            (BSS.toShort (runPut (putWord64le 20))),
+                      metadata = makeDummyHeader accountAddress0 3 700_000,
+                      keys = [(0, [(0, keyPair0)])]
+                    },
+              taaAssertion = \result state -> do
+                doStateAssertion <- recorderSpec 20 state
+                return $ do
+                    Helpers.assertSuccess result
+                    doStateAssertion
+            },
+          Helpers.TransactionAndAssertion
+            { taaTransaction =
+                TJSON
+                    { payload =
+                        Update
+                            0
+                            (Types.ContractAddress 0 0)
+                            "recorder.record_u64"
+                            (BSS.toShort (runPut (putWord64le 40))),
+                      metadata = makeDummyHeader accountAddress0 4 700_000,
+                      keys = [(0, [(0, keyPair0)])]
+                    },
+              taaAssertion = \result state -> do
+                doStateAssertion <- recorderSpec 60 state
+                return $ do
+                    Helpers.assertSuccess result
+                    doStateAssertion
+            }
+        ]
+    recorderSpec :: Word64 -> BS.PersistentBlockState pv -> Helpers.PersistentBSM pv Assertion
+    recorderSpec n blockState = do
+        maybeInstance <- BS.bsoGetInstance blockState (Types.ContractAddress 0 0)
+        case maybeInstance of
+            Nothing -> return $ assertFailure "Instance at <0,0> does not exist."
+            Just (BS.InstanceInfoV0 _) -> return $ assertFailure "Expected V1 instance, but got V0."
+            Just (BS.InstanceInfoV1 ii) -> do
+                contractState <- BS.externalContractState $ BS.iiState ii
+                -- since we inserted 60 values we expect to find keys on all those indices
+                doAssertInserted <- forM [1 .. n] $ \idx -> do
+                    maybeValue <- StateV1.lookupKey contractState (runPut (putWord64le (idx - 1)))
+                    return $ case maybeValue of
+                        Nothing -> assertFailure $ "Failed to find key " ++ show (idx - 1)
+                        Just _ -> return ()
+                doAssertRemoved <- do
+                    maybeValue <- StateV1.lookupKey contractState (runPut (putWord64le n))
+                    return $ case maybeValue of
+                        Nothing -> return ()
+                        Just _ -> assertFailure $ "Found key " ++ show n ++ ", but did not expect to."
+                return $ do
+                    assertEqual "Contract has 0 CCD." (Types.Amount 0) (BS.iiBalance ii)
+                    sequence_ doAssertInserted
+                    doAssertRemoved
 
 tests :: Spec
 tests =
     describe "V1: Record 20 + 40 strings." $
-        mkSpecs testCases
+        sequence_ $
+            Helpers.forEveryProtocolVersion testCase

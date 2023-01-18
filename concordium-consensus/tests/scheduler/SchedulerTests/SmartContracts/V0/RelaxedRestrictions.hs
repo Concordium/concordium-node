@@ -1,5 +1,7 @@
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- | This module tests the relaxed smart contract restrictions introduced in P5 for V0 contracts.
@@ -13,7 +15,6 @@
 --        - Of size > 1 kb: base cost + 1NRG / 1 *byte*
 module SchedulerTests.SmartContracts.V0.RelaxedRestrictions (tests) where
 
-import Test.HUnit (assertEqual, assertFailure)
 import Test.Hspec
 
 import Control.Monad
@@ -22,34 +23,27 @@ import qualified Data.ByteString.Short as BSS
 import Data.Serialize (putByteString, putWord16le, putWord32le, runPut)
 import Data.Word (Word16, Word32)
 
-import qualified Concordium.Crypto.SHA256 as Hash
+import qualified Concordium.Crypto.SignatureScheme as SigScheme
+import qualified Concordium.GlobalState.Persistent.BlockState as BS
+import qualified Concordium.ID.Types as ID
+import Concordium.Scheduler.DummyData
 import Concordium.Scheduler.Runner
 import qualified Concordium.Scheduler.Types as Types
-import qualified Concordium.TransactionVerification as TVer
-
-import qualified Concordium.Cost as Cost
-import Concordium.GlobalState.Basic.BlockState
-import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
 import Concordium.Wasm
+import qualified SchedulerTests.Helpers as Helpers
 
-import Concordium.Crypto.DummyData
-import Concordium.GlobalState.DummyData
-import Concordium.Scheduler.DummyData
-import Concordium.Types.DummyData
+initialBlockState ::
+    (Types.IsProtocolVersion pv) =>
+    Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
+initialBlockState =
+    Helpers.createTestBlockStateWithAccountsM
+        [Helpers.makeTestAccountFromSeed 100_000_000 0]
 
-import SchedulerTests.TestUtils
+accountAddress0 :: ID.AccountAddress
+accountAddress0 = Helpers.accountAddressFromSeed 0
 
-initialBlockStatePV4 :: BlockState PV4
-initialBlockStatePV4 =
-    blockStateWithAlesAccount
-        100000000
-        (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 100000000) Acc.emptyAccounts)
-
-initialBlockStatePV5 :: BlockState PV5
-initialBlockStatePV5 =
-    blockStateWithAlesAccount
-        100000000
-        (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 100000000) Acc.emptyAccounts)
+keyPair0 :: SigScheme.KeyPair
+keyPair0 = Helpers.keyPairFromSeed 0
 
 sourceFile :: FilePath
 sourceFile = "./testdata/contracts/relaxed-restrictions.wasm"
@@ -58,147 +52,205 @@ sourceFile = "./testdata/contracts/relaxed-restrictions.wasm"
 wasmModVersion :: WasmVersion
 wasmModVersion = V0
 
-testCasesPV4 :: [TestCase PV4]
-testCasesPV4 =
-    [ TestCase
-        { tcName = "Correct parameter size limits in PV4.",
-          tcParameters = (defaultParams @PV4){tpInitialBlockState = initialBlockStatePV4},
-          tcTransactions =
-            [   ( TJSON
-                    { payload = DeployModule wasmModVersion sourceFile,
-                      metadata = makeDummyHeader alesAccount 1 100000,
-                      keys = [(0, [(0, alesKP)])]
+-- | Ensure the parameter limit is correct before the relaxation in protocol version 5
+oldParameterLimitTest ::
+    forall pv.
+    Types.IsProtocolVersion pv =>
+    Types.SProtocolVersion pv ->
+    String ->
+    Spec
+oldParameterLimitTest spv pvString =
+    -- The relaxed restrictions was introduced together with upgradable smart contracts.
+    unless (Types.supportsUpgradableContracts spv) $
+        specify (pvString ++ ": Correct parameter size limits (old)") $
+            Helpers.runSchedulerTestAssertIntermediateStates
+                @pv
+                Helpers.defaultTestConfig
+                initialBlockState
+                transactionsAndAssertions
+  where
+    transactionsAndAssertions :: [Helpers.TransactionAndAssertion pv]
+    transactionsAndAssertions =
+        deployAndInitTransactions
+            ++ [
+                 -- Check that the max size parameter is allowed.
+                 Helpers.TransactionAndAssertion
+                    { taaTransaction =
+                        TJSON
+                            { payload = Update 0 (Types.ContractAddress 0 0) "relax.param" (callArgsParam 1_024 1_024),
+                              metadata = makeDummyHeader accountAddress0 3 700_000,
+                              keys = [(0, [(0, keyPair0)])]
+                            },
+                      taaAssertion = \result _ ->
+                        return $ Helpers.assertSuccess result
                     },
-                  (SuccessWithSummary deploymentCostCheck, emptySpec)
-                ),
-                ( TJSON
-                    { payload = InitContract 0 wasmModVersion sourceFile "init_relax" "",
-                      metadata = makeDummyHeader alesAccount 2 100000,
-                      keys = [(0, [(0, alesKP)])]
+                 -- Check that if the top-level parameter is too big, we get a serialization failure.
+                 Helpers.TransactionAndAssertion
+                    { taaTransaction =
+                        TJSON
+                            { payload = Update 0 (Types.ContractAddress 0 0) "relax.param" (callArgsParam 1_024 1_025),
+                              metadata = makeDummyHeader accountAddress0 4 700_000,
+                              keys = [(0, [(0, keyPair0)])]
+                            },
+                      taaAssertion = \result _ ->
+                        return $ Helpers.assertRejectWithReason Types.SerializationFailure result
                     },
-                  (SuccessWithSummary initializationCostCheck, emptySpec)
-                ),
-              -- Check that the max size parameter is allowed.
-                ( TJSON
-                    { payload = Update 0 (Types.ContractAddress 0 0) "relax.param" (callArgsParam 1024 1024),
-                      metadata = makeDummyHeader alesAccount 3 700000,
-                      keys = [(0, [(0, alesKP)])]
-                    },
-                  (SuccessWithSummary ensureSuccess, emptySpec)
-                ),
-              -- Check that if the top-level parameter is too big, we get a serialization failure.
-                ( TJSON
-                    { payload = Update 0 (Types.ContractAddress 0 0) "relax.param" (callArgsParam 1024 1025),
-                      metadata = makeDummyHeader alesAccount 4 700000,
-                      keys = [(0, [(0, alesKP)])]
-                    },
-                  (Reject Types.SerializationFailure, emptySpec)
-                ),
-              -- Check that if the inter-contract parameter is too big, we get a runtime failure.
-                ( TJSON
-                    { payload = Update 0 (Types.ContractAddress 0 0) "relax.param" (callArgsParam 1025 1024),
-                      metadata = makeDummyHeader alesAccount 5 700000,
-                      keys = [(0, [(0, alesKP)])]
-                    },
-                  (Reject Types.RuntimeFailure, emptySpec)
-                )
-            ]
-        },
-      TestCase
-        { tcName = "Correct number of logs limits in PV4.",
-          tcParameters = (defaultParams @PV4){tpInitialBlockState = initialBlockStatePV4},
-          tcTransactions =
-            [   ( TJSON
-                    { payload = DeployModule wasmModVersion sourceFile,
-                      metadata = makeDummyHeader alesAccount 1 100000,
-                      keys = [(0, [(0, alesKP)])]
-                    },
-                  (SuccessWithSummary deploymentCostCheck, emptySpec)
-                ),
-                ( TJSON
-                    { payload = InitContract 0 wasmModVersion sourceFile "init_relax" "",
-                      metadata = makeDummyHeader alesAccount 2 100000,
-                      keys = [(0, [(0, alesKP)])]
-                    },
-                  (SuccessWithSummary initializationCostCheck, emptySpec)
-                ),
-              -- Check that the max number of logs is allowed.
-                ( TJSON
-                    { payload = Update 0 (Types.ContractAddress 0 0) "relax.logs" (callArgsWord32 64),
-                      metadata = makeDummyHeader alesAccount 3 700000,
-                      keys = [(0, [(0, alesKP)])]
-                    },
-                  (SuccessWithSummary ensureSuccess, emptySpec)
-                ),
-              -- Check that one above the max number of logs is _not_ allowed.
-                ( TJSON
-                    { payload = Update 0 (Types.ContractAddress 0 0) "relax.logs" (callArgsWord32 65),
-                      metadata = makeDummyHeader alesAccount 4 700000,
-                      keys = [(0, [(0, alesKP)])]
-                    },
-                  (Reject Types.RuntimeFailure, emptySpec)
-                )
-            ]
-        }
-    ]
+                 -- Check that if the inter-contract parameter is too big, we get a runtime failure.
+                 Helpers.TransactionAndAssertion
+                    { taaTransaction =
+                        TJSON
+                            { payload = Update 0 (Types.ContractAddress 0 0) "relax.param" (callArgsParam 1_025 1_024),
+                              metadata = makeDummyHeader accountAddress0 5 700_000,
+                              keys = [(0, [(0, keyPair0)])]
+                            },
+                      taaAssertion = \result _ ->
+                        return $ Helpers.assertRejectWithReason Types.RuntimeFailure result
+                    }
+               ]
 
-testCasesPV5 :: [TestCase PV5]
-testCasesPV5 =
-    [ TestCase
-        { tcName = "Correct parameter size limits in PV5.",
-          tcParameters = (defaultParams @PV5){tpInitialBlockState = initialBlockStatePV5},
-          tcTransactions =
-            [   ( TJSON
-                    { payload = DeployModule wasmModVersion sourceFile,
-                      metadata = makeDummyHeader alesAccount 1 100000,
-                      keys = [(0, [(0, alesKP)])]
+-- | Ensure the log limit is correct before the relaxation in protocol version 5
+oldLogLimitTest ::
+    forall pv.
+    Types.IsProtocolVersion pv =>
+    Types.SProtocolVersion pv ->
+    String ->
+    Spec
+oldLogLimitTest spv pvString =
+    -- The relaxed restrictions was introduced together with upgradable smart contracts.
+    unless (Types.supportsUpgradableContracts spv) $
+        specify (pvString ++ ": Correct number of logs limits (old)") $
+            Helpers.runSchedulerTestAssertIntermediateStates
+                @pv
+                Helpers.defaultTestConfig
+                initialBlockState
+                transactionsAndAssertions
+  where
+    transactionsAndAssertions :: [Helpers.TransactionAndAssertion pv]
+    transactionsAndAssertions =
+        deployAndInitTransactions
+            ++ [
+                 -- Check that the max number of logs is allowed.
+                 Helpers.TransactionAndAssertion
+                    { taaTransaction =
+                        TJSON
+                            { payload = Update 0 (Types.ContractAddress 0 0) "relax.logs" (callArgsWord32 64),
+                              metadata = makeDummyHeader accountAddress0 3 700_000,
+                              keys = [(0, [(0, keyPair0)])]
+                            },
+                      taaAssertion = \result _ ->
+                        return $ Helpers.assertSuccess result
                     },
-                  (SuccessWithSummary deploymentCostCheck, emptySpec)
-                ),
-                ( TJSON
-                    { payload = InitContract 0 wasmModVersion sourceFile "init_relax" "",
-                      metadata = makeDummyHeader alesAccount 2 100000,
-                      keys = [(0, [(0, alesKP)])]
-                    },
-                  (SuccessWithSummary initializationCostCheck, emptySpec)
-                ),
-              -- Check that the max size parameter is allowed. We cannot check above it easily, because it is Word16::MAX.
-                ( TJSON
-                    { payload = Update 0 (Types.ContractAddress 0 0) "relax.param" (callArgsParam 65535 65535),
-                      metadata = makeDummyHeader alesAccount 3 700000,
-                      keys = [(0, [(0, alesKP)])]
-                    },
-                  (SuccessWithSummary ensureSuccess, emptySpec)
-                )
-            ]
+                 -- Check that one above the max number of logs is _not_ allowed.
+                 Helpers.TransactionAndAssertion
+                    { taaTransaction =
+                        TJSON
+                            { payload = Update 0 (Types.ContractAddress 0 0) "relax.logs" (callArgsWord32 65),
+                              metadata = makeDummyHeader accountAddress0 4 700_000,
+                              keys = [(0, [(0, keyPair0)])]
+                            },
+                      taaAssertion = \result _ ->
+                        return $ Helpers.assertRejectWithReason Types.RuntimeFailure result
+                    }
+               ]
+
+-- | Ensure the parameter limit is correct after the relaxation in protocol version 5.
+newParameterLimitTest ::
+    forall pv.
+    Types.IsProtocolVersion pv =>
+    Types.SProtocolVersion pv ->
+    String ->
+    Spec
+newParameterLimitTest spv pvString =
+    when (Types.supportsUpgradableContracts spv) $
+        specify (pvString ++ ": Correct parameter size limits (new)") $
+            Helpers.runSchedulerTestAssertIntermediateStates
+                @pv
+                Helpers.defaultTestConfig
+                initialBlockState
+                transactionsAndAssertions
+  where
+    transactionsAndAssertions :: [Helpers.TransactionAndAssertion pv]
+    transactionsAndAssertions =
+        deployAndInitTransactions
+            ++ [
+                 -- Check that the max size parameter is allowed. We cannot check above it easily,
+                 -- because it is Word16::MAX.
+                 Helpers.TransactionAndAssertion
+                    { taaTransaction =
+                        TJSON
+                            { payload = Update 0 (Types.ContractAddress 0 0) "relax.param" (callArgsParam 65_535 65_535),
+                              metadata = makeDummyHeader accountAddress0 3 700_000,
+                              keys = [(0, [(0, keyPair0)])]
+                            },
+                      taaAssertion = \result _ ->
+                        return $ Helpers.assertSuccess result
+                    }
+               ]
+
+-- | Ensure the log limit is correct after the relaxation in protocol version 5.
+newLogLimitTest ::
+    forall pv.
+    Types.IsProtocolVersion pv =>
+    Types.SProtocolVersion pv ->
+    String ->
+    Spec
+newLogLimitTest spv pvString =
+    when (Types.supportsUpgradableContracts spv) $
+        specify (pvString ++ ": Correct number of logs limits (new)") $
+            Helpers.runSchedulerTestAssertIntermediateStates
+                @pv
+                Helpers.defaultTestConfig
+                initialBlockState
+                transactionsAndAssertions
+  where
+    transactionsAndAssertions :: [Helpers.TransactionAndAssertion pv]
+    transactionsAndAssertions =
+        deployAndInitTransactions
+            ++ [
+                 -- Check that a large number of logs is allowed (more than allowed in P4).
+                 Helpers.TransactionAndAssertion
+                    { taaTransaction =
+                        TJSON
+                            { payload = Update 0 (Types.ContractAddress 0 0) "relax.logs" (callArgsWord32 64),
+                              metadata = makeDummyHeader accountAddress0 3 700_000,
+                              keys = [(0, [(0, keyPair0)])]
+                            },
+                      taaAssertion = \result _ ->
+                        return $ Helpers.assertSuccess result
+                    }
+               ]
+
+-- |Transactions and assertions for deploying and initializing the "relax" contract.
+deployAndInitTransactions :: [Helpers.TransactionAndAssertion pv]
+deployAndInitTransactions =
+    [ Helpers.TransactionAndAssertion
+        { taaTransaction =
+            TJSON
+                { payload = DeployModule wasmModVersion sourceFile,
+                  metadata = makeDummyHeader accountAddress0 1 100_000,
+                  keys = [(0, [(0, keyPair0)])]
+                },
+          taaAssertion = \result _ ->
+            return $ do
+                Helpers.assertSuccess result
+                Helpers.assertUsedEnergyDeploymentV0 sourceFile result
         },
-      TestCase
-        { tcName = "Correct number of logs limits in PV5.",
-          tcParameters = (defaultParams @PV5){tpInitialBlockState = initialBlockStatePV5},
-          tcTransactions =
-            [   ( TJSON
-                    { payload = DeployModule wasmModVersion sourceFile,
-                      metadata = makeDummyHeader alesAccount 1 100000,
-                      keys = [(0, [(0, alesKP)])]
-                    },
-                  (SuccessWithSummary deploymentCostCheck, emptySpec)
-                ),
-                ( TJSON
-                    { payload = InitContract 0 wasmModVersion sourceFile "init_relax" "",
-                      metadata = makeDummyHeader alesAccount 2 100000,
-                      keys = [(0, [(0, alesKP)])]
-                    },
-                  (SuccessWithSummary initializationCostCheck, emptySpec)
-                ),
-              -- Check that a large number of logs is allowed (more than allowed in P4).
-                ( TJSON
-                    { payload = Update 0 (Types.ContractAddress 0 0) "relax.logs" (callArgsWord32 64),
-                      metadata = makeDummyHeader alesAccount 3 700000,
-                      keys = [(0, [(0, alesKP)])]
-                    },
-                  (SuccessWithSummary ensureSuccess, emptySpec)
-                )
-            ]
+      Helpers.TransactionAndAssertion
+        { taaTransaction =
+            TJSON
+                { payload = InitContract 0 wasmModVersion sourceFile "init_relax" "",
+                  metadata = makeDummyHeader accountAddress0 2 100_000,
+                  keys = [(0, [(0, keyPair0)])]
+                },
+          taaAssertion = \result _ ->
+            return $ do
+                Helpers.assertSuccess result
+                Helpers.assertUsedEnergyInitialization
+                    sourceFile
+                    (InitName "init_relax")
+                    (Parameter "")
+                    Nothing
+                    result
         }
     ]
 
@@ -236,50 +288,12 @@ callArgsParam internalParamSize desiredLen = BSS.toShort $ runPut $ do
 callArgsWord32 :: Word32 -> BSS.ShortByteString
 callArgsWord32 = BSS.toShort . runPut . putWord32le
 
-deploymentCostCheck :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
-deploymentCostCheck _ Types.TransactionSummary{..} = do
-    checkSuccess "Module deployment failed: " tsResult
-    moduleSource <- BS.readFile sourceFile
-    let len = fromIntegral $ BS.length moduleSource
-        -- size of the module deploy payload
-        payloadSize = Types.payloadSize (Types.encodePayload (Types.DeployModule (WasmModuleV0 (WasmModuleV ModuleSource{..}))))
-        -- size of the transaction minus the signatures.
-        txSize = Types.transactionHeaderSize + fromIntegral payloadSize
-    -- transaction is signed with 1 signature
-    assertEqual "Deployment has correct cost " (Cost.baseCost txSize 1 + Cost.deployModuleCost len) tsEnergyCost
-
--- check that the initialization cost was at least the administrative cost.
--- It is not practical to check the exact cost because the execution cost of the init function is hard to
--- have an independent number for, other than executing.
-initializationCostCheck :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
-initializationCostCheck _ Types.TransactionSummary{..} = do
-    checkSuccess "Contract initialization failed: " tsResult
-    moduleSource <- BS.readFile sourceFile
-    let modLen = fromIntegral $ BS.length moduleSource
-        modRef = Types.ModuleRef (Hash.hash moduleSource)
-        payloadSize = Types.payloadSize (Types.encodePayload (Types.InitContract 0 modRef (InitName "init_relax") (Parameter "")))
-        -- size of the transaction minus the signatures.
-        txSize = Types.transactionHeaderSize + fromIntegral payloadSize
-        -- transaction is signed with 1 signature
-        baseTxCost = Cost.baseCost txSize 1
-        -- lower bound on the cost of the transaction, assuming no interpreter energy
-        -- we know that the state is not used, thus the 'Nothing'.
-        costLowerBound = baseTxCost + Cost.initializeContractInstanceCost 0 modLen Nothing
-    unless (tsEnergyCost >= costLowerBound) $
-        assertFailure $
-            "Actual initialization cost " ++ show tsEnergyCost ++ " not more than lower bound " ++ show costLowerBound
-
--- ensure the transaction is successful
-ensureSuccess :: TVer.BlockItemWithStatus -> Types.TransactionSummary -> Expectation
-ensureSuccess _ Types.TransactionSummary{..} = checkSuccess "Update failed" tsResult
-
-checkSuccess :: [Char] -> Types.ValidResult -> IO ()
-checkSuccess msg Types.TxReject{..} = assertFailure $ msg ++ show vrRejectReason
-checkSuccess _ _ = return ()
-
 tests :: Spec
-tests = do
-    describe "V0: Relax restrictions. Test in PV4." $
-        mkSpecs testCasesPV4
-    describe "V0: Relax restrictions. Test in PV5." $
-        mkSpecs testCasesPV5
+tests =
+    describe "Smart contracts V0: Relax restrictions." $
+        sequence_ $
+            Helpers.forEveryProtocolVersion $ \spv pvString -> do
+                oldParameterLimitTest spv pvString
+                oldLogLimitTest spv pvString
+                newParameterLimitTest spv pvString
+                newLogLimitTest spv pvString

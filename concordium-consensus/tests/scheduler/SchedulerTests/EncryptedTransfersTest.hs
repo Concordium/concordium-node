@@ -3,7 +3,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
-module SchedulerTests.EncryptedTransfersTest where
+module SchedulerTests.EncryptedTransfersTest (tests) where
 
 import qualified Data.ByteString.Short as BSS
 import Data.Maybe
@@ -15,7 +15,6 @@ import Concordium.Crypto.FFIDataTypes (ElgamalSecretKey)
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Persistent.Account as BS
 import qualified Concordium.GlobalState.Persistent.BlockState as BS
-import qualified Concordium.Scheduler as Sch
 
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import Concordium.GlobalState.DummyData
@@ -74,15 +73,6 @@ import Test.Hspec
 --- |                                    | startIdx        |         2 |             3 |
 --- |                                    | incomingAmounts |        [] |            [] |
 --- |------------------------------------+-----------------+-----------+---------------|
-
-tests :: Spec
-tests = do
-    describe "Encrypted transfers:" $
-        sequence_ $
-            Helpers.forEveryProtocolVersion $ \spv pvString -> do
-                testCase0 spv pvString
-                testCase1 spv pvString
-                testCase2 spv pvString
 
 initialBlockState ::
     Types.IsProtocolVersion pv =>
@@ -159,7 +149,7 @@ testCase0 ::
     (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 testCase0 _ pvString = specify
     (pvString ++ ": Chain of encrypted transfer")
     $ do
@@ -350,11 +340,7 @@ testCase0 _ pvString = specify
                           metadata = makeDummyHeader accountAddress0 1 100_000,
                           keys = [(0, [(0, keyPair0)])]
                         },
-                  taaAssertion = \Helpers.SchedulerResult{..} state -> do
-                    doInvariantAssertions <-
-                        Helpers.assertBlockStateInvariantsH
-                            state
-                            srExecutionCosts
+                  taaAssertion = \result state -> do
                     doEncryptedBalanceAssertions <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -363,19 +349,14 @@ testCase0 _ pvString = specify
                             accountAddress0
                             state
                     return $ do
-                        case Helpers.getResults $ Sch.ftAdded srTransactions of
-                            [(_, Types.TxSuccess{..})] ->
-                                assertEqual
-                                    "The correct encrypt self amount event is produced"
-                                    [ Types.EncryptedSelfAmountAdded
-                                        { eaaAccount = accountAddress0,
-                                          eaaNewAmount = encryptedAmount1000,
-                                          eaaAmount = 1_000
-                                        }
-                                    ]
-                                    vrEvents
-                            _ -> assertFailure "First transaction should succeed"
-                        doInvariantAssertions
+                        Helpers.assertSuccessWithEvents
+                            [ Types.EncryptedSelfAmountAdded
+                                { eaaAccount = accountAddress0,
+                                  eaaNewAmount = encryptedAmount1000,
+                                  eaaAmount = 1_000
+                                }
+                            ]
+                            result
                         doEncryptedBalanceAssertions
                 },
               Helpers.TransactionAndAssertion
@@ -388,7 +369,7 @@ testCase0 _ pvString = specify
                           metadata = makeDummyHeader accountAddress0 2 100_000,
                           keys = [(0, [(0, keyPair0)])]
                         },
-                  taaAssertion = \Helpers.SchedulerResult{..} state -> do
+                  taaAssertion = \result state -> do
                     doEncryptedBalanceAssertionSender <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -406,26 +387,22 @@ testCase0 _ pvString = specify
                             accountAddress1
                             state
                     return $ do
-                        case Helpers.getResults $ Sch.ftAdded srTransactions of
-                            [(_, Types.TxSuccess{..})] ->
-                                assertEqual
-                                    "The correct events are produced"
-                                    [ Types.EncryptedAmountsRemoved
-                                        { earAccount = accountAddress0,
-                                          earUpToIndex = 0,
-                                          earNewAmount = eatdRemainingAmount encryptedTransferData1,
-                                          earInputAmount = encryptedAmount1000
-                                        },
-                                      Types.NewEncryptedAmount
-                                        { neaAccount = accountAddress1,
-                                          neaNewIndex = 0,
-                                          neaEncryptedAmount =
-                                            eatdTransferAmount
-                                                encryptedTransferData1
-                                        }
-                                    ]
-                                    vrEvents
-                            _ -> assertFailure "Third transaction should succeed"
+                        Helpers.assertSuccessWithEvents
+                            [ Types.EncryptedAmountsRemoved
+                                { earAccount = accountAddress0,
+                                  earUpToIndex = 0,
+                                  earNewAmount = eatdRemainingAmount encryptedTransferData1,
+                                  earInputAmount = encryptedAmount1000
+                                },
+                              Types.NewEncryptedAmount
+                                { neaAccount = accountAddress1,
+                                  neaNewIndex = 0,
+                                  neaEncryptedAmount =
+                                    eatdTransferAmount
+                                        encryptedTransferData1
+                                }
+                            ]
+                            result
                         doEncryptedBalanceAssertionSender
                         doEncryptedBalanceAssertionReceiver
                 },
@@ -439,7 +416,7 @@ testCase0 _ pvString = specify
                           metadata = makeDummyHeader accountAddress0 3 100_000,
                           keys = [(0, [(0, keyPair0)])]
                         },
-                  taaAssertion = \Helpers.SchedulerResult{..} state -> do
+                  taaAssertion = \result state -> do
                     doEncryptedBalanceAssertionSender <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -456,28 +433,24 @@ testCase0 _ pvString = specify
                             accountAddress1
                             state
                     return $ do
-                        case Helpers.getResults $ Sch.ftAdded srTransactions of
-                            [(_, Types.TxSuccess{..})] ->
-                                assertEqual
-                                    "The correct events are produced"
-                                    [ Types.EncryptedAmountsRemoved
-                                        { earAccount = accountAddress0,
-                                          earUpToIndex = 0,
-                                          earNewAmount = eatdRemainingAmount encryptedTransferData2,
-                                          earInputAmount =
-                                            eatdRemainingAmount
-                                                encryptedTransferData1
-                                        },
-                                      Types.NewEncryptedAmount
-                                        { neaAccount = accountAddress1,
-                                          neaNewIndex = 1,
-                                          neaEncryptedAmount =
-                                            eatdTransferAmount
-                                                encryptedTransferData2
-                                        }
-                                    ]
-                                    vrEvents
-                            _ -> assertFailure "Forth transaction should succeed"
+                        Helpers.assertSuccessWithEvents
+                            [ Types.EncryptedAmountsRemoved
+                                { earAccount = accountAddress0,
+                                  earUpToIndex = 0,
+                                  earNewAmount = eatdRemainingAmount encryptedTransferData2,
+                                  earInputAmount =
+                                    eatdRemainingAmount
+                                        encryptedTransferData1
+                                },
+                              Types.NewEncryptedAmount
+                                { neaAccount = accountAddress1,
+                                  neaNewIndex = 1,
+                                  neaEncryptedAmount =
+                                    eatdTransferAmount
+                                        encryptedTransferData2
+                                }
+                            ]
+                            result
                         doEncryptedBalanceAssertionSender
                         doEncryptedBalanceAssertionReceiver
                 },
@@ -491,7 +464,7 @@ testCase0 _ pvString = specify
                           metadata = makeDummyHeader accountAddress0 4 100_000,
                           keys = [(0, [(0, keyPair0)])]
                         },
-                  taaAssertion = \Helpers.SchedulerResult{..} state -> do
+                  taaAssertion = \result state -> do
                     doEncryptedBalanceAssertionSender <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -508,28 +481,24 @@ testCase0 _ pvString = specify
                             accountAddress1
                             state
                     return $ do
-                        case Helpers.getResults $ Sch.ftAdded srTransactions of
-                            [(_, Types.TxSuccess{..})] ->
-                                assertEqual
-                                    "The correct events are produced"
-                                    [ Types.EncryptedAmountsRemoved
-                                        { earAccount = accountAddress0,
-                                          earUpToIndex = 0,
-                                          earNewAmount = eatdRemainingAmount encryptedTransferData3,
-                                          earInputAmount =
-                                            eatdRemainingAmount
-                                                encryptedTransferData2
-                                        },
-                                      Types.NewEncryptedAmount
-                                        { neaAccount = accountAddress1,
-                                          neaNewIndex = 2,
-                                          neaEncryptedAmount =
-                                            eatdTransferAmount
-                                                encryptedTransferData3
-                                        }
-                                    ]
-                                    vrEvents
-                            _ -> assertFailure "Fifth transaction should succeed"
+                        Helpers.assertSuccessWithEvents
+                            [ Types.EncryptedAmountsRemoved
+                                { earAccount = accountAddress0,
+                                  earUpToIndex = 0,
+                                  earNewAmount = eatdRemainingAmount encryptedTransferData3,
+                                  earInputAmount =
+                                    eatdRemainingAmount
+                                        encryptedTransferData2
+                                },
+                              Types.NewEncryptedAmount
+                                { neaAccount = accountAddress1,
+                                  neaNewIndex = 2,
+                                  neaEncryptedAmount =
+                                    eatdTransferAmount
+                                        encryptedTransferData3
+                                }
+                            ]
+                            result
                         doEncryptedBalanceAssertionSender
                         doEncryptedBalanceAssertionReceiver
                 },
@@ -540,7 +509,7 @@ testCase0 _ pvString = specify
                           metadata = makeDummyHeader accountAddress1 1 100_000,
                           keys = [(0, [(0, keyPair1)])]
                         },
-                  taaAssertion = \Helpers.SchedulerResult{..} state -> do
+                  taaAssertion = \result state -> do
                     doEncryptedBalanceAssertionSender <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -560,26 +529,22 @@ testCase0 _ pvString = specify
                             accountAddress0
                             state
                     return $ do
-                        case Helpers.getResults $ Sch.ftAdded srTransactions of
-                            [(_, Types.TxSuccess{..})] ->
-                                assertEqual
-                                    "The correct events are produced"
-                                    [ Types.EncryptedAmountsRemoved
-                                        { earAccount = accountAddress1,
-                                          earUpToIndex = 2,
-                                          earNewAmount = eatdRemainingAmount encryptedTransferData4,
-                                          earInputAmount = aggregatedEncryptedAmount4
-                                        },
-                                      Types.NewEncryptedAmount
-                                        { neaAccount = accountAddress0,
-                                          neaNewIndex = 0,
-                                          neaEncryptedAmount =
-                                            eatdTransferAmount
-                                                encryptedTransferData4
-                                        }
-                                    ]
-                                    vrEvents
-                            _ -> assertFailure "Sixth transaction should succeed"
+                        Helpers.assertSuccessWithEvents
+                            [ Types.EncryptedAmountsRemoved
+                                { earAccount = accountAddress1,
+                                  earUpToIndex = 2,
+                                  earNewAmount = eatdRemainingAmount encryptedTransferData4,
+                                  earInputAmount = aggregatedEncryptedAmount4
+                                },
+                              Types.NewEncryptedAmount
+                                { neaAccount = accountAddress0,
+                                  neaNewIndex = 0,
+                                  neaEncryptedAmount =
+                                    eatdTransferAmount
+                                        encryptedTransferData4
+                                }
+                            ]
+                            result
                         doEncryptedBalanceAssertionSender
                         doEncryptedBalanceAssertionReceiver
                 },
@@ -593,7 +558,7 @@ testCase0 _ pvString = specify
                           metadata = makeDummyHeader accountAddress1 2 100_000,
                           keys = [(0, [(0, keyPair1)])]
                         },
-                  taaAssertion = \Helpers.SchedulerResult{..} state -> do
+                  taaAssertion = \result state -> do
                     doEncryptedBalanceAssertionSender <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -613,26 +578,22 @@ testCase0 _ pvString = specify
                             accountAddress0
                             state
                     return $ do
-                        case Helpers.getResults $ Sch.ftAdded srTransactions of
-                            [(_, Types.TxSuccess{..})] ->
-                                assertEqual
-                                    "The correct events are produced"
-                                    [ Types.EncryptedAmountsRemoved
-                                        { earAccount = accountAddress1,
-                                          earUpToIndex = 3,
-                                          earNewAmount = eatdRemainingAmount encryptedTransferData5,
-                                          earInputAmount = aggregatedEncryptedAmount5
-                                        },
-                                      Types.NewEncryptedAmount
-                                        { neaAccount = accountAddress0,
-                                          neaNewIndex = 1,
-                                          neaEncryptedAmount =
-                                            eatdTransferAmount
-                                                encryptedTransferData5
-                                        }
-                                    ]
-                                    vrEvents
-                            _ -> assertFailure "Seventh transaction should succeed"
+                        Helpers.assertSuccessWithEvents
+                            [ Types.EncryptedAmountsRemoved
+                                { earAccount = accountAddress1,
+                                  earUpToIndex = 3,
+                                  earNewAmount = eatdRemainingAmount encryptedTransferData5,
+                                  earInputAmount = aggregatedEncryptedAmount5
+                                },
+                              Types.NewEncryptedAmount
+                                { neaAccount = accountAddress0,
+                                  neaNewIndex = 1,
+                                  neaEncryptedAmount =
+                                    eatdTransferAmount
+                                        encryptedTransferData5
+                                }
+                            ]
+                            result
                         doEncryptedBalanceAssertionSender
                         doEncryptedBalanceAssertionReceiver
                 },
@@ -643,7 +604,7 @@ testCase0 _ pvString = specify
                           metadata = makeDummyHeader accountAddress0 5 100_000,
                           keys = [(0, [(0, keyPair0)])]
                         },
-                  taaAssertion = \Helpers.SchedulerResult{..} state -> do
+                  taaAssertion = \result state -> do
                     doEncryptedBalanceAssertion <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -654,27 +615,23 @@ testCase0 _ pvString = specify
                             accountAddress0
                             state
                     return $ do
-                        case Helpers.getResults $ Sch.ftAdded srTransactions of
-                            [(_, Types.TxSuccess{..})] ->
-                                assertEqual
-                                    "The correct events are produced"
-                                    [ Types.EncryptedAmountsRemoved
-                                        { earAccount = accountAddress0,
-                                          earUpToIndex = 0,
-                                          earNewAmount =
-                                            stpatdRemainingAmount
-                                                secToPubTransferData1,
-                                          earInputAmount =
-                                            eatdRemainingAmount
-                                                encryptedTransferData3
-                                        },
-                                      Types.AmountAddedByDecryption
-                                        { aabdAccount = accountAddress0,
-                                          aabdAmount = 650
-                                        }
-                                    ]
-                                    vrEvents
-                            _ -> assertFailure "Eigth transaction should succeed"
+                        Helpers.assertSuccessWithEvents
+                            [ Types.EncryptedAmountsRemoved
+                                { earAccount = accountAddress0,
+                                  earUpToIndex = 0,
+                                  earNewAmount =
+                                    stpatdRemainingAmount
+                                        secToPubTransferData1,
+                                  earInputAmount =
+                                    eatdRemainingAmount
+                                        encryptedTransferData3
+                                },
+                              Types.AmountAddedByDecryption
+                                { aabdAccount = accountAddress0,
+                                  aabdAmount = 650
+                                }
+                            ]
+                            result
                         doEncryptedBalanceAssertion
                 },
               Helpers.TransactionAndAssertion
@@ -684,7 +641,7 @@ testCase0 _ pvString = specify
                           metadata = makeDummyHeader accountAddress0 6 100_000,
                           keys = [(0, [(0, keyPair0)])]
                         },
-                  taaAssertion = \Helpers.SchedulerResult{..} state -> do
+                  taaAssertion = \result state -> do
                     doEncryptedBalanceAssertion <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -695,25 +652,21 @@ testCase0 _ pvString = specify
                             accountAddress0
                             state
                     return $ do
-                        case Helpers.getResults $ Sch.ftAdded srTransactions of
-                            [(_, Types.TxSuccess{..})] ->
-                                assertEqual
-                                    "The correct events are produced"
-                                    [ Types.EncryptedAmountsRemoved
-                                        { earAccount = accountAddress0,
-                                          earUpToIndex = 1,
-                                          earNewAmount =
-                                            stpatdRemainingAmount
-                                                secToPubTransferData2,
-                                          earInputAmount = aggregatedEncryptedAmount7
-                                        },
-                                      Types.AmountAddedByDecryption
-                                        { aabdAccount = accountAddress0,
-                                          aabdAmount = 150
-                                        }
-                                    ]
-                                    vrEvents
-                            _ -> assertFailure "Nineth transaction should succeed"
+                        Helpers.assertSuccessWithEvents
+                            [ Types.EncryptedAmountsRemoved
+                                { earAccount = accountAddress0,
+                                  earUpToIndex = 1,
+                                  earNewAmount =
+                                    stpatdRemainingAmount
+                                        secToPubTransferData2,
+                                  earInputAmount = aggregatedEncryptedAmount7
+                                },
+                              Types.AmountAddedByDecryption
+                                { aabdAccount = accountAddress0,
+                                  aabdAmount = 150
+                                }
+                            ]
+                            result
                         doEncryptedBalanceAssertion
                 },
               Helpers.TransactionAndAssertion
@@ -723,7 +676,7 @@ testCase0 _ pvString = specify
                           metadata = makeDummyHeader accountAddress0 7 100_000,
                           keys = [(0, [(0, keyPair0)])]
                         },
-                  taaAssertion = \Helpers.SchedulerResult{..} state -> do
+                  taaAssertion = \result state -> do
                     doEncryptedBalanceAssertion <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -734,25 +687,21 @@ testCase0 _ pvString = specify
                             accountAddress0
                             state
                     return $ do
-                        case Helpers.getResults $ Sch.ftAdded srTransactions of
-                            [(_, Types.TxSuccess{..})] ->
-                                assertEqual
-                                    "The correct events are produced"
-                                    [ Types.EncryptedAmountsRemoved
-                                        { earAccount = accountAddress0,
-                                          earUpToIndex = 2,
-                                          earNewAmount =
-                                            stpatdRemainingAmount
-                                                secToPubTransferData3,
-                                          earInputAmount = aggregatedEncryptedAmount8
-                                        },
-                                      Types.AmountAddedByDecryption
-                                        { aabdAccount = accountAddress0,
-                                          aabdAmount = 200
-                                        }
-                                    ]
-                                    vrEvents
-                            _ -> assertFailure "Tenth transaction should succeed"
+                        Helpers.assertSuccessWithEvents
+                            [ Types.EncryptedAmountsRemoved
+                                { earAccount = accountAddress0,
+                                  earUpToIndex = 2,
+                                  earNewAmount =
+                                    stpatdRemainingAmount
+                                        secToPubTransferData3,
+                                  earInputAmount = aggregatedEncryptedAmount8
+                                },
+                              Types.AmountAddedByDecryption
+                                { aabdAccount = accountAddress0,
+                                  aabdAmount = 200
+                                }
+                            ]
+                            result
                         doEncryptedBalanceAssertion
                 }
             ]
@@ -764,7 +713,7 @@ testCase1 ::
     (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 testCase1 spv pvString =
     unless (Types.supportsMemo spv)
         $ specify
@@ -805,11 +754,7 @@ testCase1 spv pvString =
                           metadata = makeDummyHeader accountAddress0 1 100_000,
                           keys = [(0, [(0, keyPair0)])]
                         },
-                  taaAssertion = \Helpers.SchedulerResult{..} state -> do
-                    doInvariantAssertions <-
-                        Helpers.assertBlockStateInvariantsH
-                            state
-                            srExecutionCosts
+                  taaAssertion = \result state -> do
                     doEncryptedBalanceAssertions <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -818,19 +763,14 @@ testCase1 spv pvString =
                             accountAddress0
                             state
                     return $ do
-                        case Helpers.getResults $ Sch.ftAdded srTransactions of
-                            [(_, Types.TxSuccess{..})] ->
-                                assertEqual
-                                    "The correct encrypt self amount event is produced"
-                                    [ Types.EncryptedSelfAmountAdded
-                                        { eaaAccount = accountAddress0,
-                                          eaaNewAmount = encryptedAmount1000,
-                                          eaaAmount = 1_000
-                                        }
-                                    ]
-                                    vrEvents
-                            _ -> assertFailure "First transaction should succeed"
-                        doInvariantAssertions
+                        Helpers.assertSuccessWithEvents
+                            [ Types.EncryptedSelfAmountAdded
+                                { eaaAccount = accountAddress0,
+                                  eaaNewAmount = encryptedAmount1000,
+                                  eaaAmount = 1_000
+                                }
+                            ]
+                            result
                         doEncryptedBalanceAssertions
                 },
               Helpers.TransactionAndAssertion
@@ -844,7 +784,7 @@ testCase1 spv pvString =
                           metadata = makeDummyHeader accountAddress0 2 100_000,
                           keys = [(0, [(0, keyPair0)])]
                         },
-                  taaAssertion = \Helpers.SchedulerResult{..} state -> do
+                  taaAssertion = \result state -> do
                     doEncryptedBalanceAssertions <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -853,13 +793,9 @@ testCase1 spv pvString =
                             accountAddress0
                             state
                     return $ do
-                        case Helpers.getResults $ Sch.ftAdded srTransactions of
-                            [(_, Types.TxReject{..})] ->
-                                assertEqual
-                                    "The correct events are produced"
-                                    Types.SerializationFailure
-                                    vrRejectReason
-                            _ -> assertFailure "Second transaction should reject"
+                        Helpers.assertRejectWithReason
+                            Types.SerializationFailure
+                            result
                         doEncryptedBalanceAssertions
                 }
             ]
@@ -871,7 +807,7 @@ testCase2 ::
     (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 testCase2 spv pvString =
     when (Types.supportsMemo spv)
         $ specify
@@ -1065,11 +1001,7 @@ testCase2 spv pvString =
                           metadata = makeDummyHeader accountAddress0 1 100_000,
                           keys = [(0, [(0, keyPair0)])]
                         },
-                  taaAssertion = \Helpers.SchedulerResult{..} state -> do
-                    doInvariantAssertions <-
-                        Helpers.assertBlockStateInvariantsH
-                            state
-                            srExecutionCosts
+                  taaAssertion = \result state -> do
                     doEncryptedBalanceAssertions <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -1078,19 +1010,14 @@ testCase2 spv pvString =
                             accountAddress0
                             state
                     return $ do
-                        case Helpers.getResults $ Sch.ftAdded srTransactions of
-                            [(_, Types.TxSuccess{..})] ->
-                                assertEqual
-                                    "The correct encrypt self amount event is produced"
-                                    [ Types.EncryptedSelfAmountAdded
-                                        { eaaAccount = accountAddress0,
-                                          eaaNewAmount = encryptedAmount1000,
-                                          eaaAmount = 1_000
-                                        }
-                                    ]
-                                    vrEvents
-                            _ -> assertFailure "First transaction should succeed"
-                        doInvariantAssertions
+                        Helpers.assertSuccessWithEvents
+                            [ Types.EncryptedSelfAmountAdded
+                                { eaaAccount = accountAddress0,
+                                  eaaNewAmount = encryptedAmount1000,
+                                  eaaAmount = 1_000
+                                }
+                            ]
+                            result
                         doEncryptedBalanceAssertions
                 },
               Helpers.TransactionAndAssertion
@@ -1104,7 +1031,7 @@ testCase2 spv pvString =
                           metadata = makeDummyHeader accountAddress0 2 100_000,
                           keys = [(0, [(0, keyPair0)])]
                         },
-                  taaAssertion = \Helpers.SchedulerResult{..} state -> do
+                  taaAssertion = \result state -> do
                     doEncryptedBalanceAssertionSender <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -1122,27 +1049,23 @@ testCase2 spv pvString =
                             accountAddress1
                             state
                     return $ do
-                        case Helpers.getResults $ Sch.ftAdded srTransactions of
-                            [(_, Types.TxSuccess{..})] ->
-                                assertEqual
-                                    "The correct events are produced"
-                                    [ Types.EncryptedAmountsRemoved
-                                        { earAccount = accountAddress0,
-                                          earUpToIndex = 0,
-                                          earNewAmount = eatdRemainingAmount encryptedTransferData1,
-                                          earInputAmount = encryptedAmount1000
-                                        },
-                                      Types.NewEncryptedAmount
-                                        { neaAccount = accountAddress1,
-                                          neaNewIndex = 0,
-                                          neaEncryptedAmount =
-                                            eatdTransferAmount
-                                                encryptedTransferData1
-                                        },
-                                      Types.TransferMemo memo
-                                    ]
-                                    vrEvents
-                            _ -> assertFailure "Third transaction should succeed"
+                        Helpers.assertSuccessWithEvents
+                            [ Types.EncryptedAmountsRemoved
+                                { earAccount = accountAddress0,
+                                  earUpToIndex = 0,
+                                  earNewAmount = eatdRemainingAmount encryptedTransferData1,
+                                  earInputAmount = encryptedAmount1000
+                                },
+                              Types.NewEncryptedAmount
+                                { neaAccount = accountAddress1,
+                                  neaNewIndex = 0,
+                                  neaEncryptedAmount =
+                                    eatdTransferAmount
+                                        encryptedTransferData1
+                                },
+                              Types.TransferMemo memo
+                            ]
+                            result
                         doEncryptedBalanceAssertionSender
                         doEncryptedBalanceAssertionReceiver
                 },
@@ -1157,7 +1080,7 @@ testCase2 spv pvString =
                           metadata = makeDummyHeader accountAddress0 3 100_000,
                           keys = [(0, [(0, keyPair0)])]
                         },
-                  taaAssertion = \Helpers.SchedulerResult{..} state -> do
+                  taaAssertion = \result state -> do
                     doEncryptedBalanceAssertionSender <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -1174,29 +1097,26 @@ testCase2 spv pvString =
                             accountAddress1
                             state
                     return $ do
-                        case Helpers.getResults $ Sch.ftAdded srTransactions of
-                            [(_, Types.TxSuccess{..})] ->
-                                assertEqual
-                                    "The correct events are produced"
-                                    [ Types.EncryptedAmountsRemoved
-                                        { earAccount = accountAddress0,
-                                          earUpToIndex = 0,
-                                          earNewAmount = eatdRemainingAmount encryptedTransferData2,
-                                          earInputAmount =
-                                            eatdRemainingAmount
-                                                encryptedTransferData1
-                                        },
-                                      Types.NewEncryptedAmount
-                                        { neaAccount = accountAddress1,
-                                          neaNewIndex = 1,
-                                          neaEncryptedAmount =
-                                            eatdTransferAmount
-                                                encryptedTransferData2
-                                        },
-                                      Types.TransferMemo memo
-                                    ]
-                                    vrEvents
-                            _ -> assertFailure "Forth transaction should succeed"
+                        Helpers.assertSuccessWithEvents
+                            [ Types.EncryptedAmountsRemoved
+                                { earAccount = accountAddress0,
+                                  earUpToIndex = 0,
+                                  earNewAmount = eatdRemainingAmount encryptedTransferData2,
+                                  earInputAmount =
+                                    eatdRemainingAmount
+                                        encryptedTransferData1
+                                },
+                              Types.NewEncryptedAmount
+                                { neaAccount = accountAddress1,
+                                  neaNewIndex = 1,
+                                  neaEncryptedAmount =
+                                    eatdTransferAmount
+                                        encryptedTransferData2
+                                },
+                              Types.TransferMemo memo
+                            ]
+                            result
+
                         doEncryptedBalanceAssertionSender
                         doEncryptedBalanceAssertionReceiver
                 },
@@ -1211,7 +1131,7 @@ testCase2 spv pvString =
                           metadata = makeDummyHeader accountAddress0 4 100_000,
                           keys = [(0, [(0, keyPair0)])]
                         },
-                  taaAssertion = \Helpers.SchedulerResult{..} state -> do
+                  taaAssertion = \result state -> do
                     doEncryptedBalanceAssertionSender <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -1228,29 +1148,25 @@ testCase2 spv pvString =
                             accountAddress1
                             state
                     return $ do
-                        case Helpers.getResults $ Sch.ftAdded srTransactions of
-                            [(_, Types.TxSuccess{..})] ->
-                                assertEqual
-                                    "The correct events are produced"
-                                    [ Types.EncryptedAmountsRemoved
-                                        { earAccount = accountAddress0,
-                                          earUpToIndex = 0,
-                                          earNewAmount = eatdRemainingAmount encryptedTransferData3,
-                                          earInputAmount =
-                                            eatdRemainingAmount
-                                                encryptedTransferData2
-                                        },
-                                      Types.NewEncryptedAmount
-                                        { neaAccount = accountAddress1,
-                                          neaNewIndex = 2,
-                                          neaEncryptedAmount =
-                                            eatdTransferAmount
-                                                encryptedTransferData3
-                                        },
-                                      Types.TransferMemo memo
-                                    ]
-                                    vrEvents
-                            _ -> assertFailure "Fifth transaction should succeed"
+                        Helpers.assertSuccessWithEvents
+                            [ Types.EncryptedAmountsRemoved
+                                { earAccount = accountAddress0,
+                                  earUpToIndex = 0,
+                                  earNewAmount = eatdRemainingAmount encryptedTransferData3,
+                                  earInputAmount =
+                                    eatdRemainingAmount
+                                        encryptedTransferData2
+                                },
+                              Types.NewEncryptedAmount
+                                { neaAccount = accountAddress1,
+                                  neaNewIndex = 2,
+                                  neaEncryptedAmount =
+                                    eatdTransferAmount
+                                        encryptedTransferData3
+                                },
+                              Types.TransferMemo memo
+                            ]
+                            result
                         doEncryptedBalanceAssertionSender
                         doEncryptedBalanceAssertionReceiver
                 },
@@ -1265,7 +1181,7 @@ testCase2 spv pvString =
                           metadata = makeDummyHeader accountAddress1 1 100_000,
                           keys = [(0, [(0, keyPair1)])]
                         },
-                  taaAssertion = \Helpers.SchedulerResult{..} state -> do
+                  taaAssertion = \result state -> do
                     doEncryptedBalanceAssertionSender <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -1285,27 +1201,23 @@ testCase2 spv pvString =
                             accountAddress0
                             state
                     return $ do
-                        case Helpers.getResults $ Sch.ftAdded srTransactions of
-                            [(_, Types.TxSuccess{..})] ->
-                                assertEqual
-                                    "The correct events are produced"
-                                    [ Types.EncryptedAmountsRemoved
-                                        { earAccount = accountAddress1,
-                                          earUpToIndex = 2,
-                                          earNewAmount = eatdRemainingAmount encryptedTransferData4,
-                                          earInputAmount = aggregatedEncryptedAmount4
-                                        },
-                                      Types.NewEncryptedAmount
-                                        { neaAccount = accountAddress0,
-                                          neaNewIndex = 0,
-                                          neaEncryptedAmount =
-                                            eatdTransferAmount
-                                                encryptedTransferData4
-                                        },
-                                      Types.TransferMemo memo
-                                    ]
-                                    vrEvents
-                            _ -> assertFailure "Sixth transaction should succeed"
+                        Helpers.assertSuccessWithEvents
+                            [ Types.EncryptedAmountsRemoved
+                                { earAccount = accountAddress1,
+                                  earUpToIndex = 2,
+                                  earNewAmount = eatdRemainingAmount encryptedTransferData4,
+                                  earInputAmount = aggregatedEncryptedAmount4
+                                },
+                              Types.NewEncryptedAmount
+                                { neaAccount = accountAddress0,
+                                  neaNewIndex = 0,
+                                  neaEncryptedAmount =
+                                    eatdTransferAmount
+                                        encryptedTransferData4
+                                },
+                              Types.TransferMemo memo
+                            ]
+                            result
                         doEncryptedBalanceAssertionSender
                         doEncryptedBalanceAssertionReceiver
                 },
@@ -1320,7 +1232,7 @@ testCase2 spv pvString =
                           metadata = makeDummyHeader accountAddress1 2 100_000,
                           keys = [(0, [(0, keyPair1)])]
                         },
-                  taaAssertion = \Helpers.SchedulerResult{..} state -> do
+                  taaAssertion = \result state -> do
                     doEncryptedBalanceAssertionSender <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -1340,27 +1252,23 @@ testCase2 spv pvString =
                             accountAddress0
                             state
                     return $ do
-                        case Helpers.getResults $ Sch.ftAdded srTransactions of
-                            [(_, Types.TxSuccess{..})] ->
-                                assertEqual
-                                    "The correct events are produced"
-                                    [ Types.EncryptedAmountsRemoved
-                                        { earAccount = accountAddress1,
-                                          earUpToIndex = 3,
-                                          earNewAmount = eatdRemainingAmount encryptedTransferData5,
-                                          earInputAmount = aggregatedEncryptedAmount5
-                                        },
-                                      Types.NewEncryptedAmount
-                                        { neaAccount = accountAddress0,
-                                          neaNewIndex = 1,
-                                          neaEncryptedAmount =
-                                            eatdTransferAmount
-                                                encryptedTransferData5
-                                        },
-                                      Types.TransferMemo memo
-                                    ]
-                                    vrEvents
-                            _ -> assertFailure "Seventh transaction should succeed"
+                        Helpers.assertSuccessWithEvents
+                            [ Types.EncryptedAmountsRemoved
+                                { earAccount = accountAddress1,
+                                  earUpToIndex = 3,
+                                  earNewAmount = eatdRemainingAmount encryptedTransferData5,
+                                  earInputAmount = aggregatedEncryptedAmount5
+                                },
+                              Types.NewEncryptedAmount
+                                { neaAccount = accountAddress0,
+                                  neaNewIndex = 1,
+                                  neaEncryptedAmount =
+                                    eatdTransferAmount
+                                        encryptedTransferData5
+                                },
+                              Types.TransferMemo memo
+                            ]
+                            result
                         doEncryptedBalanceAssertionSender
                         doEncryptedBalanceAssertionReceiver
                 },
@@ -1371,7 +1279,7 @@ testCase2 spv pvString =
                           metadata = makeDummyHeader accountAddress0 5 100_000,
                           keys = [(0, [(0, keyPair0)])]
                         },
-                  taaAssertion = \Helpers.SchedulerResult{..} state -> do
+                  taaAssertion = \result state -> do
                     doEncryptedBalanceAssertion <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -1382,27 +1290,24 @@ testCase2 spv pvString =
                             accountAddress0
                             state
                     return $ do
-                        case Helpers.getResults $ Sch.ftAdded srTransactions of
-                            [(_, Types.TxSuccess{..})] ->
-                                assertEqual
-                                    "The correct events are produced"
-                                    [ Types.EncryptedAmountsRemoved
-                                        { earAccount = accountAddress0,
-                                          earUpToIndex = 0,
-                                          earNewAmount =
-                                            stpatdRemainingAmount
-                                                secToPubTransferData1,
-                                          earInputAmount =
-                                            eatdRemainingAmount
-                                                encryptedTransferData3
-                                        },
-                                      Types.AmountAddedByDecryption
-                                        { aabdAccount = accountAddress0,
-                                          aabdAmount = 650
-                                        }
-                                    ]
-                                    vrEvents
-                            _ -> assertFailure "Eigth transaction should succeed"
+                        Helpers.assertSuccessWithEvents
+                            [ Types.EncryptedAmountsRemoved
+                                { earAccount = accountAddress0,
+                                  earUpToIndex = 0,
+                                  earNewAmount =
+                                    stpatdRemainingAmount
+                                        secToPubTransferData1,
+                                  earInputAmount =
+                                    eatdRemainingAmount
+                                        encryptedTransferData3
+                                },
+                              Types.AmountAddedByDecryption
+                                { aabdAccount = accountAddress0,
+                                  aabdAmount = 650
+                                }
+                            ]
+                            result
+
                         doEncryptedBalanceAssertion
                 },
               Helpers.TransactionAndAssertion
@@ -1412,7 +1317,7 @@ testCase2 spv pvString =
                           metadata = makeDummyHeader accountAddress0 6 100_000,
                           keys = [(0, [(0, keyPair0)])]
                         },
-                  taaAssertion = \Helpers.SchedulerResult{..} state -> do
+                  taaAssertion = \result state -> do
                     doEncryptedBalanceAssertion <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -1423,25 +1328,22 @@ testCase2 spv pvString =
                             accountAddress0
                             state
                     return $ do
-                        case Helpers.getResults $ Sch.ftAdded srTransactions of
-                            [(_, Types.TxSuccess{..})] ->
-                                assertEqual
-                                    "The correct events are produced"
-                                    [ Types.EncryptedAmountsRemoved
-                                        { earAccount = accountAddress0,
-                                          earUpToIndex = 1,
-                                          earNewAmount =
-                                            stpatdRemainingAmount
-                                                secToPubTransferData2,
-                                          earInputAmount = aggregatedEncryptedAmount7
-                                        },
-                                      Types.AmountAddedByDecryption
-                                        { aabdAccount = accountAddress0,
-                                          aabdAmount = 150
-                                        }
-                                    ]
-                                    vrEvents
-                            _ -> assertFailure "Nineth transaction should succeed"
+                        Helpers.assertSuccessWithEvents
+                            [ Types.EncryptedAmountsRemoved
+                                { earAccount = accountAddress0,
+                                  earUpToIndex = 1,
+                                  earNewAmount =
+                                    stpatdRemainingAmount
+                                        secToPubTransferData2,
+                                  earInputAmount = aggregatedEncryptedAmount7
+                                },
+                              Types.AmountAddedByDecryption
+                                { aabdAccount = accountAddress0,
+                                  aabdAmount = 150
+                                }
+                            ]
+                            result
+
                         doEncryptedBalanceAssertion
                 },
               Helpers.TransactionAndAssertion
@@ -1451,7 +1353,7 @@ testCase2 spv pvString =
                           metadata = makeDummyHeader accountAddress0 7 100_000,
                           keys = [(0, [(0, keyPair0)])]
                         },
-                  taaAssertion = \Helpers.SchedulerResult{..} state -> do
+                  taaAssertion = \result state -> do
                     doEncryptedBalanceAssertion <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -1462,25 +1364,31 @@ testCase2 spv pvString =
                             accountAddress0
                             state
                     return $ do
-                        case Helpers.getResults $ Sch.ftAdded srTransactions of
-                            [(_, Types.TxSuccess{..})] ->
-                                assertEqual
-                                    "The correct events are produced"
-                                    [ Types.EncryptedAmountsRemoved
-                                        { earAccount = accountAddress0,
-                                          earUpToIndex = 2,
-                                          earNewAmount =
-                                            stpatdRemainingAmount
-                                                secToPubTransferData3,
-                                          earInputAmount = aggregatedEncryptedAmount8
-                                        },
-                                      Types.AmountAddedByDecryption
-                                        { aabdAccount = accountAddress0,
-                                          aabdAmount = 200
-                                        }
-                                    ]
-                                    vrEvents
-                            _ -> assertFailure "Tenth transaction should succeed"
+                        Helpers.assertSuccessWithEvents
+                            [ Types.EncryptedAmountsRemoved
+                                { earAccount = accountAddress0,
+                                  earUpToIndex = 2,
+                                  earNewAmount =
+                                    stpatdRemainingAmount
+                                        secToPubTransferData3,
+                                  earInputAmount = aggregatedEncryptedAmount8
+                                },
+                              Types.AmountAddedByDecryption
+                                { aabdAccount = accountAddress0,
+                                  aabdAmount = 200
+                                }
+                            ]
+                            result
+
                         doEncryptedBalanceAssertion
                 }
             ]
+
+tests :: Spec
+tests =
+    describe "Encrypted transfers:" $
+        sequence_ $
+            Helpers.forEveryProtocolVersion $ \spv pvString -> do
+                testCase0 spv pvString
+                testCase1 spv pvString
+                testCase2 spv pvString

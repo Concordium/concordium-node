@@ -1,39 +1,35 @@
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
-module SchedulerTests.RejectReasons where
+module SchedulerTests.RejectReasons (tests) where
 
+import Data.Maybe (catMaybes)
 import Test.HUnit
 import Test.Hspec
 
-import Data.Maybe (catMaybes)
-
+import qualified Concordium.Crypto.SignatureScheme as SigScheme
+import qualified Concordium.GlobalState.BlockState as BS
+import qualified Concordium.GlobalState.Persistent.BlockState as BS
 import qualified Concordium.Scheduler as Sch
-import qualified Concordium.Scheduler.EnvironmentImplementation as Types
+import Concordium.Scheduler.DummyData
 import Concordium.Scheduler.Runner
 import qualified Concordium.Scheduler.Types as Types
-import Concordium.TransactionVerification
 import Concordium.Wasm (WasmVersion (..))
+import qualified SchedulerTests.Helpers as Helpers
 
-import Concordium.GlobalState.Basic.BlockState
-import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
-import Concordium.GlobalState.Basic.BlockState.Instances as Ins
-import Concordium.GlobalState.Basic.BlockState.Invariants
-import Lens.Micro.Platform
+initialBlockState ::
+    (Types.IsProtocolVersion pv) =>
+    Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
+initialBlockState =
+    Helpers.createTestBlockStateWithAccountsM
+        [Helpers.makeTestAccountFromSeed 1_000_000_000 0]
 
-import Concordium.Crypto.DummyData
-import Concordium.GlobalState.DummyData
-import Concordium.Scheduler.DummyData
-import Concordium.Types.DummyData
-import Control.Monad.IO.Class
+accountAddress0 :: Types.AccountAddress
+accountAddress0 = Helpers.accountAddressFromSeed 0
 
-import SchedulerTests.Helpers
-import SchedulerTests.TestUtils
-
-initialBlockState :: BlockState PV1
-initialBlockState = blockStateWithAlesAccount 1000000000 Acc.emptyAccounts
-
-chainMeta :: Types.ChainMetadata
-chainMeta = Types.ChainMetadata{slotTime = 444}
+keyPair0 :: SigScheme.KeyPair
+keyPair0 = Helpers.keyPairFromSeed 0
 
 wasmPath :: String
 wasmPath = "./testdata/contracts/reject-reasons.wasm"
@@ -41,105 +37,128 @@ wasmPath = "./testdata/contracts/reject-reasons.wasm"
 transactionInputs :: [TransactionJSON]
 transactionInputs =
     [ TJSON
-        { metadata = makeDummyHeader alesAccount 1 100000,
+        { metadata = makeDummyHeader accountAddress0 1 100_000,
           payload = DeployModule V0 wasmPath,
-          keys = [(0, [(0, alesKP)])]
+          keys = [(0, [(0, keyPair0)])]
         },
       TJSON
-        { metadata = makeDummyHeader alesAccount 2 100000,
+        { metadata = makeDummyHeader accountAddress0 2 100_000,
           payload = InitContract 0 V0 wasmPath "init_success" "",
-          keys = [(0, [(0, alesKP)])]
+          keys = [(0, [(0, keyPair0)])]
         },
       TJSON
-        { metadata = makeDummyHeader alesAccount 3 100000,
+        { metadata = makeDummyHeader accountAddress0 3 100_000,
           payload = InitContract 0 V0 wasmPath "init_error_pos" "",
-          keys = [(0, [(0, alesKP)])]
+          keys = [(0, [(0, keyPair0)])]
         },
       TJSON
-        { metadata = makeDummyHeader alesAccount 4 100000,
+        { metadata = makeDummyHeader accountAddress0 4 100_000,
           payload = InitContract 0 V0 wasmPath "init_fail_minus2" "",
-          keys = [(0, [(0, alesKP)])]
+          keys = [(0, [(0, keyPair0)])]
         },
       TJSON
-        { metadata = makeDummyHeader alesAccount 5 100000,
+        { metadata = makeDummyHeader accountAddress0 5 100_000,
           payload = InitContract 0 V0 wasmPath "init_fail_big" "",
-          keys = [(0, [(0, alesKP)])]
+          keys = [(0, [(0, keyPair0)])]
         },
       TJSON
-        { metadata = makeDummyHeader alesAccount 6 100000,
+        { metadata = makeDummyHeader accountAddress0 6 100_000,
           payload = Update 0 (Types.ContractAddress 0 0) "success.receive_error_no_action" "",
-          keys = [(0, [(0, alesKP)])]
+          keys = [(0, [(0, keyPair0)])]
         },
       TJSON
-        { metadata = makeDummyHeader alesAccount 7 100000,
+        { metadata = makeDummyHeader accountAddress0 7 100_000,
           payload = Update 0 (Types.ContractAddress 0 0) "success.receive_success" "",
-          keys = [(0, [(0, alesKP)])]
+          keys = [(0, [(0, keyPair0)])]
         },
       TJSON
-        { metadata = makeDummyHeader alesAccount 8 100000,
+        { metadata = makeDummyHeader accountAddress0 8 100_000,
           payload = Update 0 (Types.ContractAddress 0 0) "success.receive_error_pos" "",
-          keys = [(0, [(0, alesKP)])]
+          keys = [(0, [(0, keyPair0)])]
         },
       TJSON
-        { metadata = makeDummyHeader alesAccount 9 100000,
+        { metadata = makeDummyHeader accountAddress0 9 100_000,
           payload = Update 0 (Types.ContractAddress 0 0) "success.receive_fail_minus5" "",
-          keys = [(0, [(0, alesKP)])]
+          keys = [(0, [(0, keyPair0)])]
         },
       TJSON
-        { metadata = makeDummyHeader alesAccount 10 100000,
+        { metadata = makeDummyHeader accountAddress0 10 100_000,
           payload = Update 0 (Types.ContractAddress 0 0) "success.receive_fail_big" "",
-          keys = [(0, [(0, alesKP)])]
+          keys = [(0, [(0, keyPair0)])]
         }
     ]
 
-type TestResult =
-    ( [(BlockItemWithStatus, Types.ValidResult)],
-      [(TransactionWithStatus, Types.FailureKind)],
-      [(Types.ContractAddress, Types.BasicInstance)]
-    )
-
-testRejectReasons :: IO TestResult
-testRejectReasons = do
-    transactions <- processUngroupedTransactions transactionInputs
-    let (Sch.FilteredTransactions{..}, finState) =
-            Types.runSI
-                (Sch.filterTransactions dummyBlockSize dummyBlockTimeout transactions)
-                chainMeta
-                maxBound
-                maxBound
+testRejectReasons ::
+    forall pv.
+    (Types.IsProtocolVersion pv) =>
+    Types.SProtocolVersion pv ->
+    String ->
+    Spec
+testRejectReasons _ pvString =
+    specify (pvString ++ ": Processing reject-reasons.wasm smart contract") $ do
+        (result, doBlockStateAssertions) <-
+            Helpers.runSchedulerTestTransactionJson
+                Helpers.defaultTestConfig
                 initialBlockState
-    let gs = finState ^. Types.ssBlockState
-    case invariantBlockState gs (finState ^. Types.schedulerExecutionCosts) of
-        Left f -> liftIO $ assertFailure $ f ++ " " ++ show gs
-        _ -> return ()
-    return (getResults ftAdded, ftFailed, gs ^.. blockInstances . foldInstances . to (\i -> (instanceAddress i, i)))
+                (Helpers.checkReloadCheck checkState)
+                transactionInputs
+        let Sch.FilteredTransactions{..} = Helpers.srTransactions result
+        let results = Helpers.getResults ftAdded
+        assertEqual "There should be 10 successful transactions." 10 (length results)
+        assertEqual "There should be no failed transactions." [] ftFailed
+        let runtimeFailures =
+                filter
+                    ( \case
+                        (_, Types.TxReject{vrRejectReason = Types.RuntimeFailure}) -> True
+                        _ -> False
+                    )
+                    results
 
-checkTransactionResults :: TestResult -> Assertion
-checkTransactionResults (suc, fails, instances) = do
-    assertEqual "There should be 10 successful transactions." 10 (length suc)
-    assertEqual "There should be no failed transactions." 0 (length fails)
-    assertEqual "There should be 3 runtime failures (from using positive return codes)." 3 (length runtimeFailures)
-    assertEqual "There should be 2 rejected init and 2 rejected update transactions." [-2, -2147483648, -5, -2147483648] (catMaybes rejects)
-    assertEqual "There should be 1 instance." 1 (length instances)
+        assertEqual
+            "There should be 3 runtime failures (from using positive return codes)."
+            3
+            (length runtimeFailures)
+        let rejects =
+                map
+                    ( \case
+                        ( _,
+                          Types.TxReject
+                            { vrRejectReason =
+                                Types.RejectedInit{Types.rejectReason = reason}
+                            }
+                            ) -> Just reason
+                        ( _,
+                          Types.TxReject
+                            { vrRejectReason =
+                                Types.RejectedReceive{Types.rejectReason = reason}
+                            }
+                            ) -> Just reason
+                        _ -> Nothing
+                    )
+                    results
+        assertEqual
+            "There should be 2 rejected init and 2 rejected update transactions."
+            [-2, -2_147_483_648, -5, -2_147_483_648]
+            (catMaybes rejects)
+        doBlockStateAssertions
   where
-    rejects =
-        map
-            ( \case
-                (_, Types.TxReject{vrRejectReason = Types.RejectedInit{Types.rejectReason = reason}}) -> Just reason
-                (_, Types.TxReject{vrRejectReason = Types.RejectedReceive{Types.rejectReason = reason}}) -> Just reason
-                _ -> Nothing
-            )
-            suc
-    runtimeFailures =
-        filter
-            ( \case
-                (_, Types.TxReject{vrRejectReason = Types.RuntimeFailure}) -> True
-                _ -> False
-            )
-            suc
+    checkState ::
+        Helpers.SchedulerResult ->
+        BS.PersistentBlockState pv ->
+        Helpers.PersistentBSM pv Assertion
+    checkState result state = do
+        hashedState <- BS.hashBlockState state
+        doInvariantAssertions <-
+            Helpers.assertBlockStateInvariants
+                hashedState
+                (Helpers.srExecutionCosts result)
+        instances <- BS.getContractInstanceList hashedState
+        return $ do
+            doInvariantAssertions
+            assertEqual "There should be 1 instance." 1 (length instances)
 
-tests :: SpecWith ()
+tests :: Spec
 tests =
     describe "Testing error codes in rejected smart contracts." $
-        specify "Processing reject-reasons.wasm smart contract" $
-            testRejectReasons >>= checkTransactionResults
+        sequence_ $
+            Helpers.forEveryProtocolVersion testRejectReasons

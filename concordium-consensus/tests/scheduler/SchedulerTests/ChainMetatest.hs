@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module SchedulerTests.ChainMetatest where
+module SchedulerTests.ChainMetatest (tests) where
 
 import Test.HUnit
 import Test.Hspec
@@ -52,24 +52,30 @@ transactionInputs =
         }
     ]
 
-testChainMeta :: forall pv. (Types.IsProtocolVersion pv) => Types.SProtocolVersion pv -> Assertion
-testChainMeta _ = do
-    (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
-        Helpers.runSchedulerTestTransactionJson
-            testConfig
-            initialBlockState
-            (Helpers.checkReloadCheck checkState)
-            transactionInputs
-    let Sch.FilteredTransactions{..} = srTransactions
-    assertEqual "There should be no failed transactions." [] ftFailed
-    assertEqual "There should be no rejected transactions." []
-        $ filter
-            ( \case
-                (_, Types.TxSuccess{}) -> False
-                (_, Types.TxReject{}) -> True
-            )
-        $ Helpers.getResults ftAdded
-    doBlockStateAssertions
+testChainMeta ::
+    forall pv.
+    (Types.IsProtocolVersion pv) =>
+    Types.SProtocolVersion pv ->
+    String ->
+    Spec
+testChainMeta _ pvString =
+    specify (pvString ++ ": Reading chain metadata. ") $ do
+        (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
+            Helpers.runSchedulerTestTransactionJson
+                testConfig
+                initialBlockState
+                (Helpers.checkReloadCheck checkState)
+                transactionInputs
+        let Sch.FilteredTransactions{..} = srTransactions
+        assertEqual "There should be no failed transactions." [] ftFailed
+        assertEqual "There should be no rejected transactions." []
+            $ filter
+                ( \case
+                    (_, Types.TxSuccess{}) -> False
+                    (_, Types.TxReject{}) -> True
+                )
+            $ Helpers.getResults ftAdded
+        doBlockStateAssertions
   where
     checkState ::
         Helpers.SchedulerResult ->
@@ -84,9 +90,7 @@ testChainMeta _ = do
             assertEqual "There should be 1 instance." 1 (length instances)
 
 tests :: Spec
-tests = do
+tests =
     describe "Chain metadata in transactions:" $
         sequence_ $
-            Helpers.forEveryProtocolVersion $ \spv pvString ->
-                specify (pvString ++ ": Reading chain metadata. ") $
-                    testChainMeta spv
+            Helpers.forEveryProtocolVersion testChainMeta

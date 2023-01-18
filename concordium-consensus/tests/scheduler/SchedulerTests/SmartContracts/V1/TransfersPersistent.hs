@@ -2,7 +2,6 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
@@ -115,6 +114,7 @@ runTransferTests changeState reloadState = do
                 let Instances.InstanceStateV1 s = iiState ii
                 bs <- StateV1.toByteString s
                 return (iiBalance ii, bs)
+
 tests :: Spec
 tests = describe "Upgrade contract cases with persistent state" $ do
     specify "V1: Just transfer" $ runTransferTests 0 False

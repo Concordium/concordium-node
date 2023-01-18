@@ -1,53 +1,31 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE TypeFamilies #-}
 
 -- | Test that the receive context of a contract is passed correctly by the scheduler.
-module SchedulerTests.ReceiveContextTest where
+module SchedulerTests.ReceiveContextTest (tests) where
 
-import Control.Monad.IO.Class
 import Data.FixedByteString (pack)
-import Data.Proxy
-import Lens.Micro.Platform
 import Test.HUnit
 import Test.Hspec
 
 import qualified Concordium.Scheduler as Sch
-import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import Concordium.Scheduler.Runner
 import qualified Concordium.Scheduler.Types as Types
-import Concordium.TransactionVerification
 import Concordium.Types.ProtocolVersion
 import Concordium.Wasm (WasmVersion (..))
 
-import Concordium.GlobalState.Basic.BlockState
-import Concordium.GlobalState.Basic.BlockState.Accounts
-import Concordium.GlobalState.Basic.BlockState.Instances
-import Concordium.GlobalState.Basic.BlockState.Invariants
+import qualified Concordium.Crypto.SignatureScheme as SigScheme
+import qualified Concordium.GlobalState.BlockState as BS
+import qualified Concordium.GlobalState.Persistent.BlockState as BS
 import Concordium.ID.Types (AccountAddress (..), accountAddressSize)
 
-import Concordium.Crypto.DummyData
-import Concordium.GlobalState.DummyData
 import Concordium.Scheduler.DummyData
 
-import SchedulerTests.Helpers
+import qualified SchedulerTests.Helpers as Helpers
 import SchedulerTests.TestUtils
-
-alesAccount, thomasAccount :: AccountAddress
-alesAccount = AccountAddress $ pack $ take accountAddressSize $ repeat 1
-thomasAccount = AccountAddress $ pack $ take accountAddressSize $ repeat 2
-
-sender1 :: forall pv. IsProtocolVersion pv => Proxy pv -> Types.AccountAddress
-sender1 Proxy
-    | demoteProtocolVersion (protocolVersion @pv) >= P3 = createAlias alesAccount 17
-    | otherwise = alesAccount
-
-sender2 :: forall pv. IsProtocolVersion pv => Proxy pv -> Types.AccountAddress
-sender2 Proxy
-    | demoteProtocolVersion (protocolVersion @pv) >= P3 = createAlias thomasAccount 77
-    | otherwise = thomasAccount
 
 -- See the contract in /testdata/contracts/send/src/lib.rs from which the wasm
 -- module is derived. The contract calls check that the invoker or sender is the
@@ -55,14 +33,43 @@ sender2 Proxy
 -- consisting of only 1's. We set up the state with addresses different from
 -- those and use the above-mentioned addresses as alias for the same account.
 -- This only applies to protocol P3 and up.
-initialBlockState :: forall pv. (IsProtocolVersion pv, ChainParametersVersionFor pv ~ 'ChainParametersV0, AccountVersionFor pv ~ 'AccountV0) => BlockState pv
+initialBlockState ::
+    forall pv.
+    (IsProtocolVersion pv) =>
+    Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
 initialBlockState =
-    createBlockState $
-        putAccountWithRegIds (mkAccount alesVK (sender1 (Proxy @pv)) 1000000000) $
-            putAccountWithRegIds (mkAccount thomasVK (sender2 (Proxy @pv)) 1000000000) emptyAccounts
+    Helpers.createTestBlockStateWithAccountsM
+        [ Helpers.makeTestAccount
+            (SigScheme.correspondingVerifyKey keyPair1)
+            (sender1 $ protocolVersion @pv)
+            1_000_000_000,
+          Helpers.makeTestAccount
+            (SigScheme.correspondingVerifyKey keyPair2)
+            (sender2 $ protocolVersion @pv)
+            1_000_000_000
+        ]
 
-chainMeta :: Types.ChainMetadata
-chainMeta = Types.ChainMetadata{slotTime = 444}
+accountAddress1 :: Types.AccountAddress
+accountAddress1 = AccountAddress $ pack $ replicate accountAddressSize 1
+
+accountAddress2 :: Types.AccountAddress
+accountAddress2 = AccountAddress $ pack $ replicate accountAddressSize 2
+
+keyPair1 :: SigScheme.KeyPair
+keyPair1 = Helpers.keyPairFromSeed 1
+
+keyPair2 :: SigScheme.KeyPair
+keyPair2 = Helpers.keyPairFromSeed 2
+
+sender1 :: forall pv. IsProtocolVersion pv => SProtocolVersion pv -> Types.AccountAddress
+sender1 spv
+    | supportsAccountAliases spv = createAlias accountAddress1 17
+    | otherwise = accountAddress1
+
+sender2 :: forall pv. IsProtocolVersion pv => SProtocolVersion pv -> Types.AccountAddress
+sender2 spv
+    | supportsAccountAliases spv = createAlias accountAddress2 77
+    | otherwise = accountAddress2
 
 wasmPath :: String
 wasmPath = "./testdata/contracts/send/target/concordium/wasm32-unknown-unknown/release/send.wasm"
@@ -70,74 +77,66 @@ wasmPath = "./testdata/contracts/send/target/concordium/wasm32-unknown-unknown/r
 transactionInputs :: [TransactionJSON]
 transactionInputs =
     [ TJSON
-        { metadata = makeDummyHeader alesAccount 1 100000,
+        { metadata = makeDummyHeader accountAddress1 1 100_000,
           payload = DeployModule V0 wasmPath,
-          keys = [(0, [(0, alesKP)])]
+          keys = [(0, [(0, keyPair1)])]
         },
       TJSON
-        { metadata = makeDummyHeader alesAccount 2 100000,
+        { metadata = makeDummyHeader accountAddress1 2 100_000,
           payload = InitContract 0 V0 wasmPath "init_c10" "",
-          keys = [(0, [(0, alesKP)])]
+          keys = [(0, [(0, keyPair1)])]
         },
       TJSON
-        { metadata = makeDummyHeader alesAccount 3 100000,
+        { metadata = makeDummyHeader accountAddress1 3 100_000,
           payload = InitContract 42 V0 wasmPath "init_c10" "",
-          keys = [(0, [(0, alesKP)])]
+          keys = [(0, [(0, keyPair1)])]
         },
       TJSON
-        { metadata = makeDummyHeader alesAccount 4 100000,
+        { metadata = makeDummyHeader accountAddress1 4 100_000,
           payload = InitContract 0 V0 wasmPath "init_c20" "",
-          keys = [(0, [(0, alesKP)])]
+          keys = [(0, [(0, keyPair1)])]
         },
       TJSON
-        { metadata = makeDummyHeader thomasAccount 1 100000,
+        { metadata = makeDummyHeader accountAddress2 1 100_000,
           payload = Update 5 (Types.ContractAddress 2 0) "c20.call_c10" "",
-          keys = [(0, [(0, thomasKP)])]
+          keys = [(0, [(0, keyPair2)])]
         }
     ]
 
-type TestResult =
-    ( [(BlockItemWithStatus, Types.ValidResult)],
-      [(TransactionWithStatus, Types.FailureKind)],
-      [(Types.ContractAddress, Types.BasicInstance)]
-    )
-
-testReceive :: forall pv. (IsProtocolVersion pv, ChainParametersVersionFor pv ~ 'ChainParametersV0, AccountVersionFor pv ~ 'AccountV0) => Proxy pv -> IO TestResult
-testReceive Proxy = do
-    transactions <- processUngroupedTransactions transactionInputs
-    let (Sch.FilteredTransactions{..}, finState) =
-            Types.runSI
-                (Sch.filterTransactions dummyBlockSize dummyBlockTimeout transactions)
-                chainMeta
-                maxBound
-                maxBound
-                (initialBlockState @pv)
-    let gs = finState ^. Types.ssBlockState
-    case invariantBlockState gs (finState ^. Types.schedulerExecutionCosts) of
-        Left f -> liftIO $ assertFailure $ f ++ " " ++ show gs
-        _ -> return ()
-    return (getResults ftAdded, ftFailed, gs ^.. blockInstances . foldInstances . to (\i -> (instanceAddress i, i)))
-
-checkReceiveResult :: TestResult -> Assertion
-checkReceiveResult (suc, fails, instances) = do
-    assertEqual "There should be no failed transactions." [] fails
-    assertEqual "There should be no rejected transactions." [] reject
-    assertEqual "There should be 3 instances." 3 (length instances)
+testReceive :: forall pv. (IsProtocolVersion pv) => SProtocolVersion pv -> String -> Spec
+testReceive _ pvString =
+    specify (pvString ++ ": Passing receive context to contract") $ do
+        (result, doBlockStateAssertions) <-
+            Helpers.runSchedulerTestTransactionJson
+                Helpers.defaultTestConfig
+                initialBlockState
+                (Helpers.checkReloadCheck checkState)
+                transactionInputs
+        let Sch.FilteredTransactions{..} = Helpers.srTransactions result
+        assertEqual "There should be no failed transactions." [] ftFailed
+        assertEqual "There should be no rejected transactions." []
+            $ filter
+                ( \case
+                    (_, Types.TxSuccess{}) -> False
+                    (_, Types.TxReject{}) -> True
+                )
+            $ Helpers.getResults ftAdded
+        doBlockStateAssertions
   where
-    reject =
-        filter
-            ( \case
-                (_, Types.TxSuccess{}) -> False
-                (_, Types.TxReject{}) -> True
-            )
-            suc
+    checkState ::
+        Helpers.SchedulerResult ->
+        BS.PersistentBlockState pv ->
+        Helpers.PersistentBSM pv Assertion
+    checkState result state = do
+        hashedState <- BS.hashBlockState state
+        doInvariantAssertions <- Helpers.assertBlockStateInvariants hashedState (Helpers.srExecutionCosts result)
+        instances <- BS.getContractInstanceList hashedState
+        return $ do
+            doInvariantAssertions
+            assertEqual "There should be 3 instances." 3 (length instances)
 
-tests :: SpecWith ()
+tests :: Spec
 tests =
-    describe "Receive context in transactions." $ do
-        specify "Passing receive context to contract P1." $
-            testReceive (Proxy @'P1) >>= checkReceiveResult
-        specify "Passing receive context to contract P2." $
-            testReceive (Proxy @'P2) >>= checkReceiveResult
-        specify "Passing receive context to contract P3." $
-            testReceive (Proxy @'P3) >>= checkReceiveResult
+    describe "Receive context in transactions." $
+        sequence_ $
+            Helpers.forEveryProtocolVersion testReceive

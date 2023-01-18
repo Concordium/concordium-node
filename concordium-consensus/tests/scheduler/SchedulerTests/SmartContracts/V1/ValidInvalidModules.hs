@@ -1,4 +1,3 @@
-{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | This module tests validating modules of various kinds to test that
@@ -34,5 +33,6 @@ testModule1 = do
         Just _ -> assertFailure "Extra exports are not allowed for V0 modules."
 
 tests :: Spec
-tests = describe "V1: Process modules" $ do
-    specify "Extra exports" testModule1
+tests =
+    describe "V1: Process modules" $
+        specify "Extra exports" testModule1

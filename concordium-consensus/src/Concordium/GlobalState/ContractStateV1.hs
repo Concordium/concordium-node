@@ -250,20 +250,31 @@ foreign import ccall "persistent_state_v1_lookup"
 
 {-# WARNING lookupKey "Not efficient. DO NOT USE IN PRODUCTION." #-}
 
--- |Lookup a value in the persistent in-memory state. This function is subject
+-- |Lookup a value in the persistent contract state. This function is subject
 -- to stack overflow for maliciously constructed states, so must not be used in
 -- production.
-lookupKey :: InMemoryPersistentState -> BS.ByteString -> IO (Maybe BS.ByteString)
-lookupKey (InMemoryPersistentState ps) k =
-    withPersistentState ps $ \psPtr ->
-        BSU.unsafeUseAsCStringLen k $ \(keyPtr, keyLen) ->
+lookupKey :: MonadBlobStore m => PersistentState -> BS.ByteString -> m (Maybe BS.ByteString)
+lookupKey persistentState key = do
+    loadCallback <- fst <$> getCallbacks
+    liftIO $ withPersistentState persistentState $ \statePtr ->
+        BSU.unsafeUseAsCStringLen key $ \(keyPtr, keyLen) ->
             alloca $ \outPtr -> do
-                res <- persistentStateV1Lookup errorLoadCallback (castPtr keyPtr) (fromIntegral keyLen) psPtr outPtr
+                res <-
+                    persistentStateV1Lookup
+                        loadCallback
+                        (castPtr keyPtr)
+                        (fromIntegral keyLen)
+                        statePtr
+                        outPtr
                 if res == nullPtr
                     then return Nothing
                     else do
                         len <- peek outPtr
-                        Just <$> BSU.unsafePackCStringFinalizer (castPtr res) (fromIntegral len) (rs_free_array_len res (fromIntegral len))
+                        Just
+                            <$> BSU.unsafePackCStringFinalizer
+                                (castPtr res)
+                                (fromIntegral len)
+                                (rs_free_array_len res (fromIntegral len))
 
 {-# WARNING generatePersistentTree "Only for testing. DO NOT USE IN PRODUCTION." #-}
 {-# NOINLINE generatePersistentTree #-}

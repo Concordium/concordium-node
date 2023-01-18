@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -43,19 +44,12 @@ import Concordium.Types
 
 import qualified SchedulerTests.Helpers as Helpers
 
-tests :: Spec
-tests = do
-    describe "Encrypted transfers with aggregation." $
-        sequence_ $
-            Helpers.forEveryProtocolVersion $ \spv pvString -> do
-                testCase0 spv pvString
-
 testCase0 ::
     forall pv.
     (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 testCase0 _ pvString = specify
     (pvString ++ ": Makes a chain of encrypted transfers testing maxNumIncoming")
     $ do
@@ -90,7 +84,7 @@ testCase0 _ pvString = specify
         let (normal, interesting) = splitAt maxNumIncoming $ zip [1 ..] allTransferData
 
         let generatedTransactions =
-                ( fmap
+                fmap
                     ( \(idx, x) ->
                         makeTransaction
                             (makeNormalBlockStateAssertion allTransferData x idx)
@@ -98,7 +92,6 @@ testCase0 _ pvString = specify
                             idx
                     )
                     normal
-                )
                     ++ fmap
                         ( \(idx, x) ->
                             makeTransaction
@@ -132,11 +125,7 @@ testCase0 _ pvString = specify
                           metadata = makeDummyHeader accountAddress0 1 100_000,
                           keys = [(0, [(0, keyPair0)])]
                         },
-                  taaAssertion = \Helpers.SchedulerResult{..} state -> do
-                    doInvariantAssertions <-
-                        Helpers.assertBlockStateInvariantsH
-                            state
-                            srExecutionCosts
+                  taaAssertion = \result state -> do
                     doEncryptedBalanceAssertions <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -145,19 +134,14 @@ testCase0 _ pvString = specify
                             accountAddress0
                             state
                     return $ do
-                        case Helpers.getResults $ Sch.ftAdded srTransactions of
-                            [(_, Types.TxSuccess events)] ->
-                                assertEqual
-                                    "The correct encrypt self amount event is produced"
-                                    [ Types.EncryptedSelfAmountAdded
-                                        { eaaAccount = accountAddress0,
-                                          eaaNewAmount = encryptedAmount1000,
-                                          eaaAmount = 1_000
-                                        }
-                                    ]
-                                    events
-                            _ -> assertFailure "First transaction should succeed"
-                        doInvariantAssertions
+                        Helpers.assertSuccessWithEvents
+                            [ Types.EncryptedSelfAmountAdded
+                                { eaaAccount = accountAddress0,
+                                  eaaNewAmount = encryptedAmount1000,
+                                  eaaAmount = 1_000
+                                }
+                            ]
+                            result
                         doEncryptedBalanceAssertions
                 }
             ]
@@ -171,7 +155,7 @@ testCase0 _ pvString = specify
                                   metadata = makeDummyHeader accountAddress1 1 100_000,
                                   keys = [(0, [(0, keyPair1)])]
                                 },
-                          taaAssertion = \Helpers.SchedulerResult{..} state -> do
+                          taaAssertion = \result state -> do
                             doEncryptedBalanceAssertions <-
                                 assertEncryptedBalance
                                     Types.initialAccountEncryptedAmount
@@ -182,35 +166,31 @@ testCase0 _ pvString = specify
                                     accountAddress1
                                     state
                             return $ do
-                                case Helpers.getResults $ Sch.ftAdded srTransactions of
-                                    [ ( _,
-                                        Types.TxSuccess
-                                            [ Types.EncryptedAmountsRemoved{..},
-                                              Types.AmountAddedByDecryption{..}
-                                                ]
-                                        )
-                                        ] -> do
-                                            assertEqual
-                                                "Account encrypted amounts removed"
-                                                earAccount
-                                                accountAddress1
-                                            assertEqual
-                                                "Used up indices"
-                                                earUpToIndex
-                                                numberOfTransactions
-                                            assertEqual "New amount" earNewAmount $
-                                                stpatdRemainingAmount secToPubTransferData
-                                            assertEqual
-                                                "Decryption address"
-                                                aabdAccount
-                                                accountAddress1
-                                            assertEqual "Amount added" aabdAmount $
-                                                numberOfTransactions * 10
-                                    [(_, Types.TxSuccess e)] ->
-                                        assertFailure $ "Unexpected final outcome: " ++ show e
-                                    other ->
-                                        assertFailure $
-                                            "Last transaction should succeed: " ++ show other
+                                Helpers.assertSuccessWhere
+                                    ( \case
+                                        [ Types.EncryptedAmountsRemoved{..},
+                                          Types.AmountAddedByDecryption{..}
+                                            ] -> do
+                                                assertEqual
+                                                    "Account encrypted amounts removed"
+                                                    earAccount
+                                                    accountAddress1
+                                                assertEqual
+                                                    "Used up indices"
+                                                    earUpToIndex
+                                                    numberOfTransactions
+                                                assertEqual "New amount" earNewAmount $
+                                                    stpatdRemainingAmount secToPubTransferData
+                                                assertEqual
+                                                    "Decryption address"
+                                                    aabdAccount
+                                                    accountAddress1
+                                                assertEqual "Amount added" aabdAmount $
+                                                    numberOfTransactions * 10
+                                        other -> assertFailure $ "Unexpected final outcome: " ++ show other
+                                    )
+                                    result
+
                                 doEncryptedBalanceAssertions
                         }
                    ]
@@ -315,7 +295,7 @@ makeNormalBlockStateAssertion ::
     EncryptedAmountTransferData ->
     EncryptedAmountAggIndex ->
     Helpers.TransactionAssertion pv
-makeNormalBlockStateAssertion allTxs transferData idx = \_ state -> do
+makeNormalBlockStateAssertion allTxs transferData idx _ state = do
     -- Account0 amount should be the remaining amount on the transaction
     doEncryptedBalanceAssertionsSender <-
         assertEncryptedBalance
@@ -345,7 +325,7 @@ makeInterestingBlockStateAssertion ::
     EncryptedAmountTransferData ->
     EncryptedAmountAggIndex ->
     Helpers.TransactionAssertion pv
-makeInterestingBlockStateAssertion allTxs transferData idx = \_ state -> do
+makeInterestingBlockStateAssertion allTxs transferData idx _ state = do
     -- Account0 amount should be the remaining amount on the transaction
     doEncryptedBalanceAssertionsSender <-
         assertEncryptedBalance
@@ -412,3 +392,9 @@ makeTransaction blockStateChecks transferData idx =
                     e -> assertFailure $ "Transaction should succeed: " ++ show e
                 doBlockStateChecks
         }
+
+tests :: Spec
+tests =
+    describe "Encrypted transfers with aggregation." $
+        sequence_ $
+            Helpers.forEveryProtocolVersion testCase0
