@@ -576,7 +576,7 @@ getBlockState migration = do
                                 bkrs
                                     & passiveDelegators
                                         %~ (apDelegators %~ Set.insert _delegationIdentity)
-                                            . (apDelegatorTotalCapital +~ _delegationStakedAmount)
+                                        . (apDelegatorTotalCapital +~ _delegationStakedAmount)
                                     & totalActiveCapital +~ _delegationStakedAmount
                         DelegateToBaker bid ->
                             case Map.lookup bid (bkrs ^. activeBakers) of
@@ -1586,7 +1586,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                     . birkActiveBakers
                     . aggregationKeys
                     %~ Set.insert (bkuAggregationKey keys)
-                        . Set.delete (ab ^. bakerAggregationVerifyKey)
+                    . Set.delete (ab ^. bakerAggregationVerifyKey)
                 )
             MTL.tell [BakerConfigureUpdateKeys keys]
         updateRestakeEarnings = forM_ bcuRestakeEarnings $ \restakeEarnings -> do
@@ -1729,7 +1729,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                     & birkActiveBakers
                         . passiveDelegators
                         %~ (apDelegators %~ Set.insert did)
-                            . (apDelegatorTotalCapital +~ dcaCapital)
+                        . (apDelegatorTotalCapital +~ dcaCapital)
                     & birkActiveBakers . totalActiveCapital +~ dcaCapital
         updateBirk (DelegateToBaker bid) =
             let ab = bs ^. blockBirkParameters . birkActiveBakers
@@ -1939,10 +1939,10 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                               blockBirkParameters
                                 . birkActiveBakers
                                 %~ (totalActiveCapital +~ reward)
-                                    . ( case _delegationTarget of
-                                            DelegatePassive -> passiveDelegators . apDelegatorTotalCapital +~ reward
-                                            DelegateToBaker bid -> activeBakers . singular (ix bid) . apDelegatorTotalCapital +~ reward
-                                      )
+                                . ( case _delegationTarget of
+                                        DelegatePassive -> passiveDelegators . apDelegatorTotalCapital +~ reward
+                                        DelegateToBaker bid -> activeBakers . singular (ix bid) . apDelegatorTotalCapital +~ reward
+                                  )
                             )
                     _ -> (id, id)
                 bs' =
