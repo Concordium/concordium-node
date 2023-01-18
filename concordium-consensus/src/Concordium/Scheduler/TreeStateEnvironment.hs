@@ -15,12 +15,10 @@
 
 module Concordium.Scheduler.TreeStateEnvironment where
 
-import Concordium.TimeMonad
 import Control.Monad
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HashSet
-import qualified Data.Kind as DK
 import qualified Data.Map as Map
 import Data.Maybe
 import qualified Data.PQueue.Prio.Min as MinPQ
@@ -29,6 +27,7 @@ import qualified Data.Sequence as Seq
 import Data.Time
 import qualified Data.Vector as Vec
 import Data.Word
+import Lens.Micro.Platform
 
 import qualified Concordium.GlobalState.BakerInfo as BI
 import Concordium.GlobalState.Basic.BlockState.PoolRewards
@@ -41,49 +40,15 @@ import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.TreeState
 import Concordium.Kontrol.Bakers
 import Concordium.Logger
-import Concordium.Scheduler.Environment
-import Concordium.Scheduler.EnvironmentImplementation (
-    BSOMonadWrapper (..),
-    ContextState (..),
-    HasSchedulerState (..),
-    schedulerBlockState,
-    schedulerEnergyUsed,
- )
+import qualified Concordium.Scheduler as Sch
+import qualified Concordium.Scheduler.EnvironmentImplementation as EnvImpl
 import Concordium.Scheduler.Types
+import Concordium.TimeMonad
 import qualified Concordium.TransactionVerification as TVer
 import qualified Concordium.Types.Accounts as Types
 import Concordium.Types.SeedState
 import qualified Concordium.Types.Transactions as Types
 import Concordium.Types.UpdateQueues (currentParameters)
-
-import Control.Monad.RWS.Strict
-
-import Lens.Micro.Platform
-
-import qualified Concordium.Scheduler as Sch
-
-newtype BlockStateMonad state m a = BSM {_runBSM :: RWST ContextState () state m a}
-    deriving (Functor, Applicative, Monad, MonadState state, MonadReader ContextState, MonadTrans, MonadLogger, TimeMonad)
-
-deriving via
-    (MGSTrans (RWST ContextState () state) m)
-    instance
-        BlockStateTypes (BlockStateMonad state m)
-
-deriving via
-    (BSOMonadWrapper ContextState state (MGSTrans (RWST ContextState () state) m))
-    instance
-        (SS state ~ UpdatableBlockState m, HasSchedulerState state, BlockStateOperations m) =>
-        StaticInformation (BlockStateMonad state m)
-
-data SchedulerState (m :: DK.Type -> DK.Type) = SchedulerState
-    { _ssBlockState :: !(UpdatableBlockState m),
-      _ssSchedulerEnergyUsed :: !Energy,
-      _ssSchedulerExecutionCosts :: !Amount,
-      _ssNextIndex :: !TransactionIndex
-    }
-
-makeLenses ''SchedulerState
 
 -- This hack of ExecutionResult' and ExecutionResult is so that we
 -- automatically get the property that if BlockState m = BlockState m'
@@ -96,69 +61,6 @@ data ExecutionResult' s = ExecutionResult
 type ExecutionResult m = ExecutionResult' (BlockState m)
 
 makeLenses ''ExecutionResult'
-
-instance HasSchedulerState (SchedulerState m) where
-    type SS (SchedulerState m) = UpdatableBlockState m
-    schedulerBlockState = ssBlockState
-    schedulerEnergyUsed = ssSchedulerEnergyUsed
-    schedulerExecutionCosts = ssSchedulerExecutionCosts
-    nextIndex = ssNextIndex
-
-mkInitialSS :: UpdatableBlockState m -> SchedulerState m
-mkInitialSS _ssBlockState =
-    SchedulerState
-        { _ssSchedulerEnergyUsed = 0,
-          _ssSchedulerExecutionCosts = 0,
-          _ssNextIndex = 0,
-          ..
-        }
-
-deriving via
-    (MGSTrans (RWST ContextState () state) m)
-    instance
-        (MonadProtocolVersion m) => MonadProtocolVersion (BlockStateMonad state m)
-
-deriving via
-    (MGSTrans (RWST ContextState () state) m)
-    instance
-        (AccountOperations m) => AccountOperations (BlockStateMonad state m)
-
-deriving via
-    (MGSTrans (RWST ContextState () state) m)
-    instance
-        (ContractStateOperations m) => ContractStateOperations (BlockStateMonad state m)
-
-deriving via
-    (MGSTrans (RWST ContextState () state) m)
-    instance
-        (ModuleQuery m) => ModuleQuery (BlockStateMonad state m)
-
-deriving via
-    (BSOMonadWrapper ContextState state (MGSTrans (RWST ContextState () state) m))
-    instance
-        ( SS state ~ UpdatableBlockState m,
-          HasSchedulerState state,
-          MonadProtocolVersion m,
-          MonadLogger m,
-          BlockStateOperations m
-        ) =>
-        SchedulerMonad (BlockStateMonad state m)
-
-deriving via
-    (BSOMonadWrapper ContextState state (MGSTrans (RWST ContextState () state) m))
-    instance
-        ( SS state ~ UpdatableBlockState m,
-          HasSchedulerState state,
-          MonadProtocolVersion m,
-          MonadLogger m,
-          BlockStateOperations m
-        ) =>
-        TVer.TransactionVerifier (BlockStateMonad state m)
-
-runBSM :: Monad m => BlockStateMonad b m a -> ContextState -> b -> m (a, b)
-runBSM m cm s = do
-    (r, s', _) <- runRWST (_runBSM m) cm s
-    return (r, s')
 
 -- |Distribute the baking rewards for the last epoch to the bakers of
 -- blocks in that epoch. This should be called in the first block of
@@ -1363,14 +1265,14 @@ executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSee
                     PrologueResult{..} <- executeBlockPrologue slotTime newSeedState oldChainParameters bshandle0
                     maxBlockEnergy <- gdMaxBlockEnergy <$> getGenesisData
                     let context =
-                            ContextState
+                            EnvImpl.ContextState
                                 { _chainMetadata = cm,
                                   _maxBlockEnergy = maxBlockEnergy,
                                   _accountCreationLimit = accountCreationLim
                                 }
-                    (res, finState) <- runBSM (Sch.runTransactions txs) context (mkInitialSS prologueBlockState :: SchedulerState m)
-                    let usedEnergy = finState ^. schedulerEnergyUsed
-                    let bshandle2 = finState ^. schedulerBlockState
+                    (res, finState) <- EnvImpl.runSchedulerT (Sch.runTransactions txs) context (EnvImpl.makeInitialSchedulerState prologueBlockState)
+                    let usedEnergy = finState ^. EnvImpl.ssEnergyUsed
+                    let bshandle2 = finState ^. EnvImpl.ssBlockState
                     case res of
                         Left fk -> Left fk <$ dropUpdatableBlockState bshandle2
                         Right outcomes -> do
@@ -1389,7 +1291,7 @@ executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSee
                                     (epoch newSeedState)
                                     prologueMintRewardParams
                                     mfinInfo
-                                    (finState ^. schedulerExecutionCosts)
+                                    (finState ^. EnvImpl.ssExecutionCosts)
                                     counts
                                     prologueUpdates
                             finalbsHandle <- freezeBlockState bshandle4
@@ -1473,18 +1375,18 @@ constructBlock slotNumber slotTime blockParent blockBaker mfinInfo newSeedState 
             genData <- getGenesisData
             let maxBlockEnergy = gdMaxBlockEnergy genData
             let context =
-                    ContextState
+                    EnvImpl.ContextState
                         { _chainMetadata = cm,
                           _maxBlockEnergy = maxBlockEnergy,
                           _accountCreationLimit = accountCreationLim
                         }
             (ft@Sch.FilteredTransactions{..}, finState) <-
-                runBSM (Sch.filterTransactions (fromIntegral maxSize) timeout transactionGroups) context (mkInitialSS prologueBlockState :: SchedulerState m)
+                EnvImpl.runSchedulerT (Sch.filterTransactions (fromIntegral maxSize) timeout transactionGroups) context (EnvImpl.makeInitialSchedulerState prologueBlockState)
 
             -- FIXME: At some point we should log things here using the same logging infrastructure as in consensus.
 
-            let usedEnergy = finState ^. schedulerEnergyUsed
-            let bshandle2 = finState ^. schedulerBlockState
+            let usedEnergy = finState ^. EnvImpl.ssEnergyUsed
+            let bshandle2 = finState ^. EnvImpl.ssBlockState
 
             bshandle3 <- bsoSetTransactionOutcomes bshandle2 (map snd ftAdded)
             let counts = countFreeTransactions (map (fst . fst) ftAdded) (isJust mfinInfo)
@@ -1497,7 +1399,7 @@ constructBlock slotNumber slotTime blockParent blockBaker mfinInfo newSeedState 
                     (epoch newSeedState)
                     prologueMintRewardParams
                     mfinInfo
-                    (finState ^. schedulerExecutionCosts)
+                    (finState ^. EnvImpl.ssExecutionCosts)
                     counts
                     prologueUpdates
 
