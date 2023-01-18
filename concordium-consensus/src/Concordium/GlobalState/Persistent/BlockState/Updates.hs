@@ -496,9 +496,9 @@ instance
         mAddIdentityProviderQueue <- label "Add identity provider update queue" load
         mCooldownParametersQueue <- label "Cooldown parameters update queue" load
         mTimeParametersQueue <- label "Time parameters update queue" load
-        mTimeoutParametersQueue <- label "Time parameters update queue" load
-        mMinBlockTimeQueue <- label "Time parameters update queue" load
-        mBlockEnergyLimitQueue <- label "Time parameters update queue" load
+        mTimeoutParametersQueue <- label "Timeout parameters update queue" load
+        mMinBlockTimeQueue <- label "Minimum block time update queue" load
+        mBlockEnergyLimitQueue <- label "Block energy limit update queue" load
         return $! do
             pRootKeysUpdateQueue <- mRKQ
             pLevel1KeysUpdateQueue <- mL1KQ
@@ -573,6 +573,9 @@ putPendingUpdatesV0 PendingUpdates{..} = withCPVConstraints (chainParametersVers
     putUpdateQueueV0 =<< refLoad pAddIdentityProviderQueue
     mapM_ (putUpdateQueueV0 <=< refLoad) pCooldownParametersQueue
     mapM_ (putUpdateQueueV0 <=< refLoad) pTimeParametersQueue
+    mapM_ (putUpdateQueueV0 <=< refLoad) pTimeoutParametersQueue
+    mapM_ (putUpdateQueueV0 <=< refLoad) pMinBlockTimeQueue
+    mapM_ (putUpdateQueueV0 <=< refLoad) pBlockEnergyLimitQueue
 
 -- |Initial pending updates with empty queues.
 emptyPendingUpdates ::

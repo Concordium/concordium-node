@@ -1700,9 +1700,6 @@ instance
     where
     load = whenSupported <$> load
 
-    -- case isSupported @pt @cpv of
-    --     False -> return (pure NoParam)
-    --     True -> fmap (fmap SomeParam) load
     storeUpdate NoParam = return (pure (), NoParam)
     storeUpdate (SomeParam v) = do
         (!r, !v') <- storeUpdate v
