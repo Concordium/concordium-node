@@ -11,6 +11,8 @@ module SchedulerTests.Payday (tests) where
 import Control.Exception (bracket)
 import Control.Monad.Trans.State
 
+import Control.Monad (join)
+import Data.Foldable (toList)
 import Data.List (maximumBy, sortBy)
 import Data.Map ((!))
 import Data.Proxy
@@ -39,13 +41,14 @@ import Concordium.GlobalState.Basic.BlockState.PoolRewards (BakerPoolRewardDetai
 import Concordium.GlobalState.BlockPointer (BlockPointer (_bpState))
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.CapitalDistribution
+import qualified Concordium.GlobalState.DummyData as DummyData
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.BlockPointer
 import Concordium.GlobalState.Persistent.BlockState
+import qualified Concordium.GlobalState.Persistent.BlockState as BS
 import Concordium.GlobalState.Persistent.TreeState
 import Concordium.GlobalState.TreeState
 import Concordium.Startup
-import GlobalStateMock
 import qualified SchedulerTests.Helpers as Helpers
 
 foundationAccount :: AccountAddress
@@ -53,56 +56,67 @@ foundationAccount = accountAddressFrom 0
 
 testDoMintingP4 :: Spec
 testDoMintingP4 = do
-    it "no updates" $ assertEqual "" (runMock (events mintAmts0) (op [])) result
-    it "last minute update" $ assertEqual "" (runMock (events mintAmts1) (op [(400, UVMintDistribution md1)])) result
-    it "late update" $ assertEqual "" (runMock (events mintAmts0) (op [(401, UVMintDistribution md1)])) result
-    it "two updates" $ assertEqual "" (runMock (events mintAmts2) (op [(0, UVMintDistribution md1), (100, UVMintDistribution md2)])) result
-    it "two updates, one late" $ assertEqual "" (runMock (events mintAmts1) (op [(0, UVMintDistribution md1), (401, UVMintDistribution md2)])) result
+    it "no updates" $
+        runTest [] [mintAmts0]
+    it "last minute update" $
+        runTest [(400, UVMintDistribution md1)] [mintAmts1]
+    it "late update" $
+        runTest [(401, UVMintDistribution md1)] [mintAmts0]
+    it "two updates" $
+        runTest [(0, UVMintDistribution md1), (100, UVMintDistribution md2)] [mintAmts2]
+    it "two updates, one late" $
+        runTest [(0, UVMintDistribution md1), (401, UVMintDistribution md2)] [mintAmts1]
     -- Note: the minting should not be affected by any updates to the time parameters
-    it "mint rate update" $ assertEqual "" (runMock (events mintAmts0) (op [(0, UVTimeParameters (TimeParametersV1 100 (MintRate 2 0)))])) result
+    it "mint rate update" $
+        runTest [(0, UVTimeParameters (TimeParametersV1 100 (MintRate 2 0)))] [mintAmts0]
   where
-    events :: MintAmounts -> [WithResult (Action 'P4)]
-    events amts =
-        [ BSO (BsoGetBankStatus (bs 0)) :-> bank,
-          BSO (BsoGetSeedState (bs 0)) :-> seedState,
-          BSO (BsoMint (bs 0) amts) :-> bs 1,
-          BSO (BsoAddSpecialTransactionOutcome (bs 1) (mintSto amts)) :-> bs 2
-        ]
-    op upds = doMintingP4 dummyChainParameters targetEpoch mintRate foundationAccount upds (bs 0)
-    result = bs 2
-    bs = MockUpdatableBlockState
-    mintRate = MintRate 1 0 -- 100% mint rate
-    bank = emptyBankStatus{_totalGTU = 1_000_000_000}
-    targetEpoch = 4
+    initialTotalSupply = 1_000_000_000
     epochLength = 100
-    seedState = initialSeedState (Hash.hash "NONCE") epochLength
+    -- Initial block state, the important information here is the epoch length and the initial total
+    -- supply.
+    initialBlockState = do
+        account <- Helpers.makeTestAccountFromSeed initialTotalSupply 0
+        BS.initialPersistentState
+            (initialSeedState (Hash.hash "NONCE") epochLength)
+            DummyData.dummyCryptographicParameters
+            [account]
+            DummyData.dummyIdentityProviders
+            DummyData.dummyArs
+            DummyData.dummyKeyCollection
+            DummyData.dummyChainParameters
+    -- Run a test of doMintingP4. It is provided a list of updates (paired with effective slot time)
+    -- and a list of expected special transaction outcomes to have been produced.
+    runTest :: [(Slot, UpdateValue 'ChainParametersV1)] -> [SpecialTransactionOutcome] -> Assertion
+    runTest updates expectedSpecialOutcomes = join $ Helpers.runTestBlockState $ do
+        initialState :: PersistentBlockState 'P4 <- thawBlockState =<< initialBlockState
+        newState <- doMintingP4 dummyChainParameters targetEpoch mintRate foundationAccount updates initialState
+        specialOutcomes <- getSpecialOutcomes =<< hashBlockState newState
+        return $ assertEqual "Incorrect special outcomes are produced" expectedSpecialOutcomes $ toList specialOutcomes
+    mintRate = MintRate 1 0 -- 100% mint rate
+    targetEpoch = 4
     mintAmts0 =
-        MintAmounts
-            { mintBakingReward = 600_000_000,
-              mintFinalizationReward = 300_000_000,
-              mintDevelopmentCharge = 100_000_000
+        Mint
+            { stoMintBakingReward = 600_000_000,
+              stoMintFinalizationReward = 300_000_000,
+              stoMintPlatformDevelopmentCharge = 100_000_000,
+              stoFoundationAccount = foundationAccount
             }
     mintAmts1 =
-        MintAmounts
-            { mintBakingReward = 1_000_000_000,
-              mintFinalizationReward = 0,
-              mintDevelopmentCharge = 0
+        Mint
+            { stoMintBakingReward = 1_000_000_000,
+              stoMintFinalizationReward = 0,
+              stoMintPlatformDevelopmentCharge = 0,
+              stoFoundationAccount = foundationAccount
             }
     mintAmts2 =
-        MintAmounts
-            { mintBakingReward = 0,
-              mintFinalizationReward = 1_000_000_000,
-              mintDevelopmentCharge = 0
+        Mint
+            { stoMintBakingReward = 0,
+              stoMintFinalizationReward = 1_000_000_000,
+              stoMintPlatformDevelopmentCharge = 0,
+              stoFoundationAccount = foundationAccount
             }
     md1 = MintDistribution MintPerSlotForCPV0None (makeAmountFraction 100_000) (makeAmountFraction 0)
     md2 = MintDistribution MintPerSlotForCPV0None (makeAmountFraction 0) (makeAmountFraction 100_000)
-    mintSto amts =
-        Mint
-            { stoMintBakingReward = mintBakingReward amts,
-              stoMintFinalizationReward = mintFinalizationReward amts,
-              stoMintPlatformDevelopmentCharge = mintDevelopmentCharge amts,
-              stoFoundationAccount = foundationAccount
-            }
 
 -- rewards distributed after minting are equal to the minted amount
 propMintAmountsEqNewMint :: MintDistribution 'ChainParametersV1 -> MintRate -> Amount -> Bool
@@ -415,37 +429,26 @@ drtcs =
         }
     ]
 
-testRewardDelegators :: Spec
-testRewardDelegators = describe "rewardDelegators" $ mapM_ p drtcs
+-- | Run a DelegatorRewardTestCase
+runTestCase :: DelegatorRewardTestCase -> Spec
+runTestCase DelegatorRewardTestCase{..} = it drtcName $ do
+    (DelegatorRewardOutcomes{..}, _) <- Helpers.runTestBlockState $ do
+        initialState :: PersistentBlockState 'P4 <- thawBlockState =<< initialPersistentBlockState
+        rewardDelegators initialState drtcFinalizationReward drtcBakingReward drtcTransactionFeeReward totCap dels
+    assertEqual "Total baking rewards" (sum $ drtcDelegatorExpectedRewards ^.. each . _1) _delegatorAccumBaking
+    assertEqual "Total finalization rewards" (sum $ drtcDelegatorExpectedRewards ^.. each . _2) _delegatorAccumFinalization
+    assertEqual "Total transaction fee rewards" (sum $ drtcDelegatorExpectedRewards ^.. each . _3) _delegatorAccumTransaction
+    let makeSTOs delid (bak, fin, tran) =
+            PaydayAccountReward
+                { stoAccount = accountAddressFrom delid,
+                  stoBakerReward = bak,
+                  stoFinalizationReward = fin,
+                  stoTransactionFees = tran
+                }
+    assertEqual "Special transaction outcomes" (zipWith makeSTOs [0 ..] drtcDelegatorExpectedRewards) (_delegatorOutcomes ^.. each)
   where
-    p DelegatorRewardTestCase{..} = it drtcName $ do
-        let (DelegatorRewardOutcomes{..}, _) =
-                runMock events $
-                    rewardDelegators (bs 0) drtcFinalizationReward drtcBakingReward drtcTransactionFeeReward totCap dels
-        assertEqual "Total baking rewards" (sum $ drtcDelegatorExpectedRewards ^.. each . _1) _delegatorAccumBaking
-        assertEqual "Total finalization rewards" (sum $ drtcDelegatorExpectedRewards ^.. each . _2) _delegatorAccumFinalization
-        assertEqual "Total transaction fee rewards" (sum $ drtcDelegatorExpectedRewards ^.. each . _3) _delegatorAccumTransaction
-        let makeSTOs delid (bak, fin, tran) =
-                PaydayAccountReward
-                    { stoAccount = accountAddressFrom delid,
-                      stoBakerReward = bak,
-                      stoFinalizationReward = fin,
-                      stoTransactionFees = tran
-                    }
-        assertEqual "Special transaction outcomes" (zipWith makeSTOs [0 ..] drtcDelegatorExpectedRewards) (_delegatorOutcomes ^.. each)
-      where
-        bs = MockUpdatableBlockState
-        events :: [WithResult (Action 'P4)]
-        events =
-            zipWith
-                ( \i amts ->
-                    BSO (BsoRewardAccount (bs i) (fromIntegral i) (sum (amts ^.. each)))
-                        :-> (Just (accountAddressFrom (fromIntegral i)), bs (i + 1))
-                )
-                [0 ..]
-                drtcDelegatorExpectedRewards
-        totCap = drtcBakerCapital + sum (dcDelegatorCapital <$> dels)
-        dels = Vec.fromList (zipWith DelegatorCapital [0 ..] drtcDelegatorCapitals)
+    totCap = drtcBakerCapital + sum (dcDelegatorCapital <$> dels)
+    dels = Vec.fromList (zipWith DelegatorCapital [0 ..] drtcDelegatorCapitals)
 
 tests :: Spec
 tests = describe "Payday" $ do
@@ -454,4 +457,4 @@ tests = describe "Payday" $ do
     describe "scaleAmount" $ do
         it "div-mod" testScaleAmount1
         it "via Rational" testScaleAmount2
-    testRewardDelegators
+    describe "rewardDelegators" $ mapM_ runTestCase drtcs
