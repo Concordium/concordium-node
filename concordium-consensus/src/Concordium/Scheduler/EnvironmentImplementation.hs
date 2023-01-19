@@ -6,10 +6,8 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
--- FIXME: This is to suppress compiler warnings for derived instances of SchedulerMonad.
--- This may be fixed in GHC 9.0.1.
-{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
+-- | This module contains the implementation for running the scheduler computations.
 module Concordium.Scheduler.EnvironmentImplementation where
 
 import Control.Monad.RWS.Strict
@@ -26,25 +24,33 @@ import Concordium.Scheduler.Types
 import Concordium.TimeMonad
 import qualified Concordium.TransactionVerification as TVer
 
--- |Chain metadata together with the maximum allowed block energy.
+-- |Context for executing a scheduler computation.
 data ContextState = ContextState
-    { _chainMetadata :: !ChainMetadata,
+    { -- |Chain metadata
+      _chainMetadata :: !ChainMetadata,
+      -- |Maximum allowed block energy.
       _maxBlockEnergy :: !Energy,
+      -- |Maximum number of accounts to be created in the same block.
       _accountCreationLimit :: !CredentialsPerBlockLimit
     }
 
 makeLenses ''ContextState
 
--- | The state tracked by the scheduler during a computation.
+-- |State accumulated during execution of a scheduler computation.
 data SchedulerState (m :: DK.Type -> DK.Type) = SchedulerState
-    { _ssBlockState :: !(UpdatableBlockState m),
+    { -- | Current block state.
+      _ssBlockState :: !(UpdatableBlockState m),
+      -- | Energy used so far.
       _ssEnergyUsed :: !Energy,
+      -- | The total execution costs so far.
       _ssExecutionCosts :: !Amount,
+      -- | The next available transaction index.
       _ssNextIndex :: !TransactionIndex
     }
 
 makeLenses ''SchedulerState
 
+-- |Create an initial state for running a scheduler computation.
 makeInitialSchedulerState :: UpdatableBlockState m -> SchedulerState m
 makeInitialSchedulerState _ssBlockState =
     SchedulerState
@@ -54,9 +60,11 @@ makeInitialSchedulerState _ssBlockState =
           ..
         }
 
+-- | Alias for the internal type used in @SchedulerT@.
 type InternalSchedulerT m = RWST ContextState () (SchedulerState m)
 
--- |Scheduler monad transformer
+-- |Scheduler monad transformer. Extends a monad with the ability to execute scheduler computations.
+-- Use @runSchedulerT@ to run the computation.
 newtype SchedulerT (m :: DK.Type -> DK.Type) (a :: DK.Type) = SchedulerT
     { _runSchedulerT :: InternalSchedulerT m m a
     }
@@ -342,7 +350,14 @@ instance
         s' <- lift (BS.bsoEnqueueUpdate s tt p)
         ssBlockState .= s'
 
-runSchedulerT :: Monad m => SchedulerT m a -> ContextState -> SchedulerState m -> m (a, SchedulerState m)
+-- | Execute the computation using the provided context and scheduler state.
+-- The return value is the value produced by the computation and the updated state of the scheduler.
+runSchedulerT ::
+    Monad m =>
+    SchedulerT m a ->
+    ContextState ->
+    SchedulerState m ->
+    m (a, SchedulerState m)
 runSchedulerT computation contextState initialState = do
     (value, resultingState, ()) <- runRWST (_runSchedulerT computation) contextState initialState
     return (value, resultingState)
