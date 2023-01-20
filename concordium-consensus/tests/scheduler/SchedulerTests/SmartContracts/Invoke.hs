@@ -31,7 +31,7 @@ import SchedulerTests.TestUtils
 initialBlockState :: Helpers.PersistentBSM PV4 (HashedPersistentBlockState PV4)
 initialBlockState =
     Helpers.createTestBlockStateWithAccountsM
-        [Helpers.makeTestAccount alesVK alesAccount 1000]
+        [Helpers.makeTestAccount alesVK alesAccount 1_000]
 
 counterSourceFile :: FilePath
 counterSourceFile = "./testdata/contracts/v1/call-counter.wasm"
@@ -181,5 +181,6 @@ runCounterTests = do
                     Just rv -> liftIO $ assertEqual "Invoking a counter in initial state should return an empty array." [] (BS.unpack rv)
 
 tests :: Spec
-tests = describe "Invoke contract" $ do
-    specify "V1: Counter contract" runCounterTests
+tests =
+    describe "Invoke contract" $
+        specify "V1: Counter contract" runCounterTests

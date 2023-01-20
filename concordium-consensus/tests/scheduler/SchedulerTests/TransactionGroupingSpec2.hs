@@ -1,4 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 --Testing of 'Concordium.Scheduler.filterTransactions'.
@@ -6,38 +8,37 @@
 --See also 'SchedulerTests.TransactionGroupingSpec'.
 --This module uses a different test setup as 'SchedulerTests.TransactionGroupingSpec' which makes
 --it easier to define many test cases with expected result and variations thereof.
-module SchedulerTests.TransactionGroupingSpec2 where
+module SchedulerTests.TransactionGroupingSpec2 (tests) where
 
+import Data.Foldable
 import Test.HUnit
 import Test.Hspec
 
-import Control.Monad.IO.Class
-import Lens.Micro.Platform
-
-import Data.Foldable
-
-import Concordium.GlobalState.Basic.BlockState
-import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
-import Concordium.GlobalState.Basic.BlockState.Invariants
+import qualified Concordium.Crypto.SignatureScheme as SigScheme
+import qualified Concordium.GlobalState.Persistent.BlockState as BS
 import qualified Concordium.Scheduler as Sch
+import Concordium.Scheduler.DummyData
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import Concordium.Scheduler.Runner
 import Concordium.Scheduler.Types (Amount, Energy, FailureKind (..), Nonce)
 import qualified Concordium.Scheduler.Types as Types
 import Concordium.TransactionVerification
-
-import Concordium.Crypto.DummyData
-import Concordium.GlobalState.DummyData
-import Concordium.Scheduler.DummyData
-import Concordium.Types.DummyData
-
-import SchedulerTests.Helpers
-import SchedulerTests.TestUtils
+import qualified SchedulerTests.Helpers as Helpers
 
 -- * Definition of test cases
 
-initialBlockState :: BlockState PV1
-initialBlockState = blockStateWithAlesAccount 2000000 Acc.emptyAccounts
+initialBlockState ::
+    (Types.IsProtocolVersion pv) =>
+    Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
+initialBlockState =
+    Helpers.createTestBlockStateWithAccountsM
+        [Helpers.makeTestAccountFromSeed 2000000 0]
+
+accountAddress0 :: Types.AccountAddress
+accountAddress0 = Helpers.accountAddressFromSeed 0
+
+keyPair0 :: SigScheme.KeyPair
+keyPair0 = Helpers.keyPairFromSeed 0
 
 maxBlockEnergy :: Types.Energy
 maxBlockEnergy = 20000
@@ -51,25 +52,25 @@ data ExpectedResult
 -- | Make an (in itself valid ("okay")) test transaction (simple transfer with given amount to own
 -- account).
 tOkay :: Amount -> Nonce -> TransactionJSON
-tOkay amount nonce = tOkayE amount nonce simpleTransferCost
+tOkay amount nonce = tOkayE amount nonce Helpers.simpleTransferCost
 
 -- | Make an (in itself valid ("okay")) test transaction (simple transfer with given amount to own
 -- account) with sepcifying the energy to be deposited.
 tOkayE :: Amount -> Nonce -> Energy -> TransactionJSON
 tOkayE amount nonce energy =
     TJSON
-        { payload = Transfer{toaddress = alesAccount, ..},
-          metadata = makeDummyHeader alesAccount nonce energy,
-          keys = [(0, [(0, alesKP)])]
+        { payload = Transfer{toaddress = accountAddress0, ..},
+          metadata = makeDummyHeader accountAddress0 nonce energy,
+          keys = [(0, [(0, keyPair0)])]
         }
 
 -- | Make a test transaction (simple transfer with given amount) that will fail with 'tFailKind'.
 tFail :: Amount -> Nonce -> TransactionJSON
 tFail amount nonce =
     TJSON
-        { payload = Transfer{toaddress = alesAccount, ..},
-          metadata = makeDummyHeader alesAccount nonce 0, -- will result in DepositInsufficient failure
-          keys = [(0, [(0, alesKP)])]
+        { payload = Transfer{toaddress = accountAddress0, ..},
+          metadata = makeDummyHeader accountAddress0 nonce 0, -- will result in DepositInsufficient failure
+          keys = [(0, [(0, keyPair0)])]
         }
 
 -- | 'FailureKind' of 'tFail'.
@@ -283,22 +284,41 @@ type TestResult =
       [TransactionWithStatus]
     )
 
-testGroups :: [[TransactionJSON]] -> IO TestResult
-testGroups groups = do
+testGroups ::
+    forall pv.
+    (Types.IsProtocolVersion pv) =>
+    Types.SProtocolVersion pv ->
+    [[TransactionJSON]] ->
+    IO TestResult
+testGroups _ groups = do
+    let contextState =
+            Helpers.defaultContextState
+                { Types._maxBlockEnergy = maxBlockEnergy
+                }
+    let testConfig =
+            Helpers.defaultTestConfig
+                { Helpers.tcContextState = contextState
+                }
     -- NOTE Checks should also succeed if arrival time is not 0 for all;
     -- It is only required that the order of 'ts' corresponds to the order in 'groups'.
     ts <- processGroupedTransactions groups
-    let (Sch.FilteredTransactions{..}, finState) =
-            Types.runSI
-                (Sch.filterTransactions dummyBlockSize dummyBlockTimeout ts)
-                dummyChainMeta
-                maxBlockEnergy
-                maxBound
-                initialBlockState
-    let gstate = finState ^. Types.ssBlockState
-    case invariantBlockState gstate (finState ^. Types.schedulerExecutionCosts) of
-        Left f -> liftIO $ assertFailure f
-        Right _ -> return (getResults ftAdded, ftFailed, ftUnprocessed, concat (Types.perAccountTransactions ts))
+    (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
+        Helpers.runSchedulerTest
+            @pv
+            testConfig
+            initialBlockState
+            (Helpers.checkReloadCheck checkState)
+            ts
+    doBlockStateAssertions
+    let Sch.FilteredTransactions{..} = srTransactions
+    return (Helpers.getResults ftAdded, ftFailed, ftUnprocessed, concat (Types.perAccountTransactions ts))
+  where
+    checkState ::
+        Helpers.SchedulerResult ->
+        BS.PersistentBlockState pv ->
+        Helpers.PersistentBSM pv Assertion
+    checkState result blockstate =
+        Helpers.assertBlockStateInvariantsH blockstate (Helpers.srExecutionCosts result)
 
 -- NOTE: In case of failure, this currently does not show the actual lists of invalid and unprocessed
 -- transactions, but only the transaction which is not in the expected list, with its expectation.
@@ -307,44 +327,46 @@ tests :: Spec
 tests =
     describe "Transaction grouping test (2)" $
         forM_ testCases $ \(name, tc) ->
-            describe name $ do
-                (valid, invalid, unproc, input) <- runIO $ (testGroups $ map (map fst) tc)
-                let tsjson = concat tc
-                -- NOTE: We do not check as part of this test whether the second component is a 'TxValid'
-                let (validTs, _) = unzip valid
-                -- Create expected lists of added, invalid and unprocessed transactions
-                -- (here in order of the input, even if the actual assertion might not check that).
-                let (eValid, _, _) =
-                        mkExpected (zipWith (\(_, expectedRes) t -> (fst t, expectedRes)) tsjson input) [] [] []
-                      where
-                        mkExpected [] ev ei eu = (reverse ev, reverse ei, reverse eu)
-                        mkExpected ((t, expectedRes) : rest) ev ei eu =
-                            case expectedRes of
-                                Added -> mkExpected rest ((Types.normalTransaction t) : ev) ei eu
-                                Failed fk -> mkExpected rest ev ((t, fk) : ei) eu
-                                Unprocessed -> mkExpected rest ev ei (t : eu)
-
-                specify "Number of transactions in result correct" $ do
-                    assertEqual "Test setup does not change number of transactions" (length input) (length tsjson)
-                    length valid + length invalid + length unproc `shouldBe` length input
-
-                -- NOTE: For the valid transactions, also the order is guaranteed (TODO the specification
-                -- does not guarantee this; check whether other properties should be checked or whether
-                -- just the membership in `ftAdded` is sufficient).
-                specify "List of valid transactions correct, including order" $ map fst validTs `shouldBe` eValid
-
-                -- NOTE: This only tests whether all transactions appear in the result if
-                -- all transactions are unique. Therefore the above number check is good to have.
-                describe "All transactions sorted to correct list"
-                    $ mapM_
-                        ( \(n, t, expectedRes) ->
-                            specify ("Transaction " ++ show n) $
-                                shouldSatisfy (t, expectedRes) $ \_ ->
+            sequence_ $
+                Helpers.forEveryProtocolVersion $ \spv pvString ->
+                    describe (pvString ++ ": " ++ name) $ do
+                        (valid, invalid, unproc, input) <- runIO $ testGroups spv $ map (map fst) tc
+                        let tsjson = concat tc
+                        -- NOTE: We do not check as part of this test whether the second component is a 'TxValid'
+                        let (validTs, _) = unzip valid
+                        -- Create expected lists of added, invalid and unprocessed transactions
+                        -- (here in order of the input, even if the actual assertion might not check that).
+                        let (eValid, _, _) =
+                                mkExpected (zipWith (\(_, expectedRes) t -> (fst t, expectedRes)) tsjson input) [] [] []
+                              where
+                                mkExpected [] ev ei eu = (reverse ev, reverse ei, reverse eu)
+                                mkExpected ((t, expectedRes) : rest) ev ei eu =
                                     case expectedRes of
-                                        -- NOTE: With a custom expectation could print list of
-                                        -- invalid/unproc in case of failure.
-                                        Added -> (Types.normalTransaction t) `elem` map fst validTs
-                                        Failed fk -> (t, fk) `elem` map (\(x, y) -> (fst x, y)) invalid
-                                        Unprocessed -> t `elem` map fst unproc
-                        )
-                    $ zipWith3 (\n (_, expectedRes) t -> (n, fst t, expectedRes)) ([1 ..] :: [Int]) tsjson input
+                                        Added -> mkExpected rest ((Types.normalTransaction t) : ev) ei eu
+                                        Failed fk -> mkExpected rest ev ((t, fk) : ei) eu
+                                        Unprocessed -> mkExpected rest ev ei (t : eu)
+
+                        specify "Number of transactions in result correct" $ do
+                            assertEqual "Test setup does not change number of transactions" (length input) (length tsjson)
+                            length valid + length invalid + length unproc `shouldBe` length input
+
+                        -- NOTE: For the valid transactions, also the order is guaranteed (TODO the specification
+                        -- does not guarantee this; check whether other properties should be checked or whether
+                        -- just the membership in `ftAdded` is sufficient).
+                        specify "List of valid transactions correct, including order" $ map fst validTs `shouldBe` eValid
+
+                        -- NOTE: This only tests whether all transactions appear in the result if
+                        -- all transactions are unique. Therefore the above number check is good to have.
+                        describe "All transactions sorted to correct list"
+                            $ mapM_
+                                ( \(n, t, expectedRes) ->
+                                    specify ("Transaction " ++ show n) $
+                                        shouldSatisfy (t, expectedRes) $ \_ ->
+                                            case expectedRes of
+                                                -- NOTE: With a custom expectation could print list of
+                                                -- invalid/unproc in case of failure.
+                                                Added -> (Types.normalTransaction t) `elem` map fst validTs
+                                                Failed fk -> (t, fk) `elem` map (\(x, y) -> (fst x, y)) invalid
+                                                Unprocessed -> t `elem` map fst unproc
+                                )
+                            $ zipWith3 (\n (_, expectedRes) t -> (n, fst t, expectedRes)) ([1 ..] :: [Int]) tsjson input

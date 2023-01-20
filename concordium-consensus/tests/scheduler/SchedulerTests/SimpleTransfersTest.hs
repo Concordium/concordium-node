@@ -1,308 +1,471 @@
 {-# LANGUAGE MonoLocalBinds #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 
-module SchedulerTests.SimpleTransfersTest where
+module SchedulerTests.SimpleTransfersTest (tests) where
 
+import Control.Monad (when)
 import Test.HUnit
 import Test.Hspec
 
-import Control.Monad.IO.Class
-import Lens.Micro.Platform
-
+import qualified Concordium.Crypto.SignatureScheme as SigScheme
+import qualified Concordium.GlobalState.BlockState as BS
+import qualified Concordium.GlobalState.Persistent.Account as BS
+import qualified Concordium.GlobalState.Persistent.BlockState as BS
 import qualified Concordium.Scheduler as Sch
-import qualified Concordium.Scheduler.EnvironmentImplementation as Types
+import Concordium.Scheduler.DummyData
 import Concordium.Scheduler.Runner
 import qualified Concordium.Scheduler.Types as Types
-import Concordium.TransactionVerification
-
-import Concordium.GlobalState.Basic.BlockState
-import Concordium.GlobalState.Basic.BlockState.Account
-import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
-import Concordium.GlobalState.Basic.BlockState.Invariants
-
-import Concordium.Crypto.DummyData
-import Concordium.GlobalState.DummyData
-import Concordium.Scheduler.DummyData
-import Concordium.Types.DummyData
-import qualified Data.ByteString.Short as BSS
-
 import Concordium.Types.ProtocolVersion (IsProtocolVersion)
-import SchedulerTests.Helpers
+import qualified Data.ByteString.Short as BSS
+import qualified SchedulerTests.Helpers as Helpers
 import SchedulerTests.TestUtils
 
-shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
-shouldReturnP action f = action >>= (`shouldSatisfy` f)
-
-initialBlockState :: BlockState PV1
+initialBlockState ::
+    (IsProtocolVersion pv) =>
+    Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
 initialBlockState =
-    blockStateWithAlesAccount
-        1000000
-        (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 1000000) Acc.emptyAccounts)
+    Helpers.createTestBlockStateWithAccountsM
+        [ Helpers.makeTestAccountFromSeed 1_000_000 0,
+          Helpers.makeTestAccountFromSeed 1_000_000 1
+        ]
 
-initialBlockState2 :: BlockState PV2
-initialBlockState2 =
-    blockStateWithAlesAccount
-        1000000
-        (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 1000000) Acc.emptyAccounts)
+accountAddress0 :: Types.AccountAddress
+accountAddress0 = Helpers.accountAddressFromSeed 0
 
-initialBlockState3 :: BlockState PV3
-initialBlockState3 =
-    blockStateWithAlesAccount
-        1000000
-        (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 1000000) Acc.emptyAccounts)
+accountAddress1 :: Types.AccountAddress
+accountAddress1 = Helpers.accountAddressFromSeed 1
 
--- simple transfers to be tested with protocol version 2
-transactionsInput2 :: [TransactionJSON]
-transactionsInput2 =
-    -- transfer 10000 from A to A
-    [ TJSON
-        { payload = Transfer{toaddress = alesAccount, amount = 10000},
-          metadata = makeDummyHeader alesAccount 1 simpleTransferCost,
-          keys = [(0, [(0, alesKP)])]
-        },
-      -- transfer 8800 from A to T
-      TJSON
-        { payload = Transfer{toaddress = thomasAccount, amount = 8800},
-          metadata = makeDummyHeader alesAccount 2 simpleTransferCost,
-          keys = [(0, [(0, alesKP)])]
-        },
-      -- transfer everything from from A to T
-      -- the (100 *) is conversion between NRG and GTU
-      TJSON
-        { payload = Transfer{toaddress = thomasAccount, amount = 1000000 - 8800 - 3 * 100 * fromIntegral simpleTransferCost},
-          metadata = makeDummyHeader alesAccount 3 simpleTransferCost,
-          keys = [(0, [(0, alesKP)])]
-        },
-      -- transfer 10000 back from T to A
-      TJSON
-        { payload = Transfer{toaddress = alesAccount, amount = 100 * fromIntegral simpleTransferCost},
-          metadata = makeDummyHeader thomasAccount 1 simpleTransferCost,
-          keys = [(0, [(0, thomasKP)])]
-        },
-      -- the next transaction should fail because the balance on A is now exactly enough to cover the transfer cost
-      TJSON
-        { payload = Transfer{toaddress = thomasAccount, amount = 1},
-          metadata = makeDummyHeader alesAccount 4 simpleTransferCost,
-          keys = [(0, [(0, alesKP)])]
-        }
-    ]
+keyPair0 :: SigScheme.KeyPair
+keyPair0 = Helpers.keyPairFromSeed 0
 
--- simple transfers to be tested with protocol version 3
-transactionsInput3 :: [TransactionJSON]
-transactionsInput3 =
-    -- transfer 10000 from A to A
-    [ TJSON
-        { payload = Transfer{toaddress = createAlias alesAccount 0, amount = 10000},
-          metadata = makeDummyHeader alesAccount 1 simpleTransferCost,
-          keys = [(0, [(0, alesKP)])]
-        },
-      -- transfer 8800 from A to T
-      TJSON
-        { payload = Transfer{toaddress = createAlias thomasAccount 0, amount = 8800},
-          metadata = makeDummyHeader alesAccount 2 simpleTransferCost,
-          keys = [(0, [(0, alesKP)])]
-        },
-      -- transfer everything from from A to T
-      -- the (100 *) is conversion between NRG and GTU
-      TJSON
-        { payload = Transfer{toaddress = createAlias thomasAccount 1, amount = 1000000 - 8800 - 3 * 100 * fromIntegral simpleTransferCost},
-          metadata = makeDummyHeader alesAccount 3 simpleTransferCost,
-          keys = [(0, [(0, alesKP)])]
-        },
-      -- transfer 10000 back from T to A
-      TJSON
-        { payload = Transfer{toaddress = createAlias alesAccount 1, amount = 100 * fromIntegral simpleTransferCost},
-          metadata = makeDummyHeader thomasAccount 1 simpleTransferCost,
-          keys = [(0, [(0, thomasKP)])]
-        },
-      -- the next transaction should fail because the balance on A is now exactly enough to cover the transfer cost
-      TJSON
-        { payload = Transfer{toaddress = createAlias thomasAccount 2, amount = 1},
-          metadata = makeDummyHeader (createAlias alesAccount 4) 4 simpleTransferCost,
-          keys = [(0, [(0, alesKP)])]
-        }
-    ]
+keyPair1 :: SigScheme.KeyPair
+keyPair1 = Helpers.keyPairFromSeed 1
 
--- simple transfers to be tested with protocol version 1
-transactionsInput :: [TransactionJSON]
-transactionsInput =
-    -- transfer with memo - should get rejected because protocol version is 1
-    transactionsInput2
-        ++ [ TJSON
-                { payload = TransferWithMemo{twmToAddress = alesAccount, twmAmount = 1, twmMemo = Types.Memo $ BSS.pack [0, 1, 2, 3]},
-                  metadata = makeDummyHeader thomasAccount 2 simpleTransferCost,
-                  keys = [(0, [(0, thomasKP)])]
-                }
-           ]
-
--- simple transfers with memo to be tested with protocol version 2
-transactionsInput2Memo :: [TransactionJSON]
-transactionsInput2Memo =
-    -- transfer 10000 from A to A
-    [ TJSON
-        { payload = TransferWithMemo{twmToAddress = alesAccount, twmAmount = 10000, twmMemo = Types.Memo $ BSS.pack [0, 1, 2, 3]},
-          metadata = makeDummyHeader alesAccount 1 $ simpleTransferCostWithMemo2 4,
-          keys = [(0, [(0, alesKP)])]
-        },
-      -- transfer 8800 from A to T
-      TJSON
-        { payload = TransferWithMemo{twmToAddress = thomasAccount, twmAmount = 8800, twmMemo = Types.Memo $ BSS.pack [0, 1, 2, 3]},
-          metadata = makeDummyHeader alesAccount 2 $ simpleTransferCostWithMemo2 4,
-          keys = [(0, [(0, alesKP)])]
-        },
-      -- transfer everything from from A to T
-      -- the (100 *) is conversion between NRG and GTU
-      TJSON
-        { payload = TransferWithMemo{twmToAddress = thomasAccount, twmAmount = 1000000 - 8800 - 3 * 100 * fromIntegral (simpleTransferCostWithMemo2 4), twmMemo = Types.Memo $ BSS.pack [0, 1, 2, 3]},
-          metadata = makeDummyHeader alesAccount 3 $ simpleTransferCostWithMemo2 4,
-          keys = [(0, [(0, alesKP)])]
-        },
-      -- transfer 10000 back from T to A
-      TJSON
-        { payload = TransferWithMemo{twmToAddress = alesAccount, twmAmount = 100 * fromIntegral (simpleTransferCostWithMemo2 4), twmMemo = Types.Memo $ BSS.pack [0, 1, 2, 3]},
-          metadata = makeDummyHeader thomasAccount 1 $ simpleTransferCostWithMemo2 4,
-          keys = [(0, [(0, thomasKP)])]
-        },
-      -- the next transaction should fail because the balance on A is now exactly enough to cover the transfer cost
-      TJSON
-        { payload = TransferWithMemo{twmToAddress = thomasAccount, twmAmount = 1, twmMemo = Types.Memo $ BSS.pack [0, 1, 2, 3]},
-          metadata = makeDummyHeader alesAccount 4 $ simpleTransferCostWithMemo2 4,
-          keys = [(0, [(0, alesKP)])]
-        }
-    ]
-
-type TestResult =
-    ( [(BlockItemWithStatus, Types.ValidResult)],
-      [(TransactionWithStatus, Types.FailureKind)],
-      Types.Amount,
-      Types.Amount
-    )
-
-testSimpleTransfer :: IsProtocolVersion pv => BlockState pv -> [TransactionJSON] -> IO TestResult
-testSimpleTransfer initialBs tInput = do
-    transactions <- processUngroupedTransactions tInput
-    let (Sch.FilteredTransactions{..}, finState) =
-            Types.runSI
-                (Sch.filterTransactions dummyBlockSize dummyBlockTimeout transactions)
-                dummyChainMeta
-                maxBound
-                maxBound
-                initialBs
-    let gstate = finState ^. Types.ssBlockState
-    case invariantBlockState gstate (finState ^. Types.schedulerExecutionCosts) of
-        Left f -> liftIO $ assertFailure f
-        Right _ -> return ()
-    return
-        ( getResults ftAdded,
-          ftFailed,
-          gstate ^. blockAccounts . singular (ix alesAccount) . accountAmount,
-          gstate ^. blockAccounts . singular (ix thomasAccount) . accountAmount
-        )
-
-checkSimpleTransferResult :: TestResult -> Assertion
-checkSimpleTransferResult (suc, fails, alesamount, thomasamount) = do
-    assertEqual "There should be no failed transactions." [] fails
-    rejectLast
-    rejectSecondToLast
-    assertBool "Initial transactions are accepted." nonreject
-    assertEqual "Amount on the A account." 0 alesamount
-    assertEqual ("Amount on the T account." ++ show thomasamount) (2000000 - 5 * 100 * fromIntegral simpleTransferCost - 100 * fromIntegral (simpleTransferCostWithMemo1 4)) thomasamount
+transferWithMemoRejectTestP1 ::
+    Spec
+transferWithMemoRejectTestP1 = specify
+    "P1: Transfer with memo - should get rejected because protocol version is 1"
+    $ do
+        let transactions =
+                [ TJSON
+                    { payload =
+                        TransferWithMemo
+                            { twmToAddress = accountAddress0,
+                              twmAmount = 1,
+                              twmMemo = Types.Memo $ BSS.pack [0, 1, 2, 3]
+                            },
+                      metadata = makeDummyHeader accountAddress1 1 Helpers.simpleTransferCost,
+                      keys = [(0, [(0, keyPair1)])]
+                    }
+                ]
+        (_, doBlockStateAssertions) <-
+            Helpers.runSchedulerTestTransactionJson
+                @'Types.P1
+                Helpers.defaultTestConfig
+                initialBlockState
+                (Helpers.checkReloadCheck checkState)
+                transactions
+        doBlockStateAssertions
   where
-    nonreject =
-        all
-            ( \case
-                (_, Types.TxSuccess{}) -> True
-                (_, Types.TxReject{}) -> False
-            )
-            (init $ init suc)
-    rejectLast = case last suc of
-        (_, Types.TxReject Types.SerializationFailure) -> return ()
-        err -> assertFailure $ "Incorrect result of the first transaction: " ++ show (snd err)
-    rejectSecondToLast = case last $ init suc of
-        (_, Types.TxReject (Types.AmountTooLarge addr amnt)) -> do
-            assertEqual "Sending from A" (Types.AddressAccount alesAccount) addr
-            assertEqual "Exactly 1microGTU" 1 amnt
-        err -> assertFailure $ "Incorrect result of the last transaction: " ++ show (snd err)
+    checkState ::
+        Helpers.SchedulerResult ->
+        BS.PersistentBlockState PV1 ->
+        Helpers.PersistentBSM PV1 Assertion
+    checkState result state = do
+        doCheckBlockStateInvariants <-
+            Helpers.assertBlockStateInvariantsH
+                state
+                (Helpers.srExecutionCosts result)
+        maybeAccount0 <- BS.bsoGetAccount state accountAddress0
+        maybeAmount0 <- case maybeAccount0 of
+            Nothing -> return Nothing
+            Just (_, account) -> Just <$> BS.accountAmount account
+        maybeAccount1 <- BS.bsoGetAccount state accountAddress1
+        maybeAmount1 <- case maybeAccount1 of
+            Nothing -> return Nothing
+            Just (_, account) -> Just <$> BS.accountAmount account
+        return $ do
+            let Sch.FilteredTransactions{..} = Helpers.srTransactions result
+            assertEqual "There should be no failed transactions." [] ftFailed
 
-checkSimpleTransferResult2 :: TestResult -> Assertion
-checkSimpleTransferResult2 (suc, fails, alesamount, thomasamount) = do
-    assertEqual "There should be no failed transactions." [] fails
-    rejectLast
-    assertBool "Initial transactions are accepted." nonreject
-    assertEqual "Amount on the A account." 0 alesamount
-    assertEqual ("Amount on the T account." ++ show thomasamount) (2000000 - 5 * 100 * fromIntegral simpleTransferCost) thomasamount
+            case Helpers.getResults ftAdded of
+                [(_, Types.TxReject Types.SerializationFailure)] -> return ()
+                err -> assertFailure $ "Incorrect transaction result: " ++ show err
+
+            assertEqual "Amount on account0." (Just 1_000_000) maybeAmount0
+            let transactionCost = 100 * fromIntegral (Helpers.simpleTransferCostWithMemo1 4)
+            assertEqual
+                ("Amount on account1." ++ show maybeAmount1)
+                (Just (1_000_000 - transactionCost))
+                maybeAmount1
+
+            doCheckBlockStateInvariants
+
+simpleTransferTest ::
+    forall pv.
+    Types.IsProtocolVersion pv =>
+    Types.SProtocolVersion pv ->
+    String ->
+    Spec
+simpleTransferTest _ pvString = specify
+    (pvString ++ ": 4 successful and 1 failed transaction")
+    $ do
+        let transactions =
+                -- transfer 10000 from account0 to account0
+                [ TJSON
+                    { payload = Transfer{toaddress = accountAddress0, amount = 10_000},
+                      metadata = makeDummyHeader accountAddress0 1 Helpers.simpleTransferCost,
+                      keys = [(0, [(0, keyPair0)])]
+                    },
+                  -- transfer 8800 from account0 to account1
+                  TJSON
+                    { payload = Transfer{toaddress = accountAddress1, amount = 8_800},
+                      metadata = makeDummyHeader accountAddress0 2 Helpers.simpleTransferCost,
+                      keys = [(0, [(0, keyPair0)])]
+                    },
+                  -- transfer everything from from account0 to account1
+                  -- the (100 *) is conversion between NRG and CCD
+                  TJSON
+                    { payload =
+                        Transfer
+                            { toaddress = accountAddress1,
+                              amount = 1_000_000 - 8_800 - 3 * 100 * fromIntegral Helpers.simpleTransferCost
+                            },
+                      metadata = makeDummyHeader accountAddress0 3 Helpers.simpleTransferCost,
+                      keys = [(0, [(0, keyPair0)])]
+                    },
+                  -- transfer 10000 back from account1 to account0
+                  TJSON
+                    { payload =
+                        Transfer
+                            { toaddress = accountAddress0,
+                              amount = 100 * fromIntegral Helpers.simpleTransferCost
+                            },
+                      metadata = makeDummyHeader accountAddress1 1 Helpers.simpleTransferCost,
+                      keys = [(0, [(0, keyPair1)])]
+                    },
+                  -- the next transaction should fail because the balance on account0 is now exactly
+                  -- enough to cover the transfer cost
+                  TJSON
+                    { payload = Transfer{toaddress = accountAddress1, amount = 1},
+                      metadata = makeDummyHeader accountAddress0 4 Helpers.simpleTransferCost,
+                      keys = [(0, [(0, keyPair0)])]
+                    }
+                ]
+
+        (_, doBlockStateAssertions) <-
+            Helpers.runSchedulerTestTransactionJson
+                Helpers.defaultTestConfig
+                initialBlockState
+                (Helpers.checkReloadCheck checkState)
+                transactions
+        doBlockStateAssertions
   where
-    nonreject =
-        all
-            ( \case
-                (_, Types.TxSuccess{}) -> True
-                (_, Types.TxReject{}) -> False
-            )
-            (init suc)
-    rejectLast = case last suc of
-        (_, Types.TxReject (Types.AmountTooLarge addr amnt)) -> do
-            assertEqual "Sending from A" (Types.AddressAccount alesAccount) addr
-            assertEqual "Exactly 1microGTU" 1 amnt
-        err -> assertFailure $ "Incorrect result of the last transaction: " ++ show (snd err)
+    checkState ::
+        Helpers.SchedulerResult ->
+        BS.PersistentBlockState pv ->
+        Helpers.PersistentBSM pv Assertion
+    checkState result state = do
+        doCheckBlockStateInvariants <-
+            Helpers.assertBlockStateInvariantsH
+                state
+                (Helpers.srExecutionCosts result)
+        maybeAccount0 <- BS.bsoGetAccount state accountAddress0
+        maybeAmount0 <- case maybeAccount0 of
+            Nothing -> return Nothing
+            Just (_, account) -> Just <$> BS.accountAmount account
+        maybeAccount1 <- BS.bsoGetAccount state accountAddress1
+        maybeAmount1 <- case maybeAccount1 of
+            Nothing -> return Nothing
+            Just (_, account) -> Just <$> BS.accountAmount account
+        return $ do
+            let Sch.FilteredTransactions{..} = Helpers.srTransactions result
+            let results = Helpers.getResults ftAdded
+            assertEqual "There should be no failed transactions." [] ftFailed
 
-checkSimpleTransferResult2Memo :: TestResult -> Assertion
-checkSimpleTransferResult2Memo (suc, fails, alesamount, thomasamount) = do
-    assertEqual "There should be no failed transactions." [] fails
-    rejectLast
-    assertBool "Initial transactions are accepted." nonreject
-    assertEqual "Amount on the A account." 0 alesamount
-    assertEqual ("Amount on the T account." ++ show thomasamount) (2000000 - 5 * 100 * fromIntegral (simpleTransferCostWithMemo2 4)) thomasamount
+            case last results of
+                (_, Types.TxReject (Types.AmountTooLarge addr amnt)) -> do
+                    assertEqual "Sending from account 0" (Types.AddressAccount accountAddress0) addr
+                    assertEqual "Exactly 1 microCCD" 1 amnt
+                err -> assertFailure $ "Incorrect result of the last transaction: " ++ show (snd err)
+
+            let nonreject =
+                    all
+                        ( \case
+                            (_, Types.TxSuccess{}) -> True
+                            (_, Types.TxReject{}) -> False
+                        )
+                        (init results)
+            assertBool "Initial transactions are accepted." nonreject
+
+            assertEqual "Amount on account0." (Just 0) maybeAmount0
+            let transactionCost =
+                    5
+                        * 100
+                        * fromIntegral Helpers.simpleTransferCost
+
+            assertEqual
+                ("Amount on account1." ++ show maybeAmount1)
+                (Just (2_000_000 - transactionCost))
+                maybeAmount1
+
+            doCheckBlockStateInvariants
+
+simpleTransferWithMemoTest ::
+    forall pv.
+    Types.IsProtocolVersion pv =>
+    Types.SProtocolVersion pv ->
+    String ->
+    Spec
+simpleTransferWithMemoTest _ pvString = specify
+    (pvString ++ ": simple transfers with memo")
+    $ do
+        let transactions =
+                -- transfer 10000 from A0 to A0
+                [ TJSON
+                    { payload =
+                        TransferWithMemo
+                            { twmToAddress = accountAddress0,
+                              twmAmount = 10_000,
+                              twmMemo = Types.Memo $ BSS.pack [0, 1, 2, 3]
+                            },
+                      metadata = makeDummyHeader accountAddress0 1 $ Helpers.simpleTransferCostWithMemo2 4,
+                      keys = [(0, [(0, keyPair0)])]
+                    },
+                  -- transfer 8800 from A to T
+                  TJSON
+                    { payload =
+                        TransferWithMemo
+                            { twmToAddress = accountAddress1,
+                              twmAmount = 8_800,
+                              twmMemo = Types.Memo $ BSS.pack [0, 1, 2, 3]
+                            },
+                      metadata = makeDummyHeader accountAddress0 2 $ Helpers.simpleTransferCostWithMemo2 4,
+                      keys = [(0, [(0, keyPair0)])]
+                    },
+                  -- transfer everything from from A0 to A1
+                  -- the (100 *) is conversion between NRG and CCD
+                  TJSON
+                    { payload =
+                        TransferWithMemo
+                            { twmToAddress = accountAddress1,
+                              twmAmount =
+                                1_000_000
+                                    - 8_800
+                                    - 3 * 100 * fromIntegral (Helpers.simpleTransferCostWithMemo2 4),
+                              twmMemo = Types.Memo $ BSS.pack [0, 1, 2, 3]
+                            },
+                      metadata = makeDummyHeader accountAddress0 3 $ Helpers.simpleTransferCostWithMemo2 4,
+                      keys = [(0, [(0, keyPair0)])]
+                    },
+                  -- transfer 10000 back from A1 to A0
+                  TJSON
+                    { payload =
+                        TransferWithMemo
+                            { twmToAddress = accountAddress0,
+                              twmAmount = 100 * fromIntegral (Helpers.simpleTransferCostWithMemo2 4),
+                              twmMemo = Types.Memo $ BSS.pack [0, 1, 2, 3]
+                            },
+                      metadata = makeDummyHeader accountAddress1 1 $ Helpers.simpleTransferCostWithMemo2 4,
+                      keys = [(0, [(0, keyPair1)])]
+                    },
+                  -- the next transaction should fail because the balance on A0 is now exactly enough to cover
+                  -- the transfer cost
+                  TJSON
+                    { payload =
+                        TransferWithMemo
+                            { twmToAddress = accountAddress1,
+                              twmAmount = 1,
+                              twmMemo = Types.Memo $ BSS.pack [0, 1, 2, 3]
+                            },
+                      metadata = makeDummyHeader accountAddress0 4 $ Helpers.simpleTransferCostWithMemo2 4,
+                      keys = [(0, [(0, keyPair0)])]
+                    }
+                ]
+
+        (_, doBlockStateAssertions) <-
+            Helpers.runSchedulerTestTransactionJson
+                Helpers.defaultTestConfig
+                initialBlockState
+                (Helpers.checkReloadCheck checkState)
+                transactions
+        doBlockStateAssertions
   where
-    nonreject =
-        all
-            ( \case
-                (_, Types.TxSuccess{..}) -> case last vrEvents of
-                    Types.TransferMemo memo -> memo == Types.Memo (BSS.pack [0, 1, 2, 3])
-                    _ -> False
-                (_, Types.TxReject{}) -> False
-            )
-            (init suc)
-    rejectLast = case last suc of
-        (_, Types.TxReject (Types.AmountTooLarge addr amnt)) -> do
-            assertEqual "Sending from A" (Types.AddressAccount alesAccount) addr
-            assertEqual "Exactly 1microGTU" 1 amnt
-        err -> assertFailure $ "Incorrect result of the last transaction: " ++ show (snd err)
+    checkState ::
+        Helpers.SchedulerResult ->
+        BS.PersistentBlockState pv ->
+        Helpers.PersistentBSM pv Assertion
+    checkState result state = do
+        doCheckBlockStateInvariants <-
+            Helpers.assertBlockStateInvariantsH
+                state
+                (Helpers.srExecutionCosts result)
+        maybeAccount0 <- BS.bsoGetAccount state accountAddress0
+        maybeAmount0 <- case maybeAccount0 of
+            Nothing -> return Nothing
+            Just (_, account) -> Just <$> BS.accountAmount account
+        maybeAccount1 <- BS.bsoGetAccount state accountAddress1
+        maybeAmount1 <- case maybeAccount1 of
+            Nothing -> return Nothing
+            Just (_, account) -> Just <$> BS.accountAmount account
+        return $ do
+            let Sch.FilteredTransactions{..} = Helpers.srTransactions result
+            let results = Helpers.getResults ftAdded
+            assertEqual "There should be no failed transactions." [] ftFailed
 
-checkSimpleTransferResult3 :: TestResult -> Assertion
-checkSimpleTransferResult3 (suc, fails, alesamount, thomasamount) = do
-    --  assertEqual "Actual result" suc []
-    assertEqual "There should be no failed transactions." [] fails
-    rejectLast
-    assertBool "Initial transactions are accepted." nonreject
-    assertEqual "Amount on the A account." 0 alesamount
-    assertEqual ("Amount on the T account." ++ show thomasamount) (2000000 - 5 * 100 * fromIntegral simpleTransferCost) thomasamount
+            case last results of
+                (_, Types.TxReject (Types.AmountTooLarge addr amnt)) -> do
+                    assertEqual "Sending from account 0" (Types.AddressAccount accountAddress0) addr
+                    assertEqual "Exactly 1 microCCD" 1 amnt
+                err -> assertFailure $ "Incorrect result of the last transaction: " ++ show (snd err)
+
+            let nonreject =
+                    all
+                        ( \case
+                            (_, Types.TxSuccess{}) -> True
+                            (_, Types.TxReject{}) -> False
+                        )
+                        (init results)
+            assertBool "Initial transactions are accepted." nonreject
+
+            assertEqual "Amount on account0." (Just 0) maybeAmount0
+            let transactionCost =
+                    5
+                        * 100
+                        * fromIntegral (Helpers.simpleTransferCostWithMemo2 4)
+
+            assertEqual
+                ("Amount on account1." ++ show maybeAmount1)
+                (Just (2_000_000 - transactionCost))
+                maybeAmount1
+
+            doCheckBlockStateInvariants
+
+simpleTransferUsingAccountAliasesTest ::
+    forall pv.
+    Types.IsProtocolVersion pv =>
+    Types.SProtocolVersion pv ->
+    String ->
+    Spec
+simpleTransferUsingAccountAliasesTest _ pvString = specify
+    (pvString ++ ": 4 successful and 1 failed transaction using aliases")
+    $ do
+        let transactions =
+                -- transfer 10000 from account0 to account0
+                [ TJSON
+                    { payload = Transfer{toaddress = createAlias accountAddress0 0, amount = 10_000},
+                      metadata = makeDummyHeader accountAddress0 1 Helpers.simpleTransferCost,
+                      keys = [(0, [(0, keyPair0)])]
+                    },
+                  -- transfer 8800 from account0 to account1
+                  TJSON
+                    { payload = Transfer{toaddress = createAlias accountAddress1 0, amount = 8_800},
+                      metadata = makeDummyHeader accountAddress0 2 Helpers.simpleTransferCost,
+                      keys = [(0, [(0, keyPair0)])]
+                    },
+                  -- transfer everything from from account0 to account1
+                  -- the (100 *) is conversion between NRG and CCD
+                  TJSON
+                    { payload =
+                        Transfer
+                            { toaddress = createAlias accountAddress1 1,
+                              amount =
+                                1_000_000
+                                    - 8_800
+                                    - 3 * 100 * fromIntegral Helpers.simpleTransferCost
+                            },
+                      metadata = makeDummyHeader accountAddress0 3 Helpers.simpleTransferCost,
+                      keys = [(0, [(0, keyPair0)])]
+                    },
+                  -- transfer 10000 back from account1 to account0
+                  TJSON
+                    { payload =
+                        Transfer
+                            { toaddress = createAlias accountAddress0 1,
+                              amount = 100 * fromIntegral Helpers.simpleTransferCost
+                            },
+                      metadata = makeDummyHeader accountAddress1 1 Helpers.simpleTransferCost,
+                      keys = [(0, [(0, keyPair1)])]
+                    },
+                  -- the next transaction should fail because the balance on account0 is now exactly enough to cover the transfer cost
+                  TJSON
+                    { payload = Transfer{toaddress = createAlias accountAddress1 2, amount = 1},
+                      metadata = makeDummyHeader (createAlias accountAddress0 4) 4 Helpers.simpleTransferCost,
+                      keys = [(0, [(0, keyPair0)])]
+                    }
+                ]
+
+        (_, doBlockStateAssertions) <-
+            Helpers.runSchedulerTestTransactionJson
+                Helpers.defaultTestConfig
+                initialBlockState
+                (Helpers.checkReloadCheck checkState)
+                transactions
+        doBlockStateAssertions
   where
-    nonreject =
-        all
-            ( \case
-                (_, Types.TxSuccess{}) -> True
-                (_, Types.TxReject{}) -> False
-            )
-            (init suc)
-    rejectLast = case last suc of
-        (_, Types.TxReject (Types.AmountTooLarge addr amnt)) -> do
-            assertEqual "Sending from A" (Types.AddressAccount (createAlias alesAccount 4)) addr
-            assertEqual "Exactly 1microGTU" 1 amnt
-        err -> assertFailure $ "Incorrect result of the last transaction: " ++ show (snd err)
+    checkState ::
+        Helpers.SchedulerResult ->
+        BS.PersistentBlockState pv ->
+        Helpers.PersistentBSM pv Assertion
+    checkState result state = do
+        doCheckBlockStateInvariants <-
+            Helpers.assertBlockStateInvariantsH
+                state
+                (Helpers.srExecutionCosts result)
+        maybeAccount0 <- BS.bsoGetAccount state accountAddress0
+        maybeAmount0 <- case maybeAccount0 of
+            Nothing -> return Nothing
+            Just (_, account) -> Just <$> BS.accountAmount account
+        maybeAccount1 <- BS.bsoGetAccount state accountAddress1
+        maybeAmount1 <- case maybeAccount1 of
+            Nothing -> return Nothing
+            Just (_, account) -> Just <$> BS.accountAmount account
+        return $ do
+            let Sch.FilteredTransactions{..} = Helpers.srTransactions result
+            let results = Helpers.getResults ftAdded
+            assertEqual "There should be no failed transactions." [] ftFailed
 
-tests :: SpecWith ()
+            case last results of
+                (_, Types.TxReject (Types.AmountTooLarge addr amnt)) -> do
+                    assertEqual "Sending from account0" (Types.AddressAccount (createAlias accountAddress0 4)) addr
+                    assertEqual "Exactly 1 microCCD" 1 amnt
+                err -> assertFailure $ "Incorrect result of the last transaction: " ++ show (snd err)
+
+            let nonreject =
+                    all
+                        ( \case
+                            (_, Types.TxSuccess{}) -> True
+                            (_, Types.TxReject{}) -> False
+                        )
+                        (init results)
+            assertBool "Initial transactions are accepted." nonreject
+
+            assertEqual "Amount on account0." (Just 0) maybeAmount0
+            let transactionCost =
+                    5
+                        * 100
+                        * fromIntegral Helpers.simpleTransferCost
+
+            assertEqual
+                ("Amount on account1." ++ show maybeAmount1)
+                (Just (2_000_000 - transactionCost))
+                maybeAmount1
+
+            doCheckBlockStateInvariants
+
+tests :: Spec
 tests =
-    do
-        describe "Simple transfers test (with protocol version 1):" $
-            specify "4 successful and 2 failed transactions" $
-                testSimpleTransfer initialBlockState transactionsInput >>= checkSimpleTransferResult
-        describe "Simple transfers test (with protocol version 2):" $
-            specify "4 successful and 1 failed transaction" $
-                testSimpleTransfer initialBlockState2 transactionsInput2 >>= checkSimpleTransferResult2
-        describe "Simple transfers test with memo (with protocol version 2):" $
-            specify "4 successful and 1 failed transaction" $
-                testSimpleTransfer initialBlockState2 transactionsInput2Memo >>= checkSimpleTransferResult2Memo
-        describe "Simple transfers test (with protocol version 3):" $
-            specify "4 successful and 1 failed transaction" $
-                testSimpleTransfer initialBlockState3 transactionsInput3 >>= checkSimpleTransferResult3
+    describe "Simple transfers test." $ do
+        transferWithMemoRejectTestP1
+        sequence_ $
+            Helpers.forEveryProtocolVersion $ \spv pvString -> do
+                simpleTransferTest spv pvString
+                when (Types.supportsMemo spv) $
+                    simpleTransferWithMemoTest spv pvString
+                when (Types.supportsAccountAliases spv) $
+                    simpleTransferUsingAccountAliasesTest spv pvString

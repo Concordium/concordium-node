@@ -5,7 +5,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
-module SchedulerTests.BakerTransactions where
+module SchedulerTests.BakerTransactions (tests) where
 
 import Control.Monad
 import Data.Bifunctor (first)
@@ -263,8 +263,6 @@ transactionsInput =
           keys = [(0, [(0, keyPair 1)])]
         }
     ]
-
-type TestResult pv = ([(Helpers.SchedulerResult, [Types.BakerId])], BS.HashedPersistentBlockState pv)
 
 tests :: Spec
 tests = do

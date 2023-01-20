@@ -10,6 +10,8 @@
   v22.12.06 is what we currently use. Either build from the v22.12.06 tag of the repository using CMake and copy the `flatc` binary somewhere in your PATH, or download a released binary from <https://github.com/google/flatbuffers/releases/tag/v22.12.06> and place it somewhere in your PATH.
 - protobuf >= 3.15
 - LLVM and Clang >= 3.9
+- As noted in the [caveats](#caveats) section below, you need to build the [Concordium Consensus](../concordium-consensus/) project before building this project. 
+  So you also need the [dependencies listed in the README for Concordium Consensus](https://github.com/Concordium/concordium-node/tree/main/concordium-consensus#build-requirements).
 
 ### Optional dependencies
 

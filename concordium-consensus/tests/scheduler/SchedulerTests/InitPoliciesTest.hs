@@ -3,7 +3,7 @@
 -- | This tests whether policies are passed correctly to the init context of
 --    a smart contract.
 --    See ../smart-contracts/rust-contracts/example-contracts/context-test for the source code.
-module SchedulerTests.InitPoliciesTest where
+module SchedulerTests.InitPoliciesTest (tests) where
 
 import Test.HUnit (Assertion, assertBool, assertEqual, assertFailure)
 import Test.Hspec

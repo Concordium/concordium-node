@@ -34,27 +34,6 @@ import qualified SchedulerTests.Helpers as Helpers
 import Test.HUnit
 import Test.Hspec
 
-tests :: Spec
-tests =
-    describe "Delegate in different scenarios" $
-        sequence_ $
-            Helpers.forEveryProtocolVersion testCases
-  where
-    testCases :: forall pv. IsProtocolVersion pv => SProtocolVersion pv -> String -> SpecWith (Arg Assertion)
-    testCases spv pvString =
-        case delegationSupport @(AccountVersionFor pv) of
-            SAVDelegationNotSupported -> return ()
-            SAVDelegationSupported -> do
-                testCase1 spv pvString
-                testCase2 spv pvString
-                testCase3 spv pvString
-                testCase4 spv pvString
-                testCase5 spv pvString
-                testCase6 spv pvString
-                testCase7 spv pvString
-                testCase8 spv pvString
-                testCase9 spv pvString
-
 -- | Deterministically generate a baker account from a seed.
 makeTestBakerV1FromSeed ::
     (IsAccountVersion av, Blob.MonadBlobStore m, AVSupportsDelegation av) =>
@@ -206,7 +185,7 @@ testCase1 ::
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 testCase1 _ pvString =
     specify (pvString ++ ": Remove delegation") $ do
         let transactions =
@@ -252,7 +231,7 @@ testCase2 ::
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 testCase2 _ pvString =
     specify (pvString ++ ": Reduce delegation stake with overstaking") $ do
         let transactions =
@@ -267,20 +246,13 @@ testCase2 _ pvString =
                       keys = [(0, [(0, delegator1KP)])]
                     }
                 ]
-        (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
+        (result, doBlockStateAssertions) <-
             Helpers.runSchedulerTestTransactionJson
                 Helpers.defaultTestConfig
                 (initialBlockState @pv)
                 (Helpers.checkReloadCheck checkState)
                 transactions
-        let Sch.FilteredTransactions{..} = srTransactions
-        events <- case Helpers.getResults ftAdded of
-            [(_, Types.TxSuccess{vrEvents})] -> return vrEvents
-            _ -> assertFailure "Transaction should succeed"
-        assertEqual
-            "Stake was decreased"
-            [DelegationStakeDecreased 1 delegator1Address 18_999_999]
-            events
+        Helpers.assertSuccessWithEvents [DelegationStakeDecreased 1 delegator1Address 18_999_999] result
         doBlockStateAssertions
   where
     checkState ::
@@ -296,7 +268,7 @@ testCase3 ::
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 testCase3 _ pvString =
     specify (pvString ++ ": Increase stake with overstaking") $ do
         let transactions =
@@ -311,20 +283,13 @@ testCase3 _ pvString =
                       keys = [(0, [(0, delegator1KP)])]
                     }
                 ]
-        (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
+        (result, doBlockStateAssertions) <-
             Helpers.runSchedulerTestTransactionJson
                 Helpers.defaultTestConfig
                 (initialBlockState @pv)
                 (Helpers.checkReloadCheck checkState)
                 transactions
-        let Sch.FilteredTransactions{..} = srTransactions
-        reason <- case Helpers.getResults ftAdded of
-            [(_, Types.TxReject{vrRejectReason})] -> return vrRejectReason
-            _ -> assertFailure "Transaction should reject"
-        assertEqual
-            "Reject with reason: stake over maximum threshold for pool"
-            reason
-            StakeOverMaximumThresholdForPool
+        Helpers.assertRejectWithReason StakeOverMaximumThresholdForPool result
         doBlockStateAssertions
   where
     checkState ::
@@ -341,7 +306,7 @@ testCase4 ::
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 testCase4 _ pvString =
     specify (pvString ++ ": Reduce stake and change target 1") $ do
         let transactions =
@@ -356,20 +321,13 @@ testCase4 _ pvString =
                       keys = [(0, [(0, delegator1KP)])]
                     }
                 ]
-        (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
+        (result, doBlockStateAssertions) <-
             Helpers.runSchedulerTestTransactionJson
                 Helpers.defaultTestConfig
                 (initialBlockState @pv)
                 (Helpers.checkReloadCheck checkState)
                 transactions
-        let Sch.FilteredTransactions{..} = srTransactions
-        reason <- case Helpers.getResults ftAdded of
-            [(_, Types.TxReject{vrRejectReason})] -> return vrRejectReason
-            _ -> assertFailure "Transaction should reject"
-        assertEqual
-            "Reject with reason: stake over maximum threshold for pool"
-            reason
-            StakeOverMaximumThresholdForPool
+        Helpers.assertRejectWithReason StakeOverMaximumThresholdForPool result
         doBlockStateAssertions
   where
     checkState ::
@@ -386,7 +344,7 @@ testCase5 ::
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 testCase5 _ pvString =
     specify (pvString ++ ": Reduce stake and change target 2") $ do
         let transactions =
@@ -401,20 +359,13 @@ testCase5 _ pvString =
                       keys = [(0, [(0, delegator1KP)])]
                     }
                 ]
-        (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
+        (result, doBlockStateAssertions) <-
             Helpers.runSchedulerTestTransactionJson
                 Helpers.defaultTestConfig
                 (initialBlockState @pv)
                 (Helpers.checkReloadCheck checkState)
                 transactions
-        let Sch.FilteredTransactions{..} = srTransactions
-        reason <- case Helpers.getResults ftAdded of
-            [(_, Types.TxReject{vrRejectReason})] -> return vrRejectReason
-            _ -> assertFailure "Transaction should reject"
-        assertEqual
-            "Reject with reason: stake over maximum threshold for pool"
-            reason
-            StakeOverMaximumThresholdForPool
+        Helpers.assertRejectWithReason StakeOverMaximumThresholdForPool result
         doBlockStateAssertions
   where
     checkState ::
@@ -430,7 +381,7 @@ testCase6 ::
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 testCase6 _ pvString =
     specify (pvString ++ ": Increase stake successfully.") $ do
         let transactions =
@@ -445,17 +396,13 @@ testCase6 _ pvString =
                       keys = [(0, [(0, delegator3KP)])]
                     }
                 ]
-        (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
+        (result, doBlockStateAssertions) <-
             Helpers.runSchedulerTestTransactionJson
                 Helpers.defaultTestConfig
                 (initialBlockState @pv)
                 (Helpers.checkReloadCheck checkState)
                 transactions
-        let Sch.FilteredTransactions{..} = srTransactions
-        events <- case Helpers.getResults ftAdded of
-            [(_, Types.TxSuccess{vrEvents})] -> return vrEvents
-            _ -> assertFailure "Transaction should succeed"
-        assertEqual "Increase delegation stake" [DelegationStakeIncreased 3 delegator3Address 1_001] events
+        Helpers.assertSuccessWithEvents [DelegationStakeIncreased 3 delegator3Address 1_001] result
         doBlockStateAssertions
   where
     checkState ::
@@ -471,7 +418,7 @@ testCase7 ::
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 testCase7 _ pvString =
     specify (pvString ++ ": Increase stake and change target successfully.") $ do
         let transactions =
@@ -486,22 +433,17 @@ testCase7 _ pvString =
                       keys = [(0, [(0, delegator3KP)])]
                     }
                 ]
-        (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
+        (result, doBlockStateAssertions) <-
             Helpers.runSchedulerTestTransactionJson
                 Helpers.defaultTestConfig
                 (initialBlockState @pv)
                 (Helpers.checkReloadCheck checkState)
                 transactions
-        let Sch.FilteredTransactions{..} = srTransactions
-        events <- case Helpers.getResults ftAdded of
-            [(_, Types.TxSuccess{vrEvents})] -> return vrEvents
-            _ -> assertFailure "Transaction should succeed"
-        assertEqual
-            "Increase delegation stake"
+        Helpers.assertSuccessWithEvents
             [ DelegationSetDelegationTarget 3 delegator3Address (DelegateToBaker 4),
               DelegationStakeIncreased 3 delegator3Address 1_001
             ]
-            events
+            result
         doBlockStateAssertions
   where
     checkState ::
@@ -517,7 +459,7 @@ testCase8 ::
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 testCase8 _ pvString =
     specify (pvString ++ ": Increase stake and change target so that results is overdelegation.") $ do
         let transactions =
@@ -532,20 +474,13 @@ testCase8 _ pvString =
                       keys = [(0, [(0, delegator3KP)])]
                     }
                 ]
-        (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
+        (result, doBlockStateAssertions) <-
             Helpers.runSchedulerTestTransactionJson
                 Helpers.defaultTestConfig
                 (initialBlockState @pv)
                 (Helpers.checkReloadCheck checkState)
                 transactions
-        let Sch.FilteredTransactions{..} = srTransactions
-        reason <- case Helpers.getResults ftAdded of
-            [(_, Types.TxReject{vrRejectReason})] -> return vrRejectReason
-            _ -> assertFailure "Transaction should reject"
-        assertEqual
-            "Reject with reason: stake over maximum threshold for pool"
-            reason
-            StakeOverMaximumThresholdForPool
+        Helpers.assertRejectWithReason StakeOverMaximumThresholdForPool result
         doBlockStateAssertions
   where
     checkState ::
@@ -561,7 +496,7 @@ testCase9 ::
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
-    SpecWith (Arg Assertion)
+    Spec
 testCase9 _ pvString =
     specify (pvString ++ ": Change target to overdelegated pool.") $ do
         let transactions =
@@ -576,20 +511,13 @@ testCase9 _ pvString =
                       keys = [(0, [(0, delegator3KP)])]
                     }
                 ]
-        (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
+        (result, doBlockStateAssertions) <-
             Helpers.runSchedulerTestTransactionJson
                 Helpers.defaultTestConfig
                 (initialBlockState @pv)
                 (Helpers.checkReloadCheck checkState)
                 transactions
-        let Sch.FilteredTransactions{..} = srTransactions
-        reason <- case Helpers.getResults ftAdded of
-            [(_, Types.TxReject{vrRejectReason})] -> return vrRejectReason
-            _ -> assertFailure "Transaction should reject"
-        assertEqual
-            "Reject with reason: stake over maximum threshold for pool"
-            reason
-            StakeOverMaximumThresholdForPool
+        Helpers.assertRejectWithReason StakeOverMaximumThresholdForPool result
         doBlockStateAssertions
   where
     checkState ::
@@ -598,3 +526,24 @@ testCase9 _ pvString =
         Helpers.PersistentBSM pv Assertion
     checkState result blockState =
         Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
+
+tests :: Spec
+tests =
+    describe "Delegate in different scenarios" $
+        sequence_ $
+            Helpers.forEveryProtocolVersion testCases
+  where
+    testCases :: forall pv. IsProtocolVersion pv => SProtocolVersion pv -> String -> Spec
+    testCases spv pvString =
+        case delegationSupport @(AccountVersionFor pv) of
+            SAVDelegationNotSupported -> return ()
+            SAVDelegationSupported -> do
+                testCase1 spv pvString
+                testCase2 spv pvString
+                testCase3 spv pvString
+                testCase4 spv pvString
+                testCase5 spv pvString
+                testCase6 spv pvString
+                testCase7 spv pvString
+                testCase8 spv pvString
+                testCase9 spv pvString

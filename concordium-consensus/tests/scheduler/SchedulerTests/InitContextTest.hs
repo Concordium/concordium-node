@@ -4,7 +4,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- | Test that the init context of a contract is passed correctly by the scheduler.
-module SchedulerTests.InitContextTest where
+module SchedulerTests.InitContextTest (tests) where
 
 import Data.Serialize
 import Test.HUnit
@@ -26,12 +26,6 @@ import qualified Concordium.GlobalState.Persistent.Instances as Instances
 import qualified SchedulerTests.Helpers as Helpers
 import SchedulerTests.TestUtils
 
-tests :: Spec
-tests =
-    describe "Init context in transactions." $ do
-        sequence_ $ Helpers.forEveryProtocolVersion $ \spv pvString ->
-            testInit spv pvString
-
 initialBlockState ::
     (IsProtocolVersion pv) =>
     Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
@@ -44,9 +38,6 @@ accountAddress0 = Helpers.accountAddressFromSeed 0
 
 keyPair0 :: SigScheme.KeyPair
 keyPair0 = Helpers.keyPairFromSeed 0
-
-chainMeta :: Types.ChainMetadata
-chainMeta = Types.ChainMetadata{slotTime = 444}
 
 senderAccount :: forall pv. IsProtocolVersion pv => SProtocolVersion pv -> Types.AccountAddress
 senderAccount spv
@@ -67,7 +58,7 @@ transactionInputs spv =
         }
     ]
 
-testInit :: forall pv. IsProtocolVersion pv => SProtocolVersion pv -> String -> SpecWith (Arg Assertion)
+testInit :: forall pv. IsProtocolVersion pv => SProtocolVersion pv -> String -> Spec
 testInit spv pvString = specify
     (pvString ++ ": Passing init context to contract")
     $ do
@@ -110,3 +101,9 @@ testInit spv pvString = specify
                         model
                         (ContractState $ encode $ senderAccount spv)
                 Just _ -> assertFailure "Expected V0 instance."
+
+tests :: Spec
+tests =
+    describe "Init context in transactions." $
+        sequence_ $
+            Helpers.forEveryProtocolVersion testInit

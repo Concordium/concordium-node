@@ -31,7 +31,7 @@ import SchedulerTests.TestUtils
 initialBlockState :: Helpers.PersistentBSM PV4 (HashedPersistentBlockState PV4)
 initialBlockState =
     Helpers.createTestBlockStateWithAccountsM
-        [Helpers.makeTestAccountFromSeed 1000 0]
+        [Helpers.makeTestAccountFromSeed 1_000 0]
 
 callerSourceFile :: FilePath
 callerSourceFile = "./testdata/contracts/v1/caller.wasm"
@@ -130,7 +130,7 @@ invokeContract1 ccContract bs = do
             putWord16le 0 -- length of parameter
             putWord16le (fromIntegral (BSS.length "fail"))
             putByteString "fail" -- entrypoint name
-            putWord64le 10000 -- amount
+            putWord64le 10_000 -- amount
     let ctx =
             InvokeContract.ContractContext
                 { ccInvoker = Nothing,
@@ -156,7 +156,7 @@ invokeContract3 ccContract bs = do
     let cm = Types.ChainMetadata 0
     let ccParameter = Parameter $ BSS.toShort $ runPut $ do
             putWord32le 1 -- instruction
-            putWord64le 1232 -- contract index, must not exist in the state
+            putWord64le 1_232 -- contract index, must not exist in the state
             putWord64le 0 -- contract subindex
             putWord16le 0 -- length of parameter
             putWord16le (fromIntegral (BSS.length "fail"))
@@ -334,5 +334,6 @@ runCallerTests = do
         invokeContract5 addr1 addr0 stateWithContracts >>= checkSuccess "Invoking a V0 contract that fails." targetValue5
 
 tests :: Spec
-tests = describe "V1: Invoke contract" $ do
-    specify "Caller contract" runCallerTests
+tests =
+    describe "V1: Invoke contract" $
+        specify "Caller contract" runCallerTests

@@ -30,7 +30,7 @@ import SchedulerTests.TestUtils
 initialBlockState :: Helpers.PersistentBSM PV4 (HashedPersistentBlockState PV4)
 initialBlockState =
     Helpers.createTestBlockStateWithAccountsM
-        [Helpers.makeTestAccountFromSeed 1000 0]
+        [Helpers.makeTestAccountFromSeed 1_000 0]
 
 selfBalanceSourceFile :: FilePath
 selfBalanceSourceFile = "./testdata/contracts/v1/self-balance.wasm"
