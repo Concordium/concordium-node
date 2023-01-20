@@ -1,5 +1,5 @@
-{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE MonoLocalBinds #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
