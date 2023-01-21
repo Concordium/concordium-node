@@ -198,7 +198,7 @@ computeBakerStakesAndCapital poolParams activeBakers passiveDelegators = BakerSt
 -- |Generate and set the next epoch bakers and next capital based on the current active bakers.
 generateNextBakers ::
     ( TreeStateMonad m,
-      AVSupportsDelegation (AccountVersionFor (MPV m)),
+      PVSupportsDelegation (MPV m),
       ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1
     ) =>
     -- |The payday epoch
@@ -307,7 +307,7 @@ timeParametersAtSlot targetSlot tp0 upds =
 getSlotBakersP4 ::
     forall m.
     ( BlockStateQuery m,
-      AVSupportsDelegation (AccountVersionFor (MPV m)),
+      PVSupportsDelegation (MPV m),
       ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1
     ) =>
     GenesisConfiguration ->
@@ -440,7 +440,7 @@ getDefiniteSlotBakersP1 bs slot = do
 getDefiniteSlotBakersP4 ::
     forall m.
     ( BlockStateQuery m,
-      AVSupportsDelegation (AccountVersionFor (MPV m)),
+      PVSupportsDelegation (MPV m),
       ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1
     ) =>
     GenesisConfiguration ->

@@ -347,7 +347,7 @@ dispatch (msg, mVerRes) = do
         _ -> error "Operation unsupported at this protocol version."
     -- Function @onlyWithDelegation k@ fails if the protocol version @MPV m@ does not support
     -- delegation. Otherwise, it continues with @k@, which may assume that delegation is supported.
-    onlyWithDelegation :: (AVSupportsDelegation (AccountVersionFor (MPV m)) => a) -> a
+    onlyWithDelegation :: (PVSupportsDelegation (MPV m) => a) -> a
     onlyWithDelegation c = case delegationSupport @(AccountVersionFor (MPV m)) of
         SAVDelegationNotSupported -> error "Operation unsupported at this protocol version."
         SAVDelegationSupported -> c
@@ -1765,7 +1765,7 @@ data ConfigureDelegationCont
     | ConfigureUpdateDelegationCont
 
 handleConfigureBaker ::
-    ( AVSupportsDelegation (AccountVersionFor (MPV m)),
+    ( PVSupportsDelegation (MPV m),
       SchedulerMonad m
     ) =>
     WithDepositContext m ->
@@ -1970,7 +1970,7 @@ handleConfigureBaker
             return (TxReject (NotABaker senderAddress), energyCost, usedEnergy)
 
 handleConfigureDelegation ::
-    (AVSupportsDelegation (AccountVersionFor (MPV m)), SchedulerMonad m) =>
+    (PVSupportsDelegation (MPV m), SchedulerMonad m) =>
     WithDepositContext m ->
     Maybe Amount ->
     Maybe Bool ->

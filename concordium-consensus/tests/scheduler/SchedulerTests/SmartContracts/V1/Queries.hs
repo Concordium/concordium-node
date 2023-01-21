@@ -38,7 +38,7 @@ initialBlockState =
         ]
 
 initialBlockStateWithStakeAndSchedule ::
-    (Types.IsProtocolVersion pv, Types.AVSupportsDelegation (Types.AccountVersionFor pv)) =>
+    (Types.IsProtocolVersion pv, Types.PVSupportsDelegation pv) =>
     Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
 initialBlockStateWithStakeAndSchedule =
     Helpers.createTestBlockStateWithAccountsM

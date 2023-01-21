@@ -195,7 +195,7 @@ class
     -- For details of the behaviour and return values, see
     -- 'Concordium.GlobalState.BlockState.bsoConfigureBaker'.
     configureBaker ::
-        (AVSupportsDelegation (AccountVersionFor (MPV m))) =>
+        (PVSupportsDelegation (MPV m)) =>
         AccountIndex ->
         BakerConfigure ->
         m BakerConfigureResult
@@ -204,7 +204,7 @@ class
     -- For details of the behaviour and return values, see
     -- 'Concordium.GlobalState.BlockState.bsoConfigureDelegation'.
     configureDelegation ::
-        (AVSupportsDelegation (AccountVersionFor (MPV m))) =>
+        (PVSupportsDelegation (MPV m)) =>
         AccountIndex ->
         DelegationConfigure ->
         m DelegationConfigureResult
