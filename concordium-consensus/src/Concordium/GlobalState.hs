@@ -269,7 +269,6 @@ newtype TreeStateM (s :: Type) (m :: Type -> Type) (a :: Type) = TreeStateM {run
 
 deriving instance MonadProtocolVersion m => MonadProtocolVersion (TreeStateM s m)
 
--- * Disk implementations
 type PersistentTreeStateM pv (bs :: Type) (m :: Type -> Type) = TreeStateM (SkovPersistentData pv bs) m
 
 deriving via
