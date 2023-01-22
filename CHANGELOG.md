@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+## 5.2.0
+
 - Fix an issue where the node configuration file (`main.config.json`) was
   sometimes corrupted.
 - Add an option to disable only the node specific grpc V1 endpoints that can be
