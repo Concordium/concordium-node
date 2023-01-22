@@ -4,9 +4,10 @@
 module ConcordiumTests.FinalizationRecover where
 
 import Control.Monad
-import Control.Monad.IO.Class
 import Data.Proxy
 import qualified Data.Vector as Vec
+import System.FilePath
+import System.IO.Temp
 
 import Concordium.Afgjort.Finalize
 import Concordium.Birk.Bake
@@ -36,10 +37,10 @@ type PV = 'P1
 dummyArs :: AnonymityRevokers
 dummyArs = emptyAnonymityRevokers
 
--- type TreeConfig = DiskTreeDiskBlockConfig
-type TreeConfig = MemoryTreeMemoryBlockConfig
-makeGlobalStateConfig :: RuntimeParameters -> IO TreeConfig
-makeGlobalStateConfig rt = return $ MTMBConfig rt
+type TreeConfig = DiskTreeDiskBlockConfig
+
+makeGlobalStateConfig :: FilePath -> RuntimeParameters -> TreeConfig
+makeGlobalStateConfig tempDir rt = DTDBConfig rt tempDir (tempDir </> "data" <.> "blob")
 
 genesis :: Word -> (GenesisData PV, [(BakerIdentity, FullBakerInfo)], Amount)
 genesis nBakers =
@@ -60,7 +61,7 @@ makeFinalizationInstance :: BakerIdentity -> FinalizationInstance
 makeFinalizationInstance bid = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
 
 setup :: Word -> IO [(FinalizationState (), FinalizationState ())]
-setup nBakers = do
+setup nBakers = withTempDirectory "." "tmp-consensus-data" $ \tempDir -> do
     let (genData, bakers, genTotal) = genesis nBakers
     let fbi = Vec.fromList (snd <$> bakers)
     let fullBakers =
@@ -82,7 +83,7 @@ setup nBakers = do
                 fullBakers
                 genTotal
     let finInstances = map (makeFinalizationInstance . fst) bakers
-    (gsc, gss) <- runSilentLogger (initialiseGlobalState genData =<< (liftIO $ makeGlobalStateConfig defaultRuntimeParameters))
+    (gsc, gss) <- runSilentLogger (initialiseGlobalState genData $ makeGlobalStateConfig tempDir defaultRuntimeParameters)
     active <- forM finInstances (\inst -> (initialState inst,) <$> runSilentLogger (getFinalizationState (Proxy :: Proxy PV) (Proxy :: Proxy TreeConfig) (gsc, gss) (Just inst)))
     passive <- (initialPassiveState,) <$> runSilentLogger (getFinalizationState (Proxy :: Proxy PV) (Proxy :: Proxy TreeConfig) (gsc, gss) Nothing)
     return $ passive : active
