@@ -6,78 +6,88 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
--- FIXME: This is to suppress compiler warnings for derived instances of SchedulerMonad.
--- This may be fixed in GHC 9.0.1.
-{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
+-- | This module contains the implementation for running the scheduler computations.
 module Concordium.Scheduler.EnvironmentImplementation where
 
-import Concordium.Scheduler.Environment
+import Control.Monad.RWS.Strict
 import Data.HashMap.Strict as Map
 import qualified Data.Kind as DK
-
 import Lens.Micro.Platform
 
-import Control.Monad.Reader
-import Control.Monad.State.Class
-
 import Concordium.GlobalState.Account
-import Concordium.GlobalState.BlockState as BS
-import Concordium.GlobalState.TreeState (
-    BlockStateTypes (UpdatableBlockState),
- )
-import qualified Concordium.GlobalState.Types as GS
+import qualified Concordium.GlobalState.BlockState as BS
+import Concordium.GlobalState.TreeState
 import Concordium.Logger
+import Concordium.Scheduler.Environment
 import Concordium.Scheduler.Types
+import Concordium.TimeMonad
 import qualified Concordium.TransactionVerification as TVer
 
--- |Chain metadata together with the maximum allowed block energy.
+-- |Context for executing a scheduler computation.
 data ContextState = ContextState
-    { _chainMetadata :: !ChainMetadata,
+    { -- |Chain metadata
+      _chainMetadata :: !ChainMetadata,
+      -- |Maximum allowed block energy.
       _maxBlockEnergy :: !Energy,
+      -- |Maximum number of accounts to be created in the same block.
       _accountCreationLimit :: !CredentialsPerBlockLimit
     }
 
 makeLenses ''ContextState
 
--- Doing it manually because otherwise the generated class definition
--- seems to be wrong (m has kind *).
-class HasSchedulerState a where
-    type SS a
+-- |State accumulated during execution of a scheduler computation.
+data SchedulerState (m :: DK.Type -> DK.Type) = SchedulerState
+    { -- | Current block state.
+      _ssBlockState :: !(UpdatableBlockState m),
+      -- | Energy used so far.
+      _ssEnergyUsed :: !Energy,
+      -- | The total execution costs so far.
+      _ssExecutionCosts :: !Amount,
+      -- | The next available transaction index.
+      _ssNextIndex :: !TransactionIndex
+    }
 
-    schedulerBlockState :: Lens' a (SS a)
-    schedulerEnergyUsed :: Lens' a Energy
+makeLenses ''SchedulerState
 
-    -- |The running total of execution costs for this block.
-    schedulerExecutionCosts :: Lens' a Amount
+-- |Create an initial state for running a scheduler computation.
+makeInitialSchedulerState :: UpdatableBlockState m -> SchedulerState m
+makeInitialSchedulerState _ssBlockState =
+    SchedulerState
+        { _ssEnergyUsed = 0,
+          _ssExecutionCosts = 0,
+          _ssNextIndex = 0,
+          ..
+        }
 
-    nextIndex :: Lens' a TransactionIndex
+-- | Alias for the internal type used in @SchedulerT@.
+type InternalSchedulerT m = RWST ContextState () (SchedulerState m)
 
-newtype BSOMonadWrapper (r :: DK.Type) (state :: DK.Type) (m :: DK.Type -> DK.Type) (a :: DK.Type) = BSOMonadWrapper (m a)
+-- |Scheduler monad transformer. Extends a monad with the ability to execute scheduler computations.
+-- Use @runSchedulerT@ to run the computation.
+newtype SchedulerT (m :: DK.Type -> DK.Type) (a :: DK.Type) = SchedulerT
+    { _runSchedulerT :: InternalSchedulerT m m a
+    }
     deriving
         ( Functor,
           Applicative,
           Monad,
-          MonadReader r,
-          MonadState state,
-          MonadLogger
+          MonadState (SchedulerState m),
+          MonadReader ContextState,
+          MonadLogger,
+          TimeMonad
         )
 
-deriving instance GS.MonadProtocolVersion m => GS.MonadProtocolVersion (BSOMonadWrapper r s m)
-
-instance MonadTrans (BSOMonadWrapper r s) where
+instance MonadTrans SchedulerT where
     {-# INLINE lift #-}
-    lift = BSOMonadWrapper
+    lift = SchedulerT . lift
 
-instance
-    ( MonadReader ContextState m,
-      SS state ~ UpdatableBlockState m,
-      HasSchedulerState state,
-      MonadState state m,
-      BlockStateOperations m
-    ) =>
-    StaticInformation (BSOMonadWrapper ContextState state m)
-    where
+deriving via
+    (MGSTrans (InternalSchedulerT m) m)
+    instance
+        BlockStateTypes (SchedulerT m)
+
+instance (BS.BlockStateOperations m) => StaticInformation (SchedulerT m) where
     {-# INLINE getMaxBlockEnergy #-}
     getMaxBlockEnergy = view maxBlockEnergy
 
@@ -86,62 +96,76 @@ instance
 
     {-# INLINE getModuleInterfaces #-}
     getModuleInterfaces mref = do
-        s <- use schedulerBlockState
-        lift (bsoGetModule s mref)
+        s <- use ssBlockState
+        lift (BS.bsoGetModule s mref)
 
     {-# INLINE getAccountCreationLimit #-}
     getAccountCreationLimit = view accountCreationLimit
 
     {-# INLINE getContractInstance #-}
-    getContractInstance addr = lift . flip bsoGetInstance addr =<< use schedulerBlockState
+    getContractInstance addr = lift . flip BS.bsoGetInstance addr =<< use ssBlockState
 
     {-# INLINE getStateAccount #-}
-    getStateAccount !addr = lift . flip bsoGetAccount addr =<< use schedulerBlockState
+    getStateAccount !addr = lift . flip BS.bsoGetAccount addr =<< use ssBlockState
 
     {-# INLINE getExchangeRates #-}
-    getExchangeRates = lift . bsoGetExchangeRates =<< use schedulerBlockState
+    getExchangeRates = lift . BS.bsoGetExchangeRates =<< use ssBlockState
+
+deriving via
+    (MGSTrans (InternalSchedulerT m) m)
+    instance
+        (MonadProtocolVersion m) => MonadProtocolVersion (SchedulerT m)
+
+deriving via
+    (MGSTrans (InternalSchedulerT m) m)
+    instance
+        (BS.AccountOperations m) => BS.AccountOperations (SchedulerT m)
+
+deriving via
+    (MGSTrans (InternalSchedulerT m) m)
+    instance
+        (BS.ContractStateOperations m) => BS.ContractStateOperations (SchedulerT m)
+
+deriving via
+    (MGSTrans (InternalSchedulerT m) m)
+    instance
+        (BS.ModuleQuery m) => BS.ModuleQuery (SchedulerT m)
 
 instance
-    ( SS state ~ UpdatableBlockState m,
-      HasSchedulerState state,
-      MonadState state m,
-      BlockStateOperations m,
-      MonadReader ContextState m,
-      GS.MonadProtocolVersion m
-    ) =>
-    TVer.TransactionVerifier (BSOMonadWrapper ContextState state m)
+    (BS.BlockStateOperations m, MonadProtocolVersion m) =>
+    TVer.TransactionVerifier (SchedulerT m)
     where
     {-# INLINE registrationIdExists #-}
     registrationIdExists !regid =
-        lift . flip bsoRegIdExists regid =<< use schedulerBlockState
+        lift . flip BS.bsoRegIdExists regid =<< use ssBlockState
     {-# INLINE getIdentityProvider #-}
     getIdentityProvider !ipId = do
-        s <- use schedulerBlockState
-        lift (bsoGetIdentityProvider s ipId)
+        s <- use ssBlockState
+        lift (BS.bsoGetIdentityProvider s ipId)
     {-# INLINE getAnonymityRevokers #-}
     getAnonymityRevokers !arIds = do
-        s <- use schedulerBlockState
-        lift (bsoGetAnonymityRevokers s arIds)
+        s <- use ssBlockState
+        lift (BS.bsoGetAnonymityRevokers s arIds)
     {-# INLINE getCryptographicParameters #-}
-    getCryptographicParameters = lift . bsoGetCryptoParams =<< use schedulerBlockState
+    getCryptographicParameters = lift . BS.bsoGetCryptoParams =<< use ssBlockState
     {-# INLINE getAccount #-}
     getAccount !aaddr = do
-        s <- use schedulerBlockState
-        lift (fmap snd <$> bsoGetAccount s aaddr)
+        s <- use ssBlockState
+        lift (fmap snd <$> BS.bsoGetAccount s aaddr)
     {-# INLINE getNextUpdateSequenceNumber #-}
-    getNextUpdateSequenceNumber uType = lift . flip bsoGetNextUpdateSequenceNumber uType =<< use schedulerBlockState
+    getNextUpdateSequenceNumber uType = lift . flip BS.bsoGetNextUpdateSequenceNumber uType =<< use ssBlockState
     {-# INLINE getUpdateKeysCollection #-}
-    getUpdateKeysCollection = lift . bsoGetUpdateKeyCollection =<< use schedulerBlockState
+    getUpdateKeysCollection = lift . BS.bsoGetUpdateKeyCollection =<< use ssBlockState
     {-# INLINE getAccountAvailableAmount #-}
-    getAccountAvailableAmount = lift . getAccountAvailableAmount
+    getAccountAvailableAmount = lift . BS.getAccountAvailableAmount
     {-# INLINE getNextAccountNonce #-}
-    getNextAccountNonce = lift . getAccountNonce
+    getNextAccountNonce = lift . BS.getAccountNonce
     {-# INLINE getAccountVerificationKeys #-}
-    getAccountVerificationKeys = lift . getAccountVerificationKeys
+    getAccountVerificationKeys = lift . BS.getAccountVerificationKeys
     {-# INLINE energyToCcd #-}
     energyToCcd v = do
-        s <- use schedulerBlockState
-        rate <- lift $ _erEnergyRate <$> bsoGetExchangeRates s
+        s <- use ssBlockState
+        rate <- lift $ _erEnergyRate <$> BS.bsoGetExchangeRates s
         return (computeCost rate v)
     {-# INLINE getMaxBlockEnergy #-}
     getMaxBlockEnergy = do
@@ -152,67 +176,63 @@ instance
     checkExactNonce = pure True
 
 instance
-    ( MonadReader ContextState m,
-      SS state ~ UpdatableBlockState m,
-      HasSchedulerState state,
-      MonadState state m,
-      BlockStateOperations m,
+    ( BS.BlockStateOperations m,
       MonadLogger m,
-      GS.MonadProtocolVersion m
+      MonadProtocolVersion m
     ) =>
-    SchedulerMonad (BSOMonadWrapper ContextState state m)
+    SchedulerMonad (SchedulerT m)
     where
     {-# INLINE markEnergyUsed #-}
-    markEnergyUsed energy = schedulerEnergyUsed += energy
+    markEnergyUsed energy = ssEnergyUsed += energy
 
     {-# INLINE getUsedEnergy #-}
-    getUsedEnergy = use schedulerEnergyUsed
+    getUsedEnergy = use ssEnergyUsed
 
     {-# INLINE bumpTransactionIndex #-}
-    bumpTransactionIndex = nextIndex <<%= (+ 1)
+    bumpTransactionIndex = ssNextIndex <<%= (+ 1)
 
     {-# INLINE getAccountIndex #-}
-    getAccountIndex addr = lift . flip bsoGetAccountIndex addr =<< use schedulerBlockState
+    getAccountIndex addr = lift . flip BS.bsoGetAccountIndex addr =<< use ssBlockState
 
     {-# INLINE putNewInstance #-}
     putNewInstance !mkInstance = do
-        (caddr, s') <- lift . flip bsoPutNewInstance mkInstance =<< use schedulerBlockState
-        schedulerBlockState .= s'
+        (caddr, s') <- lift . flip BS.bsoPutNewInstance mkInstance =<< use ssBlockState
+        ssBlockState .= s'
         return caddr
 
     {-# INLINE createAccount #-}
     createAccount cparams addr credential = do
-        s <- use schedulerBlockState
-        (res, s') <- lift (bsoCreateAccount s cparams addr credential)
-        schedulerBlockState .= s'
+        s <- use ssBlockState
+        (res, s') <- lift (BS.bsoCreateAccount s cparams addr credential)
+        ssBlockState .= s'
         return res
 
     {-# INLINE addressWouldClash #-}
     addressWouldClash !addr =
-        lift . flip bsoAddressWouldClash addr =<< use schedulerBlockState
+        lift . flip BS.bsoAddressWouldClash addr =<< use ssBlockState
 
     {-# INLINE commitModule #-}
     commitModule !iface = do
-        (res, s') <- lift . (\s -> bsoPutNewModule s iface) =<< use schedulerBlockState
-        schedulerBlockState .= s'
+        (res, s') <- lift . (\s -> BS.bsoPutNewModule s iface) =<< use ssBlockState
+        ssBlockState .= s'
         return res
 
     {-# INLINE increaseAccountNonce #-}
     increaseAccountNonce (ai, acc) = do
-        s <- use schedulerBlockState
-        nonce <- getAccountNonce acc
-        s' <- lift (bsoModifyAccount s (emptyAccountUpdate ai & auNonce ?~ (nonce + 1)))
-        schedulerBlockState .= s'
+        s <- use ssBlockState
+        nonce <- BS.getAccountNonce acc
+        s' <- lift (BS.bsoModifyAccount s (emptyAccountUpdate ai & auNonce ?~ (nonce + 1)))
+        ssBlockState .= s'
 
     {-# INLINE updateAccountCredentials #-}
     updateAccountCredentials !ai !idcs !creds !threshold = do
-        s <- use schedulerBlockState
-        s' <- lift (bsoUpdateAccountCredentials s ai idcs creds threshold)
-        schedulerBlockState .= s'
+        s <- use ssBlockState
+        s' <- lift (BS.bsoUpdateAccountCredentials s ai idcs creds threshold)
+        ssBlockState .= s'
 
     {-# INLINE commitChanges #-}
     commitChanges !cs = do
-        s <- use schedulerBlockState
+        s <- use ssBlockState
         -- ASSUMPTION: the property which should hold at this point is that any
         -- changed instance must exist in the global state and moreover all instances
         -- are distinct by the virtue of a HashMap being a function
@@ -220,7 +240,7 @@ instance
             lift
                 ( foldM
                     ( \s' (addr, (_, amnt, val)) ->
-                        bsoModifyInstance s' addr amnt val Nothing
+                        BS.bsoModifyInstance s' addr amnt val Nothing
                     )
                     s
                     (Map.toList (cs ^. instanceV0Updates))
@@ -230,7 +250,7 @@ instance
             lift
                 ( foldM
                     ( \s' (addr, InstanceV1Update{..}) ->
-                        bsoModifyInstance s' addr amountChange newState newInterface
+                        BS.bsoModifyInstance s' addr amountChange newState newInterface
                     )
                     s1
                     (Map.toList (cs ^. instanceV1Updates))
@@ -240,98 +260,104 @@ instance
         s3 <-
             lift
                 ( foldM
-                    bsoModifyAccount
+                    BS.bsoModifyAccount
                     s2
                     (cs ^. accountUpdates)
                 )
-        schedulerBlockState .= s3
+        ssBlockState .= s3
 
     {-# INLINE energyToGtu #-}
     energyToGtu v = do
-        s <- use schedulerBlockState
-        rate <- lift $ _erEnergyRate <$> bsoGetExchangeRates s
+        s <- use ssBlockState
+        rate <- lift $ _erEnergyRate <$> BS.bsoGetExchangeRates s
         return $! computeCost rate v
 
     {-# INLINE notifyExecutionCost #-}
-    notifyExecutionCost !amnt = schedulerExecutionCosts += amnt
+    notifyExecutionCost !amnt = ssExecutionCosts += amnt
 
     {-# INLINE notifyEncryptedBalanceChange #-}
     notifyEncryptedBalanceChange !amntDiff = do
-        s <- use schedulerBlockState
-        s' <- lift (bsoNotifyEncryptedBalanceChange s amntDiff)
-        schedulerBlockState .= s'
+        s <- use ssBlockState
+        s' <- lift (BS.bsoNotifyEncryptedBalanceChange s amntDiff)
+        ssBlockState .= s'
 
     {-# INLINE addBaker #-}
     addBaker ai badd = do
-        s <- use schedulerBlockState
-        (ret, s') <- lift (bsoAddBaker s ai badd)
-        schedulerBlockState .= s'
+        s <- use ssBlockState
+        (ret, s') <- lift (BS.bsoAddBaker s ai badd)
+        ssBlockState .= s'
         return ret
 
     {-# INLINE configureBaker #-}
     configureBaker ai bconfig = do
-        s <- use schedulerBlockState
-        (ret, s') <- lift (bsoConfigureBaker s ai bconfig)
-        schedulerBlockState .= s'
+        s <- use ssBlockState
+        (ret, s') <- lift (BS.bsoConfigureBaker s ai bconfig)
+        ssBlockState .= s'
         return ret
 
     {-# INLINE configureDelegation #-}
     configureDelegation ai dconfig = do
-        s <- use schedulerBlockState
-        (ret, s') <- lift (bsoConfigureDelegation s ai dconfig)
-        schedulerBlockState .= s'
+        s <- use ssBlockState
+        (ret, s') <- lift (BS.bsoConfigureDelegation s ai dconfig)
+        ssBlockState .= s'
         return ret
 
     {-# INLINE removeBaker #-}
     removeBaker ai = do
-        s <- use schedulerBlockState
-        (ret, s') <- lift (bsoRemoveBaker s ai)
-        schedulerBlockState .= s'
+        s <- use ssBlockState
+        (ret, s') <- lift (BS.bsoRemoveBaker s ai)
+        ssBlockState .= s'
         return ret
 
     {-# INLINE updateBakerKeys #-}
     updateBakerKeys ai keyUpd = do
-        s <- use schedulerBlockState
-        (r, s') <- lift (bsoUpdateBakerKeys s ai keyUpd)
-        schedulerBlockState .= s'
+        s <- use ssBlockState
+        (r, s') <- lift (BS.bsoUpdateBakerKeys s ai keyUpd)
+        ssBlockState .= s'
         return r
 
     {-# INLINE updateBakerStake #-}
     updateBakerStake bi bsu = do
-        s <- use schedulerBlockState
-        (r, s') <- lift (bsoUpdateBakerStake s bi bsu)
-        schedulerBlockState .= s'
+        s <- use ssBlockState
+        (r, s') <- lift (BS.bsoUpdateBakerStake s bi bsu)
+        ssBlockState .= s'
         return r
 
     {-# INLINE updateBakerRestakeEarnings #-}
     updateBakerRestakeEarnings bi bre = do
-        s <- use schedulerBlockState
-        (r, s') <- lift (bsoUpdateBakerRestakeEarnings s bi bre)
-        schedulerBlockState .= s'
+        s <- use ssBlockState
+        (r, s') <- lift (BS.bsoUpdateBakerRestakeEarnings s bi bre)
+        ssBlockState .= s'
         return r
 
     {-# INLINE updateCredentialKeys #-}
     updateCredentialKeys accIndex credIndex newKeys = do
-        s <- use schedulerBlockState
-        s' <- lift (bsoSetAccountCredentialKeys s accIndex credIndex newKeys)
-        schedulerBlockState .= s'
+        s <- use ssBlockState
+        s' <- lift (BS.bsoSetAccountCredentialKeys s accIndex credIndex newKeys)
+        ssBlockState .= s'
 
     {-# INLINE getUpdateKeyCollection #-}
-    getUpdateKeyCollection = lift . bsoGetUpdateKeyCollection =<< use schedulerBlockState
+    getUpdateKeyCollection = lift . BS.bsoGetUpdateKeyCollection =<< use ssBlockState
 
     {-# INLINE getNextUpdateSequenceNumber #-}
     getNextUpdateSequenceNumber uty = do
-        s <- use schedulerBlockState
-        lift (bsoGetNextUpdateSequenceNumber s uty)
+        s <- use ssBlockState
+        lift (BS.bsoGetNextUpdateSequenceNumber s uty)
 
     {-# INLINE enqueueUpdate #-}
     enqueueUpdate tt p = do
-        s <- use schedulerBlockState
-        s' <- lift (bsoEnqueueUpdate s tt p)
-        schedulerBlockState .= s'
+        s <- use ssBlockState
+        s' <- lift (BS.bsoEnqueueUpdate s tt p)
+        ssBlockState .= s'
 
-deriving instance GS.BlockStateTypes (BSOMonadWrapper r state m)
-
-deriving instance AccountOperations m => AccountOperations (BSOMonadWrapper r state m)
-deriving instance ContractStateOperations m => ContractStateOperations (BSOMonadWrapper r state m)
-deriving instance ModuleQuery m => ModuleQuery (BSOMonadWrapper r state m)
+-- | Execute the computation using the provided context and scheduler state.
+-- The return value is the value produced by the computation and the updated state of the scheduler.
+runSchedulerT ::
+    Monad m =>
+    SchedulerT m a ->
+    ContextState ->
+    SchedulerState m ->
+    m (a, SchedulerState m)
+runSchedulerT computation contextState initialState = do
+    (value, resultingState, ()) <- runRWST (_runSchedulerT computation) contextState initialState
+    return (value, resultingState)
