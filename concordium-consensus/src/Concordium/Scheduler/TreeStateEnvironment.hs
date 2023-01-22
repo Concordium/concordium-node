@@ -76,14 +76,14 @@ deriving via
         (SS state ~ UpdatableBlockState m, HasSchedulerState state, BlockStateOperations m) =>
         StaticInformation (BlockStateMonad state m)
 
-data LogSchedulerState (m :: DK.Type -> DK.Type) = LogSchedulerState
-    { _lssBlockState :: !(UpdatableBlockState m),
-      _lssSchedulerEnergyUsed :: !Energy,
-      _lssSchedulerExecutionCosts :: !Amount,
-      _lssNextIndex :: !TransactionIndex
+data SchedulerState (m :: DK.Type -> DK.Type) = SchedulerState
+    { _ssBlockState :: !(UpdatableBlockState m),
+      _ssSchedulerEnergyUsed :: !Energy,
+      _ssSchedulerExecutionCosts :: !Amount,
+      _ssNextIndex :: !TransactionIndex
     }
 
-makeLenses ''LogSchedulerState
+makeLenses ''SchedulerState
 
 -- This hack of ExecutionResult' and ExecutionResult is so that we
 -- automatically get the property that if BlockState m = BlockState m'
@@ -97,19 +97,19 @@ type ExecutionResult m = ExecutionResult' (BlockState m)
 
 makeLenses ''ExecutionResult'
 
-instance HasSchedulerState (LogSchedulerState m) where
-    type SS (LogSchedulerState m) = UpdatableBlockState m
-    schedulerBlockState = lssBlockState
-    schedulerEnergyUsed = lssSchedulerEnergyUsed
-    schedulerExecutionCosts = lssSchedulerExecutionCosts
-    nextIndex = lssNextIndex
+instance HasSchedulerState (SchedulerState m) where
+    type SS (SchedulerState m) = UpdatableBlockState m
+    schedulerBlockState = ssBlockState
+    schedulerEnergyUsed = ssSchedulerEnergyUsed
+    schedulerExecutionCosts = ssSchedulerExecutionCosts
+    nextIndex = ssNextIndex
 
-mkInitialSS :: UpdatableBlockState m -> LogSchedulerState m
-mkInitialSS _lssBlockState =
-    LogSchedulerState
-        { _lssSchedulerEnergyUsed = 0,
-          _lssSchedulerExecutionCosts = 0,
-          _lssNextIndex = 0,
+mkInitialSS :: UpdatableBlockState m -> SchedulerState m
+mkInitialSS _ssBlockState =
+    SchedulerState
+        { _ssSchedulerEnergyUsed = 0,
+          _ssSchedulerExecutionCosts = 0,
+          _ssNextIndex = 0,
           ..
         }
 
@@ -1368,7 +1368,7 @@ executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSee
                                   _maxBlockEnergy = maxBlockEnergy,
                                   _accountCreationLimit = accountCreationLim
                                 }
-                    (res, finState) <- runBSM (Sch.runTransactions txs) context (mkInitialSS prologueBlockState :: LogSchedulerState m)
+                    (res, finState) <- runBSM (Sch.runTransactions txs) context (mkInitialSS prologueBlockState :: SchedulerState m)
                     let usedEnergy = finState ^. schedulerEnergyUsed
                     let bshandle2 = finState ^. schedulerBlockState
                     case res of
@@ -1479,7 +1479,7 @@ constructBlock slotNumber slotTime blockParent blockBaker mfinInfo newSeedState 
                           _accountCreationLimit = accountCreationLim
                         }
             (ft@Sch.FilteredTransactions{..}, finState) <-
-                runBSM (Sch.filterTransactions (fromIntegral maxSize) timeout transactionGroups) context (mkInitialSS prologueBlockState :: LogSchedulerState m)
+                runBSM (Sch.filterTransactions (fromIntegral maxSize) timeout transactionGroups) context (mkInitialSS prologueBlockState :: SchedulerState m)
 
             -- FIXME: At some point we should log things here using the same logging infrastructure as in consensus.
 

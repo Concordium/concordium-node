@@ -53,31 +53,6 @@ class HasSchedulerState a where
 
     nextIndex :: Lens' a TransactionIndex
 
-data NoLogSchedulerState (m :: DK.Type -> DK.Type) = NoLogSchedulerState
-    { _ssBlockState :: !(UpdatableBlockState m),
-      _ssSchedulerEnergyUsed :: !Energy,
-      _ssSchedulerExecutionCosts :: !Amount,
-      _ssNextIndex :: !TransactionIndex
-    }
-
-mkInitialSS :: forall m. UpdatableBlockState m -> NoLogSchedulerState m
-mkInitialSS _ssBlockState =
-    NoLogSchedulerState
-        { _ssSchedulerEnergyUsed = 0,
-          _ssSchedulerExecutionCosts = 0,
-          _ssNextIndex = 0,
-          ..
-        }
-
-makeLenses ''NoLogSchedulerState
-
-instance HasSchedulerState (NoLogSchedulerState m) where
-    type SS (NoLogSchedulerState m) = UpdatableBlockState m
-    schedulerBlockState = ssBlockState
-    schedulerEnergyUsed = ssSchedulerEnergyUsed
-    schedulerExecutionCosts = ssSchedulerExecutionCosts
-    nextIndex = ssNextIndex
-
 newtype BSOMonadWrapper (r :: DK.Type) (state :: DK.Type) (m :: DK.Type -> DK.Type) (a :: DK.Type) = BSOMonadWrapper (m a)
     deriving
         ( Functor,
