@@ -12,6 +12,8 @@ import Data.Time.Clock
 import Data.Time.Clock.POSIX
 import qualified Data.Vector as Vec
 import Lens.Micro.Platform
+import System.FilePath
+import System.IO.Temp
 
 import Test.Hspec
 
@@ -27,13 +29,13 @@ import Concordium.Crypto.SHA256
 import Concordium.Genesis.Data.P1
 import Concordium.GlobalState
 import Concordium.GlobalState.BakerInfo
-import Concordium.GlobalState.Basic.BlockState.Account
-import qualified Concordium.GlobalState.Basic.TreeState as TS
 import Concordium.GlobalState.Block
 import qualified Concordium.GlobalState.BlockPointer as BS
 import Concordium.GlobalState.DummyData (dummyChainParameters, dummyKeyCollection)
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.Persistent.Account
+import qualified Concordium.GlobalState.Persistent.TreeState as TS
 import Concordium.Types.IdentityProviders
 
 import Concordium.Logger
@@ -60,7 +62,7 @@ type PV = 'P1
 dummyTime :: UTCTime
 dummyTime = posixSecondsToUTCTime 0
 
-type Config t = SkovConfig PV MemoryTreeMemoryBlockConfig (ActiveFinalization t) NoHandler
+type Config t = SkovConfig PV DiskTreeDiskBlockConfig (ActiveFinalization t) NoHandler
 
 finalizationParameters :: FinalizationParameters
 finalizationParameters = defaultFinalizationParameters{finalizationMinimumSkip = 100} -- setting minimum skip to 100 to prevent finalizers to finalize blocks when they store them
@@ -96,8 +98,9 @@ myRunSkovT a handlers ctx st = liftIO $ flip runLoggerT doLog $ do
     doLog src LLError msg = error $ show src ++ ": " ++ msg
     doLog _ _ _ = return () -- traceM $ show src ++ ": " ++ msg
 
+-- type BakerState = (BakerIdentity, SkovContext (Config DummyTimer), SkovState (Config DummyTimer))
 type BakerState = (BakerIdentity, SkovContext (Config DummyTimer), SkovState (Config DummyTimer))
-type BakerInformation = (FullBakerInfo, BakerIdentity, Account (AccountVersionFor PV))
+type BakerInformation = (FullBakerInfo, BakerIdentity, PersistentAccount (AccountVersionFor PV))
 
 -- This test has the following set up:
 -- There are two bakers, baker1 and baker2, and a finalization-committee member, finMember.
@@ -219,7 +222,7 @@ runTest
             UpdateResult ->
             (BakerIdentity, b, SkovState (Config DummyTimer)) ->
             m ()
-        receiveFM block ind res (fmId, _, SkovState TS.SkovData{} FinalizationState{..} _) =
+        receiveFM block ind res (fmId, _, SkovState TS.SkovPersistentData{} FinalizationState{..} _) =
             case _finsCurrentRound of
                 ActiveCurrentRound FinalizationRound{..} ->
                     receiveFinMessage (_finsIndex + ind) block roundDelta _finsSessionId roundMe fmId res
@@ -363,18 +366,16 @@ createInitStates additionalFinMembers = do
                               genesisAccounts = Vec.fromList bakerAccounts
                             }
                     }
-        createState =
-            liftIO
-                . ( \(bid, _, _, _) -> do
-                        let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
-                            config =
-                                SkovConfig
-                                    (MTMBConfig defaultRuntimeParameters)
-                                    (ActiveFinalization fininst)
-                                    NoHandler
-                        (initCtx, initState) <- runSilentLogger (initialiseSkov gen config)
-                        return (bid, initCtx, initState)
-                  )
+        createState (bid, _, _, _) = liftIO $ withTempDirectory "." "tmp-consensus-data" $ \tempDir -> do
+            let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
+                config =
+                    SkovConfig
+                        (DTDBConfig defaultRuntimeParameters tempDir (tempDir </> "data" <.> "blob"))
+                        (ActiveFinalization fininst)
+                        NoHandler
+            (initCtx, initState) <- runSilentLogger (initialiseSkov gen config)
+            return (bid, initCtx, initState)
+
     b1 <- createState baker1
     b2 <- createState baker2
     fState <- createState finMember

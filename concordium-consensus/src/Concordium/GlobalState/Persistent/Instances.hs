@@ -29,7 +29,6 @@ import Concordium.Utils.Serialization (putByteStringLen)
 import Concordium.Utils.Serialization.Put
 import qualified Concordium.Wasm as Wasm
 
-import qualified Concordium.GlobalState.Basic.BlockState.InstanceTable as Transient
 import Concordium.GlobalState.BlockState (InstanceInfoType (..), InstanceInfoTypeV (..))
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import qualified Concordium.GlobalState.Instance as Instance
@@ -753,84 +752,6 @@ allInstances (InstancesTree _ it) = mapReduceIT mfun it
   where
     mfun (Left _) = return mempty
     mfun (Right inst) = (: []) . pinstanceAddress <$> loadInstanceParameters inst
-
-makePersistent :: forall m pv. SupportsPersistentModule m => Modules.Modules -> Transient.Instances -> m (Instances pv)
-makePersistent _ (Transient.Instances Transient.Empty) = return InstancesEmpty
-makePersistent mods (Transient.Instances (Transient.Tree s t)) = InstancesTree s <$> conv t
-  where
-    conv :: Transient.IT -> m (BufferedFix (IT pv))
-    conv (Transient.Branch lvl fll vac hsh l r) = do
-        l' <- conv l
-        r' <- conv r
-        membed (Branch lvl fll vac hsh l' r')
-    conv (Transient.Leaf i) = convInst i >>= membed . Leaf
-    conv (Transient.VacantLeaf si) = membed (VacantLeaf si)
-    convInst
-        ( Instance.InstanceV0
-            Instance.InstanceV
-                { _instanceVParameters = params@Instance.InstanceParameters{..},
-                  _instanceVModel = Instance.InstanceStateV0 transientModel,
-                  ..
-                }
-            ) = do
-            pIParams <-
-                makeBufferedRef $
-                    PersistentInstanceParameters
-                        { pinstanceAddress = _instanceAddress,
-                          pinstanceOwner = instanceOwner,
-                          pinstanceContractModule = GSWasm.miModuleRef instanceModuleInterface,
-                          pinstanceInitName = instanceInitName,
-                          pinstanceParameterHash = getHash params,
-                          pinstanceReceiveFuns = instanceReceiveFuns
-                        }
-            -- Using `fromJust`here is safe, since if the instance exists in the
-            -- Basic version, then the module must be present in the persistent
-            -- implementation. Moreover, it will be of the same module version
-            -- (i.e. V0).
-            pIModuleInterface <- fromJust <$> Modules.getModuleReference (GSWasm.miModuleRef instanceModuleInterface) mods
-            return $
-                PersistentInstanceV0
-                    PersistentInstanceV
-                        { pinstanceParameters = pIParams,
-                          -- The module version is V0 as we're caching an instance of version V1.
-                          pinstanceModuleInterface = pIModuleInterface,
-                          pinstanceModel = InstanceStateV0 transientModel,
-                          pinstanceAmount = _instanceVAmount,
-                          pinstanceHash = _instanceVHash
-                        }
-    convInst
-        ( Instance.InstanceV1
-            Instance.InstanceV
-                { _instanceVParameters = params@Instance.InstanceParameters{..},
-                  _instanceVModel = Instance.InstanceStateV1 transientModel,
-                  ..
-                }
-            ) = do
-            pIParams <-
-                makeBufferedRef $
-                    PersistentInstanceParameters
-                        { pinstanceAddress = _instanceAddress,
-                          pinstanceOwner = instanceOwner,
-                          pinstanceContractModule = GSWasm.miModuleRef instanceModuleInterface,
-                          pinstanceInitName = instanceInitName,
-                          pinstanceParameterHash = getHash params,
-                          pinstanceReceiveFuns = instanceReceiveFuns
-                        }
-            -- Using `fromJust`here is safe, since if the instance exists in the
-            -- Basic version, then the module must be present in the persistent
-            -- implementation. Moreover, it will be of the same module version
-            -- (i.e. V0).
-            pIModuleInterface <- fromJust <$> Modules.getModuleReference (GSWasm.miModuleRef instanceModuleInterface) mods
-            return $
-                PersistentInstanceV1
-                    PersistentInstanceV
-                        { pinstanceParameters = pIParams,
-                          -- The module version is V0 as we're caching an instance of version V1.
-                          pinstanceModuleInterface = pIModuleInterface,
-                          pinstanceModel = InstanceStateV1 (StateV1.makePersistent transientModel),
-                          pinstanceAmount = _instanceVAmount,
-                          pinstanceHash = _instanceVHash
-                        }
 
 -- |Serialize instances in V0 format.
 putInstancesV0 :: (IsProtocolVersion pv, SupportsPersistentModule m, MonadPut m) => Instances pv -> m ()

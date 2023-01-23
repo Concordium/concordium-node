@@ -358,13 +358,13 @@ simpleTransferUsingAccountAliasesTest _ pvString = specify
         let transactions =
                 -- transfer 10000 from account0 to account0
                 [ TJSON
-                    { payload = Transfer{toaddress = createAlias accountAddress0 0, amount = 10_000},
+                    { payload = Transfer{toaddress = Types.createAlias accountAddress0 0, amount = 10_000},
                       metadata = makeDummyHeader accountAddress0 1 Helpers.simpleTransferCost,
                       keys = [(0, [(0, keyPair0)])]
                     },
                   -- transfer 8800 from account0 to account1
                   TJSON
-                    { payload = Transfer{toaddress = createAlias accountAddress1 0, amount = 8_800},
+                    { payload = Transfer{toaddress = Types.createAlias accountAddress1 0, amount = 8_800},
                       metadata = makeDummyHeader accountAddress0 2 Helpers.simpleTransferCost,
                       keys = [(0, [(0, keyPair0)])]
                     },
@@ -373,7 +373,7 @@ simpleTransferUsingAccountAliasesTest _ pvString = specify
                   TJSON
                     { payload =
                         Transfer
-                            { toaddress = createAlias accountAddress1 1,
+                            { toaddress = Types.createAlias accountAddress1 1,
                               amount =
                                 1_000_000
                                     - 8_800
@@ -386,7 +386,7 @@ simpleTransferUsingAccountAliasesTest _ pvString = specify
                   TJSON
                     { payload =
                         Transfer
-                            { toaddress = createAlias accountAddress0 1,
+                            { toaddress = Types.createAlias accountAddress0 1,
                               amount = 100 * fromIntegral Helpers.simpleTransferCost
                             },
                       metadata = makeDummyHeader accountAddress1 1 Helpers.simpleTransferCost,
@@ -394,8 +394,8 @@ simpleTransferUsingAccountAliasesTest _ pvString = specify
                     },
                   -- the next transaction should fail because the balance on account0 is now exactly enough to cover the transfer cost
                   TJSON
-                    { payload = Transfer{toaddress = createAlias accountAddress1 2, amount = 1},
-                      metadata = makeDummyHeader (createAlias accountAddress0 4) 4 Helpers.simpleTransferCost,
+                    { payload = Transfer{toaddress = Types.createAlias accountAddress1 2, amount = 1},
+                      metadata = makeDummyHeader (Types.createAlias accountAddress0 4) 4 Helpers.simpleTransferCost,
                       keys = [(0, [(0, keyPair0)])]
                     }
                 ]
@@ -432,7 +432,7 @@ simpleTransferUsingAccountAliasesTest _ pvString = specify
 
             case last results of
                 (_, Types.TxReject (Types.AmountTooLarge addr amnt)) -> do
-                    assertEqual "Sending from account0" (Types.AddressAccount (createAlias accountAddress0 4)) addr
+                    assertEqual "Sending from account0" (Types.AddressAccount (Types.createAlias accountAddress0 4)) addr
                     assertEqual "Exactly 1 microCCD" 1 amnt
                 err -> assertFailure $ "Incorrect result of the last transaction: " ++ show (snd err)
 

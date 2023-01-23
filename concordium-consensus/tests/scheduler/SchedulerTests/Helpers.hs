@@ -51,7 +51,6 @@ import Concordium.Scheduler
 import qualified Concordium.Scheduler.DummyData as DummyData
 import qualified Concordium.Scheduler.EnvironmentImplementation as EI
 import qualified Concordium.Scheduler.Runner as SchedTest
-import Concordium.Scheduler.TreeStateEnvironment
 import qualified Concordium.Scheduler.Types as Types
 import Concordium.TimeMonad
 
@@ -227,16 +226,15 @@ runScheduler ::
 runScheduler TestConfig{..} stateBefore transactions = do
     blockStateBefore <- BS.thawBlockState stateBefore
     let txs = filterTransactions tcBlockSize (Time.timestampToUTCTime tcBlockTimeout) transactions
-    let schedulerState = EI.mkInitialSS @(PersistentBSM pv) blockStateBefore
-    (filteredTransactions, stateAfter, ()) <- runRWST (_runBSM txs) tcContextState schedulerState
-
+    let schedulerState = EI.makeInitialSchedulerState @(PersistentBSM pv) blockStateBefore
+    (filteredTransactions, stateAfter) <- EI.runSchedulerT txs tcContextState schedulerState
     let result =
             SchedulerResult
                 { srTransactions = filteredTransactions,
-                  srExecutionCosts = EI._ssSchedulerExecutionCosts stateAfter,
-                  srUsedEnergy = EI._ssSchedulerEnergyUsed stateAfter
+                  srExecutionCosts = stateAfter ^. EI.ssExecutionCosts,
+                  srUsedEnergy = stateAfter ^. EI.ssEnergyUsed
                 }
-    return (result, EI._ssBlockState stateAfter)
+    return (result, stateAfter ^. EI.ssBlockState)
 
 -- | Run the scheduler on transactions in a test environment.
 -- Allows for a block state monad computation for constructing the initial block state and takes a
