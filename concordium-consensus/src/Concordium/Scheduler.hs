@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -2400,10 +2401,11 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, mVerRes
                                     SPoolParametersVersion1 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
                                 AddAnonymityRevokerUpdatePayload u -> checkSigAndEnqueue $ UVAddAnonymityRevoker u
                                 AddIdentityProviderUpdatePayload u -> checkSigAndEnqueue $ UVAddIdentityProvider u
-                                CooldownParametersCPV1UpdatePayload u -> case scpv of
-                                    SChainParametersV0 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
-                                    SChainParametersV1 -> checkSigAndEnqueue $ UVCooldownParameters u
-                                    SChainParametersV2 -> checkSigAndEnqueue $ UVCooldownParameters u
+                                CooldownParametersCPV1UpdatePayload u -> case sIsSupported SPTCooldownParametersAccessStructure scpv of
+                                    SFalse -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                    STrue -> case sCooldownParametersVersionFor scpv of
+                                        SCooldownParametersVersion0 -> case scpv of {}
+                                        SCooldownParametersVersion1 -> checkSigAndEnqueue $ UVCooldownParameters u
                                 PoolParametersCPV1UpdatePayload u -> case sPoolParametersVersionFor scpv of
                                     SPoolParametersVersion0 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
                                     SPoolParametersVersion1 -> checkSigAndEnqueue $ UVPoolParameters u

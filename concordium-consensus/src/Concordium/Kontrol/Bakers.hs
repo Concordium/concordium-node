@@ -4,6 +4,9 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+-- We suppress redundant constraint warnings since GHC does not detect when a constraint is used
+-- for pattern matching. (See: https://gitlab.haskell.org/ghc/ghc/-/issues/20896)
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
 -- |Functionality for handling baker changes based on epoch boundaries.
 module Concordium.Kontrol.Bakers where
@@ -385,7 +388,10 @@ getSlotBakersP4 genData bs slot = do
 -- The given slot should never be earlier than the slot of the given block.
 getSlotBakers ::
     forall m.
-    (IsProtocolVersion (MPV m), BlockStateQuery m) =>
+    ( IsProtocolVersion (MPV m),
+      BlockStateQuery m,
+      ConsensusParametersVersionFor (ChainParametersVersionFor (MPV m)) ~ 'ConsensusParametersVersion0
+    ) =>
     GenesisConfiguration ->
     BlockState m ->
     Slot ->
@@ -396,7 +402,6 @@ getSlotBakers genData = case protocolVersion @(MPV m) of
     SP3 -> getSlotBakersP1
     SP4 -> getSlotBakersP4 genData
     SP5 -> getSlotBakersP4 genData
-    SP6 -> undefined -- FIXME
 
 -- |Determine the bakers that apply to a future slot, given the state at a particular block.
 -- This will return 'Nothing' if the projected bakers could change before then (depending on
@@ -482,7 +487,10 @@ getDefiniteSlotBakersP4 genData bs slot = do
 -- The given slot should never be earlier than the slot of the given block.
 getDefiniteSlotBakers ::
     forall m.
-    (IsProtocolVersion (MPV m), BlockStateQuery m) =>
+    ( IsProtocolVersion (MPV m),
+      BlockStateQuery m,
+      ConsensusParametersVersionFor (ChainParametersVersionFor (MPV m)) ~ 'ConsensusParametersVersion0
+    ) =>
     GenesisConfiguration ->
     BlockState m ->
     Slot ->
@@ -493,4 +501,3 @@ getDefiniteSlotBakers genData = case protocolVersion @(MPV m) of
     SP3 -> getDefiniteSlotBakersP1
     SP4 -> getDefiniteSlotBakersP4 genData
     SP5 -> getDefiniteSlotBakersP4 genData
-    SP6 -> undefined -- FIXME
