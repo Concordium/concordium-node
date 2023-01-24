@@ -5,7 +5,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
 
-module Concordium.GlobalState.Basic.BlockState.AccountTable where
+module Basic.AccountTable where
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.GlobalState.Basic.BlockState.Account
