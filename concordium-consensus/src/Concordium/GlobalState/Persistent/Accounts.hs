@@ -19,7 +19,6 @@ import Data.Maybe
 import Data.Serialize
 import Lens.Micro.Platform
 
-import qualified Concordium.GlobalState.Basic.BlockState.Accounts as Transient
 import Concordium.GlobalState.Persistent.Account
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.Cache
@@ -31,7 +30,6 @@ import Concordium.Utils.Serialization.Put
 
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.GlobalState.AccountMap as AccountMap
-import qualified Concordium.GlobalState.Basic.BlockState.AccountTable as Transient
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.LFMBTree (LFMBTree')
 import qualified Concordium.GlobalState.Persistent.LFMBTree as L
@@ -87,15 +85,6 @@ type SupportsPersistentAccount pv m =
       MonadBlobStore m,
       MonadCache (AccountCache (AccountVersionFor pv)) m
     )
-
--- |Convert a (non-persistent) 'Transient.Accounts' to a (persistent) 'Accounts'.
--- The new object is not yet stored on disk.
-makePersistent :: SupportsPersistentAccount pv m => Transient.Accounts pv -> m (Accounts pv)
-makePersistent (Transient.Accounts amap atbl aregids) = do
-    accountTable <- L.fromAscListV =<< mapM makePersistentAccountRef (Transient.toHashedList atbl)
-    accountMap <- AccountMap.toPersistent amap
-    accountRegIdHistory <- Trie.fromList (Map.toList aregids)
-    return Accounts{..}
 
 instance (IsProtocolVersion pv) => Show (Accounts pv) where
     show a = show (accountTable a)

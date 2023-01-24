@@ -24,7 +24,6 @@ module Concordium.GlobalState.Persistent.BlockState.Modules (
     getModuleReference,
     putInterface,
     moduleRefList,
-    makePersistentModules,
     newModuleCache,
     unsafeToModuleV,
 
@@ -34,7 +33,6 @@ module Concordium.GlobalState.Persistent.BlockState.Modules (
 ) where
 
 import Concordium.Crypto.SHA256
-import qualified Concordium.GlobalState.Basic.BlockState.Modules as TransientModules
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.Cache
 import Concordium.GlobalState.Persistent.CachedRef
@@ -374,32 +372,6 @@ getSource ref mods = do
 -- The order of the list is not specified.
 moduleRefList :: Modules -> [ModuleRef]
 moduleRefList mods = Map.keys (mods ^. modulesMap)
-
---------------------------------------------------------------------------------
-
-storePersistentModule ::
-    MonadBlobStore m =>
-    TransientModules.Module ->
-    m Module
-storePersistentModule (TransientModules.ModuleV0 TransientModules.ModuleV{..}) = do
-    let moduleVInterface' = PIMVMem <$> moduleVInterface
-    moduleVSource' <- storeRef moduleVSource
-    return (ModuleV0 (ModuleV{moduleVInterface = moduleVInterface', moduleVSource = moduleVSource'}))
-storePersistentModule (TransientModules.ModuleV1 TransientModules.ModuleV{..}) = do
-    let moduleVInterface' = PIMVMem <$> moduleVInterface
-    moduleVSource' <- storeRef moduleVSource
-    return (ModuleV1 (ModuleV{moduleVInterface = moduleVInterface', moduleVSource = moduleVSource'}))
-
-makePersistentModules ::
-    SupportsPersistentModule m =>
-    TransientModules.Modules ->
-    m Modules
-makePersistentModules mods = do
-    let modlist = TransientModules.moduleList mods
-    _modulesTable <-
-        mapM (storePersistentModule . snd) modlist
-            >>= LFMB.fromAscList
-    return Modules{_modulesMap = TransientModules._modulesMap mods, ..}
 
 --------------------------------------------------------------------------------
 
