@@ -3,6 +3,7 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 
 -- |Tests for the payday-related functionality.
@@ -57,18 +58,42 @@ foundationAccount = accountAddressFrom 0
 testDoMintingP4 :: Spec
 testDoMintingP4 = do
     it "no updates" $
-        runTest [] [mintAmts0]
+        runTest
+            []
+            [mintAmts0]
+            (initialTotalSupply + stoMintPlatformDevelopmentCharge mintAmts0)
+            (bankStatus rewardAccounts0)
     it "last minute update" $
-        runTest [(400, UVMintDistribution md1)] [mintAmts1]
+        runTest
+            [(400, UVMintDistribution md1)]
+            [mintAmts1]
+            (initialTotalSupply + stoMintPlatformDevelopmentCharge mintAmts1)
+            (bankStatus rewardAccounts1)
     it "late update" $
-        runTest [(401, UVMintDistribution md1)] [mintAmts0]
+        runTest
+            [(401, UVMintDistribution md1)]
+            [mintAmts0]
+            (initialTotalSupply + stoMintPlatformDevelopmentCharge mintAmts0)
+            (bankStatus rewardAccounts0)
     it "two updates" $
-        runTest [(0, UVMintDistribution md1), (100, UVMintDistribution md2)] [mintAmts2]
+        runTest
+            [(0, UVMintDistribution md1), (100, UVMintDistribution md2)]
+            [mintAmts2]
+            (initialTotalSupply + stoMintPlatformDevelopmentCharge mintAmts2)
+            (bankStatus rewardAccounts2)
     it "two updates, one late" $
-        runTest [(0, UVMintDistribution md1), (401, UVMintDistribution md2)] [mintAmts1]
+        runTest
+            [(0, UVMintDistribution md1), (401, UVMintDistribution md2)]
+            [mintAmts1]
+            (initialTotalSupply + stoMintPlatformDevelopmentCharge mintAmts1)
+            (bankStatus rewardAccounts1)
     -- Note: the minting should not be affected by any updates to the time parameters
     it "mint rate update" $
-        runTest [(0, UVTimeParameters (TimeParametersV1 100 (MintRate 2 0)))] [mintAmts0]
+        runTest
+            [(0, UVTimeParameters (TimeParametersV1 100 (MintRate 2 0)))]
+            [mintAmts0]
+            (initialTotalSupply + stoMintPlatformDevelopmentCharge mintAmts0)
+            (bankStatus rewardAccounts0)
   where
     initialTotalSupply = 1_000_000_000
     epochLength = 100
@@ -84,14 +109,43 @@ testDoMintingP4 = do
             DummyData.dummyArs
             DummyData.dummyKeyCollection
             DummyData.dummyChainParameters
-    -- Run a test of doMintingP4. It is provided a list of updates (paired with effective slot time)
-    -- and a list of expected special transaction outcomes to have been produced.
-    runTest :: [(Slot, UpdateValue 'ChainParametersV1)] -> [SpecialTransactionOutcome] -> Assertion
-    runTest updates expectedSpecialOutcomes = join $ Helpers.runTestBlockState $ do
-        initialState :: PersistentBlockState 'P4 <- thawBlockState =<< initialBlockState
-        newState <- doMintingP4 dummyChainParameters targetEpoch mintRate foundationAccount updates initialState
-        specialOutcomes <- getSpecialOutcomes =<< hashBlockState newState
-        return $ assertEqual "Incorrect special outcomes are produced" expectedSpecialOutcomes $ toList specialOutcomes
+    -- Run a test of doMintingP4. It is provided a list of updates (paired with effective slot time),
+    -- a list of expected special transaction outcomes to have been produced, the expected balance
+    -- on the foundation account and the expected bank status.
+    runTest ::
+        [(Slot, UpdateValue 'ChainParametersV1)] ->
+        [SpecialTransactionOutcome] ->
+        Amount ->
+        BankStatus ->
+        Assertion
+    runTest updates expectedSpecialOutcomes expectedfoundationAmount expectedBankStatus =
+        join $ Helpers.runTestBlockState @'P4 $ do
+            initialState <- thawBlockState =<< initialBlockState
+            newState <-
+                doMintingP4
+                    dummyChainParameters
+                    targetEpoch
+                    mintRate
+                    foundationAccount
+                    updates
+                    initialState
+            currentBankStatus <- bsoGetBankStatus newState
+            hashedBlockState <- hashBlockState newState
+            specialOutcomes <- getSpecialOutcomes hashedBlockState
+            maybeAccount <- getAccount hashedBlockState foundationAccount
+            assertBalance <- case maybeAccount of
+                Nothing -> return $ assertFailure "No foundation account found in block state"
+                Just (_, account) -> do
+                    amount <- getAccountAmount account
+                    return $
+                        assertEqual
+                            "Unexpected public balance for foundation account"
+                            expectedfoundationAmount
+                            amount
+            return $ do
+                assertEqual "Incorrect special outcomes are produced" expectedSpecialOutcomes $ toList specialOutcomes
+                assertEqual "Unexpected bank status" expectedBankStatus currentBankStatus
+                assertBalance
     mintRate = MintRate 1 0 -- 100% mint rate
     targetEpoch = 4
     mintAmts0 =
@@ -114,6 +168,30 @@ testDoMintingP4 = do
               stoMintFinalizationReward = 1_000_000_000,
               stoMintPlatformDevelopmentCharge = 0,
               stoFoundationAccount = foundationAccount
+            }
+    bankStatus expectedRewardAccounts =
+        BankStatus
+            { _totalGTU = initialTotalSupply * 2,
+              _totalEncryptedGTU = 0,
+              _bankRewardAccounts = expectedRewardAccounts
+            }
+    rewardAccounts0 =
+        RewardAccounts
+            { _bakingRewardAccount = 600_000_000,
+              _finalizationRewardAccount = 300_000_000,
+              _gasAccount = 0
+            }
+    rewardAccounts1 =
+        RewardAccounts
+            { _bakingRewardAccount = 1_000_000_000,
+              _finalizationRewardAccount = 0,
+              _gasAccount = 0
+            }
+    rewardAccounts2 =
+        RewardAccounts
+            { _bakingRewardAccount = 0,
+              _finalizationRewardAccount = 1_000_000_000,
+              _gasAccount = 0
             }
     md1 = MintDistribution MintPerSlotForCPV0None (makeAmountFraction 100_000) (makeAmountFraction 0)
     md2 = MintDistribution MintPerSlotForCPV0None (makeAmountFraction 0) (makeAmountFraction 100_000)
@@ -348,7 +426,8 @@ data DelegatorRewardTestCase = DelegatorRewardTestCase
       -- |Capital held by each delegator
       drtcDelegatorCapitals :: [Amount],
       -- |Expected baking, finalization and transaction fee rewards to each delegator.
-      drtcDelegatorExpectedRewards :: [(Amount, Amount, Amount)]
+      drtcDelegatorExpectedRewards :: [(Amount, Amount, Amount)],
+      drtcExpectedBalances :: [Amount]
     }
 
 -- |Test cases for 'rewardDelegators'.
@@ -362,7 +441,8 @@ drtcs =
           drtcTransactionFeeReward = 0,
           drtcBakerCapital = 1,
           drtcDelegatorCapitals = [1_000_000_000_000_000],
-          drtcDelegatorExpectedRewards = [(999_999_999_999_999, 0, 0)]
+          drtcDelegatorExpectedRewards = [(999_999_999_999_999, 0, 0)],
+          drtcExpectedBalances = [1_000_999_999_999_999]
         },
       DelegatorRewardTestCase
         { -- This tests for precision in distributing the baking reward
@@ -372,7 +452,8 @@ drtcs =
           drtcTransactionFeeReward = 0,
           drtcBakerCapital = 1,
           drtcDelegatorCapitals = [999_999_999_999_999_999],
-          drtcDelegatorExpectedRewards = [(999_999_999_999_999_999, 0, 0)]
+          drtcDelegatorExpectedRewards = [(999_999_999_999_999_999, 0, 0)],
+          drtcExpectedBalances = [1_000_000_999_999_999_999]
         },
       DelegatorRewardTestCase
         { -- This tests for precision in distributing the baking reward
@@ -382,7 +463,8 @@ drtcs =
           drtcTransactionFeeReward = 0,
           drtcBakerCapital = 1,
           drtcDelegatorCapitals = [999_999_999_999_999_998],
-          drtcDelegatorExpectedRewards = [(999_999_999_999_999_998, 0, 0)]
+          drtcDelegatorExpectedRewards = [(999_999_999_999_999_998, 0, 0)],
+          drtcExpectedBalances = [1_000_000_999_999_999_998]
         },
       DelegatorRewardTestCase
         { -- This tests for potential overflow in distributing the finalization reward
@@ -392,7 +474,8 @@ drtcs =
           drtcTransactionFeeReward = 0,
           drtcBakerCapital = 1,
           drtcDelegatorCapitals = [1_000_000_000_000_000],
-          drtcDelegatorExpectedRewards = [(0, 999_999_999_999_999, 0)]
+          drtcDelegatorExpectedRewards = [(0, 999_999_999_999_999, 0)],
+          drtcExpectedBalances = [1_000_999_999_999_999]
         },
       DelegatorRewardTestCase
         { -- This tests for potential overflow in distributing the transaction fee reward
@@ -402,7 +485,8 @@ drtcs =
           drtcTransactionFeeReward = 1_000_000_000_000_000,
           drtcBakerCapital = 1,
           drtcDelegatorCapitals = [1_000_000_000_000_000],
-          drtcDelegatorExpectedRewards = [(0, 0, 999_999_999_999_999)]
+          drtcDelegatorExpectedRewards = [(0, 0, 999_999_999_999_999)],
+          drtcExpectedBalances = [1_000_999_999_999_999]
         },
       DelegatorRewardTestCase
         { drtcName = "big rewards, 1 big delegator",
@@ -413,7 +497,8 @@ drtcs =
           drtcDelegatorCapitals = [1_000_000_000_000_000],
           drtcDelegatorExpectedRewards =
             [ (999_999_999_999_999, 999_999_999_999_999, 999_999_999_999_999)
-            ]
+            ],
+          drtcExpectedBalances = [3_000_999_999_999_997]
         },
       DelegatorRewardTestCase
         { drtcName = "big rewards, 2 big delegators",
@@ -425,16 +510,19 @@ drtcs =
           drtcDelegatorExpectedRewards =
             [ (999_999_999_999_999, 999_999_999_999_999, 999_999_999_999_999),
               (999_999_999_999_999, 999_999_999_999_999, 999_999_999_999_999)
-            ]
+            ],
+          drtcExpectedBalances = [3_000_999_999_999_997, 3_000_999_999_999_997]
         }
     ]
 
 -- | Run a DelegatorRewardTestCase
 runTestCase :: DelegatorRewardTestCase -> Spec
 runTestCase DelegatorRewardTestCase{..} = it drtcName $ do
-    (DelegatorRewardOutcomes{..}, _) <- Helpers.runTestBlockState $ do
-        initialState :: PersistentBlockState 'P4 <- thawBlockState =<< initialPersistentBlockState
-        rewardDelegators initialState drtcFinalizationReward drtcBakingReward drtcTransactionFeeReward totCap dels
+    (DelegatorRewardOutcomes{..}, balances) <- Helpers.runTestBlockState @'P4 $ do
+        initialState <- thawBlockState =<< initialPersistentBlockState
+        (outcomes, newState) <- rewardDelegators initialState drtcFinalizationReward drtcBakingReward drtcTransactionFeeReward totCap (Vec.fromList dels)
+        balances <- getDelegatorBalances =<< hashBlockState newState
+        return (outcomes, balances)
     assertEqual "Total baking rewards" (sum $ drtcDelegatorExpectedRewards ^.. each . _1) _delegatorAccumBaking
     assertEqual "Total finalization rewards" (sum $ drtcDelegatorExpectedRewards ^.. each . _2) _delegatorAccumFinalization
     assertEqual "Total transaction fee rewards" (sum $ drtcDelegatorExpectedRewards ^.. each . _3) _delegatorAccumTransaction
@@ -446,9 +534,17 @@ runTestCase DelegatorRewardTestCase{..} = it drtcName $ do
                   stoTransactionFees = tran
                 }
     assertEqual "Special transaction outcomes" (zipWith makeSTOs [0 ..] drtcDelegatorExpectedRewards) (_delegatorOutcomes ^.. each)
+    assertEqual "Updated delegator balances" drtcExpectedBalances balances
   where
+    getDelegatorBalance blockState accountIndex = do
+        maybeAccount <- getAccountByIndex blockState accountIndex
+        case maybeAccount of
+            Nothing -> error "Account should exist"
+            Just (_, account) -> getAccountAmount account
+    getDelegatorBalances blockState = do
+        mapM (getDelegatorBalance blockState . fromIntegral . dcDelegatorId) dels
     totCap = drtcBakerCapital + sum (dcDelegatorCapital <$> dels)
-    dels = Vec.fromList (zipWith DelegatorCapital [0 ..] drtcDelegatorCapitals)
+    dels = zipWith DelegatorCapital [0 ..] drtcDelegatorCapitals
 
 tests :: Spec
 tests = describe "Payday" $ do
