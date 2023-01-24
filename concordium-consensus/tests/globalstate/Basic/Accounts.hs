@@ -3,14 +3,13 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeFamilies #-}
 
-module Concordium.GlobalState.Basic.BlockState.Accounts where
+module Basic.Accounts where
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Genesis.Data
 import qualified Concordium.GlobalState.AccountMap as AccountMap
 import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
-import qualified Concordium.GlobalState.Basic.BlockState.AccountTable as AT
 import Concordium.ID.Parameters
 import qualified Concordium.ID.Types as ID
 import Concordium.Types
@@ -23,6 +22,8 @@ import Data.Serialize
 import GHC.Stack (HasCallStack)
 import Lens.Micro.Internal (Index, IxValue, Ixed)
 import Lens.Micro.Platform
+
+import qualified Basic.AccountTable as AT
 
 -- |Representation of the set of accounts on the chain.
 -- Each account has an 'AccountIndex' which is the order

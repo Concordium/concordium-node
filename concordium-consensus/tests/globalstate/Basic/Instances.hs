@@ -2,7 +2,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
-module Concordium.GlobalState.Basic.BlockState.Instances (
+module Basic.Instances (
     InstanceParameters (..),
     Instance (..),
     InstanceV (..),
@@ -23,7 +23,8 @@ module Concordium.GlobalState.Basic.BlockState.Instances (
     getInstancesV0,
 ) where
 
-import Concordium.GlobalState.Basic.BlockState.InstanceTable
+import Basic.InstanceTable
+
 import Concordium.GlobalState.Instance
 import qualified Concordium.GlobalState.Wasm as GSWasm
 import Concordium.Types
