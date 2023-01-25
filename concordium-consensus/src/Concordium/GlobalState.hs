@@ -221,8 +221,7 @@ deriving via
 
 instance
     ( MonadIO m,
-      c ~ PersistentBlockStateContext pv,
-      HasGlobalStateContext c r,
+      HasGlobalStateContext (PersistentBlockStateContext pv) r,
       AccountVersionFor pv ~ av,
       MonadReader r m
     ) =>
@@ -269,29 +268,29 @@ newtype TreeStateM (s :: Type) (m :: Type -> Type) (a :: Type) = TreeStateM {run
 
 deriving instance MonadProtocolVersion m => MonadProtocolVersion (TreeStateM s m)
 
-type PersistentTreeStateM pv (bs :: Type) (m :: Type -> Type) = TreeStateM (SkovPersistentData pv bs) m
+type PersistentTreeStateM pv (bs :: Type) (m :: Type -> Type) = TreeStateM (SkovPersistentData pv) m
 
 deriving via
-    PersistentTreeStateMonad bs m
+    PersistentTreeStateMonad m
     instance
         (IsProtocolVersion pv, pv ~ MPV m) => GlobalStateTypes (PersistentTreeStateM pv bs m)
 
 deriving via
-    PersistentTreeStateMonad bs m
+    PersistentTreeStateMonad m
     instance
         ( Monad m,
           IsProtocolVersion pv,
-          BlockPointerMonad (PersistentTreeStateMonad bs m),
+          BlockPointerMonad (PersistentTreeStateMonad m),
           MPV m ~ pv
         ) =>
         BlockPointerMonad (PersistentTreeStateM pv bs m)
 
 deriving via
-    PersistentTreeStateMonad bs m
+    PersistentTreeStateMonad m
     instance
         ( MonadProtocolVersion m,
           BlockStateStorage m,
-          TreeStateMonad (PersistentTreeStateMonad bs m),
+          TreeStateMonad (PersistentTreeStateMonad m),
           MPV m ~ pv
         ) =>
         TreeStateMonad (PersistentTreeStateM pv bs m)
@@ -407,13 +406,14 @@ instance Show GlobalStateInitException where
 
 instance Exception GlobalStateInitException
 
+-- |The read-only context type associated with a global state configuration.
+type GSContext pv = PersistentBlockStateContext pv
+
+-- |The (mutable) state type associated with a global state configuration.
+type GSState pv = SkovPersistentData pv
+
 -- |This class is implemented by types that determine configurations for the global state.
 class GlobalStateConfig (c :: Type) where
-    -- |The read-only context type associated with a global state configuration.
-    type GSContext c (pv :: ProtocolVersion)
-
-    -- |The (mutable) state type associated with a global state configuration.
-    type GSState c (pv :: ProtocolVersion)
 
     -- |Generate context and state from the initial configuration if the state
     -- exists already. This may have 'IO' side effects to set up any necessary
@@ -426,7 +426,7 @@ class GlobalStateConfig (c :: Type) where
     -- Note that even if the state is successfully loaded it is not in a usable
     -- state for an active consensus and must be activated before. Use
     -- 'activateGlobalState' for that.
-    initialiseExistingGlobalState :: forall pv. IsProtocolVersion pv => SProtocolVersion pv -> c -> LogIO (Maybe (GSContext c pv, GSState c pv))
+    initialiseExistingGlobalState :: forall pv. IsProtocolVersion pv => SProtocolVersion pv -> c -> LogIO (Maybe (GSContext pv, GSState pv))
 
     -- |Migrate an existing global state. This is only intended to be used on a
     -- protocol update and requires that the initial state for the new protocol
@@ -448,23 +448,23 @@ class GlobalStateConfig (c :: Type) where
         -- |The configuration.
         c ->
         -- |Global state context for the state we are migrating from.
-        GSContext c oldpv ->
+        GSContext oldpv ->
         -- |The state of the chain we are migrating from. See documentation above for assumptions.
-        GSState c oldpv ->
+        GSState oldpv ->
         -- |Auxiliary migration data.
         StateMigrationParameters oldpv pv ->
         -- |Regenesis data for the new chain. This is in effect the genesis block of the new chain.
         Regenesis pv ->
         -- |The return value is the context and state for the new chain.
-        LogIO (GSContext c pv, GSState c pv)
+        LogIO (GSContext pv, GSState pv)
 
     -- |Initialise new global state with the given genesis. If the state already
     -- exists this will raise an exception. It is not necessary to call 'activateGlobalState'
     -- on the generated state, as this will establish the necessary invariants.
-    initialiseNewGlobalState :: IsProtocolVersion pv => GenesisData pv -> c -> LogIO (GSContext c pv, GSState c pv)
+    initialiseNewGlobalState :: IsProtocolVersion pv => GenesisData pv -> c -> LogIO (GSContext pv, GSState pv)
 
     -- |Either initialise an existing state, or if it does not exist, initialise a new one with the given genesis.
-    initialiseGlobalState :: forall pv. IsProtocolVersion pv => GenesisData pv -> c -> LogIO (GSContext c pv, GSState c pv)
+    initialiseGlobalState :: forall pv. IsProtocolVersion pv => GenesisData pv -> c -> LogIO (GSContext pv, GSState pv)
     initialiseGlobalState gd cfg =
         initialiseExistingGlobalState (protocolVersion @pv) cfg >>= \case
             Nothing -> initialiseNewGlobalState gd cfg
@@ -472,15 +472,12 @@ class GlobalStateConfig (c :: Type) where
 
     -- |Establish all the necessary invariants so that the state can be used by
     -- consensus. This should only be called once per initialised state.
-    activateGlobalState :: IsProtocolVersion pv => Proxy c -> Proxy pv -> GSContext c pv -> GSState c pv -> LogIO (GSState c pv)
+    activateGlobalState :: IsProtocolVersion pv => Proxy c -> Proxy pv -> GSContext pv -> GSState pv -> LogIO (GSState pv)
 
     -- |Shutdown the global state.
-    shutdownGlobalState :: SProtocolVersion pv -> Proxy c -> GSContext c pv -> GSState c pv -> IO ()
+    shutdownGlobalState :: SProtocolVersion pv -> Proxy c -> GSContext pv -> GSState pv -> IO ()
 
 instance GlobalStateConfig DiskTreeDiskBlockConfig where
-    type GSState DiskTreeDiskBlockConfig pv = SkovPersistentData pv (HashedPersistentBlockState pv)
-    type GSContext DiskTreeDiskBlockConfig pv = PersistentBlockStateContext pv
-
     initialiseExistingGlobalState _ DTDBConfig{..} = do
         -- check if all the necessary database files exist
         existingDB <- checkExistingDatabase dtdbTreeStateDirectory dtdbBlockStateFile

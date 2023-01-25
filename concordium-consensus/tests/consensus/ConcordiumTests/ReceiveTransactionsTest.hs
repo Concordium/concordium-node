@@ -204,8 +204,7 @@ runTransactions f txs now gData = do
     slot = 0
 
 type PV = 'P5
-type TestBlockState = HashedPersistentBlockState PV
-type TestSkovState = SkovPersistentData PV TestBlockState
+type TestSkovState = SkovPersistentData PV
 
 newtype FixedTimeT (m :: Type -> Type) a = FixedTime {runDeterministic :: UTCTime -> m a}
     deriving (Functor, Applicative, Monad, MonadIO) via ReaderT UTCTime m
@@ -231,7 +230,7 @@ type TestBlockStateMonad =
         )
 
 -- |A composition that implements TreeStateMonad, TimeMonad (via FixedTime) and SkovQueryMonadT.
-type TestSkovQueryMonad = SkovQueryMonadT (PersistentTreeStateMonad TestBlockState TestBlockStateMonad)
+type TestSkovQueryMonad = SkovQueryMonadT (PersistentTreeStateMonad TestBlockStateMonad)
 
 newtype NoLoggerT m a = NoLoggerT {runNoLoggerT :: m a}
     deriving (Functor, Applicative, Monad, MonadIO, MonadReader r, TimeMonad)

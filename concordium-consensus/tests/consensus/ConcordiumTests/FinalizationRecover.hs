@@ -84,8 +84,8 @@ setup nBakers = withTempDirectory "." "tmp-consensus-data" $ \tempDir -> do
                 genTotal
     let finInstances = map (makeFinalizationInstance . fst) bakers
     (gsc, gss) <- runSilentLogger (initialiseGlobalState genData $ makeGlobalStateConfig tempDir defaultRuntimeParameters)
-    active <- forM finInstances (\inst -> (initialState inst,) <$> runSilentLogger (getFinalizationState (Proxy :: Proxy PV) (Proxy :: Proxy TreeConfig) (gsc, gss) (Just inst)))
-    passive <- (initialPassiveState,) <$> runSilentLogger (getFinalizationState (Proxy :: Proxy PV) (Proxy :: Proxy TreeConfig) (gsc, gss) Nothing)
+    active <- forM finInstances (\inst -> (initialState inst,) <$> runSilentLogger (getFinalizationState (Proxy :: Proxy PV) (gsc, gss) (Just inst)))
+    passive <- (initialPassiveState,) <$> runSilentLogger (getFinalizationState (Proxy :: Proxy PV) (gsc, gss) Nothing)
     return $ passive : active
 
 test :: Spec
