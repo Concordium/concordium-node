@@ -47,6 +47,12 @@ import Concordium.Skov.Monad as Skov
 import Concordium.Skov.Update
 import Concordium.TimeMonad
 import Concordium.TimerMonad
+import Concordium.GlobalState.Persistent.BlockState
+import Concordium.GlobalState.Persistent.BlobStore
+import Concordium.GlobalState.Persistent.Cache
+import Concordium.GlobalState.Persistent.Account
+import Concordium.GlobalState.Persistent.BlockState.Modules
+import Concordium.GlobalState.Persistent.TreeState
 
 -- |Base monad that provides: IO, logging, global-state context and global-state state.
 type RWSTIO pv = RWST (Identity (GSContext pv)) () (Identity (GSState pv)) LogIO
@@ -468,83 +474,98 @@ instance (Monad m, SkovTimerHandlers pv h c m) => TimerMonad (SkovT pv h c m) wh
 -- Inherit the instances from GlobalStateM
 
 deriving via
-    SkovTGSM pv h c' m
+    PersistentBlockStateMonad pv (SkovContext c) (SkovT pv h c m)
     instance
-        BlockStateTypes (SkovT pv h c' m)
+        BlockStateTypes (SkovT pv h c m)
+
+instance (c ~ SkovConfig pv gsconfig finconfig handlerconfig) => HasBlobStore (SkovContext c) where
+    blobStore = blobStore . scGSContext
+    blobLoadCallback = blobLoadCallback . scGSContext
+    blobStoreCallback = blobStoreCallback . scGSContext
+
+instance (c ~ SkovConfig pv gsconfig finconfig handlerconfig, AccountVersionFor pv ~ av) => HasCache (AccountCache av) (SkovContext c) where
+  projectCache = projectCache . scGSContext
+
+instance (c ~ SkovConfig pv gsconfig finconfig handlerconfig) => HasCache ModuleCache (SkovContext c) where
+  projectCache = projectCache . scGSContext
+
+-- instance (c ~ SkovConfig pv gsconfig finconfig handlerconfig) => HasGlobalStateContext (PersistentBlockStateContext pv) (SkovContext c) where
 
 deriving via
-    SkovTGSM pv h c' m
+    PersistentBlockStateMonad pv (SkovContext c) (SkovT pv h c m)
     instance
-        ( Monad m,
-          BlockStateQuery (SkovTGSM pv h c' m)
+        ( IsProtocolVersion pv, MonadIO m, 
+          c ~ SkovConfig pv gsconfig finconfig handlerconfig
         ) =>
-        BlockStateQuery (SkovT pv h c' m)
+        BlockStateQuery (SkovT pv h c m)
 
 deriving via
-    SkovTGSM pv h c' m
+    PersistentBlockStateMonad pv (SkovContext c) (SkovT pv h c m)
     instance
-        ( Monad m,
-          AccountOperations (SkovTGSM pv h c' m)
+        ( MonadIO m, IsProtocolVersion pv,
+          c ~ SkovConfig pv gsconfig finconfig handlerconfig
         ) =>
-        AccountOperations (SkovT pv h c' m)
+        AccountOperations (SkovT pv h c m)
 
 deriving via
-    SkovTGSM pv h c' m
+    PersistentBlockStateMonad pv (SkovContext c) (SkovT pv h c m)
     instance
-        ( Monad m,
-          ContractStateOperations (SkovTGSM pv h c' m)
+        ( MonadIO m, IsProtocolVersion pv,
+          c ~ SkovConfig pv gsconfig finconfig handlerconfig
         ) =>
-        ContractStateOperations (SkovT pv h c' m)
+        ContractStateOperations (SkovT pv h c m)
 
 deriving via
-    SkovTGSM pv h c' m
+    PersistentBlockStateMonad pv (SkovContext c) (SkovT pv h c m)
     instance
-        ( Monad m,
-          ModuleQuery (SkovTGSM pv h c' m)
+        ( MonadIO m, IsProtocolVersion pv,
+          c ~ SkovConfig pv gsconfig finconfig handlerconfig
         ) =>
-        ModuleQuery (SkovT pv h c' m)
+        ModuleQuery (SkovT pv h c m)
 
 deriving via
-    SkovTGSM pv h c' m
+    PersistentBlockStateMonad pv (SkovContext c) (SkovT pv h c m)
     instance
-        ( Monad m,
-          BlockStateOperations (SkovTGSM pv h c' m)
+        ( IsProtocolVersion pv, MonadIO m, 
+          c ~ SkovConfig pv gsconfig finconfig handlerconfig
         ) =>
-        BlockStateOperations (SkovT pv h c' m)
+        BlockStateOperations (SkovT pv h c m)
 
 deriving via
-    SkovTGSM pv h c' m
+    PersistentBlockStateMonad pv (SkovContext c) (SkovT pv h c m)
     instance
-        ( Monad m,
-          BlockStateStorage (SkovTGSM pv h c' m)
+        ( IsProtocolVersion pv, MonadIO m, 
+          c ~ SkovConfig pv gsconfig finconfig handlerconfig
         ) =>
-        BlockStateStorage (SkovT pv h c' m)
+        BlockStateStorage (SkovT pv h c m)
 
 deriving via
-    SkovTGSM pv h c' m
+    PersistentTreeStateMonad (SkovT pv h c m)
     instance
-        GlobalStateTypes (SkovTGSM pv h c' m) =>
-        GlobalStateTypes (SkovT pv h c' m)
+        ( IsProtocolVersion pv) =>
+        GlobalStateTypes (SkovT pv h c m)
 
 instance (IsProtocolVersion pv) => MonadProtocolVersion (SkovT pv h c' m) where
     type MPV (SkovT pv h c' m) = pv
 
 deriving via
-    SkovTGSM pv h c' m
-    instance
-        ( Monad m,
-          BlockPointerMonad (SkovTGSM pv h c' m)
-        ) =>
-        BlockPointerMonad (SkovT pv h c' m)
-
-deriving via
-    SkovTGSM pv h c' m
+    PersistentTreeStateMonad (SkovT pv h c m)
     instance
         ( Monad m,
           IsProtocolVersion pv,
-          TreeStateMonad (SkovTGSM pv h c' m)
+          c ~ SkovConfig pv gsconfig finconfig handlerconfig
         ) =>
-        TreeStateMonad (SkovT pv h c' m)
+        BlockPointerMonad (SkovT pv h c m)
+
+deriving via
+    SkovTGSM pv h c m
+    instance
+        ( MonadIO m,
+          IsProtocolVersion pv,
+          c ~ SkovConfig pv gsconfig finconfig handlerconfig,
+          TreeStateMonad (SkovTGSM pv h c m)
+        ) =>
+        TreeStateMonad (SkovT pv h c m)
 
 deriving via
     SkovQueryMonadT (SkovT pv h c m)
