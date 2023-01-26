@@ -230,7 +230,7 @@ type TestBlockStateMonad =
         )
 
 -- |A composition that implements TreeStateMonad, TimeMonad (via FixedTime) and SkovQueryMonadT.
-type TestSkovQueryMonad = SkovQueryMonadT (PersistentTreeStateMonad TestBlockStateMonad)
+type TestSkovQueryMonad = SkovQueryMonadT (PersistentTreeStateMonad TestSkovState TestBlockStateMonad)
 
 newtype NoLoggerT m a = NoLoggerT {runNoLoggerT :: m a}
     deriving (Functor, Applicative, Monad, MonadIO, MonadReader r, TimeMonad)

@@ -73,20 +73,6 @@ instance IsProtocolVersion pv => MonadProtocolVersion (GlobalState pv) where
 evalGlobalState :: GlobalState pv a -> GSContext pv -> GSState pv -> LogIO a
 evalGlobalState comp gsCtx gsState = fst <$> evalRWST (runPersistentBlockStateMonad . unRWSTIO . runPersistentTreeStateMonad . runSkovQueryMonad . runGlobalState $ comp) gsCtx gsState
 
--- getFinalizationState ::
---     forall pv timer.
---     GlobalStateQuery pv =>
---     Proxy pv ->
---     -- |Global state from which to get the tree information.
---     (GSContext pv, GSState pv) ->
---     -- |Just finInst if active finalization, Nothing if keys are not available.
---     Maybe FinalizationInstance ->
---     LogIO (FinalizationState timer)
--- getFinalizationState _ (gsCtx, gsState) mInst = evalGlobalState comp gsCtx gsState
---   where
---     comp :: GlobalState pv (FinalizationState timer)
---     comp = recoverFinalizationState mInst
-
 -- * Handler configuration
 
 -- |'HandlerConfig' characterises a type of configuration for handlers that can respond to certain

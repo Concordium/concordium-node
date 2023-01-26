@@ -310,6 +310,7 @@ genesis nBakers =
 type MyPersistentTreeState pv = SkovPersistentData pv
 type MyPersistentMonad pv =
     PersistentTreeStateMonad
+        (SkovPersistentData pv)
         ( MGSTrans
             (StateT (MyPersistentTreeState pv))
             ( PersistentBlockStateMonad

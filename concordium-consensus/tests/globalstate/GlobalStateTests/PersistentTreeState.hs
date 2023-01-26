@@ -54,9 +54,12 @@ import Test.QuickCheck
 -- |Protocol version.
 type PV = 'P5
 
-type GlobalStateIO c g = GlobalStateM PV c c g g (RWST c () g LogIO)
-
-type TestM = GlobalStateIO (PBS.PersistentBlockStateContext PV) (SkovPersistentData PV)
+type TestM = PersistentTreeStateMonad
+               (SkovPersistentData PV)
+               (PBS.PersistentBlockStateMonad
+                PV
+                (PBS.PersistentBlockStateContext PV)
+                (RWST (PBS.PersistentBlockStateContext PV) () (SkovPersistentData PV) LogIO))
 
 type Test = TestM ()
 
@@ -86,7 +89,7 @@ specifyWithGS s f =
         withTempDirectory "." "test-directory" $
             \dbDir ->
                 bracket (createGlobalState dbDir) destroyGlobalState $
-                    runSilentLogger . void . uncurry (runRWST (runGlobalStateM $ f))
+                    runSilentLogger . void . uncurry (runRWST $ PBS.runPersistentBlockStateMonad $ runPersistentTreeStateMonad f)
 
 useI :: MonadState (Identity s) f => Getting b s b -> f b
 useI f = (^. f) . runIdentity <$> RWS.get
