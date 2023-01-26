@@ -2,6 +2,9 @@
 
 ## Unreleased changes
 
+- Fix a bug in `GetAccountInfo` endpoint in GRPCv2 where `incoming_amounts`
+  field of encrypted amounts was not set correctly.
+
 ## 5.2.0
 
 - Fix an issue where the node configuration file (`main.config.json`) was
