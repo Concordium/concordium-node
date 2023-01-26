@@ -530,7 +530,7 @@ class HasDatabaseHandlers pv (BlockStatePointer (PBS.PersistentBlockState pv)) s
     skovPersistentData :: Lens' s (SkovPersistentData pv)
 
 instance HasSkovPersistentData pv (SkovPersistentData pv) where
-    skovPersistentData = lens id (const id)
+    skovPersistentData = id
 
 getWeakPointer ::
     ( MonadLogger (PersistentTreeStateMonad state m),
