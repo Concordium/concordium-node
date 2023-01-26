@@ -190,8 +190,9 @@
         (i32.const 1))
     ;; delete [000]
     (call $state_delete_entry (i32.const 0) (i32.const 3))
-    ;; delete the iter
-    (call $state_iterator_delete (i64.const 0)) ;; the iter created in the first receive function.
+    ;; attempt to delete the iterator created by the initial call to a_modify_proxy
+    ;; this should fail since iterators are per entry to an entrypoint
+    (call $assert_eq (i32.const 4294967295) (call $state_iterator_delete (i64.const 0)))
     (return (i32.const 0)) ;; return success.
   )
 
