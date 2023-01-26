@@ -144,8 +144,9 @@
         (call $assert_eq (i32.const 8) (call $state_entry_size (call $state_lookup_entry (local.get $offset) (i32.const 2))))
         ;; a_modifies deletes [000]
         (call $assert_entry_absent (call $state_lookup_entry (local.get $offset) (i32.const 3)))
-        ;; a_modifies deletes the iterator, so a double delete will return in u32::max.
-        (call $assert_eq (i32.xor (i32.const 2147483647) (i32.shl (i32.const 1) (i32.const 31))) (call $state_iterator_delete (local.get $iter)))
+        ;; a_modifies modifies the state, which means all iterators are invalidated.
+        ;; Thus attempting to delete it fails.
+        (call $assert_eq (i32.const 4294967295) (call $state_iterator_delete (local.get $iter)))
       )
       ;; state should not be modified in this case.
       (else
