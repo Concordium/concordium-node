@@ -53,25 +53,42 @@ import Concordium.Skov.Update
 import Concordium.TimeMonad
 import Concordium.TimerMonad
 
--- |Base monad that provides: IO, logging, global-state context and global-state state.
-newtype RWSTIO pv a = RWSTIO {unRWSTIO :: PersistentBlockStateMonad pv (GSContext pv) (RWST (GSContext pv) () (GSState pv) LogIO) a}
-    deriving (Applicative, Functor, Monad, MonadIO, MonadReader (GSContext pv), MonadState (GSState pv), MonadLogger, BlockStateTypes, ModuleQuery, AccountOperations, ContractStateOperations, BlockStateQuery, BlockStateOperations, BlockStateStorage, TimeMonad)
-
-instance IsProtocolVersion pv => MonadProtocolVersion (RWSTIO pv) where
-    type MPV (RWSTIO pv) = pv
-
--- type GlobalStateQuery pv = (BlockStateStorage (BlockStateType pv), TreeStateMonad (TreeStateType pv))
-
--- |This is a convenience wrapper that automatically implements SkovQueryMonad via SkovQueryMonadT
--- instance.
-newtype GlobalState pv a = GlobalState {runGlobalState :: SkovQueryMonadT (PersistentTreeStateMonad (GSState pv) (RWSTIO pv)) a}
-    deriving (Applicative, Functor, Monad, MonadIO, BlockStateTypes, GlobalStateTypes, ContractStateOperations, AccountOperations, ModuleQuery, BlockStateQuery, BlockStateOperations, BlockStateStorage, BlockPointerMonad, SkovQueryMonad)
+-- |Monad that provides: IO, logging, global-state context, global-state state and SkovQueryMonad via SkovQueryMonadT.
+newtype GlobalState pv a = GlobalState
+    { runGlobalState ::
+        SkovQueryMonadT
+            ( PersistentTreeStateMonad
+                (GSState pv)
+                ( PersistentBlockStateMonad
+                    pv
+                    (GSContext pv)
+                    (RWST (GSContext pv) () (GSState pv) LogIO)
+                )
+            )
+            a
+    }
+    deriving
+        ( Applicative,
+          Functor,
+          Monad,
+          MonadIO,
+          BlockStateTypes,
+          GlobalStateTypes,
+          ContractStateOperations,
+          AccountOperations,
+          ModuleQuery,
+          BlockStateQuery,
+          BlockStateOperations,
+          BlockStateStorage,
+          BlockPointerMonad,
+          SkovQueryMonad
+        )
 
 instance IsProtocolVersion pv => MonadProtocolVersion (GlobalState pv) where
     type MPV (GlobalState pv) = pv
 
 evalGlobalState :: GlobalState pv a -> GSContext pv -> GSState pv -> LogIO a
-evalGlobalState comp gsCtx gsState = fst <$> evalRWST (runPersistentBlockStateMonad . unRWSTIO . runPersistentTreeStateMonad . runSkovQueryMonad . runGlobalState $ comp) gsCtx gsState
+evalGlobalState comp gsCtx gsState = fst <$> evalRWST (runPersistentBlockStateMonad . runPersistentTreeStateMonad . runSkovQueryMonad . runGlobalState $ comp) gsCtx gsState
 
 -- * Handler configuration
 
