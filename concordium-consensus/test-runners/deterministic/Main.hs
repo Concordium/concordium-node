@@ -66,12 +66,10 @@ import System.Directory
 -- |Protocol version
 type PV = 'P5
 
-type TreeConfig = DiskTreeDiskBlockConfig
-
 -- |Construct the global state configuration.
 -- Can be customised if changing the configuration.
-makeGlobalStateConfig :: RuntimeParameters -> FilePath -> FilePath -> IO TreeConfig
-makeGlobalStateConfig rt treeStateDir blockStateFile = return $ DTDBConfig rt treeStateDir blockStateFile
+makeGlobalStateConfig :: RuntimeParameters -> FilePath -> FilePath -> IO GlobalStateConfig
+makeGlobalStateConfig rt treeStateDir blockStateFile = return $ GlobalStateConfig rt treeStateDir blockStateFile
 
 {-
 type TreeConfig = PairGSConfig MemoryTreeMemoryBlockConfig DiskTreeDiskBlockConfig
@@ -80,7 +78,7 @@ type TreeConfig = PairGSConfig MemoryTreeMemoryBlockConfig DiskTreeDiskBlockConf
 -- Can be customised if changing the configuration.
 makeGlobalStateConfig :: RuntimeParameters -> FilePath -> FilePath -> IO TreeConfig
 makeGlobalStateConfig rp treeStateDir blockStateFile =
-   return $ PairGSConfig (MTMBConfig rp, DTDBConfig rp treeStateDir blockStateFile)
+   return $ PairGSConfig (MTMBConfig rp, GlobalStateConfig rp treeStateDir blockStateFile)
 -}
 
 -- |A timer is represented as an integer identifier.
@@ -91,7 +89,7 @@ newtype DummyTimer = DummyTimer Integer
 -- |Configuration to use for bakers.
 -- Can be customised for different global state configurations (disk/memory/paired)
 -- or to enable/disable finalization buffering.
-type BakerConfig = SkovConfig PV TreeConfig (ActiveFinalization DummyTimer) NoHandler
+type BakerConfig = SkovConfig PV (ActiveFinalization DummyTimer) NoHandler
 
 -- |The identity providers to use.
 dummyIdentityProviders :: IdentityProviders

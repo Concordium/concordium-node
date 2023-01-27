@@ -77,13 +77,13 @@ data BlockHashInput
 
 -- |Run a query against a specific skov version.
 liftSkovQuery ::
-    MultiVersionRunner gsconf finconf ->
-    EVersionedConfiguration gsconf finconf ->
+    MultiVersionRunner finconf ->
+    EVersionedConfiguration finconf ->
     ( forall (pv :: ProtocolVersion).
-      ( SkovMonad (VersionedSkovM gsconf finconf pv),
-        FinalizationMonad (VersionedSkovM gsconf finconf pv)
+      ( SkovMonad (VersionedSkovM finconf pv),
+        FinalizationMonad (VersionedSkovM finconf pv)
       ) =>
-      VersionedSkovM gsconf finconf pv a
+      VersionedSkovM finconf pv a
     ) ->
     IO a
 liftSkovQuery mvr (EVersionedConfiguration vc) a = do
@@ -93,12 +93,12 @@ liftSkovQuery mvr (EVersionedConfiguration vc) a = do
 -- |Run a query against the latest skov version.
 liftSkovQueryLatest ::
     ( forall (pv :: ProtocolVersion).
-      ( SkovMonad (VersionedSkovM gsconf finconf pv),
-        FinalizationMonad (VersionedSkovM gsconf finconf pv)
+      ( SkovMonad (VersionedSkovM finconf pv),
+        FinalizationMonad (VersionedSkovM finconf pv)
       ) =>
-      VersionedSkovM gsconf finconf pv a
+      VersionedSkovM finconf pv a
     ) ->
-    MVR gsconf finconf a
+    MVR finconf a
 liftSkovQueryLatest a = MVR $ \mvr -> do
     versions <- readIORef (mvVersions mvr)
     liftSkovQuery mvr (Vec.last versions) a
@@ -107,20 +107,20 @@ liftSkovQueryLatest a = MVR $ \mvr -> do
 liftSkovQueryAtGenesisIndex ::
     GenesisIndex ->
     ( forall (pv :: ProtocolVersion).
-      ( SkovMonad (VersionedSkovM gsconf finconf pv),
-        FinalizationMonad (VersionedSkovM gsconf finconf pv)
+      ( SkovMonad (VersionedSkovM finconf pv),
+        FinalizationMonad (VersionedSkovM finconf pv)
       ) =>
-      VersionedSkovM gsconf finconf pv a
+      VersionedSkovM finconf pv a
     ) ->
-    MVR gsconf finconf a
+    MVR finconf a
 liftSkovQueryAtGenesisIndex genIndex a = MVR $ \mvr -> do
     versions <- readIORef (mvVersions mvr)
     liftSkovQuery mvr (versions Vec.! fromIntegral genIndex) a
 
 -- |Run a function at each genesis index from the latest, until it returns a 'Just' result.
 atLatestSuccessfulVersion ::
-    (EVersionedConfiguration gsconf finconf -> IO (Maybe a)) ->
-    MultiVersionRunner gsconf finconf ->
+    (EVersionedConfiguration finconf -> IO (Maybe a)) ->
+    MultiVersionRunner finconf ->
     IO (Maybe a)
 atLatestSuccessfulVersion a mvr = do
     versions <- readIORef (mvVersions mvr)
@@ -138,12 +138,12 @@ atLatestSuccessfulVersion a mvr = do
 -- versions to check.
 liftSkovQueryLatestResult ::
     ( forall (pv :: ProtocolVersion).
-      ( SkovMonad (VersionedSkovM gsconf finconf pv),
-        FinalizationMonad (VersionedSkovM gsconf finconf pv)
+      ( SkovMonad (VersionedSkovM finconf pv),
+        FinalizationMonad (VersionedSkovM finconf pv)
       ) =>
-      VersionedSkovM gsconf finconf pv (Maybe a)
+      VersionedSkovM finconf pv (Maybe a)
     ) ->
-    MVR gsconf finconf (Maybe a)
+    MVR finconf (Maybe a)
 liftSkovQueryLatestResult a = MVR $ \mvr ->
     atLatestSuccessfulVersion (\vc -> liftSkovQuery mvr vc a) mvr
 
@@ -152,14 +152,14 @@ liftSkovQueryLatestResult a = MVR $ \mvr ->
 -- versions.
 liftSkovQueryBlock ::
     ( forall (pv :: ProtocolVersion).
-      ( SkovMonad (VersionedSkovM gsconf finconf pv),
-        FinalizationMonad (VersionedSkovM gsconf finconf pv)
+      ( SkovMonad (VersionedSkovM finconf pv),
+        FinalizationMonad (VersionedSkovM finconf pv)
       ) =>
-      BlockPointerType (VersionedSkovM gsconf finconf pv) ->
-      VersionedSkovM gsconf finconf pv a
+      BlockPointerType (VersionedSkovM finconf pv) ->
+      VersionedSkovM finconf pv a
     ) ->
     BlockHash ->
-    MVR gsconf finconf (Maybe a)
+    MVR finconf (Maybe a)
 liftSkovQueryBlock a bh =
     MVR $ \mvr ->
         atLatestSuccessfulVersion
@@ -172,15 +172,15 @@ liftSkovQueryBlock a bh =
 -- The return value is the hash used for the query, and a result if it was found.
 liftSkovQueryBHI ::
     ( forall (pv :: ProtocolVersion).
-      ( SkovMonad (VersionedSkovM gsconf finconf pv),
-        FinalizationMonad (VersionedSkovM gsconf finconf pv),
+      ( SkovMonad (VersionedSkovM finconf pv),
+        FinalizationMonad (VersionedSkovM finconf pv),
         IsProtocolVersion pv
       ) =>
-      BlockPointerType (VersionedSkovM gsconf finconf pv) ->
-      VersionedSkovM gsconf finconf pv a
+      BlockPointerType (VersionedSkovM finconf pv) ->
+      VersionedSkovM finconf pv a
     ) ->
     BlockHashInput ->
-    MVR gsconf finconf (BlockHash, Maybe a)
+    MVR finconf (BlockHash, Maybe a)
 liftSkovQueryBHI a bhi = do
     case bhi of
         BHIGiven bh ->
@@ -201,15 +201,15 @@ liftSkovQueryBHI a bhi = do
 -- The return value is the hash used for the query, and a result if it was found.
 liftSkovQueryBHIAndVersion ::
     ( forall (pv :: ProtocolVersion).
-      ( SkovMonad (VersionedSkovM gsconf finconf pv),
-        FinalizationMonad (VersionedSkovM gsconf finconf pv)
+      ( SkovMonad (VersionedSkovM finconf pv),
+        FinalizationMonad (VersionedSkovM finconf pv)
       ) =>
-      EVersionedConfiguration gsconf finconf ->
-      BlockPointerType (VersionedSkovM gsconf finconf pv) ->
-      VersionedSkovM gsconf finconf pv a
+      EVersionedConfiguration finconf ->
+      BlockPointerType (VersionedSkovM finconf pv) ->
+      VersionedSkovM finconf pv a
     ) ->
     BlockHashInput ->
-    MVR gsconf finconf (BlockHash, Maybe a)
+    MVR finconf (BlockHash, Maybe a)
 liftSkovQueryBHIAndVersion query bhi = do
     case bhi of
         BHIGiven bh ->
@@ -233,15 +233,15 @@ liftSkovQueryBHIAndVersion query bhi = do
 -- to the query function.
 liftSkovQueryBlockAndVersion ::
     ( forall (pv :: ProtocolVersion).
-      ( SkovMonad (VersionedSkovM gsconf finconf pv),
-        FinalizationMonad (VersionedSkovM gsconf finconf pv)
+      ( SkovMonad (VersionedSkovM finconf pv),
+        FinalizationMonad (VersionedSkovM finconf pv)
       ) =>
-      VersionedConfiguration gsconf finconf pv ->
-      BlockPointerType (VersionedSkovM gsconf finconf pv) ->
-      VersionedSkovM gsconf finconf pv a
+      VersionedConfiguration finconf pv ->
+      BlockPointerType (VersionedSkovM finconf pv) ->
+      VersionedSkovM finconf pv a
     ) ->
     BlockHash ->
-    MVR gsconf finconf (Maybe a)
+    MVR finconf (Maybe a)
 liftSkovQueryBlockAndVersion a bh = MVR $ \mvr ->
     atLatestSuccessfulVersion
         ( \(EVersionedConfiguration vc) -> do
@@ -258,7 +258,7 @@ liftSkovQueryBlockAndVersion a bh = MVR $ \mvr ->
         mvr
 
 -- |Retrieve the consensus status.
-getConsensusStatus :: MVR gsconf finconf ConsensusStatus
+getConsensusStatus :: MVR finconf ConsensusStatus
 getConsensusStatus = MVR $ \mvr -> do
     versions <- readIORef (mvVersions mvr)
     (csGenesisBlock, csGenesisTime) <- liftSkovQuery mvr (Vec.head versions) $ do
@@ -269,7 +269,7 @@ getConsensusStatus = MVR $ \mvr -> do
     -- is an existential type and in the subsequent computation we need access to the implicit parameter `pv`
     -- the protocol version.
     case Vec.last versions of
-        evc@(EVersionedConfiguration (vc :: VersionedConfiguration gsconf finconf pv)) -> do
+        evc@(EVersionedConfiguration (vc :: VersionedConfiguration finconf pv)) -> do
             liftSkovQuery mvr evc $ do
                 let absoluteHeight = localToAbsoluteBlockHeight (vcGenesisHeight vc) . bpHeight
                 bb <- bestBlock
@@ -307,7 +307,7 @@ getConsensusStatus = MVR $ \mvr -> do
                 return ConsensusStatus{..}
 
 -- |Retrieve the slot time of the last finalized block.
-getLastFinalizedSlotTime :: MVR gsconf finconf Timestamp
+getLastFinalizedSlotTime :: MVR finconf Timestamp
 getLastFinalizedSlotTime = MVR $ \mvr -> do
     versions <- readIORef (mvVersions mvr)
     liftSkovQuery mvr (Vec.last versions) $ do
@@ -320,7 +320,7 @@ getLastFinalizedSlotTime = MVR $ \mvr -> do
 
 -- |Returns a recursive structure representing the branches of the tree
 -- from the last finalized block, inclusive.
-getBranches :: MVR gsconf finconf Branch
+getBranches :: MVR finconf Branch
 getBranches = liftSkovQueryLatest $ do
     brs <- branchesFromTop
     brt <- foldM up Map.empty brs
@@ -349,7 +349,7 @@ getBlocksAtHeight ::
     GenesisIndex ->
     -- |Whether to restrict to the specified genesis index
     Bool ->
-    MVR gsconf finconf [BlockHash]
+    MVR finconf [BlockHash]
 getBlocksAtHeight basedHeight baseGI False = MVR $ \mvr -> do
     baseGenHeight <-
         if baseGI == 0
@@ -380,20 +380,20 @@ getBlocksAtHeight height baseGI True = MVR $ \mvr -> do
 
 -- | Retrieve the last finalized block height relative to the most recent genesis index. Used for
 -- resuming out-of-band catchup.
-getLastFinalizedBlockHeight :: MVR gsconf finconf BlockHeight
+getLastFinalizedBlockHeight :: MVR finconf BlockHeight
 getLastFinalizedBlockHeight = liftSkovQueryLatest $ bpHeight <$> lastFinalizedBlock
 
 -- ** Accounts
 
 -- |Get a list of non-finalized transaction hashes for a given account.
-getAccountNonFinalizedTransactions :: AccountAddress -> MVR gsconf finconf [TransactionHash]
+getAccountNonFinalizedTransactions :: AccountAddress -> MVR finconf [TransactionHash]
 getAccountNonFinalizedTransactions acct = liftSkovQueryLatest $ queryNonFinalizedTransactions . accountAddressEmbed $ acct
 
 -- |Return the best guess as to what the next account nonce should be.
 -- If all account transactions are finalized then this information is reliable.
 -- Otherwise this is the best guess, assuming all other transactions will be
 -- committed to blocks and eventually finalized.
-getNextAccountNonce :: AccountAddress -> MVR gsconf finconf NextAccountNonce
+getNextAccountNonce :: AccountAddress -> MVR finconf NextAccountNonce
 getNextAccountNonce accountAddress = liftSkovQueryLatest $ do
     (nanNonce, nanAllFinal) <- queryNextAccountNonce $ accountAddressEmbed accountAddress
     return NextAccountNonce{..}
@@ -403,7 +403,7 @@ getNextAccountNonce accountAddress = liftSkovQueryLatest $ do
 -- ** Block indexed
 
 -- |Get the basic info about a particular block.
-getBlockInfo :: BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe BlockInfo)
+getBlockInfo :: BlockHashInput -> MVR finconf (BlockHash, Maybe BlockInfo)
 getBlockInfo =
     liftSkovQueryBHIAndVersion
         ( \(EVersionedConfiguration vc) bp -> do
@@ -441,14 +441,14 @@ getBlockInfo =
 --   * The transaction outcomes in the block (including special transactions)
 --   * Details of any finalization record in the block
 --   * The state of the chain parameters and any pending updates
-getBlockSummary :: forall gsconf finconf. BlockHash -> MVR gsconf finconf (Maybe BlockSummary)
+getBlockSummary :: forall finconf. BlockHash -> MVR finconf (Maybe BlockSummary)
 getBlockSummary = liftSkovQueryBlock getBlockSummarySkovM
   where
     getBlockSummarySkovM ::
         forall pv.
-        SkovMonad (VersionedSkovM gsconf finconf pv) =>
-        BlockPointerType (VersionedSkovM gsconf finconf pv) ->
-        VersionedSkovM gsconf finconf pv BlockSummary
+        SkovMonad (VersionedSkovM finconf pv) =>
+        BlockPointerType (VersionedSkovM finconf pv) ->
+        VersionedSkovM finconf pv BlockSummary
     getBlockSummarySkovM bp = do
         bs <- blockState bp
         bsTransactionSummaries <- BS.getOutcomes bs
@@ -479,26 +479,26 @@ getBlockSummary = liftSkovQueryBlock getBlockSummarySkovM
         return BlockSummary{..}
 
 -- |Get the block items of a block.
-getBlockItems :: forall gsconf finconf. BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe [BlockItem])
+getBlockItems :: forall finconf. BlockHashInput -> MVR finconf (BlockHash, Maybe [BlockItem])
 getBlockItems = liftSkovQueryBHI (return . blockTransactions)
 
 -- |Get the transaction outcomes in the block.
-getBlockTransactionSummaries :: forall gsconf finconf. BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe (Vec.Vector TransactionSummary))
+getBlockTransactionSummaries :: forall finconf. BlockHashInput -> MVR finconf (BlockHash, Maybe (Vec.Vector TransactionSummary))
 getBlockTransactionSummaries = liftSkovQueryBHI $ BS.getOutcomes <=< blockState
 
 -- |Get the transaction outcomes in the block.
-getBlockSpecialEvents :: forall gsconf finconf. BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe (Seq.Seq SpecialTransactionOutcome))
+getBlockSpecialEvents :: forall finconf. BlockHashInput -> MVR finconf (BlockHash, Maybe (Seq.Seq SpecialTransactionOutcome))
 getBlockSpecialEvents = liftSkovQueryBHI $ BS.getSpecialOutcomes <=< blockState
 
 -- |Get the pending updates at the end of a given block.
-getBlockPendingUpdates :: forall gsconf finconf. BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe [(TransactionTime, PendingUpdateEffect)])
+getBlockPendingUpdates :: forall finconf. BlockHashInput -> MVR finconf (BlockHash, Maybe [(TransactionTime, PendingUpdateEffect)])
 getBlockPendingUpdates = liftSkovQueryBHI query
   where
     query ::
         forall pv.
-        SkovMonad (VersionedSkovM gsconf finconf pv) =>
-        BlockPointerType (VersionedSkovM gsconf finconf pv) ->
-        VersionedSkovM gsconf finconf pv [(TransactionTime, PendingUpdateEffect)]
+        SkovMonad (VersionedSkovM finconf pv) =>
+        BlockPointerType (VersionedSkovM finconf pv) ->
+        VersionedSkovM finconf pv [(TransactionTime, PendingUpdateEffect)]
     query bp = do
         bs <- blockState bp
         updates <- BS.getUpdates bs
@@ -574,14 +574,14 @@ getBlockPendingUpdates = liftSkovQueryBHI query
 
 -- |Get the chain parameters valid at the end of a given block, as well as the address of the foundation account.
 -- The chain parameters contain only the account index of the foundation account.
-getBlockChainParameters :: forall gsconf finconf. BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe (AccountAddress, EChainParametersAndKeys))
+getBlockChainParameters :: forall finconf. BlockHashInput -> MVR finconf (BlockHash, Maybe (AccountAddress, EChainParametersAndKeys))
 getBlockChainParameters = liftSkovQueryBHI query
   where
     query ::
         forall pv.
-        SkovMonad (VersionedSkovM gsconf finconf pv) =>
-        BlockPointerType (VersionedSkovM gsconf finconf pv) ->
-        VersionedSkovM gsconf finconf pv (AccountAddress, EChainParametersAndKeys)
+        SkovMonad (VersionedSkovM finconf pv) =>
+        BlockPointerType (VersionedSkovM finconf pv) ->
+        VersionedSkovM finconf pv (AccountAddress, EChainParametersAndKeys)
     query bp = do
         bs <- blockState bp
         updates <- BS.getUpdates bs
@@ -593,14 +593,14 @@ getBlockChainParameters = liftSkovQueryBHI query
                 return (foundationAddr, EChainParametersAndKeys params (_unhashed (UQ._currentKeyCollection updates)))
 
 -- |Get the finalization record contained in the given block, if any.
-getBlockFinalizationSummary :: forall gsconf finconf. BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe BlockFinalizationSummary)
+getBlockFinalizationSummary :: forall finconf. BlockHashInput -> MVR finconf (BlockHash, Maybe BlockFinalizationSummary)
 getBlockFinalizationSummary = liftSkovQueryBHI getFinSummarySkovM
   where
     getFinSummarySkovM ::
         forall pv.
-        SkovMonad (VersionedSkovM gsconf finconf pv) =>
-        BlockPointerType (VersionedSkovM gsconf finconf pv) ->
-        VersionedSkovM gsconf finconf pv BlockFinalizationSummary
+        SkovMonad (VersionedSkovM finconf pv) =>
+        BlockPointerType (VersionedSkovM finconf pv) ->
+        VersionedSkovM finconf pv BlockFinalizationSummary
     getFinSummarySkovM bp = do
         case blockFinalizationData <$> blockFields bp of
             Just (BlockFinalizationData FinalizationRecord{..}) -> do
@@ -625,21 +625,21 @@ getBlockFinalizationSummary = liftSkovQueryBHI getFinSummarySkovM
             _ -> return NoSummary
 
 -- |Get next update sequences numbers at the end of a given block.
-getNextUpdateSequenceNumbers :: forall gsconf finconf. BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe NextUpdateSequenceNumbers)
+getNextUpdateSequenceNumbers :: forall finconf. BlockHashInput -> MVR finconf (BlockHash, Maybe NextUpdateSequenceNumbers)
 getNextUpdateSequenceNumbers = liftSkovQueryBHI query
   where
     query ::
         forall pv.
-        SkovMonad (VersionedSkovM gsconf finconf pv) =>
-        BlockPointerType (VersionedSkovM gsconf finconf pv) ->
-        VersionedSkovM gsconf finconf pv NextUpdateSequenceNumbers
+        SkovMonad (VersionedSkovM finconf pv) =>
+        BlockPointerType (VersionedSkovM finconf pv) ->
+        VersionedSkovM finconf pv NextUpdateSequenceNumbers
     query bp = do
         bs <- blockState bp
         updates <- BS.getUpdates bs
         return $ updateQueuesNextSequenceNumbers $ UQ._pendingUpdates updates
 
 -- |Get the total amount of GTU in existence and status of the reward accounts.
-getRewardStatus :: BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe RewardStatus)
+getRewardStatus :: BlockHashInput -> MVR finconf (BlockHash, Maybe RewardStatus)
 getRewardStatus = liftSkovQueryBHI $ \bp -> do
     reward <- BS.getRewardStatus =<< blockState bp
     gd <- getGenesisData
@@ -649,7 +649,7 @@ getRewardStatus = liftSkovQueryBHI $ \bp -> do
     return $ epochToUTC <$> reward
 
 -- |Get the birk parameters that applied when a given block was baked.
-getBlockBirkParameters :: BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe BlockBirkParameters)
+getBlockBirkParameters :: BlockHashInput -> MVR finconf (BlockHash, Maybe BlockBirkParameters)
 getBlockBirkParameters = liftSkovQueryBHI $ \bp -> do
     bs <- blockState bp
     bbpElectionDifficulty <- BS.getCurrentElectionDifficulty bs
@@ -666,22 +666,22 @@ getBlockBirkParameters = liftSkovQueryBHI $ \bp -> do
     return BlockBirkParameters{..}
 
 -- |Get the cryptographic parameters of the chain at a given block.
-getCryptographicParameters :: BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe CryptographicParameters)
+getCryptographicParameters :: BlockHashInput -> MVR finconf (BlockHash, Maybe CryptographicParameters)
 getCryptographicParameters = liftSkovQueryBHI $ \bp -> do
     bs <- blockState bp
     BS.getCryptographicParameters bs
 
 -- |Get all of the identity providers registered in the system as of a given block.
-getAllIdentityProviders :: BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe [IpInfo])
+getAllIdentityProviders :: BlockHashInput -> MVR finconf (BlockHash, Maybe [IpInfo])
 getAllIdentityProviders = liftSkovQueryBHI $ BS.getAllIdentityProviders <=< blockState
 
 -- |Get all of the anonymity revokers registered in the system as of a given block.
-getAllAnonymityRevokers :: BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe [ArInfo])
+getAllAnonymityRevokers :: BlockHashInput -> MVR finconf (BlockHash, Maybe [ArInfo])
 getAllAnonymityRevokers = liftSkovQueryBHI $ BS.getAllAnonymityRevokers <=< blockState
 
 -- |Get the ancestors of a block (including itself) up to a maximum
 -- length.
-getAncestors :: BlockHashInput -> BlockHeight -> MVR gsconf finconf (BlockHash, Maybe [BlockHash])
+getAncestors :: BlockHashInput -> BlockHeight -> MVR finconf (BlockHash, Maybe [BlockHash])
 getAncestors bhi count =
     liftSkovQueryBHI
         ( \bp -> do
@@ -699,17 +699,17 @@ getAncestors bhi count =
                 go (a : acc) (n - 1) a'
 
 -- |Get a list of all accounts in the block state.
-getAccountList :: BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe [AccountAddress])
+getAccountList :: BlockHashInput -> MVR finconf (BlockHash, Maybe [AccountAddress])
 getAccountList = liftSkovQueryBHI (BS.getAccountList <=< blockState)
 
 -- |Get a list of all smart contract instances in the block state.
-getInstanceList :: BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe [ContractAddress])
+getInstanceList :: BlockHashInput -> MVR finconf (BlockHash, Maybe [ContractAddress])
 getInstanceList =
     liftSkovQueryBHI $
         BS.getContractInstanceList <=< blockState
 
 -- |Get the list of modules present as of a given block.
-getModuleList :: BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe [ModuleRef])
+getModuleList :: BlockHashInput -> MVR finconf (BlockHash, Maybe [ModuleRef])
 getModuleList = liftSkovQueryBHI $ BS.getModuleList <=< blockState
 
 -- |Get the details of an account in the block state.
@@ -719,7 +719,7 @@ getModuleList = liftSkovQueryBHI $ BS.getModuleList <=< blockState
 getAccountInfo ::
     BlockHashInput ->
     AccountIdentifier ->
-    MVR gsconf finconf (BlockHash, Maybe AccountInfo)
+    MVR finconf (BlockHash, Maybe AccountInfo)
 getAccountInfo blockHashInput acct = do
     (bh, mmai) <-
         liftSkovQueryBHI
@@ -751,7 +751,7 @@ getAccountInfo blockHashInput acct = do
     return (bh, join mmai)
 
 -- |Get the details of a smart contract instance in the block state.
-getInstanceInfo :: BlockHashInput -> ContractAddress -> MVR gsconf finconf (BlockHash, Maybe Wasm.InstanceInfo)
+getInstanceInfo :: BlockHashInput -> ContractAddress -> MVR finconf (BlockHash, Maybe Wasm.InstanceInfo)
 getInstanceInfo bhi caddr = do
     (bh, ii) <-
         liftSkovQueryBHI
@@ -795,7 +795,7 @@ getInstanceInfo bhi caddr = do
 -- requested block does not exist, or the instance does not exist in that
 -- block), @Just . Left@ if the instance is a V0 instance, and @Just . Right@ if
 -- the instance is a V1 instance.
-getInstanceState :: BlockHashInput -> ContractAddress -> MVR gsconf finconf (BlockHash, Maybe (Either Wasm.ContractState (StateV1.PersistentState, StateV1.LoadCallback)))
+getInstanceState :: BlockHashInput -> ContractAddress -> MVR finconf (BlockHash, Maybe (Either Wasm.ContractState (StateV1.PersistentState, StateV1.LoadCallback)))
 getInstanceState bhi caddr = do
     (bh, ii) <-
         liftSkovQueryBHI
@@ -815,7 +815,7 @@ getInstanceState bhi caddr = do
         return . Just . Right $! (state, callback)
 
 -- |Get the source of a module as it was deployed to the chain.
-getModuleSource :: BlockHashInput -> ModuleRef -> MVR gsconf finconf (BlockHash, Maybe Wasm.WasmModule)
+getModuleSource :: BlockHashInput -> ModuleRef -> MVR finconf (BlockHash, Maybe Wasm.WasmModule)
 getModuleSource bhi modRef = do
     (bh, res) <-
         liftSkovQueryBHI
@@ -827,17 +827,17 @@ getModuleSource bhi modRef = do
     return (bh, join res)
 
 -- |Get the status of a particular delegation pool.
-getPoolStatus :: forall gsconf finconf. BlockHashInput -> Maybe BakerId -> MVR gsconf finconf (BlockHash, Maybe PoolStatus)
+getPoolStatus :: forall finconf. BlockHashInput -> Maybe BakerId -> MVR finconf (BlockHash, Maybe PoolStatus)
 getPoolStatus blockHashInput mbid = do
     (bh, res) <- liftSkovQueryBHI poolStatus blockHashInput
     return (bh, join res)
   where
     poolStatus ::
         forall pv.
-        ( SkovMonad (VersionedSkovM gsconf finconf pv)
+        ( SkovMonad (VersionedSkovM finconf pv)
         ) =>
-        BlockPointerType (VersionedSkovM gsconf finconf pv) ->
-        VersionedSkovM gsconf finconf pv (Maybe PoolStatus)
+        BlockPointerType (VersionedSkovM finconf pv) ->
+        VersionedSkovM finconf pv (Maybe PoolStatus)
     poolStatus bp = case delegationSupport @(AccountVersionFor pv) of
         SAVDelegationNotSupported -> return Nothing
         SAVDelegationSupported -> do
@@ -845,7 +845,7 @@ getPoolStatus blockHashInput mbid = do
             BS.getPoolStatus bs mbid
 
 -- |Get a list of all registered baker IDs in the specified block.
-getRegisteredBakers :: forall gsconf finconf. BlockHashInput -> MVR gsconf finconf (BlockHash, Maybe [BakerId])
+getRegisteredBakers :: forall finconf. BlockHashInput -> MVR finconf (BlockHash, Maybe [BakerId])
 getRegisteredBakers = liftSkovQueryBHI (BS.getActiveBakers <=< blockState)
 
 -- | Error type for querying delegators for some block.
@@ -860,16 +860,16 @@ data GetDelegatorsError
 -- |Get the list of registered delegators for a given block.
 -- Changes to delegation is reflected immediately in this list.
 -- If a BakerId is provided it will return the delegators for the corresponding pool otherwise it returns the passive delegators.
-getDelegators :: forall gsconf finconf. BlockHashInput -> Maybe BakerId -> MVR gsconf finconf (BlockHash, Either GetDelegatorsError [DelegatorInfo])
+getDelegators :: forall finconf. BlockHashInput -> Maybe BakerId -> MVR finconf (BlockHash, Either GetDelegatorsError [DelegatorInfo])
 getDelegators bhi maybeBakerId = do
     (bh, res) <- liftSkovQueryBHI getter bhi
     return (bh, fromMaybe (Left GDEBlockNotFound) res)
   where
     getter ::
         forall pv.
-        (SkovMonad (VersionedSkovM gsconf finconf pv)) =>
-        BlockPointerType (VersionedSkovM gsconf finconf pv) ->
-        VersionedSkovM gsconf finconf pv (Either GetDelegatorsError [DelegatorInfo])
+        (SkovMonad (VersionedSkovM finconf pv)) =>
+        BlockPointerType (VersionedSkovM finconf pv) ->
+        VersionedSkovM finconf pv (Either GetDelegatorsError [DelegatorInfo])
     getter bp = case delegationSupport @(AccountVersionFor pv) of
         SAVDelegationNotSupported ->
             return $ Left GDEUnsupportedProtocolVersion
@@ -886,16 +886,16 @@ getDelegators bhi maybeBakerId = do
 
 -- |Get the fixed list of delegators contributing stake in the reward period for a given block.
 -- If a BakerId is provided it will return the delegators for the corresponding pool otherwise it returns the passive delegators.
-getDelegatorsRewardPeriod :: forall gsconf finconf. BlockHashInput -> Maybe BakerId -> MVR gsconf finconf (BlockHash, Either GetDelegatorsError [DelegatorRewardPeriodInfo])
+getDelegatorsRewardPeriod :: forall finconf. BlockHashInput -> Maybe BakerId -> MVR finconf (BlockHash, Either GetDelegatorsError [DelegatorRewardPeriodInfo])
 getDelegatorsRewardPeriod bhi maybeBakerId = do
     (bh, res) <- liftSkovQueryBHI getter bhi
     return (bh, fromMaybe (Left GDEBlockNotFound) res)
   where
     getter ::
         forall pv.
-        (SkovMonad (VersionedSkovM gsconf finconf pv)) =>
-        BlockPointerType (VersionedSkovM gsconf finconf pv) ->
-        VersionedSkovM gsconf finconf pv (Either GetDelegatorsError [DelegatorRewardPeriodInfo])
+        (SkovMonad (VersionedSkovM finconf pv)) =>
+        BlockPointerType (VersionedSkovM finconf pv) ->
+        VersionedSkovM finconf pv (Either GetDelegatorsError [DelegatorRewardPeriodInfo])
     getter bp = case delegationSupport @(AccountVersionFor pv) of
         SAVDelegationNotSupported ->
             return $ Left GDEUnsupportedProtocolVersion
@@ -912,7 +912,7 @@ getDelegatorsRewardPeriod bhi maybeBakerId = do
 -- ** Transaction indexed
 
 -- |Get the status of a transaction specified by its hash.
-getTransactionStatus :: TransactionHash -> MVR gsconf finconf (Maybe TransactionStatus)
+getTransactionStatus :: TransactionHash -> MVR finconf (Maybe TransactionStatus)
 getTransactionStatus trHash =
     liftSkovQueryLatestResult $
         queryTransactionStatus trHash >>= \case
@@ -940,7 +940,7 @@ getTransactionStatus trHash =
 -- Note that, since this does not acquire the write lock, it is possible that
 -- 'queryTransactionStatus' reports that the transaction is finalized even if it does not occur in
 -- any block currently visible in the state.
-getTransactionStatusInBlock :: TransactionHash -> BlockHash -> MVR gsconf finconf BlockTransactionStatus
+getTransactionStatusInBlock :: TransactionHash -> BlockHash -> MVR finconf BlockTransactionStatus
 getTransactionStatusInBlock trHash blockHash =
     fromMaybe BTSNotInBlock
         <$> liftSkovQueryLatestResult
@@ -974,7 +974,7 @@ getTransactionStatusInBlock trHash blockHash =
             )
 
 -- * Smart contract invocations
-invokeContract :: BlockHashInput -> InvokeContract.ContractContext -> MVR gsconf finconf (BlockHash, Maybe InvokeContract.InvokeContractResult)
+invokeContract :: BlockHashInput -> InvokeContract.ContractContext -> MVR finconf (BlockHash, Maybe InvokeContract.InvokeContractResult)
 invokeContract bhi cctx =
     liftSkovQueryBHI
         ( \bp -> do
@@ -987,11 +987,11 @@ invokeContract bhi cctx =
 -- * Miscellaneous
 
 -- |Check whether the node is currently a member of the finalization committee.
-checkIsCurrentFinalizer :: MVR gsconf finconf Bool
+checkIsCurrentFinalizer :: MVR finconf Bool
 checkIsCurrentFinalizer = liftSkovQueryLatest isFinalizationCommitteeMember
 
 -- |Check whether consensus has been shut down
-checkIsShutDown :: MVR gsconf finconf Bool
+checkIsShutDown :: MVR finconf Bool
 checkIsShutDown = liftSkovQueryLatest isShutDown
 
 -- |Result of a baker status query.
@@ -1007,7 +1007,7 @@ data BakerStatus
     deriving (Eq, Ord, Show)
 
 -- |Determine the status of the baker with respect to the current best block.
-getBakerStatusBestBlock :: MVR gsconf finconf (BakerStatus, Maybe BakerId)
+getBakerStatusBestBlock :: MVR finconf (BakerStatus, Maybe BakerId)
 getBakerStatusBestBlock =
     asks mvBaker >>= \case
         Nothing -> return (NotInCommittee, Nothing)

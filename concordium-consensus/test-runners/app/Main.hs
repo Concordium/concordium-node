@@ -27,7 +27,6 @@ import System.Random
 import Concordium.Afgjort.Finalize (FinalizationInstance (..))
 import Concordium.Birk.Bake
 import qualified Concordium.Crypto.DummyData as Dummy
-import Concordium.GlobalState
 import Concordium.GlobalState.Block
 import qualified Concordium.GlobalState.DummyData as Dummy
 import Concordium.GlobalState.Finalization
@@ -174,9 +173,9 @@ quadDelay factor g = (r, g')
 type PeerId = BakerId
 
 -- |Representation of a peer, including its 'MultiVersionRunner' and catch-up information.
-data Peer gsconfig finconfig = Peer
+data Peer finconfig = Peer
     { -- |Runner for the peer.
-      peerMVR :: MultiVersionRunner gsconfig finconfig,
+      peerMVR :: MultiVersionRunner finconfig,
       -- |List of peers that are pending catch-up.
       peerCatchUp :: MVar [PeerId],
       -- |'MVar' is written to signal that catch-up is required.
@@ -186,14 +185,14 @@ data Peer gsconfig finconfig = Peer
     }
 
 -- |Construct a peer from its 'PeerId' and 'MultiVersionRunner'. Does not start any threads.
-makePeer :: PeerId -> MultiVersionRunner gsconfig finconfig -> IO (Peer gsconfig finconfig)
+makePeer :: PeerId -> MultiVersionRunner finconfig -> IO (Peer finconfig)
 makePeer peerId peerMVR = do
     peerCatchUp <- newMVar []
     peerCatchUpSignal <- newEmptyMVar
     return Peer{..}
 
 -- |For a given 'Peer', consider the 'PeerId' to be a pending peer.
-markPeerPending :: Peer g f -> PeerId -> IO ()
+markPeerPending :: Peer f -> PeerId -> IO ()
 markPeerPending Peer{..} newPending = unless (newPending == peerId) $ do
     cul <- takeMVar peerCatchUp
     if newPending `elem` cul
@@ -207,7 +206,7 @@ catchUpInterval :: Int
 catchUpInterval = 5_000_000
 
 -- |Start the catch-up thread for a peer.
-startCatchUpThread :: Peer g f -> Map.Map PeerId (Peer g f) -> IO ThreadId
+startCatchUpThread :: Peer f -> Map.Map PeerId (Peer f) -> IO ThreadId
 startCatchUpThread myPeer peers = forkIO $
     forever $ do
         threadDelay catchUpInterval
@@ -224,7 +223,7 @@ startCatchUpThread myPeer peers = forkIO $
                     peerReceive peer myPeer MessageCatchUpStatus gi (LBS.toStrict curBS)
 
 -- |Handle an incoming message at the given target from the given source.
-peerReceive :: Peer g f -> Peer g f -> MessageType -> GenesisIndex -> BS.ByteString -> IO ()
+peerReceive :: Peer f -> Peer f -> MessageType -> GenesisIndex -> BS.ByteString -> IO ()
 peerReceive target src MessageBlock genIndex msg = do
     mvLog (peerMVR target) External LLDebug $ "Received block from " ++ show (peerId src)
     res <- runMVR (receiveExecuteBlock genIndex msg) (peerMVR target)
@@ -256,7 +255,7 @@ isPending _ = False
 -- |Send a given message to all peers.
 toAllPeers ::
     PeerId ->
-    IORef (Map.Map PeerId (Peer gsconfig finconfig)) ->
+    IORef (Map.Map PeerId (Peer finconfig)) ->
     MessageType ->
     GenesisIndex ->
     BS.ByteString ->
@@ -273,7 +272,7 @@ toAllPeers src peersRef mt genIndex msg = do
 -- |Instance of 'Callbacks' for a specific peer.
 callbacks ::
     PeerId ->
-    IORef (Map.Map PeerId (Peer gsconfig finconfig)) ->
+    IORef (Map.Map PeerId (Peer finconfig)) ->
     Chan MonitorEvent ->
     Callbacks
 callbacks myPeerId peersRef monitorChan = Callbacks{..}
@@ -297,7 +296,7 @@ callbacks myPeerId peersRef monitorChan = Callbacks{..}
     notifyBlockFinalized = Nothing
 
 -- |Construct a 'MultiVersionConfiguration' to use for each baker node.
-config :: FilePath -> BakerIdentity -> MultiVersionConfiguration DiskTreeDiskBlockConfig (BufferedFinalization ThreadTimer)
+config :: FilePath -> BakerIdentity -> MultiVersionConfiguration (BufferedFinalization ThreadTimer)
 config dataPath bid = MultiVersionConfiguration{..}
   where
     mvcStateConfig = DiskStateConfig dataPath
@@ -311,7 +310,7 @@ config dataPath bid = MultiVersionConfiguration{..}
     mvcRuntimeParameters = defaultRuntimeParameters
 
 -- |Start a thread sending transactions to a particular node.
-startTransactionThread :: [BlockItem] -> MultiVersionRunner gsconfig finconfig -> IO ThreadId
+startTransactionThread :: [BlockItem] -> MultiVersionRunner finconfig -> IO ThreadId
 startTransactionThread trs0 mvr = forkIO $ transactionLoop trs0
   where
     transactionLoop [] = return ()

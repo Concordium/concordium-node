@@ -36,10 +36,8 @@ type PV = 'P1
 dummyArs :: AnonymityRevokers
 dummyArs = emptyAnonymityRevokers
 
-type TreeConfig = DiskTreeDiskBlockConfig
-
-makeGlobalStateConfig :: FilePath -> RuntimeParameters -> TreeConfig
-makeGlobalStateConfig tempDir rt = DTDBConfig rt tempDir (tempDir </> "data" <.> "blob")
+makeGlobalStateConfig :: FilePath -> RuntimeParameters -> GlobalStateConfig
+makeGlobalStateConfig tempDir rt = GlobalStateConfig rt tempDir (tempDir </> "data" <.> "blob")
 
 genesis :: Word -> (GenesisData PV, [(BakerIdentity, FullBakerInfo)], Amount)
 genesis nBakers =
