@@ -3185,6 +3185,9 @@ type PersistentState av pv r m =
       Cache.HasCache Modules.ModuleCache r
     )
 
+instance MonadTrans (PersistentBlockStateMonad pv r) where
+    lift = PersistentBlockStateMonad
+
 instance PersistentState av pv r m => MonadBlobStore (PersistentBlockStateMonad pv r m)
 instance PersistentState av pv r m => MonadBlobStore (PutT (PersistentBlockStateMonad pv r m))
 instance PersistentState av pv r m => MonadBlobStore (PutH (PersistentBlockStateMonad pv r m))

@@ -18,16 +18,12 @@ module Concordium.Skov.MonadImplementations where
 
 import Control.Monad.RWS.Strict
 import Control.Monad.Reader
-import Control.Monad.State.Strict
 import Data.Kind
 import Data.Proxy
-import qualified Data.Text as Text
 import Lens.Micro.Platform
 
 import Concordium.Genesis.Data
 import Concordium.Types
-import Concordium.Types.UpdateQueues (ProtocolUpdateStatus (..))
-import Concordium.Types.Updates
 
 import Concordium.Afgjort.Buffer
 import Concordium.Afgjort.FinalizationQueue
@@ -153,7 +149,9 @@ instance
     (SkovFinalizationHandlers h m, Monad m) =>
     FinalizationOutputMonad (SkovT pv h (SkovConfig pv gc (ActiveFinalization t) hc) m)
     where
-    broadcastFinalizationPseudoMessage pmsg = SkovT (\h _ -> lift $ handleBroadcastFinalizationMessage h pmsg)
+    broadcastFinalizationPseudoMessage pmsg = do
+        h <- askHandler
+        lift $ handleBroadcastFinalizationMessage h pmsg
 
 -- |Type of finalization configuration for active participation in finalization with buffering
 -- to reduce the number of finalization messages that need to be sent.
@@ -172,9 +170,16 @@ instance
     (SkovFinalizationHandlers h m, Monad m, TimeMonad m, MonadLogger m, SkovTimerHandlers pv h (SkovConfig pv gc (BufferedFinalization t) hc) m) =>
     FinalizationOutputMonad (SkovT pv h (SkovConfig pv gc (BufferedFinalization t) hc) m)
     where
-    broadcastFinalizationMessage = bufferFinalizationMessage (\msg' -> SkovT (\h _ -> lift $ handleBroadcastFinalizationMessage h (FPMMessage msg')))
+    broadcastFinalizationMessage =
+        bufferFinalizationMessage
+            ( \msg' -> do
+                h <- askHandler
+                lift $ handleBroadcastFinalizationMessage h (FPMMessage msg')
+            )
     broadcastFinalizationPseudoMessage (FPMMessage msg) = broadcastFinalizationMessage msg
-    broadcastFinalizationPseudoMessage pmsg = SkovT (\h _ -> lift $ handleBroadcastFinalizationMessage h pmsg)
+    broadcastFinalizationPseudoMessage pmsg = do
+        h <- askHandler
+        lift $ handleBroadcastFinalizationMessage h pmsg
 
 -- * Skov configuration
 
@@ -423,6 +428,41 @@ instance SkovTimerHandlers pv (SkovPassiveHandlers pv c m) c m where
     handleOnTimeout _ _ _ = error "Attempted to set a timer, but SkovPassiveHandlers does not support timers."
     handleCancelTimer _ _ = error "Attempted to cancel a timer, but SkovPassiveHandlers does not support timers."
 
+-- |Context with handlers and context.
+data SkovTInternalContext h c = SkovTInternalContext
+    { srHandler :: h,
+      srContext :: c
+    }
+
+-- |Monad transformer equips a monad with MonadReader (SkovContext c) and MonadState (SkovState c)
+-- used internally in SkovT.
+newtype SkovTInternal (pv :: ProtocolVersion) h c m a = SkovTInternal
+    { runSkovTInternal' :: RWST (SkovTInternalContext h (SkovContext c)) () (SkovState c) m a
+    }
+    deriving
+        ( Functor,
+          Applicative,
+          Monad,
+          MonadState (SkovState c),
+          MonadIO,
+          MonadLogger,
+          TimeMonad
+        )
+
+runSkovTInternal :: (Monad m) => SkovTInternal pv h c m a -> h -> SkovContext c -> SkovState c -> m (a, SkovState c)
+runSkovTInternal comp h context sstate = do
+    (b, s, _) <- runRWST (runSkovTInternal' comp) (SkovTInternalContext h context) sstate
+    return (b, s)
+
+instance (Monad m) => MonadReader (SkovContext c) (SkovTInternal pv h c m) where
+    ask = SkovTInternal $ asks srContext
+    local f (SkovTInternal a) = SkovTInternal $ local mapSkovTReadContext a
+      where
+        mapSkovTReadContext (SkovTInternalContext h context) = SkovTInternalContext h (f context)
+
+instance MonadTrans (SkovTInternal pv h c) where
+    lift a = SkovTInternal $ lift a
+
 -- |The 'SkovT' monad transformer equips a monad with state, context and handlers for
 -- performing Skov operations.
 -- The type parameters are as follows:
@@ -435,36 +475,52 @@ instance SkovTimerHandlers pv (SkovPassiveHandlers pv c m) c m where
 -- * @m@: the underlying monad. Typically, this should be an instance of 'MonadIO', 'MonadLogger',
 --   and 'TimeMonad'.
 -- * @a@: the return type.
-newtype SkovT (pv :: ProtocolVersion) h c m a = SkovT {runSkovT' :: h -> SkovContext c -> StateT (SkovState c) m a}
+newtype SkovT pv h c m a = SkovT
+    { runSkovT' ::
+        PersistentTreeStateMonad
+            (SkovState c)
+            (PersistentBlockStateMonad pv (SkovContext c) (SkovTInternal pv h c m))
+            a
+    }
     deriving
-        (Functor, Applicative, Monad, MonadState (SkovState c), MonadIO, MonadLogger, TimeMonad)
-        via (ReaderT h (ReaderT (SkovContext c) (StateT (SkovState c) m)))
+        ( Functor,
+          Applicative,
+          Monad,
+          MonadState (SkovState c),
+          MonadIO,
+          MonadLogger,
+          TimeMonad,
+          BlockStateTypes
+        )
 
-runSkovT :: SkovT pv h c m a -> h -> SkovContext c -> SkovState c -> m (a, SkovState c)
-runSkovT (SkovT a) h c = runStateT (a h c)
+runSkovT :: (Monad m) => SkovT pv h c m a -> h -> SkovContext c -> SkovState c -> m (a, SkovState c)
+runSkovT comp =
+    runSkovTInternal $ runPersistentBlockStateMonad $ runPersistentTreeStateMonad $ runSkovT' comp
 
 evalSkovT :: (Monad m) => SkovT pv h c m a -> h -> SkovContext c -> SkovState c -> m a
-evalSkovT (SkovT a) h c = evalStateT (a h c)
+evalSkovT comp handler context sstate = fst <$> runSkovT comp handler context sstate
+
+askHandler :: (Monad m) => SkovT pv h c m h
+askHandler = SkovT $ lift $ lift $ SkovTInternal $ asks srHandler
 
 instance (Monad m) => MonadReader (SkovContext c) (SkovT pv h c m) where
-    ask = SkovT (\_ c -> return c)
-    local f (SkovT a) = SkovT (\h -> a h . f)
+    ask = SkovT $ lift ask
+    local f (SkovT (PersistentTreeStateMonad a)) = SkovT $ lift $ local f a
 
 instance MonadTrans (SkovT pv h c) where
-    lift a = SkovT (\_ _ -> lift a)
+    lift a = SkovT $ lift $ lift $ lift a
 
 instance (Monad m, SkovTimerHandlers pv h c m) => TimerMonad (SkovT pv h c m) where
     type Timer (SkovT pv h c m) = SkovHandlerTimer h
-    onTimeout timeout a = SkovT (\h _ -> lift (handleOnTimeout h timeout a))
-    cancelTimer t = SkovT (\h _ -> lift (handleCancelTimer h t))
+    onTimeout timeout a = do
+        h <- askHandler
+        lift (handleOnTimeout h timeout a)
+    cancelTimer t = do
+        h <- askHandler
+        lift (handleCancelTimer h t)
 
------------------------------------------------------------------------------
--- Inherit the instances from GlobalStateM
-
-deriving via
-    PersistentBlockStateMonad pv (SkovContext c) (SkovT pv h c m)
-    instance
-        BlockStateTypes (SkovT pv h c m)
+instance (IsProtocolVersion pv) => MonadProtocolVersion (SkovT pv h c' m) where
+    type MPV (SkovT pv h c' m) = pv
 
 instance (c ~ SkovConfig pv gsconfig finconfig handlerconfig) => HasBlobStore (SkovContext c) where
     blobStore = blobStore . scGSContext
@@ -477,80 +533,59 @@ instance (c ~ SkovConfig pv gsconfig finconfig handlerconfig, AccountVersionFor 
 instance (c ~ SkovConfig pv gsconfig finconfig handlerconfig) => HasCache ModuleCache (SkovContext c) where
     projectCache = projectCache . scGSContext
 
--- instance (c ~ SkovConfig pv gsconfig finconfig handlerconfig) => HasGlobalStateContext (PersistentBlockStateContext pv) (SkovContext c) where
+deriving instance
+    ( IsProtocolVersion pv,
+      MonadIO m,
+      c ~ SkovConfig pv gsconfig finconfig handlerconfig
+    ) =>
+    BlockStateQuery (SkovT pv h c m)
 
-deriving via
-    PersistentBlockStateMonad pv (SkovContext c) (SkovT pv h c m)
-    instance
-        ( IsProtocolVersion pv,
-          MonadIO m,
-          c ~ SkovConfig pv gsconfig finconfig handlerconfig
-        ) =>
-        BlockStateQuery (SkovT pv h c m)
+deriving instance
+    ( MonadIO m,
+      IsProtocolVersion pv,
+      c ~ SkovConfig pv gsconfig finconfig handlerconfig
+    ) =>
+    AccountOperations (SkovT pv h c m)
 
-deriving via
-    PersistentBlockStateMonad pv (SkovContext c) (SkovT pv h c m)
-    instance
-        ( MonadIO m,
-          IsProtocolVersion pv,
-          c ~ SkovConfig pv gsconfig finconfig handlerconfig
-        ) =>
-        AccountOperations (SkovT pv h c m)
+deriving instance
+    ( MonadIO m,
+      IsProtocolVersion pv,
+      c ~ SkovConfig pv gsconfig finconfig handlerconfig
+    ) =>
+    ContractStateOperations (SkovT pv h c m)
 
-deriving via
-    PersistentBlockStateMonad pv (SkovContext c) (SkovT pv h c m)
-    instance
-        ( MonadIO m,
-          IsProtocolVersion pv,
-          c ~ SkovConfig pv gsconfig finconfig handlerconfig
-        ) =>
-        ContractStateOperations (SkovT pv h c m)
+deriving instance
+    ( MonadIO m,
+      IsProtocolVersion pv,
+      c ~ SkovConfig pv gsconfig finconfig handlerconfig
+    ) =>
+    ModuleQuery (SkovT pv h c m)
 
-deriving via
-    PersistentBlockStateMonad pv (SkovContext c) (SkovT pv h c m)
-    instance
-        ( MonadIO m,
-          IsProtocolVersion pv,
-          c ~ SkovConfig pv gsconfig finconfig handlerconfig
-        ) =>
-        ModuleQuery (SkovT pv h c m)
+deriving instance
+    ( IsProtocolVersion pv,
+      MonadIO m,
+      c ~ SkovConfig pv gsconfig finconfig handlerconfig
+    ) =>
+    BlockStateOperations (SkovT pv h c m)
 
-deriving via
-    PersistentBlockStateMonad pv (SkovContext c) (SkovT pv h c m)
-    instance
-        ( IsProtocolVersion pv,
-          MonadIO m,
-          c ~ SkovConfig pv gsconfig finconfig handlerconfig
-        ) =>
-        BlockStateOperations (SkovT pv h c m)
+deriving instance
+    ( IsProtocolVersion pv,
+      MonadIO m,
+      c ~ SkovConfig pv gsconfig finconfig handlerconfig
+    ) =>
+    BlockStateStorage (SkovT pv h c m)
 
-deriving via
-    PersistentBlockStateMonad pv (SkovContext c) (SkovT pv h c m)
-    instance
-        ( IsProtocolVersion pv,
-          MonadIO m,
-          c ~ SkovConfig pv gsconfig finconfig handlerconfig
-        ) =>
-        BlockStateStorage (SkovT pv h c m)
+deriving instance
+    (IsProtocolVersion pv) =>
+    GlobalStateTypes (SkovT pv h c m)
 
-deriving via
-    PersistentTreeStateMonad (SkovState c) (SkovT pv h c m)
-    instance
-        (IsProtocolVersion pv) =>
-        GlobalStateTypes (SkovT pv h c m)
-
-instance (IsProtocolVersion pv) => MonadProtocolVersion (SkovT pv h c' m) where
-    type MPV (SkovT pv h c' m) = pv
-
-deriving via
-    PersistentTreeStateMonad (SkovState c) (SkovT pv h c m)
-    instance
-        ( MonadIO m,
-          IsProtocolVersion pv,
-          c ~ SkovConfig pv gsconfig finconfig handlerconfig,
-          MonadLogger m
-        ) =>
-        BlockPointerMonad (SkovT pv h c m)
+deriving instance
+    ( MonadIO m,
+      IsProtocolVersion pv,
+      c ~ SkovConfig pv gsconfig finconfig handlerconfig,
+      MonadLogger m
+    ) =>
+    BlockPointerMonad (SkovT pv h c m)
 
 instance (c ~ SkovConfig pv gsconfig finconfig handlerconfig, st ~ BlockStatePointer (PersistentBlockState pv)) => HasDatabaseHandlers pv st (SkovState c) where
     dbHandlers = lens ssGSState (\s v -> s{ssGSState = v}) . db
@@ -558,15 +593,13 @@ instance (c ~ SkovConfig pv gsconfig finconfig handlerconfig, st ~ BlockStatePoi
 instance (c ~ SkovConfig pv gsconfig finconfig handlerconfig) => HasSkovPersistentData pv (SkovState c) where
     skovPersistentData = lens ssGSState (\s v -> s{ssGSState = v})
 
-deriving via
-    PersistentTreeStateMonad (SkovState c) (SkovT pv h c m)
-    instance
-        ( MonadIO m,
-          IsProtocolVersion pv,
-          c ~ SkovConfig pv gsconfig finconfig handlerconfig,
-          MonadLogger m
-        ) =>
-        TreeStateMonad (SkovT pv h c m)
+deriving instance
+    ( MonadIO m,
+      IsProtocolVersion pv,
+      c ~ SkovConfig pv gsconfig finconfig handlerconfig,
+      MonadLogger m
+    ) =>
+    TreeStateMonad (SkovT pv h c m)
 
 deriving via
     SkovQueryMonadT (SkovT pv h c m)
@@ -625,39 +658,6 @@ instance (Monad m) => HandlerConfigHandlers NoHandler (SkovT pv h (SkovConfig pv
     handleBlock = \_ -> return ()
     handleFinalize = \_ _ _ -> return ()
 
--- |A handler that checks finalized blocks for protocol updates and:
---  * logs a warning if a protocol update is queued;
---  * logs an error if a protocol update has occurred.
-data LogUpdateHandler = LogUpdateHandler
-
-instance HandlerConfig LogUpdateHandler where
-    type HCContext LogUpdateHandler = ()
-    type HCState LogUpdateHandler = ()
-    initialiseHandler = \_ -> ((), ())
-
-instance (SkovMonad (SkovT pv h (SkovConfig pv gc fc LogUpdateHandler) m)) => HandlerConfigHandlers LogUpdateHandler (SkovT pv h (SkovConfig pv gc fc LogUpdateHandler) m) where
-    handleBlock = \_ -> return ()
-    handleFinalize = \_ _ _ ->
-        Skov.getProtocolUpdateStatus >>= \case
-            ProtocolUpdated pu ->
-                logEvent Kontrol LLError $
-                    "Consensus has been updated: " ++ showPU pu
-            PendingProtocolUpdates [] -> return ()
-            PendingProtocolUpdates ((ts, pu) : _) ->
-                logEvent Kontrol LLWarning $
-                    "Consensus is scheduled to update at "
-                        ++ show (timestampToUTCTime $ transactionTimeToTimestamp ts)
-                        ++ ": "
-                        ++ showPU pu
-      where
-        showPU ProtocolUpdate{..} =
-            Text.unpack puMessage
-                ++ "\n["
-                ++ Text.unpack puSpecificationURL
-                ++ " (hash "
-                ++ show puSpecificationHash
-                ++ ")]"
-
 instance
     (FinalizationQueueLenses (FCState finconf)) =>
     FinalizationQueueLenses (SkovState (SkovConfig pv gsconf finconf hconf))
@@ -690,14 +690,17 @@ instance HasGlobalState (GSState pv) (SkovState (SkovConfig pv gsconf finconf hc
 
 instance
     ( MonadIO m,
-      HandlerConfigHandlers hconf (SkovT pv h (SkovConfig pv gsconf finconf hconf) m),
+      c ~ SkovConfig pv gsconf finconf hconf,
+      HandlerConfigHandlers hconf (SkovT pv h c m),
       SkovPendingLiveHandlers h m
     ) =>
-    OnSkov (SkovT pv h (SkovConfig pv gsconf finconf hconf) m)
+    OnSkov (SkovT pv h c m)
     where
     onBlock bp = handleBlock bp
     onFinalize = handleFinalize
-    onPendingLive = SkovT $ \h _ -> lift $ handlePendingLive h
+    onPendingLive = do
+        h <- askHandler
+        lift $ handlePendingLive h
 
 -- |Synonym for 'ActiveFinalizationM' based on a specific configuration. Arguments:
 --

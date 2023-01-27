@@ -54,12 +54,14 @@ import Test.QuickCheck
 -- |Protocol version.
 type PV = 'P5
 
-type TestM = PersistentTreeStateMonad
-               (SkovPersistentData PV)
-               (PBS.PersistentBlockStateMonad
-                PV
-                (PBS.PersistentBlockStateContext PV)
-                (RWST (PBS.PersistentBlockStateContext PV) () (SkovPersistentData PV) LogIO))
+type TestM =
+    PersistentTreeStateMonad
+        (SkovPersistentData PV)
+        ( PBS.PersistentBlockStateMonad
+            PV
+            (PBS.PersistentBlockStateContext PV)
+            (RWST (PBS.PersistentBlockStateContext PV) () (SkovPersistentData PV) LogIO)
+        )
 
 type Test = TestM ()
 
