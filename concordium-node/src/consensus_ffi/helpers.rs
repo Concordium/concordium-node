@@ -414,7 +414,7 @@ pub enum ContractStateResponse {
         state: Vec<u8>,
     },
     V1 {
-        state:  wasm_chain_integration::v1::trie::PersistentState,
-        loader: wasm_chain_integration::v1::trie::foreign::LoadCallback,
+        state:  concordium_smart_contract_engine::v1::trie::PersistentState,
+        loader: concordium_smart_contract_engine::v1::trie::LoadCallback,
     },
 }

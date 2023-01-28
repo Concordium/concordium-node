@@ -87,7 +87,7 @@ library:
       - -O2
       - -fno-ignore-asserts
 
-  extra-libraries: wasm_chain_integration
+  extra-libraries: concordium_smart_contract_engine
 
   when:
     - condition: os(windows)
