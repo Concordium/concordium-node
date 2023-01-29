@@ -195,13 +195,6 @@ testDoMintingP4 = do
             }
     md1 = MintDistribution CFalse (makeAmountFraction 100_000) (makeAmountFraction 0)
     md2 = MintDistribution CFalse (makeAmountFraction 0) (makeAmountFraction 100_000)
-    mintSto amts =
-        Mint
-            { stoMintBakingReward = mintBakingReward amts,
-              stoMintFinalizationReward = mintFinalizationReward amts,
-              stoMintPlatformDevelopmentCharge = mintDevelopmentCharge amts,
-              stoFoundationAccount = foundationAccount
-            }
 
 -- rewards distributed after minting are equal to the minted amount
 propMintAmountsEqNewMint :: MintDistribution 'MintDistributionVersion1 -> MintRate -> Amount -> Bool

@@ -19,7 +19,6 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe
 import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
-import Data.Time
 import qualified Data.Vector as Vec
 import Lens.Micro.Platform
 
@@ -263,7 +262,7 @@ liftSkovQueryBlockAndVersion a bh = MVR $ \mvr ->
 getConsensusStatus :: MVR gsconf finconf ConsensusStatus
 getConsensusStatus = MVR $ \mvr -> do
     versions <- readIORef (mvVersions mvr)
-    (csGenesisBlock, csGenesisTime) <- liftSkovQuery @_ @_ @(BlockHash, UTCTime) mvr (Vec.head versions) $ do
+    (csGenesisBlock, csGenesisTime) <- liftSkovQuery mvr (Vec.head versions) $ do
         genesis <- genesisBlock
         genTime <- getGenesisTime
         return (getHash genesis :: BlockHash, timestampToUTCTime genTime)
