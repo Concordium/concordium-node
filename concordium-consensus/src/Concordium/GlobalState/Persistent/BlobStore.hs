@@ -1698,7 +1698,7 @@ instance
     (DirectBlobStorable m a, IsParameterType pt, IsChainParametersVersion cpv) =>
     BlobStorable m (HashedBufferedRefO pt cpv a)
     where
-    load = sequence <$> whenSupported load
+    load = sequence <$> whenSupportedA load
 
     storeUpdate NoParam = return (pure (), NoParam)
     storeUpdate (SomeParam v) = do
