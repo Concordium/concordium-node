@@ -14,10 +14,6 @@ import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.GlobalState.BakerInfo
-import Concordium.GlobalState.Basic.BlockState.Account
-import qualified Concordium.GlobalState.Basic.BlockState.AccountTable as AT
-import Concordium.GlobalState.Basic.BlockState.Accounts
-import Concordium.GlobalState.CapitalDistribution
 import Concordium.GlobalState.Parameters
 import Concordium.ID.Types
 import Concordium.Types.Accounts
@@ -28,9 +24,6 @@ import qualified Data.Map.Strict as Map
 import Data.Ratio
 import qualified Data.Set as Set
 import qualified Data.Vector as Vec
-import Lens.Micro.Platform
-
-import qualified Concordium.GlobalState.Basic.BlockState.PoolRewards as PoolRewards
 
 import Concordium.Crypto.DummyData
 import qualified Concordium.Genesis.Data as GenesisData
@@ -39,7 +32,6 @@ import qualified Concordium.Genesis.Data.P5 as P5
 import Concordium.ID.DummyData
 import Concordium.Types
 import Concordium.Types.DummyData
-import Concordium.Types.Execution
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy.Char8 as BSL
 import Data.FileEmbed
@@ -462,21 +454,6 @@ dummyChainParameters = case chainParametersVersion @cpv of
   where
     fullRange = InclusiveRange (makeAmountFraction 0) (makeAmountFraction 100000)
     cooldown = DurationSeconds (24 * 60 * 60)
-
-createPoolRewards :: Accounts pv -> PoolRewards.PoolRewards
-createPoolRewards accounts = PoolRewards.makeInitialPoolRewards capDist 1 (MintRate 1 10)
-  where
-    (bakersMap, passive) = foldr accumDelegations (Map.empty, []) (AT.toList (accountTable accounts))
-    bakers = [(bid, amt, dlgs) | (bid, (amt, dlgs)) <- Map.toList bakersMap]
-    capDist = makeCapitalDistribution bakers passive
-    accumDelegations (ai, acct) acc@(bm, lp) = case acct ^. accountStaking of
-        AccountStakeNone -> acc
-        AccountStakeBaker bkr -> (bm & at (BakerId ai) . non (0, []) . _1 .~ bkr ^. stakedAmount, lp)
-        AccountStakeDelegate dlg -> case dlg ^. delegationTarget of
-            DelegatePassive -> (bm, d : lp)
-            DelegateToBaker bkrid -> (bm & at bkrid . non (0, []) . _2 %~ (d :), lp)
-          where
-            d = (dlg ^. delegationIdentity, dlg ^. delegationStakedAmount)
 
 -- |Make a baker account with the given baker verification keys and account keys that are seeded from the baker id.
 {-# WARNING makeFakeBakerAccount "Do not use in production." #-}

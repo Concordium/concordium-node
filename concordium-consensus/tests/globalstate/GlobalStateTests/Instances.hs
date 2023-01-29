@@ -17,8 +17,6 @@ import Data.Word
 import Lens.Micro.Platform
 
 import qualified Concordium.Crypto.SHA256 as H
-import Concordium.GlobalState.Basic.BlockState.InstanceTable
-import Concordium.GlobalState.Basic.BlockState.Instances
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import Concordium.GlobalState.Instance
 import qualified Concordium.GlobalState.Wasm as GSWasm
@@ -30,6 +28,9 @@ import qualified Concordium.Wasm as Wasm
 
 import qualified Data.ByteString as BS
 import qualified Data.FixedByteString as FBS
+
+import Basic.InstanceTable
+import Basic.Instances
 
 import Test.Hspec
 import Test.QuickCheck

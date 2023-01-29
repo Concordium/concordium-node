@@ -144,8 +144,9 @@
         (call $assert_eq (i32.const 8) (call $state_entry_size (call $state_lookup_entry (local.get $offset) (i32.const 2))))
         ;; a_modifies deletes [000]
         (call $assert_entry_absent (call $state_lookup_entry (local.get $offset) (i32.const 3)))
-        ;; a_modifies deletes the iterator, so a double delete will return in u32::max.
-        (call $assert_eq (i32.xor (i32.const 2147483647) (i32.shl (i32.const 1) (i32.const 31))) (call $state_iterator_delete (local.get $iter)))
+        ;; a_modifies modifies the state, which means all iterators are invalidated.
+        ;; Thus attempting to delete it fails.
+        (call $assert_eq (i32.const 4294967295) (call $state_iterator_delete (local.get $iter)))
       )
       ;; state should not be modified in this case.
       (else
@@ -189,8 +190,9 @@
         (i32.const 1))
     ;; delete [000]
     (call $state_delete_entry (i32.const 0) (i32.const 3))
-    ;; delete the iter
-    (call $state_iterator_delete (i64.const 0)) ;; the iter created in the first receive function.
+    ;; attempt to delete the iterator created by the initial call to a_modify_proxy
+    ;; this should fail since iterators are per entry to an entrypoint
+    (call $assert_eq (i32.const 4294967295) (call $state_iterator_delete (i64.const 0)))
     (return (i32.const 0)) ;; return success.
   )
 
