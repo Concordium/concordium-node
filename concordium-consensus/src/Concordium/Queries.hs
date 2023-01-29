@@ -532,7 +532,7 @@ getBlockPendingUpdates = liftSkovQueryBHI query
                             SAuthorizationsVersion1 -> queueMapper PUELevel2KeysV1 _pLevel2KeysUpdateQueue
                         )
                 `merge` queueMapper PUEProtocol _pProtocolQueue
-                `merge` queueMapperO PUEElectionDifficulty _pElectionDifficultyQueue
+                `merge` queueMapperOptional PUEElectionDifficulty _pElectionDifficultyQueue
                 `merge` queueMapper PUEEuroPerEnergy _pEuroPerEnergyQueue
                 `merge` queueMapper PUEMicroCCDPerEuro _pMicroGTUPerEuroQueue
                 `merge` ( case sMintDistributionVersionFor cpv of
@@ -556,19 +556,19 @@ getBlockPendingUpdates = liftSkovQueryBHI query
                                 SomeParam queue -> queueMapper PUECooldownParameters queue
                                 NoParam -> case cpv of {}
                         )
-                `merge` queueMapperO PUETimeParameters _pTimeParametersQueue
-                `merge` queueMapperO PUETimeoutParameters _pTimeoutParametersQueue
-                `merge` queueMapperO PUEMinBlockTime _pMinBlockTimeQueue
-                `merge` queueMapperO PUEBlockEnergyLimit _pBlockEnergyLimitQueue
+                `merge` queueMapperOptional PUETimeParameters _pTimeParametersQueue
+                `merge` queueMapperOptional PUETimeoutParameters _pTimeoutParametersQueue
+                `merge` queueMapperOptional PUEMinBlockTime _pMinBlockTimeQueue
+                `merge` queueMapperOptional PUEBlockEnergyLimit _pBlockEnergyLimitQueue
           where
             cpv :: SChainParametersVersion cpv
             cpv = chainParametersVersion
             queueMapper :: (a -> PendingUpdateEffect) -> UQ.UpdateQueue a -> [(TransactionTime, PendingUpdateEffect)]
             queueMapper constructor UQ.UpdateQueue{..} = second constructor <$> _uqQueue
 
-            queueMapperO :: (a -> PendingUpdateEffect) -> UQ.OUpdateQueue pt cpv a -> [(TransactionTime, PendingUpdateEffect)]
-            queueMapperO _ NoParam = []
-            queueMapperO constructor (SomeParam queue) = queueMapper constructor queue
+            queueMapperOptional :: (a -> PendingUpdateEffect) -> UQ.OUpdateQueue pt cpv a -> [(TransactionTime, PendingUpdateEffect)]
+            queueMapperOptional _ NoParam = []
+            queueMapperOptional constructor (SomeParam queue) = queueMapper constructor queue
 
         -- Merge two ascending lists into an ascending list.
         merge ::

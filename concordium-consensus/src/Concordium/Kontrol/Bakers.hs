@@ -19,7 +19,7 @@ import Lens.Micro.Platform
 import Concordium.Types
 import Concordium.Types.Accounts
 import Concordium.Types.SeedState
-import Concordium.Types.UpdateQueues hiding (getUpdates)
+import Concordium.Types.UpdateQueues
 
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.BlockState

@@ -345,17 +345,18 @@ dummyRewardParametersV2 =
                 }
         }
 
+-- |Consensus parameters for the second consensus protocol.
 dummyConsensusParametersV1 :: ConsensusParameters' 'ConsensusParametersVersion1
 dummyConsensusParametersV1 =
     ConsensusParametersV1
         { _cpTimeoutParameters =
             TimeoutParameters
-                { tpTimeoutBase = 10000,
-                  tpTimeoutIncrease = 2 % 1,
-                  tpTimeoutDecrease = 4 % 5
+                { tpTimeoutBase = 10000, -- 10 seconds timeout initially
+                  tpTimeoutIncrease = 2 % 1, -- timeout increase doubles for each subsequent timeout.
+                  tpTimeoutDecrease = 4 % 5 -- timeout decreases by 20% each time a quorum certificate has been created.
                 },
-          _cpMinBlockTime = 1000,
-          _cpBlockEnergyLimit = maxBound
+          _cpMinBlockTime = 1000, -- the minimum time between blocks cannot be below 1 second.
+          _cpBlockEnergyLimit = maxBound -- the maximum energy a block can consume.
         }
 
 dummyChainParameters :: forall cpv. IsChainParametersVersion cpv => ChainParameters' cpv
