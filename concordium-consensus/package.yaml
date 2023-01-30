@@ -58,6 +58,7 @@ dependencies:
 - lmdb
 - primitive
 - proto-lens >= 0.7
+- singletons-base
 
 default-extensions:
 - FlexibleContexts

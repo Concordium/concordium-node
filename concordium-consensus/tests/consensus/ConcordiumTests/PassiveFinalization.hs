@@ -343,7 +343,7 @@ createInitStates additionalFinMembers = do
                 _ -> error "bis should be a list with four elements"
     let
         bakerAccounts = map (\(_, _, acc, _) -> acc) bis
-        cps = dummyChainParameters & cpElectionDifficulty .~ makeElectionDifficultyUnchecked 100000
+        cps = dummyChainParameters & cpConsensusParameters . cpElectionDifficulty .~ makeElectionDifficultyUnchecked 100000
         gen =
             GDP1
                 GDP1Initial

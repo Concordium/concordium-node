@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -52,6 +53,7 @@ import qualified Concordium.Scheduler.WasmIntegration as WasmV0
 import qualified Concordium.Scheduler.WasmIntegration.V1 as WasmV1
 import Concordium.TimeMonad
 import qualified Concordium.Wasm as Wasm
+import Data.Bool.Singletons
 import qualified Data.ByteString as BS
 import qualified Data.Serialize as S
 import Data.Time
@@ -346,7 +348,7 @@ dispatch (msg, mVerRes) = do
         _ -> error "Operation unsupported at this protocol version."
     -- Function @onlyWithDelegation k@ fails if the protocol version @MPV m@ does not support
     -- delegation. Otherwise, it continues with @k@, which may assume that delegation is supported.
-    onlyWithDelegation :: (SupportsDelegation (MPV m) => a) -> a
+    onlyWithDelegation :: (PVSupportsDelegation (MPV m) => a) -> a
     onlyWithDelegation c = case delegationSupport @(AccountVersionFor (MPV m)) of
         SAVDelegationNotSupported -> error "Operation unsupported at this protocol version."
         SAVDelegationSupported -> c
@@ -1764,7 +1766,7 @@ data ConfigureDelegationCont
     | ConfigureUpdateDelegationCont
 
 handleConfigureBaker ::
-    ( SupportsDelegation (MPV m),
+    ( PVSupportsDelegation (MPV m),
       SchedulerMonad m
     ) =>
     WithDepositContext m ->
@@ -1969,7 +1971,7 @@ handleConfigureBaker
             return (TxReject (NotABaker senderAddress), energyCost, usedEnergy)
 
 handleConfigureDelegation ::
-    (SupportsDelegation (MPV m), SchedulerMonad m) =>
+    (PVSupportsDelegation (MPV m), SchedulerMonad m) =>
     WithDepositContext m ->
     Maybe Amount ->
     Maybe Bool ->
@@ -2378,41 +2380,71 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, mVerRes
                             -- Convert the payload to an update
                             case uiPayload of
                                 ProtocolUpdatePayload u -> checkSigAndEnqueue $ UVProtocol u
-                                ElectionDifficultyUpdatePayload u -> checkSigAndEnqueue $ UVElectionDifficulty u
+                                ElectionDifficultyUpdatePayload u -> case sIsSupported SPTElectionDifficulty scpv of
+                                    STrue -> checkSigAndEnqueue $ UVElectionDifficulty u
+                                    SFalse -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
                                 EuroPerEnergyUpdatePayload u -> checkSigAndEnqueue $ UVEuroPerEnergy u
                                 MicroGTUPerEuroUpdatePayload u -> checkSigAndEnqueue $ UVMicroGTUPerEuro u
                                 FoundationAccountUpdatePayload u ->
                                     getAccountIndex u >>= \case
                                         Just ai -> checkSigAndEnqueue $ UVFoundationAccount ai
                                         Nothing -> return (TxInvalid (UnknownAccount u))
-                                MintDistributionUpdatePayload u -> checkSigAndEnqueueOnlyCPV0 $ UVMintDistribution u
+                                MintDistributionUpdatePayload u -> case sMintDistributionVersionFor scpv of
+                                    SMintDistributionVersion0 -> checkSigAndEnqueue $ UVMintDistribution u
+                                    SMintDistributionVersion1 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
                                 TransactionFeeDistributionUpdatePayload u -> checkSigAndEnqueue $ UVTransactionFeeDistribution u
-                                GASRewardsUpdatePayload u -> checkSigAndEnqueue $ UVGASRewards u
-                                BakerStakeThresholdUpdatePayload u -> checkSigAndEnqueueOnlyCPV0 $ UVPoolParameters u
+                                GASRewardsUpdatePayload u -> case sGasRewardsVersionFor scpv of
+                                    SGASRewardsVersion0 -> checkSigAndEnqueue $ UVGASRewards u
+                                    SGASRewardsVersion1 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                BakerStakeThresholdUpdatePayload u -> case sPoolParametersVersionFor scpv of
+                                    SPoolParametersVersion0 -> checkSigAndEnqueue $ UVPoolParameters u
+                                    SPoolParametersVersion1 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
                                 AddAnonymityRevokerUpdatePayload u -> checkSigAndEnqueue $ UVAddAnonymityRevoker u
                                 AddIdentityProviderUpdatePayload u -> checkSigAndEnqueue $ UVAddIdentityProvider u
-                                CooldownParametersCPV1UpdatePayload u -> checkSigAndEnqueueOnlyCPV1 $ UVCooldownParameters u
-                                PoolParametersCPV1UpdatePayload u -> checkSigAndEnqueueOnlyCPV1 $ UVPoolParameters u
-                                TimeParametersCPV1UpdatePayload u -> checkSigAndEnqueueOnlyCPV1 $ UVTimeParameters u
-                                MintDistributionCPV1UpdatePayload u -> checkSigAndEnqueueOnlyCPV1 $ UVMintDistribution u
+                                CooldownParametersCPV1UpdatePayload u -> case sIsSupported SPTCooldownParametersAccessStructure scpv of
+                                    SFalse -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                    STrue -> case sCooldownParametersVersionFor scpv of
+                                        SCooldownParametersVersion0 -> case scpv of {}
+                                        SCooldownParametersVersion1 -> checkSigAndEnqueue $ UVCooldownParameters u
+                                PoolParametersCPV1UpdatePayload u -> case sPoolParametersVersionFor scpv of
+                                    SPoolParametersVersion0 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                    SPoolParametersVersion1 -> checkSigAndEnqueue $ UVPoolParameters u
+                                TimeParametersCPV1UpdatePayload u -> case sIsSupported SPTTimeParameters scpv of
+                                    STrue -> checkSigAndEnqueue $ UVTimeParameters u
+                                    SFalse -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                MintDistributionCPV1UpdatePayload u -> case sMintDistributionVersionFor scpv of
+                                    SMintDistributionVersion0 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                    SMintDistributionVersion1 -> checkSigAndEnqueue $ UVMintDistribution u
                                 RootUpdatePayload (RootKeysRootUpdate u) -> checkSigAndEnqueue $ UVRootKeys u
                                 RootUpdatePayload (Level1KeysRootUpdate u) -> checkSigAndEnqueue $ UVLevel1Keys u
-                                RootUpdatePayload (Level2KeysRootUpdate u) -> checkSigAndEnqueueOnlyCPV0 $ UVLevel2Keys u
-                                RootUpdatePayload (Level2KeysRootUpdateV1 u) -> checkSigAndEnqueueOnlyCPV1 $ UVLevel2Keys u
+                                RootUpdatePayload (Level2KeysRootUpdate u) -> case sAuthorizationsVersionFor scpv of
+                                    SAuthorizationsVersion0 -> checkSigAndEnqueue $ UVLevel2Keys u
+                                    SAuthorizationsVersion1 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                RootUpdatePayload (Level2KeysRootUpdateV1 u) -> case sAuthorizationsVersionFor scpv of
+                                    SAuthorizationsVersion0 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                    SAuthorizationsVersion1 -> checkSigAndEnqueue $ UVLevel2Keys u
                                 Level1UpdatePayload (Level1KeysLevel1Update u) -> checkSigAndEnqueue $ UVLevel1Keys u
-                                Level1UpdatePayload (Level2KeysLevel1Update u) -> checkSigAndEnqueueOnlyCPV0 $ UVLevel2Keys u
-                                Level1UpdatePayload (Level2KeysLevel1UpdateV1 u) -> checkSigAndEnqueueOnlyCPV1 $ UVLevel2Keys u
+                                Level1UpdatePayload (Level2KeysLevel1Update u) -> case sAuthorizationsVersionFor scpv of
+                                    SAuthorizationsVersion0 -> checkSigAndEnqueue $ UVLevel2Keys u
+                                    SAuthorizationsVersion1 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                Level1UpdatePayload (Level2KeysLevel1UpdateV1 u) -> case sAuthorizationsVersionFor scpv of
+                                    SAuthorizationsVersion0 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                    SAuthorizationsVersion1 -> checkSigAndEnqueue $ UVLevel2Keys u
+                                TimeoutParametersUpdatePayload u -> case sIsSupported SPTTimeoutParameters scpv of
+                                    STrue -> checkSigAndEnqueue $ UVTimeoutParameters u
+                                    SFalse -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                MinBlockTimeUpdatePayload u -> case sIsSupported SPTMinBlockTime scpv of
+                                    STrue -> checkSigAndEnqueue $ UVMinBlockTime u
+                                    SFalse -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                BlockEnergyLimitUpdatePayload u -> case sIsSupported SPTBlockEnergyLimit scpv of
+                                    STrue -> checkSigAndEnqueue $ UVBlockEnergyLimit u
+                                    SFalse -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                GASRewardsCPV2UpdatePayload u -> case sGasRewardsVersionFor scpv of
+                                    SGASRewardsVersion0 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                    SGASRewardsVersion1 -> checkSigAndEnqueue $ UVGASRewards u
   where
-    checkSigAndEnqueueOnlyCPV0 :: UpdateValue 'ChainParametersV0 -> m TxResult
-    checkSigAndEnqueueOnlyCPV0 = do
-        case chainParametersVersion @(ChainParametersVersionFor (MPV m)) of
-            SCPV0 -> checkSigAndEnqueue
-            SCPV1 -> const $ return $ TxInvalid NotSupportedAtCurrentProtocolVersion
-    checkSigAndEnqueueOnlyCPV1 :: UpdateValue 'ChainParametersV1 -> m TxResult
-    checkSigAndEnqueueOnlyCPV1 = do
-        case chainParametersVersion @(ChainParametersVersionFor (MPV m)) of
-            SCPV0 -> const $ return $ TxInvalid NotSupportedAtCurrentProtocolVersion
-            SCPV1 -> checkSigAndEnqueue
+    scpv :: SChainParametersVersion (ChainParametersVersionFor (MPV m))
+    scpv = chainParametersVersion
     checkSigAndEnqueue :: UpdateValue (ChainParametersVersionFor (MPV m)) -> m TxResult
     checkSigAndEnqueue change = do
         case mVerRes of

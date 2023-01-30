@@ -90,18 +90,19 @@ newtype PersistentBSM pv a = PersistentBSM
         ( Applicative,
           Functor,
           Monad,
-          BS.AccountOperations,
           BS.ContractStateOperations,
           BS.ModuleQuery,
-          MonadProtocolVersion,
           BlockStateTypes,
           Blob.MonadBlobStore,
-          BS.BlockStateQuery,
-          BS.BlockStateOperations,
           MonadIO,
-          MonadCache BS.ModuleCache,
-          BS.BlockStateStorage
+          MonadCache BS.ModuleCache
         )
+
+deriving instance (Types.IsProtocolVersion pv) => BS.AccountOperations (PersistentBSM pv)
+deriving instance (Types.IsProtocolVersion pv) => BS.BlockStateOperations (PersistentBSM pv)
+deriving instance (Types.IsProtocolVersion pv) => BS.BlockStateQuery (PersistentBSM pv)
+deriving instance (Types.IsProtocolVersion pv) => MonadProtocolVersion (PersistentBSM pv)
+deriving instance (Types.IsProtocolVersion pv) => BS.BlockStateStorage (PersistentBSM pv)
 
 deriving instance
     (Types.AccountVersionFor pv ~ av) =>
@@ -131,7 +132,8 @@ forEveryProtocolVersion check =
 
 -- |Construct a test block state containing the provided accounts.
 createTestBlockStateWithAccounts ::
-    (Types.IsProtocolVersion pv) =>
+    forall pv.
+    Types.IsProtocolVersion pv =>
     [BS.PersistentAccount (Types.AccountVersionFor pv)] ->
     PersistentBSM pv (BS.HashedPersistentBlockState pv)
 createTestBlockStateWithAccounts accounts =
@@ -141,8 +143,10 @@ createTestBlockStateWithAccounts accounts =
         accounts
         DummyData.dummyIdentityProviders
         DummyData.dummyArs
-        DummyData.dummyKeyCollection
+        keys
         DummyData.dummyChainParameters
+  where
+    keys = Types.withIsAuthorizationsVersionForPV (Types.protocolVersion @pv) $ DummyData.dummyKeyCollection
 
 -- |Construct a test block state containing the provided accounts.
 createTestBlockStateWithAccountsM ::

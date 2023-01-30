@@ -157,7 +157,7 @@ buildGenesisBlockState GenesisData.CoreGenesisParameters{..} GenesisData.Genesis
             return $ BS.BlockRewardDetailsV0 BS.emptyHashedEpochBlocks
         Types.SAVDelegationSupported ->
             case Types.delegationChainParameters @pv of
-                Types.DelegationChainParametersV1 -> do
+                Types.DelegationChainParameters -> do
                     capRef :: Blob.HashedBufferedRef CapDist.CapitalDistribution <-
                         Blob.refMakeFlushed
                             CapDist.CapitalDistribution

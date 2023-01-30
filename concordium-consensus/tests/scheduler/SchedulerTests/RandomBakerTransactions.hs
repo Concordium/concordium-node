@@ -1,3 +1,4 @@
+{-# LANGUAGE MonoLocalBinds #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -295,6 +296,6 @@ tests = do
   where
     testCases :: forall pv. IsProtocolVersion pv => SProtocolVersion pv -> String -> Spec
     testCases spv pvString =
-        unless (supportsDelegation spv) $ do
+        unless (protocolSupportsDelegation spv) $ do
             specify (pvString ++ ": Random baker transactions") $
                 withMaxSuccess 100 (testTransactions spv)

@@ -145,7 +145,7 @@ makeGenesisData ::
     -- |Maximum energy allowed to be consumed by the transactions in a block
     Energy ->
     -- |Authorized keys for chain updates
-    UpdateKeysCollection (ChainParametersVersionFor pv) ->
+    UpdateKeysCollection (AuthorizationsVersionForPV pv) ->
     -- |Initial chain parameters
     ChainParameters pv ->
     (GenesisData pv, [(BakerIdentity, FullBakerInfo)], Amount)
