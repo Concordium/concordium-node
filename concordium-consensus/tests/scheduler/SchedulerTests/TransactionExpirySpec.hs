@@ -1,3 +1,4 @@
+{-# LANGUAGE MonoLocalBinds #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -55,7 +56,7 @@ allTransactions ::
     [TransactionJSON]
 allTransactions spv expiry =
     transferTransactions expiry
-        ++ if Types.supportsDelegation spv then [] else bakerV0Transactions expiry
+        ++ if Types.supportsDelegationPV spv then [] else bakerV0Transactions expiry
 
 transferTransactions :: Types.TransactionExpiryTime -> [TransactionJSON]
 transferTransactions expiry =

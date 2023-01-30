@@ -110,7 +110,7 @@ module Concordium.GlobalState.Persistent.BlobStore (
     makeHashedBufferedRef,
     migrateHashedBufferedRef,
     migrateHashedBufferedRefKeepHash,
-    HashedBufferedRefForCPV1,
+    HashedBufferedRefO,
 
     -- ** 'EagerlyHashedBufferedRef'
     EagerlyHashedBufferedRef',
@@ -167,6 +167,7 @@ import Concordium.GlobalState.ContractStateFFIHelpers
 import Concordium.GlobalState.Persistent.MonadicRecursive
 
 -- Imports for providing instances
+import Concordium.Common.Time
 import Concordium.GlobalState.Account
 import Concordium.GlobalState.Basic.BlockState.PoolRewards
 import Concordium.GlobalState.CapitalDistribution
@@ -176,6 +177,7 @@ import Concordium.Types
 import Concordium.Types.Accounts
 import qualified Concordium.Types.AnonymityRevokers as ARS
 import qualified Concordium.Types.IdentityProviders as IPS
+import Concordium.Types.Parameters
 import Concordium.Types.Transactions
 import Concordium.Types.Updates
 import Concordium.Wasm
@@ -1520,19 +1522,22 @@ instance MonadBlobStore m => BlobStorable m Word64
 
 instance MonadBlobStore m => BlobStorable m AccountEncryptedAmount
 instance MonadBlobStore m => BlobStorable m PersistingAccountData
-instance (MonadBlobStore m, IsChainParametersVersion cpv) => BlobStorable m (Authorizations cpv)
+instance (MonadBlobStore m, IsAuthorizationsVersion auv) => BlobStorable m (Authorizations auv)
 instance (MonadBlobStore m, IsAccountVersion av, AVSupportsDelegation av) => BlobStorable m (AccountDelegation av)
 instance MonadBlobStore m => BlobStorable m (HigherLevelKeys a)
 instance MonadBlobStore m => BlobStorable m ProtocolUpdate
 instance MonadBlobStore m => BlobStorable m ExchangeRate
 instance MonadBlobStore m => BlobStorable m ElectionDifficulty
 instance MonadBlobStore m => BlobStorable m MintRate
-instance (MonadBlobStore m, IsChainParametersVersion cpv) => BlobStorable m (Parameters.MintDistribution cpv)
+instance (MonadBlobStore m, IsMintDistributionVersion mdv) => BlobStorable m (Parameters.MintDistribution mdv)
 instance MonadBlobStore m => BlobStorable m Parameters.TransactionFeeDistribution
-instance MonadBlobStore m => BlobStorable m Parameters.GASRewards
-instance (MonadBlobStore m, IsChainParametersVersion cpv) => BlobStorable m (Parameters.PoolParameters cpv)
-instance (MonadBlobStore m, IsChainParametersVersion cpv) => BlobStorable m (Parameters.CooldownParameters cpv)
-instance (MonadBlobStore m, IsChainParametersVersion cpv) => BlobStorable m (Parameters.TimeParameters cpv)
+instance (MonadBlobStore m, IsGASRewardsVersion grv) => BlobStorable m (Parameters.GASRewards grv)
+instance (MonadBlobStore m, IsPoolParametersVersion ppv) => BlobStorable m (Parameters.PoolParameters' ppv)
+instance (MonadBlobStore m, IsCooldownParametersVersion cpv) => BlobStorable m (Parameters.CooldownParameters' cpv)
+instance (MonadBlobStore m) => BlobStorable m Parameters.TimeParameters
+instance (MonadBlobStore m) => BlobStorable m Parameters.TimeoutParameters
+instance (MonadBlobStore m) => BlobStorable m Duration
+instance (MonadBlobStore m) => BlobStorable m Energy
 instance MonadBlobStore m => BlobStorable m (Map AccountAddress Timestamp)
 instance MonadBlobStore m => BlobStorable m WasmModule
 instance (IsWasmVersion v, MonadBlobStore m) => BlobStorable m (WasmModuleV v)
@@ -1684,20 +1689,21 @@ instance (DirectBlobStorable m a) => BlobStorable m (Nullable (HashedBufferedRef
         (!r, !v') <- storeUpdate v
         return (r, Some v')
 
-type HashedBufferedRefForCPV1 (cpv :: ChainParametersVersion) a =
-    JustForCPV1 cpv (HashedBufferedRef a)
+-- |A wrapped 'HashedBufferedRef'.
+-- If the constraint for the 'OParam' is satisfied this yields a 'HashedBufferedRef' otherwise
+-- it yields a 'NoParam'.
+type HashedBufferedRefO (pt :: ParameterType) (cpv :: ChainParametersVersion) a = OParam pt cpv (HashedBufferedRef a)
 
 instance
-    (DirectBlobStorable m a, IsChainParametersVersion cpv) =>
-    BlobStorable m (HashedBufferedRefForCPV1 cpv a)
+    (DirectBlobStorable m a, IsParameterType pt, IsChainParametersVersion cpv) =>
+    BlobStorable m (HashedBufferedRefO pt cpv a)
     where
-    load = case chainParametersVersion @cpv of
-        SCPV0 -> return (pure NothingForCPV1)
-        SCPV1 -> fmap (fmap JustForCPV1) load
-    storeUpdate NothingForCPV1 = return (pure (), NothingForCPV1)
-    storeUpdate (JustForCPV1 v) = do
+    load = sequence <$> whenSupportedA load
+
+    storeUpdate NoParam = return (pure (), NoParam)
+    storeUpdate (SomeParam v) = do
         (!r, !v') <- storeUpdate v
-        return (r, JustForCPV1 v')
+        return (r, SomeParam v')
 
 -- |An 'EagerBufferedRef' accompanied by a hash.
 -- Both the value and the hash are retained in memory by this reference.
@@ -1812,7 +1818,7 @@ instance (Applicative m, Cacheable m a) => Cacheable m (Nullable a) where
     cache Null = pure Null
     cache (Some v) = Some <$> cache v
 
-instance (Applicative m, Cacheable m a) => Cacheable m (JustForCPV1 cpv a) where
+instance (Applicative m, Cacheable m a) => Cacheable m (OParam pt cpv a) where
     cache = traverse cache
 
 instance (DirectBlobStorable m a, Cacheable m a) => Cacheable m (BufferedRef a) where
@@ -1869,9 +1875,9 @@ instance (Applicative m) => Cacheable m Amount
 
 -- Required for caching Updates
 instance (Applicative m) => Cacheable m (StoreSerialized a)
-instance (Applicative m) => Cacheable m (Parameters.PoolParameters cpv)
-instance (Applicative m) => Cacheable m (Parameters.CooldownParameters cpv)
-instance (Applicative m) => Cacheable m (Parameters.TimeParameters cpv)
+instance (Applicative m) => Cacheable m (Parameters.PoolParameters' ppv)
+instance (Applicative m) => Cacheable m (Parameters.CooldownParameters' cpv)
+instance (Applicative m) => Cacheable m Parameters.TimeParameters
 instance (Applicative m) => Cacheable m BakerPoolRewardDetails
 instance (Applicative m) => Cacheable m DelegatorCapital
 instance (Applicative m) => Cacheable m BakerCapital

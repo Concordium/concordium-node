@@ -168,7 +168,7 @@ baker4Account = makeTestBakerV1FromSeed 1_000_000 1_000 bakerId seed
 -- account index 3 is delegator3 (delegates to baker 2)
 -- account index 4 is baker 4
 initialBlockState ::
-    (IsProtocolVersion pv, SupportsDelegation pv) =>
+    (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
 initialBlockState =
     Helpers.createTestBlockStateWithAccountsM
@@ -182,7 +182,7 @@ initialBlockState =
 -- | Test removing a delegator even if the stake is over the threshold.
 testCase1 ::
     forall pv.
-    (IsProtocolVersion pv, SupportsDelegation pv) =>
+    (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
@@ -228,7 +228,7 @@ testCase1 _ pvString =
 -- | Test reducing delegator stake in such a way that it stays above the cap threshold.
 testCase2 ::
     forall pv.
-    (IsProtocolVersion pv, SupportsDelegation pv) =>
+    (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
@@ -265,7 +265,7 @@ testCase2 _ pvString =
 -- |Test transaction rejects if increasing stake above the threshold of the pool
 testCase3 ::
     forall pv.
-    (IsProtocolVersion pv, SupportsDelegation pv) =>
+    (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
@@ -303,7 +303,7 @@ testCase3 _ pvString =
 -- for the new target.
 testCase4 ::
     forall pv.
-    (IsProtocolVersion pv, SupportsDelegation pv) =>
+    (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
@@ -341,7 +341,7 @@ testCase4 _ pvString =
 -- This still fails because the change of target is only effected after the cooldown period.
 testCase5 ::
     forall pv.
-    (IsProtocolVersion pv, SupportsDelegation pv) =>
+    (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
@@ -378,7 +378,7 @@ testCase5 _ pvString =
 -- |Increase stake successfully.
 testCase6 ::
     forall pv.
-    (IsProtocolVersion pv, SupportsDelegation pv) =>
+    (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
@@ -415,7 +415,7 @@ testCase6 _ pvString =
 -- |Increase stake and change target successfully.
 testCase7 ::
     forall pv.
-    (IsProtocolVersion pv, SupportsDelegation pv) =>
+    (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
@@ -456,7 +456,7 @@ testCase7 _ pvString =
 -- |Increase stake and change target rejects with reason: maximum threshold for pool.
 testCase8 ::
     forall pv.
-    (IsProtocolVersion pv, SupportsDelegation pv) =>
+    (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
@@ -493,7 +493,7 @@ testCase8 _ pvString =
 -- |Increase stake and change target rejects with reason: maximum threshold for pool.
 testCase9 ::
     forall pv.
-    (IsProtocolVersion pv, SupportsDelegation pv) =>
+    (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
