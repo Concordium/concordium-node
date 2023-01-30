@@ -351,9 +351,9 @@ dummyConsensusParametersV1 =
     ConsensusParametersV1
         { _cpTimeoutParameters =
             TimeoutParameters
-                { tpTimeoutBase = 10000, -- 10 seconds timeout initially
-                  tpTimeoutIncrease = 2 % 1, -- timeout increase doubles for each subsequent timeout.
-                  tpTimeoutDecrease = 4 % 5 -- timeout decreases by 20% each time a quorum certificate has been created.
+                { _tpTimeoutBase = 10000, -- 10 seconds timeout initially
+                  _tpTimeoutIncrease = 2 % 1, -- timeout increase doubles for each subsequent timeout.
+                  _tpTimeoutDecrease = 4 % 5 -- timeout decreases by 20% each time a quorum certificate has been created.
                 },
           _cpMinBlockTime = 1000, -- the minimum time between blocks cannot be below 1 second.
           _cpBlockEnergyLimit = maxBound -- the maximum energy a block can consume.
