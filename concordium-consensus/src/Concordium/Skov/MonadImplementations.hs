@@ -190,7 +190,7 @@ instance
 -- * @finconfig@: the finalization configuration. Currently supported types are @NoFinalization t@,
 --   @ActiveFinalization t@ and @BufferedFinalization t@, where @t@ is the type of timers in the supporting monad.
 -- * @handlerconfig@ is the type of event handlers. Currently supported types are @NoHandlers@ and @LogUpdateHandlers@.
-data SkovConfig (pv :: ProtocolVersion) finconfig handlerconfig = SkovConfig GlobalStateConfig !finconfig !handlerconfig
+data SkovConfig (pv :: ProtocolVersion) finconfig handlerconfig = SkovConfig !GlobalStateConfig !finconfig !handlerconfig
 
 -- |The type of contexts (i.e. read only data) for the skov configuration type.
 data family SkovContext c
