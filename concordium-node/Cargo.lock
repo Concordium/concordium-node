@@ -528,6 +528,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "concordium-wasm"
+version = "1.0.0"
+dependencies = [
+ "anyhow",
+ "concordium-contracts-common",
+ "derive_more",
+ "leb128",
+ "num_enum",
+]
+
+[[package]]
 name = "concordium_base"
 version = "0.1.0"
 dependencies = [
@@ -4290,6 +4301,7 @@ dependencies = [
  "anyhow",
  "byteorder",
  "concordium-contracts-common",
+ "concordium-wasm",
  "derive_more",
  "ed25519-zebra",
  "libc",
@@ -4302,18 +4314,6 @@ dependencies = [
  "slab",
  "thiserror",
  "tinyvec",
- "wasm-transform",
-]
-
-[[package]]
-name = "wasm-transform"
-version = "0.1.1"
-dependencies = [
- "anyhow",
- "concordium-contracts-common",
- "derive_more",
- "leb128",
- "num_enum",
 ]
 
 [[package]]
