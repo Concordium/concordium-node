@@ -474,13 +474,13 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
     -- |Get the currently-registered (i.e. active) bakers with their delegators, as well as the
     -- set of passive delegators. In each case, the lists are ordered in ascending Id order,
     -- with no duplicates.
-    getActiveBakersAndDelegators :: (SupportsDelegation (MPV m)) => BlockState m -> m ([ActiveBakerInfo m], [ActiveDelegatorInfo])
+    getActiveBakersAndDelegators :: (PVSupportsDelegation (MPV m)) => BlockState m -> m ([ActiveBakerInfo m], [ActiveDelegatorInfo])
 
     -- |Get the registered delegators of a pool. Changes are reflected immediately here and will be effective in the next reward period.
     -- The baker id is used to identify the pool and Nothing is used for the passive delegators.
     -- Returns Nothing if it fails to identify the baker pool. Should always return a value for the passive delegators.
     getActiveDelegators ::
-        (SupportsDelegation (MPV m)) =>
+        (PVSupportsDelegation (MPV m)) =>
         BlockState m ->
         -- |Nothing for the passive pool, otherwise the baker id of the pool.
         Maybe BakerId ->
@@ -490,7 +490,7 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
     -- The baker id is used to identify the pool and Nothing is used for the passive delegators.
     -- Returns Nothing if it fails to identify the baker pool. Should always return a value for the passive delegators.
     getCurrentDelegators ::
-        (SupportsDelegation (MPV m)) =>
+        (PVSupportsDelegation (MPV m)) =>
         BlockState m ->
         -- |Nothing for the passive pool, otherwise the baker id of the pool.
         Maybe BakerId ->
@@ -569,19 +569,26 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
 
     -- |Get the value of the election difficulty parameter for a future timestamp.
     -- This function applies queued election difficultly updates as appropriate.
-    getElectionDifficulty :: BlockState m -> Timestamp -> m ElectionDifficulty
+    getElectionDifficulty ::
+        (ConsensusParametersVersionFor (ChainParametersVersionFor (MPV m)) ~ 'ConsensusParametersVersion0) =>
+        BlockState m ->
+        Timestamp ->
+        m ElectionDifficulty
 
     -- |Get the next sequence number for a particular update type.
     getNextUpdateSequenceNumber :: BlockState m -> UpdateType -> m UpdateSequenceNumber
 
     -- |Get the value of the election difficulty that was used to bake this block.
-    getCurrentElectionDifficulty :: BlockState m -> m ElectionDifficulty
+    getCurrentElectionDifficulty ::
+        (ConsensusParametersVersionFor (ChainParametersVersionFor (MPV m)) ~ 'ConsensusParametersVersion0) =>
+        BlockState m ->
+        m ElectionDifficulty
 
     -- |Get the current chain parameters and pending updates.
     getUpdates :: BlockState m -> m (UQ.Updates (MPV m))
 
     -- |Get pending changes to the time parameters.
-    getPendingTimeParameters :: BlockState m -> m [(TransactionTime, TimeParameters (ChainParametersVersionFor (MPV m)))]
+    getPendingTimeParameters :: BlockState m -> m [(TransactionTime, TimeParameters)]
 
     -- |Get pending changes to the pool parameters.
     getPendingPoolParameters :: BlockState m -> m [(TransactionTime, PoolParameters (ChainParametersVersionFor (MPV m)))]
@@ -596,19 +603,19 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
     getCryptographicParameters :: BlockState m -> m CryptographicParameters
 
     -- |Get the block's UpdateKeysCollection
-    getUpdateKeysCollection :: BlockState m -> m (UpdateKeysCollection (ChainParametersVersionFor (MPV m)))
+    getUpdateKeysCollection :: BlockState m -> m (UpdateKeysCollection (AuthorizationsVersionForPV (MPV m)))
 
     -- |Get the current exchange rates, which are the Euro per NRG, micro CCD per Euro and the derived energy to microCCD rate.
     getExchangeRates :: BlockState m -> m ExchangeRates
 
     -- |Get the epoch time of the next scheduled payday.
-    getPaydayEpoch :: (SupportsDelegation (MPV m)) => BlockState m -> m Epoch
+    getPaydayEpoch :: (PVSupportsDelegation (MPV m)) => BlockState m -> m Epoch
 
     -- |Get a 'PoolStatus' record describing the status of a baker pool (when the 'BakerId' is
     -- provided) or the passive delegators (when 'Nothing' is provided). The result is 'Nothing'
     -- if the 'BakerId' is not currently a baker.
     getPoolStatus ::
-        (SupportsDelegation (MPV m)) =>
+        (PVSupportsDelegation (MPV m)) =>
         BlockState m ->
         Maybe BakerId ->
         m (Maybe PoolStatus)
@@ -812,7 +819,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
 
     -- |Update the set containing the next epoch bakers, to use for next epoch.
     bsoSetNextEpochBakers ::
-        (SupportsDelegation (MPV m)) =>
+        (PVSupportsDelegation (MPV m)) =>
         UpdatableBlockState m ->
         [(BakerInfoRef m, Amount)] ->
         m (UpdatableBlockState m)
@@ -844,7 +851,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
     -- the delegation from the active bakers index.
     -- For delegators pending stake reduction, this reduces the stake.
     bsoProcessPendingChanges ::
-        (SupportsDelegation (MPV m)) =>
+        (PVSupportsDelegation (MPV m)) =>
         UpdatableBlockState m ->
         -- |Guard determining if a change is effective
         (Timestamp -> Bool) ->
@@ -857,7 +864,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
     -- set of passive delegators. In each case, the lists are ordered in ascending Id order,
     -- with no duplicates.
     bsoGetActiveBakersAndDelegators ::
-        (SupportsDelegation (MPV m)) =>
+        (PVSupportsDelegation (MPV m)) =>
         UpdatableBlockState m ->
         m ([ActiveBakerInfo m], [ActiveDelegatorInfo])
 
@@ -865,11 +872,11 @@ class (BlockStateQuery m) => BlockStateOperations m where
     bsoGetCurrentEpochBakers :: UpdatableBlockState m -> m FullBakers
 
     -- |Get the bakers for the epoch in which the block was baked, together with their commission rates.
-    bsoGetCurrentEpochFullBakersEx :: (SupportsDelegation (MPV m)) => UpdatableBlockState m -> m FullBakersEx
+    bsoGetCurrentEpochFullBakersEx :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> m FullBakersEx
 
     -- |Get the bakers for the epoch in which the block was baked.
     bsoGetCurrentCapitalDistribution ::
-        (SupportsDelegation (MPV m)) =>
+        (PVSupportsDelegation (MPV m)) =>
         UpdatableBlockState m ->
         m CapitalDistribution
 
@@ -978,7 +985,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
     --
     -- Note: in the case of an early return (i.e. not @BCSuccess@), the state is not updated.
     bsoConfigureBaker ::
-        (SupportsDelegation (MPV m)) =>
+        (PVSupportsDelegation (MPV m)) =>
         UpdatableBlockState m ->
         AccountIndex ->
         BakerConfigure ->
@@ -987,7 +994,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
     -- |Constrain the baker's commission rates to fall in the given ranges.
     -- If the account is invalid or not a baker, this does nothing.
     bsoConstrainBakerCommission ::
-        (SupportsDelegation (MPV m)) =>
+        (PVSupportsDelegation (MPV m)) =>
         UpdatableBlockState m ->
         AccountIndex ->
         CommissionRanges ->
@@ -1068,7 +1075,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
     -- However, this behaviour is not guaranteed, and could result in violations of the state
     -- invariants.
     bsoConfigureDelegation ::
-        (SupportsDelegation (MPV m)) =>
+        (PVSupportsDelegation (MPV m)) =>
         UpdatableBlockState m ->
         AccountIndex ->
         DelegationConfigure ->
@@ -1152,37 +1159,37 @@ class (BlockStateQuery m) => BlockStateOperations m where
 
     -- |Function 'bsoGetBakerPoolRewardDetails' returns a map with the 'BakerPoolRewardDetails' for each
     -- current-epoch baker (in the 'CapitalDistribution' returned by 'bsoGetCurrentCapitalDistribution').
-    bsoGetBakerPoolRewardDetails :: SupportsDelegation (MPV m) => UpdatableBlockState m -> m (Map.Map BakerId BakerPoolRewardDetails)
+    bsoGetBakerPoolRewardDetails :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> m (Map.Map BakerId BakerPoolRewardDetails)
 
     -- |Update the transaction fee rewards accruing to a baker pool by the specified delta. It is a
     -- precondition that the given baker is a current-epoch baker.
     -- Note, in practice, this is only used to increase the amount accrued to a baker
     -- as 'bsoRotateCurrentCapitalDistribution' resets the rewards to bakers.
-    bsoUpdateAccruedTransactionFeesBaker :: SupportsDelegation (MPV m) => UpdatableBlockState m -> BakerId -> AmountDelta -> m (UpdatableBlockState m)
+    bsoUpdateAccruedTransactionFeesBaker :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> BakerId -> AmountDelta -> m (UpdatableBlockState m)
 
     -- |Mark that the given bakers have signed a finalization proof included in a block during the
     -- reward period. Any baker ids that are not current-epoch bakers will be ignored.
     -- (This is significant, as the finalization record in a block may be signed by a finalizer that
     -- has since been removed as a baker.)
     -- Note, the finalization-awake status is reset by 'bsoRotateCurrentCapitalDistribution'.
-    bsoMarkFinalizationAwakeBakers :: SupportsDelegation (MPV m) => UpdatableBlockState m -> [BakerId] -> m (UpdatableBlockState m)
+    bsoMarkFinalizationAwakeBakers :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> [BakerId] -> m (UpdatableBlockState m)
 
     -- |Update the transaction fee rewards accrued to be distributed to the passive delegators.
     -- Note, unlike 'bsoUpdateAccruedTransactionFeesBaker', this is __not__ reset by
     -- 'bsoRotateCurrentCapitalDistribution'. When the passive rewards are paid out, this function is
     -- called to reduce the accrued rewards by the corresponding amount.
-    bsoUpdateAccruedTransactionFeesPassive :: SupportsDelegation (MPV m) => UpdatableBlockState m -> AmountDelta -> m (UpdatableBlockState m)
+    bsoUpdateAccruedTransactionFeesPassive :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> AmountDelta -> m (UpdatableBlockState m)
 
     -- |Get the accrued transaction fee rewards to the passive delegators.
-    bsoGetAccruedTransactionFeesPassive :: SupportsDelegation (MPV m) => UpdatableBlockState m -> m Amount
+    bsoGetAccruedTransactionFeesPassive :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> m Amount
 
     -- |Update the transaction fee rewards accruing to the foundation account.
     -- As with 'bsoUpdateAccruedTransactionFeesPassive', this is used to accrue the rewards and to
     -- reset the accrued amount when the rewards are paid out.
-    bsoUpdateAccruedTransactionFeesFoundationAccount :: SupportsDelegation (MPV m) => UpdatableBlockState m -> AmountDelta -> m (UpdatableBlockState m)
+    bsoUpdateAccruedTransactionFeesFoundationAccount :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> AmountDelta -> m (UpdatableBlockState m)
 
     -- |Get the transaction fee rewards accruing to the foundation account.
-    bsoGetAccruedTransactionFeesFoundationAccount :: SupportsDelegation (MPV m) => UpdatableBlockState m -> m Amount
+    bsoGetAccruedTransactionFeesFoundationAccount :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> m Amount
 
     -- |Add an amount to the foundation account.
     bsoRewardFoundationAccount :: UpdatableBlockState m -> Amount -> m (UpdatableBlockState m)
@@ -1208,16 +1215,16 @@ class (BlockStateQuery m) => BlockStateOperations m where
     bsoGetCryptoParams :: UpdatableBlockState m -> m CryptographicParameters
 
     -- |Get the epoch time of the next scheduled payday.
-    bsoGetPaydayEpoch :: (SupportsDelegation (MPV m)) => UpdatableBlockState m -> m Epoch
+    bsoGetPaydayEpoch :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> m Epoch
 
     -- |Get the mint rate of the next scheduled payday.
-    bsoGetPaydayMintRate :: (SupportsDelegation (MPV m)) => UpdatableBlockState m -> m MintRate
+    bsoGetPaydayMintRate :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> m MintRate
 
     -- |Set the epoch of the next scheduled payday.
-    bsoSetPaydayEpoch :: (SupportsDelegation (MPV m)) => UpdatableBlockState m -> Epoch -> m (UpdatableBlockState m)
+    bsoSetPaydayEpoch :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> Epoch -> m (UpdatableBlockState m)
 
     -- |Set the mint rate of the next scheduled payday.
-    bsoSetPaydayMintRate :: (SupportsDelegation (MPV m)) => UpdatableBlockState m -> MintRate -> m (UpdatableBlockState m)
+    bsoSetPaydayMintRate :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> MintRate -> m (UpdatableBlockState m)
 
     -- |Set the transaction outcomes for the block.
     bsoSetTransactionOutcomes :: UpdatableBlockState m -> [TransactionSummary] -> m (UpdatableBlockState m)
@@ -1237,7 +1244,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
     -- |Get the current 'Authorizations' for validating updates.
     bsoGetUpdateKeyCollection ::
         UpdatableBlockState m ->
-        m (UpdateKeysCollection (ChainParametersVersionFor (MPV m)))
+        m (UpdateKeysCollection (AuthorizationsVersionForPV (MPV m)))
 
     -- |Get the next 'UpdateSequenceNumber' for a given update type.
     bsoGetNextUpdateSequenceNumber :: UpdatableBlockState m -> UpdateType -> m UpdateSequenceNumber
@@ -1253,7 +1260,12 @@ class (BlockStateQuery m) => BlockStateOperations m where
     -- This is intended to be used for protocol updates that affect the election difficulty in
     -- tandem with the slot duration.
     -- Note that this does not affect the next sequence number for election difficulty updates.
-    bsoOverwriteElectionDifficulty :: UpdatableBlockState m -> ElectionDifficulty -> m (UpdatableBlockState m)
+    bsoOverwriteElectionDifficulty ::
+        ( ConsensusParametersVersionFor (ChainParametersVersionFor (MPV m)) ~ 'ConsensusParametersVersion0
+        ) =>
+        UpdatableBlockState m ->
+        ElectionDifficulty ->
+        m (UpdatableBlockState m)
 
     -- |Clear the protocol update and any queued protocol updates.
     -- This is intended to be used to reset things after a protocol update has taken effect.
@@ -1283,7 +1295,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
 
     -- |Set the next capital distribution.
     bsoSetNextCapitalDistribution ::
-        (SupportsDelegation (MPV m)) =>
+        (PVSupportsDelegation (MPV m)) =>
         UpdatableBlockState m ->
         CapitalDistribution ->
         m (UpdatableBlockState m)
@@ -1292,7 +1304,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
     -- The next capital distribution is unchanged.
     -- This also clears transaction rewards and block counts accruing to baker pools.
     -- The passive delegator and foundation transaction rewards are not affected.
-    bsoRotateCurrentCapitalDistribution :: (SupportsDelegation (MPV m)) => UpdatableBlockState m -> m (UpdatableBlockState m)
+    bsoRotateCurrentCapitalDistribution :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> m (UpdatableBlockState m)
 
     -- |Get the current status of the various accounts.
     bsoGetBankStatus :: UpdatableBlockState m -> m BankStatus

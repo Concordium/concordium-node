@@ -86,6 +86,7 @@ instance Skov.HandlerConfig UpdateHandler where
 
 instance
     ( IsProtocolVersion pv,
+      Skov.IsConsensusV0 pv,
       MultiVersionStateConfig gc,
       MultiVersion gc fc,
       Skov.SkovConfiguration gc fc UpdateHandler
@@ -266,14 +267,14 @@ activateConfiguration (EVersionedConfiguration vc) = do
 class MultiVersion gsconf finconf where
     -- |Convert a 'VersionedConfiguration' to an 'EVersionedConfiguration'.
     newVersion ::
-        IsProtocolVersion pv =>
+        (IsProtocolVersion pv, Skov.IsConsensusV0 pv) =>
         VersionedConfiguration gsconf finconf pv ->
         EVersionedConfiguration gsconf finconf
 
     -- |Supply a 'VersionedSkovM' action with instances of 'SkovMonad', 'FinalizationMonad' and
     -- 'TreeStateMonad'.
     liftSkov ::
-        IsProtocolVersion pv =>
+        (IsProtocolVersion pv, Skov.IsConsensusV0 pv) =>
         ( ( Skov.SkovMonad (VersionedSkovM gsconf finconf pv),
             FinalizationMonad (VersionedSkovM gsconf finconf pv),
             TreeStateMonad (VersionedSkovM gsconf finconf pv)
@@ -283,7 +284,7 @@ class MultiVersion gsconf finconf where
         VersionedSkovM gsconf finconf pv a
 
 instance
-    ( forall pv. IsProtocolVersion pv => BakerMonad (VersionedSkovM gsconf finconf pv),
+    ( forall pv. (IsProtocolVersion pv, Skov.IsConsensusV0 pv) => BakerMonad (VersionedSkovM gsconf finconf pv),
       forall pv. IsProtocolVersion pv => TreeStateMonad (VersionedSkovM gsconf finconf pv)
     ) =>
     MultiVersion gsconf finconf
@@ -403,42 +404,44 @@ newGenesis ::
     -- |Absolute height of the new genesis block
     AbsoluteBlockHeight ->
     MVR gsconf finconf ()
-newGenesis (PVGenesisData (gd :: GenesisData pv)) vcGenesisHeight =
-    MVR $
-        \MultiVersionRunner
-            { mvCallbacks = Callbacks{..},
-              mvConfiguration = MultiVersionConfiguration{..},
-              ..
-            } -> do
-                mvLog Runner LLInfo $
-                    "Starting new chain"
-                        ++ " at absolute height "
-                        ++ show vcGenesisHeight
-                oldVersions <- readIORef mvVersions
-                let vcIndex = fromIntegral (length oldVersions)
-                (vcContext, st) <-
-                    runLoggerT
-                        ( Skov.initialiseNewSkov
-                            gd
-                            ( Skov.SkovConfig @pv @gsconf @finconf
-                                ( globalStateConfig
-                                    mvcStateConfig
-                                    mvcRuntimeParameters
-                                    vcIndex
-                                    vcGenesisHeight
+newGenesis (PVGenesisData (gd :: GenesisData pv)) vcGenesisHeight = case sConsensusParametersVersionFor (chainParametersVersion @(ChainParametersVersionFor pv)) of
+    SConsensusParametersVersion0 ->
+        MVR $
+            \MultiVersionRunner
+                { mvCallbacks = Callbacks{..},
+                  mvConfiguration = MultiVersionConfiguration{..},
+                  ..
+                } -> do
+                    mvLog Runner LLInfo $
+                        "Starting new chain"
+                            ++ " at absolute height "
+                            ++ show vcGenesisHeight
+                    oldVersions <- readIORef mvVersions
+                    let vcIndex = fromIntegral (length oldVersions)
+                    (vcContext, st) <-
+                        runLoggerT
+                            ( Skov.initialiseNewSkov
+                                gd
+                                ( Skov.SkovConfig @pv @gsconf @finconf
+                                    ( globalStateConfig
+                                        mvcStateConfig
+                                        mvcRuntimeParameters
+                                        vcIndex
+                                        vcGenesisHeight
+                                    )
+                                    mvcFinalizationConfig
+                                    UpdateHandler
                                 )
-                                mvcFinalizationConfig
-                                UpdateHandler
                             )
-                        )
-                        mvLog
-                vcState <- newIORef st
-                let vcShutdown = Skov.shutdownSkov vcContext =<< liftIO (readIORef vcState)
-                let newEConfig :: VersionedConfiguration gsconf finconf pv
-                    newEConfig = VersionedConfiguration{..}
-                writeIORef mvVersions (oldVersions `Vec.snoc` newVersion newEConfig)
-                -- Notify the network layer we have a new genesis.
-                notifyRegenesis (Just (genesisBlockHash gd))
+                            mvLog
+                    vcState <- newIORef st
+                    let vcShutdown = Skov.shutdownSkov vcContext =<< liftIO (readIORef vcState)
+                    let newEConfig :: VersionedConfiguration gsconf finconf pv
+                        newEConfig = VersionedConfiguration{..}
+                    writeIORef mvVersions (oldVersions `Vec.snoc` newVersion newEConfig)
+                    -- Notify the network layer we have a new genesis.
+                    notifyRegenesis (Just (genesisBlockHash gd))
+    SConsensusParametersVersion1 -> error "New consensus version not implemented yet." -- TODO: implement
 
 -- |Determine if a protocol update has occurred, and handle it.
 -- When a protocol update first becomes pending, this logs the update that will occur (if it is
@@ -451,6 +454,7 @@ newGenesis (PVGenesisData (gd :: GenesisData pv)) vcGenesisHeight =
 checkForProtocolUpdate ::
     forall lastpv gc fc.
     ( IsProtocolVersion lastpv,
+      Skov.IsConsensusV0 lastpv,
       MultiVersionStateConfig gc,
       MultiVersion gc fc,
       Skov.SkovConfiguration gc fc UpdateHandler
@@ -466,55 +470,57 @@ checkForProtocolUpdate = liftSkov body
     body =
         check >>= \case
             Nothing -> return ()
-            Just (PVInit{pvInitGenesis = nextGenesis :: Regenesis newpv, ..}) -> do
-                MultiVersionRunner{..} <- lift ask
-                existingVersions <- liftIO (readIORef mvVersions)
-                latestEraGenesisHeight <- liftIO $ do
-                    cfgs <- readIORef mvVersions
-                    case Vec.last cfgs of
-                        EVersionedConfiguration vc -> return (vcGenesisHeight vc)
-                let vcIndex = fromIntegral (length existingVersions)
-                -- construct the the new skov instance
-                let vcGenesisHeight = 1 + localToAbsoluteBlockHeight latestEraGenesisHeight pvInitFinalHeight
-                let newGSConfig =
-                        ( Skov.SkovConfig @newpv @gc @fc
-                            ( globalStateConfig
-                                (mvcStateConfig mvConfiguration)
-                                (mvcRuntimeParameters mvConfiguration)
-                                vcIndex
-                                vcGenesisHeight
-                            )
-                            (mvcFinalizationConfig mvConfiguration)
-                            UpdateHandler
-                        )
-                -- clear data we no longer need after the protocol update
-                Skov.clearSkovOnProtocolUpdate
-                -- migrate the final block state into the new skov instance, and establish
-                -- all the necessary transaction table, and other, invariants.
-                (vcContext, st) <- do
-                    ctx <- ask
-                    Skov.SkovT $ do
-                        currentState <- State.get
-                        liftIO $
-                            runLoggerT
-                                (Skov.migrateExistingSkov ctx currentState pvInitMigration nextGenesis newGSConfig)
-                                mvLog
-                -- Close down and resources that the old instance retains. We do this after
-                -- since, e.g., caches and the transaction table are needed during migration.
-                Skov.terminateSkov
-                -- wrap up, notify the network layer, and add the new instance to
-                -- the end of the mvVersions list
-                liftIO $ do
-                    vcState <- liftIO $ newIORef st
-                    let vcShutdown = Skov.shutdownSkov vcContext =<< liftIO (readIORef vcState)
-                    let newEConfig :: VersionedConfiguration gc fc newpv
-                        newEConfig = VersionedConfiguration{..}
-                    writeIORef mvVersions (existingVersions `Vec.snoc` newVersion newEConfig)
-                    -- Notify the network layer we have a new genesis.
-                    let Callbacks{..} = mvCallbacks
-                    liftIO $ notifyRegenesis (Just (regenesisBlockHash nextGenesis))
-                    return ()
-
+            Just (PVInit{pvInitGenesis = nextGenesis :: Regenesis newpv, ..}) ->
+                case sConsensusParametersVersionFor (chainParametersVersion @(ChainParametersVersionFor newpv)) of
+                    SConsensusParametersVersion0 -> do
+                        MultiVersionRunner{..} <- lift ask
+                        existingVersions <- liftIO (readIORef mvVersions)
+                        latestEraGenesisHeight <- liftIO $ do
+                            cfgs <- readIORef mvVersions
+                            case Vec.last cfgs of
+                                EVersionedConfiguration vc -> return (vcGenesisHeight vc)
+                        let vcIndex = fromIntegral (length existingVersions)
+                        -- construct the the new skov instance
+                        let vcGenesisHeight = 1 + localToAbsoluteBlockHeight latestEraGenesisHeight pvInitFinalHeight
+                        let newGSConfig =
+                                ( Skov.SkovConfig @newpv @gc @fc
+                                    ( globalStateConfig
+                                        (mvcStateConfig mvConfiguration)
+                                        (mvcRuntimeParameters mvConfiguration)
+                                        vcIndex
+                                        vcGenesisHeight
+                                    )
+                                    (mvcFinalizationConfig mvConfiguration)
+                                    UpdateHandler
+                                )
+                        -- clear data we no longer need after the protocol update
+                        Skov.clearSkovOnProtocolUpdate
+                        -- migrate the final block state into the new skov instance, and establish
+                        -- all the necessary transaction table, and other, invariants.
+                        (vcContext, st) <- do
+                          ctx <- ask
+                          Skov.SkovT $ do
+                            currentState <- State.get
+                            liftIO $
+                                runLoggerT
+                                    (Skov.migrateExistingSkov ctx currentState pvInitMigration nextGenesis newGSConfig)
+                                    mvLog
+                        -- Close down and resources that the old instance retains. We do this after
+                        -- since, e.g., caches and the transaction table are needed during migration.
+                        Skov.terminateSkov
+                        -- wrap up, notify the network layer, and add the new instance to
+                        -- the end of the mvVersions list
+                        liftIO $ do
+                            vcState <- liftIO $ newIORef st
+                            let vcShutdown = Skov.shutdownSkov vcContext =<< liftIO (readIORef vcState)
+                            let newEConfig :: VersionedConfiguration gc fc newpv
+                                newEConfig = VersionedConfiguration{..}
+                            writeIORef mvVersions (existingVersions `Vec.snoc` newVersion newEConfig)
+                            -- Notify the network layer we have a new genesis.
+                            let Callbacks{..} = mvCallbacks
+                            liftIO $ notifyRegenesis (Just (regenesisBlockHash nextGenesis))
+                            return ()
+                    SConsensusParametersVersion1 -> error "New consensus version not implemented yet." -- TODO: implement
     showPU ProtocolUpdate{..} =
         Text.unpack puMessage
             ++ "\n["
@@ -660,80 +666,82 @@ startupSkov genesis = do
             AbsoluteBlockHeight ->
             -- \^Absolute block height of the genesis block of the new chain.
             MVR gsconf finconf ()
-        loop (SomeProtocolVersion (_ :: SProtocolVersion pv)) first vcIndex vcGenesisHeight = do
-            let comp =
-                    MVR $
-                        \mvr@MultiVersionRunner
-                            { mvCallbacks = Callbacks{..},
-                              mvConfiguration = MultiVersionConfiguration{..},
-                              ..
-                            } -> do
-                                r <-
-                                    runLoggerT
-                                        ( Skov.initialiseExistingSkov
-                                            ( Skov.SkovConfig @pv @gsconf @finconf
-                                                ( globalStateConfig
-                                                    mvcStateConfig
-                                                    mvcRuntimeParameters
-                                                    vcIndex
-                                                    vcGenesisHeight
+        loop (SomeProtocolVersion (_ :: SProtocolVersion pv)) first vcIndex vcGenesisHeight = case sConsensusParametersVersionFor (chainParametersVersion @(ChainParametersVersionFor pv)) of
+            SConsensusParametersVersion0 -> do
+                let comp =
+                        MVR $
+                            \mvr@MultiVersionRunner
+                                { mvCallbacks = Callbacks{..},
+                                  mvConfiguration = MultiVersionConfiguration{..},
+                                  ..
+                                } -> do
+                                    r <-
+                                        runLoggerT
+                                            ( Skov.initialiseExistingSkov
+                                                ( Skov.SkovConfig @pv @gsconf @finconf
+                                                    ( globalStateConfig
+                                                        mvcStateConfig
+                                                        mvcRuntimeParameters
+                                                        vcIndex
+                                                        vcGenesisHeight
+                                                    )
+                                                    mvcFinalizationConfig
+                                                    UpdateHandler
                                                 )
-                                                mvcFinalizationConfig
-                                                UpdateHandler
                                             )
-                                        )
-                                        mvLog
-                                case r of
-                                    Just (vcContext, st) -> do
-                                        mvLog Runner LLTrace "Loaded configuration"
-                                        vcState <- newIORef st
-                                        let vcShutdown = Skov.shutdownSkov vcContext =<< liftIO (readIORef vcState)
-                                        let newEConfig :: VersionedConfiguration gsconf finconf pv
-                                            newEConfig = VersionedConfiguration{..}
-                                        oldVersions <- readIORef mvVersions
-                                        writeIORef mvVersions (oldVersions `Vec.snoc` newVersion newEConfig)
-                                        let getCurrentGenesisAndHeight :: VersionedSkovM gsconf finconf pv (BlockHash, AbsoluteBlockHeight, Maybe SomeProtocolVersion)
-                                            getCurrentGenesisAndHeight = liftSkov $ do
-                                                currentGenesis <- Skov.getGenesisData
-                                                lfHeight <- getLastFinalizedHeight
-                                                nextPV <- getNextProtocolVersion
-                                                return (_gcCurrentHash currentGenesis, localToAbsoluteBlockHeight vcGenesisHeight lfHeight, nextPV)
-                                        ((genesisHash, lastFinalizedHeight, nextPV), _) <- runMVR (Skov.runSkovT getCurrentGenesisAndHeight (mvrSkovHandlers newEConfig mvr) vcContext st) mvr
-                                        notifyRegenesis (Just genesisHash)
-                                        mvLog Runner LLTrace "Load configuration done"
-                                        return (Left (newVersion newEConfig, lastFinalizedHeight, nextPV))
-                                    Nothing ->
-                                        case first of
-                                            Nothing -> return (Right Nothing)
-                                            Just newEConfig -> return (Right (Just newEConfig))
-            comp >>= \case
-                -- We successfully loaded a configuration.
-                Left (newEConfig@(EVersionedConfiguration newEConfig'), lastFinalizedHeight, nextPV) ->
-                    -- If there is a next protocol then we attempt another loop.
-                    -- If there isn't we attempt to start with the last loaded
-                    -- state as the active state.
-                    case nextPV of
-                        Nothing -> do
-                            mvrLogIO $ activateConfiguration newEConfig
-                            liftSkovUpdate newEConfig' checkForProtocolUpdate
-                        Just nextSPV -> loop nextSPV (Just newEConfig) (vcIndex + 1) (fromIntegral lastFinalizedHeight + 1)
-                -- We failed to load anything in the first iteration of the
-                -- loop. Decode the provided genesis and attempt to start the
-                -- chain.
-                Right Nothing -> do
-                    logEvent Runner LLTrace "Attempting to decode genesis"
-                    case genesis of
-                        Left genBS -> case runGet getPVGenesisData genBS of
-                            Left err -> do
-                                logEvent Runner LLError $ "Failed to decode genesis data: " ++ err
-                                throwM (InvalidGenesisData err)
+                                            mvLog
+                                    case r of
+                                        Just (vcContext, st) -> do
+                                            mvLog Runner LLTrace "Loaded configuration"
+                                            vcState <- newIORef st
+                                            let vcShutdown = Skov.shutdownSkov vcContext =<< liftIO (readIORef vcState)
+                                            let newEConfig :: VersionedConfiguration gsconf finconf pv
+                                                newEConfig = VersionedConfiguration{..}
+                                            oldVersions <- readIORef mvVersions
+                                            writeIORef mvVersions (oldVersions `Vec.snoc` newVersion newEConfig)
+                                            let getCurrentGenesisAndHeight :: VersionedSkovM gsconf finconf pv (BlockHash, AbsoluteBlockHeight, Maybe SomeProtocolVersion)
+                                                getCurrentGenesisAndHeight = liftSkov $ do
+                                                    currentGenesis <- Skov.getGenesisData
+                                                    lfHeight <- getLastFinalizedHeight
+                                                    nextPV <- getNextProtocolVersion
+                                                    return (_gcCurrentHash currentGenesis, localToAbsoluteBlockHeight vcGenesisHeight lfHeight, nextPV)
+                                            ((genesisHash, lastFinalizedHeight, nextPV), _) <- runMVR (Skov.runSkovT getCurrentGenesisAndHeight (mvrSkovHandlers newEConfig mvr) vcContext st) mvr
+                                            notifyRegenesis (Just genesisHash)
+                                            mvLog Runner LLTrace "Load configuration done"
+                                            return (Left (newVersion newEConfig, lastFinalizedHeight, nextPV))
+                                        Nothing ->
+                                            case first of
+                                                Nothing -> return (Right Nothing)
+                                                Just newEConfig -> return (Right (Just newEConfig))
+                comp >>= \case
+                    -- We successfully loaded a configuration.
+                    Left (newEConfig@(EVersionedConfiguration newEConfig'), lastFinalizedHeight, nextPV) ->
+                        -- If there is a next protocol then we attempt another loop.
+                        -- If there isn't we attempt to start with the last loaded
+                        -- state as the active state.
+                        case nextPV of
+                            Nothing -> do
+                                mvrLogIO $ activateConfiguration newEConfig
+                                liftSkovUpdate newEConfig' checkForProtocolUpdate
+                            Just nextSPV -> loop nextSPV (Just newEConfig) (vcIndex + 1) (fromIntegral lastFinalizedHeight + 1)
+                    -- We failed to load anything in the first iteration of the
+                    -- loop. Decode the provided genesis and attempt to start the
+                    -- chain.
+                    Right Nothing -> do
+                        logEvent Runner LLTrace "Attempting to decode genesis"
+                        case genesis of
+                            Left genBS -> case runGet getPVGenesisData genBS of
+                                Left err -> do
+                                    logEvent Runner LLError $ "Failed to decode genesis data: " ++ err
+                                    throwM (InvalidGenesisData err)
+                                Right gd -> newGenesis gd 0
                             Right gd -> newGenesis gd 0
-                        Right gd -> newGenesis gd 0
-                -- We loaded some protocol versions. Attempt to start in the
-                -- last one we loaded.
-                Right (Just config@(EVersionedConfiguration newEConfig')) -> do
-                    mvrLogIO $ activateConfiguration config
-                    liftSkovUpdate newEConfig' checkForProtocolUpdate
+                    -- We loaded some protocol versions. Attempt to start in the
+                    -- last one we loaded.
+                    Right (Just config@(EVersionedConfiguration newEConfig')) -> do
+                        mvrLogIO $ activateConfiguration config
+                        liftSkovUpdate newEConfig' checkForProtocolUpdate
+            SConsensusParametersVersion1 -> error "New consensus not implemented yet." -- TODO: implement
     loop initProtocolVersion Nothing 0 0
 
 -- |Start a thread to periodically purge uncommitted transactions.
@@ -751,7 +759,7 @@ startTransactionPurgingThread mvr@MultiVersionRunner{..} =
                 forever $ do
                     threadDelay delay
                     mvLog Runner LLTrace "Purging transactions."
-                    withWriteLockIO mvr $ do
+                    (withWriteLockIO mvr :: IO () -> IO ()) $ do
                         EVersionedConfiguration vc <- Vec.last <$> readIORef mvVersions
                         runMVR (liftSkovUpdate vc Skov.purgeTransactions) mvr
             )

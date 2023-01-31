@@ -2,7 +2,9 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 -- |Implementation of the chain update mechanism with persistent storage: https://concordium.gitlab.io/whitepapers/update-mechanism/main.pdf
@@ -204,11 +206,11 @@ data PendingUpdates (cpv :: ChainParametersVersion) = PendingUpdates
       -- |Updates to the level 1 keys.
       pLevel1KeysUpdateQueue :: !(HashedBufferedRef (UpdateQueue (HigherLevelKeys Level1KeysKind))),
       -- |Updates to the level 2 keys.
-      pLevel2KeysUpdateQueue :: !(HashedBufferedRef (UpdateQueue (Authorizations cpv))),
+      pLevel2KeysUpdateQueue :: !(HashedBufferedRef (UpdateQueue (Authorizations (AuthorizationsVersionFor cpv)))),
       -- |Protocol updates.
       pProtocolQueue :: !(HashedBufferedRef (UpdateQueue ProtocolUpdate)),
       -- |Updates to the election difficulty parameter.
-      pElectionDifficultyQueue :: !(HashedBufferedRef (UpdateQueue ElectionDifficulty)),
+      pElectionDifficultyQueue :: !(HashedBufferedRefO 'PTElectionDifficulty cpv (UpdateQueue ElectionDifficulty)),
       -- |Updates to the euro:energy exchange rate.
       pEuroPerEnergyQueue :: !(HashedBufferedRef (UpdateQueue ExchangeRate)),
       -- |Updates to the GTU:euro exchange rate.
@@ -216,11 +218,11 @@ data PendingUpdates (cpv :: ChainParametersVersion) = PendingUpdates
       -- |Updates to the foundation account.
       pFoundationAccountQueue :: !(HashedBufferedRef (UpdateQueue AccountIndex)),
       -- |Updates to the mint distribution.
-      pMintDistributionQueue :: !(HashedBufferedRef (UpdateQueue (MintDistribution cpv))),
+      pMintDistributionQueue :: !(HashedBufferedRef (UpdateQueue (MintDistribution (MintDistributionVersionFor cpv)))),
       -- |Updates to the transaction fee distribution.
       pTransactionFeeDistributionQueue :: !(HashedBufferedRef (UpdateQueue TransactionFeeDistribution)),
       -- |Updates to the GAS rewards.
-      pGASRewardsQueue :: !(HashedBufferedRef (UpdateQueue GASRewards)),
+      pGASRewardsQueue :: !(HashedBufferedRef (UpdateQueue (GASRewards (GasRewardsVersionFor cpv)))),
       -- |Updates to the baker minimum threshold
       pPoolParametersQueue :: !(HashedBufferedRef (UpdateQueue (PoolParameters cpv))),
       -- |Additions to the set of anonymity revokers
@@ -228,9 +230,15 @@ data PendingUpdates (cpv :: ChainParametersVersion) = PendingUpdates
       -- |Additions to the set of identity providers
       pAddIdentityProviderQueue :: !(HashedBufferedRef (UpdateQueue IPS.IpInfo)),
       -- |Updates cooldown parameters
-      pCooldownParametersQueue :: !(HashedBufferedRefForCPV1 cpv (UpdateQueue (CooldownParameters 'ChainParametersV1))),
+      pCooldownParametersQueue :: !(HashedBufferedRefO 'PTCooldownParametersAccessStructure cpv (UpdateQueue (CooldownParameters cpv))),
       -- |Updates time parameters.
-      pTimeParametersQueue :: !(HashedBufferedRefForCPV1 cpv (UpdateQueue (TimeParameters 'ChainParametersV1)))
+      pTimeParametersQueue :: !(HashedBufferedRefO 'PTTimeParameters cpv (UpdateQueue TimeParameters)),
+      -- |Updates to the consensus version 2 timeout parameters (CPV2 onwards).
+      pTimeoutParametersQueue :: !(HashedBufferedRefO 'PTTimeoutParameters cpv (UpdateQueue TimeoutParameters)),
+      -- |Minimum block time for consensus version 2 (CPV2 onwards).
+      pMinBlockTimeQueue :: !(HashedBufferedRefO 'PTMinBlockTime cpv (UpdateQueue Duration)),
+      -- |Block energy limit (CPV2 onwards).
+      pBlockEnergyLimitQueue :: !(HashedBufferedRefO 'PTBlockEnergyLimit cpv (UpdateQueue Energy))
     }
 
 -- |See documentation of @migratePersistentBlockState@.
@@ -243,47 +251,104 @@ migratePendingUpdates ::
     StateMigrationParameters oldpv pv ->
     PendingUpdates (ChainParametersVersionFor oldpv) ->
     t m (PendingUpdates (ChainParametersVersionFor pv))
-migratePendingUpdates migration PendingUpdates{..} = do
+migratePendingUpdates migration PendingUpdates{..} = withCPVConstraints (chainParametersVersion @(ChainParametersVersionFor oldpv)) $ withCPVConstraints (chainParametersVersion @(ChainParametersVersionFor pv)) $ do
     newRootKeys <- migrateHashedBufferedRef (migrateUpdateQueue id) pRootKeysUpdateQueue
     newLevel1Keys <- migrateHashedBufferedRef (migrateUpdateQueue id) pLevel1KeysUpdateQueue
     newLevel2Keys <- migrateHashedBufferedRef (migrateUpdateQueue (migrateAuthorizations migration)) pLevel2KeysUpdateQueue
     newProtocol <- migrateHashedBufferedRef (migrateUpdateQueue id) pProtocolQueue
-    newElectionDifficulty <- migrateHashedBufferedRef (migrateUpdateQueue id) pElectionDifficultyQueue
     newEuroPerEnergy <- migrateHashedBufferedRef (migrateUpdateQueue id) pEuroPerEnergyQueue
     newMicroGTUPerEuro <- migrateHashedBufferedRef (migrateUpdateQueue id) pMicroGTUPerEuroQueue
     newFoundationAccount <- migrateHashedBufferedRef (migrateUpdateQueue id) pFoundationAccountQueue
-    newMintDistribution <- migrateHashedBufferedRef (migrateUpdateQueue (migrateMintDistribution migration)) pMintDistributionQueue
+    newMintDistribution <-
+        migrateHashedBufferedRef
+            (migrateUpdateQueue (migrateMintDistribution migration))
+            pMintDistributionQueue
     newTransactionFeeDistribution <- migrateHashedBufferedRef (migrateUpdateQueue id) pTransactionFeeDistributionQueue
-    newGASRewards <- migrateHashedBufferedRef (migrateUpdateQueue id) pGASRewardsQueue
-    newPoolParameters <- migrateHashedBufferedRef (migrateUpdateQueue (migratePoolParameters migration)) pPoolParametersQueue
+    newGASRewards <-
+        migrateHashedBufferedRef
+            (migrateUpdateQueue (migrateGASRewards migration))
+            pGASRewardsQueue
+    newPoolParameters <-
+        migrateHashedBufferedRef
+            (migrateUpdateQueue (migratePoolParameters migration))
+            pPoolParametersQueue
     newAddAnonymityRevokers <- migrateHashedBufferedRef (migrateUpdateQueue id) pAddAnonymityRevokerQueue
     newAddIdentityProviders <- migrateHashedBufferedRef (migrateUpdateQueue id) pAddIdentityProviderQueue
+    newElectionDifficulty <- case migration of
+        StateMigrationParametersTrivial -> case pElectionDifficultyQueue of
+            NoParam -> return NoParam
+            SomeParam hbr -> SomeParam <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
+        StateMigrationParametersP1P2 -> case pElectionDifficultyQueue of
+            SomeParam hbr -> SomeParam <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
+        StateMigrationParametersP2P3 -> case pElectionDifficultyQueue of
+            SomeParam hbr -> SomeParam <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
+        StateMigrationParametersP3ToP4{} -> case pElectionDifficultyQueue of
+            SomeParam hbr -> SomeParam <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
+        StateMigrationParametersP4ToP5{} -> case pElectionDifficultyQueue of
+            SomeParam hbr -> SomeParam <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
     newTimeParameters <- case migration of
         StateMigrationParametersTrivial -> case pTimeParametersQueue of
-            NothingForCPV1 -> return NothingForCPV1
-            JustForCPV1 hbr -> JustForCPV1 <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
+            NoParam -> return NoParam
+            SomeParam hbr -> SomeParam <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
         StateMigrationParametersP1P2 -> case pTimeParametersQueue of
-            NothingForCPV1 -> return NothingForCPV1
+            NoParam -> return NoParam
         StateMigrationParametersP2P3 -> case pTimeParametersQueue of
-            NothingForCPV1 -> return NothingForCPV1
+            NoParam -> return NoParam
         StateMigrationParametersP3ToP4{} -> do
             (!hbr, _) <- refFlush =<< refMake emptyUpdateQueue
-            return (JustForCPV1 hbr)
+            return (SomeParam hbr)
         StateMigrationParametersP4ToP5{} -> case pTimeParametersQueue of
-            JustForCPV1 hbr -> JustForCPV1 <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
+            SomeParam hbr -> SomeParam <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
     newCooldownParameters <- case migration of
         StateMigrationParametersTrivial -> case pCooldownParametersQueue of
-            NothingForCPV1 -> return NothingForCPV1
-            JustForCPV1 hbr -> JustForCPV1 <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
+            NoParam -> return NoParam
+            SomeParam hbr ->
+                SomeParam <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
         StateMigrationParametersP1P2 -> case pCooldownParametersQueue of
-            NothingForCPV1 -> return NothingForCPV1
+            NoParam -> return NoParam
         StateMigrationParametersP2P3 -> case pCooldownParametersQueue of
-            NothingForCPV1 -> return NothingForCPV1
+            NoParam -> return NoParam
         StateMigrationParametersP3ToP4{} -> do
             (!hbr, _) <- refFlush =<< refMake emptyUpdateQueue
-            return (JustForCPV1 hbr)
+            return (SomeParam hbr)
         StateMigrationParametersP4ToP5{} -> case pCooldownParametersQueue of
-            JustForCPV1 hbr -> JustForCPV1 <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
+            SomeParam hbr -> SomeParam <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
+    newTimeoutParameters <- case migration of
+        StateMigrationParametersTrivial -> case pTimeoutParametersQueue of
+            NoParam -> return NoParam
+            SomeParam hbr -> SomeParam <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
+        StateMigrationParametersP1P2 -> case pTimeoutParametersQueue of
+            NoParam -> return NoParam
+        StateMigrationParametersP2P3 -> case pTimeoutParametersQueue of
+            NoParam -> return NoParam
+        StateMigrationParametersP3ToP4{} -> case pTimeoutParametersQueue of
+            NoParam -> return NoParam
+        StateMigrationParametersP4ToP5{} -> case pTimeoutParametersQueue of
+            NoParam -> return NoParam
+    newMinBlockTimeQueue <- case migration of
+        StateMigrationParametersTrivial -> case pMinBlockTimeQueue of
+            NoParam -> return NoParam
+            SomeParam hbr -> SomeParam <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
+        StateMigrationParametersP1P2 -> case pMinBlockTimeQueue of
+            NoParam -> return NoParam
+        StateMigrationParametersP2P3 -> case pMinBlockTimeQueue of
+            NoParam -> return NoParam
+        StateMigrationParametersP3ToP4{} -> case pMinBlockTimeQueue of
+            NoParam -> return NoParam
+        StateMigrationParametersP4ToP5{} -> case pMinBlockTimeQueue of
+            NoParam -> return NoParam
+    newBlockEnergyLimitQueue <- case migration of
+        StateMigrationParametersTrivial -> case pBlockEnergyLimitQueue of
+            NoParam -> return NoParam
+            SomeParam hbr -> SomeParam <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
+        StateMigrationParametersP1P2 -> case pBlockEnergyLimitQueue of
+            NoParam -> return NoParam
+        StateMigrationParametersP2P3 -> case pBlockEnergyLimitQueue of
+            NoParam -> return NoParam
+        StateMigrationParametersP3ToP4{} -> case pBlockEnergyLimitQueue of
+            NoParam -> return NoParam
+        StateMigrationParametersP4ToP5{} -> case pBlockEnergyLimitQueue of
+            NoParam -> return NoParam
     return $!
         PendingUpdates
             { pRootKeysUpdateQueue = newRootKeys,
@@ -301,19 +366,22 @@ migratePendingUpdates migration PendingUpdates{..} = do
               pAddAnonymityRevokerQueue = newAddAnonymityRevokers,
               pAddIdentityProviderQueue = newAddIdentityProviders,
               pCooldownParametersQueue = newCooldownParameters,
-              pTimeParametersQueue = newTimeParameters
+              pTimeParametersQueue = newTimeParameters,
+              pTimeoutParametersQueue = newTimeoutParameters,
+              pMinBlockTimeQueue = newMinBlockTimeQueue,
+              pBlockEnergyLimitQueue = newBlockEnergyLimitQueue
             }
 
 instance
     (MonadBlobStore m, IsChainParametersVersion cpv) =>
     MHashableTo m H.Hash (PendingUpdates cpv)
     where
-    getHashM PendingUpdates{..} = do
+    getHashM PendingUpdates{..} = withCPVConstraints (chainParametersVersion @cpv) $ do
         hRootKeysUpdateQueue <- H.hashToByteString <$> getHashM pRootKeysUpdateQueue
         hLevel1KeysUpdateQueue <- H.hashToByteString <$> getHashM pLevel1KeysUpdateQueue
         hLevel2KeysUpdateQueue <- H.hashToByteString <$> getHashM pLevel2KeysUpdateQueue
         hProtocolQueue <- H.hashToByteString <$> getHashM pProtocolQueue
-        hElectionDifficultyQueue <- H.hashToByteString <$> getHashM pElectionDifficultyQueue
+        hElectionDifficultyQueue <- maybeWhenSupported (return mempty) (fmap H.hashToByteString . getHashM) pElectionDifficultyQueue
         hEuroPerEnergyQueue <- H.hashToByteString <$> getHashM pEuroPerEnergyQueue
         hMicroGTUPerEuroQueue <- H.hashToByteString <$> getHashM pMicroGTUPerEuroQueue
         hFoundationAccountQueue <- H.hashToByteString <$> getHashM pFoundationAccountQueue
@@ -323,8 +391,8 @@ instance
         hPoolParametersQueue <- H.hashToByteString <$> getHashM pPoolParametersQueue
         hAddAnonymityRevokerQueue <- H.hashToByteString <$> getHashM pAddAnonymityRevokerQueue
         hAddIdentityProviderQueue <- H.hashToByteString <$> getHashM pAddIdentityProviderQueue
-        hCooldownParametersQueue <- maybeForCPV1 (return mempty) (fmap H.hashToByteString . getHashM) pCooldownParametersQueue
-        hTimeParametersQueue <- maybeForCPV1 (return mempty) (fmap H.hashToByteString . getHashM) pTimeParametersQueue
+        hCooldownParametersQueue <- maybeWhenSupported (return mempty) (fmap H.hashToByteString . getHashM) pCooldownParametersQueue
+        hTimeParametersQueue <- maybeWhenSupported (return mempty) (fmap H.hashToByteString . getHashM) pTimeParametersQueue
         return $!
             H.hash $
                 hRootKeysUpdateQueue
@@ -348,7 +416,7 @@ instance
     (MonadBlobStore m, IsChainParametersVersion cpv) =>
     BlobStorable m (PendingUpdates cpv)
     where
-    storeUpdate PendingUpdates{..} = do
+    storeUpdate PendingUpdates{..} = withCPVConstraints (chainParametersVersion @cpv) $ do
         (pRKQ, rkQ) <- storeUpdate pRootKeysUpdateQueue
         (pL1KQ, l1kQ) <- storeUpdate pLevel1KeysUpdateQueue
         (pL2KQ, l2kQ) <- storeUpdate pLevel2KeysUpdateQueue
@@ -365,6 +433,9 @@ instance
         (putAddIdentityProviderQueue, newAddIdentityProviderQueue) <- storeUpdate pAddIdentityProviderQueue
         (putCooldownParametersQueue, newCooldownParametersQueue) <- storeUpdate pCooldownParametersQueue
         (putTimeParametersQueue, newTimeParametersQueue) <- storeUpdate pTimeParametersQueue
+        (putTimeoutParametersQueue, newTimeoutParametersQueue) <- storeUpdate pTimeoutParametersQueue
+        (putMinBlockTimeQueue, newMinBlockTimeQueue) <- storeUpdate pMinBlockTimeQueue
+        (putBlockEnergyLimitQueue, newBlockEnergyLimitQueue) <- storeUpdate pBlockEnergyLimitQueue
         let newPU =
                 PendingUpdates
                     { pRootKeysUpdateQueue = rkQ,
@@ -382,7 +453,10 @@ instance
                       pAddAnonymityRevokerQueue = newAddAnonymityRevokerQueue,
                       pAddIdentityProviderQueue = newAddIdentityProviderQueue,
                       pCooldownParametersQueue = newCooldownParametersQueue,
-                      pTimeParametersQueue = newTimeParametersQueue
+                      pTimeParametersQueue = newTimeParametersQueue,
+                      pTimeoutParametersQueue = newTimeoutParametersQueue,
+                      pMinBlockTimeQueue = newMinBlockTimeQueue,
+                      pBlockEnergyLimitQueue = newBlockEnergyLimitQueue
                     }
         let putPU =
                 pRKQ
@@ -401,8 +475,11 @@ instance
                     >> putAddIdentityProviderQueue
                     >> putCooldownParametersQueue
                     >> putTimeParametersQueue
+                    >> putTimeoutParametersQueue
+                    >> putMinBlockTimeQueue
+                    >> putBlockEnergyLimitQueue
         return (putPU, newPU)
-    load = do
+    load = withCPVConstraints (chainParametersVersion @cpv) $ do
         mRKQ <- label "Root keys update queue" load
         mL1KQ <- label "Level 1 keys update queue" load
         mL2KQ <- label "Level 2 keys update queue" load
@@ -419,6 +496,9 @@ instance
         mAddIdentityProviderQueue <- label "Add identity provider update queue" load
         mCooldownParametersQueue <- label "Cooldown parameters update queue" load
         mTimeParametersQueue <- label "Time parameters update queue" load
+        mTimeoutParametersQueue <- label "Timeout parameters update queue" load
+        mMinBlockTimeQueue <- label "Minimum block time update queue" load
+        mBlockEnergyLimitQueue <- label "Block energy limit update queue" load
         return $! do
             pRootKeysUpdateQueue <- mRKQ
             pLevel1KeysUpdateQueue <- mL1KQ
@@ -436,6 +516,9 @@ instance
             pAddIdentityProviderQueue <- mAddIdentityProviderQueue
             pCooldownParametersQueue <- mCooldownParametersQueue
             pTimeParametersQueue <- mTimeParametersQueue
+            pTimeoutParametersQueue <- mTimeoutParametersQueue
+            pMinBlockTimeQueue <- mMinBlockTimeQueue
+            pBlockEnergyLimitQueue <- mBlockEnergyLimitQueue
             return PendingUpdates{..}
 
 instance
@@ -443,23 +526,29 @@ instance
     Cacheable m (PendingUpdates cpv)
     where
     cache PendingUpdates{..} =
-        PendingUpdates
-            <$> cache pRootKeysUpdateQueue
-            <*> cache pLevel1KeysUpdateQueue
-            <*> cache pLevel2KeysUpdateQueue
-            <*> cache pProtocolQueue
-            <*> cache pElectionDifficultyQueue
-            <*> cache pEuroPerEnergyQueue
-            <*> cache pMicroGTUPerEuroQueue
-            <*> cache pFoundationAccountQueue
-            <*> cache pMintDistributionQueue
-            <*> cache pTransactionFeeDistributionQueue
-            <*> cache pGASRewardsQueue
-            <*> cache pPoolParametersQueue
-            <*> cache pAddAnonymityRevokerQueue
-            <*> cache pAddIdentityProviderQueue
-            <*> cache pCooldownParametersQueue
-            <*> cache pTimeParametersQueue
+        withCPVConstraints cpv $
+            PendingUpdates
+                <$> cache pRootKeysUpdateQueue
+                <*> cache pLevel1KeysUpdateQueue
+                <*> cache pLevel2KeysUpdateQueue
+                <*> cache pProtocolQueue
+                <*> cache pElectionDifficultyQueue
+                <*> cache pEuroPerEnergyQueue
+                <*> cache pMicroGTUPerEuroQueue
+                <*> cache pFoundationAccountQueue
+                <*> cache pMintDistributionQueue
+                <*> cache pTransactionFeeDistributionQueue
+                <*> cache pGASRewardsQueue
+                <*> cache pPoolParametersQueue
+                <*> cache pAddAnonymityRevokerQueue
+                <*> cache pAddIdentityProviderQueue
+                <*> cache pCooldownParametersQueue
+                <*> cache pTimeParametersQueue
+                <*> cache pTimeoutParametersQueue
+                <*> cache pMinBlockTimeQueue
+                <*> cache pBlockEnergyLimitQueue
+      where
+        cpv = chainParametersVersion @cpv
 
 -- |Serialize the pending updates.
 putPendingUpdatesV0 ::
@@ -467,12 +556,12 @@ putPendingUpdatesV0 ::
     (MonadBlobStore m, MonadPut m, IsChainParametersVersion cpv) =>
     PendingUpdates cpv ->
     m ()
-putPendingUpdatesV0 PendingUpdates{..} = do
+putPendingUpdatesV0 PendingUpdates{..} = withCPVConstraints (chainParametersVersion @cpv) $ do
     putUpdateQueueV0 =<< refLoad pRootKeysUpdateQueue
     putUpdateQueueV0 =<< refLoad pLevel1KeysUpdateQueue
     putUpdateQueueV0 =<< refLoad pLevel2KeysUpdateQueue
     putUpdateQueueV0 =<< refLoad pProtocolQueue
-    putUpdateQueueV0 =<< refLoad pElectionDifficultyQueue
+    mapM_ (putUpdateQueueV0 <=< refLoad) pElectionDifficultyQueue
     putUpdateQueueV0 =<< refLoad pEuroPerEnergyQueue
     putUpdateQueueV0 =<< refLoad pMicroGTUPerEuroQueue
     putUpdateQueueV0 =<< refLoad pFoundationAccountQueue
@@ -484,28 +573,32 @@ putPendingUpdatesV0 PendingUpdates{..} = do
     putUpdateQueueV0 =<< refLoad pAddIdentityProviderQueue
     mapM_ (putUpdateQueueV0 <=< refLoad) pCooldownParametersQueue
     mapM_ (putUpdateQueueV0 <=< refLoad) pTimeParametersQueue
+    mapM_ (putUpdateQueueV0 <=< refLoad) pTimeoutParametersQueue
+    mapM_ (putUpdateQueueV0 <=< refLoad) pMinBlockTimeQueue
+    mapM_ (putUpdateQueueV0 <=< refLoad) pBlockEnergyLimitQueue
 
 -- |Initial pending updates with empty queues.
 emptyPendingUpdates ::
     forall m cpv.
     (MonadBlobStore m, IsChainParametersVersion cpv) =>
     m (PendingUpdates cpv)
-emptyPendingUpdates = PendingUpdates <$> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> justForCPV1A e <*> justForCPV1A e
+emptyPendingUpdates = PendingUpdates <$> e <*> e <*> e <*> e <*> whenSupportedA e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> whenSupportedA e <*> whenSupportedA e <*> whenSupportedA e <*> whenSupportedA e <*> whenSupportedA e
   where
     e :: m (HashedBufferedRef (UpdateQueue a))
     e = makeHashedBufferedRef emptyUpdateQueue
 
 -- |Construct a persistent 'PendingUpdates' from an in-memory one.
 makePersistentPendingUpdates ::
+    forall m cpv.
     (MonadBlobStore m, IsChainParametersVersion cpv) =>
     UQ.PendingUpdates cpv ->
     m (PendingUpdates cpv)
-makePersistentPendingUpdates UQ.PendingUpdates{..} = do
+makePersistentPendingUpdates UQ.PendingUpdates{..} = withCPVConstraints (chainParametersVersion @cpv) $ do
     pRootKeysUpdateQueue <- refMake =<< makePersistentUpdateQueue _pRootKeysUpdateQueue
     pLevel1KeysUpdateQueue <- refMake =<< makePersistentUpdateQueue _pLevel1KeysUpdateQueue
     pLevel2KeysUpdateQueue <- refMake =<< makePersistentUpdateQueue _pLevel2KeysUpdateQueue
     pProtocolQueue <- refMake =<< makePersistentUpdateQueue _pProtocolQueue
-    pElectionDifficultyQueue <- refMake =<< makePersistentUpdateQueue _pElectionDifficultyQueue
+    pElectionDifficultyQueue <- mapM (refMake <=< makePersistentUpdateQueue) _pElectionDifficultyQueue
     pEuroPerEnergyQueue <- refMake =<< makePersistentUpdateQueue _pEuroPerEnergyQueue
     pMicroGTUPerEuroQueue <- refMake =<< makePersistentUpdateQueue _pMicroGTUPerEuroQueue
     pFoundationAccountQueue <- refMake =<< makePersistentUpdateQueue _pFoundationAccountQueue
@@ -515,21 +608,25 @@ makePersistentPendingUpdates UQ.PendingUpdates{..} = do
     pPoolParametersQueue <- refMake =<< makePersistentUpdateQueue _pPoolParametersQueue
     pAddAnonymityRevokerQueue <- refMake =<< makePersistentUpdateQueue _pAddAnonymityRevokerQueue
     pAddIdentityProviderQueue <- refMake =<< makePersistentUpdateQueue _pAddIdentityProviderQueue
-    pCooldownParametersQueue <- mapM ((refMake =<<) . makePersistentUpdateQueue) _pCooldownParametersQueue
-    pTimeParametersQueue <- mapM ((refMake =<<) . makePersistentUpdateQueue) _pTimeParametersQueue
+    pCooldownParametersQueue <- mapM (refMake <=< makePersistentUpdateQueue) _pCooldownParametersQueue
+    pTimeParametersQueue <- mapM (refMake <=< makePersistentUpdateQueue) _pTimeParametersQueue
+    pTimeoutParametersQueue <- mapM (refMake <=< makePersistentUpdateQueue) _pTimeoutParametersQueue
+    pMinBlockTimeQueue <- mapM (refMake <=< makePersistentUpdateQueue) _pMinBlockTimeQueue
+    pBlockEnergyLimitQueue <- mapM (refMake <=< makePersistentUpdateQueue) _pBlockEnergyLimitQueue
     return PendingUpdates{..}
 
 -- |Convert a persistent 'PendingUpdates' to an in-memory 'UQ.PendingUpdates'.
 makeBasicPendingUpdates ::
+    forall m cpv.
     (MonadBlobStore m, IsChainParametersVersion cpv) =>
     PendingUpdates cpv ->
     m (UQ.PendingUpdates cpv)
-makeBasicPendingUpdates PendingUpdates{..} = do
+makeBasicPendingUpdates PendingUpdates{..} = withCPVConstraints (chainParametersVersion @cpv) $ do
     _pRootKeysUpdateQueue <- makeBasicUpdateQueue =<< refLoad pRootKeysUpdateQueue
     _pLevel1KeysUpdateQueue <- makeBasicUpdateQueue =<< refLoad pLevel1KeysUpdateQueue
     _pLevel2KeysUpdateQueue <- makeBasicUpdateQueue =<< refLoad pLevel2KeysUpdateQueue
     _pProtocolQueue <- makeBasicUpdateQueue =<< refLoad pProtocolQueue
-    _pElectionDifficultyQueue <- makeBasicUpdateQueue =<< refLoad pElectionDifficultyQueue
+    _pElectionDifficultyQueue <- mapM (makeBasicUpdateQueue <=< refLoad) pElectionDifficultyQueue
     _pEuroPerEnergyQueue <- makeBasicUpdateQueue =<< refLoad pEuroPerEnergyQueue
     _pMicroGTUPerEuroQueue <- makeBasicUpdateQueue =<< refLoad pMicroGTUPerEuroQueue
     _pFoundationAccountQueue <- makeBasicUpdateQueue =<< refLoad pFoundationAccountQueue
@@ -539,14 +636,17 @@ makeBasicPendingUpdates PendingUpdates{..} = do
     _pPoolParametersQueue <- makeBasicUpdateQueue =<< refLoad pPoolParametersQueue
     _pAddAnonymityRevokerQueue <- makeBasicUpdateQueue =<< refLoad pAddAnonymityRevokerQueue
     _pAddIdentityProviderQueue <- makeBasicUpdateQueue =<< refLoad pAddIdentityProviderQueue
-    _pCooldownParametersQueue <- mapM ((makeBasicUpdateQueue =<<) . refLoad) pCooldownParametersQueue
-    _pTimeParametersQueue <- mapM ((makeBasicUpdateQueue =<<) . refLoad) pTimeParametersQueue
+    _pCooldownParametersQueue <- mapM (makeBasicUpdateQueue <=< refLoad) pCooldownParametersQueue
+    _pTimeParametersQueue <- mapM (makeBasicUpdateQueue <=< refLoad) pTimeParametersQueue
+    _pTimeoutParametersQueue <- mapM (makeBasicUpdateQueue <=< refLoad) pTimeoutParametersQueue
+    _pMinBlockTimeQueue <- mapM (makeBasicUpdateQueue <=< refLoad) pMinBlockTimeQueue
+    _pBlockEnergyLimitQueue <- mapM (makeBasicUpdateQueue <=< refLoad) pBlockEnergyLimitQueue
     return UQ.PendingUpdates{..}
 
 -- |Current state of updatable parameters and update queues.
 data Updates' (cpv :: ChainParametersVersion) = Updates
     { -- |Current update authorizations.
-      currentKeyCollection :: !(HashedBufferedRef (StoreSerialized (UpdateKeysCollection cpv))),
+      currentKeyCollection :: !(HashedBufferedRef (StoreSerialized (UpdateKeysCollection (AuthorizationsVersionFor cpv)))),
       -- |Current protocol update.
       currentProtocolUpdate :: !(Nullable (HashedBufferedRef (StoreSerialized ProtocolUpdate))),
       -- |Current chain parameters.
@@ -572,7 +672,12 @@ migrateUpdates migration Updates{..} = do
                 { level2Keys = migrateAuthorizations migration level2Keys,
                   ..
                 }
-    newKeyCollection <- migrateHashedBufferedRef (return . StoreSerialized . migrateKeysCollection . unStoreSerialized) currentKeyCollection
+    newKeyCollection <-
+        withIsAuthorizationsVersionForPV (protocolVersion @oldpv) $
+            withIsAuthorizationsVersionForPV (protocolVersion @pv) $
+                migrateHashedBufferedRef
+                    (return . StoreSerialized . migrateKeysCollection . unStoreSerialized)
+                    currentKeyCollection
     newParameters <- migrateHashedBufferedRef (return . StoreSerialized . migrateChainParameters migration . unStoreSerialized) currentParameters
     newCurrentProtocolUpdate <- case currentProtocolUpdate of
         Null -> return Null
@@ -589,7 +694,9 @@ type Updates (pv :: ProtocolVersion) = Updates' (ChainParametersVersionFor pv)
 
 instance (MonadBlobStore m, IsChainParametersVersion cpv) => MHashableTo m H.Hash (Updates' cpv) where
     getHashM Updates{..} = do
-        hCA <- getHashM currentKeyCollection
+        hCA <-
+            withIsAuthorizationsVersionFor (chainParametersVersion @cpv) $
+                getHashM currentKeyCollection
         mHCPU <- mapM getHashM currentProtocolUpdate
         hCP <- getHashM currentParameters
         hPU <- getHashM pendingUpdates
@@ -607,7 +714,9 @@ instance
     BlobStorable m (Updates' cpv)
     where
     storeUpdate Updates{..} = do
-        (pKC, kC) <- storeUpdate currentKeyCollection
+        (pKC, kC) <-
+            withIsAuthorizationsVersionFor (chainParametersVersion @cpv) $
+                storeUpdate currentKeyCollection
         (pCPU, cPU) <- storeUpdate currentProtocolUpdate
         (pCP, cP) <- storeUpdate currentParameters
         (pPU, pU) <- storeUpdate pendingUpdates
@@ -620,7 +729,9 @@ instance
                     }
         return (pKC >> pCPU >> pCP >> pPU, newUpdates)
     load = do
-        mKC <- label "Current key collection" load
+        mKC <-
+            withIsAuthorizationsVersionFor (chainParametersVersion @cpv) $
+                label "Current key collection" load
         mCPU <- label "Current protocol update" load
         mCP <- label "Current parameters" load
         mPU <- label "Pending updates" load
@@ -634,7 +745,7 @@ instance
 instance (MonadBlobStore m, IsChainParametersVersion cpv) => Cacheable m (Updates' cpv) where
     cache Updates{..} =
         Updates
-            <$> cache currentKeyCollection
+            <$> withIsAuthorizationsVersionFor (chainParametersVersion @cpv) (cache currentKeyCollection)
             <*> cache currentProtocolUpdate
             <*> cache currentParameters
             <*> cache pendingUpdates
@@ -643,7 +754,7 @@ instance (MonadBlobStore m, IsChainParametersVersion cpv) => Cacheable m (Update
 -- and 'ChainParameters'.
 initialUpdates ::
     (MonadBlobStore m, IsChainParametersVersion cpv) =>
-    UpdateKeysCollection cpv ->
+    UpdateKeysCollection (AuthorizationsVersionFor cpv) ->
     ChainParameters' cpv ->
     m (Updates' cpv)
 initialUpdates initialKeyCollection chainParams = do
@@ -655,10 +766,11 @@ initialUpdates initialKeyCollection chainParams = do
 
 -- |Make a persistent 'Updates' from an in-memory one.
 makePersistentUpdates ::
+    forall m cpv.
     (MonadBlobStore m, IsChainParametersVersion cpv) =>
     UQ.Updates' cpv ->
     m (Updates' cpv)
-makePersistentUpdates UQ.Updates{..} = do
+makePersistentUpdates UQ.Updates{..} = withIsAuthorizationsVersionFor (chainParametersVersion @cpv) $ do
     currentKeyCollection <- refMake (StoreSerialized (_unhashed _currentKeyCollection))
     currentProtocolUpdate <- case _currentProtocolUpdate of
         Nothing -> return Null
@@ -669,10 +781,11 @@ makePersistentUpdates UQ.Updates{..} = do
 
 -- |Convert a persistent 'Updates' to an in-memory 'UQ.Updates'.
 makeBasicUpdates ::
+    forall m cpv.
     (MonadBlobStore m, IsChainParametersVersion cpv) =>
     (Updates' cpv) ->
     m (UQ.Updates' cpv)
-makeBasicUpdates Updates{..} = do
+makeBasicUpdates Updates{..} = withIsAuthorizationsVersionFor (chainParametersVersion @cpv) $ do
     hKC <- getHashM currentKeyCollection
     kc <- unStoreSerialized <$> refLoad currentKeyCollection
     let _currentKeyCollection = Hashed kc hKC
@@ -709,11 +822,12 @@ processValueUpdates t uq noUpdate doUpdate = case ql of
 
 -- |Process root keys updates.
 processRootKeysUpdates ::
+    forall m cpv.
     (MonadBlobStore m, IsChainParametersVersion cpv) =>
     Timestamp ->
     BufferedRef (Updates' cpv) ->
     m (Map.Map TransactionTime (UpdateValue cpv), BufferedRef (Updates' cpv))
-processRootKeysUpdates t bu = do
+processRootKeysUpdates t bu = withIsAuthorizationsVersionFor (chainParametersVersion @cpv) $ do
     u@Updates{..} <- refLoad bu
     rootKeysQueue <- refLoad (pRootKeysUpdateQueue pendingUpdates)
     previousKeyCollection <- unStoreSerialized <$> refLoad currentKeyCollection
@@ -730,11 +844,12 @@ processRootKeysUpdates t bu = do
 
 -- |Process level 1 keys updates.
 processLevel1KeysUpdates ::
+    forall m cpv.
     (MonadBlobStore m, IsChainParametersVersion cpv) =>
     Timestamp ->
     BufferedRef (Updates' cpv) ->
     m (Map.Map TransactionTime (UpdateValue cpv), BufferedRef (Updates' cpv))
-processLevel1KeysUpdates t bu = do
+processLevel1KeysUpdates t bu = withIsAuthorizationsVersionFor (chainParametersVersion @cpv) $ do
     u@Updates{..} <- refLoad bu
     level1KeysQueue <- refLoad (pLevel1KeysUpdateQueue pendingUpdates)
     previousKeyCollection <- unStoreSerialized <$> refLoad currentKeyCollection
@@ -751,11 +866,12 @@ processLevel1KeysUpdates t bu = do
 
 -- |Process level 2 keys updates.
 processLevel2KeysUpdates ::
+    forall m cpv.
     (MonadBlobStore m, IsChainParametersVersion cpv) =>
     Timestamp ->
     BufferedRef (Updates' cpv) ->
     m (Map.Map TransactionTime (UpdateValue cpv), BufferedRef (Updates' cpv))
-processLevel2KeysUpdates t bu = do
+processLevel2KeysUpdates t bu = withIsAuthorizationsVersionFor (chainParametersVersion @cpv) $ do
     u@Updates{..} <- refLoad bu
     level2KeysQueue <- refLoad (pLevel2KeysUpdateQueue pendingUpdates)
     previousKeyCollection <- unStoreSerialized <$> refLoad currentKeyCollection
@@ -778,18 +894,23 @@ processElectionDifficultyUpdates ::
     m (Map.Map TransactionTime (UpdateValue cpv), BufferedRef (Updates' cpv))
 processElectionDifficultyUpdates t bu = do
     u@Updates{..} <- refLoad bu
-    oldQ <- refLoad (pElectionDifficultyQueue pendingUpdates)
-    processValueUpdates t oldQ (return (Map.empty, bu)) $ \newEDp newQ m ->
-        (UVElectionDifficulty <$> m,) <$> do
-            newpQ <- refMake newQ
-            StoreSerialized oldCP <- refLoad currentParameters
-            StoreSerialized newED <- refLoad newEDp
-            newParameters <- refMake $ StoreSerialized $ oldCP & cpElectionDifficulty .~ newED
-            refMake
-                u
-                    { currentParameters = newParameters,
-                      pendingUpdates = pendingUpdates{pElectionDifficultyQueue = newpQ}
-                    }
+    case pElectionDifficultyQueue pendingUpdates of
+        NoParam -> return (Map.empty, bu)
+        SomeParam qref -> do
+            oldQ <- refLoad qref
+            processValueUpdates t oldQ (return (Map.empty, bu)) $ \newEDp newQ m ->
+                (UVElectionDifficulty <$> m,) <$> do
+                    newpQ <- refMake newQ
+                    StoreSerialized oldCP <- refLoad currentParameters
+                    StoreSerialized newED <- refLoad newEDp
+                    let newConsensusParameters = case oldCP ^. cpConsensusParameters of
+                            ConsensusParametersV0{} -> ConsensusParametersV0 newED
+                    newParameters <- refMake $ StoreSerialized $ oldCP & (cpConsensusParameters .~ newConsensusParameters)
+                    refMake
+                        u
+                            { currentParameters = newParameters,
+                              pendingUpdates = pendingUpdates{pElectionDifficultyQueue = SomeParam newpQ}
+                            }
 
 -- |Process Euro:energy rate updates.
 processEuroPerEnergyUpdates ::
@@ -854,11 +975,12 @@ processFoundationAccountUpdates t bu = do
                     }
 
 processMintDistributionUpdates ::
+    forall m cpv.
     (MonadBlobStore m, IsChainParametersVersion cpv) =>
     Timestamp ->
     BufferedRef (Updates' cpv) ->
     m (Map.Map TransactionTime (UpdateValue cpv), BufferedRef (Updates' cpv))
-processMintDistributionUpdates t bu = do
+processMintDistributionUpdates t bu = withIsMintDistributionVersionFor (chainParametersVersion @cpv) $ do
     u@Updates{..} <- refLoad bu
     oldQ <- refLoad (pMintDistributionQueue pendingUpdates)
     processValueUpdates t oldQ (return (Map.empty, bu)) $ \newParamPtr newQ m ->
@@ -894,11 +1016,12 @@ processTransactionFeeDistributionUpdates t bu = do
                     }
 
 processGASRewardsUpdates ::
+    forall m cpv.
     (MonadBlobStore m, IsChainParametersVersion cpv) =>
     Timestamp ->
     BufferedRef (Updates' cpv) ->
     m (Map.Map TransactionTime (UpdateValue cpv), BufferedRef (Updates' cpv))
-processGASRewardsUpdates t bu = do
+processGASRewardsUpdates t bu = withIsGASRewardsVersionFor (chainParametersVersion @cpv) $ do
     u@Updates{..} <- refLoad bu
     oldQ <- refLoad (pGASRewardsQueue pendingUpdates)
     processValueUpdates t oldQ (return (Map.empty, bu)) $ \newParamPtr newQ m ->
@@ -914,11 +1037,12 @@ processGASRewardsUpdates t bu = do
                     }
 
 processPoolParamatersUpdates ::
+    forall m cpv.
     (MonadBlobStore m, IsChainParametersVersion cpv) =>
     Timestamp ->
     BufferedRef (Updates' cpv) ->
     m (Map.Map TransactionTime (UpdateValue cpv), BufferedRef (Updates' cpv))
-processPoolParamatersUpdates t bu = do
+processPoolParamatersUpdates t bu = withIsPoolParametersVersionFor (chainParametersVersion @cpv) $ do
     u@Updates{..} <- refLoad bu
     oldQ <- refLoad (pPoolParametersQueue pendingUpdates)
     processValueUpdates t oldQ (return (Map.empty, bu)) $ \newParamPtr newQ m ->
@@ -935,6 +1059,7 @@ processPoolParamatersUpdates t bu = do
 
 -- |Process cooldown parameters updates.
 processCooldownParametersUpdates ::
+    forall m cpv.
     (MonadBlobStore m, IsChainParametersVersion cpv) =>
     Timestamp ->
     BufferedRef (Updates' cpv) ->
@@ -942,8 +1067,8 @@ processCooldownParametersUpdates ::
 processCooldownParametersUpdates t bu = do
     u@Updates{..} <- refLoad bu
     case pCooldownParametersQueue pendingUpdates of
-        NothingForCPV1 -> return (Map.empty, bu)
-        JustForCPV1 qref -> do
+        NoParam -> return (Map.empty, bu)
+        SomeParam qref -> withIsCooldownParametersVersionFor (chainParametersVersion @cpv) $ do
             oldQ <- refLoad qref
             processValueUpdates t oldQ (return (Map.empty, bu)) $ \newParamPtr newQ m ->
                 (UVCooldownParameters <$> m,) <$> do
@@ -954,7 +1079,7 @@ processCooldownParametersUpdates t bu = do
                     refMake
                         u
                             { currentParameters = newParameters,
-                              pendingUpdates = pendingUpdates{pCooldownParametersQueue = JustForCPV1 newpQ}
+                              pendingUpdates = pendingUpdates{pCooldownParametersQueue = SomeParam newpQ}
                             }
 
 -- |Process time parameters updates.
@@ -966,19 +1091,19 @@ processTimeParametersUpdates ::
 processTimeParametersUpdates t bu = do
     u@Updates{..} <- refLoad bu
     case pTimeParametersQueue pendingUpdates of
-        NothingForCPV1 -> return (Map.empty, bu)
-        JustForCPV1 qref -> do
+        NoParam -> return (Map.empty, bu)
+        SomeParam qref -> do
             oldQ <- refLoad qref
             processValueUpdates t oldQ (return (Map.empty, bu)) $ \newParamPtr newQ m ->
                 (UVTimeParameters <$> m,) <$> do
                     newpQ <- refMake newQ
                     StoreSerialized oldCP <- refLoad currentParameters
                     StoreSerialized newParam <- refLoad newParamPtr
-                    newParameters <- refMake $ StoreSerialized $ oldCP & cpTimeParameters .~ newParam
+                    newParameters <- refMake $ StoreSerialized $ oldCP & cpTimeParameters .~ SomeParam newParam
                     refMake
                         u
                             { currentParameters = newParameters,
-                              pendingUpdates = pendingUpdates{pTimeParametersQueue = JustForCPV1 newpQ}
+                              pendingUpdates = pendingUpdates{pTimeParametersQueue = SomeParam newpQ}
                             }
 
 -- |Process the add anonymity revoker update queue.
@@ -1142,16 +1267,16 @@ processUpdateQueues t (u0, ars, ips) = do
 -- |Determine the future election difficulty (at a given time) based
 -- on a current 'Updates'.
 futureElectionDifficulty ::
-    (MonadBlobStore m, IsChainParametersVersion cpv) =>
+    (MonadBlobStore m, IsChainParametersVersion cpv, IsSupported 'PTElectionDifficulty cpv ~ 'True, ConsensusParametersVersionFor cpv ~ 'ConsensusParametersVersion0) =>
     BufferedRef (Updates' cpv) ->
     Timestamp ->
     m ElectionDifficulty
 futureElectionDifficulty uref ts = do
     Updates{..} <- refLoad uref
-    oldQ <- refLoad (pElectionDifficultyQueue pendingUpdates)
+    oldQ <- refLoad $ unOParam $ pElectionDifficultyQueue pendingUpdates
     let getCurED = do
             StoreSerialized cp <- refLoad currentParameters
-            return $ cp ^. cpElectionDifficulty
+            return $ cp ^. cpConsensusParameters . cpElectionDifficulty
     processValueUpdates ts oldQ getCurED (\newEDp _ _ -> unStoreSerialized <$> refLoad newEDp)
 
 -- |Get the protocol update status: either an effective protocol update or
@@ -1170,15 +1295,20 @@ protocolUpdateStatus uref = do
 
 -- |Determine the next sequence number for a given update type.
 lookupNextUpdateSequenceNumber ::
+    forall m cpv.
     (MonadBlobStore m, IsChainParametersVersion cpv) =>
     BufferedRef (Updates' cpv) ->
     UpdateType ->
     m UpdateSequenceNumber
-lookupNextUpdateSequenceNumber uref uty = do
+lookupNextUpdateSequenceNumber uref uty = withCPVConstraints (chainParametersVersion @cpv) $ do
     Updates{..} <- refLoad uref
     case uty of
         UpdateProtocol -> uqNextSequenceNumber <$> refLoad (pProtocolQueue pendingUpdates)
-        UpdateElectionDifficulty -> uqNextSequenceNumber <$> refLoad (pElectionDifficultyQueue pendingUpdates)
+        UpdateElectionDifficulty ->
+            maybeWhenSupported
+                (pure minUpdateSequenceNumber)
+                (fmap uqNextSequenceNumber . refLoad)
+                (pElectionDifficultyQueue pendingUpdates)
         UpdateEuroPerEnergy -> uqNextSequenceNumber <$> refLoad (pEuroPerEnergyQueue pendingUpdates)
         UpdateMicroGTUPerEuro -> uqNextSequenceNumber <$> refLoad (pMicroGTUPerEuroQueue pendingUpdates)
         UpdateFoundationAccount -> uqNextSequenceNumber <$> refLoad (pFoundationAccountQueue pendingUpdates)
@@ -1192,28 +1322,47 @@ lookupNextUpdateSequenceNumber uref uty = do
         UpdateLevel1Keys -> uqNextSequenceNumber <$> refLoad (pLevel1KeysUpdateQueue pendingUpdates)
         UpdateLevel2Keys -> uqNextSequenceNumber <$> refLoad (pLevel2KeysUpdateQueue pendingUpdates)
         UpdateCooldownParameters ->
-            maybeForCPV1
+            maybeWhenSupported
                 (pure minUpdateSequenceNumber)
                 (fmap uqNextSequenceNumber . refLoad)
                 (pCooldownParametersQueue pendingUpdates)
         UpdateTimeParameters ->
-            maybeForCPV1
+            maybeWhenSupported
                 (pure minUpdateSequenceNumber)
                 (fmap uqNextSequenceNumber . refLoad)
                 (pTimeParametersQueue pendingUpdates)
+        UpdateTimeoutParameters ->
+            maybeWhenSupported
+                (pure minUpdateSequenceNumber)
+                (fmap uqNextSequenceNumber . refLoad)
+                (pTimeoutParametersQueue pendingUpdates)
+        UpdateMinBlockTime ->
+            maybeWhenSupported
+                (pure minUpdateSequenceNumber)
+                (fmap uqNextSequenceNumber . refLoad)
+                (pMinBlockTimeQueue pendingUpdates)
+        UpdateBlockEnergyLimit ->
+            maybeWhenSupported
+                (pure minUpdateSequenceNumber)
+                (fmap uqNextSequenceNumber . refLoad)
+                (pBlockEnergyLimitQueue pendingUpdates)
 
 -- |Enqueue an update in the appropriate queue.
 enqueueUpdate ::
+    forall m cpv.
     (MonadBlobStore m, IsChainParametersVersion cpv) =>
     TransactionTime ->
     UpdateValue cpv ->
     BufferedRef (Updates' cpv) ->
     m (BufferedRef (Updates' cpv))
-enqueueUpdate effectiveTime payload uref = do
+enqueueUpdate effectiveTime payload uref = withCPVConstraints (chainParametersVersion @cpv) $ do
     u@Updates{pendingUpdates = p@PendingUpdates{..}} <- refLoad uref
     newPendingUpdates <- case payload of
         UVProtocol auths -> enqueue effectiveTime auths pProtocolQueue <&> \newQ -> p{pProtocolQueue = newQ}
-        UVElectionDifficulty auths -> enqueue effectiveTime auths pElectionDifficultyQueue <&> \newQ -> p{pElectionDifficultyQueue = newQ}
+        UVElectionDifficulty v -> case pElectionDifficultyQueue of
+            SomeParam q ->
+                enqueue effectiveTime v q
+                    <&> \newQ -> p{pElectionDifficultyQueue = SomeParam newQ}
         UVEuroPerEnergy auths -> enqueue effectiveTime auths pEuroPerEnergyQueue <&> \newQ -> p{pEuroPerEnergyQueue = newQ}
         UVMicroGTUPerEuro auths -> enqueue effectiveTime auths pMicroGTUPerEuroQueue <&> \newQ -> p{pMicroGTUPerEuroQueue = newQ}
         UVFoundationAccount v -> enqueue effectiveTime v pFoundationAccountQueue <&> \newQ -> p{pFoundationAccountQueue = newQ}
@@ -1227,25 +1376,38 @@ enqueueUpdate effectiveTime payload uref = do
         UVLevel1Keys v -> enqueue effectiveTime v pLevel1KeysUpdateQueue <&> \newQ -> p{pLevel1KeysUpdateQueue = newQ}
         UVLevel2Keys v -> enqueue effectiveTime v pLevel2KeysUpdateQueue <&> \newQ -> p{pLevel2KeysUpdateQueue = newQ}
         UVCooldownParameters v ->
-            enqueue effectiveTime v (unJustForCPV1 pCooldownParametersQueue)
-                <&> \newQ -> p{pCooldownParametersQueue = JustForCPV1 newQ}
-        UVTimeParameters v ->
-            enqueue effectiveTime v (unJustForCPV1 pTimeParametersQueue)
-                <&> \newQ -> p{pTimeParametersQueue = JustForCPV1 newQ}
+            case pCooldownParametersQueue of
+                SomeParam q -> enqueue effectiveTime v q <&> \newQ -> p{pCooldownParametersQueue = SomeParam newQ}
+        UVTimeParameters v -> case pTimeParametersQueue of
+            SomeParam q ->
+                enqueue effectiveTime v q
+                    <&> \newQ -> p{pTimeParametersQueue = SomeParam newQ}
+        UVTimeoutParameters v -> case pTimeoutParametersQueue of
+            SomeParam q ->
+                enqueue effectiveTime v q
+                    <&> \newQ -> p{pTimeoutParametersQueue = SomeParam newQ}
+        UVMinBlockTime v -> case pMinBlockTimeQueue of
+            SomeParam q ->
+                enqueue effectiveTime v q
+                    <&> \newQ -> p{pMinBlockTimeQueue = SomeParam newQ}
+        UVBlockEnergyLimit v -> case pBlockEnergyLimitQueue of
+            SomeParam q ->
+                enqueue effectiveTime v q
+                    <&> \newQ -> p{pBlockEnergyLimitQueue = SomeParam newQ}
     refMake u{pendingUpdates = newPendingUpdates}
 
 -- |Overwrite the election difficulty with the specified value and remove
 -- any pending updates to the election difficulty from the queue.
 overwriteElectionDifficulty ::
-    (MonadBlobStore m, IsChainParametersVersion cpv) =>
+    (MonadBlobStore m, IsChainParametersVersion cpv, IsSupported 'PTElectionDifficulty cpv ~ 'True, ConsensusParametersVersionFor cpv ~ 'ConsensusParametersVersion0) =>
     ElectionDifficulty ->
     BufferedRef (Updates' cpv) ->
     m (BufferedRef (Updates' cpv))
 overwriteElectionDifficulty newDifficulty uref = do
     u@Updates{pendingUpdates = p@PendingUpdates{..}, ..} <- refLoad uref
     StoreSerialized cp <- refLoad currentParameters
-    newCurrentParameters <- refMake $ StoreSerialized (cp & cpElectionDifficulty .~ newDifficulty)
-    newPendingUpdates <- clearQueue pElectionDifficultyQueue <&> \newQ -> p{pElectionDifficultyQueue = newQ}
+    newCurrentParameters <- refMake $ StoreSerialized (cp & cpConsensusParameters . cpElectionDifficulty .~ newDifficulty)
+    newPendingUpdates <- clearQueue (unOParam pElectionDifficultyQueue) <&> \newQ -> p{pElectionDifficultyQueue = SomeParam newQ}
     refMake u{currentParameters = newCurrentParameters, pendingUpdates = newPendingUpdates}
 
 -- |Clear the protocol update and remove any pending protocol updates from
@@ -1280,11 +1442,13 @@ lookupCurrentParameters uref = do
 
 -- |Serialize updates in V0 format.
 putUpdatesV0 ::
+    forall m cpv.
     (MonadBlobStore m, MonadPut m, IsChainParametersVersion cpv) =>
     Updates' cpv ->
     m ()
 putUpdatesV0 Updates{..} = do
-    sPut . unStoreSerialized =<< refLoad currentKeyCollection
+    withIsAuthorizationsVersionFor (chainParametersVersion @cpv) $
+        sPut . unStoreSerialized =<< refLoad currentKeyCollection
     case currentProtocolUpdate of
         Null -> liftPut $ putWord8 0
         Some pu -> do
@@ -1297,18 +1461,19 @@ putUpdatesV0 Updates{..} = do
 lookupPendingTimeParameters ::
     (MonadBlobStore m, IsChainParametersVersion cpv) =>
     BufferedRef (Updates' cpv) ->
-    m [(TransactionTime, TimeParameters cpv)]
+    m [(TransactionTime, TimeParameters)]
 lookupPendingTimeParameters uref = do
     Updates{..} <- refLoad uref
     case pTimeParametersQueue pendingUpdates of
-        NothingForCPV1 -> return []
-        JustForCPV1 tpq -> loadQueue tpq
+        NoParam -> return []
+        SomeParam tpq -> loadQueue tpq
 
 -- |Look up the pending changes to the pool parameters.
 lookupPendingPoolParameters ::
+    forall m cpv.
     (MonadBlobStore m, IsChainParametersVersion cpv) =>
     BufferedRef (Updates' cpv) ->
     m [(TransactionTime, PoolParameters cpv)]
 lookupPendingPoolParameters uref = do
     Updates{..} <- refLoad uref
-    loadQueue (pPoolParametersQueue pendingUpdates)
+    withIsPoolParametersVersionFor (chainParametersVersion @cpv) loadQueue (pPoolParametersQueue pendingUpdates)

@@ -111,9 +111,9 @@ calculateMintAmounts ::
     -- |Last slot to mint for
     Slot ->
     -- |Initial mint distribution
-    MintDistribution 'ChainParametersV0 ->
+    MintDistribution 'MintDistributionVersion0 ->
     -- |Ordered updates to the minting parameters
-    [(Slot, MintDistribution 'ChainParametersV0)] ->
+    [(Slot, MintDistribution 'MintDistributionVersion0)] ->
     -- |Total GTU
     Amount ->
     MintAmounts
@@ -129,7 +129,7 @@ calculateMintAmounts = go mempty
 
     mintRange s e md t =
         let mintSupply s' !m !t'
-                | s' <= e = let !a = mintAmount (md ^. mdMintPerSlot . mpsMintPerSlot) t' in mintSupply (s' + 1) (m + a) (t' + a)
+                | s' <= e = let !a = mintAmount (md ^. mdMintPerSlot . unconditionally) t' in mintSupply (s' + 1) (m + a) (t' + a)
                 | otherwise = (m, t')
             (newMint, newTotal) = mintSupply s 0 t
             mintBakingReward = takeFraction (md ^. mdBakingReward) newMint
@@ -140,7 +140,7 @@ calculateMintAmounts = go mempty
 -- |Determine the amount and distribution of minting for one payday.
 doCalculatePaydayMintAmounts ::
     -- |Initial mint distribution
-    MintDistribution 'ChainParametersV1 ->
+    MintDistribution 'MintDistributionVersion1 ->
     -- |Payday mint rate
     MintRate ->
     -- |Total GTU
@@ -155,14 +155,15 @@ doCalculatePaydayMintAmounts md mr amt =
 
 -- |Determine the amount and distribution of minting for one payday, taking updates to mint distribution and mint rate into account.
 calculatePaydayMintAmounts ::
+    (MintDistributionVersionFor cpv ~ 'MintDistributionVersion1) =>
     -- |Initial mint distribution
-    MintDistribution 'ChainParametersV1 ->
+    MintDistribution 'MintDistributionVersion1 ->
     -- |Payday mint rate
     MintRate ->
     -- |Payday slot
     Slot ->
     -- |Changes to mint distribution or mint rate
-    [(Slot, UpdateValue 'ChainParametersV1)] ->
+    [(Slot, UpdateValue cpv)] ->
     -- |Total GTU
     Amount ->
     MintAmounts
@@ -184,7 +185,7 @@ doMinting ::
     -- |Current foundation account
     AccountAddress ->
     -- |Ordered updates to the minting parameters
-    [(Slot, MintDistribution 'ChainParametersV0)] ->
+    [(Slot, MintDistribution 'MintDistributionVersion0)] ->
     -- |Block state
     UpdatableBlockState m ->
     m (UpdatableBlockState m)
@@ -335,7 +336,7 @@ doBlockReward transFees FreeTransactionCounts{..} (BakerId aid) foundationAddr b
                     * (fractionToRational . complementAmountFraction $ rewardParams ^. gasBaker)
                     * (fractionToRational . complementAmountFraction $ rewardParams ^. gasAccountCreation) ^ countAccountCreation
                     * (fractionToRational . complementAmountFraction $ rewardParams ^. gasChainUpdate) ^ countUpdate
-                    * (fractionToRational . complementAmountFraction $ rewardParams ^. gasFinalizationProof) ^ countFinRecs
+                    * (fractionToRational . complementAmountFraction $ rewardParams ^. gasFinalizationProof . unconditionally) ^ countFinRecs
         bakerGAS = gasIn - gasGAS
         gasOut = gasFees + gasGAS
         bakerOut = bakerFees + bakerGAS
@@ -360,7 +361,7 @@ doBlockReward transFees FreeTransactionCounts{..} (BakerId aid) foundationAddr b
 -- |Accrue the rewards for a block to the relevant pool, the passive delegators, and the foundation.
 doBlockRewardP4 ::
     forall m.
-    (BlockStateOperations m, MonadProtocolVersion m, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1, SupportsDelegation (MPV m), SupportsTransactionOutcomes (MPV m)) =>
+    (BlockStateOperations m, MonadProtocolVersion m, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1, PVSupportsDelegation (MPV m), SupportsTransactionOutcomes (MPV m)) =>
     -- |Transaction fees paid
     Amount ->
     -- |Counts of unpaid transactions
@@ -423,7 +424,7 @@ doBlockRewardP4 transFees FreeTransactionCounts{..} bid bs0 = do
                     * (fractionToRational . complementAmountFraction $ rewardParams ^. gasBaker)
                     * (fractionToRational . complementAmountFraction $ rewardParams ^. gasAccountCreation) ^ countAccountCreation
                     * (fractionToRational . complementAmountFraction $ rewardParams ^. gasChainUpdate) ^ countUpdate
-                    * (fractionToRational . complementAmountFraction $ rewardParams ^. gasFinalizationProof) ^ countFinRecs
+                    * (fractionToRational . complementAmountFraction $ rewardParams ^. gasFinalizationProof . unconditionally) ^ countFinRecs
         -- Share of the old GAS account that is paid to the baker pool:
         -- gasIn * (1 - (1 - \sigma{G,out}) * (1 - NGT(f,a,u)))
         -- = GAS^(j-1) * (\sigma{G,out} + NGT(f,a,u) - \sigma{G,out} * NGT(f,a,u))
@@ -486,7 +487,7 @@ makeLenses ''DelegatorRewardOutcomes
 -- Where the reward would be 0, no reward is paid, and no outcome is generated.
 rewardDelegators ::
     forall m.
-    ( SupportsDelegation (MPV m),
+    ( PVSupportsDelegation (MPV m),
       ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
       BlockStateOperations m
     ) =>
@@ -554,7 +555,7 @@ makeLenses ''BakerRewardOutcomes
 -- |Distribute the rewards for a reward period to the baker pools.
 rewardBakers ::
     forall m.
-    ( SupportsDelegation (MPV m),
+    ( PVSupportsDelegation (MPV m),
       ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
       BlockStateOperations m
     ) =>
@@ -689,7 +690,7 @@ rewardBakers bs bakers bakerTotalBakingRewards bakerTotalFinalizationRewards bcs
 -- |Distribute the rewards that have accrued as part of a payday.
 distributeRewards ::
     forall m.
-    ( SupportsDelegation (MPV m),
+    ( PVSupportsDelegation (MPV m),
       ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
       BlockStateOperations m,
       TreeStateMonad m
@@ -781,10 +782,10 @@ updatedTimeParameters ::
     -- |Target slot
     Slot ->
     -- |Original time parameters
-    TimeParameters cpv ->
+    TimeParameters ->
     -- |Updates
     [(Slot, UpdateValue cpv)] ->
-    TimeParameters cpv
+    TimeParameters
 updatedTimeParameters targetSlot tp0 upds =
     timeParametersAtSlot
         targetSlot
@@ -822,7 +823,7 @@ mintForSkippedPaydays ::
 mintForSkippedPaydays newEpoch payday oldChainParameters foundationAccount updates bs0 = do
     seedstate <- bsoGetSeedState bs0
     let paydaySlot = epochLength seedstate * fromIntegral payday
-        bestTP = updatedTimeParameters paydaySlot (oldChainParameters ^. cpTimeParameters) updates
+        bestTP = updatedTimeParameters paydaySlot (oldChainParameters ^. cpTimeParameters . supportedOParam) updates
         nextMintRate = bestTP ^. tpMintPerPayday
         nextRPL = bestTP ^. tpRewardPeriodLength
         nextPayday = payday + rewardPeriodEpochs nextRPL
@@ -834,7 +835,7 @@ mintForSkippedPaydays newEpoch payday oldChainParameters foundationAccount updat
 
 -- |Find committee signers in 'FinalizerInfo' and mark them as awake finalizers.
 addAwakeFinalizers ::
-    (BlockStateOperations m, SupportsDelegation (MPV m)) =>
+    (BlockStateOperations m, PVSupportsDelegation (MPV m)) =>
     Maybe FinalizerInfo ->
     UpdatableBlockState m ->
     m (UpdatableBlockState m)
@@ -953,7 +954,7 @@ mintAndReward bshandle blockParent slotNumber bid newEpoch mintParams mfinInfo t
         SP3 -> mintAndRewardCPV0AccountV0
         SP4 -> mintAndRewardCPV1AccountV1
         SP5 -> mintAndRewardCPV1AccountV1
-        SP6 -> mintAndRewardCPV1AccountV1
+        SP6 -> error "Minting undefined for P6" -- FIXME: implement
   where
     mintAndRewardCPV0AccountV0 ::
         ( AccountVersionFor (MPV m) ~ 'AccountV0,
@@ -984,7 +985,7 @@ mintAndReward bshandle blockParent slotNumber bid newEpoch mintParams mfinInfo t
         doBlockReward transFees freeCounts bid foundationAccount bshandleFinRew
 
     mintAndRewardCPV1AccountV1 ::
-        ( SupportsDelegation (MPV m),
+        ( PVSupportsDelegation (MPV m),
           ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1
         ) =>
         m (UpdatableBlockState m)
@@ -1053,7 +1054,7 @@ updateBirkParameters newSeedState bs0 oldChainParameters updates = case protocol
     SP3 -> updateCPV0AccountV0
     SP4 -> updateCPV1AccountV1
     SP5 -> updateCPV1AccountV1
-    SP6 -> updateCPV1AccountV1
+    SP6 -> error "updateBirkParameters not implemented for P6" -- FIXME: implement
   where
     updateCPV0AccountV0 ::
         AccountVersionFor (MPV m) ~ 'AccountV0 =>
@@ -1072,7 +1073,7 @@ updateBirkParameters newSeedState bs0 oldChainParameters updates = case protocol
                 else return bs0
         (MintRewardParamsV0 isNewEpoch,) <$> bsoSetSeedState bs1 newSeedState
     updateCPV1AccountV1 ::
-        (SupportsDelegation (MPV m), ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1) =>
+        (PVSupportsDelegation (MPV m), ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1) =>
         m (MintRewardParams 'ChainParametersV1, UpdatableBlockState m)
     updateCPV1AccountV1 = do
         oldSeedState <- bsoGetSeedState bs0
@@ -1082,7 +1083,7 @@ updateBirkParameters newSeedState bs0 oldChainParameters updates = case protocol
                 -- This is the start of a new epoch.
                 -- Assume: epoch oldSeedState < epoch newSeedState
                 payday <- bsoGetPaydayEpoch bs0
-                let oldTimeParameters = oldChainParameters ^. cpTimeParameters
+                let oldTimeParameters = oldChainParameters ^. cpTimeParameters . supportedOParam
                     -- Convert an Epoch to a Slot.
                     slotFor = (epochLength oldSeedState *) . fromIntegral
                     -- For each payday after the parent block:
@@ -1152,7 +1153,7 @@ countFreeTransactions bis hasFinRec = foldl' cft f0 bis
 -- the ranges (at the closest rate to the existing rate).
 putBakerCommissionsInRange ::
     forall m.
-    ( ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
+    ( PoolParametersVersionFor (ChainParametersVersionFor (MPV m)) ~ 'PoolParametersVersion1,
       BlockStateOperations m,
       IsProtocolVersion (MPV m)
     ) =>
