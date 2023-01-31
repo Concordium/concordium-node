@@ -1189,8 +1189,7 @@ doGetActiveBakersAndDelegators pbs = do
                         { activeDelegatorStake = theDelegator ^. BaseAccounts.delegationStakedAmount,
                           activeDelegatorPendingChange =
                             BaseAccounts.pendingChangeEffectiveTimestamp
-                                <$> theDelegator
-                                    ^. BaseAccounts.delegationPendingChange,
+                                <$> theDelegator ^. BaseAccounts.delegationPendingChange,
                           ..
                         }
 
@@ -1234,8 +1233,7 @@ doGetActiveDelegators pbs mPoolId = do
                 { activeDelegatorStake = theDelegator ^. BaseAccounts.delegationStakedAmount,
                   activeDelegatorPendingChange =
                     BaseAccounts.pendingChangeEffectiveTimestamp
-                        <$> theDelegator
-                            ^. BaseAccounts.delegationPendingChange,
+                        <$> theDelegator ^. BaseAccounts.delegationPendingChange,
                   ..
                 }
             )

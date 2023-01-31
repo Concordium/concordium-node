@@ -3,7 +3,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 
-module Concordium.GlobalState.Basic.BlockState.InstanceTable where
+module Basic.InstanceTable where
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.GlobalState.Instance

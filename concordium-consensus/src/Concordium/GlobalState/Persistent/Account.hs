@@ -459,16 +459,6 @@ makePersistentAccount tacc = case accountVersion @av of
     SAccountV1 -> PAV1 <$> V0.makePersistentAccount tacc
     SAccountV2 -> PAV2 <$> V1.makePersistentAccount tacc
 
--- |Make a persistent account reference from a hashed transient account.
-makePersistentAccountRef ::
-    forall m av.
-    (MonadBlobStore m, IsAccountVersion av) =>
-    Hashed' (AccountHash av) (Transient.Account av) ->
-    m (AccountRef av)
-makePersistentAccountRef (Hashed tacc acctHash) = do
-    pacc <- makePersistentAccount tacc
-    makeHashedCachedRef pacc (theAccountHash acctHash)
-
 -- |Create an empty account with the given public key, address and credential.
 newAccount ::
     forall m av.

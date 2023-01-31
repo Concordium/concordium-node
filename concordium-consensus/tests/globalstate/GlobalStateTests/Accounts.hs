@@ -11,8 +11,6 @@ import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.Crypto.SignatureScheme as Sig
 import qualified Concordium.GlobalState.AccountMap as AccountMap
 import Concordium.GlobalState.Basic.BlockState.Account as BA
-import qualified Concordium.GlobalState.Basic.BlockState.AccountTable as BAT
-import qualified Concordium.GlobalState.Basic.BlockState.Accounts as B
 import Concordium.GlobalState.DummyData
 import qualified Concordium.GlobalState.Persistent.Account as PA
 import qualified Concordium.GlobalState.Persistent.Accounts as P
@@ -42,6 +40,9 @@ import Test.QuickCheck
 import Prelude hiding (fail)
 
 import Control.Monad.IO.Class
+
+import qualified Basic.AccountTable as BAT
+import qualified Basic.Accounts as B
 
 type PV = 'P5
 
