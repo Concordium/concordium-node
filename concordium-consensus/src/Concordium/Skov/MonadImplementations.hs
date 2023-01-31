@@ -49,7 +49,7 @@ import Concordium.Skov.Update
 import Concordium.TimeMonad
 import Concordium.TimerMonad
 
--- |Monad that provides: IO, logging, global-state context, global-state state and SkovQueryMonad via SkovQueryMonadT.
+-- |Monad that provides: IO, logging, the operation monads of global state and the SkovQueryMonad.
 newtype GlobalState pv a = GlobalState
     { runGlobalState ::
         SkovQueryMonadT
@@ -500,15 +500,16 @@ runSkovT comp =
 evalSkovT :: (Monad m) => SkovT pv h c m a -> h -> SkovContext c -> SkovState c -> m a
 evalSkovT comp handler context sstate = fst <$> runSkovT comp handler context sstate
 
+-- |Get the handler from the context.
 askHandler :: (Monad m) => SkovT pv h c m h
-askHandler = SkovT $ lift $ lift $ SkovTInternal $ asks srHandler
+askHandler = SkovT $ PersistentTreeStateMonad $ PersistentBlockStateMonad $ SkovTInternal $ asks srHandler
 
 instance (Monad m) => MonadReader (SkovContext c) (SkovT pv h c m) where
-    ask = SkovT $ lift ask
-    local f (SkovT (PersistentTreeStateMonad a)) = SkovT $ lift $ local f a
+    ask = SkovT $ PersistentTreeStateMonad ask
+    local f (SkovT (PersistentTreeStateMonad a)) = SkovT $ PersistentTreeStateMonad $ local f a
 
 instance MonadTrans (SkovT pv h c) where
-    lift a = SkovT $ lift $ lift $ lift a
+    lift a = SkovT $ PersistentTreeStateMonad $ PersistentBlockStateMonad $ lift a
 
 instance (Monad m, SkovTimerHandlers pv h c m) => TimerMonad (SkovT pv h c m) where
     type Timer (SkovT pv h c m) = SkovHandlerTimer h
