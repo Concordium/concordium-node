@@ -73,16 +73,16 @@ newtype GlobalState pv a = GlobalState
 instance (IsProtocolVersion pv) => MonadProtocolVersion (GlobalState pv) where
     type MPV (GlobalState pv) = pv
 
-deriving instance IsConsensusV0 pv => BlockStateTypes (GlobalState pv)
-deriving instance IsConsensusV0 pv => GlobalStateTypes (GlobalState pv)
-deriving instance IsConsensusV0 pv => ContractStateOperations (GlobalState pv)
-deriving instance IsConsensusV0 pv => AccountOperations (GlobalState pv)
-deriving instance IsConsensusV0 pv => ModuleQuery (GlobalState pv)
-deriving instance IsConsensusV0 pv => BlockStateQuery (GlobalState pv)
-deriving instance IsConsensusV0 pv => BlockStateOperations (GlobalState pv)
-deriving instance IsConsensusV0 pv => BlockStateStorage (GlobalState pv)
-deriving instance IsConsensusV0 pv => BlockPointerMonad (GlobalState pv)
-deriving instance IsConsensusV0 pv => SkovQueryMonad (GlobalState pv)
+deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => BlockStateTypes (GlobalState pv)
+deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => GlobalStateTypes (GlobalState pv)
+deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => ContractStateOperations (GlobalState pv)
+deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => AccountOperations (GlobalState pv)
+deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => ModuleQuery (GlobalState pv)
+deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => BlockStateQuery (GlobalState pv)
+deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => BlockStateOperations (GlobalState pv)
+deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => BlockStateStorage (GlobalState pv)
+deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => BlockPointerMonad (GlobalState pv)
+deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => SkovQueryMonad (GlobalState pv)
 
 evalGlobalState :: GlobalState pv a -> GSContext pv -> GSState pv -> LogIO a
 evalGlobalState comp gsCtx gsState = fst <$> evalRWST (runPersistentBlockStateMonad . runPersistentTreeStateMonad . runSkovQueryMonad . runGlobalState $ comp) gsCtx gsState
