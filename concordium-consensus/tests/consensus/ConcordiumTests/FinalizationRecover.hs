@@ -88,7 +88,7 @@ setup nBakers = withTempDirectory "." "tmp-consensus-data" $ \tempDir -> do
     return $ passive : active
   where
     getFinalizationState :: Maybe FinalizationInstance -> GSContext PV -> GSState PV -> LogIO (FinalizationState timer)
-    getFinalizationState mInst = evalGlobalState (recoverFinalizationState mInst)
+    getFinalizationState mInst = evalGlobalStateM (recoverFinalizationState mInst)
 
 test :: Spec
 test = describe "Concordium.FinalizationRecover" $ do

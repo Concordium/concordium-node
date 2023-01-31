@@ -498,13 +498,13 @@ checkForProtocolUpdate = liftSkov body
                         -- migrate the final block state into the new skov instance, and establish
                         -- all the necessary transaction table, and other, invariants.
                         (vcContext, st) <- do
-                          ctx <- ask
-                          Skov.SkovT $ do
-                            currentState <- State.get
-                            liftIO $
-                                runLoggerT
-                                    (Skov.migrateExistingSkov ctx currentState pvInitMigration nextGenesis newGSConfig)
-                                    mvLog
+                            ctx <- asks Skov.srContext
+                            Skov.SkovT $ do
+                                currentState <- State.get
+                                liftIO $
+                                    runLoggerT
+                                        (Skov.migrateExistingSkov ctx currentState pvInitMigration nextGenesis newGSConfig)
+                                        mvLog
                         -- Close down and resources that the old instance retains. We do this after
                         -- since, e.g., caches and the transaction table are needed during migration.
                         Skov.terminateSkov
