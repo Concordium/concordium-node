@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -332,7 +333,8 @@ getBranches = liftSkovQueryLatest $ do
             ( \b ma -> do
                 parent <- bpParent b
                 return $
-                    ( at (getHash parent) . non []
+                    ( at (getHash parent)
+                        . non []
                         %~ (Branch (getHash b) (Map.findWithDefault [] (getHash b) childrenMap) :)
                     )
                         ma
@@ -524,35 +526,48 @@ getBlockPendingUpdates = liftSkovQueryBHI query
         flattenUpdateQueues UQ.PendingUpdates{..} =
             queueMapper PUERootKeys _pRootKeysUpdateQueue
                 `merge` queueMapper PUELevel1Keys _pLevel1KeysUpdateQueue
-                `merge` ( case chainParametersVersion @cpv of
-                            SCPV0 -> queueMapper PUELevel2KeysV0 _pLevel2KeysUpdateQueue
-                            SCPV1 -> queueMapper PUELevel2KeysV1 _pLevel2KeysUpdateQueue
+                `merge` ( case sAuthorizationsVersionFor cpv of
+                            SAuthorizationsVersion0 -> queueMapper PUELevel2KeysV0 _pLevel2KeysUpdateQueue
+                            SAuthorizationsVersion1 -> queueMapper PUELevel2KeysV1 _pLevel2KeysUpdateQueue
                         )
                 `merge` queueMapper PUEProtocol _pProtocolQueue
-                `merge` queueMapper PUEElectionDifficulty _pElectionDifficultyQueue
+                `merge` queueMapperOptional PUEElectionDifficulty _pElectionDifficultyQueue
                 `merge` queueMapper PUEEuroPerEnergy _pEuroPerEnergyQueue
                 `merge` queueMapper PUEMicroCCDPerEuro _pMicroGTUPerEuroQueue
-                `merge` ( case chainParametersVersion @cpv of
-                            SCPV0 -> queueMapper PUEMintDistributionV0 _pMintDistributionQueue
-                            SCPV1 -> queueMapper PUEMintDistributionV1 _pMintDistributionQueue
+                `merge` ( case sMintDistributionVersionFor cpv of
+                            SMintDistributionVersion0 -> queueMapper PUEMintDistributionV0 _pMintDistributionQueue
+                            SMintDistributionVersion1 -> queueMapper PUEMintDistributionV1 _pMintDistributionQueue
                         )
                 `merge` queueMapper PUETransactionFeeDistribution _pTransactionFeeDistributionQueue
-                `merge` queueMapper PUEGASRewards _pGASRewardsQueue
-                `merge` ( case chainParametersVersion @cpv of
-                            SCPV0 -> queueMapper PUEPoolParametersV0 _pPoolParametersQueue
-                            SCPV1 -> queueMapper PUEPoolParametersV1 _pPoolParametersQueue
+                `merge` ( case sGasRewardsVersionFor cpv of
+                            SGASRewardsVersion0 -> queueMapper PUEGASRewardsV0 _pGASRewardsQueue
+                            SGASRewardsVersion1 -> queueMapper PUEGASRewardsV1 _pGASRewardsQueue
+                        )
+                `merge` ( case sPoolParametersVersionFor cpv of
+                            SPoolParametersVersion0 -> queueMapper PUEPoolParametersV0 _pPoolParametersQueue
+                            SPoolParametersVersion1 -> queueMapper PUEPoolParametersV1 _pPoolParametersQueue
                         )
                 `merge` queueMapper PUEAddAnonymityRevoker _pAddAnonymityRevokerQueue
                 `merge` queueMapper PUEAddIdentityProvider _pAddIdentityProviderQueue
-                `merge` queueMapperForCPV1 PUECooldownParameters _pCooldownParametersQueue
-                `merge` queueMapperForCPV1 PUETimeParameters _pTimeParametersQueue
+                `merge` ( case sCooldownParametersVersionFor cpv of
+                            SCooldownParametersVersion0 -> []
+                            SCooldownParametersVersion1 -> case _pCooldownParametersQueue of
+                                SomeParam queue -> queueMapper PUECooldownParameters queue
+                                NoParam -> case cpv of {}
+                        )
+                `merge` queueMapperOptional PUETimeParameters _pTimeParametersQueue
+                `merge` queueMapperOptional PUETimeoutParameters _pTimeoutParametersQueue
+                `merge` queueMapperOptional PUEMinBlockTime _pMinBlockTimeQueue
+                `merge` queueMapperOptional PUEBlockEnergyLimit _pBlockEnergyLimitQueue
           where
+            cpv :: SChainParametersVersion cpv
+            cpv = chainParametersVersion
             queueMapper :: (a -> PendingUpdateEffect) -> UQ.UpdateQueue a -> [(TransactionTime, PendingUpdateEffect)]
             queueMapper constructor UQ.UpdateQueue{..} = second constructor <$> _uqQueue
 
-            queueMapperForCPV1 :: (a -> PendingUpdateEffect) -> UQ.UpdateQueueForCPV1 cpv a -> [(TransactionTime, PendingUpdateEffect)]
-            queueMapperForCPV1 _ NothingForCPV1 = []
-            queueMapperForCPV1 constructor (JustForCPV1 queue) = queueMapper constructor queue
+            queueMapperOptional :: (a -> PendingUpdateEffect) -> UQ.OUpdateQueue pt cpv a -> [(TransactionTime, PendingUpdateEffect)]
+            queueMapperOptional _ NoParam = []
+            queueMapperOptional constructor (SomeParam queue) = queueMapper constructor queue
 
         -- Merge two ascending lists into an ascending list.
         merge ::

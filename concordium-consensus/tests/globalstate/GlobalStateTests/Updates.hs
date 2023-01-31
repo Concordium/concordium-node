@@ -1,6 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 module GlobalStateTests.Updates (tests) where
@@ -84,7 +85,7 @@ createGS = do
 --------------------------------------------------------------------------------
 
 limit :: Amount
-limit = dummyChainParameters ^. cpPoolParameters . ppBakerStakeThreshold
+limit = dummyChainParameters @'ChainParametersV0 ^. cpPoolParameters . ppBakerStakeThreshold
 limitDelta :: AmountDelta
 limitDelta = fromIntegral limit
 

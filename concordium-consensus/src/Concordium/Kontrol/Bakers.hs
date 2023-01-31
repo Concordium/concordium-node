@@ -4,6 +4,9 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+-- We suppress redundant constraint warnings since GHC does not detect when a constraint is used
+-- for pattern matching. (See: https://gitlab.haskell.org/ghc/ghc/-/issues/20896)
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
 -- |Functionality for handling baker changes based on epoch boundaries.
 module Concordium.Kontrol.Bakers where
@@ -16,7 +19,7 @@ import Lens.Micro.Platform
 import Concordium.Types
 import Concordium.Types.Accounts
 import Concordium.Types.SeedState
-import Concordium.Types.UpdateQueues hiding (getUpdates)
+import Concordium.Types.UpdateQueues
 
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.BlockState
@@ -38,7 +41,7 @@ data PoolCaps = PoolCaps
 -- delegated capital.
 delegatedCapitalCaps ::
     -- |Pool parameters
-    PoolParameters 'ChainParametersV1 ->
+    PoolParameters' 'PoolParametersVersion1 ->
     -- |Current total capital
     Amount ->
     -- |Baker equity capital
@@ -65,7 +68,7 @@ delegatedCapitalCaps poolParams totalCap bakerCap delCap = PoolCaps{..}
 -- delegated capital.
 delegatedCapitalCap ::
     -- |Pool parameters
-    PoolParameters 'ChainParametersV1 ->
+    PoolParameters' 'PoolParametersVersion1 ->
     -- |Current total capital
     Amount ->
     -- |Baker equity capital
@@ -160,7 +163,7 @@ data BakerStakesAndCapital m = BakerStakesAndCapital
 computeBakerStakesAndCapital ::
     forall m.
     (AccountOperations m) =>
-    PoolParameters 'ChainParametersV1 ->
+    PoolParameters' 'PoolParametersVersion1 ->
     [ActiveBakerInfo m] ->
     [ActiveDelegatorInfo] ->
     BakerStakesAndCapital m
@@ -198,7 +201,7 @@ computeBakerStakesAndCapital poolParams activeBakers passiveDelegators = BakerSt
 -- |Generate and set the next epoch bakers and next capital based on the current active bakers.
 generateNextBakers ::
     ( TreeStateMonad m,
-      SupportsDelegation (MPV m),
+      PVSupportsDelegation (MPV m),
       ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1
     ) =>
     -- |The payday epoch
@@ -236,9 +239,9 @@ generateNextBakers paydayEpoch bs0 = do
 -- TODO: Add tests
 paydayEpochBefore ::
     -- |Current time parameters
-    TimeParameters 'ChainParametersV1 ->
+    TimeParameters ->
     -- |Pending updates to the time parameters
-    [(Slot, TimeParameters 'ChainParametersV1)] ->
+    [(Slot, TimeParameters)] ->
     -- |Epoch length
     Slot ->
     -- |Next payday epoch
@@ -276,10 +279,10 @@ timeParametersAtSlot ::
     -- |Target slot
     Slot ->
     -- |Original time parameters
-    TimeParameters cpv ->
+    TimeParameters ->
     -- |Updates to the time parameters in ascending order of slot time
-    [(Slot, TimeParameters cpv)] ->
-    TimeParameters cpv
+    [(Slot, TimeParameters)] ->
+    TimeParameters
 timeParametersAtSlot targetSlot tp0 upds =
     fromMaybe tp0 $
         getLast $
@@ -307,7 +310,7 @@ timeParametersAtSlot targetSlot tp0 upds =
 getSlotBakersP4 ::
     forall m.
     ( BlockStateQuery m,
-      SupportsDelegation (MPV m),
+      PVSupportsDelegation (MPV m),
       ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1
     ) =>
     GenesisConfiguration ->
@@ -332,11 +335,12 @@ getSlotBakersP4 genData bs slot = do
             let paydayTimeParameters =
                     timeParametersAtSlot
                         nextPaydaySlot
-                        blockTimeParameters
+                        (unOParam blockTimeParameters)
                         pendingTimeParameters
             let nextPaydayLength =
                     paydayTimeParameters
-                        ^. tpRewardPeriodLength . to (epochToSlot . rewardPeriodEpochs)
+                        ^. tpRewardPeriodLength
+                            . to (epochToSlot . rewardPeriodEpochs)
             if blockEpoch + 1 == nextPayday && slot < nextPaydaySlot + nextPaydayLength
                 then getNextEpochBakers bs
                 else do
@@ -344,7 +348,7 @@ getSlotBakersP4 genData bs slot = do
                     -- First we compute the epoch of last payday that is no later than the given slot.
                     let latestPayday =
                             paydayEpochBefore
-                                blockTimeParameters
+                                (unOParam blockTimeParameters)
                                 pendingTimeParameters
                                 (gdEpochLength genData)
                                 nextPayday
@@ -384,7 +388,10 @@ getSlotBakersP4 genData bs slot = do
 -- The given slot should never be earlier than the slot of the given block.
 getSlotBakers ::
     forall m.
-    (IsProtocolVersion (MPV m), BlockStateQuery m) =>
+    ( IsProtocolVersion (MPV m),
+      BlockStateQuery m,
+      ConsensusParametersVersionFor (ChainParametersVersionFor (MPV m)) ~ 'ConsensusParametersVersion0
+    ) =>
     GenesisConfiguration ->
     BlockState m ->
     Slot ->
@@ -395,7 +402,6 @@ getSlotBakers genData = case protocolVersion @(MPV m) of
     SP3 -> getSlotBakersP1
     SP4 -> getSlotBakersP4 genData
     SP5 -> getSlotBakersP4 genData
-    SP6 -> getSlotBakersP4 genData
 
 -- |Determine the bakers that apply to a future slot, given the state at a particular block.
 -- This will return 'Nothing' if the projected bakers could change before then (depending on
@@ -439,7 +445,7 @@ getDefiniteSlotBakersP1 bs slot = do
 getDefiniteSlotBakersP4 ::
     forall m.
     ( BlockStateQuery m,
-      AVSupportsDelegation (AccountVersionFor (MPV m)),
+      PVSupportsDelegation (MPV m),
       ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1
     ) =>
     GenesisConfiguration ->
@@ -464,11 +470,12 @@ getDefiniteSlotBakersP4 genData bs slot = do
             let paydayTimeParameters =
                     timeParametersAtSlot
                         nextPaydaySlot
-                        blockTimeParameters
+                        (unOParam blockTimeParameters)
                         pendingTimeParameters
             let nextPaydayLength =
                     paydayTimeParameters
-                        ^. tpRewardPeriodLength . to (epochToSlot . rewardPeriodEpochs)
+                        ^. tpRewardPeriodLength
+                            . to (epochToSlot . rewardPeriodEpochs)
             if blockEpoch + 1 == nextPayday && slot < nextPaydaySlot + nextPaydayLength
                 then Just <$> getNextEpochBakers bs
                 else return Nothing
@@ -480,7 +487,10 @@ getDefiniteSlotBakersP4 genData bs slot = do
 -- The given slot should never be earlier than the slot of the given block.
 getDefiniteSlotBakers ::
     forall m.
-    (IsProtocolVersion (MPV m), BlockStateQuery m) =>
+    ( IsProtocolVersion (MPV m),
+      BlockStateQuery m,
+      ConsensusParametersVersionFor (ChainParametersVersionFor (MPV m)) ~ 'ConsensusParametersVersion0
+    ) =>
     GenesisConfiguration ->
     BlockState m ->
     Slot ->
@@ -491,4 +501,3 @@ getDefiniteSlotBakers genData = case protocolVersion @(MPV m) of
     SP3 -> getDefiniteSlotBakersP1
     SP4 -> getDefiniteSlotBakersP4 genData
     SP5 -> getDefiniteSlotBakersP4 genData
-    SP6 -> getDefiniteSlotBakersP4 genData

@@ -288,7 +288,7 @@ initialState numAccts = do
   where
     chainParams =
         Dummy.dummyChainParameters
-            { _cpElectionDifficulty = makeElectionDifficulty 50000,
+            { _cpConsensusParameters = ConsensusParametersV0{_cpElectionDifficulty = makeElectionDifficulty 50000},
               _cpExchangeRates = makeExchangeRates 1 1,
               _cpFoundationAccount = maxBakerId + 1
             }

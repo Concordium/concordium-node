@@ -355,13 +355,13 @@ main = do
     now <- (\(Timestamp t) -> Timestamp $ ((t `div` 1000) + 1) * 1000) <$> currentTimestamp
     let chainParams =
             ChainParameters
-                { _cpElectionDifficulty = makeElectionDifficulty 20000,
+                { _cpConsensusParameters = ConsensusParametersV0{_cpElectionDifficulty = makeElectionDifficulty 20000},
                   _cpExchangeRates = makeExchangeRates 1 1,
                   _cpCooldownParameters =
                     CooldownParametersV0
                         { _cpBakerExtraCooldownEpochs = 4
                         },
-                  _cpTimeParameters = TimeParametersV0,
+                  _cpTimeParameters = NoParam,
                   _cpAccountCreationLimit = 10,
                   _cpRewardParameters = Dummy.dummyRewardParametersV0,
                   _cpFoundationAccount = numberOfBakers,

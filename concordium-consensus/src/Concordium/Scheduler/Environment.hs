@@ -195,7 +195,7 @@ class
     -- For details of the behaviour and return values, see
     -- 'Concordium.GlobalState.BlockState.bsoConfigureBaker'.
     configureBaker ::
-        (SupportsDelegation (MPV m)) =>
+        (PVSupportsDelegation (MPV m)) =>
         AccountIndex ->
         BakerConfigure ->
         m BakerConfigureResult
@@ -204,7 +204,7 @@ class
     -- For details of the behaviour and return values, see
     -- 'Concordium.GlobalState.BlockState.bsoConfigureDelegation'.
     configureDelegation ::
-        (SupportsDelegation (MPV m)) =>
+        (PVSupportsDelegation (MPV m)) =>
         AccountIndex ->
         DelegationConfigure ->
         m DelegationConfigureResult
@@ -290,7 +290,7 @@ class
     -- * Chain updates
 
     -- |Get the current authorized keys for updates.
-    getUpdateKeyCollection :: m (UpdateKeysCollection (ChainParametersVersionFor (MPV m)))
+    getUpdateKeyCollection :: m (UpdateKeysCollection (AuthorizationsVersionForPV (MPV m)))
 
     -- |Get the next sequence number of updates of a given type.
     getNextUpdateSequenceNumber :: UpdateType -> m UpdateSequenceNumber
@@ -604,7 +604,8 @@ addAmountToCS' ai !amnt !cs =
     -- If so, modify it accordingly, otherwise add a new entry.
     return $
         cs
-            & accountUpdates . at ai
+            & accountUpdates
+                . at ai
                 %~ ( \case
                         Just upd ->
                             Just
@@ -626,7 +627,8 @@ addScheduledAmountToCS (ai, acc) rel@(((fstRel, _) : _), _) !cs = do
     addr <- getAccountCanonicalAddress acc
     return $
         cs
-            & accountUpdates . at ai
+            & accountUpdates
+                . at ai
                 %~ ( \case
                         Just upd -> Just (upd & auReleaseSchedule %~ Just . maybe [rel] (rel :))
                         Nothing -> Just (emptyAccountUpdate ai & auReleaseSchedule ?~ [rel])
@@ -662,7 +664,8 @@ addContractStatesToCSV0 Proxy istance curIdx newState =
 -- |Add or update the contract state in the changeset with the new state.
 addContractStatesToCSV1 :: HasInstanceAddress a => Proxy m -> a -> ModificationIndex -> UpdatableContractState GSWasm.V1 -> ChangeSet m -> ChangeSet m
 addContractStatesToCSV1 Proxy istance curIdx stateUpdate =
-    instanceV1Updates . at addr
+    instanceV1Updates
+        . at addr
         %~ \case
             Just InstanceV1Update{..} -> Just $! InstanceV1Update curIdx amountChange (Just stateUpdate) newInterface
             Nothing -> Just $! InstanceV1Update curIdx 0 (Just stateUpdate) Nothing

@@ -1,3 +1,4 @@
+{-# LANGUAGE MonoLocalBinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- |An implementation of a BlockPointer that doesn't retain the parent or last finalized block so that they can be written into the disk and dropped from the memory.

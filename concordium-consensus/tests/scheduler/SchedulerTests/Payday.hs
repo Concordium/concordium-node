@@ -192,18 +192,18 @@ testDoMintingP4 = do
               _finalizationRewardAccount = 1_000_000_000,
               _gasAccount = 0
             }
-    md1 = MintDistribution MintPerSlotForCPV0None (makeAmountFraction 100_000) (makeAmountFraction 0)
-    md2 = MintDistribution MintPerSlotForCPV0None (makeAmountFraction 0) (makeAmountFraction 100_000)
+    md1 = MintDistribution CFalse (makeAmountFraction 100_000) (makeAmountFraction 0)
+    md2 = MintDistribution CFalse (makeAmountFraction 0) (makeAmountFraction 100_000)
 
 -- rewards distributed after minting are equal to the minted amount
-propMintAmountsEqNewMint :: MintDistribution 'ChainParametersV1 -> MintRate -> Amount -> Bool
+propMintAmountsEqNewMint :: MintDistribution 'MintDistributionVersion1 -> MintRate -> Amount -> Bool
 propMintAmountsEqNewMint md mr amt = mintTotal (doCalculatePaydayMintAmounts md mr amt) == mintAmount mr amt
 
 instance Arbitrary (UpdateValue 'ChainParametersV1) where
     arbitrary = UVMintDistribution <$> arbitrary
 
 -- the most recent update of mint distribution parameters is used to determine mint distribution
-propMintDistributionMostRecent :: MintDistribution 'ChainParametersV1 -> MintRate -> Slot -> [(Slot, UpdateValue 'ChainParametersV1)] -> Amount -> Bool
+propMintDistributionMostRecent :: MintDistribution 'MintDistributionVersion1 -> MintRate -> Slot -> [(Slot, UpdateValue 'ChainParametersV1)] -> Amount -> Bool
 propMintDistributionMostRecent md mr ps updates amt =
     let updatesSorted = sortBy (\(a, _) (b, _) -> compare a b) $ map (& (_1 +~ 1)) updates
         chainParams =
@@ -291,7 +291,7 @@ initialPersistentBlockState =
   where
     initBal = 10 ^ (12 :: Int) :: Amount
 
-genesis :: (IsProtocolVersion pv) => Word -> (GenesisData pv, [(BakerIdentity, FullBakerInfo)], Amount)
+genesis :: forall pv. (IsProtocolVersion pv) => Word -> (GenesisData pv, [(BakerIdentity, FullBakerInfo)], Amount)
 genesis nBakers =
     makeGenesisData
         0
@@ -303,7 +303,7 @@ genesis nBakers =
         dummyArs
         []
         1_234
-        dummyKeyCollection
+        (withIsAuthorizationsVersionForPV (protocolVersion @pv) dummyKeyCollection)
         dummyChainParameters
 
 type MyPersistentTreeState pv = SkovPersistentData pv

@@ -146,6 +146,6 @@ tests =
     describe "Insufficient available amount." $
         sequence_ $
             Helpers.forEveryProtocolVersion $ \spv pvString ->
-                case accountVersionFor spv of
+                case sAccountVersionFor spv of
                     SAccountV0 -> testCase0 spv pvString
                     _ -> return ()
