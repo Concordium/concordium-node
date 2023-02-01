@@ -292,15 +292,15 @@ type CopyCryptographicParametersCallback =
 /// Context for returning V1 contract state in the
 /// [`get_instance_state_v2`](ConsensusContainer::get_instance_state_v2) query.
 pub struct V1ContractStateReceiver {
-    state:  wasm_chain_integration::v1::trie::PersistentState,
-    loader: wasm_chain_integration::v1::trie::foreign::LoadCallback,
+    state:  concordium_smart_contract_engine::v1::trie::PersistentState,
+    loader: concordium_smart_contract_engine::v1::trie::LoadCallback,
 }
 
 /// A type of callback to write V1 contract state into.
 type CopyV1ContractStateCallback = extern "C" fn(
     *mut Option<V1ContractStateReceiver>,
-    *mut wasm_chain_integration::v1::trie::PersistentState,
-    wasm_chain_integration::v1::trie::foreign::LoadCallback,
+    *mut concordium_smart_contract_engine::v1::trie::PersistentState,
+    concordium_smart_contract_engine::v1::trie::LoadCallback,
 );
 
 /// Context necessary for Haskell code/Consensus to send notifications on
@@ -3073,8 +3073,8 @@ extern "C" fn copy_cryptographic_parameters_callback(
 /// Store the V1 contract state and context to the given structure.
 extern "C" fn copy_v1_contract_state_callback(
     out: *mut Option<V1ContractStateReceiver>,
-    state: *mut wasm_chain_integration::v1::trie::PersistentState,
-    loader: wasm_chain_integration::v1::trie::foreign::LoadCallback,
+    state: *mut concordium_smart_contract_engine::v1::trie::PersistentState,
+    loader: concordium_smart_contract_engine::v1::trie::LoadCallback,
 ) {
     let out = unsafe { &mut *out };
     let v = V1ContractStateReceiver {

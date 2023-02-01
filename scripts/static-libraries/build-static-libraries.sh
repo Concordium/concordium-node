@@ -70,9 +70,9 @@ find /target /binaries -type f -exec strip --strip-debug {} \;
     ar rcs libRcrypto.a *.o
     rm *.o
 
-    cp /build/concordium-base/smart-contracts/wasm-chain-integration/target/release/libwasm_chain_integration.a /target/rust/libwasm_chain_integration.a
+    cp /build/concordium-base/smart-contracts/wasm-chain-integration/target/release/libconcordium_smart_contract_engine.a /target/rust/libconcordium_smart_contract_engine.a
 
-    ar x libwasm_chain_integration.a
+    ar x libconcordium_smart_contract_engine.a
 
     set +e
 
@@ -88,8 +88,8 @@ find /target /binaries -type f -exec strip --strip-debug {} \;
     set -e
 
 
-    rm libwasm_chain_integration.a
-    ar rcs libwasm_chain_integration.a *.o
+    rm libconcordium_smart_contract_engine.a
+    ar rcs libconcordium_smart_contract_engine.a *.o
     rm *.o
 )
 

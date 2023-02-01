@@ -195,25 +195,25 @@ emptyBlockTable = BlockTable emptyDeadCache HM.empty
 -- The first type parameter, @pv@, is the protocol version.
 -- The second type parameter, @ati@, is a type determining the account transaction index to use.
 -- The third type parameter, @bs@, is the type of block states.
-data SkovPersistentData (pv :: ProtocolVersion) (bs :: Type) = SkovPersistentData
+data SkovPersistentData (pv :: ProtocolVersion) = SkovPersistentData
     { -- |Map of all received blocks by hash.
-      _blockTable :: !(BlockTable pv bs),
+      _blockTable :: !(BlockTable pv (PBS.HashedPersistentBlockState pv)),
       -- |Map of (possibly) pending blocks by hash
       _possiblyPendingTable :: !(HM.HashMap BlockHash [PendingBlock]),
       -- |Priority queue of pairs of (block, parent) hashes where the block is (possibly) pending its parent, by block slot
       _possiblyPendingQueue :: !(MPQ.MinPQueue Slot (BlockHash, BlockHash)),
       -- |Pointer to the last finalized block
-      _lastFinalized :: !(PersistentBlockPointer pv bs),
+      _lastFinalized :: !(PersistentBlockPointer pv (PBS.HashedPersistentBlockState pv)),
       -- |Pointer to the last finalization record
       _lastFinalizationRecord :: !FinalizationRecord,
       -- |Branches of the tree by height above the last finalized block
-      _branches :: !(Seq.Seq [PersistentBlockPointer pv bs]),
+      _branches :: !(Seq.Seq [PersistentBlockPointer pv (PBS.HashedPersistentBlockState pv)]),
       -- |Genesis data
       _genesisData :: !GenesisConfiguration,
       -- |Block pointer to genesis block
-      _genesisBlockPointer :: !(PersistentBlockPointer pv bs),
+      _genesisBlockPointer :: !(PersistentBlockPointer pv (PBS.HashedPersistentBlockState pv)),
       -- |Current focus block
-      _focusBlock :: !(PersistentBlockPointer pv bs),
+      _focusBlock :: !(PersistentBlockPointer pv (PBS.HashedPersistentBlockState pv)),
       -- |Pending transaction table
       _pendingTransactions :: !PendingTransactionTable,
       -- |Transaction table
@@ -227,41 +227,41 @@ data SkovPersistentData (pv :: ProtocolVersion) (bs :: Type) = SkovPersistentDat
       -- |Tree state directory
       _treeStateDirectory :: !FilePath,
       -- | Database handlers
-      _db :: !(DatabaseHandlers pv (TS.BlockStatePointer bs)),
+      _db :: !(DatabaseHandlers pv (TS.BlockStatePointer (PBS.HashedPersistentBlockState pv))),
       -- |State where we store the initial state for the new protocol update.
       -- TODO: This is not an ideal solution, but seems simplest in terms of abstractions.
       -- If we only had the one state implementation this would not be necessary, and we could simply
       -- return the value in the 'updateRegenesis' function. However as it is, it is challenging to properly
       -- specify the types of these values due to the way the relevant types are parameterized.
-      _nextGenesisInitialState :: !(Maybe bs)
+      _nextGenesisInitialState :: !(Maybe (PBS.HashedPersistentBlockState pv))
     }
 
 makeLenses ''SkovPersistentData
 
 instance
-    (bsp ~ TS.BlockStatePointer bs) =>
-    HasDatabaseHandlers pv bsp (SkovPersistentData pv bs)
+    (bsp ~ TS.BlockStatePointer (PBS.HashedPersistentBlockState pv)) =>
+    HasDatabaseHandlers pv bsp (SkovPersistentData pv)
     where
     dbHandlers = db
 
 -- |Initial skov data with default runtime parameters (block size = 10MB).
 initialSkovPersistentDataDefault ::
-    (IsProtocolVersion pv, FixedSizeSerialization (TS.BlockStatePointer bs), MonadIO m) =>
+    (IsProtocolVersion pv, MonadIO m) =>
     FilePath ->
     GenesisConfiguration ->
-    bs ->
+    PBS.HashedPersistentBlockState pv ->
     -- |How to serialize the block state reference for inclusion in the table.
-    TS.BlockStatePointer bs ->
+    TS.BlockStatePointer (PBS.HashedPersistentBlockState pv) ->
     TransactionTable ->
     Maybe PendingTransactionTable ->
-    m (SkovPersistentData pv bs)
+    m (SkovPersistentData pv)
 initialSkovPersistentDataDefault = initialSkovPersistentData defaultRuntimeParameters
 
 -- |Create an initial 'SkovPersistentData'.
 -- The state does not need to be activated if the supplied 'TransactionTable' is correctly
 -- initialised with the nonces and sequence numbers of the accounts and update types.
 initialSkovPersistentData ::
-    (IsProtocolVersion pv, FixedSizeSerialization (TS.BlockStatePointer bs), MonadIO m) =>
+    (IsProtocolVersion pv, MonadIO m) =>
     -- |Runtime parameters
     RuntimeParameters ->
     -- |Tree state directory
@@ -269,9 +269,9 @@ initialSkovPersistentData ::
     -- |Genesis data
     GenesisConfiguration ->
     -- |Genesis state
-    bs ->
+    PBS.HashedPersistentBlockState pv ->
     -- |Genesis block state
-    TS.BlockStatePointer bs ->
+    TS.BlockStatePointer (PBS.HashedPersistentBlockState pv) ->
     -- |The table of transactions to start the configuration with. If this
     -- transaction table has any non-finalized transactions then the pending
     -- table corresponding to those non-finalized transactions must be supplied.
@@ -282,7 +282,7 @@ initialSkovPersistentData ::
     -- supplied to record these, satisfying the usual properties. See
     -- documentation of the 'PendingTransactionTable' for details.
     Maybe PendingTransactionTable ->
-    m (SkovPersistentData pv bs)
+    m (SkovPersistentData pv)
 initialSkovPersistentData rp treeStateDir gd genState serState genTT mPending = do
     gb <- makeGenesisPersistentBlockPointer gd genState
     let gbh = bpHash gb
@@ -392,7 +392,7 @@ loadSkovPersistentData ::
     -- |Tree state directory
     FilePath ->
     PBS.PersistentBlockStateContext pv ->
-    LogIO (SkovPersistentData pv (PBS.HashedPersistentBlockState pv))
+    LogIO (SkovPersistentData pv)
 loadSkovPersistentData rp _treeStateDirectory pbsc = do
     -- we open the environment first.
     -- It might be that the database is bigger than the default environment size.
@@ -465,8 +465,8 @@ activateSkovPersistentData ::
     forall pv.
     (IsProtocolVersion pv) =>
     PBS.PersistentBlockStateContext pv ->
-    SkovPersistentData pv (PBS.HashedPersistentBlockState pv) ->
-    LogIO (SkovPersistentData pv (PBS.HashedPersistentBlockState pv))
+    SkovPersistentData pv ->
+    LogIO (SkovPersistentData pv)
 activateSkovPersistentData pbsc uninitState =
     runBlockState $ do
         logEvent GlobalState LLTrace "Caching last finalized block and initializing transaction table"
@@ -479,7 +479,7 @@ activateSkovPersistentData pbsc uninitState =
 
 -- |Close the database associated with a 'SkovPersistentData'.
 -- The database should not be used after this.
-closeSkovPersistentData :: SkovPersistentData pv bs -> IO ()
+closeSkovPersistentData :: SkovPersistentData pv -> IO ()
 closeSkovPersistentData = closeDatabase . _db
 
 -- |Newtype wrapper that provides an implementation of the TreeStateMonad using a persistent tree state.
@@ -494,9 +494,8 @@ closeSkovPersistentData = closeDatabase . _db
 -- * `MonadState (SkovPersistentData bs)`
 -- * `PerAccountDBOperations`
 --
--- This newtype establishes types for the @GlobalStateTypes@. The type variable @bs@ stands for the BlockState
--- type used in the implementation.
-newtype PersistentTreeStateMonad (bs :: Type) (m :: Type -> Type) (a :: Type) = PersistentTreeStateMonad {runPersistentTreeStateMonad :: m a}
+-- This newtype establishes types for the @GlobalStateTypes@.
+newtype PersistentTreeStateMonad state (m :: Type -> Type) (a :: Type) = PersistentTreeStateMonad {runPersistentTreeStateMonad :: m a}
     deriving
         ( Functor,
           Applicative,
@@ -514,37 +513,45 @@ newtype PersistentTreeStateMonad (bs :: Type) (m :: Type -> Type) (a :: Type) = 
           TimeMonad
         )
 
-deriving instance (MonadProtocolVersion m) => MonadProtocolVersion (PersistentTreeStateMonad bs m)
+deriving instance (MonadProtocolVersion m) => MonadProtocolVersion (PersistentTreeStateMonad state m)
 
-instance MonadTrans (PersistentTreeStateMonad bs) where
+instance MonadTrans (PersistentTreeStateMonad state) where
     lift = PersistentTreeStateMonad
     {-# INLINE lift #-}
 
 deriving instance
-    (MonadState (SkovPersistentData pv bs) m) =>
-    MonadState (SkovPersistentData pv bs) (PersistentTreeStateMonad bs m)
+    (MonadState state m) =>
+    MonadState state (PersistentTreeStateMonad state m)
 
-instance (IsProtocolVersion pv, pv ~ MPV m) => GlobalStateTypes (PersistentTreeStateMonad bs m) where
-    type BlockPointerType (PersistentTreeStateMonad bs m) = PersistentBlockPointer (MPV m) bs
+instance (IsProtocolVersion pv, pv ~ MPV m) => GlobalStateTypes (PersistentTreeStateMonad state m) where
+    type BlockPointerType (PersistentTreeStateMonad state m) = PersistentBlockPointer (MPV m) (BlockState m)
+
+class HasDatabaseHandlers pv (BlockStatePointer (PBS.PersistentBlockState pv)) s => HasSkovPersistentData pv s | s -> pv where
+    skovPersistentData :: Lens' s (SkovPersistentData pv)
+
+instance HasSkovPersistentData pv (SkovPersistentData pv) where
+    skovPersistentData = id
 
 getWeakPointer ::
-    ( MonadLogger (PersistentTreeStateMonad bs m),
-      MonadIO (PersistentTreeStateMonad bs m),
-      BlockStateStorage (PersistentTreeStateMonad bs m),
-      BlockState (PersistentTreeStateMonad bs m) ~ bs,
-      MonadState (SkovPersistentData (MPV m) bs) (PersistentTreeStateMonad bs m),
+    ( MonadLogger (PersistentTreeStateMonad state m),
+      MonadIO (PersistentTreeStateMonad state m),
+      BlockStateStorage (PersistentTreeStateMonad state m),
+      MPV m ~ pv,
+      HasSkovPersistentData pv s,
+      BlockState (PersistentTreeStateMonad state m) ~ PBS.HashedPersistentBlockState pv,
+      MonadState s (PersistentTreeStateMonad state m),
       MonadProtocolVersion m
     ) =>
-    Weak (PersistentBlockPointer (MPV m) bs) ->
+    Weak (PersistentBlockPointer (MPV m) (PBS.HashedPersistentBlockState pv)) ->
     BlockHash ->
     String ->
-    PersistentTreeStateMonad bs m (PersistentBlockPointer (MPV m) bs)
+    PersistentTreeStateMonad state m (PersistentBlockPointer (MPV m) (PBS.HashedPersistentBlockState pv))
 getWeakPointer weakPtr ptrHash name = do
     d <- liftIO $ deRefWeak weakPtr
     case d of
         Just v -> return v
         Nothing -> do
-            lf <- use lastFinalized
+            lf <- use (skovPersistentData . lastFinalized)
             if ptrHash == getHash lf
                 then return lf
                 else -- Weak pointers are used for parent pointers. A block that is alive should always have
@@ -552,7 +559,7 @@ getWeakPointer weakPtr ptrHash name = do
                 -- finalized. If we fail to dereference the weak pointer we should thus be able to directly look
                 -- up the block from the block table.
 
-                    use (blockTable . liveMap . at' ptrHash)
+                    use (skovPersistentData . blockTable . liveMap . at' ptrHash)
                         >>= \case
                             Just (BlockAlive bp) -> return bp
                             Nothing -> do
@@ -566,14 +573,16 @@ getWeakPointer weakPtr ptrHash name = do
 
 instance
     ( Monad m,
-      MonadLogger (PersistentTreeStateMonad bs m),
-      MonadIO (PersistentTreeStateMonad bs m),
-      TS.BlockState m ~ bs,
-      BlockStateStorage (PersistentTreeStateMonad bs m),
-      MonadState (SkovPersistentData (MPV m) bs) (PersistentTreeStateMonad bs m),
+      MonadLogger (PersistentTreeStateMonad state m),
+      MonadIO (PersistentTreeStateMonad state m),
+      MPV m ~ pv,
+      BlockState m ~ PBS.HashedPersistentBlockState pv,
+      BlockStateStorage (PersistentTreeStateMonad state m),
+      HasSkovPersistentData pv state,
+      MonadState state (PersistentTreeStateMonad state m),
       MonadProtocolVersion m
     ) =>
-    BlockPointerMonad (PersistentTreeStateMonad bs m)
+    BlockPointerMonad (PersistentTreeStateMonad state m)
     where
     blockState = return . _bpState
     bpParent block = case _bpBlock block of
@@ -594,37 +603,39 @@ constructBlock StoredBlock{..} = do
     makeBlockPointerFromPersistentBlock sbBlock bstate sbInfo
 
 instance
-    ( MonadLogger (PersistentTreeStateMonad bs m),
-      MonadIO (PersistentTreeStateMonad bs m),
-      BlockState (PersistentTreeStateMonad bs m) ~ bs,
-      BlockStateStorage (PersistentTreeStateMonad bs m),
-      MonadState (SkovPersistentData (MPV m) bs) m,
-      MonadProtocolVersion m
+    ( MonadLogger (PersistentTreeStateMonad state m),
+      MonadIO (PersistentTreeStateMonad state m),
+      BlockStateStorage (PersistentTreeStateMonad state m),
+      MonadState state m,
+      HasSkovPersistentData pv state,
+      MonadProtocolVersion m,
+      MPV m ~ pv,
+      BlockState m ~ PBS.HashedPersistentBlockState pv
     ) =>
-    TS.TreeStateMonad (PersistentTreeStateMonad bs m)
+    TS.TreeStateMonad (PersistentTreeStateMonad state m)
     where
     makePendingBlock key slot parent bid pf n lastFin trs stateHash transactionOutcomesHash time = do
         return $! makePendingBlock (signBlock key slot parent bid pf n lastFin trs stateHash transactionOutcomesHash) time
     getBlockStatus bh = do
-        st <- use (blockTable . liveMap . at' bh)
+        st <- use (skovPersistentData . blockTable . liveMap . at' bh)
         case st of
             Just (BlockAlive bp) -> return $ Just $ TS.BlockAlive bp
             Just (BlockPending bp) -> return $ Just $ TS.BlockPending bp
             Nothing -> do
-                lf <- use lastFinalized
+                lf <- use (skovPersistentData . lastFinalized)
                 if bh == bpHash lf
                     then do
-                        lfr <- use lastFinalizationRecord
+                        lfr <- use (skovPersistentData . lastFinalizationRecord)
                         return $ Just (TS.BlockFinalized lf lfr)
                     else do
-                        gb <- use genesisBlockPointer
+                        gb <- use (skovPersistentData . genesisBlockPointer)
                         if bh == bpHash gb
                             then return $ Just (TS.BlockFinalized gb (FinalizationRecord 0 (bpHash gb) emptyFinalizationProof 0))
                             else do
                                 b <- readBlock bh
                                 case b of
                                     Nothing -> do
-                                        deadBlocks <- use (blockTable . deadCache)
+                                        deadBlocks <- use (skovPersistentData . blockTable . deadCache)
                                         return $! if memberDeadCache bh deadBlocks then Just TS.BlockDead else Nothing
                                     Just sb -> do
                                         fr <- readFinalizationRecord (sbFinalizationIndex sb)
@@ -635,34 +646,34 @@ instance
                                             Nothing -> logErrorAndThrowTS $ "Lost finalization record that was stored" ++ show bh
 
     getRecentBlockStatus bh = do
-        st <- use (blockTable . liveMap . at' bh)
+        st <- use (skovPersistentData . blockTable . liveMap . at' bh)
         case st of
             Just (BlockAlive bp) -> return $ TS.RecentBlock (TS.BlockAlive bp)
             Just (BlockPending bp) -> return $ TS.RecentBlock (TS.BlockPending bp)
             Nothing -> do
-                lf <- use lastFinalized
+                lf <- use (skovPersistentData . lastFinalized)
                 if bh == bpHash lf
                     then do
-                        lfr <- use lastFinalizationRecord
+                        lfr <- use (skovPersistentData . lastFinalizationRecord)
                         return $ TS.RecentBlock (TS.BlockFinalized lf lfr)
                     else do
                         b <- memberBlockStore bh
                         if b
                             then return TS.OldFinalized
                             else do
-                                deadBlocks <- use (blockTable . deadCache)
+                                deadBlocks <- use (skovPersistentData . blockTable . deadCache)
                                 return $! if memberDeadCache bh deadBlocks then TS.RecentBlock TS.BlockDead else TS.Unknown
 
     makeLiveBlock block parent lastFin st arrTime energy = do
         blockP <- makePersistentBlockPointerFromPendingBlock block parent lastFin st arrTime energy
-        blockTable . liveMap . at' (getHash block) ?=! BlockAlive blockP
+        skovPersistentData . blockTable . liveMap . at' (getHash block) ?=! BlockAlive blockP
         return blockP
     markDead bh = do
-        blockTable . liveMap . at' bh .=! Nothing
-        blockTable . deadCache %=! insertDeadCache bh
-    type MarkFin (PersistentTreeStateMonad bs m) = Maybe (StoredBlock (MPV m) (BlockStatePointer bs))
+        skovPersistentData . blockTable . liveMap . at' bh .=! Nothing
+        skovPersistentData . blockTable . deadCache %=! insertDeadCache bh
+    type MarkFin (PersistentTreeStateMonad state m) = Maybe (StoredBlock (MPV m) (BlockStatePointer (BlockState m)))
     markFinalized bh fr =
-        use (blockTable . liveMap . at' bh) >>= \case
+        use (skovPersistentData . blockTable . liveMap . at' bh) >>= \case
             Just (BlockAlive bp) -> do
                 st <- saveBlockState (_bpState bp)
                 -- NB: Removing the block from the in-memory cache only makes
@@ -671,7 +682,7 @@ instance
                 -- and must remain the case in the future. That is, finalization
                 -- must remain atomic, or this handling, and wrapUpFinalization
                 -- must be changed.
-                blockTable . liveMap . at' bh .=! Nothing
+                skovPersistentData . blockTable . liveMap . at' bh .=! Nothing
                 return $
                     Just
                         StoredBlock
@@ -681,25 +692,25 @@ instance
                               sbState = st
                             }
             _ -> return Nothing
-    markPending pb = blockTable . liveMap . at' (getHash pb) ?=! BlockPending pb
+    markPending pb = skovPersistentData . blockTable . liveMap . at' (getHash pb) ?=! BlockPending pb
 
-    getGenesisBlockPointer = use genesisBlockPointer
-    getGenesisData = use genesisData
+    getGenesisBlockPointer = use (skovPersistentData . genesisBlockPointer)
+    getGenesisData = use (skovPersistentData . genesisData)
     getLastFinalized = do
-        lf <- use lastFinalized
-        lfr <- use lastFinalizationRecord
+        lf <- use (skovPersistentData . lastFinalized)
+        lfr <- use (skovPersistentData . lastFinalizationRecord)
         return (lf, lfr)
-    getLastFinalizedSlot = blockSlot <$> use lastFinalized
-    getLastFinalizedHeight = bpHeight <$> use lastFinalized
-    getNextFinalizationIndex = (+ 1) . finalizationIndex <$!> use lastFinalizationRecord
+    getLastFinalizedSlot = blockSlot <$> use (skovPersistentData . lastFinalized)
+    getLastFinalizedHeight = bpHeight <$> use (skovPersistentData . lastFinalized)
+    getNextFinalizationIndex = (+ 1) . finalizationIndex <$!> use (skovPersistentData . lastFinalizationRecord)
     addFinalization newFinBlock finRec = do
-        lastFinalized .=! newFinBlock
-        lastFinalizationRecord .=! finRec
+        skovPersistentData . lastFinalized .=! newFinBlock
+        skovPersistentData . lastFinalizationRecord .=! finRec
     getFinalizedAtIndex finIndex = do
-        lfr <- use lastFinalizationRecord
+        lfr <- use (skovPersistentData . lastFinalizationRecord)
         if finIndex == finalizationIndex lfr
             then do
-                preuse lastFinalized
+                preuse (skovPersistentData . lastFinalized)
             else do
                 dfr <- readFinalizationRecord finIndex
                 case dfr of
@@ -709,13 +720,13 @@ instance
                     _ -> return Nothing
 
     getRecordAtIndex finIndex = do
-        lfr <- use lastFinalizationRecord
+        lfr <- use (skovPersistentData . lastFinalizationRecord)
         if finIndex == finalizationIndex lfr
             then return (Just lfr)
             else readFinalizationRecord finIndex
 
     getFinalizedAtHeight bHeight = do
-        lfin <- use lastFinalized
+        lfin <- use (skovPersistentData . lastFinalized)
         if bHeight == bpHeight lfin
             then do
                 return $ Just lfin
@@ -725,40 +736,40 @@ instance
 
     wrapupFinalization = writeFinalizationComposite
 
-    getBranches = use branches
-    putBranches brs = branches .= brs
-    takePendingChildren bh = possiblyPendingTable . at' bh . non [] <<.= []
+    getBranches = use (skovPersistentData . branches)
+    putBranches brs = skovPersistentData . branches .= brs
+    takePendingChildren bh = skovPersistentData . possiblyPendingTable . at' bh . non [] <<.= []
     addPendingBlock pb = do
         let parent = blockPointer (bbFields (pbBlock pb))
-        possiblyPendingTable . at' parent . non [] %= (pb :)
-        possiblyPendingQueue %= MPQ.insert (blockSlot (pbBlock pb)) (getHash pb, parent)
-    takeNextPendingUntil slot = tnpu =<< use possiblyPendingQueue
+        skovPersistentData . possiblyPendingTable . at' parent . non [] %= (pb :)
+        skovPersistentData . possiblyPendingQueue %= MPQ.insert (blockSlot (pbBlock pb)) (getHash pb, parent)
+    takeNextPendingUntil slot = tnpu =<< use (skovPersistentData . possiblyPendingQueue)
       where
         tnpu ppq = case MPQ.minViewWithKey ppq of
             Just ((sl, (pbh, parenth)), ppq') ->
                 if sl <= slot
                     then do
-                        (myPB, otherPBs) <- partition ((== pbh) . pbHash) <$> use (possiblyPendingTable . at' parenth . non [])
+                        (myPB, otherPBs) <- partition ((== pbh) . pbHash) <$> use (skovPersistentData . possiblyPendingTable . at' parenth . non [])
                         case myPB of
                             [] -> tnpu ppq'
                             (realPB : _) -> do
-                                possiblyPendingTable . at' parenth . non [] .= otherPBs
-                                possiblyPendingQueue .= ppq'
+                                skovPersistentData . possiblyPendingTable . at' parenth . non [] .= otherPBs
+                                skovPersistentData . possiblyPendingQueue .= ppq'
                                 return (Just realPB)
                     else do
-                        possiblyPendingQueue .= ppq
+                        skovPersistentData . possiblyPendingQueue .= ppq
                         return Nothing
             Nothing -> do
-                possiblyPendingQueue .= ppq
+                skovPersistentData . possiblyPendingQueue .= ppq
                 return Nothing
 
-    getFocusBlock = use focusBlock
-    putFocusBlock bb = focusBlock .= bb
-    getPendingTransactions = use pendingTransactions
-    putPendingTransactions pts = pendingTransactions .= pts
+    getFocusBlock = use (skovPersistentData . focusBlock)
+    putFocusBlock bb = skovPersistentData . focusBlock .= bb
+    getPendingTransactions = use (skovPersistentData . pendingTransactions)
+    putPendingTransactions pts = skovPersistentData . pendingTransactions .= pts
 
     getAccountNonFinalized addr nnce = do
-        use (transactionTable . ttNonFinalizedTransactions . at' addr) >>= \case
+        use (skovPersistentData . transactionTable . ttNonFinalizedTransactions . at' addr) >>= \case
             Nothing -> return []
             Just anfts ->
                 let (_, atnnce, beyond) = Map.splitLookup nnce (anfts ^. anftMap)
@@ -767,7 +778,7 @@ instance
                         Just s -> (nnce, s) : Map.toAscList beyond
 
     getNextAccountNonce addr =
-        use (transactionTable . ttNonFinalizedTransactions . at' addr) >>= \case
+        use (skovPersistentData . transactionTable . ttNonFinalizedTransactions . at' addr) >>= \case
             Nothing -> return (minNonce, True)
             Just anfts ->
                 case Map.lookupMax (anfts ^. anftMap) of
@@ -777,7 +788,7 @@ instance
     -- only looking up the cached part is OK because the precondition of this method is that the
     -- transaction is not yet finalized
     getCredential txHash = do
-        preuse (transactionTable . ttHashMap . ix txHash) >>= \case
+        preuse (skovPersistentData . transactionTable . ttHashMap . ix txHash) >>= \case
             Just (WithMetadata{wmdData = CredentialDeployment{..}, ..}, status) ->
                 case status of
                     Received _ verRes -> return $ Just (WithMetadata{wmdData = biCred, ..}, verRes)
@@ -786,7 +797,7 @@ instance
             _ -> return Nothing
 
     getNonFinalizedChainUpdates uty sn = do
-        use (transactionTable . ttNonFinalizedChainUpdates . at' uty) >>= \case
+        use (skovPersistentData . transactionTable . ttNonFinalizedChainUpdates . at' uty) >>= \case
             Nothing -> return []
             Just nfcus ->
                 let (_, atsn, beyond) = Map.splitLookup sn (nfcus ^. nfcuMap)
@@ -799,7 +810,7 @@ instance
 
     addCommitTransaction bi@WithMetadata{..} verResCtx ts slot = do
         let trHash = wmdHash
-        tt <- use transactionTable
+        tt <- use (skovPersistentData . transactionTable)
         -- check if the transaction is in the transaction table cache
         case tt ^? ttHashMap . ix trHash of
             Nothing -> do
@@ -826,8 +837,8 @@ instance
                         let ~(added, newTT) = addTransaction bi slot verRes tt
                         if not oldCredential && added
                             then do
-                                transactionTablePurgeCounter += 1
-                                transactionTable .=! newTT
+                                skovPersistentData . transactionTablePurgeCounter += 1
+                                skovPersistentData . transactionTable .=! newTT
                                 return (TS.Added bi verRes)
                             else return TS.ObsoleteNonce
             Just (bi', results) -> do
@@ -841,13 +852,13 @@ instance
                 -- unless the transaction is already finalized (this case is handled by updateSlot)
                 -- In the current model this latter case should not happen; once a transaction is finalized
                 -- it is written to disk (see finalizeTransactions below)
-                when (slot > results ^. tsSlot) $ transactionTable . ttHashMap . at' trHash . mapped . _2 %= updateSlot slot
+                when (slot > results ^. tsSlot) $ skovPersistentData . transactionTable . ttHashMap . at' trHash . mapped . _2 %= updateSlot slot
                 return $ TS.Duplicate bi' mVerRes
 
     addVerifiedTransaction bi@WithMetadata{..} okRes = do
         let verRes = TVer.Ok okRes
         let trHash = wmdHash
-        tt <- use transactionTable
+        tt <- use (skovPersistentData . transactionTable)
         -- check if the transaction is in the transaction table cache
         case tt ^? ttHashMap . ix trHash of
             Nothing -> do
@@ -861,8 +872,8 @@ instance
                 let ~(added, newTT) = addTransaction bi 0 verRes tt
                 if not oldCredential && added
                     then do
-                        transactionTablePurgeCounter += 1
-                        transactionTable .=! newTT
+                        skovPersistentData . transactionTablePurgeCounter += 1
+                        skovPersistentData . transactionTable .=! newTT
                         return (TS.Added bi verRes)
                     else return TS.ObsoleteNonce
             Just (bi', results) -> do
@@ -874,13 +885,13 @@ instance
                         Finalized{} -> Nothing
                 return $ TS.Duplicate bi' mVerRes
 
-    type FinTrans (PersistentTreeStateMonad bs m) = [(TransactionHash, FinalizedTransactionStatus)]
+    type FinTrans (PersistentTreeStateMonad state m) = [(TransactionHash, FinalizedTransactionStatus)]
     finalizeTransactions bh slot txs = mapM finTrans txs
       where
         finTrans WithMetadata{wmdData = NormalTransaction tr, ..} = do
             let nonce = transactionNonce tr
                 sender = accountAddressEmbed (transactionSender tr)
-            anft <- use (transactionTable . ttNonFinalizedTransactions . at' sender . non emptyANFT)
+            anft <- use (skovPersistentData . transactionTable . ttNonFinalizedTransactions . at' sender . non emptyANFT)
             if anft ^. anftNextNonce == nonce
                 then do
                     let nfn = anft ^. anftMap . at' nonce . non Map.empty
@@ -890,11 +901,12 @@ instance
                             -- Remove any other transactions with this nonce from the transaction table.
                             -- They can never be part of any other block after this point.
                             forM_ (Map.keys (Map.delete wmdtr nfn)) $
-                                \deadTransaction -> transactionTable . ttHashMap . at' (getHash deadTransaction) .= Nothing
+                                \deadTransaction -> skovPersistentData . transactionTable . ttHashMap . at' (getHash deadTransaction) .= Nothing
                             -- Mark the status of the transaction as finalized, and remove the data from the in-memory table.
                             ss <- deleteAndFinalizeStatus wmdHash
                             -- Update the non-finalized transactions for the sender
-                            transactionTable
+                            skovPersistentData
+                                . transactionTable
                                 . ttNonFinalizedTransactions
                                 . at' sender
                                 ?= ( anft
@@ -912,7 +924,7 @@ instance
         finTrans WithMetadata{wmdData = ChainUpdate cu, ..} = do
             let sn = updateSeqNumber (uiHeader cu)
                 uty = updateType (uiPayload cu)
-            nfcu <- use (transactionTable . ttNonFinalizedChainUpdates . at' uty . non emptyNFCU)
+            nfcu <- use (skovPersistentData . transactionTable . ttNonFinalizedChainUpdates . at' uty . non emptyNFCU)
             unless (nfcu ^. nfcuNextSequenceNumber == sn) $
                 logErrorAndThrowTS $
                     "The recorded next sequence number for update type " ++ show uty ++ " (" ++ show (nfcu ^. nfcuNextSequenceNumber) ++ ") doesn't match the one that is going to be finalized (" ++ show sn ++ ")"
@@ -923,22 +935,23 @@ instance
                     "Tried to finalize a chain update that is not known to be in the set of non-finalized chain updates of type " ++ show uty
             -- Remove any other updates with the same sequence number, since they weren't finalized
             forM_ (Map.keys (Map.delete wmdcu nfsn)) $
-                \deadUpdate -> transactionTable . ttHashMap . at' (getHash deadUpdate) .= Nothing
+                \deadUpdate -> skovPersistentData . transactionTable . ttHashMap . at' (getHash deadUpdate) .= Nothing
             -- Mark the status of the update as finalized, and remove the data from the in-memory table
             ss <- deleteAndFinalizeStatus wmdHash
             -- Update the non-finalized chain updates
-            transactionTable
+            skovPersistentData
+                . transactionTable
                 . ttNonFinalizedChainUpdates
                 . at' uty
                 ?= (nfcu & (nfcuMap . at' sn .~ Nothing) & (nfcuNextSequenceNumber .~ sn + 1))
             return ss
 
         deleteAndFinalizeStatus txHash = do
-            status <- preuse (transactionTable . ttHashMap . ix txHash . _2)
+            status <- preuse (skovPersistentData . transactionTable . ttHashMap . ix txHash . _2)
             case status of
                 Just Committed{..} -> do
                     -- delete the transaction from the table
-                    transactionTable . ttHashMap . at' txHash .= Nothing
+                    skovPersistentData . transactionTable . ttHashMap . at' txHash .= Nothing
                     -- and write the status to disk
                     return
                         ( txHash,
@@ -955,24 +968,25 @@ instance
         -- add a transaction status. This only updates the cached version which is correct at' the moment
         -- because transactions are only written to disk on finalization, at' which point their
         -- statuses are no longer updated.
-        transactionTable . ttHashMap . at' (getHash tr) %= fmap (_2 %~ addResult bh slot idx)
+        skovPersistentData . transactionTable . ttHashMap . at' (getHash tr) %= fmap (_2 %~ addResult bh slot idx)
 
     purgeTransaction WithMetadata{..} =
-        use (transactionTable . ttHashMap . at' wmdHash) >>= \case
+        use (skovPersistentData . transactionTable . ttHashMap . at' wmdHash) >>= \case
             Nothing -> return True
             Just (_, results) -> do
                 lastFinSlot <- blockSlot . _bpBlock . fst <$> TS.getLastFinalized
                 if lastFinSlot >= results ^. tsSlot
                     then do
                         -- remove from the table
-                        transactionTable . ttHashMap . at' wmdHash .= Nothing
+                        skovPersistentData . transactionTable . ttHashMap . at' wmdHash .= Nothing
                         -- if the transaction is from a sender also delete the relevant
                         -- entry in the account non finalized table
                         case wmdData of
                             NormalTransaction tr -> do
                                 let nonce = transactionNonce tr
                                     sender = accountAddressEmbed (transactionSender tr)
-                                transactionTable
+                                skovPersistentData
+                                    . transactionTable
                                     . ttNonFinalizedTransactions
                                     . at' sender
                                     . non emptyANFT
@@ -987,27 +1001,27 @@ instance
     markDeadTransaction bh tr =
         -- We only need to update the outcomes. The anf table nor the pending table need be updated
         -- here since a transaction should not be marked dead in a finalized block.
-        transactionTable . ttHashMap . at' (getHash tr) . mapped . _2 %= markDeadResult bh
+        skovPersistentData . transactionTable . ttHashMap . at' (getHash tr) . mapped . _2 %= markDeadResult bh
     lookupTransaction th = do
-        ts <- preuse (transactionTable . ttHashMap . ix th . _2)
+        ts <- preuse (skovPersistentData . transactionTable . ttHashMap . ix th . _2)
         case ts of
             Just t -> return $ Just t
             Nothing -> fmap finalizedToTransactionStatus <$> readTransactionStatus th
 
-    getConsensusStatistics = use statistics
-    putConsensusStatistics stats = statistics .=! stats
+    getConsensusStatistics = use (skovPersistentData . statistics)
+    putConsensusStatistics stats = skovPersistentData . statistics .=! stats
 
     {-# INLINE getRuntimeParameters #-}
-    getRuntimeParameters = use runtimeParameters
+    getRuntimeParameters = use (skovPersistentData . runtimeParameters)
 
     purgeTransactionTable ignoreInsertions currentTime = do
-        purgeCount <- use transactionTablePurgeCounter
-        RuntimeParameters{..} <- use runtimeParameters
+        purgeCount <- use (skovPersistentData . transactionTablePurgeCounter)
+        RuntimeParameters{..} <- use (skovPersistentData . runtimeParameters)
         when (ignoreInsertions || purgeCount > rpInsertionsBeforeTransactionPurge) $ do
-            transactionTablePurgeCounter .= 0
+            skovPersistentData . transactionTablePurgeCounter .= 0
             lastFinalizedSlot <- TS.getLastFinalizedSlot
-            transactionTable' <- use transactionTable
-            pendingTransactions' <- use pendingTransactions
+            transactionTable' <- use (skovPersistentData . transactionTable)
+            pendingTransactions' <- use (skovPersistentData . pendingTransactions)
             let
                 currentTransactionTime = utcTimeToTransactionTime currentTime
                 oldestArrivalTime =
@@ -1016,20 +1030,21 @@ instance
                         else 0
                 currentTimestamp = utcTimeToTimestamp currentTime
                 (newTT, newPT) = purgeTables lastFinalizedSlot oldestArrivalTime currentTimestamp transactionTable' pendingTransactions'
-            transactionTable .= newTT
-            pendingTransactions .= newPT
+            skovPersistentData . transactionTable .= newTT
+            skovPersistentData . pendingTransactions .= newPT
 
     clearOnProtocolUpdate = do
         -- clear the pending blocks
-        possiblyPendingTable .=! HM.empty
-        possiblyPendingQueue .=! MPQ.empty
+        skovPersistentData . possiblyPendingTable .=! HM.empty
+        skovPersistentData . possiblyPendingQueue .=! MPQ.empty
         -- and non-finalized blocks
-        branches .=! Seq.empty
-        blockTable . liveMap .=! HM.empty
-        blockTable . deadCache .=! emptyDeadCache
+        skovPersistentData . branches .=! Seq.empty
+        skovPersistentData . blockTable . liveMap .=! HM.empty
+        skovPersistentData . blockTable . deadCache .=! emptyDeadCache
         -- mark all transactions that are not finalized as received since
         -- they are no longer part of any blocks.
-        transactionTable
+        skovPersistentData
+            . transactionTable
             . ttHashMap
             %=! HM.map
                 ( \(bi, s) -> case s of
@@ -1038,20 +1053,20 @@ instance
                 )
 
     clearAfterProtocolUpdate = do
-        transactionTable .=! emptyTransactionTable
-        pendingTransactions .=! emptyPendingTransactionTable
-        nextGenesisInitialState .=! Nothing
+        skovPersistentData . transactionTable .=! emptyTransactionTable
+        skovPersistentData . pendingTransactions .=! emptyPendingTransactionTable
+        skovPersistentData . nextGenesisInitialState .=! Nothing
         -- uncache any blocks that might still be cached.
-        gp <- use genesisBlockPointer
+        gp <- use (skovPersistentData . genesisBlockPointer)
         archiveBlockState (_bpState gp)
-        fp <- use focusBlock
+        fp <- use (skovPersistentData . focusBlock)
         archiveBlockState (_bpState fp)
-        lf <- use lastFinalized
+        lf <- use (skovPersistentData . lastFinalized)
         archiveBlockState (_bpState lf)
         collapseCaches
 
     getNonFinalizedTransactionVerificationResult bi = do
-        table <- use transactionTable
+        table <- use (skovPersistentData . transactionTable)
         return $ getNonFinalizedVerificationResult bi table
 
-    storeFinalState bs = nextGenesisInitialState ?= bs
+    storeFinalState bs = skovPersistentData . nextGenesisInitialState ?= bs

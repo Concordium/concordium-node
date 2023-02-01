@@ -16,7 +16,6 @@ import Control.Monad (join)
 import Data.Foldable (toList)
 import Data.List (maximumBy, sortBy)
 import Data.Map ((!))
-import Data.Proxy
 import Data.Ratio
 import qualified Data.Vector as Vec
 import System.FilePath.Posix
@@ -307,10 +306,10 @@ genesis nBakers =
         (withIsAuthorizationsVersionForPV (protocolVersion @pv) dummyKeyCollection)
         dummyChainParameters
 
-type MyPersistentTreeState pv = SkovPersistentData pv (HashedPersistentBlockState pv)
+type MyPersistentTreeState pv = SkovPersistentData pv
 type MyPersistentMonad pv =
     PersistentTreeStateMonad
-        (HashedPersistentBlockState pv)
+        (SkovPersistentData pv)
         ( MGSTrans
             (StateT (MyPersistentTreeState pv))
             ( PersistentBlockStateMonad
@@ -339,12 +338,12 @@ createGlobalState :: (IsProtocolVersion pv) => FilePath -> IO (PersistentBlockSt
 createGlobalState dbDir = do
     let
         n = 5
-        config = DTDBConfig defaultRuntimeParameters dbDir (dbDir </> "blockstate" <.> "dat")
+        config = GlobalStateConfig defaultRuntimeParameters dbDir (dbDir </> "blockstate" <.> "dat")
     (x, y) <- runSilentLogger $ initialiseGlobalState (genesis n ^. _1) config
     return (x, y)
 
 destroyGlobalState :: (IsProtocolVersion pv) => (PersistentBlockStateContext pv, MyPersistentTreeState pv) -> IO ()
-destroyGlobalState (c, s) = shutdownGlobalState protocolVersion (Proxy :: Proxy DiskTreeDiskBlockConfig) c s
+destroyGlobalState (c, s) = shutdownGlobalState protocolVersion c s
 
 withPersistentState' :: (IsProtocolVersion pv) => (HashedPersistentBlockState pv -> MyPersistentMonad pv a) -> IO (a, MyPersistentTreeState pv)
 withPersistentState' f = withTempDirectory "." "test-directory" $

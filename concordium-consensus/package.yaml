@@ -88,12 +88,12 @@ library:
       - -O2
       - -fno-ignore-asserts
 
-  extra-libraries: wasm_chain_integration
+  extra-libraries: concordium_smart_contract_engine
 
   when:
     - condition: os(windows)
       then:
-        ghc-options: -threaded -static -shared lib.def -L../concordium-base/smart-contracts/lib -lwasm_chain_integration
+        ghc-options: -threaded -static -shared lib.def -L../concordium-base/smart-contracts/lib -lconcordium_smart_contract_engine
       else:
         when:
           - condition: flag(dynamic)

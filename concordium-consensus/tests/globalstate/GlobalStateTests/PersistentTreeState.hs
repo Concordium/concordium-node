@@ -41,7 +41,6 @@ import Control.Exception
 import Control.Monad.Identity
 import Control.Monad.RWS.Strict as RWS hiding (state)
 import qualified Data.FixedByteString as FBS
-import Data.Proxy
 import Data.Time.Clock.POSIX
 import Lens.Micro.Platform
 import System.FilePath ((<.>), (</>))
@@ -54,31 +53,36 @@ import Test.QuickCheck
 -- |Protocol version.
 type PV = 'P5
 
-type GlobalStateIO c g = GlobalStateM PV c c g g (RWST c () g LogIO)
-
-type TestM = GlobalStateIO (PBS.PersistentBlockStateContext PV) (SkovPersistentData PV (PBS.HashedPersistentBlockState PV))
+type TestM =
+    PersistentTreeStateMonad
+        (SkovPersistentData PV)
+        ( PBS.PersistentBlockStateMonad
+            PV
+            (PBS.PersistentBlockStateContext PV)
+            (RWST (PBS.PersistentBlockStateContext PV) () (SkovPersistentData PV) LogIO)
+        )
 
 type Test = TestM ()
 
 instance HasGlobalStateContext (PBS.PersistentBlockStateContext PV) (PBS.PersistentBlockStateContext PV) where
     globalStateContext = id
 
-instance HasGlobalState (SkovPersistentData PV (PBS.HashedPersistentBlockState PV)) (SkovPersistentData PV (PBS.HashedPersistentBlockState PV)) where
+instance HasGlobalState (SkovPersistentData PV) (SkovPersistentData PV) where
     globalState = id
 
-createGlobalState :: FilePath -> IO (PBS.PersistentBlockStateContext PV, SkovPersistentData PV (PBS.HashedPersistentBlockState PV))
+createGlobalState :: FilePath -> IO (PBS.PersistentBlockStateContext PV, SkovPersistentData PV)
 createGlobalState dbDir = do
     now <- utcTimeToTimestamp <$> getCurrentTime
     let
         n = 3
         genesis = makeTestingGenesisDataP5 now n 1 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters emptyIdentityProviders emptyAnonymityRevokers maxBound dummyKeyCollection dummyChainParameters
-        config = DTDBConfig defaultRuntimeParameters dbDir (dbDir </> "blockstate" <.> "dat")
+        config = GlobalStateConfig defaultRuntimeParameters dbDir (dbDir </> "blockstate" <.> "dat")
     (x, y) <- runSilentLogger $ initialiseGlobalState genesis config
     return (x, y)
 
-destroyGlobalState :: (PBS.PersistentBlockStateContext PV, SkovPersistentData PV (PBS.HashedPersistentBlockState PV)) -> IO ()
+destroyGlobalState :: (PBS.PersistentBlockStateContext PV, SkovPersistentData PV) -> IO ()
 destroyGlobalState (c, s) =
-    shutdownGlobalState (protocolVersion @PV) (Proxy :: Proxy DiskTreeDiskBlockConfig) c s
+    shutdownGlobalState (protocolVersion @PV) c s
 
 specifyWithGS :: String -> Test -> SpecWith (Arg Expectation)
 specifyWithGS s f =
@@ -86,7 +90,7 @@ specifyWithGS s f =
         withTempDirectory "." "test-directory" $
             \dbDir ->
                 bracket (createGlobalState dbDir) destroyGlobalState $
-                    runSilentLogger . void . uncurry (runRWST (runGlobalStateM $ f))
+                    runSilentLogger . void . uncurry (runRWST $ PBS.runPersistentBlockStateMonad $ runPersistentTreeStateMonad f)
 
 useI :: MonadState (Identity s) f => Getting b s b -> f b
 useI f = (^. f) . runIdentity <$> RWS.get
