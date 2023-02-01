@@ -41,7 +41,6 @@ import Control.Exception
 import Control.Monad.Identity
 import Control.Monad.RWS.Strict as RWS hiding (state)
 import qualified Data.FixedByteString as FBS
-import Data.Proxy
 import Data.Time.Clock.POSIX
 import Lens.Micro.Platform
 import System.FilePath ((<.>), (</>))
@@ -77,13 +76,13 @@ createGlobalState dbDir = do
     let
         n = 3
         genesis = makeTestingGenesisDataP5 now n 1 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters emptyIdentityProviders emptyAnonymityRevokers maxBound dummyKeyCollection dummyChainParameters
-        config = DTDBConfig defaultRuntimeParameters dbDir (dbDir </> "blockstate" <.> "dat")
+        config = GlobalStateConfig defaultRuntimeParameters dbDir (dbDir </> "blockstate" <.> "dat")
     (x, y) <- runSilentLogger $ initialiseGlobalState genesis config
     return (x, y)
 
 destroyGlobalState :: (PBS.PersistentBlockStateContext PV, SkovPersistentData PV) -> IO ()
 destroyGlobalState (c, s) =
-    shutdownGlobalState (protocolVersion @PV) (Proxy :: Proxy DiskTreeDiskBlockConfig) c s
+    shutdownGlobalState (protocolVersion @PV) c s
 
 specifyWithGS :: String -> Test -> SpecWith (Arg Expectation)
 specifyWithGS s f =

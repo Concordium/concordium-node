@@ -241,7 +241,7 @@ makeRegenesisRef = newForeignPtr
 --
 -- The use of the existential type is convenient, since it avoids or defers case analysis, while
 -- allowing for multiple possible configurations.
-data ConsensusRunner = forall gsconf finconf. ConsensusRunner (MultiVersionRunner gsconf finconf)
+data ConsensusRunner = forall finconf. ConsensusRunner (MultiVersionRunner finconf)
 
 -- |Result of starting consensus
 data StartResult
@@ -455,7 +455,6 @@ startConsensus
             runner <- do
                 let config ::
                         MultiVersionConfiguration
-                            DiskTreeDiskBlockConfig
                             (BufferedFinalization ThreadTimer)
                     config = MultiVersionConfiguration{..}
                 ConsensusRunner
@@ -585,7 +584,6 @@ startConsensusPassive
             runner <- do
                 let config ::
                         MultiVersionConfiguration
-                            DiskTreeDiskBlockConfig
                             (NoFinalization ThreadTimer)
                     config = MultiVersionConfiguration{..}
                 ConsensusRunner
@@ -968,7 +966,7 @@ jsonQuery ::
     -- |Consensus pointer
     StablePtr ConsensusRunner ->
     -- |Configuration-independent query operation
-    (forall gsconf finconf. MVR gsconf finconf a) ->
+    (forall finconf. MVR finconf a) ->
     IO CString
 jsonQuery cptr a = do
     (ConsensusRunner mvr) <- deRefStablePtr cptr
