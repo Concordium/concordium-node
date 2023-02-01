@@ -79,5 +79,6 @@ tests =
         it
             "Using BufferedRef"
             testingFunction2
-        it "testHashAsLFMBT"
+        it
+            "testHashAsLFMBT"
             testHashAsLFMBT
