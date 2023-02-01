@@ -4,7 +4,6 @@
 module ConcordiumTests.FinalizationRecover where
 
 import Control.Monad
-import Data.Proxy
 import qualified Data.Vector as Vec
 import System.FilePath
 import System.IO.Temp
@@ -84,9 +83,12 @@ setup nBakers = withTempDirectory "." "tmp-consensus-data" $ \tempDir -> do
                 genTotal
     let finInstances = map (makeFinalizationInstance . fst) bakers
     (gsc, gss) <- runSilentLogger (initialiseGlobalState genData $ makeGlobalStateConfig tempDir defaultRuntimeParameters)
-    active <- forM finInstances (\inst -> (initialState inst,) <$> runSilentLogger (getFinalizationState (Proxy :: Proxy PV) (Proxy :: Proxy TreeConfig) (gsc, gss) (Just inst)))
-    passive <- (initialPassiveState,) <$> runSilentLogger (getFinalizationState (Proxy :: Proxy PV) (Proxy :: Proxy TreeConfig) (gsc, gss) Nothing)
+    active <- forM finInstances (\inst -> (initialState inst,) <$> runSilentLogger (getFinalizationState (Just inst) gsc gss))
+    passive <- (initialPassiveState,) <$> runSilentLogger (getFinalizationState Nothing gsc gss)
     return $ passive : active
+  where
+    getFinalizationState :: Maybe FinalizationInstance -> GSContext PV -> GSState PV -> LogIO (FinalizationState timer)
+    getFinalizationState mInst = evalGlobalStateM (recoverFinalizationState mInst)
 
 test :: Spec
 test = describe "Concordium.FinalizationRecover" $ do

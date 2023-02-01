@@ -307,10 +307,10 @@ genesis nBakers =
         (withIsAuthorizationsVersionForPV (protocolVersion @pv) dummyKeyCollection)
         dummyChainParameters
 
-type MyPersistentTreeState pv = SkovPersistentData pv (HashedPersistentBlockState pv)
+type MyPersistentTreeState pv = SkovPersistentData pv
 type MyPersistentMonad pv =
     PersistentTreeStateMonad
-        (HashedPersistentBlockState pv)
+        (SkovPersistentData pv)
         ( MGSTrans
             (StateT (MyPersistentTreeState pv))
             ( PersistentBlockStateMonad

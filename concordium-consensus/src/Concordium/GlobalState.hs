@@ -1,7 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -14,379 +13,22 @@ module Concordium.GlobalState where
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.Reader.Class
-import Control.Monad.State.Class
 import Control.Monad.Trans.Reader hiding (ask)
 import Data.Kind
 import Data.Proxy
 
-import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockState
-import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.Persistent.Account (AccountCache, newAccountCache)
+import Concordium.GlobalState.Persistent.Account (newAccountCache)
 import Concordium.GlobalState.Persistent.BlobStore (BlobStoreT (runBlobStoreT), closeBlobStore, createBlobStore, destroyBlobStore, loadBlobStore)
 import Concordium.GlobalState.Persistent.BlockState
 import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
-import Concordium.GlobalState.Persistent.Cache
 import Concordium.GlobalState.Persistent.Genesis
 import Concordium.GlobalState.Persistent.TreeState
-import Concordium.GlobalState.TreeState as TS
 import Concordium.Logger
-import Concordium.TimeMonad
 import Concordium.Types.ProtocolVersion
 
--- For the avid reader.
--- The strategy followed in this module is the following: First `BlockStateM` and
--- `TreeStateM` derive the behaviors of the BlockState Monads and TreeState Monads
--- respectively. If such behavior is independent of the specific implementation of
--- the monad we use generic implementations. As these are just wrappers that lift
--- behaviors, some of these are generic.
---
--- For example, deriving `MonadIO` when wrapping a monad that is already an instance
--- of `MonadIO` is trivially done in the deriving clause next to the definition of
--- the new type. Deriving a class that is agnostic to the types used (usually because
--- the relations between those types are given by another typeclass) is done in the
--- `Generic implementations` section for each type.
---
--- When the actual typeclass that is being derived depends on the type variables to
--- inherit one behavior or another (for example with the `TreeStateMonad` implementation)
--- we actually need to use two derive instances to generate the different type classes.
--- These derivations are done in the `Specialized implementations` section for each type.
---
--- The general strategy followed for these derivations is:
---
--- 1. derive via a type that is already an instance of the class we want (for example
--- `PureTreeStateMonad` is an instance of `TreeStateMonad`).
--- 2. Use the constraint `Monad m` because the newtype we are mirroring needs this to
--- even exist (`Monad m => MonadIO/MonadState s/MonadReader r/MonadWriter w m` so any
--- of those also work).
--- 3. If we are deriving the class `C` via the type `T`, require the constraint `C T`
--- that we know is true for some instances of the type variables in `T`.
--- 3b. If the class `C` depends in another typeclass `D` that is not implemented in a
--- generic way, we will need to add this constraint to our derivation. This happens
--- with the `BlockStateStorage m` constraint when deriving the `TreeStateMonad`,
--- as `BlockStateStorage` is not mandatory for all the possible instantiations of
--- the type variables in the `T` type.
--- 4. Declare the instance `C V` being V the actual newtype we want to give this
--- behavior.
---
--- This deriving mechanism most often requires the use of UndecidableInstances. Adding
--- derivations should be done with great care as it might lead to situations where the
--- constraints for a specific instance requires that same instance to be fulfilled
--- i.e. `C (T a) => C (T a)` leading to infinite loops in instance resolution (in runtime).
---
--- In the case of the `GlobalStateM` new type we will derive the BlockState monads,
--- generically from `BlockStateM` and the TreeState monads also generically from
--- `TreeStateM bs (BlockStateM ..)`.
-
--- |A newtype wrapper for providing instances of the block state related monads:
--- 'BlockStateTypes', 'BlockStateQuery', 'AccountOperations', 'BakerQuery', 'BlockStateOperations', 'BirkParametersOperations' and 'BlockStateStorage'.
---
--- For the monad @BlockStateM pv c r g s m@, the underlying monad @m@ should satisfy
--- @MonadReader r m@ and @MonadState s m@.  The types @c@ and @s@ should be components
--- of the context @r@ and state @s@, satisfying @HasGlobalStateContext c r@ and
--- @HasGlobalState g s@ respectively.
---
--- The particular instances for the block state monads are determined by the @c@ and @g@
--- parameters (although currently @g@ is not used).
---
--- * If @c@ is @()@, the block state is a pure, in-memory, Haskell implementation using
---   'Basic.PureBlockStateMonad'.
---
--- * If @c@ is 'PersistentBlockStateContext', the block state is a persistent, Haskell
---   implementation using 'PersistentBlockStateMonad'.
-newtype BlockStateM (pv :: ProtocolVersion) (c :: Type) (r :: Type) (g :: Type) (s :: Type) (m :: Type -> Type) (a :: Type) = BlockStateM {runBlockStateM :: m a}
-    deriving (Functor, Applicative, Monad, MonadIO, MonadLogger)
-
-instance (IsProtocolVersion pv) => MonadProtocolVersion (BlockStateM pv c r g s m) where
-    type MPV (BlockStateM pv c r g s m) = pv
-
--- * Generic implementations
-
-deriving via
-    FocusGlobalStateM c g m
-    instance
-        (HasGlobalStateContext c r, MonadReader r m) =>
-        MonadReader c (BlockStateM pv c r g s m)
-
-deriving via
-    FocusGlobalStateM c g m
-    instance
-        (HasGlobalState g s, MonadState s m) =>
-        MonadState g (BlockStateM pv c r g s m)
-
--- * Disk implementations
-type PersistentBlockStateM pv (r :: Type) (g :: Type) (s :: Type) (m :: Type -> Type) = BlockStateM pv (PersistentBlockStateContext pv) r g s m
-
-deriving via
-    PersistentBlockStateMonad pv (PersistentBlockStateContext pv) m
-    instance
-        BlockStateTypes (PersistentBlockStateM pv r g s m)
-
-deriving via
-    PersistentBlockStateMonad
-        pv
-        (PersistentBlockStateContext pv)
-        (FocusGlobalStateM (PersistentBlockStateContext pv) g m)
-    instance
-        ( MonadIO m,
-          BlockStateQuery
-            ( PersistentBlockStateMonad
-                pv
-                (PersistentBlockStateContext pv)
-                (FocusGlobalStateM (PersistentBlockStateContext pv) g m)
-            )
-        ) =>
-        BlockStateQuery (PersistentBlockStateM pv r g s m)
-
-deriving via
-    PersistentBlockStateMonad
-        pv
-        (PersistentBlockStateContext pv)
-        (FocusGlobalStateM (PersistentBlockStateContext pv) g m)
-    instance
-        ( MonadIO m,
-          AccountOperations
-            ( PersistentBlockStateMonad
-                pv
-                (PersistentBlockStateContext pv)
-                (FocusGlobalStateM (PersistentBlockStateContext pv) g m)
-            )
-        ) =>
-        AccountOperations (PersistentBlockStateM pv r g s m)
-
-deriving via
-    PersistentBlockStateMonad
-        pv
-        (PersistentBlockStateContext pv)
-        (FocusGlobalStateM (PersistentBlockStateContext pv) g m)
-    instance
-        ( MonadIO m,
-          ContractStateOperations
-            ( PersistentBlockStateMonad
-                pv
-                (PersistentBlockStateContext pv)
-                (FocusGlobalStateM (PersistentBlockStateContext pv) g m)
-            )
-        ) =>
-        ContractStateOperations (PersistentBlockStateM pv r g s m)
-
-deriving via
-    PersistentBlockStateMonad
-        pv
-        (PersistentBlockStateContext pv)
-        (FocusGlobalStateM (PersistentBlockStateContext pv) g m)
-    instance
-        ( MonadIO m,
-          ModuleQuery
-            ( PersistentBlockStateMonad
-                pv
-                (PersistentBlockStateContext pv)
-                (FocusGlobalStateM (PersistentBlockStateContext pv) g m)
-            )
-        ) =>
-        ModuleQuery (PersistentBlockStateM pv r g s m)
-
-deriving via
-    PersistentBlockStateMonad
-        pv
-        (PersistentBlockStateContext pv)
-        (FocusGlobalStateM (PersistentBlockStateContext pv) g m)
-    instance
-        ( MonadIO m,
-          BlockStateOperations
-            ( PersistentBlockStateMonad
-                pv
-                (PersistentBlockStateContext pv)
-                (FocusGlobalStateM (PersistentBlockStateContext pv) g m)
-            )
-        ) =>
-        BlockStateOperations (PersistentBlockStateM pv r g s m)
-
-deriving via
-    PersistentBlockStateMonad
-        pv
-        (PersistentBlockStateContext pv)
-        (FocusGlobalStateM (PersistentBlockStateContext pv) g m)
-    instance
-        ( MonadIO m,
-          BlockStateStorage
-            ( PersistentBlockStateMonad
-                pv
-                (PersistentBlockStateContext pv)
-                (FocusGlobalStateM (PersistentBlockStateContext pv) g m)
-            )
-        ) =>
-        BlockStateStorage (PersistentBlockStateM pv r g s m)
-
-instance
-    ( MonadIO m,
-      c ~ PersistentBlockStateContext pv,
-      HasGlobalStateContext c r,
-      AccountVersionFor pv ~ av,
-      MonadReader r m
-    ) =>
-    MonadCache (AccountCache av) (PersistentBlockStateM pv r g s m)
-    where
-    getCache = projectCache <$> ask
-
-instance
-    ( MonadIO m,
-      c ~ PersistentBlockStateContext pv,
-      HasGlobalStateContext c r,
-      MonadReader r m
-    ) =>
-    MonadCache Modules.ModuleCache (PersistentBlockStateM pv r g s m)
-    where
-    getCache = projectCache <$> ask
-
------------------------------------------------------------------------------
-
--- |@TreeStateM s m@ is a newtype wrapper around a monad for
--- implementing tree state monads.  The parameter @s@ should
--- be the state type of the underlying monad @m@.
---
--- For the monad @TreeStateM s m@, the underlying monad @m@ should satisfy
--- @MonadState s m@.
---
--- * If @s@ is 'SkovData pv bs', then the in-memory, Haskell tree state is used.
--- * If @s@ is 'SkovPersistentData pv bs', then the persistent Haskell tree state is used.
-newtype TreeStateM (s :: Type) (m :: Type -> Type) (a :: Type) = TreeStateM {runTreeStateM :: m a}
-    deriving
-        ( Functor,
-          Applicative,
-          Monad,
-          MonadState s,
-          MonadIO,
-          BlockStateTypes,
-          BlockStateQuery,
-          ModuleQuery,
-          AccountOperations,
-          BlockStateOperations,
-          BlockStateStorage,
-          ContractStateOperations
-        )
-
-deriving instance MonadProtocolVersion m => MonadProtocolVersion (TreeStateM s m)
-
-type PersistentTreeStateM pv (bs :: Type) (m :: Type -> Type) = TreeStateM (SkovPersistentData pv bs) m
-
-deriving via
-    PersistentTreeStateMonad bs m
-    instance
-        (IsProtocolVersion pv, pv ~ MPV m) => GlobalStateTypes (PersistentTreeStateM pv bs m)
-
-deriving via
-    PersistentTreeStateMonad bs m
-    instance
-        ( Monad m,
-          IsProtocolVersion pv,
-          BlockPointerMonad (PersistentTreeStateMonad bs m),
-          MPV m ~ pv
-        ) =>
-        BlockPointerMonad (PersistentTreeStateM pv bs m)
-
-deriving via
-    PersistentTreeStateMonad bs m
-    instance
-        ( MonadProtocolVersion m,
-          BlockStateStorage m,
-          TreeStateMonad (PersistentTreeStateMonad bs m),
-          MPV m ~ pv
-        ) =>
-        TreeStateMonad (PersistentTreeStateM pv bs m)
-
--- |A newtype wrapper for providing instances of global state monad classes.
--- The block state monad instances are derived directly from 'BlockStateM'.
--- The tree state monad instances are derived directly from 'TreeStateM'.
--- The arguments c, r, g, s, m, a are as in BlockStateM, whereas the argument @db@
--- is an additional context that manages auxiliary databases not needed by consensus.
--- In particular this means the index of transactions that affect a given account.
-newtype GlobalStateM (pv :: ProtocolVersion) (c :: Type) (r :: Type) (g :: Type) (s :: Type) (m :: Type -> Type) (a :: Type) = GlobalStateM {runGlobalStateM :: m a}
-    deriving (Functor, Applicative, Monad, MonadReader r, MonadState s, MonadIO, MonadLogger, TimeMonad)
-    deriving (BlockStateTypes) via (BlockStateM pv c r g s m)
-
-instance (IsProtocolVersion pv) => MonadProtocolVersion (GlobalStateM pv c r g s m) where
-    type MPV (GlobalStateM pv c r g s m) = pv
-
 -- * Specializations
-
-type TreeStateBlockStateM pv (g :: Type) (c :: Type) (r :: Type) (s :: Type) (m :: Type -> Type) = TreeStateM g (BlockStateM pv c r g s m)
-
--- * Generic implementations
-
-deriving via
-    BlockStateM pv c r g s m
-    instance
-        ( Monad m,
-          BlockStateQuery (BlockStateM pv c r g s m)
-        ) =>
-        BlockStateQuery (GlobalStateM pv c r g s m)
-
-deriving via
-    BlockStateM pv c r g s m
-    instance
-        ( Monad m,
-          AccountOperations (BlockStateM pv c r g s m)
-        ) =>
-        AccountOperations (GlobalStateM pv c r g s m)
-
-deriving via
-    BlockStateM pv c r g s m
-    instance
-        ( Monad m,
-          ContractStateOperations (BlockStateM pv c r g s m)
-        ) =>
-        ContractStateOperations (GlobalStateM pv c r g s m)
-
-deriving via
-    BlockStateM pv c r g s m
-    instance
-        ( Monad m,
-          ModuleQuery (BlockStateM pv c r g s m)
-        ) =>
-        ModuleQuery (GlobalStateM pv c r g s m)
-
-deriving via
-    BlockStateM pv c r g s m
-    instance
-        ( BlockStateQuery (GlobalStateM pv c r g s m),
-          BlockStateOperations (BlockStateM pv c r g s m)
-        ) =>
-        BlockStateOperations (GlobalStateM pv c r g s m)
-
-deriving via
-    BlockStateM pv c r g s m
-    instance
-        ( BlockStateOperations (GlobalStateM pv c r g s m),
-          BlockStateStorage (BlockStateM pv c r g s m)
-        ) =>
-        BlockStateStorage (GlobalStateM pv c r g s m)
-
-deriving via
-    TreeStateBlockStateM pv g c r s m
-    instance
-        GlobalStateTypes (TreeStateBlockStateM pv g c r s m) =>
-        GlobalStateTypes (GlobalStateM pv c r g s m)
-
-deriving via
-    TreeStateBlockStateM pv g c r s m
-    instance
-        ( Monad m,
-          BlockPointerMonad (TreeStateBlockStateM pv g c r s m)
-        ) =>
-        BlockPointerMonad (GlobalStateM pv c r g s m)
-
-deriving via
-    TreeStateBlockStateM pv g c r s m
-    instance
-        ( Monad m,
-          BlockStateStorage (BlockStateM pv c r g s m),
-          TreeStateMonad (TreeStateBlockStateM pv g c r s m)
-        ) =>
-        TreeStateMonad (GlobalStateM pv c r g s m)
-
------------------------------------------------------------------------------
 
 -- |Configuration that uses the disk implementation for both the tree state
 -- and the block state
@@ -407,14 +49,14 @@ instance Show GlobalStateInitException where
 
 instance Exception GlobalStateInitException
 
+-- |The read-only context type associated with a global state configuration.
+type GSContext pv = PersistentBlockStateContext pv
+
+-- |The (mutable) state type associated with a global state configuration.
+type GSState pv = SkovPersistentData pv
+
 -- |This class is implemented by types that determine configurations for the global state.
 class GlobalStateConfig (c :: Type) where
-    -- |The read-only context type associated with a global state configuration.
-    type GSContext c (pv :: ProtocolVersion)
-
-    -- |The (mutable) state type associated with a global state configuration.
-    type GSState c (pv :: ProtocolVersion)
-
     -- |Generate context and state from the initial configuration if the state
     -- exists already. This may have 'IO' side effects to set up any necessary
     -- storage. This may throw a 'GlobalStateInitException'.
@@ -426,7 +68,7 @@ class GlobalStateConfig (c :: Type) where
     -- Note that even if the state is successfully loaded it is not in a usable
     -- state for an active consensus and must be activated before. Use
     -- 'activateGlobalState' for that.
-    initialiseExistingGlobalState :: forall pv. IsProtocolVersion pv => SProtocolVersion pv -> c -> LogIO (Maybe (GSContext c pv, GSState c pv))
+    initialiseExistingGlobalState :: forall pv. IsProtocolVersion pv => SProtocolVersion pv -> c -> LogIO (Maybe (GSContext pv, GSState pv))
 
     -- |Migrate an existing global state. This is only intended to be used on a
     -- protocol update and requires that the initial state for the new protocol
@@ -448,23 +90,23 @@ class GlobalStateConfig (c :: Type) where
         -- |The configuration.
         c ->
         -- |Global state context for the state we are migrating from.
-        GSContext c oldpv ->
+        GSContext oldpv ->
         -- |The state of the chain we are migrating from. See documentation above for assumptions.
-        GSState c oldpv ->
+        GSState oldpv ->
         -- |Auxiliary migration data.
         StateMigrationParameters oldpv pv ->
         -- |Regenesis data for the new chain. This is in effect the genesis block of the new chain.
         Regenesis pv ->
         -- |The return value is the context and state for the new chain.
-        LogIO (GSContext c pv, GSState c pv)
+        LogIO (GSContext pv, GSState pv)
 
     -- |Initialise new global state with the given genesis. If the state already
     -- exists this will raise an exception. It is not necessary to call 'activateGlobalState'
     -- on the generated state, as this will establish the necessary invariants.
-    initialiseNewGlobalState :: IsProtocolVersion pv => GenesisData pv -> c -> LogIO (GSContext c pv, GSState c pv)
+    initialiseNewGlobalState :: IsProtocolVersion pv => GenesisData pv -> c -> LogIO (GSContext pv, GSState pv)
 
     -- |Either initialise an existing state, or if it does not exist, initialise a new one with the given genesis.
-    initialiseGlobalState :: forall pv. IsProtocolVersion pv => GenesisData pv -> c -> LogIO (GSContext c pv, GSState c pv)
+    initialiseGlobalState :: forall pv. IsProtocolVersion pv => GenesisData pv -> c -> LogIO (GSContext pv, GSState pv)
     initialiseGlobalState gd cfg =
         initialiseExistingGlobalState (protocolVersion @pv) cfg >>= \case
             Nothing -> initialiseNewGlobalState gd cfg
@@ -472,15 +114,12 @@ class GlobalStateConfig (c :: Type) where
 
     -- |Establish all the necessary invariants so that the state can be used by
     -- consensus. This should only be called once per initialised state.
-    activateGlobalState :: IsProtocolVersion pv => Proxy c -> Proxy pv -> GSContext c pv -> GSState c pv -> LogIO (GSState c pv)
+    activateGlobalState :: IsProtocolVersion pv => Proxy c -> Proxy pv -> GSContext pv -> GSState pv -> LogIO (GSState pv)
 
     -- |Shutdown the global state.
-    shutdownGlobalState :: SProtocolVersion pv -> Proxy c -> GSContext c pv -> GSState c pv -> IO ()
+    shutdownGlobalState :: SProtocolVersion pv -> Proxy c -> GSContext pv -> GSState pv -> IO ()
 
 instance GlobalStateConfig DiskTreeDiskBlockConfig where
-    type GSState DiskTreeDiskBlockConfig pv = SkovPersistentData pv (HashedPersistentBlockState pv)
-    type GSContext DiskTreeDiskBlockConfig pv = PersistentBlockStateContext pv
-
     initialiseExistingGlobalState _ DTDBConfig{..} = do
         -- check if all the necessary database files exist
         existingDB <- checkExistingDatabase dtdbTreeStateDirectory dtdbBlockStateFile
