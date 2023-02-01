@@ -22,19 +22,19 @@ makeRust args flags = do
     rawSystemExit
         verbosity
         "cargo"
-        ["build", "--release", "--manifest-path", smartContractRoot ++ "/wasm-chain-integration/Cargo.toml"]
+        ["build", "--release", "--manifest-path", smartContractRoot ++ "/wasm-chain-integration/Cargo.toml", "--features=enable-ffi"]
     case buildOS of
         Windows -> do
-            notice verbosity "Copying wasm_chain_integration library"
-            rawSystemExit verbosity "cp" ["-u", smartContractRoot ++ "/wasm-chain-integration/target/release/wasm_chain_integration.dll", smartContractRoot ++ "/lib/"]
-            rawSystemExit verbosity "cp" ["-u", smartContractRoot ++ "/wasm-chain-integration/target/release/libwasm_chain_integration.a", smartContractRoot ++ "/lib/"]
+            notice verbosity "Copying concordium_smart_contract_engine library"
+            rawSystemExit verbosity "cp" ["-u", smartContractRoot ++ "/wasm-chain-integration/target/release/concordium_smart_contract_engine.dll", smartContractRoot ++ "/lib/"]
+            rawSystemExit verbosity "cp" ["-u", smartContractRoot ++ "/wasm-chain-integration/target/release/libconcordium_smart_contract_engine.a", smartContractRoot ++ "/lib/"]
         _ -> do
-            rawSystemExit verbosity "ln" ["-s", "-f", "../wasm-chain-integration/target/release/libwasm_chain_integration.a", smartContractRoot ++ "/lib/"]
+            rawSystemExit verbosity "ln" ["-s", "-f", "../wasm-chain-integration/target/release/libconcordium_smart_contract_engine.a", smartContractRoot ++ "/lib/"]
             case buildOS of
                 OSX ->
-                    rawSystemExit verbosity "ln" ["-s", "-f", "../wasm-chain-integration/target/release/libwasm_chain_integration.dylib", smartContractRoot ++ "/lib/libwasm_chain_integration.dylib"]
+                    rawSystemExit verbosity "ln" ["-s", "-f", "../wasm-chain-integration/target/release/libconcordium_smart_contract_engine.dylib", smartContractRoot ++ "/lib/libconcordium_smart_contract_engine.dylib"]
                 _ ->
-                    rawSystemExit verbosity "ln" ["-s", "-f", "../wasm-chain-integration/target/release/libwasm_chain_integration.so", smartContractRoot ++ "/lib/libwasm_chain_integration.so"]
+                    rawSystemExit verbosity "ln" ["-s", "-f", "../wasm-chain-integration/target/release/libconcordium_smart_contract_engine.so", smartContractRoot ++ "/lib/libconcordium_smart_contract_engine.so"]
     return emptyHookedBuildInfo
 
 main =

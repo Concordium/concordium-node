@@ -25,7 +25,7 @@ codegen-units = 1
 [dependencies]
 # Internal dependencies
 concordium_base = { path = "../concordium-base/rust-src/concordium_base" }
-wasm-chain-integration = { path = "../concordium-base/smart-contracts/wasm-chain-integration", default-features=false }
+concordium-smart-contract-engine = { path = "../concordium-base/smart-contracts/wasm-chain-integration" }
 
 # External dependencies
 structopt = "0.3"

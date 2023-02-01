@@ -726,7 +726,7 @@ fn link_static_libs() -> std::io::Result<()> {
 
     println!("cargo:rustc-link-search=native={}/deps/static-libs/linux/rust", out_dir);
     println!("cargo:rustc-link-lib=static=Rcrypto");
-    println!("cargo:rustc-link-lib=static=wasm_chain_integration");
+    println!("cargo:rustc-link-lib=static=concordium_smart_contract_engine");
 
     println!("cargo:rustc-link-lib=dylib=gmp");
 
