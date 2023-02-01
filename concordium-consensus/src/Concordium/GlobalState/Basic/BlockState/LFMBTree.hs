@@ -32,6 +32,7 @@ module Concordium.GlobalState.Basic.BlockState.LFMBTree (
     toAscPairList,
     fromListChoosingFirst,
     hashFromFoldable,
+    hashAsLFMBT,
 
     -- * Specialized functions for @Maybe@
     lookupMaybe,
@@ -288,6 +289,21 @@ fromAscListMaybes l = fromList $ go l 0
 -- TODO: Optimise this implementation.
 hashFromFoldable :: (Foldable f, HashableTo H.Hash v) => f v -> H.Hash
 hashFromFoldable = getHash . fromFoldable @Word64
+
+hashAsLFMBT :: H.Hash -> [H.Hash] -> H.Hash
+hashAsLFMBT e [] = e
+hashAsLFMBT _ (h0 : hs0) = build ([], h0) hs0
+    where
+        up back (Nothing : s, r) h = (reverse back ++ Just h : s, r)
+        up back (Just h' : s, r) h = up (Nothing : back) (s, r) (H.hashOfHashes h' h)
+        up back ([], r) h = (reverse back ++ [Nothing], H.hashOfHashes r h)
+        collapse ([], r) = r
+        collapse ([Just h], r) = H.hashOfHashes r h
+        collapse (Nothing:s, r) = collapse (s, r)
+        collapse (Just h1 : Just h2 : s, r) = collapse (Just (H.hashOfHashes h2 h1) : s, r)
+        collapse (Just h1 : Nothing : s, r) = collapse (Just h1 : s, r)
+        build stack (h : hs) = build (up [] stack h) hs
+        build stack [] = collapse stack
 
 {-
 -------------------------------------------------------------------------------

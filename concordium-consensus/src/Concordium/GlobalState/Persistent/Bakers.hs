@@ -18,15 +18,11 @@ module Concordium.GlobalState.Persistent.Bakers where
 import Control.Exception
 import Control.Monad
 import Control.Monad.Trans
-import Data.Foldable (foldlM)
-import qualified Data.Map.Strict as Map
 import Data.Serialize
-import qualified Data.Set as Set
 import qualified Data.Vector as Vec
 import Lens.Micro.Platform
 
 import Concordium.GlobalState.BakerInfo
-import qualified Concordium.GlobalState.Basic.BlockState.Bakers as Basic
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.Account
 import qualified Concordium.GlobalState.Persistent.Accounts as Accounts
@@ -232,14 +228,6 @@ epochToFullBakersEx PersistentEpochBakers{..} = do
     mkFullBakerInfoEx :: BaseAccounts.BakerInfoEx av -> Amount -> FullBakerInfoEx
     mkFullBakerInfoEx (BaseAccounts.BakerInfoExV1 info extra) stake =
         FullBakerInfoEx (FullBakerInfo info stake) (extra ^. BaseAccounts.poolCommissionRates)
-
--- |Derive a 'PersistentEpochBakers' from a 'Basic.EpochBakers'.
-makePersistentEpochBakers :: (IsAccountVersion av, MonadBlobStore m) => Basic.EpochBakers av -> m (PersistentEpochBakers av)
-makePersistentEpochBakers ebs = do
-    _bakerInfos <- refMake . BakerInfos =<< mapM makePersistentBakerInfoRef (Basic._bakerInfos ebs)
-    _bakerStakes <- refMake $ BakerStakes (Basic._bakerStakes ebs)
-    let _bakerTotalStake = Basic._bakerTotalStake ebs
-    return PersistentEpochBakers{..}
 
 type DelegatorIdTrieSet = Trie.TrieN BufferedFix DelegatorId ()
 
@@ -533,31 +521,3 @@ instance
             return PersistentActiveBakers{..}
 
 instance (IsAccountVersion av, Applicative m) => Cacheable m (PersistentActiveBakers av)
-
-makePersistentActiveBakers ::
-    forall av m.
-    (IsAccountVersion av, MonadBlobStore m) =>
-    Basic.ActiveBakers ->
-    m (PersistentActiveBakers av)
-makePersistentActiveBakers ab = do
-    let addActiveBaker acc (bid, dels) = case delegationSupport @av of
-            SAVDelegationNotSupported ->
-                Trie.insert bid PersistentActiveDelegatorsV0 acc
-            SAVDelegationSupported -> do
-                pDels <- Trie.fromList $ (,()) <$> Set.toList (Basic._apDelegators dels)
-                Trie.insert bid (PersistentActiveDelegatorsV1 pDels (Basic._apDelegatorTotalCapital dels)) acc
-    _activeBakers <- foldlM addActiveBaker Trie.empty (Map.toList (Basic._activeBakers ab))
-    _aggregationKeys <- Trie.fromList $ (,()) <$> Set.toList (Basic._aggregationKeys ab)
-    _passiveDelegators <- case delegationSupport @av of
-        SAVDelegationNotSupported ->
-            return PersistentActiveDelegatorsV0
-        SAVDelegationSupported ->
-            PersistentActiveDelegatorsV1
-                <$> Trie.fromList ((,()) <$> Set.toList (Basic._apDelegators passive))
-                <*> pure (Basic._apDelegatorTotalCapital passive)
-          where
-            passive = Basic._passiveDelegators ab
-    let _totalActiveCapital = case delegationSupport @av of
-            SAVDelegationNotSupported -> TotalActiveCapitalV0
-            SAVDelegationSupported -> TotalActiveCapitalV1 (Basic._totalActiveCapital ab)
-    return PersistentActiveBakers{..}

@@ -845,7 +845,7 @@ shutdownMultiVersionRunner MultiVersionRunner{..} = mask_ $ do
     -- Acquire the write lock. This prevents further updates, as they will block.
     takeMVar mvWriteLock
     versions <- readIORef mvVersions
-    runLoggerT (forM_ @_ @_ @_ @() versions $ \(EVersionedConfiguration vc) -> vcShutdown vc) mvLog
+    runLoggerT (forM_ versions $ \(EVersionedConfiguration vc) -> vcShutdown vc) mvLog
 
 -- |Lift a skov action to the 'MVR' monad, running it on a
 -- particular 'VersionedConfiguration'. Note that this does not

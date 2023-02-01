@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 
 {-
@@ -11,6 +12,7 @@ updating one of the nodes.
 module GlobalStateTests.LFMBTree where
 
 import qualified Concordium.Crypto.SHA256 as H
+import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as LFMBT
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.LFMBTree
 import Concordium.Types.HashableTo
@@ -19,6 +21,7 @@ import Control.Monad.IO.Class
 import qualified Data.ByteString as BS
 import Data.Word
 import Test.Hspec
+import Test.QuickCheck
 import Prelude hiding (lookup)
 
 abcHash, abcorrectHash :: H.Hash
@@ -63,12 +66,18 @@ testingFunction2 = do
             liftIO $ testElements'' `shouldBe` map Just ["A", "B", "Correct"] ++ [Nothing]
         )
 
+testHashAsLFMBT :: Property
+testHashAsLFMBT = forAll (fmap BS.pack <$> listOf (vector 10)) $ \bs ->
+    LFMBT.hashAsLFMBT (H.hash "EmptyLFMBTree") (getHash <$> bs) === getHash (LFMBT.fromFoldable @Word64 bs)
+
 tests :: Spec
 tests =
-    describe "GlobalStateTests.Trie" $ do
+    describe "GlobalStateTests.LFMBTree" $ do
         it
             "Using HashedBufferedRef"
             testingFunction
         it
             "Using BufferedRef"
             testingFunction2
+        it "testHashAsLFMBT"
+            testHashAsLFMBT

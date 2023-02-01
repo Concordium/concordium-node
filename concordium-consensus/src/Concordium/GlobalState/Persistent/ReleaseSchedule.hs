@@ -19,7 +19,6 @@ import Data.Word
 import Concordium.Types
 import Concordium.Utils
 
-import qualified Concordium.GlobalState.Basic.BlockState.ReleaseSchedule as Transient
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
 
@@ -377,48 +376,6 @@ migrateReleaseSchedule RSMNewToNew (ReleaseScheduleP5 rs) = do
                 { nrsFirstTimestamp = nrsFirstTimestamp rs,
                   nrsMap = newMap
                 }
-
--- |Make a persistent release schedule from an in-memory release schedule.
--- This takes a function for resolving account indexes to account addresses, which is used for
--- protocol versions that use the legacy release schedule.
-makePersistentReleaseSchedule ::
-    forall m pv.
-    (IsProtocolVersion pv, MonadBlobStore m) =>
-    -- |Function to resolve an account address from an account index
-    (AccountIndex -> AccountAddress) ->
-    -- |In-memory release schedule
-    Transient.ReleaseSchedule ->
-    m (ReleaseSchedule pv)
-makePersistentReleaseSchedule getAddr tRS = case protocolVersion @pv of
-    SP1 -> rsP0
-    SP2 -> rsP0
-    SP3 -> rsP0
-    SP4 -> rsP0
-    SP5 -> rsP1
-    SP6 -> rsP1
-  where
-    rsP0 :: (RSAccountRef pv ~ AccountAddress) => m (ReleaseSchedule pv)
-    rsP0 = do
-        let tf !entries accIds =
-                let newSet = Set.map getAddr accIds
-                in  (entries + fromIntegral (Set.size newSet), newSet)
-            (lrsEntryCount, lrsMap) = Map.mapAccum tf 0 (Transient.rsMap tRS)
-        rsRef <-
-            refMake $!
-                LegacyReleaseSchedule
-                    { lrsFirstTimestamp = Transient.rsFirstTimestamp tRS,
-                      ..
-                    }
-        return $! ReleaseScheduleP0 rsRef
-    rsP1 :: (RSAccountRef pv ~ AccountIndex) => m (ReleaseSchedule pv)
-    rsP1 = do
-        nrsMap <- Trie.fromList (second AccountSet <$> Map.toList (Transient.rsMap tRS))
-        return $!
-            ReleaseScheduleP5
-                NewReleaseSchedule
-                    { nrsFirstTimestamp = Transient.rsFirstTimestamp tRS,
-                      ..
-                    }
 
 -- |(For testing purposes) get the map of the earliest scheduled releases of each account.
 releasesMap ::
