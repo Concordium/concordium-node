@@ -58,7 +58,7 @@ type PV = 'P1
 dummyTime :: UTCTime
 dummyTime = posixSecondsToUTCTime 0
 
-type Config t = SkovConfig PV DiskTreeDiskBlockConfig (ActiveFinalization t) NoHandler
+type Config t = SkovConfig PV (ActiveFinalization t) NoHandler
 
 finalizationParameters :: FinalizationParameters
 finalizationParameters = defaultFinalizationParameters{finalizationMinimumSkip = 100} -- setting minimum skip to 100 to prevent finalizers to finalize blocks when they store them
@@ -135,7 +135,7 @@ createInitStates dir = do
                         let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                             config =
                                 SkovConfig
-                                    (DTDBConfig defaultRuntimeParameters (dir </> uni) (dir </> uni <.> "dat"))
+                                    (GlobalStateConfig defaultRuntimeParameters (dir </> uni) (dir </> uni <.> "dat"))
                                     (ActiveFinalization fininst)
                                     NoHandler
                         (initCtx, initState) <- runSilentLogger (initialiseSkov gen config)

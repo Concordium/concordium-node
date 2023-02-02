@@ -5,7 +5,6 @@
 -- used in the implementation and some lenses to access specific components
 module Concordium.GlobalState.Classes where
 
-import Concordium.GlobalState.Persistent.Cache
 import Concordium.Logger
 import Control.Monad.IO.Class
 import Control.Monad.Reader.Class
@@ -29,29 +28,6 @@ class HasGlobalStateContext c r | r -> c where
 
 instance HasGlobalStateContext g (Identity g) where
     globalStateContext = lens runIdentity (const Identity)
-
--- |A newtype wrapper that provides instances of @MonadReader c@ and
--- @MonadState g@ when the underlying monad @m@ satisfies @MonadReader r@
--- and @MonadState s@, with @HasGlobalStateContext c r@ and @HasGlobalState g s@.
-newtype FocusGlobalStateM (c :: Type) (g :: Type) (m :: Type -> Type) (a :: Type) = FocusGlobalStateM {runFocusGlobalStateM :: m a}
-    deriving (Functor, Applicative, Monad, MonadIO)
-
-instance (MonadState s m, HasGlobalState g s) => MonadState g (FocusGlobalStateM c g m) where
-    get = FocusGlobalStateM $ use globalState
-    put = FocusGlobalStateM . (globalState .=)
-    state upd = FocusGlobalStateM $ state (globalState upd)
-    {-# INLINE get #-}
-    {-# INLINE put #-}
-    {-# INLINE state #-}
-
-instance (MonadReader r m, HasGlobalStateContext c r) => MonadReader c (FocusGlobalStateM c g m) where
-    ask = FocusGlobalStateM $ view globalStateContext
-    local f (FocusGlobalStateM a) = FocusGlobalStateM $ local (globalStateContext %~ f) a
-    {-# INLINE ask #-}
-    {-# INLINE local #-}
-
-instance (MonadIO m, MonadReader r m, HasGlobalStateContext c r, HasCache cache c) => MonadCache cache (FocusGlobalStateM c g m) where
-    getCache = projectCache <$> ask
 
 -- |@MGSTrans t m@ is a newtype wrapper for a monad transformer @t@ applied
 -- to a monad @m@.  This wrapper exists to support lifting various monad

@@ -528,6 +528,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "concordium-smart-contract-engine"
+version = "1.0.0"
+dependencies = [
+ "anyhow",
+ "byteorder",
+ "concordium-contracts-common",
+ "concordium-wasm",
+ "derive_more",
+ "ed25519-zebra",
+ "libc",
+ "num_enum",
+ "rand 0.8.5",
+ "secp256k1",
+ "serde 1.0.145",
+ "sha2 0.10.6",
+ "sha3",
+ "slab",
+ "thiserror",
+ "tinyvec",
+]
+
+[[package]]
 name = "concordium-wasm"
 version = "1.0.0"
 dependencies = [
@@ -587,6 +609,7 @@ dependencies = [
  "chrono",
  "circular-queue",
  "collector-backend",
+ "concordium-smart-contract-engine",
  "concordium_base",
  "criterion",
  "crossbeam-channel",
@@ -642,7 +665,6 @@ dependencies = [
  "twox-hash",
  "url",
  "walkdir",
- "wasm-chain-integration",
 ]
 
 [[package]]
@@ -4293,28 +4315,6 @@ name = "wasm-bindgen-shared"
 version = "0.2.83"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c38c045535d93ec4f0b4defec448e4291638ee608530863b1e2ba115d4fff7f"
-
-[[package]]
-name = "wasm-chain-integration"
-version = "0.2.0"
-dependencies = [
- "anyhow",
- "byteorder",
- "concordium-contracts-common",
- "concordium-wasm",
- "derive_more",
- "ed25519-zebra",
- "libc",
- "num_enum",
- "rand 0.8.5",
- "secp256k1",
- "serde 1.0.145",
- "sha2 0.10.6",
- "sha3",
- "slab",
- "thiserror",
- "tinyvec",
-]
 
 [[package]]
 name = "web-sys"

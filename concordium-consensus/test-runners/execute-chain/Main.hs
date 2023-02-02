@@ -13,7 +13,6 @@ import System.Environment
 import System.FilePath
 import System.IO
 
-import Concordium.GlobalState
 import Concordium.GlobalState.Parameters
 import Concordium.Kontrol (currentTimestamp)
 import Concordium.MultiVersion
@@ -39,7 +38,6 @@ main = do
     createDirectoryIfMissing True dataDir
     let config ::
             MultiVersionConfiguration
-                DiskTreeDiskBlockConfig
                 (NoFinalization ThreadTimer)
         config =
             MultiVersionConfiguration

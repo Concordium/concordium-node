@@ -42,7 +42,7 @@ sources are in [src](./src). It depends on
 
 - [smart-contracts](./smart-contracts/) contains a number of Rust packages that
   implement validation, processing, and execution of Wasm smart contracts.
-  The main dependency is the package `wasm-chain-integration` which is
+  The main dependency is the package `concordium-smart-contract-engine` which is
   automatically built by the `Setup.hs` script for the `concordium-consensus`
   package.
 

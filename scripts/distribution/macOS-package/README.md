@@ -100,7 +100,7 @@ For the APPLEIDPASS, setting up an [app-specific password](https://support.apple
     |       ├── libs
     |       │   ├── libHSQuickCheck-2.14.2-88oxj61ONgG1QbYzt1cUFu-ghc8.10.4.dylib
     |       │   ├── ...
-    |       │   └── libwasm_chain_integration.dylib
+    |       │   └── libconcordium_smart_contract_engine.dylib
     |       └── node-collector
     └── tmp
         └── Concordium\ Node

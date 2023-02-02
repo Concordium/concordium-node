@@ -25,7 +25,6 @@ import qualified Data.Map.Strict as Map
 import Data.Time
 import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 
-import Concordium.GlobalState
 import Concordium.GlobalState.Block as B
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer
@@ -516,16 +515,3 @@ instance
     getProtocolUpdateStatus = lift doGetProtocolUpdateStatus
 
     preverifyTransaction = lift . doVerifyTransaction
-
-deriving via
-    SkovQueryMonadT (GlobalStateM pv c r g s m)
-    instance
-        ( Monad m,
-          TimeMonad m,
-          MonadProtocolVersion (BlockStateM pv c r g s m),
-          BlockStateQuery (BlockStateM pv c r g s m),
-          BlockStateStorage (BlockStateM pv c r g s m),
-          TS.TreeStateMonad (TreeStateBlockStateM pv g c r s m),
-          ConsensusParametersVersionFor (ChainParametersVersionFor pv) ~ 'ConsensusParametersVersion0
-        ) =>
-        SkovQueryMonad (GlobalStateM pv c r g s m)

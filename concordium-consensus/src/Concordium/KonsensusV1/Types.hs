@@ -3,7 +3,6 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE NoImportQualifiedPost #-}
 
 module Concordium.KonsensusV1.Types where
 
@@ -12,6 +11,7 @@ import Data.Bits
 import qualified Data.ByteString as BS
 import qualified Data.Map.Strict as Map
 import Data.Serialize
+import qualified Data.Vector as Vector
 import Data.Void
 import Data.Word
 import Numeric.Natural
@@ -37,6 +37,16 @@ data Optionally a
     = Absent
     | Present !a
     deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
+
+-- |Returns 'True' if and only if the value is 'Present'.
+isPresent :: Optionally a -> Bool
+isPresent Absent = False
+isPresent (Present _) = True
+
+-- |Returns 'True' if and only if the value is 'Absent'.
+isAbsent :: Optionally a -> Bool
+isAbsent Absent = True
+isAbsent (Present _) = False
 
 -- |The message that is signed by a finalizer to certify a block.
 data QuorumSignatureMessage = QuorumSignatureMessage
@@ -125,6 +135,9 @@ finalizerList = unroll 0 . theFinalizerSet
       where
         r = unroll (i + 1) (shiftR x 1)
 
+instance Show FinalizerSet where
+    show = show . finalizerList
+
 data QuorumCertificate = QuorumCertificate
     { qcBlock :: !BlockHash,
       qcRound :: !Round,
@@ -132,7 +145,7 @@ data QuorumCertificate = QuorumCertificate
       qcAggregateSignature :: !QuorumSignature,
       qcSignatories :: !FinalizerSet
     }
-    deriving (Eq)
+    deriving (Eq, Show)
 
 instance Serialize QuorumCertificate where
     put QuorumCertificate{..} = do
@@ -198,7 +211,7 @@ data FinalizationEntry = FinalizationEntry
       -- block (without further knowledge of the successor block beyond its hash).
       feSuccessorProof :: !SuccessorProof
     }
-    deriving (Eq)
+    deriving (Eq, Show)
 
 instance Serialize FinalizationEntry where
     put FinalizationEntry{..} = do
@@ -242,6 +255,7 @@ data TimeoutSignatureMessage = TimeoutSignatureMessage
       -- |Round number of the highest known valid quorum certificate
       tsmQCRound :: !Round
     }
+    deriving (Eq, Show)
 
 -- |Compute the byte representation of a 'TimeoutSignatureMessage' that is actually signed.
 -- TODO: check that this cannot collide with other signed messages.
@@ -274,7 +288,7 @@ checkTimeoutSignatureSingle msg pubKey =
 -- Invariant: @Map.size theFinalizerRounds <= fromIntegral (maxBound :: Word32)@.
 -- (This is trivially satisfied if each finalizer index occurs for at most one round.)
 newtype FinalizerRounds = FinalizerRounds {theFinalizerRounds :: Map.Map Round FinalizerSet}
-    deriving (Eq)
+    deriving (Eq, Show)
 
 instance Serialize FinalizerRounds where
     put (FinalizerRounds fr) = do
@@ -284,15 +298,22 @@ instance Serialize FinalizerRounds where
         count <- getWord32be
         FinalizerRounds <$> getSafeSizedMapOf count get get
 
+-- |Unpack a 'FinalizerRounds' as a list of rounds and finalizer sets, in ascending order of
+-- round.
 finalizerRoundsList :: FinalizerRounds -> [(Round, FinalizerSet)]
 finalizerRoundsList = Map.toAscList . theFinalizerRounds
 
+-- |A timeout certificate aggregates signatures on timeout messages for the same round.
+-- Finalizers may have different QC rounds.
 data TimeoutCertificate = TimeoutCertificate
-    { tcRound :: !Round,
+    { -- |The round that has timed-out.
+      tcRound :: !Round,
+      -- |The rounds for which finalizers have their best QCs.
       tcFinalizerQCRounds :: !FinalizerRounds,
+      -- |Aggregate of the finalizers' 'TimeoutSignature's on the round and QC round.
       tcAggregateSignature :: !TimeoutSignature
     }
-    deriving (Eq)
+    deriving (Eq, Show)
 
 instance Serialize TimeoutCertificate where
     put TimeoutCertificate{..} = do
@@ -311,10 +332,11 @@ instance HashableTo Hash.Hash (Optionally TimeoutCertificate) where
         putWord8 1
         put tc
 
--- |Check the signature in a timeout certificate
+-- |Check the signature in a timeout certificate.
 checkTimeoutCertificateSignature ::
     -- |Genesis block hash
     BlockHash ->
+    -- |Get the public keys for a set of finalizers
     (FinalizerSet -> [BakerAggregationVerifyKey]) ->
     TimeoutCertificate ->
     Bool
@@ -347,6 +369,7 @@ data TimeoutMessageBody = TimeoutMessageBody
       -- |A 'TimeoutSignature' from the sender for this round.
       tmAggregateSignature :: !TimeoutSignature
     }
+    deriving (Eq, Show)
 
 instance Serialize TimeoutMessageBody where
     put TimeoutMessageBody{..} = do
@@ -403,9 +426,21 @@ tmSignatureMessage tsmGenesis tmb =
 
 -- |A timeout message including the sender's signature.
 data TimeoutMessage = TimeoutMessage
-    { tmBody :: !TimeoutMessageBody,
+    { -- |Body of the timeout message.
+      tmBody :: !TimeoutMessageBody,
+      -- |Signature on the timeout message.
       tmSignature :: !BlockSig.Signature
     }
+    deriving (Eq, Show)
+
+instance Serialize TimeoutMessage where
+    put TimeoutMessage{..} = do
+        put tmBody
+        put tmSignature
+    get = do
+        tmBody <- get
+        tmSignature <- get
+        return TimeoutMessage{..}
 
 -- |Byte representation of a 'TimeoutMessageBody' used for signing the timeout message.
 timeoutMessageBodySignatureBytes :: TimeoutMessageBody -> BS.ByteString
@@ -487,6 +522,7 @@ class BlockData b where
     -- |The hash of the block state after executing the block.
     blockStateHash :: b -> StateHash
 
+-- |A 'BakedBlock' consists of a non-genesis block, excluding the block signature.
 data BakedBlock = BakedBlock
     { -- |Block round number.
       bbRound :: !Round,
@@ -507,7 +543,7 @@ data BakedBlock = BakedBlock
       -- |Block nonce generated from the baker's VRF.
       bbNonce :: !BlockNonce,
       -- |Transactions in the block.
-      bbTransactions :: ![BlockItem],
+      bbTransactions :: !(Vector.Vector BlockItem),
       -- |Hash of the transaction outcomes.
       bbTransactionOutcomesHash :: !TransactionOutcomesHash,
       -- |Hash of the block state.
@@ -515,9 +551,99 @@ data BakedBlock = BakedBlock
     }
     deriving (Eq)
 
+-- |Flags indicating which optional values are set in a 'BakedBlock'.
+data BakedBlockFlags = BakedBlockFlags
+    { bbfTimeoutCertificate :: !Bool,
+      bbfEpochFinalizationEntry :: !Bool
+    }
+
+-- |Get the 'BakedBlockFlags' associated with a 'BakedBlock'.
+bakedBlockFlags :: BakedBlock -> BakedBlockFlags
+bakedBlockFlags BakedBlock{..} =
+    BakedBlockFlags
+        { bbfTimeoutCertificate = isPresent bbTimeoutCertificate,
+          bbfEpochFinalizationEntry = isPresent bbEpochFinalizationEntry
+        }
+
+instance Serialize BakedBlockFlags where
+    put BakedBlockFlags{..} = putWord8 bits
+      where
+        bits = toBit 0 bbfTimeoutCertificate .|. toBit 1 bbfEpochFinalizationEntry
+        toBit _ False = 0
+        toBit i True = bit i
+    get = label "BakedBlockFlags" $ do
+        bits <- getWord8
+        unless (bits == bits .&. 0b11) $ fail "Invalid BakedBlockFlags."
+        return $
+            BakedBlockFlags
+                { bbfTimeoutCertificate = testBit bits 0,
+                  bbfEpochFinalizationEntry = testBit bits 1
+                }
+
+-- |Serialize a 'BakedBlock'.
+putBakedBlock :: Putter BakedBlock
+putBakedBlock bb@BakedBlock{..} = do
+    put bbRound
+    put bbEpoch
+    put bbTimestamp
+    put bbBaker
+    put bbBakerKey
+    put bbQuorumCertificate
+    put (bakedBlockFlags bb)
+    mapM_ put bbTimeoutCertificate
+    mapM_ put bbEpochFinalizationEntry
+    put bbNonce
+    put bbStateHash
+    put bbTransactionOutcomesHash
+    putWord64be (fromIntegral (Vector.length bbTransactions))
+    mapM_ putBlockItemV0 bbTransactions
+
+-- |Deserialize a 'BakedBlock'. The protocol version is used to determine which transaction
+-- types are allowed in the block.
+getBakedBlock :: SProtocolVersion pv -> TransactionTime -> Get BakedBlock
+getBakedBlock spv tt = label "BakedBlock" $ do
+    bbRound <- get
+    bbEpoch <- get
+    bbTimestamp <- get
+    bbBaker <- get
+    bbBakerKey <- get
+    bbQuorumCertificate <- get
+    BakedBlockFlags{..} <- get
+    bbTimeoutCertificate <-
+        if bbfTimeoutCertificate
+            then Present <$> get
+            else return Absent
+    bbEpochFinalizationEntry <-
+        if bbfEpochFinalizationEntry
+            then Present <$> get
+            else return Absent
+    bbNonce <- get
+    bbStateHash <- get
+    bbTransactionOutcomesHash <- get
+    numTrans <- getWord64be
+    -- We check that there is at least one byte remaining in the serialization per transaction.
+    -- This is to prevent a malformed block from causing us to allocate an excessively large vector,
+    -- as this could lead to an out-of-memory error.
+    remBytes <- remaining
+    when (fromIntegral remBytes < numTrans) $
+        fail $
+            "Block should have "
+                ++ show numTrans
+                ++ " transactions, but only "
+                ++ show remBytes
+                ++ " bytes remain"
+    bbTransactions <- Vector.replicateM (fromIntegral numTrans) (getBlockItemV0 spv tt)
+    return BakedBlock{..}
+
+-- |A baked block, together with the block hash and block signature.
+--
+-- Invariant: @sbHash == getHash sbBlock@.
 data SignedBlock = SignedBlock
-    { sbBlock :: !BakedBlock,
+    { -- |The block contents.
+      sbBlock :: !BakedBlock,
+      -- |The hash of the block.
       sbHash :: !BlockHash,
+      -- |Signature of the baker on the block.
       sbSignature :: !BlockSignature
     }
 
@@ -535,6 +661,21 @@ instance HashableTo BlockHash SignedBlock where
 
 instance Monad m => MHashableTo m BlockHash SignedBlock
 
+-- |Serialize a 'SignedBlock', including the signature.
+putSignedBlock :: Putter SignedBlock
+putSignedBlock SignedBlock{..} = do
+    putBakedBlock sbBlock
+    put sbSignature
+
+-- |Deserialize a 'SignedBlock'. The protocol version is used to determine which transactions types
+-- are permitted.
+getSignedBlock :: SProtocolVersion pv -> TransactionTime -> Get SignedBlock
+getSignedBlock spv tt = do
+    sbBlock <- getBakedBlock spv tt
+    let sbHash = getHash sbBlock
+    sbSignature <- get
+    return SignedBlock{..}
+
 -- |The bytes that are signed by a block signature.
 blockSignatureMessageBytes :: BlockHash -> BS.ByteString
 blockSignatureMessageBytes = Hash.hashToByteString . blockHash
@@ -551,6 +692,13 @@ verifyBlockSignature b =
 -- |Sign a block hash as a baker.
 signBlockHash :: BakerSignPrivateKey -> BlockHash -> BlockSignature
 signBlockHash privKey bh = BlockSig.sign privKey (blockSignatureMessageBytes bh)
+
+-- |Sign a block as a baker.
+signBlock :: BakerSignPrivateKey -> BakedBlock -> SignedBlock
+signBlock privKey sbBlock = SignedBlock{..}
+  where
+    sbHash = getHash sbBlock
+    sbSignature = signBlockHash privKey sbHash
 
 -- |Message used to generate the block nonce with the VRF.
 blockNonceMessage :: LeadershipElectionNonce -> Round -> BS.ByteString
@@ -570,8 +718,11 @@ verifyBlockNonce leNonce rnd verifKey = VRF.verify verifKey (blockNonceMessage l
 -- |The 'BlockHeader' consists of basic information about the block that is used in the generation
 -- of the block hash. This data is near the root of the Merkle tree constructing the block hash.
 data BlockHeader = BlockHeader
-    { bhRound :: !Round,
+    { -- |Round number of the block.
+      bhRound :: !Round,
+      -- |Epoch number of the block.
       bhEpoch :: !Epoch,
+      -- |Hash of the parent block.
       bhParent :: !BlockHash
     }
     deriving (Eq)
@@ -606,8 +757,11 @@ newtype BlockQuasiHash = BlockQuasiHash {theBlockQuasiHash :: Hash.Hash}
 
 -- |Compute the hash from a list of transactions.
 -- TODO: determine if this hashing scheme is appropriate.
-computeTransactionsHash :: [BlockItem] -> Hash.Hash
-computeTransactionsHash bis = LFMBT.hashAsLFMBT (Hash.hash "") (v0TransactionHash . getHash <$> bis)
+computeTransactionsHash :: Vector.Vector BlockItem -> Hash.Hash
+computeTransactionsHash bis =
+    LFMBT.hashAsLFMBT
+        (Hash.hash "")
+        (v0TransactionHash . getHash <$> Vector.toList bis)
 
 instance HashableTo BlockQuasiHash BakedBlock where
     getHash BakedBlock{..} = BlockQuasiHash $ Hash.hashOfHashes metaHash dataHash
@@ -645,3 +799,6 @@ computeBlockHash bhh bqh =
         Hash.hashOfHashes
             (theBlockHeaderHash bhh)
             (theBlockQuasiHash bqh)
+
+instance HashableTo BlockHash BakedBlock where
+    getHash bb = computeBlockHash (getHash bb) (getHash bb)
