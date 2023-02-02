@@ -201,7 +201,7 @@ class
 
     -- * Queries on genesis block
 
-    -- |Gem t the genesis 'BlockPointer'.
+    -- |Get the genesis 'BlockPointer'.
     getGenesisBlockPointer :: m (BlockPointerType m)
 
     -- |Get the 'GenesisData'.
@@ -220,7 +220,7 @@ class
     getLastFinalizedHeight :: m BlockHeight
     getLastFinalizedHeight = bpHeight . fst <$> getLastFinalized
 
-    -- |Get the nebxt finalization index.
+    -- |Get the next finalization index.
     getNextFinalizationIndex :: m FinalizationIndex
     getNextFinalizationIndex = (+ 1) . finalizationIndex . snd <$> getLastFinalized
 
