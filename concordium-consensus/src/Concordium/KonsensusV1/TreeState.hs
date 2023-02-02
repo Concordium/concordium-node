@@ -5,12 +5,11 @@
 module Concordium.KonsensusV1.TreeState where
 
 import qualified Data.Map.Strict as Map
-import qualified Data.IntMap.Strict as IntMap
 
 import Concordium.Types
 import Concordium.Types.Parameters
-import Concordium.Types.Updates
 import Concordium.Types.Transactions
+import Concordium.Types.Updates
 
 import Concordium.KonsensusV1.Types
 
@@ -52,7 +51,6 @@ class
     -- removing the children pending blocks from the pending blocks *something*
     takePendingChildren :: m [SignedBlock]
 
-
     -- * Live blocks
 
     -- |Mark a live block as dead.
@@ -61,9 +59,7 @@ class
     --     * Drop the associated block state.
     markLiveBlockDead :: BlockHash -> m ()
 
-
     -- * Finalized blocks
-
 
     -- |Get the last finalized block.
     -- Acquires a read lock.
@@ -167,8 +163,9 @@ class
     -- |Get the non finalized chain updates.
     -- This returns a map from update sequence numbers to the
     -- the corresponding chain updates groups.
-    -- The chain update groups are ordered by
-    getNonFinalizedChainUpdates :: UpdateType -> UpdateSequenceNumber -> m (IntMap.IntMap (Map.Map (WithMetadata UpdateInstruction) TVer.VerificationResult))
+    -- The chain update groups are ordered by increasing
+    -- sequence number.
+    getNonFinalizedChainUpdates :: UpdateType -> UpdateSequenceNumber -> m [(UpdateSequenceNumber, Map.Map (WithMetadata UpdateInstruction) TVer.VerificationResult)]
 
     -- * Credential deployments
 
