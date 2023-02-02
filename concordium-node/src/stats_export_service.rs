@@ -69,21 +69,10 @@ impl StatsExportService {
     /// Creates a new instance of the starts export service object.
     pub fn new() -> anyhow::Result<Self> {
         let registry = Registry::new();
+
         let pg_opts = Opts::new("peer_number", "current peers connected");
         let pg = IntGauge::with_opts(pg_opts)?;
         registry.register(Box::new(pg.clone()))?;
-
-        let qs_opts = Opts::new("queue_size", "current queue size");
-        let qs = IntGauge::with_opts(qs_opts)?;
-        registry.register(Box::new(qs))?;
-
-        let rqs_opts = Opts::new("resend_queue_size", "current queue size");
-        let rqs = IntGauge::with_opts(rqs_opts)?;
-        registry.register(Box::new(rqs))?;
-
-        let dp_opts = Opts::new("packets_dropped", "dropped packets");
-        let dp = IntCounter::with_opts(dp_opts)?;
-        registry.register(Box::new(dp))?;
 
         let cr_opts = Opts::new("conn_received", "connections received");
         let cr = IntCounter::with_opts(cr_opts)?;
@@ -96,23 +85,6 @@ impl StatsExportService {
         let psc_opts = Opts::new("packets_sent", "packets sent");
         let psc = IntCounter::with_opts(psc_opts)?;
         registry.register(Box::new(psc.clone()))?;
-
-        let ipr_opts = Opts::new("invalid_packets_received", "invalid packets received");
-        let ipr = IntCounter::with_opts(ipr_opts)?;
-        registry.register(Box::new(ipr))?;
-
-        let upr_opts = Opts::new("unknown_packets_received", "unknown packets received");
-        let upr = IntCounter::with_opts(upr_opts)?;
-        registry.register(Box::new(upr))?;
-
-        let inpr_opts =
-            Opts::new("invalid_network_packets_received", "invalid network packets received");
-        let inpr = IntCounter::with_opts(inpr_opts)?;
-        registry.register(Box::new(inpr))?;
-
-        let rs_opts = Opts::new("packets_resend", "items in queue that needed to be resend");
-        let rs = IntCounter::with_opts(rs_opts)?;
-        registry.register(Box::new(rs))?;
 
         let inbound_high_priority_consensus_drops_opts = Opts::new(
             "inbound_high_priority_consensus_drops",
