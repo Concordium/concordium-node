@@ -4,8 +4,8 @@
 
 module Concordium.KonsensusV1.TreeState where
 
+import Concordium.Types
 import Concordium.Types.Parameters
-import Concordium.Types.ProtocolVersion
 
 import Concordium.KonsensusV1.Types
 
@@ -29,28 +29,27 @@ class
 
     --
 
-    -- |Add pending block
-    -- Adds the block to the block table and
-    -- give it status 'Pending'.
+    -- |Add a 'SignedBlock' to the block table and assign
+    -- it status 'Pending' as it is awaiting its parent.
     -- Acquires a write lock.
-    addPendingBlock :: m ()
+    addPendingBlock :: SignedBlock -> m ()
 
     -- |Mark a pending block to be live.
     -- Set the status of the block to be 'Alive'.
-    -- This will also update the consensus statistics.
+    -- Note that this will also update the consensus statistics.
     -- Acquires a write lock.
-    makeLiveBlock :: m ()
+    makeLiveBlock :: BlockHash -> m ()
 
     -- |Mark a pending block as dead
     -- Acquires a write lock.
-    markPendingBlockDead :: m ()
+    markPendingBlockDead :: BlockHash -> m ()
 
     -- |Mark a live block as dead.
     -- Mark it as dead.
     -- Drop the transaction results.
     -- Purge the block state assoicated.
     -- Acquires a write lock.
-    markLiveBlockDead :: m ()
+    markLiveBlockDead :: BlockHash -> m ()
 
     -- |Attach a 'QuorumCertificate' to the block.
     -- Precondition: The 'QuorumCertificate' must be pointing
@@ -63,28 +62,28 @@ class
     -- |Get a list of pending blocks of a block
     -- removing the children pending blocks from the pending blocks *something*
     -- Acquires a read lock.
-    takePendingChildren :: m [()]
+    takePendingChildren :: m [SignedBlock]
 
     -- |Get the last finalized block.
     -- Acquires a read lock.
-    getLastFinalized :: m ()
+    getLastFinalized :: m SignedBlock
 
     -- |Get the block height of the last finalized block.
     -- Acquires a read lock.
-    getLastFinalizedHeight :: m ()
+    getLastFinalizedHeight :: m BlockHeight
 
     -- |Get the current 'BlockStatus' of a block.
     -- Note. If the block is older than the last finalized block,
     -- then this will incur a disk lookup.
     -- Acquires a read lock.
-    getBlockStatus :: m (Maybe (BlockStatus () ()))
+    getBlockStatus :: m (Maybe (BlockStatus (BlockPointerType m) SignedBlock))
 
     -- |Get the current 'RecentBlockStatus' of a block.
     -- If the block is older than the last finalized block then
     -- the block then only this fact is returned and not
     -- the block hash ,...
     -- Acquires a read lock.
-    getRecentBlockStatus :: m (RecentBlockStatus () ())
+    getRecentBlockStatus :: m (RecentBlockStatus () SignedBlock)
 
     -- * Pending transactions and focus block.
 
@@ -162,15 +161,6 @@ class
 
     --
 
-    -- |Add a quorum certificate and
-    -- if possible mark the predecessor block as finalized.
-    -- Acquires a write lock.
-    addQuorumCertificate :: m ()
-
-    -- |Add a timeout certificate
-    -- Acquires a write lock.
-    addTimeoutCertificate :: m ()
-
     -- |Create a signature (i.e. a signature to be aggregated in
     -- a quorum certificate)
     -- Note. if one have already signed the current round then
@@ -203,7 +193,7 @@ class
 
     -- |Get the current round and epoch.
     -- Acquires a read lock.
-    getRound :: m ()
+    getRound :: m Round
 
     -- * Transactions
 
