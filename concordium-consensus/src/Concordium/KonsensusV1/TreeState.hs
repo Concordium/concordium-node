@@ -47,7 +47,7 @@ class
     -- |Mark a live block as dead.
     -- Mark it as dead.
     -- Drop the transaction results.
-    -- Purge the block state assoicated.
+    -- Purge the block state associated.
     -- Acquires a write lock.
     markLiveBlockDead :: BlockHash -> m ()
 
