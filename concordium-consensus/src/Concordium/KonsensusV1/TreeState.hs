@@ -60,9 +60,9 @@ type IsConsensusV1 (pv :: ProtocolVersion) =
 --     * Current round, epoch and (latest quorum message signed || latest timeout message signed)
 --       In case of restarting a consensus instance one must be
 --       be able to starting
---     * Finalized blocks
+--     * Finalized blocks store
 --       It should be possible to always lookup old finalized blocks.
---     * Finalized transactions
+--     * Finalized transactions store
 --       It should be possible to always lookup old finalized transactions.
 class
     ( Monad m,
@@ -230,7 +230,7 @@ class
         -- |Hash of the transaction to lookup.
         TransactionHash ->
         -- |The resulting transaction status.
-        m (Maybe undefined)
+        m (Maybe (TransactionStatus Round))
 
     -- todo: repurpose the current 'Slot' used in the current transaction table / transaction status to something more general
     -- such that it allows for both a 'Round' and a 'Slot'  (these are both wrappers around a word64)

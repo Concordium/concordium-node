@@ -201,7 +201,7 @@ class
     queryBlockState :: BlockPointerType m -> m (BlockState m)
 
     -- |Get the outcomes of a transaction.
-    queryTransactionStatus :: TransactionHash -> m (Maybe TransactionStatus)
+    queryTransactionStatus :: TransactionHash -> m (Maybe (TransactionStatus Slot))
 
     -- |Get non-finalized transactions for an account, ordered by increasing nonce.
     queryNonFinalizedTransactions :: AccountAddressEq -> m [TransactionHash]

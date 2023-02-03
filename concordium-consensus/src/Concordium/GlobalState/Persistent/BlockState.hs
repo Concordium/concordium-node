@@ -3545,10 +3545,13 @@ migrateBlockPointers migration BlockStatePointers{..} = do
 -- |Cache the block state and get the initial (empty) transaction table with the next account nonces
 -- and update sequence numbers populated.
 cacheStateAndGetTransactionTable ::
-    forall pv m.
-    (SupportsPersistentState pv m) =>
+    forall pv m s.
+    ( SupportsPersistentState pv m,
+      Serialize s,
+      Ord s
+    ) =>
     HashedPersistentBlockState pv ->
-    m TransactionTable.TransactionTable
+    m (TransactionTable.TransactionTable s)
 cacheStateAndGetTransactionTable hpbs = do
     BlockStatePointers{..} <- loadPBS (hpbsPointers hpbs)
     -- When caching the accounts, we populate the transaction table with the next account nonces.

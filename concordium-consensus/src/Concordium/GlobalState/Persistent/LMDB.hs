@@ -189,7 +189,7 @@ instance S.Serialize FinalizedTransactionStatus where
     get = FinalizedTransactionStatus <$> S.get <*> S.get <*> S.get
 
 -- |Convert a 'FinalizedTransactionStatus' to a 'TransactionStatus'
-finalizedToTransactionStatus :: FinalizedTransactionStatus -> T.TransactionStatus
+finalizedToTransactionStatus :: FinalizedTransactionStatus -> T.TransactionStatus Slot
 finalizedToTransactionStatus FinalizedTransactionStatus{..} =
     T.Finalized{_tsSlot = ftsSlot, tsBlockHash = ftsBlockHash, tsFinResult = ftsIndex}
 
