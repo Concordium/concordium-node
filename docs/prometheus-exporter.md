@@ -8,7 +8,7 @@ Concordium node does not run the Prometheus exporter by default. To enable it at
 
 Likewise, the IP address to listen on can be specified using command line argument `--prometheus-listen-addr` or environment variable `CONCORDIUM_NODE_PROMETHEUS_LISTEN_ADDRESS`. Defaults to `127.0.0.1` when not provided.
 
-To verify the exporter is running open the provided listen address and port in a browser. Which should display the text "Operational".
+To verify whether the exporter is running, then open the provided listen address and port in a browser. Which should display the text "Operational".
 
 ## Push metrics to a Pushgateway
 
@@ -16,9 +16,13 @@ Concordium node also supports pushing metrics to a Prometheus Pushgateway. This 
 
 The following options are available for configuring the pushing of metrics:
 
-- `--prometheus-instance-name` (`CONCORDIUM_NODE_PROMETHEUS_INSTANCE_NAME`) Set the instance label to include in metrics pushed to Pushgateway. If not present the id of the node is used.
-- `--prometheus-job-name` (`CONCORDIUM_NODE_PROMETHEUS_JOB_NAME`) Set the instance label to include in metrics pushed to Pushgateway. If not present, `concordium_node_push` is used.
-- `--prometheus-push-gateway-interval` (`CONCORDIUM_NODE_PROMETHEUS_PUSH_GATEWAY_INTERVAL`) Duration in seconds between pushes to Pushgateway. If not present `2` is used.
-- `--prometheus-push-gateway-password` (`CONCORDIUM_NODE_PROMETHEUS_PUSH_GATEWAY_PASSWORD`) Password to use for push gateway, both username or password must be provided to enable authentication.
-- `--prometheus-push-gateway-username` (`CONCORDIUM_NODE_PROMETHEUS_PUSH_GATEWAY_USERNAME`) Username to use for push gateway, both username or password must be provided to enable authentication.
-
+- `--prometheus-instance-name` (`CONCORDIUM_NODE_PROMETHEUS_INSTANCE_NAME`)
+  Set the instance label to include in metrics pushed to Pushgateway. If not present the id of the node is used.
+- `--prometheus-job-name` (`CONCORDIUM_NODE_PROMETHEUS_JOB_NAME`)
+  Set the instance label to include in metrics pushed to Pushgateway. If not present, `concordium_node_push` is used.
+- `--prometheus-push-gateway-interval` (`CONCORDIUM_NODE_PROMETHEUS_PUSH_GATEWAY_INTERVAL`)
+  Duration in seconds between pushes to Pushgateway. If not present `2` is used.
+- `--prometheus-push-gateway-password` (`CONCORDIUM_NODE_PROMETHEUS_PUSH_GATEWAY_PASSWORD`)
+  Password to use for push gateway, both username or password must be provided to enable authentication.
+- `--prometheus-push-gateway-username` (`CONCORDIUM_NODE_PROMETHEUS_PUSH_GATEWAY_USERNAME`)
+  Username to use for push gateway, both username or password must be provided to enable authentication.
