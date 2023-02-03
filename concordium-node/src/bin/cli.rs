@@ -398,12 +398,14 @@ fn start_consensus_message_threads(
         'outer_loop: loop {
             exhausted = false;
             // Update size of queues
-            node_ref.stats.set_inbound_low_priority_consensus_size(
-                consensus_receiver_low_priority.len() as i64,
-            );
-            node_ref.stats.set_inbound_high_priority_consensus_size(
-                consensus_receiver_high_priority.len() as i64,
-            );
+            node_ref
+                .stats
+                .inbound_low_priority_message_queue_size
+                .set(consensus_receiver_low_priority.len() as i64);
+            node_ref
+                .stats
+                .inbound_high_priority_message_queue_size
+                .set(consensus_receiver_high_priority.len() as i64);
             // instead of using `try_iter()` we specifically only loop over the max numbers
             // possible to ever be in the queue
             for _ in 0..CONSENSUS_QUEUE_DEPTH_IN_HI {
@@ -466,12 +468,14 @@ fn start_consensus_message_threads(
         'outer_loop: loop {
             exhausted = false;
             // Update size of queues
-            node_ref.stats.set_outbound_low_priority_consensus_size(
-                consensus_receiver_low_priority.len() as i64,
-            );
-            node_ref.stats.set_outbound_high_priority_consensus_size(
-                consensus_receiver_high_priority.len() as i64,
-            );
+            node_ref
+                .stats
+                .outbound_low_priority_message_queue_size
+                .set(consensus_receiver_low_priority.len() as i64);
+            node_ref
+                .stats
+                .outbound_high_priority_message_queue_size
+                .set(consensus_receiver_high_priority.len() as i64);
             // instead of using `try_iter()` we specifically only loop over the max numbers
             // possible to ever be in the queue
             for _ in 0..CONSENSUS_QUEUE_DEPTH_OUT_HI {

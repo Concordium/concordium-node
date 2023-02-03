@@ -54,8 +54,8 @@ impl P2PNode {
     /// Measures the node's average byte throughput as bps i.e., bytes per
     /// second.
     pub fn measure_throughput(&self, peer_stats: &[PeerStats]) -> anyhow::Result<()> {
-        let prev_bytes_received = self.stats.get_bytes_received();
-        let prev_bytes_sent = self.stats.get_bytes_sent();
+        let prev_bytes_received = self.stats.received_bytes.get();
+        let prev_bytes_sent = self.stats.sent_bytes.get();
 
         let (bytes_received, bytes_sent) = peer_stats
             .iter()
@@ -63,21 +63,21 @@ impl P2PNode {
             .map(|ps| (ps.bytes_received, ps.bytes_sent))
             .fold((0, 0), |(acc_i, acc_o), (i, o)| (acc_i + i, acc_o + o));
 
-        self.stats.set_bytes_received(bytes_received);
-        self.stats.set_bytes_sent(bytes_sent);
+        self.stats.received_bytes.set(bytes_received);
+        self.stats.sent_bytes.set(bytes_sent);
 
         let now = Utc::now().timestamp_millis();
         let (avg_bps_in, avg_bps_out) = calculate_average_throughput(
-            self.stats.get_last_throughput_measurement_timestamp(),
+            self.stats.last_throughput_measurement_timestamp.get(),
             now,
             prev_bytes_received,
             bytes_received,
             prev_bytes_sent,
             bytes_sent,
         )?;
-        self.stats.set_avg_bps_in(avg_bps_in);
-        self.stats.set_avg_bps_out(avg_bps_out);
-        self.stats.set_last_throughput_measurement_timestamp(now);
+        self.stats.avg_bps_in.set(avg_bps_in);
+        self.stats.avg_bps_out.set(avg_bps_out);
+        self.stats.last_throughput_measurement_timestamp.set(now);
         Ok(())
     }
 

@@ -26,3 +26,20 @@ The following options are available for configuring the pushing of metrics:
   Password to use for push gateway, both username or password must be provided to enable authentication.
 - `--prometheus-push-gateway-username` (`CONCORDIUM_NODE_PROMETHEUS_PUSH_GATEWAY_USERNAME`)
   Username to use for push gateway, both username or password must be provided to enable authentication.
+
+## Metrics
+
+- `network_received_bytes` Total number of bytes received.
+- `network_sent_bytes` Total number of bytes sent.
+- `network_packets_received_total` Total number of network packets received.
+- `network_packets_sent_total` Total number of network packets sent.
+- `network_connected_peers` Current number of connected peers.
+- `network_connections_received_total` Total number of connections received.
+- `consensus_inbound_high_priority_message_drops_total` Total inbound high priority consensus messages dropped due to a full queue.
+- `consensus_inbound_low_priority_message_drops_total` Total inbound low priority consensus messages dropped due to a full queue.
+- `consensus_inbound_high_priority_messages_total` Total inbound high priority consensus messages received.
+- `consensus_inbound_low_priority_messages_total` Total inbound low priority consensus messages received.
+- `consensus_inbound_high_priority_message_queue_size` Current number of inbound high priority messages in queue.
+- `consensus_inbound_low_priority_message_queue_size` Current number of inbound low priority messages in queue.
+- `consensus_outbound_high_priority_message_queue_size` Current number of outbound high priority messages in queue.
+- `consensus_outbound_low_priority_message_queue_size` Current number of outbound low priority messages in queue.
