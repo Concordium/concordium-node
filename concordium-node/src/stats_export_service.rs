@@ -376,9 +376,7 @@ pub fn instantiate_stats_export_engine(
 ) -> anyhow::Result<Arc<StatsExportService>> {
     if conf.prometheus.prometheus_listen_port.is_some() {
         info!("Enabling prometheus server");
-    } else if let Some(ref push_gateway) = conf.prometheus.prometheus_push_gateway {
-        info!("Enabling prometheus push gateway at {}", push_gateway);
-    };
+    }
     let prom =
         StatsExportService::new().context("Could not start statistics collection engine.")?;
     Ok(Arc::new(prom))
@@ -391,6 +389,7 @@ pub fn start_push_gateway(
     id: P2PNodeId,
 ) {
     if let Some(prom_push_addy) = conf.prometheus_push_gateway.as_ref() {
+        info!("Enabling prometheus push gateway at {}", prom_push_addy);
         let instance_name = if let Some(ref instance_id) = conf.prometheus_instance_name {
             instance_id.clone()
         } else {
