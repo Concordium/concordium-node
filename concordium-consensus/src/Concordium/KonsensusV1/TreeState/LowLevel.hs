@@ -24,10 +24,6 @@ data FinalizedTransactionStatus = FinalizedTransactionStatus
     }
     deriving (Eq, Show)
 
-data RoundStatus = RoundStatus {
-    rsCurrentRound :: !Round
-}
-
 class (Monad m) => TreeStateStoreMonad m where
     -- |Get a finalized block by block hash.
     lookupBlock :: BlockHash -> m (Maybe (StoredBlock (MPV m)))
