@@ -324,11 +324,11 @@ impl StatsExportService {
         listen_addr: SocketAddr,
         error_sender: tokio::sync::broadcast::Sender<()>,
     ) -> Result<(), ()> {
-        log::info!("Starting Prometheus server listening on {}", listen_addr);
+        log::info!("Starting Prometheus exporter listening on {}", listen_addr);
         let result = gotham::plain::init_server(listen_addr, self.router()).await;
         if let Err(()) = result {
             // Log an error and notify main thread that an error occured.
-            error!("A runtime error occurred in the Prometheus server.");
+            error!("A runtime error occurred in the Prometheus exporter.");
             if error_sender.send(()).is_err() {
                 error!("An error occurred while trying to signal the main node thread.")
             }
@@ -374,9 +374,6 @@ impl StatsExportService {
 pub fn instantiate_stats_export_engine(
     conf: &configuration::Config,
 ) -> anyhow::Result<Arc<StatsExportService>> {
-    if conf.prometheus.prometheus_listen_port.is_some() {
-        info!("Enabling prometheus server");
-    }
     let prom =
         StatsExportService::new().context("Could not start statistics collection engine.")?;
     Ok(Arc::new(prom))
@@ -389,7 +386,7 @@ pub fn start_push_gateway(
     id: P2PNodeId,
 ) {
     if let Some(prom_push_addy) = conf.prometheus_push_gateway.as_ref() {
-        info!("Enabling prometheus push gateway at {}", prom_push_addy);
+        info!("Starting Prometheus push to gateway at {}", prom_push_addy);
         let instance_name = if let Some(ref instance_id) = conf.prometheus_instance_name {
             instance_id.clone()
         } else {
