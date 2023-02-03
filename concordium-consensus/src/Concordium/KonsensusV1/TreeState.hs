@@ -15,10 +15,23 @@ import Concordium.Types.Updates
 import Concordium.KonsensusV1.Types
 
 import Concordium.GlobalState.BlockMonads
+import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.Types
 import qualified Concordium.TransactionVerification as TVer
-import Concordium.GlobalState.TransactionTable (PendingTransactionTable)
+
+-- |Result of adding a 'VerifiedTransaction' to the transaction store.
+data AddBlockItemResult
+    = -- |The transaction was added to the transaction store.
+      Added
+    | -- |The transaction was not added as it is
+      -- already contained in the transaction store.
+      Duplicate
+    | -- |The transaction was not added as it yielded
+      -- an old nonce for the sender for the transaction.
+      -- I.e. the 'BlockItem' consisted of a account nonce that was
+      -- less than the current finalized account nonce for the account.
+      OldNonce
 
 -- |Constraint for for ''ConsensusParametersVersion1' based on
 -- the protocol version @pv@.
@@ -30,11 +43,14 @@ type IsConsensusV1 (pv :: ProtocolVersion) =
 -- Memory storage:
 --     * Pending blocks store
 --       Blocks which have not yet become part of the chain must be stored.
---     * Pending transactions
+--     * Transaction store for transactions being part of a
+--       a pending or alive block.
 --       The pending transactions must take into account these types of transactions:
 --         * Account transactions
 --         * Chain updates
 --         * Credential deployments
+--       Invariant: The transaction store must only contain transactions that
+--       have been verified.
 --     * The quorum messages for the _current_ round
 --     * The timeout messages for the _current_ round
 -- Disk storage:
@@ -155,7 +171,8 @@ class
     setFocusBlock ::
         -- |The pointer to the block that
         -- should become the "focus block".
-        BlockPointerType m -> m ()
+        BlockPointerType m ->
+        m ()
 
     -- |Get the pending transactions
     -- I.e. transactions that have not yet been committed to a block.
@@ -205,12 +222,18 @@ class
 
     --
 
+    -- |Add a verified transaction to the transaction table.
+    addTransaction :: VerifiedBlockItem -> m AddBlockItemResult
+
     -- |Lookup a transaction by its hash.
     lookupTransaction ::
         -- |Hash of the transaction to lookup.
         TransactionHash ->
         -- |The resulting transaction status.
-        m (Maybe undefined) -- implement some transaction status.
+        m (Maybe undefined)
+
+    -- todo: repurpose the current 'Slot' used in the current transaction table / transaction status to something more general
+    -- such that it allows for both a 'Round' and a 'Slot'  (these are both wrappers around a word64)
 
     -- |Purge the transaction table.
     -- Expunge transactions which are marked

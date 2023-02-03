@@ -1,12 +1,13 @@
 {-# LANGUAGE DataKinds #-}
+
 -- |This module defines the low-level interface to the persistent tree state.
 module Concordium.KonsensusV1.TreeState.LowLevel where
 
 import Concordium.Types
 import Concordium.Types.Execution
 
-import Concordium.KonsensusV1.Types
 import Concordium.KonsensusV1.TreeState.Types
+import Concordium.KonsensusV1.Types
 
 type BlockStateRef = ()
 
@@ -64,4 +65,3 @@ class (Monad m) => TreeStateStoreMonad m where
     -- this also removes the latest finalization entry.
     -- This returns 'True' if and only if roll-back occurred.
     rollBackBlocksUntil :: (StoredBlock (MPV m) -> m Bool) -> m Bool
-

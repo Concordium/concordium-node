@@ -9,8 +9,8 @@ module Concordium.KonsensusV1.Types where
 import Control.Monad
 import Data.Bits
 import qualified Data.ByteString as BS
-import qualified Data.Map.Strict as Map
 import qualified Data.IntMap.Strict as IntMap
+import qualified Data.Map.Strict as Map
 import Data.Serialize
 import qualified Data.Vector as Vector
 import Data.Void
@@ -21,6 +21,7 @@ import qualified Concordium.Crypto.BlockSignature as BlockSig
 import qualified Concordium.Crypto.BlsSignature as Bls
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.VRF as VRF
+import qualified Concordium.TransactionVerification as TVer
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Transactions
@@ -809,22 +810,33 @@ instance HashableTo BlockHash BakedBlock where
 -- 'TimeoutSignatureMessage' are present.
 -- This is the case if the consensus runner has first signed a block
 -- but not enough quorum signature messages were retrieved before timeout.
-data RoundStatus = RoundStatus {
-    -- |The highest 'Epoch' that the consensus runner participated in.
-    rsCurrentEpoch :: !Epoch,
-    -- |The highest 'Round' that the consensus runner participated in.
-    rsCurrentRound :: !Round,
-    -- |If the consensus runner is part of the finalization committee,
-    -- then this will yield the last signed 'QuorumSignatureMessage'
-    rsLastSignedQuouromSignatureMessage :: !(Maybe QuorumSignatureMessage),
-    -- |If the consensus runner is part of the finalization committee,
-    -- then this will yield the last signed timeout message.
-    rsLastSignedTimeoutSignatureMessage :: !(Maybe TimeoutSignatureMessage)
-}
-
+data RoundStatus = RoundStatus
+    { -- |The highest 'Epoch' that the consensus runner participated in.
+      rsCurrentEpoch :: !Epoch,
+      -- |The highest 'Round' that the consensus runner participated in.
+      rsCurrentRound :: !Round,
+      -- |If the consensus runner is part of the finalization committee,
+      -- then this will yield the last signed 'QuorumSignatureMessage'
+      rsLastSignedQuouromSignatureMessage :: !(Maybe QuorumSignatureMessage),
+      -- |If the consensus runner is part of the finalization committee,
+      -- then this will yield the last signed timeout message.
+      rsLastSignedTimeoutSignatureMessage :: !(Maybe TimeoutSignatureMessage)
+    }
 
 -- |A collection of signatures
 -- This is a map from 'FinalizerIndex' to the actual signature message.
-data SignatureMessages a = SignatureMessages {
-    qsmFinMessages :: IntMap.IntMap a
-}
+data SignatureMessages a = SignatureMessages
+    { qsmFinMessages :: IntMap.IntMap a
+    }
+
+-- |A 'BlockItem' together with its verification result.
+-- Precondition: The verification result must be 'Ok'.
+-- The verification result serves as a witness which the
+-- scheduler can possibly use to short circuit some verification steps
+-- before executing.
+data VerifiedBlockItem = VerifiedBlockItem
+    { -- |The block item
+      vbItem :: !BlockItem,
+      -- |The associated verification result.
+      vpVerRes :: !TVer.VerificationResult
+    }
