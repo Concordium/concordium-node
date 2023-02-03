@@ -656,6 +656,15 @@ instance BakedBlockData SignedBlock where
     blockNonce = bbNonce . sbBlock
     blockSignature = sbSignature
 
+instance BlockData SignedBlock where
+    type BakedBlockDataType SignedBlock = SignedBlock
+    blockRound = bbRound . sbBlock
+    blockEpoch = bbEpoch . sbBlock
+    blockTimestamp = bbTimestamp . sbBlock
+    blockBakedData = Present
+    blockTransactions = Vector.toList . bbTransactions . sbBlock
+    blockStateHash = bbStateHash . sbBlock
+
 instance HashableTo BlockHash SignedBlock where
     getHash = sbHash
 
