@@ -5,14 +5,11 @@
 
 module Concordium.KonsensusV1.TreeState.LowLevel.LMDB where
 
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Unsafe as BS
 import qualified Data.Serialize as S
 import Database.LMDB.Raw
 import Foreign
 import Foreign.C.Types
-import Foreign.Marshal.Alloc
 import System.IO.Unsafe
 
 import Concordium.Common.Version
@@ -21,7 +18,6 @@ import Concordium.Types
 
 import Concordium.GlobalState.LMDB.Helpers
 import Concordium.KonsensusV1.TreeState.LowLevel
-import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 
 -- |Size of 'CSize'.
@@ -63,14 +59,14 @@ instance MDBDatabase TransactionStatusStore where
     type DBKey TransactionStatusStore = TransactionHash
     type DBValue TransactionStatusStore = FinalizedTransactionStatus
 
-data MetadataKey =
-    MKVersion
+data MetadataKey
+    = MKVersion
     | MKRoundStatus
     | MKLatestFinalizationEntry
     deriving (Enum)
 
-data MetadataVal =
-    MVVersion !VersionMetadata
+data MetadataVal
+    = MVVersion !VersionMetadata
     | MVRoundStatus !RoundStatus
     | MVLatestFinalizationEntry !FinalizationEntry
 
@@ -84,11 +80,12 @@ instance S.Serialize MetadataVal where
     put (MVLatestFinalizationEntry lfe) = do
         S.putWord64be 2
         S.put lfe
-    get = S.getWord64be >>= \case
-        0 -> MVVersion <$> S.get
-        1 -> MVRoundStatus <$> S.get
-        2 -> MVLatestFinalizationEntry <$> S.get
-        _ -> fail "Unsupported metadata value type"
+    get =
+        S.getWord64be >>= \case
+            0 -> MVVersion <$> S.get
+            1 -> MVRoundStatus <$> S.get
+            2 -> MVLatestFinalizationEntry <$> S.get
+            _ -> fail "Unsupported metadata value type"
 
 -- |The metadata store table.
 -- This table is for storing version-related information.
@@ -135,4 +132,3 @@ instance S.Serialize VersionMetadata where
         vmDatabaseVersion <- S.get
         vmProtocolVersion <- S.get
         return VersionMetadata{..}
-

@@ -147,8 +147,8 @@ propSignTimeoutMessageDiffKey =
     forAll genTimeoutMessageBody $ \body ->
         forAll genBlockKeyPair $ \kp1 ->
             forAll genBlockKeyPair $ \kp2 ->
-                (kp1 /= kp2)
-                    ==> not (checkTimeoutMessageSignature (Sig.verifyKey kp2) (signTimeoutMessage body kp1))
+                (kp1 /= kp2) ==>
+                    not (checkTimeoutMessageSignature (Sig.verifyKey kp2) (signTimeoutMessage body kp1))
 
 -- |Check that signing a timeout message and changing the body to something different produces a
 -- timeout message that does not verify with the key.
@@ -156,10 +156,10 @@ propSignTimeoutMessageDiffBody :: Property
 propSignTimeoutMessageDiffBody =
     forAll genTimeoutMessageBody $ \body1 ->
         forAll genTimeoutMessageBody $ \body2 ->
-            (body1 /= body2)
-                ==> forAll genBlockKeyPair
-                $ \kp ->
-                    not (checkTimeoutMessageSignature (Sig.verifyKey kp) (signTimeoutMessage body1 kp){tmBody = body2})
+            (body1 /= body2) ==>
+                forAll genBlockKeyPair $
+                    \kp ->
+                        not (checkTimeoutMessageSignature (Sig.verifyKey kp) (signTimeoutMessage body1 kp){tmBody = body2})
 
 tests :: Spec
 tests = describe "KonesnsusV2.Types" $ do

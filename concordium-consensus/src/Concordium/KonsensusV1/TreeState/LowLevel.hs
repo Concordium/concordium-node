@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -69,15 +70,6 @@ instance Serialize FinalizedTransactionStatus where
         ftsBlockHeight <- get
         ftsIndex <- get
         return FinalizedTransactionStatus{..}
-
-data RoundStatus = RoundStatus
-    { rsCurrentRound :: !Round
-    }
-instance Serialize RoundStatus where
-    put RoundStatus{..} = put rsCurrentRound
-    get = do
-        rsCurrentRound <- get
-        return RoundStatus{..}
 
 class (Monad m) => TreeStateStoreMonad m where
     -- |Get a finalized block by block hash.

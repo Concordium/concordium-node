@@ -71,11 +71,11 @@ instance (IsProtocolVersion pv, MonadReader r m, HasMemoryLLDB pv r, MonadIO m) 
             db
                 { lldbBlocks = Map.insert height sb lldbBlocks,
                   lldbBlockHashes = HM.insert (getHash sb) height lldbBlockHashes,
-                  lldbTransactions = foldl' insertTx lldbTransactions (zip (blockTransactions sb) [0..])
+                  lldbTransactions = foldl' insertTx lldbTransactions (zip (blockTransactions sb) [0 ..])
                 }
-            where
-                height = bmHeight (stbInfo sb)
-                insertTx txs (tx, ti) = HM.insert (getHash tx) (FinalizedTransactionStatus height ti) txs
+          where
+            height = bmHeight (stbInfo sb)
+            insertTx txs (tx, ti) = HM.insert (getHash tx) (FinalizedTransactionStatus height ti) txs
     lookupLatestFinalizationEntry =
         readLLDB <&> lldbLatestFinalizationEntry
     lookupCurrentRoundStatus =
@@ -85,7 +85,7 @@ instance (IsProtocolVersion pv, MonadReader r m, HasMemoryLLDB pv r, MonadIO m) 
     rollBackBlocksUntil predicate =
         lookupLastBlock >>= \case
             Nothing -> return False
-            Just sb -> do                
+            Just sb -> do
                 ok <- predicate sb
                 if ok
                     then return False
@@ -99,7 +99,8 @@ instance (IsProtocolVersion pv, MonadReader r m, HasMemoryLLDB pv r, MonadIO m) 
                     { lldbBlocks = Map.delete (bmHeight (stbInfo sb)) lldbBlocks,
                       lldbBlockHashes = HM.delete (getHash sb) lldbBlockHashes,
                       lldbTransactions = foldl' deleteTx lldbTransactions (blockTransactions sb)
-                    }, ()
+                    },
+                  ()
                 )
             lookupLastBlock >>= \case
                 Nothing -> return ()

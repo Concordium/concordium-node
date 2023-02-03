@@ -1,4 +1,5 @@
-{-# LANGUAGE StandaloneDeriving, TypeFamilies #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 -- | Definition of some basic typeclasses that give access to the basic types
