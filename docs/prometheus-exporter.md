@@ -29,17 +29,66 @@ The following options are available for configuring the pushing of metrics:
 
 ## Metrics
 
-- `network_received_bytes` Total number of bytes received.
-- `network_sent_bytes` Total number of bytes sent.
-- `network_packets_received_total` Total number of network packets received.
-- `network_packets_sent_total` Total number of network packets sent.
-- `network_connected_peers` Current number of connected peers.
-- `network_connections_received_total` Total number of connections received.
-- `consensus_inbound_high_priority_message_drops_total` Total inbound high priority consensus messages dropped due to a full queue.
-- `consensus_inbound_low_priority_message_drops_total` Total inbound low priority consensus messages dropped due to a full queue.
-- `consensus_inbound_high_priority_messages_total` Total inbound high priority consensus messages received.
-- `consensus_inbound_low_priority_messages_total` Total inbound low priority consensus messages received.
-- `consensus_inbound_high_priority_message_queue_size` Current number of inbound high priority messages in queue.
-- `consensus_inbound_low_priority_message_queue_size` Current number of inbound low priority messages in queue.
-- `consensus_outbound_high_priority_message_queue_size` Current number of outbound high priority messages in queue.
-- `consensus_outbound_low_priority_message_queue_size` Current number of outbound low priority messages in queue.
+All of the following accumulated metrics are relative to the startup of the node, in other words, restarting the node resets the metrics.
+
+### `network_received_bytes`
+
+Total number of bytes received over the network. Only network message received from connected peers are accounted.
+
+Note: This metric is updated during "housekeeping", meaning the update frequency depends on the node configuration `--housekeeping-interval` (`CONCORDIUM_NODE_CONNECTION_HOUSEKEEPING_INTERVAL`) which is one every 30 seconds by default.
+
+### `network_sent_bytes`
+
+Total number of bytes sent over the network. Only network message sent to connected peers are accounted.
+
+Note: This metric is updated during "housekeeping", meaning the update frequency depends on the node configuration `--housekeeping-interval` (`CONCORDIUM_NODE_CONNECTION_HOUSEKEEPING_INTERVAL`) which is one every 30 seconds by default.
+
+### `network_packets_received_total`
+
+Total number of network packets received from peers. This is accounted before the any form of deduplication.
+
+### `network_packets_sent_total`
+
+Total number of network packets sent to peers.
+
+### `network_connected_peers`
+
+Current number of connected peers. This is incremented when a peer completes a handshake and decremented again when the connection is dropped.
+
+###  `network_connections_received_total`
+
+Total number of connections received. Incremented everytime someone tries to establish a new connection, meaning even the failed connections are accounted, such as when the address is banned, duplicate connection or the node is at its limit on number of connections.
+
+### `network_inbound_high_priority_message_drops_total`
+
+Total inbound high priority messages dropped due to the queue for high priority messages being full.
+See `network_inbound_high_priority_message_queue_size` for the current size of the queue.
+
+### `network_inbound_low_priority_message_drops_total`
+
+Total inbound low priority messages dropped due to the queue for low priority messages being full.
+See `network_inbound_low_priority_message_queue_size` for the current size of the queue.
+
+### `network_inbound_high_priority_messages_total`
+
+Total inbound high priority messages received. This is incremented when a consensus message is enqueue in the high priority queue. Note: Does not include the dropped messages, see `network_inbound_high_priority_message_drops_total`.
+
+### `network_inbound_low_priority_messages_total`
+
+Total inbound low priority messages received. This is incremented when a consensus message is enqueue in the low priority queue. Note: Does not include the dropped messages, see `network_inbound_low_priority_message_drops_total`.
+
+### `network_inbound_high_priority_message_queue_size`
+
+Current number of consensus messages in the inbound high priority queue. Start dropping messages when larger than 16 * 1024.
+
+### `network_inbound_low_priority_message_queue_size`
+
+Current number of consensus messages in the inbound low priority queue. Start dropping messages when larger than 32 * 1024.
+
+### `network_outbound_high_priority_message_queue_size`
+
+Current number of consensus messages in the outbound high priority queue. Start dropping messages when larger than 8 * 1024.
+
+### `network_outbound_low_priority_message_queue_size`
+
+Current number of consensus messages in the outbound low priority queue. Start dropping messages when larger than 16 * 1024.

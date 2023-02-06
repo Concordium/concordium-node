@@ -118,49 +118,49 @@ impl StatsExportService {
         registry.register(Box::new(connections_received.clone()))?;
 
         let inbound_high_priority_message_drops = IntCounter::with_opts(Opts::new(
-            "consensus_inbound_high_priority_message_drops_total",
+            "network_inbound_high_priority_message_drops_total",
             "Total inbound high priority consensus messages dropped due to a full queue",
         ))?;
         registry.register(Box::new(inbound_high_priority_message_drops.clone()))?;
 
         let inbound_low_priority_message_drops = IntCounter::with_opts(Opts::new(
-            "consensus_inbound_low_priority_message_drops_total",
+            "network_inbound_low_priority_message_drops_total",
             "Total inbound low priority consensus messages dropped due to a full queue",
         ))?;
         registry.register(Box::new(inbound_low_priority_message_drops.clone()))?;
 
         let inbound_high_priority_messages = IntCounter::with_opts(Opts::new(
-            "consensus_inbound_high_priority_messages_total",
+            "network_inbound_high_priority_messages_total",
             "Total inbound high priority consensus messages received",
         ))?;
         registry.register(Box::new(inbound_high_priority_messages.clone()))?;
 
         let inbound_low_priority_messages = IntCounter::with_opts(Opts::new(
-            "consensus_inbound_low_priority_messages_total",
+            "network_inbound_low_priority_messages_total",
             "Total inbound low priority consensus messages received",
         ))?;
         registry.register(Box::new(inbound_low_priority_messages.clone()))?;
 
         let inbound_high_priority_message_queue_size = IntGauge::with_opts(Opts::new(
-            "consensus_inbound_high_priority_message_queue_size",
+            "network_inbound_high_priority_message_queue_size",
             "Current number of inbound high priority messages in queue",
         ))?;
         registry.register(Box::new(inbound_high_priority_message_queue_size.clone()))?;
 
         let inbound_low_priority_message_queue_size = IntGauge::with_opts(Opts::new(
-            "consensus_inbound_low_priority_message_queue_size",
+            "network_inbound_low_priority_message_queue_size",
             "Current number of inbound low priority messages in queue",
         ))?;
         registry.register(Box::new(inbound_low_priority_message_queue_size.clone()))?;
 
         let outbound_high_priority_message_queue_size = IntGauge::with_opts(Opts::new(
-            "consensus_outbound_high_priority_message_queue_size",
+            "network_outbound_high_priority_message_queue_size",
             "Current number of outbound high priority messages in queue",
         ))?;
         registry.register(Box::new(outbound_high_priority_message_queue_size.clone()))?;
 
         let outbound_low_priority_message_queue_size = IntGauge::with_opts(Opts::new(
-            "consensus_outbound_low_priority_message_queue_size",
+            "network_outbound_low_priority_message_queue_size",
             "Current number of outbound low priority messages in queue",
         ))?;
         registry.register(Box::new(outbound_low_priority_message_queue_size.clone()))?;
