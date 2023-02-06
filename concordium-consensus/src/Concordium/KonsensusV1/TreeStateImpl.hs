@@ -39,7 +39,7 @@ emptyBlockTable = BlockTable emptyDeadCache HM.empty
 type BlockPointerAndState pv = (PersistentBlockPointer pv (PBS.HashedPersistentBlockState pv))
 
 -- |Data required to support 'TreeState'.
-data KonsensusData (pv :: ProtocolVersion) = KonsensusData {
+data SkovData (pv :: ProtocolVersion) = SkovData {
     -- |The 'QuorumSignatureMessage's for the current round.
     _currentQuouromSignatureMessages :: SignatureMessages QuorumSignatureMessage,
     -- |The 'TimeoutSignatureMessages's for the current round.
@@ -68,12 +68,11 @@ data KonsensusData (pv :: ProtocolVersion) = KonsensusData {
     _statistics :: !ConsensusStatistics
     
 }
-makeLenses ''KonsensusData
+makeLenses ''SkovData
 
 -- |A 'KonsensusData pv' wrapped in an 'IORef', where @pv@ is the
 -- current 'ProtocolVersion'
-newtype KonsensState pv = KonsensState (IORef (KonsensusData pv))
+newtype SkovState pv = SkovState (IORef (SkovData pv))
 
 -- |Create the 'HasKonsensusState' constraint and a lens.
-makeClassy ''KonsensState
-
+makeClassy ''SkovState
