@@ -177,7 +177,7 @@ newtype TransactionStatusStore = TransactionStatusStore MDB_dbi'
 -- |Details about a finalized transaction.
 data FinalizedTransactionStatus = FinalizedTransactionStatus
     { -- |Slot number of the finalized block in which the transaction occurred.
-      ftsSlot :: !CommitPoint,
+      ftsCommitPoint :: !CommitPoint,
       -- |Hash of the finalized block in which the transaction occurred.
       ftsBlockHash :: !BlockHash,
       -- |Index of the transaction in the block.
@@ -186,13 +186,13 @@ data FinalizedTransactionStatus = FinalizedTransactionStatus
     deriving (Eq, Show)
 
 instance S.Serialize FinalizedTransactionStatus where
-    put FinalizedTransactionStatus{..} = S.put ftsSlot >> S.put ftsBlockHash >> S.put ftsIndex
+    put FinalizedTransactionStatus{..} = S.put ftsCommitPoint >> S.put ftsBlockHash >> S.put ftsIndex
     get = FinalizedTransactionStatus <$> S.get <*> S.get <*> S.get
 
 -- |Convert a 'FinalizedTransactionStatus' to a 'TransactionStatus'
 finalizedToTransactionStatus :: FinalizedTransactionStatus -> T.TransactionStatus
 finalizedToTransactionStatus FinalizedTransactionStatus{..} =
-    T.Finalized{_tsSlot = ftsSlot, tsBlockHash = ftsBlockHash, tsFinResult = ftsIndex}
+    T.Finalized{_tsCommitPoint = ftsCommitPoint, tsBlockHash = ftsBlockHash, tsFinResult = ftsIndex}
 
 instance MDBDatabase TransactionStatusStore where
     type DBKey TransactionStatusStore = TransactionHash

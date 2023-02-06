@@ -49,16 +49,16 @@ instance IsCommitPoint Round
 -- be an instance of 'Ord'.
 data TransactionStatus
     = -- |Transaction is received, but no outcomes from any blocks are known
-      -- although the transaction might be known to be in some blocks. The Slot is the
-      -- largest slot of a block the transaction is in.
+      -- although the transaction might be known to be in some blocks. The 'CommitPoint' is the
+      -- largest commit point of a block the transaction is in.
       -- A transaction verification result is attached to the transaction which is used by
       -- the 'Scheduler' to verify the transaction and possibly short-circuit some of the verification required
       -- before executing the transaction.
       Received
-        { _tsSlot :: !CommitPoint,
+        { _tsCommitPoint :: !CommitPoint,
           _tsVerRes :: !TVer.VerificationResult
         }
-    | -- |Transaction is committed in a number of blocks. '_tsSlot' is the maximal slot.
+    | -- |Transaction is committed in a number of blocks. '_tsCommitPoint' is the maximal 'CommitPoint'.
       -- 'tsResults' is always a non-empty map and global state must maintain the invariant
       -- that if a block hash @bh@ is in the 'tsResults' map then
       --
@@ -70,7 +70,7 @@ data TransactionStatus
       -- the 'Scheduler' to verify the transaction and possibly short-circuit some of the verification required
       -- before executing the transaction.
       Committed
-        { _tsSlot :: !CommitPoint,
+        { _tsCommitPoint :: !CommitPoint,
           _tsVerRes :: !TVer.VerificationResult,
           tsResults :: !(HM.HashMap BlockHash TransactionIndex)
         }
@@ -78,7 +78,7 @@ data TransactionStatus
       -- NB: With the current implementation a transaction can appear in at most one finalized block.
       -- When that part is reworked so that branches are not pruned we will likely rework this.
       Finalized
-        { _tsSlot :: !CommitPoint,
+        { _tsCommitPoint :: !CommitPoint,
           tsBlockHash :: !BlockHash,
           tsFinResult :: !TransactionIndex
         }
@@ -92,15 +92,15 @@ makeLenses ''TransactionStatus
 {-# SPECIALIZE addResult :: BlockHash -> Slot -> TransactionIndex -> TransactionStatus -> TransactionStatus #-}
 addResult :: IsCommitPoint a => BlockHash -> a -> TransactionIndex -> TransactionStatus -> TransactionStatus
 addResult bh cp vr = \case
-    Committed{_tsSlot = currentSlot, tsResults = currentResults, ..} ->
+    Committed{_tsCommitPoint = currentCommitPoint, tsResults = currentResults, ..} ->
         Committed
-            { _tsSlot = max (commitPoint cp) currentSlot,
+            { _tsCommitPoint = max (commitPoint cp) currentCommitPoint,
               tsResults = HM.insert bh vr currentResults,
               _tsVerRes = _tsVerRes
             }
-    Received{_tsSlot = currentSlot, ..} ->
+    Received{_tsCommitPoint = currentCommitPoint, ..} ->
         Committed
-            { _tsSlot = max (commitPoint cp) currentSlot,
+            { _tsCommitPoint = max (commitPoint cp) currentCommitPoint,
               tsResults = HM.singleton bh vr,
               _tsVerRes = _tsVerRes
             }
@@ -121,7 +121,7 @@ markDeadResult _ ts = ts
 {-# SPECIALIZE updateSlot :: Slot -> TransactionStatus -> TransactionStatus #-}
 updateSlot :: IsCommitPoint a => a -> TransactionStatus -> TransactionStatus
 updateSlot _ ts@Finalized{} = ts
-updateSlot s ts = ts{_tsSlot = commitPoint s}
+updateSlot s ts = ts{_tsCommitPoint = commitPoint s}
 
 {-# INLINE getTransactionIndex #-}
 
@@ -206,9 +206,9 @@ emptyNFCUWithSequenceNumber = NonFinalizedChainUpdates Map.empty
 -- In the in-memory implementation, finalized transactions are stored in this
 -- table.
 --
--- A transaction's status indicates which blocks it is included in and the slot
+-- A transaction's status indicates which blocks it is included in and the commit point
 -- number of the highest such block.  A transaction that is not included any block
--- may also have a non-zero highest slot if it is received in a block, but that block
+-- may also have a non-zero highest commit point if it is received in a block, but that block
 -- is not yet considered arrived.
 --
 -- Generally, '_ttNonFinalizedTransactions' should have an entry for every account,

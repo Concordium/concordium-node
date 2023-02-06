@@ -852,7 +852,7 @@ instance
                 -- unless the transaction is already finalized (this case is handled by updateSlot)
                 -- In the current model this latter case should not happen; once a transaction is finalized
                 -- it is written to disk (see finalizeTransactions below)
-                when (commitPoint slot > results ^. tsSlot) $ skovPersistentData . transactionTable . ttHashMap . at' trHash . mapped . _2 %= updateSlot slot
+                when (commitPoint slot > results ^. tsCommitPoint) $ skovPersistentData . transactionTable . ttHashMap . at' trHash . mapped . _2 %= updateSlot slot
                 return $ TS.Duplicate bi' mVerRes
 
     addVerifiedTransaction bi@WithMetadata{..} okRes = do
@@ -956,7 +956,7 @@ instance
                     return
                         ( txHash,
                           FinalizedTransactionStatus
-                            { ftsSlot = commitPoint slot,
+                            { ftsCommitPoint = commitPoint slot,
                               ftsBlockHash = bh,
                               ftsIndex = tsResults HM.! bh
                               -- the previous lookup is safe; finalized transaction must be on a block
@@ -975,7 +975,7 @@ instance
             Nothing -> return True
             Just (_, results) -> do
                 lastFinSlot <- blockSlot . _bpBlock . fst <$> TS.getLastFinalized
-                if commitPoint lastFinSlot >= results ^. tsSlot
+                if commitPoint lastFinSlot >= results ^. tsCommitPoint
                     then do
                         -- remove from the table
                         skovPersistentData . transactionTable . ttHashMap . at' wmdHash .= Nothing

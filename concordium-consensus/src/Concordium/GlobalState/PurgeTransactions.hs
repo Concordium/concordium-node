@@ -45,7 +45,7 @@ type TransactionHashTable a = HM.HashMap TransactionHash (BlockItem, Transaction
 -- A transaction is eligible for purging only if it does not belong to any
 -- current blocks. This is considered to be the case if the corresponding
 -- entry in the transaction table is a `Received` or `Committed` and the
--- `_tsSlot` field is less than or equal to the slot of the last finalized block.
+-- `_tsCommitPoint` field is less than or equal to the slot of the last finalized block.
 --
 -- Transactions are only purged if they have expired (so they would not be valid
 -- in any block created from now on) or if they arrived sufficiently long ago
@@ -63,7 +63,7 @@ purgeTables ::
     -- |Pending transaction table to purge
     PendingTransactionTable ->
     (TransactionTable, PendingTransactionTable)
-purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptable = (ttable', ptable')
+purgeTables lastFinCommitPoint oldestArrivalTime currentTime TransactionTable{..} ptable = (ttable', ptable')
   where
     -- A transaction is too old if its arrival predates the oldest allowed
     -- arrival time, or if its expiry time has passed.
@@ -72,8 +72,8 @@ purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptabl
     -- Determine if an entry in the transaction hash table indicates that a
     -- transaction is eligible for removal.  This is the case if the recorded
     -- slot preceeds the last finalized slot.
-    removable (Just (_, Received{..})) = _tsSlot <= lastFinSlot
-    removable (Just (_, Committed{..})) = _tsSlot <= lastFinSlot
+    removable (Just (_, Received{..})) = _tsCommitPoint <= lastFinCommitPoint
+    removable (Just (_, Committed{..})) = _tsCommitPoint <= lastFinCommitPoint
     -- This case should not occur, since it would mean that a transaction we
     -- are trying to remove is either finalized or unknown.
     removable _ = False
