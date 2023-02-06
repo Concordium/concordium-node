@@ -2,6 +2,23 @@
 
 ## Unreleased changes
 
+- Rename a number of metrics from exposed by the Prometheus exporter:
+  - `peer_number` is now `network_connected_peers`.
+  - `conn_received` is now `network_connections_received_total`.
+  - `packets_received` is now `network_packets_received_total`.
+  - `packets_sent` is now `network_packets_sent_total`.
+  - `inbound_high_priority_consensus_drops` is now `network_inbound_high_priority_message_drops_total`.
+  - `inbound_low_priority_consensus_drops` is now `network_inbound_low_priority_message_drops_total`.
+  - `inbound_high_priority_consensus_counter` is now `network_inbound_high_priority_messages_total`.
+  - `inbound_low_priority_consensus_counter` is now `network_inbound_low_priority_messages_total`.
+  - `inbound_high_priority_consensus_size` is now `network_inbound_high_priority_message_queue_size`.
+  - `inbound_low_priority_consensus_size` is now `network_inbound_low_priority_message_queue_size`.
+  - `outbound_high_priority_consensus_size` is now `network_outbound_high_priority_message_queue_size`.
+  - `outbound_low_priority_consensus_size` is now `network_outbound_low_priority_message_queue_size`.
+  - `bytes_received` is now `network_received_bytes`.
+  - `bytes_sent` is now `network_sent_bytes`.
+- Remove `last_throughput_measurement_timestamp`, `avg_bps_in` and `avg_bps_out` metrics exposed by the Prometheus exporter.
+
 ## 5.2.1
 
 - Fix a bug in `GetAccountInfo` endpoint in GRPCv2 where `incoming_amounts`
