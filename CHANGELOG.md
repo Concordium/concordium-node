@@ -2,8 +2,15 @@
 
 ## Unreleased changes
 
+## 5.2.1
+
 - Fix a bug in `GetAccountInfo` endpoint in GRPCv2 where `incoming_amounts`
   field of encrypted amounts was not set correctly.
+- Remove `current_queue_size`,  `resend_queue_size`, `packets_dropped`, `invalid_packets_received`
+  `unknown_packets_received`, `invalid_network_packets_received`,
+  `packets_resend` metrics from the Prometheus server since they were never updated.
+- Internal refactoring to support new consensus chain parameters.
+- Internal refactoring to simplify configuration of the node's databases.
 
 ## 5.2.0
 
