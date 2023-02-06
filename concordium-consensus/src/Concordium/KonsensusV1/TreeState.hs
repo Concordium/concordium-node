@@ -235,9 +235,6 @@ class
         -- |The resulting transaction status.
         m (Maybe TransactionStatus)
 
-    -- todo: repurpose the current 'Slot' used in the current transaction table / transaction status to something more general
-    -- such that it allows for both a 'Round' and a 'Slot'  (these are both wrappers around a word64)
-
     -- |Purge the transaction table.
     -- Expunge transactions which are marked
     -- as dead from the transaction table.
