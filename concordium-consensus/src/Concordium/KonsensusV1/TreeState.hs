@@ -226,7 +226,7 @@ class
     addTransaction :: VerifiedBlockItem -> m AddBlockItemResult
 
     -- |Commit the transactions of a signed block.
-    commitTransactions :: [VerifiedBlockItem] -> m AddBlockItemResult
+    commitTransactions :: SignedBlock -> m AddBlockItemResult
 
     -- |Lookup a transaction by its hash.
     lookupTransaction ::
