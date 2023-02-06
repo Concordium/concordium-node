@@ -251,19 +251,19 @@ jobs:
         cargo check --target x86_64-pc-windows-gnu --manifest-path service/windows/installer/custom-actions/Cargo.toml --workspace
     - name: Run clippy (without extra features)
       run: |
-        cargo clippy --manifest-path concordium-node/Cargo.toml --all -- -Dclippy::all
+        cargo clippy --manifest-path concordium-node/Cargo.toml --all -- -D warnings
     - name: Run clippy (with features 'collector', 'network_dump')
       run: |
-        cargo clippy --manifest-path concordium-node/Cargo.toml --features=collector,network_dump --all -- -Dclippy::all
+        cargo clippy --manifest-path concordium-node/Cargo.toml --features=collector,network_dump --all -- -D warnings
     - name: Run clippy on collector backend
       run: |
-        cargo clippy --manifest-path collector-backend/Cargo.toml -- -Dclippy::all
+        cargo clippy --manifest-path collector-backend/Cargo.toml -- -D warnings
     - name: Run clippy on Windows node runner service
       run: |
-        cargo clippy --target x86_64-pc-windows-gnu --manifest-path service/windows/Cargo.toml --all --no-default-features -- -Dclippy::all
+        cargo clippy --target x86_64-pc-windows-gnu --manifest-path service/windows/Cargo.toml --all --no-default-features -- -D warnings
     - name: Run clippy on Windows installer custom action library
       run: |
-        cargo clippy --target x86_64-pc-windows-gnu --manifest-path service/windows/installer/custom-actions/Cargo.toml --all -- -Dclippy::all
+        cargo clippy --target x86_64-pc-windows-gnu --manifest-path service/windows/installer/custom-actions/Cargo.toml --all -- -D warnings
     - name: Test Rust crates (without extra features)
       run: |
         cargo test --manifest-path concordium-node/Cargo.toml --all

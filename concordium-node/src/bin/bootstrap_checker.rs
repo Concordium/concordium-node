@@ -27,7 +27,7 @@ fn main() -> anyhow::Result<()> {
     let pager_duty_email = env::var("PD_EMAIL")?;
     let pager_duty_svcid = env::var("PD_SVCID")?;
 
-    let stats_export_service = instantiate_stats_export_engine(&conf)?;
+    let stats_export_service = instantiate_stats_export_engine()?;
     let fname = conf
         .bootstrapper
         .regenesis_block_hashes

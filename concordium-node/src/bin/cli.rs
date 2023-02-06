@@ -51,7 +51,7 @@ use std::net::{IpAddr, SocketAddr};
 async fn main() -> anyhow::Result<()> {
     let (conf, mut app_prefs) = get_config_and_logging_setup()?;
 
-    let stats_export_service = instantiate_stats_export_engine(&conf)?;
+    let stats_export_service = instantiate_stats_export_engine()?;
     let regenesis_arc: Arc<Regenesis> = Arc::new(Default::default());
 
     // The P2PNode thread
