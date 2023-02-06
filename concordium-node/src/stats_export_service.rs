@@ -371,9 +371,7 @@ impl StatsExportService {
 }
 
 /// Starts the stats export engine.
-pub fn instantiate_stats_export_engine(
-    conf: &configuration::Config,
-) -> anyhow::Result<Arc<StatsExportService>> {
+pub fn instantiate_stats_export_engine() -> anyhow::Result<Arc<StatsExportService>> {
     let prom =
         StatsExportService::new().context("Could not start statistics collection engine.")?;
     Ok(Arc::new(prom))
