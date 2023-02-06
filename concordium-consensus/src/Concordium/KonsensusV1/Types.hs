@@ -868,6 +868,7 @@ data RoundStatus' = RoundStatus'
       -- that the 'TimeoutCertificate' was built.
       rsPreviousRoundTC :: !(Maybe (TimeoutCertificate, QuorumCertificate))
     }
+makeLenses ''RoundStatus'
 
 instance Serialize RoundStatus' where
     put RoundStatus'{..} = do

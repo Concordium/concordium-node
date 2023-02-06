@@ -218,8 +218,9 @@ class
     -- |Add a verified transaction to the transaction table.
     addTransaction :: VerifiedBlockItem -> m AddBlockItemResult
 
-    -- |Commit the transactions of a signed block.
-    commitTransactions :: SignedBlock -> m AddBlockItemResult
+    -- |Commit a batch of 'VerifiedBlockItem's.
+    -- This should be used for commiting the transactions of a block received.
+    commitTransactions :: [VerifiedBlockItem] -> m AddBlockItemResult
 
     -- |Lookup a transaction by its hash.
     lookupTransaction ::
