@@ -57,6 +57,7 @@ import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.LMDB.Helpers
 import Concordium.GlobalState.Persistent.BlobStore (BlobRef)
 import Concordium.GlobalState.Persistent.BlockPointer
+import Concordium.GlobalState.TransactionTable
 import qualified Concordium.GlobalState.TransactionTable as T
 import Concordium.Logger
 import Concordium.Types
@@ -176,7 +177,7 @@ newtype TransactionStatusStore = TransactionStatusStore MDB_dbi'
 -- |Details about a finalized transaction.
 data FinalizedTransactionStatus = FinalizedTransactionStatus
     { -- |Slot number of the finalized block in which the transaction occurred.
-      ftsSlot :: !Slot,
+      ftsSlot :: !CommitPoint,
       -- |Hash of the finalized block in which the transaction occurred.
       ftsBlockHash :: !BlockHash,
       -- |Index of the transaction in the block.
@@ -189,7 +190,7 @@ instance S.Serialize FinalizedTransactionStatus where
     get = FinalizedTransactionStatus <$> S.get <*> S.get <*> S.get
 
 -- |Convert a 'FinalizedTransactionStatus' to a 'TransactionStatus'
-finalizedToTransactionStatus :: FinalizedTransactionStatus -> T.TransactionStatus Slot
+finalizedToTransactionStatus :: FinalizedTransactionStatus -> T.TransactionStatus
 finalizedToTransactionStatus FinalizedTransactionStatus{..} =
     T.Finalized{_tsSlot = ftsSlot, tsBlockHash = ftsBlockHash, tsFinResult = ftsIndex}
 

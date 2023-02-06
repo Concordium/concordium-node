@@ -225,12 +225,15 @@ class
     -- |Add a verified transaction to the transaction table.
     addTransaction :: VerifiedBlockItem -> m AddBlockItemResult
 
+    -- |Commit the transactions of a signed block.
+    commitTransactions :: [VerifiedBlockItem] -> m AddBlockItemResult
+
     -- |Lookup a transaction by its hash.
     lookupTransaction ::
         -- |Hash of the transaction to lookup.
         TransactionHash ->
         -- |The resulting transaction status.
-        m (Maybe (TransactionStatus Round))
+        m (Maybe TransactionStatus)
 
     -- todo: repurpose the current 'Slot' used in the current transaction table / transaction status to something more general
     -- such that it allows for both a 'Round' and a 'Slot'  (these are both wrappers around a word64)

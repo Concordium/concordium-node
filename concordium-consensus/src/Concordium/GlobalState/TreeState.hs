@@ -420,7 +420,7 @@ class
     markDeadTransaction :: BlockHash -> BlockItem -> m ()
 
     -- |Lookup a transaction status by its hash.
-    lookupTransaction :: TransactionHash -> m (Maybe (TransactionStatus Slot))
+    lookupTransaction :: TransactionHash -> m (Maybe TransactionStatus)
 
     -- * Operations on statistics
 

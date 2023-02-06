@@ -46,10 +46,10 @@ import Lens.Micro.Platform
 -- This also returns the transaction table.
 -- The result is immediately flushed to disc and cached.
 genesisState ::
-    forall pv av m a.
+    forall pv av m.
     (BS.SupportsPersistentState pv m, Types.AccountVersionFor pv ~ av) =>
     GenesisData.GenesisData pv ->
-    m (Either String (BS.HashedPersistentBlockState pv, (TransactionTable.TransactionTable a)))
+    m (Either String (BS.HashedPersistentBlockState pv, TransactionTable.TransactionTable))
 genesisState gd = MTL.runExceptT $ case Types.protocolVersion @pv of
     Types.SP1 -> case gd of
         GenesisData.GDP1 P1.GDP1Initial{..} ->
@@ -116,11 +116,11 @@ initialAccumGenesisState =
 -- | Construct a hashed persistent block state from the data in genesis.
 -- The result is immediately flushed to disc and cached.
 buildGenesisBlockState ::
-    forall pv av m a.
+    forall pv av m.
     (BS.SupportsPersistentState pv m, Types.AccountVersionFor pv ~ av) =>
     GenesisData.CoreGenesisParameters ->
     GenesisData.GenesisState pv ->
-    MTL.ExceptT String m (BS.HashedPersistentBlockState pv, TransactionTable.TransactionTable a)
+    MTL.ExceptT String m (BS.HashedPersistentBlockState pv, TransactionTable.TransactionTable)
 buildGenesisBlockState GenesisData.CoreGenesisParameters{..} GenesisData.GenesisState{..} = do
     -- Iterate the accounts in genesis once and accumulate all relevant information.
     AccumGenesisState{..} <- Vec.ifoldM' accumStateFromGenesisAccounts initialAccumGenesisState genesisAccounts
