@@ -97,4 +97,8 @@ newtype TreeStateWrapper (pv :: ProtocolVersion) (m :: Type -> Type) (a :: Type)
 -- |'MonadReader' instance for 'TreeStateWrapper'.
 deriving instance MonadReader r m => MonadReader r (TreeStateWrapper pv m)
 
+-- |'MonadProtocolVersion' instance for 'TreeStateWrapper'.
+instance IsProtocolVersion pv => MonadProtocolVersion (TreeStateWrapper pv m) where
+    type MPV (TreeStateWrapper pv m) = pv
+
 instance (Monad m, MonadReader r m, IsProtocolVersion pv, IsConsensusV1 pv, HasSkovState r pv) => MonadTreeState (TreeStateWrapper pv m) where
