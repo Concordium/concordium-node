@@ -7,18 +7,16 @@ module Concordium.KonsensusV1.TreeState where
 import qualified Data.Map.Strict as Map
 import Data.Time
 
+import Concordium.GlobalState.BlockMonads
+import Concordium.GlobalState.Statistics
+import Concordium.GlobalState.TransactionTable
+import Concordium.GlobalState.Types
+import Concordium.KonsensusV1.Types
+import qualified Concordium.TransactionVerification as TVer
 import Concordium.Types
 import Concordium.Types.Parameters
 import Concordium.Types.Transactions
 import Concordium.Types.Updates
-
-import Concordium.KonsensusV1.Types
-
-import Concordium.GlobalState.BlockMonads
-import Concordium.GlobalState.TransactionTable
-import Concordium.GlobalState.TreeState
-import Concordium.GlobalState.Types
-import qualified Concordium.TransactionVerification as TVer
 
 -- |Result of adding a 'VerifiedTransaction' to the transaction store.
 data AddBlockItemResult
@@ -60,9 +58,9 @@ type IsConsensusV1 (pv :: ProtocolVersion) =
 --     * Current round, epoch and (latest quorum message signed || latest timeout message signed)
 --       In case of restarting a consensus instance one must be
 --       be able to starting
---     * Finalized blocks
+--     * Finalized blocks store
 --       It should be possible to always lookup old finalized blocks.
---     * Finalized transactions
+--     * Finalized transactions store
 --       It should be possible to always lookup old finalized transactions.
 class
     ( Monad m,
@@ -196,9 +194,12 @@ class
     getTimeoutMessages :: m (SignatureMessages TimeoutSignatureMessage)
 
     -- |Sets the timeout messages for the current round.
-    setTimeoutMessage :: SignatureMessages QuorumSignatureMessage -> m ()
+    setTimeoutMessage :: SignatureMessages TimeoutSignatureMessage -> m ()
 
-    -- * Round status and latest finalization entry.
+    -- * Round status.
+
+    -- The 'RoundStatus' holds information about the current 'Round',
+    -- but also enough information for progressing to the next round.
 
     --
 
@@ -207,14 +208,6 @@ class
 
     -- |Set the current 'RoundStatus'.
     setRoundStatus :: RoundStatus -> m ()
-
-    -- |Get the latest finalization entry
-    -- This will only be 'Nothing' in between the
-    -- genesis block and the first explicitly finalized block.
-    getLatestFinalizationEntry :: m (Maybe FinalizationEntry)
-
-    -- |Set the latest finalization entry.
-    setLatestFinalizationEntry :: FinalizationEntry -> m ()
 
     -- |
 
@@ -225,15 +218,16 @@ class
     -- |Add a verified transaction to the transaction table.
     addTransaction :: VerifiedBlockItem -> m AddBlockItemResult
 
+    -- |Commit a batch of 'VerifiedBlockItem's.
+    -- This should be used for commiting the transactions of a block received.
+    commitTransactions :: [VerifiedBlockItem] -> m AddBlockItemResult
+
     -- |Lookup a transaction by its hash.
     lookupTransaction ::
         -- |Hash of the transaction to lookup.
         TransactionHash ->
         -- |The resulting transaction status.
-        m (Maybe undefined)
-
-    -- todo: repurpose the current 'Slot' used in the current transaction table / transaction status to something more general
-    -- such that it allows for both a 'Round' and a 'Slot'  (these are both wrappers around a word64)
+        m (Maybe TransactionStatus)
 
     -- |Purge the transaction table.
     -- Expunge transactions which are marked
@@ -272,10 +266,9 @@ class
 
     --
 
-    -- |Get the non finalized credentials
-    -- Is this really necessary to expose so raw?
-    -- Same thoughts as for the getPendingTransactions.
-    getNonFinalizedCredentials :: m ()
+    -- |Get a non finalized credential by its 'TransactionHash'
+    -- This returns 'Nothing' in the case that the credential has already been finalized.
+    getNonFinalizedCredential :: TransactionHash -> m (Maybe (CredentialDeploymentWithMeta, TVer.VerificationResult))
 
     -- * Protocol update
 
@@ -296,7 +289,40 @@ class
 
     -- |Get consensus statistics.
     -- Note that the actual statistics are updated by 'markPendingBlockLive'.
-    getConsensusStatistics :: m ()
+    getConsensusStatistics :: m ConsensusStatistics
 
     -- |Get the runtime parameters.
     getRuntimeParameters :: m ()
+
+-- |The status of a block.
+data BlockStatus bp sb
+    = -- |The block is awaiting its parent to become part of chain.
+      BlockPending sb
+    | -- |The block is alive i.e. head of chain.
+      BlockAlive !bp
+    | -- |The block is finalized.
+      -- The first pointer is to the block itself
+      -- while the latter is for the block that finalized the
+      -- block.
+      BlockFinalized !bp
+    | -- |The block has been marked dead.
+      BlockDead
+    deriving (Eq)
+
+instance Show (BlockStatus bp sb) where
+    show (BlockPending _) = "Pending"
+    show (BlockAlive _) = "Alive"
+    show (BlockFinalized _) = "Finalized"
+    show BlockDead = "Dead"
+
+-- |Get the status of a block if it recent
+-- otherwise if it is a predecessor of the last finalized block
+-- get a witness on that i.e. 'OldFinalized'.
+data RecentBlockStatus bp sb
+    = -- |The block is recent i.e. it is either 'Alive',
+      -- 'Pending' or the last finalized block.
+      RecentBlock !(BlockStatus bp sb)
+    | -- |The block is a predecessor of the last finalized block.
+      OldFinalized
+    | -- |The block is unknown.
+      Unknown

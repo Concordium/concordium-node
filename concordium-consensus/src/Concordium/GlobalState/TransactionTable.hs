@@ -1,8 +1,13 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 module Concordium.GlobalState.TransactionTable where
 
+import Data.Coerce
+import Data.Word
+
+import Concordium.KonsensusV1.Types
 import qualified Concordium.TransactionVerification as TVer
 import Concordium.Types
 import Concordium.Types.Execution
@@ -16,21 +21,44 @@ import qualified Data.HashSet as HS
 import qualified Data.Map.Strict as Map
 import Lens.Micro.Platform
 
+-- |A commit point is a specific point within an 'Epoch'.
+-- For ConsensusV0 it is a 'Slot'.
+-- For ConsensusV1 it is a 'Round'.
+type CommitPoint = Word64
+
+class IsCommitPoint a where
+    commitPoint :: a -> CommitPoint
+
+    -- |Default implementation for commit points @o@ which is
+    -- 'Coercible' with 'Word64'.
+    default commitPoint :: Coercible a Word64 => a -> CommitPoint
+    commitPoint = coerce
+
+-- |'Slot' is using the default implementation
+-- as 'Slot' is just a wrapper around 'Word64'.
+instance IsCommitPoint Slot
+
+-- |'Round' is using the default implementation
+-- as 'Round' is just a wrapper around 'Word64'
+instance IsCommitPoint Round
+
 -- * Transaction status
 
 -- |Result of a transaction is block dependent.
+-- The 'TransactionStatus' is parameterized by @a@ and must
+-- be an instance of 'Ord'.
 data TransactionStatus
     = -- |Transaction is received, but no outcomes from any blocks are known
-      -- although the transaction might be known to be in some blocks. The Slot is the
-      -- largest slot of a block the transaction is in.
+      -- although the transaction might be known to be in some blocks. The 'CommitPoint' is the
+      -- largest commit point of a block the transaction is in.
       -- A transaction verification result is attached to the transaction which is used by
       -- the 'Scheduler' to verify the transaction and possibly short-circuit some of the verification required
       -- before executing the transaction.
       Received
-        { _tsSlot :: !Slot,
+        { _tsCommitPoint :: !CommitPoint,
           _tsVerRes :: !TVer.VerificationResult
         }
-    | -- |Transaction is committed in a number of blocks. '_tsSlot' is the maximal slot.
+    | -- |Transaction is committed in a number of blocks. '_tsCommitPoint' is the maximal 'CommitPoint'.
       -- 'tsResults' is always a non-empty map and global state must maintain the invariant
       -- that if a block hash @bh@ is in the 'tsResults' map then
       --
@@ -42,7 +70,7 @@ data TransactionStatus
       -- the 'Scheduler' to verify the transaction and possibly short-circuit some of the verification required
       -- before executing the transaction.
       Committed
-        { _tsSlot :: !Slot,
+        { _tsCommitPoint :: !CommitPoint,
           _tsVerRes :: !TVer.VerificationResult,
           tsResults :: !(HM.HashMap BlockHash TransactionIndex)
         }
@@ -50,7 +78,7 @@ data TransactionStatus
       -- NB: With the current implementation a transaction can appear in at most one finalized block.
       -- When that part is reworked so that branches are not pruned we will likely rework this.
       Finalized
-        { _tsSlot :: !Slot,
+        { _tsCommitPoint :: !CommitPoint,
           tsBlockHash :: !BlockHash,
           tsFinResult :: !TransactionIndex
         }
@@ -60,17 +88,19 @@ makeLenses ''TransactionStatus
 
 -- |Add a transaction result. This function assumes the transaction is not finalized yet.
 -- If the transaction is already finalized the function will return the original status.
-addResult :: BlockHash -> Slot -> TransactionIndex -> TransactionStatus -> TransactionStatus
-addResult bh slot vr = \case
-    Committed{_tsSlot = currentSlot, tsResults = currentResults, ..} ->
+{-# SPECIALIZE addResult :: BlockHash -> Round -> TransactionIndex -> TransactionStatus -> TransactionStatus #-}
+{-# SPECIALIZE addResult :: BlockHash -> Slot -> TransactionIndex -> TransactionStatus -> TransactionStatus #-}
+addResult :: IsCommitPoint a => BlockHash -> a -> TransactionIndex -> TransactionStatus -> TransactionStatus
+addResult bh cp vr = \case
+    Committed{_tsCommitPoint = currentCommitPoint, tsResults = currentResults, ..} ->
         Committed
-            { _tsSlot = max slot currentSlot,
+            { _tsCommitPoint = max (commitPoint cp) currentCommitPoint,
               tsResults = HM.insert bh vr currentResults,
               _tsVerRes = _tsVerRes
             }
-    Received{_tsSlot = currentSlot, ..} ->
+    Received{_tsCommitPoint = currentCommitPoint, ..} ->
         Committed
-            { _tsSlot = max slot currentSlot,
+            { _tsCommitPoint = max (commitPoint cp) currentCommitPoint,
               tsResults = HM.singleton bh vr,
               _tsVerRes = _tsVerRes
             }
@@ -87,9 +117,11 @@ markDeadResult bh Committed{..} =
     in  if HM.null newResults then Received{..} else Committed{tsResults = newResults, ..}
 markDeadResult _ ts = ts
 
-updateSlot :: Slot -> TransactionStatus -> TransactionStatus
+{-# SPECIALIZE updateSlot :: Round -> TransactionStatus -> TransactionStatus #-}
+{-# SPECIALIZE updateSlot :: Slot -> TransactionStatus -> TransactionStatus #-}
+updateSlot :: IsCommitPoint a => a -> TransactionStatus -> TransactionStatus
 updateSlot _ ts@Finalized{} = ts
-updateSlot s ts = ts{_tsSlot = s}
+updateSlot s ts = ts{_tsCommitPoint = commitPoint s}
 
 {-# INLINE getTransactionIndex #-}
 
@@ -174,15 +206,17 @@ emptyNFCUWithSequenceNumber = NonFinalizedChainUpdates Map.empty
 -- In the in-memory implementation, finalized transactions are stored in this
 -- table.
 --
--- A transaction's status indicates which blocks it is included in and the slot
+-- A transaction's status indicates which blocks it is included in and the commit point
 -- number of the highest such block.  A transaction that is not included any block
--- may also have a non-zero highest slot if it is received in a block, but that block
+-- may also have a non-zero highest commit point if it is received in a block, but that block
 -- is not yet considered arrived.
 --
 -- Generally, '_ttNonFinalizedTransactions' should have an entry for every account,
 -- with the exception of where the entry would be 'emptyANFT'. Similarly with
 -- '_ttNonFinalizedChainUpdates' and 'emptyNFCU'.  In particular, there should be
 -- an entry if the next nonce/sequence number is not the minimum value.
+-- The transaction table is parameterized by @a@ which must at least be an instance of
+-- 'Ord'.
 data TransactionTable = TransactionTable
     { -- |Map from transaction hashes to transactions, together with their current status.
       _ttHashMap :: !(HM.HashMap TransactionHash (BlockItem, TransactionStatus)),
@@ -229,8 +263,8 @@ emptyTransactionTableWithSequenceNumbers accs upds =
 -- |Add a transaction to a transaction table if its nonce/sequence number is at least the next
 -- non-finalized nonce/sequence number.  A return value of 'True' indicates that the transaction
 -- was added.  The caller should check that the transaction is not already present.
-addTransaction :: BlockItem -> Slot -> TVer.VerificationResult -> TransactionTable -> (Bool, TransactionTable)
-addTransaction blockItem@WithMetadata{..} slot !verRes tt0 =
+addTransaction :: BlockItem -> CommitPoint -> TVer.VerificationResult -> TransactionTable -> (Bool, TransactionTable)
+addTransaction blockItem@WithMetadata{..} cp !verRes tt0 =
     case wmdData of
         NormalTransaction tr
             | tt0 ^. senderANFT . anftNextNonce <= nonce ->
@@ -253,7 +287,7 @@ addTransaction blockItem@WithMetadata{..} slot !verRes tt0 =
             wmdcu = WithMetadata{wmdData = cu, ..}
         _ -> (False, tt0)
   where
-    tt1 = tt0 & ttHashMap . at' wmdHash ?~ (blockItem, Received slot verRes)
+    tt1 = tt0 & ttHashMap . at' wmdHash ?~ (blockItem, Received cp verRes)
 
 -- * Pending transaction table
 

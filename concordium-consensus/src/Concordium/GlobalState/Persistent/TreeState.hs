@@ -834,7 +834,7 @@ instance
                         oldCredential <- case wmdData of
                             CredentialDeployment{} -> memberTransactionTable wmdHash
                             _ -> return False
-                        let ~(added, newTT) = addTransaction bi slot verRes tt
+                        let ~(added, newTT) = addTransaction bi (commitPoint slot) verRes tt
                         if not oldCredential && added
                             then do
                                 skovPersistentData . transactionTablePurgeCounter += 1
@@ -852,7 +852,7 @@ instance
                 -- unless the transaction is already finalized (this case is handled by updateSlot)
                 -- In the current model this latter case should not happen; once a transaction is finalized
                 -- it is written to disk (see finalizeTransactions below)
-                when (slot > results ^. tsSlot) $ skovPersistentData . transactionTable . ttHashMap . at' trHash . mapped . _2 %= updateSlot slot
+                when (commitPoint slot > results ^. tsCommitPoint) $ skovPersistentData . transactionTable . ttHashMap . at' trHash . mapped . _2 %= updateSlot slot
                 return $ TS.Duplicate bi' mVerRes
 
     addVerifiedTransaction bi@WithMetadata{..} okRes = do
@@ -956,7 +956,7 @@ instance
                     return
                         ( txHash,
                           FinalizedTransactionStatus
-                            { ftsSlot = slot,
+                            { ftsCommitPoint = commitPoint slot,
                               ftsBlockHash = bh,
                               ftsIndex = tsResults HM.! bh
                               -- the previous lookup is safe; finalized transaction must be on a block
@@ -975,7 +975,7 @@ instance
             Nothing -> return True
             Just (_, results) -> do
                 lastFinSlot <- blockSlot . _bpBlock . fst <$> TS.getLastFinalized
-                if lastFinSlot >= results ^. tsSlot
+                if commitPoint lastFinSlot >= results ^. tsCommitPoint
                     then do
                         -- remove from the table
                         skovPersistentData . transactionTable . ttHashMap . at' wmdHash .= Nothing
@@ -1029,7 +1029,7 @@ instance
                         then currentTransactionTime - rpTransactionsKeepAliveTime
                         else 0
                 currentTimestamp = utcTimeToTimestamp currentTime
-                (newTT, newPT) = purgeTables lastFinalizedSlot oldestArrivalTime currentTimestamp transactionTable' pendingTransactions'
+                (newTT, newPT) = purgeTables (commitPoint lastFinalizedSlot) oldestArrivalTime currentTimestamp transactionTable' pendingTransactions'
             skovPersistentData . transactionTable .= newTT
             skovPersistentData . pendingTransactions .= newPT
 
