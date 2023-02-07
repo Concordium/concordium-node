@@ -84,14 +84,15 @@ instance (IsProtocolVersion pv, MonadReader r m, HasMemoryLLDB pv r, MonadIO m) 
         withLLDB $ \db -> (db{lldbRoundStatus = rs}, ())
     rollBackBlocksUntil predicate =
         lookupLastBlock >>= \case
-            Nothing -> return False
+            Nothing -> return (Right False)
             Just sb -> do
                 ok <- predicate sb
                 if ok
-                    then return False
+                    then return (Right False)
                     else do
                         withLLDB $ \db -> (db{lldbLatestFinalizationEntry = Nothing}, ())
-                        True <$ roll sb
+                        roll sb
+                        return (Right True)
       where
         roll sb = do
             withLLDB $ \db@LowLevelDB{..} ->
@@ -108,16 +109,3 @@ instance (IsProtocolVersion pv, MonadReader r m, HasMemoryLLDB pv r, MonadIO m) 
                     ok <- predicate sb'
                     unless ok $ roll sb'
         deleteTx txs tx = HM.delete (getHash tx) txs
-
---   lookupBlock = _
---   memberBlock = _
---   lookupFirstBlock = _
---   lookupLastBlock = _
---   lookupBlockByHeight = _
---   lookupTransaction = _
---   memberTransaction = _
---   writeBlocks = _
---   lookupLatestFinalizationEntry = _
---   lookupCurrentRoundStatus = _
---   writeCurrentRoundStatus = _
---   rollBackBlocksUntil = _

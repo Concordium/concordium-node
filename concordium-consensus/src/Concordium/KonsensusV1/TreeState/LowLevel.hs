@@ -95,8 +95,8 @@ class (Monad m) => TreeStateStoreMonad m where
     memberTransaction :: TransactionHash -> m Bool
     memberTransaction = fmap isJust . lookupTransaction
 
-    -- |Store the list of blocks and their transactions.
-    -- (This should write the blocks as a single database transaction.)
+    -- |Store the list of blocks and their transactions, updating the last finalization entry to
+    -- the supplied value.  (This should write the blocks as a single database transaction.)
     writeBlocks :: [StoredBlock (MPV m)] -> FinalizationEntry -> m ()
 
     -- |Look up the finalization entry for the last finalized block.
@@ -111,5 +111,6 @@ class (Monad m) => TreeStateStoreMonad m where
     -- |From the last block backwards, remove blocks and their associated transactions
     -- from the database until the predicate returns 'True'. If any blocks are rolled back,
     -- this also removes the latest finalization entry.
-    -- This returns 'True' if and only if roll-back occurred.
-    rollBackBlocksUntil :: (StoredBlock (MPV m) -> m Bool) -> m Bool
+    -- This returns @Right True@ if roll-back occurred, and @Right False@ if no roll-back was
+    -- required.  If an error occurred attempting to roll back, @Right reason@ is returned.
+    rollBackBlocksUntil :: (StoredBlock (MPV m) -> m Bool) -> m (Either String Bool)

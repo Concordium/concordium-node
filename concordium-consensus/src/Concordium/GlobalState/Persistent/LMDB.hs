@@ -313,8 +313,6 @@ dbStepSize = 2 ^ (26 :: Int) -- 64MB
 dbInitSize :: Int
 dbInitSize = dbStepSize
 
--- NB: The @ati@ is stored in an external database if chosen to.
-
 -- |Initialize database handlers in ReadWrite mode.
 -- This simply loads the references and does not initialize the databases.
 -- The initial size is set to 64MB.

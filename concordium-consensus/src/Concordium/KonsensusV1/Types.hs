@@ -865,6 +865,15 @@ instance Serialize RoundStatus where
         rsLastSignedTimeoutSignatureMessage <- get
         return RoundStatus{..}
 
+-- |The 'RoundStatus' for consensus at genesis.
+initialRoundStatus :: RoundStatus
+initialRoundStatus = RoundStatus {
+        rsCurrentEpoch = 0,
+        rsCurrentRound = 0,
+        rsLastSignedQuouromSignatureMessage = Nothing,
+        rsLastSignedTimeoutSignatureMessage = Nothing
+    }
+
 -- |A collection of signatures
 -- This is a map from 'FinalizerIndex' to the actual signature message.
 data SignatureMessages a = SignatureMessages
