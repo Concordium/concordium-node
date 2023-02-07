@@ -1,7 +1,8 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Concordium.KonsensusV1.TreeStateImpl where
 
@@ -78,6 +79,7 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       -- |The current consensus statistics.
       _statistics :: !ConsensusStatistics
     }
+
 makeLenses ''SkovData
 
 -- |A 'SkovData pv' wrapped in an 'IORef', where @pv@ is the
@@ -87,13 +89,11 @@ newtype SkovState (pv :: ProtocolVersion) = SkovState (IORef (SkovData pv))
 -- |Create the 'HasSkovState' @HasSkovState pv@ constraint.
 makeClassy ''SkovState
 
--- |Types for deriving 'MonadTrans' for 'TreeStateMonadT'.
-newtype TreeStateMonadT' (r :: Type) (m :: Type -> Type) (a :: Type) = TreeStateMonadT' {
-    runTreeStateMonadT :: r -> m a
-}
-    deriving (Functor, Applicative, Monad, MonadReader r) via (ReaderT r m)
-    deriving MonadTrans via (ReaderT r m)
+-- |'TreeStateWrapper' for running an action @a@ on the 'MonadTreeState'.
+newtype TreeStateWrapper (pv :: ProtocolVersion) (m :: Type -> Type) (a :: Type) = TreeStateWrapper {runTreeStateWrapper :: m a}
+    deriving newtype (Functor, Applicative, Monad)
 
-type TreeStateMonadT pv m = TreeStateMonadT' (SkovState pv) m
+-- |'MonadReader' instance for 'TreeStateWrapper'.
+deriving instance MonadReader r m => MonadReader r (TreeStateWrapper pv m)
 
---instance (Monad m, IsProtocolVersion pv, r ~ HasSkovState pv m) => TreeStateMonad (TreeStateMonadT' r m) where
+instance (Monad m, IsProtocolVersion pv, HasSkovState r pv) => MonadTreeState (TreeStateWrapper pv m)

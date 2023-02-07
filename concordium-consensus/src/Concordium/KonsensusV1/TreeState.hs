@@ -65,7 +65,7 @@ class
     ( Monad m,
       IsConsensusV1 (MPV m)
     ) =>
-    TreeStateMonad m
+    MonadTreeState m
     where
     -- * Pending blocks
 
