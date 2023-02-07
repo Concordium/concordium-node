@@ -7,6 +7,7 @@ module Concordium.KonsensusV1.TreeState where
 import qualified Data.Map.Strict as Map
 import Data.Time
 
+import Concordium.GlobalState.Parameters (RuntimeParameters)
 import Concordium.GlobalState.Statistics
 import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.Types
@@ -73,12 +74,12 @@ class
 
     -- |Add a 'SignedBlock' to the block table and assign
     -- it status 'Pending' as it is awaiting its parent.
-    -- The transactions of the block are also added to the transaction table.
-    -- Note. This will also update the consensus statistics.
+    -- An implementation of 'addPendingBlock' is expected to also
+    -- verify and store the transactions as pending and update the consensus statistics.
     addPendingBlock ::
         -- |The signed block to add to the pending blocks.
         SignedBlock ->
-        m ()
+        m (BlockStatus (BlockPointerType m) SignedBlock)
 
     -- |Mark a pending block to be live.
     -- Set the status of the block to be 'Alive'.
@@ -175,9 +176,6 @@ class
     -- Note. pending transactions are after the focus block has been executed.
     getPendingTransactions :: m PendingTransactionTable
 
-    -- |Set the pending transactions
-    setPendingTransactions :: PendingTransactionTable -> m ()
-
     -- * Quorum- and Timeout Certificates
 
     --
@@ -215,10 +213,6 @@ class
 
     -- |Add a verified transaction to the transaction table.
     addTransaction :: VerifiedBlockItem -> m AddBlockItemResult
-
-    -- |Commit a batch of 'VerifiedBlockItem's.
-    -- This should be used for commiting the transactions of a block received.
-    commitTransactions :: [VerifiedBlockItem] -> m AddBlockItemResult
 
     -- |Lookup a transaction by its hash.
     lookupTransaction ::
@@ -290,7 +284,7 @@ class
     getConsensusStatistics :: m ConsensusStatistics
 
     -- |Get the runtime parameters.
-    getRuntimeParameters :: m ()
+    getRuntimeParameters :: m RuntimeParameters
 
 -- |The status of a block.
 data BlockStatus bp sb
