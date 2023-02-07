@@ -54,15 +54,12 @@ impl P2PNode {
 
     /// Measures the node's average byte throughput as bps i.e., bytes per
     /// second.
-    pub fn measure_throughput(&self, peer_stats: &[PeerStats]) -> anyhow::Result<()> {
+    pub fn measure_throughput(&self) -> anyhow::Result<()> {
         let prev_bytes_received = self.stats.last_throughput_measurement_received_bytes.get();
         let prev_bytes_sent = self.stats.last_throughput_measurement_sent_bytes.get();
 
-        let (bytes_received, bytes_sent) = peer_stats
-            .iter()
-            .filter(|ps| ps.peer_type == PeerType::Node)
-            .map(|ps| (ps.bytes_received, ps.bytes_sent))
-            .fold((0, 0), |(acc_i, acc_o), (i, o)| (acc_i + i, acc_o + o));
+        let bytes_received = self.stats.received_bytes.get();
+        let bytes_sent = self.stats.sent_bytes.get();
 
         self.stats.last_throughput_measurement_received_bytes.set(bytes_received);
         self.stats.last_throughput_measurement_sent_bytes.set(bytes_sent);
@@ -166,16 +163,7 @@ fn calculate_average_throughput(
     );
     let delta: u64 = (now_millis - before_millis) as u64; // as is safe since we checked the difference is positive.
 
-    ensure!(
-        bytes_recv >= prev_bytes_recv,
-        "Received bytes were lost. Refusing to calculate average throughput."
-    );
     let avg_bps_in = (milliseconds_to_second * (bytes_recv - prev_bytes_recv)) / delta;
-
-    ensure!(
-        bytes_sent >= prev_bytes_sent,
-        "Sent bytes were lost. Refusing to calculate average throughput."
-    );
     let avg_bps_out = (milliseconds_to_second * (bytes_sent - prev_bytes_sent)) / delta;
 
     Ok((avg_bps_in, avg_bps_out))
@@ -203,16 +191,6 @@ mod tests {
         assert!(
             calculate_average_throughput(2, 1, 1, 2, 1, 2).is_err(),
             "Calculation should fail since time difference is negative."
-        );
-
-        assert!(
-            calculate_average_throughput(1, 1001, 1002, 1001, 1001, 1002).is_err(),
-            "Received bytes were lost. Refusing to calculate average throughput."
-        );
-
-        assert!(
-            calculate_average_throughput(1, 1001, 1001, 1002, 1001, 1000).is_err(),
-            "Sent bytes were lost. Refusing to calculate average throughput."
         );
     }
 }

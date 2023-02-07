@@ -18,7 +18,7 @@
   - `bytes_received` is now `network_received_bytes`.
   - `bytes_sent` is now `network_sent_bytes`.
 - Remove `last_throughput_measurement_timestamp`, `avg_bps_in` and `avg_bps_out` metrics exposed by the Prometheus exporter.
-- Prometheus metrics `network_sent_bytes` and `network_received_bytes` updates on every message instead of during "housekeeping".
+- Prometheus metrics `network_sent_bytes` and `network_received_bytes` update on every message instead of during "housekeeping".
 
 ## 5.2.1
 
