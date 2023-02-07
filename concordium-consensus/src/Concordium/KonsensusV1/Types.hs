@@ -1,4 +1,5 @@
 {-# LANGUAGE BinaryLiterals #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -21,6 +22,7 @@ import qualified Concordium.Crypto.BlockSignature as BlockSig
 import qualified Concordium.Crypto.BlsSignature as Bls
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.VRF as VRF
+import Concordium.Genesis.Data
 import qualified Concordium.TransactionVerification as TVer
 import Concordium.Types
 import Concordium.Types.HashableTo
@@ -939,3 +941,50 @@ data VerifiedBlockItem = VerifiedBlockItem
       -- |The associated verification result.
       vpVerRes :: !TVer.VerificationResult
     }
+
+-- |Either a genesis block or a normal block.
+-- A normal block MUST have a non-zero round number.
+data Block (pv :: ProtocolVersion)
+    = GenesisBlock
+        { gbConfiguration :: !GenesisConfiguration,
+          gbStateHash :: !StateHash
+        }
+    | NormalBlock !SignedBlock
+
+instance BlockData (Block pv) where
+    type BakedBlockDataType (Block pv) = SignedBlock
+    blockRound GenesisBlock{} = 0
+    blockRound (NormalBlock b) = blockRound b
+    blockEpoch GenesisBlock{} = 0
+    blockEpoch (NormalBlock b) = blockEpoch b
+    blockTimestamp GenesisBlock{gbConfiguration = gc} = gdGenesisTime gc
+    blockTimestamp (NormalBlock b) = blockTimestamp b
+    blockBakedData GenesisBlock{} = Absent
+    blockBakedData (NormalBlock b) = blockBakedData b
+    blockTransactions GenesisBlock{} = []
+    blockTransactions (NormalBlock b) = blockTransactions b
+    blockStateHash GenesisBlock{..} = gbStateHash
+    blockStateHash (NormalBlock b) = blockStateHash b
+
+instance HashableTo BlockHash (Block pv) where
+    getHash GenesisBlock{..} = _gcCurrentHash gbConfiguration
+    getHash (NormalBlock b) = getHash b
+
+instance Monad m => MHashableTo m BlockHash (Block pv)
+
+putBlock :: Putter (Block pv)
+putBlock GenesisBlock{..} = do
+    put (0 :: Round)
+    putGenesisConfiguration gbConfiguration
+    put gbStateHash
+putBlock (NormalBlock b) = putSignedBlock b
+
+-- getBlock :: (IsProtocolVersion pv) => Timestamp -> Get (Block pv)
+-- getBlock ts = do
+--     (r :: Round) <- lookAhead get
+--     case r of
+--         0 -> do
+--             (_ :: Round) <- get
+--             gbConfiguration <- getGenesisConfiguration
+--             gbStateHash <- get
+--             return GenesisBlock{..}

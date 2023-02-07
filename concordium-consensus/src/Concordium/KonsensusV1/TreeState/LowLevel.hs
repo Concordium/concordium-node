@@ -80,7 +80,9 @@ class (Monad m) => TreeStateStoreMonad m where
     memberBlock = fmap isJust . lookupBlock
 
     -- |Get the first (i.e. genesis) block.
+    -- (The implementation can assume that this block has height 0.)
     lookupFirstBlock :: m (Maybe (StoredBlock (MPV m)))
+    lookupFirstBlock = lookupBlockByHeight 0
 
     -- |Get the last (finalized) block.
     lookupLastBlock :: m (Maybe (StoredBlock (MPV m)))
