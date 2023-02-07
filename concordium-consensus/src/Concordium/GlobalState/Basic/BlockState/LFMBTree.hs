@@ -303,7 +303,7 @@ hashAsLFMBT e = go
     go [] = e
     go [x] = x
     go xs = go (f xs)
-    f (x:y:xs) = H.hashOfHashes x y : f xs
+    f (x : y : xs) = H.hashOfHashes x y : f xs
     f other = other
 
 {-
