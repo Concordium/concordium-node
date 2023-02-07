@@ -520,6 +520,7 @@ impl Connection {
         self.stats.bytes_received.fetch_add(bytes.len() as u64, Ordering::Relaxed);
         self.handler.connection_handler.total_received.fetch_add(1, Ordering::Relaxed);
         self.handler.stats.packets_received.inc();
+        self.handler.stats.received_bytes.inc_by(bytes.len() as u64);
 
         #[cfg(feature = "network_dump")]
         {
@@ -726,6 +727,7 @@ impl Connection {
 
             self.handler.connection_handler.total_sent.fetch_add(1, Ordering::Relaxed);
             self.handler.stats.packets_sent.inc();
+            self.handler.stats.sent_bytes.inc_by(msg.len() as u64);
             self.stats.messages_sent.fetch_add(1, Ordering::Relaxed);
             self.stats.bytes_sent.fetch_add(msg.len() as u64, Ordering::Relaxed);
 

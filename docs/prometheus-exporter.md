@@ -35,13 +35,9 @@ All of the following accumulated metrics are relative to the startup of the node
 
 Total number of bytes received over the network. Only network message received from connected peers are accounted.
 
-Note: This metric is updated during "housekeeping", meaning the update frequency depends on the node configuration `--housekeeping-interval` (`CONCORDIUM_NODE_CONNECTION_HOUSEKEEPING_INTERVAL`) which is one every 30 seconds by default.
-
 ### `network_sent_bytes`
 
 Total number of bytes sent over the network. Only network message sent to connected peers are accounted.
-
-Note: This metric is updated during "housekeeping", meaning the update frequency depends on the node configuration `--housekeeping-interval` (`CONCORDIUM_NODE_CONNECTION_HOUSEKEEPING_INTERVAL`) which is one every 30 seconds by default.
 
 ### `network_packets_received_total`
 

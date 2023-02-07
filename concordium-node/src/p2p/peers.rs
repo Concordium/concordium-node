@@ -10,6 +10,7 @@ use crate::{
 };
 use anyhow::ensure;
 use chrono::Utc;
+use prometheus::core::Atomic;
 use std::sync::{atomic::Ordering, Arc};
 
 impl P2PNode {
@@ -54,8 +55,8 @@ impl P2PNode {
     /// Measures the node's average byte throughput as bps i.e., bytes per
     /// second.
     pub fn measure_throughput(&self, peer_stats: &[PeerStats]) -> anyhow::Result<()> {
-        let prev_bytes_received = self.stats.received_bytes.get();
-        let prev_bytes_sent = self.stats.sent_bytes.get();
+        let prev_bytes_received = self.stats.last_throughput_measurement_received_bytes.get();
+        let prev_bytes_sent = self.stats.last_throughput_measurement_sent_bytes.get();
 
         let (bytes_received, bytes_sent) = peer_stats
             .iter()
@@ -63,8 +64,8 @@ impl P2PNode {
             .map(|ps| (ps.bytes_received, ps.bytes_sent))
             .fold((0, 0), |(acc_i, acc_o), (i, o)| (acc_i + i, acc_o + o));
 
-        self.stats.received_bytes.set(bytes_received);
-        self.stats.sent_bytes.set(bytes_sent);
+        self.stats.last_throughput_measurement_received_bytes.set(bytes_received);
+        self.stats.last_throughput_measurement_sent_bytes.set(bytes_sent);
 
         let now = Utc::now().timestamp_millis();
         let (avg_bps_in, avg_bps_out) = calculate_average_throughput(

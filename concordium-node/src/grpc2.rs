@@ -1,4 +1,5 @@
 use anyhow::Context;
+use prometheus::core::Atomic;
 use prost::bytes::BufMut;
 use std::{
     convert::{TryFrom, TryInto},

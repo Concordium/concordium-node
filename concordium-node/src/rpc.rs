@@ -17,6 +17,7 @@ use crate::{
 use byteorder::WriteBytesExt;
 use futures::future::Future;
 use p2p_server::*;
+use prometheus::core::Atomic;
 use std::{
     convert::TryInto,
     io::Write,

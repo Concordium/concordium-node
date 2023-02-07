@@ -14,7 +14,7 @@ use http::{status::StatusCode, Response};
 use hyper::Body;
 use prometheus::{
     self,
-    core::{AtomicI64, AtomicU64, GenericGauge},
+    core::{Atomic, AtomicI64, AtomicU64},
     Encoder, IntCounter, IntGauge, Opts, Registry, TextEncoder,
 };
 use std::{net::SocketAddr, sync::RwLock, thread, time};
@@ -75,17 +75,37 @@ pub struct StatsExportService {
     /// Current number of outbound low priority messages in queue.
     pub outbound_low_priority_message_queue_size: IntGauge,
     /// Total number of bytes received.
-    pub received_bytes: GenericGauge<AtomicU64>,
+    pub received_bytes: IntCounter,
     /// Total number of bytes sent.
-    pub sent_bytes: GenericGauge<AtomicU64>,
+    pub sent_bytes: IntCounter,
+    /// Total number of bytes received at the point of last
+    /// throughput_measurement.
+    ///
+    /// This is not exposed in the prometheus exporter, but we use the value
+    /// when calculating `avg_bps_in` and `avg_bps_out`.
+    pub last_throughput_measurement_received_bytes: AtomicU64,
+    /// Total number of bytes sent at the point of last throughput_measurement.
+    ///
+    /// This is not exposed in the prometheus exporter, but we use the value
+    /// when calculating `avg_bps_in` and `avg_bps_out`.
+    pub last_throughput_measurement_sent_bytes: AtomicU64,
     /// Timestamp for the last calculation of throughput.
-    pub last_throughput_measurement_timestamp: GenericGauge<AtomicI64>,
+    ///
+    /// This is not exposed in the prometheus exporter, but we use the value
+    /// when calculating `avg_bps_in` and `avg_bps_out`.
+    pub last_throughput_measurement_timestamp: AtomicI64,
     /// Average bytes per second received between the two last values of
     /// last_throughput_measurement_timestamp.
-    pub avg_bps_in: GenericGauge<AtomicU64>,
+    ///
+    /// This is not exposed in the prometheus exporter, but is exposed by the
+    /// gRPC API.
+    pub avg_bps_in: AtomicU64,
     /// Average bytes per second sent between the two last values of
     /// last_throughput_measurement_timestamp.
-    pub avg_bps_out: GenericGauge<AtomicU64>,
+    ///
+    /// This is not exposed in the prometheus exporter, but is exposed by the
+    /// gRPC API.
+    pub avg_bps_out: AtomicU64,
 }
 
 impl StatsExportService {
@@ -165,42 +185,21 @@ impl StatsExportService {
         ))?;
         registry.register(Box::new(outbound_low_priority_message_queue_size.clone()))?;
 
-        let received_bytes = GenericGauge::with_opts(Opts::new(
+        let received_bytes = IntCounter::with_opts(Opts::new(
             "network_received_bytes",
             "Total number of bytes received",
         ))?;
         registry.register(Box::new(received_bytes.clone()))?;
 
         let sent_bytes =
-            GenericGauge::with_opts(Opts::new("network_sent_bytes", "Total number of bytes sent"))?;
+            IntCounter::with_opts(Opts::new("network_sent_bytes", "Total number of bytes sent"))?;
         registry.register(Box::new(sent_bytes.clone()))?;
 
-        // `last_throughput_measurement_timestamp` is not registered in the registry on
-        // purpose, since it should not be exposed in the prometheus exporter, but we
-        // still used the value of the gauge when calculating `avg_bps_in` and
-        // `avg_bps_out`.
-        let last_throughput_measurement_timestamp = GenericGauge::with_opts(Opts::new(
-            "last_throughput_measurement_timestamp",
-            "Timestamp for the last calculation of throughput",
-        ))?;
-
-        // `avg_bps_in` is not registered in the registry on purpose, since it should
-        // not be exposed in the prometheus exporter, but we still exposed the
-        // value of the gauge in the gRPC API.
-        let avg_bps_in = GenericGauge::with_opts(Opts::new(
-            "avg_bps_in",
-            "Average bytes per second received between the two last values of \
-             last_throughput_measurement_timestamp",
-        ))?;
-
-        // `avg_bps_out` is not registered in the registry on purpose, since it should
-        // not be exposed in the prometheus exporter, but we still exposed the
-        // value of the gauge in the gRPC API.
-        let avg_bps_out = GenericGauge::with_opts(Opts::new(
-            "avg_bps_out",
-            "Average bytes per second sent between the two last values of \
-             last_throughput_measurement_timestamp",
-        ))?;
+        let last_throughput_measurement_timestamp = AtomicI64::new(0);
+        let last_throughput_measurement_sent_bytes = AtomicU64::new(0);
+        let last_throughput_measurement_received_bytes = AtomicU64::new(0);
+        let avg_bps_in = AtomicU64::new(0);
+        let avg_bps_out = AtomicU64::new(0);
 
         Ok(StatsExportService {
             registry,
@@ -216,9 +215,11 @@ impl StatsExportService {
             inbound_low_priority_message_queue_size,
             outbound_high_priority_message_queue_size,
             outbound_low_priority_message_queue_size,
-            last_throughput_measurement_timestamp,
             received_bytes,
             sent_bytes,
+            last_throughput_measurement_timestamp,
+            last_throughput_measurement_sent_bytes,
+            last_throughput_measurement_received_bytes,
             avg_bps_in,
             avg_bps_out,
         })
