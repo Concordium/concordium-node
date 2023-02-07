@@ -101,8 +101,10 @@ deriving instance MonadReader r m => MonadReader r (TreeStateWrapper pv m)
 instance IsProtocolVersion pv => MonadProtocolVersion (TreeStateWrapper pv m) where
     type MPV (TreeStateWrapper pv m) = pv
 
-instance (Monad m, MonadReader r m, IsConsensusV1 pv, HasSkovState r pv) => MonadTreeState (TreeStateWrapper pv m) where
-    addPendingBlock = undefined
+instance (Monad m, MonadReader r m, IsConsensusV1 pv, HasSkovState r pv, r ~ SkovData pv) => MonadTreeState (TreeStateWrapper pv m) where
+    addPendingBlock sb = do
+        s <- ask
+        return ()
     markPendingBlockLive = undefined
     takePendingChildren = undefined
     markBlockDead = undefined
