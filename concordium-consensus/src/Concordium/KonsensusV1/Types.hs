@@ -68,7 +68,7 @@ quorumSignatureMessageBytes QuorumSignatureMessage{..} = runPut $ do
 -- |Signature by a finalizer on a 'QuorumSignatureMessage', or an aggregation of signatures on a
 -- common message.
 newtype QuorumSignature = QuorumSignature {theQuorumSignature :: Bls.Signature}
-    deriving (Eq, Ord, Show, Serialize, Semigroup, Monoid)
+    deriving (Eq, Ord, Show, Serialize, Semigroup)
 
 -- |Sign a 'QuorumSignatureMessage' with a baker's private key.
 signQuorumSignatureMessage :: QuorumSignatureMessage -> BakerAggregationPrivateKey -> QuorumSignature
@@ -275,7 +275,7 @@ timeoutSignatureMessageBytes TimeoutSignatureMessage{..} = runPut $ do
 -- |Signature by a finalizer on a 'TimeoutSignatureMessage', or an aggregation of signatures on a
 -- common message.
 newtype TimeoutSignature = TimeoutSignature {theTimeoutSignature :: Bls.Signature}
-    deriving (Eq, Ord, Show, Serialize, Semigroup, Monoid)
+    deriving (Eq, Ord, Show, Serialize, Semigroup)
 
 -- |Sign a 'TimeoutSignatureMessage' with a Baker's private key.
 signTimeoutSignatureMessage :: TimeoutSignatureMessage -> BakerAggregationPrivateKey -> TimeoutSignature
