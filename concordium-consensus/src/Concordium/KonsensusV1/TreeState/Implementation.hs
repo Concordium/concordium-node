@@ -2,9 +2,10 @@
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
-module Concordium.KonsensusV1.TreeStateImpl where
+module Concordium.KonsensusV1.TreeState.Implementation where
 
 import Control.Monad.Reader
 import Data.IORef
@@ -96,4 +97,4 @@ newtype TreeStateWrapper (pv :: ProtocolVersion) (m :: Type -> Type) (a :: Type)
 -- |'MonadReader' instance for 'TreeStateWrapper'.
 deriving instance MonadReader r m => MonadReader r (TreeStateWrapper pv m)
 
-instance (Monad m, IsProtocolVersion pv, HasSkovState r pv) => MonadTreeState (TreeStateWrapper pv m)
+instance (Monad m, MonadReader r m, IsProtocolVersion pv, IsConsensusV1 pv, HasSkovState r pv) => MonadTreeState (TreeStateWrapper pv m) where
