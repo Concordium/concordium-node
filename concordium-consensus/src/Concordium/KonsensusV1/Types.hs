@@ -863,7 +863,7 @@ data RoundStatus' = RoundStatus'
       -- genesis block and the first explicitly finalized block.
       rsLatestEpochFinEntry :: !(Maybe FinalizationEntry),
       -- |The previous round timeout certificate if the previous round timed out.
-      -- This is 'Just (TimeoutCertificate, QuourumCertificate)' if the previous round timed out or otherwise 'Nothing.
+      -- This is @Just (TimeoutCertificate, QuorumCertificate)@ if the previous round timed out or otherwise 'Nothing'.
       -- In the case of @Just@ then the associated 'QuorumCertificate' is the highest 'QuorumCertificate' at the time
       -- that the 'TimeoutCertificate' was built.
       rsPreviousRoundTC :: !(Maybe (TimeoutCertificate, QuorumCertificate))
@@ -917,13 +917,9 @@ instance Serialize RoundStatus where
             _ -> fail "Invalid RoundStatus tag"
 
 -- |The 'RoundStatus' for consensus at genesis.
+-- TODO: Define.
 initialRoundStatus :: RoundStatus
-initialRoundStatus = RoundStatus {
-        rsCurrentEpoch = 0,
-        rsCurrentRound = 0,
-        rsLastSignedQuouromSignatureMessage = Nothing,
-        rsLastSignedTimeoutSignatureMessage = Nothing
-    }
+initialRoundStatus = undefined
 
 -- |A collection of signatures
 -- This is a map from 'FinalizerIndex' to the actual signature message.
