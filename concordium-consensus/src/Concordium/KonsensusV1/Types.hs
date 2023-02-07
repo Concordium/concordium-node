@@ -88,9 +88,38 @@ checkQuorumSignature msg pubKeys =
     Bls.verifyAggregate (quorumSignatureMessageBytes msg) pubKeys
         . theQuorumSignature
 
--- |Index of a finalizer in a finalization committee.
+-- |Index of a finalizer in a finalization committee vector.
 newtype FinalizerIndex = FinalizerIndex {theFinalizerIndex :: Word32}
     deriving (Eq, Ord, Show, Enum, Bounded, Serialize)
+
+-- |Information about a finalizer.
+data FinalizerInfo = PartyInfo
+    { -- |The index of the finalizer in the finalization committee vector.
+      finalizerIndex :: !FinalizerIndex,
+      -- |The voter power of the finalizer
+      finalizerWeight :: !VoterPower,
+      -- |The block signature verification key of the finalizer
+      finalizerSignKey :: !BlockSig.VerifyKey,
+      -- |The VRF public key of the finalizer
+      finalizerVRFKey :: !VRF.PublicKey,
+      -- |The BLS public key of the finalizer
+      finalizerBlsKey :: !Bls.PublicKey,
+      -- |The baker ID of the finalizaer
+      finalizerBakerId :: !BakerId
+    }
+    deriving (Eq, Ord)
+
+instance Show FinalizerInfo where
+    show = show . finalizerIndex
+
+-- |The finalization committee.
+data FinalizationCommittee = FinalizationCommittee
+    { -- |All eligible finalizers, in ascending order of baker ID
+      committeeFinalizers :: !(Vector.Vector FinalizerInfo),
+      -- |The total voter power.
+      committeeTotalWeight :: !VoterPower
+    }
+    deriving (Eq, Show)
 
 -- |A set of 'FinalizerIndex'es.
 -- This is represented as a bit vector, where the bit @i@ is set iff the finalizer index @i@ is
