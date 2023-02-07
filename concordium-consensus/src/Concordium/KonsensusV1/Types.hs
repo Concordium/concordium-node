@@ -1,6 +1,5 @@
 {-# LANGUAGE BinaryLiterals #-}
 {-# LANGUAGE DeriveTraversable #-}
-{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -427,7 +426,7 @@ tmSignatureMessage tsmGenesis tmb =
     TimeoutSignatureMessage
         { tsmRound = tmRound tmb,
           tsmQCRound = qcRound (tmQuorumCertificate tmb),
-          tsmGenesis
+          ..
         }
 
 -- |A timeout message including the sender's signature.
