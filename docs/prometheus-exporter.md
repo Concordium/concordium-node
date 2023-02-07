@@ -81,14 +81,22 @@ Total inbound low priority messages received. This is incremented when a consens
 
 Current number of consensus messages in the inbound high priority queue. Start dropping messages when larger than 16 * 1024.
 
+The value of this metric should average around 0. There can be spikes, but generally large numbers mean the node is strugling to keep up.
+
 ### `network_inbound_low_priority_message_queue_size`
 
 Current number of consensus messages in the inbound low priority queue. Start dropping messages when larger than 32 * 1024.
+
+The value of this metric should average around 0. There can be spikes, but generally large numbers mean the node is strugling to keep up.
 
 ### `network_outbound_high_priority_message_queue_size`
 
 Current number of consensus messages in the outbound high priority queue. Start dropping messages when larger than 8 * 1024.
 
+The value of this metric should average around 0. There can be spikes, but generally large numbers mean the node is strugling to keep up.
+
 ### `network_outbound_low_priority_message_queue_size`
 
 Current number of consensus messages in the outbound low priority queue. Start dropping messages when larger than 16 * 1024.
+
+The value of this metric should average around 0. There can be spikes, but generally large numbers mean the node is strugling to keep up.

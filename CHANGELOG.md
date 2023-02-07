@@ -2,7 +2,7 @@
 
 ## Unreleased changes
 
-- Rename a number of metrics from exposed by the Prometheus exporter:
+- Rename a number of metrics exposed by the Prometheus exporter:
   - `peer_number` is now `network_connected_peers`.
   - `conn_received` is now `network_connections_received_total`.
   - `packets_received` is now `network_packets_received_total`.
