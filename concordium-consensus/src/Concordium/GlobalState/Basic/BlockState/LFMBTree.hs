@@ -298,19 +298,13 @@ hashAsLFMBT ::
     -- |List of hashes to construct into Merkle tree
     [H.Hash] ->
     H.Hash
-hashAsLFMBT e [] = e
-hashAsLFMBT _ (h0 : hs0) = build ([], h0) hs0
+hashAsLFMBT e = go
   where
-    up back (Nothing : s, r) h = (reverse back ++ Just h : s, r)
-    up back (Just h' : s, r) h = up (Nothing : back) (s, r) (H.hashOfHashes h' h)
-    up back ([], r) h = (reverse back ++ [Nothing], H.hashOfHashes r h)
-    collapse ([], r) = r
-    collapse ([Just h], r) = H.hashOfHashes r h
-    collapse (Nothing : s, r) = collapse (s, r)
-    collapse (Just h1 : Just h2 : s, r) = collapse (Just (H.hashOfHashes h2 h1) : s, r)
-    collapse (Just h1 : Nothing : s, r) = collapse (Just h1 : s, r)
-    build stack (h : hs) = build (up [] stack h) hs
-    build stack [] = collapse stack
+    go [] = e
+    go [x] = x
+    go xs = go (f xs)
+    f (x:y:xs) = H.hashOfHashes x y : f xs
+    f other = other
 
 {-
 -------------------------------------------------------------------------------
