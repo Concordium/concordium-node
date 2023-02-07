@@ -138,11 +138,17 @@ finalizerList = unroll 0 . theFinalizerSet
 instance Show FinalizerSet where
     show = show . finalizerList
 
+-- | A quorum certificate, to be formed when enough finalizers have signed the same 'QuorumSignatureMessage'.
 data QuorumCertificate = QuorumCertificate
-    { qcBlock :: !BlockHash,
+    { -- |Hash of the block this certificate refers to.
+      qcBlock :: !BlockHash,
+      -- |Round of the block this certificate refers to.
       qcRound :: !Round,
+      -- |Epoch of the block this certificate refers to.
       qcEpoch :: !Epoch,
+      -- |Aggregate signature on the 'QuorumSignatureMessage' with the block hash 'qcBlock'.
       qcAggregateSignature :: !QuorumSignature,
+      -- |The set of finalizers whose signature is in 'qcAggregateSignature'.
       qcSignatories :: !FinalizerSet
     }
     deriving (Eq, Show)
