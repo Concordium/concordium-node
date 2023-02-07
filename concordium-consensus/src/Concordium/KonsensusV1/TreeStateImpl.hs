@@ -78,7 +78,7 @@ data SkovData (pv :: ProtocolVersion) = SkovData
 
 makeLenses ''SkovData
 
--- |A 'KonsensusData pv' wrapped in an 'IORef', where @pv@ is the
+-- |A 'SkovData pv' wrapped in an 'IORef', where @pv@ is the
 -- current 'ProtocolVersion'
 newtype SkovState (pv :: ProtocolVersion) = SkovState (IORef (SkovData pv))
 
