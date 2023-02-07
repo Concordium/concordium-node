@@ -7,7 +7,6 @@ module Concordium.KonsensusV1.TreeState where
 import qualified Data.Map.Strict as Map
 import Data.Time
 
-import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.Statistics
 import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.Types
@@ -64,10 +63,9 @@ type IsConsensusV1 (pv :: ProtocolVersion) =
 --       It should be possible to always lookup old finalized transactions.
 class
     ( Monad m,
-      IsConsensusV1 (MPV m),
-      BlockPointerMonad m
+      IsConsensusV1 (MPV m)
     ) =>
-    TreeStateMonad m
+    MonadTreeState m
     where
     -- * Pending blocks
 

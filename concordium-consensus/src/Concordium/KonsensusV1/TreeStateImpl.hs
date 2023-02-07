@@ -1,10 +1,14 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Concordium.KonsensusV1.TreeStateImpl where
 
 import Control.Monad.Reader
 import Data.IORef
+import Data.Kind (Type)
 
 import qualified Data.HashMap.Strict as HM
 import qualified Data.PQueue.Prio.Min as MPQ
@@ -85,4 +89,11 @@ newtype SkovState (pv :: ProtocolVersion) = SkovState (IORef (SkovData pv))
 -- |Create the 'HasSkovState' @HasSkovState pv@ constraint.
 makeClassy ''SkovState
 
--- instance (MonadIO m, IsProtocolVersion pv, HasSkovState env) => TreeStateMonad (ReaderT env m) where
+-- |'TreeStateWrapper' for running an action @a@ on the 'MonadTreeState'.
+newtype TreeStateWrapper (pv :: ProtocolVersion) (m :: Type -> Type) (a :: Type) = TreeStateWrapper {runTreeStateWrapper :: m a}
+    deriving newtype (Functor, Applicative, Monad)
+
+-- |'MonadReader' instance for 'TreeStateWrapper'.
+deriving instance MonadReader r m => MonadReader r (TreeStateWrapper pv m)
+
+instance (Monad m, IsProtocolVersion pv, HasSkovState r pv) => MonadTreeState (TreeStateWrapper pv m)
