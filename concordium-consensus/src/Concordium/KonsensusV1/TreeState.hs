@@ -8,9 +8,10 @@ import qualified Data.Map.Strict as Map
 import Data.Time
 
 import Concordium.GlobalState.Parameters (RuntimeParameters)
+import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import Concordium.GlobalState.Statistics
 import Concordium.GlobalState.TransactionTable
-import Concordium.GlobalState.Types
+import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import qualified Concordium.TransactionVerification as TVer
 import Concordium.Types
@@ -30,6 +31,19 @@ data AddBlockItemResult
       -- I.e. the 'BlockItem' consisted of a account nonce that was
       -- less than the current finalized account nonce for the account.
       OldNonce
+
+-- |A pointer to a block that has been executed
+-- and the resulting 'PBS.HashedPersistentBlockStat'.
+data BlockPointer (pv :: ProtocolVersion) = BlockPointer
+    { -- |Metadata for the block.
+      _bpInfo :: !BlockMetadata,
+      -- |Pointer to the parent block.
+      _bpParent :: !(BlockPointer pv),
+      -- |The signed block.
+      _bpBlock :: !SignedBlock,
+      -- |The resulting state of executing the block.
+      _bpState :: !(PBS.HashedPersistentBlockState pv)
+    }
 
 -- |Constraint for for ''ConsensusParametersVersion1' based on
 -- the protocol version @pv@.
@@ -79,7 +93,7 @@ class
     addPendingBlock ::
         -- |The signed block to add to the pending blocks.
         SignedBlock ->
-        m (BlockStatus (BlockPointerType m) SignedBlock)
+        m (BlockStatus (BlockPointer (MPV m)) SignedBlock)
 
     -- |Mark a pending block to be live.
     -- Set the status of the block to be 'Alive'.
@@ -88,11 +102,11 @@ class
         -- |The signed block to make live.
         SignedBlock ->
         -- |The parent block pointer
-        BlockPointerType m ->
+        BlockPointer (MPV m) ->
         -- |The current time
         UTCTime ->
         -- |The resulting block pointer
-        m (BlockPointerType m)
+        m (BlockPointer (MPV m))
 
     -- |Get a list of pending blocks of a block given
     -- the block pointer.
@@ -138,7 +152,7 @@ class
         -- |Returns 'Just BlockStatus' if the provided
         -- 'BlockHash' matches a block in the tree.
         -- Returns 'Nothing' if no block could be found.
-        m (Maybe (BlockStatus (BlockPointerType m) SignedBlock))
+        m (Maybe (BlockStatus (BlockPointer (MPV m)) SignedBlock))
 
     -- |Get the 'RecentBlockStatus' of a block.
     -- One should use this instead of 'getBlockStatus' if
@@ -151,7 +165,7 @@ class
         -- |Returns 'Just RecentBlockStatus' if the provided
         -- 'BlockHash' matches a block in the tree.
         -- Returns 'Nothing' if no block could be found.
-        m (RecentBlockStatus (BlockPointerType m) SignedBlock)
+        m (RecentBlockStatus (BlockPointer (MPV m)) SignedBlock)
 
     -- * Pending transactions and focus block.
 
@@ -160,7 +174,7 @@ class
     -- |Get the focus block.
     -- This is probably the best block, but if
     -- we're pruning a branch this will become the parent block
-    getFocusBlock :: m (BlockPointerType m)
+    getFocusBlock :: m (BlockPointer (MPV m))
 
     -- |Update the focus block
     -- If we're pruning a block then we must also update the transaction statuses
@@ -168,7 +182,7 @@ class
     setFocusBlock ::
         -- |The pointer to the block that
         -- should become the "focus block".
-        BlockPointerType m ->
+        BlockPointer (MPV m) ->
         m ()
 
     -- |Get the pending transactions

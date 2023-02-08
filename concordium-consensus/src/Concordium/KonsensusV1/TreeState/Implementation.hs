@@ -14,9 +14,7 @@ import Data.Kind (Type)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.PQueue.Prio.Min as MPQ
 
-import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
 import Concordium.GlobalState.Parameters
-import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import Concordium.GlobalState.Persistent.TreeState (DeadCache, emptyDeadCache, insertDeadCache)
 import qualified Concordium.GlobalState.Statistics as Stats
 import Concordium.GlobalState.TransactionTable
@@ -37,19 +35,6 @@ makeLenses ''BlockTable
 -- |Create the empty block table.
 emptyBlockTable :: BlockTable bp bs
 emptyBlockTable = BlockTable emptyDeadCache HM.empty
-
--- |A pointer to a block that has been executed
--- and the resulting 'PBS.HashedPersistentBlockStat'.
-data BlockPointer (pv :: ProtocolVersion) = BlockPointer
-    { -- |Metadata for the block.
-      _bpInfo :: !BasicBlockPointerData,
-      -- |Pointer to the parent block.
-      _bpParent :: !(BlockPointer pv),
-      -- |The signed block.
-      _bpBlock :: !SignedBlock,
-      -- |The resulting state of executing the block.
-      _bpState :: !(PBS.HashedPersistentBlockState pv)
-    }
 
 -- |Data required to support 'TreeState'.
 data SkovData (pv :: ProtocolVersion) = SkovData
@@ -179,8 +164,17 @@ instance (MonadIO m, MonadReader r m, IsConsensusV1 pv, HasSkovState r pv, r ~ S
     getLastFinalizedHeight = undefined
     getBlockStatus = undefined
     getRecentBlockStatus = undefined
-    getFocusBlock = undefined
-    setFocusBlock = undefined
+    getFocusBlock = do
+        (SkovState ioref) <- ask
+        SkovData{..} <- liftIO $ readIORef ioref
+        return _focusBlock
+
+    setFocusBlock focusBlock' = do
+        (SkovState ioref) <- ask
+        SkovData{..} <- liftIO $ readIORef ioref
+        liftIO $ writeIORef ioref $! SkovData{_focusBlock = focusBlock', ..}
+        return ()
+
     getPendingTransactions = do
         (SkovState ioref) <- ask
         SkovData{..} <- liftIO $ readIORef ioref
