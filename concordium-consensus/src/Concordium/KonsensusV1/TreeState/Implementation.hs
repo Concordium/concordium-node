@@ -3,6 +3,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
@@ -101,7 +102,7 @@ makeClassy ''SkovState
 newtype TreeStateWrapper (pv :: ProtocolVersion) (m :: Type -> Type) (a :: Type) = TreeStateWrapper {runTreeStateWrapper :: m a}
     deriving newtype (Functor, Applicative, Monad, MonadIO)
 
--- |There must be an instance for 'LowLevel.MonadTreeStateStore TreeStateWrapper' in the transformer stack somewhere.
+-- |There must be an instance for 'LowLevel.MonadTreeStateStore m' in the transformer stack somewhere.
 deriving instance (LowLevel.MonadTreeStateStore m, MPV m ~ pv) => LowLevel.MonadTreeStateStore (TreeStateWrapper pv m)
 
 -- |'MonadReader' instance for 'TreeStateWrapper'.
@@ -135,6 +136,26 @@ markDead blockHash BlockTable{..} =
 -- todo implement.
 commitVerifiedTransactions :: [VerifiedBlockItem] -> TransactionTable -> PendingTransactionTable -> (TransactionTable, PendingTransactionTable)
 commitVerifiedTransactions = undefined
+
+-- |Helper function for retrieving the SkovData in the 'TreeStateWrapper pv m' context.
+-- This should be used when only reading from the 'SkovData' is required.
+-- If one wishes to also update the 'SkovData' then use 'withSkovData'.
+-- Note that this requires IO since the actual 'SkovData' is behind an 'IORef' via the 'SkovState pv'
+getSkovData :: (MonadIO m, MonadReader r m, r ~ SkovState pv) => TreeStateWrapper pv m (SkovData pv)
+getSkovData = do
+    (SkovState ioref) <- ask
+    sd <- liftIO $ readIORef ioref
+    return sd
+
+-- |Helper function for updating the 'SkovData' behind the 'IORef' in the 'SkovState pv'.
+-- This should only be used when it is required to update the 'SkovData' otherwise use 'getSkovData'.
+-- Note that this requires IO since the actual 'SkovData' is behind an 'IORef' via the 'SkovState pv'.
+withSkovData :: (MonadIO m, MonadReader r m, r ~ SkovState pv) => (SkovData pv -> SkovData pv) -> m ()
+withSkovData f = do
+    (SkovState ioref) <- ask
+    sd <- liftIO $ readIORef ioref
+    liftIO $ writeIORef ioref $! f sd
+    return ()
 
 -- TODO: Add a transaction verifier
 instance forall m pv r. (MonadIO m, MonadReader r m, IsConsensusV1 pv, HasSkovState r (MPV m), r ~ SkovState pv, LowLevel.MonadTreeStateStore m, MPV m ~ pv) => MonadTreeState (TreeStateWrapper pv m) where
@@ -182,13 +203,11 @@ instance forall m pv r. (MonadIO m, MonadReader r m, IsConsensusV1 pv, HasSkovSt
         return ()
 
     getLastFinalized = do
-        (SkovState ioref) <- ask
-        SkovData{..} <- liftIO $ readIORef ioref
+        SkovData{..} <- getSkovData
         return $! _lastFinalized
 
     getBlockStatus blockHash = do
-        (SkovState ioref) <- ask
-        SkovData{..} <- liftIO $ readIORef ioref
+        SkovData{..} <- getSkovData
         -- We check whether the block is the last finalized block.
         if getHash _lastFinalized == blockHash
             then return $! Just $! BlockFinalized _lastFinalized
@@ -233,10 +252,36 @@ instance forall m pv r. (MonadIO m, MonadReader r m, IsConsensusV1 pv, HasSkovSt
             let hpbsHash = blockStateHash sb
             return $! PBS.HashedPersistentBlockState{..}
 
-    getRecentBlockStatus = undefined
+    getRecentBlockStatus blockHash = do
+        SkovData{..} <- getSkovData
+        -- We check whether the block is the last finalized block.
+        if getHash _lastFinalized == blockHash
+            then return $! RecentBlock $! BlockFinalized _lastFinalized
+            else -- We check if the block is the focus block
+
+                if getHash _focusBlock == blockHash
+                    then return $! RecentBlock $! BlockAlive _focusBlock
+                    else -- Now we lookup in the livemap of the block table,
+                    -- this will return if the block is pending or if it's alive on some other
+                    -- branch.
+                    -- If it is not present in the live store then we check whether the block
+                    -- has been marked as dead or we finally try to look in the persistent block store.
+                    case HM.lookup blockHash (_liveMap _blockTable) of
+                        Just status ->
+                            case status of
+                                MemBlockPending sb -> return $! RecentBlock $! BlockPending sb
+                                MemBlockAlive bp -> return $! RecentBlock $! BlockAlive bp
+                        Nothing ->
+                            -- Check if the block marked as dead before we peek into the
+                            -- persistent block store in order to check whether the block is present or not.
+                            if memberDeadCache blockHash (_deadCache _blockTable)
+                                then return $ RecentBlock BlockDead
+                                else do
+                                    LowLevel.memberBlock blockHash >>= \case
+                                        True -> return OldFinalized
+                                        False -> return Unknown
     getFocusBlock = do
-        (SkovState ioref) <- ask
-        SkovData{..} <- liftIO $ readIORef ioref
+        SkovData{..} <- getSkovData
         return _focusBlock
 
     setFocusBlock focusBlock' = do
@@ -246,13 +291,11 @@ instance forall m pv r. (MonadIO m, MonadReader r m, IsConsensusV1 pv, HasSkovSt
         return ()
 
     getPendingTransactions = do
-        (SkovState ioref) <- ask
-        SkovData{..} <- liftIO $ readIORef ioref
+        SkovData{..} <- getSkovData
         return _pendingTransactions
 
     getQuorumSignatureMessages = do
-        (SkovState ioref) <- ask
-        SkovData{..} <- liftIO $ readIORef ioref
+        SkovData{..} <- getSkovData
         return _currentQuouromSignatureMessages
 
     setQuorumSignatureMessages currentQuouromSignatureMessages' = do
@@ -260,9 +303,9 @@ instance forall m pv r. (MonadIO m, MonadReader r m, IsConsensusV1 pv, HasSkovSt
         SkovData{..} <- liftIO $ readIORef ioref
         liftIO $ writeIORef ioref $ SkovData{_currentQuouromSignatureMessages = currentQuouromSignatureMessages', ..}
         return ()
+
     getTimeoutMessages = do
-        (SkovState ioref) <- ask
-        SkovData{..} <- liftIO $ readIORef ioref
+        SkovData{..} <- getSkovData
         return _currentTimeoutSignatureMessages
 
     setTimeoutMessage currentTimeoutSignatureMessages' = do
@@ -272,9 +315,9 @@ instance forall m pv r. (MonadIO m, MonadReader r m, IsConsensusV1 pv, HasSkovSt
         return ()
 
     getRoundStatus = do
-        (SkovState ioref) <- ask
-        SkovData{..} <- liftIO $ readIORef ioref
+        SkovData{..} <- getSkovData
         return _roundStatus
+
     setRoundStatus roundStatus' = do
         (SkovState ioref) <- ask
         SkovData{..} <- liftIO $ readIORef ioref
@@ -282,17 +325,21 @@ instance forall m pv r. (MonadIO m, MonadReader r m, IsConsensusV1 pv, HasSkovSt
         return ()
 
     addTransaction = undefined
-    lookupTransaction = undefined
+    markTransactionDead = undefined
+    lookupTransaction transactionHash = do
+        SkovData{..} <- getSkovData
+        case HM.lookup transactionHash $ _transactionTable ^. ttHashMap of
+            Nothing -> return Nothing
+            Just (_, status) -> return $! Just $! status
+
     purgeTransactionTable = undefined
     getNextAccountNonce = undefined
     getNonFinalizedChainUpdates = undefined
     getNonFinalizedCredential = undefined
     clearAfterProtocolUpdate = undefined
     getConsensusStatistics = do
-        (SkovState ioref) <- ask
-        SkovData{..} <- liftIO $ readIORef ioref
+        SkovData{..} <- getSkovData
         return _statistics
     getRuntimeParameters = do
-        (SkovState ioref) <- ask
-        SkovData{..} <- liftIO $ readIORef ioref
+        SkovData{..} <- getSkovData
         return _runtimeParameters

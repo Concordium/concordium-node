@@ -234,6 +234,13 @@ class
         -- |The resulting transaction status.
         m (Maybe TransactionStatus)
 
+    -- |Mark a transaction as dead
+    -- expunge it from memory.
+    markTransactionDead ::
+        -- |Hash of the transaction to evict from memory.
+        TransactionHash ->
+        m ()
+
     -- |Purge the transaction table.
     -- Expunge transactions which are marked
     -- as dead from the transaction table.
