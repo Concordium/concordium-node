@@ -99,6 +99,9 @@ makeClassy ''SkovState
 newtype TreeStateWrapper (pv :: ProtocolVersion) (m :: Type -> Type) (a :: Type) = TreeStateWrapper {runTreeStateWrapper :: m a}
     deriving newtype (Functor, Applicative, Monad, MonadIO)
 
+-- |There must be an instance for 'LowLevel.MonadTreeStateStore TreeStateWrapper' in the transformer stack somewhere.
+deriving instance (LowLevel.MonadTreeStateStore m, MPV m ~ pv) => LowLevel.MonadTreeStateStore (TreeStateWrapper pv m)
+
 -- |'MonadReader' instance for 'TreeStateWrapper'.
 deriving instance MonadReader r m => MonadReader r (TreeStateWrapper pv m)
 
@@ -132,7 +135,7 @@ commitVerifiedTransactions :: [VerifiedBlockItem] -> TransactionTable -> Pending
 commitVerifiedTransactions = undefined
 
 -- TODO: Add a transaction verifier
-instance forall m pv r. (MonadIO m, MonadReader r m, IsConsensusV1 pv, HasSkovState r (MPV m), r ~ SkovState pv, LowLevel.MonadTreeStateStore m) => MonadTreeState (TreeStateWrapper pv m) where
+instance forall m pv r. (MonadIO m, MonadReader r m, IsConsensusV1 pv, HasSkovState r (MPV m), r ~ SkovState pv, LowLevel.MonadTreeStateStore m, MPV m ~ pv) => MonadTreeState (TreeStateWrapper pv m) where
     addPendingBlock sb = do
         (SkovState ioref) <- ask
         SkovData{_blockTable = bt, ..} <- liftIO $ readIORef ioref
