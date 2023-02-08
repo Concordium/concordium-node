@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -15,19 +16,34 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.PQueue.Prio.Min as MPQ
 
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.Persistent.TreeState (DeadCache, emptyDeadCache, insertDeadCache)
+import Concordium.GlobalState.Persistent.TreeState (DeadCache, emptyDeadCache, insertDeadCache, memberDeadCache)
 import qualified Concordium.GlobalState.Statistics as Stats
 import Concordium.GlobalState.TransactionTable
 import Concordium.KonsensusV1.TreeState
+import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
+import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Lens.Micro.Platform
 
--- |The block table.
+-- |Status of a block that is held in memory i.e.
+-- the block is either pending or alive.
+-- Parameterized by the 'BlockPointer' and the 'SignedBlock'.
+data InMemoryBlockStatus bp sb
+    = -- |The block is awaiting its parent to become part of chain.
+      MemBlockPending !sb
+    | -- |The block is alive i.e. head of chain.
+      MemBlockAlive !bp
+    deriving (Eq)
+
+-- |The block table yields blocks that are
+-- either alive or pending.
+-- Furthermore it holds a fixed size cache of hashes
+-- blocks marked as dead.
 data BlockTable bp bs = BlockTable
     { _deadCache :: !DeadCache,
-      _liveMap :: HM.HashMap BlockHash (BlockStatus bp bs)
+      _liveMap :: HM.HashMap BlockHash (InMemoryBlockStatus bp bs)
     }
 
 makeLenses ''BlockTable
@@ -116,7 +132,7 @@ commitVerifiedTransactions :: [VerifiedBlockItem] -> TransactionTable -> Pending
 commitVerifiedTransactions = undefined
 
 -- TODO: Add a transaction verifier
-instance (MonadIO m, MonadReader r m, IsConsensusV1 pv, HasSkovState r pv, r ~ SkovState pv) => MonadTreeState (TreeStateWrapper pv m) where
+instance forall m pv r. (MonadIO m, MonadReader r m, IsConsensusV1 pv, HasSkovState r (MPV m), r ~ SkovState pv, LowLevel.MonadTreeStateStore m) => MonadTreeState (TreeStateWrapper pv m) where
     addPendingBlock sb = do
         (SkovState ioref) <- ask
         SkovData{_blockTable = bt, ..} <- liftIO $ readIORef ioref
@@ -160,9 +176,53 @@ instance (MonadIO m, MonadReader r m, IsConsensusV1 pv, HasSkovState r pv, r ~ S
         liftIO $ writeIORef ioref $! SkovData{_blockTable = blockTable', ..}
         return ()
 
-    getLastFinalized = undefined
-    getLastFinalizedHeight = undefined
-    getBlockStatus = undefined
+    getLastFinalized = do
+        (SkovState ioref) <- ask
+        SkovData{..} <- liftIO $ readIORef ioref
+        return $! _lastFinalized
+
+    getBlockStatus blockHash = do
+        (SkovState ioref) <- ask
+        SkovData{..} <- liftIO $ readIORef ioref
+        -- We check whether the block is the last finalized block.
+        if (bmHash . _bpInfo) _lastFinalized == blockHash
+            then return $! Just $! BlockFinalized _lastFinalized
+            else -- We check if the block is the focus block
+
+                if (bmHash . _bpInfo) _focusBlock == blockHash
+                    then return $! Just $! BlockAlive _focusBlock
+                    else -- Now we lookup in the livemap of the block table,
+                    -- this will return if the block is pending or if it's alive on some other
+                    -- branch.
+                    -- If it is not present in the live store then we check whether the block
+                    -- has been marked as dead or we finally try to look in the persistent block store.
+                    case HM.lookup blockHash (_liveMap _blockTable) of
+                        Just status ->
+                            case status of
+                                MemBlockPending sb -> return $! Just $! BlockPending sb
+                                MemBlockAlive bp -> return $! Just $! BlockAlive bp
+                        Nothing ->
+                            -- Check if the block marked as dead before we look into the
+                            -- persistent block store.
+                            if memberDeadCache blockHash (_deadCache _blockTable)
+                                then return $ Just BlockDead
+                                else do
+                                    -- Now we look in the LMDB to check if the block is stored.
+                                    -- Only finalized blocks are persisted so we return a 'BlockFinalized' in case
+                                    -- we find the block in the persistent block store.
+                                    LowLevel.lookupBlock blockHash >>= \case
+                                        Nothing -> return Nothing
+                                        Just storedBlock -> return $! Just $! BlockFinalized $! mkBlockPointer storedBlock
+      where
+        -- Create a block pointer from a stored block.
+        mkBlockPointer LowLevel.StoredBlock{..} =
+            let
+                _bpInfo = stbInfo
+                _bpBlock = stbBlock
+                _bpState = undefined -- todo
+            in
+                BlockPointer{..}
+
     getRecentBlockStatus = undefined
     getFocusBlock = do
         (SkovState ioref) <- ask

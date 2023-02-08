@@ -37,10 +37,8 @@ data AddBlockItemResult
 data BlockPointer (pv :: ProtocolVersion) = BlockPointer
     { -- |Metadata for the block.
       _bpInfo :: !BlockMetadata,
-      -- |Pointer to the parent block.
-      _bpParent :: !(BlockPointer pv),
       -- |The signed block.
-      _bpBlock :: !SignedBlock,
+      _bpBlock :: !(Block pv),
       -- |The resulting state of executing the block.
       _bpState :: !(PBS.HashedPersistentBlockState pv)
     }
@@ -132,13 +130,10 @@ class
         BlockHash ->
         m ()
 
-    -- * Finalized blocks
+    -- * Last finalized block
 
-    -- |Get the last finalized block.
-    getLastFinalized :: m SignedBlock
-
-    -- |Get the block height of the last finalized block.
-    getLastFinalizedHeight :: m BlockHeight
+    -- |Get a pointer to the last finalized block.
+    getLastFinalized :: m (BlockPointer (MPV m))
 
     -- * Block statuses
 
@@ -307,9 +302,6 @@ data BlockStatus bp sb
     | -- |The block is alive i.e. head of chain.
       BlockAlive !bp
     | -- |The block is finalized.
-      -- The first pointer is to the block itself
-      -- while the latter is for the block that finalized the
-      -- block.
       BlockFinalized !bp
     | -- |The block has been marked dead.
       BlockDead
