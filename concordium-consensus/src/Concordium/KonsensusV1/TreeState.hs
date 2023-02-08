@@ -15,6 +15,7 @@ import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import qualified Concordium.TransactionVerification as TVer
 import Concordium.Types
+import Concordium.Types.HashableTo
 import Concordium.Types.Parameters
 import Concordium.Types.Transactions
 import Concordium.Types.Updates
@@ -42,6 +43,9 @@ data BlockPointer (pv :: ProtocolVersion) = BlockPointer
       -- |The resulting state of executing the block.
       _bpState :: !(PBS.HashedPersistentBlockState pv)
     }
+
+instance HashableTo BlockHash (BlockPointer pv) where
+    getHash BlockPointer{..} = getHash _bpBlock
 
 -- |Constraint for for ''ConsensusParametersVersion1' based on
 -- the protocol version @pv@.
@@ -91,7 +95,7 @@ class
     addPendingBlock ::
         -- |The signed block to add to the pending blocks.
         SignedBlock ->
-        m (BlockStatus (BlockPointer (MPV m)) SignedBlock)
+        m (BlockStatus (MPV m))
 
     -- |Mark a pending block to be live.
     -- Set the status of the block to be 'Alive'.
@@ -147,7 +151,7 @@ class
         -- |Returns 'Just BlockStatus' if the provided
         -- 'BlockHash' matches a block in the tree.
         -- Returns 'Nothing' if no block could be found.
-        m (Maybe (BlockStatus (BlockPointer (MPV m)) SignedBlock))
+        m (Maybe (BlockStatus (MPV m)))
 
     -- |Get the 'RecentBlockStatus' of a block.
     -- One should use this instead of 'getBlockStatus' if
@@ -160,7 +164,7 @@ class
         -- |Returns 'Just RecentBlockStatus' if the provided
         -- 'BlockHash' matches a block in the tree.
         -- Returns 'Nothing' if no block could be found.
-        m (RecentBlockStatus (BlockPointer (MPV m)) SignedBlock)
+        m (RecentBlockStatus (MPV m))
 
     -- * Pending transactions and focus block.
 
@@ -305,7 +309,6 @@ data BlockStatus pv
       BlockFinalized !(BlockPointer pv)
     | -- |The block has been marked dead.
       BlockDead
-    deriving (Eq)
 
 instance Show (BlockStatus pv) where
     show (BlockPending _) = "Pending"
@@ -316,10 +319,10 @@ instance Show (BlockStatus pv) where
 -- |Get the status of a block if it recent
 -- otherwise if it is a predecessor of the last finalized block
 -- get a witness on that i.e. 'OldFinalized'.
-data RecentBlockStatus bp sb
+data RecentBlockStatus pv
     = -- |The block is recent i.e. it is either 'Alive',
       -- 'Pending' or the last finalized block.
-      RecentBlock !(BlockStatus bp sb)
+      RecentBlock !(BlockStatus pv)
     | -- |The block is a predecessor of the last finalized block.
       OldFinalized
     | -- |The block is unknown.

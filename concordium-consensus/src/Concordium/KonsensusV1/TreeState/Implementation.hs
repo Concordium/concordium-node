@@ -188,11 +188,11 @@ instance forall m pv r. (MonadIO m, MonadReader r m, IsConsensusV1 pv, HasSkovSt
         (SkovState ioref) <- ask
         SkovData{..} <- liftIO $ readIORef ioref
         -- We check whether the block is the last finalized block.
-        if (bmHash . _bpInfo) _lastFinalized == blockHash
+        if getHash _lastFinalized == blockHash
             then return $! Just $! BlockFinalized _lastFinalized
             else -- We check if the block is the focus block
 
-                if (bmHash . _bpInfo) _focusBlock == blockHash
+                if getHash _focusBlock == blockHash
                     then return $! Just $! BlockAlive _focusBlock
                     else -- Now we lookup in the livemap of the block table,
                     -- this will return if the block is pending or if it's alive on some other
