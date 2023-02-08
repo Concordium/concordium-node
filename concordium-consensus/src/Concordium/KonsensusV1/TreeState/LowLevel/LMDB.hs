@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -22,6 +23,7 @@ import Control.Monad.Trans.Class
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Unsafe as BS
+import Data.Data
 import qualified Data.Serialize as S
 import Database.LMDB.Raw
 import Foreign (
@@ -44,6 +46,15 @@ import Concordium.KonsensusV1.TreeState.LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.Types.HashableTo
+
+-- |Exception occurring from a violation of database invariants in the LMDB database.
+newtype DatabaseInvariantViolation = DatabaseInvariantViolation String
+    deriving (Eq, Show, Typeable)
+
+instance Exception DatabaseInvariantViolation where
+    displayException (DatabaseInvariantViolation reason) =
+        "Database invariant violation: "
+            ++ show reason
 
 -- |Size of 'CSize'.
 sizeOfCSize :: Int
@@ -89,7 +100,7 @@ instance MDBDatabase TransactionStatusStore where
 data ConsensusStatusKey
     = CSKRoundStatus
     | CSKLatestFinalizationEntry
-    deriving (Eq, Ord, Enum, Show)
+    deriving (Eq, Ord, Bounded, Enum, Show)
 
 data ConsensusStatusVal
     = CSVRoundStatus !RoundStatus
@@ -97,13 +108,13 @@ data ConsensusStatusVal
 
 instance S.Serialize ConsensusStatusVal where
     put (CSVRoundStatus rs) = do
-        S.putWord64be 0
+        S.putWord8 0
         S.put rs
     put (CSVLastFinalizationEntry lfe) = do
-        S.putWord64be 1
+        S.putWord8 1
         S.put lfe
     get =
-        S.getWord64be >>= \case
+        S.getWord8 >>= \case
             0 -> CSVRoundStatus <$> S.get
             1 -> CSVLastFinalizationEntry <$> S.get
             _ -> fail "Unsupported consensus status type"
@@ -463,9 +474,9 @@ instance
             _ -> Nothing
 
     lookupCurrentRoundStatus = asReadTransaction $ \dbh txn ->
-        loadRecord txn (dbh ^. consensusStatusStore) CSKRoundStatus <&> \case
-            Just (CSVRoundStatus rs) -> rs
-            _ -> initialRoundStatus
+        loadRecord txn (dbh ^. consensusStatusStore) CSKRoundStatus >>= \case
+            Just (CSVRoundStatus rs) -> return rs
+            _ -> throwM (DatabaseInvariantViolation "Missing current round status")
 
     writeCurrentRoundStatus rs = asWriteTransaction $ \dbh txn ->
         storeReplaceRecord txn (dbh ^. consensusStatusStore) CSKRoundStatus (CSVRoundStatus rs)

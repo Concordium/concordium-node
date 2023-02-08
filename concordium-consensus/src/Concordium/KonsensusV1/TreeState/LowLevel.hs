@@ -36,14 +36,19 @@ instance IsProtocolVersion pv => Serialize (StoredBlock pv) where
     put StoredBlock{..} = do
         putWord8 0 -- Version byte
         put stbInfo
+        put (getHash stbBlock :: BlockHash)
         put stbStatePointer
         putBlock stbBlock
     get =
         getWord8 >>= \case
             0 -> do
                 stbInfo <- get
+                blockHash <- get
                 stbStatePointer <- get
-                stbBlock <- getBlock (utcTimeToTransactionTime $ bmReceiveTime stbInfo)
+                stbBlock <-
+                    getBlockKnownHash
+                        (utcTimeToTransactionTime $ bmReceiveTime stbInfo)
+                        blockHash
                 return StoredBlock{..}
             v -> fail $ "Unsupported StoredBlock version: " ++ show v
 

@@ -296,18 +296,18 @@ class
     getRuntimeParameters :: m RuntimeParameters
 
 -- |The status of a block.
-data BlockStatus bp sb
+data BlockStatus pv
     = -- |The block is awaiting its parent to become part of chain.
-      BlockPending sb
+      BlockPending !SignedBlock
     | -- |The block is alive i.e. head of chain.
-      BlockAlive !bp
+      BlockAlive !(BlockPointer pv)
     | -- |The block is finalized.
-      BlockFinalized !bp
+      BlockFinalized !(BlockPointer pv)
     | -- |The block has been marked dead.
       BlockDead
     deriving (Eq)
 
-instance Show (BlockStatus bp sb) where
+instance Show (BlockStatus pv) where
     show (BlockPending _) = "Pending"
     show (BlockAlive _) = "Alive"
     show (BlockFinalized _) = "Finalized"

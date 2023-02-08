@@ -839,93 +839,6 @@ computeBlockHash bhh bqh =
 instance HashableTo BlockHash BakedBlock where
     getHash bb = computeBlockHash (getHash bb) (getHash bb)
 
--- |The current round status.
--- Note that it can be the case that both the 'QuorumSignatureMessage' and the
--- 'TimeoutSignatureMessage' are present.
--- This is the case if the consensus runner has first signed a block
--- but not enough quorum signature messages were retrieved before timeout.
-data RoundStatus' = RoundStatus'
-    { -- |The highest 'Epoch' that the consensus runner participated in.
-      rsCurrentEpoch :: !Epoch,
-      -- |The highest 'Round' that the consensus runner participated in.
-      rsCurrentRound :: !Round,
-      -- |If the consensus runner is part of the finalization committee,
-      -- then this will yield the last signed 'QuorumSignatureMessage'
-      rsLastSignedQuouromSignatureMessage :: !(Maybe QuorumSignatureMessage),
-      -- |If the consensus runner is part of the finalization committee,
-      -- then this will yield the last signed timeout message.
-      rsLastSignedTimeoutSignatureMessage :: !(Maybe TimeoutSignatureMessage),
-      -- |The current timeout.
-      rsCurrentTimeout :: !Duration,
-      -- |The highest 'QuorumCertificate' seen so far.
-      -- This is 'Nothing' if no rounds since genesis has
-      -- been able to produce a 'QuorumCertificate'.
-      rsHighestQC :: !(Maybe QuorumCertificate),
-      -- |The current 'LeadershipElectionNonce'.
-      rsLeadershipElectionNonce :: !LeadershipElectionNonce,
-      -- |The latest 'Epoch' 'FinalizationEntry'.
-      -- This will only be 'Nothing' in between the
-      -- genesis block and the first explicitly finalized block.
-      rsLatestEpochFinEntry :: !(Maybe FinalizationEntry),
-      -- |The previous round timeout certificate if the previous round timed out.
-      -- This is @Just (TimeoutCertificate, QuorumCertificate)@ if the previous round timed out or otherwise 'Nothing'.
-      -- In the case of @Just@ then the associated 'QuorumCertificate' is the highest 'QuorumCertificate' at the time
-      -- that the 'TimeoutCertificate' was built.
-      rsPreviousRoundTC :: !(Maybe (TimeoutCertificate, QuorumCertificate))
-    }
-
-instance Serialize RoundStatus' where
-    put RoundStatus'{..} = do
-        put rsCurrentEpoch
-        put rsCurrentRound
-        put rsLastSignedQuouromSignatureMessage
-        put rsLastSignedTimeoutSignatureMessage
-        put rsCurrentTimeout
-        put rsHighestQC
-        put rsLeadershipElectionNonce
-        put rsLatestEpochFinEntry
-        put rsPreviousRoundTC
-    get = do
-        rsCurrentEpoch <- get
-        rsCurrentRound <- get
-        rsLastSignedQuouromSignatureMessage <- get
-        rsLastSignedTimeoutSignatureMessage <- get
-        rsCurrentTimeout <- get
-        rsHighestQC <- get
-        rsLeadershipElectionNonce <- get
-        rsLatestEpochFinEntry <- get
-        rsPreviousRoundTC <- get
-        return RoundStatus'{..}
-
--- |The 'RoundStatus' can either be of type
--- 'QCRound' or 'TCRound'.
--- If if the 'RoundStatus' is of value 'QCRound' then it means
--- that the round is a successor of a 'Round' that produced a 'QuorumCertificate' otherwise
--- it's a descendant of a round that timed out.
-data RoundStatus
-    = QCRound RoundStatus'
-    | TCRound RoundStatus'
-
-instance Serialize RoundStatus where
-    put (QCRound rs) = do
-        putWord8 0
-        put rs
-    put (TCRound rs) = do
-        putWord8 1
-        put rs
-    get = do
-        t <- getWord8
-        rs <- get
-        case t of
-            0 -> return $! QCRound rs
-            1 -> return $! TCRound rs
-            _ -> fail "Invalid RoundStatus tag"
-
--- |The 'RoundStatus' for consensus at genesis.
--- TODO: Define.
-initialRoundStatus :: RoundStatus
-initialRoundStatus = undefined
-
 -- |A collection of signatures
 -- This is a map from 'FinalizerIndex' to the actual signature message.
 newtype SignatureMessages a = SignatureMessages
@@ -1002,3 +915,19 @@ getBlock ts = do
             return GenesisBlock{..}
         _ -> do
             NormalBlock <$> getSignedBlock (protocolVersion @pv) ts
+
+-- |Deserialize a 'Block' where we already know the block hash. This behaves the same as 'getBlock',
+-- but avoids having to recompute the block hash.
+getBlockKnownHash :: forall pv. (IsProtocolVersion pv) => TransactionTime -> BlockHash -> Get (Block pv)
+getBlockKnownHash ts sbHash = do
+    (r :: Round) <- lookAhead get
+    case r of
+        0 -> do
+            (_ :: Round) <- get
+            gbConfiguration <- getGenesisConfigurationFlat
+            gbStateHash <- get
+            return GenesisBlock{..}
+        _ -> do
+            sbBlock <- getBakedBlock (protocolVersion @pv) ts
+            sbSignature <- get
+            return $ NormalBlock SignedBlock{..}
