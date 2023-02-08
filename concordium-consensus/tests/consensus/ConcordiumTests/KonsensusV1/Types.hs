@@ -55,7 +55,7 @@ genFinalizationEntry = do
     let feSuccessorQuorumCertificate =
             preQC
                 { qcRound = succRound,
-                  qcBlock = successorBlockHash succRound (qcEpoch preQC) (qcBlock feFinalizedQuorumCertificate) feSuccessorProof
+                  qcBlock = successorBlockHash (BlockHeader succRound (qcEpoch preQC) (qcBlock feFinalizedQuorumCertificate)) feSuccessorProof
                 }
     return FinalizationEntry{..}
 
