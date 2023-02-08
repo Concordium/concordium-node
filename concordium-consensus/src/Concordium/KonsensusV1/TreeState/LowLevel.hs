@@ -1,6 +1,5 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |This module defines the low-level interface to the persistent tree state.
@@ -12,16 +11,25 @@ import Data.Serialize
 import Concordium.Types
 import Concordium.Types.Execution
 
+import Concordium.GlobalState.Persistent.BlobStore
+import Concordium.GlobalState.Persistent.BlockState
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.Types.HashableTo
 
-type BlockStateRef = ()
+-- |A reference to the block state for a particular block.
+type BlockStateRef (pv :: ProtocolVersion) = BlobRef (BlockStatePointers pv)
 
+-- |A stored block as retained by the low-level tree state store.
+-- Note: we serialize blocks with a version byte to allow future flexibility in how blocks are
+-- stored.
 data StoredBlock (pv :: ProtocolVersion) = StoredBlock
-    { stbInfo :: !BlockMetadata,
-      stbBlock :: !SignedBlock,
-      stbStatePointer :: !BlockStateRef
+    { -- |Metadata about the block.
+      stbInfo :: !BlockMetadata,
+      -- |The block itself.
+      stbBlock :: !(Block pv),
+      -- |Pointer to the state in the block state storage.
+      stbStatePointer :: !(BlockStateRef pv)
     }
 
 instance IsProtocolVersion pv => Serialize (StoredBlock pv) where
@@ -29,16 +37,13 @@ instance IsProtocolVersion pv => Serialize (StoredBlock pv) where
         putWord8 0 -- Version byte
         put stbInfo
         put stbStatePointer
-        putSignedBlock stbBlock
+        putBlock stbBlock
     get =
         getWord8 >>= \case
             0 -> do
                 stbInfo <- get
                 stbStatePointer <- get
-                stbBlock <-
-                    getSignedBlock
-                        (protocolVersion @pv)
-                        (utcTimeToTransactionTime $ bmReceiveTime stbInfo)
+                stbBlock <- getBlock (utcTimeToTransactionTime $ bmReceiveTime stbInfo)
                 return StoredBlock{..}
             v -> fail $ "Unsupported StoredBlock version: " ++ show v
 
@@ -71,7 +76,7 @@ instance Serialize FinalizedTransactionStatus where
         ftsIndex <- get
         return FinalizedTransactionStatus{..}
 
-class (Monad m) => TreeStateStoreMonad m where
+class (Monad m) => MonadTreeStateStore m where
     -- |Get a finalized block by block hash.
     lookupBlock :: BlockHash -> m (Maybe (StoredBlock (MPV m)))
 

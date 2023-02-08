@@ -3,6 +3,7 @@
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Concordium.KonsensusV1.Types where
@@ -548,7 +549,7 @@ class BlockData b where
 
 -- |A 'BakedBlock' consists of a non-genesis block, excluding the block signature.
 data BakedBlock = BakedBlock
-    { -- |Block round number.
+    { -- |Block round number. Must be non-zero.
       bbRound :: !Round,
       -- |Block epoch number.
       bbEpoch :: !Epoch,
@@ -627,6 +628,7 @@ putBakedBlock bb@BakedBlock{..} = do
 getBakedBlock :: SProtocolVersion pv -> TransactionTime -> Get BakedBlock
 getBakedBlock spv tt = label "BakedBlock" $ do
     bbRound <- get
+    when (bbRound == 0) $ fail "Only the genesis block may have round 0"
     bbEpoch <- get
     bbTimestamp <- get
     bbBaker <- get
@@ -944,6 +946,9 @@ data VerifiedBlockItem = VerifiedBlockItem
 
 -- |Either a genesis block or a normal block.
 -- A normal block MUST have a non-zero round number.
+--
+-- The genesis block is represented only by the 'GenesisConfiguration' and the
+-- 'StateHash', which abstract from the genesis data.
 data Block (pv :: ProtocolVersion)
     = GenesisBlock
         { gbConfiguration :: !GenesisConfiguration,
@@ -972,6 +977,9 @@ instance HashableTo BlockHash (Block pv) where
 
 instance Monad m => MHashableTo m BlockHash (Block pv)
 
+-- |Serialize a 'Block'. This is used for block storage, rather than wire-transmission, as
+-- generally genesis blocks should not be transmitted.  For 'NormalBlock's, this is compatible
+-- with the serialization of 'SignedBlock'.
 putBlock :: Putter (Block pv)
 putBlock GenesisBlock{..} = do
     put (0 :: Round)
@@ -979,12 +987,17 @@ putBlock GenesisBlock{..} = do
     put gbStateHash
 putBlock (NormalBlock b) = putSignedBlock b
 
--- getBlock :: (IsProtocolVersion pv) => Timestamp -> Get (Block pv)
--- getBlock ts = do
---     (r :: Round) <- lookAhead get
---     case r of
---         0 -> do
---             (_ :: Round) <- get
---             gbConfiguration <- getGenesisConfiguration
---             gbStateHash <- get
---             return GenesisBlock{..}
+-- |Deserialize a 'Block'. This is used for block storage, rather than wire-transmission, as
+-- generally genesis blocks should not be transmitted.  For 'NormalBlock's, this is compatible
+-- with the serialization of 'SignedBlock'.
+getBlock :: forall pv. (IsProtocolVersion pv) => TransactionTime -> Get (Block pv)
+getBlock ts = do
+    (r :: Round) <- lookAhead get
+    case r of
+        0 -> do
+            (_ :: Round) <- get
+            gbConfiguration <- getGenesisConfigurationFlat
+            gbStateHash <- get
+            return GenesisBlock{..}
+        _ -> do
+            NormalBlock <$> getSignedBlock (protocolVersion @pv) ts

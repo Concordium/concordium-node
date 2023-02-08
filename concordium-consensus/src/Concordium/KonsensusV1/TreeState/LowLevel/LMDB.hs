@@ -8,8 +8,9 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE NoImportQualifiedPost #-}
 
+-- |This module provides an implementation of the 'MonadTreeStateStore' interface that uses LMDB
+-- for storage.
 module Concordium.KonsensusV1.TreeState.LowLevel.LMDB where
 
 import Control.Monad
@@ -419,7 +420,7 @@ instance
       MonadCatch m,
       MonadLogger m
     ) =>
-    TreeStateStoreMonad (DiskLLDBM pv m)
+    MonadTreeStateStore (DiskLLDBM pv m)
     where
     lookupBlock bh = asReadTransaction $ \dbh txn ->
         loadRecord txn (dbh ^. blockHashIndex) bh >>= \case

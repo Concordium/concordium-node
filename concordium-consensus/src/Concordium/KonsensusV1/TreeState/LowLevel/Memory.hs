@@ -50,7 +50,7 @@ deriving instance MonadReader r m => MonadReader r (MemoryLLDBM pv m)
 instance IsProtocolVersion pv => MonadProtocolVersion (MemoryLLDBM pv m) where
     type MPV (MemoryLLDBM pv m) = pv
 
-instance (IsProtocolVersion pv, MonadReader r m, HasMemoryLLDB pv r, MonadIO m) => TreeStateStoreMonad (MemoryLLDBM pv m) where
+instance (IsProtocolVersion pv, MonadReader r m, HasMemoryLLDB pv r, MonadIO m) => MonadTreeStateStore (MemoryLLDBM pv m) where
     lookupBlock bh =
         readLLDB <&> \db -> do
             height <- HM.lookup bh $ lldbBlockHashes db
