@@ -359,6 +359,7 @@ pub struct GRPC2Config {
     )]
     pub listen_port:                Option<u16>,
     #[structopt(
+        name = "grpc2-x509-cert",
         long = "grpc2-x509-cert",
         help = "Certificate used to enable TLS support for the GRPC V2 server.",
         env = "CONCORDIUM_NODE_GRPC2_X509_CERT",
@@ -367,6 +368,7 @@ pub struct GRPC2Config {
     )]
     pub x509_cert:                  Option<PathBuf>,
     #[structopt(
+        name = "grpc2-cert-private-key",
         long = "grpc2-cert-private-key",
         help = "Private key corresponding to the certificate",
         env = "CONCORDIUM_NODE_GRPC2_CERT_PRIVATE_KEY",
