@@ -16,6 +16,8 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.PQueue.Prio.Min as MPQ
 
 import Concordium.GlobalState.Parameters
+import qualified Concordium.GlobalState.Persistent.BlobStore as BlobStore
+import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import Concordium.GlobalState.Persistent.TreeState (DeadCache, emptyDeadCache, insertDeadCache, memberDeadCache)
 import qualified Concordium.GlobalState.Statistics as Stats
 import Concordium.GlobalState.TransactionTable
@@ -215,16 +217,21 @@ instance forall m pv r. (MonadIO m, MonadReader r m, IsConsensusV1 pv, HasSkovSt
                                     -- we find the block in the persistent block store.
                                     LowLevel.lookupBlock blockHash >>= \case
                                         Nothing -> return Nothing
-                                        Just storedBlock -> return $! Just $! BlockFinalized $! mkBlockPointer storedBlock
+                                        Just storedBlock -> do
+                                            blockPointer <- liftIO $ mkBlockPointer storedBlock
+                                            return $! Just $! BlockFinalized blockPointer
       where
         -- Create a block pointer from a stored block.
-        mkBlockPointer LowLevel.StoredBlock{..} =
+        mkBlockPointer sb@LowLevel.StoredBlock{..} = do
             let
                 _bpInfo = stbInfo
                 _bpBlock = stbBlock
-                _bpState = undefined -- todo
-            in
-                BlockPointer{..}
+            _bpState <- mkHashedPersistentBlockState sb
+            return BlockPointer{..}
+        mkHashedPersistentBlockState sb@LowLevel.StoredBlock{..} = do
+            hpbsPointers <- newIORef $ BlobStore.blobRefToBufferedRef stbStatePointer
+            let hpbsHash = blockStateHash sb
+            return $! PBS.HashedPersistentBlockState{..}
 
     getRecentBlockStatus = undefined
     getFocusBlock = do
