@@ -69,7 +69,8 @@ libc = "0.2"
 mime = { version = "0.3" }
 gotham = { version = "0.6" }
 gotham_derive = { version = "0.6" }
-prometheus = { version = "0.13", default-features = false, features = ["gen", "push"] }
+# Disable default features of prometheus to disable the unneeded protobuf encoder.
+prometheus = { version = "0.13", default-features = false, features = ["push"] }
 http = { version = "0.2" }
 hyper = { version = "0.14" }
 

@@ -174,7 +174,7 @@ pub fn handle_pkt_out(
         if let Err(e) = CALLBACK_QUEUE.send_in_low_priority_message(request) {
             match e.downcast::<TrySendError<QueueMsg<ConsensusMessage>>>()? {
                 TrySendError::Full(_) => {
-                    node.stats.inbound_low_priority_consensus_drops_inc();
+                    node.stats.inbound_low_priority_message_drops.inc();
                     node.bad_events.inc_dropped_low_queue(peer_id);
                 }
                 TrySendError::Disconnected(_) => {
@@ -182,14 +182,14 @@ pub fn handle_pkt_out(
                 }
             }
         } else {
-            node.stats.inbound_low_priority_consensus_inc();
+            node.stats.inbound_low_priority_messages.inc();
         }
     } else {
         // high priority message
         if let Err(e) = CALLBACK_QUEUE.send_in_high_priority_message(request) {
             match e.downcast::<TrySendError<QueueMsg<ConsensusMessage>>>()? {
                 TrySendError::Full(_) => {
-                    node.stats.inbound_high_priority_consensus_drops_inc();
+                    node.stats.inbound_high_priority_message_drops.inc();
                     node.bad_events.inc_dropped_high_queue(peer_id);
                 }
                 TrySendError::Disconnected(_) => {
@@ -197,7 +197,7 @@ pub fn handle_pkt_out(
                 }
             }
         } else {
-            node.stats.inbound_high_priority_consensus_inc();
+            node.stats.inbound_high_priority_messages.inc();
         }
     }
 

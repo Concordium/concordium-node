@@ -431,8 +431,8 @@ impl P2p for RpcServerImpl {
 
         Ok(Response::new(PeerStatsResponse {
             peerstats,
-            avg_bps_in: self.node.stats.get_avg_bps_in(),
-            avg_bps_out: self.node.stats.get_avg_bps_out(),
+            avg_bps_in: self.node.stats.avg_bps_in.get(),
+            avg_bps_out: self.node.stats.avg_bps_out.get(),
         }))
     }
 
