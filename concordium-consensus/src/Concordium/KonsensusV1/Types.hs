@@ -134,6 +134,10 @@ instance Serialize FinalizerSet where
         putWord32be byteCount
         putBytes
       where
+        unroll :: Word32 -> Put -> Natural -> (Word32, Put)
+        -- Compute the number of bytes and construct a 'Put' that serializes in big-endian.
+        -- We do this by adding the low order byte to the accumulated 'Put' (at the start)
+        -- and recursing with the bitvector shifted right 8 bits.
         unroll bc cont 0 = (bc, cont)
         unroll bc cont n = unroll (bc + 1) (putWord8 (fromIntegral n) >> cont) (shiftR n 8)
     get = label "FinalizerSet" $ do
@@ -278,8 +282,8 @@ instance HashableTo Hash.Hash (Option FinalizationEntry) where
         putWord8 1
         put fe
 
--- |The message that is signed by the sender of a timeout message. The signature on a 'TimeoutSignatureMessage'
--- is part of 'TimeoutMessageBody'.
+-- |The message that is signed by the sender of a timeout message, to indicate that a round has
+-- timed out for the sender.
 data TimeoutSignatureMessage = TimeoutSignatureMessage
     { -- |Hash of the genesisBlock
       tsmGenesis :: !BlockHash,
@@ -645,7 +649,9 @@ getBakedBlock spv tt = label "BakedBlock" $ do
     numTrans <- getWord64be
     -- We check that there is at least one byte remaining in the serialization per transaction.
     -- This is to prevent a malformed block from causing us to allocate an excessively large vector,
-    -- as this could lead to an out-of-memory error.
+    -- as this could lead to an out-of-memory error. [Note: It seems Vector.replicateM actually
+    -- goes via a list in any case, so this may be a non-issue. However, this gives us a bit more
+    -- assurance.]
     remBytes <- remaining
     when (fromIntegral remBytes < numTrans) $
         fail $
