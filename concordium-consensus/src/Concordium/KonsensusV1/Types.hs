@@ -11,7 +11,6 @@ import qualified Data.ByteString as BS
 import qualified Data.Map.Strict as Map
 import Data.Serialize
 import qualified Data.Vector as Vector
-import Data.Void
 import Data.Word
 import Numeric.Natural
 
@@ -57,7 +56,6 @@ data QuorumSignatureMessage = QuorumSignatureMessage
     deriving (Eq, Show)
 
 -- |Compute the byte representation of a 'QuorumSignatureMessage' that is actually signed.
--- TODO: check that this cannot collide with other signed messages.
 quorumSignatureMessageBytes :: QuorumSignatureMessage -> BS.ByteString
 quorumSignatureMessageBytes QuorumSignatureMessage{..} = runPut $ do
     putByteString "QUORUM."
@@ -216,17 +214,14 @@ type SuccessorProof = BlockQuasiHash
 
 -- |Compute the 'BlockHash' of a block that is the successor of another block.
 successorBlockHash ::
-    -- |Block round
-    Round ->
-    -- |Block epoch
-    Epoch ->
-    -- |Predecessor block
-    BlockHash ->
+    -- |Block header
+    BlockHeader ->
+    -- |Successor proof
     SuccessorProof ->
     BlockHash
-successorBlockHash bhRound bhEpoch bhParent = computeBlockHash bhh
+successorBlockHash bh = computeBlockHash bhh
   where
-    bhh = getHash BlockHeader{..}
+    bhh = getHash bh
 
 -- |A finalization entry that witnesses that a block has been finalized with quorum certificates
 -- for two consecutive rounds. The finalization entry includes a proof that the blocks are in
@@ -235,7 +230,7 @@ successorBlockHash bhRound bhEpoch bhParent = computeBlockHash bhh
 -- The following invariants hold:
 --
 -- - @qcRound feSuccessorQuorumCertificate == qcRound feFinalizedQuorumCertificate + 1@
--- - @qcBlock feSuccessorQuorumCertificate == successorBlockHash (qcRound feSuccessorQuorumCertificate) (qcEpoch feSuccessorQuorumCertificate) (qcBlock feFinalizedQuorumCertificate) feSuccessorProof@
+-- - @qcBlock feSuccessorQuorumCertificate == successorBlockHash (BlockHeader (qcRound feSuccessorQuorumCertificate) (qcEpoch feSuccessorQuorumCertificate) (qcBlock feFinalizedQuorumCertificate)) feSuccessorProof@
 data FinalizationEntry = FinalizationEntry
     { -- |Quorum certificate for the finalized block.
       feFinalizedQuorumCertificate :: !QuorumCertificate,
@@ -267,9 +262,11 @@ instance Serialize FinalizationEntry where
                     { qcRound = sqcRound,
                       qcBlock =
                         successorBlockHash
-                            sqcRound
-                            qcEpoch
-                            (qcBlock feFinalizedQuorumCertificate)
+                            ( BlockHeader
+                                sqcRound
+                                qcEpoch
+                                (qcBlock feFinalizedQuorumCertificate)
+                            )
                             feSuccessorProof,
                       ..
                     }
@@ -294,7 +291,6 @@ data TimeoutSignatureMessage = TimeoutSignatureMessage
     deriving (Eq, Show)
 
 -- |Compute the byte representation of a 'TimeoutSignatureMessage' that is actually signed.
--- TODO: check that this cannot collide with other signed messages.
 timeoutSignatureMessageBytes :: TimeoutSignatureMessage -> BS.ByteString
 timeoutSignatureMessageBytes TimeoutSignatureMessage{..} = runPut $ do
     putByteString "TIMEOUT."
@@ -321,7 +317,6 @@ checkTimeoutSignatureSingle msg pubKey =
 -- |Data structure recording which finalizers have quorum certificates for which rounds.
 --
 -- Invariant: @Map.size theFinalizerRounds <= fromIntegral (maxBound :: Word32)@.
--- (This is trivially satisfied if each finalizer index occurs for at most one round.)
 newtype FinalizerRounds = FinalizerRounds {theFinalizerRounds :: Map.Map Round FinalizerSet}
     deriving (Eq, Show)
 
@@ -615,13 +610,13 @@ putBakedBlock bb@BakedBlock{..} = do
     put bbTimestamp
     put bbBaker
     put bbBakerKey
+    put bbNonce
+    put bbStateHash
+    put bbTransactionOutcomesHash
     put bbQuorumCertificate
     put (bakedBlockFlags bb)
     mapM_ put bbTimeoutCertificate
     mapM_ put bbEpochFinalizationEntry
-    put bbNonce
-    put bbStateHash
-    put bbTransactionOutcomesHash
     putWord64be (fromIntegral (Vector.length bbTransactions))
     mapM_ putBlockItemV0 bbTransactions
 
@@ -634,6 +629,9 @@ getBakedBlock spv tt = label "BakedBlock" $ do
     bbTimestamp <- get
     bbBaker <- get
     bbBakerKey <- get
+    bbNonce <- get
+    bbStateHash <- get
+    bbTransactionOutcomesHash <- get
     bbQuorumCertificate <- get
     BakedBlockFlags{..} <- get
     bbTimeoutCertificate <-
@@ -644,9 +642,6 @@ getBakedBlock spv tt = label "BakedBlock" $ do
         if bbfEpochFinalizationEntry
             then Present <$> get
             else return Absent
-    bbNonce <- get
-    bbStateHash <- get
-    bbTransactionOutcomesHash <- get
     numTrans <- getWord64be
     -- We check that there is at least one byte remaining in the serialization per transaction.
     -- This is to prevent a malformed block from causing us to allocate an excessively large vector,
@@ -783,7 +778,6 @@ newtype BlockQuasiHash = BlockQuasiHash {theBlockQuasiHash :: Hash.Hash}
     deriving (Eq, Ord, Show, Serialize)
 
 -- |Compute the hash from a list of transactions.
--- TODO: determine if this hashing scheme is appropriate.
 computeTransactionsHash :: Vector.Vector BlockItem -> Hash.Hash
 computeTransactionsHash bis =
     LFMBT.hashAsLFMBT
