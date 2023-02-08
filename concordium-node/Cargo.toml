@@ -80,7 +80,7 @@ tonic-reflection = "0.5"
 tower-http = { version = "0.3", features = ["trace"] }
 tonic-web = "0.4"
 prost = "0.11"
-tokio = { version = "1.20", features = ["macros", "rt-multi-thread", "signal", "io-util", "time"] }
+tokio = { version = "1.20", features = ["macros", "rt-multi-thread", "signal", "io-util", "time", "sync"] }
 tokio-stream = "0.1"
 
 

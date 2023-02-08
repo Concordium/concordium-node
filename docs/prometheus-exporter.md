@@ -96,3 +96,19 @@ The value of this metric should average around 0. There can be spikes, but gener
 Current number of consensus messages in the outbound low priority queue. Start dropping messages when larger than 16 * 1024.
 
 The value of this metric should average around 0. There can be spikes, but generally large numbers over extended periods mean the node is struggling to keep up.
+
+### `consensus_last_finalized_block_height`
+
+The block height of the last finalized block.
+
+### `consensus_last_finalized_block_timestamp`
+
+Timestamp for receiving the last finalized block (as Unix time in milliseconds).
+
+Note the timestamp is for _receiving_ the block, which is _not_ the timestamp of the block being finalized.
+
+### `consensus_last_arrived_block_timestamp`
+
+Timestamp for receiving the last arrived block (as Unix time in milliseconds).
+
+Note the timestamp is for _receiving_ the block, which is _not_ the timestamp of the block being produced.

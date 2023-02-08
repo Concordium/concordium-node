@@ -566,7 +566,6 @@ version = "0.1.0"
 dependencies = [
  "aggregate_sig",
  "anyhow",
- "bs58",
  "byteorder",
  "chrono",
  "concordium-contracts-common",
@@ -581,7 +580,6 @@ dependencies = [
  "hex",
  "id",
  "itertools",
- "leb128",
  "libc",
  "num",
  "num-bigint 0.4.3",

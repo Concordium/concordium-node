@@ -780,7 +780,7 @@ pub mod server {
     };
     use anyhow::Context;
     use byteorder::WriteBytesExt;
-    use futures::{FutureExt, StreamExt};
+    use futures::FutureExt;
     use std::{
         io::Write,
         net::SocketAddr,
@@ -886,7 +886,7 @@ pub mod server {
 
                 let blocks_channel = server.blocks_channels.clone();
                 let blocks_relay = tokio::spawn(async move {
-                    while let Some(v) = blocks.next().await {
+                    while let Ok(v) = blocks.recv().await {
                         match blocks_channel.lock() {
                             Ok(mut senders) => senders.retain(|sender| {
                                 if let Err(e) = sender.try_send(Ok(v.clone())) {
@@ -915,7 +915,7 @@ pub mod server {
 
                 let finalized_blocks_channel = server.finalized_blocks_channels.clone();
                 let finalized_blocks_relay = tokio::spawn(async move {
-                    while let Some(v) = finalized_blocks.next().await {
+                    while let Ok(v) = finalized_blocks.recv().await {
                         match finalized_blocks_channel.lock() {
                             Ok(mut senders) => senders.retain(|sender| {
                                 if let Err(e) = sender.try_send(Ok(v.clone())) {

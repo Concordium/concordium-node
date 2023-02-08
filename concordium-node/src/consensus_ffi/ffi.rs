@@ -311,11 +311,11 @@ pub struct NotificationContext {
     /// problem since the consumer of this channel is a dedicated task and
     /// blocks are not added to the tree that quickly. So there should not be
     /// much contention for this.
-    pub blocks:           futures::channel::mpsc::UnboundedSender<Arc<[u8]>>,
+    pub blocks:           tokio::sync::broadcast::Sender<Arc<[u8]>>,
     /// Notification channel for newly finalized blocks. See
     /// [NotificationContext::blocks] documentation for why having an unbounded
     /// channel is OK here, and is unlikely to lead to resource exhaustion.
-    pub finalized_blocks: futures::channel::mpsc::UnboundedSender<Arc<[u8]>>,
+    pub finalized_blocks: tokio::sync::broadcast::Sender<Arc<[u8]>>,
 }
 
 /// A type of callback used to notify Rust code of important events. The
@@ -329,8 +329,8 @@ pub struct NotificationContext {
 type NotifyCallback = unsafe extern "C" fn(*mut NotificationContext, u8, *const u8, u64);
 
 pub struct NotificationHandlers {
-    pub blocks:           futures::channel::mpsc::UnboundedReceiver<Arc<[u8]>>,
-    pub finalized_blocks: futures::channel::mpsc::UnboundedReceiver<Arc<[u8]>>,
+    pub blocks:           tokio::sync::broadcast::Receiver<Arc<[u8]>>,
+    pub finalized_blocks: tokio::sync::broadcast::Receiver<Arc<[u8]>>,
 }
 
 #[allow(improper_ctypes)]
@@ -1337,7 +1337,7 @@ unsafe extern "C" fn notify_callback(
         0u8 => {
             if sender
                 .blocks
-                .unbounded_send(std::slice::from_raw_parts(data_ptr, data_len as usize).into())
+                .send(std::slice::from_raw_parts(data_ptr, data_len as usize).into())
                 .is_err()
             {
                 error!("Failed to enqueue block that arrived.");
@@ -1350,7 +1350,7 @@ unsafe extern "C" fn notify_callback(
         1u8 => {
             if sender
                 .finalized_blocks
-                .unbounded_send(std::slice::from_raw_parts(data_ptr, data_len as usize).into())
+                .send(std::slice::from_raw_parts(data_ptr, data_len as usize).into())
                 .is_err()
             {
                 error!("Failed to enqueue finalized block.");
