@@ -144,8 +144,7 @@ commitVerifiedTransactions = undefined
 getSkovData :: (MonadIO m, MonadReader r m, r ~ SkovState pv) => TreeStateWrapper pv m (SkovData pv)
 getSkovData = do
     (SkovState ioref) <- ask
-    sd <- liftIO $ readIORef ioref
-    return sd
+    liftIO $ readIORef ioref
 
 -- |Helper function for updating the 'SkovData' behind the 'IORef' in the 'SkovState pv'.
 -- This should only be used when it is required to update the 'SkovData' otherwise use 'getSkovData'.
@@ -284,11 +283,9 @@ instance forall m pv r. (MonadIO m, MonadReader r m, IsConsensusV1 pv, HasSkovSt
         SkovData{..} <- getSkovData
         return _focusBlock
 
-    setFocusBlock focusBlock' = do
-        (SkovState ioref) <- ask
-        SkovData{..} <- liftIO $ readIORef ioref
-        liftIO $ writeIORef ioref $! SkovData{_focusBlock = focusBlock', ..}
-        return ()
+    setFocusBlock focusBlock' = withSkovData $
+        \SkovData{..} -> do
+            SkovData{_focusBlock = focusBlock', ..}
 
     getPendingTransactions = do
         SkovData{..} <- getSkovData
