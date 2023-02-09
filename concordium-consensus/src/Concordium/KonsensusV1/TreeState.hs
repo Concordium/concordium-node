@@ -48,15 +48,15 @@ data BlockPointer (pv :: ProtocolVersion) = BlockPointer
 instance HashableTo BlockHash (BlockPointer pv) where
     getHash BlockPointer{..} = getHash _bpBlock
 
--- |Constraint for for ''ConsensusParametersVersion1' based on
--- the protocol version @pv@.
+
+-- |Constraint that the protocol version @pv@ is associated with the version 1 consensus.
 type IsConsensusV1 (pv :: ProtocolVersion) =
     ConsensusParametersVersionFor (ChainParametersVersionFor pv) ~ 'ConsensusParametersVersion1
 
--- |Tree state for 'ConsensusParametersVersion1'
+-- |Tree state for KonsensusV1.
 -- A tree state instance should provide storage for the following:
 -- Memory storage:
---     * Pending blocks store
+--     * Pending blocks store:
 --       Blocks which have not yet become part of the chain must be stored.
 --     * Transaction store for transactions being part of a
 --       a pending or alive block.
@@ -72,12 +72,12 @@ type IsConsensusV1 (pv :: ProtocolVersion) =
 --     * Latest finalization entry
 --       The latest finalization entry is required for catchup when a node
 --       consensus instance has crashed.
---     * Current round, epoch and (latest quorum message signed || latest timeout message signed)
+--     * Current round, epoch and (latest quorum message signed or latest timeout message signed)
 --       In case of restarting a consensus instance one must be
 --       be able to starting
---     * Finalized blocks store
+--     * Finalized blocks store.
 --       It should be possible to always lookup old finalized blocks.
---     * Finalized transactions store
+--     * Finalized transactions store.
 --       It should be possible to always lookup old finalized transactions.
 class
     ( Monad m,
