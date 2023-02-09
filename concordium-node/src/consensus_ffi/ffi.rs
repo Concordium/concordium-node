@@ -311,11 +311,19 @@ pub struct NotificationContext {
     /// problem since the consumer of this channel is a dedicated task and
     /// blocks are not added to the tree that quickly. So there should not be
     /// much contention for this.
-    pub blocks:           tokio::sync::broadcast::Sender<Arc<[u8]>>,
+    pub blocks: Option<futures::channel::mpsc::UnboundedSender<Arc<[u8]>>>,
     /// Notification channel for newly finalized blocks. See
     /// [NotificationContext::blocks] documentation for why having an unbounded
     /// channel is OK here, and is unlikely to lead to resource exhaustion.
-    pub finalized_blocks: tokio::sync::broadcast::Sender<Arc<[u8]>>,
+    pub finalized_blocks: Option<futures::channel::mpsc::UnboundedSender<Arc<[u8]>>>,
+    /// The block height of the last finalized block.
+    pub last_finalized_block_height: prometheus::core::GenericGauge<prometheus::core::AtomicU64>,
+    /// Timestamp of receiving last finalized block (Unix time in milliseconds).
+    pub last_finalized_block_timestamp: prometheus::IntGauge,
+    /// The block height of the last arrived block.
+    pub last_arrived_block_height: prometheus::core::GenericGauge<prometheus::core::AtomicU64>,
+    /// Timestamp of receiving last arrived block (Unix time in milliseconds).
+    pub last_arrived_block_timestamp: prometheus::IntGauge,
 }
 
 /// A type of callback used to notify Rust code of important events. The
@@ -324,13 +332,14 @@ pub struct NotificationContext {
 /// - the event type (0 for block arrived, 1 for block finalized)
 /// - pointer to a byte array containing the serialized event
 /// - length of the data
+/// - block height of either the finalized block or arrived block
 ///
 /// The callback should not retain references to supplied data after the exit.
-type NotifyCallback = unsafe extern "C" fn(*mut NotificationContext, u8, *const u8, u64);
+type NotifyCallback = unsafe extern "C" fn(*mut NotificationContext, u8, *const u8, u64, u64);
 
 pub struct NotificationHandlers {
-    pub blocks:           tokio::sync::broadcast::Receiver<Arc<[u8]>>,
-    pub finalized_blocks: tokio::sync::broadcast::Receiver<Arc<[u8]>>,
+    pub blocks:           futures::channel::mpsc::UnboundedReceiver<Arc<[u8]>>,
+    pub finalized_blocks: futures::channel::mpsc::UnboundedReceiver<Arc<[u8]>>,
 }
 
 #[allow(improper_ctypes)]
@@ -1331,33 +1340,44 @@ unsafe extern "C" fn notify_callback(
     ty: u8,
     data_ptr: *const u8,
     data_len: u64,
+    block_height: u64,
 ) {
     let sender = &*notify_context;
     match ty {
         0u8 => {
-            if sender
-                .blocks
-                .send(std::slice::from_raw_parts(data_ptr, data_len as usize).into())
-                .is_err()
-            {
-                error!("Failed to enqueue block that arrived.");
-                // do nothing. The error here should only happen if the
-                // receiver is disconnected, which means that the task
-                // forwarding events has been killed. That should never happen,
-                // and if it does, it indicates a disastrous situation.
+            sender.last_arrived_block_height.set(block_height);
+            sender.last_arrived_block_timestamp.set(chrono::Utc::now().timestamp_millis());
+
+            if let Some(blocks) = &sender.blocks {
+                if blocks
+                    .unbounded_send(std::slice::from_raw_parts(data_ptr, data_len as usize).into())
+                    .is_err()
+                {
+                    error!("Failed to enqueue block that arrived.");
+                    // do nothing. The error here should only happen if the
+                    // receiver is disconnected, which means that the task
+                    // forwarding events has been killed. That should never
+                    // happen, and if it does, it indicates
+                    // a disastrous situation.
+                }
             }
         }
         1u8 => {
-            if sender
-                .finalized_blocks
-                .send(std::slice::from_raw_parts(data_ptr, data_len as usize).into())
-                .is_err()
-            {
-                error!("Failed to enqueue finalized block.");
-                // do nothing. The error here should only happen if the
-                // receiver is disconnected, which means that the task
-                // forwarding events has been killed. That should never happen,
-                // and if it does, it indicates a disastrous situation.
+            sender.last_finalized_block_height.set(block_height);
+            sender.last_finalized_block_timestamp.set(chrono::Utc::now().timestamp_millis());
+
+            if let Some(finalized_blocks) = &sender.finalized_blocks {
+                if finalized_blocks
+                    .unbounded_send(std::slice::from_raw_parts(data_ptr, data_len as usize).into())
+                    .is_err()
+                {
+                    error!("Failed to enqueue finalized block.");
+                    // do nothing. The error here should only happen if the
+                    // receiver is disconnected, which means that the task
+                    // forwarding events has been killed. That should never
+                    // happen, and if it does, it indicates
+                    // a disastrous situation.
+                }
             }
         }
         unexpected => {

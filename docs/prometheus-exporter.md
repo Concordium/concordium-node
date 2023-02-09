@@ -103,12 +103,16 @@ The block height of the last finalized block.
 
 ### `consensus_last_finalized_block_timestamp`
 
-Timestamp for receiving the last finalized block (as Unix time in milliseconds).
+Timestamp for processing the last finalized block (as Unix time in milliseconds).
 
-Note the timestamp is for _receiving_ the block, which is _not_ the timestamp of the block being finalized.
+Note the timestamp is for the node processed and deemed the block finalized, which is _not_ the timestamp of the block being finalized.
+
+### `consensus_last_arrived_block_height`
+
+The block height of the last arrived block.
 
 ### `consensus_last_arrived_block_timestamp`
 
-Timestamp for receiving the last arrived block (as Unix time in milliseconds).
+Timestamp for the processed last arrived block (as Unix time in milliseconds).
 
-Note the timestamp is for _receiving_ the block, which is _not_ the timestamp of the block being produced.
+Note the timestamp is for when the node have last have processed a block, which is _not_ the timestamp of the block being produced.

@@ -1,9 +1,6 @@
 //! Node's statistics and their exposure.
 
-use crate::{
-    common::p2p_node_id::P2PNodeId, consensus_ffi::ffi::NotificationHandlers, read_or_die,
-    spawn_or_die,
-};
+use crate::{common::p2p_node_id::P2PNodeId, read_or_die, spawn_or_die};
 use anyhow::Context;
 use gotham::{
     handler::IntoResponse,
@@ -87,6 +84,8 @@ pub struct StatsExportService {
     pub last_finalized_block_timestamp: IntGauge,
     /// Timestamp of receiving last arrived block (Unix time in milliseconds).
     pub last_arrived_block_timestamp: IntGauge,
+    /// The block height of the last finalized block.
+    pub last_arrived_block_height: GenericGauge<AtomicU64>,
     /// Total number of bytes received at the point of last
     /// throughput_measurement.
     ///
@@ -213,13 +212,19 @@ impl StatsExportService {
 
         let last_finalized_block_timestamp = IntGauge::with_opts(Opts::new(
             "consensus_last_finalized_block_timestamp",
-            "Timestamp for receiving the last finalized block",
+            "Timestamp for processing the last finalized block (Unix time in milliseconds)",
         ))?;
         registry.register(Box::new(last_finalized_block_timestamp.clone()))?;
 
+        let last_arrived_block_height = GenericGauge::with_opts(Opts::new(
+            "consensus_last_arrived_block_height",
+            "The block height of the last arrived block",
+        ))?;
+        registry.register(Box::new(last_arrived_block_height.clone()))?;
+
         let last_arrived_block_timestamp = IntGauge::with_opts(Opts::new(
             "consensus_last_arrived_block_timestamp",
-            "Timestamp for receiving the last arrived block",
+            "Timestamp for processing the last arrived block (Unix time in milliseconds)",
         ))?;
         registry.register(Box::new(last_arrived_block_timestamp.clone()))?;
 
@@ -247,6 +252,7 @@ impl StatsExportService {
             sent_bytes,
             last_finalized_block_height,
             last_finalized_block_timestamp,
+            last_arrived_block_height,
             last_arrived_block_timestamp,
             last_throughput_measurement_timestamp,
             last_throughput_measurement_sent_bytes,
@@ -336,40 +342,6 @@ impl StatsExportService {
             )
             .map_err(|e| error!("Can't push to prometheus push gateway {}", e))
             .ok();
-        });
-    }
-
-    /// Spawn tasks for receiving notifications to update relevant stats.
-    pub fn start_handling_notification(&self, notification_handlers: NotificationHandlers) {
-        use prost::Message;
-
-        let NotificationHandlers {
-            mut finalized_blocks,
-            mut blocks,
-        } = notification_handlers;
-
-        let last_finalized_block_height = self.last_finalized_block_height.clone();
-        let last_finalized_block_timestamp = self.last_finalized_block_timestamp.clone();
-        tokio::spawn(async move {
-            while let Ok(v) = finalized_blocks.recv().await {
-                let timestamp = chrono::Utc::now().timestamp_millis();
-                match crate::grpc2::types::FinalizedBlockInfo::decode(v.as_ref()) {
-                    Ok(finalized_block_info) => {
-                        let block_height = finalized_block_info.height.unwrap().value;
-                        last_finalized_block_height.set(block_height);
-                        last_finalized_block_timestamp.set(timestamp);
-                    }
-                    Err(err) => error!("Failed to decode finalized block info: {}", err),
-                }
-            }
-        });
-
-        let last_arrived_block_timestamp = self.last_arrived_block_timestamp.clone();
-        tokio::spawn(async move {
-            while let Ok(_) = blocks.recv().await {
-                let timestamp = chrono::Utc::now().timestamp_millis();
-                last_arrived_block_timestamp.set(timestamp);
-            }
         });
     }
 }

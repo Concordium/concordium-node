@@ -92,38 +92,35 @@ async fn main() -> anyhow::Result<()> {
         std::fs::create_dir_all(&database_directory)?;
     }
 
-    let (notification_context, grpc_notification_handlers, prometheus_notification_handlers) =
-        if conf.cli.grpc2.is_enabled() || conf.prometheus.is_enabled() {
-            let (sender_blocks, receiver_blocks) = tokio::sync::broadcast::channel(100);
-            let (sender_finalized, receiver_finalized) = tokio::sync::broadcast::channel(10);
-
-            let grpc_notification_handlers = if conf.cli.grpc2.is_enabled() {
-                Some(ffi::NotificationHandlers {
-                    blocks:           sender_blocks.subscribe(),
-                    finalized_blocks: sender_finalized.subscribe(),
-                })
-            } else {
-                None
-            };
-
-            let prometheus_notification_handlers = if conf.prometheus.is_enabled() {
-                Some(ffi::NotificationHandlers {
-                    blocks:           receiver_blocks,
-                    finalized_blocks: receiver_finalized,
-                })
-            } else {
-                None
-            };
-
-            let notify_context = ffi::NotificationContext {
-                blocks:           sender_blocks,
-                finalized_blocks: sender_finalized,
-            };
-
-            (Some(notify_context), grpc_notification_handlers, prometheus_notification_handlers)
-        } else {
-            (None, None, None)
+    let (notification_context, notification_handlers) = if conf.cli.grpc2.is_enabled() {
+        let (sender_blocks, receiver_blocks) = futures::channel::mpsc::unbounded();
+        let (sender_finalized, receiver_finalized) = futures::channel::mpsc::unbounded();
+        let notify_context = ffi::NotificationContext {
+            blocks: Some(sender_blocks),
+            finalized_blocks: Some(sender_finalized),
+            last_finalized_block_height: node.stats.last_finalized_block_height.clone(),
+            last_finalized_block_timestamp: node.stats.last_finalized_block_timestamp.clone(),
+            last_arrived_block_height: node.stats.last_arrived_block_height.clone(),
+            last_arrived_block_timestamp: node.stats.last_arrived_block_timestamp.clone(),
         };
+        let notification_handlers = ffi::NotificationHandlers {
+            blocks:           receiver_blocks,
+            finalized_blocks: receiver_finalized,
+        };
+        (Some(notify_context), Some(notification_handlers))
+    } else if conf.prometheus.is_enabled() {
+        let notify_context = ffi::NotificationContext {
+            blocks: None,
+            finalized_blocks: None,
+            last_finalized_block_height: node.stats.last_finalized_block_height.clone(),
+            last_finalized_block_timestamp: node.stats.last_finalized_block_timestamp.clone(),
+            last_arrived_block_height: node.stats.last_arrived_block_height.clone(),
+            last_arrived_block_timestamp: node.stats.last_arrived_block_timestamp.clone(),
+        };
+        (Some(notify_context), None)
+    } else {
+        (None, None)
+    };
 
     info!("Starting consensus layer");
     let consensus = plugins::consensus::start_consensus_layer(
@@ -178,7 +175,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // Start the grpc2 server, if so configured.
-    let rpc2 = if let Some(handlers) = grpc_notification_handlers {
+    let rpc2 = if let Some(handlers) = notification_handlers {
         let shutdown_sender = shutdown_sender.clone();
         concordium_node::grpc2::server::GRPC2Server::new(
             &node,
@@ -191,11 +188,6 @@ async fn main() -> anyhow::Result<()> {
     } else {
         None
     };
-
-    // Start handlers for updating node stats if prometheus is enabled.
-    if let Some(handlers) = prometheus_notification_handlers {
-        node.stats.start_handling_notification(handlers);
-    }
 
     maybe_do_out_of_band_catchup(
         &consensus,
