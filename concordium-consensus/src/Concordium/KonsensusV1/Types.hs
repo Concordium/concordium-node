@@ -51,7 +51,11 @@ data QuorumSignatureMessage = QuorumSignatureMessage
     { -- |Hash of the genesis block.
       qsmGenesis :: !BlockHash,
       -- |Hash of the block being signed.
-      qsmBlock :: !BlockHash
+      qsmBlock :: !BlockHash,
+      -- |Round of the block being signed.
+      qsmRound :: !Round,
+      -- |Epoch of the block being signed.
+      qsmEpoch :: !Epoch
     }
     deriving (Eq, Show)
 
@@ -61,6 +65,8 @@ quorumSignatureMessageBytes QuorumSignatureMessage{..} = runPut $ do
     putByteString "QUORUM."
     put qsmGenesis
     put qsmBlock
+    put qsmRound
+    put qsmEpoch
 
 -- |Signature by a finalizer on a 'QuorumSignatureMessage', or an aggregation of signatures on a
 -- common message.
@@ -86,9 +92,39 @@ checkQuorumSignature msg pubKeys =
     Bls.verifyAggregate (quorumSignatureMessageBytes msg) pubKeys
         . theQuorumSignature
 
--- |Index of a finalizer in a finalization committee vector.
+-- |Index of a finalizer in the finalization committee vector.
 newtype FinalizerIndex = FinalizerIndex {theFinalizerIndex :: Word32}
     deriving (Eq, Ord, Show, Enum, Bounded, Serialize)
+
+-- |The message that is multicast by a finalizer when validating and signing blocks.
+data QuorumMessage = QuorumMessage
+    { -- |Signature on a 'QuorumSignatureMessage'
+      qmSignature :: !QuorumSignature,
+      -- |Hash of the block that was was signed.
+      qmBlock :: !BlockHash,
+      -- |The index of the finalizer multicasting this message.
+      qmFinalizerIndex :: !FinalizerIndex,
+      -- |Round of the block that was signed.
+      qmRound :: !Round,
+      -- |Epoch of the block that was signed.
+      qmEpoch :: !Epoch
+    }
+    deriving (Eq, Show)
+
+instance Serialize QuorumMessage where
+    put QuorumMessage{..} = do
+        put qmSignature
+        put qmBlock
+        put qmFinalizerIndex
+        put qmRound
+        put qmEpoch
+    get = do
+        qmSignature <- get
+        qmBlock <- get
+        qmFinalizerIndex <- get
+        qmRound <- get
+        qmEpoch <- get
+        return QuorumMessage{..}
 
 -- |Information about a finalizer.
 data FinalizerInfo = PartyInfo
@@ -211,7 +247,7 @@ checkQuorumCertificateSignature ::
 checkQuorumCertificateSignature qsmGenesis toKeys QuorumCertificate{..} =
     checkQuorumSignature qsm (toKeys qcSignatories) qcAggregateSignature
   where
-    qsm = QuorumSignatureMessage{qsmGenesis = qsmGenesis, qsmBlock = qcBlock}
+    qsm = QuorumSignatureMessage{qsmGenesis = qsmGenesis, qsmBlock = qcBlock, qsmRound = qcRound, qsmEpoch = qcEpoch}
 
 -- |A Merkle proof that one block is the successor of another.
 type SuccessorProof = BlockQuasiHash
