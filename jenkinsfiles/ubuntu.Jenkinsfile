@@ -25,12 +25,6 @@ Map listen_port = [
     stagenet: "9500"
 ]
 
-Map genesis_path = [
-    mainnet: "mainnet/2021-06-09",
-    testnet: "testnet/2022-06-13/genesis_data",
-    stagenet: "stagenet/2022-11-11/genesis_data"
-]
-
 pipeline {
     // Use jenkins-worker, as it has the keys for pushing to AWS.
     agent { label 'jenkins-worker' }
@@ -45,11 +39,10 @@ pipeline {
                 returnStdout: true,
                 script: "[[ -z '${VERSION}' ]] && echo '${CODE_VERSION}' || echo '${VERSION}'"
             )}""".trim()
-        // Ude default genesis path for each environment, if the GENESIS_PATH param has not been set.
-        GENESIS_FULL_PATH = """${sh(
-                returnStdout: true,
-                script: "[[ -z '${GENESIS_PATH}' ]] && echo 'genesis/${genesis_path[ENVIRONMENT]}' || echo 'genesis/${GENESIS_PATH}'"
-            )}""".trim()
+        
+        // Use default genesis path for each environment, if the GENESIS_PATH param has not been set.
+        // Uses library function defined here: https://gitlab.com/Concordium/infra/jenkins-library/-/blob/master/vars/defaultGenesis.groovy
+        GENESIS_FULL_PATH = defaultGenesis(ENVIRONMENT, GENESIS_PATH)
         DOMAIN = concordiumDomain(ENVIRONMENT)
         BUILD_FILE = "concordium-${ENVIRONMENT}-node_${CODE_VERSION}_amd64.deb"
         OUTFILE = "s3://distribution.${DOMAIN}/deb/concordium-${ENVIRONMENT}-node_${OUT_VERSION}_amd64.deb"
