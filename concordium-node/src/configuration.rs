@@ -144,6 +144,13 @@ pub struct PrometheusConfig {
     pub prometheus_push_interval: u64,
 }
 
+impl PrometheusConfig {
+    /// Return whether the prometheus exporter is enabled.
+    pub fn is_enabled(&self) -> bool {
+        self.prometheus_listen_port.is_some() || self.prometheus_push_gateway.is_some()
+    }
+}
+
 #[derive(StructOpt, Debug)]
 // Parameters related to Baking (only used in cli).
 pub struct BakerConfig {

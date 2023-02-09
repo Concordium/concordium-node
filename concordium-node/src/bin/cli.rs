@@ -93,17 +93,31 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let (notification_context, notification_handlers) = if conf.cli.grpc2.is_enabled() {
-        let (sender, receiver) = futures::channel::mpsc::unbounded();
+        let (sender_blocks, receiver_blocks) = futures::channel::mpsc::unbounded();
         let (sender_finalized, receiver_finalized) = futures::channel::mpsc::unbounded();
         let notify_context = ffi::NotificationContext {
-            blocks:           sender,
-            finalized_blocks: sender_finalized,
+            blocks: Some(sender_blocks),
+            finalized_blocks: Some(sender_finalized),
+            last_finalized_block_height: node.stats.last_finalized_block_height.clone(),
+            last_finalized_block_timestamp: node.stats.last_finalized_block_timestamp.clone(),
+            last_arrived_block_height: node.stats.last_arrived_block_height.clone(),
+            last_arrived_block_timestamp: node.stats.last_arrived_block_timestamp.clone(),
         };
         let notification_handlers = ffi::NotificationHandlers {
-            blocks:           receiver,
+            blocks:           receiver_blocks,
             finalized_blocks: receiver_finalized,
         };
         (Some(notify_context), Some(notification_handlers))
+    } else if conf.prometheus.is_enabled() {
+        let notify_context = ffi::NotificationContext {
+            blocks: None,
+            finalized_blocks: None,
+            last_finalized_block_height: node.stats.last_finalized_block_height.clone(),
+            last_finalized_block_timestamp: node.stats.last_finalized_block_timestamp.clone(),
+            last_arrived_block_height: node.stats.last_arrived_block_height.clone(),
+            last_arrived_block_timestamp: node.stats.last_arrived_block_timestamp.clone(),
+        };
+        (Some(notify_context), None)
     } else {
         (None, None)
     };

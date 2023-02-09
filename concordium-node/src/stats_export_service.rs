@@ -14,7 +14,7 @@ use http::{status::StatusCode, Response};
 use hyper::Body;
 use prometheus::{
     self,
-    core::{Atomic, AtomicI64, AtomicU64},
+    core::{Atomic, AtomicI64, AtomicU64, GenericGauge},
     Encoder, IntCounter, IntGauge, Opts, Registry, TextEncoder,
 };
 use std::{net::SocketAddr, sync::RwLock, thread, time};
@@ -78,6 +78,14 @@ pub struct StatsExportService {
     pub received_bytes: IntCounter,
     /// Total number of bytes sent.
     pub sent_bytes: IntCounter,
+    /// The block height of the last finalized block.
+    pub last_finalized_block_height: GenericGauge<AtomicU64>,
+    /// Timestamp of receiving last finalized block (Unix time in milliseconds).
+    pub last_finalized_block_timestamp: IntGauge,
+    /// Timestamp of receiving last arrived block (Unix time in milliseconds).
+    pub last_arrived_block_timestamp: IntGauge,
+    /// The block height of the last finalized block.
+    pub last_arrived_block_height: GenericGauge<AtomicU64>,
     /// Total number of bytes received at the point of last
     /// throughput_measurement.
     ///
@@ -92,7 +100,8 @@ pub struct StatsExportService {
     /// Timestamp for the last calculation of throughput.
     ///
     /// This is not exposed in the prometheus exporter, but we use the value
-    /// when calculating `avg_bps_in` and `avg_bps_out`.
+    /// when calculating `avg_bps_in` and `avg_bps_out` (Unix time in
+    /// milliseconds).
     pub last_throughput_measurement_timestamp: AtomicI64,
     /// Average bytes per second received between the two last values of
     /// last_throughput_measurement_timestamp.
@@ -195,6 +204,30 @@ impl StatsExportService {
             IntCounter::with_opts(Opts::new("network_sent_bytes", "Total number of bytes sent"))?;
         registry.register(Box::new(sent_bytes.clone()))?;
 
+        let last_finalized_block_height = GenericGauge::with_opts(Opts::new(
+            "consensus_last_finalized_block_height",
+            "The block height of the last finalized block",
+        ))?;
+        registry.register(Box::new(last_finalized_block_height.clone()))?;
+
+        let last_finalized_block_timestamp = IntGauge::with_opts(Opts::new(
+            "consensus_last_finalized_block_timestamp",
+            "Timestamp for processing the last finalized block (Unix time in milliseconds)",
+        ))?;
+        registry.register(Box::new(last_finalized_block_timestamp.clone()))?;
+
+        let last_arrived_block_height = GenericGauge::with_opts(Opts::new(
+            "consensus_last_arrived_block_height",
+            "The block height of the last arrived block",
+        ))?;
+        registry.register(Box::new(last_arrived_block_height.clone()))?;
+
+        let last_arrived_block_timestamp = IntGauge::with_opts(Opts::new(
+            "consensus_last_arrived_block_timestamp",
+            "Timestamp for processing the last arrived block (Unix time in milliseconds)",
+        ))?;
+        registry.register(Box::new(last_arrived_block_timestamp.clone()))?;
+
         let last_throughput_measurement_timestamp = AtomicI64::new(0);
         let last_throughput_measurement_sent_bytes = AtomicU64::new(0);
         let last_throughput_measurement_received_bytes = AtomicU64::new(0);
@@ -217,6 +250,10 @@ impl StatsExportService {
             outbound_low_priority_message_queue_size,
             received_bytes,
             sent_bytes,
+            last_finalized_block_height,
+            last_finalized_block_timestamp,
+            last_arrived_block_height,
+            last_arrived_block_timestamp,
             last_throughput_measurement_timestamp,
             last_throughput_measurement_sent_bytes,
             last_throughput_measurement_received_bytes,

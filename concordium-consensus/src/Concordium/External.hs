@@ -323,29 +323,31 @@ type NotifyCallback =
     Ptr Word8 ->
     -- |Size of the data to send.
     Word64 ->
+    -- |Absolute block height of either the arrived block or finalized depending on the type of event.
+    Word64 ->
     IO ()
 
 foreign import ccall "dynamic" callNotifyCallback :: FunPtr NotifyCallback -> NotifyCallback
 
 -- |Serialize the provided arguments (block hash and absolute block height) into
 -- an appropriate Proto message, and invoke the provided FFI callback.
-mkNotifyBlockArrived :: (Word8 -> Ptr Word8 -> Word64 -> IO ()) -> BlockHash -> AbsoluteBlockHeight -> IO ()
+mkNotifyBlockArrived :: (Word8 -> Ptr Word8 -> Word64 -> Word64 -> IO ()) -> BlockHash -> AbsoluteBlockHeight -> IO ()
 mkNotifyBlockArrived f = \bh height -> do
-    let msg :: Proto.FinalizedBlockInfo = Proto.make $ do
+    let msg :: Proto.ArrivedBlockInfo = Proto.make $ do
             ProtoFields.hash . ProtoFields.value .= S.encode bh
             ProtoFields.height . ProtoFields.value .= fromIntegral height
     BS.unsafeUseAsCStringLen (Proto.encodeMessage msg) $ \(cPtr, len) -> do
-        f 0 (castPtr cPtr) (fromIntegral len)
+        f 0 (castPtr cPtr) (fromIntegral len) (fromIntegral height)
 
 -- |Serialize the provided arguments (block hash and block height) into an
 -- appropriate Proto message, and invoke the provided FFI callback.
-mkNotifyBlockFinalized :: (Word8 -> Ptr Word8 -> Word64 -> IO ()) -> BlockHash -> AbsoluteBlockHeight -> IO ()
+mkNotifyBlockFinalized :: (Word8 -> Ptr Word8 -> Word64 -> Word64 -> IO ()) -> BlockHash -> AbsoluteBlockHeight -> IO ()
 mkNotifyBlockFinalized f = \bh height -> do
     let msg :: Proto.FinalizedBlockInfo = Proto.make $ do
             ProtoFields.hash . ProtoFields.value .= S.encode bh
             ProtoFields.height . ProtoFields.value .= fromIntegral height
     BS.unsafeUseAsCStringLen (Proto.encodeMessage msg) $ \(cPtr, len) -> do
-        f 1 (castPtr cPtr) (fromIntegral len)
+        f 1 (castPtr cPtr) (fromIntegral len) (fromIntegral height)
 
 -- |Start up an instance of Skov without starting the baker thread.
 -- If an error occurs starting Skov, the error will be logged and
