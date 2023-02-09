@@ -293,31 +293,21 @@ instance forall m pv r. (MonadIO m, MonadReader r m, IsConsensusV1 pv, HasSkovSt
         SkovData{..} <- getSkovData
         return _currentQuouromSignatureMessages
 
-    setQuorumSignatureMessages currentQuouromSignatureMessages' = do
-        (SkovState ioref) <- ask
-        SkovData{..} <- liftIO $ readIORef ioref
-        liftIO $ writeIORef ioref $ SkovData{_currentQuouromSignatureMessages = currentQuouromSignatureMessages', ..}
-        return ()
+    setQuorumSignatureMessages currentQuouromSignatureMessages' = withSkovData $
+        \SkovData{..} -> SkovData{_currentQuouromSignatureMessages = currentQuouromSignatureMessages', ..}
 
     getTimeoutMessages = do
         SkovData{..} <- getSkovData
         return _currentTimeoutSignatureMessages
 
-    setTimeoutMessage currentTimeoutSignatureMessages' = do
-        (SkovState ioref) <- ask
-        SkovData{..} <- liftIO $ readIORef ioref
-        liftIO $ writeIORef ioref $ SkovData{_currentTimeoutSignatureMessages = currentTimeoutSignatureMessages', ..}
-        return ()
+    setTimeoutMessage currentTimeoutSignatureMessages' = withSkovData $
+        \SkovData{..} -> SkovData{_currentTimeoutSignatureMessages = currentTimeoutSignatureMessages', ..}
 
     getRoundStatus = do
         SkovData{..} <- getSkovData
         return _roundStatus
 
-    setRoundStatus roundStatus' = do
-        (SkovState ioref) <- ask
-        SkovData{..} <- liftIO $ readIORef ioref
-        liftIO $ writeIORef ioref $! SkovData{_roundStatus = roundStatus', ..}
-        return ()
+    setRoundStatus roundStatus' = withSkovData $ \SkovData{..} -> SkovData{_roundStatus = roundStatus', ..}
 
     addTransaction = undefined
     markTransactionDead = undefined
