@@ -724,7 +724,7 @@ pub fn spawn(
 
                     let peer_stat_list = node.get_peer_stats(None);
                     check_peers(&node, &peer_stat_list, attempted_bootstrap);
-                    if let Err(e) = node.measure_throughput(&peer_stat_list) {
+                    if let Err(e) = node.measure_throughput() {
                         error!("Could not measure throughput: {}", e);
                     }
 

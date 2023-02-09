@@ -18,6 +18,7 @@
   - `bytes_received` is now `network_received_bytes`.
   - `bytes_sent` is now `network_sent_bytes`.
 - Remove `last_throughput_measurement_timestamp`, `avg_bps_in` and `avg_bps_out` metrics exposed by the Prometheus exporter.
+- Change behavior of Prometheus metrics `network_sent_bytes` and `network_received_bytes`. Before this change these metrics were calculated as a sum of all the bytes sent/received to peers, which causes the metrics to drop when a peer is dropped. They were only updated during the scheduled "housekeeping" (every 30 secons by default). The new behavior is to update the metric every time a message is sent/received to a peer.
 
 ## 5.2.1
 
