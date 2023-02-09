@@ -283,9 +283,7 @@ instance forall m pv r. (MonadIO m, MonadReader r m, IsConsensusV1 pv, HasSkovSt
         SkovData{..} <- getSkovData
         return _focusBlock
 
-    setFocusBlock focusBlock' = withSkovData $
-        \SkovData{..} -> do
-            SkovData{_focusBlock = focusBlock', ..}
+    setFocusBlock focusBlock' = withSkovData $ \SkovData{..} -> SkovData{_focusBlock = focusBlock', ..}
 
     getPendingTransactions = do
         SkovData{..} <- getSkovData
