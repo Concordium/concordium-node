@@ -649,7 +649,9 @@ getBakedBlock spv tt = label "BakedBlock" $ do
     numTrans <- getWord64be
     -- We check that there is at least one byte remaining in the serialization per transaction.
     -- This is to prevent a malformed block from causing us to allocate an excessively large vector,
-    -- as this could lead to an out-of-memory error.
+    -- as this could lead to an out-of-memory error. [Note: It seems Vector.replicateM actually
+    -- goes via a list in any case, so this may be a non-issue. However, this gives us a bit more
+    -- assurance.]
     remBytes <- remaining
     when (fromIntegral remBytes < numTrans * transactionHeaderSize) $
         fail $
