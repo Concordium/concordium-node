@@ -33,7 +33,6 @@ import Concordium.GlobalState.Classes as C
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Statistics (ConsensusStatistics)
-import Concordium.GlobalState.TransactionTable
 import qualified Concordium.GlobalState.TreeState as TS
 import Concordium.GlobalState.Types
 import Concordium.Logger
@@ -201,7 +200,7 @@ class
     queryBlockState :: BlockPointerType m -> m (BlockState m)
 
     -- |Get the outcomes of a transaction.
-    queryTransactionStatus :: TransactionHash -> m (Maybe TransactionStatus)
+    queryTransactionStatus :: TransactionHash -> m (Maybe TS.TransactionStatus)
 
     -- |Get non-finalized transactions for an account, ordered by increasing nonce.
     queryNonFinalizedTransactions :: AccountAddressEq -> m [TransactionHash]

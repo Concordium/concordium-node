@@ -9,7 +9,6 @@ import Data.Maybe
 import Data.Serialize
 
 import Concordium.Types
-import Concordium.Types.Execution
 
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.BlockState
@@ -63,23 +62,6 @@ instance BlockData (StoredBlock pv) where
 
 instance HashableTo BlockHash (StoredBlock pv) where
     getHash = getHash . stbBlock
-
-data FinalizedTransactionStatus = FinalizedTransactionStatus
-    { -- |Height of the finalized block that contains this transaction
-      ftsBlockHeight :: !BlockHeight,
-      -- |Index of the transaction in the block.
-      ftsIndex :: !TransactionIndex
-    }
-    deriving (Eq, Show)
-
-instance Serialize FinalizedTransactionStatus where
-    put FinalizedTransactionStatus{..} = do
-        put ftsBlockHeight
-        put ftsIndex
-    get = do
-        ftsBlockHeight <- get
-        ftsIndex <- get
-        return FinalizedTransactionStatus{..}
 
 class (Monad m) => MonadTreeStateStore m where
     -- |Get a finalized block by block hash.

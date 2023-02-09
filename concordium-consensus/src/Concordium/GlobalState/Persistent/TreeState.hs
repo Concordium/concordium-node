@@ -793,7 +793,6 @@ instance
                 case status of
                     Received _ verRes -> return $ Just (WithMetadata{wmdData = biCred, ..}, verRes)
                     Committed _ verRes _ -> return $ Just (WithMetadata{wmdData = biCred, ..}, verRes)
-                    _ -> return Nothing
             _ -> return Nothing
 
     getNonFinalizedChainUpdates uty sn = do
@@ -842,16 +841,9 @@ instance
                                 return (TS.Added bi verRes)
                             else return TS.ObsoleteNonce
             Just (bi', results) -> do
-                -- The `Finalized` case is not reachable because finalized transactions are removed
-                -- from the transaction table.
-                let mVerRes = case results of
-                        Received _ verRes -> Just verRes
-                        Committed _ verRes _ -> Just verRes
-                        Finalized{} -> Nothing
-                -- if it is we update the maximum committed slot,
-                -- unless the transaction is already finalized (this case is handled by updateSlot)
-                -- In the current model this latter case should not happen; once a transaction is finalized
-                -- it is written to disk (see finalizeTransactions below)
+                -- The transaction is live.
+                let mVerRes = Just $ results ^. tsVerRes
+                -- We update the maximum committed slot if the new slot is later.
                 when (commitPoint slot > results ^. tsCommitPoint) $ skovPersistentData . transactionTable . ttHashMap . at' trHash . mapped . _2 %= updateSlot slot
                 return $ TS.Duplicate bi' mVerRes
 
@@ -882,7 +874,6 @@ instance
                 let mVerRes = case results of
                         Received _ verRes' -> Just verRes'
                         Committed _ verRes' _ -> Just verRes'
-                        Finalized{} -> Nothing
                 return $ TS.Duplicate bi' mVerRes
 
     type FinTrans (PersistentTreeStateMonad state m) = [(TransactionHash, FinalizedTransactionStatus)]
@@ -1003,10 +994,13 @@ instance
         -- here since a transaction should not be marked dead in a finalized block.
         skovPersistentData . transactionTable . ttHashMap . at' (getHash tr) . mapped . _2 %= markDeadResult bh
     lookupTransaction th = do
-        ts <- preuse (skovPersistentData . transactionTable . ttHashMap . ix th . _2)
+        ts <- preuse (skovPersistentData . transactionTable . ttHashMap . ix th . _2 . to TS.Live)
         case ts of
             Just t -> return $ Just t
             Nothing -> fmap finalizedToTransactionStatus <$> readTransactionStatus th
+      where
+        finalizedToTransactionStatus FinalizedTransactionStatus{..} =
+            TS.Finalized{ftsCommitPoint = commitPoint ftsSlot, ftsBlockHash = ftsBlockHash, ftsFinResult = ftsIndex}
 
     getConsensusStatistics = use (skovPersistentData . statistics)
     putConsensusStatistics stats = skovPersistentData . statistics .=! stats

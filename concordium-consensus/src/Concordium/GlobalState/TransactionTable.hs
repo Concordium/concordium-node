@@ -45,9 +45,9 @@ instance IsCommitPoint Round
 -- * Transaction status
 
 -- |Result of a transaction is block dependent.
--- The 'TransactionStatus' is parameterized by @a@ and must
+-- The 'LiveTransactionStatus' is parameterized by @a@ and must
 -- be an instance of 'Ord'.
-data TransactionStatus
+data LiveTransactionStatus
     = -- |Transaction is received, but no outcomes from any blocks are known
       -- although the transaction might be known to be in some blocks. The 'CommitPoint' is the
       -- largest commit point of a block the transaction is in.
@@ -74,23 +74,15 @@ data TransactionStatus
           _tsVerRes :: !TVer.VerificationResult,
           tsResults :: !(HM.HashMap BlockHash TransactionIndex)
         }
-    | -- |Transaction is finalized in a given block with a specific outcome.
-      -- NB: With the current implementation a transaction can appear in at most one finalized block.
-      -- When that part is reworked so that branches are not pruned we will likely rework this.
-      Finalized
-        { _tsCommitPoint :: !CommitPoint,
-          tsBlockHash :: !BlockHash,
-          tsFinResult :: !TransactionIndex
-        }
     deriving (Eq, Show)
 
-makeLenses ''TransactionStatus
+makeLenses ''LiveTransactionStatus
 
 -- |Add a transaction result. This function assumes the transaction is not finalized yet.
 -- If the transaction is already finalized the function will return the original status.
-{-# SPECIALIZE addResult :: BlockHash -> Round -> TransactionIndex -> TransactionStatus -> TransactionStatus #-}
-{-# SPECIALIZE addResult :: BlockHash -> Slot -> TransactionIndex -> TransactionStatus -> TransactionStatus #-}
-addResult :: IsCommitPoint a => BlockHash -> a -> TransactionIndex -> TransactionStatus -> TransactionStatus
+{-# SPECIALIZE addResult :: BlockHash -> Round -> TransactionIndex -> LiveTransactionStatus -> LiveTransactionStatus #-}
+{-# SPECIALIZE addResult :: BlockHash -> Slot -> TransactionIndex -> LiveTransactionStatus -> LiveTransactionStatus #-}
+addResult :: IsCommitPoint a => BlockHash -> a -> TransactionIndex -> LiveTransactionStatus -> LiveTransactionStatus
 addResult bh cp vr = \case
     Committed{_tsCommitPoint = currentCommitPoint, tsResults = currentResults, ..} ->
         Committed
@@ -104,32 +96,29 @@ addResult bh cp vr = \case
               tsResults = HM.singleton bh vr,
               _tsVerRes = _tsVerRes
             }
-    s@Finalized{} -> s
 
 -- |Remove a transaction result for a given block. This can happen when a block
 -- is removed from the block tree because it is not a successor of the last
 -- finalized block.
 -- This function will only have effect if the transaction status is 'Committed' and
 -- the given block hash is in the table of outcomes.
-markDeadResult :: BlockHash -> TransactionStatus -> TransactionStatus
+markDeadResult :: BlockHash -> LiveTransactionStatus -> LiveTransactionStatus
 markDeadResult bh Committed{..} =
     let newResults = HM.delete bh tsResults
     in  if HM.null newResults then Received{..} else Committed{tsResults = newResults, ..}
 markDeadResult _ ts = ts
 
-{-# SPECIALIZE updateSlot :: Round -> TransactionStatus -> TransactionStatus #-}
-{-# SPECIALIZE updateSlot :: Slot -> TransactionStatus -> TransactionStatus #-}
-updateSlot :: IsCommitPoint a => a -> TransactionStatus -> TransactionStatus
-updateSlot _ ts@Finalized{} = ts
+{-# SPECIALIZE updateSlot :: Round -> LiveTransactionStatus -> LiveTransactionStatus #-}
+{-# SPECIALIZE updateSlot :: Slot -> LiveTransactionStatus -> LiveTransactionStatus #-}
+updateSlot :: IsCommitPoint a => a -> LiveTransactionStatus -> LiveTransactionStatus
 updateSlot s ts = ts{_tsCommitPoint = commitPoint s}
 
 {-# INLINE getTransactionIndex #-}
 
 -- |Get the outcome of the transaction in a particular block, and whether it is finalized.
-getTransactionIndex :: BlockHash -> TransactionStatus -> Maybe (Bool, TransactionIndex)
+getTransactionIndex :: BlockHash -> LiveTransactionStatus -> Maybe (Bool, TransactionIndex)
 getTransactionIndex bh = \case
     Committed{..} -> (False,) <$> HM.lookup bh tsResults
-    Finalized{..} -> if bh == tsBlockHash then Just (True, tsFinResult) else Nothing
     _ -> Nothing
 
 -- * Transaction table
@@ -219,7 +208,7 @@ emptyNFCUWithSequenceNumber = NonFinalizedChainUpdates Map.empty
 -- 'Ord'.
 data TransactionTable = TransactionTable
     { -- |Map from transaction hashes to transactions, together with their current status.
-      _ttHashMap :: !(HM.HashMap TransactionHash (BlockItem, TransactionStatus)),
+      _ttHashMap :: !(HM.HashMap TransactionHash (BlockItem, LiveTransactionStatus)),
       -- |For each account, the non-finalized transactions for that account,
       -- grouped by nonce. See $equivalence for reasons why AccountAddressEq is used.
       _ttNonFinalizedTransactions :: !(HM.HashMap AccountAddressEq AccountNonFinalizedTransactions),
@@ -239,7 +228,6 @@ getNonFinalizedVerificationResult bi table =
             case status of
                 Received _ verRes -> Just verRes
                 Committed _ verRes _ -> Just verRes
-                Finalized{} -> Nothing
         Nothing -> Nothing
 
 emptyTransactionTable :: TransactionTable

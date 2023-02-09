@@ -93,6 +93,19 @@ data RecentBlockStatus bp pb
       Unknown
     deriving (Eq, Show)
 
+-- |Status of a transaction.
+data TransactionStatus
+    = -- |Transaction is either pending (i.e. in no blocks) or committed (i.e. in a live block).
+      Live !LiveTransactionStatus
+    | -- |Transaction is finalized in a given block with a specific outcome.
+      -- NB: With the current implementation a transaction can appear in at most one finalized block.
+      -- When that part is reworked so that branches are not pruned we will likely rework this.
+      Finalized
+        { ftsCommitPoint :: !CommitPoint,
+          ftsBlockHash :: !BlockHash,
+          ftsFinResult :: !TransactionIndex
+        }
+
 -- |Monad that provides operations for working with the low-level tree state.
 -- These operations are abstracted where possible to allow for a range of implementation
 -- choices.

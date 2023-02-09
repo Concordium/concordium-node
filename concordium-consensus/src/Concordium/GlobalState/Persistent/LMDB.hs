@@ -13,7 +13,6 @@ module Concordium.GlobalState.Persistent.LMDB (
     DatabaseHandlers (..),
     HasDatabaseHandlers (..),
     FinalizedTransactionStatus (..),
-    finalizedToTransactionStatus,
     storeEnv,
     blockStore,
     finalizationRecordStore,
@@ -57,8 +56,6 @@ import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.LMDB.Helpers
 import Concordium.GlobalState.Persistent.BlobStore (BlobRef)
 import Concordium.GlobalState.Persistent.BlockPointer
-import Concordium.GlobalState.TransactionTable
-import qualified Concordium.GlobalState.TransactionTable as T
 import Concordium.Logger
 import Concordium.Types
 import Concordium.Types.Execution (TransactionIndex)
@@ -188,11 +185,6 @@ data FinalizedTransactionStatus = FinalizedTransactionStatus
 instance S.Serialize FinalizedTransactionStatus where
     put FinalizedTransactionStatus{..} = S.put ftsSlot >> S.put ftsBlockHash >> S.put ftsIndex
     get = FinalizedTransactionStatus <$> S.get <*> S.get <*> S.get
-
--- |Convert a 'FinalizedTransactionStatus' to a 'TransactionStatus'
-finalizedToTransactionStatus :: FinalizedTransactionStatus -> T.TransactionStatus
-finalizedToTransactionStatus FinalizedTransactionStatus{..} =
-    T.Finalized{_tsCommitPoint = commitPoint ftsSlot, tsBlockHash = ftsBlockHash, tsFinResult = ftsIndex}
 
 instance MDBDatabase TransactionStatusStore where
     type DBKey TransactionStatusStore = TransactionHash

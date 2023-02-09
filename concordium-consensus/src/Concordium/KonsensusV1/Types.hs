@@ -359,6 +359,8 @@ instance HashableTo Hash.Hash (Optionally TimeoutCertificate) where
         put tc
 
 -- |Check the signature in a timeout certificate.
+-- FIXME: This might not work for the scenario where finalizers are from different finalization
+-- committees.
 checkTimeoutCertificateSignature ::
     -- |Genesis block hash
     BlockHash ->

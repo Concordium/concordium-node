@@ -21,7 +21,7 @@ import Concordium.GlobalState.TransactionTable
 import qualified Concordium.TransactionVerification as TVer
 
 -- |Transaction hash table parameterized by @a@ which is an instance of 'Ord'.
-type TransactionHashTable a = HM.HashMap TransactionHash (BlockItem, TransactionStatus)
+type TransactionHashTable a = HM.HashMap TransactionHash (BlockItem, LiveTransactionStatus)
 
 -- |Purge transactions that are not present in any live or finalized blocks
 -- and either have expired or were received before the oldest permitted arrival

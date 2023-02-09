@@ -11,12 +11,19 @@
 module Concordium.KonsensusV1.TreeState.Implementation where
 
 import Control.Monad.Reader
+import Control.Monad.State
 import Data.IORef
 import Data.Kind (Type)
 import Data.Time
+import Lens.Micro.Platform
 
 import qualified Data.HashMap.Strict as HM
 import qualified Data.PQueue.Prio.Min as MPQ
+
+import Concordium.Types
+import Concordium.Types.Execution
+import Concordium.Types.HashableTo
+import Concordium.Types.Transactions
 
 import Concordium.GlobalState.Parameters
 import qualified Concordium.GlobalState.Persistent.BlobStore as BlobStore
@@ -25,13 +32,27 @@ import Concordium.GlobalState.Persistent.TreeState (DeadCache, emptyDeadCache, i
 import qualified Concordium.GlobalState.Statistics as Stats
 import Concordium.GlobalState.TransactionTable
 import qualified Concordium.GlobalState.Types as GSTypes
-import Concordium.KonsensusV1.TreeState
+
+-- import Concordium.KonsensusV1.TreeState
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
-import Concordium.Types
-import Concordium.Types.HashableTo
-import Lens.Micro.Platform
+import Concordium.TransactionVerification
+import Concordium.Utils
+
+data PendingBlock = PendingBlock
+    { pbBlock :: !SignedBlock,
+      pbReceiveTime :: !UTCTime
+    }
+
+instance BlockData PendingBlock where
+    type BakedBlockDataType PendingBlock = SignedBlock
+    blockRound = blockRound . pbBlock
+    blockEpoch = blockEpoch . pbBlock
+    blockTimestamp = blockTimestamp . pbBlock
+    blockBakedData = blockBakedData . pbBlock
+    blockTransactions = blockTransactions . pbBlock
+    blockStateHash = blockStateHash . pbBlock
 
 -- |Status of a block that is held in memory i.e.
 -- the block is either pending or alive.
@@ -173,190 +194,273 @@ getSkovData = do
 -- |Helper function for updating the 'SkovData' behind the 'IORef' in the 'SkovState pv'.
 -- This should only be used when it is required to update the 'SkovData' otherwise use 'getSkovData'.
 -- Note that this requires IO since the actual 'SkovData' is behind an 'IORef' via the 'SkovState pv'.
-withSkovData :: (MonadIO m, MonadReader r m, r ~ SkovState pv) => (SkovData pv -> SkovData pv) -> m ()
+-- withSkovData :: (MonadIO m, MonadReader r m, r ~ SkovState pv) => (SkovData pv -> SkovData pv) -> m ()
+withSkovData :: (MonadIO m, MonadReader r m, HasSkovState r pv) => StateT (SkovData pv) m a -> m a
 withSkovData f = do
-    (SkovState ioref) <- ask
+    (SkovState ioref) <- view skovState
     sd <- liftIO $ readIORef ioref
-    liftIO $ writeIORef ioref $! f sd
-    return ()
+    (res, sd') <- runStateT f sd
+    liftIO $ writeIORef ioref $! sd'
+    return res
+
+withSkovDataPure :: (MonadIO m, MonadReader r m, HasSkovState r pv) => State (SkovData pv) a -> m a
+withSkovDataPure f = do
+    (SkovState ioref) <- view skovState
+    sd <- liftIO $ readIORef ioref
+    let (res, sd') = runState f sd
+    liftIO $ writeIORef ioref $! sd'
+    return res
 
 -- TODO: Add a transaction verifier
-instance forall m pv r. (MonadIO m, MonadReader r m, IsConsensusV1 pv, HasSkovState r (MPV m), r ~ SkovState pv, LowLevel.MonadTreeStateStore m, MPV m ~ pv) => MonadTreeState (TreeStateWrapper pv m) where
-    addPendingBlock sb = do
-        (SkovState ioref) <- ask
-        SkovData{_blockTable = bt, ..} <- liftIO $ readIORef ioref
-        -- Verify the transactions of the block.
-        -- If all transactions can be successfully pre-verified then we add it,
-        -- otherwise we reject the block and mark it as dead.
-        case verifyBlockItems sb of
-            Left _ -> do
-                let blockTable' = markDead blockHash bt
-                liftIO $ writeIORef ioref $! SkovData{_blockTable = blockTable', ..}
-                return BlockDead
-            Right verifiedBlockItems -> do
-                let pendingBlocksQueue' = MPQ.insert theRound (blockHash, parentHash) $! _pendingBlocksQueue
-                    pendingBlocksTable' = HM.adjust (sb :) parentHash _pendingBlocksTable
-                    -- Commit the transactions and add them to the 'PendingTransactionTable' if they are eligible.
-                    -- A transaction is eligible for entering the pending transactions if it's nonce is at least the 'nextNonce'.
-                    (transactionTable', pendingTransactions') = commitVerifiedTransactions verifiedBlockItems _transactionTable _pendingTransactions
-                liftIO $
-                    writeIORef ioref $!
-                        SkovData
-                            { _pendingBlocksQueue = pendingBlocksQueue',
-                              _pendingBlocksTable = pendingBlocksTable',
-                              _transactionTable = transactionTable',
-                              _pendingTransactions = pendingTransactions',
-                              _blockTable = bt,
-                              ..
-                            }
-                return $! BlockPending sb
-      where
-        blockHash = getHash sb
-        bakedBlock = sbBlock sb
-        theRound = bbRound bakedBlock
-        parentHash = bhParent $! bbBlockHeader bakedBlock
+-- instance forall m pv r. (MonadIO m, MonadReader r m, IsConsensusV1 pv, HasSkovState r (MPV m), r ~ SkovState pv, LowLevel.MonadTreeStateStore m, MPV m ~ pv) => MonadTreeState (TreeStateWrapper pv m) where
 
-    markPendingBlockLive signedBlock parentPointer state now = do
-        (SkovState ioref) <- ask
-        SkovData{_blockTable = BlockTable{..}, ..} <- liftIO $ readIORef ioref
-        let liveMap' = HM.adjust (makeLive parentPointer state now) signedBlockHash _liveMap
-        liftIO $ writeIORef ioref $! SkovData{_blockTable = BlockTable{_liveMap = liveMap', ..}, ..}
-        return undefined
-      where
-        signedBlockHash = getHash signedBlock
+-- |Add a block to the pending block table and queue.
+doAddPendingBlock :: (MonadState (SkovData pv) m) => SignedBlock -> m ()
+{-# SPECIALIZE doAddPendingBlock :: SignedBlock -> State (SkovData pv) () #-}
+doAddPendingBlock sb = do
+    pendingBlocksQueue %= MPQ.insert theRound (blockHash, parentHash)
+    pendingBlocksTable %= HM.adjust (sb :) parentHash
+  where
+    blockHash = getHash sb
+    theRound = blockRound sb
+    parentHash = blockParent sb
 
-    takePendingChildren = undefined
-    markBlockDead blockHash = do
-        (SkovState ioref) <- ask
-        SkovData{_blockTable = bt, ..} <- liftIO $ readIORef ioref
-        let blockTable' = markDead blockHash bt
-        liftIO $ writeIORef ioref $! SkovData{_blockTable = blockTable', ..}
-        return ()
+-- |Lookup a transaction in the transaction table if it is live.
+-- This will not give results for finalized transactions.
+doLookupLiveTransaction :: TransactionHash -> SkovData pv -> Maybe LiveTransactionStatus
+doLookupLiveTransaction tHash sd =
+    sd ^? transactionTable . ttHashMap . at tHash . traversed . _2
 
-    getLastFinalized = do
-        SkovData{..} <- getSkovData
-        return $! _lastFinalized
+-- |Lookup a transaction in the transaction table, including finalized transactions.
+doLookupTransaction :: (LowLevel.MonadTreeStateStore m) => TransactionHash -> SkovData pv -> m (Maybe TransactionStatus)
+doLookupTransaction tHash sd = case doLookupLiveTransaction tHash sd of
+    Just liveRes -> return $ Just $ Live liveRes
+    Nothing -> fmap Finalized <$> LowLevel.lookupTransaction tHash
 
-    getBlockStatus blockHash = do
-        SkovData{..} <- getSkovData
-        -- We check whether the block is the last finalized block.
-        if getHash _lastFinalized == blockHash
-            then return $! Just $! BlockFinalized _lastFinalized
-            else -- We check if the block is the focus block
+-- |Mark a live transaction as committed in a particular block.
+-- This does nothing if the transaction is not live.
+doCommitTransaction ::
+    (MonadState (SkovData pv) m) =>
+    -- |Round of the block
+    Round ->
+    BlockHash ->
+    TransactionIndex ->
+    BlockItem ->
+    m ()
+doCommitTransaction rnd bh ti transaction =
+    transactionTable
+        . ttHashMap
+        . at' (getHash transaction)
+        . traversed
+        . _2
+        %= addResult bh rnd ti
 
-                if getHash _focusBlock == blockHash
-                    then return $! Just $! BlockAlive _focusBlock
-                    else -- Now we lookup in the livemap of the block table,
-                    -- this will return if the block is pending or if it's alive on some other
-                    -- branch.
-                    -- If it is not present in the live store then we check whether the block
-                    -- has been marked as dead or we finally try to look in the persistent block store.
-                    case HM.lookup blockHash (_liveMap _blockTable) of
-                        Just status ->
-                            case status of
-                                MemBlockPending sb -> return $! Just $! BlockPending sb
-                                MemBlockAlive bp -> return $! Just $! BlockAlive bp
-                        Nothing ->
-                            -- Check if the block marked as dead before we look into the
-                            -- persistent block store.
-                            if memberDeadCache blockHash (_deadCache _blockTable)
-                                then return $ Just BlockDead
-                                else do
-                                    -- Now we look in the LMDB to check if the block is stored.
-                                    -- Only finalized blocks are persisted so we return a 'BlockFinalized' in case
-                                    -- we find the block in the persistent block store.
-                                    LowLevel.lookupBlock blockHash >>= \case
-                                        Nothing -> return Nothing
-                                        Just storedBlock -> do
-                                            blockPointer <- liftIO $ mkBlockPointer storedBlock
-                                            return $! Just $! BlockFinalized blockPointer
-      where
-        -- Create a block pointer from a stored block.
-        mkBlockPointer sb@LowLevel.StoredBlock{..} = do
-            let
-                _bpInfo = stbInfo
-                _bpBlock = stbBlock
-            _bpState <- mkHashedPersistentBlockState sb
-            return BlockPointer{..}
-        mkHashedPersistentBlockState sb@LowLevel.StoredBlock{..} = do
-            hpbsPointers <- newIORef $ BlobStore.blobRefToBufferedRef stbStatePointer
-            let hpbsHash = blockStateHash sb
-            return $! PBS.HashedPersistentBlockState{..}
+-- |Add a transaction to the transaction table if its nonce/sequence number is at least the next
+-- non-finalized nonce/sequence number. The return value is 'True' if and only if the transaction
+-- was added.
+doAddTransaction :: (MonadState (SkovData pv) m) => Round -> BlockItem -> VerificationResult -> m Bool
+doAddTransaction rnd transaction verRes = do
+    added <- transactionTable %%=! addTransaction transaction (commitPoint rnd) verRes
+    when added $ transactionTablePurgeCounter += 1
+    return added
 
-    getRecentBlockStatus blockHash = do
-        SkovData{..} <- getSkovData
-        -- We check whether the block is the last finalized block.
-        if getHash _lastFinalized == blockHash
-            then return $! RecentBlock $! BlockFinalized _lastFinalized
-            else -- We check if the block is the focus block
+{-
+addPendingBlock :: (MonadReader (SkovState pv1) m, MonadIO m) => SignedBlock -> m (BlockStatus pv2)
+addPendingBlock sb = do
+    (SkovState ioref) <- ask
+    SkovData{_blockTable = bt, ..} <- liftIO $ readIORef ioref
+    -- Verify the transactions of the block.
+    -- If all transactions can be successfully pre-verified then we add it,
+    -- otherwise we reject the block and mark it as dead.
+    case verifyBlockItems sb of
+        Left _ -> do
+            let blockTable' = markDead blockHash bt
+            liftIO $ writeIORef ioref $! SkovData{_blockTable = blockTable', ..}
+            return BlockDead
+        Right verifiedBlockItems -> do
+            let pendingBlocksQueue' = MPQ.insert theRound (blockHash, parentHash) $! _pendingBlocksQueue
+                pendingBlocksTable' = HM.adjust (sb :) parentHash _pendingBlocksTable
+                -- Commit the transactions and add them to the 'PendingTransactionTable' if they are eligible.
+                -- A transaction is eligible for entering the pending transactions if it's nonce is at least the 'nextNonce'.
+                (transactionTable', pendingTransactions') = commitVerifiedTransactions verifiedBlockItems _transactionTable _pendingTransactions
+            liftIO $
+                writeIORef ioref $!
+                    SkovData
+                        { _pendingBlocksQueue = pendingBlocksQueue',
+                          _pendingBlocksTable = pendingBlocksTable',
+                          _transactionTable = transactionTable',
+                          _pendingTransactions = pendingTransactions',
+                          _blockTable = bt,
+                          ..
+                        }
+            return $! BlockPending sb
+  where
+    blockHash = getHash sb
+    bakedBlock = sbBlock sb
+    theRound = bbRound bakedBlock
+    parentHash = bhParent $! bbBlockHeader bakedBlock
+-}
 
-                if getHash _focusBlock == blockHash
-                    then return $! RecentBlock $! BlockAlive _focusBlock
-                    else -- Now we lookup in the livemap of the block table,
-                    -- this will return if the block is pending or if it's alive on some other
-                    -- branch.
-                    -- If it is not present in the live store then we check whether the block
-                    -- has been marked as dead or we finally try to look in the persistent block store.
-                    case HM.lookup blockHash (_liveMap _blockTable) of
-                        Just status ->
-                            case status of
-                                MemBlockPending sb -> return $! RecentBlock $! BlockPending sb
-                                MemBlockAlive bp -> return $! RecentBlock $! BlockAlive bp
-                        Nothing ->
-                            -- Check if the block marked as dead before we peek into the
-                            -- persistent block store in order to check whether the block is present or not.
-                            if memberDeadCache blockHash (_deadCache _blockTable)
-                                then return $ RecentBlock BlockDead
-                                else do
-                                    LowLevel.memberBlock blockHash >>= \case
-                                        True -> return OldFinalized
-                                        False -> return Unknown
-    getFocusBlock = do
-        SkovData{..} <- getSkovData
-        return _focusBlock
+doMakeLiveBlock :: (MonadState (SkovData pv) m) => PendingBlock -> PBS.HashedPersistentBlockState pv -> BlockHeight -> UTCTime -> m (BlockPointer pv)
+doMakeLiveBlock pb st height arriveTime = do
+    let bp =
+            BlockPointer
+                { _bpInfo = BlockMetadata{bmReceiveTime = pbReceiveTime pb, bmArriveTime = arriveTime, bmHeight = height},
+                  _bpBlock = NormalBlock (pbBlock pb),
+                  _bpState = st
+                }
+    -- TODO: Add the block to the live blocks.
+    return bp
 
-    setFocusBlock focusBlock' = withSkovData $ \SkovData{..} -> SkovData{_focusBlock = focusBlock', ..}
+markPendingBlockLive signedBlock parentPointer state now = do
+    undefined
 
-    getPendingTransactions = do
-        SkovData{..} <- getSkovData
-        return _pendingTransactions
+--     (SkovState ioref) <- ask
+--     SkovData{_blockTable = BlockTable{..}, ..} <- liftIO $ readIORef ioref
+--     let liveMap' = HM.adjust (makeLive parentPointer state now) signedBlockHash _liveMap
+--     liftIO $ writeIORef ioref $! SkovData{_blockTable = BlockTable{_liveMap = liveMap', ..}, ..}
+--     return undefined
+--   where
+--     signedBlockHash = getHash signedBlock
 
-    getQuorumSignatureMessages = do
-        SkovData{..} <- getSkovData
-        return _currentQuouromSignatureMessages
+takePendingChildren = undefined
+markBlockDead blockHash = do
+    (SkovState ioref) <- ask
+    SkovData{_blockTable = bt, ..} <- liftIO $ readIORef ioref
+    let blockTable' = markDead blockHash bt
+    liftIO $ writeIORef ioref $! SkovData{_blockTable = blockTable', ..}
+    return ()
 
-    setQuorumSignatureMessages currentQuouromSignatureMessages' = withSkovData $
-        \SkovData{..} -> SkovData{_currentQuouromSignatureMessages = currentQuouromSignatureMessages', ..}
+{-
+getLastFinalized = do
+    SkovData{..} <- getSkovData
+    return $! _lastFinalized
+-}
 
-    getTimeoutMessages = do
-        SkovData{..} <- getSkovData
-        return _currentTimeoutSignatureMessages
+getBlockStatus blockHash = do
+    SkovData{..} <- getSkovData
+    -- We check whether the block is the last finalized block.
+    if getHash _lastFinalized == blockHash
+        then return $! Just $! BlockFinalized _lastFinalized
+        else -- We check if the block is the focus block
 
-    setTimeoutMessage currentTimeoutSignatureMessages' = withSkovData $
-        \SkovData{..} -> SkovData{_currentTimeoutSignatureMessages = currentTimeoutSignatureMessages', ..}
+            if getHash _focusBlock == blockHash
+                then return $! Just $! BlockAlive _focusBlock
+                else -- Now we lookup in the livemap of the block table,
+                -- this will return if the block is pending or if it's alive on some other
+                -- branch.
+                -- If it is not present in the live store then we check whether the block
+                -- has been marked as dead or we finally try to look in the persistent block store.
+                case HM.lookup blockHash (_liveMap _blockTable) of
+                    Just status ->
+                        case status of
+                            MemBlockPending sb -> return $! Just $! BlockPending sb
+                            MemBlockAlive bp -> return $! Just $! BlockAlive bp
+                    Nothing ->
+                        -- Check if the block marked as dead before we look into the
+                        -- persistent block store.
+                        if memberDeadCache blockHash (_deadCache _blockTable)
+                            then return $ Just BlockDead
+                            else do
+                                -- Now we look in the LMDB to check if the block is stored.
+                                -- Only finalized blocks are persisted so we return a 'BlockFinalized' in case
+                                -- we find the block in the persistent block store.
+                                LowLevel.lookupBlock blockHash >>= \case
+                                    Nothing -> return Nothing
+                                    Just storedBlock -> do
+                                        blockPointer <- liftIO $ mkBlockPointer storedBlock
+                                        return $! Just $! BlockFinalized blockPointer
+  where
+    -- Create a block pointer from a stored block.
+    mkBlockPointer sb@LowLevel.StoredBlock{..} = do
+        let
+            _bpInfo = stbInfo
+            _bpBlock = stbBlock
+        _bpState <- mkHashedPersistentBlockState sb
+        return BlockPointer{..}
+    mkHashedPersistentBlockState sb@LowLevel.StoredBlock{..} = do
+        hpbsPointers <- newIORef $ BlobStore.blobRefToBufferedRef stbStatePointer
+        let hpbsHash = blockStateHash sb
+        return $! PBS.HashedPersistentBlockState{..}
 
-    getRoundStatus = do
-        SkovData{..} <- getSkovData
-        return _roundStatus
+getRecentBlockStatus blockHash = do
+    SkovData{..} <- getSkovData
+    -- We check whether the block is the last finalized block.
+    if getHash _lastFinalized == blockHash
+        then return $! RecentBlock $! BlockFinalized _lastFinalized
+        else -- We check if the block is the focus block
 
-    setRoundStatus roundStatus' = withSkovData $ \SkovData{..} -> SkovData{_roundStatus = roundStatus', ..}
+            if getHash _focusBlock == blockHash
+                then return $! RecentBlock $! BlockAlive _focusBlock
+                else -- Now we lookup in the livemap of the block table,
+                -- this will return if the block is pending or if it's alive on some other
+                -- branch.
+                -- If it is not present in the live store then we check whether the block
+                -- has been marked as dead or we finally try to look in the persistent block store.
+                case HM.lookup blockHash (_liveMap _blockTable) of
+                    Just status ->
+                        case status of
+                            MemBlockPending sb -> return $! RecentBlock $! BlockPending sb
+                            MemBlockAlive bp -> return $! RecentBlock $! BlockAlive bp
+                    Nothing ->
+                        -- Check if the block marked as dead before we peek into the
+                        -- persistent block store in order to check whether the block is present or not.
+                        if memberDeadCache blockHash (_deadCache _blockTable)
+                            then return $ RecentBlock BlockDead
+                            else do
+                                LowLevel.memberBlock blockHash >>= \case
+                                    True -> return OldFinalized
+                                    False -> return Unknown
 
-    addTransaction = undefined
-    markTransactionDead = undefined
-    lookupTransaction transactionHash = do
-        SkovData{..} <- getSkovData
-        case HM.lookup transactionHash $ _transactionTable ^. ttHashMap of
-            Nothing -> return Nothing
-            Just (_, status) -> return $! Just $! status
+{-
 
-    purgeTransactionTable = undefined
-    getNextAccountNonce = undefined
-    getNonFinalizedChainUpdates = undefined
-    getNonFinalizedCredential = undefined
-    clearAfterProtocolUpdate = undefined
-    getConsensusStatistics = do
-        SkovData{..} <- getSkovData
-        return _statistics
-    getRuntimeParameters = do
-        SkovData{..} <- getSkovData
-        return _runtimeParameters
+getFocusBlock = do
+    SkovData{..} <- getSkovData
+    return _focusBlock
+
+setFocusBlock focusBlock' = withSkovData $ \SkovData{..} -> SkovData{_focusBlock = focusBlock', ..}
+
+getPendingTransactions = do
+    SkovData{..} <- getSkovData
+    return _pendingTransactions
+
+getQuorumSignatureMessages = do
+    SkovData{..} <- getSkovData
+    return _currentQuouromSignatureMessages
+
+setQuorumSignatureMessages currentQuouromSignatureMessages' = withSkovData $
+    \SkovData{..} -> SkovData{_currentQuouromSignatureMessages = currentQuouromSignatureMessages', ..}
+
+getTimeoutMessages = do
+    SkovData{..} <- getSkovData
+    return _currentTimeoutSignatureMessages
+
+setTimeoutMessage currentTimeoutSignatureMessages' = withSkovData $
+    \SkovData{..} -> SkovData{_currentTimeoutSignatureMessages = currentTimeoutSignatureMessages', ..}
+
+getRoundStatus = do
+    SkovData{..} <- getSkovData
+    return _roundStatus
+
+setRoundStatus roundStatus' = withSkovData $ \SkovData{..} -> SkovData{_roundStatus = roundStatus', ..}
+
+addTransaction = undefined
+markTransactionDead = undefined
+lookupTransaction transactionHash = do
+    SkovData{..} <- getSkovData
+    case HM.lookup transactionHash $ _transactionTable ^. ttHashMap of
+        Nothing -> return Nothing
+        Just (_, status) -> return $! Just $! status
+
+purgeTransactionTable = undefined
+getNextAccountNonce = undefined
+getNonFinalizedChainUpdates = undefined
+getNonFinalizedCredential = undefined
+clearAfterProtocolUpdate = undefined
+getConsensusStatistics = do
+    SkovData{..} <- getSkovData
+    return _statistics
+getRuntimeParameters = do
+    SkovData{..} <- getSkovData
+    return _runtimeParameters
+-}

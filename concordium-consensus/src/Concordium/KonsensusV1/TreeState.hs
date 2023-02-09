@@ -16,42 +16,8 @@ import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import qualified Concordium.TransactionVerification as TVer
 import Concordium.Types
-import Concordium.Types.HashableTo
-import Concordium.Types.Parameters
 import Concordium.Types.Transactions
 import Concordium.Types.Updates
-
--- |Result of adding a 'VerifiedTransaction' to the transaction store.
-data AddBlockItemResult
-    = -- |The transaction was added to the transaction store.
-      Added
-    | -- |The transaction was not added as it is
-      -- already contained in the transaction store.
-      Duplicate
-    | -- |The transaction was not added as it yielded
-      -- an old nonce for the sender for the transaction.
-      -- I.e. the 'BlockItem' consisted of a account nonce that was
-      -- less than the current finalized account nonce for the account.
-      OldNonce
-
--- |A pointer to a block that has been executed
--- and the resulting 'PBS.HashedPersistentBlockStat'.
-data BlockPointer (pv :: ProtocolVersion) = BlockPointer
-    { -- |Metadata for the block.
-      _bpInfo :: !BlockMetadata,
-      -- |The signed block.
-      _bpBlock :: !(Block pv),
-      -- |The resulting state of executing the block.
-      _bpState :: !(PBS.HashedPersistentBlockState pv)
-    }
-
-instance HashableTo BlockHash (BlockPointer pv) where
-    getHash BlockPointer{..} = getHash _bpBlock
-
-
--- |Constraint that the protocol version @pv@ is associated with the version 1 consensus.
-type IsConsensusV1 (pv :: ProtocolVersion) =
-    ConsensusParametersVersionFor (ChainParametersVersionFor pv) ~ 'ConsensusParametersVersion1
 
 -- |Tree state for KonsensusV1.
 -- A tree state instance should provide storage for the following:
@@ -236,7 +202,7 @@ class
         -- |Hash of the transaction to lookup.
         TransactionHash ->
         -- |The resulting transaction status.
-        m (Maybe TransactionStatus)
+        m (Maybe LiveTransactionStatus)
 
     -- |Mark a transaction as dead
     -- expunge it from memory.
@@ -309,32 +275,3 @@ class
 
     -- |Get the runtime parameters.
     getRuntimeParameters :: m RuntimeParameters
-
--- |The status of a block.
-data BlockStatus pv
-    = -- |The block is awaiting its parent to become part of chain.
-      BlockPending !SignedBlock
-    | -- |The block is alive i.e. head of chain.
-      BlockAlive !(BlockPointer pv)
-    | -- |The block is finalized.
-      BlockFinalized !(BlockPointer pv)
-    | -- |The block has been marked dead.
-      BlockDead
-
-instance Show (BlockStatus pv) where
-    show (BlockPending _) = "Pending"
-    show (BlockAlive _) = "Alive"
-    show (BlockFinalized _) = "Finalized"
-    show BlockDead = "Dead"
-
--- |Get the status of a block if it recent
--- otherwise if it is a predecessor of the last finalized block
--- get a witness on that i.e. 'OldFinalized'.
-data RecentBlockStatus pv
-    = -- |The block is recent i.e. it is either 'Alive',
-      -- 'Pending' or the last finalized block.
-      RecentBlock !(BlockStatus pv)
-    | -- |The block is a predecessor of the last finalized block.
-      OldFinalized
-    | -- |The block is unknown.
-      Unknown
