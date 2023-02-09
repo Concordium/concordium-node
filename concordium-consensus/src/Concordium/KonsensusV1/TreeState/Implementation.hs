@@ -1,3 +1,4 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -12,6 +13,7 @@ module Concordium.KonsensusV1.TreeState.Implementation where
 import Control.Monad.Reader
 import Data.IORef
 import Data.Kind (Type)
+import Data.Time
 
 import qualified Data.HashMap.Strict as HM
 import qualified Data.PQueue.Prio.Min as MPQ
@@ -22,6 +24,7 @@ import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import Concordium.GlobalState.Persistent.TreeState (DeadCache, emptyDeadCache, insertDeadCache, memberDeadCache)
 import qualified Concordium.GlobalState.Statistics as Stats
 import Concordium.GlobalState.TransactionTable
+import qualified Concordium.GlobalState.Types as GSTypes
 import Concordium.KonsensusV1.TreeState
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
@@ -33,26 +36,47 @@ import Lens.Micro.Platform
 -- |Status of a block that is held in memory i.e.
 -- the block is either pending or alive.
 -- Parameterized by the 'BlockPointer' and the 'SignedBlock'.
-data InMemoryBlockStatus bp sb
+data InMemoryBlockStatus pv
     = -- |The block is awaiting its parent to become part of chain.
-      MemBlockPending !sb
+      MemBlockPending !SignedBlock
     | -- |The block is alive i.e. head of chain.
-      MemBlockAlive !bp
-    deriving (Eq)
+      MemBlockAlive !(BlockPointer pv)
+
+-- |Create a live block status from a
+-- pending block.
+-- Always returns the MemBlockAlive.
+makeLive :: BlockPointer (MPV m) -> GSTypes.BlockState m -> UTCTime -> InMemoryBlockStatus (MPV m) -> InMemoryBlockStatus (MPV m)
+makeLive parentPointer state now (MemBlockPending sb@SignedBlock{..}) = MemBlockAlive mkBlockPointer
+  where
+    mkBlockPointer =
+        let _bpInfo = mkMetaData
+            _bpBlock = NormalBlock sb
+            _bpState = mkStatePointer
+        in  BlockPointer{..}
+    mkMetaData =
+        let bmHeight' = (bmHeight $! _bpInfo parentPointer) + 1
+            bmReceiveTime = undefined
+            bmArriveTime = now
+        in  BlockMetadata{bmHeight = bmHeight', ..}
+    mkStatePointer =
+        let hpbsPointers = undefined
+            hpbsHash = blockStateHash sb
+        in  PBS.HashedPersistentBlockState{..}
+makeLive _ _ _ mba@(MemBlockAlive _) = mba
 
 -- |The block table yields blocks that are
 -- either alive or pending.
 -- Furthermore it holds a fixed size cache of hashes
 -- blocks marked as dead.
-data BlockTable bp bs = BlockTable
+data BlockTable pv = BlockTable
     { _deadCache :: !DeadCache,
-      _liveMap :: HM.HashMap BlockHash (InMemoryBlockStatus bp bs)
+      _liveMap :: HM.HashMap BlockHash (InMemoryBlockStatus pv)
     }
 
 makeLenses ''BlockTable
 
 -- |Create the empty block table.
-emptyBlockTable :: BlockTable bp bs
+emptyBlockTable :: BlockTable pv
 emptyBlockTable = BlockTable emptyDeadCache HM.empty
 
 -- |Data required to support 'TreeState'.
@@ -76,7 +100,7 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       -- |Runtime parameters.
       _runtimeParameters :: !RuntimeParameters,
       -- |Blocks which have been included in the tree or marked as dead.
-      _blockTable :: !(BlockTable (BlockPointer pv) SignedBlock),
+      _blockTable :: !(BlockTable pv),
       -- |Pending blocks i.e. blocks that have not yet been included in the tree.
       -- The entries of the pending blocks are keyed by the 'BlockHash' of their parent block.
       _pendingBlocksTable :: !(HM.HashMap BlockHash [SignedBlock]),
@@ -100,7 +124,7 @@ makeClassy ''SkovState
 
 -- |'TreeStateWrapper' for implementing 'MonadTreeState'.
 newtype TreeStateWrapper (pv :: ProtocolVersion) (m :: Type -> Type) (a :: Type) = TreeStateWrapper {runTreeStateWrapper :: m a}
-    deriving newtype (Functor, Applicative, Monad, MonadIO)
+    deriving newtype (Functor, Applicative, Monad, MonadIO, GSTypes.BlockStateTypes)
 
 -- |There must be an instance for 'LowLevel.MonadTreeStateStore m' in the transformer stack somewhere.
 deriving instance (LowLevel.MonadTreeStateStore m, MPV m ~ pv) => LowLevel.MonadTreeStateStore (TreeStateWrapper pv m)
@@ -124,7 +148,7 @@ verifyBlockItems sb = undefined
 -- |Mark a block as dead.
 -- This adds the 'BlockHash' to the 'DeadCache' and if present also
 -- expunges it from the @liveMap@ of the 'BlockTable'.
-markDead :: BlockHash -> BlockTable (BlockPointer pv) SignedBlock -> BlockTable (BlockPointer pv) SignedBlock
+markDead :: BlockHash -> BlockTable pv -> BlockTable pv
 markDead blockHash BlockTable{..} =
     let deadCache' = insertDeadCache blockHash _deadCache
         liveMap' = HM.delete blockHash _liveMap
@@ -192,7 +216,15 @@ instance forall m pv r. (MonadIO m, MonadReader r m, IsConsensusV1 pv, HasSkovSt
         theRound = bbRound bakedBlock
         parentHash = bhParent $! bbBlockHeader bakedBlock
 
-    markPendingBlockLive = undefined
+    markPendingBlockLive signedBlock parentPointer state now = do
+        (SkovState ioref) <- ask
+        SkovData{_blockTable = BlockTable{..}, ..} <- liftIO $ readIORef ioref
+        let liveMap' = HM.adjust (makeLive parentPointer state now) signedBlockHash _liveMap
+        liftIO $ writeIORef ioref $! SkovData{_blockTable = BlockTable{_liveMap = liveMap', ..}, ..}
+        return undefined
+      where
+        signedBlockHash = getHash signedBlock
+
     takePendingChildren = undefined
     markBlockDead blockHash = do
         (SkovState ioref) <- ask

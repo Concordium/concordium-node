@@ -11,6 +11,7 @@ import Concordium.GlobalState.Parameters (RuntimeParameters)
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import Concordium.GlobalState.Statistics
 import Concordium.GlobalState.TransactionTable
+import qualified Concordium.GlobalState.Types as BSTypes
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import qualified Concordium.TransactionVerification as TVer
@@ -98,13 +99,16 @@ class
         m (BlockStatus (MPV m))
 
     -- |Mark a pending block to be live.
-    -- Set the status of the block to be 'Alive'.
+    -- Set the status of the block to be live and
+    -- mark the contained transactions as committed.
     -- Note. This will also update the consensus statistics.
     markPendingBlockLive ::
         -- |The signed block to make live.
         SignedBlock ->
         -- |The parent block pointer
         BlockPointer (MPV m) ->
+        -- |The resulting block state
+        BSTypes.BlockState m ->
         -- |The current time
         UTCTime ->
         -- |The resulting block pointer
