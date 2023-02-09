@@ -673,6 +673,7 @@ data SignedBlock = SignedBlock
       -- |Signature of the baker on the block.
       sbSignature :: !BlockSignature
     }
+    deriving (Eq)
 
 instance BakedBlockData SignedBlock where
     blockQuorumCertificate = bbQuorumCertificate . sbBlock
@@ -869,6 +870,7 @@ data Block (pv :: ProtocolVersion)
           gbStateHash :: !StateHash
         }
     | NormalBlock !SignedBlock
+    deriving (Eq)
 
 instance BlockData (Block pv) where
     type BakedBlockDataType (Block pv) = SignedBlock

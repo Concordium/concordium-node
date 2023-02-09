@@ -956,7 +956,7 @@ instance
                     return
                         ( txHash,
                           FinalizedTransactionStatus
-                            { ftsCommitPoint = commitPoint slot,
+                            { ftsSlot = slot,
                               ftsBlockHash = bh,
                               ftsIndex = tsResults HM.! bh
                               -- the previous lookup is safe; finalized transaction must be on a block
