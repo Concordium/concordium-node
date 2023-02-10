@@ -9,7 +9,7 @@ import qualified Data.Serialize as S
 
 import qualified Concordium.Cost as Cost
 import qualified Concordium.Crypto.SHA256 as Sha256
-import qualified Concordium.GlobalState.Types as GSTypes
+import qualified Concordium.GlobalState.Types as Types
 import qualified Concordium.ID.Account as A
 import qualified Concordium.ID.AnonymityRevoker as AR
 import qualified Concordium.ID.IdentityProvider as IP
@@ -151,7 +151,7 @@ class (Monad m, Types.MonadProtocolVersion m) => TransactionVerifier m where
 
     -- |Get the account associated for the given account address.
     -- Returns 'Nothing' if no such account exists.
-    getAccount :: Types.AccountAddress -> m (Maybe (GSTypes.Account m))
+    getAccount :: Types.AccountAddress -> m (Maybe (Types.Account m))
 
     -- |Get the next 'SequenceNumber' given the 'UpdateType'.
     getNextUpdateSequenceNumber :: Updates.UpdateType -> m Updates.UpdateSequenceNumber
@@ -160,13 +160,13 @@ class (Monad m, Types.MonadProtocolVersion m) => TransactionVerifier m where
     getUpdateKeysCollection :: m (Updates.UpdateKeysCollection (Params.AuthorizationsVersionForPV (Types.MPV m)))
 
     -- |Get the current available amount for the specified account.
-    getAccountAvailableAmount :: GSTypes.Account m -> m Types.Amount
+    getAccountAvailableAmount :: Types.Account m -> m Types.Amount
 
     -- |Get the next account nonce.
-    getNextAccountNonce :: GSTypes.Account m -> m Types.Nonce
+    getNextAccountNonce :: Types.Account m -> m Types.Nonce
 
     -- |Get the verification keys associated with an Account.
-    getAccountVerificationKeys :: GSTypes.Account m -> m ID.AccountInformation
+    getAccountVerificationKeys :: Types.Account m -> m ID.AccountInformation
 
     -- |Convert the given energy to CCD at the current block.
     energyToCcd :: Types.Energy -> m Types.Amount
@@ -356,7 +356,7 @@ type ChainUpdateWithStatus = (Tx.WithMetadata Updates.UpdateInstruction, Maybe V
 -- The transaction can either arrive at the consensus as a single transaction,
 -- or the transaction can be received as part of a block.
 -- The ´Block´ additionally contains a ´BlockState´ of either the parent block (iff. it's 'alive') or the last finalized block.
-data TransactionOrigin m = Single | Block (GSTypes.BlockState m)
+data TransactionOrigin m = Single | Block (Types.BlockState m)
 
 -- |Determines if a transaction definitely cannot be valid now or in a future block.
 -- Transactions received individually must be verified successfully.
