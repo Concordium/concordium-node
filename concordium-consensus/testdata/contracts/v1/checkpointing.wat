@@ -61,7 +61,16 @@
     (if (i64.ne (i64.xor (i64.const 9223372036854775807) (i64.shl (i64.const 1) (i64.const 63))) (local.get $entry))
       (then unreachable)
       (else nop)))
-    
+
+  ;; Assert that an invocation resulted in success.
+  (func $assert_invoke_success (param $rv i64)
+      (call $assert_eq_64
+            ;; First 24 bits may have some parameter-related data.
+            ;; So we shift those away and check whether the result is 0,
+            ;; which means that the invoke succeeded.
+            (i64.shl (local.get $rv) (i64.const 24))
+            (i64.const 0)))
+
   ;; Contract A
 
   ;; Initialize contract A.
@@ -129,7 +138,7 @@
         ;; When a v0 fails execution then it returns '0x0005_0000_0000' back to the calling v1 contract.
         (then (call $assert_eq_64 (local.get $rv) (i64.const 21474836480)))
         ;; last 5 bytes are 0 if success
-        (else (call $assert_eq_64 (i64.shl (local.get $rv) (i64.const 24)) (i64.const 0))))))
+        (else (call $assert_invoke_success (local.get $rv))))))
 
 
     ;; if we we're called with an amount of '4' then we
@@ -150,6 +159,11 @@
       )
       ;; state should not be modified in this case.
       (else
+
+       (if (i64.eq (i64.const 0) (local.get $amount))
+        ;; If we are in test_case 2, with amount = 0, check that the invocation succeeded.
+        (call $assert_invoke_success (local.get $rv)))
+
         ;; check that the size of [0] has not changed.
         (call $assert_eq
           (i32.const 8)
@@ -203,9 +217,11 @@
         (i32.const 8)
         (call $state_entry_size 
             (call $state_lookup_entry (i32.const 0) (i32.const 1))))
-    (call $state_iterator_next (i64.const 0)) ;; only one iterator has been created and it has id 0.
-    ;; the iterator should now be at [00000]
-    (call $assert_eq (i32.const 5) (call $state_iterator_key_size (i64.const 0)))
+
+    ;; Ensure that the iterator created in an outer entrypoint cannot be accessed here.
+    (call $assert_eq_64 (i64.const 18446744073709551615) (call $state_iterator_next (i64.const 0))) ;; Should return u64::MAX
+    (call $assert_eq (i32.const 4294967295) (call $state_iterator_key_size (i64.const 0))) ;; Should return u32::MAX
+
     (return (i32.const 0)) ;; return success
   )
     

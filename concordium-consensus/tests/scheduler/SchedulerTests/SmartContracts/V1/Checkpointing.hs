@@ -159,14 +159,14 @@ checkpointingTest1 spv pvString =
 -- | This test has the following call pattern:
 -- A
 --   -->  B
---          --> A (no modification, but bump iterator)
+--          --> A (no modification, just lookup entry)
 --          <--
 --        B
 -- A <--
 --
 -- The state at A should be left unchanged.
--- The iterator initialized at the outer A should point to the same entry as before the call.
--- That is, the iterator should not be affected by the inner iterator.
+-- An iterator is created in the outer A, and the inner A tries to use it.
+-- It is asserted that the iterator does not exist in the inner A call.
 -- Only V1 contracts are being used.
 checkpointingTest2 ::
     forall pv.
