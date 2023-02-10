@@ -46,8 +46,8 @@ pipeline {
         DOMAIN = concordiumDomain(ENVIRONMENT)
         BUILD_FILE = "concordium-${ENVIRONMENT}-node_${CODE_VERSION}_amd64.deb"
         OUTFILE = "s3://distribution.${DOMAIN}/deb/concordium-${ENVIRONMENT}-node_${OUT_VERSION}_amd64.deb"
-        GENESIS_HASH_PATH = "${GENESIS_FULL_PATH}/genesis_hash"
-        GENESIS_DAT_FILE = "${GENESIS_FULL_PATH}/genesis.dat"
+        GENESIS_HASH_PATH = "genesis/${GENESIS_FULL_PATH}/genesis_hash"
+        GENESIS_DAT_FILE = "genesis/${GENESIS_FULL_PATH}/genesis.dat"
         ENVIRONMENT_CAP = environment.capitalize()
         DATA_DIR = "./scripts/distribution/ubuntu-packages/template/data/"
         RPC_PORT = "${rpc_port[environment]}"
