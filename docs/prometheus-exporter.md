@@ -126,3 +126,8 @@ Possible values of `result` are:
 ### `network_soft_banned_peers`
 
 Current number of soft banned peers. The node temporarily ban peers if they fail to follow the protocol.
+
+### `network_peers_total`
+
+Total number of peers connected since startup. This is incremented when a peer completes a handshake.
+

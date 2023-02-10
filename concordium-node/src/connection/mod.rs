@@ -555,6 +555,7 @@ impl Connection {
         self.remote_peer.self_id = Some(id);
         self.remote_peer.external_port = peer_port;
         self.handler.stats.connected_peers.inc();
+        self.handler.stats.peers.inc();
         if self.remote_peer.peer_type == PeerType::Bootstrapper {
             self.handler.update_last_bootstrap();
         }
