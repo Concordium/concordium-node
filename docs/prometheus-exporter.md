@@ -122,3 +122,7 @@ Possible values of `result` are:
 - `"invalid"` Messages being rejected as invalid.
 - `"dropped"` Messages being dropped due to a full queue. See either `network_inbound_low_priority_message_queue_size` or `network_inbound_high_priority_message_queue_size` for more on this.
 - `"duplicate"` Duplicate consensus messages. These are duplicate messages determined so by consensus, **after** the message has already been deduplicated at the network layer.
+
+### `network_soft_banned_peers`
+
+Current number of soft banned peers. The node temporarily ban peers if they fail to follow the protocol.

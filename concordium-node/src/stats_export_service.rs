@@ -103,6 +103,8 @@ pub struct StatsExportService {
     /// - `"finalization message"`
     /// - `"catch-up status message"`
     pub sent_messages: IntCounterVec,
+    /// Current number of soft banned peers.
+    pub soft_banned_peers: IntGauge,
     /// Total number of bytes received at the point of last
     /// throughput_measurement.
     ///
@@ -243,6 +245,12 @@ impl StatsExportService {
         )?;
         registry.register(Box::new(sent_messages.clone()))?;
 
+        let soft_banned_peers = IntGauge::with_opts(Opts::new(
+            "network_soft_banned_peers",
+            "Current number of soft banned peers",
+        ))?;
+        registry.register(Box::new(soft_banned_peers.clone()))?;
+
         let last_throughput_measurement_timestamp = AtomicI64::new(0);
         let last_throughput_measurement_sent_bytes = AtomicU64::new(0);
         let last_throughput_measurement_received_bytes = AtomicU64::new(0);
@@ -267,6 +275,7 @@ impl StatsExportService {
             last_arrived_block_timestamp,
             received_consensus_messages,
             sent_messages,
+            soft_banned_peers,
             last_throughput_measurement_timestamp,
             last_throughput_measurement_sent_bytes,
             last_throughput_measurement_received_bytes,
