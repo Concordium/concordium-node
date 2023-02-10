@@ -36,7 +36,6 @@ import qualified Concordium.GlobalState.PurgeTransactions as Purge
 import qualified Concordium.GlobalState.Statistics as Stats
 import Concordium.GlobalState.TransactionTable
 import qualified Concordium.GlobalState.Types as GSTypes
-import qualified Concordium.TransactionVerification as TVer
 
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Statistics (ConsensusStatistics)
@@ -140,23 +139,42 @@ makeLenses ''SkovData
 mkInitialSkovData ::
     -- |The 'RuntimeParameters'
     RuntimeParameters ->
+    -- |Genesis configuration
+    GenesisConfiguration ->
+    -- |Genesis state
+    PBS.HashedPersistentBlockState pv ->
     -- |The base timeout
     Duration ->
     -- |The 'LeadershipElectionNonce'
     LeadershipElectionNonce ->
     -- |The initial 'SkovData'
     SkovData pv
-mkInitialSkovData rp baseTimeout len =
-    let _roundStatus = initialRoundStatus baseTimeout len
+mkInitialSkovData rp genConf genState baseTimeout len =
+    let genesisBlock = GenesisBlock{gbConfiguration = genConf, gbStateHash = getHash genState}
+        genesisTime = timestampToUTCTime $ gdGenesisTime genConf
+        genesisMetadata =
+            BlockMetadata
+                { bmHeight = 0,
+                  bmReceiveTime = genesisTime,
+                  bmArriveTime = genesisTime
+                }
+        genesisBlockPointer =
+            BlockPointer
+                { _bpInfo = genesisMetadata,
+                  _bpBlock = genesisBlock,
+                  _bpState = genState
+                }
+        _roundStatus = initialRoundStatus baseTimeout len
         _transactionTable = emptyTransactionTable
         _transactionTablePurgeCounter = 0
         _pendingTransactions = emptyPendingTransactionTable
-        _focusBlock = undefined -- todo fill in the genesis block pointer
+        _focusBlock = genesisBlockPointer
         _runtimeParameters = rp
         _blockTable = emptyBlockTable
+        _branches = Seq.empty
         _pendingBlocksTable = HM.empty
         _pendingBlocksQueue = MPQ.empty
-        _lastFinalized = undefined -- todo fill in the genesis block pointer
+        _lastFinalized = genesisBlockPointer
         _statistics = Stats.initialConsensusStatistics
     in  SkovData{..}
 
@@ -209,9 +227,6 @@ withSkovDataPure f = do
     let (res, sd') = runState f sd
     liftIO $ writeIORef ioref $! sd'
     return res
-
--- TODO: Add a transaction verifier
--- instance forall m pv r. (MonadIO m, MonadReader r m, IsConsensusV1 pv, HasSkovState r (MPV m), r ~ SkovState pv, LowLevel.MonadTreeStateStore m, MPV m ~ pv) => MonadTreeState (TreeStateWrapper pv m) where
 
 -- * Operations on pending blocks
 
