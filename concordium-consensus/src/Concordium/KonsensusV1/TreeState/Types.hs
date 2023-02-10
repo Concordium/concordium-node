@@ -49,19 +49,81 @@ data AddBlockItemResult
       -- less than the current finalized account nonce for the account.
       OldNonce
 
+-- |Metadata about a block that has been executed.
+data BlockMetadata = BlockMetadata
+    { bmHeight :: !BlockHeight,
+      bmReceiveTime :: !UTCTime,
+      bmArriveTime :: !UTCTime
+    }
+
+instance Serialize BlockMetadata where
+    put BlockMetadata{..} = do
+        put bmHeight
+        putUTCPOSIXMicros bmReceiveTime
+        putUTCPOSIXMicros bmArriveTime
+      where
+        putUTCPOSIXMicros = putWord64be . floor . (1_000_000 *) . utcTimeToPOSIXSeconds
+    get = do
+        bmHeight <- get
+        bmReceiveTime <- getUTCPOSIXMicros
+        bmArriveTime <- getUTCPOSIXMicros
+        return BlockMetadata{..}
+      where
+        getUTCPOSIXMicros = posixSecondsToUTCTime . (/ 1_000_000) . realToFrac <$> getWord64be
+
 -- |A pointer to a block that has been executed
 -- and the resulting 'PBS.HashedPersistentBlockStat'.
 data BlockPointer (pv :: ProtocolVersion) = BlockPointer
     { -- |Metadata for the block.
-      _bpInfo :: !BlockMetadata,
+      bpInfo :: !BlockMetadata,
       -- |The signed block.
-      _bpBlock :: !(Block pv),
+      bpBlock :: !(Block pv),
       -- |The resulting state of executing the block.
-      _bpState :: !(PBS.HashedPersistentBlockState pv)
+      bpState :: !(PBS.HashedPersistentBlockState pv)
     }
 
 instance HashableTo BlockHash (BlockPointer pv) where
-    getHash BlockPointer{..} = getHash _bpBlock
+    getHash BlockPointer{..} = getHash bpBlock
+
+instance BlockData (BlockPointer pv) where
+    type BakedBlockDataType (BlockPointer pv) = SignedBlock
+    blockRound = blockRound . bpBlock
+    blockEpoch = blockEpoch . bpBlock
+    blockTimestamp = blockTimestamp . bpBlock
+    blockBakedData = blockBakedData . bpBlock
+    blockTransactions = blockTransactions . bpBlock
+    blockStateHash = blockStateHash . bpBlock
+
+-- |A block that is pending its parent.
+data PendingBlock = PendingBlock
+    { -- |The block itself.
+      pbBlock :: !SignedBlock,
+      -- |The time that the block was received by the consensus.
+      pbReceiveTime :: !UTCTime
+    }
+    deriving (Eq)
+
+instance HashableTo BlockHash PendingBlock where
+    getHash PendingBlock{..} = getHash pbBlock
+
+instance BlockData PendingBlock where
+    type BakedBlockDataType PendingBlock = SignedBlock
+    blockRound = blockRound . pbBlock
+    blockEpoch = blockEpoch . pbBlock
+    blockTimestamp = blockTimestamp . pbBlock
+    blockBakedData = blockBakedData . pbBlock
+    blockTransactions = blockTransactions . pbBlock
+    blockStateHash = blockStateHash . pbBlock
+
+instance BakedBlockData PendingBlock where
+    blockQuorumCertificate = blockQuorumCertificate . pbBlock
+    blockParent = blockParent . pbBlock
+    blockBaker = blockBaker . pbBlock
+    blockBakerKey = blockBakerKey . pbBlock
+    blockTimeoutCertificate = blockTimeoutCertificate . pbBlock
+    blockEpochFinalizationEntry = blockEpochFinalizationEntry . pbBlock
+    blockNonce = blockNonce . pbBlock
+    blockSignature = blockSignature . pbBlock
 
 -- |Constraint that the protocol version @pv@ is associated with the version 1 consensus.
 type IsConsensusV1 (pv :: ProtocolVersion) =
@@ -78,7 +140,7 @@ data TransactionStatus
 -- |The status of a block.
 data BlockStatus pv
     = -- |The block is awaiting its parent to become part of chain.
-      BlockPending !SignedBlock
+      BlockPending !PendingBlock
     | -- |The block is alive i.e. head of chain.
       BlockAlive !(BlockPointer pv)
     | -- |The block is finalized.
@@ -106,28 +168,6 @@ data RecentBlockStatus pv
       OldFinalized
     | -- |The block is unknown.
       Unknown
-
--- |Metadata about a block that has been executed.
-data BlockMetadata = BlockMetadata
-    { bmHeight :: !BlockHeight,
-      bmReceiveTime :: !UTCTime,
-      bmArriveTime :: !UTCTime
-    }
-
-instance Serialize BlockMetadata where
-    put BlockMetadata{..} = do
-        put bmHeight
-        putUTCPOSIXMicros bmReceiveTime
-        putUTCPOSIXMicros bmArriveTime
-      where
-        putUTCPOSIXMicros = putWord64be . floor . (1_000_000 *) . utcTimeToPOSIXSeconds
-    get = do
-        bmHeight <- get
-        bmReceiveTime <- getUTCPOSIXMicros
-        bmArriveTime <- getUTCPOSIXMicros
-        return BlockMetadata{..}
-      where
-        getUTCPOSIXMicros = posixSecondsToUTCTime . (/ 1_000_000) . realToFrac <$> getWord64be
 
 -- |The current round status.
 -- Note that it can be the case that both the 'QuorumSignatureMessage' and the

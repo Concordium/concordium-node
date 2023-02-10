@@ -10,17 +10,19 @@
 
 module Concordium.KonsensusV1.TreeState.Implementation where
 
+import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State
 import Data.IORef
-import Data.Kind (Type)
 import Data.Time
 import Lens.Micro.Platform
 
 import qualified Data.HashMap.Strict as HM
+import qualified Data.List as List
 import qualified Data.Map.Strict as Map
 import qualified Data.PQueue.Prio.Min as MPQ
 import qualified Data.Sequence as Seq
+import Data.Typeable
 
 import Concordium.Types
 import Concordium.Types.Execution
@@ -38,49 +40,28 @@ import Concordium.GlobalState.TransactionTable
 import qualified Concordium.GlobalState.Types as GSTypes
 
 import Concordium.GlobalState.BlockState
-import Concordium.GlobalState.Statistics (ConsensusStatistics)
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.TransactionVerification
 import qualified Concordium.TransactionVerification as TVer
 import Concordium.Utils
-import qualified Data.List as List
 
-data PendingBlock = PendingBlock
-    { pbBlock :: !SignedBlock,
-      pbReceiveTime :: !UTCTime
-    }
-    deriving (Eq)
+-- |Exception occurring from a violation of tree state invariants.
+newtype TreeStateInvariantViolation = TreeStateInvariantViolation String
+    deriving (Eq, Show, Typeable)
 
-instance HashableTo BlockHash PendingBlock where
-    getHash PendingBlock{..} = getHash pbBlock
-
-instance BlockData PendingBlock where
-    type BakedBlockDataType PendingBlock = SignedBlock
-    blockRound = blockRound . pbBlock
-    blockEpoch = blockEpoch . pbBlock
-    blockTimestamp = blockTimestamp . pbBlock
-    blockBakedData = blockBakedData . pbBlock
-    blockTransactions = blockTransactions . pbBlock
-    blockStateHash = blockStateHash . pbBlock
-
-instance BakedBlockData PendingBlock where
-    blockQuorumCertificate = blockQuorumCertificate . pbBlock
-    blockParent = blockParent . pbBlock
-    blockBaker = blockBaker . pbBlock
-    blockBakerKey = blockBakerKey . pbBlock
-    blockTimeoutCertificate = blockTimeoutCertificate . pbBlock
-    blockEpochFinalizationEntry = blockEpochFinalizationEntry . pbBlock
-    blockNonce = blockNonce . pbBlock
-    blockSignature = blockSignature . pbBlock
+instance Exception TreeStateInvariantViolation where
+    displayException (TreeStateInvariantViolation reason) =
+        "Tree state invariant violation: "
+            ++ show reason
 
 -- |Status of a block that is held in memory i.e.
 -- the block is either pending or alive.
 -- Parameterized by the 'BlockPointer' and the 'SignedBlock'.
 data InMemoryBlockStatus pv
     = -- |The block is awaiting its parent to become part of chain.
-      MemBlockPending !SignedBlock
+      MemBlockPending !PendingBlock
     | -- |The block is alive i.e. head of chain.
       MemBlockAlive !(BlockPointer pv)
 
@@ -99,6 +80,47 @@ makeLenses ''BlockTable
 emptyBlockTable :: BlockTable pv
 emptyBlockTable = BlockTable emptyDeadCache HM.empty
 
+-- |The 'PendingTransactions' consists of a "focus block", which is a live block, and a pending
+-- pending transaction table that is with respect to the focus block.
+data PendingTransactions pv = PendingTransactions
+    { -- |The block with respect to which the pending transactions are considered pending.
+      _focusBlock :: !(BlockPointer pv),
+      -- |The table of pending transactions with respect to the focus block.
+      _pendingTransactionTable :: !PendingTransactionTable
+    }
+
+makeClassy ''PendingTransactions
+
+-- | Pending blocks are conceptually stored in a min priority search queue,
+-- where multiple blocks may have the same key, which is their parent,
+-- and the priority is the block's slot number.
+-- When a block arrives (possibly dead), its pending children are removed
+-- from the queue and handled.  This uses 'takePendingChildren'.
+-- When a block is finalized, all pending blocks with a lower or equal slot
+-- number can be handled (they will become dead, since they can no longer
+-- join the tree).  This uses 'takeNextPendingUntil'.
+data PendingBlocks = PendingBlocks
+    { -- |Pending blocks i.e. blocks that have not yet been included in the tree.
+      -- The entries of the pending blocks are keyed by the 'BlockHash' of their parent block.
+      _pendingBlocksTable :: !(HM.HashMap BlockHash [PendingBlock]),
+      -- |A priority search queue on the (pending block hash, parent of pending block hash) tuple,
+      -- prioritised by the round of the pending block. The queue in particular supports extracting
+      -- the pending block with minimal 'Round'. Note that the  queue can contain spurious pending
+      -- blocks, and a block is only actually in the pending blocks if it has an entry in the
+      -- '_pendingBlocksTable'.
+      _pendingBlocksQueue :: !(MPQ.MinPQueue Round (BlockHash, BlockHash))
+    }
+
+makeClassy ''PendingBlocks
+
+-- |A 'PendingBlocks' with no blocks.
+emptyPendingBlocks :: PendingBlocks
+emptyPendingBlocks =
+    PendingBlocks
+        { _pendingBlocksTable = HM.empty,
+          _pendingBlocksQueue = MPQ.empty
+        }
+
 -- |Data required to support 'TreeState'.
 data SkovData (pv :: ProtocolVersion) = SkovData
     { _roundStatus :: !RoundStatus,
@@ -106,12 +128,8 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       _transactionTable :: !TransactionTable,
       -- |The purge counter for the 'TransactionTable'
       _transactionTablePurgeCounter :: !Int,
-      -- |Table of pending transactions i.e. transactions that has not yet become part
-      -- of a block.
-      _pendingTransactions :: !PendingTransactionTable,
-      -- |The current focus block.
-      -- The focus block is the block with the largest height included in the tree.
-      _focusBlock :: !(BlockPointer pv),
+      -- |Pending transactions
+      _skovPendingTransactions :: !(PendingTransactions pv),
       -- |Runtime parameters.
       _runtimeParameters :: !RuntimeParameters,
       -- |Blocks which have been included in the tree or marked as dead.
@@ -120,15 +138,8 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       _branches :: !(Seq.Seq [BlockPointer pv]),
       -- |Genesis configuration
       _genesisConfiguration :: !GenesisConfiguration,
-      -- |Pending blocks i.e. blocks that have not yet been included in the tree.
-      -- The entries of the pending blocks are keyed by the 'BlockHash' of their parent block.
-      _pendingBlocksTable :: !(HM.HashMap BlockHash [PendingBlock]),
-      -- |A priority search queue on the (pending block hash, parent of pending block hash) tuple,
-      -- prioritised by the round of the pending block. The queue in particular supports extracting
-      -- the pending block with minimal 'Round'. Note that the  queue can contain spurious pending
-      -- blocks, and a block is only actually in the pending blocks if it has an entry in the
-      -- '_pendingBlocksTable'.
-      _pendingBlocksQueue :: !(MPQ.MinPQueue Round (BlockHash, BlockHash)),
+      -- |Pending blocks
+      _skovPendingBlocks :: !PendingBlocks,
       -- |Pointer to the last finalized block.
       _lastFinalized :: !(BlockPointer pv),
       -- |The current consensus statistics.
@@ -136,6 +147,14 @@ data SkovData (pv :: ProtocolVersion) = SkovData
     }
 
 makeLenses ''SkovData
+
+instance HasPendingTransactions (SkovData pv) pv where
+    pendingTransactions = skovPendingTransactions
+    {-# INLINE pendingTransactions #-}
+
+instance HasPendingBlocks (SkovData pv) where
+    pendingBlocks = skovPendingBlocks
+    {-# INLINE pendingBlocks #-}
 
 -- |Create an initial 'SkovData pv'
 mkInitialSkovData ::
@@ -162,80 +181,143 @@ mkInitialSkovData rp genConf genState baseTimeout len =
                 }
         genesisBlockPointer =
             BlockPointer
-                { _bpInfo = genesisMetadata,
-                  _bpBlock = genesisBlock,
-                  _bpState = genState
+                { bpInfo = genesisMetadata,
+                  bpBlock = genesisBlock,
+                  bpState = genState
                 }
         _roundStatus = initialRoundStatus baseTimeout len
         _transactionTable = emptyTransactionTable
         _transactionTablePurgeCounter = 0
-        _pendingTransactions = emptyPendingTransactionTable
-        _focusBlock = genesisBlockPointer
+        _skovPendingTransactions =
+            PendingTransactions
+                { _pendingTransactionTable = emptyPendingTransactionTable,
+                  _focusBlock = genesisBlockPointer
+                }
         _runtimeParameters = rp
         _blockTable = emptyBlockTable
         _branches = Seq.empty
         _genesisConfiguration = genConf
-        _pendingBlocksTable = HM.empty
-        _pendingBlocksQueue = MPQ.empty
+        _skovPendingBlocks = emptyPendingBlocks
         _lastFinalized = genesisBlockPointer
         _statistics = Stats.initialConsensusStatistics
     in  SkovData{..}
 
--- |A 'SkovData pv' wrapped in an 'IORef', where @pv@ is the
--- current 'ProtocolVersion'
-newtype SkovState (pv :: ProtocolVersion) = SkovState (IORef (SkovData pv))
+-- * Operations on the block table
 
--- |Create the 'HasSkovState' @HasSkovState pv@ constraint.
-makeClassy ''SkovState
+-- |Get the 'BlockStatus' of a block that is available in memory based on the 'BlockHash'.
+-- (This includes live and pending blocks, but not finalized blocks, except for the last finalized
+-- block.)
+-- If the block could not be found in memory then this will return 'Nothing' otherwise
+-- 'Just BlockStatus'.
+-- This function should not be called directly, instead use either
+-- 'doGetBlockStatus' or 'doGetRecentBlockStatus'.
+doGetMemoryBlockStatus :: BlockHash -> SkovData pv -> Maybe (BlockStatus pv)
+doGetMemoryBlockStatus blockHash sd
+    -- Check if it's last finalized
+    | getHash (sd ^. lastFinalized) == blockHash = Just $! BlockFinalized (sd ^. lastFinalized)
+    -- Check if it's the focus block
+    | getHash (sd ^. focusBlock) == blockHash = Just $! BlockAlive (sd ^. focusBlock)
+    -- Check if it's a pending or live block
+    | Just status <- sd ^? blockTable . liveMap . ix blockHash = case status of
+        MemBlockPending sb -> Just $! BlockPending sb
+        MemBlockAlive bp -> Just $! BlockAlive bp
+    -- Check if it's in the dead block cache
+    | memberDeadCache blockHash (sd ^. blockTable . deadBlocks) = Just BlockDead
+    -- Otherwise, we don't know
+    | otherwise = Nothing
 
--- |'TreeStateWrapper' for implementing 'MonadTreeState'.
-newtype TreeStateWrapper (pv :: ProtocolVersion) (m :: Type -> Type) (a :: Type) = TreeStateWrapper {runTreeStateWrapper :: m a}
-    deriving newtype (Functor, Applicative, Monad, MonadIO, GSTypes.BlockStateTypes)
+-- |Get the 'BlockStatus' of a block based on the provided 'BlockHash'.
+-- Note. if one does not care about old finalized blocks then
+-- use 'doGetRecentBlockStatus' instead as it circumvents a full lookup from disk.
+doGetBlockStatus :: (LowLevel.MonadTreeStateStore m, MonadIO m) => BlockHash -> SkovData (MPV m) -> m (BlockStatus (MPV m))
+doGetBlockStatus blockHash sd = case doGetMemoryBlockStatus blockHash sd of
+    Just bs -> return bs
+    Nothing ->
+        LowLevel.lookupBlock blockHash >>= \case
+            Nothing -> return BlockUnknown
+            Just storedBlock -> do
+                blockPointer <- liftIO $ mkBlockPointer storedBlock
+                return $! BlockFinalized blockPointer
+  where
+    -- Create a block pointer from a stored block.
+    mkBlockPointer sb@LowLevel.StoredBlock{..} = do
+        bpState <- mkHashedPersistentBlockState sb
+        return BlockPointer{bpInfo = stbInfo, bpBlock = stbBlock, ..}
+    mkHashedPersistentBlockState sb@LowLevel.StoredBlock{..} = do
+        hpbsPointers <- newIORef $ BlobStore.blobRefToBufferedRef stbStatePointer
+        let hpbsHash = blockStateHash sb
+        return $! PBS.HashedPersistentBlockState{..}
 
--- |There must be an instance for 'LowLevel.MonadTreeStateStore m' in the transformer stack somewhere.
-deriving instance (LowLevel.MonadTreeStateStore m, MPV m ~ pv) => LowLevel.MonadTreeStateStore (TreeStateWrapper pv m)
+-- |Get the 'RecentBlockStatus' of a block based on the provided 'BlockHash'.
+-- One should use this instead of 'getBlockStatus' if
+-- one does not require the actual contents and resulting state related
+-- to the block in case the block is a predecessor of the last finalized block.
+doGetRecentBlockStatus :: (LowLevel.MonadTreeStateStore m) => BlockHash -> SkovData (MPV m) -> m (RecentBlockStatus (MPV m))
+doGetRecentBlockStatus blockHash sd = case doGetMemoryBlockStatus blockHash sd of
+    Just bs -> return $! RecentBlock bs
+    Nothing -> do
+        LowLevel.memberBlock blockHash >>= \case
+            True -> return OldFinalized
+            False -> return Unknown
 
--- |'MonadReader' instance for 'TreeStateWrapper'.
-deriving instance MonadReader r m => MonadReader r (TreeStateWrapper pv m)
+-- |Turn a 'PendingBlock' into a live block.
+-- This marks the block as 'MemBlockAlive' in the block table
+-- and updates the arrive time of the block.
+-- and returns the resulting 'BlockPointer'.
+doMakeLiveBlock :: (MonadState (SkovData pv) m) => PendingBlock -> PBS.HashedPersistentBlockState pv -> BlockHeight -> UTCTime -> m (BlockPointer pv)
+doMakeLiveBlock pb st height arriveTime = do
+    let bp =
+            BlockPointer
+                { bpInfo = BlockMetadata{bmReceiveTime = pbReceiveTime pb, bmArriveTime = arriveTime, bmHeight = height},
+                  bpBlock = NormalBlock (pbBlock pb),
+                  bpState = st
+                }
+    blockTable . liveMap . at' (getHash pb) ?=! MemBlockAlive bp
+    return bp
 
--- |'MonadProtocolVersion' instance for 'TreeStateWrapper'.
-instance IsProtocolVersion pv => MonadProtocolVersion (TreeStateWrapper pv m) where
-    type MPV (TreeStateWrapper pv m) = pv
+-- |Marks a block as dead.
+-- This expunges the block from memory
+-- and registers the block in the dead cache.
+doMarkBlockDead :: (MonadState (SkovData pv) m) => BlockHash -> m ()
+doMarkBlockDead blockHash = do
+    blockTable . liveMap . at' blockHash .=! Nothing
+    blockTable . deadBlocks %=! insertDeadCache blockHash
 
--- |Helper function for retrieving the SkovData in the 'TreeStateWrapper pv m' context.
--- This should be used when only reading from the 'SkovData' is required.
--- If one wishes to also update the 'SkovData' then use 'withSkovData'.
--- Note that this requires IO since the actual 'SkovData' is behind an 'IORef' via the 'SkovState pv'
-getSkovData :: (MonadIO m, MonadReader r m, r ~ SkovState pv) => TreeStateWrapper pv m (SkovData pv)
-getSkovData = do
-    (SkovState ioref) <- ask
-    liftIO $ readIORef ioref
+-- |Mark a live block as dead. In addition, purge the block state and maintain invariants in the
+-- transaction table by purging all transaction outcomes that refer to this block.
+doMarkLiveBlockDead ::
+    ( MonadState (SkovData pv) m,
+      BlockStateStorage m,
+      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState pv
+    ) =>
+    BlockPointer pv ->
+    m ()
+doMarkLiveBlockDead bp = do
+    let bh = getHash bp
+    doMarkBlockDead bh
+    purgeBlockState $ bpState bp
+    mapM_ (doMarkTransactionDead bh) (blockTransactions bp)
 
--- |Helper function for updating the 'SkovData' behind the 'IORef' in the 'SkovState pv'.
--- This should only be used when it is required to update the 'SkovData' otherwise use 'getSkovData'.
--- Note that this requires IO since the actual 'SkovData' is behind an 'IORef' via the 'SkovState pv'.
--- withSkovData :: (MonadIO m, MonadReader r m, r ~ SkovState pv) => (SkovData pv -> SkovData pv) -> m ()
-withSkovData :: (MonadIO m, MonadReader r m, HasSkovState r pv) => StateT (SkovData pv) m a -> m a
-withSkovData f = do
-    (SkovState ioref) <- view skovState
-    sd <- liftIO $ readIORef ioref
-    (res, sd') <- runStateT f sd
-    liftIO $ writeIORef ioref $! sd'
-    return res
-
-withSkovDataPure :: (MonadIO m, MonadReader r m, HasSkovState r pv) => State (SkovData pv) a -> m a
-withSkovDataPure f = do
-    (SkovState ioref) <- view skovState
-    sd <- liftIO $ readIORef ioref
-    let (res, sd') = runState f sd
-    liftIO $ writeIORef ioref $! sd'
-    return res
+-- |Mark a block as pending in the block table.
+-- (Note, this does not update the pending block table.)
+doMarkPending :: (MonadState (SkovData pv) m) => PendingBlock -> m ()
+doMarkPending pb = blockTable . liveMap . at' (getHash pb) ?=! MemBlockPending pb
 
 -- * Operations on pending blocks
 
+-- $pendingBlocks
+-- Pending blocks are conceptually stored in a min priority search queue,
+-- where multiple blocks may have the same key, which is their parent,
+-- and the priority is the block's round number.
+-- When a block arrives (possibly dead), its pending children are removed
+-- from the queue and handled.  This uses 'doTakePendingChildren'.
+-- When a block is finalized, all pending blocks with a lower or equal round
+-- number can be handled (they will become dead, since they can no longer
+-- join the tree).  This uses 'doTakeNextPendingUntil'.
+
 -- |Add a block to the pending block table and queue.
-doAddPendingBlock :: (MonadState (SkovData pv) m) => PendingBlock -> m ()
-{-# SPECIALIZE doAddPendingBlock :: PendingBlock -> State (SkovData pv) () #-}
+-- (Note, this does not update the block table.)
+doAddPendingBlock :: (MonadState s m, HasPendingBlocks s) => PendingBlock -> m ()
 doAddPendingBlock sb = do
     pendingBlocksQueue %= MPQ.insert theRound (blockHash, parentHash)
     pendingBlocksTable %= HM.adjust (sb :) parentHash
@@ -247,13 +329,13 @@ doAddPendingBlock sb = do
 -- |Take the set of blocks that are pending a particular parent from the pending block table.
 -- Note: this does not remove them from the pending blocks queue; blocks should be removed from
 -- the queue as the finalized round progresses.
-doTakePendingChildren :: (MonadState (SkovData pv) m) => BlockHash -> m [PendingBlock]
+doTakePendingChildren :: (MonadState s m, HasPendingBlocks s) => BlockHash -> m [PendingBlock]
 doTakePendingChildren parent = pendingBlocksTable . at' parent . non [] <<.= []
 
 -- |Return the next block that is pending its parent with round number
 -- less than or equal to the given value, removing it from the pending
 -- table.  Returns 'Nothing' if there is no such pending block.
-doTakeNextPendingUntil :: (MonadState (SkovData pv) m) => Round -> m (Maybe PendingBlock)
+doTakeNextPendingUntil :: (MonadState s m, HasPendingBlocks s) => Round -> m (Maybe PendingBlock)
 doTakeNextPendingUntil targetRound = tnpu =<< use pendingBlocksQueue
   where
     tnpu ppq = case MPQ.minViewWithKey ppq of
@@ -272,6 +354,8 @@ doTakeNextPendingUntil targetRound = tnpu =<< use pendingBlocksQueue
             pendingBlocksQueue .= ppq
             return Nothing
 
+-- * Operations on the transaction table
+
 -- |Lookup a transaction in the transaction table if it is live.
 -- This will not give results for finalized transactions.
 doLookupLiveTransaction :: TransactionHash -> SkovData pv -> Maybe LiveTransactionStatus
@@ -284,8 +368,160 @@ doLookupTransaction tHash sd = case doLookupLiveTransaction tHash sd of
     Just liveRes -> return $ Just $ Live liveRes
     Nothing -> fmap Finalized <$> LowLevel.lookupTransaction tHash
 
+-- |Get non-finalized transactions for the given account starting at the given nonce (inclusive).
+-- These are returned as an ordered list of pairs of nonce and non-empty set of transactions
+-- with that nonce. Transaction groups are ordered by increasing nonce.
+doGetNonFinalizedAccountTransactions ::
+    -- |Account to retrieve.
+    AccountAddressEq ->
+    -- |Starting nonce.
+    Nonce ->
+    SkovData pv ->
+    [(Nonce, Map.Map Transaction TVer.VerificationResult)]
+doGetNonFinalizedAccountTransactions addr nnce sd =
+    case sd ^. transactionTable . ttNonFinalizedTransactions . at' addr of
+        Nothing -> []
+        Just anfts -> case atnnce of
+            Nothing -> Map.toAscList beyond
+            Just s -> (nnce, s) : Map.toAscList beyond
+          where
+            (_, atnnce, beyond) = Map.splitLookup nnce (anfts ^. anftMap)
+
+-- |Get the non finalized chain updates.
+-- This returns a map from update sequence numbers to the
+-- the corresponding chain updates groups.
+-- The chain update groups are ordered by increasing
+-- sequence number.
+doGetNonFinalizedChainUpdates ::
+    -- |The 'UpdateType' to retrieve.
+    UpdateType ->
+    -- |The starting sequence number.
+    UpdateSequenceNumber ->
+    SkovData pv ->
+    -- |The resulting list of chain updates.
+    [(UpdateSequenceNumber, Map.Map (WithMetadata UpdateInstruction) TVer.VerificationResult)]
+doGetNonFinalizedChainUpdates uType updateSequenceNumber sd = do
+    case sd ^. transactionTable . ttNonFinalizedChainUpdates . at' uType of
+        Nothing -> []
+        Just nfcus -> case atsn of
+            Nothing -> Map.toAscList beyond
+            Just s -> (updateSequenceNumber, s) : Map.toAscList beyond
+          where
+            (_, atsn, beyond) = Map.splitLookup updateSequenceNumber (nfcus ^. nfcuMap)
+
+-- |Get a non finalized credential by its 'TransactionHash'
+-- This returns 'Nothing' in the case that the credential has already been finalized.
+doGetNonFinalizedCredential ::
+    -- |'TransactionHash' for the transaction that contained the 'CredentialDeployment'.
+    TransactionHash ->
+    SkovData pv ->
+    Maybe (CredentialDeploymentWithMeta, TVer.VerificationResult)
+doGetNonFinalizedCredential txhash sd = do
+    case sd ^? transactionTable . ttHashMap . ix txhash of
+        Just (WithMetadata{wmdData = CredentialDeployment{..}, ..}, status) ->
+            case status of
+                Received _ verRes -> Just (WithMetadata{wmdData = biCred, ..}, verRes)
+                Committed _ verRes _ -> Just (WithMetadata{wmdData = biCred, ..}, verRes)
+        _ -> Nothing
+
+-- |Get the next account nonce for an account.
+-- Returns a tuple consisting of the successor of the
+-- current account nonce and a boolean value indicating
+-- that there are no pending or committed (but only finalized) transactions
+-- tied to this account.
+doGetNextAccountNonce ::
+    -- |The 'AccountAddressEq' to get the next available nonce for.
+    -- This will work for account aliases as this is an 'AccountAddressEq'
+    -- and not just a 'AccountAddress'.
+    AccountAddressEq ->
+    SkovData pv ->
+    -- |The resulting account nonce and whether it is finalized or not.
+    (Nonce, Bool)
+doGetNextAccountNonce addr sd = case sd ^. transactionTable . ttNonFinalizedTransactions . at' addr of
+    Nothing -> (minNonce, True)
+    Just anfts ->
+        case Map.lookupMax (anfts ^. anftMap) of
+            Nothing -> (anfts ^. anftNextNonce, True)
+            Just (nonce, _) -> (nonce + 1, False)
+
+-- |Finalize a list of transactions. Per account, the transactions must be in
+-- continuous sequence by nonce, starting from the next available non-finalized
+-- nonce. This does not write the transactions to the low-level tree state database, but just
+-- updates the in-memory transaction table accordingly.
+doFinalizeTransactions :: (MonadState (SkovData pv) m, MonadThrow m) => [BlockItem] -> m ()
+doFinalizeTransactions = mapM_ finTrans
+  where
+    finTrans WithMetadata{wmdData = NormalTransaction tr, ..} = do
+        let nonce = transactionNonce tr
+            sender = accountAddressEmbed (transactionSender tr)
+        anft <- use (transactionTable . ttNonFinalizedTransactions . at' sender . non emptyANFT)
+        unless (anft ^. anftNextNonce == nonce) $
+            throwM . TreeStateInvariantViolation $
+                "The recorded next nonce for the account "
+                    ++ show sender
+                    ++ " ("
+                    ++ show (anft ^. anftNextNonce)
+                    ++ ") doesn't match the one that is going to be finalized ("
+                    ++ show nonce
+                    ++ ")"
+        let nfn = anft ^. anftMap . at' nonce . non Map.empty
+            wmdtr = WithMetadata{wmdData = tr, ..}
+        unless (Map.member wmdtr nfn) $
+            throwM . TreeStateInvariantViolation $
+                "Tried to finalize transaction which is not known to be in the set of \
+                \non-finalized transactions for the sender "
+                    ++ show sender
+        -- Remove any other transactions with this nonce from the transaction table.
+        -- They can never be part of any other block after this point.
+        forM_ (Map.keys (Map.delete wmdtr nfn)) $
+            \deadTransaction -> transactionTable . ttHashMap . at' (getHash deadTransaction) .= Nothing
+        -- Remove the transaction from the in-memory table.
+        transactionTable . ttHashMap . at' wmdHash .= Nothing
+        -- Update the non-finalized transactions for the sender
+        transactionTable
+            . ttNonFinalizedTransactions
+            . at' sender
+            ?= ( anft
+                    & (anftMap . at' nonce .~ Nothing)
+                    & (anftNextNonce .~ nonce + 1)
+               )
+    finTrans WithMetadata{wmdData = CredentialDeployment{}, ..} =
+        transactionTable . ttHashMap . at' wmdHash .= Nothing
+    finTrans WithMetadata{wmdData = ChainUpdate cu, ..} = do
+        let sn = updateSeqNumber (uiHeader cu)
+            uty = updateType (uiPayload cu)
+        nfcu <- use (transactionTable . ttNonFinalizedChainUpdates . at' uty . non emptyNFCU)
+        unless (nfcu ^. nfcuNextSequenceNumber == sn) $
+            throwM . TreeStateInvariantViolation $
+                "The recorded next sequence number for update type "
+                    ++ show uty
+                    ++ " ("
+                    ++ show (nfcu ^. nfcuNextSequenceNumber)
+                    ++ ") doesn't match the one that is going to be finalized ("
+                    ++ show sn
+                    ++ ")"
+        let nfsn = nfcu ^. nfcuMap . at' sn . non Map.empty
+            wmdcu = WithMetadata{wmdData = cu, ..}
+        unless (Map.member wmdcu nfsn) $
+            throwM . TreeStateInvariantViolation $
+                "Tried to finalize a chain update that is not known to be in the set of \
+                \non-finalized chain updates of type "
+                    ++ show uty
+        -- Remove any other updates with the same sequence number, since they weren't finalized
+        forM_ (Map.keys (Map.delete wmdcu nfsn)) $
+            \deadUpdate -> transactionTable . ttHashMap . at' (getHash deadUpdate) .= Nothing
+        -- Remove the transaction from the in-memory table
+        transactionTable . ttHashMap . at' wmdHash .= Nothing
+        -- Update the non-finalized chain updates
+        transactionTable
+            . ttNonFinalizedChainUpdates
+            . at' uty
+            ?= (nfcu & (nfcuMap . at' sn .~ Nothing) & (nfcuNextSequenceNumber .~ sn + 1))
+
 -- |Mark a live transaction as committed in a particular block.
 -- This does nothing if the transaction is not live.
+-- A committed transaction cannot be purged while it is committed for a round after the round of
+-- the last finalized block.
 doCommitTransaction ::
     (MonadState (SkovData pv) m) =>
     -- |Round of the block
@@ -309,43 +545,13 @@ doCommitTransaction rnd bh ti transaction =
 -- |Add a transaction to the transaction table if its nonce/sequence number is at least the next
 -- non-finalized nonce/sequence number. The return value is 'True' if and only if the transaction
 -- was added.
+-- When adding a transaction from a block, use the 'Round' of the block. Otherwise use round @0@.
+-- The transaction must not already be present.
 doAddTransaction :: (MonadState (SkovData pv) m) => Round -> BlockItem -> VerificationResult -> m Bool
 doAddTransaction rnd transaction verRes = do
     added <- transactionTable %%=! addTransaction transaction (commitPoint rnd) verRes
     when added $ transactionTablePurgeCounter += 1
     return added
-
--- |Get the 'PendingTransactionTable'.
-doGetPendingTransactions :: (MonadState (SkovData pv) m) => m PendingTransactionTable
-doGetPendingTransactions = use pendingTransactions
-
--- |Put the 'PendingTransactionTable'.
-doPutPendingTransactions :: (MonadState (SkovData pv) m) => PendingTransactionTable -> m ()
-doPutPendingTransactions pts = pendingTransactions .= pts
-
--- |Turn a 'PendingBlock' into a live block.
--- This marks the block as 'MemBlockAlive' in the block table
--- and updates the arrive time of the block.
--- and returns the resulting 'BlockPointer'.
-doMakeLiveBlock :: (MonadState (SkovData pv) m) => PendingBlock -> PBS.HashedPersistentBlockState pv -> BlockHeight -> UTCTime -> m (BlockPointer pv)
-doMakeLiveBlock pb st height arriveTime = do
-    let bp =
-            BlockPointer
-                { _bpInfo = BlockMetadata{bmReceiveTime = pbReceiveTime pb, bmArriveTime = arriveTime, bmHeight = height},
-                  _bpBlock = NormalBlock (pbBlock pb),
-                  _bpState = st
-                }
-    blockTable . liveMap . at' (getHash pb) ?=! MemBlockAlive bp
-    return bp
-
--- |Marks a block as dead.
--- This expunges the block from memory
--- and registers the block in the dead cache.
-doMarkBlockDead :: (MonadState (SkovData pv) m) => BlockHash -> m ()
-doMarkBlockDead blockHash = do
-    blockTable . liveMap . at' blockHash .=! Nothing
-    blockTable . deadBlocks %=! insertDeadCache blockHash
-    return ()
 
 -- |Mark the provided transaction as dead for the provided 'BlockHash'.
 doMarkTransactionDead ::
@@ -355,134 +561,13 @@ doMarkTransactionDead ::
     -- |The 'BlockItem' to mark as dead.
     BlockItem ->
     m ()
-doMarkTransactionDead blockHash transaction = transactionTable . ttHashMap . at' (getHash transaction) . mapped . _2 %= markDeadResult blockHash
-
--- |Get a 'BlockPointer' to the last finalized block.
-doGetLastFinalized :: (MonadState (SkovData pv) m) => m (BlockPointer pv)
-doGetLastFinalized = use lastFinalized
-
--- |Get the 'BlockStatus' of a block that is available in memory based on the 'BlockHash'.
--- (This includes live and pending blocks, but not finalized blocks, except for the last finalized
--- block.)
--- If the block could not be found in memory then this will return 'Nothing' otherwise
--- 'Just BlockStatus'.
--- This function should not be called directly, instead use either
--- 'doGetBlockStatus' or 'doGetRecentBlockStatus'.
-doGetMemoryBlockStatus :: BlockHash -> SkovData pv -> Maybe (BlockStatus pv)
-doGetMemoryBlockStatus blockHash SkovData{..}
-    -- Check if it's last finalized
-    | getHash _lastFinalized == blockHash = Just $! BlockFinalized _lastFinalized
-    -- Check if it's the focus block
-    | getHash _focusBlock == blockHash = Just $! BlockAlive _focusBlock
-    -- Check if it's a pending or live block
-    | Just status <- _blockTable ^? liveMap . ix blockHash = case status of
-        MemBlockPending sb -> Just $! BlockPending sb
-        MemBlockAlive bp -> Just $! BlockAlive bp
-    -- Check if it's in the dead block cache
-    | memberDeadCache blockHash (_deadBlocks _blockTable) = Just BlockDead
-    -- Otherwise, we don't know
-    | otherwise = Nothing
-
--- |Get the 'BlockStatus' of a block based on the provided 'BlockHash'.
--- Note. if one does not care about old finalized blocks then
--- use 'doGetRecentBlockStatus' instead as it circumvents a full lookup from disk.
-doGetBlockStatus :: (LowLevel.MonadTreeStateStore m, MonadIO m) => BlockHash -> SkovData (MPV m) -> m (BlockStatus (MPV m))
-doGetBlockStatus blockHash sd = case doGetMemoryBlockStatus blockHash sd of
-    Just bs -> return bs
-    Nothing ->
-        LowLevel.lookupBlock blockHash >>= \case
-            Nothing -> return BlockUnknown
-            Just storedBlock -> do
-                blockPointer <- liftIO $ mkBlockPointer storedBlock
-                return $! BlockFinalized blockPointer
-  where
-    -- Create a block pointer from a stored block.
-    mkBlockPointer sb@LowLevel.StoredBlock{..} = do
-        _bpState <- mkHashedPersistentBlockState sb
-        return BlockPointer{_bpInfo = stbInfo, _bpBlock = stbBlock, ..}
-    mkHashedPersistentBlockState sb@LowLevel.StoredBlock{..} = do
-        hpbsPointers <- newIORef $ BlobStore.blobRefToBufferedRef stbStatePointer
-        let hpbsHash = blockStateHash sb
-        return $! PBS.HashedPersistentBlockState{..}
-
--- |Get the 'RecentBlockStatus' of a block based on the provided 'BlockHash'.
--- One should use this instead of 'getBlockStatus' if
--- one does not require the actual contents and resulting state related
--- to the block in case the block is a predecessor of the last finalized block.
-doGetRecentBlockStatus :: (LowLevel.MonadTreeStateStore m) => BlockHash -> SkovData (MPV m) -> m (RecentBlockStatus (MPV m))
-doGetRecentBlockStatus blockHash sd = case doGetMemoryBlockStatus blockHash sd of
-    Just bs -> return $! RecentBlock bs
-    Nothing -> do
-        LowLevel.memberBlock blockHash >>= \case
-            True -> return OldFinalized
-            False -> return Unknown
-
--- |Get the focus block.
--- This is probably the best block, but if
--- we're pruning a branch this will become the parent block
-doGetFocusBlock :: (MonadState (SkovData pv) m) => m (BlockPointer pv)
-doGetFocusBlock = use focusBlock
-
--- |Update the focus block
-doPutFocusBlock :: (MonadState (SkovData pv) m) => BlockPointer pv -> m ()
-doPutFocusBlock fb = focusBlock .= fb
-
--- |Get the current 'RoundStatus'
-doGetRoundStatus :: (MonadState (SkovData pv) m) => m RoundStatus
-doGetRoundStatus = use roundStatus
-
--- |Put the current 'RoundStatus'
-doPutRoundStatus :: (MonadState (SkovData pv) m) => RoundStatus -> m ()
-doPutRoundStatus rs = roundStatus .= rs
-
--- |Get the 'RuntimeParameters'
-doGetRuntimeParameters :: (MonadState (SkovData pv) m) => m RuntimeParameters
-doGetRuntimeParameters = use runtimeParameters
-
--- |Get consensus statistics.
-doGetConsensusStatistics :: (MonadState (SkovData pv) m) => m ConsensusStatistics
-doGetConsensusStatistics = use statistics
-
--- |Get the non finalized chain updates.
--- This returns a map from update sequence numbers to the
--- the corresponding chain updates groups.
--- The chain update groups are ordered by increasing
--- sequence number.
-doGetNonfinalizedChainUpdates ::
-    (MonadState (SkovData pv) m) =>
-    -- |The 'UpdateType' to retrieve.
-    UpdateType ->
-    -- |The starting sequence number.
-    UpdateSequenceNumber ->
-    -- |The resulting list of
-    m [(UpdateSequenceNumber, Map.Map (WithMetadata UpdateInstruction) TVer.VerificationResult)]
-doGetNonfinalizedChainUpdates uType updateSequenceNumber = do
-    use (transactionTable . ttNonFinalizedChainUpdates . at' uType) >>= \case
-        Nothing -> return []
-        Just nfcus ->
-            let (_, atsn, beyond) = Map.splitLookup updateSequenceNumber (nfcus ^. nfcuMap)
-            in  return $ case atsn of
-                    Nothing -> Map.toAscList beyond
-                    Just s ->
-                        let first = (updateSequenceNumber, s)
-                            rest = Map.toAscList beyond
-                        in  first : rest
-
--- |Get a non finalized credential by its 'TransactionHash'
--- This returns 'Nothing' in the case that the credential has already been finalized.
-doGetNonFinalizedCredential ::
-    (MonadState (SkovData pv) m) =>
-    -- |'TransactionHash' for the transaction that contained the
-    -- 'CredentialDeployment'.
-    TransactionHash ->
-    m (Maybe (CredentialDeploymentWithMeta, TVer.VerificationResult))
-doGetNonFinalizedCredential txhash = do
-    preuse (transactionTable . ttHashMap . ix txhash) >>= \case
-        Just (WithMetadata{wmdData = CredentialDeployment{..}, ..}, status) ->
-            case status of
-                Received _ verRes -> return $ Just (WithMetadata{wmdData = biCred, ..}, verRes)
-                Committed _ verRes _ -> return $ Just (WithMetadata{wmdData = biCred, ..}, verRes)
-        _ -> return Nothing
+doMarkTransactionDead blockHash transaction =
+    transactionTable
+        . ttHashMap
+        . at' (getHash transaction)
+        . mapped
+        . _2
+        %= markDeadResult blockHash
 
 -- |Purge transactions from the transaction table and pending transactions.
 -- Transactions are purged only if they are not included in a live block, and
@@ -530,9 +615,9 @@ doPurgeTransactionTable force currentTime = do
     when (force || purgeCount > rpInsertionsBeforeTransactionPurge) $ do
         transactionTablePurgeCounter .= 0
         lfb <- use lastFinalized
-        let lastFinalizedRound = blockRound $! _bpBlock lfb
+        let lastFinalizedRound = blockRound $! bpBlock lfb
         transactionTable' <- use transactionTable
-        pendingTransactions' <- use pendingTransactions
+        pendingTransactions' <- use pendingTransactionTable
         let
             currentTransactionTime = utcTimeToTransactionTime currentTime
             oldestArrivalTime =
@@ -542,28 +627,7 @@ doPurgeTransactionTable force currentTime = do
             currentTimestamp = utcTimeToTimestamp currentTime
             (newTT, newPT) = Purge.purgeTables (commitPoint lastFinalizedRound) oldestArrivalTime currentTimestamp transactionTable' pendingTransactions'
         transactionTable .= newTT
-        pendingTransactions .= newPT
-
--- |Get the next account nonce for an account.
--- Returns a tuple consisting of the successor of the
--- current account nonce and a boolean value indicating
--- that there are no pending or committed (but only finalized) transactions
--- tied to this account.
-doGetNextAccountNonce ::
-    (MonadState (SkovData pv) m) =>
-    -- |The 'AccountAddressEq' to get the next available nonce for.
-    -- This will work for account aliases as this is an 'AccountAddressEq'
-    -- and not just a 'AccountAddress'.
-    AccountAddressEq ->
-    -- |The resulting account nonce and whether it is finalized or not.
-    m (Nonce, Bool)
-doGetNextAccountNonce addr =
-    use (transactionTable . ttNonFinalizedTransactions . at' addr) >>= \case
-        Nothing -> return (minNonce, True)
-        Just anfts ->
-            case Map.lookupMax (anfts ^. anftMap) of
-                Nothing -> return (anfts ^. anftNextNonce, True)
-                Just (nonce, _) -> return (nonce + 1, False)
+        pendingTransactionTable .= newPT
 
 -- |Clear pending and non-finalized blocks from the tree state.
 -- Transactions that were committed (to any non-finalized block) have their status changed to
@@ -593,10 +657,10 @@ doClearAfterProtocolUpdate :: (MonadState (SkovData pv) m, BlockStateStorage m, 
 doClearAfterProtocolUpdate = do
     -- Clear the transaction table and pending transactions.
     transactionTable .=! emptyTransactionTable
-    pendingTransactions .=! emptyPendingTransactionTable
+    pendingTransactionTable .=! emptyPendingTransactionTable
     -- Set the focus block to the last finalized block.
     lastFinBlock <- use lastFinalized
     focusBlock .=! lastFinBlock
     -- Archive the last finalized block state.
-    archiveBlockState $ _bpState lastFinBlock
+    archiveBlockState $ bpState lastFinBlock
     collapseCaches
