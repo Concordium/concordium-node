@@ -689,7 +689,7 @@ getBakedBlock spv tt = label "BakedBlock" $ do
     -- goes via a list in any case, so this may be a non-issue. However, this gives us a bit more
     -- assurance.]
     remBytes <- remaining
-    when (fromIntegral remBytes < numTrans * transactionHeaderSize) $
+    when (fromIntegral remBytes < numTrans) $
         fail $
             "Block should have "
                 ++ show numTrans
