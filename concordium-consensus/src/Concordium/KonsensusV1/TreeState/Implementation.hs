@@ -42,11 +42,13 @@ import Concordium.KonsensusV1.Types
 import Concordium.TransactionVerification
 import Concordium.Utils
 import Concordium.GlobalState.Statistics (ConsensusStatistics)
+import qualified Data.List as List
 
 data PendingBlock = PendingBlock
     { pbBlock :: !SignedBlock,
       pbReceiveTime :: !UTCTime
     }
+    deriving (Eq)
 
 instance HashableTo BlockHash PendingBlock where
     getHash PendingBlock{..} = getHash pbBlock
@@ -59,6 +61,16 @@ instance BlockData PendingBlock where
     blockBakedData = blockBakedData . pbBlock
     blockTransactions = blockTransactions . pbBlock
     blockStateHash = blockStateHash . pbBlock
+
+instance BakedBlockData PendingBlock where
+    blockQuorumCertificate = blockQuorumCertificate . pbBlock
+    blockParent = blockParent . pbBlock
+    blockBaker = blockBaker . pbBlock
+    blockBakerKey = blockBakerKey . pbBlock
+    blockTimeoutCertificate = blockTimeoutCertificate . pbBlock
+    blockEpochFinalizationEntry = blockEpochFinalizationEntry . pbBlock
+    blockNonce = blockNonce . pbBlock
+    blockSignature = blockSignature . pbBlock
 
 -- |Status of a block that is held in memory i.e.
 -- the block is either pending or alive.
@@ -103,9 +115,12 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       _blockTable :: !(BlockTable pv),
       -- |Pending blocks i.e. blocks that have not yet been included in the tree.
       -- The entries of the pending blocks are keyed by the 'BlockHash' of their parent block.
-      _pendingBlocksTable :: !(HM.HashMap BlockHash [SignedBlock]),
-      -- |A priority search queue on the (pending block hash, parent of pending block hash) tuple.
-      -- The queue in particular supports extracting the minimal 'Round'.
+      _pendingBlocksTable :: !(HM.HashMap BlockHash [PendingBlock]),
+      -- |A priority search queue on the (pending block hash, parent of pending block hash) tuple,
+      -- prioritised by the round of the pending block. The queue in particular supports extracting
+      -- the pending block with minimal 'Round'. Note that the  queue can contain spurious pending
+      -- blocks, and a block is only actually in the pending blocks if it has an entry in the
+      -- '_pendingBlocksTable'.
       _pendingBlocksQueue :: !(MPQ.MinPQueue Round (BlockHash, BlockHash)),
       -- |Pointer to the last finalized block.
       _lastFinalized :: !(BlockPointer pv),
@@ -168,9 +183,11 @@ withSkovDataPure f = do
 -- TODO: Add a transaction verifier
 -- instance forall m pv r. (MonadIO m, MonadReader r m, IsConsensusV1 pv, HasSkovState r (MPV m), r ~ SkovState pv, LowLevel.MonadTreeStateStore m, MPV m ~ pv) => MonadTreeState (TreeStateWrapper pv m) where
 
+-- * Operations on pending blocks
+
 -- |Add a block to the pending block table and queue.
-doAddPendingBlock :: (MonadState (SkovData pv) m) => SignedBlock -> m ()
-{-# SPECIALIZE doAddPendingBlock :: SignedBlock -> State (SkovData pv) () #-}
+doAddPendingBlock :: (MonadState (SkovData pv) m) => PendingBlock -> m ()
+{-# SPECIALIZE doAddPendingBlock :: PendingBlock -> State (SkovData pv) () #-}
 doAddPendingBlock sb = do
     pendingBlocksQueue %= MPQ.insert theRound (blockHash, parentHash)
     pendingBlocksTable %= HM.adjust (sb :) parentHash
@@ -178,6 +195,34 @@ doAddPendingBlock sb = do
     blockHash = getHash sb
     theRound = blockRound sb
     parentHash = blockParent sb
+
+-- |Take the set of blocks that are pending a particular parent from the pending block table.
+-- Note: this does not remove them from the pending blocks queue; blocks should be removed from
+-- the queue as the finalized round progresses.
+doTakePendingChildren :: (MonadState (SkovData pv) m) => BlockHash -> m [PendingBlock]
+doTakePendingChildren parent = pendingBlocksTable . at' parent . non [] <<.= []
+
+-- |Return the next block that is pending its parent with round number
+-- less than or equal to the given value, removing it from the pending
+-- table.  Returns 'Nothing' if there is no such pending block.
+doTakeNextPendingUntil :: (MonadState (SkovData pv) m) => Round -> m (Maybe PendingBlock)
+doTakeNextPendingUntil targetRound = tnpu =<< use pendingBlocksQueue
+  where
+    tnpu ppq = case MPQ.minViewWithKey ppq of
+        Just ((r, (pending, parent)), ppq')
+            | r <= targetRound -> do
+                (myPB, otherPBs) <-
+                    List.partition ((== pending) . getHash)
+                        <$> use (pendingBlocksTable . at' parent . non [])
+                case myPB of
+                    [] -> tnpu ppq' -- Block is no longer actually pending
+                    (realPB : _) -> do
+                        pendingBlocksTable . at' parent . non [] .= otherPBs
+                        pendingBlocksQueue .= ppq'
+                        return (Just realPB)
+        _ -> do
+            pendingBlocksQueue .= ppq
+            return Nothing
 
 -- |Lookup a transaction in the transaction table if it is live.
 -- This will not give results for finalized transactions.
@@ -246,8 +291,6 @@ doMakeLiveBlock pb st height arriveTime = do
                 }
     blockTable . liveMap . at' (getHash pb) ?=! MemBlockAlive bp
     return bp
-
-takePendingChildren = undefined
 
 -- |Marks a block as dead.
 -- This expunges the block from memory
@@ -393,6 +436,6 @@ doGetNonfinalizedChainUpdates uType updateSequenceNumber = undefined
 {-
 purgeTransactionTable = undefined
 getNextAccountNonce = undefined
-getNonFinalizedCredential = undefined
+GetNonFinalizedCredential = undefined
 clearAfterProtocolUpdate = undefined
 -}
