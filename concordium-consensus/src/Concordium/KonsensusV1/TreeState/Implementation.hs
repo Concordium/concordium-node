@@ -17,10 +17,10 @@ import Data.Kind (Type)
 import Data.Time
 import Lens.Micro.Platform
 
-import qualified Data.Map.Strict as Map
 import qualified Data.HashMap.Strict as HM
+import qualified Data.Map.Strict as Map
 import qualified Data.PQueue.Prio.Min as MPQ
-import qualified Concordium.TransactionVerification as TVer
+import qualified Data.Sequence as Seq
 
 import Concordium.Types
 import Concordium.Types.Execution
@@ -36,12 +36,14 @@ import qualified Concordium.GlobalState.Statistics as Stats
 import Concordium.GlobalState.TransactionTable
 import qualified Concordium.GlobalState.Types as GSTypes
 
+import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.Statistics (ConsensusStatistics)
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.TransactionVerification
+import qualified Concordium.TransactionVerification as TVer
 import Concordium.Utils
-import Concordium.GlobalState.Statistics (ConsensusStatistics)
 import qualified Data.List as List
 
 data PendingBlock = PendingBlock
@@ -113,6 +115,8 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       _runtimeParameters :: !RuntimeParameters,
       -- |Blocks which have been included in the tree or marked as dead.
       _blockTable :: !(BlockTable pv),
+      -- |Branches of the tree by height above the last finalized block
+      _branches :: !(Seq.Seq [BlockPointer pv]),
       -- |Pending blocks i.e. blocks that have not yet been included in the tree.
       -- The entries of the pending blocks are keyed by the 'BlockHash' of their parent block.
       _pendingBlocksTable :: !(HM.HashMap BlockHash [PendingBlock]),
@@ -122,6 +126,8 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       -- blocks, and a block is only actually in the pending blocks if it has an entry in the
       -- '_pendingBlocksTable'.
       _pendingBlocksQueue :: !(MPQ.MinPQueue Round (BlockHash, BlockHash)),
+      -- |Pointer to the genesis block.
+      _genesisBlockPointer :: !(BlockPointer pv),
       -- |Pointer to the last finalized block.
       _lastFinalized :: !(BlockPointer pv),
       -- |The current consensus statistics.
@@ -388,7 +394,7 @@ doGetFocusBlock :: (MonadState (SkovData pv) m) => m (BlockPointer pv)
 doGetFocusBlock = use focusBlock
 
 -- |Update the focus block
-doPutFocusBlock :: (MonadState (SkovData pv) m) =>  BlockPointer pv -> m ()
+doPutFocusBlock :: (MonadState (SkovData pv) m) => BlockPointer pv -> m ()
 doPutFocusBlock fb = focusBlock .= fb
 
 -- |Get the current 'RoundStatus'
@@ -396,7 +402,7 @@ doGetRoundStatus :: (MonadState (SkovData pv) m) => m RoundStatus
 doGetRoundStatus = use roundStatus
 
 -- |Put the current 'RoundStatus'
-doPutRoundStatus ::  (MonadState (SkovData pv) m) => RoundStatus -> m ()
+doPutRoundStatus :: (MonadState (SkovData pv) m) => RoundStatus -> m ()
 doPutRoundStatus rs = roundStatus .= rs
 
 -- |Get the 'RuntimeParameters'
@@ -412,14 +418,15 @@ doGetConsensusStatistics = use statistics
 -- the corresponding chain updates groups.
 -- The chain update groups are ordered by increasing
 -- sequence number.
-doGetNonfinalizedChainUpdates :: (MonadState (SkovData pv) m) =>
-                                -- |The 'UpdateType' to retrieve.
-                                UpdateType ->
-                                -- |The starting sequence number.
-                                UpdateSequenceNumber ->
-                                -- |The resulting list of
-                                m [(UpdateSequenceNumber, Map.Map (WithMetadata UpdateInstruction) TVer.VerificationResult)]
-doGetNonfinalizedChainUpdates uType updateSequenceNumber = undefined  
+doGetNonfinalizedChainUpdates ::
+    (MonadState (SkovData pv) m) =>
+    -- |The 'UpdateType' to retrieve.
+    UpdateType ->
+    -- |The starting sequence number.
+    UpdateSequenceNumber ->
+    -- |The resulting list of
+    m [(UpdateSequenceNumber, Map.Map (WithMetadata UpdateInstruction) TVer.VerificationResult)]
+doGetNonfinalizedChainUpdates uType updateSequenceNumber = undefined
 
 {-
 purgeTransactionTable = undefined
@@ -427,3 +434,41 @@ getNextAccountNonce = undefined
 GetNonFinalizedCredential = undefined
 clearAfterProtocolUpdate = undefined
 -}
+
+-- |Clear pending and non-finalized blocks from the tree state.
+-- Transactions that were committed (to any non-finalized block) have their status changed to
+-- received.
+doClearOnProtocolUpdate :: (MonadState (SkovData pv) m) => m ()
+doClearOnProtocolUpdate = do
+    -- clear the pending block table
+    pendingBlocksTable .=! HM.empty
+    pendingBlocksQueue .=! MPQ.empty
+    -- clear the block table
+    blockTable .=! emptyBlockTable
+    -- clear the branches
+    branches .=! Seq.empty
+    -- mark committed transactions as received, since we have dropped any blocks
+    -- that they belong to.
+    transactionTable
+        . ttHashMap
+        %=! HM.map
+            ( \case
+                (bi, Committed{..}) -> (bi, Received{..})
+                s -> s
+            )
+
+-- |Clear the transaction table and pending transactions, ensure that the block states are archived,
+-- and collapse the block state caches.
+doClearAfterProtocolUpdate :: (MonadState (SkovData pv) m, BlockStateStorage m, GSTypes.BlockState m ~ PBS.HashedPersistentBlockState pv) => m ()
+doClearAfterProtocolUpdate = do
+    -- Clear the transaction table and pending transactions.
+    transactionTable .=! emptyTransactionTable
+    pendingTransactions .=! emptyPendingTransactionTable
+    -- Set the focus block to the last finalized block.
+    lastFinBlock <- use lastFinalized
+    focusBlock .=! lastFinBlock
+    -- Archive any block states that may still be cached.
+    -- (At this point, only the lastFinalizedBlock should really be relevant.)
+    archiveBlockState . _bpState =<< use genesisBlockPointer
+    archiveBlockState $ _bpState lastFinBlock
+    collapseCaches
