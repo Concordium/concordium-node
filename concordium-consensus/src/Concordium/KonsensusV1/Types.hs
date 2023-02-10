@@ -1,5 +1,6 @@
 {-# LANGUAGE BinaryLiterals #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -8,6 +9,8 @@
 {-# LANGUAGE TypeFamilies #-}
 
 module Concordium.KonsensusV1.Types where
+
+import GHC.Generics (Generic)
 
 import Control.Monad
 import Data.Bits
@@ -847,7 +850,13 @@ instance HashableTo BlockHash BakedBlock where
 newtype SignatureMessages a = SignatureMessages
     { qsmFinMessages :: IntMap.IntMap a
     }
-    deriving (Eq, Show)
+    deriving (Eq, Show, Generic)
+
+-- |Construct an empty 'SignatureMessages'
+emptySignatureMessages :: SignatureMessages a
+emptySignatureMessages = SignatureMessages IntMap.empty
+
+instance Serialize a => Serialize (SignatureMessages a)
 
 -- |A 'BlockItem' together with its verification result.
 -- Precondition: The verification result must be 'Ok'.

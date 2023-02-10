@@ -8,7 +8,6 @@ import qualified Data.Map.Strict as Map
 import Data.Time
 
 import Concordium.GlobalState.Parameters (RuntimeParameters)
-import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import Concordium.GlobalState.Statistics
 import Concordium.GlobalState.TransactionTable
 import qualified Concordium.GlobalState.Types as BSTypes
@@ -158,22 +157,6 @@ class
     -- I.e. transactions that have not yet been committed to a block.
     -- Note. pending transactions are after the focus block has been executed.
     getPendingTransactions :: m PendingTransactionTable
-
-    -- * Quorum- and Timeout Certificates
-
-    --
-
-    -- |Gets the quorum signatures for the current round.
-    getQuorumSignatureMessages :: m (SignatureMessages QuorumSignatureMessage)
-
-    -- |Sets the quorum signature messages for the current round.
-    setQuorumSignatureMessages :: SignatureMessages QuorumSignatureMessage -> m ()
-
-    -- |Get the timeout messages for the current round.
-    getTimeoutMessages :: m (SignatureMessages TimeoutSignatureMessage)
-
-    -- |Sets the timeout messages for the current round.
-    setTimeoutMessage :: SignatureMessages TimeoutSignatureMessage -> m ()
 
     -- * Round status.
 

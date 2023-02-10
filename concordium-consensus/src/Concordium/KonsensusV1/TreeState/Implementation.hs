@@ -17,13 +17,16 @@ import Data.Kind (Type)
 import Data.Time
 import Lens.Micro.Platform
 
+import qualified Data.Map.Strict as Map
 import qualified Data.HashMap.Strict as HM
 import qualified Data.PQueue.Prio.Min as MPQ
+import qualified Concordium.TransactionVerification as TVer
 
 import Concordium.Types
 import Concordium.Types.Execution
 import Concordium.Types.HashableTo
 import Concordium.Types.Transactions
+import Concordium.Types.Updates
 
 import Concordium.GlobalState.Parameters
 import qualified Concordium.GlobalState.Persistent.BlobStore as BlobStore
@@ -33,12 +36,12 @@ import qualified Concordium.GlobalState.Statistics as Stats
 import Concordium.GlobalState.TransactionTable
 import qualified Concordium.GlobalState.Types as GSTypes
 
--- import Concordium.KonsensusV1.TreeState
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.TransactionVerification
 import Concordium.Utils
+import Concordium.GlobalState.Statistics (ConsensusStatistics)
 
 data PendingBlock = PendingBlock
     { pbBlock :: !SignedBlock,
@@ -83,12 +86,7 @@ emptyBlockTable = BlockTable emptyDeadCache HM.empty
 
 -- |Data required to support 'TreeState'.
 data SkovData (pv :: ProtocolVersion) = SkovData
-    { -- |The 'QuorumSignatureMessage's for the current round.
-      _currentQuouromSignatureMessages :: !(SignatureMessages QuorumSignatureMessage),
-      -- |The 'TimeoutSignatureMessages's for the current round.
-      _currentTimeoutSignatureMessages :: !(SignatureMessages TimeoutSignatureMessage),
-      -- |The 'RoundStatus' for the current 'Round'.
-      _roundStatus :: !RoundStatus,
+    { _roundStatus :: !RoundStatus,
       -- |Transactions.
       _transactionTable :: !TransactionTable,
       -- |The purge counter for the 'TransactionTable'
@@ -344,50 +342,57 @@ doGetRecentBlockStatus blockHash =
                 True -> return OldFinalized
                 False -> return Unknown
 
-{-
-
-getFocusBlock = do
-    SkovData{..} <- getSkovData
+-- |Get the focus block.
+-- This is probably the best block, but if
+-- we're pruning a branch this will become the parent block
+doGetFocusBlock :: (MonadState (SkovData pv) m) => m (BlockPointer pv)
+doGetFocusBlock = do
+    SkovData{..} <- get
     return _focusBlock
 
-setFocusBlock focusBlock' = withSkovData $ \SkovData{..} -> SkovData{_focusBlock = focusBlock', ..}
+-- |Update the focus block
+doPutFocusBlock :: (MonadState (SkovData pv) m) =>  BlockPointer pv -> m ()
+doPutFocusBlock fb = focusBlock .= fb
 
-getQuorumSignatureMessages = do
-    SkovData{..} <- getSkovData
-    return _currentQuouromSignatureMessages
+-- |Get the current 'RoundStatus'
+doGetRoundStatus :: (MonadState (SkovData pv) m) => m RoundStatus
+doGetRoundStatus = do
+  SkovData{..} <- get
+  return _roundStatus
 
-setQuorumSignatureMessages currentQuouromSignatureMessages' = withSkovData $
-    \SkovData{..} -> SkovData{_currentQuouromSignatureMessages = currentQuouromSignatureMessages', ..}
+-- |Put the current 'RoundStatus'
+doPutRoundStatus ::  (MonadState (SkovData pv) m) => RoundStatus -> m ()
+doPutRoundStatus rs = roundStatus .= rs
 
-getTimeoutMessages = do
-    SkovData{..} <- getSkovData
-    return _currentTimeoutSignatureMessages
+-- |Get the 'RuntimeParameters'
+doGetRuntimeParameters :: (MonadState (SkovData pv) m) => m RuntimeParameters
+doGetRuntimeParameters = do
+    SkovData{..} <- get
+    return _runtimeParameters
 
-setTimeoutMessage currentTimeoutSignatureMessages' = withSkovData $
-    \SkovData{..} -> SkovData{_currentTimeoutSignatureMessages = currentTimeoutSignatureMessages', ..}
+-- |Get consensus statistics.
+doGetConsensusStatistics :: (MonadState (SkovData pv) m) => m ConsensusStatistics
+doGetConsensusStatistics = do
+  SkovData{..} <- get
+  return _statistics
 
-getRoundStatus = do
-    SkovData{..} <- getSkovData
-    return _roundStatus
+-- |Get the non finalized chain updates.
+-- This returns a map from update sequence numbers to the
+-- the corresponding chain updates groups.
+-- The chain update groups are ordered by increasing
+-- sequence number.
+doGetNonfinalizedChainUpdates :: (MonadState (SkovData pv) m) =>
+                                -- |The 'UpdateType' to retrieve.
+                                UpdateType ->
+                                -- |The starting sequence number.
+                                UpdateSequenceNumber ->
+                                -- |The resulting list of
+                                m [(UpdateSequenceNumber, Map.Map (WithMetadata UpdateInstruction) TVer.VerificationResult)]
+doGetNonfinalizedChainUpdates uType updateSequenceNumber = undefined  
 
-setRoundStatus roundStatus' = withSkovData $ \SkovData{..} -> SkovData{_roundStatus = roundStatus', ..}
-
-markTransactionDead = undefined
-lookupTransaction transactionHash = do
-    SkovData{..} <- getSkovData
-    case HM.lookup transactionHash $ _transactionTable ^. ttHashMap of
-        Nothing -> return Nothing
-        Just (_, status) -> return $! Just $! status
-
+{-
 purgeTransactionTable = undefined
 getNextAccountNonce = undefined
-getNonFinalizedChainUpdates = undefined
 getNonFinalizedCredential = undefined
 clearAfterProtocolUpdate = undefined
-getConsensusStatistics = do
-    SkovData{..} <- getSkovData
-    return _statistics
-getRuntimeParameters = do
-    SkovData{..} <- getSkovData
-    return _runtimeParameters
 -}
