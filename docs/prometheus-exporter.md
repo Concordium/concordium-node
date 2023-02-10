@@ -131,3 +131,13 @@ Current number of soft banned peers. The node temporarily ban peers if they fail
 
 Total number of peers connected since startup. This is incremented when a peer completes a handshake.
 
+### `node_info`
+
+General information of the running node.
+
+Labelled with the node version (`version=<version>`)
+
+### `node_startup_timestamp`
+
+Timestamp of starting up the node (Unix time in milliseconds).
+

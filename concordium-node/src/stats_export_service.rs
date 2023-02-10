@@ -107,6 +107,11 @@ pub struct StatsExportService {
     pub soft_banned_peers: IntGauge,
     /// Total number of peers connected since startup.
     pub peers: IntCounter,
+    /// General node information, so far only contains a label `version` with
+    /// the version of the node.
+    pub node_info: IntGauge,
+    /// Timestamp of starting up the node (Unix time in milliseconds).
+    pub node_startup_timestamp: IntGauge,
     /// Total number of bytes received at the point of last
     /// throughput_measurement.
     ///
@@ -259,6 +264,22 @@ impl StatsExportService {
         ))?;
         registry.register(Box::new(peers.clone()))?;
 
+        let node_info = IntGauge::with_opts(
+            Opts::new("node_info", "Node information such as version").const_labels(
+                prometheus::labels! {
+                    "version".to_owned() => crate::VERSION.to_owned()
+                },
+            ),
+        )?;
+        registry.register(Box::new(node_info.clone()))?;
+        node_info.set(1);
+
+        let node_startup_timestamp = IntGauge::with_opts(Opts::new(
+            "node_startup_timestamp",
+            "Timestamp of starting up the node (Unix time in milliseconds).",
+        ))?;
+        registry.register(Box::new(node_startup_timestamp.clone()))?;
+
         let last_throughput_measurement_timestamp = AtomicI64::new(0);
         let last_throughput_measurement_sent_bytes = AtomicU64::new(0);
         let last_throughput_measurement_received_bytes = AtomicU64::new(0);
@@ -285,6 +306,8 @@ impl StatsExportService {
             sent_messages,
             soft_banned_peers,
             peers,
+            node_info,
+            node_startup_timestamp,
             last_throughput_measurement_timestamp,
             last_throughput_measurement_sent_bytes,
             last_throughput_measurement_received_bytes,
