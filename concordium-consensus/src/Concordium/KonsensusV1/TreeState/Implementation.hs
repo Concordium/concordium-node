@@ -17,10 +17,10 @@ import Data.Kind (Type)
 import Data.Time
 import Lens.Micro.Platform
 
-import qualified Data.Map.Strict as Map
-import qualified Data.HashMap.Strict as HM
-import qualified Data.PQueue.Prio.Min as MPQ
 import qualified Concordium.TransactionVerification as TVer
+import qualified Data.HashMap.Strict as HM
+import qualified Data.Map.Strict as Map
+import qualified Data.PQueue.Prio.Min as MPQ
 
 import Concordium.Types
 import Concordium.Types.Execution
@@ -36,12 +36,12 @@ import qualified Concordium.GlobalState.Statistics as Stats
 import Concordium.GlobalState.TransactionTable
 import qualified Concordium.GlobalState.Types as GSTypes
 
+import Concordium.GlobalState.Statistics (ConsensusStatistics)
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.TransactionVerification
 import Concordium.Utils
-import Concordium.GlobalState.Statistics (ConsensusStatistics)
 import qualified Data.List as List
 
 data PendingBlock = PendingBlock
@@ -388,7 +388,7 @@ doGetFocusBlock :: (MonadState (SkovData pv) m) => m (BlockPointer pv)
 doGetFocusBlock = use focusBlock
 
 -- |Update the focus block
-doPutFocusBlock :: (MonadState (SkovData pv) m) =>  BlockPointer pv -> m ()
+doPutFocusBlock :: (MonadState (SkovData pv) m) => BlockPointer pv -> m ()
 doPutFocusBlock fb = focusBlock .= fb
 
 -- |Get the current 'RoundStatus'
@@ -396,7 +396,7 @@ doGetRoundStatus :: (MonadState (SkovData pv) m) => m RoundStatus
 doGetRoundStatus = use roundStatus
 
 -- |Put the current 'RoundStatus'
-doPutRoundStatus ::  (MonadState (SkovData pv) m) => RoundStatus -> m ()
+doPutRoundStatus :: (MonadState (SkovData pv) m) => RoundStatus -> m ()
 doPutRoundStatus rs = roundStatus .= rs
 
 -- |Get the 'RuntimeParameters'
@@ -412,18 +412,44 @@ doGetConsensusStatistics = use statistics
 -- the corresponding chain updates groups.
 -- The chain update groups are ordered by increasing
 -- sequence number.
-doGetNonfinalizedChainUpdates :: (MonadState (SkovData pv) m) =>
-                                -- |The 'UpdateType' to retrieve.
-                                UpdateType ->
-                                -- |The starting sequence number.
-                                UpdateSequenceNumber ->
-                                -- |The resulting list of
-                                m [(UpdateSequenceNumber, Map.Map (WithMetadata UpdateInstruction) TVer.VerificationResult)]
-doGetNonfinalizedChainUpdates uType updateSequenceNumber = undefined  
+doGetNonfinalizedChainUpdates ::
+    (MonadState (SkovData pv) m) =>
+    -- |The 'UpdateType' to retrieve.
+    UpdateType ->
+    -- |The starting sequence number.
+    UpdateSequenceNumber ->
+    -- |The resulting list of
+    m [(UpdateSequenceNumber, Map.Map (WithMetadata UpdateInstruction) TVer.VerificationResult)]
+doGetNonfinalizedChainUpdates uType updateSequenceNumber = do
+    use (transactionTable . ttNonFinalizedChainUpdates . at' uType) >>= \case
+        Nothing -> return []
+        Just nfcus ->
+            let (_, atsn, beyond) = Map.splitLookup updateSequenceNumber (nfcus ^. nfcuMap)
+            in  return $ case atsn of
+                    Nothing -> Map.toAscList beyond
+                    Just s ->
+                        let first = (updateSequenceNumber, s)
+                            rest = Map.toAscList beyond
+                        in  first : rest
+
+-- |Get a non finalized credential by its 'TransactionHash'
+-- This returns 'Nothing' in the case that the credential has already been finalized.
+doGetNonFinalizedCredential ::
+    (MonadState (SkovData pv) m) =>
+    -- |'TransactionHash' for the transaction that contained the
+    -- 'CredentialDeployment'.
+    TransactionHash ->
+    m (Maybe (CredentialDeploymentWithMeta, TVer.VerificationResult))
+doGetNonFinalizedCredential txhash = do
+    preuse (transactionTable . ttHashMap . ix txhash) >>= \case
+        Just (WithMetadata{wmdData = CredentialDeployment{..}, ..}, status) ->
+            case status of
+                Received _ verRes -> return $ Just (WithMetadata{wmdData = biCred, ..}, verRes)
+                Committed _ verRes _ -> return $ Just (WithMetadata{wmdData = biCred, ..}, verRes)
+        _ -> return Nothing
 
 {-
 purgeTransactionTable = undefined
 getNextAccountNonce = undefined
-GetNonFinalizedCredential = undefined
 clearAfterProtocolUpdate = undefined
 -}
