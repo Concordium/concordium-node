@@ -26,6 +26,12 @@ pipeline {
         }
 
         stage('build') {
+            environment {
+                // Overrides the parameter 'genesis_path'
+                // Use default genesis path for each environment, if the genesis_path param has not been set.
+                // Uses library function defined here: https://gitlab.com/Concordium/infra/jenkins-library/-/blob/master/vars/defaultGenesis.groovy
+                genesis_path = defaultGenesis(environment, genesis_path)
+            }
             steps {
                 sh 'printenv'
                 sshagent (credentials: ['jenkins-gitlab-ssh']) {

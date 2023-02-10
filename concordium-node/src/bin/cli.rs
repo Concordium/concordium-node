@@ -51,7 +51,7 @@ use std::net::{IpAddr, SocketAddr};
 async fn main() -> anyhow::Result<()> {
     let (conf, mut app_prefs) = get_config_and_logging_setup()?;
 
-    let stats_export_service = instantiate_stats_export_engine(&conf)?;
+    let stats_export_service = instantiate_stats_export_engine()?;
     let regenesis_arc: Arc<Regenesis> = Arc::new(Default::default());
 
     // The P2PNode thread
@@ -93,17 +93,31 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let (notification_context, notification_handlers) = if conf.cli.grpc2.is_enabled() {
-        let (sender, receiver) = futures::channel::mpsc::unbounded();
+        let (sender_blocks, receiver_blocks) = futures::channel::mpsc::unbounded();
         let (sender_finalized, receiver_finalized) = futures::channel::mpsc::unbounded();
         let notify_context = ffi::NotificationContext {
-            blocks:           sender,
-            finalized_blocks: sender_finalized,
+            blocks: Some(sender_blocks),
+            finalized_blocks: Some(sender_finalized),
+            last_finalized_block_height: node.stats.last_finalized_block_height.clone(),
+            last_finalized_block_timestamp: node.stats.last_finalized_block_timestamp.clone(),
+            last_arrived_block_height: node.stats.last_arrived_block_height.clone(),
+            last_arrived_block_timestamp: node.stats.last_arrived_block_timestamp.clone(),
         };
         let notification_handlers = ffi::NotificationHandlers {
-            blocks:           receiver,
+            blocks:           receiver_blocks,
             finalized_blocks: receiver_finalized,
         };
         (Some(notify_context), Some(notification_handlers))
+    } else if conf.prometheus.is_enabled() {
+        let notify_context = ffi::NotificationContext {
+            blocks: None,
+            finalized_blocks: None,
+            last_finalized_block_height: node.stats.last_finalized_block_height.clone(),
+            last_finalized_block_timestamp: node.stats.last_finalized_block_timestamp.clone(),
+            last_arrived_block_height: node.stats.last_arrived_block_height.clone(),
+            last_arrived_block_timestamp: node.stats.last_arrived_block_timestamp.clone(),
+        };
+        (Some(notify_context), None)
     } else {
         (None, None)
     };
@@ -398,12 +412,14 @@ fn start_consensus_message_threads(
         'outer_loop: loop {
             exhausted = false;
             // Update size of queues
-            node_ref.stats.set_inbound_low_priority_consensus_size(
-                consensus_receiver_low_priority.len() as i64,
-            );
-            node_ref.stats.set_inbound_high_priority_consensus_size(
-                consensus_receiver_high_priority.len() as i64,
-            );
+            node_ref
+                .stats
+                .inbound_low_priority_message_queue_size
+                .set(consensus_receiver_low_priority.len() as i64);
+            node_ref
+                .stats
+                .inbound_high_priority_message_queue_size
+                .set(consensus_receiver_high_priority.len() as i64);
             // instead of using `try_iter()` we specifically only loop over the max numbers
             // possible to ever be in the queue
             for _ in 0..CONSENSUS_QUEUE_DEPTH_IN_HI {
@@ -466,12 +482,14 @@ fn start_consensus_message_threads(
         'outer_loop: loop {
             exhausted = false;
             // Update size of queues
-            node_ref.stats.set_outbound_low_priority_consensus_size(
-                consensus_receiver_low_priority.len() as i64,
-            );
-            node_ref.stats.set_outbound_high_priority_consensus_size(
-                consensus_receiver_high_priority.len() as i64,
-            );
+            node_ref
+                .stats
+                .outbound_low_priority_message_queue_size
+                .set(consensus_receiver_low_priority.len() as i64);
+            node_ref
+                .stats
+                .outbound_high_priority_message_queue_size
+                .set(consensus_receiver_high_priority.len() as i64);
             // instead of using `try_iter()` we specifically only loop over the max numbers
             // possible to ever be in the queue
             for _ in 0..CONSENSUS_QUEUE_DEPTH_OUT_HI {

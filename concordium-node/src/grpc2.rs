@@ -1,4 +1,5 @@
 use anyhow::Context;
+use prometheus::core::Atomic;
 use prost::bytes::BufMut;
 use std::{
     convert::{TryFrom, TryInto},
@@ -2039,8 +2040,8 @@ pub mod server {
                     .connection_handler
                     .total_received
                     .load(std::sync::atomic::Ordering::Relaxed);
-                let avg_bps_in = self.node.stats.get_avg_bps_in();
-                let avg_bps_out = self.node.stats.get_avg_bps_out();
+                let avg_bps_in = self.node.stats.avg_bps_in.get();
+                let avg_bps_out = self.node.stats.avg_bps_out.get();
 
                 types::node_info::NetworkInfo {
                     node_id: Some(types::PeerId {

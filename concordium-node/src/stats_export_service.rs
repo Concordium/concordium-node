@@ -14,7 +14,7 @@ use http::{status::StatusCode, Response};
 use hyper::Body;
 use prometheus::{
     self,
-    core::{AtomicI64, AtomicU64, GenericGauge},
+    core::{Atomic, AtomicI64, AtomicU64, GenericGauge},
     Encoder, IntCounter, IntGauge, Opts, Registry, TextEncoder,
 };
 use std::{net::SocketAddr, sync::RwLock, thread, time};
@@ -45,274 +45,222 @@ impl PrometheusStateData {
 
 /// Collects statistics pertaining to the node.
 pub struct StatsExportService {
+    /// The Prometheus registry. Every metric which should be exposed via the
+    /// Prometheus exporter should be registered in this registry.
     registry: Registry,
-    pkts_received_counter: IntCounter,
-    pkts_sent_counter: IntCounter,
-    peers_gauge: IntGauge,
-    connections_received: IntCounter,
-    inbound_high_priority_consensus_drops_counter: IntCounter,
-    inbound_low_priority_consensus_drops_counter: IntCounter,
-    inbound_high_priority_consensus_counter: IntCounter,
-    inbound_low_priority_consensus_counter: IntCounter,
-    inbound_high_priority_consensus_size: IntGauge,
-    inbound_low_priority_consensus_size: IntGauge,
-    outbound_high_priority_consensus_size: IntGauge,
-    outbound_low_priority_consensus_size: IntGauge,
-    last_throughput_measurement_timestamp: GenericGauge<AtomicI64>,
-    bytes_received: GenericGauge<AtomicU64>,
-    bytes_sent: GenericGauge<AtomicU64>,
-    avg_bps_in: GenericGauge<AtomicU64>,
-    avg_bps_out: GenericGauge<AtomicU64>,
+    /// Total number of network packets received.
+    pub packets_received: IntCounter,
+    /// Total number of network packets sent.
+    pub packets_sent: IntCounter,
+    /// Current number of connected peers.
+    pub connected_peers: IntGauge,
+    /// Total number of connections received.
+    pub connections_received: IntCounter,
+    /// Total inbound high priority consensus messages dropped due to a full
+    /// queue.
+    pub inbound_high_priority_message_drops: IntCounter,
+    /// Total inbound low priority consensus messages dropped due to a full
+    /// queue.
+    pub inbound_low_priority_message_drops: IntCounter,
+    /// Total inbound high priority consensus messages received.
+    pub inbound_high_priority_messages: IntCounter,
+    /// Total inbound low priority consensus messages received.
+    pub inbound_low_priority_messages: IntCounter,
+    /// Current number of inbound high priority messages in queue.
+    pub inbound_high_priority_message_queue_size: IntGauge,
+    /// Current number of inbound low priority messages in queue.
+    pub inbound_low_priority_message_queue_size: IntGauge,
+    /// Current number of outbound high priority messages in queue.
+    pub outbound_high_priority_message_queue_size: IntGauge,
+    /// Current number of outbound low priority messages in queue.
+    pub outbound_low_priority_message_queue_size: IntGauge,
+    /// Total number of bytes received.
+    pub received_bytes: IntCounter,
+    /// Total number of bytes sent.
+    pub sent_bytes: IntCounter,
+    /// The block height of the last finalized block.
+    pub last_finalized_block_height: GenericGauge<AtomicU64>,
+    /// Timestamp of receiving last finalized block (Unix time in milliseconds).
+    pub last_finalized_block_timestamp: IntGauge,
+    /// Timestamp of receiving last arrived block (Unix time in milliseconds).
+    pub last_arrived_block_timestamp: IntGauge,
+    /// The block height of the last finalized block.
+    pub last_arrived_block_height: GenericGauge<AtomicU64>,
+    /// Total number of bytes received at the point of last
+    /// throughput_measurement.
+    ///
+    /// This is not exposed in the prometheus exporter, but we use the value
+    /// when calculating `avg_bps_in` and `avg_bps_out`.
+    pub last_throughput_measurement_received_bytes: AtomicU64,
+    /// Total number of bytes sent at the point of last throughput_measurement.
+    ///
+    /// This is not exposed in the prometheus exporter, but we use the value
+    /// when calculating `avg_bps_in` and `avg_bps_out`.
+    pub last_throughput_measurement_sent_bytes: AtomicU64,
+    /// Timestamp for the last calculation of throughput.
+    ///
+    /// This is not exposed in the prometheus exporter, but we use the value
+    /// when calculating `avg_bps_in` and `avg_bps_out` (Unix time in
+    /// milliseconds).
+    pub last_throughput_measurement_timestamp: AtomicI64,
+    /// Average bytes per second received between the two last values of
+    /// last_throughput_measurement_timestamp.
+    ///
+    /// This is not exposed in the prometheus exporter, but is exposed by the
+    /// gRPC API.
+    pub avg_bps_in: AtomicU64,
+    /// Average bytes per second sent between the two last values of
+    /// last_throughput_measurement_timestamp.
+    ///
+    /// This is not exposed in the prometheus exporter, but is exposed by the
+    /// gRPC API.
+    pub avg_bps_out: AtomicU64,
 }
 
 impl StatsExportService {
-    /// Creates a new instance of the starts export service object.
+    /// Creates a new instance of the stats export service object.
     pub fn new() -> anyhow::Result<Self> {
         let registry = Registry::new();
-        let pg_opts = Opts::new("peer_number", "current peers connected");
-        let pg = IntGauge::with_opts(pg_opts)?;
-        registry.register(Box::new(pg.clone()))?;
 
-        let qs_opts = Opts::new("queue_size", "current queue size");
-        let qs = IntGauge::with_opts(qs_opts)?;
-        registry.register(Box::new(qs))?;
+        let packets_received = IntCounter::with_opts(Opts::new(
+            "network_packets_received_total",
+            "Total number of network packets received",
+        ))?;
+        registry.register(Box::new(packets_received.clone()))?;
 
-        let rqs_opts = Opts::new("resend_queue_size", "current queue size");
-        let rqs = IntGauge::with_opts(rqs_opts)?;
-        registry.register(Box::new(rqs))?;
+        let packets_sent = IntCounter::with_opts(Opts::new(
+            "network_packets_sent_total",
+            "Total number of network packets sent",
+        ))?;
+        registry.register(Box::new(packets_sent.clone()))?;
 
-        let dp_opts = Opts::new("packets_dropped", "dropped packets");
-        let dp = IntCounter::with_opts(dp_opts)?;
-        registry.register(Box::new(dp))?;
+        let connected_peers = IntGauge::with_opts(Opts::new(
+            "network_connected_peers",
+            "Current number of connected peers",
+        ))?;
+        registry.register(Box::new(connected_peers.clone()))?;
 
-        let cr_opts = Opts::new("conn_received", "connections received");
-        let cr = IntCounter::with_opts(cr_opts)?;
-        registry.register(Box::new(cr.clone()))?;
+        let connections_received = IntCounter::with_opts(Opts::new(
+            "network_connections_received_total",
+            "Total number of connections received",
+        ))?;
+        registry.register(Box::new(connections_received.clone()))?;
 
-        let prc_opts = Opts::new("packets_received", "packets received");
-        let prc = IntCounter::with_opts(prc_opts)?;
-        registry.register(Box::new(prc.clone()))?;
+        let inbound_high_priority_message_drops = IntCounter::with_opts(Opts::new(
+            "network_inbound_high_priority_message_drops_total",
+            "Total inbound high priority consensus messages dropped due to a full queue",
+        ))?;
+        registry.register(Box::new(inbound_high_priority_message_drops.clone()))?;
 
-        let psc_opts = Opts::new("packets_sent", "packets sent");
-        let psc = IntCounter::with_opts(psc_opts)?;
-        registry.register(Box::new(psc.clone()))?;
+        let inbound_low_priority_message_drops = IntCounter::with_opts(Opts::new(
+            "network_inbound_low_priority_message_drops_total",
+            "Total inbound low priority consensus messages dropped due to a full queue",
+        ))?;
+        registry.register(Box::new(inbound_low_priority_message_drops.clone()))?;
 
-        let ipr_opts = Opts::new("invalid_packets_received", "invalid packets received");
-        let ipr = IntCounter::with_opts(ipr_opts)?;
-        registry.register(Box::new(ipr))?;
+        let inbound_high_priority_messages = IntCounter::with_opts(Opts::new(
+            "network_inbound_high_priority_messages_total",
+            "Total inbound high priority consensus messages received",
+        ))?;
+        registry.register(Box::new(inbound_high_priority_messages.clone()))?;
 
-        let upr_opts = Opts::new("unknown_packets_received", "unknown packets received");
-        let upr = IntCounter::with_opts(upr_opts)?;
-        registry.register(Box::new(upr))?;
+        let inbound_low_priority_messages = IntCounter::with_opts(Opts::new(
+            "network_inbound_low_priority_messages_total",
+            "Total inbound low priority consensus messages received",
+        ))?;
+        registry.register(Box::new(inbound_low_priority_messages.clone()))?;
 
-        let inpr_opts =
-            Opts::new("invalid_network_packets_received", "invalid network packets received");
-        let inpr = IntCounter::with_opts(inpr_opts)?;
-        registry.register(Box::new(inpr))?;
+        let inbound_high_priority_message_queue_size = IntGauge::with_opts(Opts::new(
+            "network_inbound_high_priority_message_queue_size",
+            "Current number of inbound high priority messages in queue",
+        ))?;
+        registry.register(Box::new(inbound_high_priority_message_queue_size.clone()))?;
 
-        let rs_opts = Opts::new("packets_resend", "items in queue that needed to be resend");
-        let rs = IntCounter::with_opts(rs_opts)?;
-        registry.register(Box::new(rs))?;
+        let inbound_low_priority_message_queue_size = IntGauge::with_opts(Opts::new(
+            "network_inbound_low_priority_message_queue_size",
+            "Current number of inbound low priority messages in queue",
+        ))?;
+        registry.register(Box::new(inbound_low_priority_message_queue_size.clone()))?;
 
-        let inbound_high_priority_consensus_drops_opts = Opts::new(
-            "inbound_high_priority_consensus_drops",
-            "inbound high priority consensus messages dropped",
-        );
-        let inbound_high_priority_consensus_drops_counter =
-            IntCounter::with_opts(inbound_high_priority_consensus_drops_opts)?;
-        registry.register(Box::new(inbound_high_priority_consensus_drops_counter.clone()))?;
+        let outbound_high_priority_message_queue_size = IntGauge::with_opts(Opts::new(
+            "network_outbound_high_priority_message_queue_size",
+            "Current number of outbound high priority messages in queue",
+        ))?;
+        registry.register(Box::new(outbound_high_priority_message_queue_size.clone()))?;
 
-        let inbound_low_priority_consensus_drops_opts = Opts::new(
-            "inbound_low_priority_consensus_drops",
-            "inbound low priority consensus messages dropped",
-        );
-        let inbound_low_priority_consensus_drops_counter =
-            IntCounter::with_opts(inbound_low_priority_consensus_drops_opts)?;
-        registry.register(Box::new(inbound_low_priority_consensus_drops_counter.clone()))?;
+        let outbound_low_priority_message_queue_size = IntGauge::with_opts(Opts::new(
+            "network_outbound_low_priority_message_queue_size",
+            "Current number of outbound low priority messages in queue",
+        ))?;
+        registry.register(Box::new(outbound_low_priority_message_queue_size.clone()))?;
 
-        let inbound_high_priority_consensus_counter_opts = Opts::new(
-            "inbound_high_priority_consensus_counter",
-            "inbound high priority consensus messages received",
-        );
-        let inbound_high_priority_consensus_counter =
-            IntCounter::with_opts(inbound_high_priority_consensus_counter_opts)?;
-        registry.register(Box::new(inbound_high_priority_consensus_counter.clone()))?;
+        let received_bytes = IntCounter::with_opts(Opts::new(
+            "network_received_bytes",
+            "Total number of bytes received",
+        ))?;
+        registry.register(Box::new(received_bytes.clone()))?;
 
-        let inbound_low_priority_consensus_counter_opts = Opts::new(
-            "inbound_low_priority_consensus_counter",
-            "inbound low priority consensus messages received",
-        );
-        let inbound_low_priority_consensus_counter =
-            IntCounter::with_opts(inbound_low_priority_consensus_counter_opts)?;
-        registry.register(Box::new(inbound_low_priority_consensus_counter.clone()))?;
+        let sent_bytes =
+            IntCounter::with_opts(Opts::new("network_sent_bytes", "Total number of bytes sent"))?;
+        registry.register(Box::new(sent_bytes.clone()))?;
 
-        let inbound_high_priority_consensus_size_opts = Opts::new(
-            "inbound_high_priority_consensus_size",
-            "inbound high priority consensus queue size",
-        );
-        let inbound_high_priority_consensus_size =
-            IntGauge::with_opts(inbound_high_priority_consensus_size_opts)?;
-        registry.register(Box::new(inbound_high_priority_consensus_size.clone()))?;
+        let last_finalized_block_height = GenericGauge::with_opts(Opts::new(
+            "consensus_last_finalized_block_height",
+            "The block height of the last finalized block",
+        ))?;
+        registry.register(Box::new(last_finalized_block_height.clone()))?;
 
-        let inbound_low_priority_consensus_size_opts = Opts::new(
-            "inbound_low_priority_consensus_size",
-            "inbound low priority consensus queue size",
-        );
-        let inbound_low_priority_consensus_size =
-            IntGauge::with_opts(inbound_low_priority_consensus_size_opts)?;
-        registry.register(Box::new(inbound_low_priority_consensus_size.clone()))?;
+        let last_finalized_block_timestamp = IntGauge::with_opts(Opts::new(
+            "consensus_last_finalized_block_timestamp",
+            "Timestamp for processing the last finalized block (Unix time in milliseconds)",
+        ))?;
+        registry.register(Box::new(last_finalized_block_timestamp.clone()))?;
 
-        let outbound_high_priority_consensus_size_opts = Opts::new(
-            "outbound_high_priority_consensus_size",
-            "outbound high priority consensus queue size",
-        );
-        let outbound_high_priority_consensus_size =
-            IntGauge::with_opts(outbound_high_priority_consensus_size_opts)?;
-        registry.register(Box::new(outbound_high_priority_consensus_size.clone()))?;
+        let last_arrived_block_height = GenericGauge::with_opts(Opts::new(
+            "consensus_last_arrived_block_height",
+            "The block height of the last arrived block",
+        ))?;
+        registry.register(Box::new(last_arrived_block_height.clone()))?;
 
-        let outbound_low_priority_consensus_size_opts = Opts::new(
-            "outbound_low_priority_consensus_size",
-            "outbound low priority consensus queue size",
-        );
-        let outbound_low_priority_consensus_size =
-            IntGauge::with_opts(outbound_low_priority_consensus_size_opts)?;
-        registry.register(Box::new(outbound_low_priority_consensus_size.clone()))?;
+        let last_arrived_block_timestamp = IntGauge::with_opts(Opts::new(
+            "consensus_last_arrived_block_timestamp",
+            "Timestamp for processing the last arrived block (Unix time in milliseconds)",
+        ))?;
+        registry.register(Box::new(last_arrived_block_timestamp.clone()))?;
 
-        let last_throughput_measurement_timestamp_opts = Opts::new(
-            "last_throughput_measurement_timestamp",
-            "last_throughput_measurement_timestamp",
-        );
-        let ltm = GenericGauge::with_opts(last_throughput_measurement_timestamp_opts)?;
-        registry.register(Box::new(ltm.clone()))?;
-
-        let brc_opts = Opts::new("bytes_received", "bytes received");
-        let brc = GenericGauge::with_opts(brc_opts)?;
-        registry.register(Box::new(brc.clone()))?;
-
-        let bsc_opts = Opts::new("bytes_sent", "bytes sent");
-        let bsc = GenericGauge::with_opts(bsc_opts)?;
-        registry.register(Box::new(bsc.clone()))?;
-
-        let avg_bps_in_opts = Opts::new("avg_bps_in", "average inbound througput");
-        let avg_bps_in = GenericGauge::with_opts(avg_bps_in_opts)?;
-        registry.register(Box::new(avg_bps_in.clone()))?;
-
-        let avg_bps_out_opts = Opts::new("avg_bps_out", "average outbound througput");
-        let avg_bps_out = GenericGauge::with_opts(avg_bps_out_opts)?;
-        registry.register(Box::new(avg_bps_out.clone()))?;
+        let last_throughput_measurement_timestamp = AtomicI64::new(0);
+        let last_throughput_measurement_sent_bytes = AtomicU64::new(0);
+        let last_throughput_measurement_received_bytes = AtomicU64::new(0);
+        let avg_bps_in = AtomicU64::new(0);
+        let avg_bps_out = AtomicU64::new(0);
 
         Ok(StatsExportService {
             registry,
-            pkts_received_counter: prc,
-            pkts_sent_counter: psc,
-            peers_gauge: pg,
-            connections_received: cr,
-            inbound_high_priority_consensus_drops_counter,
-            inbound_low_priority_consensus_drops_counter,
-            inbound_high_priority_consensus_counter,
-            inbound_low_priority_consensus_counter,
-            inbound_high_priority_consensus_size,
-            inbound_low_priority_consensus_size,
-            outbound_high_priority_consensus_size,
-            outbound_low_priority_consensus_size,
-            last_throughput_measurement_timestamp: ltm,
-            bytes_received: brc,
-            bytes_sent: bsc,
+            packets_received,
+            packets_sent,
+            connected_peers,
+            connections_received,
+            inbound_high_priority_message_drops,
+            inbound_low_priority_message_drops,
+            inbound_high_priority_messages,
+            inbound_low_priority_messages,
+            inbound_high_priority_message_queue_size,
+            inbound_low_priority_message_queue_size,
+            outbound_high_priority_message_queue_size,
+            outbound_low_priority_message_queue_size,
+            received_bytes,
+            sent_bytes,
+            last_finalized_block_height,
+            last_finalized_block_timestamp,
+            last_arrived_block_height,
+            last_arrived_block_timestamp,
+            last_throughput_measurement_timestamp,
+            last_throughput_measurement_sent_bytes,
+            last_throughput_measurement_received_bytes,
             avg_bps_in,
             avg_bps_out,
         })
     }
-
-    /// Increases the peer count.
-    pub fn peers_inc(&self) { self.peers_gauge.inc(); }
-
-    /// Decreases the peer count.
-    pub fn peers_dec(&self) { self.peers_gauge.dec(); }
-
-    /// Increases the number of received packets.
-    pub fn pkt_received_inc(&self) { self.pkts_received_counter.inc(); }
-
-    /// Increases the number of sent packets.
-    pub fn pkt_sent_inc(&self) { self.pkts_sent_counter.inc(); }
-
-    /// Increases the number of received connections.
-    pub fn conn_received_inc(&self) { self.connections_received.inc(); }
-
-    /// Increases the number of high priority consensus messages dropped due to
-    /// the queue being full.
-    pub fn inbound_high_priority_consensus_drops_inc(&self) {
-        self.inbound_high_priority_consensus_drops_counter.inc();
-    }
-
-    /// Increases the number of low priority consensus messages dropped due to
-    /// the queue being full.
-    pub fn inbound_low_priority_consensus_drops_inc(&self) {
-        self.inbound_low_priority_consensus_drops_counter.inc();
-    }
-
-    /// Increases the number of received high priority consensus messages.
-    pub fn inbound_high_priority_consensus_inc(&self) {
-        self.inbound_high_priority_consensus_counter.inc();
-    }
-
-    /// Increases the number of received low priority consensus messages.
-    pub fn inbound_low_priority_consensus_inc(&self) {
-        self.inbound_low_priority_consensus_counter.inc();
-    }
-
-    /// Sets the size value of the high priority inbound consensus queue.
-    pub fn set_inbound_high_priority_consensus_size(&self, value: i64) {
-        self.inbound_high_priority_consensus_size.set(value);
-    }
-
-    /// Sets the size value of the low priority inbound consensus queue.
-    pub fn set_inbound_low_priority_consensus_size(&self, value: i64) {
-        self.inbound_low_priority_consensus_size.set(value);
-    }
-
-    /// Sets the size value of the high priority outbound consensus queue.
-    pub fn set_outbound_high_priority_consensus_size(&self, value: i64) {
-        self.outbound_high_priority_consensus_size.set(value);
-    }
-
-    /// Sets the size value of the low priority outbound consensus queue.
-    pub fn set_outbound_low_priority_consensus_size(&self, value: i64) {
-        self.outbound_low_priority_consensus_size.set(value);
-    }
-
-    /// Gets the timestamp for the last throughput check.
-    pub fn get_last_throughput_measurement_timestamp(&self) -> i64 {
-        self.last_throughput_measurement_timestamp.get()
-    }
-
-    /// Sets the value of throughput timestamp.
-    pub fn set_last_throughput_measurement_timestamp(&self, value: i64) {
-        self.last_throughput_measurement_timestamp.set(value);
-    }
-
-    /// Gets the count of received bytes.
-    pub fn get_bytes_received(&self) -> u64 { self.bytes_received.get() }
-
-    /// Gets the count of sent bytes.
-    pub fn get_bytes_sent(&self) -> u64 { self.bytes_sent.get() }
-
-    /// Sets the value of received bytes.
-    pub fn set_bytes_received(&self, value: u64) { self.bytes_received.set(value); }
-
-    /// Sets the value of sent bytes.
-    pub fn set_bytes_sent(&self, value: u64) { self.bytes_sent.set(value); }
-
-    /// Gets the value of average inbound throughput.
-    pub fn get_avg_bps_in(&self) -> u64 { self.avg_bps_in.get() }
-
-    /// Gets the value of average outbound throughput.
-    pub fn get_avg_bps_out(&self) -> u64 { self.avg_bps_out.get() }
-
-    /// Sets the value of average inbound throughput.
-    pub fn set_avg_bps_in(&self, value: u64) { self.avg_bps_in.set(value); }
-
-    /// Sets the value of average outbound throughput.
-    pub fn set_avg_bps_out(&self, value: u64) { self.avg_bps_out.set(value); }
 
     fn metrics(state: State) -> (State, String) {
         let state_data = PrometheusStateData::borrow_from(&state);
@@ -352,11 +300,11 @@ impl StatsExportService {
         listen_addr: SocketAddr,
         error_sender: tokio::sync::broadcast::Sender<()>,
     ) -> Result<(), ()> {
-        log::info!("Starting Prometheus server listening on {}", listen_addr);
+        log::info!("Starting Prometheus exporter listening on {}", listen_addr);
         let result = gotham::plain::init_server(listen_addr, self.router()).await;
         if let Err(()) = result {
             // Log an error and notify main thread that an error occured.
-            error!("A runtime error occurred in the Prometheus server.");
+            error!("A runtime error occurred in the Prometheus exporter.");
             if error_sender.send(()).is_err() {
                 error!("An error occurred while trying to signal the main node thread.")
             }
@@ -399,14 +347,7 @@ impl StatsExportService {
 }
 
 /// Starts the stats export engine.
-pub fn instantiate_stats_export_engine(
-    conf: &configuration::Config,
-) -> anyhow::Result<Arc<StatsExportService>> {
-    if conf.prometheus.prometheus_listen_port.is_some() {
-        info!("Enabling prometheus server");
-    } else if let Some(ref push_gateway) = conf.prometheus.prometheus_push_gateway {
-        info!("Enabling prometheus push gateway at {}", push_gateway);
-    };
+pub fn instantiate_stats_export_engine() -> anyhow::Result<Arc<StatsExportService>> {
     let prom =
         StatsExportService::new().context("Could not start statistics collection engine.")?;
     Ok(Arc::new(prom))
@@ -419,6 +360,7 @@ pub fn start_push_gateway(
     id: P2PNodeId,
 ) {
     if let Some(prom_push_addy) = conf.prometheus_push_gateway.as_ref() {
+        info!("Starting Prometheus push to gateway at {}", prom_push_addy);
         let instance_name = if let Some(ref instance_id) = conf.prometheus_instance_name {
             instance_id.clone()
         } else {

@@ -12,7 +12,6 @@ use crate::{
 };
 use anyhow::{bail, Context};
 use log::*;
-use retain_mut::RetainMut;
 use std::{
     env,
     ffi::OsString,

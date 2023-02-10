@@ -519,7 +519,8 @@ impl Connection {
         self.stats.messages_received.fetch_add(1, Ordering::Relaxed);
         self.stats.bytes_received.fetch_add(bytes.len() as u64, Ordering::Relaxed);
         self.handler.connection_handler.total_received.fetch_add(1, Ordering::Relaxed);
-        self.handler.stats.pkt_received_inc();
+        self.handler.stats.packets_received.inc();
+        self.handler.stats.received_bytes.inc_by(bytes.len() as u64);
 
         #[cfg(feature = "network_dump")]
         {
@@ -553,7 +554,7 @@ impl Connection {
     ) {
         self.remote_peer.self_id = Some(id);
         self.remote_peer.external_port = peer_port;
-        self.handler.stats.peers_inc();
+        self.handler.stats.connected_peers.inc();
         if self.remote_peer.peer_type == PeerType::Bootstrapper {
             self.handler.update_last_bootstrap();
         }
@@ -725,7 +726,8 @@ impl Connection {
             self.low_level.write_to_socket(msg.clone())?;
 
             self.handler.connection_handler.total_sent.fetch_add(1, Ordering::Relaxed);
-            self.handler.stats.pkt_sent_inc();
+            self.handler.stats.packets_sent.inc();
+            self.handler.stats.sent_bytes.inc_by(msg.len() as u64);
             self.stats.messages_sent.fetch_add(1, Ordering::Relaxed);
             self.stats.bytes_sent.fetch_add(msg.len() as u64, Ordering::Relaxed);
 
@@ -747,7 +749,7 @@ impl Drop for Connection {
 
         // update peer stats if it was post-handshake
         if self.remote_id().is_some() {
-            self.handler.stats.peers_dec();
+            self.handler.stats.connected_peers.dec();
         }
 
         if let Err(e) = self.handler.poll_registry.deregister(&mut self.low_level.socket) {

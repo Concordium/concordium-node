@@ -1,6 +1,6 @@
 [package]
 name = "concordium_node"
-version = "5.2.0" # must be kept in sync with 'is_compatible_version' in 'src/configuration.rs'
+version = "5.2.1" # must be kept in sync with 'is_compatible_version' in 'src/configuration.rs'
 description = "Concordium Node"
 authors = ["Concordium <developers@concordium.com>"]
 exclude = [".gitignore", ".gitlab-ci.yml", "test/**/*","**/**/.gitignore","**/**/.gitlab-ci.yml"]
@@ -69,7 +69,8 @@ libc = "0.2"
 mime = { version = "0.3" }
 gotham = { version = "0.6" }
 gotham_derive = { version = "0.6" }
-prometheus = { version = "0.13", default-features = false, features = ["gen", "push"] }
+# Disable default features of prometheus to disable the unneeded protobuf encoder.
+prometheus = { version = "0.13", default-features = false, features = ["push"] }
 http = { version = "0.2" }
 hyper = { version = "0.14" }
 

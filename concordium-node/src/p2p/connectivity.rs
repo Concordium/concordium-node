@@ -364,7 +364,7 @@ pub fn accept(
     socket: TcpStream,
     addr: SocketAddr,
 ) -> Result<Token, AcceptFailureReason> {
-    node.stats.conn_received_inc();
+    node.stats.connections_received.inc();
 
     // if we fail to read the database we allow the connection.
     // This is fine as long as we assume that nobody can corrupt our ban database.
@@ -498,7 +498,7 @@ pub fn connect(
     match TcpStream::connect(peer_addr) {
         Ok(socket) => {
             trace!("Connected to {}", peer_addr);
-            node.stats.conn_received_inc();
+            node.stats.connections_received.inc();
 
             let token = Token(node.connection_handler.next_token.fetch_add(1, Ordering::SeqCst));
 

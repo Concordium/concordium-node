@@ -144,6 +144,13 @@ pub struct PrometheusConfig {
     pub prometheus_push_interval: u64,
 }
 
+impl PrometheusConfig {
+    /// Return whether the prometheus exporter is enabled.
+    pub fn is_enabled(&self) -> bool {
+        self.prometheus_listen_port.is_some() || self.prometheus_push_gateway.is_some()
+    }
+}
+
 #[derive(StructOpt, Debug)]
 // Parameters related to Baking (only used in cli).
 pub struct BakerConfig {
@@ -359,6 +366,7 @@ pub struct GRPC2Config {
     )]
     pub listen_port:                Option<u16>,
     #[structopt(
+        name = "grpc2-x509-cert",
         long = "grpc2-x509-cert",
         help = "Certificate used to enable TLS support for the GRPC V2 server.",
         env = "CONCORDIUM_NODE_GRPC2_X509_CERT",
@@ -367,6 +375,7 @@ pub struct GRPC2Config {
     )]
     pub x509_cert:                  Option<PathBuf>,
     #[structopt(
+        name = "grpc2-cert-private-key",
         long = "grpc2-cert-private-key",
         help = "Private key corresponding to the certificate",
         env = "CONCORDIUM_NODE_GRPC2_CERT_PRIVATE_KEY",

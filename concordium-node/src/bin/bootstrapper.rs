@@ -22,7 +22,7 @@ fn main() -> anyhow::Result<()> {
     conf.connection.max_allowed_nodes = Some(conf.bootstrapper.max_nodes);
     let data_dir_path = app_prefs.get_data_dir();
 
-    let stats_export_service = instantiate_stats_export_engine(&conf)?;
+    let stats_export_service = instantiate_stats_export_engine()?;
 
     let fname = conf
         .bootstrapper
