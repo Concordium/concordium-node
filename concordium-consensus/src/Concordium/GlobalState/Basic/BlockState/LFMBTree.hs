@@ -32,6 +32,7 @@ module Concordium.GlobalState.Basic.BlockState.LFMBTree (
     toAscPairList,
     fromListChoosingFirst,
     hashFromFoldable,
+    hashAsLFMBT,
 
     -- * Specialized functions for @Maybe@
     lookupMaybe,
@@ -288,6 +289,22 @@ fromAscListMaybes l = fromList $ go l 0
 -- TODO: Optimise this implementation.
 hashFromFoldable :: (Foldable f, HashableTo H.Hash v) => f v -> H.Hash
 hashFromFoldable = getHash . fromFoldable @Word64
+
+-- |Hash a list of hashes in the LFMBTree format, using the specified hash for the empty tree.
+-- This avoids building the full tree.
+hashAsLFMBT ::
+    -- |Hash to use for empty list
+    H.Hash ->
+    -- |List of hashes to construct into Merkle tree
+    [H.Hash] ->
+    H.Hash
+hashAsLFMBT e = go
+  where
+    go [] = e
+    go [x] = x
+    go xs = go (f xs)
+    f (x : y : xs) = H.hashOfHashes x y : f xs
+    f other = other
 
 {-
 -------------------------------------------------------------------------------

@@ -207,10 +207,7 @@ instance BlockMetadata BlockFields where
 
 -- |A baked (i.e. non-genesis) block.
 --
--- The type parameter @t@ is the type of the transaction
--- in the block.
---
--- All instances of this type will implement automatically:
+-- This type implements:
 --
 -- * BlockFieldType & BlockTransactionType
 -- * BlockMetadata
