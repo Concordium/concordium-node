@@ -17,7 +17,6 @@ import Data.Kind (Type)
 import Data.Time
 import Lens.Micro.Platform
 
-import qualified Concordium.TransactionVerification as TVer
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as Map
 import qualified Data.PQueue.Prio.Min as MPQ
@@ -28,6 +27,7 @@ import Concordium.Types.HashableTo
 import Concordium.Types.Transactions
 import Concordium.Types.Updates
 
+import qualified Concordium.TransactionVerification as TVer
 import Concordium.GlobalState.Parameters
 import qualified Concordium.GlobalState.Persistent.BlobStore as BlobStore
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
@@ -35,6 +35,7 @@ import Concordium.GlobalState.Persistent.TreeState (DeadCache, emptyDeadCache, i
 import qualified Concordium.GlobalState.Statistics as Stats
 import Concordium.GlobalState.TransactionTable
 import qualified Concordium.GlobalState.Types as GSTypes
+import qualified Concordium.GlobalState.PurgeTransactions as Purge
 
 import Concordium.GlobalState.Statistics (ConsensusStatistics)
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
@@ -448,8 +449,65 @@ doGetNonFinalizedCredential txhash = do
                 Committed _ verRes _ -> return $ Just (WithMetadata{wmdData = biCred, ..}, verRes)
         _ -> return Nothing
 
+-- |Purge transactions from the transaction table and pending transactions.
+-- Transactions are purged only if they are not included in a live block, and
+-- have either expired or arrived longer ago than the transaction keep alive time.
+--
+-- If the first argument is @False@, the transaction table is only purged if
+-- 'rpInsertionsBeforeTransactionPurged' transactions have been inserted since
+-- the last purge.  If it is true, the table is purged regardless.
+--
+-- WARNING: This function violates the independence of the tree state components.
+-- In particular, the following invariants are assumed and maintained:
+--
+--   * Every 'BlockItem' in the transaction table that is not included in a live
+--     or finalized block is referenced in the pending transaction table.  That is,
+--     for a basic transaction the '_pttWithSender' table contains an entry for
+--     the sender where the nonce of the transaction falls within the range,
+--     and for a credential deployment the transaction hash is included in '_pttDeployCredential'.
+--
+--   * The low nonce for each entry in '_pttWithSender' is at least the last finalized
+--     nonce recorded in the account's non-finalized transactions in the transaction
+--     table.
+--
+--   * The finalization list must reflect the current last finalized block.
+--
+--   * The pending transaction table only references transactions that are in the
+--     transaction table.  That is, the high nonce in a range is a tight bound and
+--     the deploy credential hashes correspond to transactions in the table.
+--
+--   * No non-finalized block is considered live or will become live if its round
+--     is less than or equal to the slot number of the last finalized block.
+--
+--   * If a transaction is known to be in any block that is not finalized or dead,
+--     then 'commitTransaction' or 'addCommitTransaction' has been called with a
+--     slot number at least as high as the slot number of the block.
+doPurgeTransactionTable  :: (MonadState (SkovData pv) m) =>
+                           -- |Whether to force the purging.
+                           Bool ->
+                           -- |The current time.
+                           UTCTime -> m ()
+doPurgeTransactionTable force currentTime = do
+    purgeCount <- use transactionTablePurgeCounter
+    RuntimeParameters{..} <- use runtimeParameters
+    when (force || purgeCount > rpInsertionsBeforeTransactionPurge) $ do
+        transactionTablePurgeCounter .= 0
+        lfb <- use lastFinalized
+        let lastFinalizedRound = blockRound $! _bpBlock lfb
+        transactionTable' <- use transactionTable
+        pendingTransactions' <- use pendingTransactions
+        let
+            currentTransactionTime = utcTimeToTransactionTime currentTime
+            oldestArrivalTime =
+                if currentTransactionTime > rpTransactionsKeepAliveTime
+                    then currentTransactionTime - rpTransactionsKeepAliveTime
+                    else 0
+            currentTimestamp = utcTimeToTimestamp currentTime
+            (newTT, newPT) = Purge.purgeTables (commitPoint lastFinalizedRound) oldestArrivalTime currentTimestamp transactionTable' pendingTransactions'
+        transactionTable .= newTT
+        pendingTransactions .= newPT
+
 {-
-purgeTransactionTable = undefined
 getNextAccountNonce = undefined
 clearAfterProtocolUpdate = undefined
 -}
