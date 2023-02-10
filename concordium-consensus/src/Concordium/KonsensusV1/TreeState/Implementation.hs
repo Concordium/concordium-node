@@ -131,6 +131,30 @@ data SkovData (pv :: ProtocolVersion) = SkovData
 
 makeLenses ''SkovData
 
+-- |Create an initial 'SkovData pv'
+mkInitialSkovData ::
+    -- |The 'RuntimeParameters'
+    RuntimeParameters ->
+    -- |The base timeout
+    Duration ->
+    -- |The 'LeadershipElectionNonce'
+    LeadershipElectionNonce ->
+    -- |The initial 'SkovData'
+    SkovData pv
+mkInitialSkovData rp baseTimeout len =
+    let _roundStatus = initialRoundStatus baseTimeout len
+        _transactionTable = emptyTransactionTable
+        _transactionTablePurgeCounter = 0
+        _pendingTransactions = emptyPendingTransactionTable
+        _focusBlock = undefined -- todo fill in the genesis block pointer
+        _runtimeParameters = rp
+        _blockTable = emptyBlockTable
+        _pendingBlocksTable = HM.empty
+        _pendingBlocksQueue = MPQ.empty
+        _lastFinalized = undefined -- todo fill in the genesis block pointer
+        _statistics = Stats.initialConsensusStatistics
+    in  SkovData{..}
+
 -- |A 'SkovData pv' wrapped in an 'IORef', where @pv@ is the
 -- current 'ProtocolVersion'
 newtype SkovState (pv :: ProtocolVersion) = SkovState (IORef (SkovData pv))
