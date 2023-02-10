@@ -118,6 +118,8 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       _blockTable :: !(BlockTable pv),
       -- |Branches of the tree by height above the last finalized block
       _branches :: !(Seq.Seq [BlockPointer pv]),
+      -- |Genesis configuration
+      _genesisConfiguration :: !GenesisConfiguration,
       -- |Pending blocks i.e. blocks that have not yet been included in the tree.
       -- The entries of the pending blocks are keyed by the 'BlockHash' of their parent block.
       _pendingBlocksTable :: !(HM.HashMap BlockHash [PendingBlock]),
@@ -172,6 +174,7 @@ mkInitialSkovData rp genConf genState baseTimeout len =
         _runtimeParameters = rp
         _blockTable = emptyBlockTable
         _branches = Seq.empty
+        _genesisConfiguration = genConf
         _pendingBlocksTable = HM.empty
         _pendingBlocksQueue = MPQ.empty
         _lastFinalized = genesisBlockPointer
@@ -358,51 +361,40 @@ doMarkTransactionDead blockHash transaction = transactionTable . ttHashMap . at'
 doGetLastFinalized :: (MonadState (SkovData pv) m) => m (BlockPointer pv)
 doGetLastFinalized = use lastFinalized
 
--- |Get the 'BlockStatus' of a non finalized block based on the 'BlockHash'
--- If the block could not be found in memory then this will return 'Nothing'
--- otherwise 'Just BlockStatus'.
+-- |Get the 'BlockStatus' of a block that is available in memory based on the 'BlockHash'.
+-- (This includes live and pending blocks, but not finalized blocks, except for the last finalized
+-- block.)
+-- If the block could not be found in memory then this will return 'Nothing' otherwise
+-- 'Just BlockStatus'.
 -- This function should not be called directly, instead use either
 -- 'doGetBlockStatus' or 'doGetRecentBlockStatus'.
-doGetNonFinalizedBlockStatus :: (MonadState (SkovData (MPV m)) m) => BlockHash -> m (Maybe (BlockStatus (MPV m)))
-doGetNonFinalizedBlockStatus blockHash = do
-    SkovData{..} <- get
-    -- We check whether the block is the last finalized block.
-    if getHash _lastFinalized == blockHash
-        then return $! Just $! BlockFinalized _lastFinalized
-        else -- We check if the block is the focus block
-
-            if getHash _focusBlock == blockHash
-                then return $! Just $! BlockAlive _focusBlock
-                else -- Now we lookup in the livemap of the block table,
-                -- this will return if the block is pending or if it's alive on some other
-                -- branch.
-                -- If it is not present in the live store then we check whether the block
-                -- has been marked as dead and finally we try to look in the persistent block store.
-                case HM.lookup blockHash (_liveMap _blockTable) of
-                    Just status ->
-                        case status of
-                            MemBlockPending sb -> return $! Just $! BlockPending sb
-                            MemBlockAlive bp -> return $! Just $! BlockAlive bp
-                    Nothing ->
-                        -- Check if the block marked as dead before we look into the
-                        -- persistent block store.
-                        if memberDeadCache blockHash (_deadBlocks _blockTable)
-                            then return $ Just BlockDead
-                            else return Nothing
+doGetMemoryBlockStatus :: BlockHash -> SkovData pv -> Maybe (BlockStatus pv)
+doGetMemoryBlockStatus blockHash SkovData{..}
+    -- Check if it's last finalized
+    | getHash _lastFinalized == blockHash = Just $! BlockFinalized _lastFinalized
+    -- Check if it's the focus block
+    | getHash _focusBlock == blockHash = Just $! BlockAlive _focusBlock
+    -- Check if it's a pending or live block
+    | Just status <- _blockTable ^? liveMap . ix blockHash = case status of
+        MemBlockPending sb -> Just $! BlockPending sb
+        MemBlockAlive bp -> Just $! BlockAlive bp
+    -- Check if it's in the dead block cache
+    | memberDeadCache blockHash (_deadBlocks _blockTable) = Just BlockDead
+    -- Otherwise, we don't know
+    | otherwise = Nothing
 
 -- |Get the 'BlockStatus' of a block based on the provided 'BlockHash'.
 -- Note. if one does not care about old finalized blocks then
 -- use 'doGetRecentBlockStatus' instead as it circumvents a full lookup from disk.
-doGetBlockStatus :: (LowLevel.MonadTreeStateStore m, MonadIO m) => (MonadState (SkovData (MPV m)) m) => BlockHash -> m (BlockStatus (MPV m))
-doGetBlockStatus blockHash =
-    doGetNonFinalizedBlockStatus blockHash >>= \case
-        Just bs -> return bs
-        Nothing ->
-            LowLevel.lookupBlock blockHash >>= \case
-                Nothing -> return BlockUnknown
-                Just storedBlock -> do
-                    blockPointer <- liftIO $ mkBlockPointer storedBlock
-                    return $! BlockFinalized blockPointer
+doGetBlockStatus :: (LowLevel.MonadTreeStateStore m, MonadIO m) => BlockHash -> SkovData (MPV m) -> m (BlockStatus (MPV m))
+doGetBlockStatus blockHash sd = case doGetMemoryBlockStatus blockHash sd of
+    Just bs -> return bs
+    Nothing ->
+        LowLevel.lookupBlock blockHash >>= \case
+            Nothing -> return BlockUnknown
+            Just storedBlock -> do
+                blockPointer <- liftIO $ mkBlockPointer storedBlock
+                return $! BlockFinalized blockPointer
   where
     -- Create a block pointer from a stored block.
     mkBlockPointer sb@LowLevel.StoredBlock{..} = do
@@ -417,14 +409,13 @@ doGetBlockStatus blockHash =
 -- One should use this instead of 'getBlockStatus' if
 -- one does not require the actual contents and resulting state related
 -- to the block in case the block is a predecessor of the last finalized block.
-doGetRecentBlockStatus :: (LowLevel.MonadTreeStateStore m) => (MonadState (SkovData (MPV m)) m) => BlockHash -> m (RecentBlockStatus (MPV m))
-doGetRecentBlockStatus blockHash =
-    doGetNonFinalizedBlockStatus blockHash >>= \case
-        Just bs -> return $! RecentBlock bs
-        Nothing -> do
-            LowLevel.memberBlock blockHash >>= \case
-                True -> return OldFinalized
-                False -> return Unknown
+doGetRecentBlockStatus :: (LowLevel.MonadTreeStateStore m) => BlockHash -> SkovData (MPV m) -> m (RecentBlockStatus (MPV m))
+doGetRecentBlockStatus blockHash sd = case doGetMemoryBlockStatus blockHash sd of
+    Just bs -> return $! RecentBlock bs
+    Nothing -> do
+        LowLevel.memberBlock blockHash >>= \case
+            True -> return OldFinalized
+            False -> return Unknown
 
 -- |Get the focus block.
 -- This is probably the best block, but if
