@@ -269,9 +269,7 @@ doAddTransaction rnd transaction verRes = do
 
 -- |Get the 'PendingTransactionTable'.
 doGetPendingTransactions :: (MonadState (SkovData pv) m) => m PendingTransactionTable
-doGetPendingTransactions = do
-    SkovData{..} <- get
-    return _pendingTransactions
+doGetPendingTransactions = use pendingTransactions
 
 -- |Put the 'PendingTransactionTable'.
 doPutPendingTransactions :: (MonadState (SkovData pv) m) => PendingTransactionTable -> m ()
@@ -313,9 +311,7 @@ doMarkTransactionDead blockHash transaction = transactionTable . ttHashMap . at'
 
 -- |Get a 'BlockPointer' to the last finalized block.
 doGetLastFinalized :: (MonadState (SkovData pv) m) => m (BlockPointer pv)
-doGetLastFinalized = do
-    SkovData{..} <- get
-    return _lastFinalized
+doGetLastFinalized = use lastFinalized
 
 -- |Get the 'BlockStatus' of a non finalized block based on the 'BlockHash'
 -- If the block could not be found in memory then this will return 'Nothing'
@@ -389,9 +385,7 @@ doGetRecentBlockStatus blockHash =
 -- This is probably the best block, but if
 -- we're pruning a branch this will become the parent block
 doGetFocusBlock :: (MonadState (SkovData pv) m) => m (BlockPointer pv)
-doGetFocusBlock = do
-    SkovData{..} <- get
-    return _focusBlock
+doGetFocusBlock = use focusBlock
 
 -- |Update the focus block
 doPutFocusBlock :: (MonadState (SkovData pv) m) =>  BlockPointer pv -> m ()
@@ -399,9 +393,7 @@ doPutFocusBlock fb = focusBlock .= fb
 
 -- |Get the current 'RoundStatus'
 doGetRoundStatus :: (MonadState (SkovData pv) m) => m RoundStatus
-doGetRoundStatus = do
-  SkovData{..} <- get
-  return _roundStatus
+doGetRoundStatus = use roundStatus
 
 -- |Put the current 'RoundStatus'
 doPutRoundStatus ::  (MonadState (SkovData pv) m) => RoundStatus -> m ()
@@ -409,15 +401,11 @@ doPutRoundStatus rs = roundStatus .= rs
 
 -- |Get the 'RuntimeParameters'
 doGetRuntimeParameters :: (MonadState (SkovData pv) m) => m RuntimeParameters
-doGetRuntimeParameters = do
-    SkovData{..} <- get
-    return _runtimeParameters
+doGetRuntimeParameters = use runtimeParameters
 
 -- |Get consensus statistics.
 doGetConsensusStatistics :: (MonadState (SkovData pv) m) => m ConsensusStatistics
-doGetConsensusStatistics = do
-  SkovData{..} <- get
-  return _statistics
+doGetConsensusStatistics = use statistics
 
 -- |Get the non finalized chain updates.
 -- This returns a map from update sequence numbers to the
