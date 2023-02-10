@@ -27,15 +27,15 @@ import Concordium.Types.HashableTo
 import Concordium.Types.Transactions
 import Concordium.Types.Updates
 
-import qualified Concordium.TransactionVerification as TVer
 import Concordium.GlobalState.Parameters
 import qualified Concordium.GlobalState.Persistent.BlobStore as BlobStore
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import Concordium.GlobalState.Persistent.TreeState (DeadCache, emptyDeadCache, insertDeadCache, memberDeadCache)
+import qualified Concordium.GlobalState.PurgeTransactions as Purge
 import qualified Concordium.GlobalState.Statistics as Stats
 import Concordium.GlobalState.TransactionTable
 import qualified Concordium.GlobalState.Types as GSTypes
-import qualified Concordium.GlobalState.PurgeTransactions as Purge
+import qualified Concordium.TransactionVerification as TVer
 
 import Concordium.GlobalState.Statistics (ConsensusStatistics)
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
@@ -482,11 +482,13 @@ doGetNonFinalizedCredential txhash = do
 --   * If a transaction is known to be in any block that is not finalized or dead,
 --     then 'commitTransaction' or 'addCommitTransaction' has been called with a
 --     slot number at least as high as the slot number of the block.
-doPurgeTransactionTable  :: (MonadState (SkovData pv) m) =>
-                           -- |Whether to force the purging.
-                           Bool ->
-                           -- |The current time.
-                           UTCTime -> m ()
+doPurgeTransactionTable ::
+    (MonadState (SkovData pv) m) =>
+    -- |Whether to force the purging.
+    Bool ->
+    -- |The current time.
+    UTCTime ->
+    m ()
 doPurgeTransactionTable force currentTime = do
     purgeCount <- use transactionTablePurgeCounter
     RuntimeParameters{..} <- use runtimeParameters
