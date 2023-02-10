@@ -138,13 +138,6 @@ deriving instance MonadReader r m => MonadReader r (TreeStateWrapper pv m)
 instance IsProtocolVersion pv => MonadProtocolVersion (TreeStateWrapper pv m) where
     type MPV (TreeStateWrapper pv m) = pv
 
--- |Commit verified transactions to the transaction table.
--- If a transaction is at least the 'nextNonce' in the 'PendingTransactionTable' then
--- it should be added otherwise not.
--- todo implement.
-commitVerifiedTransactions :: [VerifiedBlockItem] -> TransactionTable -> PendingTransactionTable -> (TransactionTable, PendingTransactionTable)
-commitVerifiedTransactions = undefined
-
 -- |Helper function for retrieving the SkovData in the 'TreeStateWrapper pv m' context.
 -- This should be used when only reading from the 'SkovData' is required.
 -- If one wishes to also update the 'SkovData' then use 'withSkovData'.
@@ -206,8 +199,12 @@ doCommitTransaction ::
     (MonadState (SkovData pv) m) =>
     -- |Round of the block
     Round ->
+    -- |The 'BlockHash' that the transaction should
+    -- be committed to.
     BlockHash ->
+    -- |The 'TransactionIndex' in the block.
     TransactionIndex ->
+    -- |The transaction to commit.
     BlockItem ->
     m ()
 doCommitTransaction rnd bh ti transaction =
@@ -227,43 +224,20 @@ doAddTransaction rnd transaction verRes = do
     when added $ transactionTablePurgeCounter += 1
     return added
 
-{-
-addPendingBlock :: (MonadReader (SkovState pv1) m, MonadIO m) => SignedBlock -> m (BlockStatus pv2)
-addPendingBlock sb = do
-    (SkovState ioref) <- ask
-    SkovData{_blockTable = bt, ..} <- liftIO $ readIORef ioref
-    -- Verify the transactions of the block.
-    -- If all transactions can be successfully pre-verified then we add it,
-    -- otherwise we reject the block and mark it as dead.
-    case verifyBlockItems sb of
-        Left _ -> do
-            let blockTable' = markDead blockHash bt
-            liftIO $ writeIORef ioref $! SkovData{_blockTable = blockTable', ..}
-            return BlockDead
-        Right verifiedBlockItems -> do
-            let pendingBlocksQueue' = MPQ.insert theRound (blockHash, parentHash) $! _pendingBlocksQueue
-                pendingBlocksTable' = HM.adjust (sb :) parentHash _pendingBlocksTable
-                -- Commit the transactions and add them to the 'PendingTransactionTable' if they are eligible.
-                -- A transaction is eligible for entering the pending transactions if it's nonce is at least the 'nextNonce'.
-                (transactionTable', pendingTransactions') = commitVerifiedTransactions verifiedBlockItems _transactionTable _pendingTransactions
-            liftIO $
-                writeIORef ioref $!
-                    SkovData
-                        { _pendingBlocksQueue = pendingBlocksQueue',
-                          _pendingBlocksTable = pendingBlocksTable',
-                          _transactionTable = transactionTable',
-                          _pendingTransactions = pendingTransactions',
-                          _blockTable = bt,
-                          ..
-                        }
-            return $! BlockPending sb
-  where
-    blockHash = getHash sb
-    bakedBlock = sbBlock sb
-    theRound = bbRound bakedBlock
-    parentHash = bhParent $! bbBlockHeader bakedBlock
--}
+-- |Get the 'PendingTransactionTable'.
+doGetPendingTransactions :: (MonadState (SkovData pv) m) => m PendingTransactionTable
+doGetPendingTransactions = do
+    SkovData{..} <- get
+    return _pendingTransactions
 
+-- |Put the 'PendingTransactionTable'.
+doPutPendingTransactions :: (MonadState (SkovData pv) m) => PendingTransactionTable -> m ()
+doPutPendingTransactions pts = pendingTransactions .= pts
+
+-- |Turn a 'PendingBlock' into a live block.
+-- This marks the block as 'MemBlockAlive' in the block table
+-- and updates the arrive time of the block.
+-- and returns the resulting 'BlockPointer'.
 doMakeLiveBlock :: (MonadState (SkovData pv) m) => PendingBlock -> PBS.HashedPersistentBlockState pv -> BlockHeight -> UTCTime -> m (BlockPointer pv)
 doMakeLiveBlock pb st height arriveTime = do
     let bp =
@@ -277,12 +251,26 @@ doMakeLiveBlock pb st height arriveTime = do
 
 takePendingChildren = undefined
 
-markBlockDead :: (MonadState (SkovData pv) m) => BlockHash -> m ()
-markBlockDead blockHash = do
+-- |Marks a block as dead.
+-- This expunges the block from memory
+-- and registers the block in the dead cache.
+doMarkBlockDead :: (MonadState (SkovData pv) m) => BlockHash -> m ()
+doMarkBlockDead blockHash = do
     blockTable . liveMap . at' blockHash .=! Nothing
     blockTable . deadBlocks %=! insertDeadCache blockHash
     return ()
 
+-- |Mark the provided transaction as dead for the provided 'BlockHash'.
+doMarkTransactionDead ::
+    (MonadState (SkovData pv) m) =>
+    -- |The 'BlockHash' where the transaction was committed.
+    BlockHash ->
+    -- |The 'BlockItem' to mark as dead.
+    BlockItem ->
+    m ()
+doMarkTransactionDead blockHash transaction = transactionTable . ttHashMap . at' (getHash transaction) . mapped . _2 %= markDeadResult blockHash
+
+-- |Get a 'BlockPointer' to the last finalized block.
 doGetLastFinalized :: (MonadState (SkovData pv) m) => m (BlockPointer pv)
 doGetLastFinalized = do
     SkovData{..} <- get
@@ -364,10 +352,6 @@ getFocusBlock = do
 
 setFocusBlock focusBlock' = withSkovData $ \SkovData{..} -> SkovData{_focusBlock = focusBlock', ..}
 
-getPendingTransactions = do
-    SkovData{..} <- getSkovData
-    return _pendingTransactions
-
 getQuorumSignatureMessages = do
     SkovData{..} <- getSkovData
     return _currentQuouromSignatureMessages
@@ -388,7 +372,6 @@ getRoundStatus = do
 
 setRoundStatus roundStatus' = withSkovData $ \SkovData{..} -> SkovData{_roundStatus = roundStatus', ..}
 
-addTransaction = undefined
 markTransactionDead = undefined
 lookupTransaction transactionHash = do
     SkovData{..} <- getSkovData
