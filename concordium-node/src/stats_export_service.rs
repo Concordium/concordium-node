@@ -93,6 +93,16 @@ pub struct StatsExportService {
     ///   messages determined so by consensus, **after** the message has already
     ///   been deduplicated at the network layer.
     pub received_consensus_messages: IntCounterVec,
+    /// Total number of consensus messages sent. Labelled with message type
+    /// (`message=<type>`).
+    ///
+    /// Possible values of `message` are:
+    /// - `"block"`
+    /// - `"transaction"`
+    /// - `"finalization record"`
+    /// - `"finalization message"`
+    /// - `"catch-up status message"`
+    pub sent_messages: IntCounterVec,
     /// Total number of bytes received at the point of last
     /// throughput_measurement.
     ///
@@ -214,7 +224,7 @@ impl StatsExportService {
         let received_consensus_messages = IntCounterVec::new(
             Opts::new(
                 "consensus_received_messages_total",
-                "Total number of received messages labeled by the type of messages and the \
+                "Total number of received messages labelled by the type of messages and the \
                  resulting outcome",
             )
             .variable_label("message")
@@ -222,6 +232,16 @@ impl StatsExportService {
             &["message", "result"],
         )?;
         registry.register(Box::new(received_consensus_messages.clone()))?;
+
+        let sent_messages = IntCounterVec::new(
+            Opts::new(
+                "consensus_sent_messages_total",
+                "Total number of sent messages labelled by the type of messages",
+            )
+            .variable_label("message"),
+            &["message"],
+        )?;
+        registry.register(Box::new(sent_messages.clone()))?;
 
         let last_throughput_measurement_timestamp = AtomicI64::new(0);
         let last_throughput_measurement_sent_bytes = AtomicU64::new(0);
@@ -246,6 +266,7 @@ impl StatsExportService {
             last_arrived_block_height,
             last_arrived_block_timestamp,
             received_consensus_messages,
+            sent_messages,
             last_throughput_measurement_timestamp,
             last_throughput_measurement_sent_bytes,
             last_throughput_measurement_received_bytes,

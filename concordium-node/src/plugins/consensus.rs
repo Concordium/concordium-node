@@ -212,6 +212,8 @@ pub fn handle_consensus_outbound_msg(
     node: &P2PNode,
     message: ConsensusMessage,
 ) -> anyhow::Result<()> {
+    node.stats.sent_messages.with_label_values(&[message.variant.as_label()]).inc();
+
     if let Some(status) = message.omit_status {
         for peer in read_or_die!(node.peers)
             .peer_states

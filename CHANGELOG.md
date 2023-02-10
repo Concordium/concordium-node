@@ -19,7 +19,7 @@
   - `bytes_sent` is now `network_sent_bytes`.
 - Remove `last_throughput_measurement_timestamp`, `avg_bps_in` and `avg_bps_out` metrics exposed by the Prometheus exporter.
 - Change behavior of Prometheus metrics `network_sent_bytes` and `network_received_bytes`. Before this change these metrics were calculated as a sum of all the bytes sent/received to peers, which causes the metrics to drop when a peer is dropped. They were only updated during the scheduled "housekeeping" (every 30 secons by default). The new behavior is to update the metric every time a message is sent/received to a peer.
-- Extend Prometheus exporter with metrics: `consensus_last_finalized_block_height`, `consensus_last_finalized_block_timestamp`, `consensus_last_arrived_block_height`, `consensus_last_arrived_block_timestamp`, `consensus_received_messages_total` see [docs/prometheus-exporter.md](https://github.com/Concordium/concordium-node/blob/main/docs/prometheus-exporter.md) for more details.
+- Extend Prometheus exporter with metrics: `consensus_last_finalized_block_height`, `consensus_last_finalized_block_timestamp`, `consensus_last_arrived_block_height`, `consensus_last_arrived_block_timestamp`, `consensus_received_messages_total`, `consensus_sent_messages_total` see [docs/prometheus-exporter.md](https://github.com/Concordium/concordium-node/blob/main/docs/prometheus-exporter.md) for more details.
 - Remove metrics `network_inbound_high_priority_message_drops_total`, `network_inbound_low_priority_message_drops_total`, `network_inbound_high_priority_messages_total` and `network_inbound_high_priority_messages_total` as they can be derived using the labels of `consensus_received_messages_total`.
 
 ## 5.2.1
