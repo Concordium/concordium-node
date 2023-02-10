@@ -85,12 +85,15 @@ data BlockStatus pv
       BlockFinalized !(BlockPointer pv)
     | -- |The block has been marked dead.
       BlockDead
+    | -- |The block is unknown
+      BlockUnknown
 
 instance Show (BlockStatus pv) where
     show (BlockPending _) = "Pending"
     show (BlockAlive _) = "Alive"
     show (BlockFinalized _) = "Finalized"
     show BlockDead = "Dead"
+    show BlockUnknown = "Unknown"
 
 -- |Get the status of a block if it recent
 -- otherwise if it is a predecessor of the last finalized block

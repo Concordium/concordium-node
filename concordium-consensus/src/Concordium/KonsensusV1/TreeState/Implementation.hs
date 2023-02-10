@@ -45,6 +45,9 @@ data PendingBlock = PendingBlock
       pbReceiveTime :: !UTCTime
     }
 
+instance HashableTo BlockHash PendingBlock where
+    getHash PendingBlock{..} = getHash pbBlock
+
 instance BlockData PendingBlock where
     type BakedBlockDataType PendingBlock = SignedBlock
     blockRound = blockRound . pbBlock
@@ -63,34 +66,12 @@ data InMemoryBlockStatus pv
     | -- |The block is alive i.e. head of chain.
       MemBlockAlive !(BlockPointer pv)
 
--- |Create a live block status from a
--- pending block.
--- Always returns the MemBlockAlive.
-makeLive :: BlockPointer (MPV m) -> GSTypes.BlockState m -> UTCTime -> InMemoryBlockStatus (MPV m) -> InMemoryBlockStatus (MPV m)
-makeLive parentPointer state now (MemBlockPending sb@SignedBlock{..}) = MemBlockAlive mkBlockPointer
-  where
-    mkBlockPointer =
-        let _bpInfo = mkMetaData
-            _bpBlock = NormalBlock sb
-            _bpState = mkStatePointer
-        in  BlockPointer{..}
-    mkMetaData =
-        let bmHeight' = (bmHeight $! _bpInfo parentPointer) + 1
-            bmReceiveTime = undefined
-            bmArriveTime = now
-        in  BlockMetadata{bmHeight = bmHeight', ..}
-    mkStatePointer =
-        let hpbsPointers = undefined
-            hpbsHash = blockStateHash sb
-        in  PBS.HashedPersistentBlockState{..}
-makeLive _ _ _ mba@(MemBlockAlive _) = mba
-
 -- |The block table yields blocks that are
 -- either alive or pending.
 -- Furthermore it holds a fixed size cache of hashes
 -- blocks marked as dead.
 data BlockTable pv = BlockTable
-    { _deadCache :: !DeadCache,
+    { _deadBlocks :: !DeadCache,
       _liveMap :: HM.HashMap BlockHash (InMemoryBlockStatus pv)
     }
 
@@ -156,24 +137,6 @@ deriving instance MonadReader r m => MonadReader r (TreeStateWrapper pv m)
 -- |'MonadProtocolVersion' instance for 'TreeStateWrapper'.
 instance IsProtocolVersion pv => MonadProtocolVersion (TreeStateWrapper pv m) where
     type MPV (TreeStateWrapper pv m) = pv
-
--- |Verify the transactions included in a 'SignedBlock'.
--- Return @Right [VerifiedBlockItem]@ if all transactions could be
--- successfully verified otherwise @Left ()@.
--- todo: Implement and decide what should left be..
-verifyBlockItems :: SignedBlock -> Either () [VerifiedBlockItem]
-verifyBlockItems sb = undefined
-  where
-    txs = (bbTransactions . sbBlock) sb
-
--- |Mark a block as dead.
--- This adds the 'BlockHash' to the 'DeadCache' and if present also
--- expunges it from the @liveMap@ of the 'BlockTable'.
-markDead :: BlockHash -> BlockTable pv -> BlockTable pv
-markDead blockHash BlockTable{..} =
-    let deadCache' = insertDeadCache blockHash _deadCache
-        liveMap' = HM.delete blockHash _liveMap
-    in  BlockTable{_deadCache = deadCache', _liveMap = liveMap'}
 
 -- |Commit verified transactions to the transaction table.
 -- If a transaction is at least the 'nextNonce' in the 'PendingTransactionTable' then
@@ -309,36 +272,30 @@ doMakeLiveBlock pb st height arriveTime = do
                   _bpBlock = NormalBlock (pbBlock pb),
                   _bpState = st
                 }
-    -- TODO: Add the block to the live blocks.
+    blockTable . liveMap . at' (getHash pb) ?=! MemBlockAlive bp
     return bp
 
-markPendingBlockLive signedBlock parentPointer state now = do
-    undefined
-
---     (SkovState ioref) <- ask
---     SkovData{_blockTable = BlockTable{..}, ..} <- liftIO $ readIORef ioref
---     let liveMap' = HM.adjust (makeLive parentPointer state now) signedBlockHash _liveMap
---     liftIO $ writeIORef ioref $! SkovData{_blockTable = BlockTable{_liveMap = liveMap', ..}, ..}
---     return undefined
---   where
---     signedBlockHash = getHash signedBlock
-
 takePendingChildren = undefined
+
+markBlockDead :: (MonadState (SkovData pv) m) => BlockHash -> m ()
 markBlockDead blockHash = do
-    (SkovState ioref) <- ask
-    SkovData{_blockTable = bt, ..} <- liftIO $ readIORef ioref
-    let blockTable' = markDead blockHash bt
-    liftIO $ writeIORef ioref $! SkovData{_blockTable = blockTable', ..}
+    blockTable . liveMap . at' blockHash .=! Nothing
+    blockTable . deadBlocks %=! insertDeadCache blockHash
     return ()
 
-{-
-getLastFinalized = do
-    SkovData{..} <- getSkovData
-    return $! _lastFinalized
--}
+doGetLastFinalized :: (MonadState (SkovData pv) m) => m (BlockPointer pv)
+doGetLastFinalized = do
+    SkovData{..} <- get
+    return _lastFinalized
 
-getBlockStatus blockHash = do
-    SkovData{..} <- getSkovData
+-- |Get the 'BlockStatus' of a non finalized block based on the 'BlockHash'
+-- If the block could not be found in memory then this will return 'Nothing'
+-- otherwise 'Just BlockStatus'.
+-- This function should not be called directly, instead use either
+-- 'doGetBlockStatus' or 'doGetRecentBlockStatus'.
+doGetNonFinalizedBlockStatus :: (MonadState (SkovData (MPV m)) m) => BlockHash -> m (Maybe (BlockStatus (MPV m)))
+doGetNonFinalizedBlockStatus blockHash = do
+    SkovData{..} <- get
     -- We check whether the block is the last finalized block.
     if getHash _lastFinalized == blockHash
         then return $! Just $! BlockFinalized _lastFinalized
@@ -350,7 +307,7 @@ getBlockStatus blockHash = do
                 -- this will return if the block is pending or if it's alive on some other
                 -- branch.
                 -- If it is not present in the live store then we check whether the block
-                -- has been marked as dead or we finally try to look in the persistent block store.
+                -- has been marked as dead and finally we try to look in the persistent block store.
                 case HM.lookup blockHash (_liveMap _blockTable) of
                     Just status ->
                         case status of
@@ -359,58 +316,45 @@ getBlockStatus blockHash = do
                     Nothing ->
                         -- Check if the block marked as dead before we look into the
                         -- persistent block store.
-                        if memberDeadCache blockHash (_deadCache _blockTable)
+                        if memberDeadCache blockHash (_deadBlocks _blockTable)
                             then return $ Just BlockDead
-                            else do
-                                -- Now we look in the LMDB to check if the block is stored.
-                                -- Only finalized blocks are persisted so we return a 'BlockFinalized' in case
-                                -- we find the block in the persistent block store.
-                                LowLevel.lookupBlock blockHash >>= \case
-                                    Nothing -> return Nothing
-                                    Just storedBlock -> do
-                                        blockPointer <- liftIO $ mkBlockPointer storedBlock
-                                        return $! Just $! BlockFinalized blockPointer
+                            else return Nothing
+
+-- |Get the 'BlockStatus' of a block based on the provided 'BlockHash'.
+-- Note. if one does not care about old finalized blocks then
+-- use 'doGetRecentBlockStatus' instead as it circumvents a full lookup from disk.
+doGetBlockStatus :: (LowLevel.MonadTreeStateStore m, MonadIO m) => (MonadState (SkovData (MPV m)) m) => BlockHash -> m (BlockStatus (MPV m))
+doGetBlockStatus blockHash =
+    doGetNonFinalizedBlockStatus blockHash >>= \case
+        Just bs -> return bs
+        Nothing ->
+            LowLevel.lookupBlock blockHash >>= \case
+                Nothing -> return BlockUnknown
+                Just storedBlock -> do
+                    blockPointer <- liftIO $ mkBlockPointer storedBlock
+                    return $! BlockFinalized blockPointer
   where
     -- Create a block pointer from a stored block.
     mkBlockPointer sb@LowLevel.StoredBlock{..} = do
-        let
-            _bpInfo = stbInfo
-            _bpBlock = stbBlock
         _bpState <- mkHashedPersistentBlockState sb
-        return BlockPointer{..}
+        return BlockPointer{_bpInfo = stbInfo, _bpBlock = stbBlock, ..}
     mkHashedPersistentBlockState sb@LowLevel.StoredBlock{..} = do
         hpbsPointers <- newIORef $ BlobStore.blobRefToBufferedRef stbStatePointer
         let hpbsHash = blockStateHash sb
         return $! PBS.HashedPersistentBlockState{..}
 
-getRecentBlockStatus blockHash = do
-    SkovData{..} <- getSkovData
-    -- We check whether the block is the last finalized block.
-    if getHash _lastFinalized == blockHash
-        then return $! RecentBlock $! BlockFinalized _lastFinalized
-        else -- We check if the block is the focus block
-
-            if getHash _focusBlock == blockHash
-                then return $! RecentBlock $! BlockAlive _focusBlock
-                else -- Now we lookup in the livemap of the block table,
-                -- this will return if the block is pending or if it's alive on some other
-                -- branch.
-                -- If it is not present in the live store then we check whether the block
-                -- has been marked as dead or we finally try to look in the persistent block store.
-                case HM.lookup blockHash (_liveMap _blockTable) of
-                    Just status ->
-                        case status of
-                            MemBlockPending sb -> return $! RecentBlock $! BlockPending sb
-                            MemBlockAlive bp -> return $! RecentBlock $! BlockAlive bp
-                    Nothing ->
-                        -- Check if the block marked as dead before we peek into the
-                        -- persistent block store in order to check whether the block is present or not.
-                        if memberDeadCache blockHash (_deadCache _blockTable)
-                            then return $ RecentBlock BlockDead
-                            else do
-                                LowLevel.memberBlock blockHash >>= \case
-                                    True -> return OldFinalized
-                                    False -> return Unknown
+-- |Get the 'RecentBlockStatus' of a block based on the provided 'BlockHash'.
+-- One should use this instead of 'getBlockStatus' if
+-- one does not require the actual contents and resulting state related
+-- to the block in case the block is a predecessor of the last finalized block.
+doGetRecentBlockStatus :: (LowLevel.MonadTreeStateStore m) => (MonadState (SkovData (MPV m)) m) => BlockHash -> m (RecentBlockStatus (MPV m))
+doGetRecentBlockStatus blockHash =
+    doGetNonFinalizedBlockStatus blockHash >>= \case
+        Just bs -> return $! RecentBlock bs
+        Nothing -> do
+            LowLevel.memberBlock blockHash >>= \case
+                True -> return OldFinalized
+                False -> return Unknown
 
 {-
 
