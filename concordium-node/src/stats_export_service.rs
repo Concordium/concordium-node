@@ -15,7 +15,7 @@ use hyper::Body;
 use prometheus::{
     self,
     core::{Atomic, AtomicI64, AtomicU64, GenericGauge},
-    Encoder, IntCounter, IntGauge, Opts, Registry, TextEncoder,
+    Encoder, IntCounter, IntCounterVec, IntGauge, Opts, Registry, TextEncoder,
 };
 use std::{net::SocketAddr, sync::RwLock, thread, time};
 
@@ -56,16 +56,6 @@ pub struct StatsExportService {
     pub connected_peers: IntGauge,
     /// Total number of connections received.
     pub connections_received: IntCounter,
-    /// Total inbound high priority consensus messages dropped due to a full
-    /// queue.
-    pub inbound_high_priority_message_drops: IntCounter,
-    /// Total inbound low priority consensus messages dropped due to a full
-    /// queue.
-    pub inbound_low_priority_message_drops: IntCounter,
-    /// Total inbound high priority consensus messages received.
-    pub inbound_high_priority_messages: IntCounter,
-    /// Total inbound low priority consensus messages received.
-    pub inbound_low_priority_messages: IntCounter,
     /// Current number of inbound high priority messages in queue.
     pub inbound_high_priority_message_queue_size: IntGauge,
     /// Current number of inbound low priority messages in queue.
@@ -86,6 +76,23 @@ pub struct StatsExportService {
     pub last_arrived_block_timestamp: IntGauge,
     /// The block height of the last finalized block.
     pub last_arrived_block_height: GenericGauge<AtomicU64>,
+    /// Total number of consensus messages received. Labelled with message type
+    /// (`message=<type>`) and the outcome (`result=<outcome>`).
+    ///
+    /// Possible values of `message` are:
+    /// - `"block"`
+    /// - `"transaction"`
+    /// - `"finalization record"`
+    /// - `"finalization message"`
+    /// - `"catch-up status message"`
+    ///
+    /// Possible values of `result` are:
+    /// - `"valid"` Successful outcome.
+    /// - `"invalid"` Messages being rejected as invalid.
+    /// - `"dropped"` Messages being dropped due to a full queue.
+    /// - `"duplicate"` duplicate consensus messages (this is not accounting
+    ///   deduplication of the network layer).
+    pub received_messages: IntCounterVec,
     /// Total number of bytes received at the point of last
     /// throughput_measurement.
     ///
@@ -146,30 +153,6 @@ impl StatsExportService {
         ))?;
         registry.register(Box::new(connections_received.clone()))?;
 
-        let inbound_high_priority_message_drops = IntCounter::with_opts(Opts::new(
-            "network_inbound_high_priority_message_drops_total",
-            "Total inbound high priority consensus messages dropped due to a full queue",
-        ))?;
-        registry.register(Box::new(inbound_high_priority_message_drops.clone()))?;
-
-        let inbound_low_priority_message_drops = IntCounter::with_opts(Opts::new(
-            "network_inbound_low_priority_message_drops_total",
-            "Total inbound low priority consensus messages dropped due to a full queue",
-        ))?;
-        registry.register(Box::new(inbound_low_priority_message_drops.clone()))?;
-
-        let inbound_high_priority_messages = IntCounter::with_opts(Opts::new(
-            "network_inbound_high_priority_messages_total",
-            "Total inbound high priority consensus messages received",
-        ))?;
-        registry.register(Box::new(inbound_high_priority_messages.clone()))?;
-
-        let inbound_low_priority_messages = IntCounter::with_opts(Opts::new(
-            "network_inbound_low_priority_messages_total",
-            "Total inbound low priority consensus messages received",
-        ))?;
-        registry.register(Box::new(inbound_low_priority_messages.clone()))?;
-
         let inbound_high_priority_message_queue_size = IntGauge::with_opts(Opts::new(
             "network_inbound_high_priority_message_queue_size",
             "Current number of inbound high priority messages in queue",
@@ -228,6 +211,18 @@ impl StatsExportService {
         ))?;
         registry.register(Box::new(last_arrived_block_timestamp.clone()))?;
 
+        let received_messages = IntCounterVec::new(
+            Opts::new(
+                "consensus_received_messages_total",
+                "Total number of received messages labeled by the type of messages and the \
+                 resulting outcome",
+            )
+            .variable_label("message")
+            .variable_label("result"),
+            &["message", "result"],
+        )?;
+        registry.register(Box::new(received_messages.clone()))?;
+
         let last_throughput_measurement_timestamp = AtomicI64::new(0);
         let last_throughput_measurement_sent_bytes = AtomicU64::new(0);
         let last_throughput_measurement_received_bytes = AtomicU64::new(0);
@@ -240,10 +235,6 @@ impl StatsExportService {
             packets_sent,
             connected_peers,
             connections_received,
-            inbound_high_priority_message_drops,
-            inbound_low_priority_message_drops,
-            inbound_high_priority_messages,
-            inbound_low_priority_messages,
             inbound_high_priority_message_queue_size,
             inbound_low_priority_message_queue_size,
             outbound_high_priority_message_queue_size,
@@ -254,6 +245,7 @@ impl StatsExportService {
             last_finalized_block_timestamp,
             last_arrived_block_height,
             last_arrived_block_timestamp,
+            received_messages,
             last_throughput_measurement_timestamp,
             last_throughput_measurement_sent_bytes,
             last_throughput_measurement_received_bytes,

@@ -174,30 +174,33 @@ pub fn handle_pkt_out(
         if let Err(e) = CALLBACK_QUEUE.send_in_low_priority_message(request) {
             match e.downcast::<TrySendError<QueueMsg<ConsensusMessage>>>()? {
                 TrySendError::Full(_) => {
-                    node.stats.inbound_low_priority_message_drops.inc();
+                    node.stats
+                        .received_messages
+                        .with_label_values(&[packet_type.as_label(), "dropped"])
+                        .inc();
                     node.bad_events.inc_dropped_low_queue(peer_id);
                 }
                 TrySendError::Disconnected(_) => {
                     panic!("Low priority consensus queue has been shutdown!")
                 }
             }
-        } else {
-            node.stats.inbound_low_priority_messages.inc();
         }
     } else {
         // high priority message
         if let Err(e) = CALLBACK_QUEUE.send_in_high_priority_message(request) {
             match e.downcast::<TrySendError<QueueMsg<ConsensusMessage>>>()? {
                 TrySendError::Full(_) => {
-                    node.stats.inbound_high_priority_message_drops.inc();
+                    node.stats
+                        .received_messages
+                        .with_label_values(&[packet_type.as_label(), "dropped"])
+                        .inc();
+
                     node.bad_events.inc_dropped_high_queue(peer_id);
                 }
                 TrySendError::Disconnected(_) => {
                     panic!("High priority consensus queue has been shutdown!")
                 }
             }
-        } else {
-            node.stats.inbound_high_priority_messages.inc();
         }
     }
 
@@ -260,6 +263,13 @@ pub fn handle_consensus_inbound_msg(
     let (consensus_result, finalizer) = send_msg_to_consensus(node, source, consensus, &request)?;
     // adjust the peer state(s) based on the feedback from Consensus
     update_peer_states(node, &request, consensus_result);
+
+    // Update metric tracking received messages.
+    node.stats
+        .received_messages
+        .with_label_values(&[request.variant.as_label(), consensus_result.as_label()])
+        .inc();
+
     // rebroadcast incoming broadcasts if applicable
     if !drop_message
         && request.distribution_mode() == DistributionMode::Broadcast

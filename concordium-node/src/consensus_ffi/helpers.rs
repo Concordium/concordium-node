@@ -107,6 +107,18 @@ impl PacketType {
             PacketType::CatchUpStatus => false,
         }
     }
+
+    /// Get the label. This is used when updating metrics of the prometheus
+    /// exporter.
+    pub fn as_label(&self) -> &str {
+        match self {
+            PacketType::Block => "block",
+            PacketType::Transaction => "transaction",
+            PacketType::FinalizationRecord => "finalization record",
+            PacketType::FinalizationMessage => "finalization message",
+            PacketType::CatchUpStatus => "catch-up status message",
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Error)]
@@ -247,6 +259,16 @@ impl ConsensusFfiResponse {
             | ContinueCatchUp => false,
             PendingBlock => packet_type != PacketType::Block,
             Success | PendingFinalization | Asynchronous => true,
+        }
+    }
+
+    /// Get the label. This is used when updating metrics of the prometheus
+    /// exporter.
+    pub fn as_label(&self) -> &str {
+        match self {
+            ConsensusFfiResponse::Success => "valid",
+            ConsensusFfiResponse::DuplicateEntry => "duplicate",
+            _ => "invalid",
         }
     }
 }
