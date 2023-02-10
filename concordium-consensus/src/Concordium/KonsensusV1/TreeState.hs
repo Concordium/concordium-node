@@ -208,7 +208,7 @@ class
     -- current account nonce and a boolean value indicating
     -- that there are no pending or comitted (but only finalized) transactions
     -- tied to this account.
-    getNextAccountNonce :: m (Nonce, Bool)
+    getNextAccountNonce :: AccountAddressEq -> m (Nonce, Bool)
 
     -- * Chain updates
 

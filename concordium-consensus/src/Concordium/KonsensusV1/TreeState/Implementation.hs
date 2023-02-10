@@ -533,7 +533,27 @@ doPurgeTransactionTable force currentTime = do
         transactionTable .= newTT
         pendingTransactions .= newPT
 
+-- |Get the next account nonce for an account.
+-- Returns a tuple consisting of the successor of the
+-- current account nonce and a boolean value indicating
+-- that there are no pending or comitted (but only finalized) transactions
+-- tied to this account.
+doGetNextAccountNonce ::
+    (MonadState (SkovData pv) m) =>
+    -- |The 'AccountAddressEq' to get the next available nonce for.
+    -- This will work for account aliases as this is an 'AccountAddressEq'
+    -- and not just a 'AccountAddress'.
+    AccountAddressEq ->
+    -- |The resulting account nonce and whether it is finalized or not.
+    m (Nonce, Bool)
+doGetNextAccountNonce addr =
+    use (transactionTable . ttNonFinalizedTransactions . at' addr) >>= \case
+        Nothing -> return (minNonce, True)
+        Just anfts ->
+            case Map.lookupMax (anfts ^. anftMap) of
+                Nothing -> return (anfts ^. anftNextNonce, True)
+                Just (nonce, _) -> return (nonce + 1, False)
+
 {-
-getNextAccountNonce = undefined
 clearAfterProtocolUpdate = undefined
 -}
