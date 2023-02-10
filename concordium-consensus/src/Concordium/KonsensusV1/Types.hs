@@ -856,7 +856,15 @@ newtype SignatureMessages a = SignatureMessages
 emptySignatureMessages :: SignatureMessages a
 emptySignatureMessages = SignatureMessages IntMap.empty
 
-instance Serialize a => Serialize (SignatureMessages a)
+-- |Serialize instance for 'SignatureMessages QuorumSignatureMessage'
+-- This is just a generic instance for serializing the IntMap which should
+-- be fine as 'SignatureMessages' is not part of the protocol.
+instance Serialize (SignatureMessages QuorumSignatureMessage)
+
+-- |Serialize instance for 'SignatureMessages TimeoutSignatureMessage'
+-- This is just a generic instance for serializing the IntMap which should
+-- be fine as 'SignatureMessages' is not part of the protocol.
+instance Serialize (SignatureMessages TimeoutSignatureMessage)
 
 -- |A 'BlockItem' together with its verification result.
 -- Precondition: The verification result must be 'Ok'.
