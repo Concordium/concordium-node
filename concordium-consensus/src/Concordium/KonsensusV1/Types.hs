@@ -72,9 +72,13 @@ instance Serialize QuorumSignatureMessage where
     put QuorumSignatureMessage{..} = do
         put qsmGenesis
         put qsmBlock
+        put qsmRound
+        put qsmEpoch
     get = do
         qsmGenesis <- get
         qsmBlock <- get
+        qsmRound <- get
+        qsmEpoch <- get
         return QuorumSignatureMessage{..}
 
 -- |Compute the byte representation of a 'QuorumSignatureMessage' that is actually signed.
