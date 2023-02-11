@@ -162,7 +162,7 @@ propSignTimeoutMessageDiffBody =
                         not (checkTimeoutMessageSignature (Sig.verifyKey kp) (signTimeoutMessage body1 kp){tmBody = body2})
 
 tests :: Spec
-tests = describe "KonesnsusV2.Types" $ do
+tests = describe "KonsensusV1.Types" $ do
     it "FinalizerSet serialization" propSerializeFinalizerSet
     it "QuorumCertificate serialization" propSerializeQuorumCertificate
     it "FinalizationEntry serialization" propSerializeFinalizationEntry
