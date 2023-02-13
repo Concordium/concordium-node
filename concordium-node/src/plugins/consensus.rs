@@ -175,8 +175,8 @@ pub fn handle_pkt_out(
             match e.downcast::<TrySendError<QueueMsg<ConsensusMessage>>>()? {
                 TrySendError::Full(_) => {
                     node.stats
-                        .received_messages
-                        .with_label_values(&[packet_type.as_label(), "dropped"])
+                        .received_consensus_messages
+                        .with_label_values(&[packet_type.label(), "dropped"])
                         .inc();
                     node.bad_events.inc_dropped_low_queue(peer_id);
                 }
@@ -191,8 +191,8 @@ pub fn handle_pkt_out(
             match e.downcast::<TrySendError<QueueMsg<ConsensusMessage>>>()? {
                 TrySendError::Full(_) => {
                     node.stats
-                        .received_messages
-                        .with_label_values(&[packet_type.as_label(), "dropped"])
+                        .received_consensus_messages
+                        .with_label_values(&[packet_type.label(), "dropped"])
                         .inc();
 
                     node.bad_events.inc_dropped_high_queue(peer_id);
@@ -266,8 +266,8 @@ pub fn handle_consensus_inbound_msg(
 
     // Update metric tracking received messages.
     node.stats
-        .received_messages
-        .with_label_values(&[request.variant.as_label(), consensus_result.as_label()])
+        .received_consensus_messages
+        .with_label_values(&[request.variant.label(), consensus_result.label()])
         .inc();
 
     // rebroadcast incoming broadcasts if applicable

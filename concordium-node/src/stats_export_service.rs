@@ -82,7 +82,6 @@ pub struct StatsExportService {
     /// Possible values of `message` are:
     /// - `"block"`
     /// - `"transaction"`
-    /// - `"finalization record"`
     /// - `"finalization message"`
     /// - `"catch-up status message"`
     ///
@@ -90,9 +89,10 @@ pub struct StatsExportService {
     /// - `"valid"` Successful outcome.
     /// - `"invalid"` Messages being rejected as invalid.
     /// - `"dropped"` Messages being dropped due to a full queue.
-    /// - `"duplicate"` duplicate consensus messages (this is not accounting
-    ///   deduplication of the network layer).
-    pub received_messages: IntCounterVec,
+    /// - `"duplicate"` Duplicate consensus messages. These are duplicate
+    ///   messages determined so by consensus, **after** the message has already
+    ///   been deduplicated at the network layer.
+    pub received_consensus_messages: IntCounterVec,
     /// Total number of bytes received at the point of last
     /// throughput_measurement.
     ///
@@ -211,7 +211,7 @@ impl StatsExportService {
         ))?;
         registry.register(Box::new(last_arrived_block_timestamp.clone()))?;
 
-        let received_messages = IntCounterVec::new(
+        let received_consensus_messages = IntCounterVec::new(
             Opts::new(
                 "consensus_received_messages_total",
                 "Total number of received messages labeled by the type of messages and the \
@@ -221,7 +221,7 @@ impl StatsExportService {
             .variable_label("result"),
             &["message", "result"],
         )?;
-        registry.register(Box::new(received_messages.clone()))?;
+        registry.register(Box::new(received_consensus_messages.clone()))?;
 
         let last_throughput_measurement_timestamp = AtomicI64::new(0);
         let last_throughput_measurement_sent_bytes = AtomicU64::new(0);
@@ -245,7 +245,7 @@ impl StatsExportService {
             last_finalized_block_timestamp,
             last_arrived_block_height,
             last_arrived_block_timestamp,
-            received_messages,
+            received_consensus_messages,
             last_throughput_measurement_timestamp,
             last_throughput_measurement_sent_bytes,
             last_throughput_measurement_received_bytes,

@@ -114,7 +114,6 @@ Total number of consensus messages received. Labelled with message type (`messag
 Possible values of `message` are:
 - `"block"`
 - `"transaction"`
-- `"finalization record"`
 - `"finalization message"`
 - `"catch-up status message"`
 
@@ -122,4 +121,4 @@ Possible values of `result` are:
 - `"valid"` Successful outcome.
 - `"invalid"` Messages being rejected as invalid.
 - `"dropped"` Messages being dropped due to a full queue. See either `network_inbound_low_priority_message_queue_size` or `network_inbound_high_priority_message_queue_size` for more on this.
-- `"duplicate"` Duplicate consensus messages (this is not including deduplication of the network layer).
+- `"duplicate"` Duplicate consensus messages. These are duplicate messages determined so by consensus, **after** the message has already been deduplicated at the network layer.

@@ -110,7 +110,7 @@ impl PacketType {
 
     /// Get the label. This is used when updating metrics of the prometheus
     /// exporter.
-    pub fn as_label(&self) -> &str {
+    pub fn label(&self) -> &str {
         match self {
             PacketType::Block => "block",
             PacketType::Transaction => "transaction",
@@ -264,11 +264,13 @@ impl ConsensusFfiResponse {
 
     /// Get the label. This is used when updating metrics of the prometheus
     /// exporter.
-    pub fn as_label(&self) -> &str {
-        match self {
-            ConsensusFfiResponse::Success => "valid",
-            ConsensusFfiResponse::DuplicateEntry => "duplicate",
-            _ => "invalid",
+    pub fn label(&self) -> &str {
+        if self.is_successful() {
+            "valid"
+        } else if let ConsensusFfiResponse::DuplicateEntry = self {
+            "duplicate"
+        } else {
+            "invalid"
         }
     }
 }
