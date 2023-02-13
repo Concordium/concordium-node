@@ -59,7 +59,7 @@ Total number of connections received. Incremented everytime someone tries to est
 
 Current number of consensus messages in the inbound high priority queue. Start dropping messages when larger than 16 * 1024.
 
-High priority messages are blocks, finalizations records, finalization messages and catch-up status messages.
+High priority messages are blocks, finalization messages and catch-up status messages.
 
 The value of this metric should average around 0. There can be spikes, but generally large numbers over extended periods mean the node is struggling to keep up.
 
@@ -75,7 +75,7 @@ The value of this metric should average around 0. There can be spikes, but gener
 
 Current number of consensus messages in the outbound high priority queue. Start dropping messages when larger than 8 * 1024.
 
-High priority messages are blocks, finalizations records, finalization messages and catch-up status messages.
+High priority messages are blocks, finalization messages and catch-up status messages.
 
 The value of this metric should average around 0. There can be spikes, but generally large numbers over extended periods mean the node is struggling to keep up.
 
