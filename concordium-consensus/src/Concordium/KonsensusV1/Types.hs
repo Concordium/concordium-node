@@ -543,9 +543,6 @@ class BakedBlockData d where
     -- |'BakerId' of the baker of the block.
     blockBaker :: d -> BakerId
 
-    -- |Signature verification key of the baker of the block.
-    blockBakerKey :: d -> BakerSignVerifyKey
-
     -- |If the previous round timed-out, the timeout certificate for that round.
     blockTimeoutCertificate :: d -> Option TimeoutCertificate
 
@@ -594,8 +591,6 @@ data BakedBlock = BakedBlock
       bbTimestamp :: !Timestamp,
       -- |Block baker identity.
       bbBaker :: !BakerId,
-      -- |Block baker signature verification key.
-      bbBakerKey :: !BakerSignVerifyKey,
       -- |Quorum certificate of parent block.
       bbQuorumCertificate :: !QuorumCertificate,
       -- |Timeout certificate if the previous round timed-out.
@@ -649,7 +644,6 @@ putBakedBlock bb@BakedBlock{..} = do
     put bbEpoch
     put bbTimestamp
     put bbBaker
-    put bbBakerKey
     put bbNonce
     put bbStateHash
     put bbTransactionOutcomesHash
@@ -668,7 +662,6 @@ getBakedBlock spv tt = label "BakedBlock" $ do
     bbEpoch <- get
     bbTimestamp <- get
     bbBaker <- get
-    bbBakerKey <- get
     bbNonce <- get
     bbStateHash <- get
     bbTransactionOutcomesHash <- get
@@ -714,7 +707,6 @@ data SignedBlock = SignedBlock
 instance BakedBlockData SignedBlock where
     blockQuorumCertificate = bbQuorumCertificate . sbBlock
     blockBaker = bbBaker . sbBlock
-    blockBakerKey = bbBakerKey . sbBlock
     blockTimeoutCertificate = bbTimeoutCertificate . sbBlock
     blockEpochFinalizationEntry = bbEpochFinalizationEntry . sbBlock
     blockNonce = bbNonce . sbBlock
@@ -744,12 +736,17 @@ getSignedBlock spv tt = do
 blockSignatureMessageBytes :: BlockHash -> BS.ByteString
 blockSignatureMessageBytes = Hash.hashToByteString . blockHash
 
--- |Verify that a block is correctly signed by the baker key present in the block.
--- (This does not authenticate that the key corresponds to a genuine baker.)
-verifyBlockSignature :: (BakedBlockData b, HashableTo BlockHash b) => b -> Bool
-verifyBlockSignature b =
+-- |Verify that a block is correctly signed by the baker key provided.
+verifyBlockSignature :: (BakedBlockData b, HashableTo BlockHash b) =>
+                       -- |The public key of the baker to use for the signature check.
+                       BakerSignVerifyKey ->
+                       -- |The data of the block that is signed.
+                       b ->
+                       -- |'True' if the signature can be verifed otherwise 'False'.
+                       Bool
+verifyBlockSignature key b =
     BlockSig.verify
-        (blockBakerKey b)
+        key
         (blockSignatureMessageBytes $ getHash b)
         (blockSignature b)
 
@@ -831,15 +828,12 @@ instance HashableTo BlockQuasiHash BakedBlock where
       where
         metaHash = Hash.hashOfHashes bakerInfoHash certificatesHash
           where
-            bakerInfoHash = Hash.hashOfHashes timestampBakerHash keyNonceHash
+            bakerInfoHash = Hash.hashOfHashes timestampBakerHash nonceHash
               where
                 timestampBakerHash = Hash.hash $ runPut $ do
                     put bbTimestamp
                     put bbBaker
-                keyNonceHash = Hash.hashOfHashes bakerKeyHash nonceHash
-                  where
-                    bakerKeyHash = Hash.hash $ encode bbBakerKey
-                    nonceHash = Hash.hash $ encode bbNonce
+                nonceHash = Hash.hash $ encode bbNonce
             certificatesHash = Hash.hashOfHashes qcHash timeoutFinalizationHash
               where
                 qcHash = getHash bbQuorumCertificate
