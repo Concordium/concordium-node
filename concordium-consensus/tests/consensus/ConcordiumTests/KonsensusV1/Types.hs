@@ -72,10 +72,20 @@ genFinalizerRounds =
         fs <- genFinalizerSet
         return (r, fs)
 
+-- |Generate an arbitrary 'Round' and 'Epoch' tuple.
+genRoundAndEpoch :: Maybe Epoch -> Gen (Round, Epoch)
+genRoundAndEpoch me = do
+    r <- Round <$> arbitrary
+    case me of
+        Nothing -> arbitrary >>= \e -> return (r, e)
+        Just e -> return (r, e)
+
 -- |Generate a timeout certificate.
-genTimeoutCertificate :: Gen TimeoutCertificate
-genTimeoutCertificate = do
-    tcRound <- Round <$> arbitrary
+-- Use the epoch if it is provided otherwise create an
+-- arbitrary epoch.
+genTimeoutCertificate :: Maybe Epoch -> Gen TimeoutCertificate
+genTimeoutCertificate me = do
+    (tcRound, tcEpoch) <- genRoundAndEpoch me
     tcFinalizerQCRounds <- genFinalizerRounds
     tcAggregateSignature <- TimeoutSignature <$> genBlsSignature
     return TimeoutCertificate{..}
@@ -85,13 +95,13 @@ genTimeoutMessageBody :: Gen TimeoutMessageBody
 genTimeoutMessageBody = do
     tmFinalizerIndex <- FinalizerIndex <$> arbitrary
     tmQuorumCertificate <- genQuorumCertificate
-    (tmRound, tmTimeoutCertificate) <-
+    (tmRound, tmEpoch, tmTimeoutCertificate) <-
         oneof
-            [ (return (qcRound tmQuorumCertificate + 1, Absent)),
+            [ (return (qcRound tmQuorumCertificate + 1, qcEpoch tmQuorumCertificate, Absent)),
               ( do
                     r <- chooseBoundedIntegral (qcRound tmQuorumCertificate, maxBound - 1)
-                    tc <- genTimeoutCertificate
-                    return (r + 1, Present tc{tcRound = r})
+                    tc <- genTimeoutCertificate $ Just $! qcEpoch tmQuorumCertificate
+                    return (r + 1, tcEpoch tc, Present tc{tcRound = r})
               )
             ]
     tmEpochFinalizationEntry <- oneof [return Absent, Present <$> genFinalizationEntry]
@@ -123,7 +133,7 @@ propSerializeFinalizationEntry = forAll genFinalizationEntry serCheck
 
 -- |Test that serializing then deserializing a timeout certificate is the identity.
 propSerializeTimeoutCertificate :: Property
-propSerializeTimeoutCertificate = forAll genTimeoutCertificate serCheck
+propSerializeTimeoutCertificate = forAll (genTimeoutCertificate Nothing) serCheck
 
 -- |Test that serializing then deserializing a timeout message body is the identity.
 propSerializeTimeoutMessageBody :: Property
