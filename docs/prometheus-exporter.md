@@ -122,3 +122,31 @@ Possible values of `result` are:
 - `"invalid"` Messages being rejected as invalid.
 - `"dropped"` Messages being dropped due to a full queue. See either `network_inbound_low_priority_message_queue_size` or `network_inbound_high_priority_message_queue_size` for more on this.
 - `"duplicate"` Duplicate consensus messages. These are duplicate messages determined so by consensus, **after** the message has already been deduplicated at the network layer.
+
+### `consensus_sent_messages_total`
+
+Total number of consensus messages sent. Labelled with message type (`message=<type>`).
+
+Possible values of `message` are:
+- `"block"`
+- `"transaction"`
+- `"finalization message"`
+- `"catch-up status message"`
+
+### `network_soft_banned_peers`
+
+Current number of soft banned peers. The node temporarily bans peers if they fail to follow the protocol.
+
+### `network_peers_total`
+
+Total number of peers connected since startup.
+
+### `node_info`
+
+Information of the node software. Provides the node version using a label (`version=<version>`).
+Always has the value 1.
+
+### `node_startup_timestamp`
+
+Timestamp of starting up the node (Unix time in milliseconds).
+

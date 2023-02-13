@@ -93,6 +93,24 @@ pub struct StatsExportService {
     ///   messages determined so by consensus, **after** the message has already
     ///   been deduplicated at the network layer.
     pub received_consensus_messages: IntCounterVec,
+    /// Total number of consensus messages sent. Labelled with message type
+    /// (`message=<type>`).
+    ///
+    /// Possible values of `message` are:
+    /// - `"block"`
+    /// - `"transaction"`
+    /// - `"finalization message"`
+    /// - `"catch-up status message"`
+    pub sent_consensus_messages: IntCounterVec,
+    /// Current number of soft banned peers.
+    pub soft_banned_peers: IntGauge,
+    /// Total number of peers connected since startup.
+    pub total_peers: IntCounter,
+    /// Information of the node software. Contains a label `version` with the
+    /// version of the node.
+    pub node_info: IntGauge,
+    /// Timestamp of starting up the node (Unix time in milliseconds).
+    pub node_startup_timestamp: IntGauge,
     /// Total number of bytes received at the point of last
     /// throughput_measurement.
     ///
@@ -214,7 +232,7 @@ impl StatsExportService {
         let received_consensus_messages = IntCounterVec::new(
             Opts::new(
                 "consensus_received_messages_total",
-                "Total number of received messages labeled by the type of messages and the \
+                "Total number of received messages labelled by the type of messages and the \
                  resulting outcome",
             )
             .variable_label("message")
@@ -222,6 +240,47 @@ impl StatsExportService {
             &["message", "result"],
         )?;
         registry.register(Box::new(received_consensus_messages.clone()))?;
+
+        let sent_consensus_messages = IntCounterVec::new(
+            Opts::new(
+                "consensus_sent_messages_total",
+                "Total number of sent messages labelled by the type of messages",
+            )
+            .variable_label("message"),
+            &["message"],
+        )?;
+        registry.register(Box::new(sent_consensus_messages.clone()))?;
+
+        let soft_banned_peers = IntGauge::with_opts(Opts::new(
+            "network_soft_banned_peers",
+            "Current number of soft banned peers",
+        ))?;
+        registry.register(Box::new(soft_banned_peers.clone()))?;
+
+        let total_peers = IntCounter::with_opts(Opts::new(
+            "network_peers_total",
+            "Total number of peers since startup",
+        ))?;
+        registry.register(Box::new(total_peers.clone()))?;
+
+        let node_info = IntGauge::with_opts(
+            Opts::new(
+                "node_info",
+                "Node software information. Provides the node version using a label \
+                 (`version=<version>`). Always has the value 1",
+            )
+            .const_labels(prometheus::labels! {
+                "version".to_owned() => crate::VERSION.to_owned()
+            }),
+        )?;
+        registry.register(Box::new(node_info.clone()))?;
+        node_info.set(1);
+
+        let node_startup_timestamp = IntGauge::with_opts(Opts::new(
+            "node_startup_timestamp",
+            "Timestamp of starting up the node (Unix time in milliseconds).",
+        ))?;
+        registry.register(Box::new(node_startup_timestamp.clone()))?;
 
         let last_throughput_measurement_timestamp = AtomicI64::new(0);
         let last_throughput_measurement_sent_bytes = AtomicU64::new(0);
@@ -246,6 +305,11 @@ impl StatsExportService {
             last_arrived_block_height,
             last_arrived_block_timestamp,
             received_consensus_messages,
+            sent_consensus_messages,
+            soft_banned_peers,
+            total_peers,
+            node_info,
+            node_startup_timestamp,
             last_throughput_measurement_timestamp,
             last_throughput_measurement_sent_bytes,
             last_throughput_measurement_received_bytes,
