@@ -55,27 +55,11 @@ Current number of connected peers. This is incremented when a peer completes a h
 
 Total number of connections received. Incremented everytime someone tries to establish a new connection, meaning even the failed connections are accounted, such as when the address is banned, duplicate connection or the node is at its limit on number of connections.
 
-### `network_inbound_high_priority_message_drops_total`
-
-Total inbound high priority messages dropped due to the queue for high priority messages being full.
-See `network_inbound_high_priority_message_queue_size` for the current size of the queue.
-
-### `network_inbound_low_priority_message_drops_total`
-
-Total inbound low priority messages dropped due to the queue for low priority messages being full.
-See `network_inbound_low_priority_message_queue_size` for the current size of the queue.
-
-### `network_inbound_high_priority_messages_total`
-
-Total inbound high priority messages received. This is incremented when a consensus message is enqueue in the high priority queue. Note: Does not include the dropped messages, see `network_inbound_high_priority_message_drops_total`.
-
-### `network_inbound_low_priority_messages_total`
-
-Total inbound low priority messages received. This is incremented when a consensus message is enqueue in the low priority queue. Note: Does not include the dropped messages, see `network_inbound_low_priority_message_drops_total`.
-
 ### `network_inbound_high_priority_message_queue_size`
 
 Current number of consensus messages in the inbound high priority queue. Start dropping messages when larger than 16 * 1024.
+
+High priority messages are blocks, finalization messages and catch-up status messages.
 
 The value of this metric should average around 0. There can be spikes, but generally large numbers over extended periods mean the node is struggling to keep up.
 
@@ -83,17 +67,23 @@ The value of this metric should average around 0. There can be spikes, but gener
 
 Current number of consensus messages in the inbound low priority queue. Start dropping messages when larger than 32 * 1024.
 
+Low priority messages are transaction messages.
+
 The value of this metric should average around 0. There can be spikes, but generally large numbers over extended periods mean the node is struggling to keep up.
 
 ### `network_outbound_high_priority_message_queue_size`
 
 Current number of consensus messages in the outbound high priority queue. Start dropping messages when larger than 8 * 1024.
 
+High priority messages are blocks, finalization messages and catch-up status messages.
+
 The value of this metric should average around 0. There can be spikes, but generally large numbers over extended periods mean the node is struggling to keep up.
 
 ### `network_outbound_low_priority_message_queue_size`
 
 Current number of consensus messages in the outbound low priority queue. Start dropping messages when larger than 16 * 1024.
+
+Low priority messages are transaction messages.
 
 The value of this metric should average around 0. There can be spikes, but generally large numbers over extended periods mean the node is struggling to keep up.
 
@@ -116,3 +106,19 @@ The block height of the last arrived block.
 Timestamp for the processed last arrived block (as Unix time in milliseconds).
 
 Note that this is the time when the node has last processed a new block. It is **not** the objective timestamp of the block (i.e., slot time).
+
+### `consensus_received_messages_total`
+
+Total number of consensus messages received. Labelled with message type (`message=<type>`) and the outcome (`result=<outcome>`).
+
+Possible values of `message` are:
+- `"block"`
+- `"transaction"`
+- `"finalization message"`
+- `"catch-up status message"`
+
+Possible values of `result` are:
+- `"valid"` Successful outcome.
+- `"invalid"` Messages being rejected as invalid.
+- `"dropped"` Messages being dropped due to a full queue. See either `network_inbound_low_priority_message_queue_size` or `network_inbound_high_priority_message_queue_size` for more on this.
+- `"duplicate"` Duplicate consensus messages. These are duplicate messages determined so by consensus, **after** the message has already been deduplicated at the network layer.
