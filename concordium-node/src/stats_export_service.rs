@@ -99,16 +99,15 @@ pub struct StatsExportService {
     /// Possible values of `message` are:
     /// - `"block"`
     /// - `"transaction"`
-    /// - `"finalization record"`
     /// - `"finalization message"`
     /// - `"catch-up status message"`
-    pub sent_messages: IntCounterVec,
+    pub sent_consensus_messages: IntCounterVec,
     /// Current number of soft banned peers.
     pub soft_banned_peers: IntGauge,
     /// Total number of peers connected since startup.
-    pub peers: IntCounter,
-    /// General node information, so far only contains a label `version` with
-    /// the version of the node.
+    pub total_peers: IntCounter,
+    /// Information of the node software. Contains a label `version` with the
+    /// version of the node.
     pub node_info: IntGauge,
     /// Timestamp of starting up the node (Unix time in milliseconds).
     pub node_startup_timestamp: IntGauge,
@@ -242,7 +241,7 @@ impl StatsExportService {
         )?;
         registry.register(Box::new(received_consensus_messages.clone()))?;
 
-        let sent_messages = IntCounterVec::new(
+        let sent_consensus_messages = IntCounterVec::new(
             Opts::new(
                 "consensus_sent_messages_total",
                 "Total number of sent messages labelled by the type of messages",
@@ -250,7 +249,7 @@ impl StatsExportService {
             .variable_label("message"),
             &["message"],
         )?;
-        registry.register(Box::new(sent_messages.clone()))?;
+        registry.register(Box::new(sent_consensus_messages.clone()))?;
 
         let soft_banned_peers = IntGauge::with_opts(Opts::new(
             "network_soft_banned_peers",
@@ -258,18 +257,21 @@ impl StatsExportService {
         ))?;
         registry.register(Box::new(soft_banned_peers.clone()))?;
 
-        let peers = IntCounter::with_opts(Opts::new(
+        let total_peers = IntCounter::with_opts(Opts::new(
             "network_peers_total",
             "Total number of peers since startup",
         ))?;
-        registry.register(Box::new(peers.clone()))?;
+        registry.register(Box::new(total_peers.clone()))?;
 
         let node_info = IntGauge::with_opts(
-            Opts::new("node_info", "Node information such as version").const_labels(
-                prometheus::labels! {
-                    "version".to_owned() => crate::VERSION.to_owned()
-                },
-            ),
+            Opts::new(
+                "node_info",
+                "Node software information. Provides the node version using a label \
+                 (`version=<version>`). Always has the value 1",
+            )
+            .const_labels(prometheus::labels! {
+                "version".to_owned() => crate::VERSION.to_owned()
+            }),
         )?;
         registry.register(Box::new(node_info.clone()))?;
         node_info.set(1);
@@ -303,9 +305,9 @@ impl StatsExportService {
             last_arrived_block_height,
             last_arrived_block_timestamp,
             received_consensus_messages,
-            sent_messages,
+            sent_consensus_messages,
             soft_banned_peers,
-            peers,
+            total_peers,
             node_info,
             node_startup_timestamp,
             last_throughput_measurement_timestamp,

@@ -526,6 +526,7 @@ pub fn connect(
                     BanId::Socket(peer_addr),
                     Instant::now() + Duration::from_secs(config::UNREACHABLE_EXPIRATION_SECS),
                 );
+                node.stats.soft_banned_peers.inc();
             }
             bail!(e)
         }
