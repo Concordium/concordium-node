@@ -212,7 +212,11 @@ doMinting blockParent slotNumber foundationAddr mintUpds bs0 = do
 -- |Mint for the given payday, recording a
 -- special transaction outcome for the minting.
 doMintingP4 ::
-    (ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1, BlockStateOperations m, SupportsTransactionOutcomes (MPV m)) =>
+    ( ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
+      BlockStateOperations m,
+      SupportsTransactionOutcomes (MPV m),
+      SeedStateVersionFor (MPV m) ~ 'SeedStateVersion0
+    ) =>
     -- |Chain parameters
     ChainParameters (MPV m) ->
     -- |Payday epoch to mint for
@@ -233,7 +237,7 @@ doMintingP4 oldChainParameters paydayEpoch paydayMintRate foundationAddr mintUpd
             calculatePaydayMintAmounts
                 (oldChainParameters ^. rpMintDistribution)
                 paydayMintRate
-                (epochLength seedstate * fromIntegral paydayEpoch)
+                ((epochLength seedstate ^. unconditionally) * fromIntegral paydayEpoch)
                 mintUpds
                 totGTU
     bs1 <- bsoMint bs0 mint
@@ -361,7 +365,13 @@ doBlockReward transFees FreeTransactionCounts{..} (BakerId aid) foundationAddr b
 -- |Accrue the rewards for a block to the relevant pool, the passive delegators, and the foundation.
 doBlockRewardP4 ::
     forall m.
-    (BlockStateOperations m, MonadProtocolVersion m, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1, PVSupportsDelegation (MPV m), SupportsTransactionOutcomes (MPV m)) =>
+    ( BlockStateOperations m,
+      MonadProtocolVersion m,
+      ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
+      PVSupportsDelegation (MPV m),
+      SupportsTransactionOutcomes (MPV m),
+      SeedStateVersionFor (MPV m) ~ 'SeedStateVersion0
+    ) =>
     -- |Transaction fees paid
     Amount ->
     -- |Counts of unpaid transactions
@@ -805,7 +815,8 @@ updatedTimeParameters targetSlot tp0 upds =
 mintForSkippedPaydays ::
     ( ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
       BlockStateOperations m,
-      SupportsTransactionOutcomes (MPV m)
+      SupportsTransactionOutcomes (MPV m),
+      SeedStateVersionFor (MPV m) ~ 'SeedStateVersion0
     ) =>
     -- |Epoch of the current block
     Epoch ->
@@ -822,7 +833,7 @@ mintForSkippedPaydays ::
     m (Epoch, MintRate, UpdatableBlockState m)
 mintForSkippedPaydays newEpoch payday oldChainParameters foundationAccount updates bs0 = do
     seedstate <- bsoGetSeedState bs0
-    let paydaySlot = epochLength seedstate * fromIntegral payday
+    let paydaySlot = (epochLength seedstate ^. unconditionally) * fromIntegral payday
         bestTP = updatedTimeParameters paydaySlot (oldChainParameters ^. cpTimeParameters . supportedOParam) updates
         nextMintRate = bestTP ^. tpMintPerPayday
         nextRPL = bestTP ^. tpRewardPeriodLength
@@ -986,7 +997,8 @@ mintAndReward bshandle blockParent slotNumber bid newEpoch mintParams mfinInfo t
 
     mintAndRewardCPV1AccountV1 ::
         ( PVSupportsDelegation (MPV m),
-          ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1
+          ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
+          SeedStateVersionFor (MPV m) ~ 'SeedStateVersion0
         ) =>
         m (UpdatableBlockState m)
     mintAndRewardCPV1AccountV1 = do
@@ -1040,7 +1052,7 @@ updateBirkParameters ::
     forall m.
     (BlockStateOperations m, TreeStateMonad m, MonadProtocolVersion m) =>
     -- |New seed state
-    SeedState ->
+    SeedState (SeedStateVersionFor (MPV m)) ->
     -- |Block state
     UpdatableBlockState m ->
     -- |Chain parameters at the previous block
@@ -1073,7 +1085,10 @@ updateBirkParameters newSeedState bs0 oldChainParameters updates = case protocol
                 else return bs0
         (MintRewardParamsV0 isNewEpoch,) <$> bsoSetSeedState bs1 newSeedState
     updateCPV1AccountV1 ::
-        (PVSupportsDelegation (MPV m), ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1) =>
+        ( PVSupportsDelegation (MPV m),
+          ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
+          SeedStateVersionFor (MPV m) ~ 'SeedStateVersion0
+        ) =>
         m (MintRewardParams 'ChainParametersV1, UpdatableBlockState m)
     updateCPV1AccountV1 = do
         oldSeedState <- bsoGetSeedState bs0
@@ -1085,7 +1100,7 @@ updateBirkParameters newSeedState bs0 oldChainParameters updates = case protocol
                 payday <- bsoGetPaydayEpoch bs0
                 let oldTimeParameters = oldChainParameters ^. cpTimeParameters . supportedOParam
                     -- Convert an Epoch to a Slot.
-                    slotFor = (epochLength oldSeedState *) . fromIntegral
+                    slotFor = ((epochLength oldSeedState ^. unconditionally) *) . fromIntegral
                     -- For each payday after the parent block:
                     --   - If the epoch before the payday is elapsed, generate the next bakers for the
                     --     reward period that starts from that payday.
@@ -1198,7 +1213,7 @@ executeBlockPrologue ::
     -- |Slot time of the new block
     Timestamp ->
     -- |New seed state
-    SeedState ->
+    SeedState (SeedStateVersionFor (MPV m)) ->
     -- |Chain parameters from the parent block
     ChainParameters (MPV m) ->
     -- |Block state from the parent block
@@ -1249,7 +1264,7 @@ executeFrom ::
     -- |Parties to the finalization record in this block, if any
     Maybe FinalizerInfo ->
     -- |New seed state
-    SeedState ->
+    SeedState (SeedStateVersionFor (MPV m)) ->
     -- |Transactions on this block with their associated verification result.
     [TVer.BlockItemWithStatus] ->
     m (Either (Maybe FailureKind) (ExecutionResult m))
@@ -1324,7 +1339,7 @@ constructBlock ::
     -- |Parties to the finalization record in this block, if any
     Maybe FinalizerInfo ->
     -- |New seed state
-    SeedState ->
+    SeedState (SeedStateVersionFor (MPV m)) ->
     m (Sch.FilteredTransactions, ExecutionResult m)
 constructBlock slotNumber slotTime blockParent blockBaker mfinInfo newSeedState =
     let cm = ChainMetadata{..}

@@ -137,7 +137,7 @@ updateRegenesis UpdateData{..} = do
     oldSeedState <- bsoGetSeedState s0
     s1 <-
         bsoSetSeedState s0 $
-            initialSeedState
+            initialSeedStateV0
                 (SHA256.hash $ "Regenesis" <> encode (updatedNonce oldSeedState))
                 updateEpochLength
     -- Overwrite the election difficulty.

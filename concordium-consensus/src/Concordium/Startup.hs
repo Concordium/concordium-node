@@ -1,9 +1,9 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
 -- |This module provides functionality for generating startup data for
 -- testing purposes.  It should not be used in production.
@@ -28,6 +28,7 @@ import Concordium.Crypto.DummyData (
     randomEd25519KeyPair,
  )
 import qualified Concordium.Genesis.Data as GenesisData
+import qualified Concordium.Genesis.Data.BaseV1 as GDBaseV1
 import qualified Concordium.Genesis.Data.P1 as P1
 import qualified Concordium.Genesis.Data.P2 as P2
 import qualified Concordium.Genesis.Data.P3 as P3
@@ -123,9 +124,10 @@ defaultFinalizationParameters =
           finalizationAllowZeroDelay = True
         }
 
-makeGenesisData ::
+-- |Make genesis data for consensus version 0.
+makeGenesisDataV0 ::
     forall pv.
-    (IsProtocolVersion pv) =>
+    (IsProtocolVersion pv, IsConsensusV0 pv) =>
     -- |Genesis time
     Timestamp ->
     -- |Initial number of bakers.
@@ -149,7 +151,7 @@ makeGenesisData ::
     -- |Initial chain parameters
     ChainParameters pv ->
     (GenesisData pv, [(BakerIdentity, FullBakerInfo)], Amount)
-makeGenesisData
+makeGenesisDataV0
     genesisTime
     nBakers
     genesisSlotDuration
@@ -202,9 +204,53 @@ makeGenesisData
                         { genesisCore = GenesisData.CoreGenesisParameters{..},
                           genesisInitialState = GenesisData.GenesisState{genesisAccounts = Vec.fromList genesisAccounts, ..}
                         }
+
+-- |Make genesis data for consensus version 1.
+makeGenesisDataV1 ::
+    forall pv.
+    (IsProtocolVersion pv, IsConsensusV1 pv) =>
+    -- |Genesis time
+    Timestamp ->
+    -- |Initial number of bakers.
+    Word ->
+    -- |Epoch duration (milliseconds).
+    Duration ->
+    -- |Initial cryptographic parameters.
+    CryptographicParameters ->
+    -- |List of initial identity providers.
+    IdentityProviders ->
+    -- |Initial anonymity revokers.
+    AnonymityRevokers ->
+    -- |Additional accounts.
+    [GenesisAccount] ->
+    -- |Authorized keys for chain updates
+    UpdateKeysCollection (AuthorizationsVersionForPV pv) ->
+    -- |Initial chain parameters
+    ChainParameters pv ->
+    (GenesisData pv, [(BakerIdentity, FullBakerInfo)], Amount)
+makeGenesisDataV1
+    genesisTime
+    nBakers
+    genesisEpochDuration
+    genesisCryptographicParameters
+    genesisIdentityProviders
+    genesisAnonymityRevokers
+    additionalAccounts
+    genesisUpdateKeys
+    genesisChainParameters =
+        (gd, bakers, genesisTotalAmount)
+      where
+        -- todo hardcoded epoch length (and initial seed)
+        genesisLeadershipElectionNonce = Hash.hash "LeadershipElectionNonce"
+        mbkrs = makeBakers nBakers
+        bakers = (\(bid, binfo, _, _) -> (bid, binfo)) <$> mbkrs
+        bakerAccounts = (\(_, _, bacc, _) -> bacc) <$> mbkrs
+        genesisAccounts = bakerAccounts ++ additionalAccounts
+        genesisTotalAmount = sum (gaBalance <$> genesisAccounts)
+        gd = case protocolVersion @pv of
             SP6 ->
                 GDP6
                     P6.GDP6Initial
-                        { genesisCore = GenesisData.CoreGenesisParameters{..},
+                        { genesisCore = GDBaseV1.CoreGenesisParametersV1{..},
                           genesisInitialState = GenesisData.GenesisState{genesisAccounts = Vec.fromList genesisAccounts, ..}
                         }

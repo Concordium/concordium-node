@@ -39,7 +39,7 @@ import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.TreeState as TS
 import Concordium.Types.HashableTo
-import Concordium.Types.SeedState
+import Concordium.Types.SeedState hiding (getSeedState)
 import Concordium.Types.Transactions
 import Concordium.Types.Updates
 
@@ -91,7 +91,7 @@ processTransactions ::
       SkovMonad m
     ) =>
     Slot ->
-    SeedState ->
+    SeedState (SeedStateVersionFor (MPV m)) ->
     BlockPointerType m ->
     Maybe FinalizerInfo ->
     BakerId ->
