@@ -741,12 +741,12 @@ getSignedBlock spv tt = do
 -- The same genesis hash must be provided when signing the block in order to verify the block signature.
 -- This function outputs the bytestring consisting of H(genesisBlockHash || blockHash).
 blockSignatureMessageBytes ::
-     -- |Hash of the genesis block
-     BlockHash ->
-     -- |Hash of the block
-     BlockHash ->
-     -- |The H(genesisBlockHash || blockHash) bytestring.
-     BS.ByteString
+    -- |Hash of the genesis block
+    BlockHash ->
+    -- |Hash of the block
+    BlockHash ->
+    -- |The H(genesisBlockHash || blockHash) bytestring.
+    BS.ByteString
 blockSignatureMessageBytes genesisHash bHash = Hash.hashToByteString $! Hash.hashOfHashes (blockHash genesisHash) (blockHash bHash)
 
 -- |Verify that a block is correctly signed by the baker key provided.

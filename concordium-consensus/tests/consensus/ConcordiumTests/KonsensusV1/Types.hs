@@ -84,7 +84,7 @@ genRoundAndEpoch = do
     r <- Round <$> arbitrary
     e <- arbitrary
     return (r, e)
-    
+
 -- |Generate a timeout certificate.
 genTimeoutCertificate :: Gen TimeoutCertificate
 genTimeoutCertificate = do
