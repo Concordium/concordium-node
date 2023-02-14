@@ -150,3 +150,27 @@ Always has the value 1.
 
 Timestamp of starting up the node (Unix time in milliseconds).
 
+### `grpc_received_requests`
+
+Total number of gRPC requests received. Labelled with the gRPC method name (`method=<name>`) and the gRPC response status (`status=<status>`).
+
+For a complete list of possible method names refer to the gRPC api documentation.
+
+Possible values of `status` are:
+- `"ok"` The operation completed successfully.
+- `"cancelled"` The operation was cancelled.
+- `"unknown"` Unknown error.
+- `"invalid argument"` Client specified an invalid argument.
+- `"deadline exceeded"` Deadline expired before operation could complete.
+- `"not found"` Some requested entity was not found.
+- `"already exists"` Some entity that we attempted to create already exists.
+- `"permission denied"` The caller does not have permission to execute the specified operation.
+- `"resource exhausted"` Some resource has been exhausted.
+- `"failed precondition"` The system is not in a state required for the operation's execution.
+- `"aborted"` The operation was aborted.
+- `"out of range"` Operation was attempted past the valid range.
+- `"unimplemented"` Operation is not implemented or not supported.
+- `"internal"` Internal error.
+- `"unavailable"` The service is currently unavailable.
+- `"data loss"` Unrecoverable data loss or corruption.
+- `"unauthenticated"` The request does not have valid authentication credentials.

@@ -661,6 +661,7 @@ dependencies = [
  "tonic-build",
  "tonic-reflection",
  "tonic-web",
+ "tower",
  "tower-http",
  "twox-hash",
  "url",

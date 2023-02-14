@@ -111,6 +111,10 @@ pub struct StatsExportService {
     pub node_info: IntGauge,
     /// Timestamp of starting up the node (Unix time in milliseconds).
     pub node_startup_timestamp: IntGauge,
+    /// Total number of gRPC requests received. Labelled with the gRPC method
+    /// name (`method=<name>`) and the gRPC response status
+    /// (`status=<status>`).
+    pub grpc_received_requests: IntCounterVec,
     /// Total number of bytes received at the point of last
     /// throughput_measurement.
     ///
@@ -282,6 +286,18 @@ impl StatsExportService {
         ))?;
         registry.register(Box::new(node_startup_timestamp.clone()))?;
 
+        let grpc_received_requests = IntCounterVec::new(
+            Opts::new(
+                "grpc_received_requests",
+                "Total number of gRPC requests received. Labelled with the gRPC method name \
+                 (`method=<name>`) and the gRPC response status (`status=<status>`).",
+            )
+            .variable_label("method")
+            .variable_label("status"),
+            &["method", "status"],
+        )?;
+        registry.register(Box::new(grpc_received_requests.clone()))?;
+
         let last_throughput_measurement_timestamp = AtomicI64::new(0);
         let last_throughput_measurement_sent_bytes = AtomicU64::new(0);
         let last_throughput_measurement_received_bytes = AtomicU64::new(0);
@@ -310,6 +326,7 @@ impl StatsExportService {
             total_peers,
             node_info,
             node_startup_timestamp,
+            grpc_received_requests,
             last_throughput_measurement_timestamp,
             last_throughput_measurement_sent_bytes,
             last_throughput_measurement_received_bytes,
