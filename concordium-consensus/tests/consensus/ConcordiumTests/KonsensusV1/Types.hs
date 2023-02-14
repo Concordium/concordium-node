@@ -39,7 +39,8 @@ genGenesisBlockHash :: Gen BlockHash
 genGenesisBlockHash = BlockHash . Hash.Hash . FBS.pack <$> vector 32
 
 -- |Generate a quorum certificate in a way that is suitable for testing serialization.
--- The genesis block hash must be provided.
+-- If the genesis block hash is provided then the resulting qcEpoch will yield that,
+-- otherwise an arbitrary epoch is generated.
 genQuorumCertificate :: Maybe BlockHash -> Gen QuorumCertificate
 genQuorumCertificate mGenesisBlockHash = do
     qcBlock <- BlockHash . Hash.Hash . FBS.pack <$> vector 32
