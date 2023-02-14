@@ -34,14 +34,15 @@ genBlsSignature = flip Bls.sign someBlsSecretKey . BS.pack <$> vector 10
 genQuorumSignature :: Gen QuorumSignature
 genQuorumSignature = QuorumSignature <$> genBlsSignature
 
--- |Generate a block hash for a genesis
-genGenesisBlockHash :: Gen BlockHash
-genGenesisBlockHash = BlockHash . Hash.Hash . FBS.pack <$> vector 32
+-- |Generate a block hash.
+-- This generates an arbitrary hash.
+genBlockHash :: Gen BlockHash
+genBlockHash = BlockHash . Hash.Hash . FBS.pack <$> vector 32
 
 -- |Generate a quorum certificate in a way that is suitable for testing serialization.
 genQuorumCertificate :: Gen QuorumCertificate
 genQuorumCertificate = do
-    qcBlock <- BlockHash . Hash.Hash . FBS.pack <$> vector 32
+    qcBlock <- genBlockHash
     qcRound <- Round <$> arbitrary
     qcEpoch <- arbitrary
     qcAggregateSignature <- genQuorumSignature
@@ -52,7 +53,6 @@ genQuorumCertificate = do
 -- The result satisfies the invariants.
 genFinalizationEntry :: Gen FinalizationEntry
 genFinalizationEntry = do
-    genesisBlockHash <- genGenesisBlockHash
     feFinalizedQuorumCertificate <- genQuorumCertificate
     preQC <- genQuorumCertificate
     feSuccessorProof <- BlockQuasiHash . Hash.Hash . FBS.pack <$> vector 32
@@ -78,17 +78,18 @@ genFinalizerRounds =
         fs <- genFinalizerSet
         return ((r, e), fs)
 
--- |Generate round and epoch
-genRoundAndEpoch :: Gen (Round, Epoch)
-genRoundAndEpoch = do
-    r <- Round <$> arbitrary
-    e <- arbitrary
-    return (r, e)
+-- |Generate an arbitrary round.
+genRound :: Gen Round
+genRound = Round <$> arbitrary
+
+-- |Generate an arbitrary epoch.
+genEpoch :: Gen Epoch
+genEpoch = arbitrary
 
 -- |Generate a timeout certificate.
 genTimeoutCertificate :: Gen TimeoutCertificate
 genTimeoutCertificate = do
-    (tcRound, tcEpoch) <- genRoundAndEpoch
+    tcRound <- genRound
     tcFinalizerQCRounds <- genFinalizerRounds
     tcAggregateSignature <- TimeoutSignature <$> genBlsSignature
     return TimeoutCertificate{..}
@@ -100,7 +101,7 @@ genTimeoutMessageBody = do
     tmQuorumCertificate <- genQuorumCertificate
     (tmRound, tmTimeoutCertificate) <-
         oneof
-            [ (return (qcRound tmQuorumCertificate + 1, Absent)),
+            [ return (qcRound tmQuorumCertificate + 1, Absent),
               ( do
                     r <- chooseBoundedIntegral (qcRound tmQuorumCertificate, maxBound - 1)
                     tc <- genTimeoutCertificate
@@ -116,7 +117,8 @@ genTimeoutMessage :: Gen TimeoutMessage
 genTimeoutMessage = do
     body <- genTimeoutMessageBody
     kp <- genBlockKeyPair
-    return $ signTimeoutMessage body kp
+    genesis <- genBlockHash
+    return $ signTimeoutMessage body genesis kp
 
 -- |Check that serialization followed by deserialization gives the identity.
 serCheck :: (Eq a, Serialize a, Show a) => a -> Property
@@ -151,7 +153,8 @@ propSignTimeoutMessagePositive :: Property
 propSignTimeoutMessagePositive =
     forAll genTimeoutMessageBody $ \body ->
         forAll genBlockKeyPair $ \kp ->
-            checkTimeoutMessageSignature (Sig.verifyKey kp) (signTimeoutMessage body kp)
+            forAll genBlockHash $ \genesis ->
+                checkTimeoutMessageSignature (Sig.verifyKey kp) genesis (signTimeoutMessage body genesis kp)
 
 -- |Check that a signing a timeout message produces a timeout message that does not verify with a
 -- different key.
@@ -160,8 +163,9 @@ propSignTimeoutMessageDiffKey =
     forAll genTimeoutMessageBody $ \body ->
         forAll genBlockKeyPair $ \kp1 ->
             forAll genBlockKeyPair $ \kp2 ->
-                (kp1 /= kp2) ==>
-                    not (checkTimeoutMessageSignature (Sig.verifyKey kp2) (signTimeoutMessage body kp1))
+                forAll genBlockHash $ \genesis ->
+                    (kp1 /= kp2) ==>
+                        not (checkTimeoutMessageSignature (Sig.verifyKey kp2) genesis (signTimeoutMessage body genesis kp1))
 
 -- |Check that signing a timeout message and changing the body to something different produces a
 -- timeout message that does not verify with the key.
@@ -169,10 +173,11 @@ propSignTimeoutMessageDiffBody :: Property
 propSignTimeoutMessageDiffBody =
     forAll genTimeoutMessageBody $ \body1 ->
         forAll genTimeoutMessageBody $ \body2 ->
-            (body1 /= body2) ==>
-                forAll genBlockKeyPair $
-                    \kp ->
-                        not (checkTimeoutMessageSignature (Sig.verifyKey kp) (signTimeoutMessage body1 kp){tmBody = body2})
+            forAll genBlockHash $ \genesis ->
+                (body1 /= body2) ==>
+                    forAll genBlockKeyPair $
+                        \kp ->
+                            not (checkTimeoutMessageSignature (Sig.verifyKey kp) genesis (signTimeoutMessage body1 genesis kp){tmBody = body2})
 
 tests :: Spec
 tests = describe "KonesnsusV2.Types" $ do

@@ -489,7 +489,9 @@ instance Serialize TimeoutMessageBody where
 tmSignatureMessage ::
     -- |Genesis block hash
     BlockHash ->
+    -- |The timeout message body
     TimeoutMessageBody ->
+    -- |The resulting timeout signature message
     TimeoutSignatureMessage
 tmSignatureMessage tsmGenesis tmb =
     TimeoutSignatureMessage
@@ -518,22 +520,45 @@ instance Serialize TimeoutMessage where
         return TimeoutMessage{..}
 
 -- |Byte representation of a 'TimeoutMessageBody' used for signing the timeout message.
-timeoutMessageBodySignatureBytes :: TimeoutMessageBody -> BS.ByteString
-timeoutMessageBodySignatureBytes body = runPut $ do
+timeoutMessageBodySignatureBytes ::
+    -- |The contents of the timeout message.
+    TimeoutMessageBody ->
+    -- |The genesis block hash.
+    BlockHash ->
+    -- |The resulting bytestring to sign.
+    BS.ByteString
+timeoutMessageBodySignatureBytes body genesisHash = runPut $ do
     putByteString "TIMEOUTMESSAGE."
     put body
+    put genesisHash
 
 -- |Sign a timeout message.
-signTimeoutMessage :: TimeoutMessageBody -> BakerSignPrivateKey -> TimeoutMessage
-signTimeoutMessage tmBody privKey = TimeoutMessage{..}
+signTimeoutMessage ::
+    -- |The contents of the timeout message.
+    TimeoutMessageBody ->
+    -- |The genesis block hash.
+    BlockHash ->
+    -- |The private key of the baker.
+    BakerSignPrivateKey ->
+    -- |The resulting signed timeout message.
+    TimeoutMessage
+signTimeoutMessage tmBody genesisHash privKey = TimeoutMessage{..}
   where
-    msg = timeoutMessageBodySignatureBytes tmBody
+    msg = timeoutMessageBodySignatureBytes tmBody genesisHash
     tmSignature = BlockSig.sign privKey msg
 
 -- |Check the signature on a timeout message.
-checkTimeoutMessageSignature :: BakerSignVerifyKey -> TimeoutMessage -> Bool
-checkTimeoutMessageSignature pubKey TimeoutMessage{..} =
-    BlockSig.verify pubKey (timeoutMessageBodySignatureBytes tmBody) tmSignature
+checkTimeoutMessageSignature ::
+    -- |The public key of the baker.
+    BakerSignVerifyKey ->
+    -- |The genesis block hash.
+    BlockHash ->
+    -- |The timeout message
+    TimeoutMessage ->
+    -- |Wheter the signature could be verified or not.
+    Bool
+checkTimeoutMessageSignature pubKey genesisHash TimeoutMessage{..} =
+    BlockSig.verify pubKey (timeoutMessageBodySignatureBytes tmBody genesisHash) tmSignature
 
 -- |Projections for the data associated with a baked (i.e. non-genesis) block.
 class BakedBlockData d where
