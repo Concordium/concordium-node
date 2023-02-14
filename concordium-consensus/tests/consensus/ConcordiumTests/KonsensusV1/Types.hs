@@ -39,34 +39,28 @@ genGenesisBlockHash :: Gen BlockHash
 genGenesisBlockHash = BlockHash . Hash.Hash . FBS.pack <$> vector 32
 
 -- |Generate a quorum certificate in a way that is suitable for testing serialization.
--- If the genesis block hash is provided then the resulting qcEpoch will yield that,
--- otherwise an arbitrary epoch is generated.
-genQuorumCertificate :: Maybe BlockHash -> Gen QuorumCertificate
-genQuorumCertificate mGenesisBlockHash = do
+genQuorumCertificate :: Gen QuorumCertificate
+genQuorumCertificate = do
     qcBlock <- BlockHash . Hash.Hash . FBS.pack <$> vector 32
     qcRound <- Round <$> arbitrary
     qcEpoch <- arbitrary
     qcAggregateSignature <- genQuorumSignature
     qcSignatories <- genFinalizerSet
-    case mGenesisBlockHash of
-        Nothing -> do
-            qcGenesis <- genGenesisBlockHash
-            return QuorumCertificate{..}
-        Just qcGenesis -> return QuorumCertificate{..}
+    return QuorumCertificate{..}
 
 -- |Generate a 'FinalizationEntry' suitable for testing serialization.
 -- The result satisfies the invariants.
 genFinalizationEntry :: Gen FinalizationEntry
 genFinalizationEntry = do
     genesisBlockHash <- genGenesisBlockHash
-    feFinalizedQuorumCertificate <- genQuorumCertificate $ Just genesisBlockHash
-    preQC <- genQuorumCertificate $ Just genesisBlockHash
+    feFinalizedQuorumCertificate <- genQuorumCertificate
+    preQC <- genQuorumCertificate
     feSuccessorProof <- BlockQuasiHash . Hash.Hash . FBS.pack <$> vector 32
     let succRound = qcRound feFinalizedQuorumCertificate + 1
     let feSuccessorQuorumCertificate =
             preQC
                 { qcRound = succRound,
-                  qcBlock = successorBlockHash (BlockHeader succRound (qcEpoch preQC) (qcBlock feFinalizedQuorumCertificate) (qcGenesis feFinalizedQuorumCertificate)) feSuccessorProof
+                  qcBlock = successorBlockHash (BlockHeader succRound (qcEpoch preQC) (qcBlock feFinalizedQuorumCertificate)) feSuccessorProof
                 }
     return FinalizationEntry{..}
 
@@ -84,20 +78,17 @@ genFinalizerRounds =
         fs <- genFinalizerSet
         return ((r, e), fs)
 
--- |Generate an arbitrary 'Round' and 'Epoch' tuple.
-genRoundAndEpoch :: Maybe Epoch -> Gen (Round, Epoch)
-genRoundAndEpoch me = do
+-- |Generate round and epoch
+genRoundAndEpoch :: Gen (Round, Epoch)
+genRoundAndEpoch = do
     r <- Round <$> arbitrary
-    case me of
-        Nothing -> arbitrary >>= \e -> return (r, e)
-        Just e -> return (r, e)
-
+    e <- arbitrary
+    return (r, e)
+    
 -- |Generate a timeout certificate.
--- Use the epoch if it is provided otherwise create an
--- arbitrary epoch.
-genTimeoutCertificate :: Maybe Epoch -> Gen TimeoutCertificate
-genTimeoutCertificate me = do
-    (tcRound, tcEpoch) <- genRoundAndEpoch me
+genTimeoutCertificate :: Gen TimeoutCertificate
+genTimeoutCertificate = do
+    (tcRound, tcEpoch) <- genRoundAndEpoch
     tcFinalizerQCRounds <- genFinalizerRounds
     tcAggregateSignature <- TimeoutSignature <$> genBlsSignature
     return TimeoutCertificate{..}
@@ -106,14 +97,14 @@ genTimeoutCertificate me = do
 genTimeoutMessageBody :: Gen TimeoutMessageBody
 genTimeoutMessageBody = do
     tmFinalizerIndex <- FinalizerIndex <$> arbitrary
-    tmQuorumCertificate <- genQuorumCertificate Nothing
-    (tmRound, tmEpoch, tmTimeoutCertificate) <-
+    tmQuorumCertificate <- genQuorumCertificate
+    (tmRound, tmTimeoutCertificate) <-
         oneof
-            [ (return (qcRound tmQuorumCertificate + 1, qcEpoch tmQuorumCertificate, Absent)),
+            [ (return (qcRound tmQuorumCertificate + 1, Absent)),
               ( do
                     r <- chooseBoundedIntegral (qcRound tmQuorumCertificate, maxBound - 1)
-                    tc <- genTimeoutCertificate $ Just $! qcEpoch tmQuorumCertificate
-                    return (r + 1, tcEpoch tc, Present tc{tcRound = r})
+                    tc <- genTimeoutCertificate
+                    return (r + 1, Present tc{tcRound = r})
               )
             ]
     tmEpochFinalizationEntry <- oneof [return Absent, Present <$> genFinalizationEntry]
@@ -137,7 +128,7 @@ propSerializeFinalizerSet = forAll genFinalizerSet serCheck
 
 -- |Test that serializing then deserializing a quorum certificate is the identity.
 propSerializeQuorumCertificate :: Property
-propSerializeQuorumCertificate = forAll (genQuorumCertificate Nothing) serCheck
+propSerializeQuorumCertificate = forAll genQuorumCertificate serCheck
 
 -- |Test that serializing then deserializing a finalization entry is the identity.
 propSerializeFinalizationEntry :: Property
@@ -145,7 +136,7 @@ propSerializeFinalizationEntry = forAll genFinalizationEntry serCheck
 
 -- |Test that serializing then deserializing a timeout certificate is the identity.
 propSerializeTimeoutCertificate :: Property
-propSerializeTimeoutCertificate = forAll (genTimeoutCertificate Nothing) serCheck
+propSerializeTimeoutCertificate = forAll genTimeoutCertificate serCheck
 
 -- |Test that serializing then deserializing a timeout message body is the identity.
 propSerializeTimeoutMessageBody :: Property

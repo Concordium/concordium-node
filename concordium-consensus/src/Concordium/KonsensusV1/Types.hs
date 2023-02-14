@@ -208,8 +208,6 @@ instance Show FinalizerSet where
 data QuorumCertificate = QuorumCertificate
     { -- |Hash of the block this certificate refers to.
       qcBlock :: !BlockHash,
-      -- |Hash of the genesis block this certificate refers to.
-      qcGenesis :: !BlockHash,
       -- |Round of the block this certificate refers to.
       qcRound :: !Round,
       -- |Epoch of the block this certificate refers to.
@@ -224,14 +222,12 @@ data QuorumCertificate = QuorumCertificate
 instance Serialize QuorumCertificate where
     put QuorumCertificate{..} = do
         put qcBlock
-        put qcGenesis
         put qcRound
         put qcEpoch
         put qcAggregateSignature
         put qcSignatories
     get = do
         qcBlock <- get
-        qcGenesis <- get
         qcRound <- get
         qcEpoch <- get
         qcAggregateSignature <- get
@@ -291,14 +287,12 @@ instance Serialize FinalizationEntry where
         put feFinalizedQuorumCertificate
         let QuorumCertificate{..} = feSuccessorQuorumCertificate
         put qcEpoch
-        put qcGenesis
         put qcAggregateSignature
         put qcSignatories
         put feSuccessorProof
     get = do
         feFinalizedQuorumCertificate <- get
         qcEpoch <- get
-        qcGenesis <- get
         qcAggregateSignature <- get
         qcSignatories <- get
         feSuccessorProof <- get
@@ -312,7 +306,6 @@ instance Serialize FinalizationEntry where
                                 sqcRound
                                 qcEpoch
                                 (qcBlock feFinalizedQuorumCertificate)
-                                qcGenesis
                             )
                             feSuccessorProof,
                       ..
@@ -332,8 +325,6 @@ data TimeoutSignatureMessage = TimeoutSignatureMessage
       tsmGenesis :: !BlockHash,
       -- |Round number of the timed-out round
       tsmRound :: !Round,
-      -- |The epoch of which the round has timed-out.
-      tsmEpoch :: !Epoch,
       -- |Round number of the highest known valid quorum certificate.
       tsmQCRound :: !Round,
       -- |Epoch number of the highest known valid quorum certificate.
@@ -347,7 +338,6 @@ timeoutSignatureMessageBytes TimeoutSignatureMessage{..} = runPut $ do
     putByteString "TIMEOUT."
     put tsmGenesis
     put tsmRound
-    put tsmEpoch
     put tsmQCRound
     put tsmQCEpoch
 
@@ -391,8 +381,6 @@ finalizerRoundsList = Map.toAscList . theFinalizerRounds
 data TimeoutCertificate = TimeoutCertificate
     { -- |The round that has timed-out.
       tcRound :: !Round,
-      -- |The epoch of which the round has timed-out.
-      tcEpoch :: !Epoch,
       -- |The rounds for which finalizers have their best QCs.
       tcFinalizerQCRounds :: !FinalizerRounds,
       -- |Aggregate of the finalizers' 'TimeoutSignature's on the round and QC round.
@@ -403,12 +391,10 @@ data TimeoutCertificate = TimeoutCertificate
 instance Serialize TimeoutCertificate where
     put TimeoutCertificate{..} = do
         put tcRound
-        put tcEpoch
         put tcFinalizerQCRounds
         put tcAggregateSignature
     get = do
         tcRound <- get
-        tcEpoch <- get
         tcFinalizerQCRounds <- get
         tcAggregateSignature <- get
         return TimeoutCertificate{..}
@@ -423,15 +409,15 @@ instance HashableTo Hash.Hash (Option TimeoutCertificate) where
 checkTimeoutCertificateSignature ::
     -- |Genesis block hash
     BlockHash ->
-    -- |Get the public keys for a set of finalizers
-    (FinalizerSet -> [BakerAggregationVerifyKey]) ->
+    -- |Get the public keys for a set of finalizers for a given 'Epoch'.
+    (FinalizerSet -> Epoch -> [BakerAggregationVerifyKey]) ->
     TimeoutCertificate ->
     Bool
 checkTimeoutCertificateSignature tsmGenesis toKeys TimeoutCertificate{..} =
     Bls.verifyAggregateHybrid msgsKeys (theTimeoutSignature tcAggregateSignature)
   where
     msgsKeys =
-        [ (timeoutSignatureMessageBytes TimeoutSignatureMessage{tsmRound = tcRound, tsmEpoch = tcEpoch, ..}, toKeys fs)
+        [ (timeoutSignatureMessageBytes TimeoutSignatureMessage{tsmRound = tcRound, ..}, toKeys fs tsmQCEpoch)
           | ((tsmQCRound, tsmQCEpoch), fs) <- finalizerRoundsList tcFinalizerQCRounds
         ]
 
@@ -448,8 +434,6 @@ data TimeoutMessageBody = TimeoutMessageBody
       tmFinalizerIndex :: !FinalizerIndex,
       -- |Round number of the round being timed-out.
       tmRound :: !Round,
-      -- |Epoch of which the round being timed-out.
-      tmEpoch :: !Epoch,
       -- |Highest quorum certificate known to the sender at the time of timeout.
       tmQuorumCertificate :: !QuorumCertificate,
       -- |A timeout certificate if the previous round timed out, or 'Nothing' otherwise.
@@ -484,18 +468,15 @@ instance Serialize TimeoutMessageBody where
                 "deserialization encountered invalid flag byte (" ++ show tmFlags ++ ")"
         tmFinalizerIndex <- get
         tmQuorumCertificate <- get
-        (tmRound, tmEpoch, tmTimeoutCertificate) <-
+        (tmRound, tmTimeoutCertificate) <-
             if testBit tmFlags 0
                 then do
                     tc <- get
                     unless (qcRound tmQuorumCertificate <= tcRound tc) $
                         fail $
                             "failed check: quorum certificate round (" ++ show (qcRound tmQuorumCertificate) ++ ") <= timeout certificate round (" ++ show (tcRound tc) ++ ")"
-                    unless (qcEpoch tmQuorumCertificate == tcEpoch tc) $
-                        fail $
-                            "failed check: quorum certificate epoch (" ++ show (qcEpoch tmQuorumCertificate) ++ ") != timeout certificate epoch (" ++ show (tcEpoch tc) ++ ")"
-                    return (tcRound tc + 1, tcEpoch tc, Present tc)
-                else return (qcRound tmQuorumCertificate + 1, qcEpoch tmQuorumCertificate, Absent)
+                    return (tcRound tc + 1, Present tc)
+                else return (qcRound tmQuorumCertificate + 1, Absent)
         tmEpochFinalizationEntry <-
             if testBit tmFlags 1
                 then do
@@ -513,7 +494,6 @@ tmSignatureMessage ::
 tmSignatureMessage tsmGenesis tmb =
     TimeoutSignatureMessage
         { tsmRound = tmRound tmb,
-          tsmEpoch = tmEpoch tmb,
           tsmQCRound = qcRound (tmQuorumCertificate tmb),
           tsmQCEpoch = qcEpoch (tmQuorumCertificate tmb),
           ..
@@ -564,10 +544,6 @@ class BakedBlockData d where
     blockParent :: d -> BlockHash
     blockParent = qcBlock . blockQuorumCertificate
 
-    -- |Genesis block hash of the chain that this block extends.
-    blockGenesis :: d -> BlockHash
-    blockGenesis = qcGenesis . blockQuorumCertificate
-
     -- |'BakerId' of the baker of the block.
     blockBaker :: d -> BakerId
 
@@ -615,8 +591,6 @@ data BakedBlock = BakedBlock
       bbRound :: !Round,
       -- |Block epoch number.
       bbEpoch :: !Epoch,
-      -- |The genesis 'BlockHash'.
-      bbGenesis :: !BlockHash,
       -- |Block nominal timestamp.
       bbTimestamp :: !Timestamp,
       -- |Block baker identity.
@@ -672,7 +646,6 @@ putBakedBlock :: Putter BakedBlock
 putBakedBlock bb@BakedBlock{..} = do
     put bbRound
     put bbEpoch
-    put bbGenesis
     put bbTimestamp
     put bbBaker
     put bbNonce
@@ -691,7 +664,6 @@ getBakedBlock :: SProtocolVersion pv -> TransactionTime -> Get BakedBlock
 getBakedBlock spv tt = label "BakedBlock" $ do
     bbRound <- get
     bbEpoch <- get
-    bbGenesis <- get
     bbTimestamp <- get
     bbBaker <- get
     bbNonce <- get
@@ -765,34 +737,47 @@ getSignedBlock spv tt = do
     return SignedBlock{..}
 
 -- |The bytes that are signed by a block signature.
-blockSignatureMessageBytes :: BlockHash -> BS.ByteString
-blockSignatureMessageBytes = Hash.hashToByteString . blockHash
+-- Note that this concatenates the provided genesis hash with the block hash.
+-- The same genesis hash must be provided when signing the block in order to verify the block signature.
+-- This function outputs the bytestring consisting of H(genesisBlockHash || blockHash).
+blockSignatureMessageBytes ::
+     -- |Hash of the genesis block
+     BlockHash ->
+     -- |Hash of the block
+     BlockHash ->
+     -- |The H(genesisBlockHash || blockHash) bytestring.
+     BS.ByteString
+blockSignatureMessageBytes genesisHash bHash = Hash.hashToByteString $! Hash.hashOfHashes (blockHash genesisHash) (blockHash bHash)
 
 -- |Verify that a block is correctly signed by the baker key provided.
+-- The hash that is verified is H(genesisBlockHash || blockHash)
 verifyBlockSignature ::
     (BakedBlockData b, HashableTo BlockHash b) =>
     -- |The public key of the baker to use for the signature check.
     BakerSignVerifyKey ->
+    -- |The genesis block hash
+    BlockHash ->
     -- |The data of the block that is signed.
     b ->
     -- |'True' if the signature can be verifed otherwise 'False'.
     Bool
-verifyBlockSignature key b =
+verifyBlockSignature key genesisHash b =
     BlockSig.verify
         key
-        (blockSignatureMessageBytes $ getHash b)
+        (blockSignatureMessageBytes genesisHash $! getHash b)
         (blockSignature b)
 
 -- |Sign a block hash as a baker.
-signBlockHash :: BakerSignPrivateKey -> BlockHash -> BlockSignature
-signBlockHash privKey bh = BlockSig.sign privKey (blockSignatureMessageBytes bh)
+-- The hash that is signed is H(genesisBlockHash || blockHash)
+signBlockHash :: BakerSignPrivateKey -> BlockHash -> BlockHash -> BlockSignature
+signBlockHash privKey genesisHash bh = BlockSig.sign privKey (blockSignatureMessageBytes genesisHash bh)
 
 -- |Sign a block as a baker.
-signBlock :: BakerSignPrivateKey -> BakedBlock -> SignedBlock
-signBlock privKey sbBlock = SignedBlock{..}
+signBlock :: BakerSignPrivateKey -> BlockHash -> BakedBlock -> SignedBlock
+signBlock privKey genesisHash sbBlock = SignedBlock{..}
   where
     sbHash = getHash sbBlock
-    sbSignature = signBlockHash privKey sbHash
+    sbSignature = signBlockHash privKey genesisHash sbHash
 
 -- |Message used to generate the block nonce with the VRF.
 blockNonceMessage :: LeadershipElectionNonce -> Round -> BS.ByteString
@@ -817,9 +802,7 @@ data BlockHeader = BlockHeader
       -- |Epoch number of the block.
       bhEpoch :: !Epoch,
       -- |Hash of the parent block.
-      bhParent :: !BlockHash,
-      -- |Hash of the genesis block.
-      bhGenesis :: !BlockHash
+      bhParent :: !BlockHash
     }
     deriving (Eq)
 
@@ -829,8 +812,7 @@ bbBlockHeader BakedBlock{..} =
     BlockHeader
         { bhRound = bbRound,
           bhEpoch = bbEpoch,
-          bhParent = qcBlock bbQuorumCertificate,
-          bhGenesis = bbGenesis
+          bhParent = qcBlock bbQuorumCertificate
         }
 
 -- |The hash of a 'BlockHeader'. This is combined with the 'BlockQuasiHash' to produce a
@@ -843,7 +825,6 @@ instance HashableTo BlockHeaderHash BlockHeader where
         put bhRound
         put bhEpoch
         put bhParent
-        put bhGenesis
 
 instance HashableTo BlockHeaderHash BakedBlock where
     getHash = getHash . bbBlockHeader
@@ -863,7 +844,7 @@ computeTransactionsHash bis =
 instance HashableTo BlockQuasiHash BakedBlock where
     getHash BakedBlock{..} = BlockQuasiHash $ Hash.hashOfHashes metaHash dataHash
       where
-        metaHash = Hash.hashOfHashes (Hash.hash $ encode bbGenesis) (Hash.hashOfHashes bakerInfoHash certificatesHash)
+        metaHash = Hash.hashOfHashes bakerInfoHash certificatesHash
           where
             bakerInfoHash = Hash.hashOfHashes timestampBakerHash nonceHash
               where
