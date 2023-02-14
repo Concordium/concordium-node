@@ -23,6 +23,7 @@ import Lens.Micro.Platform
 
 import Concordium.Genesis.Data
 import Concordium.Types
+import Concordium.Types.Parameters
 
 import Concordium.Afgjort.Buffer
 import Concordium.Afgjort.FinalizationQueue

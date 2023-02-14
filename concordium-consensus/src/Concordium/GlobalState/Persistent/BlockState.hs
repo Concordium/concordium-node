@@ -104,19 +104,27 @@ import Lens.Micro.Platform
 
 -- * Birk parameters
 
-data PersistentBirkParameters (av :: AccountVersion) = PersistentBirkParameters
+data PersistentBirkParameters (pv :: ProtocolVersion) = PersistentBirkParameters
     { -- |The currently-registered bakers.
-      _birkActiveBakers :: !(BufferedRef (PersistentActiveBakers av)),
+      _birkActiveBakers :: !(BufferedRef (PersistentActiveBakers (AccountVersionFor pv))),
       -- |The bakers that will be used for the next epoch.
-      _birkNextEpochBakers :: !(HashedBufferedRef (PersistentEpochBakers av)),
+      _birkNextEpochBakers :: !(HashedBufferedRef (PersistentEpochBakers (AccountVersionFor pv))),
       -- |The bakers for the current epoch.
-      _birkCurrentEpochBakers :: !(HashedBufferedRef (PersistentEpochBakers av)),
+      _birkCurrentEpochBakers :: !(HashedBufferedRef (PersistentEpochBakers (AccountVersionFor pv))),
       -- |The seed state used to derive the leadership election nonce.
-      _birkSeedState :: !SeedState
+      _birkSeedState :: !(SeedState (SeedStateVersionFor pv))
     }
     deriving (Show)
 
 makeLenses ''PersistentBirkParameters
+
+-- |Migrate a 'SeedState' between protocol versions.
+migrateSeedState :: StateMigrationParameters oldpv pv -> SeedState (SeedStateVersionFor oldpv) -> SeedState (SeedStateVersionFor pv)
+migrateSeedState StateMigrationParametersTrivial{} ss = ss
+migrateSeedState StateMigrationParametersP1P2{} ss = ss
+migrateSeedState StateMigrationParametersP2P3{} ss = ss
+migrateSeedState StateMigrationParametersP3ToP4{} ss = ss
+migrateSeedState StateMigrationParametersP4ToP5{} ss = ss
 
 -- |See documentation of @migratePersistentBlockState@.
 --
@@ -130,8 +138,8 @@ migratePersistentBirkParameters ::
     ) =>
     StateMigrationParameters oldpv pv ->
     Accounts.Accounts pv ->
-    PersistentBirkParameters (AccountVersionFor oldpv) ->
-    t m (PersistentBirkParameters (AccountVersionFor pv))
+    PersistentBirkParameters oldpv ->
+    t m (PersistentBirkParameters pv)
 migratePersistentBirkParameters migration accounts PersistentBirkParameters{..} = do
     newActiveBakers <- migrateReference (migratePersistentActiveBakers migration accounts) _birkActiveBakers
     newNextEpochBakers <- migrateHashedBufferedRef (migratePersistentEpochBakers migration) _birkNextEpochBakers
@@ -141,7 +149,7 @@ migratePersistentBirkParameters migration accounts PersistentBirkParameters{..} 
             { _birkActiveBakers = newActiveBakers,
               _birkNextEpochBakers = newNextEpochBakers,
               _birkCurrentEpochBakers = newCurrentEpochBakers,
-              _birkSeedState = _birkSeedState
+              _birkSeedState = migrateSeedState migration _birkSeedState
             }
 
 -- |Accumulated state when iterating accounts, meant for constructing PersistentBirkParameters.
@@ -194,13 +202,13 @@ emptyIBPCollectedDelegators =
 
 -- |Generate initial birk parameters from accounts and seed state.
 initialBirkParameters ::
-    forall av m.
-    (MonadBlobStore m, IsAccountVersion av) =>
+    forall pv av m.
+    (MonadBlobStore m, IsProtocolVersion pv, av ~ AccountVersionFor pv) =>
     -- |The accounts in ascending order of the account index.
     [PersistentAccount av] ->
     -- |The seed state
-    SeedState ->
-    m (PersistentBirkParameters av)
+    SeedState (SeedStateVersionFor pv) ->
+    m (PersistentBirkParameters pv)
 initialBirkParameters accounts seedState = do
     -- Iterate accounts and collect delegators.
     IBPCollectedDelegators{..} <- case delegationSupport @av of
@@ -305,22 +313,22 @@ freezeContractState cs = case Wasm.getWasmVersion @v of
         return (hsh, Instances.InstanceStateV1 persistent)
 
 -- |Serialize 'PersistentBirkParameters' in V0 format.
-putBirkParametersV0 :: forall m av. (IsAccountVersion av, MonadBlobStore m, MonadPut m) => PersistentBirkParameters av -> m ()
-putBirkParametersV0 PersistentBirkParameters{..} = do
+putBirkParametersV0 :: forall m pv. (IsProtocolVersion pv, MonadBlobStore m, MonadPut m) => PersistentBirkParameters pv -> m ()
+putBirkParametersV0 PersistentBirkParameters{..} = withIsSeedStateVersionFor (protocolVersion @pv) $ do
     sPut _birkSeedState
     putEpochBakers =<< refLoad _birkNextEpochBakers
     putEpochBakers =<< refLoad _birkCurrentEpochBakers
 
-instance (IsAccountVersion av, MonadBlobStore m) => MHashableTo m H.Hash (PersistentBirkParameters av) where
-    getHashM PersistentBirkParameters{..} = do
+instance (IsProtocolVersion pv, MonadBlobStore m) => MHashableTo m H.Hash (PersistentBirkParameters pv) where
+    getHashM PersistentBirkParameters{..} = withIsSeedStateVersionFor (protocolVersion @pv) $ do
         nextHash <- getHashM _birkNextEpochBakers
         currentHash <- getHashM _birkCurrentEpochBakers
         let bpH0 = H.hash $ "SeedState" <> encode _birkSeedState
             bpH1 = H.hashOfHashes nextHash currentHash
         return $ H.hashOfHashes bpH0 bpH1
 
-instance (MonadBlobStore m, IsAccountVersion av) => BlobStorable m (PersistentBirkParameters av) where
-    storeUpdate bps@PersistentBirkParameters{..} = do
+instance (MonadBlobStore m, IsProtocolVersion pv) => BlobStorable m (PersistentBirkParameters pv) where
+    storeUpdate bps@PersistentBirkParameters{..} = withIsSeedStateVersionFor (protocolVersion @pv) $ do
         (pabs, actBakers) <- storeUpdate _birkActiveBakers
         (pnebs, nextBakers) <- storeUpdate _birkNextEpochBakers
         (pcebs, currentBakers) <- storeUpdate _birkCurrentEpochBakers
@@ -337,7 +345,7 @@ instance (MonadBlobStore m, IsAccountVersion av) => BlobStorable m (PersistentBi
                   _birkCurrentEpochBakers = currentBakers
                 }
             )
-    load = do
+    load = withIsSeedStateVersionFor (protocolVersion @pv) $ do
         mabs <- label "Active bakers" load
         mnebs <- label "Next epoch bakers" load
         mcebs <- label "Current epoch bakers" load
@@ -348,7 +356,7 @@ instance (MonadBlobStore m, IsAccountVersion av) => BlobStorable m (PersistentBi
             _birkCurrentEpochBakers <- mcebs
             return PersistentBirkParameters{..}
 
-instance (MonadBlobStore m, IsAccountVersion av) => Cacheable m (PersistentBirkParameters av) where
+instance (MonadBlobStore m, IsProtocolVersion pv) => Cacheable m (PersistentBirkParameters pv) where
     cache PersistentBirkParameters{..} = do
         activeBaks <- cache _birkActiveBakers
         next <- cache _birkNextEpochBakers
@@ -671,7 +679,7 @@ data BlockStatePointers (pv :: ProtocolVersion) = BlockStatePointers
       bspBank :: !(Hashed Rewards.BankStatus),
       bspIdentityProviders :: !(HashedBufferedRef IPS.IdentityProviders),
       bspAnonymityRevokers :: !(HashedBufferedRef ARS.AnonymityRevokers),
-      bspBirkParameters :: !(PersistentBirkParameters (AccountVersionFor pv)),
+      bspBirkParameters :: !(PersistentBirkParameters pv),
       bspCryptographicParameters :: !(HashedBufferedRef CryptographicParameters),
       bspUpdates :: !(BufferedRef (Updates pv)),
       bspReleaseSchedule :: !(ReleaseSchedule pv),
@@ -682,7 +690,7 @@ data BlockStatePointers (pv :: ProtocolVersion) = BlockStatePointers
     }
 
 -- |Lens for accessing the birk parameters of a 'BlockStatePointers' structure.
-birkParameters :: Lens' (BlockStatePointers pv) (PersistentBirkParameters (AccountVersionFor pv))
+birkParameters :: Lens' (BlockStatePointers pv) (PersistentBirkParameters pv)
 birkParameters = lens bspBirkParameters (\bsp bp -> bsp{bspBirkParameters = bp})
 
 -- |A hashed version of 'PersistingBlockState'.  This is used when the block state
@@ -800,7 +808,7 @@ bspPoolRewards bsp = case bspRewardDetails bsp of
 -- |An initial 'HashedPersistentBlockState', which may be used for testing purposes.
 initialPersistentState ::
     (SupportsPersistentState pv m) =>
-    SeedState ->
+    SeedState (SeedStateVersionFor pv) ->
     CryptographicParameters ->
     [PersistentAccount (AccountVersionFor pv)] ->
     IPS.IdentityProviders ->
@@ -844,7 +852,7 @@ initialPersistentState seedState cryptoParams accounts ips ars keysCollection ch
 emptyBlockState ::
     forall pv m.
     (SupportsPersistentState pv m) =>
-    PersistentBirkParameters (AccountVersionFor pv) ->
+    PersistentBirkParameters pv ->
     CryptographicParameters ->
     UpdateKeysCollection (AuthorizationsVersionForPV pv) ->
     ChainParameters pv ->
@@ -1011,10 +1019,17 @@ doPutNewModule pbs (pmInterface, pmSource) = do
             modules <- refMake mods'
             (True,) <$> storePBS pbs (bsp{bspModules = modules})
 
-doGetSeedState :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m SeedState
+doGetSeedState ::
+    (SupportsPersistentState pv m) =>
+    PersistentBlockState pv ->
+    m (SeedState (SeedStateVersionFor pv))
 doGetSeedState pbs = _birkSeedState . bspBirkParameters <$> loadPBS pbs
 
-doSetSeedState :: (SupportsPersistentState pv m) => PersistentBlockState pv -> SeedState -> m (PersistentBlockState pv)
+doSetSeedState ::
+    (SupportsPersistentState pv m) =>
+    PersistentBlockState pv ->
+    SeedState (SeedStateVersionFor pv) ->
+    m (PersistentBlockState pv)
 doSetSeedState pbs ss = do
     bsp <- loadPBS pbs
     storePBS pbs bsp{bspBirkParameters = (bspBirkParameters bsp){_birkSeedState = ss}}
@@ -1037,12 +1052,19 @@ doGetNextEpochBakers pbs = do
     bsp <- loadPBS pbs
     epochToFullBakers =<< refLoad (bspBirkParameters bsp ^. birkNextEpochBakers)
 
-doGetSlotBakersP1 :: (AccountVersionFor pv ~ 'AccountV0, SupportsPersistentState pv m) => PersistentBlockState pv -> Slot -> m FullBakers
+doGetSlotBakersP1 ::
+    ( AccountVersionFor pv ~ 'AccountV0,
+      SeedStateVersionFor pv ~ 'SeedStateVersion0,
+      SupportsPersistentState pv m
+    ) =>
+    PersistentBlockState pv ->
+    Slot ->
+    m FullBakers
 doGetSlotBakersP1 pbs slot = do
     bs <- loadPBS pbs
     let bps = bspBirkParameters bs
         SeedState{..} = bps ^. birkSeedState
-        slotEpoch = fromIntegral $ slot `quot` epochLength
+        slotEpoch = fromIntegral $ slot `quot` (epochLength ^. unconditionally)
     case compare slotEpoch (epoch + 1) of
         LT -> epochToFullBakers =<< refLoad (bps ^. birkCurrentEpochBakers)
         EQ -> epochToFullBakers =<< refLoad (bps ^. birkNextEpochBakers)

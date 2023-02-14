@@ -101,7 +101,7 @@ testDoMintingP4 = do
     initialBlockState = do
         account <- Helpers.makeTestAccountFromSeed initialTotalSupply 0
         BS.initialPersistentState
-            (initialSeedState (Hash.hash "NONCE") epochLength)
+            (initialSeedStateV0 (Hash.hash "NONCE") epochLength)
             DummyData.dummyCryptographicParameters
             [account]
             DummyData.dummyIdentityProviders
@@ -239,7 +239,7 @@ propMintDistributionImmediate ::
     -- |Info on finalization committee for included record, if any
     Maybe FinalizerInfo ->
     -- |New seed state
-    SeedState ->
+    SeedState (SeedStateVersionFor (MPV m)) ->
     -- |Transaction fees
     Amount ->
     -- |Number of "free" transactions of each type
@@ -260,7 +260,7 @@ propMintDistributionImmediate bs0 blockParent slotNumber bid newEpoch mfinInfo n
 -- distributed block rewards are equal to the amount withdrawn from reward accounts + transaction fees
 propTransactionFeesDistributionP4 ::
     forall m.
-    (BlockStateOperations m, MonadProtocolVersion m, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1, AccountVersionFor (MPV m) ~ 'AccountV1) =>
+    (BlockStateOperations m, MonadProtocolVersion m, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1, AccountVersionFor (MPV m) ~ 'AccountV1, IsConsensusV0 (MPV m)) =>
     -- |Transaction fees paid
     Amount ->
     -- |Counts of unpaid transactions
@@ -291,9 +291,9 @@ initialPersistentBlockState =
   where
     initBal = 10 ^ (12 :: Int) :: Amount
 
-genesis :: forall pv. (IsProtocolVersion pv) => Word -> (GenesisData pv, [(BakerIdentity, FullBakerInfo)], Amount)
+genesis :: forall pv. (IsProtocolVersion pv, IsConsensusV0 pv) => Word -> (GenesisData pv, [(BakerIdentity, FullBakerInfo)], Amount)
 genesis nBakers =
-    makeGenesisData
+    makeGenesisDataV0
         0
         nBakers
         1_000
@@ -334,7 +334,7 @@ withPersistentState pbsc is f =
 
 -- `createGlobalState` and `destroyGlobalState` are adapted from GlobalStateTests.PersistentTreeState
 
-createGlobalState :: (IsProtocolVersion pv) => FilePath -> IO (PersistentBlockStateContext pv, MyPersistentTreeState pv)
+createGlobalState :: (IsProtocolVersion pv, IsConsensusV0 pv) => FilePath -> IO (PersistentBlockStateContext pv, MyPersistentTreeState pv)
 createGlobalState dbDir = do
     let
         n = 5
@@ -345,7 +345,7 @@ createGlobalState dbDir = do
 destroyGlobalState :: (IsProtocolVersion pv) => (PersistentBlockStateContext pv, MyPersistentTreeState pv) -> IO ()
 destroyGlobalState (c, s) = shutdownGlobalState protocolVersion c s
 
-withPersistentState' :: (IsProtocolVersion pv) => (HashedPersistentBlockState pv -> MyPersistentMonad pv a) -> IO (a, MyPersistentTreeState pv)
+withPersistentState' :: (IsProtocolVersion pv, IsConsensusV0 pv) => (HashedPersistentBlockState pv -> MyPersistentMonad pv a) -> IO (a, MyPersistentTreeState pv)
 withPersistentState' f = withTempDirectory "." "test-directory" $
     \dbDir -> bracket (createGlobalState dbDir) destroyGlobalState $
         \(pbsc, mySkovPersistentData) ->
@@ -390,7 +390,7 @@ testRewardDistribution = do
     bid = BakerId 1
     epoch = 4
     mfinInfo = Nothing
-    newSeedState = initialSeedState (Hash.hash "qwerty") 100
+    newSeedState = initialSeedStateV0 (Hash.hash "qwerty") 100
     transFees = 123
     freeCounts = FreeTransactionCounts 10 10 1
     updates = []

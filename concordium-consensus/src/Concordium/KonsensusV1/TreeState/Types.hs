@@ -13,7 +13,6 @@ import Concordium.Types
 import Concordium.Types.Execution
 import Concordium.Types.HashableTo
 
-import Concordium.GlobalState.Parameters
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import Concordium.GlobalState.TransactionTable
 import Concordium.KonsensusV1.Types
@@ -124,10 +123,6 @@ instance BakedBlockData PendingBlock where
     blockEpochFinalizationEntry = blockEpochFinalizationEntry . pbBlock
     blockNonce = blockNonce . pbBlock
     blockSignature = blockSignature . pbBlock
-
--- |Constraint that the protocol version @pv@ is associated with the version 1 consensus.
-type IsConsensusV1 (pv :: ProtocolVersion) =
-    ConsensusParametersVersionFor (ChainParametersVersionFor pv) ~ 'ConsensusParametersVersion1
 
 -- |Status of a transaction.
 data TransactionStatus

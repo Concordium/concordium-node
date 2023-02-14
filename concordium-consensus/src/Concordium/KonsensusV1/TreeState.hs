@@ -15,6 +15,7 @@ import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import qualified Concordium.TransactionVerification as TVer
 import Concordium.Types
+import Concordium.Types.Parameters
 import Concordium.Types.Transactions
 import Concordium.Types.Updates
 

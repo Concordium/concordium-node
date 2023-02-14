@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ViewPatterns #-}
 
 -- |Functionality for updating and computing leadership election nonces.
@@ -9,10 +10,12 @@ module Concordium.Kontrol.UpdateLeaderElectionParameters (
 ) where
 
 import Data.Serialize
+import Lens.Micro.Platform
 
 import Concordium.Crypto.SHA256 as H
 import Concordium.Crypto.VRF
 import Concordium.Types
+import Concordium.Types.Parameters
 import Concordium.Types.SeedState
 
 -- |Compute the update for the leadership election nonce due to a particular block nonce.
@@ -29,14 +32,14 @@ updateWithEpoch ::
 updateWithEpoch e !n = hash $ runPut $ put n <> put e
 
 -- |Update the seed state. The slot must not belong to a prior epoch.
-updateSeedState :: Slot -> BlockNonce -> SeedState -> SeedState
+updateSeedState :: Slot -> BlockNonce -> SeedState 'SeedStateVersion0 -> SeedState 'SeedStateVersion0
 updateSeedState slot bn state = case compare newEpoch oldEpoch of
     EQ -> updateNonce state
     GT -> updateEpochs oldEpoch state
     LT -> error $ "updateSeedState: new epoch (" ++ show newEpoch ++ ") precedes current epoch (" ++ show oldEpoch ++ ")"
   where
     oldEpoch = epoch state
-    el = epochLength state
+    el = epochLength state ^. unconditionally
     (fromIntegral -> newEpoch, slotRem) = slot `quotRem` el
     shouldContributeBlockNonce = 3 * slotRem < 2 * el
     -- If the slot falls within the first 2/3 of the epoch's slots,
@@ -47,7 +50,7 @@ updateSeedState slot bn state = case compare newEpoch oldEpoch of
                 { updatedNonce = updateWithBlockNonce bn (updatedNonce s)
                 }
         | otherwise = id
-    updateEpochs :: Epoch -> SeedState -> SeedState
+    updateEpochs :: Epoch -> SeedState ssv -> SeedState ssv
     updateEpochs e s
         | e == newEpoch = updateNonce s{epoch = newEpoch}
         | otherwise = updateEpochs (e + 1) s{currentLeadershipElectionNonce = h, updatedNonce = h}
@@ -63,14 +66,14 @@ updateSeedState slot bn state = case compare newEpoch oldEpoch of
 --
 -- This behaviour differs from the specification in the Bluepaper. This is not a security issue, since
 -- the leadership election nonce will still get updated each epoch.
-computeLeadershipElectionNonce :: SeedState -> Slot -> LeadershipElectionNonce
+computeLeadershipElectionNonce :: SeedState 'SeedStateVersion0 -> Slot -> LeadershipElectionNonce
 computeLeadershipElectionNonce state slot = case compare newEpoch oldEpoch of
     EQ -> currentLeadershipElectionNonce state
     GT -> updateEpochs oldEpoch (currentLeadershipElectionNonce state)
     LT -> error $ "computeLeadershipElectionNonce: new epoch (" ++ show newEpoch ++ ") precedes current epoch (" ++ show oldEpoch ++ ")"
   where
     oldEpoch = epoch state
-    el = epochLength state
+    el = epochLength state ^. unconditionally
     newEpoch = fromIntegral $ slot `quot` el
     updateEpochs e n
         | e == newEpoch = n
@@ -110,7 +113,7 @@ computeLeadershipElectionNonce state slot = case compare newEpoch oldEpoch of
 -- @predictLeadershipElectionNonce ss' sl maybeParentBlockSlot targetSlot = Just B@ where B is a sublist of A.
 predictLeadershipElectionNonce ::
     -- |Seed state of last finalized block
-    SeedState ->
+    SeedState 'SeedStateVersion0 ->
     -- |Slot of last finalized block
     Slot ->
     -- |Maybe slot of pending block's parent (Just if known, Nothing otherwise)
@@ -120,7 +123,7 @@ predictLeadershipElectionNonce ::
     Maybe [LeadershipElectionNonce]
 predictLeadershipElectionNonce SeedState{..} lastFinSlot maybeParentBlockSlot targetSlot
     | slotEpoch targetSlot == epoch = Just [currentLeadershipElectionNonce]
-    | slotEpoch targetSlot == epoch + 1 && 3 * (lastFinSlot `rem` epochLength) >= 2 * epochLength =
+    | slotEpoch targetSlot == epoch + 1 && 3 * (lastFinSlot `rem` epochLen) >= 2 * epochLen =
         -- In this case, no blocks after the last finalized block can contribute to the block
         -- nonce for the next epoch.
         case maybeParentBlockSlot of
@@ -132,6 +135,7 @@ predictLeadershipElectionNonce SeedState{..} lastFinSlot maybeParentBlockSlot ta
     | otherwise = Nothing
   where
     slotEpoch :: Slot -> Epoch
-    slotEpoch slot = fromIntegral $ slot `quot` epochLength
+    slotEpoch slot = fromIntegral $ slot `quot` epochLen
     current = updateWithEpoch epoch currentLeadershipElectionNonce
     updated = updateWithEpoch epoch updatedNonce
+    epochLen = epochLength ^. unconditionally

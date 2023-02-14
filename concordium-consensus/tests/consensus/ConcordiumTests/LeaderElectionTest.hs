@@ -1,14 +1,17 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module ConcordiumTests.LeaderElectionTest where
 
 import Data.Word
+import Lens.Micro.Platform
 import Test.Hspec
 import Test.QuickCheck
 
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.Crypto.VRF as VRF
+import Concordium.Types.Conditionally
 import Concordium.Types.SeedState
 
 import Concordium.Types
@@ -48,7 +51,7 @@ testPredictFuture =
   where
     ss =
         SeedState
-            { epochLength = 9,
+            { epochLength = CTrue 9,
               epoch = 0,
               currentLeadershipElectionNonce = H.hash "1",
               updatedNonce = H.hash "2"
@@ -58,14 +61,14 @@ testPredictFuture =
     ss' = updateSeedState 10 bn ss
     ss'' = updateSeedState 7 bn ss
 
-genSeedstate :: Gen SeedState
+genSeedstate :: Gen (SeedState 'SeedStateVersion0)
 genSeedstate =
     do
         (el :: Word64) <- (* 9) <$> choose (1, 10000)
         epoch <- choose (0, 1000)
         return
             SeedState
-                { epochLength = fromIntegral el,
+                { epochLength = CTrue (fromIntegral el),
                   currentLeadershipElectionNonce = H.hash "1",
                   updatedNonce = H.hash "2",
                   ..
@@ -82,7 +85,8 @@ singletonElementOfProperty _ _ = counterexample "Both arguments should be Just, 
 -- @predictLeadershipElectionNonce@ gives the same prediction on an updated seedstate for the same target slot.
 makePropertyJust :: Property
 makePropertyJust = property $ do
-    ss@SeedState{..} <- genSeedstate
+    ss@SeedState{epochLength = el, ..} <- genSeedstate
+    let epochLength = el ^. unconditionally
     let epochSlot = epoch * fromIntegral epochLength
     let nextEpoch = epochSlot + fromIntegral epochLength
     let twoThirds = 2 * fromIntegral epochLength `div` 3
@@ -112,7 +116,8 @@ makePropertyJust = property $ do
 -- if the target slot is too far in the future (i.e. two epochs after the seed state or later)
 makePropertyNothing :: Property
 makePropertyNothing = property $ do
-    ss@SeedState{..} <- genSeedstate
+    ss@SeedState{epochLength = el, ..} <- genSeedstate
+    let epochLength = el ^. unconditionally
     let epochSlot = epoch * fromIntegral epochLength
     let nextEpoch = epochSlot + fromIntegral epochLength
     let twoThirds = 2 * fromIntegral epochLength `div` 3

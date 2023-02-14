@@ -371,7 +371,7 @@ main = do
                         }
                 }
     let (genesisData, bakerIdentities, _) =
-            makeGenesisData @PV
+            makeGenesisDataV0 @PV
                 now
                 numberOfBakers
                 2000

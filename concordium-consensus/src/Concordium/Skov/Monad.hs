@@ -135,9 +135,6 @@ transactionVerificationResultToUpdateResult (TV.NotOk (TV.NormalTransactionDupli
 transactionVerificationResultToUpdateResult (TV.NotOk TV.Expired) = ResultStale
 transactionVerificationResultToUpdateResult (TV.NotOk TV.InvalidPayloadSize) = ResultSerializationFail
 
-type IsConsensusV0 (pv :: ProtocolVersion) =
-    ConsensusParametersVersionFor (ChainParametersVersionFor pv) ~ 'ConsensusParametersVersion0
-
 class
     ( Monad m,
       Eq (BlockPointerType m),
@@ -449,7 +446,7 @@ deriving via (MGSTrans SkovQueryMonadT m) instance TimeMonad m => TimeMonad (Sko
 instance
     ( TS.TreeStateMonad m,
       TimeMonad m,
-      ConsensusParametersVersionFor (ChainParametersVersionFor (MPV m)) ~ 'ConsensusParametersVersion0
+      IsConsensusV0 (MPV m)
     ) =>
     SkovQueryMonad (SkovQueryMonadT m)
     where
