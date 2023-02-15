@@ -2375,22 +2375,33 @@ where
         let clone = self.inner.clone();
         let mut inner = std::mem::replace(&mut self.inner, clone);
 
-        let grpc_received_requests = self.stats.grpc_received_requests.clone();
+        let grpc_request_duration = self.stats.grpc_request_duration.clone();
 
         Box::pin(async move {
             let endpoint_name = req.uri().path().to_owned();
-            let response = inner.call(req).await?;
+            let request_received = tokio::time::Instant::now();
+            let mut response = inner.call(req).await?;
+            let duration = request_received.elapsed().as_secs_f64();
 
-            let status_code = if let Some(header_value) = response.headers().get("grpc-status") {
-                tonic::Code::from_bytes(header_value.as_bytes())
-            } else {
-                tonic::Code::Unknown
-            };
-            let status_code_label = get_grpc_code_label(status_code);
+            if let Some(header_value) = response.headers().get("grpc-status") {
+                let status_code_label =
+                    get_grpc_code_label(tonic::Code::from_bytes(header_value.as_bytes()));
 
-            grpc_received_requests
-                .with_label_values(&[endpoint_name.as_str(), status_code_label])
-                .inc();
+                grpc_request_duration
+                    .with_label_values(&[endpoint_name.as_str(), status_code_label])
+                    .observe(duration);
+            }
+
+            if let Ok(Some(headers)) = hyper::body::HttpBody::trailers(response.body_mut()).await {
+                if let Some(header_value) = headers.get("grpc-status") {
+                    let status_code_label =
+                        get_grpc_code_label(tonic::Code::from_bytes(header_value.as_bytes()));
+
+                    grpc_request_duration
+                        .with_label_values(&[endpoint_name.as_str(), status_code_label])
+                        .observe(duration);
+                }
+            }
 
             Ok(response)
         })

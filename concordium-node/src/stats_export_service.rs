@@ -15,7 +15,8 @@ use hyper::Body;
 use prometheus::{
     self,
     core::{Atomic, AtomicI64, AtomicU64, GenericGauge},
-    Encoder, IntCounter, IntCounterVec, IntGauge, Opts, Registry, TextEncoder,
+    Encoder, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, Opts, Registry,
+    TextEncoder,
 };
 use std::{net::SocketAddr, sync::RwLock, thread, time};
 
@@ -111,10 +112,10 @@ pub struct StatsExportService {
     pub node_info: IntGauge,
     /// Timestamp of starting up the node (Unix time in milliseconds).
     pub node_startup_timestamp: IntGauge,
-    /// Total number of gRPC requests received. Labelled with the gRPC method
-    /// name (`method=<name>`) and the gRPC response status
+    /// Histogram tracking response time of gRPC requests. Labelled with the
+    /// gRPC method name (`method=<name>`) and the gRPC response status
     /// (`status=<status>`).
-    pub grpc_received_requests: IntCounterVec,
+    pub grpc_request_duration: HistogramVec,
     /// Total number of bytes received at the point of last
     /// throughput_measurement.
     ///
@@ -286,17 +287,17 @@ impl StatsExportService {
         ))?;
         registry.register(Box::new(node_startup_timestamp.clone()))?;
 
-        let grpc_received_requests = IntCounterVec::new(
-            Opts::new(
-                "grpc_received_requests",
-                "Total number of gRPC requests received. Labelled with the gRPC method name \
-                 (`method=<name>`) and the gRPC response status (`status=<status>`).",
+        let grpc_request_duration = HistogramVec::new(
+            HistogramOpts::new(
+                "grpc_request_duration_seconds",
+                "Response time of gRPC requests in seconds",
             )
             .variable_label("method")
-            .variable_label("status"),
+            .variable_label("status")
+            .buckets(vec![0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0]),
             &["method", "status"],
         )?;
-        registry.register(Box::new(grpc_received_requests.clone()))?;
+        registry.register(Box::new(grpc_request_duration.clone()))?;
 
         let last_throughput_measurement_timestamp = AtomicI64::new(0);
         let last_throughput_measurement_sent_bytes = AtomicU64::new(0);
@@ -326,7 +327,7 @@ impl StatsExportService {
             total_peers,
             node_info,
             node_startup_timestamp,
-            grpc_received_requests,
+            grpc_request_duration,
             last_throughput_measurement_timestamp,
             last_throughput_measurement_sent_bytes,
             last_throughput_measurement_received_bytes,
