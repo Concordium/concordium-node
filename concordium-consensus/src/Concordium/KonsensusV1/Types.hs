@@ -25,7 +25,7 @@ import qualified Concordium.Crypto.BlockSignature as BlockSig
 import qualified Concordium.Crypto.BlsSignature as Bls
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.VRF as VRF
-import Concordium.Genesis.Data
+import Concordium.Genesis.Data.BaseV1
 import qualified Concordium.TransactionVerification as TVer
 import Concordium.Types
 import Concordium.Types.HashableTo
@@ -646,7 +646,7 @@ data BakedBlock = BakedBlock
       -- |Hash of the block state.
       bbStateHash :: !StateHash
     }
-    deriving (Eq)
+    deriving (Eq, Show)
 
 -- |Flags indicating which optional values are set in a 'BakedBlock'.
 data BakedBlockFlags = BakedBlockFlags
@@ -746,7 +746,7 @@ data SignedBlock = SignedBlock
       -- |Signature of the baker on the block.
       sbSignature :: !BlockSignature
     }
-    deriving (Eq)
+    deriving (Eq, Show)
 
 instance BakedBlockData SignedBlock where
     blockQuorumCertificate = bbQuorumCertificate . sbBlock
@@ -945,18 +945,41 @@ data VerifiedBlockItem = VerifiedBlockItem
       vpVerRes :: !TVer.VerificationResult
     }
 
+-- |Configuration information stored for the genesis block.
+data GenesisConfiguration = GenesisConfiguration
+    { -- |Core genesis parameters.
+      gcParameters :: !CoreGenesisParametersV1,
+      -- |Hash of the genesis block.
+      gcCurrentGenesisHash :: !BlockHash,
+      -- |Hash of the first genesis block.
+      gcFirstGenesisHash :: !BlockHash,
+      -- |Hash of the genesis block state (after migration).
+      gcStateHash :: !StateHash
+    }
+    deriving (Eq, Show)
+
+instance Serialize GenesisConfiguration where
+    put GenesisConfiguration{..} = do
+        put gcParameters
+        put gcCurrentGenesisHash
+        put gcFirstGenesisHash
+        put gcStateHash
+    get = do
+        gcParameters <- get
+        gcCurrentGenesisHash <- get
+        gcFirstGenesisHash <- get
+        gcStateHash <- get
+        return GenesisConfiguration{..}
+
 -- |Either a genesis block or a normal block.
 -- A normal block MUST have a non-zero round number.
 --
 -- The genesis block is represented only by the 'GenesisConfiguration' and the
 -- 'StateHash', which abstract from the genesis data.
 data Block (pv :: ProtocolVersion)
-    = GenesisBlock
-        { gbConfiguration :: !GenesisConfiguration,
-          gbStateHash :: !StateHash
-        }
+    = GenesisBlock !GenesisConfiguration
     | NormalBlock !SignedBlock
-    deriving (Eq)
+    deriving (Eq, Show)
 
 instance BlockData (Block pv) where
     type BakedBlockDataType (Block pv) = SignedBlock
@@ -964,17 +987,17 @@ instance BlockData (Block pv) where
     blockRound (NormalBlock b) = blockRound b
     blockEpoch GenesisBlock{} = 0
     blockEpoch (NormalBlock b) = blockEpoch b
-    blockTimestamp GenesisBlock{gbConfiguration = gc} = gdGenesisTime gc
+    blockTimestamp (GenesisBlock gc) = genesisTime (gcParameters gc)
     blockTimestamp (NormalBlock b) = blockTimestamp b
     blockBakedData GenesisBlock{} = Absent
     blockBakedData (NormalBlock b) = blockBakedData b
     blockTransactions GenesisBlock{} = []
     blockTransactions (NormalBlock b) = blockTransactions b
-    blockStateHash GenesisBlock{..} = gbStateHash
+    blockStateHash (GenesisBlock gc) = gcStateHash gc
     blockStateHash (NormalBlock b) = blockStateHash b
 
 instance HashableTo BlockHash (Block pv) where
-    getHash GenesisBlock{..} = _gcCurrentHash gbConfiguration
+    getHash (GenesisBlock gc) = gcCurrentGenesisHash gc
     getHash (NormalBlock b) = getHash b
 
 instance Monad m => MHashableTo m BlockHash (Block pv)
@@ -983,10 +1006,9 @@ instance Monad m => MHashableTo m BlockHash (Block pv)
 -- generally genesis blocks should not be transmitted.  For 'NormalBlock's, this is compatible
 -- with the serialization of 'SignedBlock'.
 putBlock :: Putter (Block pv)
-putBlock GenesisBlock{..} = do
+putBlock (GenesisBlock gc) = do
     put (0 :: Round)
-    putGenesisConfiguration gbConfiguration
-    put gbStateHash
+    put gc
 putBlock (NormalBlock b) = putSignedBlock b
 
 -- |Deserialize a 'Block'. This is used for block storage, rather than wire-transmission, as
@@ -998,9 +1020,7 @@ getBlock ts = do
     case r of
         0 -> do
             (_ :: Round) <- get
-            gbConfiguration <- getGenesisConfigurationFlat
-            gbStateHash <- get
-            return GenesisBlock{..}
+            GenesisBlock <$> get
         _ -> do
             NormalBlock <$> getSignedBlock (protocolVersion @pv) ts
 
@@ -1012,9 +1032,7 @@ getBlockKnownHash ts sbHash = do
     case r of
         0 -> do
             (_ :: Round) <- get
-            gbConfiguration <- getGenesisConfigurationFlat
-            gbStateHash <- get
-            return GenesisBlock{..}
+            GenesisBlock <$> get
         _ -> do
             sbBlock <- getBakedBlock (protocolVersion @pv) ts
             sbSignature <- get

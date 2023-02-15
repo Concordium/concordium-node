@@ -54,6 +54,7 @@ data BlockMetadata = BlockMetadata
       bmReceiveTime :: !UTCTime,
       bmArriveTime :: !UTCTime
     }
+    deriving (Eq, Show)
 
 instance Serialize BlockMetadata where
     put BlockMetadata{..} = do
@@ -71,7 +72,7 @@ instance Serialize BlockMetadata where
         getUTCPOSIXMicros = posixSecondsToUTCTime . (/ 1_000_000) . realToFrac <$> getWord64be
 
 -- |A pointer to a block that has been executed
--- and the resulting 'PBS.HashedPersistentBlockStat'.
+-- and the resulting 'PBS.HashedPersistentBlockState'.
 data BlockPointer (pv :: ProtocolVersion) = BlockPointer
     { -- |Metadata for the block.
       bpInfo :: !BlockMetadata,
@@ -93,6 +94,25 @@ instance BlockData (BlockPointer pv) where
     blockTransactions = blockTransactions . bpBlock
     blockStateHash = blockStateHash . bpBlock
 
+-- |The `Eq` instance checks that the info and blocks are the same, and that the states have the
+-- same hash. This is intended for testing purposes: for practical purposes, it should be sufficient
+-- to check equality of block hashes.
+instance Eq (BlockPointer pv) where
+    bp1 == bp2 =
+        bpInfo bp1 == bpInfo bp2
+            && bpBlock bp1 == bpBlock bp2
+            && PBS.hpbsHash (bpState bp1) == PBS.hpbsHash (bpState bp2)
+
+instance Show (BlockPointer pv) where
+    show BlockPointer{..} =
+        "BlockPointer {bpInfo = "
+            ++ show bpInfo
+            ++ ", bpBlock = "
+            ++ show bpBlock
+            ++ ", bpState = ["
+            ++ show (PBS.hpbsHash bpState)
+            ++ "] }"
+
 -- |A block that is pending its parent.
 data PendingBlock = PendingBlock
     { -- |The block itself.
@@ -100,7 +120,7 @@ data PendingBlock = PendingBlock
       -- |The time that the block was received by the consensus.
       pbReceiveTime :: !UTCTime
     }
-    deriving (Eq)
+    deriving (Eq, Show)
 
 instance HashableTo BlockHash PendingBlock where
     getHash PendingBlock{..} = getHash pbBlock
@@ -144,13 +164,14 @@ data BlockStatus pv
       BlockDead
     | -- |The block is unknown
       BlockUnknown
+    deriving (Eq, Show)
 
-instance Show (BlockStatus pv) where
-    show (BlockPending _) = "Pending"
-    show (BlockAlive _) = "Alive"
-    show (BlockFinalized _) = "Finalized"
-    show BlockDead = "Dead"
-    show BlockUnknown = "Unknown"
+-- instance Show (BlockStatus pv) where
+--     show (BlockPending _) = "Pending"
+--     show (BlockAlive _) = "Alive"
+--     show (BlockFinalized _) = "Finalized"
+--     show BlockDead = "Dead"
+--     show BlockUnknown = "Unknown"
 
 -- |Get the status of a block if it recent
 -- otherwise if it is a predecessor of the last finalized block
@@ -163,6 +184,7 @@ data RecentBlockStatus pv
       OldFinalized
     | -- |The block is unknown.
       Unknown
+    deriving (Eq, Show)
 
 -- |The current round status.
 -- Note that it can be the case that both the 'QuorumSignatureMessage' and the

@@ -24,13 +24,14 @@ import qualified Data.PQueue.Prio.Min as MPQ
 import qualified Data.Sequence as Seq
 import Data.Typeable
 
+import qualified Concordium.Genesis.Data.BaseV1 as Base
 import Concordium.Types
 import Concordium.Types.Execution
 import Concordium.Types.HashableTo
 import Concordium.Types.Transactions
 import Concordium.Types.Updates
 
-import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.Parameters hiding (GenesisConfiguration)
 import qualified Concordium.GlobalState.Persistent.BlobStore as BlobStore
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import Concordium.GlobalState.Persistent.TreeState (DeadCache, emptyDeadCache, insertDeadCache, memberDeadCache)
@@ -64,6 +65,7 @@ data InMemoryBlockStatus pv
       MemBlockPending !PendingBlock
     | -- |The block is alive i.e. head of chain.
       MemBlockAlive !(BlockPointer pv)
+    deriving (Eq, Show)
 
 -- |The block table yields blocks that are
 -- either alive or pending.
@@ -110,6 +112,7 @@ data PendingBlocks = PendingBlocks
       -- '_pendingBlocksTable'.
       _pendingBlocksQueue :: !(MPQ.MinPQueue Round (BlockHash, BlockHash))
     }
+    deriving (Eq, Show)
 
 makeClassy ''PendingBlocks
 
@@ -160,7 +163,7 @@ instance HasPendingBlocks (SkovData pv) where
 mkInitialSkovData ::
     -- |The 'RuntimeParameters'
     RuntimeParameters ->
-    -- |Genesis configuration
+    -- |Genesis configuration. State hash should match the has of the state.
     GenesisConfiguration ->
     -- |Genesis state
     PBS.HashedPersistentBlockState pv ->
@@ -171,8 +174,8 @@ mkInitialSkovData ::
     -- |The initial 'SkovData'
     SkovData pv
 mkInitialSkovData rp genConf genState baseTimeout len =
-    let genesisBlock = GenesisBlock{gbConfiguration = genConf, gbStateHash = getHash genState}
-        genesisTime = timestampToUTCTime $ gdGenesisTime genConf
+    let genesisBlock = GenesisBlock genConf
+        genesisTime = timestampToUTCTime $ Base.genesisTime (gcParameters genConf)
         genesisMetadata =
             BlockMetadata
                 { bmHeight = 0,
@@ -261,9 +264,10 @@ doGetRecentBlockStatus blockHash sd = case doGetMemoryBlockStatus blockHash sd o
             False -> return Unknown
 
 -- |Turn a 'PendingBlock' into a live block.
--- This marks the block as 'MemBlockAlive' in the block table
--- and updates the arrive time of the block.
+-- This marks the block as 'MemBlockAlive' in the block table, records the arrive time of the block,
 -- and returns the resulting 'BlockPointer'.
+-- The hash of the block state MUST match the block state hash of the block; this is not checked.
+-- [Note: this does not affect the branches.]
 doMakeLiveBlock :: (MonadState (SkovData pv) m) => PendingBlock -> PBS.HashedPersistentBlockState pv -> BlockHeight -> UTCTime -> m (BlockPointer pv)
 doMakeLiveBlock pb st height arriveTime = do
     let bp =
@@ -278,6 +282,7 @@ doMakeLiveBlock pb st height arriveTime = do
 -- |Marks a block as dead.
 -- This expunges the block from memory
 -- and registers the block in the dead cache.
+-- [Note: this does not affect the branches.]
 doMarkBlockDead :: (MonadState (SkovData pv) m) => BlockHash -> m ()
 doMarkBlockDead blockHash = do
     blockTable . liveMap . at' blockHash .=! Nothing
@@ -285,6 +290,7 @@ doMarkBlockDead blockHash = do
 
 -- |Mark a live block as dead. In addition, purge the block state and maintain invariants in the
 -- transaction table by purging all transaction outcomes that refer to this block.
+-- [Note: this does not affect the branches.]
 doMarkLiveBlockDead ::
     ( MonadState (SkovData pv) m,
       BlockStateStorage m,
@@ -320,7 +326,7 @@ doMarkPending pb = blockTable . liveMap . at' (getHash pb) ?=! MemBlockPending p
 doAddPendingBlock :: (MonadState s m, HasPendingBlocks s) => PendingBlock -> m ()
 doAddPendingBlock sb = do
     pendingBlocksQueue %= MPQ.insert theRound (blockHash, parentHash)
-    pendingBlocksTable %= HM.adjust (sb :) parentHash
+    pendingBlocksTable . at' parentHash . non [] %= (sb :)
   where
     blockHash = getHash sb
     theRound = blockRound sb

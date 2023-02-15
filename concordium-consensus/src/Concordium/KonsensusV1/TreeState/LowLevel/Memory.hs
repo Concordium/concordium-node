@@ -23,20 +23,40 @@ import Concordium.KonsensusV1.TreeState.LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 
+-- |A low-level database.
 data LowLevelDB pv = LowLevelDB
-    { lldbBlockHashes :: !(HM.HashMap BlockHash BlockHeight),
+    { -- |Index of blocks by hash.
+      lldbBlockHashes :: !(HM.HashMap BlockHash BlockHeight),
+      -- |Table of blocks by height.
       lldbBlocks :: !(Map.Map BlockHeight (StoredBlock pv)),
+      -- |Table of transactions by hash.
       lldbTransactions :: !(HM.HashMap TransactionHash FinalizedTransactionStatus),
+      -- |The last finalization entry (if any)
       lldbLatestFinalizationEntry :: !(Maybe FinalizationEntry),
+      -- |The current round status.
       lldbRoundStatus :: !RoundStatus
     }
+
+-- |An initial 'LowLevelDB' with the supplied genesis block and round status.
+-- The genesis block should have height 0; this is not checked.
+initialLowLevelDB :: StoredBlock pv -> RoundStatus -> LowLevelDB pv
+initialLowLevelDB genBlock roundStatus =
+    LowLevelDB
+        { lldbBlockHashes = HM.singleton (getHash genBlock) 0,
+          lldbBlocks = Map.singleton 0 genBlock,
+          lldbTransactions = HM.empty,
+          lldbLatestFinalizationEntry = Nothing,
+          lldbRoundStatus = roundStatus
+        }
 
 class HasMemoryLLDB pv r | r -> pv where
     theMemoryLLDB :: r -> IORef (LowLevelDB pv)
 
+-- |Helper for reading the low level DB.
 readLLDB :: (MonadReader r m, HasMemoryLLDB pv r, MonadIO m) => m (LowLevelDB pv)
 readLLDB = liftIO . readIORef =<< asks theMemoryLLDB
 
+-- |Helper for updating the low level DB.
 withLLDB :: (MonadReader r m, HasMemoryLLDB pv r, MonadIO m) => (LowLevelDB pv -> (LowLevelDB pv, a)) -> m a
 withLLDB f = do
     ref <- asks theMemoryLLDB
