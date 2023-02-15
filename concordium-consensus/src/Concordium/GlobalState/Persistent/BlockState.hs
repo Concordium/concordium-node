@@ -119,6 +119,8 @@ data PersistentBirkParameters (pv :: ProtocolVersion) = PersistentBirkParameters
 makeLenses ''PersistentBirkParameters
 
 -- |Migrate a 'SeedState' between protocol versions.
+-- For migrations in consensus version 0, changes to the seed state are handled prior to state
+-- migration. For consensus version 1, they should be handled here.
 migrateSeedState :: StateMigrationParameters oldpv pv -> SeedState (SeedStateVersionFor oldpv) -> SeedState (SeedStateVersionFor pv)
 migrateSeedState StateMigrationParametersTrivial{} ss = ss
 migrateSeedState StateMigrationParametersP1P2{} ss = ss
