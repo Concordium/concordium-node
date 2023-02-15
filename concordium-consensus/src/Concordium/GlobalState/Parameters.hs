@@ -73,7 +73,7 @@ getExactVersionedCryptographicParameters bs = do
     return (vValue v)
 
 -- |Implementation-defined parameters, such as block size. They are not
--- protocol-level parameters hence do not fit into 'GenesisParameters'.
+-- protocol-level parameters hence do not fit into 'GenesisParametersV2'.
 data RuntimeParameters = RuntimeParameters
     { -- |Maximum block size produced by the baker (in bytes). Note that this only
       -- applies to the blocks produced by this baker, we will still accept blocks

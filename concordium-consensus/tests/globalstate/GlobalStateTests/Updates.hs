@@ -43,7 +43,7 @@ import qualified Concordium.GlobalState.Persistent.BlockState.Updates as PU
 import Concordium.ID.DummyData
 import Concordium.ID.Parameters
 import Concordium.Types.DummyData
-import Concordium.Types.SeedState (initialSeedState)
+import Concordium.Types.SeedState (initialSeedStateV0)
 import Test.HUnit (assertEqual)
 
 --------------------------------------------------------------------------------
@@ -70,7 +70,7 @@ createGS :: ThisMonadConcrete PV (PBS.PersistentBlockState PV)
 createGS = do
     PBS.hpbsPointers
         <$> PBS.initialPersistentState
-            (initialSeedState (Hash.hash "") 1_000)
+            (initialSeedStateV0 (Hash.hash "") 1_000)
             dummyCryptographicParameters
             []
             dummyIdentityProviders

@@ -96,7 +96,7 @@ initialiseExistingGlobalState _ GlobalStateConfig{..} = do
 -- but future protocol updates might need to do some migration of these as
 -- well.
 migrateExistingState ::
-    (IsProtocolVersion pv, IsProtocolVersion oldpv) =>
+    (IsProtocolVersion pv, IsProtocolVersion oldpv, IsConsensusV0 pv) =>
     -- |The configuration.
     GlobalStateConfig ->
     -- |Global state context for the state we are migrating from.
@@ -138,7 +138,7 @@ migrateExistingState GlobalStateConfig{..} oldPbsc oldState migration genData = 
 -- |Initialise new global state with the given genesis. If the state already
 -- exists this will raise an exception. It is not necessary to call 'activateGlobalState'
 -- on the generated state, as this will establish the necessary invariants.
-initialiseNewGlobalState :: IsProtocolVersion pv => GenesisData pv -> GlobalStateConfig -> LogIO (GSContext pv, GSState pv)
+initialiseNewGlobalState :: (IsProtocolVersion pv, IsConsensusV0 pv) => GenesisData pv -> GlobalStateConfig -> LogIO (GSContext pv, GSState pv)
 initialiseNewGlobalState genData GlobalStateConfig{..} = do
     pbscBlobStore <- liftIO $ createBlobStore dtdbBlockStateFile
     pbscAccountCache <- liftIO $ newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
@@ -160,7 +160,7 @@ initialiseNewGlobalState genData GlobalStateConfig{..} = do
     return (pbsc, isd)
 
 -- |Either initialise an existing state, or if it does not exist, initialise a new one with the given genesis.
-initialiseGlobalState :: forall pv. IsProtocolVersion pv => GenesisData pv -> GlobalStateConfig -> LogIO (GSContext pv, GSState pv)
+initialiseGlobalState :: forall pv. (IsProtocolVersion pv, IsConsensusV0 pv) => GenesisData pv -> GlobalStateConfig -> LogIO (GSContext pv, GSState pv)
 initialiseGlobalState gd cfg =
     initialiseExistingGlobalState (protocolVersion @pv) cfg >>= \case
         Nothing -> initialiseNewGlobalState gd cfg

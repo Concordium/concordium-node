@@ -37,6 +37,7 @@ import System.FilePath
 import Concordium.Logger hiding (Baker)
 import Concordium.Types
 import Concordium.Types.Block
+import Concordium.Types.Parameters
 import Concordium.Types.Transactions
 import Concordium.Types.UpdateQueues (ProtocolUpdateStatus (..))
 import Concordium.Types.Updates
@@ -85,7 +86,7 @@ instance Skov.HandlerConfig UpdateHandler where
 
 instance
     ( IsProtocolVersion pv,
-      Skov.IsConsensusV0 pv,
+      IsConsensusV0 pv,
       MultiVersion fc,
       Skov.SkovConfiguration fc UpdateHandler
     ) =>
@@ -251,14 +252,14 @@ activateConfiguration (EVersionedConfiguration vc) = do
 class MultiVersion finconf where
     -- |Convert a 'VersionedConfiguration' to an 'EVersionedConfiguration'.
     newVersion ::
-        (IsProtocolVersion pv, Skov.IsConsensusV0 pv) =>
+        (IsProtocolVersion pv, IsConsensusV0 pv) =>
         VersionedConfiguration finconf pv ->
         EVersionedConfiguration finconf
 
     -- |Supply a 'VersionedSkovM' action with instances of 'SkovMonad', 'FinalizationMonad' and
     -- 'TreeStateMonad'.
     liftSkov ::
-        (IsProtocolVersion pv, Skov.IsConsensusV0 pv) =>
+        (IsProtocolVersion pv, IsConsensusV0 pv) =>
         ( ( Skov.SkovMonad (VersionedSkovM finconf pv),
             FinalizationMonad (VersionedSkovM finconf pv),
             TreeStateMonad (VersionedSkovM finconf pv)
@@ -268,7 +269,7 @@ class MultiVersion finconf where
         VersionedSkovM finconf pv a
 
 instance
-    ( forall pv. (IsProtocolVersion pv, Skov.IsConsensusV0 pv) => BakerMonad (VersionedSkovM finconf pv),
+    ( forall pv. (IsProtocolVersion pv, IsConsensusV0 pv) => BakerMonad (VersionedSkovM finconf pv),
       forall pv. IsProtocolVersion pv => TreeStateMonad (VersionedSkovM finconf pv)
     ) =>
     MultiVersion finconf
@@ -387,8 +388,8 @@ newGenesis ::
     -- |Absolute height of the new genesis block
     AbsoluteBlockHeight ->
     MVR finconf ()
-newGenesis (PVGenesisData (gd :: GenesisData pv)) vcGenesisHeight = case sConsensusParametersVersionFor (chainParametersVersion @(ChainParametersVersionFor pv)) of
-    SConsensusParametersVersion0 ->
+newGenesis (PVGenesisData (gd :: GenesisData pv)) vcGenesisHeight = case consensusVersionFor (protocolVersion @pv) of
+    ConsensusV0 ->
         MVR $
             \MultiVersionRunner
                 { mvCallbacks = Callbacks{..},
@@ -424,7 +425,7 @@ newGenesis (PVGenesisData (gd :: GenesisData pv)) vcGenesisHeight = case sConsen
                     writeIORef mvVersions (oldVersions `Vec.snoc` newVersion newEConfig)
                     -- Notify the network layer we have a new genesis.
                     notifyRegenesis (Just (genesisBlockHash gd))
-    SConsensusParametersVersion1 -> error "New consensus version not implemented yet." -- TODO: implement
+    ConsensusV1 -> error "New consensus version not implemented yet." -- TODO: implement
 
 -- |Determine if a protocol update has occurred, and handle it.
 -- When a protocol update first becomes pending, this logs the update that will occur (if it is
@@ -437,7 +438,7 @@ newGenesis (PVGenesisData (gd :: GenesisData pv)) vcGenesisHeight = case sConsen
 checkForProtocolUpdate ::
     forall lastpv fc.
     ( IsProtocolVersion lastpv,
-      Skov.IsConsensusV0 lastpv,
+      IsConsensusV0 lastpv,
       MultiVersion fc,
       Skov.SkovConfiguration fc UpdateHandler
     ) =>
@@ -453,8 +454,8 @@ checkForProtocolUpdate = liftSkov body
         check >>= \case
             Nothing -> return ()
             Just (PVInit{pvInitGenesis = nextGenesis :: Regenesis newpv, ..}) ->
-                case sConsensusParametersVersionFor (chainParametersVersion @(ChainParametersVersionFor newpv)) of
-                    SConsensusParametersVersion0 -> do
+                case consensusVersionFor (protocolVersion @newpv) of
+                    ConsensusV0 -> do
                         MultiVersionRunner{..} <- lift ask
                         existingVersions <- liftIO (readIORef mvVersions)
                         latestEraGenesisHeight <- liftIO $ do
@@ -465,7 +466,7 @@ checkForProtocolUpdate = liftSkov body
                         -- construct the the new skov instance
                         let vcGenesisHeight = 1 + localToAbsoluteBlockHeight latestEraGenesisHeight pvInitFinalHeight
                         let newGSConfig =
-                                ( Skov.SkovConfig @newpv @fc
+                                Skov.SkovConfig @newpv @fc
                                     ( globalStateConfig
                                         (mvcStateConfig mvConfiguration)
                                         (mvcRuntimeParameters mvConfiguration)
@@ -474,7 +475,6 @@ checkForProtocolUpdate = liftSkov body
                                     )
                                     (mvcFinalizationConfig mvConfiguration)
                                     UpdateHandler
-                                )
                         -- clear data we no longer need after the protocol update
                         Skov.clearSkovOnProtocolUpdate
                         -- migrate the final block state into the new skov instance, and establish
@@ -502,7 +502,7 @@ checkForProtocolUpdate = liftSkov body
                             let Callbacks{..} = mvCallbacks
                             liftIO $ notifyRegenesis (Just (regenesisBlockHash nextGenesis))
                             return ()
-                    SConsensusParametersVersion1 -> error "New consensus version not implemented yet." -- TODO: implement
+                    ConsensusV1 -> error "New consensus version not implemented yet." -- TODO: implement
     showPU ProtocolUpdate{..} =
         Text.unpack puMessage
             ++ "\n["
@@ -646,8 +646,8 @@ startupSkov genesis = do
             AbsoluteBlockHeight ->
             -- \^Absolute block height of the genesis block of the new chain.
             MVR finconf ()
-        loop (SomeProtocolVersion (_ :: SProtocolVersion pv)) first vcIndex vcGenesisHeight = case sConsensusParametersVersionFor (chainParametersVersion @(ChainParametersVersionFor pv)) of
-            SConsensusParametersVersion0 -> do
+        loop (SomeProtocolVersion (_ :: SProtocolVersion pv)) first vcIndex vcGenesisHeight = case consensusVersionFor (protocolVersion @pv) of
+            ConsensusV0 -> do
                 let comp =
                         MVR $
                             \mvr@MultiVersionRunner
@@ -721,7 +721,7 @@ startupSkov genesis = do
                     Right (Just config@(EVersionedConfiguration newEConfig')) -> do
                         mvrLogIO $ activateConfiguration config
                         liftSkovUpdate newEConfig' checkForProtocolUpdate
-            SConsensusParametersVersion1 -> error "New consensus not implemented yet." -- TODO: implement
+            ConsensusV1 -> error "New consensus not implemented yet." -- TODO: implement
     loop initProtocolVersion Nothing 0 0
 
 -- |Start a thread to periodically purge uncommitted transactions.

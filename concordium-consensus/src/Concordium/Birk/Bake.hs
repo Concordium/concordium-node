@@ -91,7 +91,7 @@ processTransactions ::
       SkovMonad m
     ) =>
     Slot ->
-    SeedState ->
+    SeedState (SeedStateVersionFor (MPV m)) ->
     BlockPointerType m ->
     Maybe FinalizerInfo ->
     BakerId ->
