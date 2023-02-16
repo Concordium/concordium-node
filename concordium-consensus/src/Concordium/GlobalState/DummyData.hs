@@ -364,7 +364,7 @@ dummyFinalizationCommitteeParameters =
     FinalizationCommitteeParameters
         { _fcpMinFinalizers = 50, -- Minimum number of finalizers before the relative stake threshold takes effect.
           _fcpMaxFinalizers = 500, -- Maximum number of finalizers.
-          -- @total stake in pools * 10_000/100_000 = "required stake"@ to become a finalizer if there are more than '_fcpMinFinalizers' bakers.
+          -- @total stake in pools * 10_000/100_000 = "required stake"@ to become a finalizer if there are '_fcpMinFinalizers' bakers or more.
           _fcpFinalizerRelativeStakeThreshold = PartsPerHundredThousands 10000
         }
 
