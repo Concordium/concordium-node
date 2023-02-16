@@ -151,6 +151,7 @@ data TransactionStatus
       Live !LiveTransactionStatus
     | -- |The transaction is in a finalized block.
       Finalized !FinalizedTransactionStatus
+    deriving (Eq, Show)
 
 -- |The status of a block.
 data BlockStatus pv
@@ -165,13 +166,6 @@ data BlockStatus pv
     | -- |The block is unknown
       BlockUnknown
     deriving (Eq, Show)
-
--- instance Show (BlockStatus pv) where
---     show (BlockPending _) = "Pending"
---     show (BlockAlive _) = "Alive"
---     show (BlockFinalized _) = "Finalized"
---     show BlockDead = "Dead"
---     show BlockUnknown = "Unknown"
 
 -- |Get the status of a block if it recent
 -- otherwise if it is a predecessor of the last finalized block

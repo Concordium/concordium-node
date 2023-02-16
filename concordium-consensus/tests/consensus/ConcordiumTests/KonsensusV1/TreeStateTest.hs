@@ -11,6 +11,7 @@ import Control.Monad.Reader
 import Control.Monad.State
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
+import qualified Data.Map.Strict as Map
 import qualified Data.PQueue.Prio.Min as MPQ
 import Lens.Micro.Platform
 import System.IO.Unsafe
@@ -23,6 +24,7 @@ import Concordium.Crypto.BlockSignature
 import qualified Concordium.Crypto.BlockSignature as Sig
 import Concordium.Crypto.DummyData
 import qualified Concordium.Crypto.SHA256 as Hash
+import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Genesis.Data.BaseV1
 import Concordium.Types
@@ -34,11 +36,15 @@ import Concordium.GlobalState.Parameters (defaultRuntimeParameters)
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.BlockState
 import Concordium.GlobalState.Persistent.TreeState (insertDeadCache, memberDeadCache)
+import Concordium.GlobalState.TransactionTable
+import Concordium.ID.Types
 import Concordium.KonsensusV1.TreeState.Implementation
 import Concordium.KonsensusV1.TreeState.LowLevel
 import Concordium.KonsensusV1.TreeState.LowLevel.Memory
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
+import qualified Concordium.TransactionVerification as TVer
+import Concordium.Types.Updates
 
 {-
 -- |Create an initial 'SkovData' with a set of default parameters.
@@ -217,6 +223,7 @@ skovDataWithTestBlocks :: SkovData pv
 skovDataWithTestBlocks =
     dummyInitialSkovData
         & lastFinalized .~ lastFin
+        & focusBlock .~ focusB
         & blockTable
             %~ ( ( liveMap
                     %~ ( (at (getHash testB) ?~ MemBlockAlive testB)
@@ -452,6 +459,165 @@ testDoTakeNextPendingUntil = it "doTakeNextPendingUntil" $ do
                     ]
             }
 
+dummySigSchemeKeys :: SigScheme.KeyPair
+{-# NOINLINE dummySigSchemeKeys #-}
+dummySigSchemeKeys = unsafePerformIO $ SigScheme.newKeyPair SigScheme.Ed25519
+
+dummyTransactionSignature :: TransactionSignature
+dummyTransactionSignature = TransactionSignature $ Map.singleton 0 (Map.singleton 0 sig)
+  where
+    sig = SigScheme.sign dummySigSchemeKeys "transaction"
+
+dummyAccountAddressN :: Int -> AccountAddress
+dummyAccountAddressN = fst . randomAccountAddress . mkStdGen
+
+dummyAccountAddress :: AccountAddress
+dummyAccountAddress = dummyAccountAddressN 0
+
+dummyTransaction :: Nonce -> Transaction
+dummyTransaction n =
+    addMetadata NormalTransaction 0 $
+        makeAccountTransaction
+            dummyTransactionSignature
+            hdr
+            payload
+  where
+    hdr =
+        TransactionHeader
+            { thSender = dummyAccountAddress,
+              thPayloadSize = 20,
+              thNonce = n,
+              thExpiry = 500,
+              thEnergyAmount = 5_000_000
+            }
+    payload = EncodedPayload "01234567890123456789"
+
+dummyTransactionBI :: Nonce -> BlockItem
+dummyTransactionBI = normalTransaction . dummyTransaction
+
+dummySuccessTransactionResult :: Nonce -> TVer.VerificationResult
+dummySuccessTransactionResult n =
+    TVer.Ok
+        TVer.NormalTransactionSuccess
+            { keysHash = Hash.hash "keys",
+              nonce = n
+            }
+
+dummyRawUpdateInstruction :: UpdateSequenceNumber -> RawUpdateInstruction
+dummyRawUpdateInstruction usn =
+    RawUpdateInstruction
+        { ruiSeqNumber = usn,
+          ruiEffectiveTime = 0,
+          ruiTimeout = 0,
+          ruiPayload = MicroGTUPerEuroUpdatePayload 2
+        }
+
+dummyUpdateInstruction :: UpdateSequenceNumber -> UpdateInstruction
+dummyUpdateInstruction usn =
+    makeUpdateInstruction
+        (dummyRawUpdateInstruction usn)
+        (Map.fromList [(0, dummySigSchemeKeys)])
+
+dummyUpdateInstructionWM :: UpdateSequenceNumber -> WithMetadata UpdateInstruction
+dummyUpdateInstructionWM usn =
+    addMetadata ChainUpdate 0 $ dummyUpdateInstruction usn
+
+dummyChainUpdate :: UpdateSequenceNumber -> BlockItem
+dummyChainUpdate usn = chainUpdate $ dummyUpdateInstructionWM usn
+
+testDoLookupLiveTransaction :: Spec
+testDoLookupLiveTransaction = describe "doLookupLiveTransaction" $ do
+    it "present" $ do
+        assertEqual
+            "status transaction 1"
+            (Just $ Received 0 (dummySuccessTransactionResult 1))
+            $ doLookupLiveTransaction (th 1) sd
+        assertEqual
+            "status transaction 2"
+            (Just $ Received 0 (dummySuccessTransactionResult 2))
+            $ doLookupLiveTransaction (th 2) sd
+        assertEqual
+            "status transaction 3"
+            (Just $ Received 0 (dummySuccessTransactionResult 3))
+            $ doLookupLiveTransaction (th 3) sd
+    it "absent"
+        $ assertEqual
+            "status transaction 4"
+            Nothing
+        $ doLookupLiveTransaction (th 4) sd
+  where
+    th n = getHash (dummyTransactionBI n)
+    addTrans n = snd . addTransaction (dummyTransactionBI n) 0 (dummySuccessTransactionResult n)
+    sd =
+        dummyInitialSkovData
+            & transactionTable
+                %~ addTrans 1
+                . addTrans 2
+                . addTrans 3
+
+testDoLookupTransaction :: Spec
+testDoLookupTransaction = describe "doLookupTransaction" $ do
+    it "finalized" $ lu (th 1) (Just $ Finalized $ FinalizedTransactionStatus 1 0)
+    it "live" $ lu (th 2) (Just $ Live $ Received 0 $ dummySuccessTransactionResult 2)
+    it "absent" $ lu (th 5) Nothing
+  where
+    th n = getHash (dummyTransactionBI n)
+    addTrans n = snd . addTransaction (dummyTransactionBI n) 0 (dummySuccessTransactionResult n)
+    sd =
+        dummyInitialSkovData
+            & transactionTable
+                %~ addTrans 2
+                . addTrans 3
+    db =
+        (lldbWithGenesis @'P6)
+            { lldbTransactions = HM.fromList [(th 1, FinalizedTransactionStatus 1 0)]
+            }
+    lu hsh expect = do
+        s <- runTestLLDB db $ doLookupTransaction hsh sd
+        s `shouldBe` expect
+
+testDoGetNonFinalizedAccountTransactions :: Spec
+testDoGetNonFinalizedAccountTransactions = describe "doGetNonFinalizedAccountTransactions" $ do
+    it "present" $ do
+        assertEqual
+            "transactions for dummy account 0 from 1"
+            [ (2, Map.singleton (dummyTransaction 2) (dummySuccessTransactionResult 2)),
+              (3, Map.singleton (dummyTransaction 3) (dummySuccessTransactionResult 3))
+            ]
+            $ doGetNonFinalizedAccountTransactions
+                (accountAddressEmbed dummyAccountAddress)
+                1
+                sd
+        assertEqual
+            "transactions for dummy account 0 from 3"
+            [ (3, Map.singleton (dummyTransaction 3) (dummySuccessTransactionResult 3))
+            ]
+            $ doGetNonFinalizedAccountTransactions
+                (accountAddressEmbed dummyAccountAddress)
+                3
+                sd
+    it "absent"
+        $ assertEqual
+            "transactions for dummy account 1"
+            []
+        $ doGetNonFinalizedAccountTransactions
+            (accountAddressEmbed (dummyAccountAddressN 1))
+            1
+            sd
+  where
+    addTrans n = snd . addTransaction (dummyTransactionBI n) 0 (dummySuccessTransactionResult n)
+    sd =
+        dummyInitialSkovData
+            & transactionTable
+                %~ addTrans 2
+                . addTrans 3
+
+testDoGetNonFinalizedChainUpdates :: Spec
+testDoGetNonFinalizedChainUpdates = describe "doGetNonFinalizedChainUpdates" $ do
+    return ()
+  where
+    addChainUpdate n = undefined
+
 tests :: Spec
 tests = describe "KonsensusV1.TreeState" $ do
     describe "BlockTable" $ do
@@ -465,3 +631,7 @@ tests = describe "KonsensusV1.TreeState" $ do
         testDoAddPendingBlock
         testDoTakePendingChildren
         testDoTakeNextPendingUntil
+    describe "TransactionTable" $ do
+        testDoLookupLiveTransaction
+        testDoLookupTransaction
+        testDoGetNonFinalizedAccountTransactions
