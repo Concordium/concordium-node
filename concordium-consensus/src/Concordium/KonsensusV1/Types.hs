@@ -85,22 +85,6 @@ checkQuorumSignatureSingle msg pubKey =
     Bls.verify (quorumSignatureMessageBytes msg) pubKey
         . theQuorumSignature
 
--- |Sign a quorum signature message and aggregate the resulting signature
--- with the provided quorum signature.
-signAggregateQuorumSignatureMessage ::
-    -- |The quorum signature message to sign.
-    QuorumSignatureMessage ->
-    -- |The signature to aggregate on.
-    QuorumSignature ->
-    -- |The private key used for signing.
-    BakerAggregationPrivateKey ->
-    -- |The outputted quorum signature.
-    QuorumSignature
-signAggregateQuorumSignatureMessage msg qs privKey = QuorumSignature $ Bls.aggregate mySig otherSig
-  where
-    mySig = theQuorumSignature $ signQuorumSignatureMessage msg privKey
-    otherSig = theQuorumSignature qs
-
 -- |Check the signature on a 'QuorumSignatureMessage' that is signed by multiple parties.
 checkQuorumSignature ::
     QuorumSignatureMessage -> [BakerAggregationVerifyKey] -> QuorumSignature -> Bool

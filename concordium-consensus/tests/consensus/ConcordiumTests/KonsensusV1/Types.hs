@@ -1,12 +1,11 @@
 module ConcordiumTests.KonsensusV1.Types where
 
-import System.IO.Unsafe
-
 import qualified Data.ByteString as BS
 import qualified Data.Map.Strict as Map
 import Data.Serialize
 import qualified Data.Vector as Vector
 import Data.Word
+import System.IO.Unsafe
 import Test.Hspec
 import Test.QuickCheck
 
@@ -14,8 +13,11 @@ import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.BlsSignature as Bls
 import Concordium.Crypto.DummyData
 import qualified Concordium.Crypto.SHA256 as Hash
+import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Types
+import qualified Concordium.Types.DummyData as Dummy
+import Concordium.Types.Transactions
 import qualified Concordium.Types.Transactions as Transactions
 import qualified Data.FixedByteString as FBS
 
@@ -156,17 +158,35 @@ genTimestamp :: Gen Timestamp
 genTimestamp = Timestamp <$> arbitrary
 
 -- |Generate an arbitrary vrf key pair.
-generateVRFKeyPair :: VRF.KeyPair
-generateVRFKeyPair =
-    unsafePerformIO $
-        VRF.newKeyPair
+someVRFKeyPair :: VRF.KeyPair
+{-# NOINLINE someVRFKeyPair #-}
+someVRFKeyPair = unsafePerformIO VRF.newKeyPair
 
 -- |Generate an arbitrary block nonce.
 genBlockNonce :: Gen BlockNonce
 genBlockNonce = do
-    let kp = generateVRFKeyPair
+    let kp = someVRFKeyPair
         proof = VRF.prove kp BS.empty
     return proof
+
+-- |An arbitrary account key pair.
+someAccountKeyPair :: SigScheme.KeyPair
+{-# NOINLINE someAccountKeyPair #-}
+someAccountKeyPair = unsafePerformIO $ SigScheme.newKeyPair SigScheme.Ed25519
+
+-- |Generate a vector of simple transfer transactions. The length of the vector is determined by the
+-- size parameter.
+-- Each transaction is signed by 'someAccountKeyPair', with the sender, receiver, amount and nonce
+-- generated arbitrarily. The arrival times are all set to @TransactionTime maxBound@.
+genTransactions :: Gen (Vector.Vector BlockItem)
+genTransactions = Vector.fromList <$> listOf trans
+  where
+    trans = do
+        sender <- Dummy.accountAddressFrom <$> arbitrary
+        receiver <- Dummy.accountAddressFrom <$> arbitrary
+        amt <- arbitrary
+        nonce <- Nonce <$> arbitrary `suchThat` (> 0)
+        return $ Dummy.makeTransferTransaction (someAccountKeyPair, sender) receiver amt nonce
 
 -- |Generate an arbitrary baked block with no transactions.
 -- The baker of the block is number 42.
@@ -178,11 +198,11 @@ genBakedBlock = do
     bbQuorumCertificate <- genQuorumCertificate
     bbNonce <- genBlockNonce
     bbStateHash <- StateHashV0 . Hash.Hash . FBS.pack <$> vector 32
+    bbTransactions <- genTransactions
     return
         BakedBlock
             { bbTimeoutCertificate = Absent,
               bbEpochFinalizationEntry = Absent,
-              bbTransactions = Vector.empty,
               bbTransactionOutcomesHash = Transactions.emptyTransactionOutcomesHashV1,
               bbBaker = 42,
               ..
@@ -302,7 +322,7 @@ propSignQuorumSignatureMessage :: Property
 propSignQuorumSignatureMessage =
     forAll genQuorumSignatureMessage $ \qsm ->
         let qs = signQuorumSignatureMessage qsm someBlsSecretKey
-            qs' = signAggregateQuorumSignatureMessage qsm qs (someOtherBlsSecretKey 0)
+            qs' = signQuorumSignatureMessage qsm (someOtherBlsSecretKey 0) <> qs
             pubKeys = [(Bls.derivePublicKey someBlsSecretKey), (Bls.derivePublicKey (someOtherBlsSecretKey 0))]
         in  checkQuorumSignature qsm pubKeys qs'
 
@@ -311,7 +331,7 @@ propSignQuorumSignatureMessageDiffKey :: Property
 propSignQuorumSignatureMessageDiffKey =
     forAll genQuorumSignatureMessage $ \qsm ->
         let qs = signQuorumSignatureMessage qsm someBlsSecretKey
-            qs' = signAggregateQuorumSignatureMessage qsm qs (someOtherBlsSecretKey 0)
+            qs' = signQuorumSignatureMessage qsm (someOtherBlsSecretKey 0) <> qs
             pubKeys = [(Bls.derivePublicKey someBlsSecretKey), (Bls.derivePublicKey (someOtherBlsSecretKey 1))]
         in  not (checkQuorumSignature qsm pubKeys qs')
 
@@ -322,7 +342,7 @@ propSignQuorumSignatureMessageDiffBody =
         forAll genQuorumSignatureMessage $ \qsm2 ->
             (qsm1 /= qsm2) ==>
                 let qs = signQuorumSignatureMessage qsm1 someBlsSecretKey
-                    qs' = signAggregateQuorumSignatureMessage qsm2 qs (someOtherBlsSecretKey 0)
+                    qs' = signQuorumSignatureMessage qsm2 (someOtherBlsSecretKey 0) <> qs
                     pubKeys = [(Bls.derivePublicKey someBlsSecretKey), (Bls.derivePublicKey (someOtherBlsSecretKey 1))]
                 in  not (checkQuorumSignature qsm1 pubKeys qs')
 
