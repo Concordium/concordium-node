@@ -603,7 +603,7 @@ emptyPendingUpdates ::
     forall m cpv.
     (MonadBlobStore m, IsChainParametersVersion cpv) =>
     m (PendingUpdates cpv)
-emptyPendingUpdates = PendingUpdates <$> e <*> e <*> e <*> e <*> whenSupportedA e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> whenSupportedA e <*> whenSupportedA e <*> whenSupportedA e <*> whenSupportedA e <*> whenSupportedA e  <*> whenSupportedA e
+emptyPendingUpdates = PendingUpdates <$> e <*> e <*> e <*> e <*> whenSupportedA e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> whenSupportedA e <*> whenSupportedA e <*> whenSupportedA e <*> whenSupportedA e <*> whenSupportedA e <*> whenSupportedA e
   where
     e :: m (HashedBufferedRef (UpdateQueue a))
     e = makeHashedBufferedRef emptyUpdateQueue
@@ -1370,7 +1370,7 @@ lookupNextUpdateSequenceNumber uref uty = withCPVConstraints (chainParametersVer
                 (fmap uqNextSequenceNumber . refLoad)
                 (pBlockEnergyLimitQueue pendingUpdates)
         UpdateFinalizationCommitteeParameters ->
-                maybeWhenSupported
+            maybeWhenSupported
                 (pure minUpdateSequenceNumber)
                 (fmap uqNextSequenceNumber . refLoad)
                 (pFinalizationCommitteeParametersQueue pendingUpdates)
@@ -1422,6 +1422,10 @@ enqueueUpdate effectiveTime payload uref = withCPVConstraints (chainParametersVe
             SomeParam q ->
                 enqueue effectiveTime v q
                     <&> \newQ -> p{pBlockEnergyLimitQueue = SomeParam newQ}
+        UVFinalizationCommitteeParameters v -> case pFinalizationCommitteeParametersQueue of
+            SomeParam q ->
+                enqueue effectiveTime v q
+                    <&> \newQ -> p{pFinalizationCommitteeParametersQueue = SomeParam newQ}
     refMake u{pendingUpdates = newPendingUpdates}
 
 -- |Overwrite the election difficulty with the specified value and remove

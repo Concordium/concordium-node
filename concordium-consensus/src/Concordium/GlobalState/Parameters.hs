@@ -185,6 +185,8 @@ data UpdateValue (cpv :: ChainParametersVersion) where
     UVMinBlockTime :: (IsSupported 'PTMinBlockTime cpv ~ 'True) => !Duration -> UpdateValue cpv
     -- |Updates to block energy limit for chain parameters version 2.
     UVBlockEnergyLimit :: (IsSupported 'PTBlockEnergyLimit cpv ~ 'True) => !Energy -> UpdateValue cpv
+    -- |Updates to the finalization committee parameters for chain parameters version 2.
+    UVFinalizationCommitteeParameters :: (IsSupported 'PTFinalizationCommitteeParameters cpv ~ 'True) => !FinalizationCommitteeParameters -> UpdateValue cpv
 
 deriving instance Eq (UpdateValue cpv)
 deriving instance Show (UpdateValue cpv)
