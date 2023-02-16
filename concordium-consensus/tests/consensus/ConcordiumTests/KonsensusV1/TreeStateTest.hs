@@ -475,8 +475,8 @@ dummyAccountAddressN = fst . randomAccountAddress . mkStdGen
 dummyAccountAddress :: AccountAddress
 dummyAccountAddress = dummyAccountAddressN 0
 
-dummyTransaction :: Nonce -> Transaction
-dummyTransaction n =
+dummyTransactionWithPayload :: Nonce -> EncodedPayload -> Transaction
+dummyTransactionWithPayload n payload =
     addMetadata NormalTransaction 0 $
         makeAccountTransaction
             dummyTransactionSignature
@@ -486,12 +486,14 @@ dummyTransaction n =
     hdr =
         TransactionHeader
             { thSender = dummyAccountAddress,
-              thPayloadSize = 20,
+              thPayloadSize = payloadSize payload,
               thNonce = n,
               thExpiry = 500,
               thEnergyAmount = 5_000_000
             }
-    payload = EncodedPayload "01234567890123456789"
+
+dummyTransaction :: Nonce -> Transaction
+dummyTransaction n = dummyTransactionWithPayload n (EncodedPayload "01234567890123456789")
 
 dummyTransactionBI :: Nonce -> BlockItem
 dummyTransactionBI = normalTransaction . dummyTransaction
@@ -669,6 +671,54 @@ testDoGetNonFinalizedCredential = describe "doGetNonFinalizedCredential" $ do
                 %~ addCredential
                 . addCredential
 
+testDoGetNextAccountNonce :: Spec
+testDoGetNextAccountNonce = describe "doGetNextAccountNonce" $ do
+    it "with non-finalized" $
+        doGetNextAccountNonce (accountAddressEmbed dummyAccountAddress) sd
+            `shouldBe` (4, False)
+    it "with no transactions" $
+        doGetNextAccountNonce (accountAddressEmbed (dummyAccountAddressN 1)) sd
+            `shouldBe` (minNonce, True)
+    it "with finalized transactions" $
+        doGetNextAccountNonce (accountAddressEmbed (dummyAccountAddressN 2)) sd
+            `shouldBe` (7, True)
+  where
+    addTrans n = snd . addTransaction (dummyTransactionBI n) 0 (dummySuccessTransactionResult n)
+    sd =
+        dummyInitialSkovData
+            & transactionTable
+                %~ addTrans 2
+                . addTrans 3
+                . ( ttNonFinalizedTransactions . at (accountAddressEmbed (dummyAccountAddressN 2))
+                        ?~ emptyANFTWithNonce 7
+                  )
+
+testDoFinalizeTransactions :: Spec
+testDoFinalizeTransactions = describe "doFinalizeTransactions" $ do
+    -- TODO: add tests for credentials and chain updates.
+    it "normal transactions" $ do
+        sd' <- execStateT (doFinalizeTransactions [normalTransaction tr0]) sd
+        assertEqual
+            "Account non-finalized transactions"
+            (Just AccountNonFinalizedTransactions{_anftNextNonce = 2, _anftMap = Map.singleton 2 (Map.singleton tr1 (dummySuccessTransactionResult 2))})
+            (sd' ^. transactionTable . ttNonFinalizedTransactions . at sender)
+        assertEqual
+            "transaction hash map"
+            (HM.fromList [(getHash tr1, (normalTransaction tr1, Received 0 (dummySuccessTransactionResult 2)))])
+            (sd' ^. transactionTable . ttHashMap)
+  where
+    sender = accountAddressEmbed dummyAccountAddress
+    tr0 = dummyTransaction 1
+    tr1 = dummyTransaction 2
+    tr2 = dummyTransactionWithPayload 1 (EncodedPayload "a")
+    addTrans t = snd . addTransaction (normalTransaction t) 0 (dummySuccessTransactionResult (transactionNonce t))
+    sd =
+        dummyInitialSkovData
+            & transactionTable
+                %~ addTrans tr0
+                . addTrans tr1
+                . addTrans tr2
+
 tests :: Spec
 tests = describe "KonsensusV1.TreeState" $ do
     describe "BlockTable" $ do
@@ -688,3 +738,5 @@ tests = describe "KonsensusV1.TreeState" $ do
         testDoGetNonFinalizedAccountTransactions
         testDoGetNonFinalizedChainUpdates
         testDoGetNonFinalizedCredential
+        testDoGetNextAccountNonce
+        testDoFinalizeTransactions

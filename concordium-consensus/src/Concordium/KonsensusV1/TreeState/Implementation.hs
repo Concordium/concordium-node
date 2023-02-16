@@ -477,12 +477,11 @@ doFinalizeTransactions = mapM_ finTrans
                 "Tried to finalize transaction which is not known to be in the set of \
                 \non-finalized transactions for the sender "
                     ++ show sender
-        -- Remove any other transactions with this nonce from the transaction table.
+        -- Remove the transaction, and any other transactions with the same (account, nonce),
+        -- from the transaction table.
         -- They can never be part of any other block after this point.
-        forM_ (Map.keys (Map.delete wmdtr nfn)) $
+        forM_ (Map.keys nfn) $
             \deadTransaction -> transactionTable . ttHashMap . at' (getHash deadTransaction) .= Nothing
-        -- Remove the transaction from the in-memory table.
-        transactionTable . ttHashMap . at' wmdHash .= Nothing
         -- Update the non-finalized transactions for the sender
         transactionTable
             . ttNonFinalizedTransactions
@@ -513,11 +512,10 @@ doFinalizeTransactions = mapM_ finTrans
                 "Tried to finalize a chain update that is not known to be in the set of \
                 \non-finalized chain updates of type "
                     ++ show uty
-        -- Remove any other updates with the same sequence number, since they weren't finalized
-        forM_ (Map.keys (Map.delete wmdcu nfsn)) $
+        -- Remove the transaction from the in-memory table, together with
+        -- any other updates with the same sequence number, since they weren't finalized
+        forM_ (Map.keys nfsn) $
             \deadUpdate -> transactionTable . ttHashMap . at' (getHash deadUpdate) .= Nothing
-        -- Remove the transaction from the in-memory table
-        transactionTable . ttHashMap . at' wmdHash .= Nothing
         -- Update the non-finalized chain updates
         transactionTable
             . ttNonFinalizedChainUpdates
