@@ -43,6 +43,7 @@ import Concordium.KonsensusV1.TreeState.LowLevel
 import Concordium.KonsensusV1.TreeState.LowLevel.Memory
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
+import Concordium.Scheduler.DummyData
 import qualified Concordium.TransactionVerification as TVer
 import Concordium.Types.Updates
 
@@ -503,6 +504,9 @@ dummySuccessTransactionResult n =
               nonce = n
             }
 
+dummySuccessCredentialDeployment :: TVer.VerificationResult
+dummySuccessCredentialDeployment = TVer.Ok TVer.CredentialDeploymentSuccess
+
 dummyRawUpdateInstruction :: UpdateSequenceNumber -> RawUpdateInstruction
 dummyRawUpdateInstruction usn =
     RawUpdateInstruction
@@ -524,6 +528,12 @@ dummyUpdateInstructionWM usn =
 
 dummyChainUpdate :: UpdateSequenceNumber -> BlockItem
 dummyChainUpdate usn = chainUpdate $ dummyUpdateInstructionWM usn
+
+credentialDeploymentWM :: WithMetadata AccountCreation
+credentialDeploymentWM = addMetadata CredentialDeployment 0 cdi1
+
+dummyCredentialDeployment :: BlockItem
+dummyCredentialDeployment = credentialDeployment credentialDeploymentWM
 
 testDoLookupLiveTransaction :: Spec
 testDoLookupLiveTransaction = describe "doLookupLiveTransaction" $ do
@@ -612,11 +622,52 @@ testDoGetNonFinalizedAccountTransactions = describe "doGetNonFinalizedAccountTra
                 %~ addTrans 2
                 . addTrans 3
 
-testDoGetNonFinalizedChainUpdates :: Spec
+testDoGetNonFinalizedChainUpdates ::
+    Spec
 testDoGetNonFinalizedChainUpdates = describe "doGetNonFinalizedChainUpdates" $ do
-    return ()
+    it "present" $ do
+        assertEqual
+            "chain updates for UpdateMicroGTUPerEuro are present"
+            [ (2, Map.insert (dummyUpdateInstructionWM 2) (dummySuccessTransactionResult 2) Map.empty),
+              (3, Map.insert (dummyUpdateInstructionWM 3) (dummySuccessTransactionResult 3) Map.empty)
+            ]
+            $ doGetNonFinalizedChainUpdates UpdateMicroGTUPerEuro 1 sd
+        assertEqual
+            "one chain update for UpdateMicroGTUPerEuro are present from usn 3"
+            [(3, Map.insert (dummyUpdateInstructionWM 3) (dummySuccessTransactionResult 3) Map.empty)]
+            $ doGetNonFinalizedChainUpdates UpdateMicroGTUPerEuro 3 sd
+    it "absent" $ do
+        assertEqual
+            "no chain updates for ProtocolUpdate are present"
+            []
+            $ doGetNonFinalizedChainUpdates UpdateProtocol 1 sd
   where
-    addChainUpdate n = undefined
+    addChainUpdate n = snd . addTransaction (dummyChainUpdate n) 0 (dummySuccessTransactionResult n)
+    sd =
+        dummyInitialSkovData
+            & transactionTable
+                %~ addChainUpdate 2
+                . addChainUpdate 3
+
+testDoGetNonFinalizedCredential :: Spec
+testDoGetNonFinalizedCredential = describe "doGetNonFinalizedCredential" $ do
+    it "present" $ do
+        assertEqual
+            "non-finalized credential deployment is present"
+            (Just (credentialDeploymentWM, dummySuccessCredentialDeployment))
+            $ doGetNonFinalizedCredential credDeploymentHash sd
+    it "absent" $ do
+        assertEqual "non-finalized credential deployment is absent" Nothing $ doGetNonFinalizedCredential nonExistingHash sd
+  where
+    addCredential = snd . addTransaction dummyCredentialDeployment 0 dummySuccessCredentialDeployment
+    credDeploymentHash = getHash dummyCredentialDeployment
+    nonExistingHash :: TransactionHash
+    nonExistingHash = TransactionHashV0 $! Hash.hash $! Hash.hashToByteString $! v0TransactionHash credDeploymentHash
+    sd =
+        dummyInitialSkovData
+            & transactionTable
+                %~ addCredential
+                . addCredential
 
 tests :: Spec
 tests = describe "KonsensusV1.TreeState" $ do
@@ -635,3 +686,5 @@ tests = describe "KonsensusV1.TreeState" $ do
         testDoLookupLiveTransaction
         testDoLookupTransaction
         testDoGetNonFinalizedAccountTransactions
+        testDoGetNonFinalizedChainUpdates
+        testDoGetNonFinalizedCredential
