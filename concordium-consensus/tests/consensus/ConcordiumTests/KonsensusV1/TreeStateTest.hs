@@ -764,6 +764,30 @@ testDoCommitTransaction = describe "doCommitTransaction" $ do
                 %~ addTrans tr0
     bh = BlockHash minBound
 
+testDoMarkTransactionDead :: Spec
+testDoMarkTransactionDead = describe "doMarkTransactionDead" $ do
+    it "mark committed transaction dead" $ do
+        sd' <- execStateT (doCommitTransaction 1 bh 0 (normalTransaction tr0)) sd
+        sd'' <- execStateT (doMarkTransactionDead bh (normalTransaction tr0)) sd'
+        assertEqual
+            "transaction hash map"
+            (HM.fromList [(getHash tr0, (normalTransaction tr0, Received 1 (dummySuccessTransactionResult (transactionNonce tr0))))])
+            (sd'' ^. transactionTable . ttHashMap)
+    it "mark received transaction dead" $ do
+        sd' <- execStateT (doMarkTransactionDead bh (normalTransaction tr0)) sd
+        assertEqual
+            "transaction hash map"
+            (HM.fromList [(getHash tr0, (normalTransaction tr0, Received 0 (dummySuccessTransactionResult (transactionNonce tr0))))])
+            (sd' ^. transactionTable . ttHashMap)
+  where
+    tr0 = dummyTransaction 1
+    addTrans t = snd . addTransaction (normalTransaction t) 0 (dummySuccessTransactionResult (transactionNonce t))
+    sd =
+        dummyInitialSkovData
+            & transactionTable
+                %~ addTrans tr0
+    bh = BlockHash minBound
+
 tests :: Spec
 tests = describe "KonsensusV1.TreeState" $ do
     describe "BlockTable" $ do
@@ -787,3 +811,4 @@ tests = describe "KonsensusV1.TreeState" $ do
         testDoFinalizeTransactions
         testDoAddTransaction
         testDoCommitTransaction
+        testDoMarkTransactionDead
