@@ -13,6 +13,7 @@ import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import qualified Data.Map.Strict as Map
 import qualified Data.PQueue.Prio.Min as MPQ
+import qualified Data.Sequence as Seq
 import Lens.Micro.Platform
 import System.IO.Unsafe
 import System.Random
@@ -788,6 +789,81 @@ testDoMarkTransactionDead = describe "doMarkTransactionDead" $ do
                 %~ addTrans tr0
     bh = BlockHash minBound
 
+testDoPurgeTransactionTable :: Spec
+testDoPurgeTransactionTable = describe "doPurgeTransactionTable" $ do
+    it "force purge the transaction table" $ do
+        -- increment the purge counter.
+        sd' <- execStateT (doAddTransaction 0 (normalTransaction tr0) (dummySuccessTransactionResult 1)) sd
+        sd'' <- execStateT (doPurgeTransactionTable True year3000) (setLfbRound sd' 42)
+        assertEqual
+            "purge counter should be reset"
+            0
+            (sd'' ^. transactionTablePurgeCounter)
+        assertEqual
+            "Account non-finalized transactions"
+            (Just $ AccountNonFinalizedTransactions{_anftMap = Map.empty, _anftNextNonce = 1})
+            (sd'' ^. transactionTable . ttNonFinalizedTransactions . at sender)
+        assertEqual
+            "Chain update non-finalized transactions"
+            (Just $ NonFinalizedChainUpdates{_nfcuMap = Map.empty, _nfcuNextSequenceNumber = 1})
+            (sd'' ^. transactionTable . ttNonFinalizedChainUpdates . at UpdateMicroGTUPerEuro)
+  where
+    --        assertEqual
+    --            "Non-finalized credential deployments"
+    --            (sd'' ^. transactionTable . ttHashMap . at credDeploymentHash)
+    --            Nothing
+
+    addChainUpdate u = snd . addTransaction (chainUpdate u) 0 (dummySuccessTransactionResult (updateSeqNumber $ uiHeader $ wmdData u))
+    addCredential = snd . addTransaction dummyCredentialDeployment 0 dummySuccessCredentialDeployment
+    tr0 = dummyTransaction 1
+    cu0 = dummyUpdateInstructionWM 1
+    year3000 = timestampToUTCTime 32503676400000 -- 3000/01/01 in milliseconds
+    sender = accountAddressEmbed dummyAccountAddress
+    --    credDeploymentHash = getHash dummyCredentialDeployment
+    -- Set the round for the last finalized block pointer.
+    setLfbRound SkovData{_lastFinalized = BlockPointer{..}, ..} n =
+        let lastFinalized' = dummySignedBlock (BlockHash minBound) n
+        in  SkovData{_lastFinalized = BlockPointer{bpBlock = NormalBlock lastFinalized', ..}, ..}
+    sd =
+        dummyInitialSkovData
+            & transactionTable
+                %~ addChainUpdate cu0
+                . addCredential
+
+testDoClearOnProtocolUpdate :: Spec
+testDoClearOnProtocolUpdate = describe "doClearOnProtocolUpdate" $
+    it "clears on protocol update" $ do
+        sd' <- execStateT (doCommitTransaction 1 bh 0 (normalTransaction tr0)) sd
+        sd'' <- execStateT doClearOnProtocolUpdate sd'
+        assertEqual
+            "pending block table should be empty"
+            HM.empty
+            (sd'' ^. pendingBlocksTable)
+        assertEqual
+            "block table should be empty"
+            emptyBlockTable
+            (sd'' ^. blockTable)
+        assertEqual
+            "Branches should be empty"
+            Seq.empty
+            (sd'' ^. branches)
+        assertEqual
+            "Branches should be empty"
+            Seq.empty
+            (sd'' ^. branches)
+        assertEqual
+            "committed transactions should be received"
+            (HM.fromList [(getHash tr0, (normalTransaction tr0, Received 1 (dummySuccessTransactionResult 1)))])
+            (sd'' ^. transactionTable . ttHashMap)
+  where
+    tr0 = dummyTransaction 1
+    bh = BlockHash minBound
+    addTrans t = snd . addTransaction (normalTransaction t) 0 (dummySuccessTransactionResult (transactionNonce t))
+    sd =
+        skovDataWithTestBlocks
+            & transactionTable
+                %~ addTrans tr0
+
 tests :: Spec
 tests = describe "KonsensusV1.TreeState" $ do
     describe "BlockTable" $ do
@@ -812,3 +888,4 @@ tests = describe "KonsensusV1.TreeState" $ do
         testDoAddTransaction
         testDoCommitTransaction
         testDoMarkTransactionDead
+        testDoPurgeTransactionTable

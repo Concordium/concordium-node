@@ -75,6 +75,7 @@ data BlockTable pv = BlockTable
     { _deadBlocks :: !DeadCache,
       _liveMap :: HM.HashMap BlockHash (InMemoryBlockStatus pv)
     }
+    deriving (Eq, Show)
 
 makeLenses ''BlockTable
 
