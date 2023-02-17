@@ -28,6 +28,7 @@ import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Genesis.Data.BaseV1
 import Concordium.Types
+import Concordium.Types.Execution
 import Concordium.Types.HashableTo
 import Concordium.Types.Transactions
 
@@ -46,43 +47,6 @@ import Concordium.KonsensusV1.Types
 import Concordium.Scheduler.DummyData
 import qualified Concordium.TransactionVerification as TVer
 import Concordium.Types.Updates
-
-{-
--- |Create an initial 'SkovData' with a set of default parameters.
--- Note that the parameters are not particularly important for the tests in this module.
-initialSkovData :: SkovData pv
-initialSkovData = mkInitialSkovData runtimeParams genesisConfig genesisState baseTimeout leadershipElec
-  where
-    runtimeParams :: RuntimeParameters
-    runtimeParams = undefined
-    genesisConfig :: GenesisConfiguration
-    genesisConfig = undefined
-    genesisState :: HashedPersistentBlockState pv
-    genesisState = undefined
-    baseTimeout :: Duration
-    baseTimeout = 1_000
-    leadershipElec :: LeadershipElectionNonce
-    leadershipElec = undefined
-
--- |Generate a pending block signed with an arbitrary key pair.
--- and adds it to the 'SkovData'.
-genPendingBlock :: SkovData pv -> Gen (PendingBlock, SkovData pv)
-genPendingBlock = undefined
-
--- |Check that the provided 'PendingBlock' has been
--- added to the 'SkovData'.
-checkBlockIsAdded :: (PendingBlock, SkovData pv) -> Property
-checkBlockIsAdded pb = undefined
-
--- |Check that pending blocks can
--- be added to the 'TreeState'.
-propAddPendingBlock :: Property
-propAddPendingBlock = forAll (genPendingBlock initialSkovData) checkBlockIsAdded
-
-tests :: Spec
-tests = describe "KonsensusV1.TreeStateTest" $ do
-    it "Add pending block" propAddPendingBlock
--}
 
 -- |A dummy block state that is just a @BlobRef 0@.
 dummyPersistentBlockState :: PersistentBlockState pv
@@ -783,6 +747,23 @@ testDoAddTransaction = describe "doAddTransaction" $ do
     tr0 = dummyTransaction 1
     sender = accountAddressEmbed dummyAccountAddress
 
+testDoCommitTransaction :: Spec
+testDoCommitTransaction = describe "doCommitTransaction" $ do
+    it "commit transaction" $ do
+        sd' <- execStateT (doCommitTransaction 1 bh 0 (normalTransaction tr0)) sd
+        assertEqual
+            "transaction hash map"
+            (HM.fromList [(getHash tr0, (normalTransaction tr0, Committed 1 (dummySuccessTransactionResult (transactionNonce tr0)) $ HM.fromList [(bh, TransactionIndex 0)]))])
+            (sd' ^. transactionTable . ttHashMap)
+  where
+    tr0 = dummyTransaction 1
+    addTrans t = snd . addTransaction (normalTransaction t) 0 (dummySuccessTransactionResult (transactionNonce t))
+    sd =
+        dummyInitialSkovData
+            & transactionTable
+                %~ addTrans tr0
+    bh = BlockHash minBound
+
 tests :: Spec
 tests = describe "KonsensusV1.TreeState" $ do
     describe "BlockTable" $ do
@@ -805,3 +786,4 @@ tests = describe "KonsensusV1.TreeState" $ do
         testDoGetNextAccountNonce
         testDoFinalizeTransactions
         testDoAddTransaction
+        testDoCommitTransaction
