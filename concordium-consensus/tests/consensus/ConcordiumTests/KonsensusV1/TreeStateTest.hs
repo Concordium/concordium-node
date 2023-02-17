@@ -759,6 +759,30 @@ testDoFinalizeTransactions = describe "doFinalizeTransactions" $ do
                 %~ addCredential
                 . addTrans tr1
 
+testDoAddTransaction :: Spec
+testDoAddTransaction = describe "doAddTransaction" $ do
+    it "add transaction" $ do
+        sd' <- execStateT (doAddTransaction tr0Round (normalTransaction tr0) (dummySuccessTransactionResult 1)) dummyInitialSkovData
+        assertEqual
+            "Account non-finalized transactions"
+            (Just AccountNonFinalizedTransactions{_anftNextNonce = 1, _anftMap = Map.singleton 1 (Map.singleton tr0 (dummySuccessTransactionResult 1))})
+            (sd' ^. transactionTable . ttNonFinalizedTransactions . at sender)
+        assertEqual
+            "transaction hash map"
+            (HM.fromList [(getHash tr0, (normalTransaction tr0, Received (commitPoint tr0Round) (dummySuccessTransactionResult 1)))])
+            (sd' ^. transactionTable . ttHashMap)
+        assertEqual
+            "transaction table purge counter is incremented"
+            (1 + dummyInitialSkovData ^. transactionTablePurgeCounter)
+            (sd' ^. transactionTablePurgeCounter)
+        sd'' <- execStateT (doFinalizeTransactions [normalTransaction tr0]) sd'
+        added <- evalStateT (doAddTransaction tr0Round (normalTransaction tr0) (dummySuccessTransactionResult 1)) sd''
+        assertEqual "tx should not be added" False added
+  where
+    tr0Round = 1
+    tr0 = dummyTransaction 1
+    sender = accountAddressEmbed dummyAccountAddress
+
 tests :: Spec
 tests = describe "KonsensusV1.TreeState" $ do
     describe "BlockTable" $ do
@@ -780,3 +804,4 @@ tests = describe "KonsensusV1.TreeState" $ do
         testDoGetNonFinalizedCredential
         testDoGetNextAccountNonce
         testDoFinalizeTransactions
+        testDoAddTransaction
