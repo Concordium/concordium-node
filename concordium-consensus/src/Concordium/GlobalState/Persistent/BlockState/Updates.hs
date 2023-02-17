@@ -1195,7 +1195,7 @@ processMinBlockTimeUpdates t bu = do
                               pendingUpdates = pendingUpdates{pMinBlockTimeQueue = SomeParam newpQ}
                             }
 
--- |Process min block time updates.
+-- |Process block energy limit updates.
 processBlockEnergyLimitUpdates ::
     forall m cpv.
     (MonadBlobStore m, IsChainParametersVersion cpv) =>
@@ -1222,7 +1222,7 @@ processBlockEnergyLimitUpdates t bu = do
                               pendingUpdates = pendingUpdates{pBlockEnergyLimitQueue = SomeParam newpQ}
                             }
 
--- |Process min block time updates.
+-- |Process finalization committee parameters updates.
 processFinalizationCommitteeParametersUpdates ::
     forall m cpv.
     (MonadBlobStore m, IsChainParametersVersion cpv) =>
