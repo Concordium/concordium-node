@@ -14,6 +14,7 @@
 -- for storage.
 module Concordium.KonsensusV1.TreeState.LowLevel.LMDB where
 
+import Control.Concurrent
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
@@ -320,6 +321,9 @@ makeDatabaseHandlers treeStateDir readOnly initSize = do
 -- The initial size is set to 64MB.
 openDatabase :: FilePath -> IO (DatabaseHandlers pv)
 openDatabase treeStateDir = makeDatabaseHandlers treeStateDir False dbInitSize
+
+closeDatabase :: DatabaseHandlers pv -> IO ()
+closeDatabase dbHandlers = runInBoundThread $ mdb_env_close $ dbHandlers ^. storeEnv . seEnv
 
 -- |'DatabaseHandlers' existentially quantified over the protocol version and without block state.
 -- Note that we can treat the state type as '()' soundly when reading, since the state is the last
