@@ -695,7 +695,6 @@ testDoGetNextAccountNonce = describe "doGetNextAccountNonce" $ do
 
 testDoFinalizeTransactions :: Spec
 testDoFinalizeTransactions = describe "doFinalizeTransactions" $ do
-    -- TODO: add tests for credentials and chain updates.
     it "normal transactions" $ do
         sd' <- execStateT (doFinalizeTransactions [normalTransaction tr0]) sd
         assertEqual
@@ -706,18 +705,59 @@ testDoFinalizeTransactions = describe "doFinalizeTransactions" $ do
             "transaction hash map"
             (HM.fromList [(getHash tr1, (normalTransaction tr1, Received 0 (dummySuccessTransactionResult 2)))])
             (sd' ^. transactionTable . ttHashMap)
+    it "chain updates" $ do
+        sd' <- execStateT (doFinalizeTransactions [chainUpdate cu0]) sd1
+        assertEqual
+            "Chain update non-finalized transactions"
+            (Just NonFinalizedChainUpdates{_nfcuNextSequenceNumber = 2, _nfcuMap = Map.singleton 2 (Map.singleton cu1 (dummySuccessTransactionResult 2))})
+            (sd' ^. transactionTable . ttNonFinalizedChainUpdates . at UpdateMicroGTUPerEuro)
+        assertEqual
+            "transaction hash map"
+            ( HM.fromList
+                [ (getHash cu1, (chainUpdate cu1, Received 0 (dummySuccessTransactionResult 2))),
+                  (getHash tr1, (normalTransaction tr1, Received 0 (dummySuccessTransactionResult 2)))
+                ]
+            )
+            (sd' ^. transactionTable . ttHashMap)
+    it "credential deployments" $ do
+        sd' <- execStateT (doFinalizeTransactions [credentialDeployment cred0]) sd2
+        assertEqual
+            "Non-finalized credential deployments"
+            (sd' ^. transactionTable . ttHashMap . at credDeploymentHash)
+            Nothing
+        assertEqual
+            "transaction hash map"
+            (HM.fromList [(getHash tr1, (normalTransaction tr1, Received 0 (dummySuccessTransactionResult 2)))])
+            (sd' ^. transactionTable . ttHashMap)
   where
     sender = accountAddressEmbed dummyAccountAddress
     tr0 = dummyTransaction 1
     tr1 = dummyTransaction 2
     tr2 = dummyTransactionWithPayload 1 (EncodedPayload "a")
+    cu0 = dummyUpdateInstructionWM 1
+    cu1 = dummyUpdateInstructionWM 2
+    cred0 = credentialDeploymentWM
     addTrans t = snd . addTransaction (normalTransaction t) 0 (dummySuccessTransactionResult (transactionNonce t))
+    addChainUpdate u = snd . addTransaction (chainUpdate u) 0 (dummySuccessTransactionResult (updateSeqNumber $ uiHeader $ wmdData u))
+    addCredential = snd . addTransaction dummyCredentialDeployment 0 dummySuccessCredentialDeployment
+    credDeploymentHash = getHash dummyCredentialDeployment
     sd =
         dummyInitialSkovData
             & transactionTable
                 %~ addTrans tr0
                 . addTrans tr1
                 . addTrans tr2
+    sd1 =
+        dummyInitialSkovData
+            & transactionTable
+                %~ addChainUpdate cu0
+                . addChainUpdate cu1
+                . addTrans tr1
+    sd2 =
+        dummyInitialSkovData
+            & transactionTable
+                %~ addCredential
+                . addTrans tr1
 
 tests :: Spec
 tests = describe "KonsensusV1.TreeState" $ do
