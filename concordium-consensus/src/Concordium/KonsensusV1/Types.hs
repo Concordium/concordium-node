@@ -635,7 +635,7 @@ data BakedBlock = BakedBlock
       -- |Hash of the block state.
       bbStateHash :: !StateHash
     }
-    deriving (Eq)
+    deriving (Eq, Show)
 
 -- |Flags indicating which optional values are set in a 'BakedBlock'.
 data BakedBlockFlags = BakedBlockFlags
@@ -732,6 +732,7 @@ data SignedBlock = SignedBlock
       -- |Signature of the baker on the block.
       sbSignature :: !BlockSignature
     }
+    deriving (Eq, Show)
 
 instance BakedBlockData SignedBlock where
     blockQuorumCertificate = bbQuorumCertificate . sbBlock
@@ -794,11 +795,27 @@ verifyBlockSignature key genesisHash b =
 
 -- |Sign a block hash as a baker.
 -- The hash that is signed is H(genesisBlockHash || blockHash)
-signBlockHash :: BakerSignPrivateKey -> BlockHash -> BlockHash -> BlockSignature
+signBlockHash ::
+    -- |The key to use for signing the block hash.
+    BakerSignPrivateKey ->
+    -- |The genesis hash
+    BlockHash ->
+    -- |The block hash
+    BlockHash ->
+    -- |The resulting block signature
+    BlockSignature
 signBlockHash privKey genesisHash bh = BlockSig.sign privKey (blockSignatureMessageBytes genesisHash bh)
 
 -- |Sign a block as a baker.
-signBlock :: BakerSignPrivateKey -> BlockHash -> BakedBlock -> SignedBlock
+signBlock ::
+    -- |The key to use for signing
+    BakerSignPrivateKey ->
+    -- |The genesis hash
+    BlockHash ->
+    -- |The baked block
+    BakedBlock ->
+    -- |The resulting signed block.
+    SignedBlock
 signBlock privKey genesisHash sbBlock = SignedBlock{..}
   where
     sbHash = getHash sbBlock
