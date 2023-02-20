@@ -20,8 +20,8 @@ import Concordium.Utils
 import Concordium.GlobalState.TransactionTable
 import qualified Concordium.TransactionVerification as TVer
 
--- |Transaction hash table parameterized by @a@ which is an instance of 'Ord'.
-type TransactionHashTable a = HM.HashMap TransactionHash (BlockItem, LiveTransactionStatus)
+-- |Transaction hash table. One component of the 'TransactionTable'.
+type TransactionHashTable = HM.HashMap TransactionHash (BlockItem, LiveTransactionStatus)
 
 -- |Purge transactions that are not present in any live or finalized blocks
 -- and either have expired or were received before the oldest permitted arrival
@@ -82,7 +82,7 @@ purgeTables lastFinCommitPoint oldestArrivalTime currentTime TransactionTable{..
     -- transactions and the transaction hash table, from which transactions
     -- are purged.  The return value is the updated set of transactions, or
     -- @Nothing@ if all transactions at this nonce have been purged.
-    purgeTxs :: Nonce -> Map.Map Transaction TVer.VerificationResult -> State (Maybe (Max Nonce), TransactionHashTable o) (Maybe (Map.Map Transaction TVer.VerificationResult))
+    purgeTxs :: Nonce -> Map.Map Transaction TVer.VerificationResult -> State (Maybe (Max Nonce), TransactionHashTable) (Maybe (Map.Map Transaction TVer.VerificationResult))
     purgeTxs n ts = do
         (mmnonce, tht) <- get
         let
@@ -106,7 +106,7 @@ purgeTables lastFinCommitPoint oldestArrivalTime currentTime TransactionTable{..
         put (mmnonce', tht')
         return mres
     -- Purge the non-finalized transactions for a specific account.
-    purgeAccount :: AccountAddressEq -> AccountNonFinalizedTransactions -> State (PendingTransactionTable, TransactionHashTable o) AccountNonFinalizedTransactions
+    purgeAccount :: AccountAddressEq -> AccountNonFinalizedTransactions -> State (PendingTransactionTable, TransactionHashTable) AccountNonFinalizedTransactions
     purgeAccount addr AccountNonFinalizedTransactions{..} = do
         (ptt0, trs0) <- get
         -- Purge the transactions from the transaction table.
@@ -148,7 +148,7 @@ purgeTables lastFinCommitPoint oldestArrivalTime currentTime TransactionTable{..
     purgeUpds ::
         UpdateSequenceNumber ->
         Map.Map (WithMetadata UpdateInstruction) TVer.VerificationResult ->
-        State (Maybe (Max UpdateSequenceNumber), TransactionHashTable o) (Maybe (Map.Map (WithMetadata UpdateInstruction) TVer.VerificationResult))
+        State (Maybe (Max UpdateSequenceNumber), TransactionHashTable) (Maybe (Map.Map (WithMetadata UpdateInstruction) TVer.VerificationResult))
     purgeUpds sn uis = state $ \(mmsn, tht) ->
         let
             purgeUpd (uisacc, thtacc) uiAndVerRes@(ui, _)
@@ -163,7 +163,7 @@ purgeTables lastFinCommitPoint oldestArrivalTime currentTime TransactionTable{..
                 | otherwise = (mmsn <> Just (Max sn), Just (Map.fromDistinctAscList uisl'))
         in
             (mres, (mmsn', tht'))
-    purgeUpdates :: UpdateType -> NonFinalizedChainUpdates -> State (PendingTransactionTable, TransactionHashTable o) NonFinalizedChainUpdates
+    purgeUpdates :: UpdateType -> NonFinalizedChainUpdates -> State (PendingTransactionTable, TransactionHashTable) NonFinalizedChainUpdates
     purgeUpdates uty nfcu@NonFinalizedChainUpdates{..} = state $ \(ptt0, trs0) ->
         let (newNFCUMap, (mmax, !uis1)) = runState (Map.traverseMaybeWithKey purgeUpds _nfcuMap) (Nothing, trs0)
             updptt (Just (Max newHigh)) (Just (low, _))

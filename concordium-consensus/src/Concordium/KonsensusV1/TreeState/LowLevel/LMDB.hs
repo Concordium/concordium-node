@@ -322,6 +322,7 @@ makeDatabaseHandlers treeStateDir readOnly initSize = do
 openDatabase :: FilePath -> IO (DatabaseHandlers pv)
 openDatabase treeStateDir = makeDatabaseHandlers treeStateDir False dbInitSize
 
+-- |Close the database. The database should not be used after it is closed.
 closeDatabase :: DatabaseHandlers pv -> IO ()
 closeDatabase dbHandlers = runInBoundThread $ mdb_env_close $ dbHandlers ^. storeEnv . seEnv
 
@@ -393,6 +394,7 @@ openReadOnlyDatabase treeStateDir = do
                             return (Just (VersionDatabaseHandlers @pv DatabaseHandlers{..}))
             _ -> Nothing <$ mdb_env_close env
 
+-- |A newtype wrapper that provides a 'MonadTreeStateStore' implementation using LMDB.
 newtype DiskLLDBM (pv :: ProtocolVersion) m a = DiskLLDBM {runDiskLLDBM :: m a}
     deriving (Functor, Applicative, Monad, MonadIO, MonadThrow, MonadCatch, MonadLogger) via m
     deriving (MonadTrans) via IdentityT
@@ -402,11 +404,14 @@ deriving instance MonadReader r m => MonadReader r (DiskLLDBM pv m)
 instance IsProtocolVersion pv => MonadProtocolVersion (DiskLLDBM pv m) where
     type MPV (DiskLLDBM pv m) = pv
 
+-- |Run a read-only transaction.
 asReadTransaction :: (MonadIO m, MonadReader r m, HasDatabaseHandlers r pv) => (DatabaseHandlers pv -> MDB_txn -> IO a) -> DiskLLDBM pv m a
 asReadTransaction t = do
     dbh <- view databaseHandlers
     liftIO $ transaction (dbh ^. storeEnv) True $ t dbh
 
+-- |Run a write transaction. If the transaction fails due to the database being full, this resizes
+-- the database and retries the transaction.
 asWriteTransaction :: (MonadIO m, MonadReader r m, HasDatabaseHandlers r pv, MonadLogger m) => (DatabaseHandlers pv -> MDB_txn -> IO a) -> DiskLLDBM pv m a
 asWriteTransaction t = do
     dbh <- view databaseHandlers
