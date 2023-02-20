@@ -1142,6 +1142,9 @@ processTimeParametersUpdates t bu = do
                             }
 
 -- |Process timeout parameters updates.
+-- If the timeout parameters are supported then
+-- update them (if an update was enqueued and its time is now)
+-- and update the 'pendingUpdates' accordingly.
 processTimeoutParametersUpdates ::
     forall m cpv.
     (MonadBlobStore m, IsChainParametersVersion cpv) =>
@@ -1169,6 +1172,9 @@ processTimeoutParametersUpdates t bu = do
                             }
 
 -- |Process min block time updates.
+-- If the minimum block time parameter is supported then
+-- update it (if an update was enqueued and its time is now)
+-- and update the 'pendingUpdates' accordingly.
 processMinBlockTimeUpdates ::
     forall m cpv.
     (MonadBlobStore m, IsChainParametersVersion cpv) =>
@@ -1196,6 +1202,9 @@ processMinBlockTimeUpdates t bu = do
                             }
 
 -- |Process block energy limit updates.
+-- If the block energy limit parameter is supported then
+-- update it (if an update was enqueued and its time is now)
+-- and update the 'pendingUpdates' accordingly.
 processBlockEnergyLimitUpdates ::
     forall m cpv.
     (MonadBlobStore m, IsChainParametersVersion cpv) =>
@@ -1223,6 +1232,9 @@ processBlockEnergyLimitUpdates t bu = do
                             }
 
 -- |Process finalization committee parameters updates.
+-- If the finalization committee parameters are supported then
+-- update them (if an update was enqueued and its time is now)
+-- and update the 'pendingUpdates' accordingly.
 processFinalizationCommitteeParametersUpdates ::
     forall m cpv.
     (MonadBlobStore m, IsChainParametersVersion cpv) =>

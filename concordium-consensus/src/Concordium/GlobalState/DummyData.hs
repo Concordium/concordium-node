@@ -359,6 +359,12 @@ dummyConsensusParametersV1 =
           _cpBlockEnergyLimit = maxBound -- the maximum energy a block can consume.
         }
 
+-- |Finalization parameters for the second consensus protocol.
+-- @_fcpMinFinalizers = 50@
+-- @_fcpMaxFinalizers = 500@
+-- @_fcpFinalizerRelativeStakeThreshold = 1/10@
+-- Hence required stake to be eligible for becoming part of the finalization committe
+-- (if there are 50 or more finalizers already) is 10% of the total stake in pools.
 dummyFinalizationCommitteeParameters :: FinalizationCommitteeParameters
 dummyFinalizationCommitteeParameters =
     FinalizationCommitteeParameters
