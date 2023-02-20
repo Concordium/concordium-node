@@ -16,11 +16,7 @@ import Concordium.Genesis.Data
 import Concordium.GlobalState.BlockPointer (BlockPointerData)
 import Concordium.GlobalState.Classes
 import Concordium.Types
-import Concordium.Utils.Serialization.Put
 import Concordium.Wasm (WasmVersion)
-
-class (IsProtocolVersion (MPV m)) => MonadProtocolVersion (m :: Type -> Type) where
-    type MPV m :: ProtocolVersion
 
 -- |The basic types associated with a monad providing an
 -- implementation of block state.
@@ -66,23 +62,6 @@ type IndexedAccount m = (AccountIndex, Account m)
 type family BlockStatePointer (bs :: Type) :: Type
 
 type BlockStateRef m = BlockStatePointer (BlockState m)
-
-instance MonadProtocolVersion m => MonadProtocolVersion (MGSTrans t m) where
-    type MPV (MGSTrans t m) = MPV m
-
-deriving via MGSTrans MaybeT m instance (MonadProtocolVersion m) => MonadProtocolVersion (MaybeT m)
-deriving via
-    MGSTrans (ExceptT e) m
-    instance
-        (MonadProtocolVersion m) => MonadProtocolVersion (ExceptT e m)
-deriving via
-    MGSTrans (ReaderT r) m
-    instance
-        (MonadProtocolVersion m) => MonadProtocolVersion (ReaderT r m)
-deriving via
-    MGSTrans PutT m
-    instance
-        (MonadProtocolVersion m) => MonadProtocolVersion (PutT m)
 
 instance BlockStateTypes (MGSTrans t m) where
     type BlockState (MGSTrans t m) = BlockState m

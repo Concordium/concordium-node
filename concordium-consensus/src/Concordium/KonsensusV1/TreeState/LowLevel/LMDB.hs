@@ -43,7 +43,6 @@ import Concordium.Logger
 import Concordium.Types
 
 import Concordium.GlobalState.LMDB.Helpers
-import qualified Concordium.GlobalState.Types as GSTypes
 import Concordium.KonsensusV1.TreeState.LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
@@ -400,7 +399,7 @@ newtype DiskLLDBM (pv :: ProtocolVersion) m a = DiskLLDBM {runDiskLLDBM :: m a}
 
 deriving instance MonadReader r m => MonadReader r (DiskLLDBM pv m)
 
-instance IsProtocolVersion pv => GSTypes.MonadProtocolVersion (DiskLLDBM pv m) where
+instance IsProtocolVersion pv => MonadProtocolVersion (DiskLLDBM pv m) where
     type MPV (DiskLLDBM pv m) = pv
 
 asReadTransaction :: (MonadIO m, MonadReader r m, HasDatabaseHandlers r pv) => (DatabaseHandlers pv -> MDB_txn -> IO a) -> DiskLLDBM pv m a

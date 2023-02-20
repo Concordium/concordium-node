@@ -12,7 +12,6 @@ import Concordium.Types
 
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.BlockState
-import qualified Concordium.GlobalState.Types as GSTypes
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.Types.HashableTo
@@ -66,7 +65,7 @@ instance HashableTo BlockHash (StoredBlock pv) where
 
 class (Monad m) => MonadTreeStateStore m where
     -- |Get a finalized block by block hash.
-    lookupBlock :: BlockHash -> m (Maybe (StoredBlock (GSTypes.MPV m)))
+    lookupBlock :: BlockHash -> m (Maybe (StoredBlock (MPV m)))
 
     -- |Determine if a block is present in the finalized block table.
     memberBlock :: BlockHash -> m Bool
@@ -74,14 +73,14 @@ class (Monad m) => MonadTreeStateStore m where
 
     -- |Get the first (i.e. genesis) block.
     -- (The implementation can assume that this block has height 0.)
-    lookupFirstBlock :: m (Maybe (StoredBlock (GSTypes.MPV m)))
+    lookupFirstBlock :: m (Maybe (StoredBlock (MPV m)))
     lookupFirstBlock = lookupBlockByHeight 0
 
     -- |Get the last (finalized) block.
-    lookupLastBlock :: m (Maybe (StoredBlock (GSTypes.MPV m)))
+    lookupLastBlock :: m (Maybe (StoredBlock (MPV m)))
 
     -- |Look up a block by height.
-    lookupBlockByHeight :: BlockHeight -> m (Maybe (StoredBlock (GSTypes.MPV m)))
+    lookupBlockByHeight :: BlockHeight -> m (Maybe (StoredBlock (MPV m)))
 
     -- |Look up a transaction by its hash.
     lookupTransaction :: TransactionHash -> m (Maybe FinalizedTransactionStatus)
@@ -92,7 +91,7 @@ class (Monad m) => MonadTreeStateStore m where
 
     -- |Store the list of blocks and their transactions, updating the last finalization entry to
     -- the supplied value.  (This should write the blocks as a single database transaction.)
-    writeBlocks :: [StoredBlock (GSTypes.MPV m)] -> FinalizationEntry -> m ()
+    writeBlocks :: [StoredBlock (MPV m)] -> FinalizationEntry -> m ()
 
     -- |Look up the finalization entry for the last finalized block.
     lookupLatestFinalizationEntry :: m (Maybe FinalizationEntry)
@@ -108,4 +107,4 @@ class (Monad m) => MonadTreeStateStore m where
     -- this also removes the latest finalization entry.
     -- This returns @Right True@ if roll-back occurred, and @Right False@ if no roll-back was
     -- required.  If an error occurred attempting to roll back, @Right reason@ is returned.
-    rollBackBlocksUntil :: (StoredBlock (GSTypes.MPV m) -> m Bool) -> m (Either String Bool)
+    rollBackBlocksUntil :: (StoredBlock (MPV m) -> m Bool) -> m (Either String Bool)

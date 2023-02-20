@@ -233,7 +233,7 @@ doGetMemoryBlockStatus blockHash sd
 -- |Get the 'BlockStatus' of a block based on the provided 'BlockHash'.
 -- Note. if one does not care about old finalized blocks then
 -- use 'doGetRecentBlockStatus' instead as it circumvents a full lookup from disk.
-doGetBlockStatus :: (LowLevel.MonadTreeStateStore m, MonadIO m) => BlockHash -> SkovData (GSTypes.MPV m) -> m (BlockStatus (GSTypes.MPV m))
+doGetBlockStatus :: (LowLevel.MonadTreeStateStore m, MonadIO m) => BlockHash -> SkovData (MPV m) -> m (BlockStatus (MPV m))
 doGetBlockStatus blockHash sd = case doGetMemoryBlockStatus blockHash sd of
     Just bs -> return bs
     Nothing ->
@@ -256,7 +256,7 @@ doGetBlockStatus blockHash sd = case doGetMemoryBlockStatus blockHash sd of
 -- One should use this instead of 'getBlockStatus' if
 -- one does not require the actual contents and resulting state related
 -- to the block in case the block is a predecessor of the last finalized block.
-doGetRecentBlockStatus :: (LowLevel.MonadTreeStateStore m) => BlockHash -> SkovData (GSTypes.MPV m) -> m (RecentBlockStatus (GSTypes.MPV m))
+doGetRecentBlockStatus :: (LowLevel.MonadTreeStateStore m) => BlockHash -> SkovData (MPV m) -> m (RecentBlockStatus (MPV m))
 doGetRecentBlockStatus blockHash sd = case doGetMemoryBlockStatus blockHash sd of
     Just bs -> return $! RecentBlock bs
     Nothing -> do

@@ -19,7 +19,6 @@ import qualified Data.Map.Strict as Map
 import Concordium.Types
 import Concordium.Types.HashableTo
 
-import qualified Concordium.GlobalState.Types as GSTypes
 import Concordium.KonsensusV1.TreeState.LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
@@ -68,7 +67,7 @@ newtype MemoryLLDBM (pv :: ProtocolVersion) m a = MemoryLLDBM {runMemoryLLDBM ::
 
 deriving instance MonadReader r m => MonadReader r (MemoryLLDBM pv m)
 
-instance IsProtocolVersion pv => GSTypes.MonadProtocolVersion (MemoryLLDBM pv m) where
+instance IsProtocolVersion pv => MonadProtocolVersion (MemoryLLDBM pv m) where
     type MPV (MemoryLLDBM pv m) = pv
 
 instance (IsProtocolVersion pv, MonadReader r m, HasMemoryLLDB pv r, MonadIO m) => MonadTreeStateStore (MemoryLLDBM pv m) where
