@@ -1,13 +1,15 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 
 module ConcordiumTests.KonsensusV1.TreeStateTest where
 
 import Control.Monad.Reader
 import Control.Monad.State
+import qualified Data.ByteString.Lazy as BSL
+import Data.FileEmbed
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import qualified Data.Map.Strict as Map
@@ -18,8 +20,6 @@ import System.IO.Unsafe
 import System.Random
 import Test.HUnit
 import Test.Hspec
-import Data.FileEmbed
-import qualified Data.ByteString.Lazy as BSL
 
 -- base types.
 import qualified Concordium.Crypto.BlockSignature as Sig
@@ -27,11 +27,11 @@ import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Genesis.Data.BaseV1
+import Concordium.Scheduler.DummyData
 import Concordium.Types
 import Concordium.Types.Execution
 import Concordium.Types.HashableTo
 import Concordium.Types.Transactions
-import Concordium.Scheduler.DummyData
 
 -- konsensus v1 related imports.
 import Concordium.GlobalState.Parameters (defaultRuntimeParameters)
@@ -828,7 +828,7 @@ testDoPurgeTransactionTable = describe "doPurgeTransactionTable" $ do
                 %~ addChainUpdate cu0
                 . addCredential
             & pendingTransactionTable
-                    %~ addPendingDeployCredential credDeploymentHash
+                %~ addPendingDeployCredential credDeploymentHash
 
 testDoClearOnProtocolUpdate :: Spec
 testDoClearOnProtocolUpdate = describe "doClearOnProtocolUpdate" $

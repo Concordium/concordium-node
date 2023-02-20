@@ -1,11 +1,11 @@
 {-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 -- | Definition of some basic typeclasses that give access to the basic types
 -- used in the implementation and some lenses to access specific components
 module Concordium.GlobalState.Classes where
 
+import Concordium.Logger
 import Control.Monad.IO.Class
 import Control.Monad.Reader.Class
 import Control.Monad.State.Class
@@ -14,8 +14,6 @@ import Control.Monad.Writer.Class
 import Data.Functor.Identity
 import Data.Kind
 import Lens.Micro.Platform
-
-import Concordium.Logger
 
 -- |Defines a lens for accessing the global state component of a type.
 class HasGlobalState g s | s -> g where

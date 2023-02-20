@@ -10,9 +10,9 @@ import Data.Serialize
 
 import Concordium.Types
 
-import qualified Concordium.GlobalState.Types as GSTypes
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.BlockState
+import qualified Concordium.GlobalState.Types as GSTypes
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.Types.HashableTo

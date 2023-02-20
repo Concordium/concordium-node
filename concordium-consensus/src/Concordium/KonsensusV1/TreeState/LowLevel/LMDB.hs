@@ -42,8 +42,8 @@ import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Logger
 import Concordium.Types
 
-import qualified Concordium.GlobalState.Types as GSTypes
 import Concordium.GlobalState.LMDB.Helpers
+import qualified Concordium.GlobalState.Types as GSTypes
 import Concordium.KonsensusV1.TreeState.LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
