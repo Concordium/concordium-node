@@ -150,7 +150,7 @@ createTestBlockStateWithAccounts accounts =
     keys = Types.withIsAuthorizationsVersionForPV (Types.protocolVersion @pv) $ DummyData.dummyKeyCollection
     seedState = case Types.consensusVersionFor (Types.protocolVersion @pv) of
         Types.ConsensusV0 -> initialSeedStateV0 (Hash.hash "") 1_000
-        Types.ConsensusV1 -> initialSeedStateV1 (Hash.hash "")
+        Types.ConsensusV1 -> initialSeedStateV1 (Hash.hash "") 3_600_000
 
 -- |Construct a test block state containing the provided accounts.
 createTestBlockStateWithAccountsM ::
