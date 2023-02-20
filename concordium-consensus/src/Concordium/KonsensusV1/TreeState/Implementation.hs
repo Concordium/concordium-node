@@ -595,8 +595,6 @@ doMarkTransactionDead blockHash transaction =
 --     nonce recorded in the account's non-finalized transactions in the transaction
 --     table.
 --
---   * The finalization list must reflect the current last finalized block.
---
 --   * The pending transaction table only references transactions that are in the
 --     transaction table.  That is, the high nonce in a range is a tight bound and
 --     the deploy credential hashes correspond to transactions in the table.

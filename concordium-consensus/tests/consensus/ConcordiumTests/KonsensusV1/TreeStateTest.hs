@@ -2,10 +2,9 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module ConcordiumTests.KonsensusV1.TreeStateTest where
-
--- quickcheck for our property based testing.
 
 import Control.Monad.Reader
 import Control.Monad.State
@@ -19,6 +18,8 @@ import System.IO.Unsafe
 import System.Random
 import Test.HUnit
 import Test.Hspec
+import Data.FileEmbed
+import qualified Data.ByteString.Lazy as BSL
 
 -- base types.
 import qualified Concordium.Crypto.BlockSignature as Sig
@@ -30,6 +31,7 @@ import Concordium.Types
 import Concordium.Types.Execution
 import Concordium.Types.HashableTo
 import Concordium.Types.Transactions
+import Concordium.Scheduler.DummyData
 
 -- konsensus v1 related imports.
 import Concordium.GlobalState.Parameters (defaultRuntimeParameters)
@@ -43,7 +45,6 @@ import Concordium.KonsensusV1.TreeState.LowLevel
 import Concordium.KonsensusV1.TreeState.LowLevel.Memory
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
-import Concordium.Scheduler.DummyData
 import qualified Concordium.TransactionVerification as TVer
 import Concordium.Types.Updates
 
@@ -493,8 +494,12 @@ dummyUpdateInstructionWM usn =
 dummyChainUpdate :: UpdateSequenceNumber -> BlockItem
 dummyChainUpdate usn = chainUpdate $ dummyUpdateInstructionWM usn
 
+-- |A valid 'AccountCreation' with expiry 1596409020
+dummyAccountCreation :: AccountCreation
+dummyAccountCreation = readAccountCreation . BSL.fromStrict $ $(makeRelativeToProject "testdata/transactionverification/verifiable-credential.json" >>= embedFile)
+
 credentialDeploymentWM :: WithMetadata AccountCreation
-credentialDeploymentWM = addMetadata CredentialDeployment 0 cdi1
+credentialDeploymentWM = addMetadata CredentialDeployment 0 dummyAccountCreation
 
 dummyCredentialDeployment :: BlockItem
 dummyCredentialDeployment = credentialDeployment credentialDeploymentWM
@@ -791,7 +796,7 @@ testDoPurgeTransactionTable = describe "doPurgeTransactionTable" $ do
     it "force purge the transaction table" $ do
         -- increment the purge counter.
         sd' <- execStateT (doAddTransaction 0 (normalTransaction tr0) (dummySuccessTransactionResult 1)) sd
-        sd'' <- execStateT (doPurgeTransactionTable True year3000) (setLfbRound sd' 42)
+        sd'' <- execStateT (doPurgeTransactionTable True theTime) sd'
         assertEqual
             "purge counter should be reset"
             0
@@ -806,25 +811,24 @@ testDoPurgeTransactionTable = describe "doPurgeTransactionTable" $ do
             (sd'' ^. transactionTable . ttNonFinalizedChainUpdates . at UpdateMicroGTUPerEuro)
         assertEqual
             "Non-finalized credential deployments"
-            (sd'' ^. transactionTable . ttHashMap . at credDeploymentHash)
             Nothing
+            (sd'' ^. transactionTable . ttHashMap . at credDeploymentHash)
   where
     addChainUpdate u = snd . addTransaction (chainUpdate u) 0 (dummySuccessTransactionResult (updateSeqNumber $ uiHeader $ wmdData u))
     addCredential = snd . addTransaction dummyCredentialDeployment 0 dummySuccessCredentialDeployment
     tr0 = dummyTransaction 1
     cu0 = dummyUpdateInstructionWM 1
-    year3000 = timestampToUTCTime 32503676400000 -- 3000/01/01 in milliseconds
+    theTime = timestampToUTCTime $! Timestamp 1596409021
     sender = accountAddressEmbed dummyAccountAddress
     credDeploymentHash = getHash dummyCredentialDeployment
     -- Set the round for the last finalized block pointer.
-    setLfbRound SkovData{_lastFinalized = BlockPointer{..}, ..} n =
-        let lastFinalized' = dummySignedBlock (BlockHash minBound) n
-        in  SkovData{_lastFinalized = BlockPointer{bpBlock = NormalBlock lastFinalized', ..}, ..}
     sd =
         dummyInitialSkovData
             & transactionTable
                 %~ addChainUpdate cu0
                 . addCredential
+            & pendingTransactionTable
+                    %~ addPendingDeployCredential credDeploymentHash
 
 testDoClearOnProtocolUpdate :: Spec
 testDoClearOnProtocolUpdate = describe "doClearOnProtocolUpdate" $
