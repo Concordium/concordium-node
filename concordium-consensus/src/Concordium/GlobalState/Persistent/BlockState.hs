@@ -1065,8 +1065,8 @@ doGetSlotBakersP1 ::
 doGetSlotBakersP1 pbs slot = do
     bs <- loadPBS pbs
     let bps = bspBirkParameters bs
-        SeedState{..} = bps ^. birkSeedState
-        slotEpoch = fromIntegral $ slot `quot` (epochLength ^. unconditionally)
+        SeedStateV0{..} = bps ^. birkSeedState
+        slotEpoch = fromIntegral $ slot `quot` epochLength
     case compare slotEpoch (epoch + 1) of
         LT -> epochToFullBakers =<< refLoad (bps ^. birkCurrentEpochBakers)
         EQ -> epochToFullBakers =<< refLoad (bps ^. birkNextEpochBakers)

@@ -237,7 +237,7 @@ doMintingP4 oldChainParameters paydayEpoch paydayMintRate foundationAddr mintUpd
             calculatePaydayMintAmounts
                 (oldChainParameters ^. rpMintDistribution)
                 paydayMintRate
-                ((epochLength seedstate ^. unconditionally) * fromIntegral paydayEpoch)
+                (epochLength seedstate * fromIntegral paydayEpoch)
                 mintUpds
                 totGTU
     bs1 <- bsoMint bs0 mint
@@ -833,7 +833,7 @@ mintForSkippedPaydays ::
     m (Epoch, MintRate, UpdatableBlockState m)
 mintForSkippedPaydays newEpoch payday oldChainParameters foundationAccount updates bs0 = do
     seedstate <- bsoGetSeedState bs0
-    let paydaySlot = (epochLength seedstate ^. unconditionally) * fromIntegral payday
+    let paydaySlot = epochLength seedstate * fromIntegral payday
         bestTP = updatedTimeParameters paydaySlot (oldChainParameters ^. cpTimeParameters . supportedOParam) updates
         nextMintRate = bestTP ^. tpMintPerPayday
         nextRPL = bestTP ^. tpRewardPeriodLength
@@ -1100,7 +1100,7 @@ updateBirkParameters newSeedState bs0 oldChainParameters updates = case protocol
                 payday <- bsoGetPaydayEpoch bs0
                 let oldTimeParameters = oldChainParameters ^. cpTimeParameters . supportedOParam
                     -- Convert an Epoch to a Slot.
-                    slotFor = ((epochLength oldSeedState ^. unconditionally) *) . fromIntegral
+                    slotFor = (epochLength oldSeedState *) . fromIntegral
                     -- For each payday after the parent block:
                     --   - If the epoch before the payday is elapsed, generate the next bakers for the
                     --     reward period that starts from that payday.
