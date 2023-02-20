@@ -864,40 +864,6 @@ testDoClearOnProtocolUpdate = describe "doClearOnProtocolUpdate" $
             & transactionTable
                 %~ addTrans tr0
 
--- testDoClearAfterProtocolUpdate :: Spec
--- testDoClearAfterProtocolUpdate = describe "doClearAfterProtocolUpdate" $ do
---    it "clears on protocol update" $ do
---        sd' <- execStateT (doCommitTransaction 1 bh 0 (normalTransaction tr0)) sd
---        sd'' <- execStateT $ runPersistentBlockStateMonad $ doClearAfterProtocolUpdate sd'
---        assertEqual
---            "pending block table should be empty"
---            HM.empty
---            (sd'' ^. pendingBlocksTable)
---        assertEqual
---            "block table should be empty"
---            emptyBlockTable
---            (sd'' ^. blockTable)
---        assertEqual
---            "Branches should be empty"
---            Seq.empty
---            (sd'' ^. branches)
---        assertEqual
---            "Branches should be empty"
---            Seq.empty
---            (sd'' ^. branches)
---        assertEqual
---            "transaction table should be empty"
---            emptyTransactionTable
---            (sd'' ^. transactionTable)
---  where
---    tr0 = dummyTransaction 1
---    bh = BlockHash minBound
---    addTrans t = snd . addTransaction (normalTransaction t) 0 (dummySuccessTransactionResult (transactionNonce t))
---    sd =
---        skovDataWithTestBlocks
---            & transactionTable
---                %~ addTrans tr0
-
 tests :: Spec
 tests = describe "KonsensusV1.TreeState" $ do
     describe "BlockTable" $ do
@@ -925,5 +891,3 @@ tests = describe "KonsensusV1.TreeState" $ do
         testDoPurgeTransactionTable
     describe "Clear on protocol update" $ do
         testDoClearOnProtocolUpdate
-
---        testDoClearAfterProtocolUpdate
