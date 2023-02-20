@@ -238,7 +238,6 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
     -- Note: this may not be implemented efficiently, and is principally intended for testing purposes.
     getAccountHash :: Account m -> m (AccountHash (AccountVersionFor (MPV m)))
 
-
 -- * Active, current and next bakers/delegators
 
 --
