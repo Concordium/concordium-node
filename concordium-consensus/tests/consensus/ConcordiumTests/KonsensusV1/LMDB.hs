@@ -6,13 +6,10 @@ module ConcordiumTests.KonsensusV1.LMDB (tests) where
 import Control.Exception
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Reader
-import qualified Data.ByteString as BS
 import qualified Data.Map.Strict as Map
-import Data.Serialize
 import Data.Time
 import Data.Time.Clock.POSIX
 import qualified Data.Vector as Vector
-import Data.Word
 import System.IO.Temp
 import System.Random
 import Test.HUnit
@@ -33,7 +30,6 @@ import Concordium.KonsensusV1.Types
 import Concordium.Logger
 import Concordium.Types
 import Concordium.Types.HashableTo
-import Concordium.Types.ProtocolVersion
 import Concordium.Types.Transactions
 
 -- |A dummy UTCTime
@@ -91,7 +87,6 @@ dummyBakedBlock n ts =
           bbEpoch = 1,
           bbTimestamp = 1000,
           bbBaker = 1,
-          bbBakerKey = Block.verifyKey dummyKP,
           bbQuorumCertificate = dummyQC,
           bbTimeoutCertificate = Absent,
           bbEpochFinalizationEntry = Absent,

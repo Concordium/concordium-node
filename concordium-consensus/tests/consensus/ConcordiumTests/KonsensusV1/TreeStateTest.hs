@@ -21,9 +21,7 @@ import Test.HUnit
 import Test.Hspec
 
 -- base types.
-import Concordium.Crypto.BlockSignature
 import qualified Concordium.Crypto.BlockSignature as Sig
-import Concordium.Crypto.DummyData
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.Crypto.VRF as VRF
@@ -90,7 +88,6 @@ dummyBakedBlock parentHash bbRound = BakedBlock{..}
     bbEpoch = 0
     bbTimestamp = 0
     bbBaker = 0
-    bbBakerKey = verifyKey . fst $ randomBlockKeyPair (mkStdGen 0)
     bbQuorumCertificate = dummyQuorumCertificate parentHash
     bbTimeoutCertificate = Absent
     bbEpochFinalizationEntry = Absent
@@ -100,7 +97,7 @@ dummyBakedBlock parentHash bbRound = BakedBlock{..}
     bbStateHash = dummyStateHash
 
 dummySignedBlock :: BlockHash -> Round -> SignedBlock
-dummySignedBlock parentHash = signBlock dummySignKeys . dummyBakedBlock parentHash
+dummySignedBlock parentHash = signBlock dummySignKeys dummyGenesisBlockHash . dummyBakedBlock parentHash
 
 dummyPendingBlock :: BlockHash -> Round -> PendingBlock
 dummyPendingBlock parentHash r =
