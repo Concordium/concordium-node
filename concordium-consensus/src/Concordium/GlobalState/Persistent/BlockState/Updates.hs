@@ -12,6 +12,7 @@ module Concordium.GlobalState.Persistent.BlockState.Updates where
 
 import Control.Monad
 import Control.Monad.Trans
+import qualified Data.ByteString as BS
 import Data.Foldable (toList)
 import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
@@ -238,7 +239,9 @@ data PendingUpdates (cpv :: ChainParametersVersion) = PendingUpdates
       -- |Minimum block time for consensus version 2 (CPV2 onwards).
       pMinBlockTimeQueue :: !(HashedBufferedRefO 'PTMinBlockTime cpv (UpdateQueue Duration)),
       -- |Block energy limit (CPV2 onwards).
-      pBlockEnergyLimitQueue :: !(HashedBufferedRefO 'PTBlockEnergyLimit cpv (UpdateQueue Energy))
+      pBlockEnergyLimitQueue :: !(HashedBufferedRefO 'PTBlockEnergyLimit cpv (UpdateQueue Energy)),
+      -- |Finalization committee parameters (CPV2 onwards).
+      pFinalizationCommitteeParametersQueue :: !(HashedBufferedRefO 'PTFinalizationCommitteeParameters cpv (UpdateQueue FinalizationCommitteeParameters))
     }
 
 -- |See documentation of @migratePersistentBlockState@.
@@ -349,6 +352,18 @@ migratePendingUpdates migration PendingUpdates{..} = withCPVConstraints (chainPa
             NoParam -> return NoParam
         StateMigrationParametersP4ToP5{} -> case pBlockEnergyLimitQueue of
             NoParam -> return NoParam
+    newFinalizationCommitteeParametersQueue <- case migration of
+        StateMigrationParametersTrivial -> case pFinalizationCommitteeParametersQueue of
+            NoParam -> return NoParam
+            SomeParam hbr -> SomeParam <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
+        StateMigrationParametersP1P2 -> case pFinalizationCommitteeParametersQueue of
+            NoParam -> return NoParam
+        StateMigrationParametersP2P3 -> case pFinalizationCommitteeParametersQueue of
+            NoParam -> return NoParam
+        StateMigrationParametersP3ToP4{} -> case pFinalizationCommitteeParametersQueue of
+            NoParam -> return NoParam
+        StateMigrationParametersP4ToP5{} -> case pFinalizationCommitteeParametersQueue of
+            NoParam -> return NoParam
     return $!
         PendingUpdates
             { pRootKeysUpdateQueue = newRootKeys,
@@ -369,7 +384,8 @@ migratePendingUpdates migration PendingUpdates{..} = withCPVConstraints (chainPa
               pTimeParametersQueue = newTimeParameters,
               pTimeoutParametersQueue = newTimeoutParameters,
               pMinBlockTimeQueue = newMinBlockTimeQueue,
-              pBlockEnergyLimitQueue = newBlockEnergyLimitQueue
+              pBlockEnergyLimitQueue = newBlockEnergyLimitQueue,
+              pFinalizationCommitteeParametersQueue = newFinalizationCommitteeParametersQueue
             }
 
 instance
@@ -381,7 +397,7 @@ instance
         hLevel1KeysUpdateQueue <- H.hashToByteString <$> getHashM pLevel1KeysUpdateQueue
         hLevel2KeysUpdateQueue <- H.hashToByteString <$> getHashM pLevel2KeysUpdateQueue
         hProtocolQueue <- H.hashToByteString <$> getHashM pProtocolQueue
-        hElectionDifficultyQueue <- maybeWhenSupported (return mempty) (fmap H.hashToByteString . getHashM) pElectionDifficultyQueue
+        hElectionDifficultyQueue <- hashWhenSupported pElectionDifficultyQueue
         hEuroPerEnergyQueue <- H.hashToByteString <$> getHashM pEuroPerEnergyQueue
         hMicroGTUPerEuroQueue <- H.hashToByteString <$> getHashM pMicroGTUPerEuroQueue
         hFoundationAccountQueue <- H.hashToByteString <$> getHashM pFoundationAccountQueue
@@ -391,8 +407,12 @@ instance
         hPoolParametersQueue <- H.hashToByteString <$> getHashM pPoolParametersQueue
         hAddAnonymityRevokerQueue <- H.hashToByteString <$> getHashM pAddAnonymityRevokerQueue
         hAddIdentityProviderQueue <- H.hashToByteString <$> getHashM pAddIdentityProviderQueue
-        hCooldownParametersQueue <- maybeWhenSupported (return mempty) (fmap H.hashToByteString . getHashM) pCooldownParametersQueue
-        hTimeParametersQueue <- maybeWhenSupported (return mempty) (fmap H.hashToByteString . getHashM) pTimeParametersQueue
+        hCooldownParametersQueue <- hashWhenSupported pCooldownParametersQueue
+        hTimeParametersQueue <- hashWhenSupported pTimeParametersQueue
+        hTimeoutParametersQueue <- hashWhenSupported pTimeoutParametersQueue
+        hMinBlockTimeQueue <- hashWhenSupported pMinBlockTimeQueue
+        hBlockEnergyLimitQueue <- hashWhenSupported pBlockEnergyLimitQueue
+        hFinalizationCommitteeParametersQueue <- hashWhenSupported pFinalizationCommitteeParametersQueue
         return $!
             H.hash $
                 hRootKeysUpdateQueue
@@ -411,6 +431,13 @@ instance
                     <> hAddIdentityProviderQueue
                     <> hCooldownParametersQueue
                     <> hTimeParametersQueue
+                    <> hTimeoutParametersQueue
+                    <> hMinBlockTimeQueue
+                    <> hBlockEnergyLimitQueue
+                    <> hFinalizationCommitteeParametersQueue
+      where
+        hashWhenSupported :: (MHashableTo m H.Hash a) => OParam pt cpv a -> m BS.ByteString
+        hashWhenSupported = maybeWhenSupported (return mempty) (fmap H.hashToByteString . getHashM)
 
 instance
     (MonadBlobStore m, IsChainParametersVersion cpv) =>
@@ -436,6 +463,7 @@ instance
         (putTimeoutParametersQueue, newTimeoutParametersQueue) <- storeUpdate pTimeoutParametersQueue
         (putMinBlockTimeQueue, newMinBlockTimeQueue) <- storeUpdate pMinBlockTimeQueue
         (putBlockEnergyLimitQueue, newBlockEnergyLimitQueue) <- storeUpdate pBlockEnergyLimitQueue
+        (putFinalizationCommitteeParametersQueue, newFinalizationCommitteeParametersQueue) <- storeUpdate pFinalizationCommitteeParametersQueue
         let newPU =
                 PendingUpdates
                     { pRootKeysUpdateQueue = rkQ,
@@ -456,7 +484,8 @@ instance
                       pTimeParametersQueue = newTimeParametersQueue,
                       pTimeoutParametersQueue = newTimeoutParametersQueue,
                       pMinBlockTimeQueue = newMinBlockTimeQueue,
-                      pBlockEnergyLimitQueue = newBlockEnergyLimitQueue
+                      pBlockEnergyLimitQueue = newBlockEnergyLimitQueue,
+                      pFinalizationCommitteeParametersQueue = newFinalizationCommitteeParametersQueue
                     }
         let putPU =
                 pRKQ
@@ -478,6 +507,7 @@ instance
                     >> putTimeoutParametersQueue
                     >> putMinBlockTimeQueue
                     >> putBlockEnergyLimitQueue
+                    >> putFinalizationCommitteeParametersQueue
         return (putPU, newPU)
     load = withCPVConstraints (chainParametersVersion @cpv) $ do
         mRKQ <- label "Root keys update queue" load
@@ -499,6 +529,7 @@ instance
         mTimeoutParametersQueue <- label "Timeout parameters update queue" load
         mMinBlockTimeQueue <- label "Minimum block time update queue" load
         mBlockEnergyLimitQueue <- label "Block energy limit update queue" load
+        mFinalizationCommitteeParametersQueue <- label "Finalization committee parameters update queue" load
         return $! do
             pRootKeysUpdateQueue <- mRKQ
             pLevel1KeysUpdateQueue <- mL1KQ
@@ -519,6 +550,7 @@ instance
             pTimeoutParametersQueue <- mTimeoutParametersQueue
             pMinBlockTimeQueue <- mMinBlockTimeQueue
             pBlockEnergyLimitQueue <- mBlockEnergyLimitQueue
+            pFinalizationCommitteeParametersQueue <- mFinalizationCommitteeParametersQueue
             return PendingUpdates{..}
 
 instance
@@ -547,6 +579,7 @@ instance
                 <*> cache pTimeoutParametersQueue
                 <*> cache pMinBlockTimeQueue
                 <*> cache pBlockEnergyLimitQueue
+                <*> cache pFinalizationCommitteeParametersQueue
       where
         cpv = chainParametersVersion @cpv
 
@@ -582,7 +615,7 @@ emptyPendingUpdates ::
     forall m cpv.
     (MonadBlobStore m, IsChainParametersVersion cpv) =>
     m (PendingUpdates cpv)
-emptyPendingUpdates = PendingUpdates <$> e <*> e <*> e <*> e <*> whenSupportedA e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> whenSupportedA e <*> whenSupportedA e <*> whenSupportedA e <*> whenSupportedA e <*> whenSupportedA e
+emptyPendingUpdates = PendingUpdates <$> e <*> e <*> e <*> e <*> whenSupportedA e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> whenSupportedA e <*> whenSupportedA e <*> whenSupportedA e <*> whenSupportedA e <*> whenSupportedA e <*> whenSupportedA e
   where
     e :: m (HashedBufferedRef (UpdateQueue a))
     e = makeHashedBufferedRef emptyUpdateQueue
@@ -613,6 +646,7 @@ makePersistentPendingUpdates UQ.PendingUpdates{..} = withCPVConstraints (chainPa
     pTimeoutParametersQueue <- mapM (refMake <=< makePersistentUpdateQueue) _pTimeoutParametersQueue
     pMinBlockTimeQueue <- mapM (refMake <=< makePersistentUpdateQueue) _pMinBlockTimeQueue
     pBlockEnergyLimitQueue <- mapM (refMake <=< makePersistentUpdateQueue) _pBlockEnergyLimitQueue
+    pFinalizationCommitteeParametersQueue <- mapM (refMake <=< makePersistentUpdateQueue) _pFinalizationCommitteeParametersQueue
     return PendingUpdates{..}
 
 -- |Convert a persistent 'PendingUpdates' to an in-memory 'UQ.PendingUpdates'.
@@ -641,6 +675,7 @@ makeBasicPendingUpdates PendingUpdates{..} = withCPVConstraints (chainParameters
     _pTimeoutParametersQueue <- mapM (makeBasicUpdateQueue <=< refLoad) pTimeoutParametersQueue
     _pMinBlockTimeQueue <- mapM (makeBasicUpdateQueue <=< refLoad) pMinBlockTimeQueue
     _pBlockEnergyLimitQueue <- mapM (makeBasicUpdateQueue <=< refLoad) pBlockEnergyLimitQueue
+    _pFinalizationCommitteeParametersQueue <- mapM (makeBasicUpdateQueue <=< refLoad) pFinalizationCommitteeParametersQueue
     return UQ.PendingUpdates{..}
 
 -- |Current state of updatable parameters and update queues.
@@ -1106,6 +1141,128 @@ processTimeParametersUpdates t bu = do
                               pendingUpdates = pendingUpdates{pTimeParametersQueue = SomeParam newpQ}
                             }
 
+-- |Process timeout parameters updates.
+-- If the timeout parameters are supported then
+-- update them (if an update was enqueued and its time is now)
+-- and update the 'pendingUpdates' accordingly.
+processTimeoutParametersUpdates ::
+    forall m cpv.
+    (MonadBlobStore m, IsChainParametersVersion cpv) =>
+    Timestamp ->
+    BufferedRef (Updates' cpv) ->
+    m (Map.Map TransactionTime (UpdateValue cpv), BufferedRef (Updates' cpv))
+processTimeoutParametersUpdates t bu = do
+    u@Updates{..} <- refLoad bu
+    case pTimeoutParametersQueue pendingUpdates of
+        NoParam -> return (Map.empty, bu)
+        SomeParam qref -> do
+            oldQ <- refLoad qref
+            processValueUpdates t oldQ (return (Map.empty, bu)) $ \newTOp newQ m ->
+                (UVTimeoutParameters <$> m,) <$> do
+                    newpQ <- refMake newQ
+                    StoreSerialized oldCP <- refLoad currentParameters
+                    StoreSerialized newTimeoutParameters <- refLoad newTOp
+                    let newConsensusParameters = case oldCP ^. cpConsensusParameters of
+                            cp@ConsensusParametersV1{} -> cp & cpTimeoutParameters .~ newTimeoutParameters
+                    newParameters <- refMake $ StoreSerialized $ oldCP & (cpConsensusParameters .~ newConsensusParameters)
+                    refMake
+                        u
+                            { currentParameters = newParameters,
+                              pendingUpdates = pendingUpdates{pTimeoutParametersQueue = SomeParam newpQ}
+                            }
+
+-- |Process min block time updates.
+-- If the minimum block time parameter is supported then
+-- update it (if an update was enqueued and its time is now)
+-- and update the 'pendingUpdates' accordingly.
+processMinBlockTimeUpdates ::
+    forall m cpv.
+    (MonadBlobStore m, IsChainParametersVersion cpv) =>
+    Timestamp ->
+    BufferedRef (Updates' cpv) ->
+    m (Map.Map TransactionTime (UpdateValue cpv), BufferedRef (Updates' cpv))
+processMinBlockTimeUpdates t bu = do
+    u@Updates{..} <- refLoad bu
+    case pMinBlockTimeQueue pendingUpdates of
+        NoParam -> return (Map.empty, bu)
+        SomeParam qref -> do
+            oldQ <- refLoad qref
+            processValueUpdates t oldQ (return (Map.empty, bu)) $ \newMBTp newQ m ->
+                (UVMinBlockTime <$> m,) <$> do
+                    newpQ <- refMake newQ
+                    StoreSerialized oldCP <- refLoad currentParameters
+                    StoreSerialized newMinBlockTime <- refLoad newMBTp
+                    let newConsensusParameters = case oldCP ^. cpConsensusParameters of
+                            cp@ConsensusParametersV1{} -> cp & cpMinBlockTime .~ newMinBlockTime
+                    newParameters <- refMake $ StoreSerialized $ oldCP & (cpConsensusParameters .~ newConsensusParameters)
+                    refMake
+                        u
+                            { currentParameters = newParameters,
+                              pendingUpdates = pendingUpdates{pMinBlockTimeQueue = SomeParam newpQ}
+                            }
+
+-- |Process block energy limit updates.
+-- If the block energy limit parameter is supported then
+-- update it (if an update was enqueued and its time is now)
+-- and update the 'pendingUpdates' accordingly.
+processBlockEnergyLimitUpdates ::
+    forall m cpv.
+    (MonadBlobStore m, IsChainParametersVersion cpv) =>
+    Timestamp ->
+    BufferedRef (Updates' cpv) ->
+    m (Map.Map TransactionTime (UpdateValue cpv), BufferedRef (Updates' cpv))
+processBlockEnergyLimitUpdates t bu = do
+    u@Updates{..} <- refLoad bu
+    case pBlockEnergyLimitQueue pendingUpdates of
+        NoParam -> return (Map.empty, bu)
+        SomeParam qref -> do
+            oldQ <- refLoad qref
+            processValueUpdates t oldQ (return (Map.empty, bu)) $ \newBELp newQ m ->
+                (UVBlockEnergyLimit <$> m,) <$> do
+                    newpQ <- refMake newQ
+                    StoreSerialized oldCP <- refLoad currentParameters
+                    StoreSerialized newBlockEnergyLimit <- refLoad newBELp
+                    let newConsensusParameters = case oldCP ^. cpConsensusParameters of
+                            cp@ConsensusParametersV1{} -> cp & cpBlockEnergyLimit .~ newBlockEnergyLimit
+                    newParameters <- refMake $ StoreSerialized $ oldCP & (cpConsensusParameters .~ newConsensusParameters)
+                    refMake
+                        u
+                            { currentParameters = newParameters,
+                              pendingUpdates = pendingUpdates{pBlockEnergyLimitQueue = SomeParam newpQ}
+                            }
+
+-- |Process finalization committee parameters updates.
+-- If the finalization committee parameters are supported then
+-- update them (if an update was enqueued and its time is now)
+-- and update the 'pendingUpdates' accordingly.
+processFinalizationCommitteeParametersUpdates ::
+    forall m cpv.
+    (MonadBlobStore m, IsChainParametersVersion cpv) =>
+    Timestamp ->
+    BufferedRef (Updates' cpv) ->
+    m (Map.Map TransactionTime (UpdateValue cpv), BufferedRef (Updates' cpv))
+processFinalizationCommitteeParametersUpdates t bu = do
+    u@Updates{..} <- refLoad bu
+    case pFinalizationCommitteeParametersQueue pendingUpdates of
+        NoParam -> return (Map.empty, bu)
+        SomeParam qref -> do
+            oldQ <- refLoad qref
+            processValueUpdates t oldQ (return (Map.empty, bu)) $ \newBELp newQ m ->
+                (UVFinalizationCommitteeParameters <$> m,) <$> do
+                    newpQ <- refMake newQ
+                    StoreSerialized oldCP <- refLoad currentParameters
+                    StoreSerialized newFinalizationCommitteeParameters <- refLoad newBELp
+                    newParameters <-
+                        refMake $
+                            StoreSerialized $
+                                oldCP
+                                    & (cpFinalizationCommitteeParameters . supportedOParam .~ newFinalizationCommitteeParameters)
+                    refMake
+                        u
+                            { currentParameters = newParameters,
+                              pendingUpdates = pendingUpdates{pFinalizationCommitteeParametersQueue = SomeParam newpQ}
+                            }
+
 -- |Process the add anonymity revoker update queue.
 --  Ignores updates with duplicate ARs.
 processAddAnonymityRevokerUpdates ::
@@ -1250,6 +1407,10 @@ processUpdateQueues t (u0, ars, ips) = do
             `pThen` processPoolParamatersUpdates t
             `pThen` processCooldownParametersUpdates t
             `pThen` processTimeParametersUpdates t
+            `pThen` processTimeoutParametersUpdates t
+            `pThen` processMinBlockTimeUpdates t
+            `pThen` processBlockEnergyLimitUpdates t
+            `pThen` processFinalizationCommitteeParametersUpdates t
             )
             u0
 
@@ -1346,6 +1507,11 @@ lookupNextUpdateSequenceNumber uref uty = withCPVConstraints (chainParametersVer
                 (pure minUpdateSequenceNumber)
                 (fmap uqNextSequenceNumber . refLoad)
                 (pBlockEnergyLimitQueue pendingUpdates)
+        UpdateFinalizationCommitteeParameters ->
+            maybeWhenSupported
+                (pure minUpdateSequenceNumber)
+                (fmap uqNextSequenceNumber . refLoad)
+                (pFinalizationCommitteeParametersQueue pendingUpdates)
 
 -- |Enqueue an update in the appropriate queue.
 enqueueUpdate ::
@@ -1394,6 +1560,10 @@ enqueueUpdate effectiveTime payload uref = withCPVConstraints (chainParametersVe
             SomeParam q ->
                 enqueue effectiveTime v q
                     <&> \newQ -> p{pBlockEnergyLimitQueue = SomeParam newQ}
+        UVFinalizationCommitteeParameters v -> case pFinalizationCommitteeParametersQueue of
+            SomeParam q ->
+                enqueue effectiveTime v q
+                    <&> \newQ -> p{pFinalizationCommitteeParametersQueue = SomeParam newQ}
     refMake u{pendingUpdates = newPendingUpdates}
 
 -- |Overwrite the election difficulty with the specified value and remove

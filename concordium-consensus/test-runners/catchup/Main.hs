@@ -368,7 +368,8 @@ main = do
                   _cpPoolParameters =
                     PoolParametersV0
                         { _ppBakerStakeThreshold = 300000000000
-                        }
+                        },
+                  _cpFinalizationCommitteeParameters = NoParam
                 }
     let (genesisData, bakerIdentities, _) =
             makeGenesisDataV0 @PV

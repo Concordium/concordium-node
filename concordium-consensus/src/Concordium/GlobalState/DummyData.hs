@@ -359,6 +359,21 @@ dummyConsensusParametersV1 =
           _cpBlockEnergyLimit = maxBound -- the maximum energy a block can consume.
         }
 
+-- |Finalization parameters for the second consensus protocol.
+-- @_fcpMinFinalizers = 50@
+-- @_fcpMaxFinalizers = 500@
+-- @_fcpFinalizerRelativeStakeThreshold = 1/10@
+-- Hence required stake to be eligible for becoming part of the finalization committe
+-- (if there are 50 or more finalizers already) is 10% of the total stake in pools.
+dummyFinalizationCommitteeParameters :: FinalizationCommitteeParameters
+dummyFinalizationCommitteeParameters =
+    FinalizationCommitteeParameters
+        { _fcpMinFinalizers = 50, -- Minimum number of finalizers before the relative stake threshold takes effect.
+          _fcpMaxFinalizers = 500, -- Maximum number of finalizers.
+          -- @total stake in pools * 10_000/100_000 = "required stake"@ to become a finalizer if there are '_fcpMinFinalizers' bakers or more.
+          _fcpFinalizerRelativeStakeThreshold = PartsPerHundredThousands 10000
+        }
+
 dummyChainParameters :: forall cpv. IsChainParametersVersion cpv => ChainParameters' cpv
 dummyChainParameters = case chainParametersVersion @cpv of
     SChainParametersV0 ->
@@ -376,7 +391,8 @@ dummyChainParameters = case chainParametersVersion @cpv of
               _cpPoolParameters =
                 PoolParametersV0
                     { _ppBakerStakeThreshold = 300000000000
-                    }
+                    },
+              _cpFinalizationCommitteeParameters = NoParam
             }
     SChainParametersV1 ->
         ChainParameters
@@ -413,7 +429,8 @@ dummyChainParameters = case chainParametersVersion @cpv of
                               _bakingCommissionRange = fullRange,
                               _transactionCommissionRange = fullRange
                             }
-                    }
+                    },
+              _cpFinalizationCommitteeParameters = NoParam
             }
     SChainParametersV2 ->
         ChainParameters
@@ -450,7 +467,8 @@ dummyChainParameters = case chainParametersVersion @cpv of
                               _bakingCommissionRange = fullRange,
                               _transactionCommissionRange = fullRange
                             }
-                    }
+                    },
+              _cpFinalizationCommitteeParameters = SomeParam dummyFinalizationCommitteeParameters
             }
   where
     fullRange = InclusiveRange (makeAmountFraction 0) (makeAmountFraction 100000)
