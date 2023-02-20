@@ -526,6 +526,7 @@ pub fn connect(
                     BanId::Socket(peer_addr),
                     Instant::now() + Duration::from_secs(config::UNREACHABLE_EXPIRATION_SECS),
                 );
+                node.stats.soft_banned_peers.inc();
             }
             bail!(e)
         }
@@ -608,6 +609,7 @@ pub fn connection_housekeeping(node: &Arc<P2PNode>) -> bool {
         if !soft_bans.is_empty() {
             let now = Instant::now();
             soft_bans.retain(|_, expiry| *expiry > now);
+            node.stats.soft_banned_peers.set(soft_bans.len() as i64);
         }
     }
 

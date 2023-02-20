@@ -75,6 +75,7 @@ genesisState gd = MTL.runExceptT $ case Types.protocolVersion @pv of
 
 -------- Types -----------
 
+-- |A GADT that wraps the core genesis parameters for each consensus version.
 data VersionedCoreGenesisParameters (pv :: Types.ProtocolVersion) where
     CGPV0 :: (Types.IsConsensusV0 pv) => GenesisData.CoreGenesisParameters -> VersionedCoreGenesisParameters pv
     CGPV1 :: (Types.IsConsensusV1 pv) => GDBaseV1.CoreGenesisParametersV1 -> VersionedCoreGenesisParameters pv

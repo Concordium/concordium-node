@@ -566,6 +566,7 @@ version = "0.1.0"
 dependencies = [
  "aggregate_sig",
  "anyhow",
+ "bs58",
  "byteorder",
  "chrono",
  "concordium-contracts-common",
@@ -580,6 +581,7 @@ dependencies = [
  "hex",
  "id",
  "itertools",
+ "leb128",
  "libc",
  "num",
  "num-bigint 0.4.3",
@@ -597,7 +599,7 @@ dependencies = [
 
 [[package]]
 name = "concordium_node"
-version = "5.2.1"
+version = "5.2.2"
 dependencies = [
  "anyhow",
  "app_dirs2",

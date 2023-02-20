@@ -50,6 +50,8 @@ fn main() -> anyhow::Result<()> {
     .context("Failed to create the network node.")?;
 
     start_push_gateway(&conf.prometheus, &node.stats, node.id());
+    // Set the startime in the stats.
+    node.stats.node_startup_timestamp.set(node.start_time.timestamp_millis());
 
     spawn(&node, server, poll, None);
 

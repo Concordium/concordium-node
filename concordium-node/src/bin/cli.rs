@@ -58,6 +58,8 @@ async fn main() -> anyhow::Result<()> {
     let (node, server, poll) =
         instantiate_node(&conf, &mut app_prefs, stats_export_service, regenesis_arc.clone())
             .context("Failed to create the node.")?;
+    // Set the startime in the stats.
+    node.stats.node_startup_timestamp.set(node.start_time.timestamp_millis());
 
     // Setup task with signal handling before doing any irreversible operations
     // to avoid being interrupted in the middle of sensitive operations, e.g.,

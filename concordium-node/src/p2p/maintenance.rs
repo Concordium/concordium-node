@@ -838,6 +838,7 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
                     BanId::Ip(ip),
                     Instant::now() + Duration::from_secs(config::SOFT_BAN_DURATION_SECS),
                 );
+                node.stats.soft_banned_peers.inc();
             }
         }
         ConnChange::RemovalByToken(token) => {
