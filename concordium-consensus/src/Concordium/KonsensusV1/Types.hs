@@ -725,7 +725,6 @@ putBakedBlock bb@BakedBlock{..} = do
 getBakedBlock :: SProtocolVersion pv -> TransactionTime -> Get BakedBlock
 getBakedBlock spv tt = label "BakedBlock" $ do
     bbRound <- get
-    when (bbRound == 0) $ fail "Only the genesis block may have round 0"
     bbEpoch <- get
     bbTimestamp <- get
     bbBaker <- get
