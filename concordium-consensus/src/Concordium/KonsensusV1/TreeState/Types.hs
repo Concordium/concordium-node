@@ -138,7 +138,6 @@ instance BakedBlockData PendingBlock where
     blockQuorumCertificate = blockQuorumCertificate . pbBlock
     blockParent = blockParent . pbBlock
     blockBaker = blockBaker . pbBlock
-    blockBakerKey = blockBakerKey . pbBlock
     blockTimeoutCertificate = blockTimeoutCertificate . pbBlock
     blockEpochFinalizationEntry = blockEpochFinalizationEntry . pbBlock
     blockNonce = blockNonce . pbBlock

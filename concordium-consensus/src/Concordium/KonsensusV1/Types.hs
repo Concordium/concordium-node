@@ -359,10 +359,12 @@ instance Serialize TimeoutSignatureMessage where
         put tsmGenesis
         put tsmRound
         put tsmQCRound
+        put tsmQCEpoch
     get = do
         tsmGenesis <- get
         tsmRound <- get
         tsmQCRound <- get
+        tsmQCEpoch <- get
         return TimeoutSignatureMessage{..}
 
 -- |Compute the byte representation of a 'TimeoutSignatureMessage' that is actually signed.

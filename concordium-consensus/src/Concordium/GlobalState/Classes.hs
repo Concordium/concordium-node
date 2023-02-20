@@ -16,7 +16,6 @@ import Data.Kind
 import Lens.Micro.Platform
 
 import Concordium.Logger
-import Concordium.Types
 
 -- |Defines a lens for accessing the global state component of a type.
 class HasGlobalState g s | s -> g where
@@ -40,9 +39,6 @@ instance HasGlobalStateContext g (Identity g) where
 -- deriving via mechanism.
 newtype MGSTrans t (m :: Type -> Type) a = MGSTrans (t m a)
     deriving (Functor, Applicative, Monad, MonadTrans, MonadIO)
-
-instance MonadProtocolVersion m => MonadProtocolVersion (MGSTrans t m) where
-    type MPV (MGSTrans t m) = MPV m
 
 deriving instance MonadReader r (t m) => MonadReader r (MGSTrans t m)
 deriving instance MonadState s (t m) => MonadState s (MGSTrans t m)

@@ -10,7 +10,7 @@ import Concordium.Types.UpdateQueues (ProtocolUpdateStatus (..))
 import Concordium.Types.Updates
 
 import Concordium.GlobalState.BlockState (BlockStateStorage)
-import Concordium.GlobalState.Types (PVInit)
+import Concordium.GlobalState.Types (PVInit, MPV)
 import qualified Concordium.ProtocolUpdate.P1 as P1
 import qualified Concordium.ProtocolUpdate.P2 as P2
 import qualified Concordium.ProtocolUpdate.P3 as P3

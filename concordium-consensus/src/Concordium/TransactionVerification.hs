@@ -134,7 +134,7 @@ data NotOkResult
 -- The type is responsible for retrieving the necessary information
 -- in order to deem a transaction `Ok`, `MaybeOk` or `NotOk`.
 -- See above for explanations of the distinction between these types.
-class (Monad m, Types.MonadProtocolVersion m) => TransactionVerifier m where
+class (Monad m, GSTypes.MonadProtocolVersion m) => TransactionVerifier m where
     -- |Get the provider identity data for the given identity provider, or Nothing if
     -- the identity provider with given ID does not exist.
     getIdentityProvider :: ID.IdentityProviderIdentity -> m (Maybe IP.IpInfo)
@@ -157,7 +157,7 @@ class (Monad m, Types.MonadProtocolVersion m) => TransactionVerifier m where
     getNextUpdateSequenceNumber :: Updates.UpdateType -> m Updates.UpdateSequenceNumber
 
     -- |Get the UpdateKeysCollection
-    getUpdateKeysCollection :: m (Updates.UpdateKeysCollection (Params.AuthorizationsVersionForPV (Types.MPV m)))
+    getUpdateKeysCollection :: m (Updates.UpdateKeysCollection (Params.AuthorizationsVersionForPV (GSTypes.MPV m)))
 
     -- |Get the current available amount for the specified account.
     getAccountAvailableAmount :: GSTypes.Account m -> m Types.Amount
@@ -254,7 +254,7 @@ verifyChainUpdate ui@Updates.UpdateInstruction{..} =
     either id id
         <$> runExceptT
             ( do
-                unless (Types.validatePayloadSize (Types.protocolVersion @(Types.MPV m)) (Updates.updatePayloadSize uiHeader)) $
+                unless (Types.validatePayloadSize (Types.protocolVersion @(GSTypes.MPV m)) (Updates.updatePayloadSize uiHeader)) $
                     throwError $
                         NotOk InvalidPayloadSize
                 -- Check that the timeout is no later than the effective time,
@@ -291,7 +291,7 @@ verifyNormalTransaction meta =
     either id id
         <$> runExceptT
             ( do
-                unless (Types.validatePayloadSize (Types.protocolVersion @(Types.MPV m)) (Tx.thPayloadSize (Tx.transactionHeader meta))) $
+                unless (Types.validatePayloadSize (Types.protocolVersion @(GSTypes.MPV m)) (Tx.thPayloadSize (Tx.transactionHeader meta))) $
                     throwError $
                         NotOk InvalidPayloadSize
                 -- Check that enough energy is supplied
