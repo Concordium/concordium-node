@@ -44,16 +44,17 @@ instance IsCommitPoint Round
 
 -- * Transaction status
 
--- |Result of a transaction is block dependent.
--- The 'LiveTransactionStatus' is parameterized by @a@ and must
--- be an instance of 'Ord'.
+-- |The status of a transaction that has been verified and is not yet finalized.
+-- A 'Received' transaction is not yet in any live blocks (but could be in a pending block).
+-- A 'Committed' transaction is known to be in a live block, and records the index that it occurs
+-- in any such block.
 data LiveTransactionStatus
     = -- |Transaction is received, but no outcomes from any blocks are known
-      -- although the transaction might be known to be in some blocks. The 'CommitPoint' is the
-      -- largest commit point of a block the transaction is in.
+      -- although the transaction might be known to be in some (pending) blocks. The 'CommitPoint'
+      -- is the largest commit point of a block the transaction is in.
       -- A transaction verification result is attached to the transaction which is used by
-      -- the 'Scheduler' to verify the transaction and possibly short-circuit some of the verification required
-      -- before executing the transaction.
+      -- the 'Scheduler' to verify the transaction and possibly short-circuit some of the
+      -- verification required before executing the transaction.
       Received
         { _tsCommitPoint :: !CommitPoint,
           _tsVerRes :: !TVer.VerificationResult
@@ -190,22 +191,18 @@ emptyNFCUWithSequenceNumber = NonFinalizedChainUpdates Map.empty
 -- SHA256 collision on the first 29 bytes (but not all remaining 3 bytes).
 
 -- |The transaction table stores transactions and their statuses.
--- In the persistent tree state implementation, finalized transactions are not
--- stored in this table, but can be looked up from a disk-backed database.
--- In the in-memory implementation, finalized transactions are stored in this
--- table.
+-- Finalized transactions are not stored in this table, but can be looked up from a disk-backed
+-- database.
 --
 -- A transaction's status indicates which blocks it is included in and the commit point
--- number of the highest such block.  A transaction that is not included any block
+-- of the highest such block.  A transaction that is not included any block
 -- may also have a non-zero highest commit point if it is received in a block, but that block
--- is not yet considered arrived.
+-- is not yet considered arrived (e.g. it is pending its parent).
 --
 -- Generally, '_ttNonFinalizedTransactions' should have an entry for every account,
 -- with the exception of where the entry would be 'emptyANFT'. Similarly with
 -- '_ttNonFinalizedChainUpdates' and 'emptyNFCU'.  In particular, there should be
 -- an entry if the next nonce/sequence number is not the minimum value.
--- The transaction table is parameterized by @a@ which must at least be an instance of
--- 'Ord'.
 data TransactionTable = TransactionTable
     { -- |Map from transaction hashes to transactions, together with their current status.
       _ttHashMap :: !(HM.HashMap TransactionHash (BlockItem, LiveTransactionStatus)),

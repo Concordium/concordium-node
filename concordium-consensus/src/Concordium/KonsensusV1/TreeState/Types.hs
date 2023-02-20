@@ -35,19 +35,6 @@ instance Serialize FinalizedTransactionStatus where
         ftsIndex <- get
         return FinalizedTransactionStatus{..}
 
--- |Result of adding a 'VerifiedTransaction' to the transaction store.
-data AddBlockItemResult
-    = -- |The transaction was added to the transaction store.
-      Added
-    | -- |The transaction was not added as it is
-      -- already contained in the transaction store.
-      Duplicate
-    | -- |The transaction was not added as it yielded
-      -- an old nonce for the sender for the transaction.
-      -- I.e. the 'BlockItem' consisted of a account nonce that was
-      -- less than the current finalized account nonce for the account.
-      OldNonce
-
 -- |Metadata about a block that has been executed.
 data BlockMetadata = BlockMetadata
     { bmHeight :: !BlockHeight,
@@ -166,9 +153,7 @@ data BlockStatus pv
       BlockUnknown
     deriving (Eq, Show)
 
--- |Get the status of a block if it recent
--- otherwise if it is a predecessor of the last finalized block
--- get a witness on that i.e. 'OldFinalized'.
+-- |The status of a block as obtained without loading the block from disk.
 data RecentBlockStatus pv
     = -- |The block is recent i.e. it is either 'Alive',
       -- 'Pending' or the last finalized block.
@@ -190,7 +175,7 @@ data RoundStatus = RoundStatus
       -- |The highest 'Round' that the consensus runner participated in.
       rsCurrentRound :: !Round,
       -- |The 'QuourumSignatureMessage's for the current 'Round'.
-      rsCurrentQuorumSignatureMessages :: !(SignatureMessages TimeoutSignatureMessage),
+      rsCurrentQuorumSignatureMessages :: !(SignatureMessages QuorumSignatureMessage),
       -- |The 'TimeoutSignatureMessage's for the current 'Round'.
       rsCurrentTimeoutSignatureMessages :: !(SignatureMessages TimeoutSignatureMessage),
       -- |If the consensus runner is part of the finalization committee,

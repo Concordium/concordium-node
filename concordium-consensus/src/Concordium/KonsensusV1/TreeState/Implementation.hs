@@ -15,6 +15,7 @@ import Control.Monad.Reader
 import Control.Monad.State
 import Data.IORef
 import Data.Time
+import Data.Typeable
 import Lens.Micro.Platform
 
 import qualified Data.HashMap.Strict as HM
@@ -22,7 +23,6 @@ import qualified Data.List as List
 import qualified Data.Map.Strict as Map
 import qualified Data.PQueue.Prio.Min as MPQ
 import qualified Data.Sequence as Seq
-import Data.Typeable
 
 import qualified Concordium.Genesis.Data.BaseV1 as Base
 import Concordium.Types
@@ -30,7 +30,9 @@ import Concordium.Types.Execution
 import Concordium.Types.HashableTo
 import Concordium.Types.Transactions
 import Concordium.Types.Updates
+import Concordium.Utils
 
+import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Parameters hiding (GenesisConfiguration)
 import qualified Concordium.GlobalState.Persistent.BlobStore as BlobStore
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
@@ -39,14 +41,11 @@ import qualified Concordium.GlobalState.PurgeTransactions as Purge
 import qualified Concordium.GlobalState.Statistics as Stats
 import Concordium.GlobalState.TransactionTable
 import qualified Concordium.GlobalState.Types as GSTypes
-
-import Concordium.GlobalState.BlockState
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.TransactionVerification
 import qualified Concordium.TransactionVerification as TVer
-import Concordium.Utils
 
 -- |Exception occurring from a violation of tree state invariants.
 newtype TreeStateInvariantViolation = TreeStateInvariantViolation String
@@ -70,10 +69,10 @@ data InMemoryBlockStatus pv
 -- |The block table yields blocks that are
 -- either alive or pending.
 -- Furthermore it holds a fixed size cache of hashes
--- blocks marked as dead.
+-- of blocks marked as dead.
 data BlockTable pv = BlockTable
     { _deadBlocks :: !DeadCache,
-      _liveMap :: HM.HashMap BlockHash (InMemoryBlockStatus pv)
+      _liveMap :: !(HM.HashMap BlockHash (InMemoryBlockStatus pv))
     }
     deriving (Eq, Show)
 
@@ -84,7 +83,7 @@ emptyBlockTable :: BlockTable pv
 emptyBlockTable = BlockTable emptyDeadCache HM.empty
 
 -- |The 'PendingTransactions' consists of a "focus block", which is a live block, and a pending
--- pending transaction table that is with respect to the focus block.
+-- transaction table that is with respect to the focus block.
 data PendingTransactions pv = PendingTransactions
     { -- |The block with respect to which the pending transactions are considered pending.
       _focusBlock :: !(BlockPointer pv),
@@ -96,19 +95,19 @@ makeClassy ''PendingTransactions
 
 -- | Pending blocks are conceptually stored in a min priority search queue,
 -- where multiple blocks may have the same key, which is their parent,
--- and the priority is the block's slot number.
+-- and the priority is the block's round number.
 -- When a block arrives (possibly dead), its pending children are removed
--- from the queue and handled.  This uses 'takePendingChildren'.
--- When a block is finalized, all pending blocks with a lower or equal slot
+-- from the queue and handled.  This uses 'doTakePendingChildren'.
+-- When a block is finalized, all pending blocks with a lower or equal round
 -- number can be handled (they will become dead, since they can no longer
--- join the tree).  This uses 'takeNextPendingUntil'.
+-- join the tree).  This uses 'doTakeNextPendingUntil'.
 data PendingBlocks = PendingBlocks
     { -- |Pending blocks i.e. blocks that have not yet been included in the tree.
       -- The entries of the pending blocks are keyed by the 'BlockHash' of their parent block.
       _pendingBlocksTable :: !(HM.HashMap BlockHash [PendingBlock]),
       -- |A priority search queue on the (pending block hash, parent of pending block hash) tuple,
       -- prioritised by the round of the pending block. The queue in particular supports extracting
-      -- the pending block with minimal 'Round'. Note that the  queue can contain spurious pending
+      -- the pending block with minimal 'Round'. Note that the queue can contain spurious pending
       -- blocks, and a block is only actually in the pending blocks if it has an entry in the
       -- '_pendingBlocksTable'.
       _pendingBlocksQueue :: !(MPQ.MinPQueue Round (BlockHash, BlockHash))
@@ -629,8 +628,8 @@ doPurgeTransactionTable force currentTime = do
                     else 0
             currentTimestamp = utcTimeToTimestamp currentTime
             (newTT, newPT) = Purge.purgeTables (commitPoint lastFinalizedRound) oldestArrivalTime currentTimestamp transactionTable' pendingTransactions'
-        transactionTable .= newTT
-        pendingTransactionTable .= newPT
+        transactionTable .=! newTT
+        pendingTransactionTable .=! newPT
 
 -- |Clear pending and non-finalized blocks from the tree state.
 -- Transactions that were committed (to any non-finalized block) have their status changed to

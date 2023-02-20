@@ -1,6 +1,5 @@
 {-# LANGUAGE BinaryLiterals #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -8,8 +7,6 @@
 {-# LANGUAGE TypeFamilies #-}
 
 module Concordium.KonsensusV1.Types where
-
-import GHC.Generics (Generic)
 
 import Control.Monad
 import Data.Bits
@@ -971,21 +968,11 @@ instance HashableTo BlockHash BakedBlock where
 newtype SignatureMessages a = SignatureMessages
     { qsmFinMessages :: IntMap.IntMap a
     }
-    deriving (Eq, Show, Generic)
+    deriving (Eq, Show, Serialize)
 
 -- |Construct an empty 'SignatureMessages'
 emptySignatureMessages :: SignatureMessages a
 emptySignatureMessages = SignatureMessages IntMap.empty
-
--- |Serialize instance for 'SignatureMessages QuorumSignatureMessage'
--- This is just a generic instance for serializing the IntMap which should
--- be fine as 'SignatureMessages' is not part of the protocol.
-instance Serialize (SignatureMessages QuorumSignatureMessage)
-
--- |Serialize instance for 'SignatureMessages TimeoutSignatureMessage'
--- This is just a generic instance for serializing the IntMap which should
--- be fine as 'SignatureMessages' is not part of the protocol.
-instance Serialize (SignatureMessages TimeoutSignatureMessage)
 
 -- |A 'BlockItem' together with its verification result.
 -- Precondition: The verification result must be 'Ok'.
