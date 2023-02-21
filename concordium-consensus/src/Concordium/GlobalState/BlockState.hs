@@ -614,6 +614,9 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
     -- |Get the current exchange rates, which are the Euro per NRG, micro CCD per Euro and the derived energy to microCCD rate.
     getExchangeRates :: BlockState m -> m ExchangeRates
 
+    -- |Get the current chain parameters.
+    getChainParameters :: BlockState  m -> m (ChainParameters (MPV m))
+
     -- |Get the epoch time of the next scheduled payday.
     getPaydayEpoch :: (PVSupportsDelegation (MPV m)) => BlockState m -> m Epoch
 
