@@ -103,7 +103,7 @@ putBlockItem bi = do
                                     nextSN <- getNextUpdateSequenceNumber fbState (updateType (uiPayload cu))
                                     when (nextSN <= updateSeqNumber (uiHeader cu)) $ do
                                         pendingTransactionTable %=! addPendingUpdate nextSN cu
-                                        doPurgeTransactionTable False =<< currentTime                                        
+                                        doPurgeTransactionTable False =<< currentTime
                                     return Accepted
                         else -- If the transaction was not added it means it contained an old nonce.
                             return OldNonce
