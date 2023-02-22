@@ -12,10 +12,10 @@ import Data.Maybe (isJust)
 
 import Concordium.Types
 import qualified Concordium.ID.Types as ID
-import Concordium.Types.Parameters
+import Concordium.Types.Parameters hiding (getChainParameters)
 
 import Concordium.GlobalState.Types
-import Concordium.GlobalState.BlockState
+import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.TransactionVerification as TVer
 import Concordium.KonsensusV1.TreeState.Implementation
 
@@ -43,40 +43,41 @@ deriving via (ReaderT r) m instance BlockStateTypes (TransactionVerifierT' r m)
 type TransactionVerifierT m = TransactionVerifierT' (Context m) m
 
 instance
-  ( Monad m,
+  ( IsConsensusV1 (MPV m),
     MonadProtocolVersion m,
+    BS.BlockStateQuery m,
     r ~ Context m
   ) => TVer.TransactionVerifier (TransactionVerifierT' r m) where
     {-# INLINE getIdentityProvider #-}
     getIdentityProvider ipId = do
         ctx <- ask
-        lift $! getIdentityProvider (ctx ^. ctxBs) ipId
+        lift $! BS.getIdentityProvider (ctx ^. ctxBs) ipId
     {-# INLINE getAnonymityRevokers #-}
     getAnonymityRevokers arrIds = do
         ctx <- ask
-        lift $! getAnonymityRevokers (ctx ^. ctxBs) arrIds
+        lift $! BS.getAnonymityRevokers (ctx ^. ctxBs) arrIds
     {-# INLINE getCryptographicParameters #-}
     getCryptographicParameters = do
         ctx <- ask
-        lift $! getCryptographicParameters (ctx ^. ctxBs)
+        lift $! BS.getCryptographicParameters (ctx ^. ctxBs)
     {-# INLINE registrationIdExists #-}
     registrationIdExists regId = do
         ctx <- ask
-        lift $ isJust <$> getAccountByCredId (ctx ^. ctxBs) (ID.toRawCredRegId regId)
+        lift $ isJust <$> BS.getAccountByCredId (ctx ^. ctxBs) (ID.toRawCredRegId regId)
     {-# INLINE getAccount #-}
     getAccount aaddr = do
         ctx <- ask
-        fmap snd <$> lift (getAccount (ctx ^. ctxBs) aaddr)
+        fmap snd <$> lift (BS.getAccount (ctx ^. ctxBs) aaddr)
     {-# INLINE getNextUpdateSequenceNumber #-}
     getNextUpdateSequenceNumber uType = do
         ctx <- ask
-        lift $! getNextUpdateSequenceNumber (ctx ^. ctxBs) uType
+        lift $! BS.getNextUpdateSequenceNumber (ctx ^. ctxBs) uType
     {-# INLINE getUpdateKeysCollection #-}
     getUpdateKeysCollection = do
         ctx <- ask
-        lift $! getUpdateKeysCollection (ctx ^. ctxBs)
+        lift $! BS.getUpdateKeysCollection (ctx ^. ctxBs)
     {-# INLINE getAccountAvailableAmount #-}
-    getAccountAvailableAmount = lift . getAccountAvailableAmount
+    getAccountAvailableAmount = lift . BS.getAccountAvailableAmount
     {-# INLINE getNextAccountNonce #-}
     getNextAccountNonce acc = do
         ctx <- ask
@@ -85,21 +86,22 @@ instance
         -- Otherwise if the transaction was received individually then we
         -- check the transaction table for the nonce.
         if ctx ^. isTransactionFromBlock
-            then lift (getAccountNonce acc)
+            then lift (BS.getAccountNonce acc)
             else do
-                aaddr <- lift $! getAccountCanonicalAddress acc
+                aaddr <- lift $! BS.getAccountCanonicalAddress acc
                 return $! fst $! doGetNextAccountNonce (accountAddressEmbed aaddr) (ctx ^. ctxSkovData)
     {-# INLINE getAccountVerificationKeys #-}
-    getAccountVerificationKeys = lift . getAccountVerificationKeys
+    getAccountVerificationKeys = lift . BS.getAccountVerificationKeys
     {-# INLINE energyToCcd #-}
     energyToCcd v = do
         ctx <- ask
-        rate <- lift $! _erEnergyRate <$> getExchangeRates (ctx ^. ctxBs)
+        rate <- lift $! _erEnergyRate <$> BS.getExchangeRates (ctx ^. ctxBs)
         return $! computeCost rate v
     {-# INLINE getMaxBlockEnergy #-}
     getMaxBlockEnergy = do
         ctx <- ask
-        lift $! getChainParameters (ctx ^. ctxBs)
+        chainParams <- lift $! BS.getChainParameters (ctx ^. ctxBs)
+        return $! chainParams ^. cpConsensusParameters . cpBlockEnergyLimit
     {-# INLINE checkExactNonce #-}
     checkExactNonce = do
         ctx <- ask

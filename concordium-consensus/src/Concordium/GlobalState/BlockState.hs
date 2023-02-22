@@ -76,7 +76,7 @@ import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Basic.BlockState.PoolRewards
 import Concordium.GlobalState.CapitalDistribution
 import Concordium.GlobalState.Instance
-import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.Parameters hiding (getChainParameters)
 import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Types
 import Concordium.Types.Accounts
@@ -1413,6 +1413,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
     getAnonymityRevokers s = lift . getAnonymityRevokers s
     getUpdateKeysCollection s = lift $ getUpdateKeysCollection s
     getExchangeRates s = lift $ getExchangeRates s
+    getChainParameters = lift . getChainParameters
     getPaydayEpoch = lift . getPaydayEpoch
     getPoolStatus s = lift . getPoolStatus s
     {-# INLINE getModule #-}
@@ -1445,6 +1446,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
     {-# INLINE getAnonymityRevokers #-}
     {-# INLINE getUpdateKeysCollection #-}
     {-# INLINE getExchangeRates #-}
+    {-# INLINE getChainParameters #-}
 
 instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (MGSTrans t m) where
     getAccountCanonicalAddress = lift . getAccountCanonicalAddress
