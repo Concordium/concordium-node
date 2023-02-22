@@ -15,7 +15,6 @@ import Lens.Micro.Platform
 import qualified Concordium.ID.Types as ID
 import Concordium.Types
 import Concordium.Types.Parameters hiding (getChainParameters)
-import Concordium.Utils
 
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
