@@ -1,15 +1,15 @@
 {-# LANGUAGE TypeFamilies #-}
 
+-- |Consensus V1
 module Concordium.KonsensusV1.Consensus where
 
 import Control.Monad.State
 import qualified Data.ByteString as BS
 import Data.Maybe (fromMaybe, isJust)
 
+import qualified Data.Vector as Vector
 import Lens.Micro.Platform
 
-import Concordium.Scheduler.Types (updateSeqNumber)
-import Concordium.TimeMonad
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Parameters
@@ -25,6 +25,8 @@ import Concordium.KonsensusV1.TransactionVerifier
 import Concordium.KonsensusV1.TreeState.Implementation
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
+import Concordium.Scheduler.Types (updateSeqNumber)
+import Concordium.TimeMonad
 import qualified Concordium.TransactionVerification as TVer
 
 class MonadMulticast m where
@@ -62,7 +64,9 @@ putBlockItem ::
       BlockStateQuery m,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m)
     ) =>
+    -- |The transaction we want to put into the state.
     BlockItem ->
+    -- |Result of the put operation.
     m PutBlockItemResult
 putBlockItem bi = do
     -- First we check whether the transaction already exists in the transaction table.
@@ -123,5 +127,75 @@ putBlockItem bi = do
 -- Post-condition: The transactions are only added to the tree state if they could
 -- *all* be deemed verifiable i.e. the verification of each transaction either yields a
 -- 'TVer.OkResult' or a 'TVer.MaybeOkResult'.
-putBlockItems :: (MonadState (SkovData pv) m) => BakedBlock -> m Bool
-putBlockItems = undefined
+putBlockItems ::
+    ( MonadProtocolVersion m,
+      IsConsensusV1 pv,
+      MonadState (SkovData pv) m,
+      BlockStateQuery m,
+      TimeMonad m,
+      MPV m ~ pv,
+      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m)
+    ) =>
+    -- |Pointer to the parent block.
+    BlockPointer pv ->
+    -- |The baked block
+    BakedBlock ->
+    -- |Return 'True' if all transactions were
+    -- successfully processed.
+    m Bool
+putBlockItems parentPointer bb = processBis $! bbTransactions bb
+  where
+    getCtx = do
+        _ctxSkovData <- get
+        return $! Context{_ctxTransactionOrigin = Block, _ctxBlockState = bpState parentPointer, ..}
+    processBis txs
+        -- If no transactions are present we return 'True'.
+        | Vector.length txs == 0 = return True
+        -- There's work to do.
+        | otherwise = snd <$> process txs True
+    theRound = bbRound bb
+    process _ False = return (Vector.empty, False)
+    process txs True = do
+        ctx <- getCtx
+        theTime <- utcTimeToTimestamp <$> currentTime
+        let bi = Vector.head txs
+        tt' <- gets' _transactionTable
+        -- Check whether we already have the transaction.
+        if isJust $! tt' ^. ttHashMap . at' (getHash bi)
+            then -- We already have the transaction so we proceed to the next one.
+                process (Vector.tail txs) True
+            else do
+                -- We verify the transaction and check whether it's acceptable i.e. Ok or MaybeOk.
+                -- If that is the case then we add it to the transaction table and pending transactions.
+                -- If it is NotOk then we stop verifying the transactions as the block can never be valid now.
+                verRes <- runTransactionVerifierT (TVer.verify theTime bi) ctx
+                case verRes of
+                    (TVer.NotOk _) -> return (Vector.empty, False)
+                    acceptedRes -> do
+                        added <- doAddTransaction theRound bi acceptedRes
+                        if not added
+                            then -- The transaction was not added meaning it yields a lower nonce with respect
+                            -- to the non finalized transactions. We tolerate this and keep processing transactions from the
+                            -- block as it could be the case that we have received other transactions from the account by other blocks.
+                                process (Vector.tail txs) True
+                            else do
+                                case wmdData bi of
+                                    NormalTransaction tx -> do
+                                        fbState <- bpState <$> (_focusBlock <$> gets' _skovPendingTransactions)
+                                        macct <- getAccount fbState $! transactionSender tx
+                                        nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
+                                        when (nextNonce <= transactionNonce tx) $ do
+                                            pendingTransactionTable %=! addPendingTransaction nextNonce tx
+                                            doPurgeTransactionTable False =<< currentTime
+                                        process (Vector.tail txs) True
+                                    CredentialDeployment _ -> do
+                                        pendingTransactionTable %=! addPendingDeployCredential (getHash bi)
+                                        doPurgeTransactionTable False =<< currentTime
+                                        process (Vector.tail txs) True
+                                    ChainUpdate cu -> do
+                                        fbState <- bpState <$> (_focusBlock <$> gets' _skovPendingTransactions)
+                                        nextSN <- getNextUpdateSequenceNumber fbState (updateType (uiPayload cu))
+                                        when (nextSN <= updateSeqNumber (uiHeader cu)) $ do
+                                            pendingTransactionTable %=! addPendingUpdate nextSN cu
+                                            doPurgeTransactionTable False =<< currentTime
+                                        process (Vector.tail txs) True
