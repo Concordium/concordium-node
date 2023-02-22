@@ -68,12 +68,12 @@ putBlockItem bi = do
     -- First we check whether the transaction already exists in the transaction table.
     tt' <- gets' _transactionTable
     if isJust $! tt' ^. ttHashMap . at' txHash
-        then -- The transaction is already present so we do nothing and
-        -- return the fact that it is a duplicate.
+        then -- The transaction is already present so we do nothing and simply
+        -- returns the fact that it is a duplicate.
             return Duplicate
-        else -- The transaction is new to us. Before adding it to the transaction table,
-        -- we verify it.
-        do
+        else do
+            -- The transaction is new to us. Before adding it to the transaction table,
+            -- we verify it.
             theTime <- utcTimeToTimestamp <$> currentTime
             ctx <- getCtx
             verRes <- runTransactionVerifierT (TVer.verify theTime bi) ctx
