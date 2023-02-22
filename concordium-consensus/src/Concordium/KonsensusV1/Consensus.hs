@@ -52,11 +52,75 @@ data PutBlockItemResult
       -- i.e. inferior to the next available nonce.
       OldNonce
 
+-- |Puts a transaction into the pending transaction table
+-- if it's eligible.
+-- A transaction is eligible if the nonce of the transaction is at least
+-- as high as the next available nonce observed with respect to the focus block.
+--
+-- We always check that the nonce of the transaction (if it has origin 'Block') is
+-- at least what is recorded with respect to next available nonce for the
+-- account. This is not necessary for transactions received individually
+-- as they have already been pre-verified, and they will get rejected if they
+-- do not yield exactly the recorded next available nonce.
+--
+-- This is an internal function only and should not be called directly.
+putPendingTransaction ::
+    ( MonadState (SkovData (MPV m)) m,
+      TimeMonad m,
+      BlockStateQuery m,
+      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m)
+    ) =>
+    -- |Origin of the transaction.
+    TransactionOrigin ->
+    -- |The transaction.
+    BlockItem ->
+    m ()
+putPendingTransaction Block bi = do
+    case wmdData bi of
+        NormalTransaction tx -> do
+            fbState <- bpState <$> (_focusBlock <$> gets' _skovPendingTransactions)
+            macct <- getAccount fbState $! transactionSender tx
+            nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
+            when (nextNonce <= transactionNonce tx) $ do
+                pendingTransactionTable %=! addPendingTransaction nextNonce tx
+                doPurgeTransactionTable False =<< currentTime
+        CredentialDeployment _ -> do
+            pendingTransactionTable %=! addPendingDeployCredential txHash
+            doPurgeTransactionTable False =<< currentTime
+        ChainUpdate cu -> do
+            fbState <- bpState <$> (_focusBlock <$> gets' _skovPendingTransactions)
+            nextSN <- getNextUpdateSequenceNumber fbState (updateType (uiPayload cu))
+            when (nextSN <= updateSeqNumber (uiHeader cu)) $ do
+                pendingTransactionTable %=! addPendingUpdate nextSN cu
+                doPurgeTransactionTable False =<< currentTime
+  where
+    txHash = getHash bi
+putPendingTransaction Individual bi = do
+    case wmdData bi of
+        NormalTransaction tx -> do
+            pendingTransactionTable %=! addPendingTransaction (transactionNonce tx) tx
+            doPurgeTransactionTable False =<< currentTime
+        CredentialDeployment _ -> do
+            pendingTransactionTable %=! addPendingDeployCredential txHash
+            doPurgeTransactionTable False =<< currentTime
+        ChainUpdate cu -> do
+            pendingTransactionTable %=! addPendingUpdate (updateSeqNumber (uiHeader cu)) cu
+            doPurgeTransactionTable False =<< currentTime
+  where
+    txHash = getHash bi
+
+-- |Check whether a transaction is already present in the
+-- transaction table.
+isDuplicate :: TransactionTable -> BlockItem -> Bool
+isDuplicate tt bi = isJust $! tt ^. ttHashMap . at' txHash
+  where
+    txHash = getHash bi
+
 -- |Attempt to put the 'BlockItem' into the tree state.
 -- If the the 'BlockItem' was successfully added then it will be
 -- in 'Received' state where the associated 'CommitPoint' will be set to zero.
 -- Return the resulting 'PutBlockItemResult'.
-putBlockItem ::
+processBlockItem ::
     ( MonadProtocolVersion m,
       IsConsensusV1 (MPV m),
       MonadState (SkovData (MPV m)) m,
@@ -68,13 +132,11 @@ putBlockItem ::
     BlockItem ->
     -- |Result of the put operation.
     m PutBlockItemResult
-putBlockItem bi = do
+processBlockItem bi = do
     -- First we check whether the transaction already exists in the transaction table.
     tt' <- gets' _transactionTable
-    if isJust $! tt' ^. ttHashMap . at' txHash
-        then -- The transaction is already present so we do nothing and simply
-        -- returns the fact that it is a duplicate.
-            return Duplicate
+    if isDuplicate tt' bi
+        then return Duplicate
         else do
             -- The transaction is new to us. Before adding it to the transaction table,
             -- we verify it.
@@ -86,36 +148,13 @@ putBlockItem bi = do
                     added <- doAddTransaction 0 bi okRes
                     if added
                         then do
-                            -- The transaction was added and we record this in the pending transactions table
-                            -- if the transaction nonce is at least the next available nonce from the perspective
-                            -- of the focus block.
-                            case wmdData bi of
-                                NormalTransaction tx -> do
-                                    fbState <- bpState <$> (_focusBlock <$> gets' _skovPendingTransactions)
-                                    macct <- getAccount fbState $! transactionSender tx
-                                    nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
-                                    when (nextNonce <= transactionNonce tx) $ do
-                                        pendingTransactionTable %=! addPendingTransaction nextNonce tx
-                                        doPurgeTransactionTable False =<< currentTime
-                                    return Accepted
-                                CredentialDeployment _ -> do
-                                    pendingTransactionTable %=! addPendingDeployCredential txHash
-                                    doPurgeTransactionTable False =<< currentTime
-                                    return Accepted
-                                ChainUpdate cu -> do
-                                    fbState <- bpState <$> (_focusBlock <$> gets' _skovPendingTransactions)
-                                    nextSN <- getNextUpdateSequenceNumber fbState (updateType (uiPayload cu))
-                                    when (nextSN <= updateSeqNumber (uiHeader cu)) $ do
-                                        pendingTransactionTable %=! addPendingUpdate nextSN cu
-                                        doPurgeTransactionTable False =<< currentTime
-                                    return Accepted
+                            putPendingTransaction Individual bi
+                            return Accepted
                         else -- If the transaction was not added it means it contained an old nonce.
                             return OldNonce
                 notAccepted -> return $! Rejected notAccepted
   where
-    -- The transaction hash.
-    txHash = getHash bi
-    -- Create the context for verifying the transaction within.
+    -- Create a context suitable for verifying a transaction within a 'Individual' context.
     getCtx = do
         _ctxSkovData <- get
         _ctxBlockState <- bpState <$> gets' _lastFinalized
@@ -127,7 +166,8 @@ putBlockItem bi = do
 -- Post-condition: The transactions are only added to the tree state if they could
 -- *all* be deemed verifiable i.e. the verification of each transaction either yields a
 -- 'TVer.OkResult' or a 'TVer.MaybeOkResult'.
-putBlockItems ::
+-- This is an internal function and should only be called when processing a block.
+processBlockItems ::
     ( MonadProtocolVersion m,
       IsConsensusV1 pv,
       MonadState (SkovData pv) m,
@@ -143,8 +183,9 @@ putBlockItems ::
     -- |Return 'True' if all transactions were
     -- successfully processed.
     m Bool
-putBlockItems parentPointer bb = processBis $! bbTransactions bb
+processBlockItems parentPointer bb = processBis $! bbTransactions bb
   where
+    -- Create a context suitable for verifying a transaction within a 'Block' context.
     getCtx = do
         _ctxSkovData <- get
         return $! Context{_ctxTransactionOrigin = Block, _ctxBlockState = bpState parentPointer, ..}
@@ -161,41 +202,28 @@ putBlockItems parentPointer bb = processBis $! bbTransactions bb
         let bi = Vector.head txs
         tt' <- gets' _transactionTable
         -- Check whether we already have the transaction.
-        if isJust $! tt' ^. ttHashMap . at' (getHash bi)
-            then -- We already have the transaction so we proceed to the next one.
-                process (Vector.tail txs) True
+        if isDuplicate tt' bi
+            then process (Vector.tail txs) True
             else do
                 -- We verify the transaction and check whether it's acceptable i.e. Ok or MaybeOk.
                 -- If that is the case then we add it to the transaction table and pending transactions.
                 -- If it is NotOk then we stop verifying the transactions as the block can never be valid now.
                 verRes <- runTransactionVerifierT (TVer.verify theTime bi) ctx
-                case verRes of
-                    (TVer.NotOk _) -> return (Vector.empty, False)
-                    acceptedRes -> do
-                        added <- doAddTransaction theRound bi acceptedRes
+                -- Continue processing the transactions.
+                -- If the transaction was *not* added then it means that it yields a lower nonce with
+                -- respect to the non finalized transactions. We tolerate this and keep processing the remaining transactions
+                -- of the block as it could be the case that we have received other transactions from the given account via other blocks.
+                -- We only add the transaction to the pending transaction table if its nonce is at least the next available nonce for the
+                -- account.
+                let continue added =
                         if not added
-                            then -- The transaction was not added meaning it yields a lower nonce with respect
-                            -- to the non finalized transactions. We tolerate this and keep processing transactions from the
-                            -- block as it could be the case that we have received other transactions from the account by other blocks.
-                                process (Vector.tail txs) True
-                            else do
-                                case wmdData bi of
-                                    NormalTransaction tx -> do
-                                        fbState <- bpState <$> (_focusBlock <$> gets' _skovPendingTransactions)
-                                        macct <- getAccount fbState $! transactionSender tx
-                                        nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
-                                        when (nextNonce <= transactionNonce tx) $ do
-                                            pendingTransactionTable %=! addPendingTransaction nextNonce tx
-                                            doPurgeTransactionTable False =<< currentTime
-                                        process (Vector.tail txs) True
-                                    CredentialDeployment _ -> do
-                                        pendingTransactionTable %=! addPendingDeployCredential (getHash bi)
-                                        doPurgeTransactionTable False =<< currentTime
-                                        process (Vector.tail txs) True
-                                    ChainUpdate cu -> do
-                                        fbState <- bpState <$> (_focusBlock <$> gets' _skovPendingTransactions)
-                                        nextSN <- getNextUpdateSequenceNumber fbState (updateType (uiPayload cu))
-                                        when (nextSN <= updateSeqNumber (uiHeader cu)) $ do
-                                            pendingTransactionTable %=! addPendingUpdate nextSN cu
-                                            doPurgeTransactionTable False =<< currentTime
-                                        process (Vector.tail txs) True
+                            then process (Vector.tail txs) True
+                            else putPendingTransaction Block bi >> process (Vector.tail txs) True
+                case verRes of
+                    -- The transaction was deemed non verifiable i.e., it can never be
+                    -- valid. We short circuit the recursion here and return 'False'.
+                    (TVer.NotOk _) -> return (Vector.empty, False)
+                    -- The transaction is either 'Ok' or 'MaybeOk' and that is acceptable
+                    -- when processing transactions which originates from a block.
+                    -- We add it to the transaction table and continue with the next transaction.
+                    acceptedRes -> doAddTransaction theRound bi acceptedRes >>= continue
