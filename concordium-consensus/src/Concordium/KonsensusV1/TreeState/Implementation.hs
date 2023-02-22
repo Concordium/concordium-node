@@ -145,6 +145,8 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       _skovPendingBlocks :: !PendingBlocks,
       -- |Pointer to the last finalized block.
       _lastFinalized :: !(BlockPointer pv),
+      -- |Baker and finalizer information with respect to the epoch of the last finalized block.
+      _skovEpochBakers :: !EpochBakers,
       -- |The current consensus statistics.
       _statistics :: !Stats.ConsensusStatistics
     }
@@ -159,6 +161,10 @@ instance HasPendingBlocks (SkovData pv) where
     pendingBlocks = skovPendingBlocks
     {-# INLINE pendingBlocks #-}
 
+instance HasEpochBakers (SkovData pv) where
+    epochBakers = skovEpochBakers
+    {-# INLINE epochBakers #-}
+
 -- |Create an initial 'SkovData pv'
 mkInitialSkovData ::
     -- |The 'RuntimeParameters'
@@ -171,9 +177,11 @@ mkInitialSkovData ::
     Duration ->
     -- |The 'LeadershipElectionNonce'
     LeadershipElectionNonce ->
+    -- |Bakers at the genesis block
+    EpochBakers ->
     -- |The initial 'SkovData'
     SkovData pv
-mkInitialSkovData rp genConf genState baseTimeout len =
+mkInitialSkovData rp genConf genState baseTimeout len _skovEpochBakers =
     let genesisBlock = GenesisBlock genConf
         genesisTime = timestampToUTCTime $ Base.genesisTime (gcParameters genConf)
         genesisMetadata =

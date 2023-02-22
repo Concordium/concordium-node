@@ -1,6 +1,7 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Concordium.KonsensusV1.TreeState.Types where
@@ -8,11 +9,13 @@ module Concordium.KonsensusV1.TreeState.Types where
 import Data.Serialize
 import Data.Time
 import Data.Time.Clock.POSIX
+import Lens.Micro.Platform
 
 import Concordium.Types
 import Concordium.Types.Execution
 import Concordium.Types.HashableTo
 
+import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import Concordium.GlobalState.TransactionTable
 import Concordium.KonsensusV1.Types
@@ -246,3 +249,30 @@ initialRoundStatus baseTimeout leNonce =
           rsLatestEpochFinEntry = Nothing,
           rsPreviousRoundTC = Nothing
         }
+
+-- |The sets of bakers and finalizers for an epoch/payday.
+data BakersAndFinalizers = BakersAndFinalizers
+    { -- |Bakers set.
+      _bfBakers :: !FullBakers,
+      -- |Finalizers set.
+      _bfFinalizers :: !FinalizationCommittee
+    }
+
+makeLenses ''BakersAndFinalizers
+
+-- |The bakers and finalizers associated with the current and next epoch (with respect to a
+-- particular epoch).
+data EpochBakers = EpochBakers
+    { -- |The current epoch under consideration.
+      _epochBakersEpoch :: !Epoch,
+      -- |The bakers and finalizers for the current epoch.
+      _currentEpochBakers :: !BakersAndFinalizers,
+      -- |The bakers and finalizers for the next epoch.
+      _nextEpochBakers :: !BakersAndFinalizers,
+      -- |The first epoch of the next payday. The set of bakers is fixed for an entire payday, and
+      -- so the '_currentEpochBakers' apply for all epochs @e@ with
+      -- @_epochBakersEpoch <= e < _nextPayday@.
+      _nextPayday :: !Epoch
+    }
+
+makeClassy ''EpochBakers
