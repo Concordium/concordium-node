@@ -218,8 +218,8 @@ processBlockItems parentPointer bb = processBis $! bbTransactions bb
                     -- account.
                     let continue added =
                             if not added
-                            then process (Vector.tail txs) True
-                            else putPendingTransaction Block bi >> process (Vector.tail txs) True
+                                then process (Vector.tail txs) True
+                                else putPendingTransaction Block bi >> process (Vector.tail txs) True
                     case verRes of
                         -- The transaction was deemed non verifiable i.e., it can never be
                         -- valid. We short circuit the recursion here and return 'False'.
