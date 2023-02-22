@@ -5,7 +5,6 @@ module Concordium.KonsensusV1.Consensus where
 import Control.Monad.State
 import qualified Data.ByteString as BS
 import Data.Maybe (fromMaybe, isJust)
-import qualified Data.Vector as Vector
 
 import Lens.Micro.Platform
 
@@ -25,6 +24,7 @@ import qualified Concordium.GlobalState.Types as GSTypes
 import Concordium.KonsensusV1.TransactionVerifier
 import Concordium.KonsensusV1.TreeState.Implementation
 import Concordium.KonsensusV1.TreeState.Types
+import Concordium.KonsensusV1.Types
 import qualified Concordium.TransactionVerification as TVer
 
 class MonadMulticast m where
@@ -100,7 +100,7 @@ putBlockItem bi = do
                                     fbState <- bpState <$> (_focusBlock <$> gets' _skovPendingTransactions)
                                     nextSN <- getNextUpdateSequenceNumber fbState (updateType (uiPayload cu))
                                     when (nextSN <= updateSeqNumber (uiHeader cu)) $
-                                        pendingTransactionTable %=! addPendingUpdate 0 cu
+                                        pendingTransactionTable %=! addPendingUpdate nextSN cu
                                     return Accepted
                         else -- If the transaction was not added it means it contained an old nonce.
                             return OldNonce
@@ -117,10 +117,8 @@ putBlockItem bi = do
 -- |Attempt to put the 'BlockItem's of a 'BakedBlock' into the tree state.
 -- Return 'True' of the transactions were added otherwise 'False'.
 --
--- Pre-condition: The provided block items must be part of a 'BakedBlock'.
---
 -- Post-condition: The transactions are only added to the tree state if they could
 -- *all* be deemed verifiable i.e. the verification of each transaction either yields a
 -- 'TVer.OkResult' or a 'TVer.MaybeOkResult'.
-putBlockItems :: (MonadState (SkovData pv) m) => CommitPoint -> Vector.Vector BlockItem -> m Bool
+putBlockItems :: (MonadState (SkovData pv) m) => BakedBlock -> m Bool
 putBlockItems = undefined
