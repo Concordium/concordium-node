@@ -195,35 +195,36 @@ processBlockItems parentPointer bb = processBis $! bbTransactions bb
         -- There's work to do.
         | otherwise = snd <$> process txs True
     theRound = bbRound bb
-    process _ False = return (Vector.empty, False)
-    process txs True = do
-        ctx <- getCtx
-        theTime <- utcTimeToTimestamp <$> currentTime
-        let bi = Vector.head txs
-        tt' <- gets' _transactionTable
-        -- Check whether we already have the transaction.
-        if isDuplicate tt' bi
-            then process (Vector.tail txs) True
-            else do
-                -- We verify the transaction and check whether it's acceptable i.e. Ok or MaybeOk.
-                -- If that is the case then we add it to the transaction table and pending transactions.
-                -- If it is NotOk then we stop verifying the transactions as the block can never be valid now.
-                verRes <- runTransactionVerifierT (TVer.verify theTime bi) ctx
-                -- Continue processing the transactions.
-                -- If the transaction was *not* added then it means that it yields a lower nonce with
-                -- respect to the non finalized transactions. We tolerate this and keep processing the remaining transactions
-                -- of the block as it could be the case that we have received other transactions from the given account via other blocks.
-                -- We only add the transaction to the pending transaction table if its nonce is at least the next available nonce for the
-                -- account.
-                let continue added =
-                        if not added
+    process txs res
+        | Vector.length txs == 0 = return (Vector.empty, res)
+        | otherwise = do
+            ctx <- getCtx
+            theTime <- utcTimeToTimestamp <$> currentTime
+            let bi = Vector.head txs
+            tt' <- gets' _transactionTable
+            -- Check whether we already have the transaction.
+            if isDuplicate tt' bi
+                then process (Vector.tail txs) True
+                else do
+                    -- We verify the transaction and check whether it's acceptable i.e. Ok or MaybeOk.
+                    -- If that is the case then we add it to the transaction table and pending transactions.
+                    -- If it is NotOk then we stop verifying the transactions as the block can never be valid now.
+                    verRes <- runTransactionVerifierT (TVer.verify theTime bi) ctx
+                    -- Continue processing the transactions.
+                    -- If the transaction was *not* added then it means that it yields a lower nonce with
+                    -- respect to the non finalized transactions. We tolerate this and keep processing the remaining transactions
+                    -- of the block as it could be the case that we have received other transactions from the given account via other blocks.
+                    -- We only add the transaction to the pending transaction table if its nonce is at least the next available nonce for the
+                    -- account.
+                    let continue added =
+                            if not added
                             then process (Vector.tail txs) True
                             else putPendingTransaction Block bi >> process (Vector.tail txs) True
-                case verRes of
-                    -- The transaction was deemed non verifiable i.e., it can never be
-                    -- valid. We short circuit the recursion here and return 'False'.
-                    (TVer.NotOk _) -> return (Vector.empty, False)
-                    -- The transaction is either 'Ok' or 'MaybeOk' and that is acceptable
-                    -- when processing transactions which originates from a block.
-                    -- We add it to the transaction table and continue with the next transaction.
-                    acceptedRes -> doAddTransaction theRound bi acceptedRes >>= continue
+                    case verRes of
+                        -- The transaction was deemed non verifiable i.e., it can never be
+                        -- valid. We short circuit the recursion here and return 'False'.
+                        (TVer.NotOk _) -> return (Vector.empty, False)
+                        -- The transaction is either 'Ok' or 'MaybeOk' and that is acceptable
+                        -- when processing transactions which originates from a block.
+                        -- We add it to the transaction table and continue with the next transaction.
+                        acceptedRes -> doAddTransaction theRound bi acceptedRes >>= continue
