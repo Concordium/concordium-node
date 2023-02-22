@@ -92,15 +92,18 @@ putBlockItem bi = do
                                     nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
                                     when (nextNonce <= transactionNonce tx) $ do
                                         pendingTransactionTable %=! addPendingTransaction nextNonce tx
+                                        doPurgeTransactionTable False =<< currentTime
                                     return Accepted
                                 CredentialDeployment _ -> do
                                     pendingTransactionTable %=! addPendingDeployCredential txHash
+                                    doPurgeTransactionTable False =<< currentTime
                                     return Accepted
                                 ChainUpdate cu -> do
                                     fbState <- bpState <$> (_focusBlock <$> gets' _skovPendingTransactions)
                                     nextSN <- getNextUpdateSequenceNumber fbState (updateType (uiPayload cu))
-                                    when (nextSN <= updateSeqNumber (uiHeader cu)) $
+                                    when (nextSN <= updateSeqNumber (uiHeader cu)) $ do
                                         pendingTransactionTable %=! addPendingUpdate nextSN cu
+                                        doPurgeTransactionTable False =<< currentTime                                        
                                     return Accepted
                         else -- If the transaction was not added it means it contained an old nonce.
                             return OldNonce
