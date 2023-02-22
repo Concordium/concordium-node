@@ -3,6 +3,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE TemplateHaskell #-}
+-- |This module implements the 'TransactionVerifier' for consensus protocol V1.
 module Concordium.KonsensusV1.TransactionVerifier where
 
 import Data.Kind (Type)
@@ -19,14 +20,20 @@ import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.TransactionVerification as TVer
 import Concordium.KonsensusV1.TreeState.Implementation
 
--- |The context required for the transaction verifier in order to verify a transaction.
+-- |Where a received transaction stems from.
+-- A transaction is either received as part of a block or it
+-- has been submitted individually to the consensus.
+data TransactionOrigin = Block | Individual
+    deriving (Eq, Show)
+
+-- |Context for verifying a transaction.
 data Context (m :: Type -> Type) = Context
     { -- |The 'SkovData' to use for verifying a transaction.
       _ctxSkovData :: !(SkovData (MPV m)),
       -- |The blockstate
       _ctxBs :: BlockState m,
       -- |Whether the transaction was received from a block or individually.
-      _isTransactionFromBlock :: Bool
+      _transactionOrigin :: !TransactionOrigin
     }
 makeLenses ''Context
 
@@ -50,32 +57,32 @@ instance
   ) => TVer.TransactionVerifier (TransactionVerifierT' r m) where
     {-# INLINE getIdentityProvider #-}
     getIdentityProvider ipId = do
-        ctx <- ask
-        lift $! BS.getIdentityProvider (ctx ^. ctxBs) ipId
+        bs <- asks _ctxBs
+        lift $! BS.getIdentityProvider bs ipId
     {-# INLINE getAnonymityRevokers #-}
     getAnonymityRevokers arrIds = do
-        ctx <- ask
-        lift $! BS.getAnonymityRevokers (ctx ^. ctxBs) arrIds
+        bs <- asks _ctxBs
+        lift $! BS.getAnonymityRevokers bs arrIds
     {-# INLINE getCryptographicParameters #-}
     getCryptographicParameters = do
-        ctx <- ask
-        lift $! BS.getCryptographicParameters (ctx ^. ctxBs)
+        bs <- asks _ctxBs
+        lift $! BS.getCryptographicParameters bs
     {-# INLINE registrationIdExists #-}
     registrationIdExists regId = do
-        ctx <- ask
-        lift $ isJust <$> BS.getAccountByCredId (ctx ^. ctxBs) (ID.toRawCredRegId regId)
+        bs <- asks _ctxBs
+        lift $ isJust <$> BS.getAccountByCredId bs (ID.toRawCredRegId regId)
     {-# INLINE getAccount #-}
     getAccount aaddr = do
-        ctx <- ask
-        fmap snd <$> lift (BS.getAccount (ctx ^. ctxBs) aaddr)
+        bs <- asks _ctxBs
+        fmap snd <$> lift (BS.getAccount bs aaddr)
     {-# INLINE getNextUpdateSequenceNumber #-}
     getNextUpdateSequenceNumber uType = do
-        ctx <- ask
-        lift $! BS.getNextUpdateSequenceNumber (ctx ^. ctxBs) uType
+        bs <- asks _ctxBs
+        lift $! BS.getNextUpdateSequenceNumber bs uType
     {-# INLINE getUpdateKeysCollection #-}
     getUpdateKeysCollection = do
-        ctx <- ask
-        lift $! BS.getUpdateKeysCollection (ctx ^. ctxBs)
+        bs <- asks _ctxBs
+        lift $! BS.getUpdateKeysCollection bs
     {-# INLINE getAccountAvailableAmount #-}
     getAccountAvailableAmount = lift . BS.getAccountAvailableAmount
     {-# INLINE getNextAccountNonce #-}
@@ -85,25 +92,26 @@ instance
         -- then we check the account nonce from the `BlockState` in the context
         -- Otherwise if the transaction was received individually then we
         -- check the transaction table for the nonce.
-        if ctx ^. isTransactionFromBlock
-            then lift (BS.getAccountNonce acc)
-            else do
+        asks _transactionOrigin >>= \case
+            Block -> lift (BS.getAccountNonce acc)
+            Individual -> do
                 aaddr <- lift $! BS.getAccountCanonicalAddress acc
                 return $! fst $! doGetNextAccountNonce (accountAddressEmbed aaddr) (ctx ^. ctxSkovData)
     {-# INLINE getAccountVerificationKeys #-}
     getAccountVerificationKeys = lift . BS.getAccountVerificationKeys
     {-# INLINE energyToCcd #-}
     energyToCcd v = do
-        ctx <- ask
-        rate <- lift $! _erEnergyRate <$> BS.getExchangeRates (ctx ^. ctxBs)
+        bs <- asks _ctxBs
+        rate <- lift $! _erEnergyRate <$> BS.getExchangeRates bs
         return $! computeCost rate v
     {-# INLINE getMaxBlockEnergy #-}
     getMaxBlockEnergy = do
-        ctx <- ask
-        chainParams <- lift $! BS.getChainParameters (ctx ^. ctxBs)
+        bs <- asks _ctxBs
+        chainParams <- lift $! BS.getChainParameters bs
         return $! chainParams ^. cpConsensusParameters . cpBlockEnergyLimit
     {-# INLINE checkExactNonce #-}
     checkExactNonce = do
-        ctx <- ask
-        return $! not (ctx ^. isTransactionFromBlock)
+        asks _transactionOrigin >>= \case
+            Block -> return False
+            Individual -> return True
 
