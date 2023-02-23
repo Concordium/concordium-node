@@ -15,6 +15,7 @@ import Data.Functor
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import qualified Data.Map.Strict as Map
+import Data.Maybe (isJust)
 
 import Concordium.Types
 import Concordium.Types.HashableTo
@@ -75,6 +76,7 @@ instance (IsProtocolVersion pv, MonadReader r m, HasMemoryLLDB pv r, MonadIO m) 
         readLLDB <&> \db -> do
             height <- HM.lookup bh $ lldbBlockHashes db
             Map.lookup height $ lldbBlocks db
+    memberBlock = fmap isJust . lookupBlock
     lookupFirstBlock =
         readLLDB <&> fmap snd . Map.lookupMin . lldbBlocks
     lookupLastBlock =
@@ -83,6 +85,7 @@ instance (IsProtocolVersion pv, MonadReader r m, HasMemoryLLDB pv r, MonadIO m) 
         readLLDB <&> Map.lookup h . lldbBlocks
     lookupTransaction th =
         readLLDB <&> HM.lookup th . lldbTransactions
+    memberTransaction = fmap isJust . lookupTransaction
     writeBlocks blocks fe =
         withLLDB $ (,()) . updateFinEntry . flip (foldl' insertBlock) blocks
       where

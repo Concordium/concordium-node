@@ -5,7 +5,6 @@
 -- |This module defines the low-level interface to the persistent tree state.
 module Concordium.KonsensusV1.TreeState.LowLevel where
 
-import Data.Maybe
 import Data.Serialize
 
 import Concordium.Types
@@ -69,14 +68,13 @@ class (Monad m) => MonadTreeStateStore m where
 
     -- |Determine if a block is present in the finalized block table.
     memberBlock :: BlockHash -> m Bool
-    memberBlock = fmap isJust . lookupBlock
 
     -- |Get the first (i.e. genesis) block.
     -- (The implementation can assume that this block has height 0.)
     lookupFirstBlock :: m (Maybe (StoredBlock (MPV m)))
     lookupFirstBlock = lookupBlockByHeight 0
 
-    -- |Get the last (finalized) block.
+    -- |Get the last finalized block.
     lookupLastBlock :: m (Maybe (StoredBlock (MPV m)))
 
     -- |Look up a block by height.
@@ -87,7 +85,6 @@ class (Monad m) => MonadTreeStateStore m where
 
     -- |Determine if a block is present in the finalized transaction table.
     memberTransaction :: TransactionHash -> m Bool
-    memberTransaction = fmap isJust . lookupTransaction
 
     -- |Store the list of blocks and their transactions, updating the last finalization entry to
     -- the supplied value.  (This should write the blocks as a single database transaction.)

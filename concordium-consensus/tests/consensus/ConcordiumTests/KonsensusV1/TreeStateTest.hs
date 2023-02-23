@@ -1,6 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -47,6 +48,19 @@ import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import qualified Concordium.TransactionVerification as TVer
 import Concordium.Types.Updates
+
+-- We derive these instances here so we don't accidently end up using them in production.
+-- We have them because they are very convenient for testing purposes.
+deriving instance Eq (InMemoryBlockStatus pv)
+deriving instance Eq (BlockStatus pv)
+deriving instance Eq (BlockTable pv)
+deriving instance Eq (RecentBlockStatus pv)
+
+instance Eq (BlockPointer pv) where
+    bp1 == bp2 =
+        bpInfo bp1 == bpInfo bp2
+            && bpBlock bp1 == bpBlock bp2
+            && hpbsHash (bpState bp1) == hpbsHash (bpState bp2)
 
 -- |A dummy block state that is just a @BlobRef 0@.
 dummyPersistentBlockState :: PersistentBlockState pv

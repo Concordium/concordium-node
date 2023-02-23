@@ -76,7 +76,7 @@ data InMemoryBlockStatus pv
       MemBlockPending !PendingBlock
     | -- |The block is alive i.e. head of chain.
       MemBlockAlive !(BlockPointer pv)
-    deriving (Eq, Show)
+    deriving (Show)
 
 -- |The block table yields blocks that are
 -- either alive or pending.
@@ -105,7 +105,7 @@ data BlockTable pv = BlockTable
       -- * When a block is being marked as dead.
       _liveMap :: !(HM.HashMap BlockHash (InMemoryBlockStatus pv))
     }
-    deriving (Eq, Show)
+    deriving (Show)
 
 makeLenses ''BlockTable
 
@@ -632,9 +632,6 @@ markTransactionDead blockHash transaction =
 -- If the first argument is @False@, the transaction table is only purged if
 -- 'rpInsertionsBeforeTransactionPurged' transactions have been inserted since
 -- the last purge.  If it is true, the table is purged regardless.
---
--- WARNING: This function violates the independence of the tree state components.
--- In particular, the following invariants are assumed and maintained:
 --
 --   * Every 'BlockItem' in the transaction table that is not included in a live
 --     or finalized block is referenced in the pending transaction table.  That is,
