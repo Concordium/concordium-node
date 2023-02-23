@@ -629,9 +629,6 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
         Maybe BakerId ->
         m (Maybe PoolStatus)
 
-    -- |Get the chain parameters
-    getChainParameters :: BlockState m -> m (ChainParameters (MPV m))
-
 -- |Distribution of newly-minted GTU.
 data MintAmounts = MintAmounts
     { -- |Minted amount allocated to the BakingRewardAccount
@@ -1420,7 +1417,6 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
     getChainParameters = lift . getChainParameters
     getPaydayEpoch = lift . getPaydayEpoch
     getPoolStatus s = lift . getPoolStatus s
-    getChainParameters = lift . getChainParameters
     {-# INLINE getModule #-}
     {-# INLINE getAccount #-}
     {-# INLINE accountExists #-}
