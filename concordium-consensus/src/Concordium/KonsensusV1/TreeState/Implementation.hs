@@ -188,7 +188,7 @@ mkInitialSkovData rp genConf genState baseTimeout len =
                   bpBlock = genesisBlock,
                   bpState = genState
                 }
-        _roundStatus = initialRoundStatus baseTimeout len
+        _roundStatus = initialRoundStatus baseTimeout len $ gcFirstGenesisHash genConf
         _transactionTable = emptyTransactionTable
         _transactionTablePurgeCounter = 0
         _skovPendingTransactions =
@@ -666,3 +666,11 @@ doClearAfterProtocolUpdate = do
     -- Archive the last finalized block state.
     archiveBlockState $ bpState lastFinBlock
     collapseCaches
+
+doGetRoundStatus :: (MonadState (SkovData pv) m) => m RoundStatus
+doGetRoundStatus = use roundStatus
+
+doSetRoundStatus :: (MonadState (SkovData pv) m, LowLevel.MonadTreeStateStore m) => RoundStatus -> m ()
+doSetRoundStatus rs = do
+    LowLevel.writeCurrentRoundStatus rs
+    roundStatus .=! rs

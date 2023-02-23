@@ -184,12 +184,15 @@ data RoundStatus = RoundStatus
       -- |If the consensus runner is part of the finalization committee,
       -- then this will yield the last signed timeout message.
       rsLastSignedTimeoutSignatureMessage :: !(Maybe TimeoutSignatureMessage),
+      -- |Next signable round. Blocks in this round and higher can be signed.
+      rsNextSignableRound :: !Round,
       -- |The current timeout.
       rsCurrentTimeout :: !Duration,
       -- |The highest 'QuorumCertificate' seen so far.
-      -- This is 'Nothing' if no rounds since genesis has
-      -- been able to produce a 'QuorumCertificate'.
-      rsHighestQC :: !(Maybe QuorumCertificate),
+      -- This contains the empty quorom certificate
+      -- (having round 0, epoch 0, empty quorom signature and empty finalizer set)
+      -- if no rounds since genesis has been able to produce a 'QuorumCertificate'.
+      rsHighestQC :: !QuorumCertificate,
       -- |The current 'LeadershipElectionNonce'.
       rsLeadershipElectionNonce :: !LeadershipElectionNonce,
       -- |The latest 'Epoch' 'FinalizationEntry'.
@@ -211,6 +214,7 @@ instance Serialize RoundStatus where
         put rsCurrentTimeoutSignatureMessages
         put rsLastSignedQuouromSignatureMessage
         put rsLastSignedTimeoutSignatureMessage
+        put rsNextSignableRound
         put rsCurrentTimeout
         put rsHighestQC
         put rsLeadershipElectionNonce
@@ -223,6 +227,7 @@ instance Serialize RoundStatus where
         rsCurrentTimeoutSignatureMessages <- get
         rsLastSignedQuouromSignatureMessage <- get
         rsLastSignedTimeoutSignatureMessage <- get
+        rsNextSignableRound <- get
         rsCurrentTimeout <- get
         rsHighestQC <- get
         rsLeadershipElectionNonce <- get
@@ -231,8 +236,8 @@ instance Serialize RoundStatus where
         return RoundStatus{..}
 
 -- |The 'RoundStatus' for consensus at genesis.
-initialRoundStatus :: Duration -> LeadershipElectionNonce -> RoundStatus
-initialRoundStatus baseTimeout leNonce =
+initialRoundStatus :: Duration -> LeadershipElectionNonce -> BlockHash -> RoundStatus
+initialRoundStatus baseTimeout leNonce genesisHash =
     RoundStatus
         { rsCurrentEpoch = 0,
           rsCurrentRound = 0,
@@ -240,8 +245,9 @@ initialRoundStatus baseTimeout leNonce =
           rsCurrentTimeoutSignatureMessages = emptySignatureMessages,
           rsLastSignedQuouromSignatureMessage = Nothing,
           rsLastSignedTimeoutSignatureMessage = Nothing,
+          rsNextSignableRound = 1,
           rsCurrentTimeout = baseTimeout,
-          rsHighestQC = Nothing,
+          rsHighestQC = genesisQuorumCertificate genesisHash,
           rsLeadershipElectionNonce = leNonce,
           rsLatestEpochFinEntry = Nothing,
           rsPreviousRoundTC = Nothing

@@ -76,7 +76,7 @@ import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Basic.BlockState.PoolRewards
 import Concordium.GlobalState.CapitalDistribution
 import Concordium.GlobalState.Instance
-import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.Parameters hiding (getChainParameters)
 import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Types
 import Concordium.Types.Accounts
@@ -625,6 +625,9 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
         BlockState m ->
         Maybe BakerId ->
         m (Maybe PoolStatus)
+
+    -- |Get the chain parameters
+    getChainParameters :: BlockState m -> m (ChainParameters (MPV m))
 
 -- |Distribution of newly-minted GTU.
 data MintAmounts = MintAmounts
@@ -1412,6 +1415,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
     getExchangeRates s = lift $ getExchangeRates s
     getPaydayEpoch = lift . getPaydayEpoch
     getPoolStatus s = lift . getPoolStatus s
+    getChainParameters = lift . getChainParameters
     {-# INLINE getModule #-}
     {-# INLINE getAccount #-}
     {-# INLINE accountExists #-}
@@ -1442,6 +1446,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
     {-# INLINE getAnonymityRevokers #-}
     {-# INLINE getUpdateKeysCollection #-}
     {-# INLINE getExchangeRates #-}
+    {-# INLINE getChainParameters #-}
 
 instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (MGSTrans t m) where
     getAccountCanonicalAddress = lift . getAccountCanonicalAddress

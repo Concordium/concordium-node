@@ -238,6 +238,10 @@ data QuorumCertificate = QuorumCertificate
     }
     deriving (Eq, Show)
 
+-- |For generating a genesis quorum certificate with empty signator and empty finalizer set.
+genesisQuorumCertificate :: BlockHash -> QuorumCertificate
+genesisQuorumCertificate genesisHash = QuorumCertificate genesisHash 0 0 mempty $ FinalizerSet 0
+
 instance Serialize QuorumCertificate where
     put QuorumCertificate{..} = do
         put qcBlock
@@ -470,10 +474,6 @@ data TimeoutMessageBody = TimeoutMessageBody
       tmRound :: !Round,
       -- |Highest quorum certificate known to the sender at the time of timeout.
       tmQuorumCertificate :: !QuorumCertificate,
-      -- |A timeout certificate if the previous round timed out, or 'Nothing' otherwise.
-      tmTimeoutCertificate :: !(Option TimeoutCertificate),
-      -- |A epoch finalization entry for the epoch @qcEpoch tmQuorumCertificate@, if one is known.
-      tmEpochFinalizationEntry :: !(Option FinalizationEntry),
       -- |A 'TimeoutSignature' from the sender for this round.
       tmAggregateSignature :: !TimeoutSignature
     }
@@ -481,41 +481,13 @@ data TimeoutMessageBody = TimeoutMessageBody
 
 instance Serialize TimeoutMessageBody where
     put TimeoutMessageBody{..} = do
-        putWord8 tmFlags
         put tmFinalizerIndex
         put tmQuorumCertificate
-        putTC
-        putEFE
         put tmAggregateSignature
-      where
-        (tcFlag, putTC) = case tmTimeoutCertificate of
-            Absent -> (0, return ())
-            Present tc -> (bit 0, put tc)
-        (efeFlag, putEFE) = case tmEpochFinalizationEntry of
-            Absent -> (0, return ())
-            Present efe -> (bit 1, put efe)
-        tmFlags = tcFlag .|. efeFlag
     get = label "TimeoutMessageBody" $ do
-        tmFlags <- getWord8
-        unless (tmFlags .&. 0b11 == tmFlags) $
-            fail $
-                "deserialization encountered invalid flag byte (" ++ show tmFlags ++ ")"
         tmFinalizerIndex <- get
+        tmRound <- get -- FIXME: Check that round is OK
         tmQuorumCertificate <- get
-        (tmRound, tmTimeoutCertificate) <-
-            if testBit tmFlags 0
-                then do
-                    tc <- get
-                    unless (qcRound tmQuorumCertificate <= tcRound tc) $
-                        fail $
-                            "failed check: quorum certificate round (" ++ show (qcRound tmQuorumCertificate) ++ ") <= timeout certificate round (" ++ show (tcRound tc) ++ ")"
-                    return (tcRound tc + 1, Present tc)
-                else return (qcRound tmQuorumCertificate + 1, Absent)
-        tmEpochFinalizationEntry <-
-            if testBit tmFlags 1
-                then do
-                    Present <$> get
-                else return Absent
         tmAggregateSignature <- get
         return TimeoutMessageBody{..}
 
