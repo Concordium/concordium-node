@@ -614,6 +614,9 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
     -- |Get the current exchange rates, which are the Euro per NRG, micro CCD per Euro and the derived energy to microCCD rate.
     getExchangeRates :: BlockState m -> m ExchangeRates
 
+    -- |Get the current chain parameters.
+    getChainParameters :: BlockState m -> m (ChainParameters (MPV m))
+
     -- |Get the epoch time of the next scheduled payday.
     getPaydayEpoch :: (PVSupportsDelegation (MPV m)) => BlockState m -> m Epoch
 
@@ -831,6 +834,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
         (PVSupportsDelegation (MPV m)) =>
         UpdatableBlockState m ->
         [(BakerInfoRef m, Amount)] ->
+        OFinalizationCommitteeParameters (MPV m) ->
         m (UpdatableBlockState m)
 
     -- |Update the bakers for the next epoch.
@@ -1413,6 +1417,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
     getAnonymityRevokers s = lift . getAnonymityRevokers s
     getUpdateKeysCollection s = lift $ getUpdateKeysCollection s
     getExchangeRates s = lift $ getExchangeRates s
+    getChainParameters = lift . getChainParameters
     getPaydayEpoch = lift . getPaydayEpoch
     getPoolStatus s = lift . getPoolStatus s
     getChainParameters = lift . getChainParameters
@@ -1562,7 +1567,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     bsoClearEpochBlocksBaked = lift . bsoClearEpochBlocksBaked
     bsoSetNextCapitalDistribution s cd = lift $ bsoSetNextCapitalDistribution s cd
     bsoRotateCurrentCapitalDistribution = lift . bsoRotateCurrentCapitalDistribution
-    bsoSetNextEpochBakers s = lift . bsoSetNextEpochBakers s
+    bsoSetNextEpochBakers s bkrs = lift . bsoSetNextEpochBakers s bkrs
     bsoGetBankStatus = lift . bsoGetBankStatus
     bsoSetRewardAccounts s = lift . bsoSetRewardAccounts s
     {-# INLINE bsoGetModule #-}

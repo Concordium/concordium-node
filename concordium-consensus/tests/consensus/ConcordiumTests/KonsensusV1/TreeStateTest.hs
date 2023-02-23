@@ -15,6 +15,7 @@ import Data.IORef
 import qualified Data.Map.Strict as Map
 import qualified Data.PQueue.Prio.Min as MPQ
 import qualified Data.Sequence as Seq
+import qualified Data.Vector as Vec
 import Lens.Micro.Platform
 import System.IO.Unsafe
 import System.Random
@@ -34,6 +35,7 @@ import Concordium.Types.HashableTo
 import Concordium.Types.Transactions
 
 -- konsensus v1 related imports.
+import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Parameters (defaultRuntimeParameters)
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.BlockState
@@ -138,6 +140,19 @@ dummyGenesisConfiguration =
 dummyLeadershipElectionNonce :: LeadershipElectionNonce
 dummyLeadershipElectionNonce = Hash.hash "LeadershipElectionNonce"
 
+-- |Dummy bakers and finalizers with no bakers or finalizers.
+-- This is only suitable for when the value is not meaningfully used.
+dummyBakersAndFinalizers :: BakersAndFinalizers
+dummyBakersAndFinalizers =
+    BakersAndFinalizers
+        { _bfBakers = FullBakers Vec.empty 0,
+          _bfFinalizers = FinalizationCommittee Vec.empty 0
+        }
+
+-- |Dummy epoch bakers. This is only suitable for when the actual value is not meaningfully used.
+dummyEpochBakers :: EpochBakers
+dummyEpochBakers = EpochBakers 0 dummyBakersAndFinalizers dummyBakersAndFinalizers 1
+
 dummyInitialSkovData :: SkovData pv
 dummyInitialSkovData =
     mkInitialSkovData
@@ -146,6 +161,7 @@ dummyInitialSkovData =
         dummyBlockState
         10_000
         dummyLeadershipElectionNonce
+        dummyEpochBakers
 
 newtype TestLLDB pv = TestLLDB {theTestLLDB :: IORef (LowLevelDB pv)}
 

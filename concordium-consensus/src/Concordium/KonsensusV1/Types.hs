@@ -27,6 +27,7 @@ import qualified Concordium.TransactionVerification as TVer
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Transactions
+import Concordium.Utils.BinarySearch
 import Concordium.Utils.Serialization
 
 import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as LFMBT
@@ -157,7 +158,7 @@ data FinalizerInfo = PartyInfo
       finalizerVRFKey :: !VRF.PublicKey,
       -- |The BLS public key of the finalizer
       finalizerBlsKey :: !Bls.PublicKey,
-      -- |The baker ID of the finalizaer
+      -- |The baker ID of the finalizer
       finalizerBakerId :: !BakerId
     }
     deriving (Eq, Ord)
@@ -173,6 +174,10 @@ data FinalizationCommittee = FinalizationCommittee
       committeeTotalWeight :: !VoterPower
     }
     deriving (Eq, Show)
+
+-- |Get the 'FinalizerInfo' associated for a particular 'BakerId'.
+finalizerByBakerId :: FinalizationCommittee -> BakerId -> Maybe FinalizerInfo
+finalizerByBakerId = binarySearch finalizerBakerId . committeeFinalizers
 
 -- |A set of 'FinalizerIndex'es.
 -- This is represented as a bit vector, where the bit @i@ is set iff the finalizer index @i@ is
