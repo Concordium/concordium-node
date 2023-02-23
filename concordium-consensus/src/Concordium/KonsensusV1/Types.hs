@@ -23,7 +23,6 @@ import qualified Concordium.Crypto.BlsSignature as Bls
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Genesis.Data.BaseV1
-import qualified Concordium.TransactionVerification as TVer
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Transactions
@@ -438,8 +437,6 @@ instance HashableTo Hash.Hash (Option TimeoutCertificate) where
         put tc
 
 -- |Check the signature in a timeout certificate.
--- FIXME: This might not work for the scenario where finalizers are from different finalization
--- committees.
 checkTimeoutCertificateSignature ::
     -- |Genesis block hash
     BlockHash ->
@@ -973,18 +970,6 @@ newtype SignatureMessages a = SignatureMessages
 -- |Construct an empty 'SignatureMessages'
 emptySignatureMessages :: SignatureMessages a
 emptySignatureMessages = SignatureMessages IntMap.empty
-
--- |A 'BlockItem' together with its verification result.
--- Precondition: The verification result must be 'Ok'.
--- The verification result serves as a witness which the
--- scheduler can possibly use to short circuit some verification steps
--- before executing.
-data VerifiedBlockItem = VerifiedBlockItem
-    { -- |The block item
-      vbItem :: !BlockItem,
-      -- |The associated verification result.
-      vpVerRes :: !TVer.VerificationResult
-    }
 
 -- |Configuration information stored for the genesis block.
 data GenesisConfiguration = GenesisConfiguration
