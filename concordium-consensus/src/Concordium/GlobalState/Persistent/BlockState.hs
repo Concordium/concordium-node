@@ -3317,7 +3317,6 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateQuery (P
     getUpdateKeysCollection = doGetUpdateKeyCollection . hpbsPointers
     getExchangeRates = doGetExchangeRates . hpbsPointers
     getChainParameters = doGetChainParameters . hpbsPointers
-
     getPaydayEpoch = doGetPaydayEpoch . hpbsPointers
     getPoolStatus = doGetPoolStatus . hpbsPointers
 
