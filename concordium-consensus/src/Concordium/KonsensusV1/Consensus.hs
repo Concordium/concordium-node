@@ -164,9 +164,10 @@ processBlockItem bi = do
 -- |Attempt to put the 'BlockItem's of a 'BakedBlock' into the tree state.
 -- Return 'True' of the transactions were added otherwise 'False'.
 --
--- Post-condition: The transactions are only added to the tree state if they could
--- *all* be deemed verifiable i.e. the verification of each transaction either yields a
--- 'TVer.OkResult' or a 'TVer.MaybeOkResult'.
+-- Post-condition: Only transactions that are deemed verifiable
+-- (i.e. the verification yields a 'TVer.OkResult' or a 'TVer.MaybeOkResult') up to the point where
+-- a transaction processing might fail are added to the tree state.
+-- Hence if 'False' is returned then the caller *must* roll back the state.
 -- This is an internal function and should only be called when processing a block.
 processBlockItems ::
     ( MonadProtocolVersion m,
