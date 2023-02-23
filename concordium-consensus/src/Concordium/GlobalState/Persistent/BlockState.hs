@@ -3317,10 +3317,8 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateQuery (P
     getUpdateKeysCollection = doGetUpdateKeyCollection . hpbsPointers
     getExchangeRates = doGetExchangeRates . hpbsPointers
     getChainParameters = doGetChainParameters . hpbsPointers
-
     getPaydayEpoch = doGetPaydayEpoch . hpbsPointers
     getPoolStatus = doGetPoolStatus . hpbsPointers
-    getChainParameters = doGetChainParameters . hpbsPointers
 
 instance (MonadIO m, PersistentState av pv r m) => ContractStateOperations (PersistentBlockStateMonad pv r m) where
     thawContractState (Instances.InstanceStateV0 inst) = return inst
