@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |Consensus V1
@@ -189,19 +190,19 @@ processBlockItems parentPointer bb = processBis $! bbTransactions bb
     getCtx = do
         _ctxSkovData <- get
         return $! Context{_ctxTransactionOrigin = Block, _ctxBlockState = bpState parentPointer, ..}
-    processBis txs
+    processBis !txs
         -- If no transactions are present we return 'True'.
         | Vector.length txs == 0 = return True
         -- There's work to do.
         | otherwise = snd <$> process txs True
     theRound = bbRound bb
-    process txs res
+    process !txs !res
         | Vector.length txs == 0 = return (Vector.empty, res)
         | otherwise = do
-            ctx <- getCtx
-            theTime <- utcTimeToTimestamp <$> currentTime
+            !ctx <- getCtx
+            !theTime <- utcTimeToTimestamp <$> currentTime
             let bi = Vector.head txs
-            tt' <- gets' _transactionTable
+            !tt' <- gets' _transactionTable
             -- Check whether we already have the transaction.
             if isDuplicate tt' bi
                 then process (Vector.tail txs) True
@@ -209,14 +210,14 @@ processBlockItems parentPointer bb = processBis $! bbTransactions bb
                     -- We verify the transaction and check whether it's acceptable i.e. Ok or MaybeOk.
                     -- If that is the case then we add it to the transaction table and pending transactions.
                     -- If it is NotOk then we stop verifying the transactions as the block can never be valid now.
-                    verRes <- runTransactionVerifierT (TVer.verify theTime bi) ctx
+                    !verRes <- runTransactionVerifierT (TVer.verify theTime bi) ctx
                     -- Continue processing the transactions.
                     -- If the transaction was *not* added then it means that it yields a lower nonce with
                     -- respect to the non finalized transactions. We tolerate this and keep processing the remaining transactions
                     -- of the block as it could be the case that we have received other transactions from the given account via other blocks.
                     -- We only add the transaction to the pending transaction table if its nonce is at least the next available nonce for the
                     -- account.
-                    let continue added =
+                    let continue !added =
                             if not added
                                 then process (Vector.tail txs) True
                                 else putPendingTransaction Block bi >> process (Vector.tail txs) True
