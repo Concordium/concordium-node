@@ -71,7 +71,7 @@ dummyPersistentBlockState = unsafePerformIO $ newIORef $ blobRefToBufferedRef (B
 dummyStateHash :: StateHash
 dummyStateHash = StateHashV0 $ Hash.hash "DummyPersistentBlockState"
 
--- |A dummy block state that has no meaningful content.
+-- |A dummy block state that has no content.
 dummyBlockState :: HashedPersistentBlockState pv
 dummyBlockState = HashedPersistentBlockState{..}
   where

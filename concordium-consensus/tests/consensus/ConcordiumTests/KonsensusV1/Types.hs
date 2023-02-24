@@ -3,7 +3,6 @@ module ConcordiumTests.KonsensusV1.Types where
 
 import qualified Data.ByteString as BS
 import Data.Foldable
-import qualified Data.IntMap.Strict as IntMap
 import qualified Data.Map.Strict as Map
 import Data.Serialize
 import qualified Data.Vector as Vector
@@ -175,14 +174,14 @@ genQuorumSignatureMessages :: Gen (SignatureMessages QuorumSignatureMessage)
 genQuorumSignatureMessages = do
     numMessages <- chooseInteger (0, 100)
     msgs <- vectorOf (fromIntegral numMessages) genQuorumSignatureMessage
-    return $! SignatureMessages $! foldl' (\acc msg -> IntMap.insert (IntMap.size acc) msg acc) IntMap.empty msgs
+    return $! SignatureMessages $! foldl' (\acc msg -> Map.insert (FinalizerIndex . fromIntegral $ Map.size acc) msg acc) Map.empty msgs
 
 -- |Generates a collection of 'TimeoutSignatureMessage's
 genTimeoutSignatureMessages :: Gen (SignatureMessages TimeoutSignatureMessage)
 genTimeoutSignatureMessages = do
     numMessages <- chooseInteger (0, 100)
     msgs <- vectorOf (fromIntegral numMessages) genTimeoutSignatureMessage
-    return $! SignatureMessages $! foldl' (\acc msg -> IntMap.insert (IntMap.size acc) msg acc) IntMap.empty msgs
+    return $! SignatureMessages $! foldl' (\acc msg -> Map.insert (FinalizerIndex . fromIntegral $ Map.size acc) msg acc) Map.empty msgs
 
 -- |Generate a 'RoundStatus' suitable for testing serialization.
 genRoundStatus :: Gen RoundStatus
@@ -205,7 +204,7 @@ genRoundStatus = do
     coinFlip x =
         chooseInteger (0, 1) >>= \case
             0 -> return Absent
-            n -> return $! Present x
+            _ -> return $! Present x
 
 -- |Generate an arbitrary vrf key pair.
 someVRFKeyPair :: VRF.KeyPair

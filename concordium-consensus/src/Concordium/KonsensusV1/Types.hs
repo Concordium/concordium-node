@@ -11,7 +11,6 @@ module Concordium.KonsensusV1.Types where
 import Control.Monad
 import Data.Bits
 import qualified Data.ByteString as BS
-import qualified Data.IntMap.Strict as IntMap
 import qualified Data.Map.Strict as Map
 import Data.Serialize
 import qualified Data.Vector as Vector
@@ -979,13 +978,22 @@ instance HashableTo BlockHash BakedBlock where
 -- |A collection of signatures
 -- This is a map from 'FinalizerIndex' to the actual signature message.
 newtype SignatureMessages a = SignatureMessages
-    { qsmFinMessages :: IntMap.IntMap a
+    { smFinIdxToMessage :: Map.Map FinalizerIndex a
     }
-    deriving (Eq, Show, Serialize)
+    deriving (Eq, Show)
 
 -- |Construct an empty 'SignatureMessages'
 emptySignatureMessages :: SignatureMessages a
-emptySignatureMessages = SignatureMessages IntMap.empty
+emptySignatureMessages = SignatureMessages Map.empty
+
+-- |Serialize instance for @SignatureMessages a@.
+instance (Serialize a) => Serialize (SignatureMessages a) where
+    put (SignatureMessages fiMsgMap) = do
+        putWord32be $! fromIntegral $! Map.size fiMsgMap
+        putSafeSizedMapOf put put fiMsgMap
+    get = do
+        count <- getWord32be
+        SignatureMessages <$> getSafeSizedMapOf count get get
 
 -- |Configuration information stored for the genesis block.
 data GenesisConfiguration = GenesisConfiguration
