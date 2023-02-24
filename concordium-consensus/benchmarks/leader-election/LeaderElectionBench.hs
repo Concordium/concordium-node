@@ -4,6 +4,11 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 -- | A simple benchmark for the leader election implementation.
+-- This measures the time it takes to run 'getLeader' for 1000 different round numbers for
+-- different numbers of bakers. (It is important to run for different round numbers as the time
+-- varies based on the inputs.)
+-- The purpose is to determine if the performance of the implementation is acceptable, given that
+-- it is linear in the number of bakers.
 module Main where
 
 import Control.DeepSeq

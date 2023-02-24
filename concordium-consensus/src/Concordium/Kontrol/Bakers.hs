@@ -291,7 +291,8 @@ timeParametersAtSlot targetSlot tp0 upds =
                 [Last (Just tp) | (slot, tp) <- upds, slot <= targetSlot]
 
 -- |Determine the bakers that apply to a future slot, given the state at a particular block.
--- This implementation is used for protocol version P4 and later.
+-- This implementation is used for protocol version P4 and P5. (Consensus version 1 (P6) does not
+-- use slots to define epochs, and therefore bakers are determined differently.)
 -- The assumption is that there are no blocks between the block and the future slot; i.e. this
 -- is used to determine the lottery participants that will try to bake a block with the block as the
 -- parent.
@@ -437,7 +438,8 @@ getDefiniteSlotBakersP1 bs slot =
 -- |Determine the bakers that apply to a future slot, given the state at a particular block.
 -- This will return 'Nothing' if the projected bakers could change before then (depending on
 -- additional blocks), but will return the actual bakers if it is certain they will be correct.
--- This implementation is used for protocol version P4 and later.
+-- This implementation is used for protocol version P4 and P5. (This is unused in consensus version
+-- 1 as epochs (and thus bakers) are not tied to slots.)
 --
 -- The given slot should never be earlier than the slot of the given block.
 --

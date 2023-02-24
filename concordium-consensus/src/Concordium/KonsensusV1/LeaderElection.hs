@@ -36,8 +36,9 @@ import Concordium.KonsensusV1.Types
 -- Note: this implementation is linear in the number of bakers. By pre-processing the baker set,
 -- we could have a logarithmic algorithm. However, as the runtime is on the order of 5 us for 1000
 -- bakers and 45 us for 10000, this is not a worthwhile optimisation at the current time.
+-- (See the benchmark LeaderElectionBench.)
 getLeader ::
-    -- |(Non-empty) list bakers and their effective stakes.
+    -- |(Non-empty) list of bakers and their effective stakes.
     [(bakerInfo, Amount)] ->
     -- |Current epoch leadership election nonce
     LeadershipElectionNonce ->
@@ -55,14 +56,28 @@ getLeader bakers nonce rnd = grabBaker 0 bakers
     grabBaker _ [] = error "getLeader: Empty bakers"
 
 -- |Compute the update for the leadership election nonce due to a particular block nonce.
-updateWithBlockNonce :: BlockNonce -> Hash.Hash -> Hash.Hash
+updateWithBlockNonce ::
+    -- |Block nonce to add
+    BlockNonce ->
+    -- |Running updated nonce
+    Hash.Hash ->
+    -- |New updated nonce
+    Hash.Hash
 updateWithBlockNonce bn un = Hash.hash $ runPut $ put un <> put (proofToHash bn)
 
 -- |Update the running 'updatedNonce' in seed state.  Blocks after the trigger block do not
 -- contribute.  If the timestamp is at least the epoch transition time, then the
 -- 'epochTransitionTriggered' flag is set in the seed state, indicating that a new epoch should
 -- begin once the block is finalized.
-updateSeedStateForBlock :: Timestamp -> BlockNonce -> SeedState 'SeedStateVersion1 -> SeedState 'SeedStateVersion1
+updateSeedStateForBlock ::
+    -- |Timestamp of the block
+    Timestamp ->
+    -- |Block nonce of the block
+    BlockNonce ->
+    -- |Prior seed state
+    SeedState 'SeedStateVersion1 ->
+    -- |Updated seed state
+    SeedState 'SeedStateVersion1
 updateSeedStateForBlock ts bn ss
     | epochTransitionTriggered ss = ss
     | triggerBlockTime ss <= ts = ss'{epochTransitionTriggered = True}
