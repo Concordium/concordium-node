@@ -5,7 +5,6 @@
 module Concordium.KonsensusV1.Consensus where
 
 import Control.Monad.State
-import qualified Data.ByteString as BS
 import Data.Maybe (fromMaybe, isJust)
 
 import qualified Data.Vector as Vector
@@ -29,12 +28,6 @@ import Concordium.KonsensusV1.Types
 import Concordium.Scheduler.Types (updateSeqNumber)
 import Concordium.TimeMonad
 import qualified Concordium.TransactionVerification as TVer
-
-class MonadMulticast m where
-    sendMessage :: BS.ByteString -> m ()
-
--- uponTimeoutEvent :: ()
--- uponTimeoutEvent = ()
 
 -- |Result of attempting to put a
 -- 'BlockItem' into tree state.
@@ -110,13 +103,6 @@ putPendingTransaction Individual bi = do
   where
     txHash = getHash bi
 
--- |Check whether a transaction is already present in the
--- transaction table.
-isDuplicate :: TransactionTable -> BlockItem -> Bool
-isDuplicate tt bi = isJust $! tt ^. ttHashMap . at' txHash
-  where
-    txHash = getHash bi
-
 -- |Attempt to put the 'BlockItem' into the tree state.
 -- If the the 'BlockItem' was successfully added then it will be
 -- in 'Received' state where the associated 'CommitPoint' will be set to zero.
@@ -136,7 +122,7 @@ processBlockItem ::
 processBlockItem bi = do
     -- First we check whether the transaction already exists in the transaction table.
     tt' <- gets' _transactionTable
-    if isDuplicate tt' bi
+    if isDuplicate tt'
         then return Duplicate
         else do
             -- The transaction is new to us. Before adding it to the transaction table,
@@ -160,6 +146,8 @@ processBlockItem bi = do
         _ctxSkovData <- get
         _ctxBlockState <- bpState <$> gets' _lastFinalized
         return $! Context{_ctxTransactionOrigin = Individual, ..}
+    isDuplicate tt = isJust $! tt ^. ttHashMap . at' txHash
+    txHash = getHash bi
 
 -- |Attempt to put the 'BlockItem's of a 'BakedBlock' into the tree state.
 -- Return 'True' of the transactions were added otherwise 'False'.
@@ -203,11 +191,18 @@ processBlockItems parentPointer bb = processBis $! bbTransactions bb
             !ctx <- getCtx
             !theTime <- utcTimeToTimestamp <$> currentTime
             let bi = Vector.head txs
+                txHash = getHash bi
             !tt' <- gets' _transactionTable
             -- Check whether we already have the transaction.
-            if isDuplicate tt' bi
-                then process (Vector.tail txs) True
-                else do
+            case tt' ^. ttHashMap . at' txHash of
+                Just (_, results) -> do
+                    -- If we have received the tranaction before we update the maximum committed round
+                    -- if the new round is higher.
+                    when (commitPoint theRound > results ^. tsCommitPoint) $
+                        transactionTable . ttHashMap . at' txHash . mapped . _2 %=! updateSlot theRound
+                    -- And we continue processing the remaining transactions.
+                    process (Vector.tail txs) True
+                Nothing -> do
                     -- We verify the transaction and check whether it's acceptable i.e. Ok or MaybeOk.
                     -- If that is the case then we add it to the transaction table and pending transactions.
                     -- If it is NotOk then we stop verifying the transactions as the block can never be valid now.
