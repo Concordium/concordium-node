@@ -507,9 +507,9 @@ getNextAccountNonce addr sd = case sd ^. transactionTable . ttNonFinalizedTransa
 -- nonce. This does not write the transactions to the low-level tree state database, but just
 -- updates the in-memory transaction table accordingly.
 removeTransactions :: (MonadState (SkovData pv) m, MonadThrow m) => [BlockItem] -> m ()
-removeTransactions = mapM_ finTrans
+removeTransactions = mapM_ removeTrans
   where
-    finTrans WithMetadata{wmdData = NormalTransaction tr, ..} = do
+    removeTrans WithMetadata{wmdData = NormalTransaction tr, ..} = do
         let nonce = transactionNonce tr
             sender = accountAddressEmbed (transactionSender tr)
         anft <- use (transactionTable . ttNonFinalizedTransactions . at' sender . non emptyANFT)
@@ -542,9 +542,9 @@ removeTransactions = mapM_ finTrans
                     & (anftMap . at' nonce .~ Nothing)
                     & (anftNextNonce .~ nonce + 1)
                 )
-    finTrans WithMetadata{wmdData = CredentialDeployment{}, ..} =
+    removeTrans WithMetadata{wmdData = CredentialDeployment{}, ..} =
         transactionTable . ttHashMap . at' wmdHash .= Nothing
-    finTrans WithMetadata{wmdData = ChainUpdate cu, ..} = do
+    removeTrans WithMetadata{wmdData = ChainUpdate cu, ..} = do
         let sn = updateSeqNumber (uiHeader cu)
             uty = updateType (uiPayload cu)
         nfcu <- use (transactionTable . ttNonFinalizedChainUpdates . at' uty . non emptyNFCU)

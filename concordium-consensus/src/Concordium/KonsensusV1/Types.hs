@@ -1076,8 +1076,10 @@ getBlock ts = do
 
 -- |Deserialize a 'Block' where we already know the block hash. This behaves the same as 'getBlock',
 -- but avoids having to recompute the block hash.
-getBlockKnownHash :: forall pv. (IsProtocolVersion pv) => TransactionTime -> BlockHash -> Get (Block pv)
-getBlockKnownHash ts sbHash = do
+-- Hence this function does not verify whether the provided hash corresponds the the actual hash
+-- of the block.
+unsafeGetBlockKnownHash :: forall pv. (IsProtocolVersion pv) => TransactionTime -> BlockHash -> Get (Block pv)
+unsafeGetBlockKnownHash ts sbHash = do
     (r :: Round) <- lookAhead get
     case r of
         0 -> do

@@ -155,8 +155,8 @@ dummyLeadershipElectionNonce :: LeadershipElectionNonce
 dummyLeadershipElectionNonce = Hash.hash "LeadershipElectionNonce"
 
 -- |An initial 'SkovData' suitable for testing.
--- The skov data will be initialized as a genesis context.
--- Hence the block state is empty.
+-- The block state is empty only consisting of a
+-- genesis block.
 dummyInitialSkovData :: SkovData pv
 dummyInitialSkovData =
     mkInitialSkovData
@@ -225,6 +225,9 @@ lldbWithGenesis =
         (toStoredBlock genB)
         (initialRoundStatus 10_000 dummyLeadershipElectionNonce)
 
+-- |Testing 'getMemoryBlockStatus' functionality.
+-- In particular this test ensures that a (known) block in memory can
+-- have its status retrieved.
 testGetMemoryBlockStatus :: Spec
 testGetMemoryBlockStatus = describe "getMemoryBlockStatus" $ do
     it "last finalized" $ getMemoryBlockStatus (getHash lastFin) sd `shouldBe` Just (BlockFinalized lastFin)
@@ -236,6 +239,9 @@ testGetMemoryBlockStatus = describe "getMemoryBlockStatus" $ do
   where
     sd = skovDataWithTestBlocks
 
+-- |Testing 'getBlockStatus' functionality.
+-- In particular this test ensures that a (known) block, transient or persistent
+-- can have its status looked up.
 testGetBlockStatus :: Spec
 testGetBlockStatus = describe "getBlockStatus" $ do
     it "last finalized" $ getStatus (getHash lastFin) $ BlockFinalized lastFin
@@ -251,6 +257,10 @@ testGetBlockStatus = describe "getBlockStatus" $ do
         s `shouldBe` expect
     sd = skovDataWithTestBlocks
 
+-- |Testing 'getRecentBlockStatus' functionality.
+-- In particular this test ensures that a (known) block in memory
+-- can have its status looked up, or at least inform the caller
+-- that it is a predecessor of the last finalized block ('OldFinalized').
 testGetRecentBlockStatus :: Spec
 testGetRecentBlockStatus = describe "getRecentBlockStatus" $ do
     it "last finalized" $ getStatus (getHash lastFin) $ RecentBlock $ BlockFinalized lastFin
@@ -266,6 +276,10 @@ testGetRecentBlockStatus = describe "getRecentBlockStatus" $ do
         s `shouldBe` expect
     sd = skovDataWithTestBlocks
 
+-- |Testing 'makeLiveBlock' function.
+-- This ensures that a 'PendingBlock' can be marked live
+-- and by doing so it becomes present in the map of live blocks
+-- and a valid 'BlockPointer' to the block marked is returned.
 testMakeLiveBlock :: Spec
 testMakeLiveBlock = it "makeLiveBlock" $ do
     let arrTime = timestampToUTCTime 5
@@ -285,6 +299,10 @@ testMakeLiveBlock = it "makeLiveBlock" $ do
     (sd ^. blockTable . liveMap . at (getHash pendingB))
         `shouldBe` Just (MemBlockAlive res)
 
+-- |Testing 'markBlockDead' function.
+-- This test ensures that whatever the state of a block referenced
+-- by the provided 'BlockHash' is expunged from memory and that
+-- it becomes part of the cache of dead blocks.
 testMarkBlockDead :: Spec
 testMarkBlockDead = describe "markBlockDead" $ do
     it "live" $ mbd (getHash testB)
@@ -299,6 +317,9 @@ testMarkBlockDead = describe "markBlockDead" $ do
         assertBool "block should be in the dead cache" $
             sd ^. blockTable . deadBlocks . to (memberDeadCache h)
 
+-- |Testing 'markPending' function.
+-- This test ensures that the provided 'PendingBlock'
+-- is inserted into the block table in 'MemBlockPending' state.
 testMarkPending :: Spec
 testMarkPending = it "markPending" $ do
     let pb = dummyPendingBlock (BlockHash minBound) 37
@@ -308,6 +329,11 @@ testMarkPending = it "markPending" $ do
         (Just (MemBlockPending pb))
         (sd ^. blockTable . liveMap . at (getHash pb))
 
+-- |Testing 'addPendingBlock' function.
+-- This test ensures that the provided 'PendingBlock' to
+-- 'addPendingBlock' is inserted into the pending blocks table and pending blocks queue.
+-- Further this test ensures that the pending block queue is in ascending order
+-- by the 'Round' of the block.
 testAddPendingBlock :: Spec
 testAddPendingBlock = it "addPendingBlock" $ do
     let sd0 = dummyInitialSkovData
@@ -344,6 +370,11 @@ testAddPendingBlock = it "addPendingBlock" $ do
     pb1 = dummyPendingBlock h0 41
     pb2 = dummyPendingBlock (getHash pb0) 42
 
+-- |Testing 'takePendingChildren' function.
+-- This test ensures that the caller of the function
+-- removes the children block(s) of the specified 'BlockHash' only
+-- from the pending blocks table,
+-- and that the pending blocks queue is left untouched.
 testTakePendingChildren :: Spec
 testTakePendingChildren = it "takePendingChildren" $ do
     let (l, sd1) = runState (takePendingChildren h0) sd0
@@ -375,6 +406,7 @@ testTakePendingChildren = it "takePendingChildren" $ do
     pb0 = dummyPendingBlock h0 40
     pb1 = dummyPendingBlock h0 41
     pb2 = dummyPendingBlock (getHash pb0) 42
+    -- The state is initialized with a block table
     sd0 =
         dummyInitialSkovData
             & pendingBlocksQueue
@@ -389,6 +421,14 @@ testTakePendingChildren = it "takePendingChildren" $ do
                       (getHash pb0, [pb2])
                     ]
 
+-- |Testing function 'takeNextPendingUntil'.
+-- This test checks that the whole pending table
+-- i.e. the pending blocks table and pending blocks queue
+-- has the pending blocks removed that have a 'Round' <= the
+-- provided 'Round.
+-- Note that as opposed to 'takeNextPending' this function also
+-- pops pending blocks from the pending blocks queue as it is
+-- used when finalizing a block at a certain 'Round'.
 testTakeNextPendingUntil :: Spec
 testTakeNextPendingUntil = it "takeNextPendingUntil" $ do
     let (mpb1, pending1) = runState (takeNextPendingUntil 40) pending0
@@ -442,6 +482,8 @@ testTakeNextPendingUntil = it "takeNextPendingUntil" $ do
                     ]
             }
 
+-- |An arbitrary chosen 'SigScheme.KeyPair'
+-- suitable for testing purposes.
 dummySigSchemeKeys :: SigScheme.KeyPair
 {-# NOINLINE dummySigSchemeKeys #-}
 dummySigSchemeKeys =
@@ -459,8 +501,12 @@ dummyAccountAddressN = fst . randomAccountAddress . mkStdGen
 dummyAccountAddress :: AccountAddress
 dummyAccountAddress = dummyAccountAddressN 0
 
-dummyTransactionWithPayload :: Nonce -> EncodedPayload -> Transaction
-dummyTransactionWithPayload n payload =
+-- |A dummy normal transfer transaction suitable for the tests
+-- in this file.
+-- Note that the tests presented in this module
+-- does no transaction processing i.e. verification of the transaction.
+dummyTransaction :: Nonce -> Transaction
+dummyTransaction n =
     addMetadata NormalTransaction 0 $
         makeAccountTransaction
             dummyTransactionSignature
@@ -475,9 +521,7 @@ dummyTransactionWithPayload n payload =
               thExpiry = 500,
               thEnergyAmount = 5_000_000
             }
-
-dummyTransaction :: Nonce -> Transaction
-dummyTransaction n = dummyTransactionWithPayload n (EncodedPayload "01234567890123456789")
+    payload = encodePayload $ Transfer dummyAccountAddress 10
 
 dummyTransactionBI :: Nonce -> BlockItem
 dummyTransactionBI = normalTransaction . dummyTransaction
@@ -681,6 +725,14 @@ testGetNextAccountNonce = describe "getNextAccountNonce" $ do
                         ?~ emptyANFTWithNonce 7
                   )
 
+-- |Testing 'removeTransactions'.
+-- This test ensures that the provided list of
+-- transactions are removed from the the transaction table,
+-- and if the transaction is either a normal transaction or
+-- a chain update then the non finalized transaction map is
+-- updated accordingly, meaning that it's removed from non finalized transaction
+-- map and that the next available nonce for the sender of the transaction is set to
+-- be 1 + the nonce of the removed transaction.
 testRemoveTransactions :: Spec
 testRemoveTransactions = describe "removeTransactions" $ do
     it "normal transactions" $ do
@@ -721,7 +773,7 @@ testRemoveTransactions = describe "removeTransactions" $ do
     sender = accountAddressEmbed dummyAccountAddress
     tr0 = dummyTransaction 1
     tr1 = dummyTransaction 2
-    tr2 = dummyTransactionWithPayload 1 (EncodedPayload "a")
+    tr2 = dummyTransaction 1
     cu0 = dummyUpdateInstructionWM 1
     cu1 = dummyUpdateInstructionWM 2
     cred0 = credentialDeploymentWM
@@ -747,6 +799,11 @@ testRemoveTransactions = describe "removeTransactions" $ do
                 %~ addCredential
                 . addTrans tr1
 
+-- |Testing 'putTransaction'.
+-- This test ensures that the supplied tranaction is added
+-- to the transaction table with the provided round.
+-- This test also checks that the transaction table purge counter
+-- is incremented.
 testPutTransaction :: Spec
 testPutTransaction = describe "putTransaction" $ do
     it "put transaction" $ do
@@ -771,6 +828,9 @@ testPutTransaction = describe "putTransaction" $ do
     tr0 = dummyTransaction 1
     sender = accountAddressEmbed dummyAccountAddress
 
+-- |Test of 'commitTransaction'.
+-- The test checks that a live transaction i.e. present in the transaction table 'ttHashMap'
+-- is being set to committed for the provided round with a pointer to the block provided (by the 'BlockHash').
 testCommitTransaction :: Spec
 testCommitTransaction = describe "commitTransaction" $ do
     it "commit transaction" $ do
@@ -788,6 +848,13 @@ testCommitTransaction = describe "commitTransaction" $ do
                 %~ addTrans tr0
     bh = BlockHash minBound
 
+-- |Test 'markTransactionDead'
+-- This test ensures that when a (committed) transaction identified
+-- by the provided 'BlockHash' is marked dead, then it is removed
+-- from the transaction table live map.
+-- Further the test checks that marking a (received) transaction as dead has no effect,
+-- as such a transaction will be freed from memory via transaction table purging
+-- at some point.
 testMarkTransactionDead :: Spec
 testMarkTransactionDead = describe "markTransactionDead" $ do
     it "mark committed transaction dead" $ do
@@ -812,6 +879,11 @@ testMarkTransactionDead = describe "markTransactionDead" $ do
                 %~ addTrans tr0
     bh = BlockHash minBound
 
+-- |Test 'purgeTransactionTable' function.
+-- This test ensures that transactions eligible for purging are
+-- removed from the transaction table and the pending transactions.
+-- This test also ensures that the transaction table purge counter is reset
+-- after a purge has been carried out.
 testPurgeTransactionTable :: Spec
 testPurgeTransactionTable = describe "purgeTransactionTable" $ do
     it "force purge the transaction table" $ do
@@ -851,6 +923,13 @@ testPurgeTransactionTable = describe "purgeTransactionTable" $ do
             & pendingTransactionTable
                 %~ addPendingDeployCredential credDeploymentHash
 
+-- |Test 'clearOnProtocolUpdate' function.
+-- This test checks that the following is occurring in the associated 'SkovData' when invoked:
+--
+-- * The pending blocks table is cleared
+-- * The block table is cleared
+-- * The branches is cleared
+-- * All committed transactions should be rolled back into the 'Received' state.
 testClearOnProtocolUpdate :: Spec
 testClearOnProtocolUpdate = describe "clearOnProtocolUpdate" $
     it "clears on protocol update" $ do
@@ -864,10 +943,6 @@ testClearOnProtocolUpdate = describe "clearOnProtocolUpdate" $
             "block table should be empty"
             emptyBlockTable
             (sd'' ^. blockTable)
-        assertEqual
-            "Branches should be empty"
-            Seq.empty
-            (sd'' ^. branches)
         assertEqual
             "Branches should be empty"
             Seq.empty

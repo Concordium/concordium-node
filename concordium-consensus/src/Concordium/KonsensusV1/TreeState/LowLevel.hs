@@ -44,7 +44,7 @@ instance IsProtocolVersion pv => Serialize (StoredBlock pv) where
                 blockHash <- get
                 stbStatePointer <- get
                 stbBlock <-
-                    getBlockKnownHash
+                    unsafeGetBlockKnownHash
                         (utcTimeToTransactionTime $ bmReceiveTime stbInfo)
                         blockHash
                 return StoredBlock{..}
