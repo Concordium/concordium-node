@@ -176,28 +176,29 @@ data RoundStatus = RoundStatus
       rsCurrentTimeoutSignatureMessages :: !(SignatureMessages TimeoutSignatureMessage),
       -- |If the consensus runner is part of the finalization committee,
       -- then this will yield the last signed 'QuorumSignatureMessage'
-      rsLastSignedQuouromSignatureMessage :: !(Maybe QuorumSignatureMessage),
+      rsLastSignedQuouromSignatureMessage :: !(Option QuorumSignatureMessage),
       -- |If the consensus runner is part of the finalization committee,
       -- then this will yield the last signed timeout message.
-      rsLastSignedTimeoutSignatureMessage :: !(Maybe TimeoutSignatureMessage),
+      rsLastSignedTimeoutSignatureMessage :: !(Option TimeoutSignatureMessage),
       -- |The current timeout.
       rsCurrentTimeout :: !Duration,
       -- |The highest 'QuorumCertificate' seen so far.
       -- This is 'Nothing' if no rounds since genesis has
       -- been able to produce a 'QuorumCertificate'.
-      rsHighestQC :: !(Maybe QuorumCertificate),
+      rsHighestQC :: !(Option QuorumCertificate),
       -- |The current 'LeadershipElectionNonce'.
       rsLeadershipElectionNonce :: !LeadershipElectionNonce,
       -- |The latest 'Epoch' 'FinalizationEntry'.
       -- This will only be 'Nothing' in between the
       -- genesis block and the first explicitly finalized block.
-      rsLatestEpochFinEntry :: !(Maybe FinalizationEntry),
+      rsLatestEpochFinEntry :: !(Option FinalizationEntry),
       -- |The previous round timeout certificate if the previous round timed out.
       -- This is @Just (TimeoutCertificate, QuorumCertificate)@ if the previous round timed out or otherwise 'Nothing'.
       -- In the case of @Just@ then the associated 'QuorumCertificate' is the highest 'QuorumCertificate' at the time
       -- that the 'TimeoutCertificate' was built.
-      rsPreviousRoundTC :: !(Maybe (TimeoutCertificate, QuorumCertificate))
+      rsPreviousRoundTC :: !(Option (TimeoutCertificate, QuorumCertificate))
     }
+    deriving (Show, Eq)
 
 instance Serialize RoundStatus where
     put RoundStatus{..} = do
@@ -234,11 +235,11 @@ initialRoundStatus baseTimeout leNonce =
           rsCurrentRound = 0,
           rsCurrentQuorumSignatureMessages = emptySignatureMessages,
           rsCurrentTimeoutSignatureMessages = emptySignatureMessages,
-          rsLastSignedQuouromSignatureMessage = Nothing,
-          rsLastSignedTimeoutSignatureMessage = Nothing,
+          rsLastSignedQuouromSignatureMessage = Absent,
+          rsLastSignedTimeoutSignatureMessage = Absent,
           rsCurrentTimeout = baseTimeout,
-          rsHighestQC = Nothing,
+          rsHighestQC = Absent,
           rsLeadershipElectionNonce = leNonce,
-          rsLatestEpochFinEntry = Nothing,
-          rsPreviousRoundTC = Nothing
+          rsLatestEpochFinEntry = Absent,
+          rsPreviousRoundTC = Absent
         }

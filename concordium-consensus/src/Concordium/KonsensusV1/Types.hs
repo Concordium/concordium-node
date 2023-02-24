@@ -34,12 +34,28 @@ import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as LFMBT
 newtype Round = Round {theRound :: Word64}
     deriving (Eq, Ord, Show, Serialize, Num, Integral, Real, Enum, Bounded)
 
--- |A strict version of 'Maybe'. We deliberately avoid defining generalised serialization and
--- hashing instances, so that specific instances can be given as appropriate.
+-- |A strict version of 'Maybe'.
 data Option a
     = Absent
     | Present !a
     deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
+
+-- |Putter for an @Option a@.
+putOptionOf :: Putter a -> Putter (Option a)
+putOptionOf _ Absent = putWord8 0
+putOptionOf pa (Present a) = putWord8 1 >> pa a
+
+-- |Getter for an @Option a@.
+getOptionOf :: Get a -> Get (Option a)
+getOptionOf ma = do
+    getWord8 >>= \case
+        0 -> return Absent
+        _ -> Present <$> ma
+
+-- |'Serialize' instance for an @Option a@.
+instance (Serialize a) => Serialize (Option a) where
+    put = putOptionOf put
+    get = getOptionOf get
 
 -- |Returns 'True' if and only if the value is 'Present'.
 isPresent :: Option a -> Bool
