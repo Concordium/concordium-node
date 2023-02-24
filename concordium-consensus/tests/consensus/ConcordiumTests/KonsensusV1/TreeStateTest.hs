@@ -214,7 +214,6 @@ skovDataWithTestBlocks =
                     . ( deadBlocks %~ insertDeadCache deadH
                       )
                )
-getHash
 -- |A test 'LowLevelDB' with the genesis block.
 lldbWithGenesis :: LowLevelDB pv
 lldbWithGenesis =
