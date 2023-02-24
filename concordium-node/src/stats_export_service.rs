@@ -149,7 +149,7 @@ pub struct StatsExportService {
 
 impl StatsExportService {
     /// Creates a new instance of the stats export service object.
-    pub fn new() -> anyhow::Result<Self> {
+    pub fn new(grpc_duration_buckets: Vec<f64>) -> anyhow::Result<Self> {
         let registry = Registry::new();
 
         let packets_received = IntCounter::with_opts(Opts::new(
@@ -294,7 +294,7 @@ impl StatsExportService {
             )
             .variable_label("method")
             .variable_label("status")
-            .buckets(vec![0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0]),
+            .buckets(grpc_duration_buckets),
             &["method", "status"],
         )?;
         registry.register(Box::new(grpc_request_duration.clone()))?;
@@ -421,9 +421,11 @@ impl StatsExportService {
 }
 
 /// Starts the stats export engine.
-pub fn instantiate_stats_export_engine() -> anyhow::Result<Arc<StatsExportService>> {
-    let prom =
-        StatsExportService::new().context("Could not start statistics collection engine.")?;
+pub fn instantiate_stats_export_engine(
+    conf: &configuration::PrometheusConfig,
+) -> anyhow::Result<Arc<StatsExportService>> {
+    let prom = StatsExportService::new(conf.prometheus_metric_grpc_duration_buckets.to_owned())
+        .context("Could not start statistics collection engine.")?;
     Ok(Arc::new(prom))
 }
 
