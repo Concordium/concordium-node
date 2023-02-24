@@ -24,7 +24,8 @@ import Test.HUnit
 import Test.Hspec
 
 -- base types.
-import qualified Concordium.Crypto.BlockSignature as Sig
+
+import Concordium.Crypto.DummyData
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.Crypto.VRF as VRF
@@ -93,7 +94,7 @@ dummyVRFKeys = fst $ VRF.randomKeyPair (mkStdGen 0)
 
 dummySignKeys :: BakerSignPrivateKey
 {-# NOINLINE dummySignKeys #-}
-dummySignKeys = unsafePerformIO Sig.newKeyPair
+dummySignKeys = fst $ randomBlockKeyPair $ mkStdGen 42
 
 dummyBlockNonce :: BlockNonce
 dummyBlockNonce = VRF.prove dummyVRFKeys ""
@@ -153,6 +154,9 @@ dummyGenesisConfiguration =
 dummyLeadershipElectionNonce :: LeadershipElectionNonce
 dummyLeadershipElectionNonce = Hash.hash "LeadershipElectionNonce"
 
+-- |An initial 'SkovData' suitable for testing.
+-- The skov data will be initialized as a genesis context.
+-- Hence the block state is empty.
 dummyInitialSkovData :: SkovData pv
 dummyInitialSkovData =
     mkInitialSkovData
@@ -440,7 +444,9 @@ testTakeNextPendingUntil = it "takeNextPendingUntil" $ do
 
 dummySigSchemeKeys :: SigScheme.KeyPair
 {-# NOINLINE dummySigSchemeKeys #-}
-dummySigSchemeKeys = unsafePerformIO $ SigScheme.newKeyPair SigScheme.Ed25519
+dummySigSchemeKeys =
+    let ((signKey, verifyKey), _) = randomEd25519KeyPair $ mkStdGen 42
+    in  SigScheme.KeyPairEd25519{..}
 
 dummyTransactionSignature :: TransactionSignature
 dummyTransactionSignature = TransactionSignature $ Map.singleton 0 (Map.singleton 0 sig)
