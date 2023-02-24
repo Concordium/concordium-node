@@ -22,31 +22,37 @@ import Concordium.Types
 import Concordium.Types.BakerIdentity
 import Concordium.Types.Parameters hiding (getChainParameters)
 
--- import Concordium.Types
-
+-- |A Monad for multicasting timeout messages.
 class MonadMulticast m where
+    -- |Multicast a timeout message over the network
     sendTimeoutMessage :: TimeoutMessage -> m ()
 
-data BakerContext = BakerContext
+-- |A baker context containing the baker identity. Used for accessing relevant baker keys and the baker id.
+newtype BakerContext = BakerContext
     { _bakerIdentity :: BakerIdentity
     }
 makeClassy ''BakerContext
 
+-- |Get the private baker aggregation key.
 getBakerAggSecretKey :: (MonadReader r m, HasBakerContext r) => m BakerAggregationPrivateKey
 getBakerAggSecretKey = do
     bi <- asks (view bakerIdentity)
     return $ bakerAggregationKey bi
 
+-- |Get the private baker sign key.
 getBakerSignPrivateKey :: (MonadReader r m, HasBakerContext r) => m BakerSignPrivateKey
 getBakerSignPrivateKey = do
     bi <- asks (view bakerIdentity)
     return $ bakerSignKey bi
 
+-- |Get the baker id.
 getBakerId :: (MonadReader r m, HasBakerContext r) => m BakerId
 getBakerId = do
     bi <- asks (view bakerIdentity)
     return $ bakerId bi
 
+-- |This is 'uponTimeoutEvent' from the bluepaper. If a timeout occurs, a finalizers should call this function to
+-- generate and send out a timeout message.
 uponTimeoutEvent ::
     ( MonadMulticast m,
       MonadReader r m,
@@ -110,5 +116,6 @@ uponTimeoutEvent = do
             sendTimeoutMessage timeoutMessage
             processTimeout timeoutMessage
 
+-- |This is 'processTimeout' from the bluepaper. FIXME: add more documentation when spefication is ready.
 processTimeout :: Monad m => TimeoutMessage -> m ()
 processTimeout _ = return () -- FIXME: implement this when specification is ready
