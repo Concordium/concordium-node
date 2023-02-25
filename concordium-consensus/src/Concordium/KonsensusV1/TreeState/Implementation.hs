@@ -171,8 +171,18 @@ emptyPendingBlocks =
 
 -- |Data required to support 'TreeState'.
 data SkovData (pv :: ProtocolVersion) = SkovData
-    { _roundStatus :: !RoundStatus,
+    { -- |The round status which holds data
+      -- associated with the current round of the
+      -- consensus protocol.
+      _roundStatus :: !RoundStatus,
       -- |Transactions.
+      -- The transaction table tracks the following:
+      -- * Live tranactions: mapping from a 'TransactionHash' to the status of the transaction,
+      --   which is either received (not associated with a block) or comitted (associated with a block).
+      -- * Non finalized account transactions
+      -- * Non finalized chain updates
+      -- See the documentation of 'TransactionTable' for more elaborate explanation of the three
+      -- structures within the 'TransactionTable'.
       _transactionTable :: !TransactionTable,
       -- |The purge counter for the 'TransactionTable'
       _transactionTablePurgeCounter :: !Int,
@@ -276,6 +286,17 @@ getMemoryBlockStatus blockHash sd
     -- Otherwise, we don't know
     | otherwise = Nothing
 
+-- |Create a block pointer from a stored block.
+mkBlockPointer :: (LowLevel.MonadTreeStateStore m, MonadIO m) => LowLevel.StoredBlock (MPV m) -> m (BlockPointer (MPV m))
+mkBlockPointer sb@LowLevel.StoredBlock{..} = do
+    bpState <- liftIO mkHashedPersistentBlockState
+    return BlockPointer{bpInfo = stbInfo, bpBlock = stbBlock, ..}
+  where
+    mkHashedPersistentBlockState = do
+        hpbsPointers <- newIORef $ BlobStore.blobRefToBufferedRef stbStatePointer
+        let hpbsHash = blockStateHash sb
+        return $! PBS.HashedPersistentBlockState{..}
+
 -- |Get the 'BlockStatus' of a block based on the provided 'BlockHash'.
 -- Note. if one does not care about old finalized blocks then
 -- use 'getRecentBlockStatus' instead as it circumvents a full lookup from disk.
@@ -286,17 +307,8 @@ getBlockStatus blockHash sd = case getMemoryBlockStatus blockHash sd of
         LowLevel.lookupBlock blockHash >>= \case
             Nothing -> return BlockUnknown
             Just storedBlock -> do
-                blockPointer <- liftIO $ mkBlockPointer storedBlock
+                blockPointer <- mkBlockPointer storedBlock
                 return $! BlockFinalized blockPointer
-  where
-    -- Create a block pointer from a stored block.
-    mkBlockPointer sb@LowLevel.StoredBlock{..} = do
-        bpState <- mkHashedPersistentBlockState sb
-        return BlockPointer{bpInfo = stbInfo, bpBlock = stbBlock, ..}
-    mkHashedPersistentBlockState sb@LowLevel.StoredBlock{..} = do
-        hpbsPointers <- newIORef $ BlobStore.blobRefToBufferedRef stbStatePointer
-        let hpbsHash = blockStateHash sb
-        return $! PBS.HashedPersistentBlockState{..}
 
 -- |Get the 'RecentBlockStatus' of a block based on the provided 'BlockHash'.
 -- Use this instead of 'getBlockStatus' if the contents and resulting state are not needed
@@ -308,6 +320,14 @@ getRecentBlockStatus blockHash sd = case getMemoryBlockStatus blockHash sd of
         LowLevel.memberBlock blockHash >>= \case
             True -> return OldFinalized
             False -> return Unknown
+
+-- |Get a finalized block by height.
+-- This will return 'Nothing' for a block that is either not finalized or unknown.
+getFinalizedBlockAtHeight :: (LowLevel.MonadTreeStateStore m, MonadIO m) => BlockHeight -> m (Maybe (BlockPointer (MPV m)))
+getFinalizedBlockAtHeight height = do
+    LowLevel.lookupBlockByHeight height >>= \case
+        Nothing -> return Nothing
+        Just sb -> return . Just =<< mkBlockPointer sb
 
 -- |Turn a 'PendingBlock' into a live block.
 -- This marks the block as 'MemBlockAlive' in the block table, records the arrive time of the block,
