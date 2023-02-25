@@ -390,13 +390,13 @@ markPending pb = blockTable . liveMap . at' (getHash pb) ?=! MemBlockPending pb
 -- |Add a block to the pending block table and queue.
 -- (Note, this does not update the block table.)
 addPendingBlock :: (MonadState s m, HasPendingBlocks s) => PendingBlock -> m ()
-addPendingBlock sb = do
+addPendingBlock pb = do
     pendingBlocksQueue %= MPQ.insert theRound (blockHash, parentHash)
-    pendingBlocksTable . at' parentHash . non [] %= (sb :)
+    pendingBlocksTable . at' parentHash . non [] %= (pb :)
   where
-    blockHash = getHash sb
-    theRound = blockRound sb
-    parentHash = blockParent sb
+    blockHash = getHash pb
+    theRound = blockRound pb
+    parentHash = blockParent pb
 
 -- |Take the set of blocks that are pending a particular parent from the pending block table.
 -- Note: this does not remove them from the pending blocks queue; blocks should be removed from
@@ -410,20 +410,20 @@ takePendingChildren parent = pendingBlocksTable . at' parent . non [] <<.= []
 takeNextPendingUntil :: (MonadState s m, HasPendingBlocks s) => Round -> m (Maybe PendingBlock)
 takeNextPendingUntil targetRound = takeNextUntil =<< use pendingBlocksQueue
   where
-    takeNextUntil ppq = case MPQ.minViewWithKey ppq of
-        Just ((r, (pending, parent)), ppq')
+    takeNextUntil pbq = case MPQ.minViewWithKey pbq of
+        Just ((r, (pending, parent)), pbq')
             | r <= targetRound -> do
                 (myPB, otherPBs) <-
                     List.partition ((== pending) . getHash)
                         <$> use (pendingBlocksTable . at' parent . non [])
                 case myPB of
-                    [] -> takeNextUntil ppq' -- Block is no longer actually pending
+                    [] -> takeNextUntil pbq' -- Block is no longer actually pending
                     (realPB : _) -> do
                         pendingBlocksTable . at' parent . non [] .= otherPBs
-                        pendingBlocksQueue .= ppq'
+                        pendingBlocksQueue .= pbq'
                         return (Just realPB)
         _ -> do
-            pendingBlocksQueue .=! ppq
+            pendingBlocksQueue .=! pbq
             return Nothing
 
 -- * Operations on the transaction table

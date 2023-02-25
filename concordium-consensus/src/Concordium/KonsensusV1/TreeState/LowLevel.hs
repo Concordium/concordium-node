@@ -83,7 +83,7 @@ class (Monad m) => MonadTreeStateStore m where
     -- |Look up a transaction by its hash.
     lookupTransaction :: TransactionHash -> m (Maybe FinalizedTransactionStatus)
 
-    -- |Determine if a block is present in the finalized transaction table.
+    -- |Determine if a transaction is present in the finalized transaction table.
     memberTransaction :: TransactionHash -> m Bool
 
     -- |Store the list of blocks and their transactions, updating the last finalization entry to
@@ -103,5 +103,5 @@ class (Monad m) => MonadTreeStateStore m where
     -- from the database until the predicate returns 'True'. If any blocks are rolled back,
     -- this also removes the latest finalization entry.
     -- This returns @Right True@ if roll-back occurred, and @Right False@ if no roll-back was
-    -- required.  If an error occurred attempting to roll back, @Right reason@ is returned.
+    -- required. If an error occurred attempting to roll back, @Left reason@ is returned.
     rollBackBlocksUntil :: (StoredBlock (MPV m) -> m Bool) -> m (Either String Bool)
