@@ -153,7 +153,9 @@ Timestamp of starting up the node (Unix time in milliseconds).
 ### `grpc_request_duration_seconds`
 
 Histogram tracking the total number of gRPC requests received and their duration. Labelled with the gRPC method name (`method=<name>`) and the gRPC response status (`status=<status>`).
-Every HTTP2 request are counted meaning every chunk in a streaming gRPC requests are included.
+
+The duration is tracked for the underlaying HTTP2 request response time, meaning the streaming gRPC methods which could span over multiple HTTP2 requests are counted for each.
+As a result the duration represents the time spent by the node of each method and are not influence by the processing speed of the client for each chunk.
 
 The size of the buckets be configured using the `prometheus-grpc-duration-buckets` (`CONCORDIUM_NODE_PROMETHEUS_GRPC_DURATION_BUCKETS`) and is provided as a list of decimal numbers separated by ",". Each value represents the upper inclusive bound of a bucket (in seconds) and a bucket with +Infinity is always added. The values must be sorted in strictly increasing order.
 The default value of the configuration is `"0.050,0.100,0.200,0.500,1.000"`.
