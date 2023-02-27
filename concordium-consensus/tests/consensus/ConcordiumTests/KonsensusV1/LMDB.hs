@@ -52,7 +52,7 @@ dummyHash = Hash.hash "test"
 dummyBlockHash :: BlockHash
 dummyBlockHash = BlockHash dummyHash
 
--- |A dummy QuorumCertificate
+-- |A 'QuorumCertificate' used in both 'dummyFinalizationEntry' and for constructing a 'BakedBlock'.
 dummyQC :: QuorumCertificate
 dummyQC =
     QuorumCertificate
@@ -63,23 +63,23 @@ dummyQC =
           qcSignatories = FinalizerSet 0 -- :: !FinalizerSet
         }
 
--- |A dummy KeyPair
+-- |A block signature keypair used to construct a block signature.
 dummyKP :: Block.KeyPair
 dummyKP = fst $ randomBlockKeyPair (mkStdGen 17)
 
--- |A dummy VRF KeyPair
+-- |A VRF keypair used to construct a VRF proof
 dummyVrfKP :: VRF.KeyPair
 dummyVrfKP = fst $ VRF.randomKeyPair (mkStdGen 17)
 
--- |A dummy VRF proof
+-- |A concrete VRF proof used to construct a 'BakedBlock'
 dummyProof :: VRF.Proof
 dummyProof = VRF.prove dummyVrfKP "foo"
 
--- |A dummy block signature
+-- |A block signature used in 'dummyBlock'
 dummyBlockSig :: Block.Signature
 dummyBlockSig = Block.sign dummyKP "someMessage"
 
--- |A dummy BakedBlock given a round, and a vector of block items
+-- |A helper function for creating a 'BakedBlock' given a round. Used by 'dummyBlock' to create blocks.
 dummyBakedBlock :: Round -> Vector.Vector BlockItem -> BakedBlock
 dummyBakedBlock n ts =
     BakedBlock
@@ -96,11 +96,11 @@ dummyBakedBlock n ts =
           bbStateHash = StateHashV0 dummyHash
         }
 
--- |A dummy account address given a seed
+-- |A helper function for creating an account address given a seed
 dummyAccountAddress :: Int -> AccountAddress
 dummyAccountAddress seed = fst $ randomAccountAddress (mkStdGen seed)
 
--- |A dummy TransactionHeader
+-- |The transaction header used in 'dummyBlockItem'.
 dummyTransactionHeader :: TransactionHeader
 dummyTransactionHeader =
     TransactionHeader
@@ -111,9 +111,9 @@ dummyTransactionHeader =
           thExpiry = dummyTransactionTime
         }
 
--- |A dummy AccountTransaction
-dummyAccountTransaction :: AccountTransaction
-dummyAccountTransaction =
+-- |A BlockItem used by 'dummyStoredBlockOneTransaction' to create a 'StoredBlock' with this block item in it.
+dummyBlockItem :: BlockItem
+dummyBlockItem = addMetadata id dummyTransactionTime $ NormalTransaction $
     AccountTransaction
         { -- \|Signature
           atrSignature = TransactionSignature $ Map.fromList [(1, Map.fromList [(1, Signature "bla")])], -- :: !TransactionSignature,
@@ -125,34 +125,25 @@ dummyAccountTransaction =
           atrSignHash = TransactionSignHashV0 dummyHash -- :: !TransactionSignHashV0
         }
 
--- |A dummy BareBlockItem
-dummyBareBlockItem :: BareBlockItem
-dummyBareBlockItem = NormalTransaction dummyAccountTransaction
-
--- |A dummy BlockItem
-dummyBlockItem :: BlockItem
-dummyBlockItem = addMetadata id dummyTransactionTime dummyBareBlockItem
-
--- |A dummy SignedBlock
-dummySignedBlock :: Round -> Vector.Vector BlockItem -> SignedBlock
-dummySignedBlock n ts = SignedBlock b h dummyBlockSig
+-- |A helper function for creating a block with the given round and block items.
+-- Blocks with different hashes can then be constructed by calling this function with different rounds.
+dummyBlock :: Round -> Vector.Vector BlockItem -> Block 'P6
+dummyBlock n ts = NormalBlock $ SignedBlock b h dummyBlockSig
   where
     b = dummyBakedBlock n ts
     h = getHash b
 
--- |A dummy Block with the given round and block items
-dummyBlock :: Round -> Vector.Vector BlockItem -> Block 'P6
-dummyBlock n ts = NormalBlock $ dummySignedBlock n ts
-
--- |A dummy StoredBlock with the given block height and round. No transactions.
+-- |A helper function for creating a StoredBlock with the given block height and round, and with no transactions.
+-- Empty 'StoredBlock's with different hashes can then be constructed by calling this function with different rounds.
 dummyStoredBlockEmpty :: BlockHeight -> Round -> StoredBlock 'P6
 dummyStoredBlockEmpty h n = StoredBlock (BlockMetadata h dummyTime dummyTime) (dummyBlock n Vector.empty) (BlobRef 0)
 
--- |A dummy StoredBlock with the given block height and round. Contains one transaction.
+-- |A helper function for creating a StoredBlock with the given block height and round, and with one transaction.
+-- 'StoredBlock's (with one transaction) with different hashes can then be constructed by calling this function with different rounds.
 dummyStoredBlockOneTransaction :: BlockHeight -> Round -> StoredBlock 'P6
 dummyStoredBlockOneTransaction h n = StoredBlock (BlockMetadata h dummyTime dummyTime) (dummyBlock n $ Vector.singleton dummyBlockItem) (BlobRef 0)
 
--- |Dummy list of stored blocks.
+-- |List of stored blocks used for testing. The heights are chosen so it is tested that the endianess of the stored block heights are correct.
 dummyStoredBlocks :: [StoredBlock 'P6]
 dummyStoredBlocks =
     [ dummyStoredBlockEmpty 0 9,
@@ -167,7 +158,7 @@ dummyStoredBlocks =
       dummyStoredBlockOneTransaction 5 10
     ]
 
--- |Dummy list of stored blocks of sequential height.
+-- |List of stored blocks of sequential height used for testing roll-back.
 dummyStoredBlocksSequentialHeights :: [StoredBlock 'P6]
 dummyStoredBlocksSequentialHeights =
     [ dummyStoredBlockEmpty 0 0,
@@ -178,7 +169,7 @@ dummyStoredBlocksSequentialHeights =
       dummyStoredBlockOneTransaction 5 5
     ]
 
--- |Dummy FinalizationEntry.
+-- |A FinalizationEntry. Both used by 'writeBlocks' and used when testing 'lookupLatestFinalizationEntry'.
 dummyFinalizationEntry :: FinalizationEntry
 dummyFinalizationEntry =
     let feSuccessorProof = BlockQuasiHash dummyHash
