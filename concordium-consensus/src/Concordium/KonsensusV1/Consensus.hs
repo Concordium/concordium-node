@@ -128,8 +128,7 @@ processBlockItem bi = do
             -- The transaction is new to us. Before adding it to the transaction table,
             -- we verify it.
             theTime <- utcTimeToTimestamp <$> currentTime
-            ctx <- getCtx
-            verRes <- runTransactionVerifierT (TVer.verify theTime bi) ctx
+            verRes <- runTransactionVerifierT (TVer.verify theTime bi) =<< getCtx
             case verRes of
                 okRes@(TVer.Ok _) -> do
                     added <- doAddTransaction 0 bi okRes
@@ -188,10 +187,9 @@ processBlockItems parentPointer bb = processBis $! bbTransactions bb
     process !txs !res
         | Vector.length txs == 0 = return (Vector.empty, res)
         | otherwise = do
-            !ctx <- getCtx
             !theTime <- utcTimeToTimestamp <$> currentTime
-            let bi = Vector.head txs
-                txHash = getHash bi
+            let !bi = Vector.head txs
+                !txHash = getHash bi
             !tt' <- gets' _transactionTable
             -- Check whether we already have the transaction.
             case tt' ^. ttHashMap . at' txHash of
@@ -206,7 +204,7 @@ processBlockItems parentPointer bb = processBis $! bbTransactions bb
                     -- We verify the transaction and check whether it's acceptable i.e. Ok or MaybeOk.
                     -- If that is the case then we add it to the transaction table and pending transactions.
                     -- If it is NotOk then we stop verifying the transactions as the block can never be valid now.
-                    !verRes <- runTransactionVerifierT (TVer.verify theTime bi) ctx
+                    !verRes <- runTransactionVerifierT (TVer.verify theTime bi) =<< getCtx
                     -- Continue processing the transactions.
                     -- If the transaction was *not* added then it means that it yields a lower nonce with
                     -- respect to the non finalized transactions. We tolerate this and keep processing the remaining transactions
