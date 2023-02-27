@@ -32,7 +32,7 @@ import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Transactions
 
--- |A dummy UTCTime
+-- |A dummy UTCTime used for tests where the actual value is not significant.
 dummyTime :: UTCTime
 dummyTime = posixSecondsToUTCTime 0
 
@@ -62,22 +62,28 @@ dummyQC =
         }
 
 -- |A block signature keypair used to construct a block signature.
+-- The choice of the keypair is not significant.
 dummyKP :: Block.KeyPair
 dummyKP = fst $ randomBlockKeyPair (mkStdGen 17)
 
 -- |A VRF keypair used to construct a VRF proof
+-- The choice of the keypair is not significant.
 dummyVrfKP :: VRF.KeyPair
-dummyVrfKP = fst $ VRF.randomKeyPair (mkStdGen 17)
+dummyVrfKP = fst $ VRF.randomKeyPair (mkStdGen 18)
 
--- |A concrete VRF proof used to construct a 'BakedBlock'
+-- |A concrete VRF proof used to construct a 'BakedBlock'.
+-- The proof is well-formed, but there should be no other expectation regarding its validity.
 dummyProof :: VRF.Proof
 dummyProof = VRF.prove dummyVrfKP "foo"
 
--- |A block signature used in 'dummyBlock'
+-- |A block signature used in 'dummyBlock'.
+-- The signature is well-formed, but there should be no expectation as to its validity.
 dummyBlockSig :: Block.Signature
 dummyBlockSig = Block.sign dummyKP "someMessage"
 
 -- |A helper function for creating a 'BakedBlock' given a round. Used by 'dummyBlock' to create blocks.
+-- The block is well-formed and contains the supplied transactions and is for the specified round.
+-- Beyond that, there should be no expectation on the data in the block.
 dummyBakedBlock :: Round -> Vector.Vector BlockItem -> BakedBlock
 dummyBakedBlock n ts =
     BakedBlock
@@ -94,11 +100,14 @@ dummyBakedBlock n ts =
           bbStateHash = StateHashV0 dummyHash
         }
 
--- |A helper function for creating an account address given a seed
+-- |A helper function for creating an account address given a seed.
+-- The address is well-formed, and different seeds should give different values.
+-- Beyond that, there should be no expectation on the addresses produced.
 dummyAccountAddress :: Int -> AccountAddress
 dummyAccountAddress seed = fst $ randomAccountAddress (mkStdGen seed)
 
 -- |The transaction header used in 'dummyBlockItem'.
+-- This is a well-formed transaction header, but there should be no other expectation on the data.
 dummyTransactionHeader :: TransactionHeader
 dummyTransactionHeader =
     TransactionHeader
@@ -110,6 +119,8 @@ dummyTransactionHeader =
         }
 
 -- |A BlockItem used by 'dummyStoredBlockOneTransaction' to create a 'StoredBlock' with this block item in it.
+-- This is a well-formed normal transaction block item. There should be no other expectation on the
+-- data.
 dummyBlockItem :: BlockItem
 dummyBlockItem =
     addMetadata id dummyTransactionTime $
@@ -123,6 +134,7 @@ dummyBlockItem =
 
 -- |A helper function for creating a block with the given round and block items.
 -- Blocks with different hashes can then be constructed by calling this function with different rounds.
+-- The blocks are derived from 'dummyBakedBlock' with the supplied round and block items.
 dummyBlock :: Round -> Vector.Vector BlockItem -> Block 'P6
 dummyBlock n ts = NormalBlock $ SignedBlock b h dummyBlockSig
   where
@@ -131,15 +143,17 @@ dummyBlock n ts = NormalBlock $ SignedBlock b h dummyBlockSig
 
 -- |A helper function for creating a StoredBlock with the given block height and round, and with no transactions.
 -- Empty 'StoredBlock's with different hashes can then be constructed by calling this function with different rounds.
+-- The blocks are derived from 'dummyBlock' with the supplied height and round, but no block items.
 dummyStoredBlockEmpty :: BlockHeight -> Round -> StoredBlock 'P6
 dummyStoredBlockEmpty h n = StoredBlock (BlockMetadata h dummyTime dummyTime) (dummyBlock n Vector.empty) (BlobRef 0)
 
 -- |A helper function for creating a StoredBlock with the given block height and round, and with one transaction.
 -- 'StoredBlock's (with one transaction) with different hashes can then be constructed by calling this function with different rounds.
+-- The blocks are derived from 'dummyBlock' with the supplied height and round, and a singular 'dummyBlockItem'.
 dummyStoredBlockOneTransaction :: BlockHeight -> Round -> StoredBlock 'P6
 dummyStoredBlockOneTransaction h n = StoredBlock (BlockMetadata h dummyTime dummyTime) (dummyBlock n $ Vector.singleton dummyBlockItem) (BlobRef 0)
 
--- |List of stored blocks used for testing. The heights are chosen so it is tested that the endianess of the stored block heights are correct.
+-- |List of stored blocks used for testing. The heights are chosen so it is tested that the endianness of the stored block heights are correct.
 dummyStoredBlocks :: [StoredBlock 'P6]
 dummyStoredBlocks =
     [ dummyStoredBlockEmpty 0 9,
@@ -194,81 +208,84 @@ runLLMDBTest name action = withTempDirectory "" name $ \path ->
         closeDatabase
         (\dbhandlers -> runSilentLogger $ runReaderT (runDiskLLDBM action) dbhandlers)
 
--- |Test of the function 'lookupLastBlock'
+-- |Test that 'lookupLastBlock' returns the block with the greatest height among the dummy blocks.
+-- The dummy blocks are chosen to have a wide range of blockheights to catch possible endianness
+-- errors.
 testLookupLastBlock :: Assertion
 testLookupLastBlock = runLLMDBTest "lookupLastBlockTest" $ do
     writeBlocks dummyStoredBlocks dummyFinalizationEntry
     lastBlock <- lookupLastBlock
     case lastBlock of
-        Nothing -> liftIO $ assertBool "Block should be Just" False
+        Nothing -> liftIO $ assertFailure "Block should be Just"
         Just sb -> liftIO $ assertEqual "BlockHeight should be 0x100000000000000" 0x100000000000000 (bmHeight $ stbInfo sb)
 
--- |Test of the function 'LookupFirstBlock'
+-- |Test that the function 'LookupFirstBlock' returns the block with height '0' from the dummy blocks.
 testLookupFirstBlock :: Assertion
 testLookupFirstBlock = runLLMDBTest "lookupFirstBlockTest" $ do
     writeBlocks dummyStoredBlocks dummyFinalizationEntry
     lastBlock <- lookupFirstBlock
     case lastBlock of
-        Nothing -> liftIO $ assertBool "Block should be Just" False
+        Nothing -> liftIO $ assertFailure "Block should be Just"
         Just sb -> liftIO $ assertEqual "BlockHeight should be 0" 0 (bmHeight $ stbInfo sb)
 
--- |Test of the function 'LookupBlockByHeight'
+-- |Test that the function 'LookupBlockByHeight' retrieves the correct block at height 0x10000.
 testLookupBlockByHeight :: Assertion
 testLookupBlockByHeight = runLLMDBTest "lookupBlockByHeightTest" $ do
     writeBlocks dummyStoredBlocks dummyFinalizationEntry
     lastBlock <- lookupBlockByHeight 0x10000
     case lastBlock of
-        Nothing -> liftIO $ assertBool "Block should be Just" False
+        Nothing -> liftIO $ assertFailure "Block should be Just"
         Just sb -> liftIO $ assertEqual "BlockHeight should be 0x10000" 0x10000 (bmHeight $ stbInfo sb)
 
--- |Test of the function 'memberBlock'
+-- |Test that the function 'memberBlock' returns 'True' for a selected block.
 testMemberBlock :: Assertion
 testMemberBlock = runLLMDBTest "memberBlockTest" $ do
     writeBlocks dummyStoredBlocks dummyFinalizationEntry
     isMember <- memberBlock $ getHash $ dummyBakedBlock 1 Vector.empty
     liftIO $ assertBool "isMember should be True" isMember
 
--- |Test of the function 'lookupBlock'
+-- |Test that the function 'lookupBlock' retrieves a selected block.
 testLookupBlock :: Assertion
 testLookupBlock = runLLMDBTest "lookupBlockTest" $ do
     writeBlocks dummyStoredBlocks dummyFinalizationEntry
     block <- lookupBlock $ getHash $ dummyBakedBlock 5 Vector.empty
     case block of
-        Nothing -> liftIO $ assertBool "Block should be Just" False
+        Nothing -> liftIO $ assertFailure "Block should be Just"
         Just sb -> liftIO $ assertEqual "BlockHeight should be 0x100000000" 0x100000000 (bmHeight $ stbInfo sb)
 
--- |Test of the function 'lookupFinalizationEntry'
+-- |Test that the function 'lookupFinalizationEntry' retrieves a written expected finalization entry.
 testLookupLatestFinalizationEntry :: Assertion
 testLookupLatestFinalizationEntry = runLLMDBTest "lookupFinalizationEntryTest" $ do
     writeBlocks dummyStoredBlocks dummyFinalizationEntry
     fe <- lookupLatestFinalizationEntry
     case fe of
-        Nothing -> liftIO $ assertBool "Finalization entry should be Just" False
+        Nothing -> liftIO $ assertFailure "Finalization entry should be Just"
         Just f -> liftIO $ assertEqual "Finalization entry should match" dummyFinalizationEntry f
 
--- |Test of the function 'lookupTransaction'
+-- |Test that the function 'lookupTransaction' retrieves the expected transaction status.
 testLookupTransaction :: Assertion
 testLookupTransaction = runLLMDBTest "lookupTransactionTest" $ do
     writeBlocks dummyStoredBlocks dummyFinalizationEntry
     ft <- lookupTransaction $ wmdHash $ dummyBlockItem
     case ft of
-        Nothing -> liftIO $ assertBool "Finalized transaction status should be Just" False
+        Nothing -> liftIO $ assertFailure "Finalized transaction status should be Just"
         Just FinalizedTransactionStatus{..} -> do
             liftIO $ assertEqual "Block height of transaction should be 5" 5 ftsBlockHeight
             liftIO $ assertEqual "Transaction index should be 0" 0 ftsIndex
 
--- |Test of the function 'memberTransaction'
+-- |Test that the function 'memberTransaction' identifies the presence of a known transaction.
 testMemberTransaction :: Assertion
 testMemberTransaction = runLLMDBTest "memberTransactionTest" $ do
     writeBlocks dummyStoredBlocks dummyFinalizationEntry
     isMember <- memberTransaction $ wmdHash $ dummyBlockItem
     liftIO $ assertBool "memberTransaction should be True" isMember
 
--- |Test of the function 'rollBackBlocksUntil'
+-- |Test that the function 'rollBackBlocksUntil' correctly rolls back 4 of the six blocks from
+-- 'dummyStoredBlocksSequentialHeights'.
 testRollBackBlocksUntil :: Assertion
 testRollBackBlocksUntil = runLLMDBTest "lookupTransactionTest" $ do
     writeBlocks dummyStoredBlocksSequentialHeights dummyFinalizationEntry
-    eb <- rollBackBlocksUntil $ \sb -> return ((bmHeight $ stbInfo sb) == 1)
+    eb <- rollBackBlocksUntil $ \sb -> return (bmHeight (stbInfo sb) == 1)
     case eb of
         Left s -> liftIO $ assertBool ("Roll back failed: " ++ s) False
         Right rollbackCount -> do
