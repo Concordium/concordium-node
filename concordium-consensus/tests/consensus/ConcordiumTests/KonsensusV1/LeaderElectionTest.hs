@@ -58,7 +58,7 @@ dummyFullBakers =
 serializeDeserializeFullBakers :: Spec
 serializeDeserializeFullBakers = describe "serialize and deserialize full bakers" $ do
     it "serialize/deserialize" $ do
-        case runGet getFullBakers  $! runPut (putFullBakers dummyFullBakers) of
+        case runGet getFullBakers $! runPut (putFullBakers dummyFullBakers) of
             Left err -> assertFailure err
             Right bkrs -> assertEqual "The full bakers should be the same" dummyFullBakers bkrs
 
