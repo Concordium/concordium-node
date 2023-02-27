@@ -138,17 +138,17 @@ dummyBlock rnd = BlockPointer{..}
 dummyGenesisBlockHash :: BlockHash
 dummyGenesisBlockHash = BlockHash (Hash.hash "DummyGenesis")
 
-dummyGenesisConfiguration :: GenesisConfiguration
-dummyGenesisConfiguration =
-    GenesisConfiguration
-        { gcParameters =
+dummyGenesisMetadata :: GenesisMetadata
+dummyGenesisMetadata =
+    GenesisMetadata
+        { gmParameters =
             CoreGenesisParametersV1
                 { genesisTime = 0,
                   genesisEpochDuration = 3_600_000
                 },
-          gcCurrentGenesisHash = dummyGenesisBlockHash,
-          gcFirstGenesisHash = dummyGenesisBlockHash,
-          gcStateHash = getHash dummyBlockState
+          gmCurrentGenesisHash = dummyGenesisBlockHash,
+          gmFirstGenesisHash = dummyGenesisBlockHash,
+          gmStateHash = getHash dummyBlockState
         }
 
 dummyLeadershipElectionNonce :: LeadershipElectionNonce
@@ -161,7 +161,7 @@ dummyInitialSkovData :: SkovData pv
 dummyInitialSkovData =
     mkInitialSkovData
         defaultRuntimeParameters
-        dummyGenesisConfiguration
+        dummyGenesisMetadata
         dummyBlockState
         10_000
         dummyLeadershipElectionNonce
@@ -800,7 +800,7 @@ testRemoveTransactions = describe "removeTransactions" $ do
                 . addTrans tr1
 
 -- |Testing 'putTransaction'.
--- This test ensures that the supplied tranaction is added
+-- This test ensures that the supplied transaction is added
 -- to the transaction table with the provided round.
 -- This test also checks that the transaction table purge counter
 -- is incremented.

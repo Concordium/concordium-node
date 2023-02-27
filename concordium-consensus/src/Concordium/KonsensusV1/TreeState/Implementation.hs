@@ -45,7 +45,7 @@ import Concordium.Types.Updates
 import Concordium.Utils
 
 import Concordium.GlobalState.BlockState
-import Concordium.GlobalState.Parameters hiding (GenesisConfiguration)
+import Concordium.GlobalState.Parameters
 import qualified Concordium.GlobalState.Persistent.BlobStore as BlobStore
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import Concordium.GlobalState.Persistent.TreeState (DeadCache, emptyDeadCache, insertDeadCache, memberDeadCache)
@@ -194,8 +194,8 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       _blockTable :: !(BlockTable pv),
       -- |Branches of the tree by height above the last finalized block
       _branches :: !(Seq.Seq [BlockPointer pv]),
-      -- |Genesis configuration
-      _genesisConfiguration :: !GenesisConfiguration,
+      -- |Genesis metadata
+      _genesisMetadata :: !GenesisMetadata,
       -- |Pending blocks
       _skovPendingBlocks :: !PendingBlocks,
       -- |Pointer to the last finalized block.
@@ -220,8 +220,8 @@ instance HasPendingBlocks (SkovData pv) where
 mkInitialSkovData ::
     -- |The 'RuntimeParameters'
     RuntimeParameters ->
-    -- |Genesis configuration. State hash should match the hash of the state.
-    GenesisConfiguration ->
+    -- |Genesis metadata. State hash should match the hash of the state.
+    GenesisMetadata ->
     -- |Genesis state
     PBS.HashedPersistentBlockState pv ->
     -- |The base timeout
@@ -230,10 +230,10 @@ mkInitialSkovData ::
     LeadershipElectionNonce ->
     -- |The initial 'SkovData'
     SkovData pv
-mkInitialSkovData rp genConf genState baseTimeout len =
-    let genesisBlock = GenesisBlock genConf
-        genesisTime = timestampToUTCTime $ Base.genesisTime (gcParameters genConf)
-        genesisMetadata =
+mkInitialSkovData rp genMeta genState baseTimeout len =
+    let genesisBlock = GenesisBlock genMeta
+        genesisTime = timestampToUTCTime $ Base.genesisTime (gmParameters genMeta)
+        genesisBlockMetadata =
             BlockMetadata
                 { bmHeight = 0,
                   bmReceiveTime = genesisTime,
@@ -241,7 +241,7 @@ mkInitialSkovData rp genConf genState baseTimeout len =
                 }
         genesisBlockPointer =
             BlockPointer
-                { bpInfo = genesisMetadata,
+                { bpInfo = genesisBlockMetadata,
                   bpBlock = genesisBlock,
                   bpState = genState
                 }
@@ -256,7 +256,7 @@ mkInitialSkovData rp genConf genState baseTimeout len =
         _runtimeParameters = rp
         _blockTable = emptyBlockTable
         _branches = Seq.empty
-        _genesisConfiguration = genConf
+        _genesisMetadata = genMeta
         _skovPendingBlocks = emptyPendingBlocks
         _lastFinalized = genesisBlockPointer
         _statistics = Stats.initialConsensusStatistics

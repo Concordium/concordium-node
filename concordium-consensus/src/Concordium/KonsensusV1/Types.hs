@@ -171,7 +171,7 @@ data FinalizerInfo = PartyInfo
       finalizerVRFKey :: !VRF.PublicKey,
       -- |The BLS public key of the finalizer
       finalizerBlsKey :: !Bls.PublicKey,
-      -- |The baker ID of the finalizaer
+      -- |The baker ID of the finalizer
       finalizerBakerId :: !BakerId
     }
     deriving (Eq, Ord)
@@ -601,7 +601,7 @@ checkTimeoutMessageSignature ::
     BlockHash ->
     -- |The timeout message
     TimeoutMessage ->
-    -- |Wheter the signature could be verified or not.
+    -- |Whether the signature could be verified or not.
     Bool
 checkTimeoutMessageSignature pubKey genesisHash TimeoutMessage{..} =
     BlockSig.verify pubKey (timeoutMessageBodySignatureBytes tmBody genesisHash) tmSignature
@@ -840,7 +840,7 @@ verifyBlockSignature ::
     BlockHash ->
     -- |The data of the block that is signed.
     b ->
-    -- |'True' if the signature can be verifed otherwise 'False'.
+    -- |'True' if the signature can be verified otherwise 'False'.
     Bool
 verifyBlockSignature key genesisHash b =
     BlockSig.verify
@@ -996,38 +996,38 @@ instance (Serialize a) => Serialize (SignatureMessages a) where
         SignatureMessages <$> getSafeSizedMapOf count get get
 
 -- |Configuration information stored for the genesis block.
-data GenesisConfiguration = GenesisConfiguration
+data GenesisMetadata = GenesisMetadata
     { -- |Core genesis parameters.
-      gcParameters :: !CoreGenesisParametersV1,
+      gmParameters :: !CoreGenesisParametersV1,
       -- |Hash of the genesis block.
-      gcCurrentGenesisHash :: !BlockHash,
+      gmCurrentGenesisHash :: !BlockHash,
       -- |Hash of the first genesis block.
-      gcFirstGenesisHash :: !BlockHash,
+      gmFirstGenesisHash :: !BlockHash,
       -- |Hash of the genesis block state (after migration).
-      gcStateHash :: !StateHash
+      gmStateHash :: !StateHash
     }
     deriving (Eq, Show)
 
-instance Serialize GenesisConfiguration where
-    put GenesisConfiguration{..} = do
-        put gcParameters
-        put gcCurrentGenesisHash
-        put gcFirstGenesisHash
-        put gcStateHash
+instance Serialize GenesisMetadata where
+    put GenesisMetadata{..} = do
+        put gmParameters
+        put gmCurrentGenesisHash
+        put gmFirstGenesisHash
+        put gmStateHash
     get = do
-        gcParameters <- get
-        gcCurrentGenesisHash <- get
-        gcFirstGenesisHash <- get
-        gcStateHash <- get
-        return GenesisConfiguration{..}
+        gmParameters <- get
+        gmCurrentGenesisHash <- get
+        gmFirstGenesisHash <- get
+        gmStateHash <- get
+        return GenesisMetadata{..}
 
 -- |Either a genesis block or a normal block.
 -- A normal block MUST have a non-zero round number.
 --
--- The genesis block is represented only by the 'GenesisConfiguration' and the
+-- The genesis block is represented only by the 'GenesisMetadata' and the
 -- 'StateHash', which abstract from the genesis data.
 data Block (pv :: ProtocolVersion)
-    = GenesisBlock !GenesisConfiguration
+    = GenesisBlock !GenesisMetadata
     | NormalBlock !SignedBlock
     deriving (Eq, Show)
 
@@ -1037,17 +1037,17 @@ instance BlockData (Block pv) where
     blockRound (NormalBlock b) = blockRound b
     blockEpoch GenesisBlock{} = 0
     blockEpoch (NormalBlock b) = blockEpoch b
-    blockTimestamp (GenesisBlock gc) = genesisTime (gcParameters gc)
+    blockTimestamp (GenesisBlock gc) = genesisTime (gmParameters gc)
     blockTimestamp (NormalBlock b) = blockTimestamp b
     blockBakedData GenesisBlock{} = Absent
     blockBakedData (NormalBlock b) = blockBakedData b
     blockTransactions GenesisBlock{} = []
     blockTransactions (NormalBlock b) = blockTransactions b
-    blockStateHash (GenesisBlock gc) = gcStateHash gc
+    blockStateHash (GenesisBlock gc) = gmStateHash gc
     blockStateHash (NormalBlock b) = blockStateHash b
 
 instance HashableTo BlockHash (Block pv) where
-    getHash (GenesisBlock gc) = gcCurrentGenesisHash gc
+    getHash (GenesisBlock gc) = gmCurrentGenesisHash gc
     getHash (NormalBlock b) = getHash b
 
 instance Monad m => MHashableTo m BlockHash (Block pv)

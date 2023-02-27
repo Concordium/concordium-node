@@ -62,6 +62,11 @@ instance BlockData (StoredBlock pv) where
 instance HashableTo BlockHash (StoredBlock pv) where
     getHash = getHash . stbBlock
 
+-- |'MonadTreeStateStore' defines the interface to the low-level tree state database.
+-- An implementation should guarantee atomicity, consistency and isolation for these operations.
+-- Durability is also expected from a persistent implementation.
+-- The write operations in particular may involve updating multiple tables and should guarantee
+-- transactional behaviour.
 class (Monad m) => MonadTreeStateStore m where
     -- |Get a finalized block by block hash.
     lookupBlock :: BlockHash -> m (Maybe (StoredBlock (MPV m)))
