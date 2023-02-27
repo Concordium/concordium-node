@@ -186,7 +186,7 @@ data TestConfig = TestConfig
     { -- | Maximum block size in bytes.
       tcBlockSize :: Integer,
       -- |Timeout for block construction in milliseconds.
-      -- This is the absolute time after which we stop trying to add new transctions to the block.
+      -- This is the absolute time after which we stop trying to add new transactions to the block.
       tcBlockTimeout :: Time.Timestamp,
       -- |The context state used for running the scheduler.
       tcContextState :: EI.ContextState

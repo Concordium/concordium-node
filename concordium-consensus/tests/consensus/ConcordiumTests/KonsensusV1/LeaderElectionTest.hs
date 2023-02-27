@@ -65,6 +65,8 @@ serializeDeserializeFullBakers = describe "serialize and deserialize full bakers
 -- |Tests for 'getLeader' on specific values with specific outcomes.
 -- These are intended as a regression test, as a change in the behaviour of 'getLeader' would likely
 -- cause them to fail.
+-- The test cases demonstrate that different inputs (leader election nonce, round, baker stakes,
+-- number of bakers) result in different outputs from 'getLeader'.
 testGetLeader :: Spec
 testGetLeader = describe "getLeader" $ do
     it "1" $ testIt [(i, 1000000000000000) | i <- [0 .. 50]] len1 0 31
