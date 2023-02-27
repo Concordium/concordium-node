@@ -1,4 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -8,6 +10,7 @@
 module Concordium.GlobalState.Persistent.Genesis (genesisState) where
 
 import qualified Concordium.Genesis.Data as GenesisData
+import qualified Concordium.Genesis.Data.BaseV1 as GDBaseV1
 import qualified Concordium.Genesis.Data.P1 as P1
 import qualified Concordium.Genesis.Data.P2 as P2
 import qualified Concordium.Genesis.Data.P3 as P3
@@ -53,24 +56,29 @@ genesisState ::
 genesisState gd = MTL.runExceptT $ case Types.protocolVersion @pv of
     Types.SP1 -> case gd of
         GenesisData.GDP1 P1.GDP1Initial{..} ->
-            buildGenesisBlockState genesisCore genesisInitialState
+            buildGenesisBlockState (CGPV0 genesisCore) genesisInitialState
     Types.SP2 -> case gd of
         GenesisData.GDP2 P2.GDP2Initial{..} ->
-            buildGenesisBlockState genesisCore genesisInitialState
+            buildGenesisBlockState (CGPV0 genesisCore) genesisInitialState
     Types.SP3 -> case gd of
         GenesisData.GDP3 P3.GDP3Initial{..} ->
-            buildGenesisBlockState genesisCore genesisInitialState
+            buildGenesisBlockState (CGPV0 genesisCore) genesisInitialState
     Types.SP4 -> case gd of
         GenesisData.GDP4 P4.GDP4Initial{..} ->
-            buildGenesisBlockState genesisCore genesisInitialState
+            buildGenesisBlockState (CGPV0 genesisCore) genesisInitialState
     Types.SP5 -> case gd of
         GenesisData.GDP5 P5.GDP5Initial{..} ->
-            buildGenesisBlockState genesisCore genesisInitialState
+            buildGenesisBlockState (CGPV0 genesisCore) genesisInitialState
     Types.SP6 -> case gd of
         GenesisData.GDP6 P6.GDP6Initial{..} ->
-            buildGenesisBlockState genesisCore genesisInitialState
+            buildGenesisBlockState (CGPV1 genesisCore) genesisInitialState
 
 -------- Types -----------
+
+-- |A GADT that wraps the core genesis parameters for each consensus version.
+data VersionedCoreGenesisParameters (pv :: Types.ProtocolVersion) where
+    CGPV0 :: (Types.IsConsensusV0 pv) => GenesisData.CoreGenesisParameters -> VersionedCoreGenesisParameters pv
+    CGPV1 :: (Types.IsConsensusV1 pv) => GDBaseV1.CoreGenesisParametersV1 -> VersionedCoreGenesisParameters pv
 
 -- |State being accumulated while iterating the accounts in genesis data.
 -- It is then used to construct the initial block state from genesis.
@@ -118,15 +126,15 @@ initialAccumGenesisState =
 buildGenesisBlockState ::
     forall pv av m.
     (BS.SupportsPersistentState pv m, Types.AccountVersionFor pv ~ av) =>
-    GenesisData.CoreGenesisParameters ->
+    VersionedCoreGenesisParameters pv ->
     GenesisData.GenesisState pv ->
     MTL.ExceptT String m (BS.HashedPersistentBlockState pv, TransactionTable.TransactionTable)
-buildGenesisBlockState GenesisData.CoreGenesisParameters{..} GenesisData.GenesisState{..} = do
+buildGenesisBlockState vcgp GenesisData.GenesisState{..} = do
     -- Iterate the accounts in genesis once and accumulate all relevant information.
     AccumGenesisState{..} <- Vec.ifoldM' accumStateFromGenesisAccounts initialAccumGenesisState genesisAccounts
 
     -- Birk parameters
-    persistentBirkParameters :: BS.PersistentBirkParameters av <- do
+    persistentBirkParameters :: BS.PersistentBirkParameters pv <- do
         _birkActiveBakers <-
             Blob.refMakeFlushed $
                 Bakers.PersistentActiveBakers
@@ -144,10 +152,13 @@ buildGenesisBlockState GenesisData.CoreGenesisParameters{..} GenesisData.Genesis
                 _bakerStakes <- Blob.refMakeFlushed $ Bakers.BakerStakes agsBakerStakes
                 return Bakers.PersistentEpochBakers{_bakerTotalStake = agsStakedTotal, ..}
 
+        let _birkSeedState = case vcgp of
+                CGPV0 GenesisData.CoreGenesisParameters{..} -> Types.initialSeedStateV0 genesisLeadershipElectionNonce genesisEpochLength
+                CGPV1 _ -> Types.initialSeedStateV1 genesisLeadershipElectionNonce
+
         return $
             BS.PersistentBirkParameters
                 { _birkCurrentEpochBakers = _birkNextEpochBakers,
-                  _birkSeedState = Types.initialSeedState genesisLeadershipElectionNonce genesisEpochLength,
                   ..
                 }
 

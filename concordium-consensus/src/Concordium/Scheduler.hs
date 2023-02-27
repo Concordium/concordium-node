@@ -2442,6 +2442,9 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, mVerRes
                                 GASRewardsCPV2UpdatePayload u -> case sGasRewardsVersionFor scpv of
                                     SGASRewardsVersion0 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
                                     SGASRewardsVersion1 -> checkSigAndEnqueue $ UVGASRewards u
+                                FinalizationCommitteeParametersUpdatePayload u -> case sIsSupported SPTFinalizationCommitteeParameters scpv of
+                                    STrue -> checkSigAndEnqueue $ UVFinalizationCommitteeParameters u
+                                    SFalse -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
   where
     scpv :: SChainParametersVersion (ChainParametersVersionFor (MPV m))
     scpv = chainParametersVersion

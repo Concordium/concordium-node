@@ -15,7 +15,7 @@
 -- |
 -- Definition of the API of every BlockState implementation.
 --
--- The block state holds amongs other things the status of the accounts, bakers and
+-- The block state holds, among other things, the status of the accounts, bakers and
 -- bank rewards after the execution of a specific block.
 --
 -- We will consider the genesis state containing at least:
@@ -31,7 +31,7 @@
 -- * bakers: collection of the current bakers (could be inside birkParameters)
 -- * electionDifficulty
 -- * transactionOutcomesValues: normal transaction outcomes in a block
--- * transactionOutcomesSpecial: special transction outcomes in a block
+-- * transactionOutcomesSpecial: special transaction outcomes in a block
 --
 -- Each implementation might group these values under different structures but they
 -- are all required.
@@ -84,7 +84,7 @@ import Concordium.Types.Accounts.Releases
 import Concordium.Types.AnonymityRevokers
 import Concordium.Types.IdentityProviders
 import Concordium.Types.Queries (PoolStatus, RewardStatus')
-import Concordium.Types.SeedState
+import Concordium.Types.SeedState (SeedState, SeedStateVersion (..), SeedStateVersionFor)
 import Concordium.Types.Transactions hiding (BareBlockItem (..))
 import qualified Concordium.Types.UpdateQueues as UQ
 
@@ -518,7 +518,7 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
 
     -- |Get the seed state, from which the leadership election nonce
     -- is derived.
-    getSeedState :: BlockState m -> m SeedState
+    getSeedState :: BlockState m -> m (SeedState (SeedStateVersionFor (MPV m)))
 
     -- |Get the bakers for the epoch in which the block was baked.
     getCurrentEpochBakers :: BlockState m -> m FullBakers
@@ -529,7 +529,13 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
     -- |Get the bakers for a particular (future) slot, provided genesis timestamp and slot duration.
     -- This is used for protocol version 'P1' to 'P3'.
     -- This should not be used for a slot less than the slot of the block.
-    getSlotBakersP1 :: (AccountVersionFor (MPV m) ~ 'AccountV0) => BlockState m -> Slot -> m FullBakers
+    getSlotBakersP1 ::
+        ( AccountVersionFor (MPV m) ~ 'AccountV0,
+          SeedStateVersionFor (MPV m) ~ 'SeedStateVersion0
+        ) =>
+        BlockState m ->
+        Slot ->
+        m FullBakers
 
     -- |Get the account of a baker. This may return an account even
     -- if the account is not (currently) a baker, since a 'BakerId'
@@ -803,7 +809,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
     bsoNotifyEncryptedBalanceChange :: UpdatableBlockState m -> AmountDelta -> m (UpdatableBlockState m)
 
     -- |Get the seed state associated with the block state.
-    bsoGetSeedState :: UpdatableBlockState m -> m SeedState
+    bsoGetSeedState :: UpdatableBlockState m -> m (SeedState (SeedStateVersionFor (MPV m)))
 
     -- |Set the seed state associated with the block state.
     --
@@ -811,7 +817,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
     -- function (or otherwise).  The epoch length is assumed to be constant,
     -- so that epochs can always be calculated by dividing slot number by the
     -- epoch length.  Any change would throw off this calculation.
-    bsoSetSeedState :: UpdatableBlockState m -> SeedState -> m (UpdatableBlockState m)
+    bsoSetSeedState :: UpdatableBlockState m -> SeedState (SeedStateVersionFor (MPV m)) -> m (UpdatableBlockState m)
 
     -- |Replace the current epoch bakers with the next epoch bakers.
     -- This does not change the next epoch bakers.

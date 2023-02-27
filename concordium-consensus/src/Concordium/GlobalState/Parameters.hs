@@ -73,7 +73,7 @@ getExactVersionedCryptographicParameters bs = do
     return (vValue v)
 
 -- |Implementation-defined parameters, such as block size. They are not
--- protocol-level parameters hence do not fit into 'GenesisParameters'.
+-- protocol-level parameters hence do not fit into 'GenesisParametersV2'.
 data RuntimeParameters = RuntimeParameters
     { -- |Maximum block size produced by the baker (in bytes). Note that this only
       -- applies to the blocks produced by this baker, we will still accept blocks
@@ -185,6 +185,8 @@ data UpdateValue (cpv :: ChainParametersVersion) where
     UVMinBlockTime :: (IsSupported 'PTMinBlockTime cpv ~ 'True) => !Duration -> UpdateValue cpv
     -- |Updates to block energy limit for chain parameters version 2.
     UVBlockEnergyLimit :: (IsSupported 'PTBlockEnergyLimit cpv ~ 'True) => !Energy -> UpdateValue cpv
+    -- |Updates to the finalization committee parameters for chain parameters version 2.
+    UVFinalizationCommitteeParameters :: (IsSupported 'PTFinalizationCommitteeParameters cpv ~ 'True) => !FinalizationCommitteeParameters -> UpdateValue cpv
 
 deriving instance Eq (UpdateValue cpv)
 deriving instance Show (UpdateValue cpv)

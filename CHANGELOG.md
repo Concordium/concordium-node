@@ -4,6 +4,10 @@
 
 - Extend Prometheus exporter with metrics: `grpc_request_duration_seconds` see [docs/prometheus-exporter.md](https://github.com/Concordium/concordium-node/blob/main/docs/prometheus-exporter.md) for more details.
 
+## 5.2.3
+
+- Internal refactoring to support the future consensus.
+
 ## 5.2.2
 
 - Rename a number of metrics exposed by the Prometheus exporter:

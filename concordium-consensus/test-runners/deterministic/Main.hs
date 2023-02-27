@@ -296,7 +296,7 @@ initialState numAccts = do
     -- The slot duration is set to 'ticksPerSlot' seconds, since the deterministic time
     -- advances 1 second per tick and baking is set to occur once every 'ticksPerSlot' ticks.
     (genData, bakers, _) =
-        makeGenesisData
+        makeGenesisDataV0
             0 -- Start at time 0, to match time
             (maxBakerId + 1) -- Number of bakers
             (ticksPerSlot * 1000) -- Slot time is 100 seconds, for baking blocks every 100 ticks

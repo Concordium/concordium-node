@@ -18,6 +18,7 @@ import Lens.Micro.Platform
 
 import Concordium.Types
 import Concordium.Types.Accounts
+import Concordium.Types.Parameters
 import Concordium.Types.SeedState
 import Concordium.Types.UpdateQueues
 
@@ -311,7 +312,8 @@ getSlotBakersP4 ::
     forall m.
     ( BlockStateQuery m,
       PVSupportsDelegation (MPV m),
-      ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1
+      ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
+      SeedStateVersionFor (MPV m) ~ 'SeedStateVersion0
     ) =>
     GenesisConfiguration ->
     BlockState m ->
@@ -320,7 +322,7 @@ getSlotBakersP4 ::
 getSlotBakersP4 genData bs slot = do
     SeedState{epochLength, epoch = blockEpoch} <- getSeedState bs
     let epochToSlot :: Epoch -> Slot
-        epochToSlot e = fromIntegral e * epochLength
+        epochToSlot e = fromIntegral e * (epochLength ^. unconditionally)
     nextPayday <- getPaydayEpoch bs
     let nextPaydaySlot = epochToSlot nextPayday
 
@@ -417,14 +419,15 @@ getSlotBakers genData = case protocolVersion @(MPV m) of
 getDefiniteSlotBakersP1 ::
     forall m.
     ( BlockStateQuery m,
-      AccountVersionFor (MPV m) ~ 'AccountV0
+      AccountVersionFor (MPV m) ~ 'AccountV0,
+      SeedStateVersionFor (MPV m) ~ 'SeedStateVersion0
     ) =>
     BlockState m ->
     Slot ->
     m (Maybe FullBakers)
 getDefiniteSlotBakersP1 bs slot = do
     SeedState{..} <- getSeedState bs
-    let slotEpoch = fromIntegral $ slot `quot` epochLength
+    let slotEpoch = fromIntegral $ slot `quot` (epochLength ^. unconditionally)
     if slotEpoch <= epoch + 1
         then Just <$> getSlotBakersP1 bs slot
         else return Nothing
@@ -446,7 +449,8 @@ getDefiniteSlotBakersP4 ::
     forall m.
     ( BlockStateQuery m,
       PVSupportsDelegation (MPV m),
-      ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1
+      ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
+      SeedStateVersionFor (MPV m) ~ 'SeedStateVersion0
     ) =>
     GenesisConfiguration ->
     BlockState m ->
@@ -455,7 +459,7 @@ getDefiniteSlotBakersP4 ::
 getDefiniteSlotBakersP4 genData bs slot = do
     SeedState{epochLength, epoch = blockEpoch} <- getSeedState bs
     let epochToSlot :: Epoch -> Slot
-        epochToSlot e = fromIntegral e * epochLength
+        epochToSlot e = fromIntegral e * (epochLength ^. unconditionally)
     nextPayday <- getPaydayEpoch bs
     let nextPaydaySlot = epochToSlot nextPayday
 

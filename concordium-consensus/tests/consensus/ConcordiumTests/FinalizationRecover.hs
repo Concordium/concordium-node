@@ -41,7 +41,7 @@ makeGlobalStateConfig tempDir rt = GlobalStateConfig rt tempDir (tempDir </> "da
 
 genesis :: Word -> (GenesisData PV, [(BakerIdentity, FullBakerInfo)], Amount)
 genesis nBakers =
-    makeGenesisData
+    makeGenesisDataV0
         0
         nBakers
         1000

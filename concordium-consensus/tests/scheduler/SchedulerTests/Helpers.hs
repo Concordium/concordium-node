@@ -32,7 +32,8 @@ import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.ID.Types as Types
 import qualified Concordium.Types.Accounts as Types
 import qualified Concordium.Types.Accounts.Releases as Types
-import Concordium.Types.SeedState (initialSeedState)
+import qualified Concordium.Types.Parameters as Types
+import Concordium.Types.SeedState (initialSeedStateV0, initialSeedStateV1)
 import qualified Concordium.Wasm as Wasm
 
 import qualified Concordium.Common.Time as Time
@@ -138,7 +139,7 @@ createTestBlockStateWithAccounts ::
     PersistentBSM pv (BS.HashedPersistentBlockState pv)
 createTestBlockStateWithAccounts accounts =
     BS.initialPersistentState
-        (initialSeedState (Hash.hash "") 1_000)
+        seedState
         DummyData.dummyCryptographicParameters
         accounts
         DummyData.dummyIdentityProviders
@@ -147,6 +148,9 @@ createTestBlockStateWithAccounts accounts =
         DummyData.dummyChainParameters
   where
     keys = Types.withIsAuthorizationsVersionForPV (Types.protocolVersion @pv) $ DummyData.dummyKeyCollection
+    seedState = case Types.consensusVersionFor (Types.protocolVersion @pv) of
+        Types.ConsensusV0 -> initialSeedStateV0 (Hash.hash "") 1_000
+        Types.ConsensusV1 -> initialSeedStateV1 (Hash.hash "")
 
 -- |Construct a test block state containing the provided accounts.
 createTestBlockStateWithAccountsM ::

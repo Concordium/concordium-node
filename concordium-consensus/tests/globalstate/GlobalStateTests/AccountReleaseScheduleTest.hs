@@ -27,7 +27,7 @@ import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.GlobalState.Persistent.Account (PersistentAccount (..))
 import qualified Concordium.GlobalState.Persistent.Account as BS
 import Concordium.GlobalState.Persistent.Account.StructureV1
-import Concordium.Types.SeedState (initialSeedState)
+import Concordium.Types.SeedState (initialSeedStateV0)
 import Test.HUnit
 import Test.Hspec
 import Test.QuickCheck
@@ -72,7 +72,7 @@ createGS = do
     initState <-
         PBS.hpbsPointers
             <$> PBS.initialPersistentState
-                (initialSeedState (Hash.hash "") 1_000)
+                (initialSeedStateV0 (Hash.hash "") 1_000)
                 dummyCryptographicParameters
                 [acc0, acc1]
                 dummyIdentityProviders

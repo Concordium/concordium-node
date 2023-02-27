@@ -368,10 +368,11 @@ main = do
                   _cpPoolParameters =
                     PoolParametersV0
                         { _ppBakerStakeThreshold = 300000000000
-                        }
+                        },
+                  _cpFinalizationCommitteeParameters = NoParam
                 }
     let (genesisData, bakerIdentities, _) =
-            makeGenesisData @PV
+            makeGenesisDataV0 @PV
                 now
                 numberOfBakers
                 2000
