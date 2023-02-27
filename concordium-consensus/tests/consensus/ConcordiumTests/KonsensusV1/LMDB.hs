@@ -193,145 +193,105 @@ dummyFinalizationEntry =
 
 -- In the following we test all of the functions of 'MonadTreeStateStore'.
 
+-- |Helper function for running a test in the context of 'DiskLLDBM' over
+-- some 'Reader'.
+-- Running an action within this context creates a temporary file which
+-- serves the disk based lmdb implementation the computation.
+runLLMDBTest ::
+    String ->
+    DiskLLDBM pv (ReaderT (DatabaseHandlers 'P6) (LoggerT IO)) a ->
+    IO a
+runLLMDBTest name action = withTempDirectory "" name $ \path ->
+    bracket
+        (makeDatabaseHandlers path False 1000 :: IO (DatabaseHandlers 'P6))
+        closeDatabase
+        (\dbhandlers -> runSilentLogger $ runReaderT (runDiskLLDBM action) dbhandlers)
+
 -- |Test of the function 'lookupLastBlock'
 testLookupLastBlock :: Assertion
-testLookupLastBlock = do
-    let action = do
-            writeBlocks dummyStoredBlocks dummyFinalizationEntry
-            lastBlock <- lookupLastBlock
-            case lastBlock of
-                Nothing -> liftIO $ assertBool "Block should be Just" False
-                Just sb -> liftIO $ assertEqual "BlockHeight should be 0x100000000000000" 0x100000000000000 (bmHeight $ stbInfo sb)
-    withTempDirectory "" "lookupLastBlockTest" $ \path ->
-        bracket
-            (makeDatabaseHandlers path False 1000 :: IO (DatabaseHandlers 'P6))
-            closeDatabase
-            (\dbhandlers -> runSilentLogger $ runReaderT (runDiskLLDBM action) dbhandlers)
+testLookupLastBlock = runLLMDBTest "lookupLastBlockTest" $ do
+    writeBlocks dummyStoredBlocks dummyFinalizationEntry
+    lastBlock <- lookupLastBlock
+    case lastBlock of
+        Nothing -> liftIO $ assertBool "Block should be Just" False
+        Just sb -> liftIO $ assertEqual "BlockHeight should be 0x100000000000000" 0x100000000000000 (bmHeight $ stbInfo sb)
 
 -- |Test of the function 'LookupFirstBlock'
 testLookupFirstBlock :: Assertion
-testLookupFirstBlock = do
-    let action = do
-            writeBlocks dummyStoredBlocks dummyFinalizationEntry
-            lastBlock <- lookupFirstBlock
-            case lastBlock of
-                Nothing -> liftIO $ assertBool "Block should be Just" False
-                Just sb -> liftIO $ assertEqual "BlockHeight should be 0" 0 (bmHeight $ stbInfo sb)
-    withTempDirectory "" "lookupFirstBlockTest" $ \path ->
-        bracket
-            (makeDatabaseHandlers path False 1000 :: IO (DatabaseHandlers 'P6))
-            closeDatabase
-            (\dbhandlers -> runSilentLogger $ runReaderT (runDiskLLDBM action) dbhandlers)
+testLookupFirstBlock = runLLMDBTest "lookupFirstBlockTest" $ do
+    writeBlocks dummyStoredBlocks dummyFinalizationEntry
+    lastBlock <- lookupFirstBlock
+    case lastBlock of
+        Nothing -> liftIO $ assertBool "Block should be Just" False
+        Just sb -> liftIO $ assertEqual "BlockHeight should be 0" 0 (bmHeight $ stbInfo sb)
 
 -- |Test of the function 'LookupBlockByHeight'
 testLookupBlockByHeight :: Assertion
-testLookupBlockByHeight = do
-    let action = do
-            writeBlocks dummyStoredBlocks dummyFinalizationEntry
-            lastBlock <- lookupBlockByHeight 0x10000
-            case lastBlock of
-                Nothing -> liftIO $ assertBool "Block should be Just" False
-                Just sb -> liftIO $ assertEqual "BlockHeight should be 0x10000" 0x10000 (bmHeight $ stbInfo sb)
-    withTempDirectory "" "lookupBlockByHeightTest" $ \path ->
-        bracket
-            (makeDatabaseHandlers path False 1000 :: IO (DatabaseHandlers 'P6))
-            closeDatabase
-            (\dbhandlers -> runSilentLogger $ runReaderT (runDiskLLDBM action) dbhandlers)
+testLookupBlockByHeight = runLLMDBTest "lookupBlockByHeightTest" $ do
+    writeBlocks dummyStoredBlocks dummyFinalizationEntry
+    lastBlock <- lookupBlockByHeight 0x10000
+    case lastBlock of
+        Nothing -> liftIO $ assertBool "Block should be Just" False
+        Just sb -> liftIO $ assertEqual "BlockHeight should be 0x10000" 0x10000 (bmHeight $ stbInfo sb)
 
 -- |Test of the function 'memberBlock'
 testMemberBlock :: Assertion
-testMemberBlock = do
-    let action = do
-            writeBlocks dummyStoredBlocks dummyFinalizationEntry
-            isMember <- memberBlock $ getHash $ dummyBakedBlock 1 Vector.empty
-            liftIO $ assertBool "isMember should be True" isMember
-    withTempDirectory "" "memberBlockTest" $ \path ->
-        bracket
-            (makeDatabaseHandlers path False 1000 :: IO (DatabaseHandlers 'P6))
-            closeDatabase
-            (\dbhandlers -> runSilentLogger $ runReaderT (runDiskLLDBM action) dbhandlers)
+testMemberBlock = runLLMDBTest "memberBlockTest" $ do
+    writeBlocks dummyStoredBlocks dummyFinalizationEntry
+    isMember <- memberBlock $ getHash $ dummyBakedBlock 1 Vector.empty
+    liftIO $ assertBool "isMember should be True" isMember
 
 -- |Test of the function 'lookupBlock'
 testLookupBlock :: Assertion
-testLookupBlock = do
-    let action = do
-            writeBlocks dummyStoredBlocks dummyFinalizationEntry
-            block <- lookupBlock $ getHash $ dummyBakedBlock 5 Vector.empty
-            case block of
-                Nothing -> liftIO $ assertBool "Block should be Just" False
-                Just sb -> liftIO $ assertEqual "BlockHeight should be 0x100000000" 0x100000000 (bmHeight $ stbInfo sb)
-    withTempDirectory "" "lookupBlockTest" $ \path ->
-        bracket
-            (makeDatabaseHandlers path False 1000 :: IO (DatabaseHandlers 'P6))
-            closeDatabase
-            (\dbhandlers -> runSilentLogger $ runReaderT (runDiskLLDBM action) dbhandlers)
+testLookupBlock = runLLMDBTest "lookupBlockTest" $ do
+    writeBlocks dummyStoredBlocks dummyFinalizationEntry
+    block <- lookupBlock $ getHash $ dummyBakedBlock 5 Vector.empty
+    case block of
+        Nothing -> liftIO $ assertBool "Block should be Just" False
+        Just sb -> liftIO $ assertEqual "BlockHeight should be 0x100000000" 0x100000000 (bmHeight $ stbInfo sb)
 
 -- |Test of the function 'lookupFinalizationEntry'
 testLookupLatestFinalizationEntry :: Assertion
-testLookupLatestFinalizationEntry = do
-    let action = do
-            writeBlocks dummyStoredBlocks dummyFinalizationEntry
-            fe <- lookupLatestFinalizationEntry
-            case fe of
-                Nothing -> liftIO $ assertBool "Finalization entry should be Just" False
-                Just f -> liftIO $ assertEqual "Finalization entry should match" dummyFinalizationEntry f
-    withTempDirectory "" "lookupFinalizationEntryTest" $ \path ->
-        bracket
-            (makeDatabaseHandlers path False 1000 :: IO (DatabaseHandlers 'P6))
-            closeDatabase
-            (\dbhandlers -> runSilentLogger $ runReaderT (runDiskLLDBM action) dbhandlers)
+testLookupLatestFinalizationEntry = runLLMDBTest "lookupFinalizationEntryTest" $ do
+    writeBlocks dummyStoredBlocks dummyFinalizationEntry
+    fe <- lookupLatestFinalizationEntry
+    case fe of
+        Nothing -> liftIO $ assertBool "Finalization entry should be Just" False
+        Just f -> liftIO $ assertEqual "Finalization entry should match" dummyFinalizationEntry f
 
 -- |Test of the function 'lookupTransaction'
 testLookupTransaction :: Assertion
-testLookupTransaction = do
-    let action = do
-            writeBlocks dummyStoredBlocks dummyFinalizationEntry
-            ft <- lookupTransaction $ wmdHash $ dummyBlockItem
-            case ft of
-                Nothing -> liftIO $ assertBool "Finalized transaction status should be Just" False
-                Just FinalizedTransactionStatus{..} -> do
-                    liftIO $ assertEqual "Block height of transaction should be 5" 5 ftsBlockHeight
-                    liftIO $ assertEqual "Transaction index should be 0" 0 ftsIndex
-    withTempDirectory "" "lookupTransactionTest" $ \path ->
-        bracket
-            (makeDatabaseHandlers path False 1000 :: IO (DatabaseHandlers 'P6))
-            closeDatabase
-            (\dbhandlers -> runSilentLogger $ runReaderT (runDiskLLDBM action) dbhandlers)
+testLookupTransaction = runLLMDBTest "lookupTransactionTest" $ do
+    writeBlocks dummyStoredBlocks dummyFinalizationEntry
+    ft <- lookupTransaction $ wmdHash $ dummyBlockItem
+    case ft of
+        Nothing -> liftIO $ assertBool "Finalized transaction status should be Just" False
+        Just FinalizedTransactionStatus{..} -> do
+            liftIO $ assertEqual "Block height of transaction should be 5" 5 ftsBlockHeight
+            liftIO $ assertEqual "Transaction index should be 0" 0 ftsIndex
 
 -- |Test of the function 'memberTransaction'
 testMemberTransaction :: Assertion
-testMemberTransaction = do
-    let action = do
-            writeBlocks dummyStoredBlocks dummyFinalizationEntry
-            isMember <- memberTransaction $ wmdHash $ dummyBlockItem
-            liftIO $ assertBool "memberTransaction should be True" isMember
-    withTempDirectory "" "memberTransactionTest" $ \path ->
-        bracket
-            (makeDatabaseHandlers path False 1000 :: IO (DatabaseHandlers 'P6))
-            closeDatabase
-            (\dbhandlers -> runSilentLogger $ runReaderT (runDiskLLDBM action) dbhandlers)
+testMemberTransaction = runLLMDBTest "memberTransactionTest" $ do
+    writeBlocks dummyStoredBlocks dummyFinalizationEntry
+    isMember <- memberTransaction $ wmdHash $ dummyBlockItem
+    liftIO $ assertBool "memberTransaction should be True" isMember
 
 -- |Test of the function 'rollBackBlocksUntil'
 testRollBackBlocksUntil :: Assertion
-testRollBackBlocksUntil = do
-    let action = do
-            writeBlocks dummyStoredBlocksSequentialHeights dummyFinalizationEntry
-            eb <- rollBackBlocksUntil $ \sb -> return ((bmHeight $ stbInfo sb) == 1)
-            case eb of
-                Left s -> liftIO $ assertBool ("Roll back failed: " ++ s) False
-                Right rollbackCount -> do
-                    -- Note that the `dummyStoredBlocksSequentialHeights` has 6 blocks starting from index 0, 1,..
-                    -- We are rolling back to index 1 so 4 blocks should be rolled back.
-                    liftIO $ assertEqual "Roll-back should have happended and 4 blocks should have been rolled back" 4 rollbackCount
+testRollBackBlocksUntil = runLLMDBTest "lookupTransactionTest" $ do
+    writeBlocks dummyStoredBlocksSequentialHeights dummyFinalizationEntry
+    eb <- rollBackBlocksUntil $ \sb -> return ((bmHeight $ stbInfo sb) == 1)
+    case eb of
+        Left s -> liftIO $ assertBool ("Roll back failed: " ++ s) False
+        Right rollbackCount -> do
+            -- Note that the `dummyStoredBlocksSequentialHeights` has 6 blocks starting from index 0, 1,..
+            -- We are rolling back to index 1 so 4 blocks should be rolled back.
+            liftIO $ assertEqual "Roll-back should have happended and 4 blocks should have been rolled back" 4 rollbackCount
             lastBlock <- lookupLastBlock
             case lastBlock of
                 Nothing -> liftIO $ assertBool "Block should be Just" False
                 Just sb -> liftIO $ assertEqual "BlockHeight should be 1" 1 (bmHeight $ stbInfo sb)
-    withTempDirectory "" "lookupTransactionTest" $ \path ->
-        bracket
-            (makeDatabaseHandlers path False 1000 :: IO (DatabaseHandlers 'P6))
-            closeDatabase
-            (\dbhandlers -> runSilentLogger $ runReaderT (runDiskLLDBM action) dbhandlers)
 
 tests :: Spec
 tests = describe "KonsensusV2.LMDB" $ do
