@@ -2383,16 +2383,18 @@ where
             let mut response = inner.call(req).await?;
             let duration = request_received.elapsed().as_secs_f64();
 
-            if let Some(header_value) = response.headers().get("grpc-status") {
+            let grpc_status_header = response.headers().get("grpc-status");
+
+            if let Some(header_value) = grpc_status_header {
                 let status_code_label =
                     get_grpc_code_label(tonic::Code::from_bytes(header_value.as_bytes()));
 
                 grpc_request_duration
                     .with_label_values(&[endpoint_name.as_str(), status_code_label])
                     .observe(duration);
-            }
-
-            if let Ok(Some(headers)) = hyper::body::HttpBody::trailers(response.body_mut()).await {
+            } else if let Ok(Some(headers)) =
+                hyper::body::HttpBody::trailers(response.body_mut()).await
+            {
                 if let Some(header_value) = headers.get("grpc-status") {
                     let status_code_label =
                         get_grpc_code_label(tonic::Code::from_bytes(header_value.as_bytes()));
