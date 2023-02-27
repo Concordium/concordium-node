@@ -3,9 +3,10 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE NoImportQualifiedPost #-}
 
 -- |This module provides a simple in-memory version of the low-level tree state.
+-- This is intended for testing purposes, for instance, where the overhead of creating an LMDB
+-- database is excessive.
 module Concordium.KonsensusV1.TreeState.LowLevel.Memory where
 
 import Control.Monad.IO.Class
@@ -24,7 +25,9 @@ import Concordium.KonsensusV1.TreeState.LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 
--- |A low-level database.
+-- |A low-level tree state database. This manages the storage and indexing of blocks and
+-- transactions, as well as recording persisted state of the consensus in the form of the latest
+-- finalization entry and current round status.
 data LowLevelDB pv = LowLevelDB
     { -- |Index of blocks by hash.
       lldbBlockHashes :: !(HM.HashMap BlockHash BlockHeight),
@@ -32,13 +35,14 @@ data LowLevelDB pv = LowLevelDB
       lldbBlocks :: !(Map.Map BlockHeight (StoredBlock pv)),
       -- |Table of transactions by hash.
       lldbTransactions :: !(HM.HashMap TransactionHash FinalizedTransactionStatus),
-      -- |The last finalization entry (if any)
+      -- |The last finalization entry (if any).
       lldbLatestFinalizationEntry :: !(Maybe FinalizationEntry),
       -- |The current round status.
       lldbRoundStatus :: !RoundStatus
     }
 
--- |An initial 'LowLevelDB' with the supplied genesis block and round status.
+-- |An initial 'LowLevelDB' with the supplied genesis block and round status, but otherwise with
+-- no blocks, no transactions and no finalization entry.
 -- The genesis block should have height 0; this is not checked.
 initialLowLevelDB :: StoredBlock pv -> RoundStatus -> LowLevelDB pv
 initialLowLevelDB genBlock roundStatus =
@@ -50,6 +54,9 @@ initialLowLevelDB genBlock roundStatus =
           lldbRoundStatus = roundStatus
         }
 
+-- |The class 'HasMemoryLLDB' is implemented by a context in which a 'LowLevelDB' state is
+-- maintained in an 'IORef'. This provides access to the low-level database when the monad implements
+-- @MonadReader r@ and @MonadIO@.
 class HasMemoryLLDB pv r | r -> pv where
     theMemoryLLDB :: r -> IORef (LowLevelDB pv)
 
@@ -63,6 +70,9 @@ withLLDB f = do
     ref <- asks theMemoryLLDB
     liftIO $ atomicModifyIORef' ref f
 
+-- |A newtype wrapper that provides an instance of 'MonadTreeStateStore' where the underlying monad
+-- provides a context for accessing the low-level state. That is, it implements @MonadIO@ and
+-- @MonadReader r@ for @r@ with @HasMemoryLLDB pv r@.
 newtype MemoryLLDBM (pv :: ProtocolVersion) m a = MemoryLLDBM {runMemoryLLDBM :: m a}
     deriving (Functor, Applicative, Monad, MonadIO)
 
