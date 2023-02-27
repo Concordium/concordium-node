@@ -115,8 +115,7 @@ dummyBlockItem =
     addMetadata id dummyTransactionTime $
         NormalTransaction $
             AccountTransaction
-                {
-                  atrSignature = TransactionSignature $ Map.fromList [(1, Map.fromList [(1, Signature "bla")])],
+                { atrSignature = TransactionSignature $ Map.fromList [(1, Map.fromList [(1, Signature "bla")])],
                   atrHeader = dummyTransactionHeader,
                   atrPayload = EncodedPayload "bla",
                   atrSignHash = TransactionSignHashV0 dummyHash
