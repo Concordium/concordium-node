@@ -36,31 +36,29 @@ import Concordium.Types.Transactions
 dummyTime :: UTCTime
 dummyTime = posixSecondsToUTCTime 0
 
--- |A dummy UTCTime
+-- |A 'TransactionTime' needed for constructing a 'TransactionHeader', and for the metadata of
+-- block items.
 dummyTransactionTime :: TransactionTime
-dummyTransactionTime = utcTimeToTransactionTime dummyTime
+dummyTransactionTime = utcTimeToTransactionTime $ posixSecondsToUTCTime 0
 
--- |A dummy BLS secret key
+-- |A BLS secret key needed for creating a 'QuorumSignature'.
 dummyBlsSK :: Bls.SecretKey
 dummyBlsSK = fst $ randomBlsSecretKey (mkStdGen 17)
 
--- |A dummy Hash
+-- |A 'Hash' used for constructing a 'BlockHash', a 'TransactionOutcomesHash',
+-- a 'StateHashV0', a 'TransactionSignHashV0' and a 'BlockQuasiHash'.
 dummyHash :: Hash.Hash
 dummyHash = Hash.hash "test"
-
--- |A dummy BlockHash
-dummyBlockHash :: BlockHash
-dummyBlockHash = BlockHash dummyHash
 
 -- |A 'QuorumCertificate' used in both 'dummyFinalizationEntry' and for constructing a 'BakedBlock'.
 dummyQC :: QuorumCertificate
 dummyQC =
     QuorumCertificate
-        { qcBlock = dummyBlockHash, -- :: !BlockHash,
-          qcRound = 1, -- :: !Round,
-          qcEpoch = 1, -- :: !Epoch,
-          qcAggregateSignature = QuorumSignature $ Bls.sign "someMessage" dummyBlsSK, -- :: !QuorumSignature,
-          qcSignatories = FinalizerSet 0 -- :: !FinalizerSet
+        { qcBlock = BlockHash dummyHash,
+          qcRound = 1,
+          qcEpoch = 1,
+          qcAggregateSignature = QuorumSignature $ Bls.sign "someMessage" dummyBlsSK,
+          qcSignatories = FinalizerSet 0
         }
 
 -- |A block signature keypair used to construct a block signature.
@@ -113,17 +111,16 @@ dummyTransactionHeader =
 
 -- |A BlockItem used by 'dummyStoredBlockOneTransaction' to create a 'StoredBlock' with this block item in it.
 dummyBlockItem :: BlockItem
-dummyBlockItem = addMetadata id dummyTransactionTime $ NormalTransaction $
-    AccountTransaction
-        { -- \|Signature
-          atrSignature = TransactionSignature $ Map.fromList [(1, Map.fromList [(1, Signature "bla")])], -- :: !TransactionSignature,
-          -- \|Header
-          atrHeader = dummyTransactionHeader, -- :: !TransactionHeader,
-          -- \|Serialized payload
-          atrPayload = EncodedPayload "bla", -- :: !EncodedPayload,
-          -- \|Hash used for signing
-          atrSignHash = TransactionSignHashV0 dummyHash -- :: !TransactionSignHashV0
-        }
+dummyBlockItem =
+    addMetadata id dummyTransactionTime $
+        NormalTransaction $
+            AccountTransaction
+                {
+                  atrSignature = TransactionSignature $ Map.fromList [(1, Map.fromList [(1, Signature "bla")])],
+                  atrHeader = dummyTransactionHeader,
+                  atrPayload = EncodedPayload "bla",
+                  atrSignHash = TransactionSignHashV0 dummyHash
+                }
 
 -- |A helper function for creating a block with the given round and block items.
 -- Blocks with different hashes can then be constructed by calling this function with different rounds.
