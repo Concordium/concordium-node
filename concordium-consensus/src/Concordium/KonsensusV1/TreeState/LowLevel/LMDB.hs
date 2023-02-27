@@ -490,19 +490,19 @@ instance
     writeCurrentRoundStatus rs = asWriteTransaction $ \dbh txn ->
         storeReplaceRecord txn (dbh ^. consensusStatusStore) CSKRoundStatus (CSVRoundStatus rs)
 
-    rollBackBlocksUntil predicate = roll False
+    rollBackBlocksUntil predicate = roll 0
       where
-        -- The boolean indicates whether blocks have already been rolled back.
-        roll b = do
+        -- The ctr indicates how many blocks that have been rolled back.
+        roll ctr = do
             getLast >>= \case
-                Nothing -> return $ Right b
+                Nothing -> return $ Right ctr
                 Just (Left e) -> return $ Left $ "Could not load last finalized block: " ++ e
                 Just (Right (h, sb)) -> do
                     ok <- predicate sb
                     if ok
-                        then return $ Right b
+                        then return $ Right ctr
                         else do
-                            unless b $ do
+                            unless (ctr == 0) $ do
                                 logEvent
                                     TreeState
                                     LLWarning
@@ -515,7 +515,7 @@ instance
                                     ++ show h
                             asWriteTransaction $ \dbh txn -> do
                                 -- If we haven't already, remove the latest finalization entry
-                                unless b . void $
+                                unless (ctr == 0) . void $
                                     deleteRecord
                                         txn
                                         (dbh ^. consensusStatusStore)
@@ -526,6 +526,6 @@ instance
                                 -- Remove the block transactions
                                 forM_ (blockTransactions sb) $ \tx ->
                                     deleteRecord txn (dbh ^. transactionStatusStore) (getHash tx)
-                            roll True
+                            roll $! ctr + 1
         getLast = asReadTransaction $ \dbh txn ->
             withCursor txn (dbh ^. blockStore) (getCursor CursorLast)

@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -7,7 +8,6 @@
 -- |This module provides a simple in-memory version of the low-level tree state.
 module Concordium.KonsensusV1.TreeState.LowLevel.Memory where
 
-import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Reader.Class
 import Data.Foldable
@@ -107,17 +107,18 @@ instance (IsProtocolVersion pv, MonadReader r m, HasMemoryLLDB pv r, MonadIO m) 
         withLLDB $ \db -> (db{lldbRoundStatus = rs}, ())
     rollBackBlocksUntil predicate =
         lookupLastBlock >>= \case
-            Nothing -> return (Right False)
+            Nothing -> return (Right 0)
             Just sb -> do
                 ok <- predicate sb
                 if ok
-                    then return (Right False)
+                    then return (Right 0)
                     else do
                         withLLDB $ \db -> (db{lldbLatestFinalizationEntry = Nothing}, ())
-                        roll sb
-                        return (Right True)
+                        Right <$> roll sb 0
       where
-        roll sb = do
+        roll !sb !ctr = do
+            -- Delete the block from the database and
+            -- its associated transactions.
             withLLDB $ \db@LowLevelDB{..} ->
                 ( db
                     { lldbBlocks = Map.delete (bmHeight (stbInfo sb)) lldbBlocks,
@@ -126,9 +127,15 @@ instance (IsProtocolVersion pv, MonadReader r m, HasMemoryLLDB pv r, MonadIO m) 
                     },
                   ()
                 )
+            -- Get the new last block and continue rolling if
+            -- such one exist, otherwise return how many blocks
+            -- we have rolled back.
             lookupLastBlock >>= \case
-                Nothing -> return ()
-                Just sb' -> do
-                    ok <- predicate sb'
-                    unless ok $ roll sb'
+                Nothing -> return ctr
+                Just !sb' -> do
+                    -- Stop if we're at the block we wish to roll
+                    -- roll back to otherwise continue.
+                    predicate sb' >>= \case
+                        True -> return ctr
+                        False -> roll sb' $! ctr + 1
         deleteTx txs tx = HM.delete (getHash tx) txs

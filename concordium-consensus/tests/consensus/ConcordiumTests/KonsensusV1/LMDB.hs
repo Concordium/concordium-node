@@ -319,8 +319,10 @@ testRollBackBlocksUntil = do
             eb <- rollBackBlocksUntil $ \sb -> return ((bmHeight $ stbInfo sb) == 1)
             case eb of
                 Left s -> liftIO $ assertBool ("Roll back failed: " ++ s) False
-                Right b -> do
-                    liftIO $ assertEqual "Roll-back should have happended" True b
+                Right rollbackCount -> do
+                    -- Note that the `dummyStoredBlocksSequentialHeights` has 6 blocks starting from index 0, 1,..
+                    -- We are rolling back to index 1 so 4 blocks should be rolled back.
+                    liftIO $ assertEqual "Roll-back should have happended and 4 blocks should have been rolled back" 4 rollbackCount
             lastBlock <- lookupLastBlock
             case lastBlock of
                 Nothing -> liftIO $ assertBool "Block should be Just" False
