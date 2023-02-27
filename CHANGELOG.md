@@ -2,6 +2,10 @@
 
 ## Unreleased changes
 
+## 5.2.3
+
+- Internal refactoring to support the future consensus.
+
 ## 5.2.2
 
 - Rename a number of metrics exposed by the Prometheus exporter:
