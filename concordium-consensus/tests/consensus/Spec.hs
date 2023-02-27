@@ -52,4 +52,4 @@ main = atLevel $ \lvl -> hspec $ do
     ConcordiumTests.KonsensusV1.Types.tests
     ConcordiumTests.KonsensusV1.TreeStateTest.tests
     ConcordiumTests.KonsensusV1.LMDB.tests
-    ConcordiumTests.KonsensusV1.LeaderElectionTest (tests)
+    ConcordiumTests.KonsensusV1.LeaderElectionTest.tests

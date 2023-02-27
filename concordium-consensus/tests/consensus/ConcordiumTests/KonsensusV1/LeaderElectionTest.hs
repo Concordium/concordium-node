@@ -2,7 +2,7 @@
 {-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 
 -- |Tests for the functions in 'Concordium.KonsensusV1.LeaderElection'.
-module ConcordiumTests.KonsensusV1.LeaderElectionTest where
+module ConcordiumTests.KonsensusV1.LeaderElectionTest (tests) where
 
 import Data.Serialize
 import qualified Data.Vector as Vec
