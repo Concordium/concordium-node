@@ -45,6 +45,7 @@ data PutBlockItemResult
     | -- |The transaction nonce was obsolete,
       -- i.e. inferior to the next available nonce.
       OldNonce
+    deriving (Eq, Show)
 
 -- |Puts a transaction into the pending transaction table
 -- if it's eligible.
