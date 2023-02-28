@@ -70,13 +70,13 @@ putPendingTransaction ::
     -- |The transaction.
     BlockItem ->
     m ()
-putPendingTransaction Block bi = do
+putPendingTransaction origin bi = do
     case wmdData bi of
         NormalTransaction tx -> do
             fbState <- bpState <$> (_focusBlock <$> gets' _skovPendingTransactions)
             macct <- getAccount fbState $! transactionSender tx
             nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
-            when (nextNonce <= transactionNonce tx) $ do
+            when (nextNonce <= transactionNonce tx || origin == Individual) $ do
                 pendingTransactionTable %=! addPendingTransaction nextNonce tx
                 doPurgeTransactionTable False =<< currentTime
         CredentialDeployment _ -> do
@@ -85,22 +85,9 @@ putPendingTransaction Block bi = do
         ChainUpdate cu -> do
             fbState <- bpState <$> (_focusBlock <$> gets' _skovPendingTransactions)
             nextSN <- getNextUpdateSequenceNumber fbState (updateType (uiPayload cu))
-            when (nextSN <= updateSeqNumber (uiHeader cu)) $ do
+            when (nextSN <= updateSeqNumber (uiHeader cu) || origin == Individual) $ do
                 pendingTransactionTable %=! addPendingUpdate nextSN cu
                 doPurgeTransactionTable False =<< currentTime
-  where
-    txHash = getHash bi
-putPendingTransaction Individual bi = do
-    case wmdData bi of
-        NormalTransaction tx -> do
-            pendingTransactionTable %=! addPendingTransaction (transactionNonce tx) tx
-            doPurgeTransactionTable False =<< currentTime
-        CredentialDeployment _ -> do
-            pendingTransactionTable %=! addPendingDeployCredential txHash
-            doPurgeTransactionTable False =<< currentTime
-        ChainUpdate cu -> do
-            pendingTransactionTable %=! addPendingUpdate (updateSeqNumber (uiHeader cu)) cu
-            doPurgeTransactionTable False =<< currentTime
   where
     txHash = getHash bi
 

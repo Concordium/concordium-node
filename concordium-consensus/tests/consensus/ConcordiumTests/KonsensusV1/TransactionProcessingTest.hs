@@ -22,6 +22,7 @@ import qualified Data.Aeson as AE
 import qualified Data.ByteString.Lazy as BSL
 import Data.FileEmbed
 import qualified Data.HashMap.Strict as HM
+import qualified Data.HashSet as HS
 import Data.Kind (Type)
 import Data.Maybe (isJust)
 import Data.Time.Clock
@@ -132,8 +133,8 @@ type MyTestMonad =
             (NoLoggerT (FixedTimeT (BlobStoreM' (PersistentBlockStateContext 'P6))))
         )
 
-runMyTestMonad :: MyTestMonad a -> UTCTime -> IO (a, SkovData 'P6)
-runMyTestMonad action time = do
+runMyTestMonad :: IdentityProviders -> MyTestMonad a -> UTCTime -> IO (a, SkovData 'P6)
+runMyTestMonad idps action time = do
     runBlobStoreTemp "." $
         withNewAccountCache 1_000 $ do
             initState <- runPersistentBlockStateMonad initialData
@@ -147,7 +148,7 @@ runMyTestMonad action time = do
             (SkovData 'P6)
     initialData = do
         (bs, _) <-
-            genesisState makeTestingGenesisDataP6 >>= \case
+            genesisState (makeTestingGenesisDataP6 idps) >>= \case
                 Left err -> error $ "Invalid genesis state: " ++ err
                 Right x -> return x
         return $! initialSkovData bs
@@ -174,10 +175,10 @@ dummyGenesisConfiguration stHash =
 coreGenesisParams :: CoreGenesisParametersV1
 coreGenesisParams = CoreGenesisParametersV1{genesisTime = 0, genesisEpochDuration = 3_600_000}
 
-makeTestingGenesisDataP6 :: GenesisData 'P6
-makeTestingGenesisDataP6 =
+makeTestingGenesisDataP6 :: IdentityProviders -> GenesisData 'P6
+makeTestingGenesisDataP6 idps =
     let genesisCryptographicParameters = myCryptographicParameters
-        genesisIdentityProviders = myIdentityProviders
+        genesisIdentityProviders = idps
         genesisAnonymityRevokers = myAnonymityRevokers
         genesisUpdateKeys = dummyKeyCollection
         genesisChainParameters = dummyChainParameters
@@ -218,8 +219,8 @@ getExactVersionedCryptographicParameters bs = do
 
 testProcessBlockItem :: Spec
 testProcessBlockItem = describe "processBlockItem" $ do
-    it "verifiable credential deployment" $ do
-        (pbiRes, sd') <- runMyTestMonad (processBlockItem dummyCredentialDeployment) theTime
+    it "Ok transaction" $ do
+        (pbiRes, sd') <- runMyTestMonad myIdentityProviders (processBlockItem dummyCredentialDeployment) theTime
         -- The credential deployment is valid and so should the result reflect this.
         assertEqual
             "The credential deployment should be accepted"
@@ -227,7 +228,7 @@ testProcessBlockItem = describe "processBlockItem" $ do
             pbiRes
         -- The credential deployment must be in the pending transaction table at this point.
         assertBool
-            "The credential deployment is recorded in the pending transaction table"
+            "The credential deployment should be recorded in the pending transaction table"
             (isJust $! sd' ^? pendingTransactions . pendingTransactionTable . pttDeployCredential)
         -- The credential deployment must be in the the transaction table at this point.
         assertEqual
@@ -235,6 +236,51 @@ testProcessBlockItem = describe "processBlockItem" $ do
             (HM.fromList [(dummyCredentialDeploymentHash, (credentialDeployment credentialDeploymentWM, Received (commitPoint $! Round 0) (TVer.Ok TVer.CredentialDeploymentSuccess)))])
             (sd' ^. transactionTable . ttHashMap)
         -- The purge counter must be incremented at this point.
+        assertEqual
+            "transaction table purge counter is incremented"
+            1
+            (sd' ^. transactionTablePurgeCounter)
+    it "MaybeOk transaction" $ do
+        (pbiRes, _) <- runMyTestMonad dummyIdentityProviders (processBlockItem dummyCredentialDeployment) theTime
+        assertEqual
+            "The credential deployment should be rejected (the identity provider has correct id but wrong keys used for the credential deployment)"
+            (Rejected $ TVer.NotOk TVer.CredentialDeploymentInvalidSignatures)
+            pbiRes
+    -- todo.
+    it "NotOk transaction" $ do
+        (pbiRes, sd') <- runMyTestMonad dummyIdentityProviders (processBlockItem dummyCredentialDeployment) theTime
+        assertEqual
+            "The credential deployment should be rejected (the identity provider has correct id but wrong keys used for the credential deployment)"
+            (Rejected $ TVer.NotOk TVer.CredentialDeploymentInvalidSignatures)
+            pbiRes
+        assertEqual
+            "The credential deployment should not be recorded in the pending transaction table"
+            HS.empty
+            (sd' ^. pendingTransactions . pendingTransactionTable . pttDeployCredential)
+        assertEqual
+            "The transaction table should yield the 'Received' credential deployment with a round 0 as commit point"
+            HM.empty
+            (sd' ^. transactionTable . ttHashMap)
+        assertEqual
+            "transaction table purge counter is incremented"
+            0
+            (sd' ^. transactionTablePurgeCounter)
+    it "No duplicates" $ do
+        (pbiRes, sd') <- runMyTestMonad myIdentityProviders ((processBlockItem dummyCredentialDeployment) >> (processBlockItem dummyCredentialDeployment)) theTime
+        assertEqual
+            "We just added the same twice, so the latter one added should be recognized as a duplicate."
+            Duplicate
+            pbiRes
+        -- The credential deployment that was not deemed duplicate must be in the pending transaction table at this point.
+        assertBool
+            "The credential deployment should be recorded in the pending transaction table"
+            (isJust $! sd' ^? pendingTransactions . pendingTransactionTable . pttDeployCredential)
+        -- The credential deployment that was not deemed duplicate must be in the the transaction table at this point.
+        assertEqual
+            "The transaction table should yield the 'Received' credential deployment with a round 0 as commit point"
+            (HM.fromList [(dummyCredentialDeploymentHash, (credentialDeployment credentialDeploymentWM, Received (commitPoint $! Round 0) (TVer.Ok TVer.CredentialDeploymentSuccess)))])
+            (sd' ^. transactionTable . ttHashMap)
+        -- The purge counter must be incremented only once at this point.
         assertEqual
             "transaction table purge counter is incremented"
             1
