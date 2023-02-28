@@ -150,17 +150,17 @@ Always has the value 1.
 
 Timestamp of starting up the node (Unix time in milliseconds).
 
-### `grpc_request_duration_seconds`
+### `grpc_request_response_time_seconds`
 
-Histogram tracking the total number of gRPC requests received and their duration. Labelled with the gRPC method name (`method=<name>`) and the gRPC response status (`status=<status>`).
+Histogram tracking the total number of gRPC requests received and the time it took to provide a response. Labelled with the gRPC method name (`method=<name>`) and the gRPC response status (`status=<status>`).
 
-The duration is tracked for the underlaying HTTP2 request response time, meaning the streaming gRPC methods which could span over multiple HTTP2 requests are counted for each.
-As a result the duration represents the time spent by the node of each method and are not influence by the processing speed of the client for each chunk.
+The duration tracked is time it takes for the underlaying HTTP request to construct a response, which does not include the time it takes to stream the response to the client.
+As a result for streaming gRPC methods, the duration represents the time it takes for the node to first respond, which is not nescessarily same as duration as for providing the first item in the stream.
 
-The size of the buckets be configured using the `prometheus-grpc-duration-buckets` (`CONCORDIUM_NODE_PROMETHEUS_GRPC_DURATION_BUCKETS`) and is provided as a list of decimal numbers separated by ",". Each value represents the upper inclusive bound of a bucket (in seconds) and a bucket with +Infinity is always added. The values must be sorted in strictly increasing order.
+The size of the buckets be configured using the `prometheus-grpc-response-time-buckets` (`CONCORDIUM_NODE_PROMETHEUS_GRPC_RESPONSE_TIME_BUCKETS`) and is provided as a list of decimal numbers separated by ",". Each value represents the upper inclusive bound of a bucket (in seconds) and a bucket with +Infinity is always added. The values must be sorted in strictly increasing order.
 The default value of the configuration is `"0.050,0.100,0.200,0.500,1.000"`.
 
-For a complete list of possible method names refer to the gRPC api documentation.
+For a complete list of possible method names refer to the gRPC API documentation.
 
 Possible values of `status` are:
 - `"ok"` The operation completed successfully.

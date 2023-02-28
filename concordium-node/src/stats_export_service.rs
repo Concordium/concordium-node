@@ -115,7 +115,7 @@ pub struct StatsExportService {
     /// Histogram tracking response time of gRPC requests. Labelled with the
     /// gRPC method name (`method=<name>`) and the gRPC response status
     /// (`status=<status>`).
-    pub grpc_request_duration: HistogramVec,
+    pub grpc_request_response_time: HistogramVec,
     /// Total number of bytes received at the point of last
     /// throughput_measurement.
     ///
@@ -287,9 +287,9 @@ impl StatsExportService {
         ))?;
         registry.register(Box::new(node_startup_timestamp.clone()))?;
 
-        let grpc_request_duration = HistogramVec::new(
+        let grpc_request_response_time = HistogramVec::new(
             HistogramOpts::new(
-                "grpc_request_duration_seconds",
+                "grpc_request_response_time_seconds",
                 "Response time of gRPC requests in seconds",
             )
             .variable_label("method")
@@ -297,7 +297,7 @@ impl StatsExportService {
             .buckets(grpc_duration_buckets),
             &["method", "status"],
         )?;
-        registry.register(Box::new(grpc_request_duration.clone()))?;
+        registry.register(Box::new(grpc_request_response_time.clone()))?;
 
         let last_throughput_measurement_timestamp = AtomicI64::new(0);
         let last_throughput_measurement_sent_bytes = AtomicU64::new(0);
@@ -327,7 +327,7 @@ impl StatsExportService {
             total_peers,
             node_info,
             node_startup_timestamp,
-            grpc_request_duration,
+            grpc_request_response_time,
             last_throughput_measurement_timestamp,
             last_throughput_measurement_sent_bytes,
             last_throughput_measurement_received_bytes,
@@ -424,8 +424,9 @@ impl StatsExportService {
 pub fn instantiate_stats_export_engine(
     conf: &configuration::PrometheusConfig,
 ) -> anyhow::Result<Arc<StatsExportService>> {
-    let prom = StatsExportService::new(conf.prometheus_metric_grpc_duration_buckets.to_owned())
-        .context("Could not start statistics collection engine.")?;
+    let prom =
+        StatsExportService::new(conf.prometheus_metric_grpc_response_time_buckets.to_owned())
+            .context("Could not start statistics collection engine.")?;
     Ok(Arc::new(prom))
 }
 

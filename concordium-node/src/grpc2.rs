@@ -2347,6 +2347,8 @@ fn get_grpc_code_label(code: tonic::Code) -> &'static str {
 }
 
 /// Actual middleware implementation updating the stats.
+/// The middleware is called once for each gRPC request, even for the streaming
+/// gRPC methods.
 impl<S> tower::Service<hyper::Request<hyper::Body>> for StatsMiddleware<S>
 where
     S: tower::Service<
@@ -2369,22 +2371,36 @@ where
     }
 
     fn call(&mut self, req: hyper::Request<hyper::Body>) -> Self::Future {
-        // This is necessary because tonic internally uses `tower::buffer::Buffer`.
-        // See https://github.com/tower-rs/tower/issues/547#issuecomment-767629149
+        // See https://docs.rs/tower/latest/tower/trait.Service.html#be-careful-when-cloning-inner-services
         // for details on why this is necessary
         let clone = self.inner.clone();
         let mut inner = std::mem::replace(&mut self.inner, clone);
 
-        let grpc_request_duration = self.stats.grpc_request_duration.clone();
+        let grpc_request_duration = self.stats.grpc_request_response_time.clone();
 
         Box::pin(async move {
             let endpoint_name = req.uri().path().to_owned();
             let request_received = tokio::time::Instant::now();
-            let mut response = inner.call(req).await?;
-            let duration = request_received.elapsed().as_secs_f64();
 
+            let (mut response, duration) = {
+                // Forward the request.
+                let result = inner.call(req).await;
+                // Time taken for the inner service to send back a response, meaning for
+                // streaming gRPC methods this is the duration for it to first return a stream.
+                let duration = request_received.elapsed().as_secs_f64();
+                if result.is_err() {
+                    grpc_request_duration
+                        .with_label_values(&[endpoint_name.as_str(), "internal"])
+                        .observe(duration);
+                }
+                (result?, duration)
+            };
+
+            // Check if the gRPC status header is part of the HTTP headers, if not check for
+            // the status in the HTTP trailers.
+            // Every gRPC response are expected to provide the grpc-status in either the
+            // header or the trailer.
             let grpc_status_header = response.headers().get("grpc-status");
-
             if let Some(header_value) = grpc_status_header {
                 let status_code_label =
                     get_grpc_code_label(tonic::Code::from_bytes(header_value.as_bytes()));
@@ -2392,10 +2408,10 @@ where
                 grpc_request_duration
                     .with_label_values(&[endpoint_name.as_str(), status_code_label])
                     .observe(duration);
-            } else if let Ok(Some(headers)) =
+            } else if let Ok(Some(trailers)) =
                 hyper::body::HttpBody::trailers(response.body_mut()).await
             {
-                if let Some(header_value) = headers.get("grpc-status") {
+                if let Some(header_value) = trailers.get("grpc-status") {
                     let status_code_label =
                         get_grpc_code_label(tonic::Code::from_bytes(header_value.as_bytes()));
 
@@ -2403,6 +2419,10 @@ where
                         .with_label_values(&[endpoint_name.as_str(), status_code_label])
                         .observe(duration);
                 }
+            } else {
+                grpc_request_duration
+                    .with_label_values(&[endpoint_name.as_str(), "unknown"])
+                    .observe(duration);
             }
 
             Ok(response)
