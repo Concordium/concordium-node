@@ -76,7 +76,7 @@ import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Basic.BlockState.PoolRewards
 import Concordium.GlobalState.CapitalDistribution
 import Concordium.GlobalState.Instance
-import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.Parameters hiding (getChainParameters)
 import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Types
 import Concordium.Types.Accounts
@@ -523,6 +523,13 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
     -- |Get the bakers for the epoch in which the block was baked.
     getCurrentEpochBakers :: BlockState m -> m FullBakers
 
+    -- |Get the finalization committee parameters for the epoch in which the block was baked.
+    -- Together with the bakers, this is used to compute the finalization committee for the epoch.
+    getCurrentEpochFinalizationCommitteeParameters ::
+        (IsSupported 'PTFinalizationCommitteeParameters (ChainParametersVersionFor (MPV m)) ~ 'True) =>
+        BlockState m ->
+        m FinalizationCommitteeParameters
+
     -- |Get the bakers for the next epoch. (See $ActiveCurrentNext.)
     getNextEpochBakers :: BlockState m -> m FullBakers
 
@@ -613,6 +620,9 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
 
     -- |Get the current exchange rates, which are the Euro per NRG, micro CCD per Euro and the derived energy to microCCD rate.
     getExchangeRates :: BlockState m -> m ExchangeRates
+
+    -- |Get the current chain parameters.
+    getChainParameters :: BlockState m -> m (ChainParameters (MPV m))
 
     -- |Get the epoch time of the next scheduled payday.
     getPaydayEpoch :: (PVSupportsDelegation (MPV m)) => BlockState m -> m Epoch
@@ -828,6 +838,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
         (PVSupportsDelegation (MPV m)) =>
         UpdatableBlockState m ->
         [(BakerInfoRef m, Amount)] ->
+        OFinalizationCommitteeParameters (MPV m) ->
         m (UpdatableBlockState m)
 
     -- |Update the bakers for the next epoch.
@@ -1388,6 +1399,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
     getContractInstanceList = lift . getContractInstanceList
     getSeedState = lift . getSeedState
     getCurrentEpochBakers = lift . getCurrentEpochBakers
+    getCurrentEpochFinalizationCommitteeParameters = lift . getCurrentEpochFinalizationCommitteeParameters
     getNextEpochBakers = lift . getNextEpochBakers
     getSlotBakersP1 d = lift . getSlotBakersP1 d
     getRewardStatus = lift . getRewardStatus
@@ -1410,6 +1422,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
     getAnonymityRevokers s = lift . getAnonymityRevokers s
     getUpdateKeysCollection s = lift $ getUpdateKeysCollection s
     getExchangeRates s = lift $ getExchangeRates s
+    getChainParameters = lift . getChainParameters
     getPaydayEpoch = lift . getPaydayEpoch
     getPoolStatus s = lift . getPoolStatus s
     {-# INLINE getModule #-}
@@ -1424,6 +1437,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
     {-# INLINE getContractInstanceList #-}
     {-# INLINE getSeedState #-}
     {-# INLINE getCurrentEpochBakers #-}
+    {-# INLINE getCurrentEpochFinalizationCommitteeParameters #-}
     {-# INLINE getSlotBakersP1 #-}
     {-# INLINE getRewardStatus #-}
     {-# INLINE getOutcomes #-}
@@ -1442,6 +1456,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
     {-# INLINE getAnonymityRevokers #-}
     {-# INLINE getUpdateKeysCollection #-}
     {-# INLINE getExchangeRates #-}
+    {-# INLINE getChainParameters #-}
 
 instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (MGSTrans t m) where
     getAccountCanonicalAddress = lift . getAccountCanonicalAddress
@@ -1557,7 +1572,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     bsoClearEpochBlocksBaked = lift . bsoClearEpochBlocksBaked
     bsoSetNextCapitalDistribution s cd = lift $ bsoSetNextCapitalDistribution s cd
     bsoRotateCurrentCapitalDistribution = lift . bsoRotateCurrentCapitalDistribution
-    bsoSetNextEpochBakers s = lift . bsoSetNextEpochBakers s
+    bsoSetNextEpochBakers s bkrs = lift . bsoSetNextEpochBakers s bkrs
     bsoGetBankStatus = lift . bsoGetBankStatus
     bsoSetRewardAccounts s = lift . bsoSetRewardAccounts s
     {-# INLINE bsoGetModule #-}

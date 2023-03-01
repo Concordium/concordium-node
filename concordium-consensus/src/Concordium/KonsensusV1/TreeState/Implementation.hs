@@ -1,6 +1,7 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -106,11 +107,11 @@ data PendingBlocks = PendingBlocks
       -- The entries of the pending blocks are keyed by the 'BlockHash' of their parent block.
       _pendingBlocksTable :: !(HM.HashMap BlockHash [PendingBlock]),
       -- |A priority search queue on the (pending block hash, parent of pending block hash) tuple,
-      -- prioritised by the round of the pending block. The queue in particular supports extracting
-      -- the pending block with minimal 'Round'. Note that the queue can contain spurious pending
+      -- prioritised by the timestamp of the pending block. The queue in particular supports extracting
+      -- the pending block with minimal 'Timestamp'. Note that the queue can contain spurious pending
       -- blocks, and a block is only actually in the pending blocks if it has an entry in the
       -- '_pendingBlocksTable'.
-      _pendingBlocksQueue :: !(MPQ.MinPQueue Round (BlockHash, BlockHash))
+      _pendingBlocksQueue :: !(MPQ.MinPQueue Timestamp (BlockHash, BlockHash))
     }
     deriving (Eq, Show)
 
@@ -139,12 +140,17 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       _blockTable :: !(BlockTable pv),
       -- |Branches of the tree by height above the last finalized block
       _branches :: !(Seq.Seq [BlockPointer pv]),
+      -- |For non-finalized rounds, tracks which bakers we have seen legally-signed blocks with
+      -- live parent blocks from. This is used for duplicate detection.
+      _roundExistingBlocks :: !(Map.Map Round (Map.Map BakerId BlockSignatureWitness)),
       -- |Genesis configuration
       _genesisConfiguration :: !GenesisConfiguration,
       -- |Pending blocks
       _skovPendingBlocks :: !PendingBlocks,
       -- |Pointer to the last finalized block.
       _lastFinalized :: !(BlockPointer pv),
+      -- |Baker and finalizer information with respect to the epoch of the last finalized block.
+      _skovEpochBakers :: !EpochBakers,
       -- |The current consensus statistics.
       _statistics :: !Stats.ConsensusStatistics
     }
@@ -159,6 +165,14 @@ instance HasPendingBlocks (SkovData pv) where
     pendingBlocks = skovPendingBlocks
     {-# INLINE pendingBlocks #-}
 
+instance HasEpochBakers (SkovData pv) where
+    epochBakers = skovEpochBakers
+    {-# INLINE epochBakers #-}
+
+-- |Lens for accessing the witness that a baker signed a block in a particular round.
+roundBakerExistingBlock :: Round -> BakerId -> Lens' (SkovData pv) (Maybe BlockSignatureWitness)
+roundBakerExistingBlock rnd bakerId = roundExistingBlocks . at' rnd . nonEmpty . at' bakerId
+
 -- |Create an initial 'SkovData pv'
 mkInitialSkovData ::
     -- |The 'RuntimeParameters'
@@ -171,9 +185,11 @@ mkInitialSkovData ::
     Duration ->
     -- |The 'LeadershipElectionNonce'
     LeadershipElectionNonce ->
+    -- |Bakers at the genesis block
+    EpochBakers ->
     -- |The initial 'SkovData'
     SkovData pv
-mkInitialSkovData rp genConf genState baseTimeout len =
+mkInitialSkovData rp genConf genState baseTimeout len _skovEpochBakers =
     let genesisBlock = GenesisBlock genConf
         genesisTime = timestampToUTCTime $ Base.genesisTime (gcParameters genConf)
         genesisMetadata =
@@ -199,6 +215,7 @@ mkInitialSkovData rp genConf genState baseTimeout len =
         _runtimeParameters = rp
         _blockTable = emptyBlockTable
         _branches = Seq.empty
+        _roundExistingBlocks = Map.empty
         _genesisConfiguration = genConf
         _skovPendingBlocks = emptyPendingBlocks
         _lastFinalized = genesisBlockPointer
@@ -314,22 +331,22 @@ doMarkPending pb = blockTable . liveMap . at' (getHash pb) ?=! MemBlockPending p
 -- $pendingBlocks
 -- Pending blocks are conceptually stored in a min priority search queue,
 -- where multiple blocks may have the same key, which is their parent,
--- and the priority is the block's round number.
+-- and the priority is the block's timestamp.
 -- When a block arrives (possibly dead), its pending children are removed
 -- from the queue and handled.  This uses 'doTakePendingChildren'.
--- When a block is finalized, all pending blocks with a lower or equal round
--- number can be handled (they will become dead, since they can no longer
--- join the tree).  This uses 'doTakeNextPendingUntil'.
+-- When a block is finalized, all pending blocks with a lower or equal timestamp
+-- can be handled (they will become dead, since they can no longer join the tree).
+-- This uses 'doTakeNextPendingUntil'.
 
 -- |Add a block to the pending block table and queue.
 -- (Note, this does not update the block table.)
 doAddPendingBlock :: (MonadState s m, HasPendingBlocks s) => PendingBlock -> m ()
 doAddPendingBlock sb = do
-    pendingBlocksQueue %= MPQ.insert theRound (blockHash, parentHash)
+    pendingBlocksQueue %= MPQ.insert theTimestamp (blockHash, parentHash)
     pendingBlocksTable . at' parentHash . non [] %= (sb :)
   where
     blockHash = getHash sb
-    theRound = blockRound sb
+    theTimestamp = blockTimestamp sb
     parentHash = blockParent sb
 
 -- |Take the set of blocks that are pending a particular parent from the pending block table.
@@ -338,15 +355,15 @@ doAddPendingBlock sb = do
 doTakePendingChildren :: (MonadState s m, HasPendingBlocks s) => BlockHash -> m [PendingBlock]
 doTakePendingChildren parent = pendingBlocksTable . at' parent . non [] <<.= []
 
--- |Return the next block that is pending its parent with round number
+-- |Return the next block that is pending its parent with timestamp
 -- less than or equal to the given value, removing it from the pending
 -- table.  Returns 'Nothing' if there is no such pending block.
-doTakeNextPendingUntil :: (MonadState s m, HasPendingBlocks s) => Round -> m (Maybe PendingBlock)
-doTakeNextPendingUntil targetRound = tnpu =<< use pendingBlocksQueue
+doTakeNextPendingUntil :: (MonadState s m, HasPendingBlocks s) => Timestamp -> m (Maybe PendingBlock)
+doTakeNextPendingUntil targetTimestamp = tnpu =<< use pendingBlocksQueue
   where
     tnpu ppq = case MPQ.minViewWithKey ppq of
         Just ((r, (pending, parent)), ppq')
-            | r <= targetRound -> do
+            | r <= targetTimestamp -> do
                 (myPB, otherPBs) <-
                     List.partition ((== pending) . getHash)
                         <$> use (pendingBlocksTable . at' parent . non [])
@@ -630,6 +647,20 @@ doPurgeTransactionTable force currentTime = do
             (newTT, newPT) = Purge.purgeTables (commitPoint lastFinalizedRound) oldestArrivalTime currentTimestamp transactionTable' pendingTransactions'
         transactionTable .=! newTT
         pendingTransactionTable .=! newPT
+
+-- * Bakers
+
+-- |Get the set of bakers and finalizers for an epoch.
+doGetBakersForEpoch :: (HasEpochBakers s) => Epoch -> s -> Maybe BakersAndFinalizers
+doGetBakersForEpoch e s
+    | e == curEpoch = Just (s ^. currentEpochBakers)
+    | e == curEpoch + 1 = Just (s ^. nextEpochBakers)
+    | curEpoch <= e && e < s ^. nextPayday = Just (s ^. currentEpochBakers)
+    | otherwise = Nothing
+  where
+    curEpoch = s ^. epochBakersEpoch
+
+-- * Protocol update
 
 -- |Clear pending and non-finalized blocks from the tree state.
 -- Transactions that were committed (to any non-finalized block) have their status changed to
