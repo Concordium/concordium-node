@@ -265,9 +265,9 @@ impl ConsensusFfiResponse {
     /// Get the label. This is used when updating metrics of the prometheus
     /// exporter.
     pub fn label(&self) -> &str {
-        if self.is_successful() {
+        if self.is_successful() || matches!(self, Self::ContinueCatchUp) {
             "valid"
-        } else if let ConsensusFfiResponse::DuplicateEntry = self {
+        } else if let Self::DuplicateEntry = self {
             "duplicate"
         } else {
             "invalid"
