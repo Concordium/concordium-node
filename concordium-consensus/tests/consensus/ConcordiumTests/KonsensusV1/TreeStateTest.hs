@@ -167,7 +167,9 @@ dummyBakersAndFinalizers =
 
 -- |Dummy epoch bakers. This is only suitable for when the actual value is not meaningfully used.
 dummyEpochBakers :: EpochBakers
-dummyEpochBakers = EpochBakers 0 dummyBakersAndFinalizers dummyBakersAndFinalizers 1
+dummyEpochBakers = EpochBakers 0 bf bf bf 1
+  where
+    bf = dummyBakersAndFinalizers
 
 -- |An initial 'SkovData' suitable for testing.
 -- The block state is empty only consisting of a
