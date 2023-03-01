@@ -106,7 +106,7 @@ data PersistentEpochBakers (pv :: ProtocolVersion) = PersistentEpochBakers
     { _bakerInfos :: !(HashedBufferedRef (BakerInfos (AccountVersionFor pv))),
       _bakerStakes :: !(HashedBufferedRef BakerStakes),
       _bakerTotalStake :: !Amount,
-      _bakerFinalizationCommitteParameters :: !(OFinalizationCommitteeParameters pv)
+      _bakerFinalizationCommitteeParameters :: !(OFinalizationCommitteeParameters pv)
     }
     deriving (Show)
 
@@ -141,7 +141,7 @@ migratePersistentEpochBakers migration PersistentEpochBakers{..} = do
     newBakerInfos <- migrateHashedBufferedRef (migrateBakerInfos migration) _bakerInfos
     newBakerStakes <- migrateHashedBufferedRefKeepHash _bakerStakes
     let newBakerFinalizationCommitteeParameters = case migration of
-            StateMigrationParametersTrivial -> _bakerFinalizationCommitteParameters
+            StateMigrationParametersTrivial -> _bakerFinalizationCommitteeParameters
             StateMigrationParametersP1P2 -> NoParam
             StateMigrationParametersP2P3 -> NoParam
             StateMigrationParametersP3ToP4{} -> NoParam
@@ -150,7 +150,7 @@ migratePersistentEpochBakers migration PersistentEpochBakers{..} = do
         PersistentEpochBakers
             { _bakerInfos = newBakerInfos,
               _bakerStakes = newBakerStakes,
-              _bakerFinalizationCommitteParameters = newBakerFinalizationCommitteeParameters,
+              _bakerFinalizationCommitteeParameters = newBakerFinalizationCommitteeParameters,
               ..
             }
 
@@ -174,13 +174,13 @@ putEpochBakers peb = do
             putLength (Vec.length bInfos)
     mapM_ sPut bInfos
     mapM_ (liftPut . put) bStakes
-    mapM_ (liftPut . put) (peb ^. bakerFinalizationCommitteParameters)
+    mapM_ (liftPut . put) (peb ^. bakerFinalizationCommitteeParameters)
 
 instance (IsProtocolVersion pv, MonadBlobStore m) => MHashableTo m H.Hash (PersistentEpochBakers pv) where
     getHashM PersistentEpochBakers{..} = do
         hbkrInfos :: H.Hash <- getHashM _bakerInfos
         hbkrStakes :: H.Hash <- getHashM _bakerStakes
-        case _bakerFinalizationCommitteParameters of
+        case _bakerFinalizationCommitteeParameters of
             NoParam -> return $ H.hashOfHashes hbkrInfos hbkrStakes
             SomeParam params -> return $ H.hash $ runPut $ do
                 put hbkrInfos
@@ -195,13 +195,13 @@ instance (IsProtocolVersion pv, MonadBlobStore m) => BlobStorable m (PersistentE
                 pBkrInfos
                 pBkrStakes
                 put _bakerTotalStake
-                mapM_ put _bakerFinalizationCommitteParameters
+                mapM_ put _bakerFinalizationCommitteeParameters
         return (pBkrs, PersistentEpochBakers{_bakerInfos = newBkrInfos, _bakerStakes = newBkrStakes, ..})
     load = do
         mBkrInfos <- load
         mBkrStakes <- load
         _bakerTotalStake <- get
-        _bakerFinalizationCommitteParameters <- whenSupportedA get
+        _bakerFinalizationCommitteeParameters <- whenSupportedA get
         return $ do
             _bakerInfos <- mBkrInfos
             _bakerStakes <- mBkrStakes

@@ -1,8 +1,10 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Concordium.KonsensusV1.TreeState.Types where
 
@@ -151,6 +153,17 @@ data BlockStatus pv
     | -- |The block is unknown
       BlockUnknown
     deriving (Show)
+
+-- |Get the 'BlockPointer' from a 'BlockStatus' for a live or finalized block.
+-- Returns 'Nothing' if the block is pending, dead or unknown.
+blockStatusBlock :: BlockStatus pv -> Maybe (BlockPointer pv)
+blockStatusBlock (BlockAlive b) = Just b
+blockStatusBlock (BlockFinalized b) = Just b
+blockStatusBlock _ = Nothing
+
+-- |A (unidirectional) pattern for matching a block status that is either alive or finalized.
+pattern BlockAliveOrFinalized :: BlockPointer pv -> BlockStatus pv
+pattern BlockAliveOrFinalized b <- (blockStatusBlock -> Just b)
 
 -- |The status of a block as obtained without loading the block from disk.
 data RecentBlockStatus pv

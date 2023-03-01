@@ -1,6 +1,7 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -194,6 +195,9 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       _blockTable :: !(BlockTable pv),
       -- |Branches of the tree by height above the last finalized block
       _branches :: !(Seq.Seq [BlockPointer pv]),
+      -- |For non-finalized rounds, tracks which bakers we have seen legally-signed blocks with
+      -- live parent blocks from. This is used for duplicate detection.
+      _roundExistingBlocks :: !(Map.Map Round (Map.Map BakerId BlockSignatureWitness)),
       -- |Genesis metadata
       _genesisMetadata :: !GenesisMetadata,
       -- |Pending blocks
@@ -219,6 +223,10 @@ instance HasPendingBlocks (SkovData pv) where
 instance HasEpochBakers (SkovData pv) where
     epochBakers = skovEpochBakers
     {-# INLINE epochBakers #-}
+
+-- |Lens for accessing the witness that a baker signed a block in a particular round.
+roundBakerExistingBlock :: Round -> BakerId -> Lens' (SkovData pv) (Maybe BlockSignatureWitness)
+roundBakerExistingBlock rnd bakerId = roundExistingBlocks . at' rnd . nonEmpty . at' bakerId
 
 -- |Create an initial 'SkovData pv'
 -- This constructs a 'SkovData pv' from a genesis block
@@ -264,6 +272,7 @@ mkInitialSkovData rp genMeta genState baseTimeout len _skovEpochBakers =
         _runtimeParameters = rp
         _blockTable = emptyBlockTable
         _branches = Seq.empty
+        _roundExistingBlocks = Map.empty
         _genesisMetadata = genMeta
         _skovPendingBlocks = emptyPendingBlocks
         _lastFinalized = genesisBlockPointer
@@ -707,6 +716,20 @@ purgeTransactionTable force currentTime = do
             (newTT, newPT) = Purge.purgeTables (commitPoint lastFinalizedRound) oldestArrivalTime currentTimestamp transactionTable' pendingTransactions'
         transactionTable .=! newTT
         pendingTransactionTable .=! newPT
+
+-- * Bakers
+
+-- |Get the set of bakers and finalizers for an epoch.
+doGetBakersForEpoch :: (HasEpochBakers s) => Epoch -> s -> Maybe BakersAndFinalizers
+doGetBakersForEpoch e s
+    | e == curEpoch = Just (s ^. currentEpochBakers)
+    | e == curEpoch + 1 = Just (s ^. nextEpochBakers)
+    | curEpoch <= e && e < s ^. nextPayday = Just (s ^. currentEpochBakers)
+    | otherwise = Nothing
+  where
+    curEpoch = s ^. epochBakersEpoch
+
+-- * Protocol update
 
 -- |Clear pending and non-finalized blocks from the tree state.
 -- Transactions that were committed (to any non-finalized block) have their status changed to

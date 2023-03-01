@@ -10,7 +10,7 @@ import Concordium.Types
 import Concordium.Genesis.Data.BaseV1
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.BlockState
-import Concordium.GlobalState.Parameters hiding (GenesisConfiguration, genesisConfiguration, getChainParameters)
+import Concordium.GlobalState.Parameters hiding (getChainParameters)
 import Concordium.GlobalState.Persistent.BlockState
 import Concordium.GlobalState.Types
 import Concordium.KonsensusV1.Flag
@@ -80,10 +80,10 @@ uponReceivingBlock pendingBlock = do
             -- Check that the block is not already live or pending. The network-layer deduplication
             -- should generally prevent such blocks from getting here, but having this check means
             -- we can rely on the fact.
-            case doGetMemoryBlockStatus (getHash pendingBlock) sd of
+            case getMemoryBlockStatus (getHash pendingBlock) sd of
                 Just _ -> return BlockResultDuplicate
                 Nothing -> do
-                    doGetRecentBlockStatus (blockParent pendingBlock) sd >>= \case
+                    getRecentBlockStatus (blockParent pendingBlock) sd >>= \case
                         RecentBlock (BlockAlive parent) -> receiveBlockKnownParent parent pendingBlock
                         RecentBlock (BlockFinalized parent) -> receiveBlockKnownParent parent pendingBlock
                         RecentBlock BlockPending{} -> receiveBlockUnknownParent pendingBlock
@@ -108,7 +108,7 @@ receiveBlockKnownParent ::
     PendingBlock ->
     m BlockResult
 receiveBlockKnownParent parent pendingBlock = do
-    genesisHash <- use $ genesisConfiguration . to gcCurrentGenesisHash
+    genesisHash <- use $ genesisMetadata . to gmCurrentGenesisHash
     gets (doGetBakersForEpoch (blockEpoch pendingBlock)) >>= \case
         Nothing ->
             -- The block's epoch is not valid. A live block must either be in the same epoch as
@@ -199,7 +199,7 @@ receiveBlockUnknownParent pendingBlock = do
     if blockTimestamp pendingBlock
         < addDuration (utcTimeToTimestamp $ pbReceiveTime pendingBlock) earlyThreshold
         then do
-            genesisHash <- use $ genesisConfiguration . to gcCurrentGenesisHash
+            genesisHash <- use $ genesisMetadata . to gmCurrentGenesisHash
             gets (doGetBakersForEpoch (blockEpoch pendingBlock)) >>= \case
                 Nothing -> do
                     -- We do not know the bakers
@@ -216,8 +216,8 @@ receiveBlockUnknownParent pendingBlock = do
   where
     continuePending = do
         -- TODO: Check the transactions in the block
-        doAddPendingBlock pendingBlock
-        doMarkPending pendingBlock
+        addPendingBlock pendingBlock
+        markPending pendingBlock
         return BlockResultPending
 
 -- |Get the minimum time between consecutive blocks.
@@ -284,7 +284,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
             flag $ BlockNonceIncorrect sBlock
             return False
     | otherwise = do
-        genConfig <- use genesisConfiguration
+        genConfig <- use genesisMetadata
         checkTimestamp $
             checkTimeoutCertificatePresentAndCorrectRound $ \mTimeoutCert ->
                 getParentBakersAndFinalizers $ \parentBF ->
@@ -320,7 +320,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                     | otherwise -> continue (Just tc)
         | otherwise = continue Nothing
     -- Check the finalization entry
-    checkEpochFinalizationEntry GenesisConfiguration{..} BakersAndFinalizers{..} continue
+    checkEpochFinalizationEntry GenesisMetadata{..} BakersAndFinalizers{..} continue
         -- If the block is in a new epoch, the epoch finalization entry should be present and
         -- correct.
         | blockEpoch pendingBlock == blockEpoch parent + 1 =
@@ -333,8 +333,8 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                     -- contains valid QCs.
                     | qcEpoch (feFinalizedQuorumCertificate finEntry) == blockEpoch parent,
                       checkFinalizationEntry
-                        gcCurrentGenesisHash
-                        (toRational $ genesisSignatureThreshold gcParameters)
+                        gmCurrentGenesisHash
+                        (toRational $ genesisSignatureThreshold gmParameters)
                         _bfFinalizers
                         finEntry -> do
                         -- Check that the finalized block has timestamp past the trigger time for
@@ -343,7 +343,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                         parentSeedState <- getSeedState (bpState parent)
                         -- Get the status of the block finalized by the finalization entry for the
                         -- check.
-                        get >>= doGetBlockStatus (qcBlock (feFinalizedQuorumCertificate finEntry)) >>= \case
+                        get >>= getBlockStatus (qcBlock (feFinalizedQuorumCertificate finEntry)) >>= \case
                             BlockAliveOrFinalized finBlock
                                 | blockTimestamp finBlock >= triggerBlockTime parentSeedState ->
                                     continue
@@ -366,11 +366,11 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
             Nothing -> return False
             Just bf -> continue bf
     checkQC BakersAndFinalizers{..} continue = do
-        GenesisConfiguration{..} <- use genesisConfiguration
+        GenesisMetadata{..} <- use genesisMetadata
         let qcOK =
                 checkQuorumCertificate
-                    gcCurrentGenesisHash
-                    (toRational $ genesisSignatureThreshold gcParameters)
+                    gmCurrentGenesisHash
+                    (toRational $ genesisSignatureThreshold gmParameters)
                     _bfFinalizers
                     (blockQuorumCertificate pendingBlock)
         if qcOK
@@ -391,7 +391,7 @@ executeBlock ::
     m ()
 executeBlock verifiedBlock = do
     -- TODO: check for consensus shutdown
-    get >>= doGetRecentBlockStatus (blockParent (vbBlock verifiedBlock)) >>= \case
+    get >>= getRecentBlockStatus (blockParent (vbBlock verifiedBlock)) >>= \case
         RecentBlock (BlockAliveOrFinalized parent) -> ebWithParent parent
         _ -> return ()
   where

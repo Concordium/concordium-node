@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE BinaryLiterals #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveTraversable #-}
@@ -161,7 +162,7 @@ instance Serialize QuorumMessage where
         return QuorumMessage{..}
 
 -- |Information about a finalizer.
-data FinalizerInfo = PartyInfo
+data FinalizerInfo = FinalizerInfo
     { -- |The index of the finalizer in the finalization committee vector.
       finalizerIndex :: !FinalizerIndex,
       -- |The voter power of the finalizer
@@ -275,17 +276,40 @@ instance Serialize QuorumCertificate where
 instance HashableTo Hash.Hash QuorumCertificate where
     getHash = Hash.hash . encode
 
--- |Check the signature in a quorum certificate.
-checkQuorumCertificateSignature ::
+-- |Check that the quorum certificate has:
+--
+--  * Valid signatures from members of the finalization committee.
+--  * The weights of the committee members are sufficient for the certificate to be valid.
+--
+-- The quorum certificate will be rejected if any signatories are not in the committee.
+checkQuorumCertificate ::
     -- |Genesis block hash
     BlockHash ->
-    (FinalizerSet -> [BakerAggregationVerifyKey]) ->
+    -- |Signature threshold
+    Rational ->
+    -- |Finalization committee
+    FinalizationCommittee ->
+    -- |Certificate to check
     QuorumCertificate ->
     Bool
-checkQuorumCertificateSignature qsmGenesis toKeys QuorumCertificate{..} =
-    checkQuorumSignature qsm (toKeys qcSignatories) qcAggregateSignature
+checkQuorumCertificate qsmGenesis sigThreshold FinalizationCommittee{..} QuorumCertificate{..} =
+    check 0 [] (finalizerList qcSignatories)
   where
-    qsm = QuorumSignatureMessage{qsmGenesis = qsmGenesis, qsmBlock = qcBlock, qsmRound = qcRound, qsmEpoch = qcEpoch}
+    qsm =
+        QuorumSignatureMessage
+            { qsmGenesis = qsmGenesis,
+              qsmBlock = qcBlock,
+              qsmRound = qcRound,
+              qsmEpoch = qcEpoch
+            }
+    check !accumWeight keys []
+        | toRational accumWeight / toRational committeeTotalWeight >= sigThreshold =
+            checkQuorumSignature qsm keys qcAggregateSignature
+        | otherwise = False
+    check !accumWeight keys (i : is) =
+        case committeeFinalizers Vector.!? fromIntegral (theFinalizerIndex i) of
+            Nothing -> False
+            Just FinalizerInfo{..} -> check (finalizerWeight + accumWeight) (finalizerBlsKey : keys) is
 
 -- |A Merkle proof that one block is the successor of another.
 type SuccessorProof = BlockQuasiHash
@@ -308,6 +332,7 @@ successorBlockHash bh = computeBlockHash bhh
 -- The following invariants hold:
 --
 -- - @qcRound feSuccessorQuorumCertificate == qcRound feFinalizedQuorumCertificate + 1@
+-- - @qcEpoch feSuccessorQuorumCertificate == qcEpoch feFinalizedQuorumCertificate@
 -- - @qcBlock feSuccessorQuorumCertificate == successorBlockHash (BlockHeader (qcRound feSuccessorQuorumCertificate) (qcEpoch feSuccessorQuorumCertificate) (qcBlock feFinalizedQuorumCertificate)) feSuccessorProof@
 data FinalizationEntry = FinalizationEntry
     { -- |Quorum certificate for the finalized block.
@@ -324,25 +349,25 @@ instance Serialize FinalizationEntry where
     put FinalizationEntry{..} = do
         put feFinalizedQuorumCertificate
         let QuorumCertificate{..} = feSuccessorQuorumCertificate
-        put qcEpoch
         put qcAggregateSignature
         put qcSignatories
         put feSuccessorProof
     get = do
         feFinalizedQuorumCertificate <- get
-        qcEpoch <- get
         qcAggregateSignature <- get
         qcSignatories <- get
         feSuccessorProof <- get
         let sqcRound = qcRound feFinalizedQuorumCertificate + 1
+        let sqcEpoch = qcEpoch feFinalizedQuorumCertificate
         let feSuccessorQuorumCertificate =
                 QuorumCertificate
                     { qcRound = sqcRound,
+                      qcEpoch = sqcEpoch,
                       qcBlock =
                         successorBlockHash
                             ( BlockHeader
                                 sqcRound
-                                qcEpoch
+                                sqcEpoch
                                 (qcBlock feFinalizedQuorumCertificate)
                             )
                             feSuccessorProof,
@@ -355,6 +380,23 @@ instance HashableTo Hash.Hash (Option FinalizationEntry) where
     getHash (Present fe) = Hash.hash $ runPut $ do
         putWord8 1
         put fe
+
+-- |Check that a finalization entry is valid. This checks the validity of the two quorum
+-- certificates. Note that the structural invariants on 'FinalizationEntry' enforce the other
+-- conditions in the definition of validity.
+checkFinalizationEntry ::
+    -- |Genesis block hash
+    BlockHash ->
+    -- |Signature threshold
+    Rational ->
+    -- |Finalization committee
+    FinalizationCommittee ->
+    -- |Finalization entry to check
+    FinalizationEntry ->
+    Bool
+checkFinalizationEntry genHash sigThreshold finCom FinalizationEntry{..} =
+    checkQuorumCertificate genHash sigThreshold finCom feFinalizedQuorumCertificate
+        && checkQuorumCertificate genHash sigThreshold finCom feSuccessorQuorumCertificate
 
 -- |The message that is signed by the sender of a timeout message, to indicate that a round has
 -- timed out for the sender.
@@ -1113,3 +1155,12 @@ unsafeGetBlockKnownHash ts sbHash = do
             sbBlock <- getBakedBlock (protocolVersion @pv) ts
             sbSignature <- get
             return $ NormalBlock SignedBlock{..}
+
+-- |Nominally, a proof that a baker signed a block in a particular round and epoch.
+-- For now, though, we do not include any information in the witness since we do not provide it to
+-- any external parties.
+data BlockSignatureWitness = BlockSignatureWitness
+
+-- |Derive a 'BlockSignatureWitness' from a signed block.
+toBlockSignatureWitness :: SignedBlock -> BlockSignatureWitness
+toBlockSignatureWitness _ = BlockSignatureWitness

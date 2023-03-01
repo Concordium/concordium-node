@@ -3,13 +3,16 @@
 module Concordium.KonsensusV1.LeaderElection (
     -- * Leader election
     getLeader,
+    getLeaderFullBakers,
 
     -- * Seed state
     updateSeedStateForBlock,
     updateSeedStateForEpoch,
+    nonceForNewEpoch,
 ) where
 
 import Data.Serialize
+import qualified Data.Vector as Vec
 
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Types
@@ -54,6 +57,13 @@ getLeader bakers nonce rnd = grabBaker 0 bakers
         | otherwise = grabBaker (runningTotal + amt) bkrs
     grabBaker _ [] = error "getLeader: Empty bakers"
 
+-- |Compute the leader for a given round, given the set of bakers and leadership election nonce
+-- for the epoch. (See 'getLeader'.)
+getLeaderFullBakers :: FullBakers -> LeadershipElectionNonce -> Round -> FullBakerInfo
+getLeaderFullBakers = getLeader . fmap bi . Vec.toList . fullBakerInfos
+  where
+    bi fbi@FullBakerInfo{..} = (fbi, _bakerStake)
+
 -- |Compute the update for the leadership election nonce due to a particular block nonce.
 updateWithBlockNonce :: BlockNonce -> Hash.Hash -> Hash.Hash
 updateWithBlockNonce bn un = Hash.hash $ runPut $ put un <> put (proofToHash bn)
@@ -70,6 +80,18 @@ updateSeedStateForBlock ts bn ss
   where
     ss' = ss{updatedNonce = updateWithBlockNonce bn (updatedNonce ss)}
 
+-- |Compute the leadership election nonce for the new epoch.
+nonceForNewEpoch ::
+    -- |Bakers for the new epoch
+    FullBakers ->
+    -- |Seed state to compute updated leadership election nonce
+    SeedState 'SeedStateVersion1 ->
+    LeadershipElectionNonce
+nonceForNewEpoch newBakers ss = Hash.hash $ runPut $ do
+    put (updatedNonce ss)
+    put (epoch ss + 1)
+    putFullBakers newBakers
+
 -- |Update the seed state to account for a transition to a new epoch.
 updateSeedStateForEpoch ::
     -- |Bakers for the new epoch
@@ -81,15 +103,11 @@ updateSeedStateForEpoch ::
     SeedState 'SeedStateVersion1
 updateSeedStateForEpoch newBakers epochDuration ss =
     SeedStateV1
-        { epoch = newEpoch,
+        { epoch = epoch ss + 1,
           epochTransitionTriggered = False,
           triggerBlockTime = triggerBlockTime ss `addDuration` epochDuration,
           updatedNonce = newNonce,
           currentLeadershipElectionNonce = newNonce
         }
   where
-    newEpoch = epoch ss + 1
-    newNonce = Hash.hash $ runPut $ do
-        put (updatedNonce ss)
-        put newEpoch
-        putFullBakers newBakers
+    newNonce = nonceForNewEpoch newBakers ss

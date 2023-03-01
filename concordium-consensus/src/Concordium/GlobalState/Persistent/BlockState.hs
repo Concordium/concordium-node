@@ -213,7 +213,7 @@ initialBirkParameters ::
     -- |The finalization committee parameters (if relevant)
     OFinalizationCommitteeParameters pv ->
     m (PersistentBirkParameters pv)
-initialBirkParameters accounts seedState _bakerFinalizationCommitteParameters = do
+initialBirkParameters accounts seedState _bakerFinalizationCommitteeParameters = do
     -- Iterate accounts and collect delegators.
     IBPCollectedDelegators{..} <- case delegationSupport @av of
         SAVDelegationNotSupported -> return emptyIBPCollectedDelegators
@@ -1038,6 +1038,16 @@ doSetSeedState pbs ss = do
     bsp <- loadPBS pbs
     storePBS pbs bsp{bspBirkParameters = (bspBirkParameters bsp){_birkSeedState = ss}}
 
+doGetCurrentEpochFinalizationCommitteParameters ::
+    ( SupportsPersistentState pv m,
+      IsSupported 'PTFinalizationCommitteeParameters (ChainParametersVersionFor pv) ~ 'True
+    ) =>
+    PersistentBlockState pv ->
+    m FinalizationCommitteeParameters
+doGetCurrentEpochFinalizationCommitteParameters pbs = do
+    eb <- refLoad . _birkCurrentEpochBakers . bspBirkParameters =<< loadPBS pbs
+    return $ eb ^. bakerFinalizationCommitteeParameters . supportedOParam
+
 doGetCurrentEpochBakers :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m FullBakers
 doGetCurrentEpochBakers pbs = epochToFullBakers =<< refLoad . _birkCurrentEpochBakers . bspBirkParameters =<< loadPBS pbs
 
@@ -1163,7 +1173,7 @@ doTransitionEpochBakers pbs newEpoch = do
     -- so why not?
     _bakerStakes <- secondIfEqual newBakerStakes (_bakerStakes neb)
     let _bakerTotalStake = sum stakesVec
-        _bakerFinalizationCommitteParameters = case protocolVersion @pv of
+        _bakerFinalizationCommitteeParameters = case protocolVersion @pv of
             SP1 -> NoParam
             SP2 -> NoParam
             SP3 -> NoParam
@@ -2974,7 +2984,7 @@ doSetNextEpochBakers ::
     [(PersistentBakerInfoRef (AccountVersionFor pv), Amount)] ->
     OFinalizationCommitteeParameters pv ->
     m (PersistentBlockState pv)
-doSetNextEpochBakers pbs bakers _bakerFinalizationCommitteParameters = do
+doSetNextEpochBakers pbs bakers _bakerFinalizationCommitteeParameters = do
     bsp <- loadPBS pbs
     _bakerInfos <- refMake (BakerInfos preBakerInfos)
     _bakerStakes <- refMake (BakerStakes preBakerStakes)
@@ -3292,6 +3302,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateQuery (P
     getAccountList = doAccountList . hpbsPointers
     getContractInstanceList = doContractInstanceList . hpbsPointers
     getSeedState = doGetSeedState . hpbsPointers
+    getCurrentEpochFinalizationCommitteeParameters = doGetCurrentEpochFinalizationCommitteParameters . hpbsPointers
     getCurrentEpochBakers = doGetCurrentEpochBakers . hpbsPointers
     getNextEpochBakers = doGetNextEpochBakers . hpbsPointers
     getSlotBakersP1 = doGetSlotBakersP1 . hpbsPointers

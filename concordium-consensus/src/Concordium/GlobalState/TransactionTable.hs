@@ -21,7 +21,7 @@ import qualified Data.HashSet as HS
 import qualified Data.Map.Strict as Map
 import Lens.Micro.Platform
 
--- |A commit point is a specific point in which a block can be produced.
+-- |A commit point is a specific point within an 'Epoch'.
 -- For ConsensusV0 it is a 'Slot'.
 -- For ConsensusV1 it is a 'Round'.
 type CommitPoint = Word64
@@ -46,7 +46,7 @@ instance IsCommitPoint Round
 
 -- |The status of a transaction that has been verified and is not yet finalized.
 -- A 'Received' transaction is not yet in any live blocks (but could be in a pending block).
--- A 'Committed' transaction is known to be in a live block, and records the transaction index that it occurs
+-- A 'Committed' transaction is known to be in a live block, and records the index that it occurs
 -- in any such block.
 data LiveTransactionStatus
     = -- |Transaction is received, but no outcomes from any blocks are known
@@ -81,8 +81,6 @@ makeLenses ''LiveTransactionStatus
 
 -- |Add a transaction result. This function assumes the transaction is not finalized yet.
 -- If the transaction is already finalized the function will return the original status.
--- As this function is generic over 'IsCommitPoint a' we want to have the compiler to emit specialized
--- functions for 'Round' and 'Slot'.
 {-# SPECIALIZE addResult :: BlockHash -> Round -> TransactionIndex -> LiveTransactionStatus -> LiveTransactionStatus #-}
 {-# SPECIALIZE addResult :: BlockHash -> Slot -> TransactionIndex -> LiveTransactionStatus -> LiveTransactionStatus #-}
 addResult :: IsCommitPoint a => BlockHash -> a -> TransactionIndex -> LiveTransactionStatus -> LiveTransactionStatus
@@ -111,13 +109,10 @@ markDeadResult bh Committed{..} =
     in  if HM.null newResults then Received{..} else Committed{tsResults = newResults, ..}
 markDeadResult _ ts = ts
 
--- |Update a commit point for a live transaction i.e. not finalized.
--- As this function is generic over 'IsCommitPoint a' we want to have the compiler to emit specialized
--- functions for 'Round' and 'Slot'.
-{-# SPECIALIZE updateCommitPoint :: Round -> LiveTransactionStatus -> LiveTransactionStatus #-}
-{-# SPECIALIZE updateCommitPoint :: Slot -> LiveTransactionStatus -> LiveTransactionStatus #-}
-updateCommitPoint :: IsCommitPoint a => a -> LiveTransactionStatus -> LiveTransactionStatus
-updateCommitPoint s ts = ts{_tsCommitPoint = commitPoint s}
+{-# SPECIALIZE updateSlot :: Round -> LiveTransactionStatus -> LiveTransactionStatus #-}
+{-# SPECIALIZE updateSlot :: Slot -> LiveTransactionStatus -> LiveTransactionStatus #-}
+updateSlot :: IsCommitPoint a => a -> LiveTransactionStatus -> LiveTransactionStatus
+updateSlot s ts = ts{_tsCommitPoint = commitPoint s}
 
 {-# INLINE getTransactionIndex #-}
 

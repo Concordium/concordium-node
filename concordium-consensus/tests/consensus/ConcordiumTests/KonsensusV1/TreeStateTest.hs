@@ -16,8 +16,10 @@ import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import qualified Data.Map.Strict as Map
 import qualified Data.PQueue.Prio.Min as MPQ
+import Data.Ratio
 import qualified Data.Sequence as Seq
 import qualified Data.Vector as Vec
+import Data.Word ()
 import Lens.Micro.Platform
 import System.IO.Unsafe
 import System.Random
@@ -53,7 +55,7 @@ import Concordium.KonsensusV1.Types
 import qualified Concordium.TransactionVerification as TVer
 import Concordium.Types.Updates
 
--- We derive these instances here so we don't accidently end up using them in production.
+-- We derive these instances here so we don't accidentally end up using them in production.
 -- We have them because they are very convenient for testing purposes.
 deriving instance Eq (InMemoryBlockStatus pv)
 deriving instance Eq (BlockStatus pv)
@@ -146,7 +148,8 @@ dummyGenesisMetadata =
         { gmParameters =
             CoreGenesisParametersV1
                 { genesisTime = 0,
-                  genesisEpochDuration = 3_600_000
+                  genesisEpochDuration = 3_600_000,
+                  genesisSignatureThreshold = 2 % 3
                 },
           gmCurrentGenesisHash = dummyGenesisBlockHash,
           gmFirstGenesisHash = dummyGenesisBlockHash,
