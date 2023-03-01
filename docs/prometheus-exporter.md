@@ -154,7 +154,7 @@ Timestamp of starting up the node (Unix time in milliseconds).
 
 Histogram tracking the total number of gRPC requests received and the time it took to provide a response. Labelled with the gRPC method name (`method=<name>`) and the gRPC response status (`status=<status>`).
 
-The duration tracked is time it takes for the underlaying HTTP request to construct a response, which does not include the time it takes to stream the response to the client.
+The duration tracked is the time it takes for the handler to construct a response, which does not include the time it takes to stream the response to the client.
 As a result for streaming gRPC methods, the duration represents the time it takes for the node to first respond, which is not nescessarily same as duration as for providing the first item in the stream.
 
 The size of the buckets be configured using the `prometheus-grpc-response-time-buckets` (`CONCORDIUM_NODE_PROMETHEUS_GRPC_RESPONSE_TIME_BUCKETS`) and is provided as a list of decimal numbers separated by ",". Each value represents the upper inclusive bound of a bucket (in seconds) and a bucket with +Infinity is always added. The values must be sorted in strictly increasing order.

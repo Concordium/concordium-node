@@ -45,7 +45,7 @@ use tokio::signal::windows as windows_signal;
 use tokio::sync::{broadcast, oneshot};
 
 use concordium_node::stats_export_service::start_push_gateway;
-use std::net::{IpAddr, SocketAddr};
+use std::net::SocketAddr;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -70,11 +70,7 @@ async fn main() -> anyhow::Result<()> {
         let shutdown_sender = shutdown_sender.clone();
         if let Some(plp) = conf.prometheus.prometheus_listen_port {
             let stats = node.stats.clone();
-            let pla = conf
-                .prometheus
-                .prometheus_listen_addr
-                .parse::<IpAddr>()
-                .context("Invalid Prometheus address")?;
+            let pla = conf.prometheus.prometheus_listen_addr;
             tokio::spawn(async move {
                 stats.start_server(SocketAddr::new(pla, plp), shutdown_sender).await
             });

@@ -2297,7 +2297,8 @@ impl<A> Require<tonic::Status> for Option<A> {
     }
 }
 
-/// Tower layer adding middleware updating the node stats related to gRPC API.
+/// Tower layer adding middleware updating some of the node statictics related
+/// to gRPC API.
 #[derive(Clone)]
 pub struct StatsLayer {
     stats: Arc<StatsExportService>,
@@ -2314,7 +2315,8 @@ impl<S> tower::Layer<S> for StatsLayer {
     }
 }
 
-/// Tower middleware for updating the node stats related to the gRPC API.
+/// Tower middleware for updating some of the node statictics related to the
+/// gRPC API.
 #[derive(Clone)]
 pub struct StatsMiddleware<S> {
     stats: Arc<StatsExportService>,
@@ -2390,7 +2392,10 @@ where
                 let duration = request_received.elapsed().as_secs_f64();
                 if result.is_err() {
                     grpc_request_duration
-                        .with_label_values(&[endpoint_name.as_str(), "internal"])
+                        .with_label_values(&[
+                            endpoint_name.as_str(),
+                            get_grpc_code_label(tonic::Code::Internal),
+                        ])
                         .observe(duration);
                 }
                 (result?, duration)
@@ -2421,7 +2426,10 @@ where
                 }
             } else {
                 grpc_request_duration
-                    .with_label_values(&[endpoint_name.as_str(), "unknown"])
+                    .with_label_values(&[
+                        endpoint_name.as_str(),
+                        get_grpc_code_label(tonic::Code::Unknown),
+                    ])
                     .observe(duration);
             }
 

@@ -93,7 +93,7 @@ pub struct PrometheusConfig {
         default_value = "127.0.0.1",
         env = "CONCORDIUM_NODE_PROMETHEUS_LISTEN_ADDRESS"
     )]
-    pub prometheus_listen_addr: String,
+    pub prometheus_listen_addr: std::net::IpAddr,
     #[structopt(
         long = "prometheus-listen-port",
         help = "Port for prometheus to listen on. If set the prometheus server will start \
