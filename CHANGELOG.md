@@ -4,6 +4,10 @@
 
 - Extend Prometheus exporter with metrics: `grpc_request_duration_seconds` see [docs/prometheus-exporter.md](https://github.com/Concordium/concordium-node/blob/main/docs/prometheus-exporter.md) for more details.
 
+## 5.2.4
+
+- Fix incorrect labelling of some catchup messages as invalid in Prometheus metrics.
+
 ## 5.2.3
 
 - Internal refactoring to support the future consensus.
