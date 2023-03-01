@@ -50,7 +50,6 @@ import Concordium.GlobalState.Persistent.BlockState
 import Concordium.GlobalState.Persistent.Genesis (genesisState)
 import Concordium.GlobalState.TransactionTable
 import Concordium.ID.Types (randomAccountAddress)
-import Concordium.Logger
 import Concordium.Scheduler.DummyData
 import Concordium.TimeMonad
 import qualified Concordium.TransactionVerification as TVer
@@ -87,31 +86,37 @@ dummyLeadershipElectionNonce = Hash.hash "LeadershipElectionNonce"
 validAccountCreation :: AccountCreation
 validAccountCreation = readAccountCreation . BSL.fromStrict $ $(makeRelativeToProject "testdata/transactionverification/verifiable-credential.json" >>= embedFile)
 
+-- |The identity providers required for succesfully verifying 'validAccountCreation'.
 myIdentityProviders :: IdentityProviders
 myIdentityProviders = case readIps . BSL.fromStrict $ $(makeRelativeToProject "testdata/transactionverification/verifiable-ips.json" >>= embedFile) of
     Just x -> x
     Nothing -> error "oops"
 
+-- |The anonymity revokers required for succesfully verifying 'validAccountCreation'.
 myAnonymityRevokers :: AnonymityRevokers
 myAnonymityRevokers = case readArs . BSL.fromStrict $ $(makeRelativeToProject "testdata/transactionverification/verifiable-ars.json" >>= embedFile) of
     Just x -> x
     Nothing -> error "oops"
 
+-- |The cryptographic parameters required for succesfully verifying 'validAccountCreation'.
 myCryptographicParameters :: CryptographicParameters
 myCryptographicParameters =
     case getExactVersionedCryptographicParameters (BSL.fromStrict $(makeRelativeToProject "testdata/transactionverification/verifiable-global.json" >>= embedFile)) of
         Nothing -> error "Could not read cryptographic parameters."
         Just params -> params
 
+-- |The valid credential deployment wrapped in 'WithMetadata' and @1@ for the transaction time.
 credentialDeploymentWM :: WithMetadata AccountCreation
 credentialDeploymentWM = addMetadata CredentialDeployment 1 validAccountCreation
 
+-- |The valid credential deployment wrapped in a 'BlockItem'.
 dummyCredentialDeployment :: BlockItem
 dummyCredentialDeployment = credentialDeployment credentialDeploymentWM
 
 dummyCredentialDeploymentHash :: TransactionHash
 dummyCredentialDeploymentHash = getHash dummyCredentialDeployment
 
+-- |A monad for deriving 'MonadTime' by means of a provided time.
 newtype FixedTimeT (m :: Type -> Type) a = FixedTime {runDeterministic :: UTCTime -> m a}
     deriving (Functor, Applicative, Monad, MonadIO) via ReaderT UTCTime m
     deriving (MonadTrans) via ReaderT UTCTime
@@ -123,29 +128,26 @@ instance MonadReader r m => MonadReader r (FixedTimeT m) where
     ask = lift ask
     local f (FixedTime k) = FixedTime $ local f . k
 
-newtype NoLoggerT m a = NoLoggerT {runNoLoggerT :: m a}
-    deriving (Functor, Applicative, Monad, MonadIO, MonadReader r, TimeMonad)
-
-instance Monad m => MonadLogger (NoLoggerT m) where
-    logEvent _ _ _ = return ()
-
--- |A test monad that implements @StateT (SkovData pv) m , MonadProtocolVersion m, BlockStateQuery m@
--- so we can use it for 'processBlockItem' and 'processBlockItems'.
+-- |A test monad that is suitable for testing transaction processing
+-- as it derives the required capabilities.
+-- I.e. 'BlockStateQuery' is supported via the 'PersistentBlockStateMonad and a 'MonadState' over the 'SkovData pv'.
+-- Further it makes use of the 'FixedTimeT' which has an instance for the 'TimeMonad'.
 type MyTestMonad =
     PersistentBlockStateMonad
         'P6
         (PersistentBlockStateContext 'P6)
         ( StateT
             (SkovData 'P6)
-            (NoLoggerT (FixedTimeT (BlobStoreM' (PersistentBlockStateContext 'P6))))
+            (FixedTimeT (BlobStoreM' (PersistentBlockStateContext 'P6)))
         )
 
+-- |Run an action within the 'MyTestMonad'.
 runMyTestMonad :: IdentityProviders -> UTCTime -> MyTestMonad a -> IO (a, SkovData 'P6)
 runMyTestMonad idps time action = do
     runBlobStoreTemp "." $
         withNewAccountCache 1_000 $ do
             initState <- runPersistentBlockStateMonad initialData
-            runDeterministic (runNoLoggerT (runStateT (runPersistentBlockStateMonad action) initState)) time
+            runDeterministic (runStateT (runPersistentBlockStateMonad action) initState) time
   where
     initialData ::
         PersistentBlockStateMonad
@@ -160,6 +162,7 @@ runMyTestMonad idps time action = do
                 Right x -> return x
         return $! initialSkovData bs
 
+-- |Initialize a 'SkovData pv' with the provided block state.
 initialSkovData :: HashedPersistentBlockState pv -> SkovData pv
 initialSkovData bs =
     mkInitialSkovData
@@ -170,9 +173,11 @@ initialSkovData bs =
         dummyLeadershipElectionNonce
         dummyEpochBakers
 
+-- |A block hash for the genesis.
 dummyGenesisBlockHash :: BlockHash
 dummyGenesisBlockHash = BlockHash $ Hash.hash "DummyGenesis"
 
+-- |A genesis configuration
 dummyGenesisConfiguration :: StateHash -> GenesisConfiguration
 dummyGenesisConfiguration stHash =
     GenesisConfiguration
@@ -185,6 +190,10 @@ dummyGenesisConfiguration stHash =
 coreGenesisParams :: CoreGenesisParametersV1
 coreGenesisParams = CoreGenesisParametersV1{genesisTime = 0, genesisEpochDuration = 3_600_000}
 
+-- |Genesis data for P6 suitable for testing transaction processing.
+-- The identity providers should be passed in as it makes it easier
+-- to test some scenarios for credential deployments.
+-- See the tests for these scenarios.
 makeTestingGenesisDataP6 :: IdentityProviders -> GenesisData 'P6
 makeTestingGenesisDataP6 idps =
     let genesisCryptographicParameters = myCryptographicParameters
@@ -200,6 +209,7 @@ makeTestingGenesisDataP6 idps =
                   genesisInitialState = Base.GenesisState{..}
                 }
 
+-- |Utility function for parrsing identity providers.
 readIps :: BSL.ByteString -> Maybe IdentityProviders
 readIps bs = do
     v <- AE.decode bs
@@ -209,6 +219,7 @@ readIps bs = do
     guard (vVersion v == 0)
     return (vValue v)
 
+-- |Utility function for parsing anonymity revokers.
 readArs :: BSL.ByteString -> Maybe AnonymityRevokers
 readArs bs = do
     v <- AE.decode bs
@@ -218,6 +229,7 @@ readArs bs = do
     guard (vVersion v == 0)
     return (vValue v)
 
+-- |Utility function for parsing cryptographic parameters.
 getExactVersionedCryptographicParameters :: BSL.ByteString -> Maybe CryptographicParameters
 getExactVersionedCryptographicParameters bs = do
     v <- AE.decode bs
@@ -271,6 +283,7 @@ dummyTransaction =
 dummyTransactionBI :: BlockItem
 dummyTransactionBI = normalTransaction dummyTransaction
 
+-- |Testing various cases for processing a block item individually.
 testProcessBlockItem :: Spec
 testProcessBlockItem = describe "processBlockItem" $ do
     -- Test that an 'Ok' transaction is accepted into the state when being received individually.
@@ -359,6 +372,7 @@ testProcessBlockItem = describe "processBlockItem" $ do
     theTime :: UTCTime
     theTime = posixSecondsToUTCTime 1 -- after genesis
 
+-- |Testing cases for processing the transactions of a block received.
 testProcessBlockItems :: Spec
 testProcessBlockItems = describe "processBlockItems" $ do
     it "A non verifiable transaction first in the block makes it fail and stop processing the rest" $ do
@@ -394,6 +408,24 @@ testProcessBlockItems = describe "processBlockItems" $ do
             "transaction table purge counter should have been bumped twice"
             2
             (sd' ^. transactionTablePurgeCounter)
+    it "A transaction received as part of a block bumps the round for it if it was a duplicate" $ do
+        (processed, sd') <-
+            runMyTestMonad myIdentityProviders theTime $
+                processBlockItem dummyCredentialDeployment
+                    >> ( processBlockItems (blockToProcess [dummyCredentialDeployment])
+                            =<< _lastFinalized <$> get
+                       )
+        assertBool
+            "Block should have been successfully processed"
+            processed
+        assertEqual
+            "transaction table purge counter should have been incremented once as the latter insertion was a duplicate"
+            1
+            (sd' ^. transactionTablePurgeCounter)
+        assertEqual
+            "The transaction table should yield the 'Received' credential deployment with a round 1 as commit point"
+            (HM.fromList [(dummyCredentialDeploymentHash, (credentialDeployment credentialDeploymentWM, Received (commitPoint $! Round 1) (TVer.Ok TVer.CredentialDeploymentSuccess)))])
+            (sd' ^. transactionTable . ttHashMap)
   where
     theTime :: UTCTime
     theTime = posixSecondsToUTCTime 1 -- after genesis
