@@ -599,7 +599,7 @@ dependencies = [
 
 [[package]]
 name = "concordium_node"
-version = "5.2.3"
+version = "5.2.4"
 dependencies = [
  "anyhow",
  "app_dirs2",
