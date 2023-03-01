@@ -110,7 +110,7 @@ pub fn make_node_and_sync(
     config.connection.housekeeping_interval = 10;
     let regenesis_arc = Arc::new(Regenesis::from_blocks(regenesis_blocks));
 
-    let stats = Arc::new(StatsExportService::new().unwrap());
+    let stats = Arc::new(StatsExportService::new(Vec::new()).unwrap());
     let (node, server, poll) = P2PNode::new(None, &config, node_type, stats, regenesis_arc)?;
 
     spawn(&node, server, poll, None);

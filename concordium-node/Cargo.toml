@@ -79,6 +79,7 @@ hyper = { version = "0.14" }
 tonic = { version = "0.8", features = ["tls"] }
 tonic-reflection = "0.5"
 tower-http = { version = "0.4", features = ["trace"] }
+tower = "0.4"
 tonic-web = "0.4"
 prost = "0.11"
 tokio = { version = "1.20", features = ["macros", "rt-multi-thread", "signal", "io-util", "time"] }
