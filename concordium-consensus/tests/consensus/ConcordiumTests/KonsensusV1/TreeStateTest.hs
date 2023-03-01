@@ -1,8 +1,10 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module ConcordiumTests.KonsensusV1.TreeStateTest where
 
@@ -23,7 +25,8 @@ import Test.HUnit
 import Test.Hspec
 
 -- base types.
-import qualified Concordium.Crypto.BlockSignature as Sig
+
+import Concordium.Crypto.DummyData
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.Crypto.VRF as VRF
@@ -43,12 +46,25 @@ import Concordium.GlobalState.Persistent.TreeState (insertDeadCache, memberDeadC
 import Concordium.GlobalState.TransactionTable
 import Concordium.ID.Types
 import Concordium.KonsensusV1.TreeState.Implementation
-import Concordium.KonsensusV1.TreeState.LowLevel
+import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.LowLevel.Memory
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import qualified Concordium.TransactionVerification as TVer
 import Concordium.Types.Updates
+
+-- We derive these instances here so we don't accidently end up using them in production.
+-- We have them because they are very convenient for testing purposes.
+deriving instance Eq (InMemoryBlockStatus pv)
+deriving instance Eq (BlockStatus pv)
+deriving instance Eq (BlockTable pv)
+deriving instance Eq (RecentBlockStatus pv)
+
+instance Eq (BlockPointer pv) where
+    bp1 == bp2 =
+        bpInfo bp1 == bpInfo bp2
+            && bpBlock bp1 == bpBlock bp2
+            && hpbsHash (bpState bp1) == hpbsHash (bpState bp2)
 
 -- |A dummy block state that is just a @BlobRef 0@.
 dummyPersistentBlockState :: PersistentBlockState pv
@@ -58,7 +74,7 @@ dummyPersistentBlockState = unsafePerformIO $ newIORef $ blobRefToBufferedRef (B
 dummyStateHash :: StateHash
 dummyStateHash = StateHashV0 $ Hash.hash "DummyPersistentBlockState"
 
--- |A dummy block state that has no meaningful content.
+-- |A dummy block state that has no content.
 dummyBlockState :: HashedPersistentBlockState pv
 dummyBlockState = HashedPersistentBlockState{..}
   where
@@ -80,7 +96,7 @@ dummyVRFKeys = fst $ VRF.randomKeyPair (mkStdGen 0)
 
 dummySignKeys :: BakerSignPrivateKey
 {-# NOINLINE dummySignKeys #-}
-dummySignKeys = unsafePerformIO Sig.newKeyPair
+dummySignKeys = fst $ randomBlockKeyPair $ mkStdGen 42
 
 dummyBlockNonce :: BlockNonce
 dummyBlockNonce = VRF.prove dummyVRFKeys ""
@@ -124,17 +140,17 @@ dummyBlock rnd = BlockPointer{..}
 dummyGenesisBlockHash :: BlockHash
 dummyGenesisBlockHash = BlockHash (Hash.hash "DummyGenesis")
 
-dummyGenesisConfiguration :: GenesisConfiguration
-dummyGenesisConfiguration =
-    GenesisConfiguration
-        { gcParameters =
+dummyGenesisMetadata :: GenesisMetadata
+dummyGenesisMetadata =
+    GenesisMetadata
+        { gmParameters =
             CoreGenesisParametersV1
                 { genesisTime = 0,
                   genesisEpochDuration = 3_600_000
                 },
-          gcCurrentGenesisHash = dummyGenesisBlockHash,
-          gcFirstGenesisHash = dummyGenesisBlockHash,
-          gcStateHash = getHash dummyBlockState
+          gmCurrentGenesisHash = dummyGenesisBlockHash,
+          gmFirstGenesisHash = dummyGenesisBlockHash,
+          gmStateHash = getHash dummyBlockState
         }
 
 dummyLeadershipElectionNonce :: LeadershipElectionNonce
@@ -153,11 +169,14 @@ dummyBakersAndFinalizers =
 dummyEpochBakers :: EpochBakers
 dummyEpochBakers = EpochBakers 0 dummyBakersAndFinalizers dummyBakersAndFinalizers 1
 
+-- |An initial 'SkovData' suitable for testing.
+-- The block state is empty only consisting of a
+-- genesis block.
 dummyInitialSkovData :: SkovData pv
 dummyInitialSkovData =
     mkInitialSkovData
         defaultRuntimeParameters
-        dummyGenesisConfiguration
+        dummyGenesisMetadata
         dummyBlockState
         10_000
         dummyLeadershipElectionNonce
@@ -191,9 +210,9 @@ unknownH :: BlockHash
 unknownH = BlockHash (Hash.hash "Unknown")
 
 -- |Convert a block pointer to a stored block, using `BlobRef 0` as the state pointer.
-toStoredBlock :: BlockPointer pv -> StoredBlock pv
+toStoredBlock :: BlockPointer pv -> LowLevel.StoredBlock pv
 toStoredBlock BlockPointer{..} =
-    StoredBlock
+    LowLevel.StoredBlock
         { stbStatePointer = BlobRef 0,
           stbInfo = bpInfo,
           stbBlock = bpBlock
@@ -222,19 +241,25 @@ lldbWithGenesis =
         (toStoredBlock genB)
         (initialRoundStatus 10_000 dummyLeadershipElectionNonce)
 
-testDoGetMemoryBlockStatus :: Spec
-testDoGetMemoryBlockStatus = describe "doGetMemoryBlockStatus" $ do
-    it "last finalized" $ doGetMemoryBlockStatus (getHash lastFin) sd `shouldBe` Just (BlockFinalized lastFin)
-    it "live" $ doGetMemoryBlockStatus (getHash testB) sd `shouldBe` Just (BlockAlive testB)
-    it "focus block" $ doGetMemoryBlockStatus (getHash focusB) sd `shouldBe` Just (BlockAlive focusB)
-    it "pending block" $ doGetMemoryBlockStatus (getHash pendingB) sd `shouldBe` Just (BlockPending pendingB)
-    it "dead block" $ doGetMemoryBlockStatus deadH sd `shouldBe` Just BlockDead
-    it "unknown block" $ doGetMemoryBlockStatus unknownH sd `shouldBe` Nothing
+-- |Testing 'getMemoryBlockStatus' functionality.
+-- In particular this test ensures that a (known) block in memory can
+-- have its status retrieved.
+testGetMemoryBlockStatus :: Spec
+testGetMemoryBlockStatus = describe "getMemoryBlockStatus" $ do
+    it "last finalized" $ getMemoryBlockStatus (getHash lastFin) sd `shouldBe` Just (BlockFinalized lastFin)
+    it "live" $ getMemoryBlockStatus (getHash testB) sd `shouldBe` Just (BlockAlive testB)
+    it "focus block" $ getMemoryBlockStatus (getHash focusB) sd `shouldBe` Just (BlockAlive focusB)
+    it "pending block" $ getMemoryBlockStatus (getHash pendingB) sd `shouldBe` Just (BlockPending pendingB)
+    it "dead block" $ getMemoryBlockStatus deadH sd `shouldBe` Just BlockDead
+    it "unknown block" $ getMemoryBlockStatus unknownH sd `shouldBe` Nothing
   where
     sd = skovDataWithTestBlocks
 
-testDoGetBlockStatus :: Spec
-testDoGetBlockStatus = describe "doGetBlockStatus" $ do
+-- |Testing 'getBlockStatus' functionality.
+-- In particular this test ensures that a (known) block, transient or persistent
+-- can have its status looked up.
+testGetBlockStatus :: Spec
+testGetBlockStatus = describe "getBlockStatus" $ do
     it "last finalized" $ getStatus (getHash lastFin) $ BlockFinalized lastFin
     it "live" $ getStatus (getHash testB) $ BlockAlive testB
     it "focus block" $ getStatus (getHash focusB) $ BlockAlive focusB
@@ -244,12 +269,16 @@ testDoGetBlockStatus = describe "doGetBlockStatus" $ do
     it "unknown block" $ getStatus unknownH BlockUnknown
   where
     getStatus bh expect = do
-        s <- runTestLLDB (lldbWithGenesis @'P6) $ doGetBlockStatus bh sd
+        s <- runTestLLDB (lldbWithGenesis @'P6) $ getBlockStatus bh sd
         s `shouldBe` expect
     sd = skovDataWithTestBlocks
 
-testDoGetRecentBlockStatus :: Spec
-testDoGetRecentBlockStatus = describe "doGetRecentBlockStatus" $ do
+-- |Testing 'getRecentBlockStatus' functionality.
+-- In particular this test ensures that a (known) block in memory
+-- can have its status looked up, or at least inform the caller
+-- that it is a predecessor of the last finalized block ('OldFinalized').
+testGetRecentBlockStatus :: Spec
+testGetRecentBlockStatus = describe "getRecentBlockStatus" $ do
     it "last finalized" $ getStatus (getHash lastFin) $ RecentBlock $ BlockFinalized lastFin
     it "live" $ getStatus (getHash testB) $ RecentBlock $ BlockAlive testB
     it "focus block" $ getStatus (getHash focusB) $ RecentBlock $ BlockAlive focusB
@@ -259,15 +288,19 @@ testDoGetRecentBlockStatus = describe "doGetRecentBlockStatus" $ do
     it "unknown block" $ getStatus unknownH Unknown
   where
     getStatus bh expect = do
-        s <- runTestLLDB (lldbWithGenesis @'P6) $ doGetRecentBlockStatus bh sd
+        s <- runTestLLDB (lldbWithGenesis @'P6) $ getRecentBlockStatus bh sd
         s `shouldBe` expect
     sd = skovDataWithTestBlocks
 
-testDoMakeLiveBlock :: Spec
-testDoMakeLiveBlock = it "doMakeLiveBlock" $ do
+-- |Testing 'makeLiveBlock' function.
+-- This ensures that a 'PendingBlock' can be marked live
+-- and by doing so it becomes present in the map of live blocks
+-- and a valid 'BlockPointer' to the block marked is returned.
+testMakeLiveBlock :: Spec
+testMakeLiveBlock = it "makeLiveBlock" $ do
     let arrTime = timestampToUTCTime 5
         hgt = 23
-    let (res, sd) = runState (doMakeLiveBlock pendingB dummyBlockState hgt arrTime) skovDataWithTestBlocks
+    let (res, sd) = runState (makeLiveBlock pendingB dummyBlockState hgt arrTime) skovDataWithTestBlocks
     res
         `shouldBe` BlockPointer
             { bpState = dummyBlockState,
@@ -282,8 +315,12 @@ testDoMakeLiveBlock = it "doMakeLiveBlock" $ do
     (sd ^. blockTable . liveMap . at (getHash pendingB))
         `shouldBe` Just (MemBlockAlive res)
 
-testDoMarkBlockDead :: Spec
-testDoMarkBlockDead = describe "doMarkBlockDead" $ do
+-- |Testing 'markBlockDead' function.
+-- This test ensures that whatever the state of a block referenced
+-- by the provided 'BlockHash' is expunged from memory and that
+-- it becomes part of the cache of dead blocks.
+testMarkBlockDead :: Spec
+testMarkBlockDead = describe "markBlockDead" $ do
     it "live" $ mbd (getHash testB)
     it "focus block" $ mbd (getHash focusB)
     it "pending block" $ mbd (getHash pendingB)
@@ -291,24 +328,32 @@ testDoMarkBlockDead = describe "doMarkBlockDead" $ do
     it "unknown block" $ mbd unknownH
   where
     mbd h = do
-        let ((), sd) = runState (doMarkBlockDead h) skovDataWithTestBlocks
+        let ((), sd) = runState (markBlockDead h) skovDataWithTestBlocks
         assertEqual "block should not be in block table" Nothing (sd ^. blockTable . liveMap . at h)
         assertBool "block should be in the dead cache" $
             sd ^. blockTable . deadBlocks . to (memberDeadCache h)
 
-testDoMarkPending :: Spec
-testDoMarkPending = it "doMarkPending" $ do
+-- |Testing 'markPending' function.
+-- This test ensures that the provided 'PendingBlock'
+-- is inserted into the block table in 'MemBlockPending' state.
+testMarkPending :: Spec
+testMarkPending = it "markPending" $ do
     let pb = dummyPendingBlock (BlockHash minBound) 37
-    let ((), sd) = runState (doMarkPending pb) skovDataWithTestBlocks
+    let ((), sd) = runState (markPending pb) skovDataWithTestBlocks
     assertEqual
         "block should be pending in block table"
         (Just (MemBlockPending pb))
         (sd ^. blockTable . liveMap . at (getHash pb))
 
-testDoAddPendingBlock :: Spec
-testDoAddPendingBlock = it "doAddPendingBlock" $ do
+-- |Testing 'addPendingBlock' function.
+-- This test ensures that the provided 'PendingBlock' to
+-- 'addPendingBlock' is inserted into the pending blocks table and pending blocks queue.
+-- Further this test ensures that the pending block queue is in ascending order
+-- by the 'Round' of the block.
+testAddPendingBlock :: Spec
+testAddPendingBlock = it "addPendingBlock" $ do
     let sd0 = dummyInitialSkovData
-    let ((), sd1) = runState (doAddPendingBlock pb0) sd0
+    let ((), sd1) = runState (addPendingBlock pb0) sd0
     assertEqual
         "pending block queue"
         (MPQ.fromList [(40, (getHash pb0, h0))])
@@ -317,7 +362,7 @@ testDoAddPendingBlock = it "doAddPendingBlock" $ do
         "pending block table"
         (HM.fromList [(h0, [pb0])])
         (sd1 ^. pendingBlocksTable)
-    let ((), sd2) = runState (doAddPendingBlock pb1) sd1
+    let ((), sd2) = runState (addPendingBlock pb1) sd1
     assertEqual
         "pending block queue"
         (MPQ.fromList [(40, (getHash pb0, h0)), (41, (getHash pb1, h0))])
@@ -326,7 +371,7 @@ testDoAddPendingBlock = it "doAddPendingBlock" $ do
         "pending block table"
         (HM.fromList [(h0, [pb1, pb0])])
         (sd2 ^. pendingBlocksTable)
-    let ((), sd3) = runState (doAddPendingBlock pb2) sd2
+    let ((), sd3) = runState (addPendingBlock pb2) sd2
     assertEqual
         "pending block queue"
         (MPQ.fromList [(40, (getHash pb0, h0)), (41, (getHash pb1, h0)), (42, (getHash pb2, getHash pb0))])
@@ -341,9 +386,14 @@ testDoAddPendingBlock = it "doAddPendingBlock" $ do
     pb1 = dummyPendingBlock h0 41
     pb2 = dummyPendingBlock (getHash pb0) 42
 
-testDoTakePendingChildren :: Spec
-testDoTakePendingChildren = it "doTakePendingChildren" $ do
-    let (l, sd1) = runState (doTakePendingChildren h0) sd0
+-- |Testing 'takePendingChildren' function.
+-- This test ensures that the caller of the function
+-- removes the children block(s) of the specified 'BlockHash' only
+-- from the pending blocks table,
+-- and that the pending blocks queue is left untouched.
+testTakePendingChildren :: Spec
+testTakePendingChildren = it "takePendingChildren" $ do
+    let (l, sd1) = runState (takePendingChildren h0) sd0
     assertEqual
         "pending children"
         [pb1, pb0]
@@ -353,7 +403,7 @@ testDoTakePendingChildren = it "doTakePendingChildren" $ do
         (HM.fromList [(getHash pb0, [pb2])])
         (sd1 ^. pendingBlocksTable)
     assertEqual "pending block queue" (sd0 ^. pendingBlocksQueue) (sd1 ^. pendingBlocksQueue)
-    let (l', sd1') = runState (doTakePendingChildren (getHash pb0)) sd0
+    let (l', sd1') = runState (takePendingChildren (getHash pb0)) sd0
     assertEqual
         "pending children"
         [pb2]
@@ -363,7 +413,7 @@ testDoTakePendingChildren = it "doTakePendingChildren" $ do
         (HM.fromList [(h0, [pb1, pb0])])
         (sd1' ^. pendingBlocksTable)
     assertEqual "pending block queue" (sd0 ^. pendingBlocksQueue) (sd1' ^. pendingBlocksQueue)
-    let (l'', sd1'') = runState (doTakePendingChildren dummyGenesisBlockHash) sd0
+    let (l'', sd1'') = runState (takePendingChildren dummyGenesisBlockHash) sd0
     assertEqual "pending children" [] l''
     assertEqual "pending block table" (sd0 ^. pendingBlocksTable) (sd1'' ^. pendingBlocksTable)
     assertEqual "pending block queue" (sd0 ^. pendingBlocksQueue) (sd1'' ^. pendingBlocksQueue)
@@ -372,6 +422,7 @@ testDoTakePendingChildren = it "doTakePendingChildren" $ do
     pb0 = dummyPendingBlock h0 40
     pb1 = dummyPendingBlock h0 41
     pb2 = dummyPendingBlock (getHash pb0) 42
+    -- The state is initialized with a block table
     sd0 =
         dummyInitialSkovData
             & pendingBlocksQueue
@@ -386,9 +437,17 @@ testDoTakePendingChildren = it "doTakePendingChildren" $ do
                       (getHash pb0, [pb2])
                     ]
 
-testDoTakeNextPendingUntil :: Spec
-testDoTakeNextPendingUntil = it "doTakeNextPendingUntil" $ do
-    let (mpb1, pending1) = runState (doTakeNextPendingUntil 40) pending0
+-- |Testing function 'takeNextPendingUntil'.
+-- This test checks that the whole pending table
+-- i.e. the pending blocks table and pending blocks queue
+-- has the pending blocks removed that have a 'Round' <= the
+-- provided 'Round.
+-- Note that as opposed to 'takeNextPending' this function also
+-- pops pending blocks from the pending blocks queue as it is
+-- used when finalizing a block at a certain 'Round'.
+testTakeNextPendingUntil :: Spec
+testTakeNextPendingUntil = it "takeNextPendingUntil" $ do
+    let (mpb1, pending1) = runState (takeNextPendingUntil 40) pending0
     assertEqual "get to round 40" Nothing mpb1
     assertEqual
         "pending block table after get to round 40"
@@ -398,7 +457,7 @@ testDoTakeNextPendingUntil = it "doTakeNextPendingUntil" $ do
         "pending block queue after get to round 40"
         (MPQ.fromList [(41, (getHash pb1, h0)), (42, (getHash pb2, getHash pb0))])
         (_pendingBlocksQueue pending1)
-    let (mpb2, pending2) = runState (doTakeNextPendingUntil 42) pending0
+    let (mpb2, pending2) = runState (takeNextPendingUntil 42) pending0
     assertEqual "get to round 42" (Just pb1) mpb2
     assertEqual
         "pending block table after get to round 42"
@@ -408,7 +467,7 @@ testDoTakeNextPendingUntil = it "doTakeNextPendingUntil" $ do
         "pending block queue after get to round 42"
         (MPQ.fromList [(42, (getHash pb2, getHash pb0))])
         (_pendingBlocksQueue pending2)
-    let (mpb3, pending3) = runState (doTakeNextPendingUntil 42) pending2
+    let (mpb3, pending3) = runState (takeNextPendingUntil 42) pending2
     assertEqual "get to round 42 twice" (Just pb2) mpb3
     assertEqual
         "pending block table after get to round 42 twice"
@@ -439,9 +498,13 @@ testDoTakeNextPendingUntil = it "doTakeNextPendingUntil" $ do
                     ]
             }
 
+-- |An arbitrary chosen 'SigScheme.KeyPair'
+-- suitable for testing purposes.
 dummySigSchemeKeys :: SigScheme.KeyPair
 {-# NOINLINE dummySigSchemeKeys #-}
-dummySigSchemeKeys = unsafePerformIO $ SigScheme.newKeyPair SigScheme.Ed25519
+dummySigSchemeKeys =
+    let ((signKey, verifyKey), _) = randomEd25519KeyPair $ mkStdGen 42
+    in  SigScheme.KeyPairEd25519{..}
 
 dummyTransactionSignature :: TransactionSignature
 dummyTransactionSignature = TransactionSignature $ Map.singleton 0 (Map.singleton 0 sig)
@@ -454,8 +517,12 @@ dummyAccountAddressN = fst . randomAccountAddress . mkStdGen
 dummyAccountAddress :: AccountAddress
 dummyAccountAddress = dummyAccountAddressN 0
 
-dummyTransactionWithPayload :: Nonce -> EncodedPayload -> Transaction
-dummyTransactionWithPayload n payload =
+-- |A dummy normal transfer transaction suitable for the tests
+-- in this file.
+-- Note that the tests presented in this module
+-- does no transaction processing i.e. verification of the transaction.
+dummyTransaction :: Nonce -> Transaction
+dummyTransaction n =
     addMetadata NormalTransaction 0 $
         makeAccountTransaction
             dummyTransactionSignature
@@ -470,9 +537,7 @@ dummyTransactionWithPayload n payload =
               thExpiry = 500,
               thEnergyAmount = 5_000_000
             }
-
-dummyTransaction :: Nonce -> Transaction
-dummyTransaction n = dummyTransactionWithPayload n (EncodedPayload "01234567890123456789")
+    payload = encodePayload $ Transfer dummyAccountAddress 10
 
 dummyTransactionBI :: Nonce -> BlockItem
 dummyTransactionBI = normalTransaction . dummyTransaction
@@ -520,26 +585,26 @@ credentialDeploymentWM = addMetadata CredentialDeployment 0 dummyAccountCreation
 dummyCredentialDeployment :: BlockItem
 dummyCredentialDeployment = credentialDeployment credentialDeploymentWM
 
-testDoLookupLiveTransaction :: Spec
-testDoLookupLiveTransaction = describe "doLookupLiveTransaction" $ do
+testLookupLiveTransaction :: Spec
+testLookupLiveTransaction = describe "lookupLiveTransaction" $ do
     it "present" $ do
         assertEqual
             "status transaction 1"
             (Just $ Received 0 (dummySuccessTransactionResult 1))
-            $ doLookupLiveTransaction (th 1) sd
+            $ lookupLiveTransaction (th 1) sd
         assertEqual
             "status transaction 2"
             (Just $ Received 0 (dummySuccessTransactionResult 2))
-            $ doLookupLiveTransaction (th 2) sd
+            $ lookupLiveTransaction (th 2) sd
         assertEqual
             "status transaction 3"
             (Just $ Received 0 (dummySuccessTransactionResult 3))
-            $ doLookupLiveTransaction (th 3) sd
+            $ lookupLiveTransaction (th 3) sd
     it "absent"
         $ assertEqual
             "status transaction 4"
             Nothing
-        $ doLookupLiveTransaction (th 4) sd
+        $ lookupLiveTransaction (th 4) sd
   where
     th n = getHash (dummyTransactionBI n)
     addTrans n = snd . addTransaction (dummyTransactionBI n) 0 (dummySuccessTransactionResult n)
@@ -550,8 +615,8 @@ testDoLookupLiveTransaction = describe "doLookupLiveTransaction" $ do
                 . addTrans 2
                 . addTrans 3
 
-testDoLookupTransaction :: Spec
-testDoLookupTransaction = describe "doLookupTransaction" $ do
+testLookupTransaction :: Spec
+testLookupTransaction = describe "lookupTransaction" $ do
     it "finalized" $ lu (th 1) (Just $ Finalized $ FinalizedTransactionStatus 1 0)
     it "live" $ lu (th 2) (Just $ Live $ Received 0 $ dummySuccessTransactionResult 2)
     it "absent" $ lu (th 5) Nothing
@@ -568,18 +633,18 @@ testDoLookupTransaction = describe "doLookupTransaction" $ do
             { lldbTransactions = HM.fromList [(th 1, FinalizedTransactionStatus 1 0)]
             }
     lu hsh expect = do
-        s <- runTestLLDB db $ doLookupTransaction hsh sd
+        s <- runTestLLDB db $ lookupTransaction hsh sd
         s `shouldBe` expect
 
-testDoGetNonFinalizedAccountTransactions :: Spec
-testDoGetNonFinalizedAccountTransactions = describe "doGetNonFinalizedAccountTransactions" $ do
+testGetNonFinalizedAccountTransactions :: Spec
+testGetNonFinalizedAccountTransactions = describe "getNonFinalizedAccountTransactions" $ do
     it "present" $ do
         assertEqual
             "transactions for dummy account 0 from 1"
             [ (2, Map.singleton (dummyTransaction 2) (dummySuccessTransactionResult 2)),
               (3, Map.singleton (dummyTransaction 3) (dummySuccessTransactionResult 3))
             ]
-            $ doGetNonFinalizedAccountTransactions
+            $ getNonFinalizedAccountTransactions
                 (accountAddressEmbed dummyAccountAddress)
                 1
                 sd
@@ -587,7 +652,7 @@ testDoGetNonFinalizedAccountTransactions = describe "doGetNonFinalizedAccountTra
             "transactions for dummy account 0 from 3"
             [ (3, Map.singleton (dummyTransaction 3) (dummySuccessTransactionResult 3))
             ]
-            $ doGetNonFinalizedAccountTransactions
+            $ getNonFinalizedAccountTransactions
                 (accountAddressEmbed dummyAccountAddress)
                 3
                 sd
@@ -595,7 +660,7 @@ testDoGetNonFinalizedAccountTransactions = describe "doGetNonFinalizedAccountTra
         $ assertEqual
             "transactions for dummy account 1"
             []
-        $ doGetNonFinalizedAccountTransactions
+        $ getNonFinalizedAccountTransactions
             (accountAddressEmbed (dummyAccountAddressN 1))
             1
             sd
@@ -607,25 +672,25 @@ testDoGetNonFinalizedAccountTransactions = describe "doGetNonFinalizedAccountTra
                 %~ addTrans 2
                 . addTrans 3
 
-testDoGetNonFinalizedChainUpdates ::
+testGetNonFinalizedChainUpdates ::
     Spec
-testDoGetNonFinalizedChainUpdates = describe "doGetNonFinalizedChainUpdates" $ do
+testGetNonFinalizedChainUpdates = describe "getNonFinalizedChainUpdates" $ do
     it "present" $ do
         assertEqual
             "chain updates for UpdateMicroGTUPerEuro are present"
             [ (2, Map.insert (dummyUpdateInstructionWM 2) (dummySuccessTransactionResult 2) Map.empty),
               (3, Map.insert (dummyUpdateInstructionWM 3) (dummySuccessTransactionResult 3) Map.empty)
             ]
-            $ doGetNonFinalizedChainUpdates UpdateMicroGTUPerEuro 1 sd
+            $ getNonFinalizedChainUpdates UpdateMicroGTUPerEuro 1 sd
         assertEqual
             "one chain update for UpdateMicroGTUPerEuro are present from usn 3"
             [(3, Map.insert (dummyUpdateInstructionWM 3) (dummySuccessTransactionResult 3) Map.empty)]
-            $ doGetNonFinalizedChainUpdates UpdateMicroGTUPerEuro 3 sd
+            $ getNonFinalizedChainUpdates UpdateMicroGTUPerEuro 3 sd
     it "absent" $ do
         assertEqual
             "no chain updates for ProtocolUpdate are present"
             []
-            $ doGetNonFinalizedChainUpdates UpdateProtocol 1 sd
+            $ getNonFinalizedChainUpdates UpdateProtocol 1 sd
   where
     addChainUpdate n = snd . addTransaction (dummyChainUpdate n) 0 (dummySuccessTransactionResult n)
     sd =
@@ -634,15 +699,15 @@ testDoGetNonFinalizedChainUpdates = describe "doGetNonFinalizedChainUpdates" $ d
                 %~ addChainUpdate 2
                 . addChainUpdate 3
 
-testDoGetNonFinalizedCredential :: Spec
-testDoGetNonFinalizedCredential = describe "doGetNonFinalizedCredential" $ do
+testGetNonFinalizedCredential :: Spec
+testGetNonFinalizedCredential = describe "getNonFinalizedCredential" $ do
     it "present" $ do
         assertEqual
             "non-finalized credential deployment is present"
             (Just (credentialDeploymentWM, dummySuccessCredentialDeployment))
-            $ doGetNonFinalizedCredential credDeploymentHash sd
+            $ getNonFinalizedCredential credDeploymentHash sd
     it "absent" $ do
-        assertEqual "non-finalized credential deployment is absent" Nothing $ doGetNonFinalizedCredential nonExistingHash sd
+        assertEqual "non-finalized credential deployment is absent" Nothing $ getNonFinalizedCredential nonExistingHash sd
   where
     addCredential = snd . addTransaction dummyCredentialDeployment 0 dummySuccessCredentialDeployment
     credDeploymentHash = getHash dummyCredentialDeployment
@@ -654,16 +719,16 @@ testDoGetNonFinalizedCredential = describe "doGetNonFinalizedCredential" $ do
                 %~ addCredential
                 . addCredential
 
-testDoGetNextAccountNonce :: Spec
-testDoGetNextAccountNonce = describe "doGetNextAccountNonce" $ do
+testGetNextAccountNonce :: Spec
+testGetNextAccountNonce = describe "getNextAccountNonce" $ do
     it "with non-finalized" $
-        doGetNextAccountNonce (accountAddressEmbed dummyAccountAddress) sd
+        getNextAccountNonce (accountAddressEmbed dummyAccountAddress) sd
             `shouldBe` (4, False)
     it "with no transactions" $
-        doGetNextAccountNonce (accountAddressEmbed (dummyAccountAddressN 1)) sd
+        getNextAccountNonce (accountAddressEmbed (dummyAccountAddressN 1)) sd
             `shouldBe` (minNonce, True)
     it "with finalized transactions" $
-        doGetNextAccountNonce (accountAddressEmbed (dummyAccountAddressN 2)) sd
+        getNextAccountNonce (accountAddressEmbed (dummyAccountAddressN 2)) sd
             `shouldBe` (7, True)
   where
     addTrans n = snd . addTransaction (dummyTransactionBI n) 0 (dummySuccessTransactionResult n)
@@ -676,10 +741,18 @@ testDoGetNextAccountNonce = describe "doGetNextAccountNonce" $ do
                         ?~ emptyANFTWithNonce 7
                   )
 
-testDoFinalizeTransactions :: Spec
-testDoFinalizeTransactions = describe "doFinalizeTransactions" $ do
+-- |Testing 'removeTransactions'.
+-- This test ensures that the provided list of
+-- transactions are removed from the the transaction table,
+-- and if the transaction is either a normal transaction or
+-- a chain update then the non finalized transaction map is
+-- updated accordingly, meaning that it's removed from non finalized transaction
+-- map and that the next available nonce for the sender of the transaction is set to
+-- be 1 + the nonce of the removed transaction.
+testRemoveTransactions :: Spec
+testRemoveTransactions = describe "removeTransactions" $ do
     it "normal transactions" $ do
-        sd' <- execStateT (doFinalizeTransactions [normalTransaction tr0]) sd
+        sd' <- execStateT (removeTransactions [normalTransaction tr0]) sd
         assertEqual
             "Account non-finalized transactions"
             (Just AccountNonFinalizedTransactions{_anftNextNonce = 2, _anftMap = Map.singleton 2 (Map.singleton tr1 (dummySuccessTransactionResult 2))})
@@ -689,7 +762,7 @@ testDoFinalizeTransactions = describe "doFinalizeTransactions" $ do
             (HM.fromList [(getHash tr1, (normalTransaction tr1, Received 0 (dummySuccessTransactionResult 2)))])
             (sd' ^. transactionTable . ttHashMap)
     it "chain updates" $ do
-        sd' <- execStateT (doFinalizeTransactions [chainUpdate cu0]) sd1
+        sd' <- execStateT (removeTransactions [chainUpdate cu0]) sd1
         assertEqual
             "Chain update non-finalized transactions"
             (Just NonFinalizedChainUpdates{_nfcuNextSequenceNumber = 2, _nfcuMap = Map.singleton 2 (Map.singleton cu1 (dummySuccessTransactionResult 2))})
@@ -703,7 +776,7 @@ testDoFinalizeTransactions = describe "doFinalizeTransactions" $ do
             )
             (sd' ^. transactionTable . ttHashMap)
     it "credential deployments" $ do
-        sd' <- execStateT (doFinalizeTransactions [credentialDeployment cred0]) sd2
+        sd' <- execStateT (removeTransactions [credentialDeployment cred0]) sd2
         assertEqual
             "Non-finalized credential deployments"
             (sd' ^. transactionTable . ttHashMap . at credDeploymentHash)
@@ -716,7 +789,7 @@ testDoFinalizeTransactions = describe "doFinalizeTransactions" $ do
     sender = accountAddressEmbed dummyAccountAddress
     tr0 = dummyTransaction 1
     tr1 = dummyTransaction 2
-    tr2 = dummyTransactionWithPayload 1 (EncodedPayload "a")
+    tr2 = dummyTransaction 1
     cu0 = dummyUpdateInstructionWM 1
     cu1 = dummyUpdateInstructionWM 2
     cred0 = credentialDeploymentWM
@@ -742,10 +815,15 @@ testDoFinalizeTransactions = describe "doFinalizeTransactions" $ do
                 %~ addCredential
                 . addTrans tr1
 
-testDoAddTransaction :: Spec
-testDoAddTransaction = describe "doAddTransaction" $ do
-    it "add transaction" $ do
-        sd' <- execStateT (doAddTransaction tr0Round (normalTransaction tr0) (dummySuccessTransactionResult 1)) dummyInitialSkovData
+-- |Testing 'putTransaction'.
+-- This test ensures that the supplied transaction is added
+-- to the transaction table with the provided round.
+-- This test also checks that the transaction table purge counter
+-- is incremented.
+testPutTransaction :: Spec
+testPutTransaction = describe "putTransaction" $ do
+    it "put transaction" $ do
+        sd' <- execStateT (putTransaction tr0Round (normalTransaction tr0) (dummySuccessTransactionResult 1)) dummyInitialSkovData
         assertEqual
             "Account non-finalized transactions"
             (Just AccountNonFinalizedTransactions{_anftNextNonce = 1, _anftMap = Map.singleton 1 (Map.singleton tr0 (dummySuccessTransactionResult 1))})
@@ -758,18 +836,21 @@ testDoAddTransaction = describe "doAddTransaction" $ do
             "transaction table purge counter is incremented"
             (1 + dummyInitialSkovData ^. transactionTablePurgeCounter)
             (sd' ^. transactionTablePurgeCounter)
-        sd'' <- execStateT (doFinalizeTransactions [normalTransaction tr0]) sd'
-        added <- evalStateT (doAddTransaction tr0Round (normalTransaction tr0) (dummySuccessTransactionResult 1)) sd''
+        sd'' <- execStateT (removeTransactions [normalTransaction tr0]) sd'
+        added <- evalStateT (putTransaction tr0Round (normalTransaction tr0) (dummySuccessTransactionResult 1)) sd''
         assertEqual "tx should not be added" False added
   where
     tr0Round = 1
     tr0 = dummyTransaction 1
     sender = accountAddressEmbed dummyAccountAddress
 
-testDoCommitTransaction :: Spec
-testDoCommitTransaction = describe "doCommitTransaction" $ do
+-- |Test of 'commitTransaction'.
+-- The test checks that a live transaction i.e. present in the transaction table 'ttHashMap'
+-- is being set to committed for the provided round with a pointer to the block provided (by the 'BlockHash').
+testCommitTransaction :: Spec
+testCommitTransaction = describe "commitTransaction" $ do
     it "commit transaction" $ do
-        sd' <- execStateT (doCommitTransaction 1 bh 0 (normalTransaction tr0)) sd
+        sd' <- execStateT (commitTransaction 1 bh 0 (normalTransaction tr0)) sd
         assertEqual
             "transaction hash map"
             (HM.fromList [(getHash tr0, (normalTransaction tr0, Committed 1 (dummySuccessTransactionResult (transactionNonce tr0)) $ HM.fromList [(bh, TransactionIndex 0)]))])
@@ -783,17 +864,24 @@ testDoCommitTransaction = describe "doCommitTransaction" $ do
                 %~ addTrans tr0
     bh = BlockHash minBound
 
-testDoMarkTransactionDead :: Spec
-testDoMarkTransactionDead = describe "doMarkTransactionDead" $ do
+-- |Test 'markTransactionDead'
+-- This test ensures that when a (committed) transaction identified
+-- by the provided 'BlockHash' is marked dead, then it is removed
+-- from the transaction table live map.
+-- Further the test checks that marking a (received) transaction as dead has no effect,
+-- as such a transaction will be freed from memory via transaction table purging
+-- at some point.
+testMarkTransactionDead :: Spec
+testMarkTransactionDead = describe "markTransactionDead" $ do
     it "mark committed transaction dead" $ do
-        sd' <- execStateT (doCommitTransaction 1 bh 0 (normalTransaction tr0)) sd
-        sd'' <- execStateT (doMarkTransactionDead bh (normalTransaction tr0)) sd'
+        sd' <- execStateT (commitTransaction 1 bh 0 (normalTransaction tr0)) sd
+        sd'' <- execStateT (markTransactionDead bh (normalTransaction tr0)) sd'
         assertEqual
             "transaction hash map"
             (HM.fromList [(getHash tr0, (normalTransaction tr0, Received 1 (dummySuccessTransactionResult (transactionNonce tr0))))])
             (sd'' ^. transactionTable . ttHashMap)
     it "mark received transaction dead" $ do
-        sd' <- execStateT (doMarkTransactionDead bh (normalTransaction tr0)) sd
+        sd' <- execStateT (markTransactionDead bh (normalTransaction tr0)) sd
         assertEqual
             "transaction hash map"
             (HM.fromList [(getHash tr0, (normalTransaction tr0, Received 0 (dummySuccessTransactionResult (transactionNonce tr0))))])
@@ -807,12 +895,17 @@ testDoMarkTransactionDead = describe "doMarkTransactionDead" $ do
                 %~ addTrans tr0
     bh = BlockHash minBound
 
-testDoPurgeTransactionTable :: Spec
-testDoPurgeTransactionTable = describe "doPurgeTransactionTable" $ do
+-- |Test 'purgeTransactionTable' function.
+-- This test ensures that transactions eligible for purging are
+-- removed from the transaction table and the pending transactions.
+-- This test also ensures that the transaction table purge counter is reset
+-- after a purge has been carried out.
+testPurgeTransactionTable :: Spec
+testPurgeTransactionTable = describe "purgeTransactionTable" $ do
     it "force purge the transaction table" $ do
         -- increment the purge counter.
-        sd' <- execStateT (doAddTransaction 0 (normalTransaction tr0) (dummySuccessTransactionResult 1)) sd
-        sd'' <- execStateT (doPurgeTransactionTable True theTime) sd'
+        sd' <- execStateT (putTransaction 0 (normalTransaction tr0) (dummySuccessTransactionResult 1)) sd
+        sd'' <- execStateT (purgeTransactionTable True theTime) sd'
         assertEqual
             "purge counter should be reset"
             0
@@ -846,11 +939,18 @@ testDoPurgeTransactionTable = describe "doPurgeTransactionTable" $ do
             & pendingTransactionTable
                 %~ addPendingDeployCredential credDeploymentHash
 
-testDoClearOnProtocolUpdate :: Spec
-testDoClearOnProtocolUpdate = describe "doClearOnProtocolUpdate" $
+-- |Test 'clearOnProtocolUpdate' function.
+-- This test checks that the following is occurring in the associated 'SkovData' when invoked:
+--
+-- * The pending blocks table is cleared
+-- * The block table is cleared
+-- * The branches is cleared
+-- * All committed transactions should be rolled back into the 'Received' state.
+testClearOnProtocolUpdate :: Spec
+testClearOnProtocolUpdate = describe "clearOnProtocolUpdate" $
     it "clears on protocol update" $ do
-        sd' <- execStateT (doCommitTransaction 1 bh 0 (normalTransaction tr0)) sd
-        sd'' <- execStateT doClearOnProtocolUpdate sd'
+        sd' <- execStateT (commitTransaction 1 bh 0 (normalTransaction tr0)) sd
+        sd'' <- execStateT clearOnProtocolUpdate sd'
         assertEqual
             "pending block table should be empty"
             HM.empty
@@ -859,10 +959,6 @@ testDoClearOnProtocolUpdate = describe "doClearOnProtocolUpdate" $
             "block table should be empty"
             emptyBlockTable
             (sd'' ^. blockTable)
-        assertEqual
-            "Branches should be empty"
-            Seq.empty
-            (sd'' ^. branches)
         assertEqual
             "Branches should be empty"
             Seq.empty
@@ -883,27 +979,27 @@ testDoClearOnProtocolUpdate = describe "doClearOnProtocolUpdate" $
 tests :: Spec
 tests = describe "KonsensusV1.TreeState" $ do
     describe "BlockTable" $ do
-        testDoGetMemoryBlockStatus
-        testDoGetBlockStatus
-        testDoGetRecentBlockStatus
-        testDoMakeLiveBlock
-        testDoMarkBlockDead
-        testDoMarkPending
+        testGetMemoryBlockStatus
+        testGetBlockStatus
+        testGetRecentBlockStatus
+        testMakeLiveBlock
+        testMarkBlockDead
+        testMarkPending
     describe "PendingBlockTable" $ do
-        testDoAddPendingBlock
-        testDoTakePendingChildren
-        testDoTakeNextPendingUntil
+        testAddPendingBlock
+        testTakePendingChildren
+        testTakeNextPendingUntil
     describe "TransactionTable" $ do
-        testDoLookupLiveTransaction
-        testDoLookupTransaction
-        testDoGetNonFinalizedAccountTransactions
-        testDoGetNonFinalizedChainUpdates
-        testDoGetNonFinalizedCredential
-        testDoGetNextAccountNonce
-        testDoFinalizeTransactions
-        testDoAddTransaction
-        testDoCommitTransaction
-        testDoMarkTransactionDead
-        testDoPurgeTransactionTable
+        testLookupLiveTransaction
+        testLookupTransaction
+        testGetNonFinalizedAccountTransactions
+        testGetNonFinalizedChainUpdates
+        testGetNonFinalizedCredential
+        testGetNextAccountNonce
+        testRemoveTransactions
+        testPutTransaction
+        testCommitTransaction
+        testMarkTransactionDead
+        testPurgeTransactionTable
     describe "Clear on protocol update" $ do
-        testDoClearOnProtocolUpdate
+        testClearOnProtocolUpdate

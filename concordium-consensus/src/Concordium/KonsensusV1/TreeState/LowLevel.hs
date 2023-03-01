@@ -5,7 +5,6 @@
 -- |This module defines the low-level interface to the persistent tree state.
 module Concordium.KonsensusV1.TreeState.LowLevel where
 
-import Data.Maybe
 import Data.Serialize
 
 import Concordium.Types
@@ -45,7 +44,7 @@ instance IsProtocolVersion pv => Serialize (StoredBlock pv) where
                 blockHash <- get
                 stbStatePointer <- get
                 stbBlock <-
-                    getBlockKnownHash
+                    unsafeGetBlockKnownHash
                         (utcTimeToTransactionTime $ bmReceiveTime stbInfo)
                         blockHash
                 return StoredBlock{..}
@@ -63,20 +62,24 @@ instance BlockData (StoredBlock pv) where
 instance HashableTo BlockHash (StoredBlock pv) where
     getHash = getHash . stbBlock
 
+-- |'MonadTreeStateStore' defines the interface to the low-level tree state database.
+-- An implementation should guarantee atomicity, consistency and isolation for these operations.
+-- Durability is also expected from a persistent implementation.
+-- The write operations in particular may involve updating multiple tables and should guarantee
+-- transactional behaviour.
 class (Monad m) => MonadTreeStateStore m where
     -- |Get a finalized block by block hash.
     lookupBlock :: BlockHash -> m (Maybe (StoredBlock (MPV m)))
 
     -- |Determine if a block is present in the finalized block table.
     memberBlock :: BlockHash -> m Bool
-    memberBlock = fmap isJust . lookupBlock
 
     -- |Get the first (i.e. genesis) block.
     -- (The implementation can assume that this block has height 0.)
     lookupFirstBlock :: m (Maybe (StoredBlock (MPV m)))
     lookupFirstBlock = lookupBlockByHeight 0
 
-    -- |Get the last (finalized) block.
+    -- |Get the last finalized block.
     lookupLastBlock :: m (Maybe (StoredBlock (MPV m)))
 
     -- |Look up a block by height.
@@ -85,9 +88,8 @@ class (Monad m) => MonadTreeStateStore m where
     -- |Look up a transaction by its hash.
     lookupTransaction :: TransactionHash -> m (Maybe FinalizedTransactionStatus)
 
-    -- |Determine if a block is present in the finalized transaction table.
+    -- |Determine if a transaction is present in the finalized transaction table.
     memberTransaction :: TransactionHash -> m Bool
-    memberTransaction = fmap isJust . lookupTransaction
 
     -- |Store the list of blocks and their transactions, updating the last finalization entry to
     -- the supplied value.  (This should write the blocks as a single database transaction.)
@@ -105,6 +107,6 @@ class (Monad m) => MonadTreeStateStore m where
     -- |From the last block backwards, remove blocks and their associated transactions
     -- from the database until the predicate returns 'True'. If any blocks are rolled back,
     -- this also removes the latest finalization entry.
-    -- This returns @Right True@ if roll-back occurred, and @Right False@ if no roll-back was
-    -- required.  If an error occurred attempting to roll back, @Right reason@ is returned.
-    rollBackBlocksUntil :: (StoredBlock (MPV m) -> m Bool) -> m (Either String Bool)
+    -- This returns @Right Int@ where the 'Int' indicates how many blocks that were rolled back.
+    -- If an error occurred attempting to roll back, @Left reason@ is returned.
+    rollBackBlocksUntil :: (StoredBlock (MPV m) -> m Bool) -> m (Either String Int)
