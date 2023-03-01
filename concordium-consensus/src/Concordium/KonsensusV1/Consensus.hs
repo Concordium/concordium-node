@@ -142,8 +142,6 @@ processBlockItem bi = do
 -- Post-condition: Only transactions that are deemed verifiable
 -- (i.e. the verification yields a 'TVer.OkResult' or a 'TVer.MaybeOkResult') up to the point where
 -- a transaction processing might fail are added to the tree state.
--- Hence if 'False' is returned then the caller *must* roll back the state.
--- This is an internal function and should only be called when processing a block.
 processBlockItems ::
     ( MonadProtocolVersion m,
       IsConsensusV1 pv,
@@ -153,14 +151,14 @@ processBlockItems ::
       MPV m ~ pv,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m)
     ) =>
-    -- |Pointer to the parent block.
-    BlockPointer pv ->
     -- |The baked block
     BakedBlock ->
-    -- |Return 'True' if all transactions were
-    -- successfully processed.
+    -- |Pointer to the parent block.
+    BlockPointer pv ->
+    -- |Return 'True' only if all transactions were
+    -- successfully processed otherwise 'False'.
     m Bool
-processBlockItems parentPointer bb = processBis $! bbTransactions bb
+processBlockItems bb parentPointer = processBis $! bbTransactions bb
   where
     -- Create a context suitable for verifying a transaction within a 'Block' context.
     getCtx = do
@@ -170,7 +168,7 @@ processBlockItems parentPointer bb = processBis $! bbTransactions bb
         -- If no transactions are present we return 'True'.
         | Vector.length txs == 0 = return True
         -- There's work to do.
-        | otherwise = snd <$> process txs True
+        | otherwise = snd <$> process txs False
     theRound = bbRound bb
     process !txs !res
         | Vector.length txs == 0 = return (Vector.empty, res)
