@@ -267,6 +267,8 @@ impl ConsensusFfiResponse {
     pub fn label(&self) -> &str {
         if self.is_successful() {
             "valid"
+        } else if let ConsensusFfiResponse::ContinueCatchUp = self {
+            "valid"
         } else if let ConsensusFfiResponse::DuplicateEntry = self {
             "duplicate"
         } else {
