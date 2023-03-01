@@ -34,7 +34,7 @@ keyPair0 :: SigScheme.KeyPair
 keyPair0 = Helpers.keyPairFromSeed 0
 
 wasmPath :: String
-wasmPath = "./testdata/contracts/error_code/target/concordium/wasm32-unknown-unknown/release/error_code.wasm"
+wasmPath = "../concordium-base/smart-contracts/testdata/contracts/error_code/target/concordium/wasm32-unknown-unknown/release/error_code.wasm"
 
 transaction :: PayloadJSON -> Types.Nonce -> TransactionJSON
 transaction payload n =

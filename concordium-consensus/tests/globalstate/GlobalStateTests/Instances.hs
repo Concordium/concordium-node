@@ -36,9 +36,9 @@ import Test.Hspec
 import Test.QuickCheck
 
 contractSourcesV0 :: [(FilePath, BS.ByteString)]
-contractSourcesV0 = $(makeRelativeToProject "testdata/contracts/" >>= embedDir)
+contractSourcesV0 = $(makeRelativeToProject "../concordium-base/smart-contracts/testdata/contracts/" >>= embedDir)
 
--- Read all the files in testdata/contracts and get any valid contract interfaces.
+-- Read all the files in smart-contracts/testdata/contracts in base and get any valid contract interfaces.
 -- This assumes there is at least one, otherwise the tests will fail.
 validContractArtifactsV0 :: [(Wasm.ModuleSource GSWasm.V0, GSWasm.ModuleInterfaceV GSWasm.V0)]
 validContractArtifactsV0 = mapMaybe packModule contractSourcesV0
@@ -48,9 +48,9 @@ validContractArtifactsV0 = mapMaybe packModule contractSourcesV0
         in  (source,) <$> WasmV0.processModule (Wasm.WasmModuleV source)
 
 contractSourcesV1 :: [(FilePath, BS.ByteString)]
-contractSourcesV1 = $(makeRelativeToProject "testdata/contracts/v1" >>= embedDir)
+contractSourcesV1 = $(makeRelativeToProject "../concordium-base/smart-contracts/testdata/contracts/v1" >>= embedDir)
 
--- Read all the files in testdata/contracts/v1 and get any valid contract interfaces.
+-- Read all the files in smart-contracts/testdata/contracts/v1 in base and get any valid contract interfaces.
 -- This assumes there is at least one, otherwise the tests will fail.
 validContractArtifactsV1 :: [(Wasm.ModuleSource GSWasm.V1, GSWasm.ModuleInterfaceV GSWasm.V1)]
 validContractArtifactsV1 = mapMaybe packModule contractSourcesV1

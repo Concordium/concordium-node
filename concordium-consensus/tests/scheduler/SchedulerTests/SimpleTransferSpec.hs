@@ -39,12 +39,12 @@ keyPair0 = Helpers.keyPairFromSeed 0
 transactionInputs :: [TransactionJSON]
 transactionInputs =
     [ TJSON
-        { payload = DeployModule V0 "./testdata/contracts/send-tokens-test.wasm",
+        { payload = DeployModule V0 "../concordium-base/smart-contracts/testdata/contracts/send-tokens-test.wasm",
           metadata = makeDummyHeader accountAddress0 1 100_000,
           keys = [(0, [(0, keyPair0)])]
         },
       TJSON
-        { payload = InitContract 0 V0 "./testdata/contracts/send-tokens-test.wasm" "init_send" "",
+        { payload = InitContract 0 V0 "../concordium-base/smart-contracts/testdata/contracts/send-tokens-test.wasm" "init_send" "",
           metadata = makeDummyHeader accountAddress0 2 100_000,
           keys = [(0, [(0, keyPair0)])]
         },

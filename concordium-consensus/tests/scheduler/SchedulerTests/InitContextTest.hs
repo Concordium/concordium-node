@@ -47,12 +47,12 @@ transactionInputs :: forall pv. IsProtocolVersion pv => SProtocolVersion pv -> [
 transactionInputs spv =
     [ Runner.TJSON
         { metadata = makeDummyHeader (senderAccount spv) 1 100000,
-          payload = Runner.DeployModule V0 "./testdata/contracts/chain-meta-test.wasm",
+          payload = Runner.DeployModule V0 "../concordium-base/smart-contracts/testdata/contracts/chain-meta-test.wasm",
           keys = [(0, [(0, keyPair0)])]
         },
       Runner.TJSON
         { metadata = makeDummyHeader (senderAccount spv) 2 100000,
-          payload = Runner.InitContract 9 V0 "./testdata/contracts/chain-meta-test.wasm" "init_origin" "",
+          payload = Runner.InitContract 9 V0 "../concordium-base/smart-contracts/testdata/contracts/chain-meta-test.wasm" "init_origin" "",
           keys = [(0, [(0, keyPair0)])]
         }
     ]

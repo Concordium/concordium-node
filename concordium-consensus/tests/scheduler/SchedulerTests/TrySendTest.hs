@@ -43,7 +43,7 @@ toAddr :: BSS.ShortByteString
 toAddr = BSS.toShort (encode accountAddress0)
 
 contractSourceFile :: FilePath
-contractSourceFile = "./testdata/contracts/try-send-test.wasm"
+contractSourceFile = "../concordium-base/smart-contracts/testdata/contracts/try-send-test.wasm"
 
 errorHandlingTest ::
     forall pv.

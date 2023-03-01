@@ -32,7 +32,7 @@ initialBlockState =
         [Helpers.makeTestAccountFromSeed 1_000 0]
 
 fallbackSourceFile :: FilePath
-fallbackSourceFile = "./testdata/contracts/v1/fallback.wasm"
+fallbackSourceFile = "../concordium-base/smart-contracts/testdata/contracts/v1/fallback.wasm"
 
 deployModule ::
     Helpers.PersistentBSM
