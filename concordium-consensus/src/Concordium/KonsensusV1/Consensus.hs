@@ -19,7 +19,7 @@ import Concordium.Utils
 
 import Concordium.GlobalState.BlockState
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
-import Concordium.GlobalState.TransactionTable
+import qualified Concordium.GlobalState.TransactionTable as TT
 import qualified Concordium.GlobalState.Types as GSTypes
 import Concordium.KonsensusV1.TransactionVerifier
 import Concordium.KonsensusV1.TreeState.Implementation
@@ -29,9 +29,8 @@ import Concordium.Scheduler.Types (updateSeqNumber)
 import Concordium.TimeMonad
 import qualified Concordium.TransactionVerification as TVer
 
--- |Result of attempting to put a
--- 'BlockItem' into tree state.
-data PutBlockItemResult
+-- |Result of attempting to add a 'BlockItem' into tree state.
+data AddBlockItemResult
     = -- |The transaction was accepted into
       -- the tree state.
       Accepted
@@ -44,10 +43,10 @@ data PutBlockItemResult
       Duplicate
     | -- |The transaction nonce was obsolete,
       -- i.e. inferior to the next available nonce.
-      OldNonce
+      Obsolete
     deriving (Eq, Show)
 
--- |Puts a transaction into the pending transaction table
+-- |Adds a transaction into the pending transaction table
 -- if it's eligible.
 -- A transaction is eligible if the nonce of the transaction is at least
 -- as high as the next available nonce observed with respect to the focus block.
@@ -59,7 +58,7 @@ data PutBlockItemResult
 -- do not yield exactly the recorded next available nonce.
 --
 -- This is an internal function only and should not be called directly.
-putPendingTransaction ::
+addPendingTransaction ::
     ( MonadState (SkovData (MPV m)) m,
       TimeMonad m,
       BlockStateQuery m,
@@ -70,23 +69,23 @@ putPendingTransaction ::
     -- |The transaction.
     BlockItem ->
     m ()
-putPendingTransaction origin bi = do
+addPendingTransaction origin bi = do
     case wmdData bi of
         NormalTransaction tx -> do
             fbState <- bpState <$> (_focusBlock <$> gets' _skovPendingTransactions)
             macct <- getAccount fbState $! transactionSender tx
             nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
             when (nextNonce <= transactionNonce tx || origin == Individual) $ do
-                pendingTransactionTable %=! addPendingTransaction nextNonce tx
+                pendingTransactionTable %=! TT.addPendingTransaction nextNonce tx
                 doPurgeTransactionTable False =<< currentTime
         CredentialDeployment _ -> do
-            pendingTransactionTable %=! addPendingDeployCredential txHash
+            pendingTransactionTable %=! TT.addPendingDeployCredential txHash
             doPurgeTransactionTable False =<< currentTime
         ChainUpdate cu -> do
             fbState <- bpState <$> (_focusBlock <$> gets' _skovPendingTransactions)
             nextSN <- getNextUpdateSequenceNumber fbState (updateType (uiPayload cu))
             when (nextSN <= updateSeqNumber (uiHeader cu) || origin == Individual) $ do
-                pendingTransactionTable %=! addPendingUpdate nextSN cu
+                pendingTransactionTable %=! TT.addPendingUpdate nextSN cu
                 doPurgeTransactionTable False =<< currentTime
   where
     txHash = getHash bi
@@ -94,7 +93,7 @@ putPendingTransaction origin bi = do
 -- |Attempt to put the 'BlockItem' into the tree state.
 -- If the the 'BlockItem' was successfully added then it will be
 -- in 'Received' state where the associated 'CommitPoint' will be set to zero.
--- Return the resulting 'PutBlockItemResult'.
+-- Return the resulting 'AddBlockItemResult'.
 processBlockItem ::
     ( MonadProtocolVersion m,
       IsConsensusV1 (MPV m),
@@ -105,8 +104,8 @@ processBlockItem ::
     ) =>
     -- |The transaction we want to put into the state.
     BlockItem ->
-    -- |Result of the put operation.
-    m PutBlockItemResult
+    -- |Whether it was @Accepted@, @Rejected@, @Duplicate@ or @Obsolete@.
+    m AddBlockItemResult
 processBlockItem bi = do
     -- First we check whether the transaction already exists in the transaction table.
     tt' <- gets' _transactionTable
@@ -122,10 +121,10 @@ processBlockItem bi = do
                     added <- doAddTransaction 0 bi okRes
                     if added
                         then do
-                            putPendingTransaction Individual bi
+                            addPendingTransaction Individual bi
                             return Accepted
                         else -- If the transaction was not added it means it contained an old nonce.
-                            return OldNonce
+                            return Obsolete
                 notAccepted -> return $! Rejected notAccepted
   where
     -- Create a context suitable for verifying a transaction within a 'Individual' context.
@@ -133,7 +132,7 @@ processBlockItem bi = do
         _ctxSkovData <- get
         _ctxBlockState <- bpState <$> gets' _lastFinalized
         return $! Context{_ctxTransactionOrigin = Individual, ..}
-    isDuplicate tt = isJust $! tt ^. ttHashMap . at' txHash
+    isDuplicate tt = isJust $! tt ^. TT.ttHashMap . at' txHash
     txHash = getHash bi
 
 -- |Attempt to put the 'BlockItem's of a 'BakedBlock' into the tree state.
@@ -178,12 +177,12 @@ processBlockItems bb parentPointer = processBis $! bbTransactions bb
                 !txHash = getHash bi
             !tt' <- gets' _transactionTable
             -- Check whether we already have the transaction.
-            case tt' ^. ttHashMap . at' txHash of
+            case tt' ^. TT.ttHashMap . at' txHash of
                 Just (_, results) -> do
                     -- If we have received the tranaction before we update the maximum committed round
                     -- if the new round is higher.
-                    when (commitPoint theRound > results ^. tsCommitPoint) $
-                        transactionTable . ttHashMap . at' txHash . mapped . _2 %=! updateSlot theRound
+                    when (TT.commitPoint theRound > results ^. TT.tsCommitPoint) $
+                        transactionTable . TT.ttHashMap . at' txHash . mapped . _2 %=! TT.updateSlot theRound
                     -- And we continue processing the remaining transactions.
                     process (Vector.tail txs) True
                 Nothing -> do
@@ -200,7 +199,7 @@ processBlockItems bb parentPointer = processBis $! bbTransactions bb
                     let continue !added =
                             if not added
                                 then process (Vector.tail txs) True
-                                else putPendingTransaction Block bi >> process (Vector.tail txs) True
+                                else addPendingTransaction Block bi >> process (Vector.tail txs) True
                     case verRes of
                         -- The transaction was deemed non verifiable i.e., it can never be
                         -- valid. We short circuit the recursion here and return 'False'.

@@ -64,32 +64,32 @@ instance
     where
     {-# INLINE getIdentityProvider #-}
     getIdentityProvider ipId = do
-        bs <- asks _ctxBlockState
-        lift $! BS.getIdentityProvider bs ipId
+        bs <- view ctxBlockState
+        lift $ BS.getIdentityProvider bs ipId
     {-# INLINE getAnonymityRevokers #-}
     getAnonymityRevokers arrIds = do
-        bs <- asks _ctxBlockState
-        lift $! BS.getAnonymityRevokers bs arrIds
+        bs <- view ctxBlockState
+        lift $ BS.getAnonymityRevokers bs arrIds
     {-# INLINE getCryptographicParameters #-}
     getCryptographicParameters = do
-        bs <- asks _ctxBlockState
-        lift $! BS.getCryptographicParameters bs
+        bs <- view ctxBlockState
+        lift $ BS.getCryptographicParameters bs
     {-# INLINE registrationIdExists #-}
     registrationIdExists regId = do
-        bs <- asks _ctxBlockState
+        bs <- view ctxBlockState
         lift $ isJust <$> BS.getAccountByCredId bs (ID.toRawCredRegId regId)
     {-# INLINE getAccount #-}
     getAccount aaddr = do
-        bs <- asks _ctxBlockState
+        bs <- view ctxBlockState
         fmap snd <$> lift (BS.getAccount bs aaddr)
     {-# INLINE getNextUpdateSequenceNumber #-}
     getNextUpdateSequenceNumber uType = do
-        bs <- asks _ctxBlockState
-        lift $! BS.getNextUpdateSequenceNumber bs uType
+        bs <- view ctxBlockState
+        lift $ BS.getNextUpdateSequenceNumber bs uType
     {-# INLINE getUpdateKeysCollection #-}
     getUpdateKeysCollection = do
-        bs <- asks _ctxBlockState
-        lift $! BS.getUpdateKeysCollection bs
+        bs <- view ctxBlockState
+        lift $ BS.getUpdateKeysCollection bs
     {-# INLINE getAccountAvailableAmount #-}
     getAccountAvailableAmount = lift . BS.getAccountAvailableAmount
     {-# INLINE getNextAccountNonce #-}
@@ -99,25 +99,23 @@ instance
         -- then we check the account nonce from the `BlockState` in the context
         -- Otherwise if the transaction was received individually then we
         -- check the transaction table for the nonce.
-        asks _ctxTransactionOrigin >>= \case
+        view ctxTransactionOrigin >>= \case
             Block -> lift (BS.getAccountNonce acc)
             Individual -> do
-                aaddr <- lift $! BS.getAccountCanonicalAddress acc
+                aaddr <- lift $ BS.getAccountCanonicalAddress acc
                 return $! fst $! doGetNextAccountNonce (accountAddressEmbed aaddr) (ctx ^. ctxSkovData)
     {-# INLINE getAccountVerificationKeys #-}
     getAccountVerificationKeys = lift . BS.getAccountVerificationKeys
     {-# INLINE energyToCcd #-}
     energyToCcd v = do
-        bs <- asks _ctxBlockState
-        rate <- lift $! _erEnergyRate <$> BS.getExchangeRates bs
+        bs <- view ctxBlockState
+        rate <- lift $ _erEnergyRate <$> BS.getExchangeRates bs
         return $! computeCost rate v
     {-# INLINE getMaxBlockEnergy #-}
     getMaxBlockEnergy = do
-        bs <- asks _ctxBlockState
-        chainParams <- lift $! BS.getChainParameters bs
+        bs <- view ctxBlockState
+        chainParams <- lift $ BS.getChainParameters bs
         return $! chainParams ^. cpConsensusParameters . cpBlockEnergyLimit
     {-# INLINE checkExactNonce #-}
     checkExactNonce = do
-        asks _ctxTransactionOrigin >>= \case
-            Block -> return False
-            Individual -> return True
+        asks ((== Individual) . _ctxTransactionOrigin)
