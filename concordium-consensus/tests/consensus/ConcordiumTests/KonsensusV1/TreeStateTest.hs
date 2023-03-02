@@ -6,6 +6,59 @@
 {-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
+-- |This module tests the 'Concordium.KonsensusV1.TreeState.Implementation' module
+-- which materializes the tree state for consensus protocol v1 (PV6).
+--
+-- In particular the following functions exposed in the above mentioned module are tested:
+--
+-- BlockTable
+-- A structure that records live blocks and blocks which are marked _dead_ in
+-- the tree state.
+--
+-- * 'getMemoryBlockStatus'
+-- * 'getBlockStatus'
+-- * 'getRecentBlockStatus'
+-- * 'makeLiveBlock'
+-- * 'markBlockDead'
+-- * 'markPending'
+--
+-- PendingBlockTable
+-- A structure that records pending blocks stored in the tree state.
+-- When a pending block becomes live i.e. it has been executed and his head of the
+-- chain then it will be added to the block table.
+--
+-- * 'takePendingBlock'
+-- * 'takePendingChildren'
+-- * 'takePendingChildrenUntil'
+--
+-- TransactionTable
+-- A structure that recoreds transactions in the tree state.
+-- From a consensus perspective, then transactions can be added to
+-- the tree state either individually (i.e. a single transaction sent to the
+-- the consensus layer) or via a block.
+--
+-- * 'lookupLiveTransaction'
+-- * 'lookupTransaction'
+-- * 'getNonFinalizedAccountTransactions'
+-- * 'getNonFinalizedChainUpdates'
+-- * 'getNonFinalizedCredential'
+-- * 'getNextAccountNonce'
+-- * 'removeTransactions'
+-- * 'putTransaction'
+-- * 'commitTransaction'
+-- * 'markTransactionDead'
+-- * 'purgeTransactionTable'
+--
+-- Protocol update
+-- Functions related to when a protocol update is
+-- initiated.
+-- Note that 'clearAfterProtocolUpdate' is not contained in this test suite
+-- as it is deemed unnecessary.
+--
+-- * 'clearOnProtocolUpdate'
+--
+-- Refer to each individual test for info on what each test
+-- verifies.
 module ConcordiumTests.KonsensusV1.TreeStateTest where
 
 import Control.Monad.Reader
@@ -24,7 +77,6 @@ import Test.HUnit
 import Test.Hspec
 
 -- base types.
-
 import Concordium.Crypto.DummyData
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
@@ -135,9 +187,15 @@ dummyBlock rnd = BlockPointer{..}
     bpBlock = NormalBlock $ dummySignedBlock (BlockHash minBound) rnd
     bpState = dummyBlockState
 
+-- |An arbitrary chosen 'BlockHash' suitable for configuring
+-- a 'GenesisMetadata' (see 'dummyGenesisMetadata') which is ultimately
+-- used to create an initial 'SkovData pv' which is used for the
+-- tests presented in this file.
 dummyGenesisBlockHash :: BlockHash
 dummyGenesisBlockHash = BlockHash (Hash.hash "DummyGenesis")
 
+-- |'GenesisMetadata' configured with
+-- the 'dummyGenesisBlockHash' and the 'dummyBlockState'.
 dummyGenesisMetadata :: GenesisMetadata
 dummyGenesisMetadata =
     GenesisMetadata
@@ -157,6 +215,12 @@ dummyLeadershipElectionNonce = Hash.hash "LeadershipElectionNonce"
 -- |An initial 'SkovData' suitable for testing.
 -- The block state is empty only consisting of a
 -- genesis block.
+-- The outputted 'SkovData pv' is configured with the
+-- 'dummyGenesisMetada' (and so the 'dummyGenesisBlockHash')
+--
+-- Note that the 'SkovData pv' introduced here is not suitable
+-- for carrying out block state queries or operations.
+-- But this is fine as we do not require that from the tests here.
 dummyInitialSkovData :: SkovData pv
 dummyInitialSkovData =
     mkInitialSkovData
@@ -569,6 +633,9 @@ credentialDeploymentWM = addMetadata CredentialDeployment 0 dummyAccountCreation
 dummyCredentialDeployment :: BlockItem
 dummyCredentialDeployment = credentialDeployment credentialDeploymentWM
 
+-- |Testing 'lookupLiveTransaction'
+-- This test ensures that live transactions can be
+-- looked up and that uknown ones cannot be.
 testLookupLiveTransaction :: Spec
 testLookupLiveTransaction = describe "lookupLiveTransaction" $ do
     it "present" $ do
@@ -599,6 +666,11 @@ testLookupLiveTransaction = describe "lookupLiveTransaction" $ do
                 . addTrans 2
                 . addTrans 3
 
+-- |Testing 'lookupTransaction'
+-- This test ensures that:
+-- * A finalized transation can be looked up.
+-- * A live transaction can be looked up.
+-- * Looking up with an unknown transaction hash will result in a 'Nothing' result.
 testLookupTransaction :: Spec
 testLookupTransaction = describe "lookupTransaction" $ do
     it "finalized" $ lu (th 1) (Just $ Finalized $ FinalizedTransactionStatus 1 0)
@@ -620,6 +692,10 @@ testLookupTransaction = describe "lookupTransaction" $ do
         s <- runTestLLDB db $ lookupTransaction hsh sd
         s `shouldBe` expect
 
+-- |Testing 'getNonFinalizedAccountTransactions'
+-- This test ensures that:
+-- * An existing non finalized account transction can be looked up
+-- * Looking up with an unknown transaction hash will result in a 'Nothing' result.
 testGetNonFinalizedAccountTransactions :: Spec
 testGetNonFinalizedAccountTransactions = describe "getNonFinalizedAccountTransactions" $ do
     it "present" $ do
@@ -656,6 +732,10 @@ testGetNonFinalizedAccountTransactions = describe "getNonFinalizedAccountTransac
                 %~ addTrans 2
                 . addTrans 3
 
+-- |Testing 'getNonFinalizedChainUpdates'
+-- This test ensures that:
+-- * An existing non finalized chain update transaction can be looked up
+-- * Looking up with an unknown transaction hash will result in a 'Nothing' result.
 testGetNonFinalizedChainUpdates ::
     Spec
 testGetNonFinalizedChainUpdates = describe "getNonFinalizedChainUpdates" $ do
@@ -683,6 +763,10 @@ testGetNonFinalizedChainUpdates = describe "getNonFinalizedChainUpdates" $ do
                 %~ addChainUpdate 2
                 . addChainUpdate 3
 
+-- |Testing 'getNonFinalizedCredential'
+-- This test ensures that:
+-- * An existing non finalized credential deployment transaction can be looked up
+-- * Looking up with an unknown transaction hash will result in a 'Nothing' result.
 testGetNonFinalizedCredential :: Spec
 testGetNonFinalizedCredential = describe "getNonFinalizedCredential" $ do
     it "present" $ do
@@ -703,6 +787,9 @@ testGetNonFinalizedCredential = describe "getNonFinalizedCredential" $ do
                 %~ addCredential
                 . addCredential
 
+-- |Testing 'getNextAccountNonce'
+-- This test ensures that the function returns
+-- the correct next account nonce.
 testGetNextAccountNonce :: Spec
 testGetNextAccountNonce = describe "getNextAccountNonce" $ do
     it "with non-finalized" $
