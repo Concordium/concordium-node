@@ -97,6 +97,12 @@ data MaybeOkResult
     | -- |The 'NormalTransaction' contained invalid signatures.
       -- Reason for 'MaybeOk': the sender could've changed account information at a later point in time.
       NormalTransactionInvalidSignatures
+    | -- |The energy requirement of the transaction exceeds the maximum allowed for a block.
+      -- P6 makes the maxBlockEnergy configurable as a chain parameter, so it could be valid in a future block where
+      -- we have not yet processed the chain update.
+      -- This is treated as a 'MaybeOk' for simplicity also for older protocol versions as the transaction will
+      -- be rejected when executed anyhow if it is surpassing the maximum block energy limit.
+      NormalTransactionEnergyExceeded
     deriving (Eq, Show, Ord)
 
 -- |Verification results which always should result in a transaction being rejected.
@@ -119,9 +125,6 @@ data NotOkResult
       ChainUpdateSequenceNumberTooOld !UpdateSequenceNumber
     | -- |Not enough energy was supplied for the transaction.
       NormalTransactionDepositInsufficient
-    | -- |The energy requirement of the transaction exceeds the maximum allowed for a block.
-      -- The transaction can never be part of a block so it is rejected.
-      NormalTransactionEnergyExceeded
     | -- |The 'NormalTransaction' contained an already used nonce.
       NormalTransactionDuplicateNonce !Types.Nonce
     | -- |The transaction was expired
@@ -299,7 +302,7 @@ verifyNormalTransaction meta =
                 unless (Tx.transactionGasAmount meta >= cost) $ throwError $ NotOk NormalTransactionDepositInsufficient
                 -- Check that the required energy does not exceed the maximum allowed for a block
                 maxEnergy <- lift getMaxBlockEnergy
-                when (Tx.transactionGasAmount meta > maxEnergy) $ throwError $ NotOk NormalTransactionEnergyExceeded
+                when (Tx.transactionGasAmount meta > maxEnergy) $ throwError $ MaybeOk NormalTransactionEnergyExceeded
                 -- Check that the sender account exists
                 let addr = Tx.transactionSender meta
                 macc <- lift (getAccount addr)
