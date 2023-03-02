@@ -5,9 +5,9 @@ module Concordium.KonsensusV1.Consensus where
 
 import Control.Monad.Reader
 import Control.Monad.State
-import qualified Data.ByteString as BS
 
--- import Data.Ratio
+import Data.Ratio
+import Data.Word
 import Lens.Micro.Platform
 
 import Concordium.KonsensusV1.TreeState.Implementation
@@ -51,6 +51,19 @@ getBakerId = do
     bi <- asks (view bakerIdentity)
     return $ bakerId bi
 
+
+updateRoundStatus :: Ratio Word64 -> RoundStatus -> RoundStatus
+updateRoundStatus timeoutIncrease currentRoundStatus =
+    let newNextSignableRound = 1 + rsCurrentRound currentRoundStatus
+        timeoutIncreaseRational = toRational timeoutIncrease :: Rational
+        currentTimeOutRational = toRational $ rsCurrentTimeout currentRoundStatus :: Rational
+        newCurrentTimeoutRational = timeoutIncreaseRational * currentTimeOutRational :: Rational
+        newCurrentTimeoutInteger = floor newCurrentTimeoutRational :: Integer
+        newCurrentTimeout = Duration $ fromIntegral newCurrentTimeoutInteger
+    in currentRoundStatus{
+        rsNextSignableRound = newNextSignableRound,
+        rsCurrentTimeout = newCurrentTimeout}
+
 -- |This is 'uponTimeoutEvent' from the bluepaper. If a timeout occurs, a finalizers should call this function to
 -- generate and send out a timeout message.
 uponTimeoutEvent ::
@@ -73,22 +86,12 @@ uponTimeoutEvent = do
         Nothing -> return ()
         Just finInfo -> do
             currentRoundStatus <- doGetRoundStatus
-            let newNextSignableRound = 1 + rsCurrentRound currentRoundStatus
             lastFinBlockPtr <- use lastFinalized
             gc <- use genesisConfiguration
             let genesisHash = gcFirstGenesisHash gc
             cp <- getChainParameters $ bpState lastFinBlockPtr
             let timeoutIncrease = cp ^. cpConsensusParameters . cpTimeoutParameters . tpTimeoutIncrease
-            let timeoutIncreaseRational = toRational timeoutIncrease :: Rational
-            let currentTimeOutRational = toRational $ rsCurrentTimeout currentRoundStatus :: Rational
-            let newCurrentTimeoutRational = timeoutIncreaseRational * currentTimeOutRational :: Rational
-            let newCurrentTimeoutInteger = floor newCurrentTimeoutRational :: Integer
-            let newCurrentTimeout = Duration $ fromIntegral newCurrentTimeoutInteger
-
-            let newRoundStatus = currentRoundStatus{
-                    rsNextSignableRound = newNextSignableRound,
-                    rsCurrentTimeout = newCurrentTimeout}
-            doSetRoundStatus newRoundStatus
+            doSetRoundStatus $ updateRoundStatus timeoutIncrease currentRoundStatus
 
             let highestQC = rsHighestQC currentRoundStatus
 
