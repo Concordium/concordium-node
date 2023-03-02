@@ -200,7 +200,7 @@ emptyNFCUWithSequenceNumber = NonFinalizedChainUpdates Map.empty
 -- database.
 --
 -- A transaction's status indicates which blocks it is included in and the commit point
--- of the highest such block.  A transaction that is not included any block
+-- of the highest such block. A transaction that is not included in any blocks
 -- may also have a non-zero highest commit point if it is received in a block, but that block
 -- is not yet considered arrived (e.g. it is pending its parent).
 --

@@ -119,6 +119,6 @@ class (Monad m) => MonadTreeStateStore m where
     -- |From the last block backwards, remove blocks and their associated transactions
     -- from the database until the predicate returns 'True'. If any blocks are rolled back,
     -- this also removes the latest finalization entry.
-    -- This returns @Right Int@ where the 'Int' indicates how many blocks that were rolled back.
+    -- This returns @Right Int@ where the 'Int' indicates how many blocks were rolled back.
     -- If an error occurred attempting to roll back, @Left reason@ is returned.
     rollBackBlocksUntil :: (StoredBlock (MPV m) -> m Bool) -> m (Either String Int)

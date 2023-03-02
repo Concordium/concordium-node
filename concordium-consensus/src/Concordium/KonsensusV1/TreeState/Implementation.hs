@@ -99,7 +99,8 @@ data BlockTable pv = BlockTable
       -- Blocks are removed from this map by two means;
       --
       -- * When a block becomes finalized it is
-      -- being persisted (and so is the predecessor live blocks)
+      -- being persisted (and so are the live blocks which are predecessors to the block
+      -- being finalized.)
       -- and removed from this cache.
       --
       -- * When a block is being marked as dead.
@@ -125,7 +126,7 @@ emptyBlockTable = BlockTable emptyDeadCache HM.empty
 -- The 'PendingTransactionTable' is special for the focus block, as it records
 -- the pending transactions for that given block (the focus block).
 --
--- Hence, itt must always be the case that a nonce from the perspective of the focus block
+-- Hence, it must always be the case that a nonce from the perspective of the focus block
 -- is the same as recorded in the 'PendingTransactionTable'.
 data PendingTransactions pv = PendingTransactions
     { -- |The block with respect to which the pending transactions are considered pending.
@@ -138,7 +139,7 @@ data PendingTransactions pv = PendingTransactions
 -- making it easier to work with from a 'SkovData' context.
 makeClassy ''PendingTransactions
 
--- | Pending blocks are conceptually stored in a min priority search queue,
+-- | Pending blocks are conceptually stored in a min priority queue,
 -- where multiple blocks may have the same key, which is their parent,
 -- and the priority is the block's round number.
 -- When a block arrives (possibly dead), its pending children are removed
@@ -150,7 +151,7 @@ data PendingBlocks = PendingBlocks
     { -- |Pending blocks i.e. blocks that have not yet been included in the tree.
       -- The entries of the pending blocks are keyed by the 'BlockHash' of their parent block.
       _pendingBlocksTable :: !(HM.HashMap BlockHash [PendingBlock]),
-      -- |A priority search queue on the (pending block hash, parent of pending block hash) tuple,
+      -- |A priority queue on the (pending block hash, parent of pending block hash) tuple,
       -- prioritised by the round of the pending block. The queue in particular supports extracting
       -- the pending block with minimal 'Round'. Note that the queue can contain blocks that are
       -- not actually pending, hence it does not have an entry in the '_pendingBlocksTable'.
@@ -293,7 +294,7 @@ mkBlockPointer sb@LowLevel.StoredBlock{..} = do
     return BlockPointer{bpInfo = stbInfo, bpBlock = stbBlock, ..}
   where
     mkHashedPersistentBlockState = do
-        hpbsPointers <- newIORef $ BlobStore.blobRefToBufferedRef stbStatePointer
+        hpbsPointers <- newIORef $! BlobStore.blobRefToBufferedRef stbStatePointer
         let hpbsHash = blockStateHash sb
         return $! PBS.HashedPersistentBlockState{..}
 
@@ -378,7 +379,7 @@ markPending pb = blockTable . liveMap . at' (getHash pb) ?=! MemBlockPending pb
 -- * Operations on pending blocks
 
 -- $pendingBlocks
--- Pending blocks are conceptually stored in a min priority search queue,
+-- Pending blocks are conceptually stored in a min priority queue,
 -- where multiple blocks may have the same key, which is their parent,
 -- and the priority is the block's round number.
 -- When a block arrives (possibly dead), its pending children are removed
