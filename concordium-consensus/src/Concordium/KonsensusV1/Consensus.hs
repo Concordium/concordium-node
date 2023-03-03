@@ -41,8 +41,7 @@ data AddBlockItemResult
     | -- |The transaction was already present
       -- in the tree state.
       Duplicate
-    | -- |The transaction nonce was obsolete,
-      -- i.e. inferior to the next available nonce.
+    | -- |The transaction nonce was old hence it was not at least the next available nonce.
       Obsolete
     deriving (Eq, Show)
 
@@ -75,7 +74,7 @@ addPendingTransaction origin bi = do
             fbState <- bpState <$> (_focusBlock <$> gets' _skovPendingTransactions)
             macct <- getAccount fbState $! transactionSender tx
             nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
-            when (nextNonce <= transactionNonce tx || origin == Individual) $ do
+            when (nextNonce <= transactionNonce tx || origin == Block) $ do
                 pendingTransactionTable %=! TT.addPendingTransaction nextNonce tx
                 doPurgeTransactionTable False =<< currentTime
         CredentialDeployment _ -> do
@@ -84,7 +83,7 @@ addPendingTransaction origin bi = do
         ChainUpdate cu -> do
             fbState <- bpState <$> (_focusBlock <$> gets' _skovPendingTransactions)
             nextSN <- getNextUpdateSequenceNumber fbState (updateType (uiPayload cu))
-            when (nextSN <= updateSeqNumber (uiHeader cu) || origin == Individual) $ do
+            when (nextSN <= updateSeqNumber (uiHeader cu) || origin == Block) $ do
                 pendingTransactionTable %=! TT.addPendingUpdate nextSN cu
                 doPurgeTransactionTable False =<< currentTime
   where
@@ -163,14 +162,12 @@ processBlockItems bb parentPointer = processBis $! bbTransactions bb
     getCtx = do
         _ctxSkovData <- get
         return $! Context{_ctxTransactionOrigin = Block, _ctxBlockState = bpState parentPointer, ..}
-    processBis !txs
-        -- If no transactions are present we return 'True'.
-        | Vector.length txs == 0 = return True
-        -- There's work to do.
-        | otherwise = snd <$> process txs False
+    processBis !txs = snd <$> process txs True
     theRound = bbRound bb
     process !txs !res
+        -- If no transactions are present then all were added.
         | Vector.length txs == 0 = return (Vector.empty, res)
+        -- There's work to do.
         | otherwise = do
             !theTime <- utcTimeToTimestamp <$> currentTime
             let !bi = Vector.head txs
@@ -179,7 +176,7 @@ processBlockItems bb parentPointer = processBis $! bbTransactions bb
             -- Check whether we already have the transaction.
             case tt' ^. TT.ttHashMap . at' txHash of
                 Just (_, results) -> do
-                    -- If we have received the tranaction before we update the maximum committed round
+                    -- If we have received the transaction before we update the maximum committed round
                     -- if the new round is higher.
                     when (TT.commitPoint theRound > results ^. TT.tsCommitPoint) $
                         transactionTable . TT.ttHashMap . at' txHash . mapped . _2 %=! TT.updateSlot theRound
@@ -196,10 +193,6 @@ processBlockItems bb parentPointer = processBis $! bbTransactions bb
                     -- of the block as it could be the case that we have received other transactions from the given account via other blocks.
                     -- We only add the transaction to the pending transaction table if its nonce is at least the next available nonce for the
                     -- account.
-                    let continue !added =
-                            if not added
-                                then process (Vector.tail txs) True
-                                else addPendingTransaction Block bi >> process (Vector.tail txs) True
                     case verRes of
                         -- The transaction was deemed non verifiable i.e., it can never be
                         -- valid. We short circuit the recursion here and return 'False'.
@@ -207,4 +200,9 @@ processBlockItems bb parentPointer = processBis $! bbTransactions bb
                         -- The transaction is either 'Ok' or 'MaybeOk' and that is acceptable
                         -- when processing transactions which originates from a block.
                         -- We add it to the transaction table and continue with the next transaction.
-                        acceptedRes -> doAddTransaction theRound bi acceptedRes >>= continue
+                        acceptedRes ->
+                            doAddTransaction theRound bi acceptedRes
+                                >>= \added ->
+                                    if not added
+                                        then process (Vector.tail txs) True
+                                        else addPendingTransaction Block bi >> process (Vector.tail txs) True

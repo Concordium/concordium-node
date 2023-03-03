@@ -117,5 +117,4 @@ instance
         chainParams <- lift $ BS.getChainParameters bs
         return $! chainParams ^. cpConsensusParameters . cpBlockEnergyLimit
     {-# INLINE checkExactNonce #-}
-    checkExactNonce = do
-        asks ((== Individual) . _ctxTransactionOrigin)
+    checkExactNonce = asks ((== Individual) . _ctxTransactionOrigin)
