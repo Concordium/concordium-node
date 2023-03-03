@@ -55,6 +55,7 @@ import Concordium.GlobalState.CapitalDistribution (DelegatorCapital (..))
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Statistics
 import qualified Concordium.GlobalState.TransactionTable as TT
+import qualified Concordium.GlobalState.TreeState as TS
 import Concordium.GlobalState.Types
 import qualified Concordium.GlobalState.Wasm as GSWasm
 import Concordium.ID.Types
@@ -932,8 +933,8 @@ getTransactionStatus trHash =
     liftSkovQueryLatestResult $
         queryTransactionStatus trHash >>= \case
             Nothing -> return Nothing
-            Just TT.Received{} -> return $ Just Received
-            Just TT.Committed{..} -> do
+            Just (TS.Live TT.Received{}) -> return $ Just Received
+            Just (TS.Live TT.Committed{..}) -> do
                 outcomes <- forM (HM.toList tsResults) $ \(bh, idx) ->
                     resolveBlock bh >>= \case
                         Nothing -> return (bh, Nothing) -- should not happen
@@ -942,13 +943,13 @@ getTransactionStatus trHash =
                             outcome <- BS.getTransactionOutcome bs idx
                             return (bh, outcome)
                 return $ Just $ Committed (Map.fromList outcomes)
-            Just TT.Finalized{..} ->
-                resolveBlock tsBlockHash >>= \case
+            Just TS.Finalized{..} ->
+                resolveBlock ftsBlockHash >>= \case
                     Nothing -> return Nothing -- should not happen
                     Just bp -> do
                         bs <- blockState bp
-                        outcome <- BS.getTransactionOutcome bs tsFinResult
-                        return $ Just $ Finalized tsBlockHash outcome
+                        outcome <- BS.getTransactionOutcome bs ftsFinResult
+                        return $ Just $ Finalized ftsBlockHash outcome
 
 -- |Get the status of a transaction within a particular block.
 --
@@ -966,8 +967,8 @@ getTransactionStatusInBlock trHash blockHash =
                         Nothing -> return Nothing
                         -- If the block is known, then we can return BTSNotInBlock already.
                         Just _ -> return $ Just BTSNotInBlock
-                Just TT.Received{} -> return $ Just BTSReceived
-                Just TT.Committed{..} -> case HM.lookup blockHash tsResults of
+                Just (TS.Live TT.Received{}) -> return $ Just BTSReceived
+                Just (TS.Live TT.Committed{..}) -> case HM.lookup blockHash tsResults of
                     Nothing -> return $ Just BTSNotInBlock
                     Just idx ->
                         resolveBlock blockHash >>= \case
@@ -976,14 +977,14 @@ getTransactionStatusInBlock trHash blockHash =
                                 bs <- blockState bp
                                 outcome <- BS.getTransactionOutcome bs idx
                                 return $ Just $ BTSCommitted outcome
-                Just TT.Finalized{..} ->
-                    if tsBlockHash == blockHash
+                Just TS.Finalized{..} ->
+                    if ftsBlockHash == blockHash
                         then
                             resolveBlock blockHash >>= \case
                                 Nothing -> return $ Just BTSNotInBlock -- unlikely but possible
                                 Just bp -> do
                                     bs <- blockState bp
-                                    outcome <- BS.getTransactionOutcome bs tsFinResult
+                                    outcome <- BS.getTransactionOutcome bs ftsFinResult
                                     return $ Just $ BTSFinalized outcome
                         else return $ Just BTSNotInBlock
             )

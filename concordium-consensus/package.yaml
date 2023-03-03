@@ -256,6 +256,7 @@ tests:
     - hspec >= 2.5
     - QuickCheck >= 2.10
     - hspec-expectations >= 0.8
+    - HUnit >= 1.6
     - vector >= 0.12
     - math-functions >= 0.2
     - temporary >= 1.3
