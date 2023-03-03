@@ -702,6 +702,11 @@ data HashedPersistentBlockState pv = HashedPersistentBlockState
       hpbsHash :: !StateHash
     }
 
+instance HashableTo StateHash (HashedPersistentBlockState pv) where
+    getHash = hpbsHash
+
+instance Monad m => MHashableTo m StateHash (HashedPersistentBlockState pv)
+
 -- |Constraint for ensuring that @m@ supports both persistent accounts and persistent modules.
 type SupportsPersistentState pv m = (MonadProtocolVersion m, MPV m ~ pv, SupportsPersistentAccount pv m, Modules.SupportsPersistentModule m)
 

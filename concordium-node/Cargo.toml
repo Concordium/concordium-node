@@ -1,6 +1,6 @@
 [package]
 name = "concordium_node"
-version = "5.2.3" # must be kept in sync with 'is_compatible_version' in 'src/configuration.rs'
+version = "5.2.4" # must be kept in sync with 'is_compatible_version' in 'src/configuration.rs'
 description = "Concordium Node"
 authors = ["Concordium <developers@concordium.com>"]
 exclude = [".gitignore", ".gitlab-ci.yml", "test/**/*","**/**/.gitignore","**/**/.gitlab-ci.yml"]
@@ -63,6 +63,7 @@ thiserror = "1.0"
 futures = { version = "0.3" }
 url = "2.2"
 reqwest = { version = "0.11", features = ["stream", "native-tls-vendored"] }
+openssl-src = "=111.25.0" # Fix openssl-src to version 111.25 since the newer ones are not supported on Rust 1.62. Once we update rust to 1.63+ remove this.
 csv = "1.1"
 tokio-util = { version = "0.7.3", features = ["io"] }
 libc = "0.2"
@@ -77,8 +78,8 @@ hyper = { version = "0.14" }
 # gRPC dependencies
 tonic = { version = "0.8", features = ["tls"] }
 tonic-reflection = "0.5"
+tower-http = { version = "0.4", features = ["trace"] }
 tower = "0.4"
-tower-http = { version = "0.3", features = ["trace"] }
 tonic-web = "0.4"
 prost = "0.11"
 tokio = { version = "1.20", features = ["macros", "rt-multi-thread", "signal", "io-util", "time"] }

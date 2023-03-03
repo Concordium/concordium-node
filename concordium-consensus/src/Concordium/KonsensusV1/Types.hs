@@ -1,6 +1,9 @@
 {-# LANGUAGE BinaryLiterals #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Concordium.KonsensusV1.Types where
@@ -18,6 +21,7 @@ import qualified Concordium.Crypto.BlockSignature as BlockSig
 import qualified Concordium.Crypto.BlsSignature as Bls
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.VRF as VRF
+import Concordium.Genesis.Data.BaseV1
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Transactions
@@ -29,12 +33,28 @@ import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as LFMBT
 newtype Round = Round {theRound :: Word64}
     deriving (Eq, Ord, Show, Serialize, Num, Integral, Real, Enum, Bounded)
 
--- |A strict version of 'Maybe'. We deliberately avoid defining generalised serialization and
--- hashing instances, so that specific instances can be given as appropriate.
+-- |A strict version of 'Maybe'.
 data Option a
     = Absent
     | Present !a
     deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
+
+-- |Putter for an @Option a@.
+putOptionOf :: Putter a -> Putter (Option a)
+putOptionOf _ Absent = putWord8 0
+putOptionOf pa (Present a) = putWord8 1 >> pa a
+
+-- |Getter for an @Option a@.
+getOptionOf :: Get a -> Get (Option a)
+getOptionOf ma = do
+    getWord8 >>= \case
+        0 -> return Absent
+        _ -> Present <$> ma
+
+-- |'Serialize' instance for an @Option a@.
+instance (Serialize a) => Serialize (Option a) where
+    put = putOptionOf put
+    get = getOptionOf get
 
 -- |Returns 'True' if and only if the value is 'Present'.
 isPresent :: Option a -> Bool
@@ -59,6 +79,19 @@ data QuorumSignatureMessage = QuorumSignatureMessage
     }
     deriving (Eq, Show)
 
+instance Serialize QuorumSignatureMessage where
+    put QuorumSignatureMessage{..} = do
+        put qsmGenesis
+        put qsmBlock
+        put qsmRound
+        put qsmEpoch
+    get = do
+        qsmGenesis <- get
+        qsmBlock <- get
+        qsmRound <- get
+        qsmEpoch <- get
+        return QuorumSignatureMessage{..}
+
 -- |Compute the byte representation of a 'QuorumSignatureMessage' that is actually signed.
 quorumSignatureMessageBytes :: QuorumSignatureMessage -> BS.ByteString
 quorumSignatureMessageBytes QuorumSignatureMessage{..} = runPut $ do
@@ -71,7 +104,7 @@ quorumSignatureMessageBytes QuorumSignatureMessage{..} = runPut $ do
 -- |Signature by a finalizer on a 'QuorumSignatureMessage', or an aggregation of signatures on a
 -- common message.
 newtype QuorumSignature = QuorumSignature {theQuorumSignature :: Bls.Signature}
-    deriving (Eq, Ord, Show, Serialize, Semigroup)
+    deriving (Eq, Ord, Show, Serialize, Semigroup, Monoid)
 
 -- |Sign a 'QuorumSignatureMessage' with a baker's private key.
 signQuorumSignatureMessage :: QuorumSignatureMessage -> BakerAggregationPrivateKey -> QuorumSignature
@@ -138,7 +171,7 @@ data FinalizerInfo = PartyInfo
       finalizerVRFKey :: !VRF.PublicKey,
       -- |The BLS public key of the finalizer
       finalizerBlsKey :: !Bls.PublicKey,
-      -- |The baker ID of the finalizaer
+      -- |The baker ID of the finalizer
       finalizerBakerId :: !BakerId
     }
     deriving (Eq, Ord)
@@ -332,6 +365,19 @@ data TimeoutSignatureMessage = TimeoutSignatureMessage
     }
     deriving (Eq, Show)
 
+instance Serialize TimeoutSignatureMessage where
+    put TimeoutSignatureMessage{..} = do
+        put tsmGenesis
+        put tsmRound
+        put tsmQCRound
+        put tsmQCEpoch
+    get = do
+        tsmGenesis <- get
+        tsmRound <- get
+        tsmQCRound <- get
+        tsmQCEpoch <- get
+        return TimeoutSignatureMessage{..}
+
 -- |Compute the byte representation of a 'TimeoutSignatureMessage' that is actually signed.
 timeoutSignatureMessageBytes :: TimeoutSignatureMessage -> BS.ByteString
 timeoutSignatureMessageBytes TimeoutSignatureMessage{..} = runPut $ do
@@ -343,7 +389,7 @@ timeoutSignatureMessageBytes TimeoutSignatureMessage{..} = runPut $ do
 
 -- |Signature by a finalizer on a 'TimeoutSignatureMessage', or an aggregation of such signatures.
 newtype TimeoutSignature = TimeoutSignature {theTimeoutSignature :: Bls.Signature}
-    deriving (Eq, Ord, Show, Serialize, Semigroup)
+    deriving (Eq, Ord, Show, Serialize, Semigroup, Monoid)
 
 -- |Sign a 'TimeoutSignatureMessage' with a Baker's private key.
 signTimeoutSignatureMessage :: TimeoutSignatureMessage -> BakerAggregationPrivateKey -> TimeoutSignature
@@ -555,7 +601,7 @@ checkTimeoutMessageSignature ::
     BlockHash ->
     -- |The timeout message
     TimeoutMessage ->
-    -- |Wheter the signature could be verified or not.
+    -- |Whether the signature could be verified or not.
     Bool
 checkTimeoutMessageSignature pubKey genesisHash TimeoutMessage{..} =
     BlockSig.verify pubKey (timeoutMessageBodySignatureBytes tmBody genesisHash) tmSignature
@@ -612,7 +658,7 @@ class BlockData b where
 
 -- |A 'BakedBlock' consists of a non-genesis block, excluding the block signature.
 data BakedBlock = BakedBlock
-    { -- |Block round number.
+    { -- |Block round number. Must be non-zero.
       bbRound :: !Round,
       -- |Block epoch number.
       bbEpoch :: !Epoch,
@@ -742,6 +788,15 @@ instance BakedBlockData SignedBlock where
     blockNonce = bbNonce . sbBlock
     blockSignature = sbSignature
 
+instance BlockData SignedBlock where
+    type BakedBlockDataType SignedBlock = SignedBlock
+    blockRound = bbRound . sbBlock
+    blockEpoch = bbEpoch . sbBlock
+    blockTimestamp = bbTimestamp . sbBlock
+    blockBakedData = Present
+    blockTransactions = Vector.toList . bbTransactions . sbBlock
+    blockStateHash = bbStateHash . sbBlock
+
 instance HashableTo BlockHash SignedBlock where
     getHash = sbHash
 
@@ -785,7 +840,7 @@ verifyBlockSignature ::
     BlockHash ->
     -- |The data of the block that is signed.
     b ->
-    -- |'True' if the signature can be verifed otherwise 'False'.
+    -- |'True' if the signature can be verified otherwise 'False'.
     Bool
 verifyBlockSignature key genesisHash b =
     BlockSig.verify
@@ -919,3 +974,118 @@ computeBlockHash bhh bqh =
 
 instance HashableTo BlockHash BakedBlock where
     getHash bb = computeBlockHash (getHash bb) (getHash bb)
+
+-- |A collection of signatures
+-- This is a map from 'FinalizerIndex' to the actual signature message.
+newtype SignatureMessages a = SignatureMessages
+    { smFinIdxToMessage :: Map.Map FinalizerIndex a
+    }
+    deriving (Eq, Show)
+
+-- |Construct an empty 'SignatureMessages'
+emptySignatureMessages :: SignatureMessages a
+emptySignatureMessages = SignatureMessages Map.empty
+
+-- |Serialize instance for @SignatureMessages a@.
+instance (Serialize a) => Serialize (SignatureMessages a) where
+    put (SignatureMessages fiMsgMap) = do
+        putWord32be $! fromIntegral $! Map.size fiMsgMap
+        putSafeSizedMapOf put put fiMsgMap
+    get = do
+        count <- getWord32be
+        SignatureMessages <$> getSafeSizedMapOf count get get
+
+-- |Configuration information stored for the genesis block.
+data GenesisMetadata = GenesisMetadata
+    { -- |Core genesis parameters.
+      gmParameters :: !CoreGenesisParametersV1,
+      -- |Hash of the genesis block.
+      gmCurrentGenesisHash :: !BlockHash,
+      -- |Hash of the first genesis block.
+      gmFirstGenesisHash :: !BlockHash,
+      -- |Hash of the genesis block state (after migration).
+      gmStateHash :: !StateHash
+    }
+    deriving (Eq, Show)
+
+instance Serialize GenesisMetadata where
+    put GenesisMetadata{..} = do
+        put gmParameters
+        put gmCurrentGenesisHash
+        put gmFirstGenesisHash
+        put gmStateHash
+    get = do
+        gmParameters <- get
+        gmCurrentGenesisHash <- get
+        gmFirstGenesisHash <- get
+        gmStateHash <- get
+        return GenesisMetadata{..}
+
+-- |Either a genesis block or a normal block.
+-- A normal block MUST have a non-zero round number.
+--
+-- The genesis block is represented only by the 'GenesisMetadata' and the
+-- 'StateHash', which abstract from the genesis data.
+data Block (pv :: ProtocolVersion)
+    = GenesisBlock !GenesisMetadata
+    | NormalBlock !SignedBlock
+    deriving (Eq, Show)
+
+instance BlockData (Block pv) where
+    type BakedBlockDataType (Block pv) = SignedBlock
+    blockRound GenesisBlock{} = 0
+    blockRound (NormalBlock b) = blockRound b
+    blockEpoch GenesisBlock{} = 0
+    blockEpoch (NormalBlock b) = blockEpoch b
+    blockTimestamp (GenesisBlock gc) = genesisTime (gmParameters gc)
+    blockTimestamp (NormalBlock b) = blockTimestamp b
+    blockBakedData GenesisBlock{} = Absent
+    blockBakedData (NormalBlock b) = blockBakedData b
+    blockTransactions GenesisBlock{} = []
+    blockTransactions (NormalBlock b) = blockTransactions b
+    blockStateHash (GenesisBlock gc) = gmStateHash gc
+    blockStateHash (NormalBlock b) = blockStateHash b
+
+instance HashableTo BlockHash (Block pv) where
+    getHash (GenesisBlock gc) = gmCurrentGenesisHash gc
+    getHash (NormalBlock b) = getHash b
+
+instance Monad m => MHashableTo m BlockHash (Block pv)
+
+-- |Serialize a 'Block'. This is used for block storage, rather than wire-transmission, as
+-- generally genesis blocks should not be transmitted.  For 'NormalBlock's, this is compatible
+-- with the serialization of 'SignedBlock'.
+putBlock :: Putter (Block pv)
+putBlock (GenesisBlock gc) = do
+    put (0 :: Round)
+    put gc
+putBlock (NormalBlock b) = putSignedBlock b
+
+-- |Deserialize a 'Block'. This is used for block storage, rather than wire-transmission, as
+-- generally genesis blocks should not be transmitted.  For 'NormalBlock's, this is compatible
+-- with the serialization of 'SignedBlock'.
+getBlock :: forall pv. (IsProtocolVersion pv) => TransactionTime -> Get (Block pv)
+getBlock ts = do
+    (r :: Round) <- lookAhead get
+    case r of
+        0 -> do
+            (_ :: Round) <- get
+            GenesisBlock <$> get
+        _ -> do
+            NormalBlock <$> getSignedBlock (protocolVersion @pv) ts
+
+-- |Deserialize a 'Block' where we already know the block hash. This behaves the same as 'getBlock',
+-- but avoids having to recompute the block hash.
+-- Hence this function does not verify whether the provided hash corresponds the the actual hash
+-- of the block.
+unsafeGetBlockKnownHash :: forall pv. (IsProtocolVersion pv) => TransactionTime -> BlockHash -> Get (Block pv)
+unsafeGetBlockKnownHash ts sbHash = do
+    (r :: Round) <- lookAhead get
+    case r of
+        0 -> do
+            (_ :: Round) <- get
+            GenesisBlock <$> get
+        _ -> do
+            sbBlock <- getBakedBlock (protocolVersion @pv) ts
+            sbSignature <- get
+            return $ NormalBlock SignedBlock{..}

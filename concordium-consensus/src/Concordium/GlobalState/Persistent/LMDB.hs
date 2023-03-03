@@ -13,7 +13,6 @@ module Concordium.GlobalState.Persistent.LMDB (
     DatabaseHandlers (..),
     HasDatabaseHandlers (..),
     FinalizedTransactionStatus (..),
-    finalizedToTransactionStatus,
     storeEnv,
     blockStore,
     finalizationRecordStore,
@@ -57,7 +56,6 @@ import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.LMDB.Helpers
 import Concordium.GlobalState.Persistent.BlobStore (BlobRef)
 import Concordium.GlobalState.Persistent.BlockPointer
-import qualified Concordium.GlobalState.TransactionTable as T
 import Concordium.Logger
 import Concordium.Types
 import Concordium.Types.Execution (TransactionIndex)
@@ -104,7 +102,7 @@ putStoredBlock StoredBlock{..} =
 newtype BlockStore (pv :: ProtocolVersion) st = BlockStore MDB_dbi'
 
 -- |A refinement of 'Serialize' that indicates that the size (i.e., amount of
--- bytes used) of the serialized value is independend of the value. This must be
+-- bytes used) of the serialized value is independent of the value. This must be
 -- exact, not just an upper bound.
 class S.Serialize a => FixedSizeSerialization a where
     -- |Return the size of serialized values in bytes.
@@ -187,11 +185,6 @@ data FinalizedTransactionStatus = FinalizedTransactionStatus
 instance S.Serialize FinalizedTransactionStatus where
     put FinalizedTransactionStatus{..} = S.put ftsSlot >> S.put ftsBlockHash >> S.put ftsIndex
     get = FinalizedTransactionStatus <$> S.get <*> S.get <*> S.get
-
--- |Convert a 'FinalizedTransactionStatus' to a 'TransactionStatus'
-finalizedToTransactionStatus :: FinalizedTransactionStatus -> T.TransactionStatus
-finalizedToTransactionStatus FinalizedTransactionStatus{..} =
-    T.Finalized{_tsSlot = ftsSlot, tsBlockHash = ftsBlockHash, tsFinResult = ftsIndex}
 
 instance MDBDatabase TransactionStatusStore where
     type DBKey TransactionStatusStore = TransactionHash
@@ -312,8 +305,6 @@ dbStepSize = 2 ^ (26 :: Int) -- 64MB
 -- This is currently set to be the same as 'dbStepSize'.
 dbInitSize :: Int
 dbInitSize = dbStepSize
-
--- NB: The @ati@ is stored in an external database if chosen to.
 
 -- |Initialize database handlers in ReadWrite mode.
 -- This simply loads the references and does not initialize the databases.

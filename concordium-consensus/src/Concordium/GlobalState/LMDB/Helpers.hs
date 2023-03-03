@@ -314,6 +314,11 @@ class MDBDatabase db where
     default encodeKey :: (S.Serialize (DBKey db)) => Proxy db -> DBKey db -> ByteString
     encodeKey _ = S.encode
 
+    -- |Perform an IO action using the key as an 'MDB_val'. The 'MDB_val' must not be retained
+    -- after the action returns (either normally or by an exception).
+    withKey :: Proxy db -> DBKey db -> (MDB_val -> IO a) -> IO a
+    withKey prox key = withMDB_val (encodeKey prox key)
+
     -- |Decode a key. The result should not retain the pointer.
     decodeKey :: Proxy db -> MDB_val -> IO (Either String (DBKey db))
     default decodeKey :: (S.Serialize (DBKey db)) => Proxy db -> MDB_val -> IO (Either String (DBKey db))
@@ -477,7 +482,7 @@ storeRecord ::
     -- |Value
     DBValue db ->
     IO ()
-storeRecord txn dbi key val = withMDB_val (encodeKey prox key) $ \keyv -> do
+storeRecord txn dbi key val = withKey prox key $ \keyv -> do
     let encVal = encodeValue prox val
     res <- tryJust isKeyExist $ mdb_reserve' writeFlags txn (mdbDatabase dbi) keyv (fromIntegral $ LBS.length encVal)
     case res of
@@ -523,7 +528,7 @@ storeReplaceBytes ::
     -- |Value
     LBS.ByteString ->
     IO ()
-storeReplaceBytes txn dbi key encVal = withMDB_val (encodeKey prox key) $ \keyv -> do
+storeReplaceBytes txn dbi key encVal = withKey prox key $ \keyv -> do
     valv <- mdb_reserve' writeFlags txn (mdbDatabase dbi) keyv (fromIntegral $ LBS.length encVal)
     writeMDB_val encVal valv
   where
@@ -543,7 +548,7 @@ loadRecord ::
     DBKey db ->
     IO (Maybe (DBValue db))
 loadRecord txn dbi key = do
-    mval <- withMDB_val (encodeKey prox key) $ mdb_get' txn (mdbDatabase dbi)
+    mval <- withKey prox key $ mdb_get' txn (mdbDatabase dbi)
     case mval of
         Nothing -> return Nothing
         Just bval ->
@@ -567,7 +572,7 @@ deleteRecord ::
     DBKey db ->
     IO Bool
 deleteRecord txn dbi key = do
-    withMDB_val (encodeKey prox key) $ \val -> mdb_del' txn (mdbDatabase dbi) val Nothing
+    withKey prox key $ \val -> mdb_del' txn (mdbDatabase dbi) val Nothing
   where
     prox :: Proxy db
     prox = Proxy
@@ -584,7 +589,7 @@ isRecordPresent ::
     DBKey db ->
     IO Bool
 isRecordPresent txn dbi key =
-    isJust <$> withMDB_val (encodeKey prox key) (mdb_get' txn (mdbDatabase dbi))
+    isJust <$> withKey prox key (mdb_get' txn (mdbDatabase dbi))
   where
     prox :: Proxy db
     prox = Proxy
