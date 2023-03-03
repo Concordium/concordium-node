@@ -253,7 +253,7 @@ mkInitialSkovData rp genMeta genState baseTimeout len _skovEpochBakers =
                   bpBlock = genesisBlock,
                   bpState = genState
                 }
-        _roundStatus = initialRoundStatus baseTimeout len $ gcFirstGenesisHash genConf
+        _roundStatus = initialRoundStatus baseTimeout len $ gmFirstGenesisHash genMeta
         _transactionTable = emptyTransactionTable
         _transactionTablePurgeCounter = 0
         _skovPendingTransactions =

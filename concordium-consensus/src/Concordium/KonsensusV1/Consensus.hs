@@ -36,19 +36,19 @@ makeClassy ''BakerContext
 -- |Get the private baker aggregation key.
 getBakerAggSecretKey :: (MonadReader r m, HasBakerContext r) => m BakerAggregationPrivateKey
 getBakerAggSecretKey = do
-    bi <- asks (view bakerIdentity)
+    bi <- view bakerIdentity
     return $ bakerAggregationKey bi
 
 -- |Get the private baker sign key.
 getBakerSignPrivateKey :: (MonadReader r m, HasBakerContext r) => m BakerSignPrivateKey
 getBakerSignPrivateKey = do
-    bi <- asks (view bakerIdentity)
+    bi <- view bakerIdentity
     return $ bakerSignKey bi
 
 -- |Get the baker id.
 getBakerId :: (MonadReader r m, HasBakerContext r) => m BakerId
 getBakerId = do
-    bi <- asks (view bakerIdentity)
+    bi <- view bakerIdentity
     return $ bakerId bi
 
 
@@ -87,8 +87,8 @@ uponTimeoutEvent = do
         Just finInfo -> do
             currentRoundStatus <- doGetRoundStatus
             lastFinBlockPtr <- use lastFinalized
-            gc <- use genesisConfiguration
-            let genesisHash = gcFirstGenesisHash gc
+            gc <- use genesisMetadata
+            let genesisHash = gmFirstGenesisHash gc
             cp <- getChainParameters $ bpState lastFinBlockPtr
             let timeoutIncrease = cp ^. cpConsensusParameters . cpTimeoutParameters . tpTimeoutIncrease
             doSetRoundStatus $ updateRoundStatus timeoutIncrease currentRoundStatus
