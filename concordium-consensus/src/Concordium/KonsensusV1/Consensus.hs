@@ -47,8 +47,12 @@ data AddBlockItemResult
 
 -- |Adds a transaction into the pending transaction table
 -- if it's eligible.
--- A transaction is eligible if the nonce of the transaction is at least
--- as high as the next available nonce observed with respect to the focus block.
+--
+-- If a transaction is received individually, then it is added to the pending transactions
+-- only if the nonce of the transaction is at least as high as
+-- the next available nonce observed with respect to the focus block.
+-- If the transaction is received as part of a block we always add it to the
+-- pending transactions.
 --
 -- We always check that the nonce of the transaction (if it has origin 'Block') is
 -- at least what is recorded with respect to next available nonce for the
