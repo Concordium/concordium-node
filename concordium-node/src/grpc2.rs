@@ -948,8 +948,13 @@ pub mod server {
                 let stats_layer = StatsLayer {
                     stats: node.stats.clone(),
                 };
-                let mut builder =
-                    tonic::transport::Server::builder().layer(log_layer).layer(stats_layer);
+                let in_flight_request_layer = tower_http::metrics::InFlightRequestsLayer::new(
+                    node.stats.grpc_pending_requests_counter.clone(),
+                );
+                let mut builder = tonic::transport::Server::builder()
+                    .layer(log_layer)
+                    .layer(in_flight_request_layer)
+                    .layer(stats_layer);
                 if let Some(identity) = identity {
                     builder = builder
                         .tls_config(ServerTlsConfig::new().identity(identity))

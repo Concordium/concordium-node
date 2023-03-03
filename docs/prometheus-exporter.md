@@ -180,3 +180,8 @@ Possible values of `status` are:
 - `"unavailable"` The service is currently unavailable.
 - `"data loss"` Unrecoverable data loss or corruption.
 - `"unauthenticated"` The request does not have valid authentication credentials.
+
+### `grpc_pending_requests`
+
+Current number of gRPC requests being handled by the node.
+Streaming gRPC methods are counted as pending until the response stream is closed.
