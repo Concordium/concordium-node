@@ -40,8 +40,13 @@ instance Serialize FinalizedTransactionStatus where
 
 -- |Metadata about a block that has been executed.
 data BlockMetadata = BlockMetadata
-    { bmHeight :: !BlockHeight,
+    { -- |The height of the block.
+      bmHeight :: !BlockHeight,
+      -- |The time that the block is received by the
+      -- consensus layer i.e. it has been deserialized.
       bmReceiveTime :: !UTCTime,
+      -- |The time that the block has become live,
+      -- i.e. it has been processed and current head of the chain.
       bmArriveTime :: !UTCTime
     }
     deriving (Eq, Show)
@@ -83,15 +88,6 @@ instance BlockData (BlockPointer pv) where
     blockBakedData = blockBakedData . bpBlock
     blockTransactions = blockTransactions . bpBlock
     blockStateHash = blockStateHash . bpBlock
-
--- |The `Eq` instance checks that the info and blocks are the same, and that the states have the
--- same hash. This is intended for testing purposes: for practical purposes, it should be sufficient
--- to check equality of block hashes.
-instance Eq (BlockPointer pv) where
-    bp1 == bp2 =
-        bpInfo bp1 == bpInfo bp2
-            && bpBlock bp1 == bpBlock bp2
-            && PBS.hpbsHash (bpState bp1) == PBS.hpbsHash (bpState bp2)
 
 instance Show (BlockPointer pv) where
     show BlockPointer{..} =
@@ -135,7 +131,7 @@ instance BakedBlockData PendingBlock where
 
 -- |Status of a transaction.
 data TransactionStatus
-    = -- |The transaction is either pending (i.e. not in a block) of committed (i.e. in a
+    = -- |The transaction is either pending (i.e. not in a block) or committed (i.e. in a
       -- non-finalized block).
       Live !LiveTransactionStatus
     | -- |The transaction is in a finalized block.
@@ -154,7 +150,7 @@ data BlockStatus pv
       BlockDead
     | -- |The block is unknown
       BlockUnknown
-    deriving (Eq, Show)
+    deriving (Show)
 
 -- |The status of a block as obtained without loading the block from disk.
 data RecentBlockStatus pv
@@ -165,7 +161,7 @@ data RecentBlockStatus pv
       OldFinalized
     | -- |The block is unknown.
       Unknown
-    deriving (Eq, Show)
+    deriving (Show)
 
 -- |The current round status.
 -- Note that it can be the case that both the 'QuorumSignatureMessage' and the
@@ -177,16 +173,16 @@ data RoundStatus = RoundStatus
       rsCurrentEpoch :: !Epoch,
       -- |The highest 'Round' that the consensus runner participated in.
       rsCurrentRound :: !Round,
-      -- |The 'QuourumSignatureMessage's for the current 'Round'.
+      -- |The 'QuorumSignatureMessage's for the current 'Round'.
       rsCurrentQuorumSignatureMessages :: !(SignatureMessages QuorumSignatureMessage),
       -- |The 'TimeoutSignatureMessage's for the current 'Round'.
       rsCurrentTimeoutSignatureMessages :: !(SignatureMessages TimeoutSignatureMessage),
       -- |If the consensus runner is part of the finalization committee,
       -- then this will yield the last signed 'QuorumSignatureMessage'
-      rsLastSignedQuouromSignatureMessage :: !(Maybe QuorumSignatureMessage),
+      rsLastSignedQuouromSignatureMessage :: !(Option QuorumSignatureMessage),
       -- |If the consensus runner is part of the finalization committee,
       -- then this will yield the last signed timeout message.
-      rsLastSignedTimeoutSignatureMessage :: !(Maybe TimeoutSignatureMessage),
+      rsLastSignedTimeoutSignatureMessage :: !(Option TimeoutSignatureMessage),
       -- |Next signable round. Blocks in this round and higher can be signed.
       rsNextSignableRound :: !Round,
       -- |The current timeout.
@@ -201,13 +197,14 @@ data RoundStatus = RoundStatus
       -- |The latest 'Epoch' 'FinalizationEntry'.
       -- This will only be 'Nothing' in between the
       -- genesis block and the first explicitly finalized block.
-      rsLatestEpochFinEntry :: !(Maybe FinalizationEntry),
+      rsLatestEpochFinEntry :: !(Option FinalizationEntry),
       -- |The previous round timeout certificate if the previous round timed out.
       -- This is @Just (TimeoutCertificate, QuorumCertificate)@ if the previous round timed out or otherwise 'Nothing'.
       -- In the case of @Just@ then the associated 'QuorumCertificate' is the highest 'QuorumCertificate' at the time
       -- that the 'TimeoutCertificate' was built.
-      rsPreviousRoundTC :: !(Maybe (TimeoutCertificate, QuorumCertificate))
+      rsPreviousRoundTC :: !(Option (TimeoutCertificate, QuorumCertificate))
     }
+    deriving (Show, Eq)
 
 instance Serialize RoundStatus where
     put RoundStatus{..} = do
@@ -246,14 +243,14 @@ initialRoundStatus baseTimeout leNonce genesisHash =
           rsCurrentRound = 0,
           rsCurrentQuorumSignatureMessages = emptySignatureMessages,
           rsCurrentTimeoutSignatureMessages = emptySignatureMessages,
-          rsLastSignedQuouromSignatureMessage = Nothing,
-          rsLastSignedTimeoutSignatureMessage = Nothing,
+          rsLastSignedQuouromSignatureMessage = Absent,
+          rsLastSignedTimeoutSignatureMessage = Absent,
           rsNextSignableRound = 1,
           rsCurrentTimeout = baseTimeout,
           rsHighestQC = genesisQuorumCertificate genesisHash,
           rsLeadershipElectionNonce = leNonce,
-          rsLatestEpochFinEntry = Nothing,
-          rsPreviousRoundTC = Nothing
+          rsLatestEpochFinEntry = Absent,
+          rsPreviousRoundTC = Absent
         }
 
 -- |The sets of bakers and finalizers for an epoch/payday.
@@ -271,6 +268,10 @@ makeLenses ''BakersAndFinalizers
 data EpochBakers = EpochBakers
     { -- |The current epoch under consideration.
       _epochBakersEpoch :: !Epoch,
+      -- |The bakers and finalizers for the previous epoch.
+      -- (If the current epoch is 0, then this is the same as the bakers and finalizers for the
+      -- current epoch.)
+      _previousEpochBakers :: !BakersAndFinalizers,
       -- |The bakers and finalizers for the current epoch.
       _currentEpochBakers :: !BakersAndFinalizers,
       -- |The bakers and finalizers for the next epoch.

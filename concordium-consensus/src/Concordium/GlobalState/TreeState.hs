@@ -97,12 +97,15 @@ data RecentBlockStatus bp pb
 data TransactionStatus
     = -- |Transaction is either pending (i.e. in no blocks) or committed (i.e. in a live block).
       Live !LiveTransactionStatus
-    | -- |Transaction is finalized in a given block with a specific outcome.
-      -- NB: With the current implementation a transaction can appear in at most one finalized block.
-      -- When that part is reworked so that branches are not pruned we will likely rework this.
+    | -- |Transaction is finalized in a given block.
       Finalized
-        { ftsCommitPoint :: !CommitPoint,
+        { -- |The commit point of the block that that the transaction is part of.
+          ftsCommitPoint :: !CommitPoint,
+          -- |The hash of the block that this transaction is part of.
           ftsBlockHash :: !BlockHash,
+          -- |Index of the transaction in the finalized block.
+          -- The 'TransactionIndex' can be used to query the outcome
+          -- via the associated block state.
           ftsFinResult :: !TransactionIndex
         }
 
