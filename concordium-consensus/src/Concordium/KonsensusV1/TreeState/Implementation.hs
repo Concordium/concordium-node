@@ -708,6 +708,21 @@ purgeTransactionTable force currentTime = do
         transactionTable .=! newTT
         pendingTransactionTable .=! newPT
 
+-- * Bakers
+
+-- |Get the set of bakers and finalizers for an epoch no later than the epoch of the last finalized
+-- block.
+getBakersForLiveEpoch :: (HasEpochBakers s) => Epoch -> s -> Maybe BakersAndFinalizers
+getBakersForLiveEpoch e s
+    | e == curEpoch = Just (s ^. currentEpochBakers)
+    | e == curEpoch + 1 = Just (s ^. nextEpochBakers)
+    | curEpoch <= e && e < s ^. nextPayday = Just (s ^. currentEpochBakers)
+    | otherwise = Nothing
+  where
+    curEpoch = s ^. epochBakersEpoch
+
+-- * Protocol update
+
 -- |Clear pending and non-finalized blocks from the tree state.
 -- Transactions that were committed (to any non-finalized block) have their status changed to
 -- received.
