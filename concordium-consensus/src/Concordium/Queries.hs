@@ -669,7 +669,7 @@ getBlockBirkParameters :: BlockHashInput -> MVR finconf (BlockHash, Maybe BlockB
 getBlockBirkParameters = liftSkovQueryBHI $ \bp -> do
     bs <- blockState bp
     bbpElectionDifficulty <- BS.getCurrentElectionDifficulty bs
-    bbpElectionNonce <- currentLeadershipElectionNonce <$> BS.getSeedState bs
+    bbpElectionNonce <- view currentLeadershipElectionNonce <$> BS.getSeedState bs
     FullBakers{..} <- BS.getCurrentEpochBakers bs
     let resolveBaker FullBakerInfo{_theBakerInfo = BakerInfo{..}, ..} = do
             let bsBakerId = _bakerIdentity

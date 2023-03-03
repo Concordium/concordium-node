@@ -1,5 +1,4 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -127,10 +126,10 @@ applyPendingChanges isEffective (bakers0, passive0) =
 
 -- |Compute the timestamp of the start of an epoch based on the genesis data.
 epochTimestamp :: GenesisConfiguration -> Epoch -> Timestamp
-epochTimestamp gd epoch =
+epochTimestamp gd targetEpoch =
     addDuration
         (gdGenesisTime gd)
-        (fromIntegral epoch * fromIntegral (gdEpochLength gd) * gdSlotDuration gd)
+        (fromIntegral targetEpoch * fromIntegral (gdEpochLength gd) * gdSlotDuration gd)
 
 -- |Determine the test for whether a pending change is effective at a payday based
 -- on the epoch of the payday.
@@ -250,10 +249,10 @@ paydayEpochBefore ::
     -- |The slot to compute the last payday before
     Slot ->
     Epoch
-paydayEpochBefore initialTimeParameters pendingTimeParameters epochLength nextPayday targetSlot = lastPayday
+paydayEpochBefore initialTimeParameters pendingTimeParameters epochLen nextPayday targetSlot = lastPayday
   where
-    epochToSlot e = epochLength * fromIntegral e
-    targetEpoch = fromIntegral $ targetSlot `div` epochLength
+    epochToSlot e = epochLen * fromIntegral e
+    targetEpoch = fromIntegral $ targetSlot `div` epochLen
     -- Find the first payday (starting from startPaydayEpoch) that is no sooner than the given slot.
     -- This is a very naive implementation that is easy to see is correct, and is likely fast
     -- enough in practice. TODO: improve this
@@ -322,9 +321,9 @@ getSlotBakersP4 ::
     m FullBakers
 getSlotBakersP4 genData bs slot =
     getSeedState bs >>= \case
-        SeedStateV0{epochLength, epoch = blockEpoch} -> do
+        SeedStateV0{ss0EpochLength = epochLen, ss0Epoch = blockEpoch} -> do
             let epochToSlot :: Epoch -> Slot
-                epochToSlot e = fromIntegral e * epochLength
+                epochToSlot e = fromIntegral e * epochLen
             nextPayday <- getPaydayEpoch bs
             let nextPaydaySlot = epochToSlot nextPayday
 
@@ -430,8 +429,8 @@ getDefiniteSlotBakersP1 ::
 getDefiniteSlotBakersP1 bs slot =
     getSeedState bs >>= \case
         SeedStateV0{..} -> do
-            let slotEpoch = fromIntegral $ slot `quot` epochLength
-            if slotEpoch <= epoch + 1
+            let slotEpoch = fromIntegral $ slot `quot` ss0EpochLength
+            if slotEpoch <= ss0Epoch + 1
                 then Just <$> getSlotBakersP1 bs slot
                 else return Nothing
 
@@ -462,9 +461,9 @@ getDefiniteSlotBakersP4 ::
     m (Maybe FullBakers)
 getDefiniteSlotBakersP4 genData bs slot =
     getSeedState bs >>= \case
-        SeedStateV0{epochLength, epoch = blockEpoch} -> do
+        SeedStateV0{ss0EpochLength = epochLen, ss0Epoch = blockEpoch} -> do
             let epochToSlot :: Epoch -> Slot
-                epochToSlot e = fromIntegral e * epochLength
+                epochToSlot e = fromIntegral e * epochLen
             nextPayday <- getPaydayEpoch bs
             let nextPaydaySlot = epochToSlot nextPayday
 

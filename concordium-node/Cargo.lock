@@ -1178,7 +1178,6 @@ dependencies = [
  "rand 0.7.3",
  "random_oracle",
  "serde 1.0.145",
- "wasm-bindgen",
 ]
 
 [[package]]
@@ -1766,7 +1765,6 @@ dependencies = [
  "serde_json 1.0.86",
  "sha2 0.10.6",
  "thiserror",
- "wasm-bindgen",
 ]
 
 [[package]]

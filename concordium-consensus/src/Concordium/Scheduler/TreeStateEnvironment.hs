@@ -237,7 +237,7 @@ doMintingP4 oldChainParameters paydayEpoch paydayMintRate foundationAddr mintUpd
             calculatePaydayMintAmounts
                 (oldChainParameters ^. rpMintDistribution)
                 paydayMintRate
-                (epochLength seedstate * fromIntegral paydayEpoch)
+                (seedstate ^. epochLength * fromIntegral paydayEpoch)
                 mintUpds
                 totGTU
     bs1 <- bsoMint bs0 mint
@@ -833,7 +833,7 @@ mintForSkippedPaydays ::
     m (Epoch, MintRate, UpdatableBlockState m)
 mintForSkippedPaydays newEpoch payday oldChainParameters foundationAccount updates bs0 = do
     seedstate <- bsoGetSeedState bs0
-    let paydaySlot = epochLength seedstate * fromIntegral payday
+    let paydaySlot = seedstate ^. epochLength * fromIntegral payday
         bestTP = updatedTimeParameters paydaySlot (oldChainParameters ^. cpTimeParameters . supportedOParam) updates
         nextMintRate = bestTP ^. tpMintPerPayday
         nextRPL = bestTP ^. tpRewardPeriodLength
@@ -1073,15 +1073,15 @@ updateBirkParameters newSeedState bs0 oldChainParameters updates = case protocol
         m (MintRewardParams 'ChainParametersV0, UpdatableBlockState m)
     updateCPV0AccountV0 = do
         oldSeedState <- bsoGetSeedState bs0
-        let isNewEpoch = epoch oldSeedState /= epoch newSeedState
+        let isNewEpoch = oldSeedState ^. epoch /= newSeedState ^. epoch
         bs1 <-
             if isNewEpoch
                 then do
                     upToLast <-
-                        if epoch oldSeedState /= epoch newSeedState - 1
-                            then bsoTransitionEpochBakers bs0 (epoch newSeedState - 1)
+                        if oldSeedState ^. epoch /= newSeedState ^. epoch - 1
+                            then bsoTransitionEpochBakers bs0 (newSeedState ^. epoch - 1)
                             else return bs0
-                    bsoTransitionEpochBakers upToLast (epoch newSeedState)
+                    bsoTransitionEpochBakers upToLast (newSeedState ^. epoch)
                 else return bs0
         (MintRewardParamsV0 isNewEpoch,) <$> bsoSetSeedState bs1 newSeedState
     updateCPV1AccountV1 ::
@@ -1092,15 +1092,15 @@ updateBirkParameters newSeedState bs0 oldChainParameters updates = case protocol
         m (MintRewardParams 'ChainParametersV1, UpdatableBlockState m)
     updateCPV1AccountV1 = do
         oldSeedState <- bsoGetSeedState bs0
-        if epoch oldSeedState == epoch newSeedState
+        if oldSeedState ^. epoch == newSeedState ^. epoch
             then (MintRewardParamsV1NoPayday,) <$> bsoSetSeedState bs0 newSeedState
             else do
                 -- This is the start of a new epoch.
-                -- Assume: epoch oldSeedState < epoch newSeedState
+                -- Assume: oldSeedState ^. epoch < newSeedState ^. epoch
                 payday <- bsoGetPaydayEpoch bs0
                 let oldTimeParameters = oldChainParameters ^. cpTimeParameters . supportedOParam
                     -- Convert an Epoch to a Slot.
-                    slotFor = (epochLength oldSeedState *) . fromIntegral
+                    slotFor = (oldSeedState ^. epochLength *) . fromIntegral
                     -- For each payday after the parent block:
                     --   - If the epoch before the payday is elapsed, generate the next bakers for the
                     --     reward period that starts from that payday.
@@ -1108,10 +1108,10 @@ updateBirkParameters newSeedState bs0 oldChainParameters updates = case protocol
                     --     to become the current epoch bakers and capital distribution.
                     processPaydays pd mrps0 bspp0 = do
                         bspp1 <-
-                            if epoch oldSeedState < pd - 1 && pd - 1 <= epoch newSeedState
+                            if oldSeedState ^. epoch < pd - 1 && pd - 1 <= newSeedState ^. epoch
                                 then generateNextBakers pd bspp0
                                 else return bspp0
-                        if pd <= epoch newSeedState
+                        if pd <= newSeedState ^. epoch
                             then do
                                 -- Calculate the next payday by adding the reward period length given by the
                                 -- time parameters as of the payday.
@@ -1304,7 +1304,7 @@ executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSee
                                     blockParent
                                     slotNumber
                                     blockBaker
-                                    (epoch newSeedState)
+                                    (newSeedState ^. epoch)
                                     prologueMintRewardParams
                                     mfinInfo
                                     (finState ^. EnvImpl.ssExecutionCosts)
@@ -1412,7 +1412,7 @@ constructBlock slotNumber slotTime blockParent blockBaker mfinInfo newSeedState 
                     blockParent
                     slotNumber
                     blockBaker
-                    (epoch newSeedState)
+                    (newSeedState ^. epoch)
                     prologueMintRewardParams
                     mfinInfo
                     (finState ^. EnvImpl.ssExecutionCosts)
