@@ -1,4 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -390,8 +391,16 @@ markPending pb = blockTable . liveMap . at' (getHash pb) ?=! MemBlockPending pb
 
 -- |Add a block to the pending block table and queue.
 -- [Note: this does not affect the '_branches' of the 'SkovData'.]
-addPendingBlock :: (MonadState s m, HasPendingBlocks s) => PendingBlock -> m ()
-addPendingBlock pb = do
+addPendingBlock ::
+    (MonadState s m, HasPendingBlocks s) =>
+    -- |The 'PendingBlock' to add.
+    -- Note that we force it here to make sure it is
+    -- evaluted since there are no guarantees by just the looks of this function.
+    -- In practice it probably does not matter as the pending block is being pre-verified
+    -- before this function is called. But we do it for good measure here.
+    PendingBlock ->
+    m ()
+addPendingBlock !pb = do
     pendingBlocksQueue %= MPQ.insert theRound (blockHash, parentHash)
     pendingBlocksTable . at' parentHash . non [] %= (pb :)
   where
