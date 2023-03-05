@@ -48,17 +48,24 @@ data AddBlockItemResult
 -- |Adds a transaction into the pending transaction table
 -- if it's eligible.
 --
--- If a transaction is received individually, then it is added to the pending transactions
--- only if the nonce of the transaction is at least as high as
--- the next available nonce observed with respect to the focus block.
--- If the transaction is received as part of a block we always add it to the
--- pending transactions.
+-- Pre condition: A transaction must've been pre-verified prior to being called here.
 --
--- We always check that the nonce of the transaction (if it has origin 'Block') is
--- at least what is recorded with respect to next available nonce for the
--- account. This is not necessary for transactions received individually
--- as they have already been pre-verified, and they will get rejected if they
--- do not yield exactly the recorded next available nonce.
+-- Transactions received individually are always added to the pending transactions as
+-- it is checked that the transaction nonce is at least what is recorded for the focus block.
+-- (That is a pre condition of this function)
+--
+-- This ensures the invariant of the pending transaction table and the focus block.
+-- Namely that the recorded next availble nonce with respect to the pending transaction table
+-- must be the same of what is recorded in the focus block.
+--
+-- For transactions received as part of a block we must check that the transaction nonce
+-- is at least what the next available nonce recorded in the focus block before adding
+-- it to the pending transaction table.
+--
+-- This is to ensure the above mentioned invariant of the pending transaction table and focus block
+-- as to make sure that if the parent block we verified the transaction within is above the focus block
+-- then we need to record this fact in the pending transaction table as the transaction nonce
+-- would very likely be above what is recorded in the focus block.
 --
 -- This is an internal function only and should not be called directly.
 addPendingTransaction ::
@@ -78,7 +85,7 @@ addPendingTransaction origin bi = do
             fbState <- bpState <$> (_focusBlock <$> gets' _skovPendingTransactions)
             macct <- getAccount fbState $! transactionSender tx
             nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
-            when (nextNonce <= transactionNonce tx || origin == Block) $ do
+            when (nextNonce <= transactionNonce tx || origin == Individual) $ do
                 pendingTransactionTable %=! TT.addPendingTransaction nextNonce tx
                 doPurgeTransactionTable False =<< currentTime
         CredentialDeployment _ -> do
@@ -87,7 +94,7 @@ addPendingTransaction origin bi = do
         ChainUpdate cu -> do
             fbState <- bpState <$> (_focusBlock <$> gets' _skovPendingTransactions)
             nextSN <- getNextUpdateSequenceNumber fbState (updateType (uiPayload cu))
-            when (nextSN <= updateSeqNumber (uiHeader cu) || origin == Block) $ do
+            when (nextSN <= updateSeqNumber (uiHeader cu) || origin == Individual) $ do
                 pendingTransactionTable %=! TT.addPendingUpdate nextSN cu
                 doPurgeTransactionTable False =<< currentTime
   where
