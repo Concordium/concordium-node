@@ -13,6 +13,7 @@ module Concordium.Kontrol.UpdateLeaderElectionParameters (
 ) where
 
 import Data.Serialize
+import Lens.Micro.Platform
 
 import Concordium.Crypto.SHA256 as H
 import Concordium.Crypto.VRF
@@ -39,24 +40,21 @@ updateSeedState slot bn state = case compare newEpoch oldEpoch of
     GT -> updateEpochs oldEpoch state
     LT -> error $ "updateSeedState: new epoch (" ++ show newEpoch ++ ") precedes current epoch (" ++ show oldEpoch ++ ")"
   where
-    oldEpoch = epoch state
-    el = epochLength state
+    oldEpoch = state ^. epoch
+    el = state ^. epochLength
     (fromIntegral -> newEpoch, slotRem) = slot `quotRem` el
     shouldContributeBlockNonce = 3 * slotRem < 2 * el
     -- If the slot falls within the first 2/3 of the epoch's slots,
     -- add the block nonce to the updatedNonce.
     updateNonce
-        | shouldContributeBlockNonce = \s ->
-            s
-                { updatedNonce = updateWithBlockNonce bn (updatedNonce s)
-                }
+        | shouldContributeBlockNonce = updatedNonce %~ updateWithBlockNonce bn
         | otherwise = id
     updateEpochs :: Epoch -> SeedState 'SeedStateVersion0 -> SeedState 'SeedStateVersion0
     updateEpochs e s
-        | e == newEpoch = updateNonce s{epoch = newEpoch}
-        | otherwise = updateEpochs (e + 1) s{currentLeadershipElectionNonce = h, updatedNonce = h}
+        | e == newEpoch = updateNonce (s & epoch .~ newEpoch)
+        | otherwise = updateEpochs (e + 1) (s & currentLeadershipElectionNonce .~ h & updatedNonce .~ h)
       where
-        h = updateWithEpoch e (updatedNonce s)
+        h = updateWithEpoch e (s ^. updatedNonce)
 
 -- |Derive the leadership election nonce for a particular slot from the seed state.
 -- This compensates for if the slot is in a different epoch.
@@ -69,12 +67,12 @@ updateSeedState slot bn state = case compare newEpoch oldEpoch of
 -- the leadership election nonce will still get updated each epoch.
 computeLeadershipElectionNonce :: SeedState 'SeedStateVersion0 -> Slot -> LeadershipElectionNonce
 computeLeadershipElectionNonce state slot = case compare newEpoch oldEpoch of
-    EQ -> currentLeadershipElectionNonce state
-    GT -> updateEpochs oldEpoch (currentLeadershipElectionNonce state)
+    EQ -> state ^. currentLeadershipElectionNonce
+    GT -> updateEpochs oldEpoch (state ^. currentLeadershipElectionNonce)
     LT -> error $ "computeLeadershipElectionNonce: new epoch (" ++ show newEpoch ++ ") precedes current epoch (" ++ show oldEpoch ++ ")"
   where
-    oldEpoch = epoch state
-    newEpoch = fromIntegral $ slot `quot` epochLength state
+    oldEpoch = state ^. epoch
+    newEpoch = fromIntegral $ slot `quot` (state ^. epochLength)
     updateEpochs e n
         | e == newEpoch = n
         | otherwise = updateEpochs (e + 1) (updateWithEpoch e n)
@@ -122,8 +120,8 @@ predictLeadershipElectionNonce ::
     Slot ->
     Maybe [LeadershipElectionNonce]
 predictLeadershipElectionNonce SeedStateV0{..} lastFinSlot maybeParentBlockSlot targetSlot
-    | slotEpoch targetSlot == epoch = Just [currentLeadershipElectionNonce]
-    | slotEpoch targetSlot == epoch + 1 && 3 * (lastFinSlot `rem` epochLength) >= 2 * epochLength =
+    | slotEpoch targetSlot == ss0Epoch = Just [ss0CurrentLeadershipElectionNonce]
+    | slotEpoch targetSlot == ss0Epoch + 1 && 3 * (lastFinSlot `rem` ss0EpochLength) >= 2 * ss0EpochLength =
         -- In this case, no blocks after the last finalized block can contribute to the block
         -- nonce for the next epoch.
         case maybeParentBlockSlot of
@@ -135,6 +133,6 @@ predictLeadershipElectionNonce SeedStateV0{..} lastFinSlot maybeParentBlockSlot 
     | otherwise = Nothing
   where
     slotEpoch :: Slot -> Epoch
-    slotEpoch slot = fromIntegral $ slot `quot` epochLength
-    current = updateWithEpoch epoch currentLeadershipElectionNonce
-    updated = updateWithEpoch epoch updatedNonce
+    slotEpoch slot = fromIntegral $ slot `quot` ss0EpochLength
+    current = updateWithEpoch ss0Epoch ss0CurrentLeadershipElectionNonce
+    updated = updateWithEpoch ss0Epoch ss0UpdatedNonce

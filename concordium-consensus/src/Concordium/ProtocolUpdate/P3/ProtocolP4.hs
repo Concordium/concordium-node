@@ -58,6 +58,7 @@
 module Concordium.ProtocolUpdate.P3.ProtocolP4 where
 
 import Data.Serialize
+import Lens.Micro
 
 import qualified Concordium.Crypto.SHA256 as SHA256
 import Concordium.Genesis.Data
@@ -106,7 +107,7 @@ updateRegenesis updateData = do
     s1 <-
         bsoSetSeedState s0
             $ initialSeedStateV0
-                (SHA256.hash $ "Regenesis" <> encode (updatedNonce oldSeedState))
+                (SHA256.hash $ "Regenesis" <> encode (oldSeedState ^. updatedNonce))
             $ gdEpochLength gd
     -- Clear the protocol update.
     s3 <- bsoClearProtocolUpdate s1

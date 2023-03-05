@@ -10,6 +10,7 @@ module Concordium.KonsensusV1.LeaderElection (
 ) where
 
 import Data.Serialize
+import Lens.Micro.Platform
 
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Types
@@ -79,11 +80,11 @@ updateSeedStateForBlock ::
     -- |Updated seed state
     SeedState 'SeedStateVersion1
 updateSeedStateForBlock ts bn ss
-    | epochTransitionTriggered ss = ss
-    | triggerBlockTime ss <= ts = ss'{epochTransitionTriggered = True}
+    | ss ^. epochTransitionTriggered = ss
+    | ss ^. triggerBlockTime <= ts = ss' & epochTransitionTriggered .~ True
     | otherwise = ss'
   where
-    ss' = ss{updatedNonce = updateWithBlockNonce bn (updatedNonce ss)}
+    ss' = ss & updatedNonce %~ updateWithBlockNonce bn
 
 -- |Update the seed state to account for a transition to a new epoch.
 updateSeedStateForEpoch ::
@@ -96,15 +97,15 @@ updateSeedStateForEpoch ::
     SeedState 'SeedStateVersion1
 updateSeedStateForEpoch newBakers epochDuration ss =
     SeedStateV1
-        { epoch = newEpoch,
-          epochTransitionTriggered = False,
-          triggerBlockTime = triggerBlockTime ss `addDuration` epochDuration,
-          updatedNonce = newNonce,
-          currentLeadershipElectionNonce = newNonce
+        { ss1Epoch = newEpoch,
+          ss1EpochTransitionTriggered = False,
+          ss1TriggerBlockTime = (ss ^. triggerBlockTime) `addDuration` epochDuration,
+          ss1UpdatedNonce = newNonce,
+          ss1CurrentLeadershipElectionNonce = newNonce
         }
   where
-    newEpoch = epoch ss + 1
+    newEpoch = ss ^. epoch + 1
     newNonce = Hash.hash $ runPut $ do
-        put (updatedNonce ss)
+        put (ss ^. updatedNonce)
         put newEpoch
         putFullBakers newBakers
