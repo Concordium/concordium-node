@@ -61,6 +61,7 @@ import Concordium.Types.IdentityProviders
 import Concordium.Types.Parameters
 import Concordium.Types.Transactions
 
+import Concordium.GlobalState.Transactions
 import Concordium.KonsensusV1.Consensus
 import Concordium.KonsensusV1.TreeState.Implementation
 import Concordium.KonsensusV1.TreeState.Types
@@ -292,7 +293,7 @@ testProcessBlockItem = describe "processBlockItem" $ do
         -- The credential deployment is valid and so should the result reflect this.
         assertEqual
             "The credential deployment should be accepted"
-            Accepted
+            (Added dummyCredentialDeployment $ TVer.Ok TVer.CredentialDeploymentSuccess)
             pbiRes
         -- The credential deployment must be in the pending transaction table at this point.
         assertBool
@@ -315,7 +316,7 @@ testProcessBlockItem = describe "processBlockItem" $ do
         (pbiRes, sd') <- runMyTestMonad dummyIdentityProviders theTime (processBlockItem dummyTransactionBI)
         assertEqual
             "The credential deployment should be rejected (the identity provider has correct id but wrong keys used for the credential deployment)"
-            (Rejected $ TVer.MaybeOk $ TVer.NormalTransactionInvalidSender dummyAccountAddress)
+            (NotAdded $ TVer.MaybeOk $ TVer.NormalTransactionInvalidSender dummyAccountAddress)
             pbiRes
         assertEqual
             "The transfer should not be recorded in the pending transaction table"
@@ -334,7 +335,7 @@ testProcessBlockItem = describe "processBlockItem" $ do
         (pbiRes, sd') <- runMyTestMonad dummyIdentityProviders theTime (processBlockItem dummyCredentialDeployment)
         assertEqual
             "The credential deployment should be rejected (the identity provider has correct id but wrong keys used for the credential deployment)"
-            (Rejected $ TVer.NotOk TVer.CredentialDeploymentInvalidSignatures)
+            (NotAdded $ TVer.NotOk TVer.CredentialDeploymentInvalidSignatures)
             pbiRes
         assertEqual
             "The credential deployment should not be recorded in the pending transaction table"
@@ -349,10 +350,10 @@ testProcessBlockItem = describe "processBlockItem" $ do
             0
             (sd' ^. transactionTablePurgeCounter)
     it "No duplicates" $ do
-        (pbiRes, sd') <- runMyTestMonad myIdentityProviders theTime ((processBlockItem dummyCredentialDeployment) >> (processBlockItem dummyCredentialDeployment))
+        (pbiRes, sd') <- runMyTestMonad myIdentityProviders theTime (processBlockItem dummyCredentialDeployment >> processBlockItem dummyCredentialDeployment)
         assertEqual
             "We just added the same twice, so the latter one added should be recognized as a duplicate."
-            Duplicate
+            (Duplicate dummyCredentialDeployment $ Just $ TVer.Ok TVer.CredentialDeploymentSuccess)
             pbiRes
         -- The credential deployment that was not deemed duplicate must be in the pending transaction table at this point.
         assertBool

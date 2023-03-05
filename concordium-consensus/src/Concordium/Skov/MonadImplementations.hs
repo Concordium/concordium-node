@@ -41,6 +41,7 @@ import Concordium.GlobalState.Persistent.BlockState.Modules
 import Concordium.GlobalState.Persistent.Cache
 import Concordium.GlobalState.Persistent.LMDB
 import Concordium.GlobalState.Persistent.TreeState
+import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.TreeState
 import Concordium.Logger
 import Concordium.Skov.CatchUp

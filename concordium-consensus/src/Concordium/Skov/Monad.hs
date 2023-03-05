@@ -33,6 +33,7 @@ import Concordium.GlobalState.Classes as C
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Statistics (ConsensusStatistics)
+import Concordium.GlobalState.Transactions
 import qualified Concordium.GlobalState.TreeState as TS
 import Concordium.GlobalState.Types
 import Concordium.Logger
@@ -438,7 +439,7 @@ deriving via (MGSTrans SkovQueryMonadT m) instance ContractStateOperations m => 
 deriving via (MGSTrans SkovQueryMonadT m) instance ModuleQuery m => ModuleQuery (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance BlockStateQuery m => BlockStateQuery (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance BlockPointerMonad m => BlockPointerMonad (SkovQueryMonadT m)
-deriving via (MGSTrans SkovQueryMonadT m) instance TS.AccountNonceQuery m => TS.AccountNonceQuery (SkovQueryMonadT m)
+deriving via (MGSTrans SkovQueryMonadT m) instance AccountNonceQuery m => AccountNonceQuery (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance TS.TreeStateMonad m => TS.TreeStateMonad (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance BlockStateStorage m => BlockStateStorage (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance BlockStateOperations m => BlockStateOperations (SkovQueryMonadT m)
@@ -506,7 +507,7 @@ instance
         return $! map getHash (concatMap (Map.keys . snd) txs)
 
     {- - INLINE queryNextAccountNonce - -}
-    queryNextAccountNonce = lift . TS.getNextAccountNonce
+    queryNextAccountNonce = lift . getNextAccountNonce
 
     isShutDown = lift doIsShutDown
     getProtocolUpdateStatus = lift doGetProtocolUpdateStatus

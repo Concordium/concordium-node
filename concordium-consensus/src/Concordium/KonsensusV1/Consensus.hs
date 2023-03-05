@@ -6,7 +6,7 @@
 module Concordium.KonsensusV1.Consensus where
 
 import Control.Monad.State
-import Data.Maybe (fromMaybe, isJust)
+import Data.Maybe (fromMaybe)
 
 import qualified Data.Vector as Vector
 import Lens.Micro.Platform
@@ -21,32 +21,14 @@ import Concordium.Utils
 import Concordium.GlobalState.BlockState
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import qualified Concordium.GlobalState.TransactionTable as TT
+import Concordium.GlobalState.Transactions
 import qualified Concordium.GlobalState.Types as GSTypes
-import Concordium.KonsensusV1.TransactionVerifier
 import Concordium.KonsensusV1.TreeState.Implementation
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.Scheduler.Types (updateSeqNumber)
 import Concordium.TimeMonad
 import qualified Concordium.TransactionVerification as TVer
-
-import qualified Concordium.GlobalState.TreeState as TS0
-
--- |Result of attempting to add a 'BlockItem' into tree state.
-data AddBlockItemResult
-    = -- |The transaction was accepted into
-      -- the tree state.
-      Accepted
-    | -- |The transaction was rejected. See
-      -- the 'TVer.VerificationResult' for why it
-      -- was rejected.
-      Rejected !TVer.VerificationResult
-    | -- |The transaction was already present
-      -- in the tree state.
-      Duplicate
-    | -- |The transaction nonce was old hence it was not at least the next available nonce.
-      Obsolete
-    deriving (Eq, Show)
 
 -- |Adds a transaction into the pending transaction table
 -- if it's eligible.
@@ -113,42 +95,44 @@ processBlockItem ::
       MonadState (SkovData (MPV m)) m,
       TimeMonad m,
       BlockStateQuery m,
-      TS0.AccountNonceQuery m,
+      AccountNonceQuery m,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m)
     ) =>
     -- |The transaction we want to put into the state.
     BlockItem ->
     -- |Whether it was @Accepted@, @Rejected@, @Duplicate@ or @Obsolete@.
-    m AddBlockItemResult
+    m AddTransactionResult
 processBlockItem bi = do
     -- First we check whether the transaction already exists in the transaction table.
-    tt' <- gets' _transactionTable
-    if isDuplicate tt'
-        then return Duplicate
-        else do
+    tt <- use' transactionTable
+    case tt ^. TT.ttHashMap . at' txHash of
+        Just (duplicateTransaction, dupStatus) -> return $! Duplicate duplicateTransaction (Just $! dupStatus ^. TT.tsVerRes)
+        Nothing -> do
             -- The transaction is new to us. Before adding it to the transaction table,
             -- we verify it.
             theTime <- utcTimeToTimestamp <$> currentTime
-            verRes <- TS0.runTransactionVerifierT (TVer.verify theTime bi) =<< getCtx
+            verRes <- runTransactionVerifierT (TVer.verify theTime bi) =<< getCtx
             case verRes of
-                okRes@(TVer.Ok _) -> do
-                    added <- doAddTransaction 0 bi okRes
-                    if added
-                        then do
-                            addPendingTransaction Individual bi
-                            return Accepted
-                        else -- If the transaction was not added it means it contained an old nonce.
-                            return Obsolete
-                notAccepted -> return $! Rejected notAccepted
+                (TVer.Ok res) -> insertTransaction res
+                notAccepted -> return $! NotAdded notAccepted
   where
+    -- Insert the transaction into the transaction table and pending transaction table.
+    insertTransaction okRes = do
+        added <- doAddTransaction 0 bi $! TVer.Ok okRes
+        if added
+            then do
+                addPendingTransaction Individual bi
+                return $! Added bi $! TVer.Ok okRes
+            else -- If the transaction was not added it means it contained an old nonce.
+                return ObsoleteNonce
     -- Create a context suitable for verifying a transaction within a 'Individual' context.
     getCtx = do
         _ctxSkovData <- get
         _ctxBs <- bpState <$> gets' _lastFinalized
         chainParams <- Concordium.GlobalState.BlockState.getChainParameters _ctxBs
         let _ctxMaxBlockEnergy = chainParams ^. cpConsensusParameters . cpBlockEnergyLimit
-        return $! TS0.Context{_isTransactionFromBlock = False, ..}
-    isDuplicate tt = isJust $! tt ^. TT.ttHashMap . at' txHash
+        return $! Context{_ctxTransactionOrigin = Individual, ..}
+    -- 'TransactionHash' of the transaction we're processing.
     txHash = getHash bi
 
 -- |Attempt to put the 'BlockItem's of a 'BakedBlock' into the tree state.
@@ -157,13 +141,14 @@ processBlockItem bi = do
 -- Post-condition: Only transactions that are deemed verifiable
 -- (i.e. the verification yields a 'TVer.OkResult' or a 'TVer.MaybeOkResult') up to the point where
 -- a transaction processing might fail are added to the tree state.
-processBlockItems :: forall m pv .
+processBlockItems ::
+    forall m pv.
     ( MonadProtocolVersion m,
       IsConsensusV1 pv,
       MonadState (SkovData pv) m,
       BlockStateQuery m,
       TimeMonad m,
-      TS0.AccountNonceQuery m,
+      AccountNonceQuery m,
       MPV m ~ pv,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m)
     ) =>
@@ -177,13 +162,15 @@ processBlockItems :: forall m pv .
 processBlockItems bb parentPointer = process True $! bbTransactions bb
   where
     -- Create a context suitable for verifying a transaction within a 'Block' context.
-    getCtx= do
+    getCtx = do
         _ctxSkovData <- get
         let _ctxBs = bpState parentPointer
         chainParams <- Concordium.GlobalState.BlockState.getChainParameters _ctxBs
         let _ctxMaxBlockEnergy = chainParams ^. cpConsensusParameters . cpBlockEnergyLimit
-        return $! TS0.Context{_isTransactionFromBlock = True, ..}
+        return $! Context{_ctxTransactionOrigin = Block, ..}
     theRound = bbRound bb
+    -- Process the vector of transactions recursively.
+    process :: Bool -> Vector.Vector BlockItem -> m Bool
     process !res !txs
         -- If no transactions are present then all were added.
         | Vector.length txs == 0 = return res
@@ -206,7 +193,7 @@ processBlockItems bb parentPointer = process True $! bbTransactions bb
                     -- We verify the transaction and check whether it's acceptable i.e. Ok or MaybeOk.
                     -- If that is the case then we add it to the transaction table and pending transactions.
                     -- If it is NotOk then we stop verifying the transactions as the block can never be valid now.
-                    !verRes <- TS0.runTransactionVerifierT (TVer.verify theTime bi) =<< getCtx
+                    !verRes <- runTransactionVerifierT (TVer.verify theTime bi) =<< getCtx
                     case verRes of
                         -- The transaction was deemed non verifiable i.e., it can never be
                         -- valid. We short circuit the recursion here and return 'False'.

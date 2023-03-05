@@ -1,16 +1,14 @@
 {-# LANGUAGE DerivingVia #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 module Concordium.TransactionVerification where
 
+import Control.Monad.Reader
 import Control.Monad.Trans
 import qualified Data.Map.Strict as OrdMap
 import qualified Data.Serialize as S
-import Data.Kind (Type)
-import Control.Monad.Reader
 
 import qualified Concordium.Cost as Cost
 import qualified Concordium.Crypto.SHA256 as Sha256
@@ -360,12 +358,6 @@ type CredentialDeploymentWithStatus = (Tx.CredentialDeploymentWithMeta, Maybe Ve
 -- |A 'ChainUpdate' with its associated 'VerificationResult'
 type ChainUpdateWithStatus = (Tx.WithMetadata Updates.UpdateInstruction, Maybe VerificationResult)
 
--- |Type for describing the origin of the transaction.
--- The transaction can either arrive at the consensus as a single transaction,
--- or the transaction can be received as part of a block.
--- The ´Block´ additionally contains a ´BlockState´ of either the parent block (iff. it's 'alive') or the last finalized block.
-data TransactionOrigin m = Single | Block (GSTypes.BlockState m)
-
 -- |Determines if a transaction definitely cannot be valid now or in a future block.
 -- Transactions received individually must be verified successfully.
 -- However there is a looser requirement for transactions received
@@ -383,13 +375,3 @@ definitelyNotValid verificationResult fromBlock =
                 NotOk _ -> True
                 Ok _ -> False
                 MaybeOk _ -> False
-
--- |Helper type for defining 'TransactionVerifierT'. While we only instantiate @r@ with
--- @Context (BlockState m)@, it is simpler to derive the 'MonadTrans' instance using the present
--- definition.
-newtype TransactionVerifierT' (r :: Type) (m :: Type -> Type) (a :: Type) = TransactionVerifierT {runTransactionVerifierT :: r -> m a}
-    deriving (Functor, Applicative, Monad, MonadReader r) via (ReaderT r m)
-    deriving (MonadTrans) via (ReaderT r)
-
-deriving via (ReaderT r) m instance (Types.MonadProtocolVersion m) => Types.MonadProtocolVersion (TransactionVerifierT' r m)
-deriving via (ReaderT r) m instance GSTypes.BlockStateTypes (TransactionVerifierT' r m)

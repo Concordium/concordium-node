@@ -40,6 +40,7 @@ import Concordium.GlobalState.Persistent.TreeState (DeadCache, emptyDeadCache, i
 import qualified Concordium.GlobalState.PurgeTransactions as Purge
 import qualified Concordium.GlobalState.Statistics as Stats
 import Concordium.GlobalState.TransactionTable
+import Concordium.GlobalState.Transactions
 import qualified Concordium.GlobalState.Types as GSTypes
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
@@ -452,6 +453,12 @@ doGetNextAccountNonce ::
     -- |The resulting account nonce and whether it is finalized or not.
     (Nonce, Bool)
 doGetNextAccountNonce addr sd = nextAccountNonce addr (sd ^. transactionTable)
+
+-- todo: not very great.
+instance (Monad m, MonadState (SkovData pv) m) => AccountNonceQuery m where
+    getNextAccountNonce addr = do
+        sd <- get
+        return $! doGetNextAccountNonce addr sd
 
 -- |Finalize a list of transactions. Per account, the transactions must be in
 -- continuous sequence by nonce, starting from the next available non-finalized
