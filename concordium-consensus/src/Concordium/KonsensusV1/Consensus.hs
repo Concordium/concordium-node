@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |Consensus V1
@@ -29,6 +30,17 @@ import Concordium.KonsensusV1.Types
 import Concordium.Scheduler.Types (updateSeqNumber)
 import Concordium.TimeMonad
 import qualified Concordium.TransactionVerification as TVer
+
+-- |A Monad for multicasting timeout messages.
+class MonadMulticast m where
+    -- |Multicast a timeout message over the network
+    sendTimeoutMessage :: TimeoutMessage -> m ()
+
+-- |A baker context containing the baker identity. Used for accessing relevant baker keys and the baker id.
+newtype BakerContext = BakerContext
+    { _bakerIdentity :: BakerIdentity
+    }
+makeClassy ''BakerContext
 
 -- |Adds a transaction into the pending transaction table
 -- if it's eligible.
@@ -209,3 +221,4 @@ processBlockItems bb parentPointer = process True $! bbTransactions bb
                                 -- so add it to the pending table if it's eligible (see documentation for
                                 -- 'addPendingTransaction') and continue processing the remaining ones.
                                 True -> addPendingTransaction Block bi >> process True (Vector.tail txs)
+

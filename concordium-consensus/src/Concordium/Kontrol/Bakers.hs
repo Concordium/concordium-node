@@ -1,5 +1,4 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -127,10 +126,10 @@ applyPendingChanges isEffective (bakers0, passive0) =
 
 -- |Compute the timestamp of the start of an epoch based on the genesis data.
 epochTimestamp :: GenesisConfiguration -> Epoch -> Timestamp
-epochTimestamp gd epoch =
+epochTimestamp gd targetEpoch =
     addDuration
         (gdGenesisTime gd)
-        (fromIntegral epoch * fromIntegral (gdEpochLength gd) * gdSlotDuration gd)
+        (fromIntegral targetEpoch * fromIntegral (gdEpochLength gd) * gdSlotDuration gd)
 
 -- |Determine the test for whether a pending change is effective at a payday based
 -- on the epoch of the payday.
@@ -250,10 +249,10 @@ paydayEpochBefore ::
     -- |The slot to compute the last payday before
     Slot ->
     Epoch
-paydayEpochBefore initialTimeParameters pendingTimeParameters epochLength nextPayday targetSlot = lastPayday
+paydayEpochBefore initialTimeParameters pendingTimeParameters epochLen nextPayday targetSlot = lastPayday
   where
-    epochToSlot e = epochLength * fromIntegral e
-    targetEpoch = fromIntegral $ targetSlot `div` epochLength
+    epochToSlot e = epochLen * fromIntegral e
+    targetEpoch = fromIntegral $ targetSlot `div` epochLen
     -- Find the first payday (starting from startPaydayEpoch) that is no sooner than the given slot.
     -- This is a very naive implementation that is easy to see is correct, and is likely fast
     -- enough in practice. TODO: improve this
@@ -291,7 +290,8 @@ timeParametersAtSlot targetSlot tp0 upds =
                 [Last (Just tp) | (slot, tp) <- upds, slot <= targetSlot]
 
 -- |Determine the bakers that apply to a future slot, given the state at a particular block.
--- This implementation is used for protocol version P4 and later.
+-- This implementation is used for protocol version P4 and P5. (Consensus version 1 (P6) does not
+-- use slots to define epochs, and therefore bakers are determined differently.)
 -- The assumption is that there are no blocks between the block and the future slot; i.e. this
 -- is used to determine the lottery participants that will try to bake a block with the block as the
 -- parent.
@@ -319,68 +319,69 @@ getSlotBakersP4 ::
     BlockState m ->
     Slot ->
     m FullBakers
-getSlotBakersP4 genData bs slot = do
-    SeedState{epochLength, epoch = blockEpoch} <- getSeedState bs
-    let epochToSlot :: Epoch -> Slot
-        epochToSlot e = fromIntegral e * (epochLength ^. unconditionally)
-    nextPayday <- getPaydayEpoch bs
-    let nextPaydaySlot = epochToSlot nextPayday
+getSlotBakersP4 genData bs slot =
+    getSeedState bs >>= \case
+        SeedStateV0{ss0EpochLength = epochLen, ss0Epoch = blockEpoch} -> do
+            let epochToSlot :: Epoch -> Slot
+                epochToSlot e = fromIntegral e * epochLen
+            nextPayday <- getPaydayEpoch bs
+            let nextPaydaySlot = epochToSlot nextPayday
 
-    if slot < nextPaydaySlot
-        then getCurrentEpochBakers bs
-        else do
-            chainParams <- _currentParameters <$> getUpdates bs
-            let blockTimeParameters = chainParams ^. cpTimeParameters
-            pendingTimeParameters <-
-                fmap (_1 %~ transactionTimeToSlot (gdGenesisTime genData) (gdSlotDuration genData))
-                    <$> getPendingTimeParameters bs
-            let paydayTimeParameters =
-                    timeParametersAtSlot
-                        nextPaydaySlot
-                        (unOParam blockTimeParameters)
-                        pendingTimeParameters
-            let nextPaydayLength =
-                    paydayTimeParameters
-                        ^. tpRewardPeriodLength
-                            . to (epochToSlot . rewardPeriodEpochs)
-            if blockEpoch + 1 == nextPayday && slot < nextPaydaySlot + nextPaydayLength
-                then getNextEpochBakers bs
+            if slot < nextPaydaySlot
+                then getCurrentEpochBakers bs
                 else do
-                    -- The slot time is at least the next payday
-                    -- First we compute the epoch of last payday that is no later than the given slot.
-                    let latestPayday =
-                            paydayEpochBefore
+                    chainParams <- _currentParameters <$> getUpdates bs
+                    let blockTimeParameters = chainParams ^. cpTimeParameters
+                    pendingTimeParameters <-
+                        fmap (_1 %~ transactionTimeToSlot (gdGenesisTime genData) (gdSlotDuration genData))
+                            <$> getPendingTimeParameters bs
+                    let paydayTimeParameters =
+                            timeParametersAtSlot
+                                nextPaydaySlot
                                 (unOParam blockTimeParameters)
                                 pendingTimeParameters
-                                (gdEpochLength genData)
-                                nextPayday
-                                slot
+                    let nextPaydayLength =
+                            paydayTimeParameters
+                                ^. tpRewardPeriodLength
+                                    . to (epochToSlot . rewardPeriodEpochs)
+                    if blockEpoch + 1 == nextPayday && slot < nextPaydaySlot + nextPaydayLength
+                        then getNextEpochBakers bs
+                        else do
+                            -- The slot time is at least the next payday
+                            -- First we compute the epoch of last payday that is no later than the given slot.
+                            let latestPayday =
+                                    paydayEpochBefore
+                                        (unOParam blockTimeParameters)
+                                        pendingTimeParameters
+                                        (gdEpochLength genData)
+                                        nextPayday
+                                        slot
 
-                    -- From this we can determine which cooldowns have elapsed.
-                    let isEffective = effectiveTest' genData latestPayday
+                            -- From this we can determine which cooldowns have elapsed.
+                            let isEffective = effectiveTest' genData latestPayday
 
-                    -- Determine the bakers and delegators for the next reward period, accounting for any
-                    -- stake reductions that are currently pending on active bakers with effective time at
-                    -- or before the next payday.
-                    (activeBakers, passiveDelegators) <-
-                        applyPendingChanges isEffective
-                            <$> getActiveBakersAndDelegators bs
-                    -- Determine the pool parameters that would be effective the epoch before the payday
-                    pendingPoolParams <- getPendingPoolParameters bs
-                    let latestPaydayTime = epochTimestamp genData latestPayday
-                        epochDuration = gdSlotDuration genData * fromIntegral (gdEpochLength genData)
-                        ePoolParams _ ((et, pp') : updates)
-                            | addDuration (transactionTimeToTimestamp et) epochDuration <= latestPaydayTime =
-                                ePoolParams pp' updates
-                        ePoolParams pp _ = pp
-                        effectivePoolParameters = ePoolParams (chainParams ^. cpPoolParameters) pendingPoolParams
-                        bsc = computeBakerStakesAndCapital @m effectivePoolParameters activeBakers passiveDelegators
-                    let mkFullBaker (biRef, _bakerStake) = do
-                            _theBakerInfo <- derefBakerInfo biRef
-                            return FullBakerInfo{..}
-                    fullBakerInfos <- mapM mkFullBaker (Vec.fromList $ bakerStakes bsc)
-                    let bakerTotalStake = sum $ _bakerStake <$> fullBakerInfos
-                    return FullBakers{..}
+                            -- Determine the bakers and delegators for the next reward period, accounting for any
+                            -- stake reductions that are currently pending on active bakers with effective time at
+                            -- or before the next payday.
+                            (activeBakers, passiveDelegators) <-
+                                applyPendingChanges isEffective
+                                    <$> getActiveBakersAndDelegators bs
+                            -- Determine the pool parameters that would be effective the epoch before the payday
+                            pendingPoolParams <- getPendingPoolParameters bs
+                            let latestPaydayTime = epochTimestamp genData latestPayday
+                                epochDuration = gdSlotDuration genData * fromIntegral (gdEpochLength genData)
+                                ePoolParams _ ((et, pp') : updates)
+                                    | addDuration (transactionTimeToTimestamp et) epochDuration <= latestPaydayTime =
+                                        ePoolParams pp' updates
+                                ePoolParams pp _ = pp
+                                effectivePoolParameters = ePoolParams (chainParams ^. cpPoolParameters) pendingPoolParams
+                                bsc = computeBakerStakesAndCapital @m effectivePoolParameters activeBakers passiveDelegators
+                            let mkFullBaker (biRef, _bakerStake) = do
+                                    _theBakerInfo <- derefBakerInfo biRef
+                                    return FullBakerInfo{..}
+                            fullBakerInfos <- mapM mkFullBaker (Vec.fromList $ bakerStakes bsc)
+                            let bakerTotalStake = sum $ _bakerStake <$> fullBakerInfos
+                            return FullBakers{..}
 
 -- |Determine the bakers that apply to a future slot, given the state at a particular block.
 -- The assumption is that there are no blocks between the block and the future slot; i.e. this
@@ -425,17 +426,19 @@ getDefiniteSlotBakersP1 ::
     BlockState m ->
     Slot ->
     m (Maybe FullBakers)
-getDefiniteSlotBakersP1 bs slot = do
-    SeedState{..} <- getSeedState bs
-    let slotEpoch = fromIntegral $ slot `quot` (epochLength ^. unconditionally)
-    if slotEpoch <= epoch + 1
-        then Just <$> getSlotBakersP1 bs slot
-        else return Nothing
+getDefiniteSlotBakersP1 bs slot =
+    getSeedState bs >>= \case
+        SeedStateV0{..} -> do
+            let slotEpoch = fromIntegral $ slot `quot` ss0EpochLength
+            if slotEpoch <= ss0Epoch + 1
+                then Just <$> getSlotBakersP1 bs slot
+                else return Nothing
 
 -- |Determine the bakers that apply to a future slot, given the state at a particular block.
 -- This will return 'Nothing' if the projected bakers could change before then (depending on
 -- additional blocks), but will return the actual bakers if it is certain they will be correct.
--- This implementation is used for protocol version P4 and later.
+-- This implementation is used for protocol version P4 and P5. (This is unused in consensus version
+-- 1 as epochs (and thus bakers) are not tied to slots.)
 --
 -- The given slot should never be earlier than the slot of the given block.
 --
@@ -456,33 +459,34 @@ getDefiniteSlotBakersP4 ::
     BlockState m ->
     Slot ->
     m (Maybe FullBakers)
-getDefiniteSlotBakersP4 genData bs slot = do
-    SeedState{epochLength, epoch = blockEpoch} <- getSeedState bs
-    let epochToSlot :: Epoch -> Slot
-        epochToSlot e = fromIntegral e * (epochLength ^. unconditionally)
-    nextPayday <- getPaydayEpoch bs
-    let nextPaydaySlot = epochToSlot nextPayday
+getDefiniteSlotBakersP4 genData bs slot =
+    getSeedState bs >>= \case
+        SeedStateV0{ss0EpochLength = epochLen, ss0Epoch = blockEpoch} -> do
+            let epochToSlot :: Epoch -> Slot
+                epochToSlot e = fromIntegral e * epochLen
+            nextPayday <- getPaydayEpoch bs
+            let nextPaydaySlot = epochToSlot nextPayday
 
-    if slot < nextPaydaySlot
-        then Just <$> getCurrentEpochBakers bs
-        else do
-            chainParams <- _currentParameters <$> getUpdates bs
-            let blockTimeParameters = chainParams ^. cpTimeParameters
-            pendingTimeParameters <-
-                fmap (_1 %~ transactionTimeToSlot (gdGenesisTime genData) (gdSlotDuration genData))
-                    <$> getPendingTimeParameters bs
-            let paydayTimeParameters =
-                    timeParametersAtSlot
-                        nextPaydaySlot
-                        (unOParam blockTimeParameters)
-                        pendingTimeParameters
-            let nextPaydayLength =
-                    paydayTimeParameters
-                        ^. tpRewardPeriodLength
-                            . to (epochToSlot . rewardPeriodEpochs)
-            if blockEpoch + 1 == nextPayday && slot < nextPaydaySlot + nextPaydayLength
-                then Just <$> getNextEpochBakers bs
-                else return Nothing
+            if slot < nextPaydaySlot
+                then Just <$> getCurrentEpochBakers bs
+                else do
+                    chainParams <- _currentParameters <$> getUpdates bs
+                    let blockTimeParameters = chainParams ^. cpTimeParameters
+                    pendingTimeParameters <-
+                        fmap (_1 %~ transactionTimeToSlot (gdGenesisTime genData) (gdSlotDuration genData))
+                            <$> getPendingTimeParameters bs
+                    let paydayTimeParameters =
+                            timeParametersAtSlot
+                                nextPaydaySlot
+                                (unOParam blockTimeParameters)
+                                pendingTimeParameters
+                    let nextPaydayLength =
+                            paydayTimeParameters
+                                ^. tpRewardPeriodLength
+                                    . to (epochToSlot . rewardPeriodEpochs)
+                    if blockEpoch + 1 == nextPayday && slot < nextPaydaySlot + nextPaydayLength
+                        then Just <$> getNextEpochBakers bs
+                        else return Nothing
 
 -- |Determine the bakers that apply to a future slot, given the state at a particular block.
 -- This will return 'Nothing' if the projected bakers could change before then (depending on

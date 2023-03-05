@@ -150,7 +150,7 @@ createTestBlockStateWithAccounts accounts =
     keys = Types.withIsAuthorizationsVersionForPV (Types.protocolVersion @pv) $ DummyData.dummyKeyCollection
     seedState = case Types.consensusVersionFor (Types.protocolVersion @pv) of
         Types.ConsensusV0 -> initialSeedStateV0 (Hash.hash "") 1_000
-        Types.ConsensusV1 -> initialSeedStateV1 (Hash.hash "")
+        Types.ConsensusV1 -> initialSeedStateV1 (Hash.hash "") 3_600_000
 
 -- |Construct a test block state containing the provided accounts.
 createTestBlockStateWithAccountsM ::
@@ -186,7 +186,7 @@ data TestConfig = TestConfig
     { -- | Maximum block size in bytes.
       tcBlockSize :: Integer,
       -- |Timeout for block construction in milliseconds.
-      -- This is the absolute time after which we stop trying to add new transctions to the block.
+      -- This is the absolute time after which we stop trying to add new transactions to the block.
       tcBlockTimeout :: Time.Timestamp,
       -- |The context state used for running the scheduler.
       tcContextState :: EI.ContextState

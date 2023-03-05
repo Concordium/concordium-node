@@ -389,3 +389,32 @@ benchmarks:
     - temporary >= 1.3
     - criterion
     - deepseq
+
+  leader-election:
+    main:                LeaderElectionBench.hs
+    source-dirs:         benchmarks/leader-election
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N1
+    - -Wall
+    - -Wcompat
+    - -fno-ignore-asserts
+    - -Wno-deprecations
+    when:
+      - condition: os(windows)
+        then:
+          ghc-options: -static
+        else:
+          when:
+            - condition: flag(dynamic)
+              then:
+                ghc-options: -dynamic
+              else:
+                ghc-options: -static
+    dependencies:
+    - concordium-consensus
+    - containers
+    - temporary >= 1.3
+    - criterion
+    - deepseq

@@ -1,3 +1,4 @@
+use crate::stats_export_service::StatsExportService;
 use anyhow::Context;
 use prometheus::core::Atomic;
 use prost::bytes::BufMut;
@@ -5,6 +6,7 @@ use std::{
     convert::{TryFrom, TryInto},
     marker::PhantomData,
     path::Path,
+    sync::Arc,
 };
 
 /// Maximum allowed energy to use in the `invoke_instance` request.
@@ -943,7 +945,11 @@ pub mod server {
                 });
                 let service = service::queries_server::QueriesServer::new(server);
                 let log_layer = tower_http::trace::TraceLayer::new_for_grpc();
-                let mut builder = tonic::transport::Server::builder().layer(log_layer);
+                let stats_layer = StatsLayer {
+                    stats: node.stats.clone(),
+                };
+                let mut builder =
+                    tonic::transport::Server::builder().layer(log_layer).layer(stats_layer);
                 if let Some(identity) = identity {
                     builder = builder
                         .tls_config(ServerTlsConfig::new().identity(identity))
@@ -2288,5 +2294,146 @@ impl<A> Require<tonic::Status> for Option<A> {
             Some(v) => Ok(v),
             None => Err(tonic::Status::invalid_argument("missing field")),
         }
+    }
+}
+
+/// Tower layer adding middleware updating some of the node statictics related
+/// to gRPC API.
+#[derive(Clone)]
+pub struct StatsLayer {
+    stats: Arc<StatsExportService>,
+}
+
+impl<S> tower::Layer<S> for StatsLayer {
+    type Service = StatsMiddleware<S>;
+
+    fn layer(&self, service: S) -> Self::Service {
+        StatsMiddleware {
+            stats: self.stats.clone(),
+            inner: service,
+        }
+    }
+}
+
+/// Tower middleware for updating some of the node statictics related to the
+/// gRPC API.
+#[derive(Clone)]
+pub struct StatsMiddleware<S> {
+    stats: Arc<StatsExportService>,
+    inner: S,
+}
+
+/// Get the label from a gRPC status code. This is used when updating metrics of
+/// the prometheus exporter.
+fn get_grpc_code_label(code: tonic::Code) -> &'static str {
+    use tonic::Code::*;
+    match code {
+        Ok => "ok",
+        Cancelled => "cancelled",
+        Unknown => "unknown",
+        InvalidArgument => "invalid argument",
+        DeadlineExceeded => "deadline exceeded",
+        NotFound => "not found",
+        AlreadyExists => "already exists",
+        PermissionDenied => "permission denied",
+        ResourceExhausted => "resource exhausted",
+        FailedPrecondition => "failed precondition",
+        Aborted => "aborted",
+        OutOfRange => "out of range",
+        Unimplemented => "unimplemented",
+        Internal => "internal",
+        Unavailable => "unavailable",
+        DataLoss => "data loss",
+        Unauthenticated => "unauthenticated",
+    }
+}
+
+/// Actual middleware implementation updating the stats.
+/// The middleware is called once for each gRPC request, even for the streaming
+/// gRPC methods.
+impl<S> tower::Service<hyper::Request<hyper::Body>> for StatsMiddleware<S>
+where
+    S: tower::Service<
+            hyper::Request<hyper::Body>,
+            Response = hyper::Response<tonic::body::BoxBody>,
+        > + Clone
+        + Send
+        + 'static,
+    S::Future: Send + 'static,
+{
+    type Error = S::Error;
+    type Future = futures::future::BoxFuture<'static, Result<Self::Response, Self::Error>>;
+    type Response = S::Response;
+
+    fn poll_ready(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        self.inner.poll_ready(cx)
+    }
+
+    fn call(&mut self, req: hyper::Request<hyper::Body>) -> Self::Future {
+        // See https://docs.rs/tower/latest/tower/trait.Service.html#be-careful-when-cloning-inner-services
+        // for details on why this is necessary
+        let clone = self.inner.clone();
+        let mut inner = std::mem::replace(&mut self.inner, clone);
+
+        let grpc_request_duration = self.stats.grpc_request_response_time.clone();
+
+        Box::pin(async move {
+            let endpoint_name = req.uri().path().to_owned();
+            let request_received = tokio::time::Instant::now();
+
+            let (mut response, duration) = {
+                // Forward the request.
+                let result = inner.call(req).await;
+                // Time taken for the inner service to send back a response, meaning for
+                // streaming gRPC methods this is the duration for it to first return a stream.
+                let duration = request_received.elapsed().as_secs_f64();
+                if result.is_err() {
+                    grpc_request_duration
+                        .with_label_values(&[
+                            endpoint_name.as_str(),
+                            get_grpc_code_label(tonic::Code::Internal),
+                        ])
+                        .observe(duration);
+                }
+                (result?, duration)
+            };
+
+            // Check if the gRPC status header is part of the HTTP headers, if not check for
+            // the status in the HTTP trailers.
+            // Every gRPC response are expected to provide the grpc-status in either the
+            // header or the trailer.
+            let grpc_status_header = response.headers().get("grpc-status");
+            if let Some(header_value) = grpc_status_header {
+                let status_code_label =
+                    get_grpc_code_label(tonic::Code::from_bytes(header_value.as_bytes()));
+
+                grpc_request_duration
+                    .with_label_values(&[endpoint_name.as_str(), status_code_label])
+                    .observe(duration);
+            } else if let Ok(Some(trailers)) =
+                hyper::body::HttpBody::trailers(response.body_mut()).await
+            {
+                if let Some(header_value) = trailers.get("grpc-status") {
+                    let status_code_label =
+                        get_grpc_code_label(tonic::Code::from_bytes(header_value.as_bytes()));
+
+                    grpc_request_duration
+                        .with_label_values(&[endpoint_name.as_str(), status_code_label])
+                        .observe(duration);
+                }
+            } else {
+                grpc_request_duration
+                    .with_label_values(&[
+                        endpoint_name.as_str(),
+                        get_grpc_code_label(tonic::Code::Unknown),
+                    ])
+                    .observe(duration);
+            }
+
+            Ok(response)
+        })
     }
 }

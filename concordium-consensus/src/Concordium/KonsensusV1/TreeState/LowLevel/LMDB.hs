@@ -23,19 +23,10 @@ import Control.Monad.Reader.Class
 import Control.Monad.Trans.Class
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
-import qualified Data.ByteString.Unsafe as BS
 import Data.Data
 import qualified Data.Serialize as S
 import Database.LMDB.Raw
-import Foreign (
-    Storable (..),
-    alloca,
-    castPtr,
-    malloc,
- )
-import Foreign.C.Types
 import Lens.Micro.Platform
-import System.IO.Unsafe
 
 import Concordium.Common.Version
 import qualified Concordium.Crypto.SHA256 as Hash
@@ -48,6 +39,8 @@ import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.Types.HashableTo
 
+-- * Exceptions
+
 -- |Exception occurring from a violation of database invariants in the LMDB database.
 newtype DatabaseInvariantViolation = DatabaseInvariantViolation String
     deriving (Eq, Show, Typeable)
@@ -57,30 +50,18 @@ instance Exception DatabaseInvariantViolation where
         "Database invariant violation: "
             ++ show reason
 
--- |Size of 'CSize'.
-sizeOfCSize :: Int
-sizeOfCSize = sizeOf (undefined :: CSize)
+-- * Database tables
+
+-- ** Block store
 
 -- |Block store for finalized blocks by height.
--- Note: This table should be opened with the option 'MDB_INTEGERKEY', as the keys are stored in
--- platform endianness.
 newtype BlockStore (pv :: ProtocolVersion) = BlockStore MDB_dbi'
 
 instance IsProtocolVersion pv => MDBDatabase (BlockStore pv) where
     type DBKey (BlockStore pv) = BlockHeight
     type DBValue (BlockStore pv) = StoredBlock pv
-    encodeKey _ (BlockHeight h) = unsafePerformIO $ do
-        ptr <- malloc
-        poke ptr (CSize h)
-        BS.unsafePackMallocCStringLen (castPtr ptr, sizeOfCSize)
-    withKey _ (BlockHeight h) f = alloca $ \ptr -> do
-        poke ptr (CSize h)
-        f $ MDB_val (fromIntegral sizeOfCSize) (castPtr ptr)
-    decodeKey _ (MDB_val sz ptr)
-        | sz == fromIntegral sizeOfCSize = do
-            (CSize h) <- peek (castPtr ptr)
-            return (Right (BlockHeight h))
-        | otherwise = return (Left $ "decoded block store key with invalid size: " ++ show sz)
+
+-- ** Blocks by hash index
 
 -- |Index mapping block hashes to block heights.
 newtype BlockHashIndex = BlockHashIndex MDB_dbi'
@@ -90,6 +71,8 @@ instance MDBDatabase BlockHashIndex where
     encodeKey _ = Hash.hashToByteString . blockHash
     type DBValue BlockHashIndex = BlockHeight
 
+-- ** Transaction status
+
 -- |A transaction status store table. A @TransactionStatusStore@ stores
 -- 'FinalizedTransactionStatus'es indexed by 'TransactionHash'.
 newtype TransactionStatusStore = TransactionStatusStore MDB_dbi'
@@ -98,48 +81,56 @@ instance MDBDatabase TransactionStatusStore where
     type DBKey TransactionStatusStore = TransactionHash
     type DBValue TransactionStatusStore = FinalizedTransactionStatus
 
-data ConsensusStatusKey
-    = CSKRoundStatus
-    | CSKLatestFinalizationEntry
+-- ** Consensus status
+
+--
+
+-- $consensusStatus
+-- The consensus status table stores the round status and latest finalization entry. To support
+-- access, we provide two implementations of 'MDBDatabase' in the form of 'RoundStatusStore' and
+-- 'LatestFinalizationEntryStore'. These are intended to be stored in the same underlying table,
+-- and thus their keys are serialized distinctly. Consequently, it is not appropriate to use a
+-- cursor (e.g. using 'withCursor'), which can result in failed or incorrect deserialization.
+
+-- |Key used to index the round status entry in the consensus status table.
+-- Represented as the byte @0@.
+data RoundStatusKey = CSKRoundStatus
     deriving (Eq, Ord, Bounded, Enum, Show)
 
-data ConsensusStatusVal
-    = CSVRoundStatus !RoundStatus
-    | CSVLastFinalizationEntry !FinalizationEntry
-
-instance S.Serialize ConsensusStatusVal where
-    put (CSVRoundStatus rs) = do
-        S.putWord8 0
-        S.put rs
-    put (CSVLastFinalizationEntry lfe) = do
-        S.putWord8 1
-        S.put lfe
+instance S.Serialize RoundStatusKey where
+    put CSKRoundStatus = S.putWord8 0
     get =
         S.getWord8 >>= \case
-            0 -> CSVRoundStatus <$> S.get
-            1 -> CSVLastFinalizationEntry <$> S.get
-            _ -> fail "Unsupported consensus status type"
+            0 -> return CSKRoundStatus
+            _ -> fail "Expected CSKRoundStatus"
 
--- |Consensus status store table.
--- Note: This table should be opened with the option 'MDB_INTEGERKEY', as the keys are stored in
--- platform endianness.
-newtype ConsensusStatusStore = ConsensusStatusStore MDB_dbi'
+-- |Round status store table.
+newtype RoundStatusStore = RoundStatusStore MDB_dbi'
 
-instance MDBDatabase ConsensusStatusStore where
-    type DBKey ConsensusStatusStore = ConsensusStatusKey
-    encodeKey _ k = unsafePerformIO $ do
-        ptr <- malloc
-        poke ptr (fromIntegral (fromEnum k) :: CSize)
-        BS.unsafePackMallocCStringLen (castPtr ptr, sizeOfCSize)
-    withKey _ k f = alloca $ \ptr -> do
-        poke ptr (fromIntegral (fromEnum k) :: CSize)
-        f $ MDB_val (fromIntegral sizeOfCSize) (castPtr ptr)
-    decodeKey _ (MDB_val sz ptr)
-        | sz == fromIntegral sizeOfCSize = do
-            (CSize h) <- peek (castPtr ptr)
-            return (Right (toEnum (fromIntegral h)))
-        | otherwise = return (Left $ "decoded consensus status store key with invalid size: " ++ show sz)
-    type DBValue ConsensusStatusStore = ConsensusStatusVal
+instance MDBDatabase RoundStatusStore where
+    type DBKey RoundStatusStore = RoundStatusKey
+    type DBValue RoundStatusStore = RoundStatus
+
+-- |Key used to index the latest finalization entry in the consensus status table.
+-- Represented as the byte @1@.
+data LatestFinalizationEntryKey = CSKLatestFinalizationEntry
+    deriving (Eq, Ord, Bounded, Enum, Show)
+
+instance S.Serialize LatestFinalizationEntryKey where
+    put CSKLatestFinalizationEntry = S.putWord8 1
+    get =
+        S.getWord8 >>= \case
+            1 -> return CSKLatestFinalizationEntry
+            _ -> fail "Expected CSKLatestFinalizationEntry"
+
+-- |Latest finalization status store table.
+newtype LatestFinalizationEntryStore = LatestFinalizationEntryStore MDB_dbi'
+
+instance MDBDatabase LatestFinalizationEntryStore where
+    type DBKey LatestFinalizationEntryStore = LatestFinalizationEntryKey
+    type DBValue LatestFinalizationEntryStore = FinalizationEntry
+
+-- ** Metadata store
 
 -- |The metadata store table.
 -- This table is for storing version-related information.
@@ -184,29 +175,45 @@ instance S.Serialize VersionMetadata where
         vmProtocolVersion <- S.get
         return VersionMetadata{..}
 
+-- * Database
+
+-- |The LMDB environment and tables.
 data DatabaseHandlers (pv :: ProtocolVersion) = DatabaseHandlers
-    { _storeEnv :: !StoreEnv,
+    { -- |The LMDB environment.
+      _storeEnv :: !StoreEnv,
+      -- |Blocks by height.
       _blockStore :: !(BlockStore pv),
+      -- |Index of blocks by hash.
       _blockHashIndex :: !BlockHashIndex,
+      -- |Index of finalized transactions by hash.
       _transactionStatusStore :: !TransactionStatusStore,
-      _consensusStatusStore :: !ConsensusStatusStore,
+      -- |Storage for the 'RoundStatus'.
+      _roundStatusStore :: !RoundStatusStore,
+      -- |Storage for the latest 'FinalizationEntry'.
+      _latestFinalizationEntryStore :: !LatestFinalizationEntryStore,
+      -- |Metadata storage (i.e. version information).
       _metadataStore :: !MetadataStore
     }
 
 makeClassy ''DatabaseHandlers
 
+-- |Name of the table used for storing blocks by height.
 blockStoreName :: String
 blockStoreName = "blocksByHeight"
 
+-- |Name of the table used for indexing blocks by hash.
 blockHashIndexName :: String
 blockHashIndexName = "blockHashIndex"
 
+-- |Name of the table used for indexing transactions by hash.
 transactionStatusStoreName :: String
 transactionStatusStoreName = "transactionStatus"
 
+-- |Name of the table used for storing the round status and latest finalization entry.
 consensusStatusStoreName :: String
 consensusStatusStoreName = "consensusStatus"
 
+-- |Name of the table used for storing version metadata.
 metadataStoreName :: String
 metadataStoreName = "metadata"
 
@@ -227,6 +234,8 @@ dbMaxStepSize = 2 ^ (30 :: Int) -- 1GB
 -- This is currently set to be the same as 'dbStepSize'.
 dbInitSize :: Int
 dbInitSize = dbStepSize
+
+-- ** Helpers
 
 -- |Resize the LMDB map if the file size has changed.
 -- This is used to allow a secondary process that is reading the database
@@ -261,6 +270,8 @@ resizeDatabaseHandlers dbh delta = do
     logEvent LMDB LLDebug $ "Resizing database from " ++ show oldMapSize ++ " to " ++ show newMapSize
     liftIO . withWriteStoreEnv (dbh ^. storeEnv) $ flip mdb_env_set_mapsize newMapSize
 
+-- ** Initialization
+
 -- |Initialize database handlers.
 -- The size will be rounded up to a multiple of 'dbStepSize'.
 -- (This ensures in particular that the size is a multiple of the page size, which is required by
@@ -282,13 +293,12 @@ makeDatabaseHandlers treeStateDir readOnly initSize = do
     mdb_env_set_maxreaders env 126
     mdb_env_open env treeStateDir [MDB_RDONLY | readOnly]
     transaction _storeEnv readOnly $ \txn -> do
-        -- Note: BlockStore is opened with 'MDB_INTEGERKEY'.
         _blockStore <-
             BlockStore
                 <$> mdb_dbi_open'
                     txn
                     (Just blockStoreName)
-                    (MDB_INTEGERKEY : [MDB_CREATE | not readOnly])
+                    [MDB_CREATE | not readOnly]
         _blockHashIndex <-
             BlockHashIndex
                 <$> mdb_dbi_open'
@@ -301,13 +311,13 @@ makeDatabaseHandlers treeStateDir readOnly initSize = do
                     txn
                     (Just transactionStatusStoreName)
                     [MDB_CREATE | not readOnly]
-        -- Note: ConsensusStatusStore is opened with 'MDB_INTEGERKEY'.
-        _consensusStatusStore <-
-            ConsensusStatusStore
-                <$> mdb_dbi_open'
-                    txn
-                    (Just consensusStatusStoreName)
-                    (MDB_INTEGERKEY : [MDB_CREATE | not readOnly])
+        consensusStatusStore <-
+            mdb_dbi_open'
+                txn
+                (Just consensusStatusStoreName)
+                [MDB_CREATE | not readOnly]
+        let _roundStatusStore = RoundStatusStore consensusStatusStore
+        let _latestFinalizationEntryStore = LatestFinalizationEntryStore consensusStatusStore
         _metadataStore <-
             MetadataStore
                 <$> mdb_dbi_open'
@@ -365,13 +375,12 @@ openReadOnlyDatabase treeStateDir = do
                 case promoteProtocolVersion vmProtocolVersion of
                     SomeProtocolVersion (_ :: SProtocolVersion pv) ->
                         resizeOnResizedInternal _storeEnv $ transaction _storeEnv True $ \txn -> do
-                            -- Note: BlockStore is opened with 'MDB_INTEGERKEY'.
                             _blockStore <-
                                 BlockStore
                                     <$> mdb_dbi_open'
                                         txn
                                         (Just blockStoreName)
-                                        [MDB_INTEGERKEY]
+                                        []
                             _blockHashIndex <-
                                 BlockHashIndex
                                     <$> mdb_dbi_open'
@@ -384,15 +393,19 @@ openReadOnlyDatabase treeStateDir = do
                                         txn
                                         (Just transactionStatusStoreName)
                                         []
-                            -- Note: ConsensusStatusStore is opened with 'MDB_INTEGERKEY'.
-                            _consensusStatusStore <-
-                                ConsensusStatusStore
-                                    <$> mdb_dbi_open'
-                                        txn
-                                        (Just consensusStatusStoreName)
-                                        [MDB_INTEGERKEY]
+                            consensusStatusStore <-
+                                mdb_dbi_open'
+                                    txn
+                                    (Just consensusStatusStoreName)
+                                    []
+                            let _roundStatusStore =
+                                    RoundStatusStore consensusStatusStore
+                            let _latestFinalizationEntryStore =
+                                    LatestFinalizationEntryStore consensusStatusStore
                             return (Just (VersionDatabaseHandlers @pv DatabaseHandlers{..}))
             _ -> Nothing <$ mdb_env_close env
+
+-- ** Monad implementation
 
 -- |A newtype wrapper that provides a 'MonadTreeStateStore' implementation using LMDB.
 newtype DiskLLDBM (pv :: ProtocolVersion) m a = DiskLLDBM {runDiskLLDBM :: m a}
@@ -473,36 +486,34 @@ instance
                     (FinalizedTransactionStatus height ti)
         storeReplaceRecord
             txn
-            (dbh ^. consensusStatusStore)
+            (dbh ^. latestFinalizationEntryStore)
             CSKLatestFinalizationEntry
-            (CSVLastFinalizationEntry fe)
+            fe
 
     lookupLatestFinalizationEntry = asReadTransaction $ \dbh txn ->
-        loadRecord txn (dbh ^. consensusStatusStore) CSKLatestFinalizationEntry <&> \case
-            Just (CSVLastFinalizationEntry fe) -> Just fe
-            _ -> Nothing
+        loadRecord txn (dbh ^. latestFinalizationEntryStore) CSKLatestFinalizationEntry
 
     lookupCurrentRoundStatus = asReadTransaction $ \dbh txn ->
-        loadRecord txn (dbh ^. consensusStatusStore) CSKRoundStatus >>= \case
-            Just (CSVRoundStatus rs) -> return rs
+        loadRecord txn (dbh ^. roundStatusStore) CSKRoundStatus >>= \case
+            Just rs -> return rs
             _ -> throwM (DatabaseInvariantViolation "Missing current round status")
 
     writeCurrentRoundStatus rs = asWriteTransaction $ \dbh txn ->
-        storeReplaceRecord txn (dbh ^. consensusStatusStore) CSKRoundStatus (CSVRoundStatus rs)
+        storeReplaceRecord txn (dbh ^. roundStatusStore) CSKRoundStatus rs
 
-    rollBackBlocksUntil predicate = roll False
+    rollBackBlocksUntil predicate = roll 0
       where
-        -- The boolean indicates whether blocks have already been rolled back.
-        roll b = do
+        -- The ctr indicates how many blocks that have been rolled back.
+        roll ctr = do
             getLast >>= \case
-                Nothing -> return $ Right b
+                Nothing -> return $ Right ctr
                 Just (Left e) -> return $ Left $ "Could not load last finalized block: " ++ e
                 Just (Right (h, sb)) -> do
                     ok <- predicate sb
                     if ok
-                        then return $ Right b
+                        then return $ Right ctr
                         else do
-                            unless b $ do
+                            unless (ctr == 0) $ do
                                 logEvent
                                     TreeState
                                     LLWarning
@@ -515,10 +526,10 @@ instance
                                     ++ show h
                             asWriteTransaction $ \dbh txn -> do
                                 -- If we haven't already, remove the latest finalization entry
-                                unless b . void $
+                                unless (ctr == 0) . void $
                                     deleteRecord
                                         txn
-                                        (dbh ^. consensusStatusStore)
+                                        (dbh ^. latestFinalizationEntryStore)
                                         CSKLatestFinalizationEntry
                                 -- Remove the block
                                 _ <- deleteRecord txn (dbh ^. blockStore) h
@@ -526,6 +537,6 @@ instance
                                 -- Remove the block transactions
                                 forM_ (blockTransactions sb) $ \tx ->
                                     deleteRecord txn (dbh ^. transactionStatusStore) (getHash tx)
-                            roll True
+                            roll $! ctr + 1
         getLast = asReadTransaction $ \dbh txn ->
             withCursor txn (dbh ^. blockStore) (getCursor CursorLast)
