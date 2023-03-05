@@ -14,6 +14,7 @@ import Concordium.Scheduler.Types
 import Concordium.Types.Accounts
 import Concordium.Types.HashableTo
 import Concordium.Utils.BinarySearch
+import Concordium.Utils.Serialization
 
 import Data.Ratio
 import Data.Serialize
@@ -49,6 +50,21 @@ data FullBakers = FullBakers
       bakerTotalStake :: !Amount
     }
     deriving (Eq, Show)
+
+-- |Serialize 'FullBakers'. This is used in updating the leadership election nonce for a new epoch.
+-- The serialization format is:
+--
+-- * Number of bakers (64 bit, big endian)
+-- * For each baker in ascending order of baker ID:
+--     * Baker ID
+--     * Election (VRF) public key
+--     * Signature public key
+--     * Aggregate signature public key
+--     * Effective stake amount of the baker
+putFullBakers :: Putter FullBakers
+putFullBakers FullBakers{..} = do
+    putLength (Vec.length fullBakerInfos)
+    mapM_ put fullBakerInfos
 
 -- |Look up a baker by its identifier.
 -- This is implemented with binary search.

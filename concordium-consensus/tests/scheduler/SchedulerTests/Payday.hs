@@ -95,13 +95,13 @@ testDoMintingP4 = do
             (bankStatus rewardAccounts0)
   where
     initialTotalSupply = 1_000_000_000
-    epochLength = 100
+    epochLen = 100
     -- Initial block state, the important information here is the epoch length and the initial total
     -- supply.
     initialBlockState = do
         account <- Helpers.makeTestAccountFromSeed initialTotalSupply 0
         BS.initialPersistentState
-            (initialSeedStateV0 (Hash.hash "NONCE") epochLength)
+            (initialSeedStateV0 (Hash.hash "NONCE") epochLen)
             DummyData.dummyCryptographicParameters
             [account]
             DummyData.dummyIdentityProviders
@@ -371,7 +371,7 @@ testRewardDistribution = do
                         blockParentPersistent
                         slot
                         bid
-                        epoch
+                        theEpoch
                         mfinInfo
                         newSeedState
                         transFees
@@ -388,7 +388,7 @@ testRewardDistribution = do
     gd = genesis 5 ^. _1 :: GenesisData 'P4
     slot = 400
     bid = BakerId 1
-    epoch = 4
+    theEpoch = 4
     mfinInfo = Nothing
     newSeedState = initialSeedStateV0 (Hash.hash "qwerty") 100
     transFees = 123
