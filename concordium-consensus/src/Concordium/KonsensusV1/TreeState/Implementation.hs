@@ -1,4 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -99,7 +100,8 @@ data BlockTable pv = BlockTable
       -- Blocks are removed from this map by two means;
       --
       -- * When a block becomes finalized it is
-      -- being persisted (and so is the predecessor live blocks)
+      -- being persisted (and so are the live blocks which are predecessors to the block
+      -- being finalized.)
       -- and removed from this cache.
       --
       -- * When a block is being marked as dead.
@@ -125,7 +127,7 @@ emptyBlockTable = BlockTable emptyDeadCache HM.empty
 -- The 'PendingTransactionTable' is special for the focus block, as it records
 -- the pending transactions for that given block (the focus block).
 --
--- Hence, itt must always be the case that a nonce from the perspective of the focus block
+-- Hence, it must always be the case that a nonce from the perspective of the focus block
 -- is the same as recorded in the 'PendingTransactionTable'.
 data PendingTransactions pv = PendingTransactions
     { -- |The block with respect to which the pending transactions are considered pending.
@@ -138,7 +140,7 @@ data PendingTransactions pv = PendingTransactions
 -- making it easier to work with from a 'SkovData' context.
 makeClassy ''PendingTransactions
 
--- | Pending blocks are conceptually stored in a min priority search queue,
+-- | Pending blocks are conceptually stored in a min priority queue,
 -- where multiple blocks may have the same key, which is their parent,
 -- and the priority is the block's round number.
 -- When a block arrives (possibly dead), its pending children are removed
@@ -150,7 +152,7 @@ data PendingBlocks = PendingBlocks
     { -- |Pending blocks i.e. blocks that have not yet been included in the tree.
       -- The entries of the pending blocks are keyed by the 'BlockHash' of their parent block.
       _pendingBlocksTable :: !(HM.HashMap BlockHash [PendingBlock]),
-      -- |A priority search queue on the (pending block hash, parent of pending block hash) tuple,
+      -- |A priority queue on the (pending block hash, parent of pending block hash) tuple,
       -- prioritised by the round of the pending block. The queue in particular supports extracting
       -- the pending block with minimal 'Round'. Note that the queue can contain blocks that are
       -- not actually pending, hence it does not have an entry in the '_pendingBlocksTable'.
@@ -301,7 +303,7 @@ mkBlockPointer sb@LowLevel.StoredBlock{..} = do
     return BlockPointer{bpInfo = stbInfo, bpBlock = stbBlock, ..}
   where
     mkHashedPersistentBlockState = do
-        hpbsPointers <- newIORef $ BlobStore.blobRefToBufferedRef stbStatePointer
+        hpbsPointers <- newIORef $! BlobStore.blobRefToBufferedRef stbStatePointer
         let hpbsHash = blockStateHash sb
         return $! PBS.HashedPersistentBlockState{..}
 
@@ -335,13 +337,13 @@ getFinalizedBlockAtHeight :: (LowLevel.MonadTreeStateStore m, MonadIO m) => Bloc
 getFinalizedBlockAtHeight height = do
     LowLevel.lookupBlockByHeight height >>= \case
         Nothing -> return Nothing
-        Just sb -> return . Just =<< mkBlockPointer sb
+        Just sb -> return <$> Just =<< mkBlockPointer sb
 
 -- |Turn a 'PendingBlock' into a live block.
 -- This marks the block as 'MemBlockAlive' in the block table, records the arrive time of the block,
 -- and returns the resulting 'BlockPointer'.
 -- The hash of the block state MUST match the block state hash of the block; this is not checked.
--- [Note: this does not affect the branches.]
+-- [Note: this does not affect the '_branches' of the 'SkovData'.]
 makeLiveBlock :: (MonadState (SkovData pv) m) => PendingBlock -> PBS.HashedPersistentBlockState pv -> BlockHeight -> UTCTime -> m (BlockPointer pv)
 makeLiveBlock pb st height arriveTime = do
     let bp =
@@ -356,7 +358,7 @@ makeLiveBlock pb st height arriveTime = do
 -- |Marks a block as dead.
 -- This expunges the block from memory
 -- and registers the block in the dead cache.
--- [Note: this does not affect the branches.]
+-- [Note: this does not affect the '_branches' of the 'SkovData'.]
 markBlockDead :: (MonadState (SkovData pv) m) => BlockHash -> m ()
 markBlockDead blockHash = do
     blockTable . liveMap . at' blockHash .=! Nothing
@@ -364,7 +366,7 @@ markBlockDead blockHash = do
 
 -- |Mark a live block as dead. In addition, purge the block state and maintain invariants in the
 -- transaction table by purging all transaction outcomes that refer to this block.
--- [Note: this does not affect the branches.]
+-- [Note: this does not affect the '_branches' of the 'SkovData'.]
 markLiveBlockDead ::
     ( MonadState (SkovData pv) m,
       BlockStateStorage m,
@@ -386,7 +388,7 @@ markPending pb = blockTable . liveMap . at' (getHash pb) ?=! MemBlockPending pb
 -- * Operations on pending blocks
 
 -- $pendingBlocks
--- Pending blocks are conceptually stored in a min priority search queue,
+-- Pending blocks are conceptually stored in a min priority queue,
 -- where multiple blocks may have the same key, which is their parent,
 -- and the priority is the block's round number.
 -- When a block arrives (possibly dead), its pending children are removed
@@ -396,9 +398,17 @@ markPending pb = blockTable . liveMap . at' (getHash pb) ?=! MemBlockPending pb
 -- join the tree).  This uses 'takeNextPendingUntil'.
 
 -- |Add a block to the pending block table and queue.
--- (Note, this does not update the block table.)
-addPendingBlock :: (MonadState s m, HasPendingBlocks s) => PendingBlock -> m ()
-addPendingBlock pb = do
+-- [Note: this does not affect the '_branches' of the 'SkovData'.]
+addPendingBlock ::
+    (MonadState s m, HasPendingBlocks s) =>
+    -- |The 'PendingBlock' to add.
+    -- Note that we force it here to make sure it is
+    -- evaluted since there are no guarantees by just the looks of this function.
+    -- In practice it probably does not matter as the pending block is being pre-verified
+    -- before this function is called. But we do it for good measure here.
+    PendingBlock ->
+    m ()
+addPendingBlock !pb = do
     pendingBlocksQueue %= MPQ.insert theRound (blockHash, parentHash)
     pendingBlocksTable . at' parentHash . non [] %= (pb :)
   where
@@ -499,6 +509,7 @@ getNonFinalizedChainUpdates uType updateSequenceNumber sd = do
 getNonFinalizedCredential ::
     -- |'TransactionHash' for the transaction that contained the 'CredentialDeployment'.
     TransactionHash ->
+    -- |The 'SkovData pv' to query the non finalized credential from.
     SkovData pv ->
     Maybe (CredentialDeploymentWithMeta, TVer.VerificationResult)
 getNonFinalizedCredential txhash sd = do
@@ -519,6 +530,7 @@ getNextAccountNonce ::
     -- This will work for account aliases as this is an 'AccountAddressEq'
     -- and not just a 'AccountAddress'.
     AccountAddressEq ->
+    -- |The 'SkovData pv' to query the next account nonce from.
     SkovData pv ->
     -- |The resulting account nonce and whether it is finalized or not.
     (Nonce, Bool)
@@ -534,7 +546,11 @@ getNextAccountNonce addr sd = case sd ^. transactionTable . ttNonFinalizedTransa
 -- continuous sequence by nonce, starting from the next available non-finalized
 -- nonce. This does not write the transactions to the low-level tree state database, but just
 -- updates the in-memory transaction table accordingly.
-removeTransactions :: (MonadState (SkovData pv) m, MonadThrow m) => [BlockItem] -> m ()
+removeTransactions ::
+    (MonadState (SkovData pv) m, MonadThrow m) =>
+    -- |The transactions to remove from the state.
+    [BlockItem] ->
+    m ()
 removeTransactions = mapM_ removeTrans
   where
     removeTrans WithMetadata{wmdData = NormalTransaction tr, ..} = do

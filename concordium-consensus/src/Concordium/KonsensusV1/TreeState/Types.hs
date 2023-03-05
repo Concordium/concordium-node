@@ -179,7 +179,7 @@ data RoundStatus = RoundStatus
       rsCurrentTimeoutSignatureMessages :: !(SignatureMessages TimeoutSignatureMessage),
       -- |If the consensus runner is part of the finalization committee,
       -- then this will yield the last signed 'QuorumSignatureMessage'
-      rsLastSignedQuouromSignatureMessage :: !(Option QuorumSignatureMessage),
+      rsLastSignedQuourumSignatureMessage :: !(Option QuorumSignatureMessage),
       -- |If the consensus runner is part of the finalization committee,
       -- then this will yield the last signed timeout message.
       rsLastSignedTimeoutSignatureMessage :: !(Option TimeoutSignatureMessage),
@@ -209,7 +209,7 @@ instance Serialize RoundStatus where
         put rsCurrentRound
         put rsCurrentQuorumSignatureMessages
         put rsCurrentTimeoutSignatureMessages
-        put rsLastSignedQuouromSignatureMessage
+        put rsLastSignedQuourumSignatureMessage
         put rsLastSignedTimeoutSignatureMessage
         put rsCurrentTimeout
         put rsHighestQC
@@ -221,7 +221,7 @@ instance Serialize RoundStatus where
         rsCurrentRound <- get
         rsCurrentQuorumSignatureMessages <- get
         rsCurrentTimeoutSignatureMessages <- get
-        rsLastSignedQuouromSignatureMessage <- get
+        rsLastSignedQuourumSignatureMessage <- get
         rsLastSignedTimeoutSignatureMessage <- get
         rsCurrentTimeout <- get
         rsHighestQC <- get
@@ -238,7 +238,7 @@ initialRoundStatus baseTimeout leNonce =
           rsCurrentRound = 0,
           rsCurrentQuorumSignatureMessages = emptySignatureMessages,
           rsCurrentTimeoutSignatureMessages = emptySignatureMessages,
-          rsLastSignedQuouromSignatureMessage = Absent,
+          rsLastSignedQuourumSignatureMessage = Absent,
           rsLastSignedTimeoutSignatureMessage = Absent,
           rsCurrentTimeout = baseTimeout,
           rsHighestQC = Absent,

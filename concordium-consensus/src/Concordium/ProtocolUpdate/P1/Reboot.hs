@@ -56,6 +56,7 @@
 module Concordium.ProtocolUpdate.P1.Reboot where
 
 import Data.Serialize
+import Lens.Micro
 
 import qualified Concordium.Crypto.SHA256 as SHA256
 import Concordium.Genesis.Data
@@ -138,7 +139,7 @@ updateRegenesis UpdateData{..} = do
     s1 <-
         bsoSetSeedState s0 $
             initialSeedStateV0
-                (SHA256.hash $ "Regenesis" <> encode (updatedNonce oldSeedState))
+                (SHA256.hash $ "Regenesis" <> encode (oldSeedState ^. updatedNonce))
                 updateEpochLength
     -- Overwrite the election difficulty.
     s2 <- bsoOverwriteElectionDifficulty s1 updateElectionDifficulty

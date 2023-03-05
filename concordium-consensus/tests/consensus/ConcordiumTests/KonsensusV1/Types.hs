@@ -193,7 +193,7 @@ genRoundStatus = do
     rsCurrentEpoch <- genEpoch
     rsCurrentRound <- genRound
     rsCurrentQuorumSignatureMessages <- genQuorumSignatureMessages
-    rsLastSignedQuouromSignatureMessage <- coinFlip =<< genQuorumSignatureMessage
+    rsLastSignedQuourumSignatureMessage <- coinFlip =<< genQuorumSignatureMessage
     rsLastSignedTimeoutSignatureMessage <- coinFlip =<< genTimeoutSignatureMessage
     rsCurrentTimeoutSignatureMessages <- genTimeoutSignatureMessages
     rsCurrentTimeout <- Duration <$> arbitrary
