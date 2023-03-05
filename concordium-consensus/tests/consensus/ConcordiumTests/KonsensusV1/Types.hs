@@ -1,6 +1,8 @@
+-- |Testing of 'Concordium.KonsensusV1.Types' and 'Concordium.KonsensusV1.TreeState.Types' modules.
 module ConcordiumTests.KonsensusV1.Types where
 
 import qualified Data.ByteString as BS
+import Data.Foldable
 import qualified Data.Map.Strict as Map
 import Data.Serialize
 import qualified Data.Vector as Vector
@@ -21,6 +23,7 @@ import Concordium.Types.Transactions
 import qualified Concordium.Types.Transactions as Transactions
 import qualified Data.FixedByteString as FBS
 
+import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 
 -- |Generate a 'FinalizerSet'. The size parameter determines the size of the committee that
@@ -45,7 +48,7 @@ genBlsSignature = flip Bls.sign someBlsSecretKey . BS.pack <$> vector 10
 genQuorumSignature :: Gen QuorumSignature
 genQuorumSignature = QuorumSignature <$> genBlsSignature
 
--- |Generate a random quorum signature message
+-- |Generate a random quorum signature message.
 genQuorumSignatureMessage :: Gen QuorumSignatureMessage
 genQuorumSignatureMessage = do
     qsmGenesis <- genBlockHash
@@ -53,6 +56,15 @@ genQuorumSignatureMessage = do
     qsmRound <- genRound
     qsmEpoch <- genEpoch
     return QuorumSignatureMessage{..}
+
+-- |Generate a random timeout signature message.
+genTimeoutSignatureMessage :: Gen TimeoutSignatureMessage
+genTimeoutSignatureMessage = do
+    tsmGenesis <- genBlockHash
+    tsmRound <- genRound
+    tsmQCRound <- genRound
+    tsmQCEpoch <- genEpoch
+    return TimeoutSignatureMessage{..}
 
 -- |Generate a block hash.
 -- This generates an arbitrary hash.
@@ -156,6 +168,43 @@ genTimeoutMessage = do
 -- |Generate an arbitrary timestamp.
 genTimestamp :: Gen Timestamp
 genTimestamp = Timestamp <$> arbitrary
+
+-- |Generates a collection of 'QuorumSignatureMessage's
+genQuorumSignatureMessages :: Gen (SignatureMessages QuorumSignatureMessage)
+genQuorumSignatureMessages = do
+    numMessages <- chooseInteger (0, 100)
+    msgs <- vectorOf (fromIntegral numMessages) genQuorumSignatureMessage
+    return $! SignatureMessages $! foldl' (\acc msg -> Map.insert (FinalizerIndex . fromIntegral $ Map.size acc) msg acc) Map.empty msgs
+
+-- |Generates a collection of 'TimeoutSignatureMessage's
+genTimeoutSignatureMessages :: Gen (SignatureMessages TimeoutSignatureMessage)
+genTimeoutSignatureMessages = do
+    numMessages <- chooseInteger (0, 100)
+    msgs <- vectorOf (fromIntegral numMessages) genTimeoutSignatureMessage
+    return $! SignatureMessages $! foldl' (\acc msg -> Map.insert (FinalizerIndex . fromIntegral $ Map.size acc) msg acc) Map.empty msgs
+
+-- |Generate a 'RoundStatus' suitable for testing serialization.
+genRoundStatus :: Gen RoundStatus
+genRoundStatus = do
+    rsCurrentEpoch <- genEpoch
+    rsCurrentRound <- genRound
+    rsCurrentQuorumSignatureMessages <- genQuorumSignatureMessages
+    rsLastSignedQuourumSignatureMessage <- coinFlip =<< genQuorumSignatureMessage
+    rsLastSignedTimeoutSignatureMessage <- coinFlip =<< genTimeoutSignatureMessage
+    rsCurrentTimeoutSignatureMessages <- genTimeoutSignatureMessages
+    rsCurrentTimeout <- Duration <$> arbitrary
+    rsHighestQC <- coinFlip =<< genQuorumCertificate
+    rsLeadershipElectionNonce <- Hash.Hash . FBS.pack <$> vector 32
+    rsLatestEpochFinEntry <- coinFlip =<< genFinalizationEntry
+    tc <- genTimeoutCertificate
+    qc <- genQuorumCertificate
+    let rsPreviousRoundTC = Present (tc, qc)
+    return RoundStatus{..}
+  where
+    coinFlip x =
+        chooseInteger (0, 1) >>= \case
+            0 -> return Absent
+            _ -> return $! Present x
 
 -- |Generate an arbitrary vrf key pair.
 someVRFKeyPair :: VRF.KeyPair
@@ -266,6 +315,9 @@ propSerializeSignedBlock =
             Left _ -> False
             Right sb' -> sb == sb'
 
+propSerializeRoundStatus :: Property
+propSerializeRoundStatus = forAll genRoundStatus serCheck
+
 -- |Check that a signing a timeout message produces a timeout message that verifies with the key.
 propSignTimeoutMessagePositive :: Property
 propSignTimeoutMessagePositive =
@@ -372,6 +424,7 @@ tests = describe "KonsensusV1.Types" $ do
     it "TimeoutMessage serialization" propSerializeTimeoutMessage
     it "BakedBlock serialization" propSerializeBakedBlock
     it "SignedBlock serialization" propSerializeSignedBlock
+    it "RoundStatus serialization" propSerializeRoundStatus
     it "TimeoutMessage signature check positive" propSignTimeoutMessagePositive
     it "TimeoutMessage signature check fails with different key" propSignTimeoutMessageDiffKey
     it "TimeoutMessage signature check fails with different body" propSignTimeoutMessageDiffBody

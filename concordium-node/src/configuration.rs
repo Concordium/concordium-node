@@ -93,27 +93,27 @@ pub struct PrometheusConfig {
         default_value = "127.0.0.1",
         env = "CONCORDIUM_NODE_PROMETHEUS_LISTEN_ADDRESS"
     )]
-    pub prometheus_listen_addr:   String,
+    pub prometheus_listen_addr: std::net::IpAddr,
     #[structopt(
         long = "prometheus-listen-port",
         help = "Port for prometheus to listen on. If set the prometheus server will start \
                 listening on the given port",
         env = "CONCORDIUM_NODE_PROMETHEUS_LISTEN_PORT"
     )]
-    pub prometheus_listen_port:   Option<u16>,
+    pub prometheus_listen_port: Option<u16>,
     #[structopt(
         long = "prometheus-push-gateway",
         help = "Enable prometheus via push gateway",
         env = "CONCORDIUM_NODE_PROMETHEUS_PUSH_GATEWAY"
     )]
-    pub prometheus_push_gateway:  Option<String>,
+    pub prometheus_push_gateway: Option<String>,
     #[structopt(
         long = "prometheus-job-name",
         help = "Job name to send to push gateway",
         default_value = "concordium_node_push",
         env = "CONCORDIUM_NODE_PROMETHEUS_JOB_NAME"
     )]
-    pub prometheus_job_name:      String,
+    pub prometheus_job_name: String,
     #[structopt(
         long = "prometheus-instance-name",
         help = "If not present node_id will be used",
@@ -142,6 +142,17 @@ pub struct PrometheusConfig {
         env = "CONCORDIUM_NODE_PROMETHEUS_PUSH_GATEWAY_INTERVAL"
     )]
     pub prometheus_push_interval: u64,
+    #[structopt(
+        long = "prometheus-grpc-response-time-buckets",
+        help = "Define the gRPC response time observation buckets used by the prometheus \
+                exporter. Each value represents the upper inclusive bound of a bucket (in \
+                seconds) and a bucket with +Infinity is always added. The values must be sorted \
+                in strictly increasing order.",
+        default_value = "0.050,0.100,0.200,0.500,1.000",
+        env = "CONCORDIUM_NODE_PROMETHEUS_GRPC_RESPONSE_TIME_BUCKETS",
+        use_delimiter = true
+    )]
+    pub prometheus_metric_grpc_response_time_buckets: Vec<f64>,
 }
 
 impl PrometheusConfig {

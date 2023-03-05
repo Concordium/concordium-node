@@ -15,7 +15,8 @@ use hyper::Body;
 use prometheus::{
     self,
     core::{Atomic, AtomicI64, AtomicU64, GenericGauge},
-    Encoder, IntCounter, IntCounterVec, IntGauge, Opts, Registry, TextEncoder,
+    Encoder, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, Opts, Registry,
+    TextEncoder,
 };
 use std::{net::SocketAddr, sync::RwLock, thread, time};
 
@@ -111,6 +112,10 @@ pub struct StatsExportService {
     pub node_info: IntGauge,
     /// Timestamp of starting up the node (Unix time in milliseconds).
     pub node_startup_timestamp: IntGauge,
+    /// Histogram tracking response time of gRPC requests. Labelled with the
+    /// gRPC method name (`method=<name>`) and the gRPC response status
+    /// (`status=<status>`).
+    pub grpc_request_response_time: HistogramVec,
     /// Total number of bytes received at the point of last
     /// throughput_measurement.
     ///
@@ -144,7 +149,7 @@ pub struct StatsExportService {
 
 impl StatsExportService {
     /// Creates a new instance of the stats export service object.
-    pub fn new() -> anyhow::Result<Self> {
+    pub fn new(grpc_duration_buckets: Vec<f64>) -> anyhow::Result<Self> {
         let registry = Registry::new();
 
         let packets_received = IntCounter::with_opts(Opts::new(
@@ -282,6 +287,18 @@ impl StatsExportService {
         ))?;
         registry.register(Box::new(node_startup_timestamp.clone()))?;
 
+        let grpc_request_response_time = HistogramVec::new(
+            HistogramOpts::new(
+                "grpc_request_response_time_seconds",
+                "Response time of gRPC requests in seconds",
+            )
+            .variable_label("method")
+            .variable_label("status")
+            .buckets(grpc_duration_buckets),
+            &["method", "status"],
+        )?;
+        registry.register(Box::new(grpc_request_response_time.clone()))?;
+
         let last_throughput_measurement_timestamp = AtomicI64::new(0);
         let last_throughput_measurement_sent_bytes = AtomicU64::new(0);
         let last_throughput_measurement_received_bytes = AtomicU64::new(0);
@@ -310,6 +327,7 @@ impl StatsExportService {
             total_peers,
             node_info,
             node_startup_timestamp,
+            grpc_request_response_time,
             last_throughput_measurement_timestamp,
             last_throughput_measurement_sent_bytes,
             last_throughput_measurement_received_bytes,
@@ -403,9 +421,12 @@ impl StatsExportService {
 }
 
 /// Starts the stats export engine.
-pub fn instantiate_stats_export_engine() -> anyhow::Result<Arc<StatsExportService>> {
+pub fn instantiate_stats_export_engine(
+    conf: &configuration::PrometheusConfig,
+) -> anyhow::Result<Arc<StatsExportService>> {
     let prom =
-        StatsExportService::new().context("Could not start statistics collection engine.")?;
+        StatsExportService::new(conf.prometheus_metric_grpc_response_time_buckets.to_owned())
+            .context("Could not start statistics collection engine.")?;
     Ok(Arc::new(prom))
 }
 
