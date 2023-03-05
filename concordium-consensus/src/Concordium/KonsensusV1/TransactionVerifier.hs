@@ -1,14 +1,10 @@
-{-# LANGUAGE DerivingVia #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE UndecidableInstances #-}
 
 -- |This module implements the 'TransactionVerifier' for consensus protocol V1.
 module Concordium.KonsensusV1.TransactionVerifier where
 
-import Control.Monad.Reader
-import Data.Kind (Type)
+import Control.Monad.Trans
 import Data.Maybe (isJust)
 import Lens.Micro.Platform
 
@@ -41,17 +37,10 @@ data Context pv = Context
 
 makeLenses ''Context
 
--- |Helper type for defining 'TransactionVerifierT'. While we only instantiate @r@ with
--- @Context (BlockState m)@, it is simpler to derive the 'MonadTrans' instance using the present
--- definition.
-newtype TransactionVerifierT' (r :: Type) (m :: Type -> Type) (a :: Type) = TransactionVerifierT {runTransactionVerifierT :: r -> m a}
-    deriving (Functor, Applicative, Monad, MonadReader r) via (ReaderT r m)
-    deriving (MonadTrans) via (ReaderT r)
-
-deriving via (ReaderT r) m instance (MonadProtocolVersion m) => MonadProtocolVersion (TransactionVerifierT' r m)
-deriving via (ReaderT r) m instance BlockStateTypes (TransactionVerifierT' r m)
-
-type TransactionVerifierT m = TransactionVerifierT' (Context (MPV m)) m
+-- |A specialized transaction verifier for the consensus v1 protocol which
+-- makes use of the 'Context pv' defined here.
+newtype ConsensusV1TransactionVerifier m a = ConsensusV1TransactionVerifier (TVer.TransactionVerifierT' (Context (MPV m)) m a)
+    deriving (Functor, Applicative, Monad, MonadTrans)
 
 instance
     ( IsConsensusV1 (MPV m),
@@ -60,7 +49,7 @@ instance
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
       r ~ Context (MPV m)
     ) =>
-    TVer.TransactionVerifier (TransactionVerifierT' r m)
+    TVer.TransactionVerifier (ConsensusV1TransactionVerifier m)
     where
     {-# INLINE getIdentityProvider #-}
     getIdentityProvider ipId = do

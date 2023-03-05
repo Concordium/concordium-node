@@ -1,11 +1,16 @@
+{-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Concordium.TransactionVerification where
 
 import Control.Monad.Trans
 import qualified Data.Map.Strict as OrdMap
 import qualified Data.Serialize as S
+import Data.Kind (Type)
+import Control.Monad.Reader
 
 import qualified Concordium.Cost as Cost
 import qualified Concordium.Crypto.SHA256 as Sha256
@@ -378,3 +383,13 @@ definitelyNotValid verificationResult fromBlock =
                 NotOk _ -> True
                 Ok _ -> False
                 MaybeOk _ -> False
+
+-- |Helper type for defining 'TransactionVerifierT'. While we only instantiate @r@ with
+-- @Context (BlockState m)@, it is simpler to derive the 'MonadTrans' instance using the present
+-- definition.
+newtype TransactionVerifierT' (r :: Type) (m :: Type -> Type) (a :: Type) = TransactionVerifierT {runTransactionVerifierT :: r -> m a}
+    deriving (Functor, Applicative, Monad, MonadReader r) via (ReaderT r m)
+    deriving (MonadTrans) via (ReaderT r)
+
+deriving via (ReaderT r) m instance (Types.MonadProtocolVersion m) => Types.MonadProtocolVersion (TransactionVerifierT' r m)
+deriving via (ReaderT r) m instance GSTypes.BlockStateTypes (TransactionVerifierT' r m)
