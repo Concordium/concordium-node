@@ -167,17 +167,16 @@ processBlockItems ::
     -- |Return 'True' only if all transactions were
     -- successfully processed otherwise 'False'.
     m Bool
-processBlockItems bb parentPointer = processBis $! bbTransactions bb
+processBlockItems bb parentPointer = process True $! bbTransactions bb
   where
     -- Create a context suitable for verifying a transaction within a 'Block' context.
     getCtx = do
         _ctxSkovData <- get
         return $! Context{_ctxTransactionOrigin = Block, _ctxBlockState = bpState parentPointer, ..}
-    processBis !txs = snd <$> process txs True
     theRound = bbRound bb
-    process !txs !res
+    process !res !txs
         -- If no transactions are present then all were added.
-        | Vector.length txs == 0 = return (Vector.empty, res)
+        | Vector.length txs == 0 = return res
         -- There's work to do.
         | otherwise = do
             !theTime <- utcTimeToTimestamp <$> currentTime
@@ -192,28 +191,24 @@ processBlockItems bb parentPointer = processBis $! bbTransactions bb
                     when (TT.commitPoint theRound > results ^. TT.tsCommitPoint) $
                         transactionTable . TT.ttHashMap . at' txHash . mapped . _2 %=! TT.updateSlot theRound
                     -- And we continue processing the remaining transactions.
-                    process (Vector.tail txs) True
+                    process True (Vector.tail txs)
                 Nothing -> do
                     -- We verify the transaction and check whether it's acceptable i.e. Ok or MaybeOk.
                     -- If that is the case then we add it to the transaction table and pending transactions.
                     -- If it is NotOk then we stop verifying the transactions as the block can never be valid now.
                     !verRes <- runTransactionVerifierT (TVer.verify theTime bi) =<< getCtx
-                    -- Continue processing the transactions.
-                    -- If the transaction was *not* added then it means that it yields a lower nonce with
-                    -- respect to the non finalized transactions. We tolerate this and keep processing the remaining transactions
-                    -- of the block as it could be the case that we have received other transactions from the given account via other blocks.
-                    -- We only add the transaction to the pending transaction table if its nonce is at least the next available nonce for the
-                    -- account.
                     case verRes of
                         -- The transaction was deemed non verifiable i.e., it can never be
                         -- valid. We short circuit the recursion here and return 'False'.
-                        (TVer.NotOk _) -> return (Vector.empty, False)
+                        (TVer.NotOk _) -> return False
                         -- The transaction is either 'Ok' or 'MaybeOk' and that is acceptable
                         -- when processing transactions which originates from a block.
                         -- We add it to the transaction table and continue with the next transaction.
                         acceptedRes ->
-                            doAddTransaction theRound bi acceptedRes
-                                >>= \added ->
-                                    if not added
-                                        then process (Vector.tail txs) True
-                                        else addPendingTransaction Block bi >> process (Vector.tail txs) True
+                            doAddTransaction theRound bi acceptedRes >>= \case
+                                -- The transaction was obsolete so we stop processing the remaining transactions.
+                                False -> return False
+                                -- The transaction was added to the tree state,
+                                -- so add it to the pending table if it's eligible (see documentation for
+                                -- 'addPendingTransaction') and continue processing the remaining ones.
+                                True -> addPendingTransaction Block bi >> process True (Vector.tail txs)
