@@ -106,6 +106,12 @@ data TransactionStatus
           ftsFinResult :: !TransactionIndex
         }
 
+class Monad m => AccountNonceQuery m where
+    -- |Get the successor of the largest known account for the given account
+    -- The function should return 'True' in the second component if and only if
+    -- all (known) transactions from this account are finalized.
+    getNextAccountNonce :: AccountAddressEq -> m (Nonce, Bool)
+
 -- |Monad that provides operations for working with the low-level tree state.
 -- These operations are abstracted where possible to allow for a range of implementation
 -- choices.
@@ -118,7 +124,7 @@ class
       BlockStateStorage m,
       BlockPointerMonad m,
       B.EncodeBlock (MPV m) (BlockPointerType m),
-      Monad m,
+      AccountNonceQuery m,
       MonadProtocolVersion m
     ) =>
     TreeStateMonad m
@@ -319,11 +325,6 @@ class
         Nonce ->
         m [(Nonce, Map.Map Transaction TVer.VerificationResult)]
 
-    -- |Get the successor of the largest known account for the given account
-    -- The function should return 'True' in the second component if and only if
-    -- all (known) transactions from this account are finalized.
-    getNextAccountNonce :: AccountAddressEq -> m (Nonce, Bool)
-
     -- |Get a credential which has not yet been finalized, i.e., it is correct for this function
     -- to return 'Nothing' if the requested credential has already been finalized.
     getCredential :: TransactionHash -> m (Maybe (CredentialDeploymentWithMeta, TVer.VerificationResult))
@@ -469,6 +470,10 @@ class
     -- update.
     storeFinalState :: BlockState m -> m ()
 
+instance (Monad (t m), MonadTrans t, AccountNonceQuery m) => AccountNonceQuery (MGSTrans t m) where
+    getNextAccountNonce = lift . getNextAccountNonce
+    {-# INLINE getNextAccountNonce #-}
+
 instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTrans t m) where
     makePendingBlock key slot parent bid pf n lastFin trs statehash transactionOutcomesHash = lift . makePendingBlock key slot parent bid pf n lastFin trs statehash transactionOutcomesHash
     getBlockStatus = lift . getBlockStatus
@@ -499,7 +504,6 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     getPendingTransactions = lift getPendingTransactions
     putPendingTransactions = lift . putPendingTransactions
     getAccountNonFinalized acc = lift . getAccountNonFinalized acc
-    getNextAccountNonce = lift . getNextAccountNonce
     getCredential = lift . getCredential
     getNonFinalizedChainUpdates uty = lift . getNonFinalizedChainUpdates uty
     type FinTrans (MGSTrans t m) = FinTrans m
@@ -544,7 +548,6 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     {-# INLINE getPendingTransactions #-}
     {-# INLINE putPendingTransactions #-}
     {-# INLINE getAccountNonFinalized #-}
-    {-# INLINE getNextAccountNonce #-}
     {-# INLINE getCredential #-}
     {-# INLINE getNonFinalizedChainUpdates #-}
     {-# INLINE finalizeTransactions #-}
@@ -561,6 +564,9 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     {-# INLINE getNonFinalizedTransactionVerificationResult #-}
     {-# INLINE clearOnProtocolUpdate #-}
     {-# INLINE clearAfterProtocolUpdate #-}
+
+deriving via (MGSTrans MaybeT m) instance AccountNonceQuery m => AccountNonceQuery (MaybeT m)
+deriving via (MGSTrans (ExceptT e) m) instance AccountNonceQuery m => AccountNonceQuery (ExceptT e m)
 
 deriving via (MGSTrans MaybeT m) instance TreeStateMonad m => TreeStateMonad (MaybeT m)
 deriving via (MGSTrans (ExceptT e) m) instance TreeStateMonad m => TreeStateMonad (ExceptT e m)
@@ -580,7 +586,7 @@ data Context t = Context
     { _ctxBs :: t,
       _ctxMaxBlockEnergy :: !Energy,
       -- |Whether the transaction was received from a block or individually.
-      _isTransactionFromBlock :: Bool
+      _isTransactionFromBlock :: !Bool
     }
 
 makeLenses ''Context
@@ -598,7 +604,9 @@ deriving via (ReaderT r) m instance BlockStateTypes (TransactionVerifierT' r m)
 type TransactionVerifierT m = TransactionVerifierT' (Context (BlockState m)) m
 
 instance
-    ( TreeStateMonad m,
+    ( BlockStateQuery m,
+      MonadProtocolVersion m,
+      AccountNonceQuery m,
       r ~ Context (BlockState m)
     ) =>
     TVer.TransactionVerifier (TransactionVerifierT' r m)

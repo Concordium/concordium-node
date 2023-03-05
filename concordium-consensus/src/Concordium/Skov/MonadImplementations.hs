@@ -589,6 +589,14 @@ deriving instance
       c ~ SkovConfig pv finconfig handlerconfig,
       MonadLogger m
     ) =>
+    AccountNonceQuery (SkovT pv h c m)
+
+deriving instance
+    ( MonadIO m,
+      IsProtocolVersion pv,
+      c ~ SkovConfig pv finconfig handlerconfig,
+      MonadLogger m
+    ) =>
     TreeStateMonad (SkovT pv h c m)
 
 deriving via

@@ -410,3 +410,11 @@ reversePTT trs ptt0 = foldr reverse1 ptt0 trs
         upd (Just (low, high)) =
             assert (low == sn + 1) $
                 Just (low - 1, high)
+
+nextAccountNonce :: AccountAddressEq -> TransactionTable -> (Nonce, Bool)
+nextAccountNonce addr tt = case tt ^. ttNonFinalizedTransactions . at' addr of
+            Nothing -> (minNonce, True)
+            Just anfts ->
+                case Map.lookupMax (anfts ^. anftMap) of
+                    Nothing -> (anfts ^. anftNextNonce, True)
+                    Just (nonce, _) -> (nonce + 1, False)

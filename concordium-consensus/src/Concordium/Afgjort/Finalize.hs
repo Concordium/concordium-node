@@ -1150,6 +1150,7 @@ newtype ActiveFinalizationM (pv :: ProtocolVersion) (r :: Type) (s :: Type) (m :
           BlockStateOperations,
           BlockStateStorage,
           BlockPointerMonad,
+          AccountNonceQuery,
           TreeStateMonad,
           SkovMonad,
           TimeMonad,

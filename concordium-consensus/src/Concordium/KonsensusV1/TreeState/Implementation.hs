@@ -451,12 +451,7 @@ doGetNextAccountNonce ::
     SkovData pv ->
     -- |The resulting account nonce and whether it is finalized or not.
     (Nonce, Bool)
-doGetNextAccountNonce addr sd = case sd ^. transactionTable . ttNonFinalizedTransactions . at' addr of
-    Nothing -> (minNonce, True)
-    Just anfts ->
-        case Map.lookupMax (anfts ^. anftMap) of
-            Nothing -> (anfts ^. anftNextNonce, True)
-            Just (nonce, _) -> (nonce + 1, False)
+doGetNextAccountNonce addr sd = nextAccountNonce addr (sd ^. transactionTable)
 
 -- |Finalize a list of transactions. Per account, the transactions must be in
 -- continuous sequence by nonce, starting from the next available non-finalized

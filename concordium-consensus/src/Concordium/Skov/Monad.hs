@@ -438,6 +438,7 @@ deriving via (MGSTrans SkovQueryMonadT m) instance ContractStateOperations m => 
 deriving via (MGSTrans SkovQueryMonadT m) instance ModuleQuery m => ModuleQuery (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance BlockStateQuery m => BlockStateQuery (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance BlockPointerMonad m => BlockPointerMonad (SkovQueryMonadT m)
+deriving via (MGSTrans SkovQueryMonadT m) instance TS.AccountNonceQuery m => TS.AccountNonceQuery (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance TS.TreeStateMonad m => TS.TreeStateMonad (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance BlockStateStorage m => BlockStateStorage (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance BlockStateOperations m => BlockStateOperations (SkovQueryMonadT m)
