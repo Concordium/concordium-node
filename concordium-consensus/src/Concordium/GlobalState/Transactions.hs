@@ -3,23 +3,24 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
+
 module Concordium.GlobalState.Transactions where
 
 import Control.Monad.Reader
 import Control.Monad.Trans.Except
 import Control.Monad.Trans.Maybe
-import Lens.Micro.Platform
 import Data.Kind (Type)
 import Data.Maybe (isJust)
+import Lens.Micro.Platform
 
-import Concordium.Types.Parameters
-import Concordium.Types
-import Concordium.Types.Transactions
 import qualified Concordium.ID.Types as ID
+import Concordium.Types
+import Concordium.Types.Parameters
+import Concordium.Types.Transactions
 
 import Concordium.GlobalState.BlockState
-import Concordium.GlobalState.Types
 import Concordium.GlobalState.Classes
+import Concordium.GlobalState.Types
 import qualified Concordium.TransactionVerification as TVer
 
 -- |Result of trying to add a transaction to the transaction table.
@@ -44,7 +45,7 @@ data AddTransactionResult
 -- or the transaction can be received as part of a block.
 -- The ´Block´ additionally contains a ´BlockState´ of either the parent block (iff. it's 'alive') or the last finalized block.
 data TransactionOrigin = Individual | Block
-  deriving (Eq, Show)
+    deriving (Eq, Show)
 
 -- |The Context that a transaction is verified within
 -- in the reader based instance.
@@ -63,6 +64,7 @@ data Context t = Context
       -- |Whether the transaction was received from a block or individually.
       _ctxTransactionOrigin :: !TransactionOrigin
     }
+
 makeLenses ''Context
 
 -- |Monad for acquiring the next available nonce for an account.
@@ -150,4 +152,4 @@ instance
     {-# INLINE getMaxBlockEnergy #-}
     getMaxBlockEnergy = view ctxMaxBlockEnergy
     {-# INLINE checkExactNonce #-}
-    checkExactNonce = (==Individual) <$> view ctxTransactionOrigin
+    checkExactNonce = (== Individual) <$> view ctxTransactionOrigin

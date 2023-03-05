@@ -40,6 +40,7 @@ class MonadMulticast m where
 newtype BakerContext = BakerContext
     { _bakerIdentity :: BakerIdentity
     }
+
 makeClassy ''BakerContext
 
 -- |Adds a transaction into the pending transaction table
@@ -221,4 +222,3 @@ processBlockItems bb parentPointer = process True $! bbTransactions bb
                                 -- so add it to the pending table if it's eligible (see documentation for
                                 -- 'addPendingTransaction') and continue processing the remaining ones.
                                 True -> addPendingTransaction Block bi >> process True (Vector.tail txs)
-
