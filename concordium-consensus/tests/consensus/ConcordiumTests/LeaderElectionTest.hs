@@ -1,17 +1,16 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module ConcordiumTests.LeaderElectionTest where
 
 import Data.Word
-import Lens.Micro.Platform
 import Test.Hspec
 import Test.QuickCheck
 
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.Crypto.VRF as VRF
-import Concordium.Types.Conditionally
 import Concordium.Types.SeedState
 
 import Concordium.Types
@@ -50,11 +49,11 @@ testPredictFuture =
     ]
   where
     ss =
-        SeedState
-            { epochLength = CTrue 9,
-              epoch = 0,
-              currentLeadershipElectionNonce = H.hash "1",
-              updatedNonce = H.hash "2"
+        SeedStateV0
+            { ss0EpochLength = 9,
+              ss0Epoch = 0,
+              ss0CurrentLeadershipElectionNonce = H.hash "1",
+              ss0UpdatedNonce = H.hash "2"
             }
     vrfKP = fst $ VRF.randomKeyPair (mkStdGen 0)
     bn = VRF.prove vrfKP "3"
@@ -65,12 +64,12 @@ genSeedstate :: Gen (SeedState 'SeedStateVersion0)
 genSeedstate =
     do
         (el :: Word64) <- (* 9) <$> choose (1, 10000)
-        epoch <- choose (0, 1000)
+        ss0Epoch <- choose (0, 1000)
         return
-            SeedState
-                { epochLength = CTrue (fromIntegral el),
-                  currentLeadershipElectionNonce = H.hash "1",
-                  updatedNonce = H.hash "2",
+            SeedStateV0
+                { ss0EpochLength = fromIntegral el,
+                  ss0CurrentLeadershipElectionNonce = H.hash "1",
+                  ss0UpdatedNonce = H.hash "2",
                   ..
                 }
 
@@ -85,22 +84,22 @@ singletonElementOfProperty _ _ = counterexample "Both arguments should be Just, 
 -- @predictLeadershipElectionNonce@ gives the same prediction on an updated seedstate for the same target slot.
 makePropertyJust :: Property
 makePropertyJust = property $ do
-    ss@SeedState{epochLength = el, ..} <- genSeedstate
-    let epochLength = el ^. unconditionally
-    let epochSlot = epoch * fromIntegral epochLength
-    let nextEpoch = epochSlot + fromIntegral epochLength
-    let twoThirds = 2 * fromIntegral epochLength `div` 3
+    ss <- genSeedstate
+    let SeedStateV0{..} = ss
+    let epochSlot = ss0Epoch * fromIntegral ss0EpochLength
+    let nextEpoch = epochSlot + fromIntegral ss0EpochLength
+    let twoThirds = 2 * fromIntegral ss0EpochLength `div` 3
     -- Find a slot in the last 2/3 of the epoch
     seedStateSlot :: Slot <- fromIntegral <$> choose (epochSlot + twoThirds, nextEpoch - 2) -- We subtract 2 so that we can update the seedstate and still be in the same epoch.
     parentInThisEpoch :: Slot <- fromIntegral <$> choose (fromIntegral seedStateSlot + 1, nextEpoch - 1) -- For test cases where the parent of the pending block is in the same epoch as the seed state
-    parentInNextEpoch :: Slot <- fromIntegral <$> choose (nextEpoch + 1, nextEpoch + fromIntegral epochLength - 1) -- For test cases where the parent of the pending block in the same epoch as the target slot
+    parentInNextEpoch :: Slot <- fromIntegral <$> choose (nextEpoch + 1, nextEpoch + fromIntegral ss0EpochLength - 1) -- For test cases where the parent of the pending block in the same epoch as the target slot
     let vrfKP = fst $ VRF.randomKeyPair (mkStdGen 0)
         bn = VRF.prove vrfKP "3"
         seedStateSlot' = fromIntegral nextEpoch + 1
         ss' = updateSeedState seedStateSlot' bn ss -- update the seedstate for a slot in the next epoch
         seedStateSlot'' = seedStateSlot + 1
         ss'' = updateSeedState seedStateSlot'' bn ss -- update the seedstate for a slot in the same epoch
-    slotToPredictFor :: Slot <- fromIntegral <$> choose (fromIntegral parentInNextEpoch, nextEpoch + fromIntegral epochLength - 1) -- the target slot in the next epoch
+    slotToPredictFor :: Slot <- fromIntegral <$> choose (fromIntegral parentInNextEpoch, nextEpoch + fromIntegral ss0EpochLength - 1) -- the target slot in the next epoch
     return $
         conjoin
             [ counterexample "Without knowledge of pending block's parent" $ predictLeadershipElectionNonce ss seedStateSlot Nothing slotToPredictFor === Just [computeLeadershipElectionNonce ss slotToPredictFor, computeLeadershipElectionNonce ss' slotToPredictFor],
@@ -116,18 +115,18 @@ makePropertyJust = property $ do
 -- if the target slot is too far in the future (i.e. two epochs after the seed state or later)
 makePropertyNothing :: Property
 makePropertyNothing = property $ do
-    ss@SeedState{epochLength = el, ..} <- genSeedstate
-    let epochLength = el ^. unconditionally
-    let epochSlot = epoch * fromIntegral epochLength
-    let nextEpoch = epochSlot + fromIntegral epochLength
-    let twoThirds = 2 * fromIntegral epochLength `div` 3
+    ss <- genSeedstate
+    let SeedStateV0{..} = ss
+    let epochSlot = ss0Epoch * fromIntegral ss0EpochLength
+    let nextEpoch = epochSlot + fromIntegral ss0EpochLength
+    let twoThirds = 2 * fromIntegral ss0EpochLength `div` 3
     -- Find a slot in the last 2/3 of the epoch
     seedStateSlot :: Slot <- fromIntegral <$> choose (epochSlot + twoThirds, nextEpoch - 1)
     seedStateSlotTooEarly :: Slot <- fromIntegral <$> choose (epochSlot, epochSlot + twoThirds - 1)
     parentInThisEpoch :: Slot <- fromIntegral <$> choose (fromIntegral seedStateSlot, nextEpoch - 1)
-    parentInNextEpoch :: Slot <- fromIntegral <$> choose (nextEpoch, nextEpoch + fromIntegral epochLength - 1)
-    slotToPredictFor :: Slot <- fromIntegral <$> choose (fromIntegral parentInNextEpoch, nextEpoch + fromIntegral epochLength - 1)
-    slotToPredictTooLate :: Slot <- fromIntegral <$> choose (nextEpoch + fromIntegral epochLength, nextEpoch + 2 * fromIntegral epochLength - 1)
+    parentInNextEpoch :: Slot <- fromIntegral <$> choose (nextEpoch, nextEpoch + fromIntegral ss0EpochLength - 1)
+    slotToPredictFor :: Slot <- fromIntegral <$> choose (fromIntegral parentInNextEpoch, nextEpoch + fromIntegral ss0EpochLength - 1)
+    slotToPredictTooLate :: Slot <- fromIntegral <$> choose (nextEpoch + fromIntegral ss0EpochLength, nextEpoch + 2 * fromIntegral ss0EpochLength - 1)
     return $
         conjoin
             [ counterexample "Seedstate slot too early, parent unknown" $ predictLeadershipElectionNonce ss seedStateSlotTooEarly Nothing slotToPredictFor === Nothing,

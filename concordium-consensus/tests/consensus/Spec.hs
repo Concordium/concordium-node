@@ -11,6 +11,7 @@ import qualified ConcordiumTests.CatchUp (tests)
 import qualified ConcordiumTests.FinalizationRecover (test)
 import qualified ConcordiumTests.Konsensus (tests)
 import qualified ConcordiumTests.KonsensusV1.LMDB (tests)
+import qualified ConcordiumTests.KonsensusV1.LeaderElectionTest (tests)
 import qualified ConcordiumTests.KonsensusV1.TreeStateTest (tests)
 import qualified ConcordiumTests.KonsensusV1.Types (tests)
 import qualified ConcordiumTests.LeaderElectionTest (tests)
@@ -51,3 +52,4 @@ main = atLevel $ \lvl -> hspec $ do
     ConcordiumTests.KonsensusV1.Types.tests
     ConcordiumTests.KonsensusV1.TreeStateTest.tests
     ConcordiumTests.KonsensusV1.LMDB.tests
+    ConcordiumTests.KonsensusV1.LeaderElectionTest.tests
