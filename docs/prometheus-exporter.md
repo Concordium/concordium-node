@@ -196,3 +196,7 @@ Possible values of `status` are:
 - `"not_in_committee"` The node is not in the baking committee.
 - `"added_but_not_active_in_committee"` The node is added to the upcoming the baking committee, and is not baking actively yet.
 - `"added_but_wrong_keys"` The node is setup with baker keys not matching the keys currently registered in the baking committee.
+
+### `consensus_finalization_committee`
+
+The finalization committee status of the node for the current best block. The metric will have a value of 1 if and only if the node is a member of the finalization committee.

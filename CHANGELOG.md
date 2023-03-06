@@ -2,7 +2,7 @@
 
 ## Unreleased changes
 
-- Extend Prometheus exporter with metrics: `grpc_request_duration_seconds`, `grpc_in_flight_requests` and `consensus_baking_committee` see [docs/prometheus-exporter.md](https://github.com/Concordium/concordium-node/blob/main/docs/prometheus-exporter.md) for more details.
+- Extend Prometheus exporter with metrics: `grpc_request_duration_seconds`, `grpc_in_flight_requests`, `consensus_baking_committee` and `consensus_finalization_committee` see [docs/prometheus-exporter.md](https://github.com/Concordium/concordium-node/blob/main/docs/prometheus-exporter.md) for more details.
 
 ## 5.2.4
 

@@ -76,9 +76,12 @@ impl prometheus::core::Collector for GrpcInFlightRequestsCollector {
 /// through the FFI.
 pub struct StatsConsensusCollector {
     /// Reference to consensus to support consensus queries.
-    consensus:        ConsensusContainer,
+    consensus:              ConsensusContainer,
     /// The baking committee status of the node for the current best block.
-    baking_committee: IntGaugeVec,
+    baking_committee:       IntGaugeVec,
+    /// Whether the node is a member of the finalization committee for the
+    /// current best block.
+    finalization_committee: IntGauge,
 }
 
 impl StatsConsensusCollector {
@@ -86,7 +89,7 @@ impl StatsConsensusCollector {
         let baking_committee = IntGaugeVec::new(
             Opts::new(
                 "consensus_baking_committee",
-                "The baking commmittee status of the node for the current best block, labelled \
+                "The baking committee status of the node for the current best block, labelled \
                  with the status where the only metric with value of 1 represents the current \
                  status",
             )
@@ -94,9 +97,16 @@ impl StatsConsensusCollector {
             &["status"],
         )?;
 
+        let finalization_committee = IntGauge::with_opts(Opts::new(
+            "consensus_finalization_committee",
+            "The finalization commmittee status of the node for the current best block. The \
+             metric will have a value of 1 when member of the finalization committee",
+        ))?;
+
         Ok(Self {
             consensus,
             baking_committee,
+            finalization_committee,
         })
     }
 
@@ -110,13 +120,28 @@ impl StatsConsensusCollector {
 }
 
 impl prometheus::core::Collector for StatsConsensusCollector {
-    fn desc(&self) -> Vec<&prometheus::core::Desc> { self.baking_committee.desc() }
+    fn desc(&self) -> Vec<&prometheus::core::Desc> {
+        let mut desc = self.baking_committee.desc();
+        desc.extend(self.finalization_committee.desc());
+        desc
+    }
 
     fn collect(&self) -> Vec<prometheus::proto::MetricFamily> {
         let (status, _has_baker_id, _baker_id) = self.consensus.in_baking_committee();
         self.set_baking_committe(status);
 
-        self.baking_committee.collect()
+        let in_finalization_committee = self.consensus.in_finalization_committee();
+        self.finalization_committee.set(
+            if in_finalization_committee {
+                1
+            } else {
+                0
+            },
+        );
+
+        let mut metrics = self.baking_committee.collect();
+        metrics.extend(self.finalization_committee.collect());
+        metrics
     }
 }
 
