@@ -16,6 +16,9 @@ data FlaggableOffense (pv :: ProtocolVersion)
     | BlockEpochInconsistent !SignedBlock
     | BlockTCMissing !SignedBlock
     | BlockTCRoundInconsistent !SignedBlock
+    | BlockQCInconsistentWithTC !SignedBlock
+    | BlockUnexpectedTC !SignedBlock
+    | BlockInvalidTC !SignedBlock
     | BlockTooFast !SignedBlock !(Block pv)
     | BlockNonceIncorrect !SignedBlock
     | BlockEpochFinalizationMissing !SignedBlock

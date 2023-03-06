@@ -1038,13 +1038,13 @@ doSetSeedState pbs ss = do
     bsp <- loadPBS pbs
     storePBS pbs bsp{bspBirkParameters = (bspBirkParameters bsp){_birkSeedState = ss}}
 
-doGetCurrentEpochFinalizationCommitteParameters ::
+doGetCurrentEpochFinalizationCommitteeParameters ::
     ( SupportsPersistentState pv m,
       IsSupported 'PTFinalizationCommitteeParameters (ChainParametersVersionFor pv) ~ 'True
     ) =>
     PersistentBlockState pv ->
     m FinalizationCommitteeParameters
-doGetCurrentEpochFinalizationCommitteParameters pbs = do
+doGetCurrentEpochFinalizationCommitteeParameters pbs = do
     eb <- refLoad . _birkCurrentEpochBakers . bspBirkParameters =<< loadPBS pbs
     return $ eb ^. bakerFinalizationCommitteeParameters . supportedOParam
 
@@ -1060,6 +1060,16 @@ doGetCurrentCapitalDistribution pbs = do
     let hpr = case bspRewardDetails bsp of BlockRewardDetailsV1 hp -> hp
     poolRewards <- refLoad hpr
     refLoad $ currentCapital poolRewards
+
+doGetNextEpochFinalizationCommitteeParameters ::
+    ( SupportsPersistentState pv m,
+      IsSupported 'PTFinalizationCommitteeParameters (ChainParametersVersionFor pv) ~ 'True
+    ) =>
+    PersistentBlockState pv ->
+    m FinalizationCommitteeParameters
+doGetNextEpochFinalizationCommitteeParameters pbs = do
+    eb <- refLoad . _birkNextEpochBakers . bspBirkParameters =<< loadPBS pbs
+    return $ eb ^. bakerFinalizationCommitteeParameters . supportedOParam
 
 doGetNextEpochBakers :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m FullBakers
 doGetNextEpochBakers pbs = do
@@ -3302,9 +3312,10 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateQuery (P
     getAccountList = doAccountList . hpbsPointers
     getContractInstanceList = doContractInstanceList . hpbsPointers
     getSeedState = doGetSeedState . hpbsPointers
-    getCurrentEpochFinalizationCommitteeParameters = doGetCurrentEpochFinalizationCommitteParameters . hpbsPointers
+    getCurrentEpochFinalizationCommitteeParameters = doGetCurrentEpochFinalizationCommitteeParameters . hpbsPointers
     getCurrentEpochBakers = doGetCurrentEpochBakers . hpbsPointers
     getNextEpochBakers = doGetNextEpochBakers . hpbsPointers
+    getNextEpochFinalizationCommitteeParameters = doGetNextEpochFinalizationCommitteeParameters . hpbsPointers
     getSlotBakersP1 = doGetSlotBakersP1 . hpbsPointers
     getBakerAccount = doGetBakerAccount . hpbsPointers
     getRewardStatus = doGetRewardStatus . hpbsPointers

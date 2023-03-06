@@ -3,6 +3,11 @@
 module Concordium.KonsensusV1.Consensus where
 
 import Control.Monad.State
+import Data.Foldable
+import Data.List (sortOn)
+import qualified Data.Map.Strict as Map
+import Data.Ord
+import qualified Data.Vector as Vec
 import Lens.Micro.Platform
 
 import Concordium.Types
@@ -92,6 +97,83 @@ uponReceivingBlock pendingBlock = do
                         OldFinalized -> return BlockResultStale
                         Unknown -> receiveBlockUnknownParent pendingBlock
 
+-- |Compute the finalization committee given the bakers and the finalization committee parameters.
+computeFinalizationCommittee :: FullBakers -> FinalizationCommitteeParameters -> FinalizationCommittee
+computeFinalizationCommittee FullBakers{..} FinalizationCommitteeParameters{..} =
+    FinalizationCommittee{..}
+  where
+    -- We use an insertion sort to construct the '_fcpMaxFinalizers' top bakers.
+    -- Order them by descending stake and ascending baker ID.
+    insert ::
+        Map.Map (Down Amount, BakerId) FullBakerInfo ->
+        FullBakerInfo ->
+        Map.Map (Down Amount, BakerId) FullBakerInfo
+    insert m fbi
+        | Map.size m == fromIntegral _fcpMaxFinalizers = case Map.maxViewWithKey m of
+            Nothing -> error "computeFinalizationCommittee: _fcpMaxFinalizers must not be 0"
+            Just ((k, _), m')
+                | insKey < k -> Map.insert insKey fbi m'
+                | otherwise -> m
+        | otherwise = Map.insert insKey fbi m
+      where
+        insKey = (Down (fbi ^. bakerStake), fbi ^. bakerIdentity)
+    amountSortedBakers = Map.elems $ foldl' insert Map.empty fullBakerInfos
+    -- Threshold stake required to be a finalizer
+    finalizerAmountThreshold :: Amount
+    finalizerAmountThreshold =
+        ceiling $
+            partsPerHundredThousandsToRational _fcpFinalizerRelativeStakeThreshold
+                * toRational bakerTotalStake
+    -- Given the bakers sorted by their stakes, takes the first 'n' and then those that are
+    -- at least at the threshold.
+    takeFinalizers 0 fs = takeWhile ((>= finalizerAmountThreshold) . view bakerStake) fs
+    takeFinalizers n (f : fs) = f : takeFinalizers (n - 1) fs
+    takeFinalizers _ [] = []
+    -- Compute the set of finalizers by applying the caps.
+    cappedFinalizers = takeFinalizers _fcpMinFinalizers amountSortedBakers
+    -- Sort the finalizers by baker ID.
+    sortedFinalizers = sortOn (view bakerIdentity) cappedFinalizers
+    -- Construct finalizer info given the index and baker info.
+    mkFinalizer finalizerIndex bi =
+        FinalizerInfo
+            { finalizerWeight = fromIntegral (bi ^. bakerStake),
+              finalizerSignKey = bi ^. bakerSignatureVerifyKey,
+              finalizerVRFKey = bi ^. bakerElectionVerifyKey,
+              finalizerBlsKey = bi ^. bakerAggregationVerifyKey,
+              finalizerBakerId = bi ^. bakerIdentity,
+              ..
+            }
+    committeeFinalizers = Vec.fromList $ zipWith mkFinalizer [FinalizerIndex 0 ..] sortedFinalizers
+    committeeTotalWeight = sum $ finalizerWeight <$> committeeFinalizers
+
+-- |Get the bakers for a particular epoch, given that we have a live block that is nominally the
+-- parent block. This will typically get the bakers from the cache that is with respect to the
+-- last finalized block. However, in the (unlikely) case that the block is from an epoch further
+-- than can be deduced from the last finalized block, we derive the bakers from the supplied parent
+-- block.
+--
+-- Preconditions:
+--  - The target epoch is either the same as the epoch of the parent block, or the next epoch.
+--  - The parent block is live, and so either in the same epoch or the next epoch as the last
+--    finalized block.
+getBakersForEpochKnownParent ::
+    ( IsConsensusV1 (MPV m),
+      MonadState (SkovData (MPV m)) m,
+      BlockStateQuery m,
+      BlockState m ~ HashedPersistentBlockState (MPV m)
+    ) =>
+    BlockPointer (MPV m) ->
+    Epoch ->
+    m (Maybe BakersAndFinalizers)
+getBakersForEpochKnownParent parent targetEpoch =
+    gets (getBakersForLiveEpoch targetEpoch) >>= \case
+        Nothing | targetEpoch == blockEpoch parent + 1 -> do
+            _bfBakers <- getNextEpochBakers (bpState parent)
+            finParams <- getNextEpochFinalizationCommitteeParameters (bpState parent)
+            let _bfFinalizers = computeFinalizationCommittee _bfBakers finParams
+            return $ Just BakersAndFinalizers{..}
+        mbakers -> return mbakers
+
 -- |Process receiving a block where the parent is live (i.e. descended from the last finalized
 -- block).  If this function returns 'BlockResultSuccess' then the caller is obliged to call
 -- 'executeBlock' on the returned 'VerifiedBlock' in order to complete the processing of the block,
@@ -109,10 +191,10 @@ receiveBlockKnownParent ::
     m BlockResult
 receiveBlockKnownParent parent pendingBlock = do
     genesisHash <- use $ genesisMetadata . to gmCurrentGenesisHash
-    gets (doGetBakersForEpoch (blockEpoch pendingBlock)) >>= \case
+    gets (getBakersForLiveEpoch (blockEpoch pendingBlock)) >>= \case
         Nothing ->
             -- The block's epoch is not valid. A live block must either be in the same epoch as
-            -- the last finalized block or in the next epoch. If 'doGetBakersForEpoch' returns
+            -- the last finalized block or in the next epoch. If 'getBakersForLiveEpoch' returns
             -- 'Nothing', then it is not in either of those.
             return BlockResultInvalid
         Just bf
@@ -200,7 +282,7 @@ receiveBlockUnknownParent pendingBlock = do
         < addDuration (utcTimeToTimestamp $ pbReceiveTime pendingBlock) earlyThreshold
         then do
             genesisHash <- use $ genesisMetadata . to gmCurrentGenesisHash
-            gets (doGetBakersForEpoch (blockEpoch pendingBlock)) >>= \case
+            gets (getBakersForLiveEpoch (blockEpoch pendingBlock)) >>= \case
                 Nothing -> do
                     -- We do not know the bakers
                     continuePending
@@ -284,12 +366,12 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
             flag $ BlockNonceIncorrect sBlock
             return False
     | otherwise = do
-        genConfig <- use genesisMetadata
+        genMeta <- use genesisMetadata
         checkTimestamp $
-            checkTimeoutCertificatePresentAndCorrectRound $ \mTimeoutCert ->
-                getParentBakersAndFinalizers $ \parentBF ->
-                    checkEpochFinalizationEntry genConfig parentBF $
-                        checkQC parentBF $
+            getParentBakersAndFinalizers $ \parentBF ->
+                checkQC genMeta parentBF $
+                    checkTC genMeta parentBF $
+                        checkEpochFinalizationEntry genMeta parentBF $
                             undefined
   where
     sBlock = pbBlock pendingBlock
@@ -304,7 +386,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
             else continue
     -- Check the timeout certificate for presence and well-formedness when required.
     -- If successful, invoke the continuation with the timeout certificate, if it is required.
-    checkTimeoutCertificatePresentAndCorrectRound continue
+    checkTC GenesisMetadata{..} parentBF continue
         | blockRound pendingBlock > blockRound parent + 1 =
             case blockTimeoutCertificate pendingBlock of
                 -- Check that a timeout certificate is present if the block round is not the
@@ -317,8 +399,63 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                     | tcRound tc /= blockRound pendingBlock - 1 -> do
                         flag $ BlockTCRoundInconsistent sBlock
                         return False
-                    | otherwise -> continue (Just tc)
-        | otherwise = continue Nothing
+                    | blockRound parent < tcMaxRound tc
+                        || blockEpoch parent < tcMaxEpoch tc
+                        || blockEpoch parent - tcMinEpoch tc > 2 -> do
+                        flag $ BlockQCInconsistentWithTC sBlock
+                        return False
+                    | otherwise -> do
+                        -- Check correctness of the timeout certificate.
+                        -- The timeout certificate should only contain timeouts for epochs that
+                        -- are at most one epoch from the epoch of the last finalized block (LFB).
+                        -- In particular, there cannot be a timeout more than one epoch earlier
+                        -- than the LFB: The round under consideration is after the round of the
+                        -- LFB. The baker of the present block considers that round to be in at
+                        -- least the epoch of the LFB. Honest parties cannot be more than one
+                        -- epoch apart on the same round, so if the baker is honest then they would
+                        -- not include timeouts from any epoch earlier than one before the epoch of
+                        -- the LFB.
+                        -- Also, there cannot be a timeout more than one epoch later than the LFB.
+                        -- This is because we already reject above if
+                        --    blockEpoch parent < tcMaxEpoch tc
+                        -- Given that the parent is live and decended from the LFB, it can be
+                        -- at most one epoch later than the LFB, and so also the tcMaxEpoch.
+                        eBkrs <- use epochBakers
+                        let checkTCValid eb1 eb2 =
+                                checkTimeoutCertificate
+                                    gmCurrentGenesisHash
+                                    (toRational $ genesisSignatureThreshold gmParameters)
+                                    (eb1 ^. bfFinalizers)
+                                    (eb2 ^. bfFinalizers)
+                                    (parentBF ^. bfFinalizers)
+                                    tc
+                        let tcOK
+                                | tcMinEpoch tc == eBkrs ^. epochBakersEpoch - 1 =
+                                    checkTCValid
+                                        (eBkrs ^. previousEpochBakers)
+                                        (eBkrs ^. currentEpochBakers)
+                                | tcMinEpoch tc == eBkrs ^. epochBakersEpoch =
+                                    checkTCValid
+                                        (eBkrs ^. currentEpochBakers)
+                                        (eBkrs ^. nextEpochBakers)
+                                | tcMinEpoch tc == eBkrs ^. epochBakersEpoch + 1,
+                                  tcIsSingleEpoch tc =
+                                    checkTCValid
+                                        (eBkrs ^. nextEpochBakers)
+                                        -- Because the TC is for a single epoch, the second set of
+                                        -- bakers will not be used in the validity check.
+                                        (eBkrs ^. nextEpochBakers)
+                                | otherwise = False
+                        if tcOK
+                            then continue
+                            else do
+                                flag $ BlockInvalidTC sBlock
+                                return False
+        -- If the previous round didn't timeout, check we have no timeout certificate
+        | Present _ <- blockTimeoutCertificate pendingBlock = do
+            flag $ BlockUnexpectedTC sBlock
+            return False
+        | otherwise = continue
     -- Check the finalization entry
     checkEpochFinalizationEntry GenesisMetadata{..} BakersAndFinalizers{..} continue
         -- If the block is in a new epoch, the epoch finalization entry should be present and
@@ -360,13 +497,12 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
             return False
         | otherwise = continue
     getParentBakersAndFinalizers continue =
-        gets (doGetBakersForEpoch (blockEpoch parent)) >>= \case
+        gets (getBakersForLiveEpoch (blockEpoch parent)) >>= \case
             -- If this case happens, the parent block must now precede the last finalized block,
             -- so we can no longer add the block.
             Nothing -> return False
             Just bf -> continue bf
-    checkQC BakersAndFinalizers{..} continue = do
-        GenesisMetadata{..} <- use genesisMetadata
+    checkQC GenesisMetadata{..} BakersAndFinalizers{..} continue = do
         let qcOK =
                 checkQuorumCertificate
                     gmCurrentGenesisHash

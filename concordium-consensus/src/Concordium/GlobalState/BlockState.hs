@@ -533,6 +533,13 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
     -- |Get the bakers for the next epoch. (See $ActiveCurrentNext.)
     getNextEpochBakers :: BlockState m -> m FullBakers
 
+    -- |Get the finalization committee parameters for next epoch than in which the block was baked.
+    -- Together with the bakers, this is used to compute the finalization committee for the epoch.
+    getNextEpochFinalizationCommitteeParameters ::
+        (IsSupported 'PTFinalizationCommitteeParameters (ChainParametersVersionFor (MPV m)) ~ 'True) =>
+        BlockState m ->
+        m FinalizationCommitteeParameters
+
     -- |Get the bakers for a particular (future) slot, provided genesis timestamp and slot duration.
     -- This is used for protocol version 'P1' to 'P3'.
     -- This should not be used for a slot less than the slot of the block.
@@ -1401,6 +1408,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
     getCurrentEpochBakers = lift . getCurrentEpochBakers
     getCurrentEpochFinalizationCommitteeParameters = lift . getCurrentEpochFinalizationCommitteeParameters
     getNextEpochBakers = lift . getNextEpochBakers
+    getNextEpochFinalizationCommitteeParameters = lift . getNextEpochFinalizationCommitteeParameters
     getSlotBakersP1 d = lift . getSlotBakersP1 d
     getRewardStatus = lift . getRewardStatus
     getTransactionOutcome s = lift . getTransactionOutcome s
@@ -1438,6 +1446,8 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
     {-# INLINE getSeedState #-}
     {-# INLINE getCurrentEpochBakers #-}
     {-# INLINE getCurrentEpochFinalizationCommitteeParameters #-}
+    {-# INLINE getNextEpochBakers #-}
+    {-# INLINE getNextEpochFinalizationCommitteeParameters #-}
     {-# INLINE getSlotBakersP1 #-}
     {-# INLINE getRewardStatus #-}
     {-# INLINE getOutcomes #-}

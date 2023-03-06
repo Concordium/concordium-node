@@ -178,8 +178,8 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       _roundStatus :: !RoundStatus,
       -- |Transactions.
       -- The transaction table tracks the following:
-      -- * Live tranactions: mapping from a 'TransactionHash' to the status of the transaction,
-      --   which is either received (not associated with a block) or comitted (associated with a block).
+      -- * Live transactions: mapping from a 'TransactionHash' to the status of the transaction,
+      --   which is either received (not associated with a block) or committed (associated with a block).
       -- * Non finalized account transactions
       -- * Non finalized chain updates
       -- See the documentation of 'TransactionTable' for more elaborate explanation of the three
@@ -719,9 +719,10 @@ purgeTransactionTable force currentTime = do
 
 -- * Bakers
 
--- |Get the set of bakers and finalizers for an epoch.
-doGetBakersForEpoch :: (HasEpochBakers s) => Epoch -> s -> Maybe BakersAndFinalizers
-doGetBakersForEpoch e s
+-- |Get the set of bakers and finalizers for an epoch no later than the epoch of the last finalized
+-- block.
+getBakersForLiveEpoch :: (HasEpochBakers s) => Epoch -> s -> Maybe BakersAndFinalizers
+getBakersForLiveEpoch e s
     | e == curEpoch = Just (s ^. currentEpochBakers)
     | e == curEpoch + 1 = Just (s ^. nextEpochBakers)
     | curEpoch <= e && e < s ^. nextPayday = Just (s ^. currentEpochBakers)

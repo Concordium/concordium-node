@@ -14,6 +14,7 @@ import Data.Bits
 import qualified Data.ByteString as BS
 import qualified Data.Map.Strict as Map
 import Data.Serialize
+import qualified Data.Set as Set
 import qualified Data.Vector as Vector
 import Data.Word
 import Numeric.Natural
@@ -193,6 +194,11 @@ data FinalizationCommittee = FinalizationCommittee
 -- |Get the 'FinalizerInfo' associated for a particular 'BakerId'.
 finalizerByBakerId :: FinalizationCommittee -> BakerId -> Maybe FinalizerInfo
 finalizerByBakerId = binarySearch finalizerBakerId . committeeFinalizers
+
+-- |Get the 'FinalizerInfo' for a finalizer with a particular index.
+finalizerByIndex :: FinalizationCommittee -> FinalizerIndex -> Maybe FinalizerInfo
+finalizerByIndex finCom finInd =
+    committeeFinalizers finCom Vector.!? fromIntegral (theFinalizerIndex finInd)
 
 -- |A set of 'FinalizerIndex'es.
 -- This is represented as a bit vector, where the bit @i@ is set iff the finalizer index @i@ is
@@ -488,6 +494,28 @@ data TimeoutCertificate = TimeoutCertificate
     }
     deriving (Eq, Show)
 
+-- |Returns 'True' if and only if the finalizers are exclusively in 'tcFinalizerQCRoundsFirstEpoch'
+-- in a 'TimeoutCertificate'.
+tcIsSingleEpoch :: TimeoutCertificate -> Bool
+tcIsSingleEpoch = null . theFinalizerRounds . tcFinalizerQCRoundsFirstEpoch
+
+-- |The maximum epoch for which a 'TimeoutCertificate' includes signatures.
+-- (This will be 'tcMinEpoch' in the case that the certificate contains no signatures.)
+tcMaxEpoch :: TimeoutCertificate -> Epoch
+tcMaxEpoch tc
+    | tcIsSingleEpoch tc = tcMinEpoch tc
+    | otherwise = tcMinEpoch tc + 1
+
+-- |The maximum round for which a 'TimeoutCertificate' includes signatures.
+-- (This will be 0 if the certificate contains no signatures.)
+tcMaxRound :: TimeoutCertificate -> Round
+tcMaxRound tc =
+    max
+        (maxRound (tcFinalizerQCRoundsFirstEpoch tc))
+        (maxRound (tcFinalizerQCRoundsSecondEpoch tc))
+  where
+    maxRound (FinalizerRounds r) = maybe 0 fst (Map.lookupMax r)
+
 instance Serialize TimeoutCertificate where
     put TimeoutCertificate{..} = do
         put tcRound
@@ -532,6 +560,75 @@ checkTimeoutCertificateSignature tsmGenesis toKeys TimeoutCertificate{..} =
     msgsKeys =
         msgsKeysForEpoch tcMinEpoch tcFinalizerQCRoundsFirstEpoch
             ++ msgsKeysForEpoch (tcMinEpoch + 1) tcFinalizerQCRoundsSecondEpoch
+
+-- |Check that the signature on a timeout certificate is correct and that it contains a sufficient
+-- weight of signatures with respect to the finalization committee of a given epoch (the epoch of
+-- the quorum certificate that the timeout certificate should be valid with respect to).
+checkTimeoutCertificate ::
+    -- |Genesis block hash
+    BlockHash ->
+    -- |Signature threshold
+    Rational ->
+    -- |Finalization committee for the minimum epoch of the certificate
+    FinalizationCommittee ->
+    -- |Finalization committee for the second epoch of the certificate
+    FinalizationCommittee ->
+    -- |Finalization committee for the epoch of the QC to check for
+    FinalizationCommittee ->
+    -- |Timeout certificate to check
+    TimeoutCertificate ->
+    Bool
+checkTimeoutCertificate tsmGenesis sigThreshold finCom1 finCom2 finComQC TimeoutCertificate{..} =
+    computeMsgKeysIds finCom1 tcMinEpoch tcFinalizerQCRoundsFirstEpoch $
+        \msgKeys1 bids1 ->
+            computeMsgKeysIds finCom2 (tcMinEpoch + 1) tcFinalizerQCRoundsSecondEpoch $
+                \msgKeys2 bids2 ->
+                    check (msgKeys1 ++ msgKeys2) (bids1 `Set.union` bids2)
+  where
+    -- For a particular epoch, compute the messages and keys, and the baker IDs of the finalizers,
+    -- invoking the continuation with the result. If any finalizer index cannot be resolved in the
+    -- finalization committee, this returns 'False' without invoking the continuation.
+    computeMsgKeysIds ::
+        -- Committee for the epoch
+        FinalizationCommittee ->
+        -- Epoch number
+        Epoch ->
+        -- The map from rounds to which finalizers signed for that round
+        FinalizerRounds ->
+        -- Continuation that is invoked with the messages and keys, and the weights of the signing
+        -- finalizers.
+        ([(BS.ByteString, [Bls.PublicKey])] -> Set.Set BakerId -> Bool) ->
+        Bool
+    computeMsgKeysIds finCom tsmQCEpoch finRounds continue =
+        accumulate [] Set.empty (finalizerRoundsList finRounds)
+      where
+        accumulate msgKeys finBakerIds [] = continue msgKeys finBakerIds
+        accumulate msgKeys finBakerIds ((tsmQCRound, finSet) : rounds) =
+            case mapM (finalizerByIndex finCom) (finalizerList finSet) of
+                Nothing -> False
+                Just fins ->
+                    accumulate
+                        ( ( timeoutSignatureMessageBytes TimeoutSignatureMessage{tsmRound = tcRound, ..},
+                            finalizerBlsKey <$> fins
+                          )
+                            : msgKeys
+                        )
+                        ( Set.fromList (finalizerBakerId <$> fins)
+                            `Set.union` finBakerIds
+                        )
+                        rounds
+    -- Check that the aggregate signature is correct and the finalizer weights meet the target
+    -- threshold.
+    check :: [(BS.ByteString, [Bls.PublicKey])] -> Set.Set BakerId -> Bool
+    check msgKeys finBakerIds =
+        Bls.verifyAggregateHybrid msgKeys (theTimeoutSignature tcAggregateSignature)
+            && toRational (sum (finalizerWeightQC <$> Set.toList finBakerIds)) >= targetWeight
+    -- Compute the weight of a finalizer as given in 'finComQC'. If the finalizer is not in the
+    -- committee, then it is given weight 0.
+    finalizerWeightQC :: BakerId -> VoterPower
+    finalizerWeightQC finBakerId = maybe 0 finalizerWeight (finalizerByBakerId finComQC finBakerId)
+    -- The target weight of finalizers for the signature to be considered valid.
+    targetWeight = sigThreshold * toRational (committeeTotalWeight finComQC)
 
 -- |The body of a timeout message. Timeout messages are generated by the finalizers
 -- when not enough enough signatures are received within a certain time.
