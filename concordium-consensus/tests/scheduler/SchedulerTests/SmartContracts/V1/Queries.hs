@@ -81,7 +81,7 @@ blockEnergyRate :: Types.EnergyRate
 blockEnergyRate = dummyChainParameters @'Types.ChainParametersV1 ^. Types.energyRate
 
 accountBalanceSourceFile :: FilePath
-accountBalanceSourceFile = "./testdata/contracts/v1/queries-account-balance.wasm"
+accountBalanceSourceFile = "../concordium-base/smart-contracts/testdata/contracts/v1/queries-account-balance.wasm"
 
 accountBalanceTestCase ::
     forall pv.
@@ -227,7 +227,7 @@ accountBalanceInvokerTestCase spv pvString =
     costUpperBound = Types.computeCost blockEnergyRate energyLimit
 
 accountBalanceTransferSourceFile :: FilePath
-accountBalanceTransferSourceFile = "./testdata/contracts/v1/queries-account-balance-transfer.wasm"
+accountBalanceTransferSourceFile = "../concordium-base/smart-contracts/testdata/contracts/v1/queries-account-balance-transfer.wasm"
 
 accountBalanceTransferTestCase ::
     forall pv.
@@ -297,7 +297,7 @@ accountBalanceTransferTestCase spv pvString =
         Wasm.putAmountLE 0 -- expected locked amount
 
 accountBalanceMissingAccountSourceFile :: FilePath
-accountBalanceMissingAccountSourceFile = "./testdata/contracts/v1/queries-account-balance-missing-account.wasm"
+accountBalanceMissingAccountSourceFile = "../concordium-base/smart-contracts/testdata/contracts/v1/queries-account-balance-missing-account.wasm"
 
 accountBalanceMissingAccountTestCase ::
     forall pv.
@@ -362,7 +362,7 @@ accountBalanceMissingAccountTestCase spv pvString =
         put $ accountAddressFrom 3
 
 contractBalanceSourceFile :: FilePath
-contractBalanceSourceFile = "./testdata/contracts/v1/queries-contract-balance.wasm"
+contractBalanceSourceFile = "../concordium-base/smart-contracts/testdata/contracts/v1/queries-contract-balance.wasm"
 
 contractBalanceTestCase ::
     forall pv.
@@ -506,7 +506,7 @@ contractBalanceSelfTestCase spv pvString =
         Wasm.putAmountLE $ initAmount + updateAmount -- Expected balance.
 
 contractBalanceTransferSourceFile :: FilePath
-contractBalanceTransferSourceFile = "./testdata/contracts/v1/queries-contract-balance-transfer.wasm"
+contractBalanceTransferSourceFile = "../concordium-base/smart-contracts/testdata/contracts/v1/queries-contract-balance-transfer.wasm"
 
 contractBalanceTransferTestCase ::
     forall pv.
@@ -580,7 +580,7 @@ contractBalanceTransferTestCase spv pvString =
         Wasm.putAmountLE $ initAmount + updateAmount - transferAmount -- Expected balance.
 
 contractBalanceMissingContractSourceFile :: FilePath
-contractBalanceMissingContractSourceFile = "./testdata/contracts/v1/queries-contract-balance-missing-contract.wasm"
+contractBalanceMissingContractSourceFile = "../concordium-base/smart-contracts/testdata/contracts/v1/queries-contract-balance-missing-contract.wasm"
 
 contractBalanceMissingContractTestCase ::
     forall pv.
@@ -646,7 +646,7 @@ contractBalanceMissingContractTestCase spv pvString =
         putWord64le 0 -- Contract address subindex
 
 exchangeRatesSourceFile :: FilePath
-exchangeRatesSourceFile = "./testdata/contracts/v1/queries-exchange-rates.wasm"
+exchangeRatesSourceFile = "../concordium-base/smart-contracts/testdata/contracts/v1/queries-exchange-rates.wasm"
 
 exchangeRatesTestCase ::
     forall pv.
@@ -715,7 +715,7 @@ exchangeRatesTestCase spv pvString =
     currentAmountPerEnergy = dummyChainParameters @'Types.ChainParametersV1 ^. Types.microGTUPerEuro
 
 allSourceFile :: FilePath
-allSourceFile = "./testdata/contracts/v1/queries-all.wasm"
+allSourceFile = "../concordium-base/smart-contracts/testdata/contracts/v1/queries-all.wasm"
 
 allTestCase ::
     forall pv.

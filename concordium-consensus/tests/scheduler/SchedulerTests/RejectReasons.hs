@@ -33,7 +33,7 @@ keyPair0 :: SigScheme.KeyPair
 keyPair0 = Helpers.keyPairFromSeed 0
 
 wasmPath :: String
-wasmPath = "./testdata/contracts/reject-reasons.wasm"
+wasmPath = "../concordium-base/smart-contracts/testdata/contracts/reject-reasons.wasm"
 
 transactionInputs :: [TransactionJSON]
 transactionInputs =

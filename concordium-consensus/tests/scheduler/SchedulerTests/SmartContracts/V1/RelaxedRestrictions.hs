@@ -46,7 +46,7 @@ keyPair0 :: SigScheme.KeyPair
 keyPair0 = Helpers.keyPairFromSeed 0
 
 sourceFile :: FilePath
-sourceFile = "./testdata/contracts/v1/relaxed-restrictions.wasm"
+sourceFile = "../concordium-base/smart-contracts/testdata/contracts/v1/relaxed-restrictions.wasm"
 
 -- Tests in this module use version 1, creating V1 instances.
 wasmModVersion :: WasmVersion

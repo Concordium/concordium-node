@@ -41,7 +41,7 @@ keyPair0 :: SigScheme.KeyPair
 keyPair0 = Helpers.keyPairFromSeed 0
 
 counterSourceFile :: FilePath
-counterSourceFile = "./testdata/contracts/v1/call-counter.wasm"
+counterSourceFile = "../concordium-base/smart-contracts/testdata/contracts/v1/call-counter.wasm"
 
 -- Tests in this module use version 1, creating V1 instances.
 wasmModVersion :: WasmVersion

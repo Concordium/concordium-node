@@ -37,7 +37,7 @@ keyPair0 :: SigScheme.KeyPair
 keyPair0 = Helpers.keyPairFromSeed 0
 
 iteratorSourceFile :: FilePath
-iteratorSourceFile = "./testdata/contracts/v1/iterator.wasm"
+iteratorSourceFile = "../concordium-base/smart-contracts/testdata/contracts/v1/iterator.wasm"
 
 -- Tests in this module use version 1, creating V1 instances.
 wasmModVersion :: WasmVersion

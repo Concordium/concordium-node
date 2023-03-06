@@ -43,12 +43,12 @@ transactionInputs :: [TransactionJSON]
 transactionInputs =
     [ TJSON
         { metadata = makeDummyHeader (Helpers.accountAddressFromSeed 0) 1 100000,
-          payload = DeployModule V0 "./testdata/contracts/chain-meta-test.wasm",
+          payload = DeployModule V0 "../concordium-base/smart-contracts/testdata/contracts/chain-meta-test.wasm",
           keys = [(0, [(0, Helpers.keyPairFromSeed 0)])]
         },
       TJSON
         { metadata = makeDummyHeader (Helpers.accountAddressFromSeed 0) 2 100000,
-          payload = InitContract 9 V0 "./testdata/contracts/chain-meta-test.wasm" "init_check_slot_time" "",
+          payload = InitContract 9 V0 "../concordium-base/smart-contracts/testdata/contracts/chain-meta-test.wasm" "init_check_slot_time" "",
           keys = [(0, [(0, Helpers.keyPairFromSeed 0)])]
         }
     ]

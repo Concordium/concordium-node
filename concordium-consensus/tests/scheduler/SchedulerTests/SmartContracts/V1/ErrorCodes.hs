@@ -34,10 +34,10 @@ initialBlockState =
         [Helpers.makeTestAccountFromSeed 1_000 0]
 
 callerSourceFile :: FilePath
-callerSourceFile = "./testdata/contracts/v1/caller.wasm"
+callerSourceFile = "../concordium-base/smart-contracts/testdata/contracts/v1/caller.wasm"
 
 emptyContractSourceFile :: FilePath
-emptyContractSourceFile = "./testdata/contracts/empty.wasm"
+emptyContractSourceFile = "../concordium-base/smart-contracts/testdata/contracts/empty.wasm"
 
 deployModule1 ::
     PersistentBlockState PV4 ->
