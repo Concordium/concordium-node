@@ -142,7 +142,7 @@ pub struct StatsExportService {
     /// This is passed to the Tower layer `InFlightRequestLayer` provided by
     /// `tower_http::metrics` and then synced with the prometheus gauge on each
     /// scrape.
-    pub grpc_pending_requests_counter: InFlightRequestsCounter,
+    pub grpc_in_flight_requests_counter: InFlightRequestsCounter,
     /// Total number of bytes received at the point of last
     /// throughput_measurement.
     ///
@@ -326,16 +326,16 @@ impl StatsExportService {
         )?;
         registry.register(Box::new(grpc_request_response_time.clone()))?;
 
-        let grpc_pending_requests_gauge = IntGauge::with_opts(Opts::new(
-            "grpc_pending_requests",
+        let grpc_in_flight_requests_gauge = IntGauge::with_opts(Opts::new(
+            "grpc_in_flight_requests",
             "Current number of gRPC requests being handled by the node",
         ))?;
-        let grpc_pending_requests_counter = InFlightRequestsCounter::new();
-        let grpc_pending_requests = GrpcInFlightRequestsCollector {
-            gauge:   grpc_pending_requests_gauge,
-            counter: grpc_pending_requests_counter.clone(),
+        let grpc_in_flight_requests_counter = InFlightRequestsCounter::new();
+        let grpc_in_flight_requests = GrpcInFlightRequestsCollector {
+            gauge:   grpc_in_flight_requests_gauge,
+            counter: grpc_in_flight_requests_counter.clone(),
         };
-        registry.register(Box::new(grpc_pending_requests))?;
+        registry.register(Box::new(grpc_in_flight_requests))?;
 
         let last_throughput_measurement_timestamp = AtomicI64::new(0);
         let last_throughput_measurement_sent_bytes = AtomicU64::new(0);
@@ -366,7 +366,7 @@ impl StatsExportService {
             node_info,
             node_startup_timestamp,
             grpc_request_response_time,
-            grpc_pending_requests_counter,
+            grpc_in_flight_requests_counter,
             last_throughput_measurement_timestamp,
             last_throughput_measurement_sent_bytes,
             last_throughput_measurement_received_bytes,

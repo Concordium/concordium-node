@@ -949,7 +949,7 @@ pub mod server {
                     stats: node.stats.clone(),
                 };
                 let in_flight_request_layer = tower_http::metrics::InFlightRequestsLayer::new(
-                    node.stats.grpc_pending_requests_counter.clone(),
+                    node.stats.grpc_in_flight_requests_counter.clone(),
                 );
                 let mut builder = tonic::transport::Server::builder()
                     .layer(log_layer)
