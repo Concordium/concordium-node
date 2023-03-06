@@ -2,7 +2,6 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE DataKinds #-}
 
 module Concordium.KonsensusV1.Monad where
 
@@ -16,16 +15,18 @@ import Concordium.Types
 
 import qualified Concordium.GlobalState.TransactionTable as TT
 import Concordium.GlobalState.Transactions
+import qualified Concordium.GlobalState.Types as GSTypes
 import Concordium.KonsensusV1.TreeState.Implementation
 
 -- |The 'MonadSkov' defines a monad suitable for running operations on the underlying 'SkovData'.
-newtype SkovMonad (s :: Type) (m :: Type -> Type) (a :: Type) = SkovMonad {runSkovMonad :: m a}
-    deriving (Functor, Applicative, Monad, MonadIO, TimeMonad, MonadState s, MonadReader s)
+newtype SkovMonad (s :: Type) (m :: Type -> Type) (a :: Type) = SkovMonad {runSkovMonad :: s -> m (a, s)}
+    deriving (Functor, Applicative, Monad, MonadIO, TimeMonad, MonadState s, MonadReader s) via (StateT s m)
+    deriving (MonadTrans) via (StateT s)
 
-instance MonadTrans (SkovMonad s) where
-    lift = SkovMonad
+deriving via (StateT s) m instance (MonadProtocolVersion m) => MonadProtocolVersion (SkovMonad s m)
+deriving via (StateT s) m instance GSTypes.BlockStateTypes (SkovMonad s m)
 
-instance (MonadState s m, s ~ SkovData (MPV m)) => AccountNonceQuery (SkovMonad s m) where
+instance (Monad m, MonadState s m, s ~ SkovData (MPV m)) => AccountNonceQuery (SkovMonad s m) where
     getNextAccountNonce addr = do
         sd <- get
         return $! TT.nextAccountNonce addr (sd ^. transactionTable)
