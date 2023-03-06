@@ -136,7 +136,7 @@ instance MonadReader r m => MonadReader r (FixedTimeT m) where
 -- I.e. 'BlockStateQuery' is supported via the 'PersistentBlockStateMonad and a 'MonadState' over the 'SkovData pv'.
 -- Further it makes use of the 'FixedTimeT' which has an instance for the 'TimeMonad'.
 type MyTestMonad =
-    AccountNonceQueryMixin
+    AccountNonceQueryT
         ( PersistentBlockStateMonad
             'P6
             (PersistentBlockStateContext 'P6)
@@ -157,7 +157,7 @@ runMyTestMonad idps time action = do
     runBlobStoreTemp "." $
         withNewAccountCache 1_000 $ do
             initState <- runPersistentBlockStateMonad initialData
-            runDeterministic (runStateT (runPersistentBlockStateMonad (runAccountNonceQueryMixin action)) initState) time
+            runDeterministic (runStateT (runPersistentBlockStateMonad (runAccountNonceQueryT action)) initState) time
   where
     initialData ::
         PersistentBlockStateMonad
