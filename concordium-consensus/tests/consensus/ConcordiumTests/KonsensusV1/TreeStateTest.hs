@@ -44,7 +44,7 @@
 -- * 'getNonFinalizedCredential'
 -- * 'getNextAccountNonce'
 -- * 'removeTransactions'
--- * 'putTransaction'
+-- * 'addTransaction'
 -- * 'commitTransaction'
 -- * 'markTransactionDead'
 -- * 'purgeTransactionTable'
@@ -971,15 +971,15 @@ testRemoveTransactions = describe "removeTransactions" $ do
                 %~ addCredential
                 . addTrans tr1
 
--- |Testing 'putTransaction'.
+-- |Testing 'addTransaction'.
 -- This test ensures that the supplied transaction is added
 -- to the transaction table with the provided round.
 -- This test also checks that the transaction table purge counter
 -- is incremented.
-testPutTransaction :: Spec
-testPutTransaction = describe "putTransaction" $ do
-    it "put transaction" $ do
-        sd' <- execStateT (putTransaction tr0Round (normalTransaction tr0) (dummySuccessTransactionResult 1)) dummyInitialSkovData
+testAddTransaction :: Spec
+testAddTransaction = describe "addTransaction" $ do
+    it "add transaction" $ do
+        sd' <- execStateT (addTransaction tr0Round (normalTransaction tr0) (dummySuccessTransactionResult 1)) dummyInitialSkovData
         assertEqual
             "Account non-finalized transactions"
             (Just AccountNonFinalizedTransactions{_anftNextNonce = 1, _anftMap = Map.singleton 1 (Map.singleton tr0 (dummySuccessTransactionResult 1))})
@@ -993,7 +993,7 @@ testPutTransaction = describe "putTransaction" $ do
             (1 + dummyInitialSkovData ^. transactionTablePurgeCounter)
             (sd' ^. transactionTablePurgeCounter)
         sd'' <- execStateT (removeTransactions [normalTransaction tr0]) sd'
-        added <- evalStateT (putTransaction tr0Round (normalTransaction tr0) (dummySuccessTransactionResult 1)) sd''
+        added <- evalStateT (addTransaction tr0Round (normalTransaction tr0) (dummySuccessTransactionResult 1)) sd''
         assertEqual "tx should not be added" False added
   where
     tr0Round = 1
@@ -1060,7 +1060,7 @@ testPurgeTransactionTable :: Spec
 testPurgeTransactionTable = describe "purgeTransactionTable" $ do
     it "force purge the transaction table" $ do
         -- increment the purge counter.
-        sd' <- execStateT (putTransaction 0 (normalTransaction tr0) (dummySuccessTransactionResult 1)) sd
+        sd' <- execStateT (addTransaction 0 (normalTransaction tr0) (dummySuccessTransactionResult 1)) sd
         sd'' <- execStateT (purgeTransactionTable True theTime) sd'
         assertEqual
             "purge counter should be reset"
@@ -1153,7 +1153,7 @@ tests = describe "KonsensusV1.TreeState" $ do
         testGetNonFinalizedCredential
         testGetNextAccountNonce
         testRemoveTransactions
-        testPutTransaction
+        testAddTransaction
         testCommitTransaction
         testMarkTransactionDead
         testPurgeTransactionTable

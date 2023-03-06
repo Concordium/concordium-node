@@ -50,6 +50,7 @@ import Concordium.GlobalState.Persistent.BlockState
 import Concordium.GlobalState.Persistent.Genesis (genesisState)
 import Concordium.GlobalState.TransactionTable
 import Concordium.ID.Types (randomAccountAddress)
+import Concordium.KonsensusV1.Monad
 import Concordium.Scheduler.DummyData
 import Concordium.TimeMonad
 import qualified Concordium.TransactionVerification as TVer
@@ -69,7 +70,7 @@ import Concordium.KonsensusV1.Types
 
 -- |Dummy epoch bakers. This is only suitable for when the actual value is not meaningfully used.
 dummyEpochBakers :: EpochBakers
-dummyEpochBakers = EpochBakers 0 dummyBakersAndFinalizers dummyBakersAndFinalizers 1
+dummyEpochBakers = EpochBakers 0 dummyBakersAndFinalizers dummyBakersAndFinalizers dummyBakersAndFinalizers 1
 
 -- |Dummy bakers and finalizers with no bakers or finalizers.
 -- This is only suitable for when the value is not meaningfully used.
@@ -114,6 +115,7 @@ credentialDeploymentWM = addMetadata CredentialDeployment 1 validAccountCreation
 dummyCredentialDeployment :: BlockItem
 dummyCredentialDeployment = credentialDeployment credentialDeploymentWM
 
+-- |A dummy credential deployment 'TransactionHash'.
 dummyCredentialDeploymentHash :: TransactionHash
 dummyCredentialDeploymentHash = getHash dummyCredentialDeployment
 
@@ -137,7 +139,7 @@ type MyTestMonad =
     PersistentBlockStateMonad
         'P6
         (PersistentBlockStateContext 'P6)
-        ( StateT
+        ( SkovMonad
             (SkovData 'P6)
             (FixedTimeT (BlobStoreM' (PersistentBlockStateContext 'P6)))
         )
@@ -148,7 +150,7 @@ runMyTestMonad idps time action = do
     runBlobStoreTemp "." $
         withNewAccountCache 1_000 $ do
             initState <- runPersistentBlockStateMonad initialData
-            runDeterministic (runStateT (runPersistentBlockStateMonad action) initState) time
+            runDeterministic (runSkovMonad (runPersistentBlockStateMonad action) initState) time
   where
     initialData ::
         PersistentBlockStateMonad
@@ -168,7 +170,7 @@ initialSkovData :: HashedPersistentBlockState pv -> SkovData pv
 initialSkovData bs =
     mkInitialSkovData
         defaultRuntimeParameters
-        (dummyGenesisConfiguration (getHash bs))
+        (dummyGenesisMetadata (getHash bs))
         bs
         10_000
         dummyLeadershipElectionNonce
@@ -178,14 +180,14 @@ initialSkovData bs =
 dummyGenesisBlockHash :: BlockHash
 dummyGenesisBlockHash = BlockHash $ Hash.hash "DummyGenesis"
 
--- |A genesis configuration
-dummyGenesisConfiguration :: StateHash -> GenesisConfiguration
-dummyGenesisConfiguration stHash =
-    GenesisConfiguration
-        { gcParameters = coreGenesisParams,
-          gcCurrentGenesisHash = dummyGenesisBlockHash,
-          gcFirstGenesisHash = dummyGenesisBlockHash,
-          gcStateHash = stHash
+-- |A dummy 'GenesisMetadata'
+dummyGenesisMetadata :: StateHash -> GenesisMetadata
+dummyGenesisMetadata stHash =
+    GenesisMetadata
+        { gmParameters = coreGenesisParams,
+          gmCurrentGenesisHash = dummyGenesisBlockHash,
+          gmFirstGenesisHash = dummyGenesisBlockHash,
+          gmStateHash = stHash
         }
 
 coreGenesisParams :: CoreGenesisParametersV1

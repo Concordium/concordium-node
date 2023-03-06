@@ -2,13 +2,13 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 -- |Consensus V1
 module Concordium.KonsensusV1.Consensus where
 
-import Control.Monad.State
+import Control.Monad.State.Strict
 import Data.Maybe (fromMaybe)
-
 import qualified Data.Vector as Vector
 import Lens.Micro.Platform
 
@@ -30,6 +30,7 @@ import Concordium.KonsensusV1.Types
 import Concordium.Scheduler.Types (updateSeqNumber)
 import Concordium.TimeMonad
 import qualified Concordium.TransactionVerification as TVer
+import Concordium.Types.BakerIdentity
 
 -- |A Monad for multicasting timeout messages.
 class MonadMulticast m where
@@ -85,16 +86,16 @@ addPendingTransaction origin bi = do
             nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
             when (nextNonce <= transactionNonce tx || origin == Individual) $ do
                 pendingTransactionTable %=! TT.addPendingTransaction nextNonce tx
-                doPurgeTransactionTable False =<< currentTime
+                purgeTransactionTable False =<< currentTime
         CredentialDeployment _ -> do
             pendingTransactionTable %=! TT.addPendingDeployCredential txHash
-            doPurgeTransactionTable False =<< currentTime
+            purgeTransactionTable False =<< currentTime
         ChainUpdate cu -> do
             fbState <- bpState <$> (_focusBlock <$> gets' _skovPendingTransactions)
             nextSN <- getNextUpdateSequenceNumber fbState (updateType (uiPayload cu))
             when (nextSN <= updateSeqNumber (uiHeader cu) || origin == Individual) $ do
                 pendingTransactionTable %=! TT.addPendingUpdate nextSN cu
-                doPurgeTransactionTable False =<< currentTime
+                purgeTransactionTable False =<< currentTime
   where
     txHash = getHash bi
 
@@ -131,7 +132,7 @@ processBlockItem bi = do
   where
     -- Insert the transaction into the transaction table and pending transaction table.
     insertTransaction okRes = do
-        added <- doAddTransaction 0 bi $! TVer.Ok okRes
+        added <- addTransaction 0 bi $! TVer.Ok okRes
         if added
             then do
                 addPendingTransaction Individual bi
@@ -199,7 +200,7 @@ processBlockItems bb parentPointer = process True $! bbTransactions bb
                     -- If we have received the transaction before we update the maximum committed round
                     -- if the new round is higher.
                     when (TT.commitPoint theRound > results ^. TT.tsCommitPoint) $
-                        transactionTable . TT.ttHashMap . at' txHash . mapped . _2 %=! TT.updateSlot theRound
+                        transactionTable . TT.ttHashMap . at' txHash . mapped . _2 %=! TT.updateCommitPoint theRound
                     -- And we continue processing the remaining transactions.
                     process True (Vector.tail txs)
                 Nothing -> do
@@ -215,7 +216,7 @@ processBlockItems bb parentPointer = process True $! bbTransactions bb
                         -- when processing transactions which originates from a block.
                         -- We add it to the transaction table and continue with the next transaction.
                         acceptedRes ->
-                            doAddTransaction theRound bi acceptedRes >>= \case
+                            addTransaction theRound bi acceptedRes >>= \case
                                 -- The transaction was obsolete so we stop processing the remaining transactions.
                                 False -> return False
                                 -- The transaction was added to the tree state,

@@ -6,7 +6,6 @@
 module Concordium.TransactionVerification where
 
 import Control.Monad.Reader
-import Control.Monad.Trans
 import qualified Data.Map.Strict as OrdMap
 import qualified Data.Serialize as S
 
