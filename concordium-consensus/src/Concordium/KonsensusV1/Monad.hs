@@ -23,8 +23,8 @@ newtype SkovMonad (s :: Type) (m :: Type -> Type) (a :: Type) = SkovMonad {runSk
     deriving (Functor, Applicative, Monad, MonadIO, TimeMonad, MonadState s, MonadReader s) via (StateT s m)
     deriving (MonadTrans) via (StateT s)
 
-deriving via (StateT s) m instance (MonadProtocolVersion m) => MonadProtocolVersion (SkovMonad s m)
-deriving via (StateT s) m instance GSTypes.BlockStateTypes (SkovMonad s m)
+--deriving via (StateT s) m instance (MonadProtocolVersion m) => MonadProtocolVersion (SkovMonad s m)
+--deriving via (StateT s) m instance GSTypes.BlockStateTypes (SkovMonad s m)
 
 instance (Monad m, MonadState s m, s ~ SkovData (MPV m)) => AccountNonceQuery (SkovMonad s m) where
     getNextAccountNonce addr = do
