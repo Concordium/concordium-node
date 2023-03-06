@@ -206,6 +206,8 @@ pub struct StatsExportService {
     pub sent_consensus_messages: IntCounterVec,
     /// Current number of soft banned peers.
     pub soft_banned_peers: IntGauge,
+    /// The total number of soft banned peers since startup.
+    pub soft_banned_peers_total: IntCounter,
     /// Total number of peers connected since startup.
     pub total_peers: IntCounter,
     /// Information of the node software. Contains a label `version` with the
@@ -368,6 +370,12 @@ impl StatsExportService {
         ))?;
         registry.register(Box::new(soft_banned_peers.clone()))?;
 
+        let soft_banned_peers_total = IntCounter::with_opts(Opts::new(
+            "network_soft_banned_peers_total",
+            "Total number of soft banned peers since startup",
+        ))?;
+        registry.register(Box::new(soft_banned_peers_total.clone()))?;
+
         let total_peers = IntCounter::with_opts(Opts::new(
             "network_peers_total",
             "Total number of peers since startup",
@@ -441,6 +449,7 @@ impl StatsExportService {
             received_consensus_messages,
             sent_consensus_messages,
             soft_banned_peers,
+            soft_banned_peers_total,
             total_peers,
             node_info,
             node_startup_timestamp,

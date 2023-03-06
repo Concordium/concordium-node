@@ -137,6 +137,10 @@ Possible values of `message` are:
 
 Current number of soft banned peers. The node temporarily bans peers if they fail to follow the protocol.
 
+### `network_soft_banned_peers_total`
+
+The total number of soft banned peers since startup. The node temporarily bans peers if they fail to follow the protocol.
+
 ### `network_peers_total`
 
 Total number of peers connected since startup.
