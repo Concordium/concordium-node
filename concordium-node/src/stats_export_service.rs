@@ -86,7 +86,9 @@ impl StatsConsensusCollector {
         let baking_committee = IntGaugeVec::new(
             Opts::new(
                 "consensus_baking_committee",
-                "The baking commmittee status of the node for the current best block",
+                "The baking commmittee status of the node for the current best block, labelled \
+                 with the status where the only metric with value of 1 represents the current \
+                 status",
             )
             .variable_label("status"),
             &["status"],
