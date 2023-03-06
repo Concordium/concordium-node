@@ -150,7 +150,7 @@ runMyTestMonad idps time action = do
     runBlobStoreTemp "." $
         withNewAccountCache 1_000 $ do
             initState <- runPersistentBlockStateMonad initialData
-            runDeterministic (runStateT (runPersistentBlockStateMonad action) initState) time
+            runDeterministic (runSkovMonad (runPersistentBlockStateMonad action) initState) time
   where
     initialData ::
         PersistentBlockStateMonad
