@@ -1,6 +1,6 @@
 //! Node's statistics and their exposure.
 
-use crate::{common::p2p_node_id::P2PNodeId, read_or_die, spawn_or_die};
+use crate::{common::p2p_node_id::P2PNodeId, configuration, read_or_die, spawn_or_die};
 use anyhow::Context;
 use gotham::{
     handler::IntoResponse,
@@ -18,11 +18,12 @@ use prometheus::{
     Encoder, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, Opts, Registry,
     TextEncoder,
 };
-use std::{net::SocketAddr, sync::RwLock, thread, time};
+use std::{
+    net::SocketAddr,
+    sync::{Arc, RwLock},
+    thread, time,
+};
 use tower_http::metrics::in_flight_requests::InFlightRequestsCounter;
-
-use crate::configuration;
-use std::sync::Arc;
 
 struct HTMLStringResponse(pub String);
 
