@@ -145,6 +145,11 @@ type MyTestMonad =
         )
 
 -- |Run an action within the 'MyTestMonad'.
+-- The 'IdentityProviders' and 'UTCTime' is required to setup
+-- the monad to run the action within.
+-- In particular the @idps@ indicate which identity providers are registered
+-- on the chain and the @time@ indicates the actual time that the action is running within.
+-- The @time@ is used for transaction verification.
 runMyTestMonad :: IdentityProviders -> UTCTime -> MyTestMonad a -> IO (a, SkovData 'P6)
 runMyTestMonad idps time action = do
     runBlobStoreTemp "." $

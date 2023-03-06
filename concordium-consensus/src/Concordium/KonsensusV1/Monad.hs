@@ -2,20 +2,21 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
+
 module Concordium.KonsensusV1.Monad where
 
-import Control.Monad.Reader
 import Concordium.TimeMonad (TimeMonad)
-import Data.Kind (Type)
+import Control.Monad.Reader
 import Control.Monad.State.Strict
+import Data.Kind (Type)
 import Lens.Micro.Platform
 
 import Concordium.Types
 
 import qualified Concordium.GlobalState.TransactionTable as TT
 import Concordium.GlobalState.Transactions
-import Concordium.KonsensusV1.TreeState.Implementation
 import qualified Concordium.GlobalState.Types as GSTypes
+import Concordium.KonsensusV1.TreeState.Implementation
 
 -- |The 'MonadSkov' defines a monad suitable for running operations on the underlying 'SkovData'.
 newtype SkovMonad (s :: Type) (m :: Type -> Type) (a :: Type) = SkovMonad {runSkovMonad :: s -> m (a, s)}
