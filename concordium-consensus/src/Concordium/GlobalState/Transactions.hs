@@ -4,6 +4,23 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
+-- |This module combines the following transaction related functionalites
+-- across the consensus protocols (v0 and v1)
+--
+-- * The 'AddTransactionResult' is the result of inserting a transaction into
+--   a supported tree state.
+--
+-- * 'TransactionOrigin' indicates whether a transaction stems from a block or
+--   it arrived at the consensus layer individually. These are the only ways
+--   a transaction can ever be inserted into an underlying tree state.
+--
+-- * The 'TransactionVerifierT' is defined here. This is the monad transformer
+--   that is used for verifying transactions.
+--
+-- * The 'AccountNonceQuery' class which is responsible for retrieving the
+--   "next available" account nonce from the underlying 'TreeState'.
+--   Note that this is required in order to share the same transaction verifier implementation
+--   accros the consensus protocol versions as this is used by the 'TransactionVerifier'.
 module Concordium.GlobalState.Transactions where
 
 import Control.Monad.Reader
@@ -13,11 +30,13 @@ import Data.Kind (Type)
 import Data.Maybe (isJust)
 import Lens.Micro.Platform
 
+-- Base package dependencies
 import qualified Concordium.ID.Types as ID
 import Concordium.Types
 import Concordium.Types.Parameters
 import Concordium.Types.Transactions
 
+-- Consensus package dependencies
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Types
