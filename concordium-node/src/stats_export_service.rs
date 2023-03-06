@@ -1,6 +1,11 @@
 //! Node's statistics and their exposure.
 
-use crate::{common::p2p_node_id::P2PNodeId, configuration, read_or_die, spawn_or_die};
+use crate::{
+    common::p2p_node_id::P2PNodeId,
+    configuration,
+    consensus_ffi::{consensus::ConsensusContainer, helpers::ConsensusIsInBakingCommitteeResponse},
+    read_or_die, spawn_or_die,
+};
 use anyhow::Context;
 use gotham::{
     handler::IntoResponse,
@@ -15,8 +20,8 @@ use hyper::Body;
 use prometheus::{
     self,
     core::{Atomic, AtomicI64, AtomicU64, GenericGauge},
-    Encoder, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, Opts, Registry,
-    TextEncoder,
+    Encoder, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec, Opts,
+    Registry, TextEncoder,
 };
 use std::{
     net::SocketAddr,
@@ -67,11 +72,57 @@ impl prometheus::core::Collector for GrpcInFlightRequestsCollector {
     }
 }
 
+/// Collector tracking stats which needs to be synced with consensus on scrape
+/// through the FFI.
+pub struct StatsConsensusCollector {
+    /// Reference to consensus to support consensus queries.
+    consensus:        ConsensusContainer,
+    /// The baking committee status of the node for the current best block.
+    baking_committee: IntGaugeVec,
+}
+
+impl StatsConsensusCollector {
+    pub fn new(consensus: ConsensusContainer) -> anyhow::Result<Self> {
+        let baking_committee = IntGaugeVec::new(
+            Opts::new(
+                "consensus_baking_committee",
+                "The baking commmittee status of the node for the current best block",
+            )
+            .variable_label("status"),
+            &["status"],
+        )?;
+
+        Ok(Self {
+            consensus,
+            baking_committee,
+        })
+    }
+
+    /// Update labelled metric to reflect the provided baking committee status.
+    fn set_baking_committe(&self, status: ConsensusIsInBakingCommitteeResponse) {
+        for status_label in ConsensusIsInBakingCommitteeResponse::labels() {
+            self.baking_committee.with_label_values(&[status_label]).set(0);
+        }
+        self.baking_committee.with_label_values(&[status.label()]).set(1);
+    }
+}
+
+impl prometheus::core::Collector for StatsConsensusCollector {
+    fn desc(&self) -> Vec<&prometheus::core::Desc> { self.baking_committee.desc() }
+
+    fn collect(&self) -> Vec<prometheus::proto::MetricFamily> {
+        let (status, _has_baker_id, _baker_id) = self.consensus.in_baking_committee();
+        self.set_baking_committe(status);
+
+        self.baking_committee.collect()
+    }
+}
+
 /// Collects statistics pertaining to the node.
 pub struct StatsExportService {
     /// The Prometheus registry. Every metric which should be exposed via the
     /// Prometheus exporter should be registered in this registry.
-    registry: Registry,
+    pub registry: Registry,
     /// Total number of network packets received.
     pub packets_received: IntCounter,
     /// Total number of network packets sent.

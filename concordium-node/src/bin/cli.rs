@@ -31,7 +31,9 @@ use concordium_node::{
     read_or_die,
     rpc::RpcServerImpl,
     spawn_or_die,
-    stats_export_service::{instantiate_stats_export_engine, StatsExportService},
+    stats_export_service::{
+        instantiate_stats_export_engine, StatsConsensusCollector, StatsExportService,
+    },
     utils::get_config_and_logging_setup,
 };
 use mio::{net::TcpListener, Poll};
@@ -139,6 +141,10 @@ async fn main() -> anyhow::Result<()> {
         notification_context,
     )?;
     info!("Consensus layer started");
+
+    // Start stats collecting which depend on querying consensus.
+    let consensus_collector = StatsConsensusCollector::new(consensus.clone())?;
+    node.stats.registry.register(Box::new(consensus_collector))?;
 
     // A flag to record that the import was stopped by a signal handler.
     let import_stopped = Arc::new(atomic::AtomicBool::new(false));

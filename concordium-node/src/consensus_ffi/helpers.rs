@@ -342,6 +342,31 @@ pub enum ConsensusIsInBakingCommitteeResponse {
     AddedButWrongKeys,
 }
 
+impl ConsensusIsInBakingCommitteeResponse {
+    /// Get the label. This is used when updating metrics of the prometheus
+    /// exporter.
+    pub fn label(&self) -> &str {
+        use ConsensusIsInBakingCommitteeResponse::*;
+        match self {
+            ActiveInCommittee => "active_in_committee",
+            NotInCommittee => "not_in_committee",
+            AddedButNotActiveInCommittee => "added_but_not_active_in_committee",
+            AddedButWrongKeys => "added_but_wrong_keys",
+        }
+    }
+
+    /// Get all possible labels. This is used to reset when updating metrics of
+    /// the prometheus exporter.
+    pub const fn labels() -> &'static [&'static str] {
+        &[
+            "active_in_committee",
+            "not_in_committee",
+            "added_but_not_active_in_committee",
+            "added_but_wrong_keys",
+        ]
+    }
+}
+
 impl TryFrom<u8> for ConsensusIsInBakingCommitteeResponse {
     type Error = anyhow::Error;
 
