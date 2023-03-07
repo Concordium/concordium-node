@@ -1003,7 +1003,7 @@ verifyBlockSignature ::
     BlockHash ->
     -- |The data of the block that is signed.
     b ->
-    -- |'True' if the signature can be verified otherwise 'False'.
+    -- |'True' if the signature can be verified, otherwise 'False'.
     Bool
 verifyBlockSignature key genesisHash b =
     BlockSig.verify

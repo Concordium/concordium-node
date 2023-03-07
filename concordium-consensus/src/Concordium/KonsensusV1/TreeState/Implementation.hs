@@ -152,11 +152,11 @@ data PendingBlocks = PendingBlocks
       -- The entries of the pending blocks are keyed by the 'BlockHash' of their parent block.
       _pendingBlocksTable :: !(HM.HashMap BlockHash [PendingBlock]),
       -- |A priority search queue on the (pending block hash, parent of pending block hash) tuple,
-      -- prioritised by the round of the pending block. The queue in particular supports extracting
-      -- the pending block with minimal 'Round'. Note that the queue can contain blocks that are
-      -- not actually pending, hence it does not have an entry in the '_pendingBlocksTable'.
-      -- This will be the case if the block has either become live or marked for dead.
-      _pendingBlocksQueue :: !(MPQ.MinPQueue Round (BlockHash, BlockHash))
+      -- prioritised by the timestamp of the pending block. The queue in particular supports extracting
+      -- the pending block with minimal 'Timestamp'. Note that the queue can contain spurious pending
+      -- blocks, and a block is only actually in the pending blocks if it has an entry in the
+      -- '_pendingBlocksTable'.
+      _pendingBlocksQueue :: !(MPQ.MinPQueue Timestamp (BlockHash, BlockHash))
     }
     deriving (Eq, Show)
 
@@ -397,22 +397,22 @@ markPending pb = blockTable . liveMap . at' (getHash pb) ?=! MemBlockPending pb
 -- $pendingBlocks
 -- Pending blocks are conceptually stored in a min priority search queue,
 -- where multiple blocks may have the same key, which is their parent,
--- and the priority is the block's round number.
+-- and the priority is the block's timestamp.
 -- When a block arrives (possibly dead), its pending children are removed
 -- from the queue and handled.  This uses 'takePendingChildren'.
--- When a block is finalized, all pending blocks with a lower or equal round
--- number can be handled (they will become dead, since they can no longer
--- join the tree).  This uses 'takeNextPendingUntil'.
+-- When a block is finalized, all pending blocks with a lower or equal timestamp
+-- can be handled (they will become dead, since they can no longer join the tree).
+-- This uses 'takeNextPendingUntil'.
 
 -- |Add a block to the pending block table and queue.
 -- (Note, this does not update the block table.)
 addPendingBlock :: (MonadState s m, HasPendingBlocks s) => PendingBlock -> m ()
 addPendingBlock pb = do
-    pendingBlocksQueue %= MPQ.insert theRound (blockHash, parentHash)
+    pendingBlocksQueue %= MPQ.insert theTimestamp (blockHash, parentHash)
     pendingBlocksTable . at' parentHash . non [] %= (pb :)
   where
     blockHash = getHash pb
-    theRound = blockRound pb
+    theTimestamp = blockTimestamp pb
     parentHash = blockParent pb
 
 -- |Take the set of blocks that are pending a particular parent from the pending block table.
@@ -421,15 +421,15 @@ addPendingBlock pb = do
 takePendingChildren :: (MonadState s m, HasPendingBlocks s) => BlockHash -> m [PendingBlock]
 takePendingChildren parent = pendingBlocksTable . at' parent . non [] <<.= []
 
--- |Return the next block that is pending its parent with round number
+-- |Return the next block that is pending its parent with timestamp
 -- less than or equal to the given value, removing it from the pending
 -- table.  Returns 'Nothing' if there is no such pending block.
-takeNextPendingUntil :: (MonadState s m, HasPendingBlocks s) => Round -> m (Maybe PendingBlock)
-takeNextPendingUntil targetRound = takeNextUntil =<< use pendingBlocksQueue
+takeNextPendingUntil :: (MonadState s m, HasPendingBlocks s) => Timestamp -> m (Maybe PendingBlock)
+takeNextPendingUntil targetTimestamp = takeNextUntil =<< use pendingBlocksQueue
   where
     takeNextUntil pbq = case MPQ.minViewWithKey pbq of
         Just ((r, (pending, parent)), pbq')
-            | r <= targetRound -> do
+            | r <= targetTimestamp -> do
                 (myPB, otherPBs) <-
                     List.partition ((== pending) . getHash)
                         <$> use (pendingBlocksTable . at' parent . non [])
