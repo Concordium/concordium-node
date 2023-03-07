@@ -78,11 +78,11 @@ advanceRound ::
 advanceRound newRound timedOut = do
     myBakerId <- bakerId <$> view bakerIdentity
     currentRoundStatus <- use roundStatus
-    withTimer myBakerId (rsCurrentTimeout currentRoundStatus) $
+    withFinalizerContext myBakerId (rsCurrentTimeout currentRoundStatus) $
         roundStatus .=! advanceRoundStatus newRound timedOut currentRoundStatus
         -- TODO: If we're baker in 'newRound' then call 'makeBlock'
   where
-    withTimer bid currentTimeout f = do
+    withFinalizerContext bid currentTimeout f = do
         currentEpoch <- rsCurrentEpoch <$> use roundStatus
         gets (getBakersForLiveEpoch currentEpoch) >>= \case
             Nothing -> return () -- well this is awkward.
