@@ -80,9 +80,8 @@ advanceRound newRound timedOut = do
     currentRoundStatus <- use roundStatus
     withTimer myBakerId (rsCurrentTimeout currentRoundStatus) $
         roundStatus .=! advanceRoundStatus newRound timedOut currentRoundStatus
+        -- TODO: If we're baker in 'newRound' then call 'makeBlock'
   where
-    -- TODO: If we're baker in 'newRound' then call 'makeBlock'
-
     withTimer bid currentTimeout f = do
         currentEpoch <- rsCurrentEpoch <$> use roundStatus
         gets (getBakersForLiveEpoch currentEpoch) >>= \case
