@@ -203,6 +203,30 @@ data RoundStatus = RoundStatus
     }
     deriving (Show, Eq)
 
+-- |Advance the provided 'RoundStatus' to
+-- the provided 'Round'. If @Maybe (TimeoutCertificate, QuorumCertificate)@ is 'Nothing'
+-- then the round advances as it is a decendant of 'Round' where a 'QuorumCertificate' was successfully
+-- produced. Otherwise if @Just ..@ then it means that the old round timed out.
+advanceRoundStatus :: Round -> Maybe (TimeoutCertificate, QuorumCertificate) -> RoundStatus -> RoundStatus
+advanceRoundStatus toRound mTcQc rs =
+    RoundStatus
+        { rsCurrentEpoch = rsCurrentEpoch rs,
+          rsCurrentRound = toRound,
+          rsCurrentQuorumSignatureMessages = emptySignatureMessages,
+          rsCurrentTimeoutSignatureMessages = emptySignatureMessages,
+          rsLastSignedQuourumSignatureMessage = rsLastSignedQuourumSignatureMessage rs,
+          rsLastSignedTimeoutSignatureMessage = rsLastSignedTimeoutSignatureMessage rs,
+          rsCurrentTimeout = rsCurrentTimeout rs,
+          rsHighestQC = rsHighestQC rs,
+          rsLeadershipElectionNonce = rsLeadershipElectionNonce rs,
+          rsLatestEpochFinEntry = rsLatestEpochFinEntry rs,
+          rsPreviousRoundTC = previousRoundTC
+        }
+  where
+    previousRoundTC = case mTcQc of
+        Nothing -> Absent
+        Just (tc, qc) -> Present (tc, qc)
+
 instance Serialize RoundStatus where
     put RoundStatus{..} = do
         put rsCurrentEpoch

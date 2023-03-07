@@ -4,9 +4,11 @@
 module Concordium.KonsensusV1.Consensus where
 
 import Control.Monad.Reader
-import Control.Monad.State
+import Control.Monad.State.Strict
 
+import Data.Maybe (isJust)
 import Data.Ratio
+import qualified Data.Vector as Vector
 import Data.Word
 import Lens.Micro.Platform
 
@@ -14,6 +16,7 @@ import Concordium.KonsensusV1.TreeState.Implementation
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
+import Concordium.Utils
 
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Persistent.BlockState
@@ -31,4 +34,61 @@ class MonadMulticast m where
 newtype BakerContext = BakerContext
     { _bakerIdentity :: BakerIdentity
     }
+
 makeClassy ''BakerContext
+
+-- |A Monad for timer related actions.
+class MonadTimer m where
+    resetTimer :: Duration -> m ()
+
+-- |Return 'Just FinalizerInfo' if the consensus running
+-- is part of the of the provided 'BakersAndFinalizers'.
+-- Otherwise return 'Nothing'.
+isBakerFinalizer ::
+    BakerId ->
+    -- |A collection of bakers and finalizers.
+    BakersAndFinalizers ->
+    -- |'True' if the consensus is part of the finalization committee.
+    -- Otherwise 'False'
+    Maybe FinalizerInfo
+isBakerFinalizer bakerId bakersAndFinalizers = do
+    -- This is O(n) but in principle we could do binary search here as the 'committeeFinalizers' are
+    -- sorted by ascending baker id.
+    Vector.find (\finalizerInfo -> finalizerBakerId finalizerInfo == bakerId) finalizers
+  where
+    finalizers = committeeFinalizers $ bakersAndFinalizers ^. bfFinalizers
+
+-- |Advance to the provided 'Round'.
+advanceRound ::
+    ( MonadReader r m,
+      HasBakerContext r,
+      MonadTimer m,
+      MonadState (SkovData (MPV m)) m
+    ) =>
+    -- |The 'Round' to progress to.
+    Round ->
+    -- |If we are advancing from a round that timed out
+    -- then this will be @Just 'TimeoutCertificate, 'QuorumCertificate')@ otherwise
+    -- 'Nothing'.
+    --
+    -- In case of the former then the 'TimeoutCertificate' is from the round we're
+    -- advancing from and the associated 'QuorumCertificate' verifies it.
+    Maybe (TimeoutCertificate, QuorumCertificate) ->
+    m ()
+advanceRound newRound timedOut = do
+    myBakerId <- bakerId <$> view bakerIdentity
+    currentRoundStatus <- use roundStatus
+    withTimer myBakerId (rsCurrentTimeout currentRoundStatus) $
+        roundStatus .=! advanceRoundStatus newRound timedOut currentRoundStatus
+  where
+    -- TODO: If we're baker in 'newRound' then call 'makeBlock'
+
+    withTimer bid currentTimeout f = do
+        currentEpoch <- rsCurrentEpoch <$> use roundStatus
+        gets (getBakersForLiveEpoch currentEpoch) >>= \case
+            Nothing -> return () -- well this is awkward.
+            Just bakersAndFinalizers -> do
+                if isJust $! isBakerFinalizer bid bakersAndFinalizers
+                    then -- If we're a finalizer for the current epoch then we reset the timer
+                        resetTimer currentTimeout >> f
+                    else f
