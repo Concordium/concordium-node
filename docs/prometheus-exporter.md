@@ -150,3 +150,33 @@ Always has the value 1.
 
 Timestamp of starting up the node (Unix time in milliseconds).
 
+### `grpc_request_response_time_seconds`
+
+Histogram tracking the total number of gRPC requests received and the time it took to provide a response. Labelled with the gRPC method name (`method=<name>`) and the gRPC response status (`status=<status>`).
+
+The duration tracked is the time it takes for the handler to construct a response, which does not include the time it takes to stream the response to the client.
+As a result for streaming gRPC methods, the duration represents the time it takes for the node to first respond, which is not nescessarily same as duration as for providing the first item in the stream.
+
+The size of the buckets be configured using the `prometheus-grpc-response-time-buckets` (`CONCORDIUM_NODE_PROMETHEUS_GRPC_RESPONSE_TIME_BUCKETS`) and is provided as a list of decimal numbers separated by ",". Each value represents the upper inclusive bound of a bucket (in seconds) and a bucket with +Infinity is always added. The values must be sorted in strictly increasing order.
+The default value of the configuration is `"0.050,0.100,0.200,0.500,1.000"`.
+
+For a complete list of possible method names refer to the gRPC API documentation.
+
+Possible values of `status` are:
+- `"ok"` The operation completed successfully.
+- `"cancelled"` The operation was cancelled.
+- `"unknown"` Unknown error.
+- `"invalid argument"` Client specified an invalid argument.
+- `"deadline exceeded"` Deadline expired before operation could complete.
+- `"not found"` Some requested entity was not found.
+- `"already exists"` Some entity that we attempted to create already exists.
+- `"permission denied"` The caller does not have permission to execute the specified operation.
+- `"resource exhausted"` Some resource has been exhausted.
+- `"failed precondition"` The system is not in a state required for the operation's execution.
+- `"aborted"` The operation was aborted.
+- `"out of range"` Operation was attempted past the valid range.
+- `"unimplemented"` Operation is not implemented or not supported.
+- `"internal"` Internal error.
+- `"unavailable"` The service is currently unavailable.
+- `"data loss"` Unrecoverable data loss or corruption.
+- `"unauthenticated"` The request does not have valid authentication credentials.

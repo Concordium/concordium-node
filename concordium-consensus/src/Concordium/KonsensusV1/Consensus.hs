@@ -1,16 +1,25 @@
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Concordium.KonsensusV1.Consensus where
 
+import Control.Monad.Reader
 import Control.Monad.State
 import Data.Foldable
 import Data.List (sortOn)
 import qualified Data.Map.Strict as Map
 import Data.Ord
+import Data.Ratio
 import qualified Data.Vector as Vec
+import Data.Word
 import Lens.Micro.Platform
 
 import Concordium.Types
+import Concordium.Types.Accounts
+import Concordium.Types.BakerIdentity
+import Concordium.Types.HashableTo
+import Concordium.Types.Parameters hiding (getChainParameters)
+import Concordium.Types.SeedState
 
 import Concordium.Genesis.Data.BaseV1
 import Concordium.GlobalState.BakerInfo
@@ -24,9 +33,18 @@ import Concordium.KonsensusV1.TreeState.Implementation
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
-import Concordium.Types.Accounts
-import Concordium.Types.HashableTo
-import Concordium.Types.SeedState
+
+-- |A Monad for multicasting timeout messages.
+class MonadMulticast m where
+    -- |Multicast a timeout message over the network
+    sendTimeoutMessage :: TimeoutMessage -> m ()
+
+-- |A baker context containing the baker identity. Used for accessing relevant baker keys and the baker id.
+-- newtype BakerContext = BakerContext
+--     { _bakerIdentity :: BakerIdentity
+--     }
+
+-- makeClassy ''BakerContext
 
 -- |A block that has passed initial verification, but must still be executed, added to the state,
 -- and (potentially) signed as a finalizer.
@@ -212,12 +230,12 @@ receiveBlockKnownParent parent pendingBlock = do
             -- Block is in the current epoch, so use the leadership election nonce
             -- from the parent block.
             seedState <- getSeedState (bpState parent)
-            checkLeader bakers (currentLeadershipElectionNonce seedState)
+            checkLeader bakers (seedState ^. currentLeadershipElectionNonce)
         | blockEpoch pendingBlock == blockEpoch parent + 1 = do
             -- Block is in the next epoch, so we update the leadership election nonce.
             seedState <- getSeedState (bpState parent)
             -- We check that the epoch transition has been triggered in the parent block.
-            if epochTransitionTriggered seedState
+            if seedState ^. epochTransitionTriggered
                 then checkLeader bakers (nonceForNewEpoch bakers seedState)
                 else -- If the transition is not triggered, then the child block should not be
                 -- in the new epoch.
@@ -482,7 +500,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                         -- check.
                         get >>= getBlockStatus (qcBlock (feFinalizedQuorumCertificate finEntry)) >>= \case
                             BlockAliveOrFinalized finBlock
-                                | blockTimestamp finBlock >= triggerBlockTime parentSeedState ->
+                                | blockTimestamp finBlock >= parentSeedState ^. triggerBlockTime ->
                                     continue
                             _ -> do
                                 flag $ BlockInvalidEpochFinalization sBlock

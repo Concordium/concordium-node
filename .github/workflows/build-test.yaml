@@ -49,7 +49,7 @@ on:
   workflow_dispatch: # allow manual trigger
 
 env:
-  dummy: 11                 # change to force cache invalidation
+  dummy: 12                 # change to force cache invalidation
   CARGO_TERM_COLOR: always # implicitly adds '--color=always' to all cargo commands
   TEST_LEVEL: 1            # for stack tests
 
@@ -239,31 +239,31 @@ jobs:
     # Check, compile, and test Rust sources. All the steps below could be run in parallel in separate jobs.
     - name: Check that Rust target compiles
       run: |
-        cargo check --manifest-path concordium-node/Cargo.toml --workspace
+        cargo check --locked --manifest-path concordium-node/Cargo.toml --workspace
     - name: Check that the collector-backend compiles
       run: |
-        cargo check --manifest-path collector-backend/Cargo.toml --workspace
+        cargo check --locked --manifest-path collector-backend/Cargo.toml --workspace
     - name: Check that the Windows node runner service compiles (gnu toolchain, disable embedded resources)
       run: |
-        cargo check --target x86_64-pc-windows-gnu --manifest-path service/windows/Cargo.toml --workspace --no-default-features
+        cargo check --locked --target x86_64-pc-windows-gnu --manifest-path service/windows/Cargo.toml --workspace --no-default-features
     - name: Check that the Windows installer custom action library compiles (gnu toolchain)
       run: |
-        cargo check --target x86_64-pc-windows-gnu --manifest-path service/windows/installer/custom-actions/Cargo.toml --workspace
+        cargo check --locked --target x86_64-pc-windows-gnu --manifest-path service/windows/installer/custom-actions/Cargo.toml --workspace
     - name: Run clippy (without extra features)
       run: |
-        cargo clippy --manifest-path concordium-node/Cargo.toml --all -- -D warnings
+        cargo clippy --locked --manifest-path concordium-node/Cargo.toml --all -- -D warnings
     - name: Run clippy (with features 'collector', 'network_dump')
       run: |
-        cargo clippy --manifest-path concordium-node/Cargo.toml --features=collector,network_dump --all -- -D warnings
+        cargo clippy --locked --manifest-path concordium-node/Cargo.toml --features=collector,network_dump --all -- -D warnings
     - name: Run clippy on collector backend
       run: |
-        cargo clippy --manifest-path collector-backend/Cargo.toml -- -D warnings
+        cargo clippy --locked --manifest-path collector-backend/Cargo.toml -- -D warnings
     - name: Run clippy on Windows node runner service
       run: |
-        cargo clippy --target x86_64-pc-windows-gnu --manifest-path service/windows/Cargo.toml --all --no-default-features -- -D warnings
+        cargo clippy --locked --target x86_64-pc-windows-gnu --manifest-path service/windows/Cargo.toml --all --no-default-features -- -D warnings
     - name: Run clippy on Windows installer custom action library
       run: |
-        cargo clippy --target x86_64-pc-windows-gnu --manifest-path service/windows/installer/custom-actions/Cargo.toml --all -- -D warnings
+        cargo clippy --locked --target x86_64-pc-windows-gnu --manifest-path service/windows/installer/custom-actions/Cargo.toml --all -- -D warnings
     - name: Test Rust crates (without extra features)
       run: |
         cargo test --manifest-path concordium-node/Cargo.toml --all

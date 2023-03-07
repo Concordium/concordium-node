@@ -1088,8 +1088,8 @@ doGetSlotBakersP1 pbs slot = do
     bs <- loadPBS pbs
     let bps = bspBirkParameters bs
         SeedStateV0{..} = bps ^. birkSeedState
-        slotEpoch = fromIntegral $ slot `quot` epochLength
-    case compare slotEpoch (epoch + 1) of
+        slotEpoch = fromIntegral $ slot `quot` ss0EpochLength
+    case compare slotEpoch (ss0Epoch + 1) of
         LT -> epochToFullBakers =<< refLoad (bps ^. birkCurrentEpochBakers)
         EQ -> epochToFullBakers =<< refLoad (bps ^. birkNextEpochBakers)
         GT -> do
@@ -1928,7 +1928,7 @@ doUpdateBakerStake pbs ai newStake = do
                     return (BSUChangePending (BakerId ai), pbs)
                 else -- We can make the change
                 do
-                    let curEpoch = epoch $ _birkSeedState (bspBirkParameters bsp)
+                    let curEpoch = bspBirkParameters bsp ^. birkSeedState . epoch
                     upds <- refLoad (bspUpdates bsp)
                     cooldown <- (2 +) . _cpBakerExtraCooldownEpochs . _cpCooldownParameters . unStoreSerialized <$> refLoad (currentParameters upds)
 
@@ -1985,7 +1985,7 @@ doRemoveBaker pbs ai = do
                     -- We can make the change
                     -- Note: this just sets the account to be removed at a future epoch
                     -- transition.
-                    let curEpoch = epoch $ _birkSeedState (bspBirkParameters bsp)
+                    let curEpoch = bspBirkParameters bsp ^. birkSeedState . epoch
                     upds <- refLoad (bspUpdates bsp)
                     cooldown <- (2 +) . _cpBakerExtraCooldownEpochs . _cpCooldownParameters . unStoreSerialized <$> refLoad (currentParameters upds)
                     let updAcc =
