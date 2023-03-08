@@ -192,14 +192,13 @@ Streaming gRPC methods are counted as in flight until the response stream is clo
 
 ### `consensus_baking_committee`
 
-The baking committee status of the node at the current best block.
-Provides the status using a label (`status=<status>`) with the value of 1 for the status matching the current state and 0 for all other states.
+The baking committee status of the node for the current best block.
 
-Possible values of `status` are:
-- `"active_in_committee"` The node is in the baking committee and is actively baking.
-- `"not_in_committee"` The node is not in the baking committee.
-- `"added_but_not_active_in_committee"` The node is added to the upcoming the baking committee, and is not baking actively yet.
-- `"added_but_wrong_keys"` The node is setup with baker keys not matching the keys currently registered in the baking committee.
+The value is mapped to a status:
+- `0` The node is in the baking committee and is actively baking.
+- `1` The node is not in the baking committee.
+- `2` The node is added to the upcoming the baking committee, and is not baking actively yet.
+- `3` The node is setup with baker keys not matching the keys currently registered in the baking committee.
 
 ### `consensus_finalization_committee`
 

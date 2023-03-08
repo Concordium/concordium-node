@@ -336,36 +336,10 @@ impl TryFrom<i64> for ConsensusFfiResponse {
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ConsensusIsInBakingCommitteeResponse {
-    ActiveInCommittee,
+    ActiveInCommittee = 0,
     NotInCommittee,
     AddedButNotActiveInCommittee,
     AddedButWrongKeys,
-}
-
-impl ConsensusIsInBakingCommitteeResponse {
-    /// Get the label. This is used when updating metrics of the prometheus
-    /// exporter.
-    pub fn label(&self) -> &'static str {
-        use ConsensusIsInBakingCommitteeResponse::*;
-        match self {
-            ActiveInCommittee => "active_in_committee",
-            NotInCommittee => "not_in_committee",
-            AddedButNotActiveInCommittee => "added_but_not_active_in_committee",
-            AddedButWrongKeys => "added_but_wrong_keys",
-        }
-    }
-
-    /// Get all possible labels. This is used to reset when updating metrics of
-    /// the prometheus exporter.
-    pub fn labels() -> [&'static str; 4] {
-        use ConsensusIsInBakingCommitteeResponse::*;
-        [
-            ActiveInCommittee.label(),
-            NotInCommittee.label(),
-            AddedButNotActiveInCommittee.label(),
-            AddedButWrongKeys.label(),
-        ]
-    }
 }
 
 impl TryFrom<u8> for ConsensusIsInBakingCommitteeResponse {

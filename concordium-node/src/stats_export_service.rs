@@ -1,9 +1,7 @@
 //! Node's statistics and their exposure.
 
 use crate::{
-    common::p2p_node_id::P2PNodeId,
-    configuration,
-    consensus_ffi::{consensus::ConsensusContainer, helpers::ConsensusIsInBakingCommitteeResponse},
+    common::p2p_node_id::P2PNodeId, configuration, consensus_ffi::consensus::ConsensusContainer,
     read_or_die, spawn_or_die,
 };
 use anyhow::Context;
@@ -20,8 +18,8 @@ use hyper::Body;
 use prometheus::{
     self,
     core::{Atomic, AtomicI64, AtomicU64, GenericGauge},
-    Encoder, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec, Opts,
-    Registry, TextEncoder,
+    Encoder, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, Opts, Registry,
+    TextEncoder,
 };
 use std::{
     net::SocketAddr,
@@ -78,7 +76,7 @@ pub struct StatsConsensusCollector {
     /// Reference to consensus to support consensus queries.
     consensus:              ConsensusContainer,
     /// The baking committee status of the node for the current best block.
-    baking_committee:       IntGaugeVec,
+    baking_committee:       IntGauge,
     /// Whether the node is a member of the finalization committee for the
     /// current finalization round.
     finalization_committee: IntGauge,
@@ -86,16 +84,11 @@ pub struct StatsConsensusCollector {
 
 impl StatsConsensusCollector {
     pub fn new(consensus: ConsensusContainer) -> anyhow::Result<Self> {
-        let baking_committee = IntGaugeVec::new(
-            Opts::new(
-                "consensus_baking_committee",
-                "The baking committee status of the node for the current best block, labelled \
-                 with the status where the only metric with value of 1 represents the current \
-                 status",
-            )
-            .variable_label("status"),
-            &["status"],
-        )?;
+        let baking_committee = IntGauge::with_opts(Opts::new(
+            "consensus_baking_committee",
+            "The baking committee status of the node for the current best block. The value is \
+             mapped to a status, see documentation for details",
+        ))?;
 
         let finalization_committee = IntGauge::with_opts(Opts::new(
             "consensus_finalization_committee",
@@ -109,14 +102,6 @@ impl StatsConsensusCollector {
             finalization_committee,
         })
     }
-
-    /// Update labelled metric to reflect the provided baking committee status.
-    fn set_baking_committe(&self, status: ConsensusIsInBakingCommitteeResponse) {
-        for status_label in ConsensusIsInBakingCommitteeResponse::labels() {
-            self.baking_committee.with_label_values(&[status_label]).set(0);
-        }
-        self.baking_committee.with_label_values(&[status.label()]).set(1);
-    }
 }
 
 impl prometheus::core::Collector for StatsConsensusCollector {
@@ -128,7 +113,7 @@ impl prometheus::core::Collector for StatsConsensusCollector {
 
     fn collect(&self) -> Vec<prometheus::proto::MetricFamily> {
         let (status, _has_baker_id, _baker_id) = self.consensus.in_baking_committee();
-        self.set_baking_committe(status);
+        self.baking_committee.set(status as i64);
 
         let in_finalization_committee = self.consensus.in_finalization_committee();
         self.finalization_committee.set(
