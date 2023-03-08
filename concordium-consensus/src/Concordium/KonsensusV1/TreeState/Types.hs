@@ -241,6 +241,32 @@ advanceRoundStatus toRound mTcQc RoundStatus{..} =
         Nothing -> Absent
         Just (tc, qc) -> Present (tc, qc)
 
+-- |Advance the proived 'RoundStatus' to the provided 'Epoch'.
+-- In particular this does the following to the provided 'RoundStatus'
+--
+-- * Set the 'rsCurrentEpoch' to the provied 'Epoch'
+-- * Set the 'rsLatestEpochFinEntry' to the provided 'FinalizationEntry'.
+-- * Set the 'rsLeadershipElectionNonce' to the provided 'LeadershipElectionNonce'.
+advanceRoundStatusEpoch ::
+    -- |The 'Epoch' we advance to.
+    Epoch ->
+    -- |The 'FinalizationEntry' that witnesses the
+    -- new 'Epoch'.
+    FinalizationEntry ->
+    -- |The new leader election nonce.
+    LeadershipElectionNonce ->
+    -- |The 'RoundStatus' we're progressing from.
+    RoundStatus ->
+    -- |The new 'RoundStatus'.
+    RoundStatus
+advanceRoundStatusEpoch toEpoch latestFinalizationEntry newLeadershipElectionNonce RoundStatus{..} =
+    RoundStatus
+        { rsCurrentEpoch = toEpoch,
+          rsLatestEpochFinEntry = Present latestFinalizationEntry,
+          rsLeadershipElectionNonce = newLeadershipElectionNonce,
+          ..
+        }
+
 instance Serialize RoundStatus where
     put RoundStatus{..} = do
         put rsCurrentEpoch

@@ -10,7 +10,6 @@ import qualified Data.Vector as Vector
 
 import Lens.Micro.Platform
 
-import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Implementation
 import Concordium.KonsensusV1.TreeState.LowLevel (MonadTreeStateStore (writeCurrentRoundStatus))
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
@@ -114,18 +113,45 @@ advanceRound newRound timedOut = do
                         resetTimer currentTimeout
                     else return () -- The consensus runner is not part of the finalization committee, so we don't have to do anything.
 
+-- |Compute and return the 'LeadershipElectionNonce' for
+-- the provided 'Epoch' and 'FinalizationEntry'
+-- TODO: implement.
+computeLeadershipElectionNonce ::
+    -- |The 'Epoch' to compute the 'LeadershipElectionNonce' for.
+    Epoch ->
+    -- |The witness for the new 'Epoch'
+    FinalizationEntry ->
+    -- |The new 'LeadershipElectionNonce'
+    LeadershipElectionNonce
+computeLeadershipElectionNonce epoch finalizationEntry = undefined
+
 -- |Advance the 'Epoch' of the current 'RoundStatus'.
 --
 -- Advancing epochs in particular carries out the following:
 -- * Updates the 'rsCurrentEpoch' to the provided 'Epoch' for the current 'RoundStatus'.
 -- * Computes the new 'LeadershipElectionNonce' and updates the current 'RoundStatus'.
 -- * Updates the 'rsLatestEpochFinEntry' of the current 'RoundStatus' to @Present finalizationEntry@.
-advanceEpoch :: (MonadState (SkovData (MPV m)) m,
-               LowLevel.MonadTreeStateStore m) => Epoch -> FinalizationEntry ->  m ()
+-- * Persist the new 'RoundStatus' to disk.
+advanceEpoch ::
+    ( MonadState (SkovData (MPV m)) m,
+      LowLevel.MonadTreeStateStore m
+    ) =>
+    Epoch ->
+    FinalizationEntry ->
+    m ()
 advanceEpoch newEpoch finalizationEntry = do
-    currentRoundStatus <- use roundStatus
-    
-    return ()
-
-
-
+    -- Update the round status
+    newRoundStatus <- getNewRoundStatus
+    -- Write the new computed round status to the state.
+    roundStatus .= newRoundStatus
+    -- Write the new round status to disk.
+    writeCurrentRoundStatus =<< use roundStatus
+  where
+    -- Get the new round status by computing the new
+    -- leadership election nonce and advancing the round status
+    -- for the provided 'Epoch'.
+    getNewRoundStatus = do
+        currentRoundStatus <- use roundStatus
+        return $! advanceRoundStatusEpoch newEpoch finalizationEntry newLeadershipElectionNonce currentRoundStatus
+    -- compute the new leadership election nonce.
+    newLeadershipElectionNonce = computeLeadershipElectionNonce newEpoch finalizationEntry
