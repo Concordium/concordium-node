@@ -18,8 +18,8 @@ use hyper::Body;
 use prometheus::{
     self,
     core::{Atomic, AtomicI64, AtomicU64, GenericGauge},
-    Encoder, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, Opts, Registry,
-    TextEncoder,
+    Encoder, Gauge, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, Opts,
+    Registry, TextEncoder,
 };
 use std::{
     net::SocketAddr,
@@ -80,6 +80,9 @@ pub struct StatsConsensusCollector {
     /// Whether the node is a member of the finalization committee for the
     /// current finalization round.
     finalization_committee: IntGauge,
+    /// Current active lottery power. Is only be non-zero when active member of
+    /// the baking committee.
+    baking_lottery_power:   Gauge,
 }
 
 impl StatsConsensusCollector {
@@ -96,10 +99,17 @@ impl StatsConsensusCollector {
              The metric will have a value of 1 when member of the finalization committee",
         ))?;
 
+        let baking_lottery_power = Gauge::with_opts(Opts::new(
+            "consensus_baking_lottery_power",
+            "Baking lottery power for the current epoch of the best block. Is only be non-zero \
+             when active member of the baking committee.",
+        ))?;
+
         Ok(Self {
             consensus,
             baking_committee,
             finalization_committee,
+            baking_lottery_power,
         })
     }
 }
@@ -108,12 +118,15 @@ impl prometheus::core::Collector for StatsConsensusCollector {
     fn desc(&self) -> Vec<&prometheus::core::Desc> {
         let mut desc = self.baking_committee.desc();
         desc.extend(self.finalization_committee.desc());
+        desc.extend(self.baking_lottery_power.desc());
         desc
     }
 
     fn collect(&self) -> Vec<prometheus::proto::MetricFamily> {
-        let (status, _has_baker_id, _baker_id) = self.consensus.in_baking_committee();
+        let (status, _has_baker_id, _baker_id, lottery_power) =
+            self.consensus.in_baking_committee();
         self.baking_committee.set(status as i64);
+        self.baking_lottery_power.set(lottery_power);
 
         let in_finalization_committee = self.consensus.in_finalization_committee();
         self.finalization_committee.set(
@@ -126,6 +139,7 @@ impl prometheus::core::Collector for StatsConsensusCollector {
 
         let mut metrics = self.baking_committee.collect();
         metrics.extend(self.finalization_committee.collect());
+        metrics.extend(self.baking_lottery_power.collect());
         metrics
     }
 }

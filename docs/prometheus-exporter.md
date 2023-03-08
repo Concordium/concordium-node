@@ -203,3 +203,9 @@ The value is mapped to a status:
 ### `consensus_finalization_committee`
 
 The finalization committee status of the node for the current finalization round. The metric will have a value of 1 if and only if the node is a member of the finalization committee.
+
+### `consensus_baking_lottery_power`
+
+Baking lottery power for the current epoch of the best block.
+The value is a number between 0 and 1, and is representing the fraction of baking stake (combined stake of the baker and delegators) to the total baking stake of the baking committee.
+Is only non-zero when active member of the baking committee.
