@@ -8,6 +8,7 @@ import Data.Serialize
 import qualified Data.Vector as Vector
 import Data.Word
 import System.IO.Unsafe
+import Test.HUnit
 import Test.Hspec
 import Test.QuickCheck
 
@@ -417,6 +418,61 @@ propSignBakedBlockDiffKey =
                 forAll genBlockKeyPair $ \(Sig.KeyPair _ pk1) ->
                     not (verifyBlockSignature pk1 genesisHash (signBlock kp genesisHash bb))
 
+propAdvanceRoundStatusFromQuorumRound :: Property
+propAdvanceRoundStatusFromQuorumRound =
+    forAll genRoundStatus $ \fromRoundStatus ->
+        forAll genRound $ \toRound -> do
+            let newRoundStatus = advanceRoundStatus toRound Nothing fromRoundStatus
+            assertEqual
+                "RoundStatus current round should be advanced"
+                toRound
+                (rsCurrentRound newRoundStatus)
+            assertEqual
+                "RoundStatus current epoch should remain"
+                (rsCurrentEpoch fromRoundStatus)
+                (rsCurrentEpoch newRoundStatus)
+            assertEqual
+                "RoundStatus previous round TC should be absent"
+                Absent
+                (rsPreviousRoundTC newRoundStatus)
+            assertEqual
+                "Timeout signatures for current round should be empty"
+                emptySignatureMessages
+                (rsCurrentTimeoutSignatureMessages newRoundStatus)
+            assertEqual
+                "QC signatures for current round should be empty"
+                emptySignatureMessages
+                (rsCurrentQuorumSignatureMessages newRoundStatus)
+
+propAdvanceRoundStatusFromTCRound :: Property
+propAdvanceRoundStatusFromTCRound =
+    forAll genRoundStatus $ \fromRoundStatus ->
+        forAll genTimeoutCertificate $ \tc ->
+            forAll genQuorumCertificate $ \qc ->
+                forAll genRound $ \toRound -> do
+                    let tcQc = Just (tc, qc)
+                        newRoundStatus = advanceRoundStatus toRound tcQc fromRoundStatus
+                    assertEqual
+                        "RoundStatus current round should be advanced"
+                        toRound
+                        (rsCurrentRound newRoundStatus)
+                    assertEqual
+                        "RoundStatus current epoch should remain"
+                        (rsCurrentEpoch fromRoundStatus)
+                        (rsCurrentEpoch newRoundStatus)
+                    assertEqual
+                        "RoundStatus previous round TC should be present"
+                        (Present (tc, qc))
+                        (rsPreviousRoundTC newRoundStatus)
+                    assertEqual
+                        "Timeout signatures for current round should be empty"
+                        emptySignatureMessages
+                        (rsCurrentTimeoutSignatureMessages newRoundStatus)
+                    assertEqual
+                        "QC signatures for current round should be empty"
+                        emptySignatureMessages
+                        (rsCurrentQuorumSignatureMessages newRoundStatus)
+
 tests :: Spec
 tests = describe "KonsensusV1.Types" $ do
     it "FinalizerSet serialization" propSerializeFinalizerSet
@@ -440,3 +496,5 @@ tests = describe "KonsensusV1.Types" $ do
     it "QuorumSignatureMessage signature check fails with different body" propSignQuorumSignatureMessageDiffBody
     it "SignedBlock signature check positive" propSignBakedBlock
     it "SignedBlock signature fails with different key" propSignBakedBlockDiffKey
+    it "RoundStatus advances from quorum round" propAdvanceRoundStatusFromQuorumRound
+    it "RoundStatus advances from timed out round" propAdvanceRoundStatusFromTCRound

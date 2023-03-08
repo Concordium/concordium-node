@@ -38,7 +38,8 @@ newtype BakerContext = BakerContext
 makeClassy ''BakerContext
 
 -- |A Monad for timer related actions.
-class MonadTimer m where
+class MonadTimeout m where
+    -- |Reset the timeout from the supplied 'Duration'.
     resetTimer :: Duration -> m ()
 
 -- |Return 'Just FinalizerInfo' if the consensus running
@@ -62,7 +63,7 @@ isBakerFinalizer bakerId bakersAndFinalizers = do
 advanceRound ::
     ( MonadReader r m,
       HasBakerContext r,
-      MonadTimer m,
+      MonadTimeout m,
       MonadState (SkovData (MPV m)) m
     ) =>
     -- |The 'Round' to progress to.
@@ -78,16 +79,20 @@ advanceRound ::
 advanceRound newRound timedOut = do
     myBakerId <- bakerId <$> view bakerIdentity
     currentRoundStatus <- use roundStatus
-    withFinalizerContext myBakerId (rsCurrentTimeout currentRoundStatus) $
-        roundStatus .=! advanceRoundStatus newRound timedOut currentRoundStatus
-        -- TODO: If we're baker in 'newRound' then call 'makeBlock'
+    resetTimerIfFinalizer myBakerId (rsCurrentTimeout currentRoundStatus)
+    -- Advance the round.
+    roundStatus .=! advanceRoundStatus newRound timedOut currentRoundStatus
   where
-    withFinalizerContext bid currentTimeout f = do
+    -- TODO: If we're baker in 'newRound' then call 'makeBlock'
+
+    -- \|Reset the timer if this consensus instance is member of the
+    -- finalization committee for the current 'Epoch'.
+    resetTimerIfFinalizer bakerId currentTimeout = do
         currentEpoch <- rsCurrentEpoch <$> use roundStatus
         gets (getBakersForLiveEpoch currentEpoch) >>= \case
             Nothing -> return () -- well this is awkward.
             Just bakersAndFinalizers -> do
-                if isJust $! isBakerFinalizer bid bakersAndFinalizers
+                if isJust $! isBakerFinalizer bakerId bakersAndFinalizers
                     then -- If we're a finalizer for the current epoch then we reset the timer
-                        resetTimer currentTimeout >> f
-                    else f
+                        resetTimer currentTimeout
+                    else return ()

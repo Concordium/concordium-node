@@ -203,11 +203,31 @@ data RoundStatus = RoundStatus
     }
     deriving (Show, Eq)
 
--- |Advance the provided 'RoundStatus' to
--- the provided 'Round'. If @Maybe (TimeoutCertificate, QuorumCertificate)@ is 'Nothing'
--- then the round advances as it is a decendant of 'Round' where a 'QuorumCertificate' was successfully
+-- |Advance the provided 'RoundStatus' to the provided 'Round'.
+-- If @Maybe (TimeoutCertificate, QuorumCertificate)@ is 'Nothing'
+-- then the round advances as it were a decendant of 'Round' where a 'QuorumCertificate' was successfully
 -- produced. Otherwise if @Just ..@ then it means that the old round timed out.
-advanceRoundStatus :: Round -> Maybe (TimeoutCertificate, QuorumCertificate) -> RoundStatus -> RoundStatus
+-- All properties from the old 'RoundStatus' are being carried over to new 'RoundStatus'
+-- except the following.
+-- * 'rsCurrentRound' will become the provided 'Round'.
+-- * 'rsCurrentQuorumSignatureMessages' will be 'emptySignatureMessages'.
+-- * 'rsCurrentTimeoutSignatureMessages' will be 'emptySignatureMessages'.
+-- * 'rsPreviousRoundTC' will be either 'Absent' (if 'Nothing'
+advanceRoundStatus ::
+    -- |The round to advance to.
+    Round ->
+    -- |'Nothing' if advancing from a round
+    -- which successfully produced a 'QuorumCertificate'.
+    -- @Just (..,..)@ if advancing from a round which produced a
+    -- 'TimeoutCertificate'.
+    -- In the latter case, then 'TimeoutCertificate' provided must be
+    -- the 'TimeoutCertificate' for the round that timed out and the 'QuorumCertificate'
+    -- is the one verifing the 'TimeoutCertificate'.
+    Maybe (TimeoutCertificate, QuorumCertificate) ->
+    -- |The 'RoundStatus' we are advancing from.
+    RoundStatus ->
+    -- |The advanced 'RoundStatus'.
+    RoundStatus
 advanceRoundStatus toRound mTcQc RoundStatus{..} =
     RoundStatus
         { rsCurrentRound = toRound,
