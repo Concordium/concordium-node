@@ -10,6 +10,7 @@ import qualified Data.Vector as Vector
 
 import Lens.Micro.Platform
 
+import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Implementation
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
@@ -97,3 +98,16 @@ advanceRound newRound timedOut = do
                     then -- If we're a finalizer for the current epoch then we reset the timer
                         resetTimer currentTimeout
                     else return ()
+
+-- |Advance the 'Epoch' of the current 'RoundStatus'.
+--
+-- Advancing epochs in particular carries out the following:
+-- * Updates the 'rsCurrentEpoch' to the provided 'Epoch' for the current 'RoundStatus'.
+-- * Computes the new 'LeadershipElectionNonce' and updates the current 'RoundStatus'.
+-- * Updates the 'rsLatestEpochFinEntry' of the current 'RoundStatus' to @Present finalizationEntry@.
+advanceEpoch :: (MonadState (SkovData (MPV m)) m,
+               LowLevel.MonadTreeStateStore m) => Epoch -> FinalizationEntry ->  m ()
+advanceEpoch newEpoch finalizationEntry = do
+    currentRoundStatus <- use roundStatus
+    
+    return ()
