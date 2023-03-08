@@ -51,10 +51,10 @@ impl PrometheusStateData {
 /// on scrape.
 struct GrpcInFlightRequestsCollector {
     /// The prometheus gauge exposed.
-    pub gauge:   IntGauge,
+    gauge:   IntGauge,
     /// Counter used to track in flight requests by
     /// `tower_http::metrics::InFlightRequestsLayer`.
-    pub counter: InFlightRequestsCounter,
+    counter: InFlightRequestsCounter,
 }
 
 impl prometheus::core::Collector for GrpcInFlightRequestsCollector {
