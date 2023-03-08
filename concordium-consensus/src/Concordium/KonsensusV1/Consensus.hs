@@ -11,6 +11,8 @@ import qualified Data.Vector as Vector
 import Lens.Micro.Platform
 
 import Concordium.KonsensusV1.TreeState.Implementation
+import Concordium.KonsensusV1.TreeState.LowLevel (MonadTreeStateStore (writeCurrentRoundStatus))
+import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.Types
@@ -62,10 +64,17 @@ makeBlockIfLeader :: MonadState (SkovData (MPV m)) m => m ()
 makeBlockIfLeader = return ()
 
 -- |Advance to the provided 'Round'.
+--
+-- This function does the following:
+-- * Update the current 'RoundStatus'.
+-- * Persist the new 'RoundStatus'.
+-- * If the consensus runner is leader in the new
+--   round then make the new block.
 advanceRound ::
     ( MonadReader r m,
       HasBakerContext r,
       MonadTimeout m,
+      LowLevel.MonadTreeStateStore m,
       MonadState (SkovData (MPV m)) m
     ) =>
     -- |The 'Round' to progress to.
@@ -81,9 +90,15 @@ advanceRound ::
 advanceRound newRound timedOut = do
     myBakerId <- bakerId <$> view bakerIdentity
     currentRoundStatus <- use roundStatus
+    -- Reset the timeout timer if the consensus runner is part of the
+    -- finalization committee.
     resetTimerIfFinalizer myBakerId (rsCurrentTimeout currentRoundStatus)
     -- Advance the round.
     roundStatus .=! advanceRoundStatus newRound timedOut currentRoundStatus
+    -- Write the new round status to disk.
+    writeCurrentRoundStatus =<< use roundStatus
+    -- Make a new block if the consensus runner is leader of
+    -- the 'Round' progressed to.
     makeBlockIfLeader
   where
     -- Reset the timer if this consensus instance is member of the
@@ -91,9 +106,9 @@ advanceRound newRound timedOut = do
     resetTimerIfFinalizer bakerId currentTimeout = do
         currentEpoch <- rsCurrentEpoch <$> use roundStatus
         gets (getBakersForLiveEpoch currentEpoch) >>= \case
-            Nothing -> return () -- well this is awkward.
+            Nothing -> return () -- No bakers or finalizers could be looked up for the current 'Epoch' so we do nothing.
             Just bakersAndFinalizers -> do
                 if isJust $! isBakerFinalizer bakerId bakersAndFinalizers
-                    then -- If we're a finalizer for the current epoch then we reset the timer
+                    then -- The consensus runer is a finalizer for the current epoch then we reset the timer
                         resetTimer currentTimeout
-                    else return ()
+                    else return () -- The consensus runner is not part of the finalization committee, so we don't have to do anything.
