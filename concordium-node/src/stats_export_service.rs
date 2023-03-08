@@ -80,7 +80,7 @@ pub struct StatsConsensusCollector {
     /// The baking committee status of the node for the current best block.
     baking_committee:       IntGaugeVec,
     /// Whether the node is a member of the finalization committee for the
-    /// current best block.
+    /// current finalization round.
     finalization_committee: IntGauge,
 }
 
@@ -99,8 +99,8 @@ impl StatsConsensusCollector {
 
         let finalization_committee = IntGauge::with_opts(Opts::new(
             "consensus_finalization_committee",
-            "The finalization commmittee status of the node for the current best block. The \
-             metric will have a value of 1 when member of the finalization committee",
+            "The finalization commmittee status of the node for the current finalization round. \
+             The metric will have a value of 1 when member of the finalization committee",
         ))?;
 
         Ok(Self {

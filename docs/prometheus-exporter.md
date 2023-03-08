@@ -203,4 +203,4 @@ Possible values of `status` are:
 
 ### `consensus_finalization_committee`
 
-The finalization committee status of the node for the current best block. The metric will have a value of 1 if and only if the node is a member of the finalization committee.
+The finalization committee status of the node for the current finalization round. The metric will have a value of 1 if and only if the node is a member of the finalization committee.

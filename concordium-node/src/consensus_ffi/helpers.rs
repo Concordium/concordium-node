@@ -345,7 +345,7 @@ pub enum ConsensusIsInBakingCommitteeResponse {
 impl ConsensusIsInBakingCommitteeResponse {
     /// Get the label. This is used when updating metrics of the prometheus
     /// exporter.
-    pub fn label(&self) -> &str {
+    pub fn label(&self) -> &'static str {
         use ConsensusIsInBakingCommitteeResponse::*;
         match self {
             ActiveInCommittee => "active_in_committee",
@@ -357,12 +357,13 @@ impl ConsensusIsInBakingCommitteeResponse {
 
     /// Get all possible labels. This is used to reset when updating metrics of
     /// the prometheus exporter.
-    pub const fn labels() -> &'static [&'static str] {
-        &[
-            "active_in_committee",
-            "not_in_committee",
-            "added_but_not_active_in_committee",
-            "added_but_wrong_keys",
+    pub fn labels() -> [&'static str; 4] {
+        use ConsensusIsInBakingCommitteeResponse::*;
+        [
+            ActiveInCommittee.label(),
+            NotInCommittee.label(),
+            AddedButNotActiveInCommittee.label(),
+            AddedButWrongKeys.label(),
         ]
     }
 }
