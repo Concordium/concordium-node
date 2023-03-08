@@ -5,25 +5,17 @@ module Concordium.KonsensusV1.Consensus where
 
 import Control.Monad.Reader
 import Control.Monad.State.Strict
-
 import Data.Maybe (isJust)
-import Data.Ratio
 import qualified Data.Vector as Vector
-import Data.Word
+
 import Lens.Micro.Platform
 
 import Concordium.KonsensusV1.TreeState.Implementation
-import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
-import Concordium.Utils
-
-import Concordium.GlobalState.BlockState
-import Concordium.GlobalState.Persistent.BlockState
-import Concordium.GlobalState.Types
 import Concordium.Types
 import Concordium.Types.BakerIdentity
-import Concordium.Types.Parameters hiding (getChainParameters)
+import Concordium.Utils
 
 -- |A Monad for multicasting timeout messages.
 class MonadMulticast m where
@@ -59,6 +51,16 @@ isBakerFinalizer bakerId bakersAndFinalizers = do
   where
     finalizers = committeeFinalizers $ bakersAndFinalizers ^. bfFinalizers
 
+-- |Produce a block and multicast it onto the network.
+makeBlock :: MonadState (SkovData (MPV m)) m => m ()
+makeBlock = return ()
+
+-- |Make a block if the consensus runner is leader for the
+-- current round.
+-- TODO: call 'makeBlock' if we're leader for the current round.
+makeBlockIfLeader :: MonadState (SkovData (MPV m)) m => m ()
+makeBlockIfLeader = return ()
+
 -- |Advance to the provided 'Round'.
 advanceRound ::
     ( MonadReader r m,
@@ -82,10 +84,9 @@ advanceRound newRound timedOut = do
     resetTimerIfFinalizer myBakerId (rsCurrentTimeout currentRoundStatus)
     -- Advance the round.
     roundStatus .=! advanceRoundStatus newRound timedOut currentRoundStatus
+    makeBlockIfLeader
   where
-    -- TODO: If we're baker in 'newRound' then call 'makeBlock'
-
-    -- \|Reset the timer if this consensus instance is member of the
+    -- Reset the timer if this consensus instance is member of the
     -- finalization committee for the current 'Epoch'.
     resetTimerIfFinalizer bakerId currentTimeout = do
         currentEpoch <- rsCurrentEpoch <$> use roundStatus
