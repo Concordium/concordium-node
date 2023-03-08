@@ -1,6 +1,6 @@
 //! Node's statistics and their exposure.
 
-use crate::{common::p2p_node_id::P2PNodeId, read_or_die, spawn_or_die};
+use crate::{common::p2p_node_id::P2PNodeId, configuration, read_or_die, spawn_or_die};
 use anyhow::Context;
 use gotham::{
     handler::IntoResponse,
@@ -18,10 +18,12 @@ use prometheus::{
     Encoder, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, Opts, Registry,
     TextEncoder,
 };
-use std::{net::SocketAddr, sync::RwLock, thread, time};
-
-use crate::configuration;
-use std::sync::Arc;
+use std::{
+    net::SocketAddr,
+    sync::{Arc, RwLock},
+    thread, time,
+};
+use tower_http::metrics::in_flight_requests::InFlightRequestsCounter;
 
 struct HTMLStringResponse(pub String);
 
@@ -41,6 +43,27 @@ impl PrometheusStateData {
         Self {
             registry: Arc::new(RwLock::new(registry)),
         }
+    }
+}
+
+/// Wrapper for implementing the prometheus::Collector trait for
+/// InFlightRequestsCounter, which syncs the prometheus gauge with the counter
+/// on scrape.
+struct GrpcInFlightRequestsCollector {
+    /// The prometheus gauge exposed.
+    gauge:   IntGauge,
+    /// Counter used to track in flight requests by
+    /// `tower_http::metrics::InFlightRequestsLayer`.
+    counter: InFlightRequestsCounter,
+}
+
+impl prometheus::core::Collector for GrpcInFlightRequestsCollector {
+    fn desc(&self) -> Vec<&prometheus::core::Desc> { self.gauge.desc() }
+
+    fn collect(&self) -> Vec<prometheus::proto::MetricFamily> {
+        let in_flight_requests = self.counter.get();
+        self.gauge.set(in_flight_requests as i64);
+        self.gauge.collect()
     }
 }
 
@@ -116,6 +139,11 @@ pub struct StatsExportService {
     /// gRPC method name (`method=<name>`) and the gRPC response status
     /// (`status=<status>`).
     pub grpc_request_response_time: HistogramVec,
+    /// Counter for tracking inflight requests.
+    /// This is passed to the Tower layer `InFlightRequestLayer` provided by
+    /// `tower_http::metrics` and then synced with the prometheus gauge on each
+    /// scrape.
+    pub grpc_in_flight_requests_counter: InFlightRequestsCounter,
     /// Total number of bytes received at the point of last
     /// throughput_measurement.
     ///
@@ -299,6 +327,17 @@ impl StatsExportService {
         )?;
         registry.register(Box::new(grpc_request_response_time.clone()))?;
 
+        let grpc_in_flight_requests_gauge = IntGauge::with_opts(Opts::new(
+            "grpc_in_flight_requests",
+            "Current number of gRPC requests being handled by the node",
+        ))?;
+        let grpc_in_flight_requests_counter = InFlightRequestsCounter::new();
+        let grpc_in_flight_requests = GrpcInFlightRequestsCollector {
+            gauge:   grpc_in_flight_requests_gauge,
+            counter: grpc_in_flight_requests_counter.clone(),
+        };
+        registry.register(Box::new(grpc_in_flight_requests))?;
+
         let last_throughput_measurement_timestamp = AtomicI64::new(0);
         let last_throughput_measurement_sent_bytes = AtomicU64::new(0);
         let last_throughput_measurement_received_bytes = AtomicU64::new(0);
@@ -328,6 +367,7 @@ impl StatsExportService {
             node_info,
             node_startup_timestamp,
             grpc_request_response_time,
+            grpc_in_flight_requests_counter,
             last_throughput_measurement_timestamp,
             last_throughput_measurement_sent_bytes,
             last_throughput_measurement_received_bytes,
