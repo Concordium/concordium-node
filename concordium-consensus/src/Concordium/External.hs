@@ -141,19 +141,25 @@ toLogMethod maxLogLevel logCallbackPtr = le
 -- ** Broadcast
 
 -- |Callback for broadcasting a message to the network.
--- The first argument indicates the message type.
--- The second argument is the genesis index.
--- The third argument is a pointer to the data to broadcast.
--- The fourth argument is the length of the data in bytes.
-type BroadcastCallback = Int64 -> GenesisIndex -> CString -> Int64 -> IO ()
+--
+-- The first argument is the foreign object holding the context for broadcasting.
+-- The second argument indicates the message type.
+-- The third argument is the genesis index.
+-- The fourth argument is a pointer to the data to broadcast.
+-- The fifth argument is the length of the data in bytes.
+type BroadcastCallback = Ptr BroadcastContext -> Int64 -> GenesisIndex -> CString -> Int64 -> IO ()
+
+-- |The opaque type that represents a foreign (i.e., living in Rust) object, holding context
+-- relevant for broadcasting generated messages.
+data BroadcastContext
 
 -- |FFI wrapper for invoking a 'BroadcastCallback' function.
 foreign import ccall "dynamic" invokeBroadcastCallback :: FunPtr BroadcastCallback -> BroadcastCallback
 
 -- |Helper for invoking a 'BroadcastCallback' function.
-callBroadcastCallback :: FunPtr BroadcastCallback -> MessageType -> GenesisIndex -> BS.ByteString -> IO ()
-callBroadcastCallback cbk mt gi bs = BS.useAsCStringLen bs $ \(cdata, clen) ->
-    invokeBroadcastCallback cbk mti gi cdata (fromIntegral clen)
+callBroadcastCallback :: FunPtr BroadcastCallback -> Ptr BroadcastContext -> MessageType -> GenesisIndex -> BS.ByteString -> IO ()
+callBroadcastCallback cbk context mt gi bs = BS.useAsCStringLen bs $ \(cdata, clen) ->
+    invokeBroadcastCallback cbk context mti gi cdata (fromIntegral clen)
   where
     mti = case mt of
         MessageBlock -> 0
@@ -377,6 +383,8 @@ startConsensus ::
     Ptr NotifyContext ->
     -- |The callback used to invoke upon new block arrival, and new finalized blocks.
     FunPtr NotifyCallback ->
+    -- |Context for broadcasting generated messages.
+    Ptr BroadcastContext ->
     -- |Handler for generated messages
     FunPtr BroadcastCallback ->
     -- |Handler for sending catch-up status to peers
@@ -412,7 +420,8 @@ startConsensus
     bidLenC
     notifyContext
     notifyCbk
-    bcbk
+    broadcastContext
+    broadcastCallbackPtr
     cucbk
     regenesisPtr
     regenesisFree
@@ -438,11 +447,12 @@ startConsensus
             regenesisRef <- makeRegenesisRef regenesisFree regenesisPtr
             -- Callbacks
             let notifyCallback = callNotifyCallback notifyCbk
+            let broadcastCallback = callBroadcastCallback broadcastCallbackPtr broadcastContext
             let callbacks =
                     Callbacks
-                        { broadcastBlock = callBroadcastCallback bcbk MessageBlock,
-                          broadcastFinalizationMessage = callBroadcastCallback bcbk MessageFinalization,
-                          broadcastFinalizationRecord = callBroadcastCallback bcbk MessageFinalizationRecord,
+                        { broadcastBlock = broadcastCallback MessageBlock,
+                          broadcastFinalizationMessage = broadcastCallback MessageFinalization,
+                          broadcastFinalizationRecord = broadcastCallback MessageFinalizationRecord,
                           notifyBlockArrived =
                             if notifyContext /= nullPtr
                                 then Just $ mkNotifyBlockArrived (notifyCallback notifyContext)
@@ -1387,6 +1397,8 @@ foreign export ccall
         Int64 ->
         Ptr NotifyContext ->
         FunPtr NotifyCallback ->
+        -- |Context for broadcasting generated messages.
+        Ptr BroadcastContext ->
         -- |Handler for generated messages
         FunPtr BroadcastCallback ->
         -- |Handler for sending catch-up status to peers

@@ -265,7 +265,8 @@ pub struct execute_block {
 pub struct ExecuteBlockCallback(*mut execute_block);
 
 type LogCallback = extern "C" fn(c_char, c_char, *const u8);
-type BroadcastCallback = extern "C" fn(i64, u32, *const u8, i64);
+type BroadcastCallback =
+    unsafe extern "C" fn(*const BroadcastCallbackContext, i64, u32, *const u8, i64);
 type CatchUpStatusCallback = extern "C" fn(u32, *const u8, i64);
 type DirectMessageCallback = extern "C" fn(
     peer_id: PeerIdFFI,
@@ -358,6 +359,7 @@ extern "C" {
         private_data_len: i64,
         notify_context: *mut NotificationContext,
         notify_callback: NotifyCallback,
+        broadcast_context: *mut BroadcastCallbackContext,
         broadcast_callback: BroadcastCallback,
         catchup_status_callback: CatchUpStatusCallback,
         regenesis_arc: *const Regenesis,
@@ -1398,6 +1400,7 @@ pub fn get_consensus_ptr(
     appdata_dir: &Path,
     regenesis_arc: Arc<Regenesis>,
     notification_context: Option<NotificationContext>,
+    broadcast_context: BroadcastCallbackContext,
 ) -> anyhow::Result<*mut consensus_runner> {
     let genesis_data_len = genesis_data.len();
     let mut runner_ptr = std::ptr::null_mut();
@@ -1422,6 +1425,7 @@ pub fn get_consensus_ptr(
                     notification_context
                         .map_or(std::ptr::null_mut(), |ctx| Box::into_raw(Box::new(ctx))),
                     notify_callback,
+                    Box::into_raw(Box::new(broadcast_context)),
                     broadcast_callback,
                     catchup_status_callback,
                     Arc::into_raw(regenesis_arc),
@@ -2947,6 +2951,14 @@ pub enum CallbackType {
     CatchUpStatus,
 }
 
+/// Context necessary for Haskell code/Consensus to consensus messages to Rust
+/// code (i.e., baked blocks and finalizations messages).
+pub struct BroadcastCallbackContext {
+    /// Metric for tracking total number of baked blocks.
+    /// Is incremented everytime we broadcast a block.
+    pub metric_baked_blocks: prometheus::IntCounter,
+}
+
 impl TryFrom<u8> for CallbackType {
     type Error = anyhow::Error;
 
@@ -2990,62 +3002,65 @@ pub extern "C" fn on_finalization_message_catchup_out(
     }
 }
 
-macro_rules! sending_callback {
-    (
-        $target:expr,
-        $msg_type:expr,
-        $genesis_index:expr,
-        $msg:expr,
-        $msg_length:expr,
-        $omit_status:expr
-    ) => {
-        unsafe {
-            let callback_type = match CallbackType::try_from($msg_type as u8) {
-                Ok(ct) => ct,
-                Err(e) => {
-                    error!("{}", e);
-                    return;
-                }
-            };
+/// Helper function for deserializing and enqueing consensus messages in
+/// CALLBACK_QUEUE.
+fn sending_callback(
+    target: Option<RemotePeerId>,
+    callback_type: CallbackType,
+    genesis_index: u32,
+    msg: *const u8,
+    msg_length: usize,
+    omit_status: Option<PeerStatus>,
+) {
+    let msg_variant = match callback_type {
+        CallbackType::Block => PacketType::Block,
+        CallbackType::FinalizationMessage => PacketType::FinalizationMessage,
+        CallbackType::FinalizationRecord => PacketType::FinalizationRecord,
+        CallbackType::CatchUpStatus => PacketType::CatchUpStatus,
+    };
 
-            let msg_variant = match callback_type {
-                CallbackType::Block => PacketType::Block,
-                CallbackType::FinalizationMessage => PacketType::FinalizationMessage,
-                CallbackType::FinalizationRecord => PacketType::FinalizationRecord,
-                CallbackType::CatchUpStatus => PacketType::CatchUpStatus,
-            };
+    let payload = unsafe { slice::from_raw_parts(msg, msg_length) };
+    let mut full_payload = Vec::with_capacity(5 + payload.len());
+    (msg_variant as u8).serial(&mut full_payload);
+    (genesis_index).serial(&mut full_payload);
+    full_payload.write_all(payload).unwrap(); // infallible
+    let full_payload = Arc::from(full_payload);
 
-            let payload = slice::from_raw_parts($msg as *const u8, $msg_length as usize);
-            let mut full_payload = Vec::with_capacity(5 + payload.len());
-            (msg_variant as u8).serial(&mut full_payload);
-            ($genesis_index as u32).serial(&mut full_payload);
-            full_payload.write_all(&payload).unwrap(); // infallible
-            let full_payload = Arc::from(full_payload);
+    let msg = ConsensusMessage::new(
+        MessageType::Outbound(target),
+        msg_variant,
+        full_payload,
+        vec![],
+        omit_status,
+    );
 
-            let msg = ConsensusMessage::new(
-                MessageType::Outbound($target),
-                msg_variant,
-                full_payload,
-                vec![],
-                $omit_status,
-            );
-
-            match CALLBACK_QUEUE.send_out_blocking_msg(msg) {
-                Ok(_) => trace!("Queueing a {} of {} bytes", msg_variant, $msg_length),
-                Err(e) => error!("Couldn't queue a {} properly: {}", msg_variant, e),
-            };
-        }
+    match CALLBACK_QUEUE.send_out_blocking_msg(msg) {
+        Ok(_) => trace!("Queueing a {} of {} bytes", msg_variant, msg_length),
+        Err(e) => error!("Couldn't queue a {} properly: {}", msg_variant, e),
     };
 }
 
-pub extern "C" fn broadcast_callback(
+pub unsafe extern "C" fn broadcast_callback(
+    context_ptr: *const BroadcastCallbackContext,
     msg_type: i64,
     genesis_index: u32,
     msg: *const u8,
     msg_length: i64,
 ) {
     trace!("Broadcast callback hit - queueing message");
-    sending_callback!(None, msg_type, genesis_index, msg, msg_length, None);
+    let callback_type = match CallbackType::try_from(msg_type as u8) {
+        Ok(ct) => ct,
+        Err(e) => {
+            error!("{}", e);
+            return;
+        }
+    };
+
+    if let CallbackType::Block = callback_type {
+        let context = unsafe { context_ptr.read() };
+        context.metric_baked_blocks.inc();
+    }
+    sending_callback(None, callback_type, genesis_index, msg, msg_length as usize, None);
 }
 
 /// Enqueue the byte array in the provided channel if possible.
@@ -3130,13 +3145,22 @@ pub extern "C" fn direct_callback(
     msg_length: i64,
 ) {
     trace!("Direct callback hit - queueing message");
-    sending_callback!(
+
+    let callback_type = match CallbackType::try_from(msg_type as u8) {
+        Ok(ct) => ct,
+        Err(e) => {
+            error!("{}", e);
+            return;
+        }
+    };
+
+    sending_callback(
         Some((peer_id as usize).into()),
-        msg_type,
+        callback_type,
         genesis_index,
-        msg,
-        msg_length,
-        None
+        msg as *const u8,
+        msg_length as usize,
+        None,
     );
 }
 
@@ -3146,14 +3170,14 @@ pub extern "C" fn catchup_status_callback(genesis_index: u32, msg: *const u8, ms
     // a catch-up status message should always be sent as a direct message, even
     // when it is sent to every peer.  However, we will rely on peers not to
     // rebroadcast catch-up status messages.
-    sending_callback!(
+    sending_callback(
         None,
         CallbackType::CatchUpStatus,
         genesis_index,
         msg,
-        msg_length,
-        Some(PeerStatus::Pending)
-    );
+        msg_length as usize,
+        Some(PeerStatus::Pending),
+    )
 }
 
 /// A callback function that will append a regenesis block to the list of known

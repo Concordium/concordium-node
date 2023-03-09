@@ -122,6 +122,10 @@ async fn main() -> anyhow::Result<()> {
         (None, None)
     };
 
+    let broadcast_context = ffi::BroadcastCallbackContext {
+        metric_baked_blocks: node.stats.baked_blocks.clone(),
+    };
+
     info!("Starting consensus layer");
     let consensus = plugins::consensus::start_consensus_layer(
         &conf.cli.baker,
@@ -139,6 +143,7 @@ async fn main() -> anyhow::Result<()> {
         &database_directory,
         regenesis_arc.clone(),
         notification_context,
+        broadcast_context,
     )?;
     info!("Consensus layer started");
 

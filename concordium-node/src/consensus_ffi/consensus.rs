@@ -1,5 +1,8 @@
 use crate::consensus_ffi::{
-    ffi::{consensus_runner, get_consensus_ptr, startBaker, stopBaker, stopConsensus},
+    ffi::{
+        consensus_runner, get_consensus_ptr, startBaker, stopBaker, stopConsensus,
+        BroadcastCallbackContext,
+    },
     helpers::{QueueReceiver, QueueSyncSender, RelayOrStopSenderHelper},
     messaging::ConsensusMessage,
 };
@@ -205,6 +208,7 @@ impl ConsensusContainer {
         appdata_dir: &Path,
         regenesis_arc: Arc<Regenesis>,
         notification_context: Option<NotificationContext>,
+        broadcast_context: BroadcastCallbackContext,
     ) -> anyhow::Result<Self> {
         info!("Starting up the consensus layer");
 
@@ -222,6 +226,7 @@ impl ConsensusContainer {
             appdata_dir,
             regenesis_arc,
             notification_context,
+            broadcast_context,
         ) {
             Ok(consensus_ptr) => Ok(Self {
                 runtime_parameters,

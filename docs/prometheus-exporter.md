@@ -213,3 +213,9 @@ Is only non-zero when active member of the baking committee.
 ### `consensus_non_finalized_transactions`
 
 The current number of non-finalized transactions stored by the node.
+
+### `consensus_baked_blocks_total`
+
+Total number of blocks baked by the node since startup.
+More specifically it counts up every time the node have baked a block, which will then be broadcast to its peers.
+

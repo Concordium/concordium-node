@@ -236,6 +236,8 @@ pub struct StatsExportService {
     /// `tower_http::metrics` and then synced with the prometheus gauge on each
     /// scrape.
     pub grpc_in_flight_requests_counter: InFlightRequestsCounter,
+    /// Total number of baked blocks.
+    pub baked_blocks: IntCounter,
     /// Total number of bytes received at the point of last
     /// throughput_measurement.
     ///
@@ -436,6 +438,12 @@ impl StatsExportService {
         };
         registry.register(Box::new(grpc_in_flight_requests))?;
 
+        let baked_blocks = IntCounter::with_opts(Opts::new(
+            "consensus_baked_blocks_total",
+            "Total number of blocks baked by the node since startup",
+        ))?;
+        registry.register(Box::new(baked_blocks.clone()))?;
+
         let last_throughput_measurement_timestamp = AtomicI64::new(0);
         let last_throughput_measurement_sent_bytes = AtomicU64::new(0);
         let last_throughput_measurement_received_bytes = AtomicU64::new(0);
@@ -467,6 +475,7 @@ impl StatsExportService {
             node_startup_timestamp,
             grpc_request_response_time,
             grpc_in_flight_requests_counter,
+            baked_blocks,
             last_throughput_measurement_timestamp,
             last_throughput_measurement_sent_bytes,
             last_throughput_measurement_received_bytes,
