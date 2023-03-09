@@ -442,6 +442,8 @@ extern "C" {
         amount: u64,
     ) -> *const c_char;
     pub fn getBranches(consensus: *mut consensus_runner) -> *const c_char;
+    /// Get the total number of non-finalized transactions across all accounts.
+    pub fn getNumberOfNonFinalizedTransactions(consensus: *mut consensus_runner) -> u64;
 
     // State queries
     pub fn getAccountList(
@@ -1595,6 +1597,12 @@ impl ConsensusContainer {
 
     pub fn get_branches(&self) -> String {
         wrap_c_call_string!(self, consensus, |consensus| getBranches(consensus))
+    }
+
+    /// Get the total number of non-finalized transactions across all accounts.
+    pub fn number_of_non_finalized_transactions(&self) -> u64 {
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        unsafe { getNumberOfNonFinalizedTransactions(consensus) }
     }
 
     pub fn get_account_list(&self, block_hash: &str) -> anyhow::Result<String> {

@@ -1058,3 +1058,7 @@ getBakerStatusBestBlock =
                             Nothing -> return NotInCommittee
                     return (status, Nothing)
             return (bakerStatus, Just $ bakerId bakerIdent, bakerLotteryPower)
+
+-- |Get the total number of non-finalized transactions across all accounts.
+getNumberOfNonFinalizedTransactions :: MVR finconf Int
+getNumberOfNonFinalizedTransactions = liftSkovQueryLatest queryNumberOfNonFinalizedTransactions

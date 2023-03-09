@@ -74,15 +74,17 @@ impl prometheus::core::Collector for GrpcInFlightRequestsCollector {
 /// through the FFI.
 pub struct StatsConsensusCollector {
     /// Reference to consensus to support consensus queries.
-    consensus:              ConsensusContainer,
+    consensus:                  ConsensusContainer,
     /// The baking committee status of the node for the current best block.
-    baking_committee:       IntGauge,
+    baking_committee:           IntGauge,
     /// Whether the node is a member of the finalization committee for the
     /// current finalization round.
-    finalization_committee: IntGauge,
+    finalization_committee:     IntGauge,
     /// Current active lottery power. Is only be non-zero when active member of
     /// the baking committee.
-    baking_lottery_power:   Gauge,
+    baking_lottery_power:       Gauge,
+    /// The current number of non-finalized transactions across all accounts.
+    non_finalized_transactions: IntGauge,
 }
 
 impl StatsConsensusCollector {
@@ -105,11 +107,17 @@ impl StatsConsensusCollector {
              when active member of the baking committee.",
         ))?;
 
+        let non_finalized_transactions = IntGauge::with_opts(Opts::new(
+            "consensus_non_finalized_transactions",
+            "The current number of non-finalized transactions across all accounts",
+        ))?;
+
         Ok(Self {
             consensus,
             baking_committee,
             finalization_committee,
             baking_lottery_power,
+            non_finalized_transactions,
         })
     }
 }
@@ -119,6 +127,7 @@ impl prometheus::core::Collector for StatsConsensusCollector {
         let mut desc = self.baking_committee.desc();
         desc.extend(self.finalization_committee.desc());
         desc.extend(self.baking_lottery_power.desc());
+        desc.extend(self.non_finalized_transactions.desc());
         desc
     }
 
@@ -137,9 +146,13 @@ impl prometheus::core::Collector for StatsConsensusCollector {
             },
         );
 
+        let non_finalized_transactions = self.consensus.number_of_non_finalized_transactions();
+        self.non_finalized_transactions.set(non_finalized_transactions as i64);
+
         let mut metrics = self.baking_committee.collect();
         metrics.extend(self.finalization_committee.collect());
         metrics.extend(self.baking_lottery_power.collect());
+        metrics.extend(self.non_finalized_transactions.collect());
         metrics
     }
 }

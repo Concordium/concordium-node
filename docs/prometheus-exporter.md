@@ -209,3 +209,7 @@ The finalization committee status of the node for the current finalization round
 Baking lottery power for the current epoch of the best block.
 The value is a number between 0 and 1, and is representing the fraction of baking stake (combined stake of the baker and delegators) to the total baking stake of the baking committee.
 Is only non-zero when active member of the baking committee.
+
+### `consensus_non_finalized_transactions`
+
+The current number of non-finalized transactions across all accounts.

@@ -1008,6 +1008,10 @@ instance
             Just t -> return $ Just t
             Nothing -> fmap finalizedToTransactionStatus <$> readTransactionStatus th
 
+    numberOfNonFinalizedTransactions = do
+        table <- use (skovPersistentData . transactionTable)
+        return $ numberOfNonFinalizedTransactions table
+
     getConsensusStatistics = use (skovPersistentData . statistics)
     putConsensusStatistics stats = skovPersistentData . statistics .=! stats
 
