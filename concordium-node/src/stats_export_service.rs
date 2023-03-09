@@ -80,7 +80,7 @@ pub struct StatsConsensusCollector {
     /// Whether the node is a member of the finalization committee for the
     /// current finalization round.
     finalization_committee: IntGauge,
-    /// Current active lottery power. Is only be non-zero when active member of
+    /// Current active lottery power. Is only non-zero when active member of
     /// the baking committee.
     baking_lottery_power:   Gauge,
 }
@@ -101,8 +101,8 @@ impl StatsConsensusCollector {
 
         let baking_lottery_power = Gauge::with_opts(Opts::new(
             "consensus_baking_lottery_power",
-            "Baking lottery power for the current epoch of the best block. Is only be non-zero \
-             when active member of the baking committee.",
+            "Baking lottery power for the current epoch of the best block. Is only non-zero when \
+             active member of the baking committee.",
         ))?;
 
         Ok(Self {
