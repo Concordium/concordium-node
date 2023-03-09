@@ -336,7 +336,7 @@ impl TryFrom<i64> for ConsensusFfiResponse {
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ConsensusIsInBakingCommitteeResponse {
-    ActiveInCommittee,
+    ActiveInCommittee = 0,
     NotInCommittee,
     AddedButNotActiveInCommittee,
     AddedButWrongKeys,

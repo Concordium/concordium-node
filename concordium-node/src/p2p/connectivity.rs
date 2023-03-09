@@ -527,6 +527,7 @@ pub fn connect(
                     Instant::now() + Duration::from_secs(config::UNREACHABLE_EXPIRATION_SECS),
                 );
                 node.stats.soft_banned_peers.inc();
+                node.stats.soft_banned_peers_total.inc();
             }
             bail!(e)
         }

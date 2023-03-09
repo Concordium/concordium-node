@@ -1,6 +1,9 @@
 //! Node's statistics and their exposure.
 
-use crate::{common::p2p_node_id::P2PNodeId, configuration, read_or_die, spawn_or_die};
+use crate::{
+    common::p2p_node_id::P2PNodeId, configuration, consensus_ffi::consensus::ConsensusContainer,
+    read_or_die, spawn_or_die,
+};
 use anyhow::Context;
 use gotham::{
     handler::IntoResponse,
@@ -67,11 +70,71 @@ impl prometheus::core::Collector for GrpcInFlightRequestsCollector {
     }
 }
 
+/// Collector tracking stats which needs to be synced with consensus on scrape
+/// through the FFI.
+pub struct StatsConsensusCollector {
+    /// Reference to consensus to support consensus queries.
+    consensus:              ConsensusContainer,
+    /// The baking committee status of the node for the current best block.
+    baking_committee:       IntGauge,
+    /// Whether the node is a member of the finalization committee for the
+    /// current finalization round.
+    finalization_committee: IntGauge,
+}
+
+impl StatsConsensusCollector {
+    pub fn new(consensus: ConsensusContainer) -> anyhow::Result<Self> {
+        let baking_committee = IntGauge::with_opts(Opts::new(
+            "consensus_baking_committee",
+            "The baking committee status of the node for the current best block. The value is \
+             mapped to a status, see documentation for details",
+        ))?;
+
+        let finalization_committee = IntGauge::with_opts(Opts::new(
+            "consensus_finalization_committee",
+            "The finalization commmittee status of the node for the current finalization round. \
+             The metric will have a value of 1 when member of the finalization committee",
+        ))?;
+
+        Ok(Self {
+            consensus,
+            baking_committee,
+            finalization_committee,
+        })
+    }
+}
+
+impl prometheus::core::Collector for StatsConsensusCollector {
+    fn desc(&self) -> Vec<&prometheus::core::Desc> {
+        let mut desc = self.baking_committee.desc();
+        desc.extend(self.finalization_committee.desc());
+        desc
+    }
+
+    fn collect(&self) -> Vec<prometheus::proto::MetricFamily> {
+        let (status, _has_baker_id, _baker_id) = self.consensus.in_baking_committee();
+        self.baking_committee.set(status as i64);
+
+        let in_finalization_committee = self.consensus.in_finalization_committee();
+        self.finalization_committee.set(
+            if in_finalization_committee {
+                1
+            } else {
+                0
+            },
+        );
+
+        let mut metrics = self.baking_committee.collect();
+        metrics.extend(self.finalization_committee.collect());
+        metrics
+    }
+}
+
 /// Collects statistics pertaining to the node.
 pub struct StatsExportService {
     /// The Prometheus registry. Every metric which should be exposed via the
     /// Prometheus exporter should be registered in this registry.
-    registry: Registry,
+    pub registry: Registry,
     /// Total number of network packets received.
     pub packets_received: IntCounter,
     /// Total number of network packets sent.
@@ -128,6 +191,8 @@ pub struct StatsExportService {
     pub sent_consensus_messages: IntCounterVec,
     /// Current number of soft banned peers.
     pub soft_banned_peers: IntGauge,
+    /// The total number of soft banned peers since startup.
+    pub soft_banned_peers_total: IntCounter,
     /// Total number of peers connected since startup.
     pub total_peers: IntCounter,
     /// Information of the node software. Contains a label `version` with the
@@ -290,6 +355,12 @@ impl StatsExportService {
         ))?;
         registry.register(Box::new(soft_banned_peers.clone()))?;
 
+        let soft_banned_peers_total = IntCounter::with_opts(Opts::new(
+            "network_soft_banned_peers_total",
+            "Total number of soft banned peers since startup",
+        ))?;
+        registry.register(Box::new(soft_banned_peers_total.clone()))?;
+
         let total_peers = IntCounter::with_opts(Opts::new(
             "network_peers_total",
             "Total number of peers since startup",
@@ -363,6 +434,7 @@ impl StatsExportService {
             received_consensus_messages,
             sent_consensus_messages,
             soft_banned_peers,
+            soft_banned_peers_total,
             total_peers,
             node_info,
             node_startup_timestamp,

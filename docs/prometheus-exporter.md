@@ -137,6 +137,10 @@ Possible values of `message` are:
 
 Current number of soft banned peers. The node temporarily bans peers if they fail to follow the protocol.
 
+### `network_soft_banned_peers_total`
+
+The total number of soft banned peers since startup. The node temporarily bans peers if they fail to follow the protocol.
+
 ### `network_peers_total`
 
 Total number of peers connected since startup.
@@ -185,3 +189,17 @@ Possible values of `status` are:
 
 Current number of gRPC requests being handled by the node.
 Streaming gRPC methods are counted as in flight until the response stream is closed.
+
+### `consensus_baking_committee`
+
+The baking committee status of the node for the current best block.
+
+The value is mapped to a status:
+- `0` The node is in the baking committee and is actively baking.
+- `1` The node is not in the baking committee.
+- `2` The node is added to the upcoming the baking committee, and is not baking actively yet.
+- `3` The node is setup with baker keys not matching the keys currently registered in the baking committee.
+
+### `consensus_finalization_committee`
+
+The finalization committee status of the node for the current finalization round. The metric will have a value of 1 if and only if the node is a member of the finalization committee.
