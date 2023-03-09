@@ -57,10 +57,14 @@ instance BlockData (StoredBlock pv) where
     blockTimestamp = blockTimestamp . stbBlock
     blockBakedData = blockBakedData . stbBlock
     blockTransactions = blockTransactions . stbBlock
+    blockTransactionCount = blockTransactionCount . stbBlock
     blockStateHash = blockStateHash . stbBlock
 
 instance HashableTo BlockHash (StoredBlock pv) where
     getHash = getHash . stbBlock
+
+instance HasBlockMetadata (StoredBlock pv) where
+    blockMetadata = stbInfo
 
 -- |'MonadTreeStateStore' defines the interface to the low-level tree state database.
 -- An implementation should guarantee atomicity, consistency and isolation for these operations.

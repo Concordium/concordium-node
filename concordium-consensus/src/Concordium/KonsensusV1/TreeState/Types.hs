@@ -68,6 +68,29 @@ instance Serialize BlockMetadata where
       where
         getUTCPOSIXMicros = posixSecondsToUTCTime . (/ 1_000_000) . realToFrac <$> getWord64be
 
+-- |A class for structures that canonincally include 'BlockMetadata'.
+class HasBlockMetadata bm where
+    -- |Get the block metadata.
+    blockMetadata :: bm -> BlockMetadata
+
+    -- |The height of the block.
+    blockHeight :: bm -> BlockHeight
+    blockHeight = bmHeight . blockMetadata
+    {-# INLINE blockHeight #-}
+
+    -- |The time that the block is received by the consensus layer (i.e. when it is deserialized).
+    blockReceiveTime :: bm -> UTCTime
+    blockReceiveTime = bmReceiveTime . blockMetadata
+    {-# INLINE blockReceiveTime #-}
+
+    -- |The time that the block becomes live (i.e. it is processed and added to the chain).
+    blockArriveTime :: bm -> UTCTime
+    blockArriveTime = bmArriveTime . blockMetadata
+    {-# INLINE blockArriveTime #-}
+
+instance HasBlockMetadata BlockMetadata where
+    blockMetadata = id
+
 -- |A pointer to a block that has been executed
 -- and the resulting 'PBS.HashedPersistentBlockState'.
 data BlockPointer (pv :: ProtocolVersion) = BlockPointer
@@ -89,6 +112,7 @@ instance BlockData (BlockPointer pv) where
     blockTimestamp = blockTimestamp . bpBlock
     blockBakedData = blockBakedData . bpBlock
     blockTransactions = blockTransactions . bpBlock
+    blockTransactionCount = blockTransactionCount . bpBlock
     blockStateHash = blockStateHash . bpBlock
 
 instance Show (BlockPointer pv) where
@@ -100,6 +124,9 @@ instance Show (BlockPointer pv) where
             ++ ", bpState = ["
             ++ show (PBS.hpbsHash bpState)
             ++ "] }"
+
+instance HasBlockMetadata (BlockPointer pv) where
+    blockMetadata = bpInfo
 
 -- |A block that is pending its parent.
 data PendingBlock = PendingBlock
@@ -120,6 +147,7 @@ instance BlockData PendingBlock where
     blockTimestamp = blockTimestamp . pbBlock
     blockBakedData = blockBakedData . pbBlock
     blockTransactions = blockTransactions . pbBlock
+    blockTransactionCount = blockTransactionCount . pbBlock
     blockStateHash = blockStateHash . pbBlock
 
 instance BakedBlockData PendingBlock where
@@ -130,6 +158,7 @@ instance BakedBlockData PendingBlock where
     blockEpochFinalizationEntry = blockEpochFinalizationEntry . pbBlock
     blockNonce = blockNonce . pbBlock
     blockSignature = blockSignature . pbBlock
+    blockTransactionOutcomesHash = blockTransactionOutcomesHash . pbBlock
 
 -- |Status of a transaction.
 data TransactionStatus

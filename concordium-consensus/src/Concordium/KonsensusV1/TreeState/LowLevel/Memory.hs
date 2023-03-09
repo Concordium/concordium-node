@@ -107,7 +107,7 @@ instance (IsProtocolVersion pv, MonadReader r m, HasMemoryLLDB pv r, MonadIO m) 
                   lldbTransactions = foldl' insertTx lldbTransactions (zip (blockTransactions sb) [0 ..])
                 }
           where
-            height = bmHeight (stbInfo sb)
+            height = blockHeight sb
             insertTx txs (tx, ti) = HM.insert (getHash tx) (FinalizedTransactionStatus height ti) txs
     lookupLatestFinalizationEntry =
         readLLDB <&> lldbLatestFinalizationEntry
@@ -131,7 +131,7 @@ instance (IsProtocolVersion pv, MonadReader r m, HasMemoryLLDB pv r, MonadIO m) 
             -- its associated transactions.
             withLLDB $ \db@LowLevelDB{..} ->
                 ( db
-                    { lldbBlocks = Map.delete (bmHeight (stbInfo sb)) lldbBlocks,
+                    { lldbBlocks = Map.delete (blockHeight sb) lldbBlocks,
                       lldbBlockHashes = HM.delete (getHash sb) lldbBlockHashes,
                       lldbTransactions = foldl' deleteTx lldbTransactions (blockTransactions sb)
                     },

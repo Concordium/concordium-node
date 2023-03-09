@@ -636,8 +636,8 @@ checkTimeoutCertificate tsmGenesis sigThreshold finCom1 finCom2 finComQC Timeout
 -- The following invariants apply:
 --
 -- * @qcRound tmQuorumCertificate < tmRound@
--- * if @qcRound tmQuorumCertificate + 1 /= tmRound@ then @isJust tmTimeoutCertificate@
--- * if @tmTimeoutCertificate == Just tc@ then @tcRound tc + 1 == tmRound@
+-- * if @qcRound tmQuorumCertificate + 1 /= tmRound@ then @isPresent tmTimeoutCertificate@
+-- * if @tmTimeoutCertificate == Present tc@ then @tcRound tc + 1 == tmRound@
 data TimeoutMessageBody = TimeoutMessageBody
     { -- |Index of the finalizer sending the timeout message.
       tmFinalizerIndex :: !FinalizerIndex,
@@ -794,6 +794,9 @@ class BakedBlockData d where
     -- |The baker's signature on the block.
     blockSignature :: d -> BlockSignature
 
+    -- |The hash of the block's transaction outcomes.
+    blockTransactionOutcomesHash :: d -> TransactionOutcomesHash
+
 -- |Projections for the data associated with a block (including a genesis block).
 class BlockData b where
     -- |An associated type that should be an instance of 'BakedBlockData'.
@@ -815,6 +818,10 @@ class BlockData b where
 
     -- |The list of transactions in the block.
     blockTransactions :: b -> [BlockItem]
+
+    -- |The number of transactions in the block.
+    -- prop> blockTransactionCount b = length (blockTransactions b)
+    blockTransactionCount :: b -> Int
 
     -- |The hash of the block state after executing the block.
     blockStateHash :: b -> StateHash
@@ -950,6 +957,7 @@ instance BakedBlockData SignedBlock where
     blockEpochFinalizationEntry = bbEpochFinalizationEntry . sbBlock
     blockNonce = bbNonce . sbBlock
     blockSignature = sbSignature
+    blockTransactionOutcomesHash = bbTransactionOutcomesHash . sbBlock
 
 instance BlockData SignedBlock where
     type BakedBlockDataType SignedBlock = SignedBlock
@@ -958,6 +966,7 @@ instance BlockData SignedBlock where
     blockTimestamp = bbTimestamp . sbBlock
     blockBakedData = Present
     blockTransactions = Vector.toList . bbTransactions . sbBlock
+    blockTransactionCount = Vector.length . bbTransactions . sbBlock
     blockStateHash = bbStateHash . sbBlock
 
 instance HashableTo BlockHash SignedBlock where
@@ -1206,6 +1215,8 @@ instance BlockData (Block pv) where
     blockBakedData (NormalBlock b) = blockBakedData b
     blockTransactions GenesisBlock{} = []
     blockTransactions (NormalBlock b) = blockTransactions b
+    blockTransactionCount GenesisBlock{} = 0
+    blockTransactionCount (NormalBlock b) = blockTransactionCount b
     blockStateHash (GenesisBlock gc) = gmStateHash gc
     blockStateHash (NormalBlock b) = blockStateHash b
 

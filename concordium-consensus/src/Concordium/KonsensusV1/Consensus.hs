@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Concordium.KonsensusV1.Consensus where
@@ -9,14 +9,11 @@ import Data.Foldable
 import Data.List (sortOn)
 import qualified Data.Map.Strict as Map
 import Data.Ord
-import Data.Ratio
 import qualified Data.Vector as Vec
-import Data.Word
 import Lens.Micro.Platform
 
 import Concordium.Types
 import Concordium.Types.Accounts
-import Concordium.Types.BakerIdentity
 import Concordium.Types.HashableTo
 import Concordium.Types.Parameters hiding (getChainParameters)
 import Concordium.Types.SeedState
@@ -26,13 +23,16 @@ import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Parameters hiding (getChainParameters)
 import Concordium.GlobalState.Persistent.BlockState
+import Concordium.GlobalState.Statistics
 import Concordium.GlobalState.Types
 import Concordium.KonsensusV1.Flag
 import Concordium.KonsensusV1.LeaderElection
+import Concordium.KonsensusV1.Scheduler
 import Concordium.KonsensusV1.TreeState.Implementation
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
+import Concordium.TimeMonad
 
 -- |A Monad for multicasting timeout messages.
 class MonadMulticast m where
@@ -51,8 +51,8 @@ class MonadMulticast m where
 data VerifiedBlock = VerifiedBlock
     { -- |The block that has passed initial verification.
       vbBlock :: !PendingBlock,
-      -- |The bakers for the epoch of this block.
-      vbBakers :: !FullBakers,
+      -- |The bakers and finalizers for the epoch of this block.
+      vbBakersAndFinalizers :: !BakersAndFinalizers,
       -- |The baker info for the block's own baker.
       vbBakerInfo :: !FullBakerInfo,
       -- |The leadership election nonce for the block's epoch.
@@ -86,7 +86,7 @@ uponReceivingBlock ::
     ( IsConsensusV1 (MPV m),
       LowLevel.MonadTreeStateStore m,
       MonadState (SkovData (MPV m)) m,
-      BlockStateQuery m,
+      BlockStateStorage m,
       BlockState m ~ HashedPersistentBlockState (MPV m),
       MonadIO m
     ) =>
@@ -200,7 +200,7 @@ receiveBlockKnownParent ::
     ( IsConsensusV1 (MPV m),
       LowLevel.MonadTreeStateStore m,
       MonadState (SkovData (MPV m)) m,
-      BlockStateQuery m,
+      BlockStateStorage m,
       BlockState m ~ HashedPersistentBlockState (MPV m),
       MonadIO m
     ) =>
@@ -209,47 +209,51 @@ receiveBlockKnownParent ::
     m BlockResult
 receiveBlockKnownParent parent pendingBlock = do
     genesisHash <- use $ genesisMetadata . to gmCurrentGenesisHash
-    gets (getBakersForLiveEpoch (blockEpoch pendingBlock)) >>= \case
+    getBakersForEpochKnownParent parent (blockEpoch pendingBlock) >>= \case
         Nothing ->
-            -- The block's epoch is not valid. A live block must either be in the same epoch as
-            -- the last finalized block or in the next epoch. If 'getBakersForLiveEpoch' returns
-            -- 'Nothing', then it is not in either of those.
+            -- The block's epoch is not valid. 'getBakersForEpochKnownParent' will return the
+            -- bakers and finalizers if the block is in the same epoch as its parent (which is
+            -- at most one epoch after the last finalized block) or in the next epoch (which
+            -- can be computed from the parent block).
             return BlockResultInvalid
-        Just bf
+        Just bakersAndFinalizers
             -- We know the bakers
-            | Just baker <- fullBaker (bf ^. bfBakers) (blockBaker pendingBlock),
+            | Just baker <- fullBaker (bakersAndFinalizers ^. bfBakers) (blockBaker pendingBlock),
               verifyBlockSignature (baker ^. bakerSignatureVerifyKey) genesisHash pendingBlock ->
                 -- The signature is valid
-                receiveSigned (bf ^. bfBakers)
+                receiveSigned bakersAndFinalizers
             | otherwise -> do
                 -- The signature is invalid
                 return BlockResultInvalid
   where
-    receiveSigned bakers
+    receiveSigned bakersAndFinalizers
         | blockEpoch pendingBlock == blockEpoch parent = do
             -- Block is in the current epoch, so use the leadership election nonce
             -- from the parent block.
             seedState <- getSeedState (bpState parent)
-            checkLeader bakers (seedState ^. currentLeadershipElectionNonce)
+            checkLeader bakersAndFinalizers (seedState ^. currentLeadershipElectionNonce)
         | blockEpoch pendingBlock == blockEpoch parent + 1 = do
             -- Block is in the next epoch, so we update the leadership election nonce.
             seedState <- getSeedState (bpState parent)
             -- We check that the epoch transition has been triggered in the parent block.
             if seedState ^. epochTransitionTriggered
-                then checkLeader bakers (nonceForNewEpoch bakers seedState)
+                then
+                    checkLeader
+                        bakersAndFinalizers
+                        (nonceForNewEpoch (bakersAndFinalizers ^. bfBakers) seedState)
                 else -- If the transition is not triggered, then the child block should not be
                 -- in the new epoch.
                     return BlockResultInvalid
         | otherwise =
             -- The block's epoch is not valid.
             return BlockResultInvalid
-    checkLeader bakers leNonce
-        | let roundBaker = getLeaderFullBakers bakers leNonce (blockRound pendingBlock),
+    checkLeader bakersAndFinalizers leNonce
+        | let roundBaker = getLeaderFullBakers (bakersAndFinalizers ^. bfBakers) leNonce (blockRound pendingBlock),
           blockBaker pendingBlock == roundBaker ^. bakerIdentity = do
             let verifiedBlock =
                     VerifiedBlock
                         { vbBlock = pendingBlock,
-                          vbBakers = bakers,
+                          vbBakersAndFinalizers = bakersAndFinalizers,
                           vbBakerInfo = roundBaker,
                           vbLeadershipElectionNonce = leNonce
                         }
@@ -287,7 +291,7 @@ receiveBlockKnownParent parent pendingBlock = do
 --     - the baker is not a valid baker for the epoch; or
 --     - the baker is valid but the signature on the block is not valid.
 --
--- * TODO: if any of the transactions in the block are invalid.
+-- * TODO: if any of the transactions in the block is invalid.
 receiveBlockUnknownParent ::
     ( LowLevel.MonadTreeStateStore m,
       MonadState (SkovData (MPV m)) m
@@ -333,6 +337,39 @@ getMinBlockTime b = do
     cp <- getChainParameters (bpState b)
     return $ cp ^. cpConsensusParameters . cpMinBlockTime
 
+-- |Add a newly-arrived block, returning the new block pointer. This does the following:
+--
+--  * Adds the block to the block table as alive.
+--
+--  * Adds the block to the live branches.
+--
+--  * Updates the statistics to reflect the arrival time of the new block.
+--
+-- Preconditions:
+--
+--  * The block's parent must be the last finalized block or another live block.
+--
+--  * The block must not already be a live block.
+addBlock ::
+    (TimeMonad m, MonadState (SkovData (MPV m)) m) =>
+    -- |Block to add
+    PendingBlock ->
+    -- |Block state
+    HashedPersistentBlockState (MPV m) ->
+    -- |Parent pointer
+    BlockPointer (MPV m) ->
+    m (BlockPointer (MPV m))
+addBlock pendingBlock blockState parent = do
+    let height = blockHeight parent + 1
+    now <- currentTime
+    newBlock <- makeLiveBlock pendingBlock blockState height now
+    addToBranches newBlock
+    let nominalTime = timestampToUTCTime $ blockTimestamp newBlock
+    let numTransactions = blockTransactionCount newBlock
+    !stats <- updateStatsOnArrive nominalTime now numTransactions <$> use statistics
+    statistics .= stats
+    return newBlock
+
 -- |Process a received block. This handles the processing after the initial checks and after the
 -- block has been relayed (or not). This DOES NOT include signing the block as a finalizer.
 --
@@ -343,11 +380,12 @@ getMinBlockTime b = do
 -- * The baker is the leader for the round according to the parent block.
 processBlock ::
     ( IsConsensusV1 (MPV m),
-      BlockStateQuery m,
+      BlockStateStorage m,
       BlockState m ~ HashedPersistentBlockState (MPV m),
       LowLevel.MonadTreeStateStore m,
       MonadState (SkovData (MPV m)) m,
-      MonadIO m
+      MonadIO m,
+      TimeMonad m
     ) =>
     -- |Parent block (@parent@)
     BlockPointer (MPV m) ->
@@ -390,7 +428,9 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                 checkQC genMeta parentBF $
                     checkTC genMeta parentBF $
                         checkEpochFinalizationEntry genMeta parentBF $
-                            undefined
+                            checkBlockExecution genMeta $ \blockState -> do
+                                newBlock <- addBlock pendingBlock blockState parent
+                                undefined
   where
     sBlock = pbBlock pendingBlock
     -- Check the timestamp and invoke the continue if successful.
@@ -436,7 +476,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                         -- Also, there cannot be a timeout more than one epoch later than the LFB.
                         -- This is because we already reject above if
                         --    blockEpoch parent < tcMaxEpoch tc
-                        -- Given that the parent is live and decended from the LFB, it can be
+                        -- Given that the parent is live and descended from the LFB, it can be
                         -- at most one epoch later than the LFB, and so also the tcMaxEpoch.
                         eBkrs <- use epochBakers
                         let checkTCValid eb1 eb2 =
@@ -493,8 +533,8 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                         _bfFinalizers
                         finEntry -> do
                         -- Check that the finalized block has timestamp past the trigger time for
-                        -- the epoch. We use the seed state for the parent block, because that is in
-                        -- the same epoch.
+                        -- the epoch. We use the seed state for the parent block to get the trigger
+                        -- time, because that is in the same epoch.
                         parentSeedState <- getSeedState (bpState parent)
                         -- Get the status of the block finalized by the finalization entry for the
                         -- check.
@@ -514,12 +554,38 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
             flag $ BlockUnexpectedEpochFinalization sBlock
             return False
         | otherwise = continue
-    getParentBakersAndFinalizers continue =
-        gets (getBakersForLiveEpoch (blockEpoch parent)) >>= \case
-            -- If this case happens, the parent block must now precede the last finalized block,
-            -- so we can no longer add the block.
-            Nothing -> return False
-            Just bf -> continue bf
+    checkBlockExecution GenesisMetadata{..} continue = do
+        let execData =
+                BlockExecutionData
+                    { bedIsNewEpoch = blockEpoch pendingBlock == blockEpoch parent + 1,
+                      bedEpochDuration = genesisEpochDuration gmParameters,
+                      bedTimestamp = blockTimestamp pendingBlock,
+                      bedBlockNonce = blockNonce pendingBlock,
+                      bedParentState = bpState parent
+                    }
+        executeBlockStateUpdate execData >>= \case
+            Left _ -> do
+                flag (BlockExecutionFailure sBlock)
+                return False
+            Right newState -> do
+                outcomesHash <- getTransactionOutcomesHash newState
+                if
+                        | outcomesHash /= blockTransactionOutcomesHash pendingBlock -> do
+                            flag $ BlockInvalidTransactionOutcomesHash sBlock (bpBlock parent)
+                            return False
+                        | getHash newState /= blockStateHash pendingBlock -> do
+                            flag $ BlockInvalidStateHash sBlock (bpBlock parent)
+                            return False
+                        | otherwise ->
+                            continue newState
+    getParentBakersAndFinalizers continue
+        | blockEpoch parent == blockEpoch pendingBlock = continue vbBakersAndFinalizers
+        | otherwise =
+            gets (getBakersForLiveEpoch (blockEpoch parent)) >>= \case
+                -- If this case happens, the parent block must now precede the last finalized block,
+                -- so we can no longer add the block.
+                Nothing -> return False
+                Just bf -> continue bf
     checkQC GenesisMetadata{..} BakersAndFinalizers{..} continue = do
         let qcOK =
                 checkQuorumCertificate
@@ -532,10 +598,14 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
             else do
                 flag $ BlockInvalidQC sBlock
                 return False
+    processEpochFinalizationEntry = forM_ (blockEpochFinalizationEntry pendingBlock) $
+        \FinalizationEntry{..} -> do
+            -- TODO: processing
+            return ()
 
 executeBlock ::
     ( IsConsensusV1 (MPV m),
-      BlockStateQuery m,
+      BlockStateStorage m,
       BlockState m ~ HashedPersistentBlockState (MPV m),
       LowLevel.MonadTreeStateStore m,
       MonadState (SkovData (MPV m)) m,

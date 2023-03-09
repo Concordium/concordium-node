@@ -394,6 +394,25 @@ markLiveBlockDead bp = do
 markPending :: (MonadState (SkovData pv) m) => PendingBlock -> m ()
 markPending pb = blockTable . liveMap . at' (getHash pb) ?=! MemBlockPending pb
 
+-- * Operations on the branches
+
+-- |Add a newly-live block to the non-finalized branches.
+-- This assumes that the parent block is either the last finalized block or already among the
+-- non-finalized branches.
+-- The block should not already be present in the branches; if it is, a duplicate entry may be
+-- added.
+addToBranches :: (MonadState (SkovData pv) m) => BlockPointer pv -> m ()
+addToBranches block = do
+    lfbHeight <- use $ lastFinalized . to blockHeight
+    let insertIndex = fromIntegral $ blockHeight block - lfbHeight - 1
+    brs <- use branches
+    case compare insertIndex (Seq.length brs) of
+        LT -> branches . ix insertIndex %=! (block :)
+        EQ -> branches %=! (Seq.|> [block])
+        GT ->
+            error $
+                "Attempted to add a block at invalid height (" ++ show (blockHeight block) ++ ")"
+
 -- * Operations on pending blocks
 
 -- $pendingBlocks
