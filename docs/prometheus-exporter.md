@@ -212,4 +212,4 @@ Is only non-zero when active member of the baking committee.
 
 ### `consensus_non_finalized_transactions`
 
-The current number of non-finalized transactions across all accounts.
+The current number of non-finalized transactions stored by the node.

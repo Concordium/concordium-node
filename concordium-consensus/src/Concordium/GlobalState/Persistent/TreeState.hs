@@ -1010,7 +1010,7 @@ instance
 
     numberOfNonFinalizedTransactions = do
         table <- use (skovPersistentData . transactionTable)
-        return $ numberOfNonFinalizedTransactions table
+        return $ getNumberOfNonFinalizedTransactions table
 
     getConsensusStatistics = use (skovPersistentData . statistics)
     putConsensusStatistics stats = skovPersistentData . statistics .=! stats

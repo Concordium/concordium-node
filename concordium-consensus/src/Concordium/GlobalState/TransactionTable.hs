@@ -198,8 +198,8 @@ data TransactionTable = TransactionTable
 makeLenses ''TransactionTable
 
 -- |Get the number of non-finalized transactions stored in the transaction table.
-numberOfNonFinalizedTransactions :: TransactionTable -> Int
-numberOfNonFinalizedTransactions table = HM.size (table ^. ttHashMap)
+getNumberOfNonFinalizedTransactions :: TransactionTable -> Int
+getNumberOfNonFinalizedTransactions table = HM.size (table ^. ttHashMap)
 
 -- |Get the verification result for a non finalized transaction given by its hash.
 getNonFinalizedVerificationResult :: WithMetadata a -> TransactionTable -> Maybe TVer.VerificationResult

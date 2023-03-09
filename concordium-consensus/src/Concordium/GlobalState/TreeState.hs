@@ -30,7 +30,7 @@ import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Statistics
-import Concordium.GlobalState.TransactionTable hiding (numberOfNonFinalizedTransactions)
+import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.Types
 import qualified Concordium.ID.Types as ID
 import Concordium.Types
