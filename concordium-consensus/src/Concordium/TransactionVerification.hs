@@ -1,11 +1,8 @@
-{-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE UndecidableInstances #-}
 
 module Concordium.TransactionVerification where
 
-import Control.Monad.Reader
 import qualified Data.Map.Strict as OrdMap
 import qualified Data.Serialize as S
 

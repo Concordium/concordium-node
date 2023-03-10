@@ -150,7 +150,7 @@ processBlockItem bi = do
     txHash = getHash bi
 
 -- |Attempt to put the 'BlockItem's of a 'BakedBlock' into the tree state.
--- Return 'True' of the transactions were added otherwise 'False'.
+-- Return 'True' if all of the transactions were added otherwise 'False'.
 --
 -- Post-condition: Only transactions that are deemed verifiable
 -- (i.e. the verification yields a 'TVer.OkResult' or a 'TVer.MaybeOkResult') up to the point where
@@ -173,7 +173,7 @@ processBlockItems ::
     -- |Return 'True' only if all transactions were
     -- successfully processed otherwise 'False'.
     m Bool
-processBlockItems bb parentPointer = process True $! bbTransactions bb
+processBlockItems bb parentPointer = process $! bbTransactions bb
   where
     -- Create a context suitable for verifying a transaction within a 'Block' context.
     getCtx = do
@@ -183,17 +183,17 @@ processBlockItems bb parentPointer = process True $! bbTransactions bb
         let _ctxMaxBlockEnergy = chainParams ^. cpConsensusParameters . cpBlockEnergyLimit
         return $! Context{_ctxTransactionOrigin = Block, ..}
     theRound = bbRound bb
+    theTime = bbTimestamp bb
     -- Process the vector of transactions recursively.
-    process :: Bool -> Vector.Vector BlockItem -> m Bool
-    process !res !txs
+    process :: Vector.Vector BlockItem -> m Bool
+    process txs
         -- If no transactions are present then all were added.
-        | Vector.length txs == 0 = return res
+        | null txs = return True
         -- There's work to do.
         | otherwise = do
-            !theTime <- utcTimeToTimestamp <$> currentTime
-            let !bi = Vector.head txs
-                !txHash = getHash bi
-            !tt' <- gets' _transactionTable
+            let bi = Vector.head txs
+                txHash = getHash bi
+            tt' <- gets' _transactionTable
             -- Check whether we already have the transaction.
             case tt' ^. TT.ttHashMap . at' txHash of
                 Just (_, results) -> do
@@ -202,7 +202,7 @@ processBlockItems bb parentPointer = process True $! bbTransactions bb
                     when (TT.commitPoint theRound > results ^. TT.tsCommitPoint) $
                         transactionTable . TT.ttHashMap . at' txHash . mapped . _2 %=! TT.updateCommitPoint theRound
                     -- And we continue processing the remaining transactions.
-                    process True (Vector.tail txs)
+                    process $ Vector.tail txs
                 Nothing -> do
                     -- We verify the transaction and check whether it's acceptable i.e. Ok or MaybeOk.
                     -- If that is the case then we add it to the transaction table and pending transactions.
@@ -222,4 +222,4 @@ processBlockItems bb parentPointer = process True $! bbTransactions bb
                                 -- The transaction was added to the tree state,
                                 -- so add it to the pending table if it's eligible (see documentation for
                                 -- 'addPendingTransaction') and continue processing the remaining ones.
-                                True -> addPendingTransaction Block bi >> process True (Vector.tail txs)
+                                True -> addPendingTransaction Block bi >> process (Vector.tail txs)

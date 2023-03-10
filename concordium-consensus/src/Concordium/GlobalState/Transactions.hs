@@ -62,7 +62,6 @@ data AddTransactionResult
 -- |Type for describing the origin of the transaction.
 -- The transaction can either arrive at the consensus individually,
 -- or the transaction can be received as part of a block.
--- The ´Block´ additionally contains a ´BlockState´ of either the parent block (iff. it's 'alive') or the last finalized block.
 data TransactionOrigin = Individual | Block
     deriving (Eq, Show)
 
@@ -88,7 +87,7 @@ makeLenses ''Context
 
 -- |Monad for acquiring the next available nonce for an account.
 class Monad m => AccountNonceQuery m where
-    -- |Get the successor of the largest known account for the given account
+    -- |Get the successor of the largest known nonce for the given account.
     -- The function should return 'True' in the second component if and only if
     -- all (known) transactions from this account are finalized.
     getNextAccountNonce :: AccountAddressEq -> m (Nonce, Bool)

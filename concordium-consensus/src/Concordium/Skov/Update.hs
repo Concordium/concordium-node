@@ -836,9 +836,13 @@ doAddPreverifiedTransaction blockItem okRes = do
 -- This function should only be called when a transaction is received as part of a block.
 -- The difference from the above function is that this function returns an already existing
 -- transaction in case of a duplicate, ensuring more sharing of transaction data.
+--
 -- This function also verifies the incoming transactions and adds them to the internal
 -- transaction verification cache such that the verification result can be used by the 'Scheduler'.
+--
 -- The @origin@ parameter means if the transaction was received individually or as part of a block.
+-- Note that if the @origin@ is 'Individual' then the caller MUST pass in the block state of the last finalized block.
+--
 -- The function returns the 'BlockItem' if it was "successfully verified" and added to the transaction table.
 -- Note. "Successfully verified" depends on the 'TransactionOrigin', see 'definitelyNotValid' below for details.
 doReceiveTransactionInternal :: (TreeStateMonad m) => TransactionOrigin -> BlockState m -> BlockItem -> Timestamp -> Slot -> m (Maybe (BlockItem, Maybe TV.VerificationResult), UpdateResult)
