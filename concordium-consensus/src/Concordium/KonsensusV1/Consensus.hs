@@ -34,23 +34,6 @@ class MonadTimeout m where
     -- |Reset the timeout from the supplied 'Duration'.
     resetTimer :: Duration -> m ()
 
--- |Return 'Just FinalizerInfo' if the consensus running
--- is part of the of the provided 'BakersAndFinalizers'.
--- Otherwise return 'Nothing'.
-isBakerFinalizer ::
-    BakerId ->
-    -- |A collection of bakers and finalizers.
-    BakersAndFinalizers ->
-    -- |'True' if the consensus is part of the finalization committee.
-    -- Otherwise 'False'
-    Maybe FinalizerInfo
-isBakerFinalizer bakerId bakersAndFinalizers = do
-    -- This is O(n) but in principle we could do binary search here as the 'committeeFinalizers' are
-    -- sorted by ascending baker id.
-    Vector.find (\finalizerInfo -> finalizerBakerId finalizerInfo == bakerId) finalizers
-  where
-    finalizers = committeeFinalizers $ bakersAndFinalizers ^. bfFinalizers
-
 -- |Produce a block and multicast it onto the network.
 makeBlock :: MonadState (SkovData (MPV m)) m => m ()
 makeBlock = return ()
@@ -104,7 +87,6 @@ advanceRound newRound timedOut = do
         gets (getBakersForLiveEpoch currentEpoch) >>= \case
             Nothing -> return () -- No bakers or finalizers could be looked up for the current 'Epoch' so we do nothing.
             Just bakersAndFinalizers -> do
-                if isJust $! isBakerFinalizer bakerId bakersAndFinalizers
-                    then -- The consensus runner is a finalizer for the current epoch then we reset the timer
-                        resetTimer currentTimeout
-                    else return () -- The consensus runner is not part of the finalization committee, so we don't have to do anything.
+                when (isJust $ finalizerByBakerId (bakersAndFinalizers ^. bfFinalizers) bakerId) $
+                    -- The consensus runner is a finalizer for the current epoch then we reset the timer
+                    resetTimer currentTimeout
