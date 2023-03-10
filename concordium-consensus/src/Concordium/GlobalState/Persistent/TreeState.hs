@@ -1002,6 +1002,10 @@ instance
         finalizedToTransactionStatus FinalizedTransactionStatus{..} =
             TS.Finalized{ftsCommitPoint = commitPoint ftsSlot, ftsBlockHash = ftsBlockHash, ftsFinResult = ftsIndex}
 
+    numberOfNonFinalizedTransactions = do
+        table <- use (skovPersistentData . transactionTable)
+        return $ getNumberOfNonFinalizedTransactions table
+
     getConsensusStatistics = use (skovPersistentData . statistics)
     putConsensusStatistics stats = skovPersistentData . statistics .=! stats
 

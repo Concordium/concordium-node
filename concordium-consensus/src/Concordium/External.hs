@@ -1041,6 +1041,11 @@ getLastFinalizedBlockHeight cptr = do
     (ConsensusRunner mvr) <- deRefStablePtr cptr
     theBlockHeight <$> runMVR Q.getLastFinalizedBlockHeight mvr
 
+getNumberOfNonFinalizedTransactions :: StablePtr ConsensusRunner -> IO Word64
+getNumberOfNonFinalizedTransactions cptr = do
+    (ConsensusRunner mvr) <- deRefStablePtr cptr
+    fromIntegral <$> runMVR Q.getNumberOfNonFinalizedTransactions mvr
+
 -- ** Block-indexed queries
 
 -- |Given a null-terminated string that represents a block hash (base 16), returns a null-terminated
@@ -1457,6 +1462,7 @@ foreign export ccall getConsensusStatus :: StablePtr ConsensusRunner -> IO CStri
 foreign export ccall getBlockInfo :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getAncestors :: StablePtr ConsensusRunner -> CString -> Word64 -> IO CString
 foreign export ccall getBranches :: StablePtr ConsensusRunner -> IO CString
+foreign export ccall getNumberOfNonFinalizedTransactions :: StablePtr ConsensusRunner -> IO Word64
 
 foreign export ccall
     getCatchUpStatus ::

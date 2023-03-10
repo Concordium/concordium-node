@@ -202,6 +202,9 @@ class
     -- |Get non-finalized transactions for an account, ordered by increasing nonce.
     queryNonFinalizedTransactions :: AccountAddressEq -> m [TransactionHash]
 
+    -- |Get the total number of non-finalized transactions across all accounts.
+    queryNumberOfNonFinalizedTransactions :: m Int
+
     -- |Get best guess for next account nonce.
     -- The second argument is 'True' if and only if all transactions from this account are finalized.
     queryNextAccountNonce :: AccountAddressEq -> m (Nonce, Bool)
@@ -349,6 +352,7 @@ instance (Monad (t m), MonadTrans t, SkovQueryMonad m) => SkovQueryMonad (MGSTra
     queryBlockState = lift . queryBlockState
     queryTransactionStatus = lift . queryTransactionStatus
     queryNonFinalizedTransactions = lift . queryNonFinalizedTransactions
+    queryNumberOfNonFinalizedTransactions = lift queryNumberOfNonFinalizedTransactions
     queryNextAccountNonce = lift . queryNextAccountNonce
     blockLastFinalizedIndex = lift . blockLastFinalizedIndex
     getCatchUpStatus = lift . getCatchUpStatus
@@ -503,6 +507,9 @@ instance
     queryNonFinalizedTransactions addr = lift $ do
         txs <- TS.getAccountNonFinalized addr minNonce
         return $! map getHash (concatMap (Map.keys . snd) txs)
+
+    {- - INLINE queryNumberOfNonFinalizedTransactions - -}
+    queryNumberOfNonFinalizedTransactions = lift TS.numberOfNonFinalizedTransactions
 
     {- - INLINE queryNextAccountNonce - -}
     queryNextAccountNonce = lift . TS.getNextAccountNonce

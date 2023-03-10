@@ -438,6 +438,9 @@ class
     -- |Lookup a transaction status by its hash.
     lookupTransaction :: TransactionHash -> m (Maybe TransactionStatus)
 
+    -- |Get the number of non-finalized transactions stored in the transaction table.
+    numberOfNonFinalizedTransactions :: m Int
+
     -- * Operations on statistics
 
     -- |Get the current consensus statistics.
@@ -513,6 +516,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     purgeTransaction = lift . purgeTransaction
     markDeadTransaction bh = lift . markDeadTransaction bh
     lookupTransaction = lift . lookupTransaction
+    numberOfNonFinalizedTransactions = lift numberOfNonFinalizedTransactions
     getConsensusStatistics = lift getConsensusStatistics
     putConsensusStatistics = lift . putConsensusStatistics
     getRuntimeParameters = lift getRuntimeParameters
@@ -556,6 +560,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     {-# INLINE addVerifiedTransaction #-}
     {-# INLINE purgeTransaction #-}
     {-# INLINE lookupTransaction #-}
+    {-# INLINE numberOfNonFinalizedTransactions #-}
     {-# INLINE markDeadTransaction #-}
     {-# INLINE getConsensusStatistics #-}
     {-# INLINE putConsensusStatistics #-}
