@@ -394,6 +394,37 @@ markLiveBlockDead bp = do
 markPending :: (MonadState (SkovData pv) m) => PendingBlock -> m ()
 markPending pb = blockTable . liveMap . at' (getHash pb) ?=! MemBlockPending pb
 
+-- |Get the parent block of a live or finalized block. (For the genesis block, this will return
+-- the block itself.)
+parentOf ::
+    (LowLevel.MonadTreeStateStore m, MonadIO m, MonadState (SkovData (MPV m)) m) =>
+    BlockPointer (MPV m) ->
+    m (BlockPointer (MPV m))
+parentOf block
+    | Present blockData <- blockBakedData block = do
+        get >>= getBlockStatus (blockParent blockData) <&> \case
+            BlockAliveOrFinalized bp -> bp
+            _ ->
+                error $
+                    "parentOf: Parent block ("
+                        ++ show (blockParent blockData)
+                        ++ ") is not live or finalized."
+    | otherwise = return block
+
+-- |Determine if one block is an ancestor of another.
+-- A block is considered to be an ancestor of itself.
+isAncestorOf ::
+    (LowLevel.MonadTreeStateStore m, MonadIO m, MonadState (SkovData (MPV m)) m) =>
+    BlockPointer (MPV m) ->
+    BlockPointer (MPV m) ->
+    m Bool
+isAncestorOf b1 b2 = case compare (blockHeight b1) (blockHeight b2) of
+    GT -> return False
+    EQ -> return $ (getHash b1 :: BlockHash) == getHash b2
+    LT -> do
+        parent <- parentOf b2
+        b1 `isAncestorOf` parent
+
 -- * Operations on the branches
 
 -- |Add a newly-live block to the non-finalized branches.
