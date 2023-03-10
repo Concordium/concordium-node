@@ -80,31 +80,29 @@ advanceRound ::
     -- |The 'Round' to progress to.
     Round ->
     -- |If we are advancing from a round that timed out
-    -- then this will be @Just 'TimeoutCertificate, 'QuorumCertificate')@ otherwise
-    -- 'Nothing'.
-    --
-    -- In case of the former then the 'TimeoutCertificate' is from the round we're
+    -- then this will be @Left 'TimeoutCertificate, 'QuorumCertificate')@
+    -- The 'TimeoutCertificate' is from the round we're
     -- advancing from and the associated 'QuorumCertificate' verifies it.
-    Maybe (TimeoutCertificate, QuorumCertificate) ->
+    --
+    -- Otherwise if we're progressing via a 'QuorumCertificate' then @Right QuorumCertificate@
+    -- should be the QC we're advancing round via.
+    Either (TimeoutCertificate, QuorumCertificate) QuorumCertificate ->
     m ()
 advanceRound newRound timedOut = do
     myBakerId <- bakerId <$> view bakerIdentity
     currentRoundStatus <- use roundStatus
     -- Reset the timeout timer if the consensus runner is part of the
     -- finalization committee.
-    resetTimerIfFinalizer myBakerId (rsCurrentTimeout currentRoundStatus)
-    -- Advance the round.
-    roundStatus .=! advanceRoundStatus newRound timedOut currentRoundStatus
-    -- Write the new round status to disk.
-    writeCurrentRoundStatus =<< use roundStatus
+    resetTimerIfFinalizer myBakerId (rsCurrentTimeout currentRoundStatus) (rsCurrentEpoch currentRoundStatus)
+    -- Advance and save the round.
+    saveRoundStatus $! advanceRoundStatus newRound timedOut currentRoundStatus
     -- Make a new block if the consensus runner is leader of
     -- the 'Round' progressed to.
     makeBlockIfLeader
   where
     -- Reset the timer if this consensus instance is member of the
     -- finalization committee for the current 'Epoch'.
-    resetTimerIfFinalizer bakerId currentTimeout = do
-        currentEpoch <- rsCurrentEpoch <$> use roundStatus
+    resetTimerIfFinalizer bakerId currentTimeout currentEpoch = do
         gets (getBakersForLiveEpoch currentEpoch) >>= \case
             Nothing -> return () -- No bakers or finalizers could be looked up for the current 'Epoch' so we do nothing.
             Just bakersAndFinalizers -> do

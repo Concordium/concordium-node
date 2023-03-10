@@ -241,6 +241,7 @@ advanceRoundStatus toRound (Right qc) RoundStatus{..} =
           rsCurrentQuorumSignatureMessages = emptySignatureMessages,
           rsCurrentTimeoutSignatureMessages = emptySignatureMessages,
           rsHighestQC = Present qc,
+          rsPreviousRoundTC = Absent,
           ..
         }
 
@@ -270,6 +271,10 @@ instance Serialize RoundStatus where
         rsLatestEpochFinEntry <- get
         rsPreviousRoundTC <- get
         return RoundStatus{..}
+
+-- |Updates and persists the 'RoundStatus' of the 'SkovData' to the supplied 'RoundStatus
+saveRoundStatus :: (LowLevel.MonadTreeStateStore m, MonadState (SkovData (MPV m)) m) => RoundStatus -> m ()
+saveRoundStatus newRoundStatus = writeCurrentRoundStatus newRoundStatus >> roundStatus .=! newRoundStatus
 
 -- |The 'RoundStatus' for consensus at genesis.
 initialRoundStatus :: Duration -> LeadershipElectionNonce -> RoundStatus

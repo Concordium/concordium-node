@@ -446,7 +446,7 @@ propAdvanceRoundStatusFromQuorumRound =
                     (rsCurrentQuorumSignatureMessages newRoundStatus)
                 assertEqual
                     "QC signatures for current round should be empty"
-                    highestQc
+                    (Present highestQC)
                     (rsHighestQC newRoundStatus)
 
 propAdvanceRoundStatusFromTCRound :: Property
