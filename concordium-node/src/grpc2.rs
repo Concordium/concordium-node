@@ -2078,7 +2078,7 @@ pub mod server {
                         // protocol on the chain.
                         types::node_info::node::ConsensusStatus::NotRunning(types::Empty {})
                     } else if matches!(self.consensus.consensus_type, ConsensusType::Active) {
-                        let (in_baking_committee, _, bid) = self.consensus.in_baking_committee();
+                        let (in_baking_committee, _, bid, _) = self.consensus.in_baking_committee();
                         let baker_id = types::BakerId {
                             value: bid,
                         };

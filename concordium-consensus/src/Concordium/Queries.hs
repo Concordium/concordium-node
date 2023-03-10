@@ -1022,35 +1022,40 @@ data BakerStatus
       AddedButWrongKeys
     deriving (Eq, Ord, Show)
 
--- |Determine the status of the baker with respect to the current best block.
-getBakerStatusBestBlock :: MVR finconf (BakerStatus, Maybe BakerId)
+-- |Determine the status and lottery power of the baker with respect to the current best block.
+getBakerStatusBestBlock :: MVR finconf (BakerStatus, Maybe BakerId, Maybe Double)
 getBakerStatusBestBlock =
     asks mvBaker >>= \case
-        Nothing -> return (NotInCommittee, Nothing)
+        Nothing -> return (NotInCommittee, Nothing, Nothing)
         Just Baker{bakerIdentity = bakerIdent} -> liftSkovQueryLatest $ do
             bb <- bestBlock
             bs <- queryBlockState bb
             bakers <- BS.getCurrentEpochBakers bs
-            bakerStatus <- case fullBaker bakers (bakerId bakerIdent) of
-                Just fbinfo
-                    -- Current baker with valid keys
-                    | validateBakerKeys (fbinfo ^. bakerInfo) bakerIdent ->
-                        return ActiveInComittee
-                    -- Current baker, but invalid keys
-                    | otherwise -> return AddedButWrongKeys
-                Nothing ->
+            (bakerStatus, bakerLotteryPower) <- case fullBaker bakers (bakerId bakerIdent) of
+                Just fbinfo -> do
+                    let status =
+                            if validateBakerKeys (fbinfo ^. bakerInfo) bakerIdent
+                                then -- Current baker with valid keys
+                                    ActiveInComittee
+                                else -- Current baker, but invalid keys
+                                    AddedButWrongKeys
+                    let bakerLotteryPower = fromIntegral (fbinfo ^. bakerStake) / fromIntegral (bakerTotalStake bakers)
+                    return (status, Just bakerLotteryPower)
+                Nothing -> do
                     -- Not a current baker
-                    BS.getBakerAccount bs (bakerId bakerIdent) >>= \case
-                        Just acc ->
-                            -- Account is valid
-                            BS.getAccountBaker acc >>= \case
-                                -- Account has no registered baker
-                                Nothing -> return NotInCommittee
-                                Just ab
-                                    -- Registered baker with valid keys
-                                    | validateBakerKeys (ab ^. accountBakerInfo . bakerInfo) bakerIdent ->
-                                        return AddedButNotActiveInCommittee
-                                    -- Registered baker with invalid keys
-                                    | otherwise -> return AddedButWrongKeys
-                        Nothing -> return NotInCommittee
-            return (bakerStatus, Just $ bakerId bakerIdent)
+                    status <-
+                        BS.getBakerAccount bs (bakerId bakerIdent) >>= \case
+                            Just acc ->
+                                -- Account is valid
+                                BS.getAccountBaker acc >>= \case
+                                    -- Account has no registered baker
+                                    Nothing -> return NotInCommittee
+                                    Just ab
+                                        -- Registered baker with valid keys
+                                        | validateBakerKeys (ab ^. accountBakerInfo . bakerInfo) bakerIdent ->
+                                            return AddedButNotActiveInCommittee
+                                        -- Registered baker with invalid keys
+                                        | otherwise -> return AddedButWrongKeys
+                            Nothing -> return NotInCommittee
+                    return (status, Nothing)
+            return (bakerStatus, Just $ bakerId bakerIdent, bakerLotteryPower)

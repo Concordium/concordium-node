@@ -510,6 +510,7 @@ extern "C" {
         consensus: *mut consensus_runner,
         baker_id: *mut u64,
         has_baker_id: *mut u8,
+        baker_lottery_power: *mut f64,
     ) -> u8;
     pub fn checkIfWeAreFinalizer(consensus: *mut consensus_runner) -> u8;
     pub fn checkIfRunning(consensus: *mut consensus_runner) -> u8;
@@ -1745,24 +1746,33 @@ impl ConsensusContainer {
         ))
     }
 
-    /// Gets baker status of the node along with the baker ID registered in the
-    /// baker credentials used, if available.
+    /// Gets baker status of the node along with the baker ID
+    /// registered in the baker credentials used and lottery power, if
+    /// available.
     ///
     /// Note: the return type does not use an Option<u64>, which would be more
     /// natural, because a weird issue on Windows caused node_info to
     /// produce the wrong result.
-    pub fn in_baking_committee(&self) -> (ConsensusIsInBakingCommitteeResponse, bool, u64) {
+    pub fn in_baking_committee(&self) -> (ConsensusIsInBakingCommitteeResponse, bool, u64, f64) {
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut baker_id: u64 = 0;
         let mut has_baker_id: u8 = 0;
+        let mut baker_lottery_power: f64 = 0.0;
 
-        let result = unsafe { bakerStatusBestBlock(consensus, &mut baker_id, &mut has_baker_id) };
+        let result = unsafe {
+            bakerStatusBestBlock(
+                consensus,
+                &mut baker_id,
+                &mut has_baker_id,
+                &mut baker_lottery_power,
+            )
+        };
 
         let status = ConsensusIsInBakingCommitteeResponse::try_from(result).unwrap_or_else(|err| {
             unreachable!("An error occured when trying to convert FFI return code: {}", err)
         });
 
-        (status, has_baker_id != 0, baker_id)
+        (status, has_baker_id != 0, baker_id, baker_lottery_power)
     }
 
     pub fn in_finalization_committee(&self) -> bool {

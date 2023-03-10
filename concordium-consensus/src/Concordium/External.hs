@@ -1327,14 +1327,19 @@ checkIfRunning cptr = do
 -- |Check whether we are a baker from the perspective of the best block.
 -- bakerIdPtr expects to receive the baker ID (optional).
 -- hasBakerIdPtr expects to receive either 0 (representing false) or 1 (representing true) if a baker ID is not found or found respectively.
+-- bakerLotteryPowerPtr expects to receive the lottery power when member of the baking committee.
 -- Returns 1 if we are not added as a baker.
 -- Returns 2 if we are added as a baker, but not part of the baking committee yet.
 -- Returns 3 if we have keys that do not match the baker's public keys on the chain.
 -- Returns 0 if we are part of the baking committee.
-bakerStatusBestBlock :: StablePtr ConsensusRunner -> Ptr Word64 -> Ptr Word8 -> IO Word8
-bakerStatusBestBlock cptr bakerIdPtr hasBakerIdPtr = do
+bakerStatusBestBlock :: StablePtr ConsensusRunner -> Ptr Word64 -> Ptr Word8 -> Ptr Double -> IO Word8
+bakerStatusBestBlock cptr bakerIdPtr hasBakerIdPtr bakerLotteryPowerPtr = do
     (ConsensusRunner mvr) <- deRefStablePtr cptr
-    (bs, mBid) <- runMVR Q.getBakerStatusBestBlock mvr
+    (bs, mBid, lotteryPowerMaybe) <- runMVR Q.getBakerStatusBestBlock mvr
+    case lotteryPowerMaybe of
+        Just lotteryPower -> do
+            poke bakerLotteryPowerPtr lotteryPower
+        Nothing -> return ()
     case mBid of
         Nothing -> poke hasBakerIdPtr 0 >> (return $! getBakerStatusCode bs)
         Just bid -> do
@@ -1493,7 +1498,7 @@ foreign export ccall getAllAnonymityRevokers :: StablePtr ConsensusRunner -> CSt
 foreign export ccall getCryptographicParameters :: StablePtr ConsensusRunner -> CString -> IO CString
 
 -- baker status checking
-foreign export ccall bakerStatusBestBlock :: StablePtr ConsensusRunner -> Ptr Word64 -> Ptr Word8 -> IO Word8
+foreign export ccall bakerStatusBestBlock :: StablePtr ConsensusRunner -> Ptr Word64 -> Ptr Word8 -> Ptr Double -> IO Word8
 foreign export ccall checkIfWeAreFinalizer :: StablePtr ConsensusRunner -> IO Word8
 foreign export ccall checkIfRunning :: StablePtr ConsensusRunner -> IO Word8
 
