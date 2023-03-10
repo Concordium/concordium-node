@@ -8,6 +8,7 @@
 
 module Concordium.KonsensusV1.TreeState.Types where
 
+import Data.Function
 import Data.Serialize
 import Data.Time
 import Data.Time.Clock.POSIX
@@ -104,6 +105,10 @@ data BlockPointer (pv :: ProtocolVersion) = BlockPointer
 
 instance HashableTo BlockHash (BlockPointer pv) where
     getHash BlockPointer{..} = getHash bpBlock
+
+-- |Block pointer equality is defined on the block hash.
+instance Eq (BlockPointer pv) where
+    (==) = on (==) (getHash @BlockHash)
 
 instance BlockData (BlockPointer pv) where
     type BakedBlockDataType (BlockPointer pv) = SignedBlock

@@ -27,6 +27,7 @@ module Concordium.KonsensusV1.TreeState.Implementation where
 import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State
+import Data.Foldable
 import Data.IORef
 import Data.Time
 import Data.Typeable
@@ -411,6 +412,22 @@ parentOf block
                         ++ ") is not live or finalized."
     | otherwise = return block
 
+-- |Get the parent block of a live (non-finalized) block.
+-- By definition, the parent block must either also be live or be the last finalized block.
+--
+-- If the block is not live, this function may fail with an error.
+parentOfLive :: SkovData pv -> BlockPointer pv -> BlockPointer pv
+parentOfLive sd block
+    | let lastFin = sd ^. lastFinalized,
+      parentHash == getHash lastFin =
+        lastFin
+    | Just (MemBlockAlive parent) <- sd ^. blockTable . liveMap . at' parentHash = parent
+    | otherwise = error "parentOfLive: parent block is neither live nor last-finalized"
+  where
+    parentHash
+        | Present blockData <- blockBakedData block = blockParent blockData
+        | otherwise = error "parentOfLive: unexpected genesis block"
+
 -- |Determine if one block is an ancestor of another.
 -- A block is considered to be an ancestor of itself.
 isAncestorOf ::
@@ -782,6 +799,63 @@ purgeTransactionTable force currentTime = do
             (newTT, newPT) = Purge.purgeTables (commitPoint lastFinalizedRound) oldestArrivalTime currentTimestamp transactionTable' pendingTransactions'
         transactionTable .=! newTT
         pendingTransactionTable .=! newPT
+
+-- ** Operations on the pending transaction table
+
+-- |Update the focus block and the pending transaction table.
+--
+-- PRECONDITION: The new focus block must be a live block, or the last finalized block.
+updateFocusBlockTo ::
+    (MonadState (SkovData (MPV m)) m) =>
+    -- |New focus block
+    BlockPointer (MPV m) ->
+    m ()
+updateFocusBlockTo newFocusBlock = do
+    -- 'parent' will be a function that gets the parent of live blocks in the present state.
+    parent <- gets parentOfLive
+    -- 'updatePTs' rolls back the branch to the old pending block from the nearest common ancestor
+    -- with the new pending block, then rolls forward the branch to the new pending block.
+    let updatePTs oldBranchBlock newBranchBlock forwardBlocks pendingTable =
+            case compare (blockHeight oldBranchBlock) (blockHeight newBranchBlock) of
+                LT ->
+                    -- If the new branch height is greater than the old branch height, then go to
+                    -- the parent of the new branch, and add the new branch block to the stack of
+                    -- blocks to roll forward the the transactions of.
+                    updatePTs
+                        oldBranchBlock
+                        (parent newBranchBlock)
+                        (newBranchBlock : forwardBlocks)
+                        pendingTable
+                EQ
+                    | oldBranchBlock == newBranchBlock ->
+                        -- We've reached the common ancestor, so forward the transactions of the
+                        -- blocks in the stack.
+                        foldl'
+                            (\p f -> forwardPTT (blockTransactions f) p)
+                            pendingTable
+                            forwardBlocks
+                    | otherwise -> do
+                        -- The branches are at the same height, but we've not yet hit the common
+                        -- ancestor, so roll back the transactions of the old block, add the new
+                        -- block to the stack of blocks to roll forward, and proceed with the
+                        -- parents of both blocks.
+                        updatePTs
+                            (parent oldBranchBlock)
+                            (parent newBranchBlock)
+                            (newBranchBlock : forwardBlocks)
+                            (reversePTT (blockTransactions oldBranchBlock) pendingTable)
+                GT ->
+                    -- If the new branch height is lower than the old branch height, roll back the
+                    -- transactions from the old block and continue with the parent of the old
+                    -- branch.
+                    updatePTs
+                        (parent oldBranchBlock)
+                        newBranchBlock
+                        forwardBlocks
+                        (reversePTT (blockTransactions oldBranchBlock) pendingTable)
+    oldFocusBlock <- use focusBlock
+    pendingTransactions . pendingTransactionTable %=! updatePTs oldFocusBlock newFocusBlock []
+    focusBlock .=! newFocusBlock
 
 -- * Bakers
 
