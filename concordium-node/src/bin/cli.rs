@@ -102,6 +102,8 @@ async fn main() -> anyhow::Result<()> {
             last_finalized_block_timestamp: node.stats.last_finalized_block_timestamp.clone(),
             last_arrived_block_height: node.stats.last_arrived_block_height.clone(),
             last_arrived_block_timestamp: node.stats.last_arrived_block_timestamp.clone(),
+            baked_blocks: node.stats.baked_blocks.clone(),
+            finalized_baked_blocks: node.stats.finalized_baked_blocks.clone(),
         };
         let notification_handlers = ffi::NotificationHandlers {
             blocks:           receiver_blocks,
@@ -116,6 +118,8 @@ async fn main() -> anyhow::Result<()> {
             last_finalized_block_timestamp: node.stats.last_finalized_block_timestamp.clone(),
             last_arrived_block_height: node.stats.last_arrived_block_height.clone(),
             last_arrived_block_timestamp: node.stats.last_arrived_block_timestamp.clone(),
+            baked_blocks: node.stats.baked_blocks.clone(),
+            finalized_baked_blocks: node.stats.finalized_baked_blocks.clone(),
         };
         (Some(notify_context), None)
     } else {

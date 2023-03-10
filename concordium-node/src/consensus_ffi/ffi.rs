@@ -324,6 +324,10 @@ pub struct NotificationContext {
     pub last_arrived_block_height: prometheus::core::GenericGauge<prometheus::core::AtomicU64>,
     /// Timestamp of receiving last arrived block (Unix time in milliseconds).
     pub last_arrived_block_timestamp: prometheus::IntGauge,
+    /// Total number of blocks baked by the node since startup.
+    pub baked_blocks: prometheus::IntCounter,
+    /// Total number of finalized blocks baked by the node since startup.
+    pub finalized_baked_blocks: prometheus::IntCounter,
 }
 
 /// A type of callback used to notify Rust code of important events. The
@@ -333,9 +337,11 @@ pub struct NotificationContext {
 /// - pointer to a byte array containing the serialized event
 /// - length of the data
 /// - block height of either the finalized block or arrived block
+/// - byte where a value of 1 indicates the block arrived/finalized was baked by
+///   this node.
 ///
 /// The callback should not retain references to supplied data after the exit.
-type NotifyCallback = unsafe extern "C" fn(*mut NotificationContext, u8, *const u8, u64, u64);
+type NotifyCallback = unsafe extern "C" fn(*mut NotificationContext, u8, *const u8, u64, u64, u8);
 
 pub struct NotificationHandlers {
     pub blocks:           futures::channel::mpsc::UnboundedReceiver<Arc<[u8]>>,
@@ -1344,12 +1350,17 @@ unsafe extern "C" fn notify_callback(
     data_ptr: *const u8,
     data_len: u64,
     block_height: u64,
+    home_baked: u8,
 ) {
     let sender = &*notify_context;
+    let home_baked = home_baked == 1;
     match ty {
         0u8 => {
             sender.last_arrived_block_height.set(block_height);
             sender.last_arrived_block_timestamp.set(chrono::Utc::now().timestamp_millis());
+            if home_baked {
+                sender.baked_blocks.inc()
+            }
 
             if let Some(blocks) = &sender.blocks {
                 if blocks
@@ -1368,6 +1379,9 @@ unsafe extern "C" fn notify_callback(
         1u8 => {
             sender.last_finalized_block_height.set(block_height);
             sender.last_finalized_block_timestamp.set(chrono::Utc::now().timestamp_millis());
+            if home_baked {
+                sender.finalized_baked_blocks.inc()
+            }
 
             if let Some(finalized_blocks) = &sender.finalized_blocks {
                 if finalized_blocks

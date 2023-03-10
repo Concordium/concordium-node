@@ -47,7 +47,7 @@ import Concordium.Afgjort.Finalize.Types
 import Concordium.Birk.Bake
 import Concordium.GlobalState
 import Concordium.GlobalState.Block
-import Concordium.GlobalState.BlockPointer (BlockPointerData (..))
+import Concordium.GlobalState.BlockPointer (BlockPointer (..), BlockPointerData (..))
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.TreeState (PVInit (..), TreeStateMonad (getLastFinalizedHeight))
@@ -102,7 +102,11 @@ instance
                         case Vec.last versions of
                             EVersionedConfiguration vc -> vcGenesisHeight vc
                 let height = localToAbsoluteBlockHeight latestEraGenesisHeight (bpHeight bp)
-                liftIO (notifyCallback (bpHash bp) height)
+                ownBaker <- lift (asks (fmap (bakerId . bakerIdentity) . mvBaker))
+                let isHomeBaked = case ownBaker of
+                        Nothing -> False
+                        Just ourBakerId -> Just ourBakerId == (blockBaker <$> blockFields (_bpBlock bp))
+                liftIO (notifyCallback (bpHash bp) height isHomeBaked)
     handleFinalize _ lfbp bps = liftSkov $ do
         lift (asks (notifyBlockFinalized . mvCallbacks)) >>= \case
             Nothing -> return ()
@@ -113,11 +117,18 @@ instance
                 let latestEraGenesisHeight =
                         case Vec.last versions of
                             EVersionedConfiguration vc -> vcGenesisHeight vc
+                myBakerIdMaybe <- lift (asks (fmap (bakerId . bakerIdentity) . mvBaker))
                 forM_ (reverse bps) $ \bp -> do
                     let height = localToAbsoluteBlockHeight latestEraGenesisHeight (bpHeight bp)
-                    liftIO (notifyCallback (bpHash bp) height)
+                    let isHomeBaked = case myBakerIdMaybe of
+                            Nothing -> False
+                            Just myBakerId -> Just myBakerId == (blockBaker <$> blockFields (_bpBlock bp))
+                    liftIO (notifyCallback (bpHash bp) height isHomeBaked)
                 let height = localToAbsoluteBlockHeight latestEraGenesisHeight (bpHeight lfbp)
-                liftIO (notifyCallback (bpHash lfbp) height)
+                let isHomeBaked = case myBakerIdMaybe of
+                        Nothing -> False
+                        Just myBakerId -> Just myBakerId == (blockBaker <$> blockFields (_bpBlock lfbp))
+                liftIO (notifyCallback (bpHash lfbp) height isHomeBaked)
         -- And then check for protocol update.
         checkForProtocolUpdate
 
@@ -173,11 +184,11 @@ data Callbacks = Callbacks
       -- if an unrecognized update took effect.
       notifyRegenesis :: Maybe BlockHash -> IO (),
       -- |Notify a block was added to the tree. The arguments are
-      -- the hash of the block, and its absolute height.
-      notifyBlockArrived :: Maybe (BlockHash -> AbsoluteBlockHeight -> IO ()),
+      -- the hash of the block, its absolute height and whether this node was the baker.
+      notifyBlockArrived :: Maybe (BlockHash -> AbsoluteBlockHeight -> Bool -> IO ()),
       -- |Notify a block was finalized. The arguments are the hash of the block,
-      -- and its absolute height.
-      notifyBlockFinalized :: Maybe (BlockHash -> AbsoluteBlockHeight -> IO ())
+      -- its absolute height and whether this node was the baker.
+      notifyBlockFinalized :: Maybe (BlockHash -> AbsoluteBlockHeight -> Bool -> IO ())
     }
 
 -- |Baker identity and baking thread 'MVar'.

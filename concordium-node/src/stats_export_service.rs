@@ -190,6 +190,10 @@ pub struct StatsExportService {
     pub last_arrived_block_timestamp: IntGauge,
     /// The block height of the last finalized block.
     pub last_arrived_block_height: GenericGauge<AtomicU64>,
+    /// Total number of blocks baked by the node since startup.
+    pub baked_blocks: IntCounter,
+    /// Total number of finalized blocks baked by the node since startup.
+    pub finalized_baked_blocks: IntCounter,
     /// Total number of consensus messages received. Labelled with message type
     /// (`message=<type>`) and the outcome (`result=<outcome>`).
     ///
@@ -354,6 +358,18 @@ impl StatsExportService {
         ))?;
         registry.register(Box::new(last_arrived_block_timestamp.clone()))?;
 
+        let baked_blocks = IntCounter::with_opts(Opts::new(
+            "consensus_baked_blocks_total",
+            "Total number of blocks baked by the node since startup",
+        ))?;
+        registry.register(Box::new(baked_blocks.clone()))?;
+
+        let finalized_baked_blocks = IntCounter::with_opts(Opts::new(
+            "consensus_finalized_baked_blocks_total",
+            "Total number of finalized blocks baked by the node since startup",
+        ))?;
+        registry.register(Box::new(finalized_baked_blocks.clone()))?;
+
         let received_consensus_messages = IntCounterVec::new(
             Opts::new(
                 "consensus_received_messages_total",
@@ -458,6 +474,8 @@ impl StatsExportService {
             last_finalized_block_timestamp,
             last_arrived_block_height,
             last_arrived_block_timestamp,
+            baked_blocks,
+            finalized_baked_blocks,
             received_consensus_messages,
             sent_consensus_messages,
             soft_banned_peers,
