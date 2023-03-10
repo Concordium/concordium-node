@@ -109,6 +109,6 @@ advanceRound newRound timedOut = do
             Nothing -> return () -- No bakers or finalizers could be looked up for the current 'Epoch' so we do nothing.
             Just bakersAndFinalizers -> do
                 if isJust $! isBakerFinalizer bakerId bakersAndFinalizers
-                    then -- The consensus runer is a finalizer for the current epoch then we reset the timer
+                    then -- The consensus runner is a finalizer for the current epoch then we reset the timer
                         resetTimer currentTimeout
                     else return () -- The consensus runner is not part of the finalization committee, so we don't have to do anything.
