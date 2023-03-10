@@ -11,13 +11,11 @@ import qualified Data.Vector as Vector
 import Lens.Micro.Platform
 
 import Concordium.KonsensusV1.TreeState.Implementation
-import Concordium.KonsensusV1.TreeState.LowLevel (MonadTreeStateStore (writeCurrentRoundStatus))
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.Types
 import Concordium.Types.BakerIdentity
-import Concordium.Utils
 
 -- |A Monad for multicasting timeout messages.
 class MonadMulticast m where
@@ -95,7 +93,7 @@ advanceRound newRound timedOut = do
     -- finalization committee.
     resetTimerIfFinalizer myBakerId (rsCurrentTimeout currentRoundStatus) (rsCurrentEpoch currentRoundStatus)
     -- Advance and save the round.
-    saveRoundStatus $! advanceRoundStatus newRound timedOut currentRoundStatus
+    setRoundStatus $! advanceRoundStatus newRound timedOut currentRoundStatus
     -- Make a new block if the consensus runner is leader of
     -- the 'Round' progressed to.
     makeBlockIfLeader
