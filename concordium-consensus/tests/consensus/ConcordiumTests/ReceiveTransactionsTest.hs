@@ -53,7 +53,6 @@ import qualified Concordium.GlobalState.Persistent.BlockState as BS
 import Concordium.GlobalState.Persistent.Genesis
 import Concordium.GlobalState.Persistent.TreeState
 import Concordium.GlobalState.TransactionTable
-import Concordium.GlobalState.Transactions
 import Concordium.ID.Parameters
 import Concordium.ID.Types
 import Concordium.Logger
@@ -61,6 +60,7 @@ import Concordium.Scheduler.DummyData
 import Concordium.Skov.Monad
 import Concordium.Skov.Update
 import Concordium.TimeMonad
+import qualified Concordium.TransactionVerification as TVer
 import Concordium.Types
 import Concordium.Types.AnonymityRevokers
 import Concordium.Types.Execution
@@ -298,7 +298,7 @@ testDoReceiveTransactionInternal trs slot = do
     bs <- queryBlockState =<< lastFinalizedBlock
     mapM
         ( \tr ->
-            doReceiveTransactionInternal Block bs tr (utcTimeToTimestamp theTime) slot
+            doReceiveTransactionInternal TVer.Block bs tr (utcTimeToTimestamp theTime) slot
                 >>= (\res -> pure (wmdHash tr, snd res))
         )
         trs

@@ -821,7 +821,7 @@ instance
                 -- Verifying the transaction here as opposed to `doReceiveTransactionInternal` avoids
                 -- reverifying a transaction which was received both individually and as part of a block.
                 verRes <- runTransactionVerifierT (TVer.verify ts bi) verResCtx
-                if TVer.definitelyNotValid verRes $! (verResCtx ^. ctxTransactionOrigin) == Block
+                if TVer.definitelyNotValid verRes $ verResCtx ^. ctxTransactionOrigin
                     then return $ NotAdded verRes
                     else do
                         -- Finalized credentials are not present in the transaction table, so we

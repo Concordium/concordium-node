@@ -625,7 +625,7 @@ doReceiveBlock pb@GB.PendingBlock{pbBlock = BakedBlock{..}, ..} =
             sequence
                 <$> forM
                     (blockTransactions pb)
-                    (\tr -> fst <$> doReceiveTransactionInternal Block contextState tr slotTime (blockSlot pb))
+                    (\tr -> fst <$> doReceiveTransactionInternal TV.Block contextState tr slotTime (blockSlot pb))
         forM (unzip <$> txListWithVerRes) $ \(newTransactions, verificationResults) -> do
             purgeTransactionTable False =<< currentTime
             let block1 = GB.PendingBlock{pbBlock = BakedBlock{bbTransactions = newTransactions, ..}, ..}
@@ -728,7 +728,7 @@ doExecuteBlock (VerifiedPendingBlock pb) = do
             sequence
                 <$> forM
                     (blockTransactions pb)
-                    (\tr -> fst <$> doReceiveTransactionInternal Block contextState tr slotTime (blockSlot pb))
+                    (\tr -> fst <$> doReceiveTransactionInternal TV.Block contextState tr slotTime (blockSlot pb))
         forM (unzip <$> txListWithVerRes) $ \(newTransactions, verificationResults) -> do
             purgeTransactionTable False =<< currentTime
             -- We wrap the processed transactions within the pending block as processing
@@ -791,7 +791,7 @@ doReceiveTransaction ::
 doReceiveTransaction tr = unlessShutDown $ do
     now <- currentTime
     state <- blockState . fst =<< getLastFinalized
-    ur <- snd <$> doReceiveTransactionInternal Individual state tr (utcTimeToTimestamp now) 0
+    ur <- snd <$> doReceiveTransactionInternal TV.Individual state tr (utcTimeToTimestamp now) 0
     when (ur == ResultSuccess) $ purgeTransactionTable False =<< currentTime
     return ur
 
@@ -845,7 +845,7 @@ doAddPreverifiedTransaction blockItem okRes = do
 --
 -- The function returns the 'BlockItem' if it was "successfully verified" and added to the transaction table.
 -- Note. "Successfully verified" depends on the 'TransactionOrigin', see 'definitelyNotValid' below for details.
-doReceiveTransactionInternal :: (TreeStateMonad m) => TransactionOrigin -> BlockState m -> BlockItem -> Timestamp -> Slot -> m (Maybe (BlockItem, Maybe TV.VerificationResult), UpdateResult)
+doReceiveTransactionInternal :: (TreeStateMonad m) => TV.TransactionOrigin -> BlockState m -> BlockItem -> Timestamp -> Slot -> m (Maybe (BlockItem, Maybe TV.VerificationResult), UpdateResult)
 doReceiveTransactionInternal origin verifyBs tr ts slot = do
     ctx <- getVerificationCtx verifyBs
     addCommitTransaction tr ctx ts slot >>= \case
@@ -872,8 +872,8 @@ doReceiveTransactionInternal origin verifyBs tr ts slot = do
                     -- Hence to maintain the invariant we have to inform the pending table what the next available nonce is in the focus block.
                     let add nextNonce = putPendingTransactions $! addPendingTransaction nextNonce WithMetadata{wmdData = tx, ..} ptrs
                     case origin of
-                        Individual -> add $ transactionNonce tx
-                        Block -> do
+                        TV.Individual -> add $ transactionNonce tx
+                        TV.Block -> do
                             focus <- getFocusBlock
                             st <- blockState focus
                             macct <- getAccount st $! transactionSender tx

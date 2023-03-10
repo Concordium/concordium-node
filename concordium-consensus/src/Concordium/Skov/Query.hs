@@ -140,7 +140,7 @@ doVerifyTransaction bi =
         Nothing -> do
             gd <- getGenesisData
             lfState <- blockState . fst =<< getLastFinalized
-            let verResCtx = Context lfState (gdMaxBlockEnergy gd) Individual
+            let verResCtx = Context lfState (gdMaxBlockEnergy gd) TV.Individual
             ts <- utcTimeToTimestamp <$> currentTime
             verRes <- runTransactionVerifierT (TV.verify ts bi) verResCtx
             return (False, verRes)

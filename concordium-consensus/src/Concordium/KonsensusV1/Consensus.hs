@@ -74,7 +74,7 @@ addPendingTransaction ::
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m)
     ) =>
     -- |Origin of the transaction.
-    TransactionOrigin ->
+    TVer.TransactionOrigin ->
     -- |The transaction.
     BlockItem ->
     m ()
@@ -84,7 +84,7 @@ addPendingTransaction origin bi = do
             fbState <- bpState <$> (_focusBlock <$> gets' _skovPendingTransactions)
             macct <- getAccount fbState $! transactionSender tx
             nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
-            when (nextNonce <= transactionNonce tx || origin == Individual) $ do
+            when (nextNonce <= transactionNonce tx || origin == TVer.Individual) $ do
                 pendingTransactionTable %=! TT.addPendingTransaction nextNonce tx
                 purgeTransactionTable False =<< currentTime
         CredentialDeployment _ -> do
@@ -93,7 +93,7 @@ addPendingTransaction origin bi = do
         ChainUpdate cu -> do
             fbState <- bpState <$> (_focusBlock <$> gets' _skovPendingTransactions)
             nextSN <- getNextUpdateSequenceNumber fbState (updateType (uiPayload cu))
-            when (nextSN <= updateSeqNumber (uiHeader cu) || origin == Individual) $ do
+            when (nextSN <= updateSeqNumber (uiHeader cu) || origin == TVer.Individual) $ do
                 pendingTransactionTable %=! TT.addPendingUpdate nextSN cu
                 purgeTransactionTable False =<< currentTime
   where
@@ -135,7 +135,7 @@ processBlockItem bi = do
         added <- addTransaction 0 bi $! TVer.Ok okRes
         if added
             then do
-                addPendingTransaction Individual bi
+                addPendingTransaction TVer.Individual bi
                 return $! Added bi $! TVer.Ok okRes
             else -- If the transaction was not added it means it contained an old nonce.
                 return ObsoleteNonce
@@ -145,7 +145,7 @@ processBlockItem bi = do
         _ctxBs <- bpState <$> gets' _lastFinalized
         chainParams <- Concordium.GlobalState.BlockState.getChainParameters _ctxBs
         let _ctxMaxBlockEnergy = chainParams ^. cpConsensusParameters . cpBlockEnergyLimit
-        return $! Context{_ctxTransactionOrigin = Individual, ..}
+        return $! Context{_ctxTransactionOrigin = TVer.Individual, ..}
     -- 'TransactionHash' of the transaction we're processing.
     txHash = getHash bi
 
@@ -181,7 +181,7 @@ processBlockItems bb parentPointer = process $! bbTransactions bb
         let _ctxBs = bpState parentPointer
         chainParams <- Concordium.GlobalState.BlockState.getChainParameters _ctxBs
         let _ctxMaxBlockEnergy = chainParams ^. cpConsensusParameters . cpBlockEnergyLimit
-        return $! Context{_ctxTransactionOrigin = Block, ..}
+        return $! Context{_ctxTransactionOrigin = TVer.Block, ..}
     theRound = bbRound bb
     theTime = bbTimestamp bb
     -- Process the vector of transactions recursively.
@@ -222,4 +222,4 @@ processBlockItems bb parentPointer = process $! bbTransactions bb
                                 -- The transaction was added to the tree state,
                                 -- so add it to the pending table if it's eligible (see documentation for
                                 -- 'addPendingTransaction') and continue processing the remaining ones.
-                                True -> addPendingTransaction Block bi >> process (Vector.tail txs)
+                                True -> addPendingTransaction TVer.Block bi >> process (Vector.tail txs)

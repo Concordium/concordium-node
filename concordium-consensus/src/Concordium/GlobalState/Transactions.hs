@@ -59,12 +59,6 @@ data AddTransactionResult
       NotAdded !TVer.VerificationResult
     deriving (Eq, Show)
 
--- |Type for describing the origin of the transaction.
--- The transaction can either arrive at the consensus individually,
--- or the transaction can be received as part of a block.
-data TransactionOrigin = Individual | Block
-    deriving (Eq, Show)
-
 -- |The Context that a transaction is verified within
 -- in the reader based instance.
 -- The `Context` contains the `BlockState`, the maximum energy of a block and
@@ -77,10 +71,12 @@ data TransactionOrigin = Individual | Block
 -- the actual verification is carried out within `addCommitTransaction` when it has been checked
 -- that the transaction does not already exist in the `TransactionTable`.
 data Context t = Context
-    { _ctxBs :: t,
+    { -- |The block state
+      _ctxBs :: t,
+      -- |The max block energy.
       _ctxMaxBlockEnergy :: !Energy,
       -- |Whether the transaction was received from a block or individually.
-      _ctxTransactionOrigin :: !TransactionOrigin
+      _ctxTransactionOrigin :: !TVer.TransactionOrigin
     }
 
 makeLenses ''Context
@@ -156,10 +152,10 @@ instance
         -- Otherwise if the transaction was received individually then we
         -- check the transaction table for the nonce.
         view ctxTransactionOrigin >>= \case
-            Individual -> do
+            TVer.Individual -> do
                 aaddr <- lift $ getAccountCanonicalAddress acc
                 lift $ fst <$> getNextAccountNonce (accountAddressEmbed aaddr)
-            Block -> lift $ getAccountNonce acc
+            TVer.Block -> lift $ getAccountNonce acc
     {-# INLINE getAccountVerificationKeys #-}
     getAccountVerificationKeys = lift . getAccountVerificationKeys
     {-# INLINE energyToCcd #-}
@@ -170,4 +166,4 @@ instance
     {-# INLINE getMaxBlockEnergy #-}
     getMaxBlockEnergy = view ctxMaxBlockEnergy
     {-# INLINE checkExactNonce #-}
-    checkExactNonce = (== Individual) <$> view ctxTransactionOrigin
+    checkExactNonce = (== TVer.Individual) <$> view ctxTransactionOrigin
