@@ -9,11 +9,11 @@
 
 module Concordium.KonsensusV1.Types where
 
-import Data.Maybe (isJust)
 import Control.Monad
 import Data.Bits
 import qualified Data.ByteString as BS
 import qualified Data.Map.Strict as Map
+import Data.Maybe (isJust)
 import Data.Serialize
 import qualified Data.Set as Set
 import qualified Data.Vector as Vector
@@ -153,12 +153,11 @@ data QuorumMessage = QuorumMessage
 getQuorumSignatureMessage :: BlockHash -> QuorumMessage -> QuorumSignatureMessage
 getQuorumSignatureMessage genesisHash QuorumMessage{..} =
     QuorumSignatureMessage
-    {
-      qsmGenesis = genesisHash,
-      qsmBlock = qmBlock,
-      qsmRound = qmRound,
-      qsmEpoch = qmEpoch
-    }
+        { qsmGenesis = genesisHash,
+          qsmBlock = qmBlock,
+          qsmRound = qmRound,
+          qsmEpoch = qmEpoch
+        }
 
 instance Serialize QuorumMessage where
     put QuorumMessage{..} = do

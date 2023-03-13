@@ -21,6 +21,7 @@ import Concordium.Types.BakerIdentity
 class MonadMulticast m where
     -- |Multicast a timeout message over the network.
     sendTimeoutMessage :: TimeoutMessage -> m ()
+
     -- |Multicast a quorum signature message over the network.
     sendQuorumMessage :: QuorumMessage -> m ()
 
