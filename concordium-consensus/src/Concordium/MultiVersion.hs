@@ -92,6 +92,14 @@ instance
     ) =>
     Skov.HandlerConfigHandlers UpdateHandler (VersionedSkovM fc pv)
     where
+    -- Notice that isHomeBaked (in the code below) represents whether this block is baked by the
+    -- baker ID of this node and it could be the case that the block was not baked by this node,
+    -- if another node using the same baker ID.
+    -- The information is used to count the number of baked blocks exposed by a prometheus metric,
+    -- which alternatively could be implemented by observing the broadcastBlock callback, which
+    -- would make it independent of the baker ID. However, The broadcastBlock callback cannot be
+    -- used for counting finalized baked blocks, so for simplicity and consistency the current
+    -- approach depending on baker ID was chosen.
     handleBlock bp = liftSkov $ do
         lift (asks (notifyBlockArrived . mvCallbacks)) >>= \case
             Nothing -> return ()
@@ -102,11 +110,17 @@ instance
                         case Vec.last versions of
                             EVersionedConfiguration vc -> vcGenesisHeight vc
                 let height = localToAbsoluteBlockHeight latestEraGenesisHeight (bpHeight bp)
-                ownBaker <- lift (asks (fmap (bakerId . bakerIdentity) . mvBaker))
-                let isHomeBaked = case ownBaker of
+                nodeBakerIdMaybe <- lift (asks (fmap (bakerId . bakerIdentity) . mvBaker))
+                let isHomeBaked = case nodeBakerIdMaybe of
                         Nothing -> False
-                        Just ourBakerId -> Just ourBakerId == (blockBaker <$> blockFields (_bpBlock bp))
+                        Just nodeBakerId -> Just nodeBakerId == (blockBaker <$> blockFields (_bpBlock bp))
                 liftIO (notifyCallback (bpHash bp) height isHomeBaked)
+
+    -- Notice that isHomeBaked (in the code below) represents whether this block is baked by the
+    -- baker ID of this node and it could be the case that the block was not baked by this node,
+    -- if another node using the same baker ID.
+    -- The information is used to count the number of finalized baked blocks exposed by a prometheus
+    -- metric.
     handleFinalize _ lfbp bps = liftSkov $ do
         lift (asks (notifyBlockFinalized . mvCallbacks)) >>= \case
             Nothing -> return ()
@@ -117,15 +131,15 @@ instance
                 let latestEraGenesisHeight =
                         case Vec.last versions of
                             EVersionedConfiguration vc -> vcGenesisHeight vc
-                myBakerIdMaybe <- lift (asks (fmap (bakerId . bakerIdentity) . mvBaker))
+                nodeBakerIdMaybe <- lift (asks (fmap (bakerId . bakerIdentity) . mvBaker))
                 forM_ (reverse bps) $ \bp -> do
                     let height = localToAbsoluteBlockHeight latestEraGenesisHeight (bpHeight bp)
-                    let isHomeBaked = case myBakerIdMaybe of
+                    let isHomeBaked = case nodeBakerIdMaybe of
                             Nothing -> False
-                            Just myBakerId -> Just myBakerId == (blockBaker <$> blockFields (_bpBlock bp))
+                            Just nodeBakerId -> Just nodeBakerId == (blockBaker <$> blockFields (_bpBlock bp))
                     liftIO (notifyCallback (bpHash bp) height isHomeBaked)
                 let height = localToAbsoluteBlockHeight latestEraGenesisHeight (bpHeight lfbp)
-                let isHomeBaked = case myBakerIdMaybe of
+                let isHomeBaked = case nodeBakerIdMaybe of
                         Nothing -> False
                         Just myBakerId -> Just myBakerId == (blockBaker <$> blockFields (_bpBlock lfbp))
                 liftIO (notifyCallback (bpHash lfbp) height isHomeBaked)
