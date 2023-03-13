@@ -286,8 +286,8 @@ dummyEpochBakers = EpochBakers 0 bf bf bf 1
 -- tests we are carrying out in this module it could be any genesis metadata
 --
 -- The initial 'RoundStatus' for the 'SkovData pv' is configured with
--- 'rsCurrentTimeout' set to 10 seconds and the 'rsLeadershipElectionNonce' is
--- the 'dummyLeadershipElectionNonce'.
+-- the 'rsLeadershipElectionNonce' set to 'dummyLeadershipElectionNonce'.
+-- The initial timeout duration is set to 10 seconds.
 -- However these are just dummy values and can be replaced with other values,
 -- i.e. they have no effect on the tests being run with the 'dummyInitialSkovData'.
 --

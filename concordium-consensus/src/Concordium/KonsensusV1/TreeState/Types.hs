@@ -230,8 +230,6 @@ data RoundStatus = RoundStatus
       -- |If the consensus runner is part of the finalization committee,
       -- then this will yield the last signed timeout message.
       rsLastSignedTimeoutSignatureMessage :: !(Option TimeoutSignatureMessage),
-      -- |The current timeout.
-      rsCurrentTimeout :: !Duration,
       -- |The highest 'QuorumCertificate' seen so far.
       -- This is 'Nothing' if no rounds since genesis has
       -- been able to produce a 'QuorumCertificate'.
@@ -258,7 +256,6 @@ instance Serialize RoundStatus where
         put rsCurrentTimeoutSignatureMessages
         put rsLastSignedQuourumSignatureMessage
         put rsLastSignedTimeoutSignatureMessage
-        put rsCurrentTimeout
         put rsHighestQC
         put rsLeadershipElectionNonce
         put rsLatestEpochFinEntry
@@ -270,7 +267,6 @@ instance Serialize RoundStatus where
         rsCurrentTimeoutSignatureMessages <- get
         rsLastSignedQuourumSignatureMessage <- get
         rsLastSignedTimeoutSignatureMessage <- get
-        rsCurrentTimeout <- get
         rsHighestQC <- get
         rsLeadershipElectionNonce <- get
         rsLatestEpochFinEntry <- get
@@ -278,8 +274,8 @@ instance Serialize RoundStatus where
         return RoundStatus{..}
 
 -- |The 'RoundStatus' for consensus at genesis.
-initialRoundStatus :: Duration -> LeadershipElectionNonce -> RoundStatus
-initialRoundStatus baseTimeout leNonce =
+initialRoundStatus :: LeadershipElectionNonce -> RoundStatus
+initialRoundStatus leNonce =
     RoundStatus
         { rsCurrentEpoch = 0,
           rsCurrentRound = 0,
@@ -287,7 +283,6 @@ initialRoundStatus baseTimeout leNonce =
           rsCurrentTimeoutSignatureMessages = emptySignatureMessages,
           rsLastSignedQuourumSignatureMessage = Absent,
           rsLastSignedTimeoutSignatureMessage = Absent,
-          rsCurrentTimeout = baseTimeout,
           rsHighestQC = Absent,
           rsLeadershipElectionNonce = leNonce,
           rsLatestEpochFinEntry = Absent,

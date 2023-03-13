@@ -2,12 +2,17 @@
 
 module Concordium.KonsensusV1.Consensus.Finality where
 
+import Control.Monad.Catch
 import Control.Monad.State
+import qualified Data.List as List
+import qualified Data.Sequence as Seq
 import Lens.Micro.Platform
 
 import Concordium.TimeMonad
 import Concordium.Types
 import Concordium.Types.HashableTo
+import Concordium.Types.Parameters hiding (getChainParameters)
+import Concordium.Types.SeedState
 import Concordium.Utils
 
 import Concordium.GlobalState.BlockState
@@ -18,11 +23,6 @@ import Concordium.KonsensusV1.TreeState.Implementation
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
-import Control.Monad.Catch
-import Data.Foldable
-import qualified Data.HashMap.Strict as HM
-import qualified Data.List as List
-import qualified Data.Sequence as Seq
 
 -- |Check if a valid quorum certificate finalizes a block. If so, the block and its ancestors
 -- are finalized, the tree is pruned to the decendants of the new last finalized block, and,
@@ -30,7 +30,18 @@ import qualified Data.Sequence as Seq
 --
 -- PRECONDITION: the quorum certificate is valid and for a live (non-finalized) block. (If the
 -- block is not live, this function will not make any change to the state, and will not error.)
-checkFinality :: (MonadState (SkovData (MPV m)) m) => QuorumCertificate -> m ()
+checkFinality ::
+    ( MonadState (SkovData (MPV m)) m,
+      TimeMonad m,
+      MonadIO m,
+      LowLevel.MonadTreeStateStore m,
+      BlockStateStorage m,
+      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
+      MonadThrow m,
+      IsConsensusV1 (MPV m)
+    ) =>
+    QuorumCertificate ->
+    m ()
 checkFinality qc = do
     sd <- get
     case getMemoryBlockStatus (qcBlock qc) sd of
@@ -43,7 +54,19 @@ checkFinality qc = do
 --
 -- PRECONDITION: the quorum certificate is valid and for the supplied block, which is live
 -- (and not finalized).
-checkFinalityWithBlock :: (MonadState (SkovData (MPV m)) m) => QuorumCertificate -> BlockPointer (MPV m) -> m ()
+checkFinalityWithBlock ::
+    ( MonadState (SkovData (MPV m)) m,
+      TimeMonad m,
+      MonadIO m,
+      LowLevel.MonadTreeStateStore m,
+      BlockStateStorage m,
+      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
+      MonadThrow m,
+      IsConsensusV1 (MPV m)
+    ) =>
+    QuorumCertificate ->
+    BlockPointer (MPV m) ->
+    m ()
 checkFinalityWithBlock qc blockPtr
     | NormalBlock block <- bpBlock blockPtr,
       let parentQC = blockQuorumCertificate block,
@@ -55,9 +78,25 @@ checkFinalityWithBlock qc blockPtr
                       feSuccessorQuorumCertificate = qc,
                       feSuccessorProof = getHash (sbBlock block)
                     }
-        undefined
+        processFinalization blockPtr newFinalizationEntry
+        chainParams <- getChainParameters (bpState blockPtr)
+        let timeoutParams = chainParams ^. cpConsensusParameters . cpTimeoutParameters
+            updateTimeout cur = max (timeoutParams ^. tpTimeoutBase) grow
+              where
+                grow =
+                    Duration . ceiling $
+                        toRational (timeoutParams ^. tpTimeoutIncrease) * toRational cur
+        currentTimeout %= updateTimeout
+        curEpoch <- use $ roundStatus . to rsCurrentEpoch
+        when (curEpoch <= blockEpoch blockPtr) $ do
+            seedState <- getSeedState (bpState blockPtr)
+            when (seedState ^. epochTransitionTriggered) $
+                -- TODO: advanceEpoch
+                return ()
     | otherwise = return ()
 
+-- |Process the finalization of a block. The block must be live (not finalized) and the finalization
+-- entry must be a valid finalization entry for the block.
 processFinalization ::
     ( MonadState (SkovData (MPV m)) m,
       TimeMonad m,
@@ -79,18 +118,22 @@ processFinalization newFinalizedBlock newFinalizationEntry = do
     -- If not, we shift the focus block to be the new finalized block, which ensures that the focus
     -- block will be a live/finalized block after the finalization and pruning.
     unless focusBlockSurvives $ updateFocusBlockTo newFinalizedBlock
-
+    -- From the branches, compute the new finalized blocks, the removed blocks and the new updated
+    -- branches.
     oldLastFinalized <- use lastFinalized
     let deltaHeight = fromIntegral $ blockHeight newFinalizedBlock - blockHeight oldLastFinalized
     parent <- gets parentOfLive
     oldBranches <- use branches
     let PruneResult{..} = pruneBranches parent newFinalizedBlock deltaHeight oldBranches
-
     -- Archive the state of the last finalized block and all newly finalized blocks
     -- excluding the new last finalized block.
     mapM_ (archiveBlockState . bpState) (init (oldLastFinalized : prFinalized))
-    blockTable . liveMap %=! flip (foldr' (HM.delete . getHash)) prFinalized
-    mapM_ (removeTransactions . blockTransactions) prFinalized
+    -- Remove the blocks from the live block table.
+    markLiveBlocksFinal prFinalized
+    -- Finalize the transactions in the in-memory transaction table.
+    mapM_ (finalizeTransactions . blockTransactions) prFinalized
+    -- Store the blocks and finalization entry in the low-level tree state database, including
+    -- indexing the finalized transactions.
     let makeStoredBlock blockPtr = do
             statePointer <- saveBlockState (bpState blockPtr)
             return
@@ -101,15 +144,13 @@ processFinalization newFinalizedBlock newFinalizationEntry = do
                     }
     storedBlocks <- mapM makeStoredBlock prFinalized
     LowLevel.writeBlocks storedBlocks newFinalizationEntry
-
-    forM_ prRemoved $ \removedBlock -> do
-        markBlockDead (getHash removedBlock)
-        purgeBlockState (bpState removedBlock)
-        mapM_ (markTransactionDead (getHash removedBlock)) (blockTransactions removedBlock)
-
+    -- Mark the removed blocks as dead, including purging their block states and updating the
+    -- transaction table accordingly.
+    forM_ prRemoved markLiveBlockDead
+    -- Update the branches to reflect the pruning.
     branches .= prNewBranches
-
--- TODO: purge the pending blocks.
+    -- Purge any pending blocks that are no longer viable.
+    purgePending
 
 data PruneResult a = PruneResult
     { prRemoved :: [a],
@@ -142,3 +183,26 @@ pruneBranches parent newFin deltaHeight oldBranches = PruneResult{..}
         (newSurvivors, newRemoved) = List.partition ((`elem` parents) . parent) brs
     (removedFromBranches, prNewBranches) = pruneLimbs [] [newFin] Seq.Empty limbs
     prRemoved = removedFromTrunk ++ removedFromBranches
+
+-- |Given a block that has never been live, mark the block as dead.
+-- Any pending children will also be marked dead recursively.
+blockArriveDead :: MonadState (SkovData pv) m => BlockHash -> m ()
+blockArriveDead blockHsh = do
+    markBlockDead blockHsh
+    children <- takePendingChildren blockHsh
+    forM_ children (blockArriveDead . getHash)
+
+-- |Purge pending blocks with timestamps preceding the last finalized block.
+purgePending :: (MonadState (SkovData pv) m) => m ()
+purgePending = do
+    lfTimestamp <- use $ lastFinalized . to blockTimestamp
+    let purgeLoop =
+            takeNextPendingUntil lfTimestamp >>= \case
+                Nothing -> return ()
+                Just pending -> do
+                    let pendingHash = getHash pending
+                    blockIsPending <- gets (isPending pendingHash)
+                    when blockIsPending $ blockArriveDead pendingHash
+                    purgeLoop
+    purgeLoop
+    return ()
