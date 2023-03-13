@@ -96,7 +96,7 @@ instance
     -- baker ID of this node and it could be the case that the block was not baked by this node,
     -- if another node using the same baker ID.
     -- The information is used to count the number of baked blocks exposed by a prometheus metric.
-    -- An alternative implementation would be to extend the @onBlock@ handler (part of @OnSkov@) 
+    -- An alternative implementation would be to extend the @onBlock@ handler (part of @OnSkov@)
     -- to take an extra argument indicating whether the block was just baked or processed as part of a received
     -- block. This would mean that only blocks baked since start by this node would be counted,
     -- not blocks received as part of catchup. However the same cannot be done for finalized blocks as easily
