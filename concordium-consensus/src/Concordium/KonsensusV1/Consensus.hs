@@ -118,21 +118,9 @@ advanceEpoch ::
     FinalizationEntry ->
     m ()
 advanceEpoch newEpoch finalizationEntry = do
-    -- Update the round status
-    newRoundStatus <- getNewRoundStatus
-    -- Write the new computed round status to the state.
-    roundStatus .= newRoundStatus
-    -- Write the new round status to disk.
-    setRoundStatus =<< use roundStatus
+    currentRoundStatus <- use roundStatus
+    let newRoundStatus = advanceRoundStatusEpoch newEpoch finalizationEntry newLeadershipElectionNonce currentRoundStatus
+    setRoundStatus newRoundStatus
   where
-    -- Get the new round status by computing the new
-    -- leadership election nonce and advancing the round status
-    -- for the provided 'Epoch'.
-    getNewRoundStatus = do
-        currentRoundStatus <- use roundStatus
-        return $! advanceRoundStatusEpoch newEpoch finalizationEntry newLeadershipElectionNonce currentRoundStatus
     -- compute the new leadership election nonce.
     newLeadershipElectionNonce = computeLeadershipElectionNonce newEpoch finalizationEntry
-                when (isJust $ finalizerByBakerId (bakersAndFinalizers ^. bfFinalizers) bakerId) $
-                    -- The consensus runner is a finalizer for the current epoch then we reset the timer
-                    resetTimer currentTimeout
