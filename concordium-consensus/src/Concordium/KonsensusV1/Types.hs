@@ -9,6 +9,7 @@
 
 module Concordium.KonsensusV1.Types where
 
+import Data.Maybe (isJust)
 import Control.Monad
 import Data.Bits
 import qualified Data.ByteString as BS
@@ -146,6 +147,18 @@ data QuorumMessage = QuorumMessage
       qmEpoch :: !Epoch
     }
     deriving (Eq, Show)
+
+-- |Get the 'QuorumSignatureMessage' from a 'BlockHash' indicating the
+-- genesis hash and a 'QuorumMessage'
+getQuorumSignatureMessage :: BlockHash -> QuorumMessage -> QuorumSignatureMessage
+getQuorumSignatureMessage genesisHash QuorumMessage{..} =
+    QuorumSignatureMessage
+    {
+      qsmGenesis = genesisHash,
+      qsmBlock = qmBlock,
+      qsmRound = qmRound,
+      qsmEpoch = qmEpoch
+    }
 
 instance Serialize QuorumMessage where
     put QuorumMessage{..} = do
@@ -1157,6 +1170,10 @@ newtype SignatureMessages a = SignatureMessages
 -- |Construct an empty 'SignatureMessages'
 emptySignatureMessages :: SignatureMessages a
 emptySignatureMessages = SignatureMessages Map.empty
+
+-- |Check whether the provided 'FinalizerIndex' is present in the @SignatureMessages a@.
+isFinalizerPresent :: FinalizerIndex -> SignatureMessages a -> Bool
+isFinalizerPresent finIndex SignatureMessages{..} = isJust $ smFinIdxToMessage Map.!? finIndex
 
 -- |Serialize instance for @SignatureMessages a@.
 instance (Serialize a) => Serialize (SignatureMessages a) where

@@ -19,8 +19,10 @@ import Concordium.Types.BakerIdentity
 
 -- |A Monad for multicasting timeout messages.
 class MonadMulticast m where
-    -- |Multicast a timeout message over the network
+    -- |Multicast a timeout message over the network.
     sendTimeoutMessage :: TimeoutMessage -> m ()
+    -- |Multicast a quorum signature message over the network.
+    sendQuorumMessage :: QuorumMessage -> m ()
 
 -- |A baker context containing the baker identity. Used for accessing relevant baker keys and the baker id.
 newtype BakerContext = BakerContext
