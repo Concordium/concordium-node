@@ -425,28 +425,33 @@ propSignBakedBlockDiffKey =
 propAdvanceRoundStatusFromQuorumRound :: Property
 propAdvanceRoundStatusFromQuorumRound =
     forAll genRoundStatus $ \fromRoundStatus ->
-        forAll genRound $ \toRound -> do
-            let newRoundStatus = advanceRoundStatus toRound Nothing fromRoundStatus
-            assertEqual
-                "RoundStatus current round should be advanced"
-                toRound
-                (rsCurrentRound newRoundStatus)
-            assertEqual
-                "RoundStatus current epoch should remain"
-                (rsCurrentEpoch fromRoundStatus)
-                (rsCurrentEpoch newRoundStatus)
-            assertEqual
-                "RoundStatus previous round TC should be absent"
-                Absent
-                (rsPreviousRoundTC newRoundStatus)
-            assertEqual
-                "Timeout signatures for current round should be empty"
-                emptySignatureMessages
-                (rsCurrentTimeoutSignatureMessages newRoundStatus)
-            assertEqual
-                "QC signatures for current round should be empty"
-                emptySignatureMessages
-                (rsCurrentQuorumSignatureMessages newRoundStatus)
+        forAll genRound $ \toRound ->
+            forAll genQuorumCertificate $ \highestQC -> do
+                let newRoundStatus = advanceRoundStatus toRound (Right highestQC) fromRoundStatus
+                assertEqual
+                    "RoundStatus current round should be advanced"
+                    toRound
+                    (rsCurrentRound newRoundStatus)
+                assertEqual
+                    "RoundStatus current epoch should remain"
+                    (rsCurrentEpoch fromRoundStatus)
+                    (rsCurrentEpoch newRoundStatus)
+                assertEqual
+                    "RoundStatus previous round TC should be absent"
+                    Absent
+                    (rsPreviousRoundTC newRoundStatus)
+                assertEqual
+                    "Timeout signatures for current round should be empty"
+                    emptySignatureMessages
+                    (rsCurrentTimeoutSignatureMessages newRoundStatus)
+                assertEqual
+                    "QC signatures for current round should be empty"
+                    emptySignatureMessages
+                    (rsCurrentQuorumSignatureMessages newRoundStatus)
+                assertEqual
+                    "QC signatures for current round should be empty"
+                    (Present highestQC)
+                    (rsHighestQC newRoundStatus)
 
 propAdvanceRoundStatusFromTCRound :: Property
 propAdvanceRoundStatusFromTCRound =
@@ -454,7 +459,7 @@ propAdvanceRoundStatusFromTCRound =
         forAll genTimeoutCertificate $ \tc ->
             forAll genQuorumCertificate $ \qc ->
                 forAll genRound $ \toRound -> do
-                    let tcQc = Just (tc, qc)
+                    let tcQc = Left (tc, qc)
                         newRoundStatus = advanceRoundStatus toRound tcQc fromRoundStatus
                     assertEqual
                         "RoundStatus current round should be advanced"

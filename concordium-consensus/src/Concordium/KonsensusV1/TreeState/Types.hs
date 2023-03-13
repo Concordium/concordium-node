@@ -204,42 +204,46 @@ data RoundStatus = RoundStatus
     deriving (Show, Eq)
 
 -- |Advance the provided 'RoundStatus' to the provided 'Round'.
--- If @Maybe (TimeoutCertificate, QuorumCertificate)@ is 'Nothing'
--- then the round advances as it were a decendant of 'Round' where a 'QuorumCertificate' was successfully
--- produced. Otherwise if @Just ..@ then it means that the old round timed out.
+--
+-- The consensus protocol can advance round in two ways.
+-- 1. Via a QC i.e. @Right QuorumCertificate@
+-- 2. Via a TC i.e. @Left (TimeoutCertificate, QuorumCertificate)@
+--
 -- All properties from the old 'RoundStatus' are being carried over to new 'RoundStatus'
--- except the following.
+-- except for the following.
 -- * 'rsCurrentRound' will become the provided 'Round'.
 -- * 'rsCurrentQuorumSignatureMessages' will be 'emptySignatureMessages'.
 -- * 'rsCurrentTimeoutSignatureMessages' will be 'emptySignatureMessages'.
--- * 'rsPreviousRoundTC' will be either 'Absent' (if 'Nothing'
+-- * 'rsPreviousRoundTC' will become 'Absent' if we're progressing via a 'QuorumCertificate' otherwise
+--   it will become the values of the supplied @Left (TimeoutCertificate, QuorumCertificate)@.
+-- * 'rsHighestQC' will become the supplied @Right QuorumCertificate@ otherwise it is carried over.
 advanceRoundStatus ::
     -- |The round to advance to.
     Round ->
-    -- |'Nothing' if advancing from a round
-    -- which successfully produced a 'QuorumCertificate'.
-    -- @Just (..,..)@ if advancing from a round which produced a
-    -- 'TimeoutCertificate'.
-    -- In the latter case, then 'TimeoutCertificate' provided must be
-    -- the 'TimeoutCertificate' for the round that timed out and the 'QuorumCertificate'
-    -- is the one verifing the 'TimeoutCertificate'.
-    Maybe (TimeoutCertificate, QuorumCertificate) ->
+    -- |@Left (tc, qc)@ if consensus is advancing from a TC.
+    -- @Right qc@ if consensus is advancing from a QC.
+    Either (TimeoutCertificate, QuorumCertificate) QuorumCertificate ->
     -- |The 'RoundStatus' we are advancing from.
     RoundStatus ->
     -- |The advanced 'RoundStatus'.
     RoundStatus
-advanceRoundStatus toRound mTcQc RoundStatus{..} =
+advanceRoundStatus toRound (Left (tc, qc)) RoundStatus{..} =
     RoundStatus
         { rsCurrentRound = toRound,
           rsCurrentQuorumSignatureMessages = emptySignatureMessages,
           rsCurrentTimeoutSignatureMessages = emptySignatureMessages,
-          rsPreviousRoundTC = previousRoundTC,
+          rsPreviousRoundTC = Present (tc, qc),
           ..
         }
-  where
-    previousRoundTC = case mTcQc of
-        Nothing -> Absent
-        Just (tc, qc) -> Present (tc, qc)
+advanceRoundStatus toRound (Right qc) RoundStatus{..} =
+    RoundStatus
+        { rsCurrentRound = toRound,
+          rsCurrentQuorumSignatureMessages = emptySignatureMessages,
+          rsCurrentTimeoutSignatureMessages = emptySignatureMessages,
+          rsHighestQC = Present qc,
+          rsPreviousRoundTC = Absent,
+          ..
+        }
 
 -- |Advance the proived 'RoundStatus' to the provided 'Epoch'.
 -- In particular this does the following to the provided 'RoundStatus'
