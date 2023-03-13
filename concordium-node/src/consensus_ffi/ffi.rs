@@ -328,6 +328,9 @@ pub struct NotificationContext {
     pub baked_blocks: prometheus::IntCounter,
     /// Total number of finalized blocks baked by the node since startup.
     pub finalized_baked_blocks: prometheus::IntCounter,
+    /// Indicator where a value of 1 indicates an unsupported pending protocol
+    /// update is finalized.
+    pub unsupported_pending_protocol_version: prometheus::IntGauge,
 }
 
 /// A type of callback used to notify Rust code of important events. The
@@ -339,9 +342,12 @@ pub struct NotificationContext {
 /// - block height of either the finalized block or arrived block
 /// - byte where a value of 1 indicates the block arrived/finalized was baked by
 ///   this node.
+/// - byte where a value of 1 indicates an unsupported pending protocol update
+///   is finalized. Only used when notifying a finalized block.
 ///
 /// The callback should not retain references to supplied data after the exit.
-type NotifyCallback = unsafe extern "C" fn(*mut NotificationContext, u8, *const u8, u64, u64, u8);
+type NotifyCallback =
+    unsafe extern "C" fn(*mut NotificationContext, u8, *const u8, u64, u64, u8, u8);
 
 pub struct NotificationHandlers {
     pub blocks:           futures::channel::mpsc::UnboundedReceiver<Arc<[u8]>>,
@@ -1351,6 +1357,7 @@ unsafe extern "C" fn notify_callback(
     data_len: u64,
     block_height: u64,
     home_baked: u8,
+    unsupported_pending_protocol_update: u8,
 ) {
     let sender = &*notify_context;
     let home_baked = home_baked == 1;
@@ -1382,7 +1389,9 @@ unsafe extern "C" fn notify_callback(
             if home_baked {
                 sender.finalized_baked_blocks.inc()
             }
-
+            sender
+                .unsupported_pending_protocol_version
+                .set(unsupported_pending_protocol_update as i64);
             if let Some(finalized_blocks) = &sender.finalized_blocks {
                 if finalized_blocks
                     .unbounded_send(std::slice::from_raw_parts(data_ptr, data_len as usize).into())

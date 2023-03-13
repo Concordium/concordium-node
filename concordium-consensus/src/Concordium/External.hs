@@ -327,31 +327,40 @@ type NotifyCallback =
     Word64 ->
     -- |Byte where a value of 1 indicates the block arrived/finalized was baked by this node.
     Word8 ->
+    -- |Byte where a value of 1 indicates an unsupported pending protocol update is finalized.
+    -- Only used when notifying a finalized block.
+    Word8 ->
     IO ()
 
 foreign import ccall "dynamic" callNotifyCallback :: FunPtr NotifyCallback -> NotifyCallback
 
--- |Serialize the provided arguments (block hash, absolute block height and whether it was baked by
--- the node) into an appropriate Proto message, and invoke the provided FFI callback.
-mkNotifyBlockArrived :: (Word8 -> Ptr Word8 -> Word64 -> Word64 -> Word8 -> IO ()) -> BlockHash -> AbsoluteBlockHeight -> Bool -> IO ()
+-- |Serialize the provided arguments (block hash, absolute block height) into an appropriate Proto
+-- message, and invoke the provided FFI callback with the additional arguments providing the rust layer:
+-- block height and whether it was baked by the node.
+-- The last argument for @f@ is only used when notifying a finalized block and we just pass a value
+-- of 0.
+mkNotifyBlockArrived :: (Word8 -> Ptr Word8 -> Word64 -> Word64 -> Word8 -> Word8 -> IO ()) -> BlockHash -> AbsoluteBlockHeight -> Bool -> IO ()
 mkNotifyBlockArrived f = \bh height isHomeBaked -> do
     let msg :: Proto.ArrivedBlockInfo = Proto.make $ do
             ProtoFields.hash . ProtoFields.value .= S.encode bh
             ProtoFields.height . ProtoFields.value .= fromIntegral height
     let isHomeBakedByte = if isHomeBaked then 1 else 0
     BS.unsafeUseAsCStringLen (Proto.encodeMessage msg) $ \(cPtr, len) -> do
-        f 0 (castPtr cPtr) (fromIntegral len) (fromIntegral height) isHomeBakedByte
+        f 0 (castPtr cPtr) (fromIntegral len) (fromIntegral height) isHomeBakedByte 0
 
--- |Serialize the provided arguments (block hash, block height and whether it was baked by the node)
--- into an appropriate Proto message, and invoke the provided FFI callback.
-mkNotifyBlockFinalized :: (Word8 -> Ptr Word8 -> Word64 -> Word64 -> Word8 -> IO ()) -> BlockHash -> AbsoluteBlockHeight -> Bool -> IO ()
-mkNotifyBlockFinalized f = \bh height isHomeBaked -> do
+-- |Serialize the provided arguments (block hash, block height) into an appropriate Proto message,
+-- and invoke the provided FFI callback with the additional arguments providing the rust layer:
+-- block height, whether it was baked by the node and whether there are now a unsupported pending
+-- protocol updates.
+mkNotifyBlockFinalized :: (Word8 -> Ptr Word8 -> Word64 -> Word64 -> Word8 -> Word8 -> IO ()) -> BlockHash -> AbsoluteBlockHeight -> Bool -> Bool -> IO ()
+mkNotifyBlockFinalized f = \bh height isHomeBaked haveUnsupportedUpdate -> do
     let msg :: Proto.FinalizedBlockInfo = Proto.make $ do
             ProtoFields.hash . ProtoFields.value .= S.encode bh
             ProtoFields.height . ProtoFields.value .= fromIntegral height
     let isHomeBakedByte = if isHomeBaked then 1 else 0
+    let haveUnsupportedUpdateByte = if haveUnsupportedUpdate then 1 else 0
     BS.unsafeUseAsCStringLen (Proto.encodeMessage msg) $ \(cPtr, len) -> do
-        f 1 (castPtr cPtr) (fromIntegral len) (fromIntegral height) isHomeBakedByte
+        f 1 (castPtr cPtr) (fromIntegral len) (fromIntegral height) isHomeBakedByte haveUnsupportedUpdateByte
 
 -- |Start up an instance of Skov without starting the baker thread.
 -- If an error occurs starting Skov, the error will be logged and

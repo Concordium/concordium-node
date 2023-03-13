@@ -226,3 +226,9 @@ Blocks received as part of catchup are also counted, when the block was baked by
 Total number of finalized blocks baked by the node since startup.
 
 Finalized blocks received as part of catchup are also counted, when the block was baked by the same baker ID as the node is configured with.
+
+### `consensus_unsupported_pending_protocol_version`
+
+Indicator where a value of 1 indicates an unsupported pending protocol update. If this is ever showing 1 make sure to update your node otherwise it will shutdown itself at the effective time of the protocol update.
+
+This metric is intended for setting up alerts to catch outdated nodes.

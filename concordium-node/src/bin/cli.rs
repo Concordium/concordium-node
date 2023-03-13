@@ -104,6 +104,10 @@ async fn main() -> anyhow::Result<()> {
             last_arrived_block_timestamp: node.stats.last_arrived_block_timestamp.clone(),
             baked_blocks: node.stats.baked_blocks.clone(),
             finalized_baked_blocks: node.stats.finalized_baked_blocks.clone(),
+            unsupported_pending_protocol_version: node
+                .stats
+                .unsupported_pending_protocol_version
+                .clone(),
         };
         let notification_handlers = ffi::NotificationHandlers {
             blocks:           receiver_blocks,
@@ -120,6 +124,10 @@ async fn main() -> anyhow::Result<()> {
             last_arrived_block_timestamp: node.stats.last_arrived_block_timestamp.clone(),
             baked_blocks: node.stats.baked_blocks.clone(),
             finalized_baked_blocks: node.stats.finalized_baked_blocks.clone(),
+            unsupported_pending_protocol_version: node
+                .stats
+                .unsupported_pending_protocol_version
+                .clone(),
         };
         (Some(notify_context), None)
     } else {
