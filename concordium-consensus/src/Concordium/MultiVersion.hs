@@ -95,11 +95,13 @@ instance
     -- Notice that isHomeBaked (in the code below) represents whether this block is baked by the
     -- baker ID of this node and it could be the case that the block was not baked by this node,
     -- if another node using the same baker ID.
-    -- The information is used to count the number of baked blocks exposed by a prometheus metric,
-    -- which alternatively could be implemented by observing the broadcastBlock callback, which
-    -- would make it independent of the baker ID. However, The broadcastBlock callback cannot be
-    -- used for counting finalized baked blocks, so for simplicity and consistency the current
-    -- approach depending on baker ID was chosen.
+    -- The information is used to count the number of baked blocks exposed by a prometheus metric.
+    -- An alternative implementation would be to extend the @onBlock@ handler (part of @OnSkov@) 
+    -- to take an extra argument indicating whether the block was just baked or processed as part of a received
+    -- block. This would mean that only blocks baked since start by this node would be counted,
+    -- not blocks received as part of catchup. However the same cannot be done for finalized blocks as easily
+    -- and so for consistency between these two methods we chose to also count blocks received as part of catchup
+    -- in both.
     handleBlock bp = liftSkov $ do
         lift (asks (notifyBlockArrived . mvCallbacks)) >>= \case
             Nothing -> return ()
