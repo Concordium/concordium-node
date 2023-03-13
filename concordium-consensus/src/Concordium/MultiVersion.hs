@@ -47,7 +47,7 @@ import Concordium.Afgjort.Finalize.Types
 import Concordium.Birk.Bake
 import Concordium.GlobalState
 import Concordium.GlobalState.Block
-import Concordium.GlobalState.BlockPointer (BlockPointerData (..))
+import Concordium.GlobalState.BlockPointer (BlockPointer (..), BlockPointerData (..))
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.TreeState (PVInit (..), TreeStateMonad (getLastFinalizedHeight))
@@ -92,6 +92,16 @@ instance
     ) =>
     Skov.HandlerConfigHandlers UpdateHandler (VersionedSkovM fc pv)
     where
+    -- Notice that isHomeBaked (in the code below) represents whether this block is baked by the
+    -- baker ID of this node and it could be the case that the block was not baked by this node,
+    -- if another node using the same baker ID.
+    -- The information is used to count the number of baked blocks exposed by a prometheus metric.
+    -- An alternative implementation would be to extend the @onBlock@ handler (part of @OnSkov@)
+    -- to take an extra argument indicating whether the block was just baked or processed as part of a received
+    -- block. This would mean that only blocks baked since start by this node would be counted,
+    -- not blocks received as part of catchup. However the same cannot be done for finalized blocks as easily
+    -- and so for consistency between these two methods we chose to also count blocks received as part of catchup
+    -- in both.
     handleBlock bp = liftSkov $ do
         lift (asks (notifyBlockArrived . mvCallbacks)) >>= \case
             Nothing -> return ()
@@ -102,7 +112,17 @@ instance
                         case Vec.last versions of
                             EVersionedConfiguration vc -> vcGenesisHeight vc
                 let height = localToAbsoluteBlockHeight latestEraGenesisHeight (bpHeight bp)
-                liftIO (notifyCallback (bpHash bp) height)
+                nodeBakerIdMaybe <- lift (asks (fmap (bakerId . bakerIdentity) . mvBaker))
+                let isHomeBaked = case nodeBakerIdMaybe of
+                        Nothing -> False
+                        Just nodeBakerId -> Just nodeBakerId == (blockBaker <$> blockFields (_bpBlock bp))
+                liftIO (notifyCallback (bpHash bp) height isHomeBaked)
+
+    -- Notice that isHomeBaked (in the code below) represents whether this block is baked by the
+    -- baker ID of this node and it could be the case that the block was not baked by this node,
+    -- if another node using the same baker ID.
+    -- The information is used to count the number of finalized baked blocks exposed by a prometheus
+    -- metric.
     handleFinalize _ lfbp bps = liftSkov $ do
         lift (asks (notifyBlockFinalized . mvCallbacks)) >>= \case
             Nothing -> return ()
@@ -113,11 +133,18 @@ instance
                 let latestEraGenesisHeight =
                         case Vec.last versions of
                             EVersionedConfiguration vc -> vcGenesisHeight vc
+                nodeBakerIdMaybe <- lift (asks (fmap (bakerId . bakerIdentity) . mvBaker))
                 forM_ (reverse bps) $ \bp -> do
                     let height = localToAbsoluteBlockHeight latestEraGenesisHeight (bpHeight bp)
-                    liftIO (notifyCallback (bpHash bp) height)
+                    let isHomeBaked = case nodeBakerIdMaybe of
+                            Nothing -> False
+                            Just nodeBakerId -> Just nodeBakerId == (blockBaker <$> blockFields (_bpBlock bp))
+                    liftIO (notifyCallback (bpHash bp) height isHomeBaked)
                 let height = localToAbsoluteBlockHeight latestEraGenesisHeight (bpHeight lfbp)
-                liftIO (notifyCallback (bpHash lfbp) height)
+                let isHomeBaked = case nodeBakerIdMaybe of
+                        Nothing -> False
+                        Just myBakerId -> Just myBakerId == (blockBaker <$> blockFields (_bpBlock lfbp))
+                liftIO (notifyCallback (bpHash lfbp) height isHomeBaked)
         -- And then check for protocol update.
         checkForProtocolUpdate
 
@@ -173,11 +200,11 @@ data Callbacks = Callbacks
       -- if an unrecognized update took effect.
       notifyRegenesis :: Maybe BlockHash -> IO (),
       -- |Notify a block was added to the tree. The arguments are
-      -- the hash of the block, and its absolute height.
-      notifyBlockArrived :: Maybe (BlockHash -> AbsoluteBlockHeight -> IO ()),
+      -- the hash of the block, its absolute height and whether the block was produced by the baker id configured for this node.
+      notifyBlockArrived :: Maybe (BlockHash -> AbsoluteBlockHeight -> Bool -> IO ()),
       -- |Notify a block was finalized. The arguments are the hash of the block,
-      -- and its absolute height.
-      notifyBlockFinalized :: Maybe (BlockHash -> AbsoluteBlockHeight -> IO ())
+      -- its absolute height and whether the block was produced by the baker id configured for this node.
+      notifyBlockFinalized :: Maybe (BlockHash -> AbsoluteBlockHeight -> Bool -> IO ())
     }
 
 -- |Baker identity and baking thread 'MVar'.
