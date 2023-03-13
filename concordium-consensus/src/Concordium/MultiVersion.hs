@@ -198,10 +198,10 @@ data Callbacks = Callbacks
       -- if an unrecognized update took effect.
       notifyRegenesis :: Maybe BlockHash -> IO (),
       -- |Notify a block was added to the tree. The arguments are
-      -- the hash of the block, its absolute height and whether this node was the baker.
+      -- the hash of the block, its absolute height and whether the block was produced by the baker id configured for this node.
       notifyBlockArrived :: Maybe (BlockHash -> AbsoluteBlockHeight -> Bool -> IO ()),
       -- |Notify a block was finalized. The arguments are the hash of the block,
-      -- its absolute height and whether this node was the baker.
+      -- its absolute height and whether the block was produced by the baker id configured for this node.
       notifyBlockFinalized :: Maybe (BlockHash -> AbsoluteBlockHeight -> Bool -> IO ())
     }
 

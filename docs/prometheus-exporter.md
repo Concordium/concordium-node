@@ -219,10 +219,10 @@ The current number of non-finalized transactions stored by the node.
 
 Total number of blocks baked by the node since startup.
 
-Blocks received as part of catchup are also counted, when the block was baked by the same baker ID as the node.
+Blocks received as part of catchup are also counted, when the block was baked by the same baker ID as the node is configured with.
 
 ### `consensus_finalized_baked_blocks_total`
 
 Total number of finalized blocks baked by the node since startup.
 
-Finalized blocks received as part of catchup are also counted, when the block was baked by the same baker ID as the node.
+Finalized blocks received as part of catchup are also counted, when the block was baked by the same baker ID as the node is configured with.
