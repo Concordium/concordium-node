@@ -70,27 +70,22 @@ advanceRound ::
     Either (TimeoutCertificate, QuorumCertificate) QuorumCertificate ->
     m ()
 advanceRound newRound newCertificate = do
-    myBakerId <- bakerId <$> view bakerIdentity
     currentRoundStatus <- use roundStatus
-    -- Reset the timeout timer if the consensus runner is part of the
-    -- finalization committee.
-    resetTimerIfFinalizer myBakerId (rsCurrentTimeout currentRoundStatus) (rsCurrentEpoch currentRoundStatus)
+    -- We always reset the timer.
+    -- This ensures that the timer is correct for consensus runners which have been
+    -- leaving or joining the finalization committe (if we're advancing to the first round
+    -- of that new epoch)
+    -- Hence it is crucial when throwing the timeout then it must be checked that
+    -- the consensus runner is either part of the current epoch (i.e. the new one) OR
+    -- the prior epoch, as it could be the case that the consensus runner left the finalization committee
+    -- coming into this new (current) epoch - but we still want to ensure that a timeout is thrown either way.
+    resetTimer $ rsCurrentTimeout currentRoundStatus
     -- Advance and save the round.
     setRoundStatus $! advanceRoundStatus newRound newCertificate currentRoundStatus
     -- Make a new block if the consensus runner is leader of
     -- the 'Round' progressed to.
     makeBlockIfLeader
-  where
-    -- Reset the timer if this consensus instance is member of the
-    -- finalization committee for the current 'Epoch'.
-    resetTimerIfFinalizer bakerId currentTimeout currentEpoch = do
-        gets (getBakersForLiveEpoch currentEpoch) >>= \case
-            Nothing -> return () -- No bakers or finalizers could be looked up for the current 'Epoch' so we do nothing.
-            Just bakersAndFinalizers -> do
-                when (isJust $ finalizerByBakerId (bakersAndFinalizers ^. bfFinalizers) bakerId) $
-                    -- The consensus runner is a finalizer for the current epoch then we reset the timer
-                    resetTimer currentTimeout
-                    
+
 -- |Compute and return the 'LeadershipElectionNonce' for
 -- the provided 'Epoch' and 'FinalizationEntry'
 -- TODO: implement.
