@@ -210,7 +210,13 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       -- |Baker and finalizer information with respect to the epoch of the last finalized block.
       _skovEpochBakers :: !EpochBakers,
       -- |The current consensus statistics.
-      _statistics :: !Stats.ConsensusStatistics
+      _statistics :: !Stats.ConsensusStatistics,
+      -- |The 'QuorumMessage's for the current 'Round'.
+      -- This should be emptied whenever the consensus runner advances to a new round.
+      _currentQuorumMessages :: !(SignatureMessages QuorumMessage),
+      -- |The 'TimeoutMessage's for the current 'Round'.
+      -- This should be emptied whenever the consensus runner advances to a new round.
+      _currentTimeoutMessages :: !(SignatureMessages TimeoutMessage)
     }
 
 makeLenses ''SkovData
@@ -280,6 +286,8 @@ mkInitialSkovData rp genMeta genState baseTimeout len _skovEpochBakers =
         _skovPendingBlocks = emptyPendingBlocks
         _lastFinalized = genesisBlockPointer
         _statistics = Stats.initialConsensusStatistics
+        _currentQuorumMessages = emptySignatureMessages
+        _currentTimeoutMessages = emptySignatureMessages
     in  SkovData{..}
 
 -- * Operations on the block table

@@ -14,6 +14,7 @@ import Data.Bits
 import qualified Data.ByteString as BS
 import qualified Data.Map.Strict as Map
 import Data.Maybe (isJust)
+import Data.Ratio
 import Data.Serialize
 import qualified Data.Set as Set
 import qualified Data.Vector as Vector
@@ -83,9 +84,6 @@ data QuorumSignatureMessage = QuorumSignatureMessage
     }
     deriving (Eq, Show)
 
-instance IsSignatureMessage QuorumSignatureMessage where
-    getBlockPointer qsm = Just $! qsmBlock qsm
-
 instance Serialize QuorumSignatureMessage where
     put QuorumSignatureMessage{..} = do
         put qsmGenesis
@@ -150,6 +148,9 @@ data QuorumMessage = QuorumMessage
       qmEpoch :: !Epoch
     }
     deriving (Eq, Show)
+
+instance IsSignatureMessage QuorumMessage where
+    getBlockPointer qsm = Just $! qmBlock qsm
 
 -- |Get the 'QuorumSignatureMessage' from a 'BlockHash' indicating the
 -- genesis hash and a 'QuorumMessage'
@@ -432,9 +433,6 @@ data TimeoutSignatureMessage = TimeoutSignatureMessage
       tsmQCEpoch :: !Epoch
     }
     deriving (Eq, Show)
-
-instance IsSignatureMessage TimeoutSignatureMessage where
-    getBlockPointer _ = Nothing
 
 instance Serialize TimeoutSignatureMessage where
     put TimeoutSignatureMessage{..} = do
@@ -736,6 +734,9 @@ data TimeoutMessage = TimeoutMessage
       tmSignature :: !BlockSig.Signature
     }
     deriving (Eq, Show)
+
+instance IsSignatureMessage TimeoutMessage where
+    getBlockPointer _ = Nothing
 
 instance Serialize TimeoutMessage where
     put TimeoutMessage{..} = do
@@ -1198,8 +1199,8 @@ isFinalizerPresent finIndex SignatureMessages{..} = isJust $ smFinIdxToMessage M
 -- Returns the updated @SignatureMessages a@
 -- A signature message is always either a 'QuorumSignatureMessage' or 'TimeoutSignatureMessage' so the opportunity
 -- for specializing the function is taken here.
-{-# SPECIALIZE addSignatureMessage :: FinalizerIndex -> QuorumSignatureMessage -> SignatureMessages QuorumSignatureMessage -> SignatureMessages QuorumSignatureMessage #-}
-{-# SPECIALIZE addSignatureMessage :: FinalizerIndex -> TimeoutSignatureMessage -> SignatureMessages TimeoutSignatureMessage -> SignatureMessages TimeoutSignatureMessage #-}
+{-# SPECIALIZE addSignatureMessage :: FinalizerIndex -> QuorumMessage -> SignatureMessages QuorumMessage -> SignatureMessages QuorumMessage #-}
+{-# SPECIALIZE addSignatureMessage :: FinalizerIndex -> TimeoutMessage -> SignatureMessages TimeoutMessage -> SignatureMessages TimeoutMessage #-}
 addSignatureMessage ::
     IsSignatureMessage a =>
     -- |Identifier for the finalizer who has signed off.
@@ -1229,8 +1230,8 @@ addSignatureMessage finIndex message (SignatureMessages currentMessages currentQ
     oneOrIncrement = maybe (Just 1) (\x -> Just $! x + 1)
     newBlocksCounters qmPointer = Map.alter oneOrIncrement qmPointer currentQMCounts
 
-canCreateCertificate :: Ratio Word64 -> SignatureMessages a -> Bool
-canCreateCertificate threshold = 
+canCreateCertificate :: Ratio Word64 -> Word32 -> SignatureMessages a -> Bool
+canCreateCertificate threshold committeeSize = undefined -- todo implement!
 
 -- |Serialize instance for @SignatureMessages a@.
 instance (Serialize a) => Serialize (SignatureMessages a) where

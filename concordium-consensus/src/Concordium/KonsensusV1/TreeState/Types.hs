@@ -221,10 +221,6 @@ data RoundStatus = RoundStatus
       rsCurrentEpoch :: !Epoch,
       -- |The highest 'Round' that the consensus runner participated in.
       rsCurrentRound :: !Round,
-      -- |The 'QuorumSignatureMessage's for the current 'Round'.
-      rsCurrentQuorumSignatureMessages :: !(SignatureMessages QuorumSignatureMessage),
-      -- |The 'TimeoutSignatureMessage's for the current 'Round'.
-      rsCurrentTimeoutSignatureMessages :: !(SignatureMessages TimeoutSignatureMessage),
       -- |If the consensus runner is part of the finalization committee,
       -- then this will yield the last signed 'QuorumSignatureMessage'
       rsLastSignedQuourumSignatureMessage :: !(Option QuorumSignatureMessage),
@@ -255,8 +251,6 @@ instance Serialize RoundStatus where
     put RoundStatus{..} = do
         put rsCurrentEpoch
         put rsCurrentRound
-        put rsCurrentQuorumSignatureMessages
-        put rsCurrentTimeoutSignatureMessages
         put rsLastSignedQuourumSignatureMessage
         put rsLastSignedTimeoutSignatureMessage
         put rsCurrentTimeout
@@ -267,8 +261,6 @@ instance Serialize RoundStatus where
     get = do
         rsCurrentEpoch <- get
         rsCurrentRound <- get
-        rsCurrentQuorumSignatureMessages <- get
-        rsCurrentTimeoutSignatureMessages <- get
         rsLastSignedQuourumSignatureMessage <- get
         rsLastSignedTimeoutSignatureMessage <- get
         rsCurrentTimeout <- get
@@ -284,8 +276,6 @@ initialRoundStatus baseTimeout leNonce =
     RoundStatus
         { rsCurrentEpoch = 0,
           rsCurrentRound = 0,
-          rsCurrentQuorumSignatureMessages = emptySignatureMessages,
-          rsCurrentTimeoutSignatureMessages = emptySignatureMessages,
           rsLastSignedQuourumSignatureMessage = Absent,
           rsLastSignedTimeoutSignatureMessage = Absent,
           rsCurrentTimeout = baseTimeout,

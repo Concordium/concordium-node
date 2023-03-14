@@ -50,6 +50,10 @@ genBlsSignature = flip Bls.sign someBlsSecretKey . BS.pack <$> vector 10
 genQuorumSignature :: Gen QuorumSignature
 genQuorumSignature = QuorumSignature <$> genBlsSignature
 
+-- |Generate a quorum signature.
+genTimeoutSignature :: Gen TimeoutSignature
+genTimeoutSignature = TimeoutSignature <$> genBlsSignature
+
 -- |Generate a random quorum signature message.
 genQuorumSignatureMessage :: Gen QuorumSignatureMessage
 genQuorumSignatureMessage = do
@@ -177,23 +181,23 @@ genTimestamp :: Gen Timestamp
 genTimestamp = Timestamp <$> arbitrary
 
 -- |Generates a collection of 'QuorumSignatureMessage's
-genQuorumSignatureMessages :: Gen (SignatureMessages QuorumSignatureMessage)
-genQuorumSignatureMessages = do
+genQuorumMessages :: Gen (SignatureMessages QuorumMessage)
+genQuorumMessages = do
     numMessages <- chooseInteger (0, 100)
     timeouts <- chooseInteger (0, 100)
-    msgs <- vectorOf (fromIntegral numMessages) genQuorumSignatureMessage
+    msgs <- vectorOf (fromIntegral numMessages) genQuorumMessage
     return $! SignatureMessages (getMessages msgs) (blockCounters msgs) $ fromIntegral timeouts
   where
     getMessages msgs = foldl' (\acc msg -> Map.insert (FinalizerIndex . fromIntegral $ Map.size acc) msg acc) Map.empty msgs
-    blockCounters qsms = foldl' (\acc qsm -> Map.alter getCount (qsmBlock qsm) acc) Map.empty qsms
+    blockCounters qms = foldl' (\acc qm -> Map.alter getCount (qmBlock qm) acc) Map.empty qms
     getCount mCount = maybe (Just 1) (\cnt -> Just $ cnt + 1) mCount
 
 -- |Generates a collection of 'TimeoutSignatureMessage's
-genTimeoutSignatureMessages :: Gen (SignatureMessages TimeoutSignatureMessage)
-genTimeoutSignatureMessages = do
+genTimeoutMessages :: Gen (SignatureMessages TimeoutMessage)
+genTimeoutMessages = do
     numMessages <- chooseInteger (0, 100)
     timeouts <- chooseInteger (0, 100)
-    msgs <- vectorOf (fromIntegral numMessages) genTimeoutSignatureMessage
+    msgs <- vectorOf (fromIntegral numMessages) genTimeoutMessage
     return $! SignatureMessages (getMessages msgs) Map.empty $ fromIntegral timeouts
   where
     getMessages msgs = foldl' (\acc msg -> Map.insert (FinalizerIndex . fromIntegral $ Map.size acc) msg acc) Map.empty msgs
@@ -203,10 +207,8 @@ genRoundStatus :: Gen RoundStatus
 genRoundStatus = do
     rsCurrentEpoch <- genEpoch
     rsCurrentRound <- genRound
-    rsCurrentQuorumSignatureMessages <- genQuorumSignatureMessages
     rsLastSignedQuourumSignatureMessage <- coinFlip =<< genQuorumSignatureMessage
     rsLastSignedTimeoutSignatureMessage <- coinFlip =<< genTimeoutSignatureMessage
-    rsCurrentTimeoutSignatureMessages <- genTimeoutSignatureMessages
     rsCurrentTimeout <- Duration <$> arbitrary
     rsHighestQC <- coinFlip =<< genQuorumCertificate
     rsLeadershipElectionNonce <- Hash.Hash . FBS.pack <$> vector 32
@@ -428,42 +430,42 @@ propSignBakedBlockDiffKey =
                 forAll genBlockKeyPair $ \(Sig.KeyPair _ pk1) ->
                     not (verifyBlockSignature pk1 genesisHash (signBlock kp genesisHash bb))
 
-propAddQuorumSignatureMessage :: Property
-propAddQuorumSignatureMessage =
-    forAll genQuorumSignatureMessages $ \qsms ->
-        forAll genQuorumSignatureMessage $ \qsm ->
+propAddQuorumMessage :: Property
+propAddQuorumMessage =
+    forAll genQuorumMessages $ \qms ->
+        forAll genQuorumMessage $ \qm ->
             forAll genFinalizerIndex $ \finalizerIndex -> do
-                let newQsms = addSignatureMessage finalizerIndex qsm qsms
+                let newQms = addSignatureMessage finalizerIndex qm qms
                 assertEqual
                     "The updated quorum signature messages should have the same timeouts count"
-                    (smTimeouts qsms)
-                    (smTimeouts newQsms)
+                    (smTimeouts qms)
+                    (smTimeouts newQms)
                 assertBool
                     "The updated quorum signature messages should contain the new message"
-                    (isJust $! Map.lookup finalizerIndex (smFinIdxToMessage newQsms))
+                    (isJust $! Map.lookup finalizerIndex (smFinIdxToMessage newQms))
                 assertEqual
                     "The updated blocks counters map should have been updated"
-                    (Just $ getExpectedCount (qsmBlock qsm) (smBlocksCounters qsms))
-                    (Map.lookup (qsmBlock qsm) (smBlocksCounters newQsms))
+                    (Just $ getExpectedCount (qmBlock qm) (smBlocksCounters qms))
+                    (Map.lookup (qmBlock qm) (smBlocksCounters newQms))
   where
     getExpectedCount qmPointer qsms =
         case Map.lookup qmPointer qsms of
             Nothing -> 1
             Just x -> x + 1
 
-propAddTimeoutSignatureMessage :: Property
-propAddTimeoutSignatureMessage =
-    forAll genTimeoutSignatureMessages $ \tsms ->
-        forAll genTimeoutSignatureMessage $ \tsm ->
+propAddTimeoutMessage :: Property
+propAddTimeoutMessage =
+    forAll genTimeoutMessages $ \tms ->
+        forAll genTimeoutMessage $ \tm ->
             forAll genFinalizerIndex $ \finalizerIndex -> do
-                let newTsms = addSignatureMessage finalizerIndex tsm tsms
+                let newTms = addSignatureMessage finalizerIndex tm tms
                 assertEqual
                     "The updated quorum signature messages should have the same timeouts count"
-                    (1 + (smTimeouts tsms))
-                    (smTimeouts newTsms)
+                    (1 + (smTimeouts tms))
+                    (smTimeouts newTms)
                 assertBool
                     "The updated quorum signature messages should contain the new message"
-                    (isJust $! Map.lookup finalizerIndex (smFinIdxToMessage newTsms))
+                    (isJust $! Map.lookup finalizerIndex (smFinIdxToMessage newTms))
 
 tests :: Spec
 tests = describe "KonsensusV1.Types" $ do
@@ -488,5 +490,5 @@ tests = describe "KonsensusV1.Types" $ do
     it "QuorumSignatureMessage signature check fails with different body" propSignQuorumSignatureMessageDiffBody
     it "SignedBlock signature check positive" propSignBakedBlock
     it "SignedBlock signature fails with different key" propSignBakedBlockDiffKey
-    it "Adding a quorum signature message to the collection quorum signature messages" propAddQuorumSignatureMessage
-    it "Adding a timeout signature message to the collection timeout signature messages" propAddTimeoutSignatureMessage
+    it "Adding a quorum message to the collection quorum messages" propAddQuorumMessage
+    it "Adding a timeout message to the collection timeout messages" propAddTimeoutMessage
