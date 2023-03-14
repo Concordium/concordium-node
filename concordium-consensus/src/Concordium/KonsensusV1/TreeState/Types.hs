@@ -245,7 +245,7 @@ advanceRoundStatus toRound (Right qc) RoundStatus{..} =
           ..
         }
 
--- |Advance the proived 'RoundStatus' to the provided 'Epoch'.
+-- |Advance the provided 'RoundStatus' to the provided 'Epoch'.
 -- In particular this does the following to the provided 'RoundStatus'
 --
 -- * Set the 'rsCurrentEpoch' to the provided 'Epoch'
