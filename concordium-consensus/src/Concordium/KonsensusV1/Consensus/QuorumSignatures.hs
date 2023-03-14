@@ -109,7 +109,6 @@ tryMakeQC = undefined
 processQuorumMessage :: (MonadState (SkovData (MPV m)) m, LowLevel.MonadTreeStateStore m) => QuorumMessage -> m ()
 processQuorumMessage QuorumMessage{..} = do
     when enoughWeightedSignatures $ do
-        -- todo.. aggregate here or optimistically? hmm
         tryMakeQC qmBlock >>= \case
             Nothing -> return ()
             Just newQuorumCertificate -> do

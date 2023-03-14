@@ -1192,7 +1192,7 @@ emptySignatureMessages = SignatureMessages Map.empty Map.empty 0
 isFinalizerPresent :: FinalizerIndex -> SignatureMessages a -> Bool
 isFinalizerPresent finIndex SignatureMessages{..} = isJust $ smFinIdxToMessage Map.!? finIndex
 
--- |Adds an @a@ to the @SignatureMessages a@ and increments the counter for the block
+-- |Adds an @a@ (in practice this is either a 'TimeoutSignatureMessage' or a 'QuorumSignatureMessage') to the @SignatureMessages a@ and increments the counter for the block
 -- that is signed off.
 -- (Otherwise if the block was not signed off before then the counter is set to 1).
 -- Returns the updated @SignatureMessages a@
@@ -1228,6 +1228,9 @@ addSignatureMessage finIndex message (SignatureMessages currentMessages currentQ
     newSignatureMessages = Map.insert finIndex message currentMessages
     oneOrIncrement = maybe (Just 1) (\x -> Just $! x + 1)
     newBlocksCounters qmPointer = Map.alter oneOrIncrement qmPointer currentQMCounts
+
+canCreateCertificate :: Ratio Word64 -> SignatureMessages a -> Bool
+canCreateCertificate threshold = 
 
 -- |Serialize instance for @SignatureMessages a@.
 instance (Serialize a) => Serialize (SignatureMessages a) where
