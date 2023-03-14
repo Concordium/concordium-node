@@ -202,7 +202,6 @@ genRoundStatus = do
     rsLastSignedQuourumSignatureMessage <- coinFlip =<< genQuorumSignatureMessage
     rsLastSignedTimeoutSignatureMessage <- coinFlip =<< genTimeoutSignatureMessage
     rsCurrentTimeoutSignatureMessages <- genTimeoutSignatureMessages
-    rsCurrentTimeout <- Duration <$> arbitrary
     rsHighestQC <- coinFlip =<< genQuorumCertificate
     rsLeadershipElectionNonce <- genLeadershipElectionNonce
     rsLatestEpochFinEntry <- coinFlip =<< genFinalizationEntry

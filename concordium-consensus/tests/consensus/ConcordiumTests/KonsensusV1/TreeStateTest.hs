@@ -43,7 +43,7 @@
 -- * 'getNonFinalizedChainUpdates'
 -- * 'getNonFinalizedCredential'
 -- * 'getNextAccountNonce'
--- * 'removeTransactions'
+-- * 'finalizeTransactions'
 -- * 'putTransaction'
 -- * 'commitTransaction'
 -- * 'markTransactionDead'
@@ -111,12 +111,6 @@ deriving instance Eq (InMemoryBlockStatus pv)
 deriving instance Eq (BlockStatus pv)
 deriving instance Eq (BlockTable pv)
 deriving instance Eq (RecentBlockStatus pv)
-
-instance Eq (BlockPointer pv) where
-    bp1 == bp2 =
-        bpInfo bp1 == bpInfo bp2
-            && bpBlock bp1 == bpBlock bp2
-            && hpbsHash (bpState bp1) == hpbsHash (bpState bp2)
 
 -- |A dummy block state that is just a @BlobRef 0@.
 dummyPersistentBlockState :: PersistentBlockState pv
@@ -379,7 +373,7 @@ lldbWithGenesis :: LowLevelDB pv
 lldbWithGenesis =
     initialLowLevelDB
         (toStoredBlock genB)
-        (initialRoundStatus 10_000 dummyLeadershipElectionNonce)
+        (initialRoundStatus dummyLeadershipElectionNonce)
 
 -- |Testing 'getMemoryBlockStatus' functionality.
 -- In particular this test ensures that a (known) block in memory can
@@ -903,7 +897,7 @@ testGetNextAccountNonce = describe "getNextAccountNonce" $ do
                         ?~ emptyANFTWithNonce 7
                   )
 
--- |Testing 'removeTransactions'.
+-- |Testing 'finalizeTransactions'.
 -- This test ensures that the provided list of
 -- transactions are removed from the the transaction table,
 -- and if the transaction is either a normal transaction or
@@ -912,9 +906,9 @@ testGetNextAccountNonce = describe "getNextAccountNonce" $ do
 -- map and that the next available nonce for the sender of the transaction is set to
 -- be 1 + the nonce of the removed transaction.
 testRemoveTransactions :: Spec
-testRemoveTransactions = describe "removeTransactions" $ do
+testRemoveTransactions = describe "finalizeTransactions" $ do
     it "normal transactions" $ do
-        sd' <- execStateT (removeTransactions [normalTransaction tr0]) sd
+        sd' <- execStateT (finalizeTransactions [normalTransaction tr0]) sd
         assertEqual
             "Account non-finalized transactions"
             (Just AccountNonFinalizedTransactions{_anftNextNonce = 2, _anftMap = Map.singleton 2 (Map.singleton tr1 (dummySuccessTransactionResult 2))})
@@ -924,7 +918,7 @@ testRemoveTransactions = describe "removeTransactions" $ do
             (HM.fromList [(getHash tr1, (normalTransaction tr1, Received 0 (dummySuccessTransactionResult 2)))])
             (sd' ^. transactionTable . ttHashMap)
     it "chain updates" $ do
-        sd' <- execStateT (removeTransactions [chainUpdate cu0]) sd1
+        sd' <- execStateT (finalizeTransactions [chainUpdate cu0]) sd1
         assertEqual
             "Chain update non-finalized transactions"
             (Just NonFinalizedChainUpdates{_nfcuNextSequenceNumber = 2, _nfcuMap = Map.singleton 2 (Map.singleton cu1 (dummySuccessTransactionResult 2))})
@@ -938,7 +932,7 @@ testRemoveTransactions = describe "removeTransactions" $ do
             )
             (sd' ^. transactionTable . ttHashMap)
     it "credential deployments" $ do
-        sd' <- execStateT (removeTransactions [credentialDeployment cred0]) sd2
+        sd' <- execStateT (finalizeTransactions [credentialDeployment cred0]) sd2
         assertEqual
             "Non-finalized credential deployments"
             (sd' ^. transactionTable . ttHashMap . at credDeploymentHash)
@@ -998,7 +992,7 @@ testPutTransaction = describe "putTransaction" $ do
             "transaction table purge counter is incremented"
             (1 + dummyInitialSkovData ^. transactionTablePurgeCounter)
             (sd' ^. transactionTablePurgeCounter)
-        sd'' <- execStateT (removeTransactions [normalTransaction tr0]) sd'
+        sd'' <- execStateT (finalizeTransactions [normalTransaction tr0]) sd'
         added <- evalStateT (putTransaction tr0Round (normalTransaction tr0) (dummySuccessTransactionResult 1)) sd''
         assertEqual "tx should not be added" False added
   where

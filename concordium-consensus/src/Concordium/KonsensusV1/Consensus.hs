@@ -2,29 +2,28 @@
 
 module Concordium.KonsensusV1.Consensus where
 
-
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Data.Maybe (isJust)
 import qualified Data.Vector as Vector
 
-import Lens.Micro.Platform
 import Data.Foldable
 import Data.List (sortOn)
 import qualified Data.Map.Strict as Map
 import Data.Ord
 import qualified Data.Vector as Vec
+import Lens.Micro.Platform
 
-import Concordium.Types
-import qualified Concordium.Types.Accounts as Accounts
-import Concordium.Types.Parameters
 import Concordium.GlobalState.BakerInfo
 import Concordium.KonsensusV1.Types
+import Concordium.Types
+import qualified Concordium.Types.Accounts as Accounts
 import Concordium.Types.BakerIdentity
+import Concordium.Types.Parameters
 
+import Concordium.KonsensusV1.TreeState.Implementation
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
-import Concordium.KonsensusV1.TreeState.Implementation
 import Concordium.KonsensusV1.Types
 
 -- |A Monad for multicasting timeout messages.
@@ -89,7 +88,7 @@ advanceRound newRound newCertificate = do
     -- the consensus runner is either part of the current epoch (i.e. the new one) OR
     -- the prior epoch, as it could be the case that the consensus runner left the finalization committee
     -- coming into this new (current) epoch - but we still want to ensure that a timeout is thrown either way.
-    resetTimer $ rsCurrentTimeout currentRoundStatus
+    resetTimer =<< use currentTimeout
     -- Advance and save the round.
     setRoundStatus $! advanceRoundStatus newRound newCertificate currentRoundStatus
     -- Make a new block if the consensus runner is leader of
@@ -129,7 +128,6 @@ advanceEpoch newEpoch finalizationEntry = do
   where
     -- compute the new leadership election nonce.
     newLeadershipElectionNonce = computeLeadershipElectionNonce newEpoch finalizationEntry
-
 
 -- |Compute the finalization committee given the bakers and the finalization committee parameters.
 computeFinalizationCommittee :: FullBakers -> FinalizationCommitteeParameters -> FinalizationCommittee
@@ -179,4 +177,3 @@ computeFinalizationCommittee FullBakers{..} FinalizationCommitteeParameters{..} 
             }
     committeeFinalizers = Vec.fromList $ zipWith mkFinalizer [FinalizerIndex 0 ..] sortedFinalizers
     committeeTotalWeight = sum $ finalizerWeight <$> committeeFinalizers
-
