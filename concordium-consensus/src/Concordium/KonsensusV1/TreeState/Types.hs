@@ -227,22 +227,20 @@ advanceRoundStatus ::
     RoundStatus ->
     -- |The advanced 'RoundStatus'.
     RoundStatus
-advanceRoundStatus toRound (Left (tc, qc)) RoundStatus{..} =
-    RoundStatus
+advanceRoundStatus toRound (Left (tc, qc)) currentRoundStatus =
+    currentRoundStatus
         { rsCurrentRound = toRound,
           rsCurrentQuorumSignatureMessages = emptySignatureMessages,
           rsCurrentTimeoutSignatureMessages = emptySignatureMessages,
-          rsPreviousRoundTC = Present (tc, qc),
-          ..
+          rsPreviousRoundTC = Present (tc, qc)
         }
-advanceRoundStatus toRound (Right qc) RoundStatus{..} =
-    RoundStatus
+advanceRoundStatus toRound (Right qc) currentRoundStatus =
+    currentRoundStatus
         { rsCurrentRound = toRound,
           rsCurrentQuorumSignatureMessages = emptySignatureMessages,
           rsCurrentTimeoutSignatureMessages = emptySignatureMessages,
           rsHighestQC = Present qc,
-          rsPreviousRoundTC = Absent,
-          ..
+          rsPreviousRoundTC = Absent
         }
 
 -- |Advance the provided 'RoundStatus' to the provided 'Epoch'.

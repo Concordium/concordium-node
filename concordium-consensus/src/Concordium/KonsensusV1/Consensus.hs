@@ -69,14 +69,14 @@ advanceRound ::
     -- should be the QC we're advancing round via.
     Either (TimeoutCertificate, QuorumCertificate) QuorumCertificate ->
     m ()
-advanceRound newRound timedOut = do
+advanceRound newRound newCertificate = do
     myBakerId <- bakerId <$> view bakerIdentity
     currentRoundStatus <- use roundStatus
     -- Reset the timeout timer if the consensus runner is part of the
     -- finalization committee.
     resetTimerIfFinalizer myBakerId (rsCurrentTimeout currentRoundStatus) (rsCurrentEpoch currentRoundStatus)
     -- Advance and save the round.
-    setRoundStatus $! advanceRoundStatus newRound timedOut currentRoundStatus
+    setRoundStatus $! advanceRoundStatus newRound newCertificate currentRoundStatus
     -- Make a new block if the consensus runner is leader of
     -- the 'Round' progressed to.
     makeBlockIfLeader
