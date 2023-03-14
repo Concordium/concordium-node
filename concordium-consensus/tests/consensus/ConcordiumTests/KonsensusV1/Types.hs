@@ -188,6 +188,10 @@ genTimeoutSignatureMessages = do
     msgs <- vectorOf (fromIntegral numMessages) genTimeoutSignatureMessage
     return $! SignatureMessages $! foldl' (\acc msg -> Map.insert (FinalizerIndex . fromIntegral $ Map.size acc) msg acc) Map.empty msgs
 
+-- |Generate an arbitrary 'LeadershipElectionNonce'
+genLeadershipElectionNonce :: Gen LeadershipElectionNonce
+genLeadershipElectionNonce = Hash.Hash . FBS.pack <$> vector 32
+
 -- |Generate a 'RoundStatus' suitable for testing serialization.
 genRoundStatus :: Gen RoundStatus
 genRoundStatus = do
@@ -199,7 +203,7 @@ genRoundStatus = do
     rsCurrentTimeoutSignatureMessages <- genTimeoutSignatureMessages
     rsCurrentTimeout <- Duration <$> arbitrary
     rsHighestQC <- coinFlip =<< genQuorumCertificate
-    rsLeadershipElectionNonce <- Hash.Hash . FBS.pack <$> vector 32
+    rsLeadershipElectionNonce <- genLeadershipElectionNonce
     rsLatestEpochFinEntry <- coinFlip =<< genFinalizationEntry
     tc <- genTimeoutCertificate
     qc <- genQuorumCertificate
@@ -478,6 +482,26 @@ propAdvanceRoundStatusFromTCRound =
                         emptySignatureMessages
                         (rsCurrentQuorumSignatureMessages newRoundStatus)
 
+propAdvanceRoundStatusEpoch :: Property
+propAdvanceRoundStatusEpoch =
+    forAll genRoundStatus $ \fromRoundStatus ->
+        forAll genEpoch $ \toEpoch ->
+            forAll genFinalizationEntry $ \finalizationEntry ->
+                forAll genLeadershipElectionNonce $ \newLeadershipElectionNonce -> do
+                    let newRoundStatus = advanceRoundStatusEpoch toEpoch finalizationEntry newLeadershipElectionNonce fromRoundStatus
+                    assertEqual
+                        "RoundStatus should have advanced epoch"
+                        toEpoch
+                        (rsCurrentEpoch newRoundStatus)
+                    assertEqual
+                        "RoundStatus should have a present finalization entry"
+                        (Present finalizationEntry)
+                        (rsLatestEpochFinEntry newRoundStatus)
+                    assertEqual
+                        "RoundStatus should have updated the leadership election nonce"
+                        newLeadershipElectionNonce
+                        (rsLeadershipElectionNonce newRoundStatus)
+
 tests :: Spec
 tests = describe "KonsensusV1.Types" $ do
     it "FinalizerSet serialization" propSerializeFinalizerSet
@@ -503,3 +527,4 @@ tests = describe "KonsensusV1.Types" $ do
     it "SignedBlock signature fails with different key" propSignBakedBlockDiffKey
     it "RoundStatus advances from quorum round" propAdvanceRoundStatusFromQuorumRound
     it "RoundStatus advances from timed out round" propAdvanceRoundStatusFromTCRound
+    it "RoundStatus advances epoch" propAdvanceRoundStatusEpoch

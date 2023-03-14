@@ -90,3 +90,37 @@ advanceRound newRound timedOut = do
                 when (isJust $ finalizerByBakerId (bakersAndFinalizers ^. bfFinalizers) bakerId) $
                     -- The consensus runner is a finalizer for the current epoch then we reset the timer
                     resetTimer currentTimeout
+                    
+-- |Compute and return the 'LeadershipElectionNonce' for
+-- the provided 'Epoch' and 'FinalizationEntry'
+-- TODO: implement.
+computeLeadershipElectionNonce ::
+    -- |The 'Epoch' to compute the 'LeadershipElectionNonce' for.
+    Epoch ->
+    -- |The witness for the new 'Epoch'
+    FinalizationEntry ->
+    -- |The new 'LeadershipElectionNonce'
+    LeadershipElectionNonce
+computeLeadershipElectionNonce epoch finalizationEntry = undefined
+
+-- |Advance the 'Epoch' of the current 'RoundStatus'.
+--
+-- Advancing epochs in particular carries out the following:
+-- * Updates the 'rsCurrentEpoch' to the provided 'Epoch' for the current 'RoundStatus'.
+-- * Computes the new 'LeadershipElectionNonce' and updates the current 'RoundStatus'.
+-- * Updates the 'rsLatestEpochFinEntry' of the current 'RoundStatus' to @Present finalizationEntry@.
+-- * Persist the new 'RoundStatus' to disk.
+advanceEpoch ::
+    ( MonadState (SkovData (MPV m)) m,
+      LowLevel.MonadTreeStateStore m
+    ) =>
+    Epoch ->
+    FinalizationEntry ->
+    m ()
+advanceEpoch newEpoch finalizationEntry = do
+    currentRoundStatus <- use roundStatus
+    let newRoundStatus = advanceRoundStatusEpoch newEpoch finalizationEntry newLeadershipElectionNonce currentRoundStatus
+    setRoundStatus newRoundStatus
+  where
+    -- compute the new leadership election nonce.
+    newLeadershipElectionNonce = computeLeadershipElectionNonce newEpoch finalizationEntry
