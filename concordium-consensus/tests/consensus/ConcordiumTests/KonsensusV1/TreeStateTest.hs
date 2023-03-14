@@ -32,7 +32,7 @@
 -- * 'takePendingChildrenUntil'
 --
 -- TransactionTable
--- A structure that recoreds transactions in the tree state.
+-- A structure that records transactions in the tree state.
 -- From a consensus perspective, then transactions can be added to
 -- the tree state either individually (i.e. a single transaction sent to the
 -- the consensus layer) or via a block.
@@ -67,8 +67,10 @@ import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import qualified Data.Map.Strict as Map
 import qualified Data.PQueue.Prio.Min as MPQ
+import Data.Ratio
 import qualified Data.Sequence as Seq
 import qualified Data.Vector as Vec
+import Data.Word ()
 import Lens.Micro.Platform
 import System.IO.Unsafe
 import System.Random
@@ -103,7 +105,7 @@ import Concordium.KonsensusV1.Types
 import qualified Concordium.TransactionVerification as TVer
 import Concordium.Types.Updates
 
--- We derive these instances here so we don't accidently end up using them in production.
+-- We derive these instances here so we don't accidentally end up using them in production.
 -- We have them because they are very convenient for testing purposes.
 deriving instance Eq (InMemoryBlockStatus pv)
 deriving instance Eq (BlockStatus pv)
@@ -166,12 +168,13 @@ dummyBakedBlock ::
     BlockHash ->
     -- |The round of the block
     Round ->
+    -- |The timestamp of the block
+    Timestamp ->
     -- |The empty baked block
     BakedBlock
-dummyBakedBlock parentHash bbRound = BakedBlock{..}
+dummyBakedBlock parentHash bbRound bbTimestamp = BakedBlock{..}
   where
     bbEpoch = 0
-    bbTimestamp = 0
     bbBaker = 0
     bbQuorumCertificate = dummyQuorumCertificate parentHash
     bbTimeoutCertificate = Absent
@@ -188,22 +191,24 @@ dummySignedBlock ::
     BlockHash ->
     -- |'Round' of the block
     Round ->
+    -- |Timestamp of the block
+    Timestamp ->
     -- |The signed block
     SignedBlock
-dummySignedBlock parentHash = signBlock dummySignKeys dummyGenesisBlockHash . dummyBakedBlock parentHash
+dummySignedBlock parentHash rnd = signBlock dummySignKeys dummyGenesisBlockHash . dummyBakedBlock parentHash rnd
 
 -- |Construct a 'PendingBlock' for the provided 'Round' where the
 -- parent is indicated by the provided 'BlockHash'.
 dummyPendingBlock ::
     -- |Parent 'BlockHash'
     BlockHash ->
-    -- |The 'Round' of the block
-    Round ->
+    -- |The 'Timestamp' of the block
+    Timestamp ->
     -- |The resulting 'PendingBlock'
     PendingBlock
-dummyPendingBlock parentHash r =
+dummyPendingBlock parentHash ts =
     PendingBlock
-        { pbBlock = dummySignedBlock parentHash r,
+        { pbBlock = dummySignedBlock parentHash 1 ts,
           pbReceiveTime = timestampToUTCTime 0
         }
 
@@ -221,7 +226,7 @@ dummyBlock rnd = BlockPointer{..}
               bmReceiveTime = timestampToUTCTime 0,
               bmArriveTime = timestampToUTCTime 0
             }
-    bpBlock = NormalBlock $ dummySignedBlock (BlockHash minBound) rnd
+    bpBlock = NormalBlock $ dummySignedBlock (BlockHash minBound) rnd 0
     bpState = dummyBlockState
 
 -- |A 'BlockHash' suitable for configuring
@@ -243,7 +248,8 @@ dummyGenesisMetadata =
         { gmParameters =
             CoreGenesisParametersV1
                 { genesisTime = 0,
-                  genesisEpochDuration = 3_600_000
+                  genesisEpochDuration = 3_600_000,
+                  genesisSignatureThreshold = 2 % 3
                 },
           gmCurrentGenesisHash = dummyGenesisBlockHash,
           gmFirstGenesisHash = dummyGenesisBlockHash,
@@ -280,8 +286,8 @@ dummyEpochBakers = EpochBakers 0 bf bf bf 1
 -- tests we are carrying out in this module it could be any genesis metadata
 --
 -- The initial 'RoundStatus' for the 'SkovData pv' is configured with
--- 'rsCurrentTimeout' set to 10 seconds and the 'rsLeadershipElectionNonce' is
--- the 'dummyLeadershipElectionNonce'.
+-- the 'rsLeadershipElectionNonce' set to 'dummyLeadershipElectionNonce'.
+-- The initial timeout duration is set to 10 seconds.
 -- However these are just dummy values and can be replaced with other values,
 -- i.e. they have no effect on the tests being run with the 'dummyInitialSkovData'.
 --

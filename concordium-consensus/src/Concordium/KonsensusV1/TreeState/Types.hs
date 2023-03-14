@@ -1,11 +1,14 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Concordium.KonsensusV1.TreeState.Types where
 
+import Data.Function
 import Data.Serialize
 import Data.Time
 import Data.Time.Clock.POSIX
@@ -66,6 +69,29 @@ instance Serialize BlockMetadata where
       where
         getUTCPOSIXMicros = posixSecondsToUTCTime . (/ 1_000_000) . realToFrac <$> getWord64be
 
+-- |A class for structures that canonincally include 'BlockMetadata'.
+class HasBlockMetadata bm where
+    -- |Get the block metadata.
+    blockMetadata :: bm -> BlockMetadata
+
+    -- |The height of the block.
+    blockHeight :: bm -> BlockHeight
+    blockHeight = bmHeight . blockMetadata
+    {-# INLINE blockHeight #-}
+
+    -- |The time that the block is received by the consensus layer (i.e. when it is deserialized).
+    blockReceiveTime :: bm -> UTCTime
+    blockReceiveTime = bmReceiveTime . blockMetadata
+    {-# INLINE blockReceiveTime #-}
+
+    -- |The time that the block becomes live (i.e. it is processed and added to the chain).
+    blockArriveTime :: bm -> UTCTime
+    blockArriveTime = bmArriveTime . blockMetadata
+    {-# INLINE blockArriveTime #-}
+
+instance HasBlockMetadata BlockMetadata where
+    blockMetadata = id
+
 -- |A pointer to a block that has been executed
 -- and the resulting 'PBS.HashedPersistentBlockState'.
 data BlockPointer (pv :: ProtocolVersion) = BlockPointer
@@ -80,6 +106,10 @@ data BlockPointer (pv :: ProtocolVersion) = BlockPointer
 instance HashableTo BlockHash (BlockPointer pv) where
     getHash BlockPointer{..} = getHash bpBlock
 
+-- |Block pointer equality is defined on the block hash.
+instance Eq (BlockPointer pv) where
+    (==) = on (==) (getHash @BlockHash)
+
 instance BlockData (BlockPointer pv) where
     type BakedBlockDataType (BlockPointer pv) = SignedBlock
     blockRound = blockRound . bpBlock
@@ -87,6 +117,7 @@ instance BlockData (BlockPointer pv) where
     blockTimestamp = blockTimestamp . bpBlock
     blockBakedData = blockBakedData . bpBlock
     blockTransactions = blockTransactions . bpBlock
+    blockTransactionCount = blockTransactionCount . bpBlock
     blockStateHash = blockStateHash . bpBlock
 
 instance Show (BlockPointer pv) where
@@ -98,6 +129,9 @@ instance Show (BlockPointer pv) where
             ++ ", bpState = ["
             ++ show (PBS.hpbsHash bpState)
             ++ "] }"
+
+instance HasBlockMetadata (BlockPointer pv) where
+    blockMetadata = bpInfo
 
 -- |A block that is pending its parent.
 data PendingBlock = PendingBlock
@@ -118,6 +152,7 @@ instance BlockData PendingBlock where
     blockTimestamp = blockTimestamp . pbBlock
     blockBakedData = blockBakedData . pbBlock
     blockTransactions = blockTransactions . pbBlock
+    blockTransactionCount = blockTransactionCount . pbBlock
     blockStateHash = blockStateHash . pbBlock
 
 instance BakedBlockData PendingBlock where
@@ -128,6 +163,7 @@ instance BakedBlockData PendingBlock where
     blockEpochFinalizationEntry = blockEpochFinalizationEntry . pbBlock
     blockNonce = blockNonce . pbBlock
     blockSignature = blockSignature . pbBlock
+    blockTransactionOutcomesHash = blockTransactionOutcomesHash . pbBlock
 
 -- |Status of a transaction.
 data TransactionStatus
@@ -151,6 +187,17 @@ data BlockStatus pv
     | -- |The block is unknown
       BlockUnknown
     deriving (Show)
+
+-- |Get the 'BlockPointer' from a 'BlockStatus' for a live or finalized block.
+-- Returns 'Nothing' if the block is pending, dead or unknown.
+blockStatusBlock :: BlockStatus pv -> Maybe (BlockPointer pv)
+blockStatusBlock (BlockAlive b) = Just b
+blockStatusBlock (BlockFinalized b) = Just b
+blockStatusBlock _ = Nothing
+
+-- |A (unidirectional) pattern for matching a block status that is either alive or finalized.
+pattern BlockAliveOrFinalized :: BlockPointer pv -> BlockStatus pv
+pattern BlockAliveOrFinalized b <- (blockStatusBlock -> Just b)
 
 -- |The status of a block as obtained without loading the block from disk.
 data RecentBlockStatus pv
@@ -183,8 +230,6 @@ data RoundStatus = RoundStatus
       -- |If the consensus runner is part of the finalization committee,
       -- then this will yield the last signed timeout message.
       rsLastSignedTimeoutSignatureMessage :: !(Option TimeoutSignatureMessage),
-      -- |The current timeout.
-      rsCurrentTimeout :: !Duration,
       -- |The highest 'QuorumCertificate' seen so far.
       -- This is 'Nothing' if no rounds since genesis has
       -- been able to produce a 'QuorumCertificate'.
@@ -277,7 +322,6 @@ instance Serialize RoundStatus where
         put rsCurrentTimeoutSignatureMessages
         put rsLastSignedQuourumSignatureMessage
         put rsLastSignedTimeoutSignatureMessage
-        put rsCurrentTimeout
         put rsHighestQC
         put rsLeadershipElectionNonce
         put rsLatestEpochFinEntry
@@ -289,7 +333,6 @@ instance Serialize RoundStatus where
         rsCurrentTimeoutSignatureMessages <- get
         rsLastSignedQuourumSignatureMessage <- get
         rsLastSignedTimeoutSignatureMessage <- get
-        rsCurrentTimeout <- get
         rsHighestQC <- get
         rsLeadershipElectionNonce <- get
         rsLatestEpochFinEntry <- get
@@ -297,8 +340,8 @@ instance Serialize RoundStatus where
         return RoundStatus{..}
 
 -- |The 'RoundStatus' for consensus at genesis.
-initialRoundStatus :: Duration -> LeadershipElectionNonce -> RoundStatus
-initialRoundStatus baseTimeout leNonce =
+initialRoundStatus :: LeadershipElectionNonce -> RoundStatus
+initialRoundStatus leNonce =
     RoundStatus
         { rsCurrentEpoch = 0,
           rsCurrentRound = 0,
@@ -306,7 +349,6 @@ initialRoundStatus baseTimeout leNonce =
           rsCurrentTimeoutSignatureMessages = emptySignatureMessages,
           rsLastSignedQuourumSignatureMessage = Absent,
           rsLastSignedTimeoutSignatureMessage = Absent,
-          rsCurrentTimeout = baseTimeout,
           rsHighestQC = Absent,
           rsLeadershipElectionNonce = leNonce,
           rsLatestEpochFinEntry = Absent,

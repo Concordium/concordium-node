@@ -1,7 +1,7 @@
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE TypeFamilies #-}
 
 module Concordium.KonsensusV1.Consensus where
+
 
 import Control.Monad.Reader
 import Control.Monad.State.Strict
@@ -9,13 +9,23 @@ import Data.Maybe (isJust)
 import qualified Data.Vector as Vector
 
 import Lens.Micro.Platform
+import Data.Foldable
+import Data.List (sortOn)
+import qualified Data.Map.Strict as Map
+import Data.Ord
+import qualified Data.Vector as Vec
 
-import Concordium.KonsensusV1.TreeState.Implementation
+import Concordium.Types
+import qualified Concordium.Types.Accounts as Accounts
+import Concordium.Types.Parameters
+import Concordium.GlobalState.BakerInfo
+import Concordium.KonsensusV1.Types
+import Concordium.Types.BakerIdentity
+
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
+import Concordium.KonsensusV1.TreeState.Implementation
 import Concordium.KonsensusV1.Types
-import Concordium.Types
-import Concordium.Types.BakerIdentity
 
 -- |A Monad for multicasting timeout messages.
 class MonadMulticast m where
@@ -119,3 +129,54 @@ advanceEpoch newEpoch finalizationEntry = do
   where
     -- compute the new leadership election nonce.
     newLeadershipElectionNonce = computeLeadershipElectionNonce newEpoch finalizationEntry
+
+
+-- |Compute the finalization committee given the bakers and the finalization committee parameters.
+computeFinalizationCommittee :: FullBakers -> FinalizationCommitteeParameters -> FinalizationCommittee
+computeFinalizationCommittee FullBakers{..} FinalizationCommitteeParameters{..} =
+    FinalizationCommittee{..}
+  where
+    -- We use an insertion sort to construct the '_fcpMaxFinalizers' top bakers.
+    -- Order them by descending stake and ascending baker ID.
+    insert ::
+        Map.Map (Down Amount, BakerId) FullBakerInfo ->
+        FullBakerInfo ->
+        Map.Map (Down Amount, BakerId) FullBakerInfo
+    insert m fbi
+        | Map.size m == fromIntegral _fcpMaxFinalizers = case Map.maxViewWithKey m of
+            Nothing -> error "computeFinalizationCommittee: _fcpMaxFinalizers must not be 0"
+            Just ((k, _), m')
+                | insKey < k -> Map.insert insKey fbi m'
+                | otherwise -> m
+        | otherwise = Map.insert insKey fbi m
+      where
+        insKey = (Down (fbi ^. bakerStake), fbi ^. Accounts.bakerIdentity)
+    amountSortedBakers = Map.elems $ foldl' insert Map.empty fullBakerInfos
+    -- Threshold stake required to be a finalizer
+    finalizerAmountThreshold :: Amount
+    finalizerAmountThreshold =
+        ceiling $
+            partsPerHundredThousandsToRational _fcpFinalizerRelativeStakeThreshold
+                * toRational bakerTotalStake
+    -- Given the bakers sorted by their stakes, takes the first 'n' and then those that are
+    -- at least at the threshold.
+    takeFinalizers 0 fs = takeWhile ((>= finalizerAmountThreshold) . view bakerStake) fs
+    takeFinalizers n (f : fs) = f : takeFinalizers (n - 1) fs
+    takeFinalizers _ [] = []
+    -- Compute the set of finalizers by applying the caps.
+    cappedFinalizers = takeFinalizers _fcpMinFinalizers amountSortedBakers
+    -- Sort the finalizers by baker ID.
+    sortedFinalizers = sortOn (view Accounts.bakerIdentity) cappedFinalizers
+    -- Construct finalizer info given the index and baker info.
+    mkFinalizer finalizerIndex bi =
+        FinalizerInfo
+            { finalizerWeight = fromIntegral (bi ^. bakerStake),
+              finalizerSignKey = bi ^. Accounts.bakerSignatureVerifyKey,
+              finalizerVRFKey = bi ^. Accounts.bakerElectionVerifyKey,
+              finalizerBlsKey = bi ^. Accounts.bakerAggregationVerifyKey,
+              finalizerBakerId = bi ^. Accounts.bakerIdentity,
+              ..
+            }
+    committeeFinalizers = Vec.fromList $ zipWith mkFinalizer [FinalizerIndex 0 ..] sortedFinalizers
+    committeeTotalWeight = sum $ finalizerWeight <$> committeeFinalizers
+

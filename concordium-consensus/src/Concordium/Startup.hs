@@ -11,7 +11,9 @@ module Concordium.Startup {-# WARNING "This module should not be used in product
 
 import qualified Data.Map.Strict as Map
 import Data.Maybe
+import Data.Ratio
 import qualified Data.Vector as Vec
+import Data.Word
 import Lens.Micro.Platform
 import System.Random
 
@@ -247,6 +249,7 @@ makeGenesisDataV1
         bakerAccounts = (\(_, _, bacc, _) -> bacc) <$> mbkrs
         genesisAccounts = bakerAccounts ++ additionalAccounts
         genesisTotalAmount = sum (gaBalance <$> genesisAccounts)
+        genesisSignatureThreshold = 2 % 3 :: Ratio Word64
         gd = case protocolVersion @pv of
             SP6 ->
                 GDP6
