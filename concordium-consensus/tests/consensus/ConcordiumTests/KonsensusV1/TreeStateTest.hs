@@ -112,12 +112,6 @@ deriving instance Eq (BlockStatus pv)
 deriving instance Eq (BlockTable pv)
 deriving instance Eq (RecentBlockStatus pv)
 
-instance Eq (BlockPointer pv) where
-    bp1 == bp2 =
-        bpInfo bp1 == bpInfo bp2
-            && bpBlock bp1 == bpBlock bp2
-            && hpbsHash (bpState bp1) == hpbsHash (bpState bp2)
-
 -- |A dummy block state that is just a @BlobRef 0@.
 dummyPersistentBlockState :: PersistentBlockState pv
 {-# NOINLINE dummyPersistentBlockState #-}

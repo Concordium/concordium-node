@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |This module contains the logic for receiving and
@@ -84,26 +85,37 @@ receiveQuorumMessage qm@QuorumMessage{..} = process =<< get
                                                         else
                                                             if blockEpoch quorumMessagePointer /= qmEpoch
                                                                 then flag (EpochInconsistency qmFinalizerIndex qmEpoch (blockEpoch quorumMessagePointer)) >> return Rejected
-                                                                else storeQuorumMessage >> sendQuorumMessage qm >> processQuorumMessage qm >> return Received
+                                                                else storeQuorumMessage qsm >> sendQuorumMessage qm >> processQuorumMessage qm >> return Received
     -- Checks wether there is already either a timeout signature or a quorum signature by the supplied 'finalizerIndex' present for the current round.
     isDoubleSigning finalizerIndex skovData =
-        isFinalizerPresent finalizerIndex (rsCurrentQuorumSignatureMessages (skovData ^. roundStatus))
-            || isFinalizerPresent finalizerIndex (rsCurrentTimeoutSignatureMessages (skovData ^. roundStatus))
+        isFinalizerPresent finalizerIndex (rsCurrentQuorumSignatureMessages $ skovData ^. roundStatus)
+            || isFinalizerPresent finalizerIndex (rsCurrentTimeoutSignatureMessages $ skovData ^. roundStatus)
     -- todo: store the quorum message in the signatures on the round status (and set it i.e. persist it)
-    storeQuorumMessage = return ()
+    storeQuorumMessage quorumSignatureMessage = do
+        currentQCMessages <- rsCurrentQuorumSignatureMessages <$> use roundStatus
+        let !newCurrentQuorumMessages = addSignatureMessage qmFinalizerIndex quorumSignatureMessage currentQCMessages
+        -- todo: setCurrentRoundStatus
+        return ()
 
-makeQC :: BlockHash -> Round -> Epoch -> QuorumSignature -> FinalizerSet -> QuorumCertificate
-makeQC = QuorumCertificate
+-- |If there are enough signatories who have signed the block (in accordance to 'genesisSignatureThreshold')
+-- given by the provided 'BlockHash' then this function makes a 'QuorumCertificate'
+-- for it and returns @Just QuorumCertificate@.
+-- Otherwise if not enough signatories have signed off the block, and hence
+-- we cannot create the 'QuorumCertificate' for the provided block then this function
+-- returns @Nothing@.
+tryMakeQC :: (MonadState (SkovData (MPV m)) m) => BlockHash -> m (Maybe QuorumCertificate)
+tryMakeQC = undefined
 
 processQuorumMessage :: (MonadState (SkovData (MPV m)) m, LowLevel.MonadTreeStateStore m) => QuorumMessage -> m ()
 processQuorumMessage QuorumMessage{..} = do
     when enoughWeightedSignatures $ do
         -- todo.. aggregate here or optimistically? hmm
-        let qcForRound = makeQC qmBlock qmRound qmEpoch qmSignature (FinalizerSet 0)
-        return ()
-    -- todo: checkFinality
-    -- todo: advanceRoundStatus
-    return ()
+        tryMakeQC qmBlock >>= \case
+            Nothing -> return ()
+            Just newQuorumCertificate -> do
+                -- checkFinality
+                -- advanceRoundStatus
+                return ()
   where
     -- todo genesisSignatureThreshold <$> use genesisMetadata
     enoughWeightedSignatures = True

@@ -4,10 +4,12 @@ module ConcordiumTests.KonsensusV1.Types where
 import qualified Data.ByteString as BS
 import Data.Foldable
 import qualified Data.Map.Strict as Map
+import Data.Maybe (isJust)
 import Data.Serialize
 import qualified Data.Vector as Vector
 import Data.Word
 import System.IO.Unsafe
+import Test.HUnit
 import Test.Hspec
 import Test.QuickCheck
 
@@ -178,15 +180,23 @@ genTimestamp = Timestamp <$> arbitrary
 genQuorumSignatureMessages :: Gen (SignatureMessages QuorumSignatureMessage)
 genQuorumSignatureMessages = do
     numMessages <- chooseInteger (0, 100)
+    timeouts <- chooseInteger (0, 100)
     msgs <- vectorOf (fromIntegral numMessages) genQuorumSignatureMessage
-    return $! SignatureMessages $! foldl' (\acc msg -> Map.insert (FinalizerIndex . fromIntegral $ Map.size acc) msg acc) Map.empty msgs
+    return $! SignatureMessages (getMessages msgs) (blockCounters msgs) $ fromIntegral timeouts
+  where
+    getMessages msgs = foldl' (\acc msg -> Map.insert (FinalizerIndex . fromIntegral $ Map.size acc) msg acc) Map.empty msgs
+    blockCounters qsms = foldl' (\acc qsm -> Map.alter getCount (qsmBlock qsm) acc) Map.empty qsms
+    getCount mCount = maybe (Just 1) (\cnt -> Just $ cnt + 1) mCount
 
 -- |Generates a collection of 'TimeoutSignatureMessage's
 genTimeoutSignatureMessages :: Gen (SignatureMessages TimeoutSignatureMessage)
 genTimeoutSignatureMessages = do
     numMessages <- chooseInteger (0, 100)
+    timeouts <- chooseInteger (0, 100)
     msgs <- vectorOf (fromIntegral numMessages) genTimeoutSignatureMessage
-    return $! SignatureMessages $! foldl' (\acc msg -> Map.insert (FinalizerIndex . fromIntegral $ Map.size acc) msg acc) Map.empty msgs
+    return $! SignatureMessages (getMessages msgs) Map.empty $ fromIntegral timeouts
+  where
+    getMessages msgs = foldl' (\acc msg -> Map.insert (FinalizerIndex . fromIntegral $ Map.size acc) msg acc) Map.empty msgs
 
 -- |Generate a 'RoundStatus' suitable for testing serialization.
 genRoundStatus :: Gen RoundStatus
@@ -418,6 +428,43 @@ propSignBakedBlockDiffKey =
                 forAll genBlockKeyPair $ \(Sig.KeyPair _ pk1) ->
                     not (verifyBlockSignature pk1 genesisHash (signBlock kp genesisHash bb))
 
+propAddQuorumSignatureMessage :: Property
+propAddQuorumSignatureMessage =
+    forAll genQuorumSignatureMessages $ \qsms ->
+        forAll genQuorumSignatureMessage $ \qsm ->
+            forAll genFinalizerIndex $ \finalizerIndex -> do
+                let newQsms = addSignatureMessage finalizerIndex qsm qsms
+                assertEqual
+                    "The updated quorum signature messages should have the same timeouts count"
+                    (smTimeouts qsms)
+                    (smTimeouts newQsms)
+                assertBool
+                    "The updated quorum signature messages should contain the new message"
+                    (isJust $! Map.lookup finalizerIndex (smFinIdxToMessage newQsms))
+                assertEqual
+                    "The updated blocks counters map should have been updated"
+                    (Just $ getExpectedCount (qsmBlock qsm) (smBlocksCounters qsms))
+                    (Map.lookup (qsmBlock qsm) (smBlocksCounters newQsms))
+  where
+    getExpectedCount qmPointer qsms =
+        case Map.lookup qmPointer qsms of
+            Nothing -> 1
+            Just x -> x + 1
+
+propAddTimeoutSignatureMessage :: Property
+propAddTimeoutSignatureMessage =
+    forAll genTimeoutSignatureMessages $ \tsms ->
+        forAll genTimeoutSignatureMessage $ \tsm ->
+            forAll genFinalizerIndex $ \finalizerIndex -> do
+                let newTsms = addSignatureMessage finalizerIndex tsm tsms
+                assertEqual
+                    "The updated quorum signature messages should have the same timeouts count"
+                    (1 + (smTimeouts tsms))
+                    (smTimeouts newTsms)
+                assertBool
+                    "The updated quorum signature messages should contain the new message"
+                    (isJust $! Map.lookup finalizerIndex (smFinIdxToMessage newTsms))
+
 tests :: Spec
 tests = describe "KonsensusV1.Types" $ do
     it "FinalizerSet serialization" propSerializeFinalizerSet
@@ -441,3 +488,5 @@ tests = describe "KonsensusV1.Types" $ do
     it "QuorumSignatureMessage signature check fails with different body" propSignQuorumSignatureMessageDiffBody
     it "SignedBlock signature check positive" propSignBakedBlock
     it "SignedBlock signature fails with different key" propSignBakedBlockDiffKey
+    it "Adding a quorum signature message to the collection quorum signature messages" propAddQuorumSignatureMessage
+    it "Adding a timeout signature message to the collection timeout signature messages" propAddTimeoutSignatureMessage

@@ -83,6 +83,9 @@ data QuorumSignatureMessage = QuorumSignatureMessage
     }
     deriving (Eq, Show)
 
+instance IsSignatureMessage QuorumSignatureMessage where
+    getBlockPointer qsm = Just $! qsmBlock qsm
+
 instance Serialize QuorumSignatureMessage where
     put QuorumSignatureMessage{..} = do
         put qsmGenesis
@@ -429,6 +432,9 @@ data TimeoutSignatureMessage = TimeoutSignatureMessage
       tsmQCEpoch :: !Epoch
     }
     deriving (Eq, Show)
+
+instance IsSignatureMessage TimeoutSignatureMessage where
+    getBlockPointer _ = Nothing
 
 instance Serialize TimeoutSignatureMessage where
     put TimeoutSignatureMessage{..} = do
@@ -1159,29 +1165,85 @@ computeBlockHash bhh bqh =
 instance HashableTo BlockHash BakedBlock where
     getHash bb = computeBlockHash (getHash bb) (getHash bb)
 
+-- |Class for types that may be added to a 'SignatureMessages'.
+-- In particular a 'QuorumSignatureMessage' points to a block
+-- but a 'TimeoutSignatureMessage' does not.
+class IsSignatureMessage a where
+    -- |Get the pointer if available.
+    getBlockPointer :: a -> Maybe BlockHash
+
 -- |A collection of signatures
 -- This is a map from 'FinalizerIndex' to the actual signature message.
-newtype SignatureMessages a = SignatureMessages
-    { smFinIdxToMessage :: Map.Map FinalizerIndex a
+data SignatureMessages a = SignatureMessages
+    { -- |Map of finalizer indecies to signature messages.
+      smFinIdxToMessage :: !(Map.Map FinalizerIndex a),
+      -- |Counters for the blocks signed off by a quorum signature message.
+      smBlocksCounters :: !(Map.Map BlockHash Word32),
+      -- |Timeout messages counter.
+      smTimeouts :: !Word32
     }
     deriving (Eq, Show)
 
 -- |Construct an empty 'SignatureMessages'
 emptySignatureMessages :: SignatureMessages a
-emptySignatureMessages = SignatureMessages Map.empty
+emptySignatureMessages = SignatureMessages Map.empty Map.empty 0
 
 -- |Check whether the provided 'FinalizerIndex' is present in the @SignatureMessages a@.
 isFinalizerPresent :: FinalizerIndex -> SignatureMessages a -> Bool
 isFinalizerPresent finIndex SignatureMessages{..} = isJust $ smFinIdxToMessage Map.!? finIndex
 
+-- |Adds an @a@ to the @SignatureMessages a@ and increments the counter for the block
+-- that is signed off.
+-- (Otherwise if the block was not signed off before then the counter is set to 1).
+-- Returns the updated @SignatureMessages a@
+-- A signature message is always either a 'QuorumSignatureMessage' or 'TimeoutSignatureMessage' so the opportunity
+-- for specializing the function is taken here.
+{-# SPECIALIZE addSignatureMessage :: FinalizerIndex -> QuorumSignatureMessage -> SignatureMessages QuorumSignatureMessage -> SignatureMessages QuorumSignatureMessage #-}
+{-# SPECIALIZE addSignatureMessage :: FinalizerIndex -> TimeoutSignatureMessage -> SignatureMessages TimeoutSignatureMessage -> SignatureMessages TimeoutSignatureMessage #-}
+addSignatureMessage ::
+    IsSignatureMessage a =>
+    -- |Identifier for the finalizer who has signed off.
+    FinalizerIndex ->
+    -- |The signature message.
+    a ->
+    -- |The messages to update.
+    SignatureMessages a ->
+    -- |The resulting messages.
+    SignatureMessages a
+addSignatureMessage finIndex message (SignatureMessages currentMessages currentQMCounts currentTimeoutCounter) =
+    maybe updateTimeoutSignatues updateQuorumSignatures (getBlockPointer message)
+  where
+    updateTimeoutSignatues =
+        SignatureMessages
+            { smFinIdxToMessage = newSignatureMessages,
+              smBlocksCounters = currentQMCounts,
+              smTimeouts = currentTimeoutCounter + 1
+            }
+    updateQuorumSignatures qcPointer =
+        SignatureMessages
+            { smFinIdxToMessage = newSignatureMessages,
+              smBlocksCounters = newBlocksCounters qcPointer,
+              smTimeouts = currentTimeoutCounter
+            }
+    newSignatureMessages = Map.insert finIndex message currentMessages
+    oneOrIncrement = maybe (Just 1) (\x -> Just $! x + 1)
+    newBlocksCounters qmPointer = Map.alter oneOrIncrement qmPointer currentQMCounts
+
 -- |Serialize instance for @SignatureMessages a@.
 instance (Serialize a) => Serialize (SignatureMessages a) where
-    put (SignatureMessages fiMsgMap) = do
+    put (SignatureMessages fiMsgMap blocksCounter timeoutCounter) = do
+        putWord32be $! fromIntegral $! timeoutCounter
         putWord32be $! fromIntegral $! Map.size fiMsgMap
         putSafeSizedMapOf put put fiMsgMap
+        putWord32be $! fromIntegral $! Map.size blocksCounter
+        putSafeSizedMapOf put put blocksCounter
     get = do
+        timeoutCounter <- getWord32be
         count <- getWord32be
-        SignatureMessages <$> getSafeSizedMapOf count get get
+        finalizerToMessagesMap <- getSafeSizedMapOf count get get
+        countBlocksCounter <- getWord32be
+        blocksCounterMap <- getSafeSizedMapOf countBlocksCounter get get
+        return $ SignatureMessages finalizerToMessagesMap blocksCounterMap timeoutCounter
 
 -- |Configuration information stored for the genesis block.
 data GenesisMetadata = GenesisMetadata
