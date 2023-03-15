@@ -49,6 +49,46 @@ class MonadTimeout m where
 makeBlockIfLeader :: MonadState (SkovData (MPV m)) m => m ()
 makeBlockIfLeader = return ()
 
+-- |Advance the provided 'RoundStatus' to the provided 'Round'.
+--
+-- The consensus protocol can advance round in two ways.
+-- 1. Via a QC i.e. @Right QuorumCertificate@
+-- 2. Via a TC i.e. @Left (TimeoutCertificate, QuorumCertificate)@
+--
+-- All properties from the old 'RoundStatus' are being carried over to new 'RoundStatus'
+-- except for the following.
+-- * 'rsCurrentRound' will become the provided 'Round'.
+-- * 'rsCurrentQuorumSignatureMessages' will be 'emptySignatureMessages'.
+-- * 'rsCurrentTimeoutSignatureMessages' will be 'emptySignatureMessages'.
+-- * 'rsPreviousRoundTC' will become 'Absent' if we're progressing via a 'QuorumCertificate' otherwise
+--   it will become the values of the supplied @Left (TimeoutCertificate, QuorumCertificate)@.
+-- * 'rsHighestQC' will become the supplied @Right QuorumCertificate@ otherwise it is carried over.
+advanceRoundStatus ::
+    -- |The round to advance to.
+    Round ->
+    -- |@Left (tc, qc)@ if consensus is advancing from a TC.
+    -- @Right qc@ if consensus is advancing from a QC.
+    Either (TimeoutCertificate, QuorumCertificate) QuorumCertificate ->
+    -- |The 'RoundStatus' we are advancing from.
+    RoundStatus ->
+    -- |The advanced 'RoundStatus'.
+    RoundStatus
+advanceRoundStatus toRound (Left (tc, qc)) currentRoundStatus =
+    currentRoundStatus
+        { rsCurrentRound = toRound,
+          rsCurrentQuorumSignatureMessages = emptySignatureMessages,
+          rsCurrentTimeoutSignatureMessages = emptySignatureMessages,
+          rsPreviousRoundTC = Present (tc, qc)
+        }
+advanceRoundStatus toRound (Right qc) currentRoundStatus =
+    currentRoundStatus
+        { rsCurrentRound = toRound,
+          rsCurrentQuorumSignatureMessages = emptySignatureMessages,
+          rsCurrentTimeoutSignatureMessages = emptySignatureMessages,
+          rsHighestQC = Present qc,
+          rsPreviousRoundTC = Absent
+        }
+
 -- |Advance to the provided 'Round'.
 --
 -- This function does the following:
@@ -102,6 +142,31 @@ computeLeadershipElectionNonce ::
     -- |The new 'LeadershipElectionNonce'
     LeadershipElectionNonce
 computeLeadershipElectionNonce epoch finalizationEntry = undefined
+
+-- |Advance the provided 'RoundStatus' to the provided 'Epoch'.
+-- In particular this does the following to the provided 'RoundStatus'
+--
+-- * Set the 'rsCurrentEpoch' to the provided 'Epoch'
+-- * Set the 'rsLatestEpochFinEntry' to the provided 'FinalizationEntry'.
+-- * Set the 'rsLeadershipElectionNonce' to the provided 'LeadershipElectionNonce'.
+advanceRoundStatusEpoch ::
+    -- |The 'Epoch' we advance to.
+    Epoch ->
+    -- |The 'FinalizationEntry' that witnesses the
+    -- new 'Epoch'.
+    FinalizationEntry ->
+    -- |The new leader election nonce.
+    LeadershipElectionNonce ->
+    -- |The 'RoundStatus' we're progressing from.
+    RoundStatus ->
+    -- |The new 'RoundStatus'.
+    RoundStatus
+advanceRoundStatusEpoch toEpoch latestFinalizationEntry newLeadershipElectionNonce currentRoundStatus =
+    currentRoundStatus
+        { rsCurrentEpoch = toEpoch,
+          rsLatestEpochFinEntry = Present latestFinalizationEntry,
+          rsLeadershipElectionNonce = newLeadershipElectionNonce
+        }
 
 -- |Advance the 'Epoch' of the current 'RoundStatus'.
 --

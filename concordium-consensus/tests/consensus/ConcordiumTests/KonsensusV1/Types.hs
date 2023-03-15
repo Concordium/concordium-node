@@ -422,86 +422,6 @@ propSignBakedBlockDiffKey =
                 forAll genBlockKeyPair $ \(Sig.KeyPair _ pk1) ->
                     not (verifyBlockSignature pk1 genesisHash (signBlock kp genesisHash bb))
 
-propAdvanceRoundStatusFromQuorumRound :: Property
-propAdvanceRoundStatusFromQuorumRound =
-    forAll genRoundStatus $ \fromRoundStatus ->
-        forAll genRound $ \toRound ->
-            forAll genQuorumCertificate $ \highestQC -> do
-                let newRoundStatus = advanceRoundStatus toRound (Right highestQC) fromRoundStatus
-                assertEqual
-                    "RoundStatus current round should be advanced"
-                    toRound
-                    (rsCurrentRound newRoundStatus)
-                assertEqual
-                    "RoundStatus current epoch should remain"
-                    (rsCurrentEpoch fromRoundStatus)
-                    (rsCurrentEpoch newRoundStatus)
-                assertEqual
-                    "RoundStatus previous round TC should be absent"
-                    Absent
-                    (rsPreviousRoundTC newRoundStatus)
-                assertEqual
-                    "Timeout signatures for current round should be empty"
-                    emptySignatureMessages
-                    (rsCurrentTimeoutSignatureMessages newRoundStatus)
-                assertEqual
-                    "QC signatures for current round should be empty"
-                    emptySignatureMessages
-                    (rsCurrentQuorumSignatureMessages newRoundStatus)
-                assertEqual
-                    "QC signatures for current round should be empty"
-                    (Present highestQC)
-                    (rsHighestQC newRoundStatus)
-
-propAdvanceRoundStatusFromTCRound :: Property
-propAdvanceRoundStatusFromTCRound =
-    forAll genRoundStatus $ \fromRoundStatus ->
-        forAll genTimeoutCertificate $ \tc ->
-            forAll genQuorumCertificate $ \qc ->
-                forAll genRound $ \toRound -> do
-                    let tcQc = Left (tc, qc)
-                        newRoundStatus = advanceRoundStatus toRound tcQc fromRoundStatus
-                    assertEqual
-                        "RoundStatus current round should be advanced"
-                        toRound
-                        (rsCurrentRound newRoundStatus)
-                    assertEqual
-                        "RoundStatus current epoch should remain"
-                        (rsCurrentEpoch fromRoundStatus)
-                        (rsCurrentEpoch newRoundStatus)
-                    assertEqual
-                        "RoundStatus previous round TC should be present"
-                        (Present (tc, qc))
-                        (rsPreviousRoundTC newRoundStatus)
-                    assertEqual
-                        "Timeout signatures for current round should be empty"
-                        emptySignatureMessages
-                        (rsCurrentTimeoutSignatureMessages newRoundStatus)
-                    assertEqual
-                        "QC signatures for current round should be empty"
-                        emptySignatureMessages
-                        (rsCurrentQuorumSignatureMessages newRoundStatus)
-
-propAdvanceRoundStatusEpoch :: Property
-propAdvanceRoundStatusEpoch =
-    forAll genRoundStatus $ \fromRoundStatus ->
-        forAll genEpoch $ \toEpoch ->
-            forAll genFinalizationEntry $ \finalizationEntry ->
-                forAll genLeadershipElectionNonce $ \newLeadershipElectionNonce -> do
-                    let newRoundStatus = advanceRoundStatusEpoch toEpoch finalizationEntry newLeadershipElectionNonce fromRoundStatus
-                    assertEqual
-                        "RoundStatus should have advanced epoch"
-                        toEpoch
-                        (rsCurrentEpoch newRoundStatus)
-                    assertEqual
-                        "RoundStatus should have a present finalization entry"
-                        (Present finalizationEntry)
-                        (rsLatestEpochFinEntry newRoundStatus)
-                    assertEqual
-                        "RoundStatus should have updated the leadership election nonce"
-                        newLeadershipElectionNonce
-                        (rsLeadershipElectionNonce newRoundStatus)
-
 tests :: Spec
 tests = describe "KonsensusV1.Types" $ do
     it "FinalizerSet serialization" propSerializeFinalizerSet
@@ -525,6 +445,3 @@ tests = describe "KonsensusV1.Types" $ do
     it "QuorumSignatureMessage signature check fails with different body" propSignQuorumSignatureMessageDiffBody
     it "SignedBlock signature check positive" propSignBakedBlock
     it "SignedBlock signature fails with different key" propSignBakedBlockDiffKey
-    it "RoundStatus advances from quorum round" propAdvanceRoundStatusFromQuorumRound
-    it "RoundStatus advances from timed out round" propAdvanceRoundStatusFromTCRound
-    it "RoundStatus advances epoch" propAdvanceRoundStatusEpoch

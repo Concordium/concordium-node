@@ -19,6 +19,7 @@ import qualified ConcordiumTests.LeaderElectionTest (tests)
 import qualified ConcordiumTests.PassiveFinalization (test)
 import qualified ConcordiumTests.ReceiveTransactionsTest (test)
 import qualified ConcordiumTests.Update (test)
+import qualified ConcordiumTests.KonsensusV1.Consensus (tests)
 import Data.List (stripPrefix)
 import Data.Semigroup
 import System.Environment
@@ -55,3 +56,4 @@ main = atLevel $ \lvl -> hspec $ do
     ConcordiumTests.KonsensusV1.LMDB.tests
     ConcordiumTests.KonsensusV1.LeaderElectionTest.tests
     ConcordiumTests.KonsensusV1.FinalizationCommittee.tests
+    ConcordiumTests.KonsensusV1.Consensus.tests
