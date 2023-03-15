@@ -8,15 +8,15 @@ import Data.Aeson (FromJSON, parseJSON, withObject, (.:))
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.BlsSignature as BLS
 import qualified Concordium.Crypto.VRF as VRF
-import Concordium.Types
-    ( BakerId,
-      BakerSignPrivateKey,
-      BakerElectionPrivateKey,
-      BakerAggregationPrivateKey,
-      BakerAggregationVerifyKey,
-      BakerElectionVerifyKey,
-      BakerSignVerifyKey )
-
+import Concordium.Types (
+    BakerAggregationPrivateKey,
+    BakerAggregationVerifyKey,
+    BakerElectionPrivateKey,
+    BakerElectionVerifyKey,
+    BakerId,
+    BakerSignPrivateKey,
+    BakerSignVerifyKey,
+ )
 
 data BakerIdentity = BakerIdentity
     { bakerId :: BakerId,
@@ -25,7 +25,7 @@ data BakerIdentity = BakerIdentity
       bakerAggregationKey :: BakerAggregationPrivateKey,
       bakerAggregationPublicKey :: BakerAggregationVerifyKey
     }
-    deriving Eq
+    deriving (Eq)
 
 bakerSignPublicKey :: BakerIdentity -> BakerSignVerifyKey
 bakerSignPublicKey ident = Sig.verifyKey (bakerSignKey ident)
