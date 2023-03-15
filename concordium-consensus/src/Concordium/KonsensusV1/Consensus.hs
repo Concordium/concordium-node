@@ -73,18 +73,16 @@ addPendingTransaction ::
       BlockStateQuery m,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m)
     ) =>
-    -- |Origin of the transaction.
-    TVer.TransactionOrigin ->
     -- |The transaction.
     BlockItem ->
     m ()
-addPendingTransaction origin bi = do
+addPendingTransaction bi = do
     case wmdData bi of
         NormalTransaction tx -> do
             fbState <- bpState <$> (_focusBlock <$> gets' _skovPendingTransactions)
             macct <- getAccount fbState $! transactionSender tx
             nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
-            when (nextNonce <= transactionNonce tx || origin == TVer.Individual) $ do
+            when (nextNonce <= transactionNonce tx) $ do
                 pendingTransactionTable %=! TT.addPendingTransaction nextNonce tx
                 purgeTransactionTable False =<< currentTime
         CredentialDeployment _ -> do
@@ -93,7 +91,7 @@ addPendingTransaction origin bi = do
         ChainUpdate cu -> do
             fbState <- bpState <$> (_focusBlock <$> gets' _skovPendingTransactions)
             nextSN <- getNextUpdateSequenceNumber fbState (updateType (uiPayload cu))
-            when (nextSN <= updateSeqNumber (uiHeader cu) || origin == TVer.Individual) $ do
+            when (nextSN <= updateSeqNumber (uiHeader cu)) $ do
                 pendingTransactionTable %=! TT.addPendingUpdate nextSN cu
                 purgeTransactionTable False =<< currentTime
   where
@@ -135,7 +133,7 @@ processBlockItem bi = do
         added <- addTransaction 0 bi $! TVer.Ok okRes
         if added
             then do
-                addPendingTransaction TVer.Individual bi
+                addPendingTransaction bi
                 return $! Added bi $! TVer.Ok okRes
             else -- If the transaction was not added it means it contained an old nonce.
                 return ObsoleteNonce
@@ -218,4 +216,4 @@ processBlockItems bb parentPointer = process $! Vector.toList $ bbTransactions b
                             -- The transaction was added to the tree state,
                             -- so add it to the pending table if it's eligible (see documentation for
                             -- 'addPendingTransaction') and continue processing the remaining ones.
-                            True -> addPendingTransaction TVer.Block bi >> process bis
+                            True -> addPendingTransaction bi >> process bis
