@@ -249,7 +249,6 @@ data RoundStatus = RoundStatus
     }
     deriving (Show, Eq)
 
-
 instance Serialize RoundStatus where
     put RoundStatus{..} = do
         put rsCurrentEpoch

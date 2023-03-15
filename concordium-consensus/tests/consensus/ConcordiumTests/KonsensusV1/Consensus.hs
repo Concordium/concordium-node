@@ -5,9 +5,9 @@ import Test.HUnit
 import Test.Hspec
 import Test.QuickCheck
 
+import Concordium.KonsensusV1.Consensus
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
-import Concordium.KonsensusV1.Consensus
 
 import ConcordiumTests.KonsensusV1.Types
 
