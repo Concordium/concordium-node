@@ -292,6 +292,13 @@ isPending bh sd = case sd ^? blockTable . liveMap . ix bh of
     Just (MemBlockPending _) -> True
     _ -> False
 
+-- |Get the 'BlockPointer' for a block hash that is live (not finalized).
+-- Returns 'Nothing' if the block is not in the live (non-finalized) blocks.
+getLiveBlock :: BlockHash -> SkovData pv -> Maybe (BlockPointer pv)
+getLiveBlock blockHash sd = case sd ^? blockTable . liveMap . ix blockHash of
+    Just (MemBlockAlive bp) -> Just bp
+    _ -> Nothing
+
 -- |Get the 'BlockStatus' of a block that is available in memory based on the 'BlockHash'.
 -- (This includes live and pending blocks, but not finalized blocks, except for the last finalized
 -- block.)

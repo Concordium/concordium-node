@@ -23,6 +23,7 @@ import Concordium.GlobalState.Persistent.BlockState
 import Concordium.GlobalState.Statistics
 import Concordium.GlobalState.Types
 import Concordium.KonsensusV1.Consensus (computeFinalizationCommittee)
+import Concordium.KonsensusV1.Consensus.Finality
 import Concordium.KonsensusV1.Flag
 import Concordium.KonsensusV1.LeaderElection
 import Concordium.KonsensusV1.Scheduler
@@ -30,6 +31,7 @@ import Concordium.KonsensusV1.TreeState.Implementation
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
+import Control.Monad.Catch
 
 -- |A block that has passed initial verification, but must still be executed, added to the state,
 -- and (potentially) signed as a finalizer.
@@ -75,7 +77,8 @@ uponReceivingBlock ::
       BlockStateStorage m,
       BlockState m ~ HashedPersistentBlockState (MPV m),
       MonadIO m,
-      TimeMonad m
+      TimeMonad m,
+      MonadThrow m
     ) =>
     PendingBlock ->
     m BlockResult
@@ -141,7 +144,8 @@ receiveBlockKnownParent ::
       BlockStateStorage m,
       BlockState m ~ HashedPersistentBlockState (MPV m),
       MonadIO m,
-      TimeMonad m
+      TimeMonad m,
+      MonadThrow m
     ) =>
     BlockPointer (MPV m) ->
     PendingBlock ->
@@ -324,7 +328,8 @@ processBlock ::
       LowLevel.MonadTreeStateStore m,
       MonadState (SkovData (MPV m)) m,
       MonadIO m,
-      TimeMonad m
+      TimeMonad m,
+      MonadThrow m
     ) =>
     -- |Parent block (@parent@)
     BlockPointer (MPV m) ->
@@ -370,6 +375,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                             checkBlockExecution genMeta $ \blockState -> do
                                 newBlock <- addBlock pendingBlock blockState parent
                                 processEpochFinalizationEntry
+                                checkFinalityWithBlock (blockQuorumCertificate pendingBlock) parent
                                 undefined
   where
     sBlock = pbBlock pendingBlock
@@ -539,9 +545,23 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                 flag $ BlockInvalidQC sBlock
                 return False
     processEpochFinalizationEntry = forM_ (blockEpochFinalizationEntry pendingBlock) $
-        \FinalizationEntry{..} -> do
-            -- TODO: processing
-            return ()
+        \finEntry -> do
+            mFinalizedBlock <- gets (getLiveBlock (qcBlock (feFinalizedQuorumCertificate finEntry)))
+            forM_ mFinalizedBlock $ \bp -> do
+                processFinalization bp finEntry
+                shrinkTimeout bp
+                -- Update the highest QC.
+                rs <- use roundStatus
+                let successorQC = feSuccessorQuorumCertificate finEntry
+                    isBetterQC
+                        | Present oldQC <- rsHighestQC rs = qcRound oldQC < qcRound successorQC
+                        | otherwise = True
+                when isBetterQC $
+                    -- setRoundStatus $!
+                    --     rs{rsHighestQC = successorQC}
+                    undefined -- TODO: setRoundStatus
+                when (rsCurrentEpoch rs < blockEpoch pendingBlock) $
+                    return () -- TODO: Advance epoch
 
 executeBlock ::
     ( IsConsensusV1 (MPV m),
@@ -550,7 +570,8 @@ executeBlock ::
       LowLevel.MonadTreeStateStore m,
       MonadState (SkovData (MPV m)) m,
       MonadIO m,
-      TimeMonad m
+      TimeMonad m,
+      MonadThrow m
     ) =>
     VerifiedBlock ->
     m ()

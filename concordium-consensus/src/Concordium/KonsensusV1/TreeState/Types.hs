@@ -3,6 +3,7 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
 
@@ -233,13 +234,11 @@ data RoundStatus = RoundStatus
       -- |The highest 'QuorumCertificate' seen so far.
       -- This is 'Nothing' if no rounds since genesis has
       -- been able to produce a 'QuorumCertificate'.
+      -- Note: this can potentially be a QC for a block that is not present, but in that case we
+      -- should have a finalization entry that contains the QC.
       rsHighestQC :: !(Option QuorumCertificate),
       -- |The current 'LeadershipElectionNonce'.
       rsLeadershipElectionNonce :: !LeadershipElectionNonce,
-      -- |The latest 'Epoch' 'FinalizationEntry'.
-      -- This will only be 'Nothing' in between the
-      -- genesis block and the first explicitly finalized block.
-      rsLatestEpochFinEntry :: !(Option FinalizationEntry),
       -- |The previous round timeout certificate if the previous round timed out.
       -- This is @Just (TimeoutCertificate, QuorumCertificate)@ if the previous round timed out or otherwise 'Nothing'.
       -- In the case of @Just@ then the associated 'QuorumCertificate' is the highest 'QuorumCertificate' at the time
@@ -258,7 +257,6 @@ instance Serialize RoundStatus where
         put rsLastSignedTimeoutSignatureMessage
         put rsHighestQC
         put rsLeadershipElectionNonce
-        put rsLatestEpochFinEntry
         put rsPreviousRoundTC
     get = do
         rsCurrentEpoch <- get
@@ -269,7 +267,6 @@ instance Serialize RoundStatus where
         rsLastSignedTimeoutSignatureMessage <- get
         rsHighestQC <- get
         rsLeadershipElectionNonce <- get
-        rsLatestEpochFinEntry <- get
         rsPreviousRoundTC <- get
         return RoundStatus{..}
 
@@ -285,7 +282,6 @@ initialRoundStatus leNonce =
           rsLastSignedTimeoutSignatureMessage = Absent,
           rsHighestQC = Absent,
           rsLeadershipElectionNonce = leNonce,
-          rsLatestEpochFinEntry = Absent,
           rsPreviousRoundTC = Absent
         }
 

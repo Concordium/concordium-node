@@ -200,7 +200,6 @@ genRoundStatus = do
     rsCurrentTimeout <- Duration <$> arbitrary
     rsHighestQC <- coinFlip =<< genQuorumCertificate
     rsLeadershipElectionNonce <- Hash.Hash . FBS.pack <$> vector 32
-    rsLatestEpochFinEntry <- coinFlip =<< genFinalizationEntry
     tc <- genTimeoutCertificate
     qc <- genQuorumCertificate
     let rsPreviousRoundTC = Present (tc, qc)
