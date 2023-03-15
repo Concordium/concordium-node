@@ -925,4 +925,6 @@ clearAfterProtocolUpdate = do
 
 -- |Updates and persists the 'RoundStatus' of the 'SkovData' to the supplied 'RoundStatus
 setRoundStatus :: (LowLevel.MonadTreeStateStore m, MonadState (SkovData (MPV m)) m) => RoundStatus -> m ()
-setRoundStatus newRoundStatus = LowLevel.writeCurrentRoundStatus newRoundStatus >> roundStatus .=! newRoundStatus
+setRoundStatus newRoundStatus = do
+    LowLevel.writeCurrentRoundStatus newRoundStatus
+    roundStatus .=! newRoundStatus

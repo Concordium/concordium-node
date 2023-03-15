@@ -43,10 +43,6 @@ class MonadTimeout m where
     -- |Reset the timeout from the supplied 'Duration'.
     resetTimer :: Duration -> m ()
 
--- |Produce a block and multicast it onto the network.
-makeBlock :: MonadState (SkovData (MPV m)) m => m ()
-makeBlock = return ()
-
 -- |Make a block if the consensus runner is leader for the
 -- current round.
 -- TODO: call 'makeBlock' if we're leader for the current round.
