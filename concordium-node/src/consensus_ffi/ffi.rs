@@ -1424,17 +1424,27 @@ unsafe extern "C" fn unsupported_update_callback(
     context.unsupported_pending_protocol_version.set(unsupported_update_pending as i64);
 }
 
+/// Information needed to start consensus.
+pub struct StartConsensusConfig {
+    /// Serialized genesis data.
+    pub genesis_data:               Vec<u8>,
+    /// Maximum logging level.
+    pub maximum_log_level:          ConsensusLogLevel,
+    /// Regenesis object.
+    pub regenesis_arc:              Arc<Regenesis>,
+    /// Context for notifying upon new block arrival, and new finalized blocks.
+    pub notification_context:       Option<NotificationContext>,
+    /// Context for when signalling a unsupported protocol update is pending.
+    pub unsupported_update_context: Option<NotifyUnsupportedUpdatesContext>,
+}
+
 pub fn get_consensus_ptr(
     runtime_parameters: &ConsensusRuntimeParameters,
-    genesis_data: Vec<u8>,
+    start_config: StartConsensusConfig,
     private_data: Option<Vec<u8>>,
-    maximum_log_level: ConsensusLogLevel,
     appdata_dir: &Path,
-    regenesis_arc: Arc<Regenesis>,
-    notification_context: Option<NotificationContext>,
-    unsupported_update_context: Option<NotifyUnsupportedUpdatesContext>,
 ) -> anyhow::Result<*mut consensus_runner> {
-    let genesis_data_len = genesis_data.len();
+    let genesis_data_len = start_config.genesis_data.len();
     let mut runner_ptr = std::ptr::null_mut();
     let runner_ptr_ptr = &mut runner_ptr;
     let ret_code = match private_data {
@@ -1450,22 +1460,24 @@ pub fn get_consensus_ptr(
                     runtime_parameters.transactions_purging_delay,
                     runtime_parameters.accounts_cache_size,
                     runtime_parameters.modules_cache_size,
-                    genesis_data.as_ptr(),
+                    start_config.genesis_data.as_ptr(),
                     genesis_data_len as i64,
                     private_data_bytes.as_ptr(),
                     private_data_len as i64,
-                    notification_context
+                    start_config
+                        .notification_context
                         .map_or(std::ptr::null_mut(), |ctx| Box::into_raw(Box::new(ctx))),
                     notify_callback,
-                    unsupported_update_context
+                    start_config
+                        .unsupported_update_context
                         .map_or(std::ptr::null_mut(), |ctx| Box::into_raw(Box::new(ctx))),
                     unsupported_update_callback,
                     broadcast_callback,
                     catchup_status_callback,
-                    Arc::into_raw(regenesis_arc),
+                    Arc::into_raw(start_config.regenesis_arc),
                     free_regenesis_arc,
                     regenesis_callback,
-                    maximum_log_level as u8,
+                    start_config.maximum_log_level as u8,
                     on_log_emited,
                     appdata_buf.as_ptr() as *const u8,
                     appdata_buf.len() as i64,
@@ -1485,19 +1497,21 @@ pub fn get_consensus_ptr(
                         runtime_parameters.transactions_purging_delay,
                         runtime_parameters.accounts_cache_size,
                         runtime_parameters.modules_cache_size,
-                        genesis_data.as_ptr(),
+                        start_config.genesis_data.as_ptr(),
                         genesis_data_len as i64,
-                        notification_context
+                        start_config
+                            .notification_context
                             .map_or(std::ptr::null_mut(), |ctx| Box::into_raw(Box::new(ctx))),
                         notify_callback,
-                        unsupported_update_context
+                        start_config
+                            .unsupported_update_context
                             .map_or(std::ptr::null_mut(), |ctx| Box::into_raw(Box::new(ctx))),
                         unsupported_update_callback,
                         catchup_status_callback,
-                        Arc::into_raw(regenesis_arc),
+                        Arc::into_raw(start_config.regenesis_arc),
                         free_regenesis_arc,
                         regenesis_callback,
-                        maximum_log_level as u8,
+                        start_config.maximum_log_level as u8,
                         on_log_emited,
                         appdata_buf.as_ptr() as *const u8,
                         appdata_buf.len() as i64,

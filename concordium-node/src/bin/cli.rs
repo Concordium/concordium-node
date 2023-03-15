@@ -18,7 +18,7 @@ use concordium_node::{
             ConsensusContainer, ConsensusLogLevel, Regenesis, CALLBACK_QUEUE,
             CONSENSUS_QUEUE_DEPTH_IN_HI, CONSENSUS_QUEUE_DEPTH_OUT_HI,
         },
-        ffi,
+        ffi::{self, StartConsensusConfig},
         helpers::QueueMsg,
         messaging::ConsensusMessage,
     },
@@ -138,11 +138,9 @@ async fn main() -> anyhow::Result<()> {
     };
 
     info!("Starting consensus layer");
-    let consensus = plugins::consensus::start_consensus_layer(
-        &conf.cli.baker,
-        gen_data,
-        priv_data,
-        if conf.common.no_consensus_logs {
+    let start_consensus_config = StartConsensusConfig {
+        genesis_data: gen_data,
+        maximum_log_level: if conf.common.no_consensus_logs {
             ConsensusLogLevel::Error
         } else if conf.common.trace {
             ConsensusLogLevel::Trace
@@ -151,10 +149,15 @@ async fn main() -> anyhow::Result<()> {
         } else {
             ConsensusLogLevel::Info
         },
-        &database_directory,
-        regenesis_arc.clone(),
+        regenesis_arc: regenesis_arc.clone(),
         notification_context,
         unsupported_update_context,
+    };
+    let consensus = plugins::consensus::start_consensus_layer(
+        &conf.cli.baker,
+        start_consensus_config,
+        priv_data,
+        &database_directory,
     )?;
     info!("Consensus layer started");
 

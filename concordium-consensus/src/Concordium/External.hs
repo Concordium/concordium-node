@@ -405,9 +405,9 @@ startConsensus ::
     Ptr NotifyContext ->
     -- |The callback used to invoke upon new block arrival, and new finalized blocks.
     FunPtr NotifyCallback ->
-    -- |Context for when signalling a unsupported protocol update is pending or effective.
+    -- |Context for when signalling a unsupported protocol update is pending.
     Ptr NotifyUnsupportedUpdatesContext ->
-    -- |The callback used to signal a unsupported protocol update is pending or effective.
+    -- |The callback used to signal a unsupported protocol update is pending.
     FunPtr NotifyUnsupportedUpdatesCallback ->
     -- |Handler for generated messages
     FunPtr BroadcastCallback ->

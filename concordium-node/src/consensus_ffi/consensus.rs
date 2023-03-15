@@ -1,7 +1,7 @@
 use crate::consensus_ffi::{
     ffi::{
         consensus_runner, get_consensus_ptr, startBaker, stopBaker, stopConsensus,
-        NotificationContext, NotifyUnsupportedUpdatesContext,
+        StartConsensusConfig,
     },
     helpers::{QueueReceiver, QueueSyncSender, RelayOrStopSenderHelper},
     messaging::ConsensusMessage,
@@ -200,13 +200,9 @@ pub struct ConsensusContainer {
 impl ConsensusContainer {
     pub fn new(
         runtime_parameters: ConsensusRuntimeParameters,
-        genesis_data: Vec<u8>,
+        start_config: StartConsensusConfig,
         private_data: Option<Vec<u8>>,
-        max_log_level: ConsensusLogLevel,
         appdata_dir: &Path,
-        regenesis_arc: Arc<Regenesis>,
-        notification_context: Option<NotificationContext>,
-        unsupported_update_context: Option<NotifyUnsupportedUpdatesContext>,
     ) -> anyhow::Result<Self> {
         info!("Starting up the consensus layer");
 
@@ -215,17 +211,9 @@ impl ConsensusContainer {
         } else {
             ConsensusType::Passive
         };
+        let genesis_data = start_config.genesis_data.clone();
 
-        match get_consensus_ptr(
-            &runtime_parameters,
-            genesis_data.clone(),
-            private_data,
-            max_log_level,
-            appdata_dir,
-            regenesis_arc,
-            notification_context,
-            unsupported_update_context,
-        ) {
+        match get_consensus_ptr(&runtime_parameters, start_config, private_data, appdata_dir) {
             Ok(consensus_ptr) => Ok(Self {
                 runtime_parameters,
                 is_baking: Arc::new(AtomicBool::new(false)),
