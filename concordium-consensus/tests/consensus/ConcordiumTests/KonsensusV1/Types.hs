@@ -8,6 +8,7 @@ import Data.Serialize
 import qualified Data.Vector as Vector
 import Data.Word
 import System.IO.Unsafe
+import Test.HUnit
 import Test.Hspec
 import Test.QuickCheck
 
@@ -188,6 +189,10 @@ genTimeoutSignatureMessages = do
     msgs <- vectorOf (fromIntegral numMessages) genTimeoutSignatureMessage
     return $! SignatureMessages $! foldl' (\acc msg -> Map.insert (FinalizerIndex . fromIntegral $ Map.size acc) msg acc) Map.empty msgs
 
+-- |Generate an arbitrary 'LeadershipElectionNonce'
+genLeadershipElectionNonce :: Gen LeadershipElectionNonce
+genLeadershipElectionNonce = Hash.Hash . FBS.pack <$> vector 32
+
 -- |Generate a 'RoundStatus' suitable for testing serialization.
 genRoundStatus :: Gen RoundStatus
 genRoundStatus = do
@@ -197,9 +202,8 @@ genRoundStatus = do
     rsLastSignedQuourumSignatureMessage <- coinFlip =<< genQuorumSignatureMessage
     rsLastSignedTimeoutSignatureMessage <- coinFlip =<< genTimeoutSignatureMessage
     rsCurrentTimeoutSignatureMessages <- genTimeoutSignatureMessages
-    rsCurrentTimeout <- Duration <$> arbitrary
     rsHighestQC <- coinFlip =<< genQuorumCertificate
-    rsLeadershipElectionNonce <- Hash.Hash . FBS.pack <$> vector 32
+    rsLeadershipElectionNonce <- genLeadershipElectionNonce
     tc <- genTimeoutCertificate
     qc <- genQuorumCertificate
     let rsPreviousRoundTC = Present (tc, qc)
