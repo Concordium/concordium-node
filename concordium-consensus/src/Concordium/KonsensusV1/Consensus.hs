@@ -174,7 +174,7 @@ processBlockItems bb parentPointer = process $! Vector.toList $ bbTransactions b
         return $! Context{_ctxTransactionOrigin = TVer.Block, ..}
     theRound = bbRound bb
     theTime = bbTimestamp bb
-    -- Process the vector of transactions recursively.
+    -- Process the list of transactions recursively.
     process :: [BlockItem] -> m Bool
     process [] = return True
     process (bi : bis) = do
