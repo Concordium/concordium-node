@@ -173,7 +173,7 @@ processBlockItems ::
     -- |Return 'True' only if all transactions were
     -- successfully processed otherwise 'False'.
     m Bool
-processBlockItems bb parentPointer = process $! bbTransactions bb
+processBlockItems bb parentPointer = process $! Vector.toList $ bbTransactions bb
   where
     -- Create a context suitable for verifying a transaction within a 'Block' context.
     getCtx = do
@@ -185,41 +185,37 @@ processBlockItems bb parentPointer = process $! bbTransactions bb
     theRound = bbRound bb
     theTime = bbTimestamp bb
     -- Process the vector of transactions recursively.
-    process :: Vector.Vector BlockItem -> m Bool
-    process txs
-        -- If no transactions are present then all were added.
-        | null txs = return True
-        -- There's work to do.
-        | otherwise = do
-            let bi = Vector.head txs
-                txHash = getHash bi
-            tt' <- gets' _transactionTable
-            -- Check whether we already have the transaction.
-            case tt' ^. TT.ttHashMap . at' txHash of
-                Just (_, results) -> do
-                    -- If we have received the transaction before we update the maximum committed round
-                    -- if the new round is higher.
-                    when (TT.commitPoint theRound > results ^. TT.tsCommitPoint) $
-                        transactionTable . TT.ttHashMap . at' txHash . mapped . _2 %=! TT.updateCommitPoint theRound
-                    -- And we continue processing the remaining transactions.
-                    process $ Vector.tail txs
-                Nothing -> do
-                    -- We verify the transaction and check whether it's acceptable i.e. Ok or MaybeOk.
-                    -- If that is the case then we add it to the transaction table and pending transactions.
-                    -- If it is NotOk then we stop verifying the transactions as the block can never be valid now.
-                    !verRes <- runTransactionVerifierT (TVer.verify theTime bi) =<< getCtx
-                    case verRes of
-                        -- The transaction was deemed non verifiable i.e., it can never be
-                        -- valid. We short circuit the recursion here and return 'False'.
-                        (TVer.NotOk _) -> return False
-                        -- The transaction is either 'Ok' or 'MaybeOk' and that is acceptable
-                        -- when processing transactions which originates from a block.
-                        -- We add it to the transaction table and continue with the next transaction.
-                        acceptedRes ->
-                            addTransaction theRound bi acceptedRes >>= \case
-                                -- The transaction was obsolete so we stop processing the remaining transactions.
-                                False -> return False
-                                -- The transaction was added to the tree state,
-                                -- so add it to the pending table if it's eligible (see documentation for
-                                -- 'addPendingTransaction') and continue processing the remaining ones.
-                                True -> addPendingTransaction TVer.Block bi >> process (Vector.tail txs)
+    process :: [BlockItem] -> m Bool
+    process [] = return True
+    process (bi : bis) = do
+        let txHash = getHash bi
+        tt' <- gets' _transactionTable
+        -- Check whether we already have the transaction.
+        case tt' ^. TT.ttHashMap . at' txHash of
+            Just (_, results) -> do
+                -- If we have received the transaction before we update the maximum committed round
+                -- if the new round is higher.
+                when (TT.commitPoint theRound > results ^. TT.tsCommitPoint) $
+                    transactionTable . TT.ttHashMap . at' txHash . mapped . _2 %=! TT.updateCommitPoint theRound
+                -- And we continue processing the remaining transactions.
+                process bis
+            Nothing -> do
+                -- We verify the transaction and check whether it's acceptable i.e. Ok or MaybeOk.
+                -- If that is the case then we add it to the transaction table and pending transactions.
+                -- If it is NotOk then we stop verifying the transactions as the block can never be valid now.
+                !verRes <- runTransactionVerifierT (TVer.verify theTime bi) =<< getCtx
+                case verRes of
+                    -- The transaction was deemed non verifiable i.e., it can never be
+                    -- valid. We short circuit the recursion here and return 'False'.
+                    (TVer.NotOk _) -> return False
+                    -- The transaction is either 'Ok' or 'MaybeOk' and that is acceptable
+                    -- when processing transactions which originates from a block.
+                    -- We add it to the transaction table and continue with the next transaction.
+                    acceptedRes ->
+                        addTransaction theRound bi acceptedRes >>= \case
+                            -- The transaction was obsolete so we stop processing the remaining transactions.
+                            False -> return False
+                            -- The transaction was added to the tree state,
+                            -- so add it to the pending table if it's eligible (see documentation for
+                            -- 'addPendingTransaction') and continue processing the remaining ones.
+                            True -> addPendingTransaction TVer.Block bi >> process bis

@@ -72,7 +72,7 @@ data AddTransactionResult
 -- that the transaction does not already exist in the `TransactionTable`.
 data Context t = Context
     { -- |The block state
-      _ctxBs :: t,
+      _ctxBs :: !t,
       -- |The max block energy.
       _ctxMaxBlockEnergy :: !Energy,
       -- |Whether the transaction was received from a block or individually.
