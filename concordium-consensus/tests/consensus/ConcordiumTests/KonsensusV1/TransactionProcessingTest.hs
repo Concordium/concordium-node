@@ -50,7 +50,6 @@ import Concordium.GlobalState.Persistent.BlockState
 import Concordium.GlobalState.Persistent.Genesis (genesisState)
 import Concordium.GlobalState.TransactionTable
 import Concordium.ID.Types (randomAccountAddress)
-import Concordium.KonsensusV1.Transactions
 import Concordium.Scheduler.DummyData
 import Concordium.TimeMonad
 import qualified Concordium.TransactionVerification as TVer
@@ -63,7 +62,7 @@ import Concordium.Types.Parameters
 import Concordium.Types.Transactions
 
 import Concordium.GlobalState.Transactions
-import Concordium.KonsensusV1.Consensus
+import Concordium.KonsensusV1.Transactions
 import Concordium.KonsensusV1.TreeState.Implementation
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
