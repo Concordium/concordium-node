@@ -204,11 +204,10 @@ data Callbacks = Callbacks
       -- the hash of the block, its absolute height and whether the block was produced by the baker id configured for this node.
       notifyBlockArrived :: Maybe (BlockHash -> AbsoluteBlockHeight -> Bool -> IO ()),
       -- |Notify a block was finalized. The arguments are the hash of the block,
-      -- its absolute height and whether the block was produced by the baker id configured for this
-      -- node.
+      -- its absolute height and whether the block was produced by the baker id configured for this node.
       notifyBlockFinalized :: Maybe (BlockHash -> AbsoluteBlockHeight -> Bool -> IO ()),
-      -- |Notify unsupported protocol updates are pending.
-      -- Takes the effective time as argument in the case of an unsupported protocol update.
+      -- |Notify unsupported protocol update is pending when called.
+      -- Takes the effective time of the update as argument.
       notifyUnsupportedProtocolUpdate :: Maybe (Timestamp -> IO ())
     }
 
@@ -590,8 +589,8 @@ checkForProtocolUpdate = liftSkov body
                                     ++ showPU pu
                         callbacks <- lift $ asks mvCallbacks
                         case notifyUnsupportedProtocolUpdate callbacks of
-                          Just notifyCallback -> liftIO $ notifyCallback $ transactionTimeToTimestamp ts
-                          Nothing -> return ()
+                            Just notifyCallback -> liftIO $ notifyCallback $ transactionTimeToTimestamp ts
+                            Nothing -> return ()
                     Right upd -> do
                         unless alreadyNotified $
                             logEvent Kontrol LLInfo $

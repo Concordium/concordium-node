@@ -18,7 +18,7 @@ use concordium_node::{
             ConsensusContainer, ConsensusLogLevel, Regenesis, CALLBACK_QUEUE,
             CONSENSUS_QUEUE_DEPTH_IN_HI, CONSENSUS_QUEUE_DEPTH_OUT_HI,
         },
-        ffi::{self, StartConsensusConfig},
+        ffi,
         helpers::QueueMsg,
         messaging::ConsensusMessage,
     },
@@ -138,7 +138,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     info!("Starting consensus layer");
-    let start_consensus_config = StartConsensusConfig {
+    let start_consensus_config = ffi::StartConsensusConfig {
         genesis_data: gen_data,
         maximum_log_level: if conf.common.no_consensus_logs {
             ConsensusLogLevel::Error

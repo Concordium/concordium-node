@@ -229,6 +229,6 @@ Finalized blocks received as part of catchup are also counted, when the block wa
 
 ### `consensus_unsupported_pending_protocol_version`
 
-Indicator where a value of 1 indicates an unsupported pending protocol update. If this is ever showing 1 make sure to update your node otherwise it will shutdown itself at the effective time of the protocol update.
+Indicator for unsupported pending protocol updates where a non-zero value indicates the effective time (Unix time in milliseconds) of a pending unsupported protocol update.
 
 This metric is intended for setting up alerts to catch outdated nodes.

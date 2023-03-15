@@ -348,14 +348,18 @@ pub struct NotificationHandlers {
     pub finalized_blocks: futures::channel::mpsc::UnboundedReceiver<Arc<[u8]>>,
 }
 
+/// A type of callback used to signal the Rust code of a pending unsupported
+/// protocol update. The callback is called with:
+/// - the context
+/// - effective time of unsupported update (milliseconds since unix epoch).
+type NotifyUnsupportedUpdatesCallback =
+    unsafe extern "C" fn(*mut NotifyUnsupportedUpdatesContext, u64);
+
 pub struct NotifyUnsupportedUpdatesContext {
     /// If non-zero the value represents the effective timestamp of unsupported
     /// protocol update as milliseconds since unix epoch.
     pub unsupported_pending_protocol_version: prometheus::IntGauge,
 }
-
-type NotifyUnsupportedUpdatesCallback =
-    unsafe extern "C" fn(*mut NotifyUnsupportedUpdatesContext, u64);
 
 #[allow(improper_ctypes)]
 extern "C" {
@@ -1416,6 +1420,9 @@ unsafe extern "C" fn notify_callback(
     }
 }
 
+/// This is the callback invoked by consensus to signal a pending unsupported
+/// protocol update. The information is exposed as a prometheus metric allowing
+/// node-runners to setup alerts.
 unsafe extern "C" fn unsupported_update_callback(
     context_ptr: *mut NotifyUnsupportedUpdatesContext,
     unsupported_update_pending: u64,

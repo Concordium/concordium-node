@@ -356,10 +356,10 @@ mkNotifyBlockFinalized f = \bh height isHomeBaked -> do
     BS.unsafeUseAsCStringLen (Proto.encodeMessage msg) $ \(cPtr, len) -> do
         f 1 (castPtr cPtr) (fromIntegral len) (fromIntegral height) isHomeBakedByte
 
--- |Context for when signalling a unsupported protocol update is pending or effective.
+-- |Context for when signalling a unsupported protocol update is pending.
 data NotifyUnsupportedUpdatesContext
 
--- |The callback used to signal a unsupported protocol update is pending or effective.
+-- |The callback used to signal a unsupported protocol update is pending.
 type NotifyUnsupportedUpdatesCallback =
     -- |Handle to the context.
     Ptr NotifyUnsupportedUpdatesContext ->
@@ -375,7 +375,7 @@ foreign import ccall "dynamic"
 -- |Serialize effective timestamp of unsupported protocol update, to milliseconds since unix epoch.
 mkNotifyUnsupportedUpdates :: (Word64 -> IO ()) -> Timestamp -> IO ()
 mkNotifyUnsupportedUpdates f unsupportedUpdateEffectiveTime =
-  f (tsMillis unsupportedUpdateEffectiveTime)
+    f (tsMillis unsupportedUpdateEffectiveTime)
 
 -- |Start up an instance of Skov without starting the baker thread.
 -- If an error occurs starting Skov, the error will be logged and
@@ -558,9 +558,9 @@ startConsensusPassive ::
     Ptr NotifyContext ->
     -- |The callback used to invoke upon new block arrival, and new finalized blocks.
     FunPtr NotifyCallback ->
-    -- |Context for when signalling a unsupported protocol update is pending or effective.
+    -- |Context for when signalling a unsupported protocol update is pending.
     Ptr NotifyUnsupportedUpdatesContext ->
-    -- |The callback used to signal a unsupported protocol update is pending or effective.
+    -- |The callback used to signal a unsupported protocol update is pending.
     FunPtr NotifyUnsupportedUpdatesCallback ->
     -- |Handler for sending catch-up status to peers
     FunPtr CatchUpStatusCallback ->
@@ -1441,9 +1441,9 @@ foreign export ccall
         Int64 ->
         Ptr NotifyContext ->
         FunPtr NotifyCallback ->
-        -- |Context for when signalling a unsupported protocol update is pending or effective.
+        -- |Context for when signalling a unsupported protocol update is pending.
         Ptr NotifyUnsupportedUpdatesContext ->
-        -- |The callback used to signal a unsupported protocol update is pending or effective.
+        -- |The callback used to signal a unsupported protocol update is pending.
         FunPtr NotifyUnsupportedUpdatesCallback ->
         -- |Handler for generated messages
         FunPtr BroadcastCallback ->
@@ -1487,9 +1487,9 @@ foreign export ccall
         Int64 ->
         Ptr NotifyContext ->
         FunPtr NotifyCallback ->
-        -- |Context for when signalling a unsupported protocol update is pending or effective.
+        -- |Context for when signalling a unsupported protocol update is pending.
         Ptr NotifyUnsupportedUpdatesContext ->
-        -- |The callback used to signal a unsupported protocol update is pending or effective.
+        -- |The callback used to signal a unsupported protocol update is pending.
         FunPtr NotifyUnsupportedUpdatesCallback ->
         -- |Handler for sending catch-up status to peers
         FunPtr CatchUpStatusCallback ->
