@@ -34,7 +34,7 @@ initialBlockState =
         [Helpers.makeTestAccount alesVK alesAccount 1_000]
 
 counterSourceFile :: FilePath
-counterSourceFile = "./testdata/contracts/v1/call-counter.wasm"
+counterSourceFile = "../concordium-base/smart-contracts/testdata/contracts/v1/call-counter.wasm"
 
 deployModule ::
     Helpers.PersistentBSM

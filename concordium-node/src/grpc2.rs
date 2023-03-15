@@ -948,8 +948,13 @@ pub mod server {
                 let stats_layer = StatsLayer {
                     stats: node.stats.clone(),
                 };
-                let mut builder =
-                    tonic::transport::Server::builder().layer(log_layer).layer(stats_layer);
+                let in_flight_request_layer = tower_http::metrics::InFlightRequestsLayer::new(
+                    node.stats.grpc_in_flight_requests_counter.clone(),
+                );
+                let mut builder = tonic::transport::Server::builder()
+                    .layer(log_layer)
+                    .layer(in_flight_request_layer)
+                    .layer(stats_layer);
                 if let Some(identity) = identity {
                     builder = builder
                         .tls_config(ServerTlsConfig::new().identity(identity))
@@ -2073,7 +2078,7 @@ pub mod server {
                         // protocol on the chain.
                         types::node_info::node::ConsensusStatus::NotRunning(types::Empty {})
                     } else if matches!(self.consensus.consensus_type, ConsensusType::Active) {
-                        let (in_baking_committee, _, bid) = self.consensus.in_baking_committee();
+                        let (in_baking_committee, _, bid, _) = self.consensus.in_baking_committee();
                         let baker_id = types::BakerId {
                             value: bid,
                         };

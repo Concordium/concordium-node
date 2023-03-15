@@ -207,7 +207,7 @@ logEventTestCases spv pvString =
     runReceiveTestsFromFile
         spv
         (pvString ++ ": log-event-tests")
-        "./testdata/contracts/log-event-tests.wasm"
+        "../concordium-base/smart-contracts/testdata/contracts/log-event-tests.wasm"
         [ -- Try to read memory before position 0.
           ("start_negative__fail", emptyParam, Helpers.assertRejectWithReason RuntimeFailure),
           ("length_negative__fail", emptyParam, Helpers.assertRejectWithReason RuntimeFailure),
@@ -226,7 +226,7 @@ getParameterSizeTestCases spv pvString =
     runReceiveTestsFromFile
         spv
         (pvString ++ ": get-parameter-size-tests")
-        "./testdata/contracts/get-parameter-size-tests.wasm"
+        "../concordium-base/smart-contracts/testdata/contracts/get-parameter-size-tests.wasm"
         [ ("size_is_0__return_0_and_succeed", emptyParam, Helpers.assertSuccess),
           ("size_is_max__return_max_and_succeed", maxSizedParam, Helpers.assertSuccess)
         ]
@@ -243,7 +243,7 @@ getParameterSectionTestCases spv pvString =
     runReceiveTestsFromFile
         spv
         (pvString ++ ": get-parameter-section-tests")
-        "./testdata/contracts/get-parameter-section-tests.wasm"
+        "../concordium-base/smart-contracts/testdata/contracts/get-parameter-section-tests.wasm"
         [ -- Try to read before parameter section begins
           ("offset_negative__fail", param100, Helpers.assertRejectWithReason RuntimeFailure),
           -- the reason this fails with out of energy is because we charge
@@ -272,7 +272,7 @@ stateSizeTestCases spv pvString =
     runReceiveTestsFromFile
         spv
         (pvString ++ ": state-size-tests")
-        "./testdata/contracts/state-size-tests.wasm"
+        "../concordium-base/smart-contracts/testdata/contracts/state-size-tests.wasm"
         [ ("size_is_0__return_0_and_succeed", emptyParam, Helpers.assertSuccess),
           ("size_is_max__return_max_and_succeed", emptyParam, Helpers.assertSuccess)
         ]
@@ -286,7 +286,7 @@ loadStateTestCases spv pvString =
     runReceiveTestsFromFile
         spv
         (pvString ++ ": load-state-tests")
-        "./testdata/contracts/load-state-tests.wasm"
+        "../concordium-base/smart-contracts/testdata/contracts/load-state-tests.wasm"
         [ -- Positive tests
           ("load_all_of_state__return_state_size_and_succeed", emptyParam, Helpers.assertSuccess),
           ("load_max_sized_state__return_state_size_and_succeed", emptyParam, Helpers.assertSuccess),
@@ -313,7 +313,7 @@ writeStateTestCases spv pvString =
     runReceiveTestsFromFile
         spv
         (pvString ++ ": write-state-tests")
-        "./testdata/contracts/write-state-tests.wasm"
+        "../concordium-base/smart-contracts/testdata/contracts/write-state-tests.wasm"
         [ -- Positive tests
           ("write_100_bytes__return_100_and_succeed", emptyParam, Helpers.assertSuccess),
           -- Read before start of memory
@@ -336,7 +336,7 @@ resizeStateTestCases spv pvString =
     runReceiveTestsFromFile
         spv
         (pvString ++ ": resize-state-tests")
-        "./testdata/contracts/resize-state-tests.wasm"
+        "../concordium-base/smart-contracts/testdata/contracts/resize-state-tests.wasm"
         -- resize_state returns 0 on failure and 1 on success.
         [ ("new_size_negative__return_zero_and_succeed", emptyParam, Helpers.assertSuccess),
           ("new_size_zero__return_one_and_succeed", emptyParam, Helpers.assertSuccess),
@@ -364,7 +364,7 @@ onlyInInitTestCases spv pvString = do
         file
         [("get_init_origin__valid_param_from_receive__fail", emptyParam, Helpers.assertRejectWithReason RuntimeFailure)]
   where
-    file = "./testdata/contracts/only-in-init-tests.wasm"
+    file = "../concordium-base/smart-contracts/testdata/contracts/only-in-init-tests.wasm"
 
 onlyInReceiveTestCases ::
     Types.IsProtocolVersion pv =>
@@ -407,7 +407,7 @@ onlyInReceiveTestCases spv pvString = do
           ("get_receive_self_balance__send_10K_microGTU__balance_is_10K_and_succeed", emptyParam, Helpers.assertSuccess)
         ]
   where
-    file = "./testdata/contracts/only-in-receive-tests.wasm"
+    file = "../concordium-base/smart-contracts/testdata/contracts/only-in-receive-tests.wasm"
 
 simpleTransferTestCases ::
     Types.IsProtocolVersion pv =>
@@ -418,7 +418,7 @@ simpleTransferTestCases spv pvString =
     runReceiveTestsFromFile
         spv
         (pvString ++ ": simple-transfer-tests")
-        "./testdata/contracts/simple-transfer-tests.wasm"
+        "../concordium-base/smart-contracts/testdata/contracts/simple-transfer-tests.wasm"
         [ -- Ensure that only the _last_ transfer is processed.
           ("multiple_transfers__transfer_4_and_succeed", encodedAccountAddress1, Helpers.assertSuccessWhere $ expectCCDTransferred 4),
           -- Try reading memory outside of memory bounds.
@@ -462,7 +462,7 @@ sendTestCases spv pvString =
     runReceiveTestsFromFile
         spv
         (pvString ++ ": send-tests")
-        "./testdata/contracts/send-tests.wasm"
+        "../concordium-base/smart-contracts/testdata/contracts/send-tests.wasm"
         [ -- Positive test to ensure correctness of test setup
           ("self_message_with_accept__succeed", rcvNameParam, Helpers.assertSuccess),
           -- Run with invalid address
@@ -514,7 +514,7 @@ actionTreeTestCases spv pvString =
     runReceiveTestsFromFile
         spv
         (pvString ++ ": action-tree-tests")
-        "./testdata/contracts/action-tree-tests.wasm"
+        "../concordium-base/smart-contracts/testdata/contracts/action-tree-tests.wasm"
         [ -- Combine 'and' and 'or'
           ("complex_combine__transfer_2microGTU_and_succeed", encodedAccountAddress1, Helpers.assertSuccessWhere $ expectCCDTransferred 2),
           ("complex_combine__transfer_3microGTU_and_succeed", encodedAccountAddress1, Helpers.assertSuccessWhere $ expectCCDTransferred 3),
@@ -544,7 +544,7 @@ memoryTestCases spv pvString =
     runReceiveTestsFromFile
         spv
         (pvString ++ ": memory-tests")
-        "./testdata/contracts/memory-tests.wasm"
+        "../concordium-base/smart-contracts/testdata/contracts/memory-tests.wasm"
         [("memory_size_is_correct_and_growable__succeed", emptyParam, Helpers.assertSuccess)]
 
 tests :: Spec

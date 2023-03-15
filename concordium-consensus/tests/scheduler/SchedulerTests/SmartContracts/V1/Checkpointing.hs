@@ -48,10 +48,10 @@ keyPair0 :: SigScheme.KeyPair
 keyPair0 = Helpers.keyPairFromSeed 0
 
 checkpointingSourceFile :: FilePath
-checkpointingSourceFile = "./testdata/contracts/v1/checkpointing.wasm"
+checkpointingSourceFile = "../concordium-base/smart-contracts/testdata/contracts/v1/checkpointing.wasm"
 
 v0ProxySourceFile :: FilePath
-v0ProxySourceFile = "./testdata/contracts/v1/send-message-v1.wasm"
+v0ProxySourceFile = "../concordium-base/smart-contracts/testdata/contracts/v1/send-message-v1.wasm"
 
 -- | This test has the following call pattern:
 -- A

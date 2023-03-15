@@ -28,10 +28,10 @@ import SchedulerTests.TestUtils
 type PersistentModuleInterfaceV v = GSWasm.ModuleInterfaceA (PersistentInstrumentedModuleV v)
 
 callerSourceFile :: FilePath
-callerSourceFile = "./testdata/contracts/v1/caller.wasm"
+callerSourceFile = "../concordium-base/smart-contracts/testdata/contracts/v1/caller.wasm"
 
 emptyContractSourceFile :: FilePath
-emptyContractSourceFile = "./testdata/contracts/empty.wasm"
+emptyContractSourceFile = "../concordium-base/smart-contracts/testdata/contracts/empty.wasm"
 
 -- |Deploy a V1 module in the given state. The source file should be a raw Wasm file.
 -- If the module is invalid this will raise an exception.

@@ -37,7 +37,7 @@ keyPair0 :: SigScheme.KeyPair
 keyPair0 = Helpers.keyPairFromSeed 0
 
 transferSourceFile :: FilePath
-transferSourceFile = "./testdata/contracts/v1/transfer.wasm"
+transferSourceFile = "../concordium-base/smart-contracts/testdata/contracts/v1/transfer.wasm"
 
 -- Tests in this module use version 1, creating V1 instances.
 wasmModVersion :: WasmVersion

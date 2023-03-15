@@ -325,29 +325,33 @@ type NotifyCallback =
     Word64 ->
     -- |Absolute block height of either the arrived block or finalized depending on the type of event.
     Word64 ->
+    -- |Byte where a value of 1 indicates the block arrived/finalized was baked by this node.
+    Word8 ->
     IO ()
 
 foreign import ccall "dynamic" callNotifyCallback :: FunPtr NotifyCallback -> NotifyCallback
 
--- |Serialize the provided arguments (block hash and absolute block height) into
--- an appropriate Proto message, and invoke the provided FFI callback.
-mkNotifyBlockArrived :: (Word8 -> Ptr Word8 -> Word64 -> Word64 -> IO ()) -> BlockHash -> AbsoluteBlockHeight -> IO ()
-mkNotifyBlockArrived f = \bh height -> do
+-- |Serialize the provided arguments (block hash, absolute block height and whether it was baked by
+-- the node) into an appropriate Proto message, and invoke the provided FFI callback.
+mkNotifyBlockArrived :: (Word8 -> Ptr Word8 -> Word64 -> Word64 -> Word8 -> IO ()) -> BlockHash -> AbsoluteBlockHeight -> Bool -> IO ()
+mkNotifyBlockArrived f = \bh height isHomeBaked -> do
     let msg :: Proto.ArrivedBlockInfo = Proto.make $ do
             ProtoFields.hash . ProtoFields.value .= S.encode bh
             ProtoFields.height . ProtoFields.value .= fromIntegral height
+    let isHomeBakedByte = if isHomeBaked then 1 else 0
     BS.unsafeUseAsCStringLen (Proto.encodeMessage msg) $ \(cPtr, len) -> do
-        f 0 (castPtr cPtr) (fromIntegral len) (fromIntegral height)
+        f 0 (castPtr cPtr) (fromIntegral len) (fromIntegral height) isHomeBakedByte
 
--- |Serialize the provided arguments (block hash and block height) into an
--- appropriate Proto message, and invoke the provided FFI callback.
-mkNotifyBlockFinalized :: (Word8 -> Ptr Word8 -> Word64 -> Word64 -> IO ()) -> BlockHash -> AbsoluteBlockHeight -> IO ()
-mkNotifyBlockFinalized f = \bh height -> do
+-- |Serialize the provided arguments (block hash, block height and whether it was baked by the node)
+-- into an appropriate Proto message, and invoke the provided FFI callback.
+mkNotifyBlockFinalized :: (Word8 -> Ptr Word8 -> Word64 -> Word64 -> Word8 -> IO ()) -> BlockHash -> AbsoluteBlockHeight -> Bool -> IO ()
+mkNotifyBlockFinalized f = \bh height isHomeBaked -> do
     let msg :: Proto.FinalizedBlockInfo = Proto.make $ do
             ProtoFields.hash . ProtoFields.value .= S.encode bh
             ProtoFields.height . ProtoFields.value .= fromIntegral height
+    let isHomeBakedByte = if isHomeBaked then 1 else 0
     BS.unsafeUseAsCStringLen (Proto.encodeMessage msg) $ \(cPtr, len) -> do
-        f 1 (castPtr cPtr) (fromIntegral len) (fromIntegral height)
+        f 1 (castPtr cPtr) (fromIntegral len) (fromIntegral height) isHomeBakedByte
 
 -- |Start up an instance of Skov without starting the baker thread.
 -- If an error occurs starting Skov, the error will be logged and
@@ -1041,6 +1045,11 @@ getLastFinalizedBlockHeight cptr = do
     (ConsensusRunner mvr) <- deRefStablePtr cptr
     theBlockHeight <$> runMVR Q.getLastFinalizedBlockHeight mvr
 
+getNumberOfNonFinalizedTransactions :: StablePtr ConsensusRunner -> IO Word64
+getNumberOfNonFinalizedTransactions cptr = do
+    (ConsensusRunner mvr) <- deRefStablePtr cptr
+    fromIntegral <$> runMVR Q.getNumberOfNonFinalizedTransactions mvr
+
 -- ** Block-indexed queries
 
 -- |Given a null-terminated string that represents a block hash (base 16), returns a null-terminated
@@ -1327,14 +1336,19 @@ checkIfRunning cptr = do
 -- |Check whether we are a baker from the perspective of the best block.
 -- bakerIdPtr expects to receive the baker ID (optional).
 -- hasBakerIdPtr expects to receive either 0 (representing false) or 1 (representing true) if a baker ID is not found or found respectively.
+-- bakerLotteryPowerPtr expects to receive the lottery power when member of the baking committee.
 -- Returns 1 if we are not added as a baker.
 -- Returns 2 if we are added as a baker, but not part of the baking committee yet.
 -- Returns 3 if we have keys that do not match the baker's public keys on the chain.
 -- Returns 0 if we are part of the baking committee.
-bakerStatusBestBlock :: StablePtr ConsensusRunner -> Ptr Word64 -> Ptr Word8 -> IO Word8
-bakerStatusBestBlock cptr bakerIdPtr hasBakerIdPtr = do
+bakerStatusBestBlock :: StablePtr ConsensusRunner -> Ptr Word64 -> Ptr Word8 -> Ptr Double -> IO Word8
+bakerStatusBestBlock cptr bakerIdPtr hasBakerIdPtr bakerLotteryPowerPtr = do
     (ConsensusRunner mvr) <- deRefStablePtr cptr
-    (bs, mBid) <- runMVR Q.getBakerStatusBestBlock mvr
+    (bs, mBid, lotteryPowerMaybe) <- runMVR Q.getBakerStatusBestBlock mvr
+    case lotteryPowerMaybe of
+        Just lotteryPower -> do
+            poke bakerLotteryPowerPtr lotteryPower
+        Nothing -> return ()
     case mBid of
         Nothing -> poke hasBakerIdPtr 0 >> (return $! getBakerStatusCode bs)
         Just bid -> do
@@ -1452,6 +1466,7 @@ foreign export ccall getConsensusStatus :: StablePtr ConsensusRunner -> IO CStri
 foreign export ccall getBlockInfo :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getAncestors :: StablePtr ConsensusRunner -> CString -> Word64 -> IO CString
 foreign export ccall getBranches :: StablePtr ConsensusRunner -> IO CString
+foreign export ccall getNumberOfNonFinalizedTransactions :: StablePtr ConsensusRunner -> IO Word64
 
 foreign export ccall
     getCatchUpStatus ::
@@ -1493,7 +1508,7 @@ foreign export ccall getAllAnonymityRevokers :: StablePtr ConsensusRunner -> CSt
 foreign export ccall getCryptographicParameters :: StablePtr ConsensusRunner -> CString -> IO CString
 
 -- baker status checking
-foreign export ccall bakerStatusBestBlock :: StablePtr ConsensusRunner -> Ptr Word64 -> Ptr Word8 -> IO Word8
+foreign export ccall bakerStatusBestBlock :: StablePtr ConsensusRunner -> Ptr Word64 -> Ptr Word8 -> Ptr Double -> IO Word8
 foreign export ccall checkIfWeAreFinalizer :: StablePtr ConsensusRunner -> IO Word8
 foreign export ccall checkIfRunning :: StablePtr ConsensusRunner -> IO Word8
 

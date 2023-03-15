@@ -31,7 +31,9 @@ use concordium_node::{
     read_or_die,
     rpc::RpcServerImpl,
     spawn_or_die,
-    stats_export_service::{instantiate_stats_export_engine, StatsExportService},
+    stats_export_service::{
+        instantiate_stats_export_engine, StatsConsensusCollector, StatsExportService,
+    },
     utils::get_config_and_logging_setup,
 };
 use mio::{net::TcpListener, Poll};
@@ -100,6 +102,8 @@ async fn main() -> anyhow::Result<()> {
             last_finalized_block_timestamp: node.stats.last_finalized_block_timestamp.clone(),
             last_arrived_block_height: node.stats.last_arrived_block_height.clone(),
             last_arrived_block_timestamp: node.stats.last_arrived_block_timestamp.clone(),
+            baked_blocks: node.stats.baked_blocks.clone(),
+            finalized_baked_blocks: node.stats.finalized_baked_blocks.clone(),
         };
         let notification_handlers = ffi::NotificationHandlers {
             blocks:           receiver_blocks,
@@ -114,6 +118,8 @@ async fn main() -> anyhow::Result<()> {
             last_finalized_block_timestamp: node.stats.last_finalized_block_timestamp.clone(),
             last_arrived_block_height: node.stats.last_arrived_block_height.clone(),
             last_arrived_block_timestamp: node.stats.last_arrived_block_timestamp.clone(),
+            baked_blocks: node.stats.baked_blocks.clone(),
+            finalized_baked_blocks: node.stats.finalized_baked_blocks.clone(),
         };
         (Some(notify_context), None)
     } else {
@@ -139,6 +145,10 @@ async fn main() -> anyhow::Result<()> {
         notification_context,
     )?;
     info!("Consensus layer started");
+
+    // Start stats collecting which depend on querying consensus.
+    let consensus_collector = StatsConsensusCollector::new(consensus.clone())?;
+    node.stats.registry.register(Box::new(consensus_collector))?;
 
     // A flag to record that the import was stopped by a signal handler.
     let import_stopped = Arc::new(atomic::AtomicBool::new(false));

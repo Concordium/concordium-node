@@ -41,11 +41,11 @@ import SchedulerTests.TestUtils
 
 -- The module which supports an upgrade.
 testModuleSourceFile :: FilePath
-testModuleSourceFile = "./testdata/contracts/v1/upgrading-cases.wasm"
+testModuleSourceFile = "../concordium-base/smart-contracts/testdata/contracts/v1/upgrading-cases.wasm"
 
 -- The module we will upgrade to
 targetSourceFile :: FilePath
-targetSourceFile = "./testdata/contracts/v1/upgrading-cases-target.wasm"
+targetSourceFile = "../concordium-base/smart-contracts/testdata/contracts/v1/upgrading-cases-target.wasm"
 
 initialBlockState :: Helpers.PersistentBSM PV5 (HashedPersistentBlockState PV5)
 initialBlockState =

@@ -324,6 +324,10 @@ pub struct NotificationContext {
     pub last_arrived_block_height: prometheus::core::GenericGauge<prometheus::core::AtomicU64>,
     /// Timestamp of receiving last arrived block (Unix time in milliseconds).
     pub last_arrived_block_timestamp: prometheus::IntGauge,
+    /// Total number of blocks baked by the node since startup.
+    pub baked_blocks: prometheus::IntCounter,
+    /// Total number of finalized blocks baked by the node since startup.
+    pub finalized_baked_blocks: prometheus::IntCounter,
 }
 
 /// A type of callback used to notify Rust code of important events. The
@@ -333,9 +337,11 @@ pub struct NotificationContext {
 /// - pointer to a byte array containing the serialized event
 /// - length of the data
 /// - block height of either the finalized block or arrived block
+/// - byte where a value of 1 indicates the block arrived/finalized was baked by
+///   this node.
 ///
 /// The callback should not retain references to supplied data after the exit.
-type NotifyCallback = unsafe extern "C" fn(*mut NotificationContext, u8, *const u8, u64, u64);
+type NotifyCallback = unsafe extern "C" fn(*mut NotificationContext, u8, *const u8, u64, u64, u8);
 
 pub struct NotificationHandlers {
     pub blocks:           futures::channel::mpsc::UnboundedReceiver<Arc<[u8]>>,
@@ -442,6 +448,8 @@ extern "C" {
         amount: u64,
     ) -> *const c_char;
     pub fn getBranches(consensus: *mut consensus_runner) -> *const c_char;
+    /// Get the total number of non-finalized transactions across all accounts.
+    pub fn getNumberOfNonFinalizedTransactions(consensus: *mut consensus_runner) -> u64;
 
     // State queries
     pub fn getAccountList(
@@ -510,6 +518,7 @@ extern "C" {
         consensus: *mut consensus_runner,
         baker_id: *mut u64,
         has_baker_id: *mut u8,
+        baker_lottery_power: *mut f64,
     ) -> u8;
     pub fn checkIfWeAreFinalizer(consensus: *mut consensus_runner) -> u8;
     pub fn checkIfRunning(consensus: *mut consensus_runner) -> u8;
@@ -1341,12 +1350,17 @@ unsafe extern "C" fn notify_callback(
     data_ptr: *const u8,
     data_len: u64,
     block_height: u64,
+    home_baked: u8,
 ) {
     let sender = &*notify_context;
+    let home_baked = home_baked == 1;
     match ty {
         0u8 => {
             sender.last_arrived_block_height.set(block_height);
             sender.last_arrived_block_timestamp.set(chrono::Utc::now().timestamp_millis());
+            if home_baked {
+                sender.baked_blocks.inc()
+            }
 
             if let Some(blocks) = &sender.blocks {
                 if blocks
@@ -1365,6 +1379,9 @@ unsafe extern "C" fn notify_callback(
         1u8 => {
             sender.last_finalized_block_height.set(block_height);
             sender.last_finalized_block_timestamp.set(chrono::Utc::now().timestamp_millis());
+            if home_baked {
+                sender.finalized_baked_blocks.inc()
+            }
 
             if let Some(finalized_blocks) = &sender.finalized_blocks {
                 if finalized_blocks
@@ -1596,6 +1613,12 @@ impl ConsensusContainer {
         wrap_c_call_string!(self, consensus, |consensus| getBranches(consensus))
     }
 
+    /// Get the total number of non-finalized transactions across all accounts.
+    pub fn number_of_non_finalized_transactions(&self) -> u64 {
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        unsafe { getNumberOfNonFinalizedTransactions(consensus) }
+    }
+
     pub fn get_account_list(&self, block_hash: &str) -> anyhow::Result<String> {
         let block_hash = CString::new(block_hash)?;
         Ok(wrap_c_call_string!(self, consensus, |consensus| getAccountList(
@@ -1745,24 +1768,33 @@ impl ConsensusContainer {
         ))
     }
 
-    /// Gets baker status of the node along with the baker ID registered in the
-    /// baker credentials used, if available.
+    /// Gets baker status of the node along with the baker ID
+    /// registered in the baker credentials used and lottery power, if
+    /// available.
     ///
     /// Note: the return type does not use an Option<u64>, which would be more
     /// natural, because a weird issue on Windows caused node_info to
     /// produce the wrong result.
-    pub fn in_baking_committee(&self) -> (ConsensusIsInBakingCommitteeResponse, bool, u64) {
+    pub fn in_baking_committee(&self) -> (ConsensusIsInBakingCommitteeResponse, bool, u64, f64) {
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut baker_id: u64 = 0;
         let mut has_baker_id: u8 = 0;
+        let mut baker_lottery_power: f64 = 0.0;
 
-        let result = unsafe { bakerStatusBestBlock(consensus, &mut baker_id, &mut has_baker_id) };
+        let result = unsafe {
+            bakerStatusBestBlock(
+                consensus,
+                &mut baker_id,
+                &mut has_baker_id,
+                &mut baker_lottery_power,
+            )
+        };
 
         let status = ConsensusIsInBakingCommitteeResponse::try_from(result).unwrap_or_else(|err| {
             unreachable!("An error occured when trying to convert FFI return code: {}", err)
         });
 
-        (status, has_baker_id != 0, baker_id)
+        (status, has_baker_id != 0, baker_id, baker_lottery_power)
     }
 
     pub fn in_finalization_committee(&self) -> bool {

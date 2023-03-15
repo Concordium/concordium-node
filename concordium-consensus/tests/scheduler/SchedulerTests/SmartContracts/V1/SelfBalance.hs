@@ -33,10 +33,10 @@ initialBlockState =
         [Helpers.makeTestAccountFromSeed 1_000 0]
 
 selfBalanceSourceFile :: FilePath
-selfBalanceSourceFile = "./testdata/contracts/v1/self-balance.wasm"
+selfBalanceSourceFile = "../concordium-base/smart-contracts/testdata/contracts/v1/self-balance.wasm"
 
 nestedSelfBalanceSourceFile :: FilePath
-nestedSelfBalanceSourceFile = "./testdata/contracts/v1/self-balance-nested.wasm"
+nestedSelfBalanceSourceFile = "../concordium-base/smart-contracts/testdata/contracts/v1/self-balance-nested.wasm"
 
 deployModule1 ::
     PersistentBlockState PV4 ->

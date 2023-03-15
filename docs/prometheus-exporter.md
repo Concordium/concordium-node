@@ -137,6 +137,10 @@ Possible values of `message` are:
 
 Current number of soft banned peers. The node temporarily bans peers if they fail to follow the protocol.
 
+### `network_soft_banned_peers_total`
+
+The total number of soft banned peers since startup. The node temporarily bans peers if they fail to follow the protocol.
+
 ### `network_peers_total`
 
 Total number of peers connected since startup.
@@ -180,3 +184,45 @@ Possible values of `status` are:
 - `"unavailable"` The service is currently unavailable.
 - `"data loss"` Unrecoverable data loss or corruption.
 - `"unauthenticated"` The request does not have valid authentication credentials.
+
+### `grpc_in_flight_requests`
+
+Current number of gRPC requests being handled by the node.
+Streaming gRPC methods are counted as in flight until the response stream is closed.
+
+### `consensus_baking_committee`
+
+The baking committee status of the node for the current best block.
+
+The value is mapped to a status:
+- `0` The node is in the baking committee and is actively baking.
+- `1` The node is not in the baking committee.
+- `2` The node is added to the upcoming the baking committee, and is not baking actively yet.
+- `3` The node is setup with baker keys not matching the keys currently registered in the baking committee.
+
+### `consensus_finalization_committee`
+
+The finalization committee status of the node for the current finalization round. The metric will have a value of 1 if and only if the node is a member of the finalization committee.
+
+### `consensus_baking_lottery_power`
+
+Baking lottery power for the current epoch of the best block.
+The value is a number between 0 and 1, and is representing the fraction of baking stake (combined stake of the baker and delegators) to the total baking stake of the baking committee.
+Is only non-zero when active member of the baking committee.
+
+### `consensus_non_finalized_transactions`
+
+The current number of non-finalized transactions stored by the node.
+
+
+### `consensus_baked_blocks_total`
+
+Total number of blocks baked by the node since startup.
+
+Blocks received as part of catchup are also counted, when the block was baked by the same baker ID as the node is configured with.
+
+### `consensus_finalized_baked_blocks_total`
+
+Total number of finalized blocks baked by the node since startup.
+
+Finalized blocks received as part of catchup are also counted, when the block was baked by the same baker ID as the node is configured with.

@@ -36,7 +36,7 @@ import SchedulerTests.TestUtils
 
 -- The module which supports transfers and state updates.
 testModuleSourceFile :: FilePath
-testModuleSourceFile = "./testdata/contracts/v1/queries-cases.wasm"
+testModuleSourceFile = "../concordium-base/smart-contracts/testdata/contracts/v1/queries-cases.wasm"
 
 initialBlockState :: Helpers.PersistentBSM PV5 (HashedPersistentBlockState PV5)
 initialBlockState =

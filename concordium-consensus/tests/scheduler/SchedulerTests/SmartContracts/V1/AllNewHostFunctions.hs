@@ -18,7 +18,7 @@ import Concordium.Wasm
 -- |A V1 module with extra exports.
 testModule1 :: Assertion
 testModule1 = do
-    ws <- BS.readFile "./testdata/contracts/v1/all-new-host-functions.wasm"
+    ws <- BS.readFile "../concordium-base/smart-contracts/testdata/contracts/v1/all-new-host-functions.wasm"
     let wm1 = WasmModuleV (ModuleSource ws)
     case WasmV1.processModule True wm1 of
         Nothing -> assertFailure "Invalid caller module."
@@ -30,7 +30,7 @@ testModule1 = do
 -- onwards.
 testModule2 :: Assertion
 testModule2 = do
-    ws <- BS.readFile "./testdata/contracts/v1/all-new-host-functions.wasm"
+    ws <- BS.readFile "../concordium-base/smart-contracts/testdata/contracts/v1/all-new-host-functions.wasm"
     let wm1 = WasmModuleV (ModuleSource ws)
     case WasmV1.processModule False wm1 of
         Nothing -> return ()

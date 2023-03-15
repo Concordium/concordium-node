@@ -48,7 +48,7 @@ fibParamBytes :: Word64 -> BSS.ShortByteString
 fibParamBytes n = BSS.toShort $ runPut (putWord64le n)
 
 fibSourceFile :: FilePath
-fibSourceFile = "./testdata/contracts/fib.wasm"
+fibSourceFile = "../concordium-base/smart-contracts/testdata/contracts/fib.wasm"
 
 testCase1 ::
     forall pv.
