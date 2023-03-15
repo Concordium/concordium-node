@@ -80,22 +80,12 @@ propAdvanceRoundStatusFromTCRound =
 propAdvanceRoundStatusEpoch :: Property
 propAdvanceRoundStatusEpoch =
     forAll genRoundStatus $ \fromRoundStatus ->
-        forAll genEpoch $ \toEpoch ->
-            forAll genFinalizationEntry $ \finalizationEntry ->
-                forAll genLeadershipElectionNonce $ \newLeadershipElectionNonce -> do
-                    let newRoundStatus = advanceRoundStatusEpoch toEpoch finalizationEntry newLeadershipElectionNonce fromRoundStatus
-                    assertEqual
-                        "RoundStatus should have advanced epoch"
-                        toEpoch
-                        (rsCurrentEpoch newRoundStatus)
-                    assertEqual
-                        "RoundStatus should have a present finalization entry"
-                        (Present finalizationEntry)
-                        (rsLatestEpochFinEntry newRoundStatus)
-                    assertEqual
-                        "RoundStatus should have updated the leadership election nonce"
-                        newLeadershipElectionNonce
-                        (rsLeadershipElectionNonce newRoundStatus)
+        forAll genEpoch $ \toEpoch -> do
+            let newRoundStatus = advanceRoundStatusEpoch toEpoch fromRoundStatus
+            assertEqual
+                "RoundStatus should have advanced epoch"
+                toEpoch
+                (rsCurrentEpoch newRoundStatus)
 
 tests :: Spec
 tests = describe "KonsensusV1.Consensus" $ do

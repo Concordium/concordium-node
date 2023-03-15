@@ -2,10 +2,7 @@
 
 module Concordium.KonsensusV1.Consensus where
 
-import Control.Monad.Reader
 import Control.Monad.State.Strict
-import Data.Maybe (isJust)
-import qualified Data.Vector as Vector
 
 import Data.Foldable
 import Data.List (sortOn)
@@ -14,13 +11,12 @@ import Data.Ord
 import qualified Data.Vector as Vec
 import Lens.Micro.Platform
 
-import Concordium.GlobalState.BakerInfo
-import Concordium.KonsensusV1.Types
 import Concordium.Types
 import qualified Concordium.Types.Accounts as Accounts
 import Concordium.Types.BakerIdentity
 import Concordium.Types.Parameters
 
+import Concordium.GlobalState.BakerInfo
 import Concordium.KonsensusV1.TreeState.Implementation
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
@@ -97,9 +93,7 @@ advanceRoundStatus toRound (Right qc) currentRoundStatus =
 -- * If the consensus runner is leader in the new
 --   round then make the new block.
 advanceRound ::
-    ( MonadReader r m,
-      HasBakerContext r,
-      MonadTimeout m,
+    ( MonadTimeout m,
       LowLevel.MonadTreeStateStore m,
       MonadState (SkovData (MPV m)) m
     ) =>
@@ -118,7 +112,7 @@ advanceRound newRound newCertificate = do
     currentRoundStatus <- use roundStatus
     -- We always reset the timer.
     -- This ensures that the timer is correct for consensus runners which have been
-    -- leaving or joining the finalization committe (if we're advancing to the first round
+    -- leaving or joining the finalization committee (if we're advancing to the first round
     -- of that new epoch)
     -- Hence it is crucial when throwing the timeout then it must be checked that
     -- the consensus runner is either part of the current epoch (i.e. the new one) OR
@@ -131,64 +125,37 @@ advanceRound newRound newCertificate = do
     -- the 'Round' progressed to.
     makeBlockIfLeader
 
--- |Compute and return the 'LeadershipElectionNonce' for
--- the provided 'Epoch' and 'FinalizationEntry'
--- TODO: implement.
-computeLeadershipElectionNonce ::
-    -- |The 'Epoch' to compute the 'LeadershipElectionNonce' for.
-    Epoch ->
-    -- |The witness for the new 'Epoch'
-    FinalizationEntry ->
-    -- |The new 'LeadershipElectionNonce'
-    LeadershipElectionNonce
-computeLeadershipElectionNonce epoch finalizationEntry = undefined
-
 -- |Advance the provided 'RoundStatus' to the provided 'Epoch'.
 -- In particular this does the following to the provided 'RoundStatus'
 --
 -- * Set the 'rsCurrentEpoch' to the provided 'Epoch'
--- * Set the 'rsLatestEpochFinEntry' to the provided 'FinalizationEntry'.
--- * Set the 'rsLeadershipElectionNonce' to the provided 'LeadershipElectionNonce'.
 advanceRoundStatusEpoch ::
     -- |The 'Epoch' we advance to.
     Epoch ->
-    -- |The 'FinalizationEntry' that witnesses the
-    -- new 'Epoch'.
-    FinalizationEntry ->
-    -- |The new leader election nonce.
-    LeadershipElectionNonce ->
     -- |The 'RoundStatus' we're progressing from.
     RoundStatus ->
     -- |The new 'RoundStatus'.
     RoundStatus
-advanceRoundStatusEpoch toEpoch latestFinalizationEntry newLeadershipElectionNonce currentRoundStatus =
+advanceRoundStatusEpoch toEpoch currentRoundStatus =
     currentRoundStatus
-        { rsCurrentEpoch = toEpoch,
-          rsLatestEpochFinEntry = Present latestFinalizationEntry,
-          rsLeadershipElectionNonce = newLeadershipElectionNonce
+        { rsCurrentEpoch = toEpoch
         }
 
 -- |Advance the 'Epoch' of the current 'RoundStatus'.
 --
 -- Advancing epochs in particular carries out the following:
 -- * Updates the 'rsCurrentEpoch' to the provided 'Epoch' for the current 'RoundStatus'.
--- * Computes the new 'LeadershipElectionNonce' and updates the current 'RoundStatus'.
--- * Updates the 'rsLatestEpochFinEntry' of the current 'RoundStatus' to @Present finalizationEntry@.
 -- * Persist the new 'RoundStatus' to disk.
 advanceEpoch ::
     ( MonadState (SkovData (MPV m)) m,
       LowLevel.MonadTreeStateStore m
     ) =>
     Epoch ->
-    FinalizationEntry ->
     m ()
-advanceEpoch newEpoch finalizationEntry = do
+advanceEpoch newEpoch = do
     currentRoundStatus <- use roundStatus
-    let newRoundStatus = advanceRoundStatusEpoch newEpoch finalizationEntry newLeadershipElectionNonce currentRoundStatus
+    let newRoundStatus = advanceRoundStatusEpoch newEpoch currentRoundStatus
     setRoundStatus newRoundStatus
-  where
-    -- compute the new leadership election nonce.
-    newLeadershipElectionNonce = computeLeadershipElectionNonce newEpoch finalizationEntry
 
 -- |Compute the finalization committee given the bakers and the finalization committee parameters.
 computeFinalizationCommittee :: FullBakers -> FinalizationCommitteeParameters -> FinalizationCommittee

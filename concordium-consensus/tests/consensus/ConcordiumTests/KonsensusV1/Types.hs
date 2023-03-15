@@ -203,7 +203,6 @@ genRoundStatus = do
     rsLastSignedTimeoutSignatureMessage <- coinFlip =<< genTimeoutSignatureMessage
     rsCurrentTimeoutSignatureMessages <- genTimeoutSignatureMessages
     rsHighestQC <- coinFlip =<< genQuorumCertificate
-    rsLeadershipElectionNonce <- genLeadershipElectionNonce
     tc <- genTimeoutCertificate
     qc <- genQuorumCertificate
     let rsPreviousRoundTC = Present (tc, qc)

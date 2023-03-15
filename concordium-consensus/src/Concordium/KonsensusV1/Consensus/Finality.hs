@@ -20,6 +20,7 @@ import Concordium.GlobalState.BlockState
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import Concordium.GlobalState.Statistics
 import qualified Concordium.GlobalState.Types as GSTypes
+import Concordium.KonsensusV1.Consensus
 import Concordium.KonsensusV1.TreeState.Implementation
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
@@ -107,12 +108,13 @@ checkFinalityWithBlock qc blockPtr
         when (curEpoch <= blockEpoch blockPtr) $ do
             seedState <- getSeedState (bpState blockPtr)
             when (seedState ^. epochTransitionTriggered) $
-                -- TODO: advanceEpoch
-                return ()
+                advanceEpoch (blockEpoch blockPtr + 1)
     | otherwise = return ()
 
 -- |Process the finalization of a block. The block must be live (not finalized) and the finalization
 -- entry must be a valid finalization entry for the block.
+--
+-- The new finalized block MUST be at most one epoch later than the prior last finalized block.
 processFinalization ::
     ( MonadState (SkovData (MPV m)) m,
       TimeMonad m,
@@ -120,7 +122,8 @@ processFinalization ::
       LowLevel.MonadTreeStateStore m,
       BlockStateStorage m,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
-      MonadThrow m
+      MonadThrow m,
+      IsConsensusV1 (MPV m)
     ) =>
     BlockPointer (MPV m) ->
     FinalizationEntry ->
@@ -167,6 +170,29 @@ processFinalization newFinalizedBlock newFinalizationEntry = do
     branches .= prNewBranches
     -- Purge any pending blocks that are no longer viable.
     purgePending
+    -- Update the epoch bakers if the new finalized block is in a different epoch.
+    when (blockEpoch oldLastFinalized + 1 == blockEpoch newFinalizedBlock) $ do
+        oldEpochBakers <- use epochBakers
+        unless (oldEpochBakers ^. epochBakersEpoch == blockEpoch oldLastFinalized) $
+            throwM $
+                TreeStateInvariantViolation
+                    "epochBakersEpoch does not match the epoch of the last finalized block"
+        let finState = bpState newFinalizedBlock
+        _nextPayday <- getPaydayEpoch finState
+        nextEpochFullBakers <- getNextEpochBakers finState
+        nextEpochFCParams <- getNextEpochFinalizationCommitteeParameters finState
+        epochBakers
+            .= EpochBakers
+                { _epochBakersEpoch = blockEpoch newFinalizedBlock,
+                  _previousEpochBakers = oldEpochBakers ^. currentEpochBakers,
+                  _currentEpochBakers = oldEpochBakers ^. nextEpochBakers,
+                  _nextEpochBakers =
+                    BakersAndFinalizers
+                        { _bfBakers = nextEpochFullBakers,
+                          _bfFinalizers = computeFinalizationCommittee nextEpochFullBakers nextEpochFCParams
+                        },
+                  ..
+                }
 
 data PruneResult a = PruneResult
     { prRemoved :: [a],

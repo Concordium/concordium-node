@@ -245,13 +245,11 @@ mkInitialSkovData ::
     PBS.HashedPersistentBlockState pv ->
     -- |The base timeout
     Duration ->
-    -- |The 'LeadershipElectionNonce'
-    LeadershipElectionNonce ->
     -- |Bakers at the genesis block
     EpochBakers ->
     -- |The initial 'SkovData'
     SkovData pv
-mkInitialSkovData rp genMeta genState _currentTimeout len _skovEpochBakers =
+mkInitialSkovData rp genMeta genState _currentTimeout _skovEpochBakers =
     let genesisBlock = GenesisBlock genMeta
         genesisTime = timestampToUTCTime $ Base.genesisTime (gmParameters genMeta)
         genesisBlockMetadata =
@@ -266,7 +264,7 @@ mkInitialSkovData rp genMeta genState _currentTimeout len _skovEpochBakers =
                   bpBlock = genesisBlock,
                   bpState = genState
                 }
-        _roundStatus = initialRoundStatus len
+        _roundStatus = initialRoundStatus
         _transactionTable = emptyTransactionTable
         _transactionTablePurgeCounter = 0
         _skovPendingTransactions =
