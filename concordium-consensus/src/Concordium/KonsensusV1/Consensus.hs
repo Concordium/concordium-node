@@ -30,19 +30,11 @@ import Concordium.KonsensusV1.Types
 import Concordium.Scheduler.Types (updateSeqNumber)
 import Concordium.TimeMonad
 import qualified Concordium.TransactionVerification as TVer
-import Concordium.Types.BakerIdentity
 
 -- |A Monad for multicasting timeout messages.
 class MonadMulticast m where
     -- |Multicast a timeout message over the network
     sendTimeoutMessage :: TimeoutMessage -> m ()
-
--- |A baker context containing the baker identity. Used for accessing relevant baker keys and the baker id.
-newtype BakerContext = BakerContext
-    { _bakerIdentity :: BakerIdentity
-    }
-
-makeClassy ''BakerContext
 
 -- |Adds a transaction into the pending transaction table
 -- if it's eligible.

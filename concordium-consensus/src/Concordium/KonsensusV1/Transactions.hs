@@ -3,11 +3,11 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
--- |This module consists of monads required for running the consensus v1 protocol.
+-- |This module contains the functionality required for transaction processing for the consensus v1 protocol.
 -- In particular it contains the following:
 -- * 'AccountNonceQueryT' is responsible for retrieving the "next available account nonce"
 --   from the underlying tree state, in this case the 'SkovData pv'.
-module Concordium.KonsensusV1.Monad where
+module Concordium.KonsensusV1.Transactions where
 
 import Control.Monad.Reader
 import Control.Monad.State.Strict
