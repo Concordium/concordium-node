@@ -124,11 +124,6 @@ instance
     -- The information is used to count the number of finalized baked blocks exposed by a prometheus
     -- metric.
     handleFinalize _ lfbp bps = liftSkov $ do
-        -- Check for protocol update.
-        result <- checkForProtocolUpdate
-        let haveUnsupportedUpdate = case result of
-                CFPURUnsupportedPending -> True
-                _ -> False
         -- Trigger callback notifying Rust of a finalized block.
         lift (asks (notifyBlockFinalized . mvCallbacks)) >>= \case
             Nothing -> return ()
@@ -145,12 +140,14 @@ instance
                     let isHomeBaked = case nodeBakerIdMaybe of
                             Nothing -> False
                             Just nodeBakerId -> Just nodeBakerId == (blockBaker <$> blockFields (_bpBlock bp))
-                    liftIO (notifyCallback (bpHash bp) height isHomeBaked haveUnsupportedUpdate)
+                    liftIO (notifyCallback (bpHash bp) height isHomeBaked)
                 let height = localToAbsoluteBlockHeight latestEraGenesisHeight (bpHeight lfbp)
                 let isHomeBaked = case nodeBakerIdMaybe of
                         Nothing -> False
                         Just myBakerId -> Just myBakerId == (blockBaker <$> blockFields (_bpBlock lfbp))
-                liftIO (notifyCallback (bpHash lfbp) height isHomeBaked haveUnsupportedUpdate)
+                liftIO (notifyCallback (bpHash lfbp) height isHomeBaked)
+        -- And then check for protocol update.
+        checkForProtocolUpdate
 
 -- |Configuration for the global state that uses disk storage
 -- for both tree state and block state.
@@ -207,9 +204,12 @@ data Callbacks = Callbacks
       -- the hash of the block, its absolute height and whether the block was produced by the baker id configured for this node.
       notifyBlockArrived :: Maybe (BlockHash -> AbsoluteBlockHeight -> Bool -> IO ()),
       -- |Notify a block was finalized. The arguments are the hash of the block,
-      -- its absolute height, whether the block was produced by the baker id configured for this
-      -- node and whether any unsupported protocol updates are pending.
-      notifyBlockFinalized :: Maybe (BlockHash -> AbsoluteBlockHeight -> Bool -> Bool -> IO ())
+      -- its absolute height and whether the block was produced by the baker id configured for this
+      -- node.
+      notifyBlockFinalized :: Maybe (BlockHash -> AbsoluteBlockHeight -> Bool -> IO ()),
+      -- |Notify unsupported protocol updates are pending.
+      -- Takes the effective time as argument in the case of an unsupported protocol update.
+      notifyUnsupportedProtocolUpdate :: Maybe (Timestamp -> IO ())
     }
 
 -- |Baker identity and baking thread 'MVar'.
@@ -459,19 +459,6 @@ newGenesis (PVGenesisData (gd :: GenesisData pv)) vcGenesisHeight = case consens
                     notifyRegenesis (Just (genesisBlockHash gd))
     ConsensusV1 -> error "New consensus version not implemented yet." -- TODO: implement
 
--- |Outcome for checking for protocol update.
-data CheckForProtocolUpdateResult
-    = -- | No protocol update are either pending or effective at this time.
-      CFPURNone
-    | -- | A protocol update is effective at this time, but is unsupported by this node version.
-      CFPURUnsupportedEffective
-    | -- | A protocol update is effective at this time and is unsupported by this node version.
-      CFPURSupportedEffective
-    | -- | A protocol update is pending at this time, but is unsupported by this node version.
-      CFPURUnsupportedPending
-    | -- | A protocol update is pending at this time and is unsupported by this node version.
-      CFPURSupportedPending
-
 -- |Determine if a protocol update has occurred, and handle it.
 -- When a protocol update first becomes pending, this logs the update that will occur (if it is
 -- of a known type) or logs an error message (if it is unknown).
@@ -487,18 +474,18 @@ checkForProtocolUpdate ::
       MultiVersion fc,
       Skov.SkovConfiguration fc UpdateHandler
     ) =>
-    VersionedSkovM fc lastpv CheckForProtocolUpdateResult
+    VersionedSkovM fc lastpv ()
 checkForProtocolUpdate = liftSkov body
   where
     body ::
         ( Skov.SkovMonad (VersionedSkovM fc lastpv),
           TreeStateMonad (VersionedSkovM fc lastpv)
         ) =>
-        VersionedSkovM fc lastpv CheckForProtocolUpdateResult
+        VersionedSkovM fc lastpv ()
     body =
         check >>= \case
-            Right result -> return result
-            Left (PVInit{pvInitGenesis = nextGenesis :: Regenesis newpv, ..}) ->
+            Nothing -> return ()
+            Just (PVInit{pvInitGenesis = nextGenesis :: Regenesis newpv, ..}) ->
                 case consensusVersionFor (protocolVersion @newpv) of
                     ConsensusV0 -> do
                         MultiVersionRunner{..} <- lift ask
@@ -546,7 +533,7 @@ checkForProtocolUpdate = liftSkov body
                             -- Notify the network layer we have a new genesis.
                             let Callbacks{..} = mvCallbacks
                             liftIO $ notifyRegenesis (Just (regenesisBlockHash nextGenesis))
-                            return CFPURSupportedEffective
+                            return ()
                     ConsensusV1 -> error "New consensus version not implemented yet." -- TODO: implement
     showPU ProtocolUpdate{..} =
         Text.unpack puMessage
@@ -562,7 +549,7 @@ checkForProtocolUpdate = liftSkov body
         ( Skov.SkovMonad (VersionedSkovM fc lastpv),
           TreeStateMonad (VersionedSkovM fc lastpv)
         ) =>
-        VersionedSkovM fc lastpv (Either (PVInit (VersionedSkovM fc lastpv)) CheckForProtocolUpdateResult)
+        VersionedSkovM fc lastpv (Maybe (PVInit (VersionedSkovM fc lastpv)))
     check =
         Skov.getProtocolUpdateStatus >>= \case
             ProtocolUpdated pu -> case checkUpdate @lastpv pu of
@@ -575,12 +562,12 @@ checkForProtocolUpdate = liftSkov body
                     lift $ do
                         callbacks <- asks mvCallbacks
                         liftIO (notifyRegenesis callbacks Nothing)
-                        return $ Right CFPURUnsupportedEffective
+                        return Nothing
                 Right upd -> do
                     logEvent Kontrol LLInfo $ "Starting protocol update."
                     initData <- updateRegenesis upd
-                    return (Left initData)
-            PendingProtocolUpdates [] -> return $ Right CFPURNone
+                    return (Just initData)
+            PendingProtocolUpdates [] -> return Nothing
             PendingProtocolUpdates ((ts, pu) : _) -> do
                 -- There is a queued protocol update, but only log about it
                 -- if we have not done so already.
@@ -601,7 +588,10 @@ checkForProtocolUpdate = liftSkov body
                                     ++ show (timestampToUTCTime $ transactionTimeToTimestamp ts)
                                     ++ ": "
                                     ++ showPU pu
-                        return $ Right CFPURUnsupportedPending
+                        callbacks <- lift $ asks mvCallbacks
+                        case notifyUnsupportedProtocolUpdate callbacks of
+                          Just notifyCallback -> liftIO $ notifyCallback $ transactionTimeToTimestamp ts
+                          Nothing -> return ()
                     Right upd -> do
                         unless alreadyNotified $
                             logEvent Kontrol LLInfo $
@@ -611,7 +601,7 @@ checkForProtocolUpdate = liftSkov body
                                     ++ showPU pu
                                     ++ "\n"
                                     ++ show upd
-                        return $ Right CFPURSupportedPending
+                return Nothing
 
 -- |Make a 'MultiVersionRunner' for a given configuration.
 makeMultiVersionRunner ::
@@ -750,8 +740,7 @@ startupSkov genesis = do
                         case nextPV of
                             Nothing -> do
                                 mvrLogIO $ activateConfiguration newEConfig
-                                _ <- liftSkovUpdate newEConfig' checkForProtocolUpdate
-                                return ()
+                                liftSkovUpdate newEConfig' checkForProtocolUpdate
                             Just nextSPV -> loop nextSPV (Just newEConfig) (vcIndex + 1) (fromIntegral lastFinalizedHeight + 1)
                     -- We failed to load anything in the first iteration of the
                     -- loop. Decode the provided genesis and attempt to start the
@@ -769,8 +758,7 @@ startupSkov genesis = do
                     -- last one we loaded.
                     Right (Just config@(EVersionedConfiguration newEConfig')) -> do
                         mvrLogIO $ activateConfiguration config
-                        _ <- liftSkovUpdate newEConfig' checkForProtocolUpdate
-                        return ()
+                        liftSkovUpdate newEConfig' checkForProtocolUpdate
             ConsensusV1 -> error "New consensus not implemented yet." -- TODO: implement
     loop initProtocolVersion Nothing 0 0
 

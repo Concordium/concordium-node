@@ -104,10 +104,6 @@ async fn main() -> anyhow::Result<()> {
             last_arrived_block_timestamp: node.stats.last_arrived_block_timestamp.clone(),
             baked_blocks: node.stats.baked_blocks.clone(),
             finalized_baked_blocks: node.stats.finalized_baked_blocks.clone(),
-            unsupported_pending_protocol_version: node
-                .stats
-                .unsupported_pending_protocol_version
-                .clone(),
         };
         let notification_handlers = ffi::NotificationHandlers {
             blocks:           receiver_blocks,
@@ -124,14 +120,21 @@ async fn main() -> anyhow::Result<()> {
             last_arrived_block_timestamp: node.stats.last_arrived_block_timestamp.clone(),
             baked_blocks: node.stats.baked_blocks.clone(),
             finalized_baked_blocks: node.stats.finalized_baked_blocks.clone(),
-            unsupported_pending_protocol_version: node
-                .stats
-                .unsupported_pending_protocol_version
-                .clone(),
         };
         (Some(notify_context), None)
     } else {
         (None, None)
+    };
+
+    let unsupported_update_context = if conf.prometheus.is_enabled() {
+        Some(ffi::NotifyUnsupportedUpdatesContext {
+            unsupported_pending_protocol_version: node
+                .stats
+                .unsupported_pending_protocol_version
+                .clone(),
+        })
+    } else {
+        None
     };
 
     info!("Starting consensus layer");
@@ -151,6 +154,7 @@ async fn main() -> anyhow::Result<()> {
         &database_directory,
         regenesis_arc.clone(),
         notification_context,
+        unsupported_update_context,
     )?;
     info!("Consensus layer started");
 

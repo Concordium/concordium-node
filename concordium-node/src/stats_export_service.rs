@@ -240,8 +240,8 @@ pub struct StatsExportService {
     /// `tower_http::metrics` and then synced with the prometheus gauge on each
     /// scrape.
     pub grpc_in_flight_requests_counter: InFlightRequestsCounter,
-    /// Indicator where a value of 1 indicates an unsupported pending protocol
-    /// update is finalized.
+    /// If non-zero the value represents the effective timestamp of unsupported
+    /// protocol update as milliseconds since unix epoch.
     pub unsupported_pending_protocol_version: IntGauge,
     /// Total number of bytes received at the point of last
     /// throughput_measurement.
@@ -428,7 +428,7 @@ impl StatsExportService {
 
         let node_startup_timestamp = IntGauge::with_opts(Opts::new(
             "node_startup_timestamp",
-            "Timestamp of starting up the node (Unix time in milliseconds).",
+            "Timestamp of starting up the node (Unix time in milliseconds)",
         ))?;
         registry.register(Box::new(node_startup_timestamp.clone()))?;
 
@@ -457,8 +457,8 @@ impl StatsExportService {
 
         let unsupported_pending_protocol_version = IntGauge::with_opts(Opts::new(
             "consensus_unsupported_pending_protocol_version",
-            "Indicator where a value of 1 indicates an unsupported pending protocol update is \
-             finalized",
+            "If non-zero the value represents the effective time of an unsupported protocol \
+             update (Unix time in milliseconds)",
         ))?;
         registry.register(Box::new(unsupported_pending_protocol_version.clone()))?;
 

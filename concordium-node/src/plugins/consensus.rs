@@ -11,7 +11,7 @@ use crate::{
         consensus::{
             self, ConsensusContainer, ConsensusRuntimeParameters, Regenesis, CALLBACK_QUEUE,
         },
-        ffi::{self, ExecuteBlockCallback, NotificationContext},
+        ffi::{self, ExecuteBlockCallback, NotificationContext, NotifyUnsupportedUpdatesContext},
         helpers::{
             ConsensusFfiResponse,
             PacketType::{self, *},
@@ -44,6 +44,7 @@ pub fn start_consensus_layer(
     appdata_dir: &Path,
     regenesis_arc: Arc<Regenesis>,
     notification_context: Option<NotificationContext>,
+    unsupported_update_context: Option<NotifyUnsupportedUpdatesContext>,
 ) -> anyhow::Result<ConsensusContainer> {
     info!("Starting up the consensus thread");
 
@@ -78,6 +79,7 @@ pub fn start_consensus_layer(
         appdata_dir,
         regenesis_arc,
         notification_context,
+        unsupported_update_context,
     )
 }
 

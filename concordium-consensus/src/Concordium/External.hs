@@ -325,10 +325,8 @@ type NotifyCallback =
     Word64 ->
     -- |Absolute block height of either the arrived block or finalized depending on the type of event.
     Word64 ->
-    -- |Byte where a value of 1 indicates the block arrived/finalized was baked by this node.
-    Word8 ->
-    -- |Byte where a value of 1 indicates an unsupported pending protocol update is finalized.
-    -- Only used when notifying a finalized block.
+    -- |Byte where a value of 1 indicates the block arrived/finalized was baked by the baker ID
+    -- setup for this node.
     Word8 ->
     IO ()
 
@@ -337,30 +335,47 @@ foreign import ccall "dynamic" callNotifyCallback :: FunPtr NotifyCallback -> No
 -- |Serialize the provided arguments (block hash, absolute block height) into an appropriate Proto
 -- message, and invoke the provided FFI callback with the additional arguments providing the rust layer:
 -- block height and whether it was baked by the node.
--- The last argument for @f@ is only used when notifying a finalized block and we just pass a value
--- of 0.
-mkNotifyBlockArrived :: (Word8 -> Ptr Word8 -> Word64 -> Word64 -> Word8 -> Word8 -> IO ()) -> BlockHash -> AbsoluteBlockHeight -> Bool -> IO ()
+mkNotifyBlockArrived :: (Word8 -> Ptr Word8 -> Word64 -> Word64 -> Word8 -> IO ()) -> BlockHash -> AbsoluteBlockHeight -> Bool -> IO ()
 mkNotifyBlockArrived f = \bh height isHomeBaked -> do
     let msg :: Proto.ArrivedBlockInfo = Proto.make $ do
             ProtoFields.hash . ProtoFields.value .= S.encode bh
             ProtoFields.height . ProtoFields.value .= fromIntegral height
     let isHomeBakedByte = if isHomeBaked then 1 else 0
     BS.unsafeUseAsCStringLen (Proto.encodeMessage msg) $ \(cPtr, len) -> do
-        f 0 (castPtr cPtr) (fromIntegral len) (fromIntegral height) isHomeBakedByte 0
+        f 0 (castPtr cPtr) (fromIntegral len) (fromIntegral height) isHomeBakedByte
 
 -- |Serialize the provided arguments (block hash, block height) into an appropriate Proto message,
 -- and invoke the provided FFI callback with the additional arguments providing the rust layer:
--- block height, whether it was baked by the node and whether there are now a unsupported pending
--- protocol updates.
-mkNotifyBlockFinalized :: (Word8 -> Ptr Word8 -> Word64 -> Word64 -> Word8 -> Word8 -> IO ()) -> BlockHash -> AbsoluteBlockHeight -> Bool -> Bool -> IO ()
-mkNotifyBlockFinalized f = \bh height isHomeBaked haveUnsupportedUpdate -> do
+-- block height, whether it was baked by the same baker ID as the one setup for the node.
+mkNotifyBlockFinalized :: (Word8 -> Ptr Word8 -> Word64 -> Word64 -> Word8 -> IO ()) -> BlockHash -> AbsoluteBlockHeight -> Bool -> IO ()
+mkNotifyBlockFinalized f = \bh height isHomeBaked -> do
     let msg :: Proto.FinalizedBlockInfo = Proto.make $ do
             ProtoFields.hash . ProtoFields.value .= S.encode bh
             ProtoFields.height . ProtoFields.value .= fromIntegral height
     let isHomeBakedByte = if isHomeBaked then 1 else 0
-    let haveUnsupportedUpdateByte = if haveUnsupportedUpdate then 1 else 0
     BS.unsafeUseAsCStringLen (Proto.encodeMessage msg) $ \(cPtr, len) -> do
-        f 1 (castPtr cPtr) (fromIntegral len) (fromIntegral height) isHomeBakedByte haveUnsupportedUpdateByte
+        f 1 (castPtr cPtr) (fromIntegral len) (fromIntegral height) isHomeBakedByte
+
+-- |Context for when signalling a unsupported protocol update is pending or effective.
+data NotifyUnsupportedUpdatesContext
+
+-- |The callback used to signal a unsupported protocol update is pending or effective.
+type NotifyUnsupportedUpdatesCallback =
+    -- |Handle to the context.
+    Ptr NotifyUnsupportedUpdatesContext ->
+    -- |Effective timestamp of unsupported protocol update as milliseconds since unix epoch.
+    Word64 ->
+    IO ()
+
+foreign import ccall "dynamic"
+    callNotifyUnsupportedUpdates ::
+        FunPtr NotifyUnsupportedUpdatesCallback ->
+        NotifyUnsupportedUpdatesCallback
+
+-- |Serialize effective timestamp of unsupported protocol update, to milliseconds since unix epoch.
+mkNotifyUnsupportedUpdates :: (Word64 -> IO ()) -> Timestamp -> IO ()
+mkNotifyUnsupportedUpdates f unsupportedUpdateEffectiveTime =
+  f (tsMillis unsupportedUpdateEffectiveTime)
 
 -- |Start up an instance of Skov without starting the baker thread.
 -- If an error occurs starting Skov, the error will be logged and
@@ -390,6 +405,10 @@ startConsensus ::
     Ptr NotifyContext ->
     -- |The callback used to invoke upon new block arrival, and new finalized blocks.
     FunPtr NotifyCallback ->
+    -- |Context for when signalling a unsupported protocol update is pending or effective.
+    Ptr NotifyUnsupportedUpdatesContext ->
+    -- |The callback used to signal a unsupported protocol update is pending or effective.
+    FunPtr NotifyUnsupportedUpdatesCallback ->
     -- |Handler for generated messages
     FunPtr BroadcastCallback ->
     -- |Handler for sending catch-up status to peers
@@ -425,6 +444,8 @@ startConsensus
     bidLenC
     notifyContext
     notifyCbk
+    unsupportedUpdateContext
+    unsupportedUpdateCallback
     bcbk
     cucbk
     regenesisPtr
@@ -463,6 +484,13 @@ startConsensus
                           notifyBlockFinalized =
                             if notifyContext /= nullPtr
                                 then Just $ mkNotifyBlockFinalized (notifyCallback notifyContext)
+                                else Nothing,
+                          notifyUnsupportedProtocolUpdate =
+                            if unsupportedUpdateContext /= nullPtr
+                                then
+                                    Just $
+                                        mkNotifyUnsupportedUpdates $
+                                            callNotifyUnsupportedUpdates unsupportedUpdateCallback unsupportedUpdateContext
                                 else Nothing,
                           notifyCatchUpStatus = callCatchUpStatusCallback cucbk,
                           notifyRegenesis = callRegenesisCallback regenesisCB regenesisRef
@@ -530,6 +558,10 @@ startConsensusPassive ::
     Ptr NotifyContext ->
     -- |The callback used to invoke upon new block arrival, and new finalized blocks.
     FunPtr NotifyCallback ->
+    -- |Context for when signalling a unsupported protocol update is pending or effective.
+    Ptr NotifyUnsupportedUpdatesContext ->
+    -- |The callback used to signal a unsupported protocol update is pending or effective.
+    FunPtr NotifyUnsupportedUpdatesCallback ->
     -- |Handler for sending catch-up status to peers
     FunPtr CatchUpStatusCallback ->
     -- |Regenesis object
@@ -561,6 +593,8 @@ startConsensusPassive
     gdataLenC
     notifyContext
     notifycbk
+    unsupportedUpdateContext
+    unsupportedUpdateCallback
     cucbk
     regenesisPtr
     regenesisFree
@@ -593,6 +627,13 @@ startConsensusPassive
                           notifyBlockFinalized =
                             if notifyContext /= nullPtr
                                 then Just $ mkNotifyBlockFinalized (notifyCallback notifyContext)
+                                else Nothing,
+                          notifyUnsupportedProtocolUpdate =
+                            if unsupportedUpdateContext /= nullPtr
+                                then
+                                    Just $
+                                        mkNotifyUnsupportedUpdates $
+                                            callNotifyUnsupportedUpdates unsupportedUpdateCallback unsupportedUpdateContext
                                 else Nothing,
                           notifyRegenesis = callRegenesisCallback regenesisCB regenesisRef
                         }
@@ -1400,6 +1441,10 @@ foreign export ccall
         Int64 ->
         Ptr NotifyContext ->
         FunPtr NotifyCallback ->
+        -- |Context for when signalling a unsupported protocol update is pending or effective.
+        Ptr NotifyUnsupportedUpdatesContext ->
+        -- |The callback used to signal a unsupported protocol update is pending or effective.
+        FunPtr NotifyUnsupportedUpdatesCallback ->
         -- |Handler for generated messages
         FunPtr BroadcastCallback ->
         -- |Handler for sending catch-up status to peers
@@ -1442,6 +1487,10 @@ foreign export ccall
         Int64 ->
         Ptr NotifyContext ->
         FunPtr NotifyCallback ->
+        -- |Context for when signalling a unsupported protocol update is pending or effective.
+        Ptr NotifyUnsupportedUpdatesContext ->
+        -- |The callback used to signal a unsupported protocol update is pending or effective.
+        FunPtr NotifyUnsupportedUpdatesCallback ->
         -- |Handler for sending catch-up status to peers
         FunPtr CatchUpStatusCallback ->
         -- |Regenesis object

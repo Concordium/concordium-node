@@ -328,9 +328,6 @@ pub struct NotificationContext {
     pub baked_blocks: prometheus::IntCounter,
     /// Total number of finalized blocks baked by the node since startup.
     pub finalized_baked_blocks: prometheus::IntCounter,
-    /// Indicator where a value of 1 indicates an unsupported pending protocol
-    /// update is finalized.
-    pub unsupported_pending_protocol_version: prometheus::IntGauge,
 }
 
 /// A type of callback used to notify Rust code of important events. The
@@ -342,17 +339,23 @@ pub struct NotificationContext {
 /// - block height of either the finalized block or arrived block
 /// - byte where a value of 1 indicates the block arrived/finalized was baked by
 ///   this node.
-/// - byte where a value of 1 indicates an unsupported pending protocol update
-///   is finalized. Only used when notifying a finalized block.
 ///
 /// The callback should not retain references to supplied data after the exit.
-type NotifyCallback =
-    unsafe extern "C" fn(*mut NotificationContext, u8, *const u8, u64, u64, u8, u8);
+type NotifyCallback = unsafe extern "C" fn(*mut NotificationContext, u8, *const u8, u64, u64, u8);
 
 pub struct NotificationHandlers {
     pub blocks:           futures::channel::mpsc::UnboundedReceiver<Arc<[u8]>>,
     pub finalized_blocks: futures::channel::mpsc::UnboundedReceiver<Arc<[u8]>>,
 }
+
+pub struct NotifyUnsupportedUpdatesContext {
+    /// If non-zero the value represents the effective timestamp of unsupported
+    /// protocol update as milliseconds since unix epoch.
+    pub unsupported_pending_protocol_version: prometheus::IntGauge,
+}
+
+type NotifyUnsupportedUpdatesCallback =
+    unsafe extern "C" fn(*mut NotifyUnsupportedUpdatesContext, u64);
 
 #[allow(improper_ctypes)]
 extern "C" {
@@ -370,6 +373,8 @@ extern "C" {
         private_data_len: i64,
         notify_context: *mut NotificationContext,
         notify_callback: NotifyCallback,
+        unsupported_update_context: *mut NotifyUnsupportedUpdatesContext,
+        unsupported_update_callback: NotifyUnsupportedUpdatesCallback,
         broadcast_callback: BroadcastCallback,
         catchup_status_callback: CatchUpStatusCallback,
         regenesis_arc: *const Regenesis,
@@ -393,6 +398,8 @@ extern "C" {
         genesis_data_len: i64,
         notify_context: *mut NotificationContext,
         notify_callback: NotifyCallback,
+        unsupported_update_context: *mut NotifyUnsupportedUpdatesContext,
+        unsupported_update_callback: NotifyUnsupportedUpdatesCallback,
         catchup_status_callback: CatchUpStatusCallback,
         regenesis_arc: *const Regenesis,
         free_regenesis_arc: RegenesisFreeCallback,
@@ -1357,7 +1364,6 @@ unsafe extern "C" fn notify_callback(
     data_len: u64,
     block_height: u64,
     home_baked: u8,
-    unsupported_pending_protocol_update: u8,
 ) {
     let sender = &*notify_context;
     let home_baked = home_baked == 1;
@@ -1389,9 +1395,6 @@ unsafe extern "C" fn notify_callback(
             if home_baked {
                 sender.finalized_baked_blocks.inc()
             }
-            sender
-                .unsupported_pending_protocol_version
-                .set(unsupported_pending_protocol_update as i64);
             if let Some(finalized_blocks) = &sender.finalized_blocks {
                 if finalized_blocks
                     .unbounded_send(std::slice::from_raw_parts(data_ptr, data_len as usize).into())
@@ -1413,6 +1416,14 @@ unsafe extern "C" fn notify_callback(
     }
 }
 
+unsafe extern "C" fn unsupported_update_callback(
+    context_ptr: *mut NotifyUnsupportedUpdatesContext,
+    unsupported_update_pending: u64,
+) {
+    let context = &*context_ptr;
+    context.unsupported_pending_protocol_version.set(unsupported_update_pending as i64);
+}
+
 pub fn get_consensus_ptr(
     runtime_parameters: &ConsensusRuntimeParameters,
     genesis_data: Vec<u8>,
@@ -1421,6 +1432,7 @@ pub fn get_consensus_ptr(
     appdata_dir: &Path,
     regenesis_arc: Arc<Regenesis>,
     notification_context: Option<NotificationContext>,
+    unsupported_update_context: Option<NotifyUnsupportedUpdatesContext>,
 ) -> anyhow::Result<*mut consensus_runner> {
     let genesis_data_len = genesis_data.len();
     let mut runner_ptr = std::ptr::null_mut();
@@ -1445,6 +1457,9 @@ pub fn get_consensus_ptr(
                     notification_context
                         .map_or(std::ptr::null_mut(), |ctx| Box::into_raw(Box::new(ctx))),
                     notify_callback,
+                    unsupported_update_context
+                        .map_or(std::ptr::null_mut(), |ctx| Box::into_raw(Box::new(ctx))),
+                    unsupported_update_callback,
                     broadcast_callback,
                     catchup_status_callback,
                     Arc::into_raw(regenesis_arc),
@@ -1475,6 +1490,9 @@ pub fn get_consensus_ptr(
                         notification_context
                             .map_or(std::ptr::null_mut(), |ctx| Box::into_raw(Box::new(ctx))),
                         notify_callback,
+                        unsupported_update_context
+                            .map_or(std::ptr::null_mut(), |ctx| Box::into_raw(Box::new(ctx))),
+                        unsupported_update_callback,
                         catchup_status_callback,
                         Arc::into_raw(regenesis_arc),
                         free_regenesis_arc,

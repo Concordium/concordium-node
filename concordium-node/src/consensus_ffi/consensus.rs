@@ -1,5 +1,8 @@
 use crate::consensus_ffi::{
-    ffi::{consensus_runner, get_consensus_ptr, startBaker, stopBaker, stopConsensus},
+    ffi::{
+        consensus_runner, get_consensus_ptr, startBaker, stopBaker, stopConsensus,
+        NotificationContext, NotifyUnsupportedUpdatesContext,
+    },
     helpers::{QueueReceiver, QueueSyncSender, RelayOrStopSenderHelper},
     messaging::ConsensusMessage,
 };
@@ -12,8 +15,6 @@ use std::{
         Arc, Mutex, RwLock,
     },
 };
-
-use super::ffi::NotificationContext;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ConsensusLogLevel {
@@ -205,6 +206,7 @@ impl ConsensusContainer {
         appdata_dir: &Path,
         regenesis_arc: Arc<Regenesis>,
         notification_context: Option<NotificationContext>,
+        unsupported_update_context: Option<NotifyUnsupportedUpdatesContext>,
     ) -> anyhow::Result<Self> {
         info!("Starting up the consensus layer");
 
@@ -222,6 +224,7 @@ impl ConsensusContainer {
             appdata_dir,
             regenesis_arc,
             notification_context,
+            unsupported_update_context,
         ) {
             Ok(consensus_ptr) => Ok(Self {
                 runtime_parameters,
