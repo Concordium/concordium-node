@@ -150,8 +150,6 @@ buildGenesisBlockState vcgp GenesisData.GenesisState{..} = do
             Blob.refMakeFlushed =<< do
                 _bakerInfos <- Blob.refMakeFlushed $ Bakers.BakerInfos agsBakerInfoRefs
                 _bakerStakes <- Blob.refMakeFlushed $ Bakers.BakerStakes agsBakerStakes
-                let _bakerFinalizationCommitteParameters =
-                        genesisChainParameters ^. Types.cpFinalizationCommitteeParameters
                 return Bakers.PersistentEpochBakers{_bakerTotalStake = agsStakedTotal, ..}
 
         let _birkSeedState = case vcgp of
