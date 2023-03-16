@@ -34,7 +34,7 @@ import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import Concordium.ID.Types
 import qualified Concordium.Queries as Q
 import Concordium.Types
-import qualified Concordium.Types.Queries as TQ
+import qualified Concordium.Types.Queries as Queries
 
 import qualified Concordium.External as Ext
 import qualified Concordium.Logger as Logger
@@ -91,10 +91,10 @@ foreign import ccall "dynamic" callCopyToVecCallback :: FunPtr CopyToVecCallback
 foreign import ccall "dynamic" callCopyCryptographicParametersCallback :: FunPtr CopyCryptographicParametersCallback -> CopyCryptographicParametersCallback
 
 -- |NB: Assumes the data is at least 32 bytes
-decodeBlockHashInput :: Word8 -> Ptr Word8 -> IO TQ.BlockHashInput
-decodeBlockHashInput 0 _ = return TQ.Best
-decodeBlockHashInput 1 _ = return TQ.LastFinal
-decodeBlockHashInput _ hsh = TQ.Given . coerce <$> FBS.create @DigestSize (\p -> copyBytes p hsh 32)
+decodeBlockHashInput :: Word8 -> Ptr Word8 -> IO Queries.BlockHashInput
+decodeBlockHashInput 0 _ = return Queries.Best
+decodeBlockHashInput 1 _ = return Queries.LastFinal
+decodeBlockHashInput _ hsh = Queries.Given . coerce <$> FBS.create @DigestSize (\p -> copyBytes p hsh 32)
 
 -- | Decode an account address from a foreign ptr. Assumes 32 bytes are available.
 decodeAccountAddress :: Ptr Word8 -> IO AccountAddress
