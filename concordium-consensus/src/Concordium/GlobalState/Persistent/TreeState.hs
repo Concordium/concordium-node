@@ -844,7 +844,7 @@ instance
                 -- The transaction is live.
                 let mVerRes = Just $ results ^. tsVerRes
                 -- We update the maximum committed slot if the new slot is later.
-                when (commitPoint slot > results ^. tsCommitPoint) $ skovPersistentData . transactionTable . ttHashMap . at' trHash . mapped . _2 %=! updateCommitPoint slot
+                when (commitPoint slot > results ^. tsCommitPoint) $ skovPersistentData . transactionTable . ttHashMap . at' trHash . mapped . _2 %= updateSlot slot
                 return $ TS.Duplicate bi' mVerRes
 
     addVerifiedTransaction bi@WithMetadata{..} okRes = do

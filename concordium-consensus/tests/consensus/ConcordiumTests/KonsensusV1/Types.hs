@@ -8,6 +8,7 @@ import Data.Serialize
 import qualified Data.Vector as Vector
 import Data.Word
 import System.IO.Unsafe
+import Test.HUnit
 import Test.Hspec
 import Test.QuickCheck
 
@@ -98,10 +99,12 @@ genFinalizationEntry = do
     preQC <- genQuorumCertificate
     feSuccessorProof <- BlockQuasiHash . Hash.Hash . FBS.pack <$> vector 32
     let succRound = qcRound feFinalizedQuorumCertificate + 1
+    let sqcEpoch = qcEpoch feFinalizedQuorumCertificate
     let feSuccessorQuorumCertificate =
             preQC
                 { qcRound = succRound,
-                  qcBlock = successorBlockHash (BlockHeader succRound (qcEpoch preQC) (qcBlock feFinalizedQuorumCertificate)) feSuccessorProof
+                  qcEpoch = sqcEpoch,
+                  qcBlock = successorBlockHash (BlockHeader succRound sqcEpoch (qcBlock feFinalizedQuorumCertificate)) feSuccessorProof
                 }
     return FinalizationEntry{..}
 
@@ -151,11 +154,10 @@ genTimeoutMessageBody = do
     (tmRound, tmTimeoutCertificate) <-
         oneof
             [ return (qcRound tmQuorumCertificate + 1, Absent),
-              ( do
-                    r <- chooseBoundedIntegral (qcRound tmQuorumCertificate, maxBound - 1)
-                    tc <- genTimeoutCertificate
-                    return (r + 1, Present tc{tcRound = r})
-              )
+              do
+                r <- chooseBoundedIntegral (qcRound tmQuorumCertificate, maxBound - 1)
+                tc <- genTimeoutCertificate
+                return (r + 1, Present tc{tcRound = r})
             ]
     tmEpochFinalizationEntry <- oneof [return Absent, Present <$> genFinalizationEntry]
     tmAggregateSignature <- TimeoutSignature <$> genBlsSignature
@@ -187,19 +189,20 @@ genTimeoutSignatureMessages = do
     msgs <- vectorOf (fromIntegral numMessages) genTimeoutSignatureMessage
     return $! SignatureMessages $! foldl' (\acc msg -> Map.insert (FinalizerIndex . fromIntegral $ Map.size acc) msg acc) Map.empty msgs
 
+-- |Generate an arbitrary 'LeadershipElectionNonce'
+genLeadershipElectionNonce :: Gen LeadershipElectionNonce
+genLeadershipElectionNonce = Hash.Hash . FBS.pack <$> vector 32
+
 -- |Generate a 'RoundStatus' suitable for testing serialization.
 genRoundStatus :: Gen RoundStatus
 genRoundStatus = do
     rsCurrentEpoch <- genEpoch
     rsCurrentRound <- genRound
     rsCurrentQuorumSignatureMessages <- genQuorumSignatureMessages
-    rsLastSignedQuouromSignatureMessage <- coinFlip =<< genQuorumSignatureMessage
+    rsLastSignedQuourumSignatureMessage <- coinFlip =<< genQuorumSignatureMessage
     rsLastSignedTimeoutSignatureMessage <- coinFlip =<< genTimeoutSignatureMessage
     rsCurrentTimeoutSignatureMessages <- genTimeoutSignatureMessages
-    rsCurrentTimeout <- Duration <$> arbitrary
     rsHighestQC <- coinFlip =<< genQuorumCertificate
-    rsLeadershipElectionNonce <- Hash.Hash . FBS.pack <$> vector 32
-    rsLatestEpochFinEntry <- coinFlip =<< genFinalizationEntry
     tc <- genTimeoutCertificate
     qc <- genQuorumCertificate
     let rsPreviousRoundTC = Present (tc, qc)

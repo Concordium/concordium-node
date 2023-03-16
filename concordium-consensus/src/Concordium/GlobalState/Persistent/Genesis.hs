@@ -150,13 +150,19 @@ buildGenesisBlockState vcgp GenesisData.GenesisState{..} = do
             Blob.refMakeFlushed =<< do
                 _bakerInfos <- Blob.refMakeFlushed $ Bakers.BakerInfos agsBakerInfoRefs
                 _bakerStakes <- Blob.refMakeFlushed $ Bakers.BakerStakes agsBakerStakes
-                let _bakerFinalizationCommitteParameters =
+                let _bakerFinalizationCommitteeParameters =
                         genesisChainParameters ^. Types.cpFinalizationCommitteeParameters
                 return Bakers.PersistentEpochBakers{_bakerTotalStake = agsStakedTotal, ..}
 
         let _birkSeedState = case vcgp of
-                CGPV0 GenesisData.CoreGenesisParameters{..} -> Types.initialSeedStateV0 genesisLeadershipElectionNonce genesisEpochLength
-                CGPV1 _ -> Types.initialSeedStateV1 genesisLeadershipElectionNonce
+                CGPV0 GenesisData.CoreGenesisParameters{..} ->
+                    Types.initialSeedStateV0
+                        genesisLeadershipElectionNonce
+                        genesisEpochLength
+                CGPV1 GDBaseV1.CoreGenesisParametersV1{..} ->
+                    Types.initialSeedStateV1
+                        genesisLeadershipElectionNonce
+                        (Types.addDuration genesisTime genesisEpochDuration)
 
         return $
             BS.PersistentBirkParameters

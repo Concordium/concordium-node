@@ -57,10 +57,14 @@ instance BlockData (StoredBlock pv) where
     blockTimestamp = blockTimestamp . stbBlock
     blockBakedData = blockBakedData . stbBlock
     blockTransactions = blockTransactions . stbBlock
+    blockTransactionCount = blockTransactionCount . stbBlock
     blockStateHash = blockStateHash . stbBlock
 
 instance HashableTo BlockHash (StoredBlock pv) where
     getHash = getHash . stbBlock
+
+instance HasBlockMetadata (StoredBlock pv) where
+    blockMetadata = stbInfo
 
 -- |'MonadTreeStateStore' defines the interface to the low-level tree state database.
 -- An implementation should guarantee atomicity, consistency and isolation for these operations.
@@ -102,11 +106,23 @@ class (Monad m) => MonadTreeStateStore m where
     lookupCurrentRoundStatus :: m RoundStatus
 
     -- |Write the status of the current round.
+    -- There is ever only one 'RoundStatus', hence when progressing
+    -- rounds the current 'RoundStatus' will be overwritten by a new one.
+    --
+    -- This is done independently of finalizing blocks i.e. 'writeBlocks'
+    -- as in the case of a restart then the protocol requires the latest 'RoundStatus'
+    -- in order to progress to the next round (in accordance to)
+    -- to the consensus protocol. By accordance to the protocol it is meant that the consensus
+    -- should be able to be restarted without double signing and sending a signature message for quorum-/timeout certificate for the
+    -- current round.
+    --
+    -- On a potential rollback of the database then the consensus will initiate catchup and
+    -- a new round status will be created when the consensus is fully caught up.
     writeCurrentRoundStatus :: RoundStatus -> m ()
 
     -- |From the last block backwards, remove blocks and their associated transactions
     -- from the database until the predicate returns 'True'. If any blocks are rolled back,
     -- this also removes the latest finalization entry.
-    -- This returns @Right Int@ where the 'Int' indicates how many blocks that were rolled back.
+    -- This returns @Right Int@ where the 'Int' indicates how many blocks were rolled back.
     -- If an error occurred attempting to roll back, @Left reason@ is returned.
     rollBackBlocksUntil :: (StoredBlock (MPV m) -> m Bool) -> m (Either String Int)

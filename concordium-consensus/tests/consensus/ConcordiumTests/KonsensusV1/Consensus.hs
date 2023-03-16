@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-
+-- |Module testing functions from the 'Concordium.KonsensusV1.Consensus' module.
 module ConcordiumTests.KonsensusV1.Consensus(tests) where
 
 import Test.HUnit
@@ -14,6 +14,10 @@ import Concordium.Types
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.KonsensusV1.Consensus
 
+import Test.QuickCheck
+
+
+import ConcordiumTests.KonsensusV1.Types
 
 
 dummyLeadershipElectionNonce :: LeadershipElectionNonce
@@ -36,8 +40,98 @@ testCase currentRound baseTimeout timeoutIncrease expectedRound expectedTimeout 
     assertEqual "Timeout duration should be correct" expectedTimeout actualTimeout 
 
 
+-- tests :: Spec
+-- tests = describe "KonsensusV1.Consensus" $ do
+--     it "Test updateRoundStatus" $ do
+--         testCase 0 10000 (3 % 2) 1 15000
+--         testCase 1 10000 (4 % 3) 2 13333
+--         testCase 2 10000 (5 % 3) 3 16666
+--         testCase 3 3000 (4 % 3) 4 4000
+--         testCase 4 80000 (10 % 9) 5 88888
+--         testCase 5 8000 (8 % 7) 6 9142
+
+
+-- |Checking that advancing rounds via a quorum certificate yields
+-- the correct 'RoundStatus'
+propAdvanceRoundStatusFromQuorumRound :: Property
+propAdvanceRoundStatusFromQuorumRound =
+    forAll genRoundStatus $ \fromRoundStatus ->
+        forAll genRound $ \toRound ->
+            forAll genQuorumCertificate $ \highestQC -> do
+                let newRoundStatus = advanceRoundStatus toRound (Right highestQC) fromRoundStatus
+                assertEqual
+                    "RoundStatus current round should be advanced"
+                    toRound
+                    (rsCurrentRound newRoundStatus)
+                assertEqual
+                    "RoundStatus current epoch should remain"
+                    (rsCurrentEpoch fromRoundStatus)
+                    (rsCurrentEpoch newRoundStatus)
+                assertEqual
+                    "RoundStatus previous round TC should be absent"
+                    Absent
+                    (rsPreviousRoundTC newRoundStatus)
+                assertEqual
+                    "Timeout signatures for current round should be empty"
+                    emptySignatureMessages
+                    (rsCurrentTimeoutSignatureMessages newRoundStatus)
+                assertEqual
+                    "QC signatures for current round should be empty"
+                    emptySignatureMessages
+                    (rsCurrentQuorumSignatureMessages newRoundStatus)
+                assertEqual
+                    "QC signatures for current round should be empty"
+                    (Present highestQC)
+                    (rsHighestQC newRoundStatus)
+
+-- |Checking that advancing rounds via a timeout certificate yields
+-- the correct 'RoundStatus'
+propAdvanceRoundStatusFromTCRound :: Property
+propAdvanceRoundStatusFromTCRound =
+    forAll genRoundStatus $ \fromRoundStatus ->
+        forAll genTimeoutCertificate $ \tc ->
+            forAll genQuorumCertificate $ \qc ->
+                forAll genRound $ \toRound -> do
+                    let tcQc = Left (tc, qc)
+                        newRoundStatus = advanceRoundStatus toRound tcQc fromRoundStatus
+                    assertEqual
+                        "RoundStatus current round should be advanced"
+                        toRound
+                        (rsCurrentRound newRoundStatus)
+                    assertEqual
+                        "RoundStatus current epoch should remain"
+                        (rsCurrentEpoch fromRoundStatus)
+                        (rsCurrentEpoch newRoundStatus)
+                    assertEqual
+                        "RoundStatus previous round TC should be present"
+                        (Present (tc, qc))
+                        (rsPreviousRoundTC newRoundStatus)
+                    assertEqual
+                        "Timeout signatures for current round should be empty"
+                        emptySignatureMessages
+                        (rsCurrentTimeoutSignatureMessages newRoundStatus)
+                    assertEqual
+                        "QC signatures for current round should be empty"
+                        emptySignatureMessages
+                        (rsCurrentQuorumSignatureMessages newRoundStatus)
+
+-- |Checking that advancing epochs yields
+-- the correct 'RoundStatus'
+propAdvanceRoundStatusEpoch :: Property
+propAdvanceRoundStatusEpoch =
+    forAll genRoundStatus $ \fromRoundStatus ->
+        forAll genEpoch $ \toEpoch -> do
+            let newRoundStatus = advanceRoundStatusEpoch toEpoch fromRoundStatus
+            assertEqual
+                "RoundStatus should have advanced epoch"
+                toEpoch
+                (rsCurrentEpoch newRoundStatus)
+
 tests :: Spec
 tests = describe "KonsensusV1.Consensus" $ do
+    it "RoundStatus advances from quorum round" propAdvanceRoundStatusFromQuorumRound
+    it "RoundStatus advances from timed out round" propAdvanceRoundStatusFromTCRound
+    it "RoundStatus advances epoch" propAdvanceRoundStatusEpoch
     it "Test updateRoundStatus" $ do
         testCase 0 10000 (3 % 2) 1 15000
         testCase 1 10000 (4 % 3) 2 13333

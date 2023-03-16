@@ -217,7 +217,7 @@ testLookupLastBlock = runLLMDBTest "lookupLastBlockTest" $ do
     lastBlock <- lookupLastBlock
     case lastBlock of
         Nothing -> liftIO $ assertFailure "Block should be Just"
-        Just sb -> liftIO $ assertEqual "BlockHeight should be 0x100000000000000" 0x100000000000000 (bmHeight $ stbInfo sb)
+        Just sb -> liftIO $ assertEqual "BlockHeight should be 0x100000000000000" 0x100000000000000 (blockHeight sb)
 
 -- |Test that the function 'LookupFirstBlock' returns the block with height '0' from the dummy blocks.
 testLookupFirstBlock :: Assertion
@@ -226,7 +226,7 @@ testLookupFirstBlock = runLLMDBTest "lookupFirstBlockTest" $ do
     lastBlock <- lookupFirstBlock
     case lastBlock of
         Nothing -> liftIO $ assertFailure "Block should be Just"
-        Just sb -> liftIO $ assertEqual "BlockHeight should be 0" 0 (bmHeight $ stbInfo sb)
+        Just sb -> liftIO $ assertEqual "BlockHeight should be 0" 0 (blockHeight sb)
 
 -- |Test that the function 'LookupBlockByHeight' retrieves the correct block at height 0x10000.
 testLookupBlockByHeight :: Assertion
@@ -235,7 +235,7 @@ testLookupBlockByHeight = runLLMDBTest "lookupBlockByHeightTest" $ do
     lastBlock <- lookupBlockByHeight 0x10000
     case lastBlock of
         Nothing -> liftIO $ assertFailure "Block should be Just"
-        Just sb -> liftIO $ assertEqual "BlockHeight should be 0x10000" 0x10000 (bmHeight $ stbInfo sb)
+        Just sb -> liftIO $ assertEqual "BlockHeight should be 0x10000" 0x10000 (blockHeight sb)
 
 -- |Test that the function 'memberBlock' returns 'True' for a selected block.
 testMemberBlock :: Assertion
@@ -251,7 +251,7 @@ testLookupBlock = runLLMDBTest "lookupBlockTest" $ do
     block <- lookupBlock $ getHash $ dummyBakedBlock 5 Vector.empty
     case block of
         Nothing -> liftIO $ assertFailure "Block should be Just"
-        Just sb -> liftIO $ assertEqual "BlockHeight should be 0x100000000" 0x100000000 (bmHeight $ stbInfo sb)
+        Just sb -> liftIO $ assertEqual "BlockHeight should be 0x100000000" 0x100000000 (blockHeight sb)
 
 -- |Test that the function 'lookupFinalizationEntry' retrieves a written expected finalization entry.
 testLookupLatestFinalizationEntry :: Assertion
@@ -285,7 +285,7 @@ testMemberTransaction = runLLMDBTest "memberTransactionTest" $ do
 testRollBackBlocksUntil :: Assertion
 testRollBackBlocksUntil = runLLMDBTest "lookupTransactionTest" $ do
     writeBlocks dummyStoredBlocksSequentialHeights dummyFinalizationEntry
-    eb <- rollBackBlocksUntil $ \sb -> return (bmHeight (stbInfo sb) == 1)
+    eb <- rollBackBlocksUntil $ \sb -> return (blockHeight sb == 1)
     case eb of
         Left s -> liftIO $ assertBool ("Roll back failed: " ++ s) False
         Right rollbackCount -> do
@@ -295,7 +295,7 @@ testRollBackBlocksUntil = runLLMDBTest "lookupTransactionTest" $ do
             lastBlock <- lookupLastBlock
             case lastBlock of
                 Nothing -> liftIO $ assertBool "Block should be Just" False
-                Just sb -> liftIO $ assertEqual "BlockHeight should be 1" 1 (bmHeight $ stbInfo sb)
+                Just sb -> liftIO $ assertEqual "BlockHeight should be 1" 1 (blockHeight sb)
 
 tests :: Spec
 tests = describe "KonsensusV2.LMDB" $ do

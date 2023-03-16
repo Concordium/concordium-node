@@ -457,7 +457,7 @@ instance
     where
     lookupBlock bh = asReadTransaction $ \dbh txn ->
         loadRecord txn (dbh ^. blockHashIndex) bh >>= \case
-            Just blockHeight -> loadRecord txn (dbh ^. blockStore) blockHeight
+            Just height -> loadRecord txn (dbh ^. blockStore) height
             Nothing -> return Nothing
     memberBlock bh = asReadTransaction $ \dbh txn ->
         isRecordPresent txn (dbh ^. blockHashIndex) bh
@@ -466,8 +466,8 @@ instance
         withCursor txn (dbh ^. blockStore) (getCursor CursorLast) <&> \case
             Just (Right (_, v)) -> Just v
             _ -> Nothing
-    lookupBlockByHeight blockHeight = asReadTransaction $ \dbh txn ->
-        loadRecord txn (dbh ^. blockStore) blockHeight
+    lookupBlockByHeight height = asReadTransaction $ \dbh txn ->
+        loadRecord txn (dbh ^. blockStore) height
     lookupTransaction txHash = asReadTransaction $ \dbh txn ->
         loadRecord txn (dbh ^. transactionStatusStore) txHash
     memberTransaction txHash = asReadTransaction $ \dbh txn ->
@@ -475,7 +475,7 @@ instance
 
     writeBlocks blocks fe = asWriteTransaction $ \dbh txn -> do
         forM_ blocks $ \block -> do
-            let height = bmHeight (stbInfo block)
+            let height = blockHeight block
             storeReplaceRecord txn (dbh ^. blockStore) height block
             storeReplaceRecord txn (dbh ^. blockHashIndex) (getHash block) height
             forM_ (zip (blockTransactions block) [0 ..]) $ \(tx, ti) ->
