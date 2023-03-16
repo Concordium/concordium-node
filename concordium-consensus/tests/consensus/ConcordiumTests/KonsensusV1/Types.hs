@@ -180,28 +180,6 @@ genTimeoutMessage = do
 genTimestamp :: Gen Timestamp
 genTimestamp = Timestamp <$> arbitrary
 
--- |Generates a collection of 'QuorumSignatureMessage's
-genQuorumMessages :: Gen (SignatureMessages QuorumMessage)
-genQuorumMessages = do
-    numMessages <- chooseInteger (0, 100)
-    timeouts <- chooseInteger (0, 100)
-    msgs <- vectorOf (fromIntegral numMessages) genQuorumMessage
-    return $! SignatureMessages (getMessages msgs) (blockCounters msgs) $ fromIntegral timeouts
-  where
-    getMessages = foldl' (\acc msg -> Map.insert (FinalizerIndex . fromIntegral $ Map.size acc) msg acc) Map.empty
-    blockCounters = foldl' (\acc qm -> Map.alter getCount (qmBlock qm) acc) Map.empty
-    getCount = maybe (Just 1) (\cnt -> Just $ cnt + 1)
-
--- |Generates a collection of 'TimeoutSignatureMessage's
-genTimeoutMessages :: Gen (SignatureMessages TimeoutMessage)
-genTimeoutMessages = do
-    numMessages <- chooseInteger (0, 100)
-    timeouts <- chooseInteger (0, 100)
-    msgs <- vectorOf (fromIntegral numMessages) genTimeoutMessage
-    return $! SignatureMessages (getMessages msgs) Map.empty $ fromIntegral timeouts
-  where
-    getMessages = foldl' (\acc msg -> Map.insert (FinalizerIndex . fromIntegral $ Map.size acc) msg acc) Map.empty
-
 -- |Generate an arbitrary 'LeadershipElectionNonce'
 genLeadershipElectionNonce :: Gen LeadershipElectionNonce
 genLeadershipElectionNonce = Hash.Hash . FBS.pack <$> vector 32
@@ -431,42 +409,13 @@ propSignBakedBlockDiffKey =
                 forAll genBlockKeyPair $ \(Sig.KeyPair _ pk1) ->
                     not (verifyBlockSignature pk1 genesisHash (signBlock kp genesisHash bb))
 
-propAddQuorumMessage :: Property
-propAddQuorumMessage =
-    forAll genQuorumMessages $ \qms ->
-        forAll genQuorumMessage $ \qm ->
-            forAll genFinalizerIndex $ \finalizerIndex -> do
-                let newQms = addSignatureMessage finalizerIndex qm qms
-                assertEqual
-                    "The updated quorum signature messages should have the same timeouts count"
-                    (smTimeouts qms)
-                    (smTimeouts newQms)
-                assertBool
-                    "The updated quorum signature messages should contain the new message"
-                    (isJust $! Map.lookup finalizerIndex (smFinIdxToMessage newQms))
-                assertEqual
-                    "The updated blocks counters map should have been updated"
-                    (Just $ getExpectedCount (qmBlock qm) (smBlocksCounters qms))
-                    (Map.lookup (qmBlock qm) (smBlocksCounters newQms))
-  where
-    getExpectedCount qmPointer qsms =
-        case Map.lookup qmPointer qsms of
-            Nothing -> 1
-            Just x -> x + 1
-
-propAddTimeoutMessage :: Property
-propAddTimeoutMessage =
-    forAll genTimeoutMessages $ \tms ->
-        forAll genTimeoutMessage $ \tm ->
-            forAll genFinalizerIndex $ \finalizerIndex -> do
-                let newTms = addSignatureMessage finalizerIndex tm tms
-                assertEqual
-                    "The updated quorum signature messages should have the same timeouts count"
-                    (1 + (smTimeouts tms))
-                    (smTimeouts newTms)
-                assertBool
-                    "The updated quorum signature messages should contain the new message"
-                    (isJust $! Map.lookup finalizerIndex (smFinIdxToMessage newTms))
+propFinalizerListIsInverseOfFinalizerSet :: Property
+propFinalizerListIsInverseOfFinalizerSet =  
+    forAll genFinalizerSet $ \fis ->
+        assertEqual
+            "The FinalizerSets should be equal"
+            fis
+            (finalizerSet $ finalizerList fis)
 
 tests :: Spec
 tests = describe "KonsensusV1.Types" $ do
@@ -491,5 +440,4 @@ tests = describe "KonsensusV1.Types" $ do
     it "QuorumSignatureMessage signature check fails with different body" propSignQuorumSignatureMessageDiffBody
     it "SignedBlock signature check positive" propSignBakedBlock
     it "SignedBlock signature fails with different key" propSignBakedBlockDiffKey
-    it "Adding a quorum message to the collection quorum messages" propAddQuorumMessage
-    it "Adding a timeout message to the collection timeout messages" propAddTimeoutMessage
+    it "Conversion to and from FinalizerSet" propFinalizerListIsInverseOfFinalizerSet

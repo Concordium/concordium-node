@@ -214,11 +214,8 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       -- |The current consensus statistics.
       _statistics :: !Stats.ConsensusStatistics,
       -- |The 'QuorumMessage's for the current 'Round'.
-      -- This should be emptied whenever the consensus runner advances to a new round.
-      _currentQuorumMessages :: !(SignatureMessages QuorumMessage),
-      -- |The 'TimeoutMessage's for the current 'Round'.
-      -- This should be emptied whenever the consensus runner advances to a new round.
-      _currentTimeoutMessages :: !(SignatureMessages TimeoutMessage)
+      -- This should be cleared whenever the consensus runner advances to a new round.
+      _currentQuorumMessages :: !QuorumMessages
     }
 
 makeLenses ''SkovData
@@ -286,8 +283,7 @@ mkInitialSkovData rp genMeta genState _currentTimeout _skovEpochBakers =
         _skovPendingBlocks = emptyPendingBlocks
         _lastFinalized = genesisBlockPointer
         _statistics = Stats.initialConsensusStatistics
-        _currentQuorumMessages = emptySignatureMessages
-        _currentTimeoutMessages = emptySignatureMessages
+        _currentQuorumMessages = emptyQuorumMessages
     in  SkovData{..}
 
 -- * Operations on the block table
@@ -360,7 +356,7 @@ getRecentBlockStatus blockHash sd = case getMemoryBlockStatus blockHash sd of
     Nothing -> do
         LowLevel.memberBlock blockHash >>= \case
             True -> return OldFinalized
-            False -> return Unknown
+            False -> return $ RecentBlock BlockUnknown
 
 -- |Get a finalized block by height.
 -- This will return 'Nothing' for a block that is either not finalized or unknown.

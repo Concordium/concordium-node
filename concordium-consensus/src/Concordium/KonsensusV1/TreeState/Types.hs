@@ -14,6 +14,7 @@ import Data.Serialize
 import Data.Time
 import Data.Time.Clock.POSIX
 import Lens.Micro.Platform
+import qualified Data.Map.Strict as Map
 
 import Concordium.Types
 import Concordium.Types.Execution
@@ -207,8 +208,6 @@ data RecentBlockStatus pv
       RecentBlock !(BlockStatus pv)
     | -- |The block is a predecessor of the last finalized block.
       OldFinalized
-    | -- |The block is unknown.
-      Unknown
     deriving (Show)
 
 -- |The current round status.
@@ -300,3 +299,19 @@ data EpochBakers = EpochBakers
     }
 
 makeClassy ''EpochBakers
+
+-- |Quorum messages collected for a round.
+data QuorumMessages = QuorumMessages
+    { -- |Map of finalizer indecies to signature messages.
+      _smFinIdxToMessage :: !(Map.Map FinalizerIndex QuorumMessage),
+      -- |Accummulated weights and the aggregated signature for the blocks signed off by quorum signature message.
+      -- The 'VoterPower' here is in relation to the running 'Epoch'.
+      _smWeightsAndSignatures :: !(Map.Map BlockHash (VoterPower, QuorumSignature, [FinalizerIndex]))
+    }
+    deriving (Eq, Show)
+
+makeLenses ''QuorumMessages
+
+-- |Construct an empty 'QuorumMessages'
+emptyQuorumMessages :: QuorumMessages
+emptyQuorumMessages = QuorumMessages Map.empty Map.empty

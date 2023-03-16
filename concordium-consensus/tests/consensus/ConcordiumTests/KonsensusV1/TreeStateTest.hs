@@ -417,7 +417,7 @@ testGetRecentBlockStatus = describe "getRecentBlockStatus" $ do
     it "pending block" $ getStatus (getHash pendingB) $ RecentBlock $ BlockPending pendingB
     it "dead block" $ getStatus deadH $ RecentBlock BlockDead
     it "genesis block" $ getStatus (getHash genB) OldFinalized
-    it "unknown block" $ getStatus unknownH Unknown
+    it "unknown block" $ getStatus unknownH $ RecentBlock BlockUnknown
   where
     getStatus bh expect = do
         s <- runTestLLDB (lldbWithGenesis @'P6) $ getRecentBlockStatus bh sd

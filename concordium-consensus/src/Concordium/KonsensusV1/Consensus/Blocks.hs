@@ -103,7 +103,6 @@ uponReceivingBlock pendingBlock = do
                         RecentBlock BlockDead -> return BlockResultStale
                         RecentBlock BlockUnknown -> receiveBlockUnknownParent pendingBlock
                         OldFinalized -> return BlockResultStale
-                        Unknown -> receiveBlockUnknownParent pendingBlock
 
 -- |Get the bakers for a particular epoch, given that we have a live block that is nominally the
 -- parent block. This will typically get the bakers from the cache that is with respect to the

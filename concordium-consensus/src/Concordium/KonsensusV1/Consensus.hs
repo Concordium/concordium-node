@@ -8,6 +8,7 @@ import Data.Foldable
 import Data.List (sortOn)
 import qualified Data.Map.Strict as Map
 import Data.Ord
+import Data.Serialize
 import qualified Data.Vector as Vec
 import Lens.Micro.Platform
 
@@ -24,11 +25,8 @@ import Concordium.KonsensusV1.Types
 
 -- |A Monad for multicasting timeout messages.
 class MonadMulticast m where
-    -- |Multicast a timeout message over the network.
-    sendTimeoutMessage :: TimeoutMessage -> m ()
-
-    -- |Multicast a quorum signature message over the network.
-    sendQuorumMessage :: QuorumMessage -> m ()
+    -- |Multicast a message.
+    sendMessage :: (Serialize a) => a -> m ()
 
 -- |A baker context containing the baker identity. Used for accessing relevant baker keys and the baker id.
 newtype BakerContext = BakerContext
@@ -117,8 +115,7 @@ advanceRound newRound newCertificate = do
     -- coming into this new (current) epoch - but we still want to ensure that a timeout is thrown either way.
     resetTimer =<< use currentTimeout
     -- Advance and save the round.
-    currentQuorumMessages .= emptySignatureMessages
-    currentTimeoutMessages .= emptySignatureMessages
+    currentQuorumMessages .= emptyQuorumMessages
     setRoundStatus $! advanceRoundStatus newRound newCertificate currentRoundStatus
     -- Make a new block if the consensus runner is leader of
     -- the 'Round' progressed to.
