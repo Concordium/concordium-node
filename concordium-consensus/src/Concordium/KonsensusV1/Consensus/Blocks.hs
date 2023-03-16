@@ -15,6 +15,7 @@ import Concordium.Types.HashableTo
 import Concordium.Types.Parameters hiding (getChainParameters)
 import Concordium.Types.SeedState
 
+import qualified Concordium.Crypto.BlockSignature as Sig
 import Concordium.Genesis.Data.BaseV1
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.BlockState
@@ -22,7 +23,8 @@ import Concordium.GlobalState.Parameters hiding (getChainParameters)
 import Concordium.GlobalState.Persistent.BlockState
 import Concordium.GlobalState.Statistics
 import Concordium.GlobalState.Types
-import Concordium.KonsensusV1.Consensus (MonadTimeout, advanceRound, computeFinalizationCommittee)
+import Concordium.KonsensusV1.Consensus (HasBakerContext, MonadTimeout, advanceRound, computeFinalizationCommittee)
+import qualified Concordium.KonsensusV1.Consensus as Consensus
 import Concordium.KonsensusV1.Consensus.Finality
 import Concordium.KonsensusV1.Flag
 import Concordium.KonsensusV1.LeaderElection
@@ -31,6 +33,8 @@ import Concordium.KonsensusV1.TreeState.Implementation
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
+import Concordium.TimerMonad
+import Concordium.Types.BakerIdentity
 import Control.Monad.Catch
 
 -- |A block that has passed initial verification, but must still be executed, added to the state,
@@ -615,7 +619,10 @@ executeBlock ::
       MonadIO m,
       TimeMonad m,
       MonadThrow m,
-      MonadTimeout m
+      MonadTimeout m,
+      MonadReader r m,
+      HasBakerContext r,
+      TimerMonad m
     ) =>
     VerifiedBlock ->
     m ()
@@ -628,5 +635,38 @@ executeBlock verifiedBlock = do
     ebWithParent parent = do
         success <- processBlock parent verifiedBlock
         when success $ do
-            -- TODO: If we're a finalizer, wait for the timestamp and then validate the block.
-            return ()
+            checkedValidateBlock (vbBlock verifiedBlock)
+
+checkedValidateBlock ::
+    ( MonadReader r m,
+      HasBakerContext r,
+      BlockData b,
+      HashableTo BlockHash b,
+      TimerMonad m,
+      MonadState (SkovData (MPV m)) m
+    ) =>
+    b ->
+    m ()
+checkedValidateBlock validBlock = do
+    mBakerIdentity <- view Consensus.bakerIdentity
+    forM_ mBakerIdentity $ \bakerIdent@BakerIdentity{..} -> do
+        mBakers <- gets $ getBakersForLiveEpoch (blockEpoch validBlock)
+        forM_ mBakers $ \BakersAndFinalizers{..} -> do
+            forM_ (finalizerByBakerId _bfFinalizers bakerId) $ \ !finInfo ->
+                if finalizerSignKey finInfo /= Sig.verifyKey bakerSignKey
+                    || finalizerBlsKey finInfo /= bakerAggregationPublicKey
+                    then do
+                        -- TODO: Log a warning that the key does not match.
+                        return ()
+                    else do
+                        let !blockHash = getHash validBlock
+                        _ <-
+                            onTimeout (DelayUntil (timestampToUTCTime $ blockTimestamp validBlock)) $!
+                                validateBlock blockHash bakerIdent finInfo
+                        return ()
+
+validateBlock :: (MonadState (SkovData (MPV m)) m) => BlockHash -> BakerIdentity -> FinalizerInfo -> m ()
+validateBlock blockHash bakerIdent finInfo = do
+    block <- gets $ getLiveBlock blockHash
+    -- TODO: implementation
+    return ()

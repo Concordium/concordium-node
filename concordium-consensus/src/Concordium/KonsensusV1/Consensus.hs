@@ -29,7 +29,7 @@ class MonadMulticast m where
 
 -- |A baker context containing the baker identity. Used for accessing relevant baker keys and the baker id.
 newtype BakerContext = BakerContext
-    { _bakerIdentity :: BakerIdentity
+    { _bakerIdentity :: Maybe BakerIdentity
     }
 
 makeClassy ''BakerContext
