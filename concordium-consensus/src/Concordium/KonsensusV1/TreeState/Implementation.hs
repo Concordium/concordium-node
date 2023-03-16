@@ -179,6 +179,8 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       -- associated with the current round of the
       -- consensus protocol.
       _roundStatus :: !RoundStatus,
+      -- |The current duration to wait before a round times out.
+      _currentTimeout :: !Duration,
       -- |Transactions.
       -- The transaction table tracks the following:
       -- * Live transactions: mapping from a 'TransactionHash' to the status of the transaction,
@@ -255,7 +257,7 @@ mkInitialSkovData ::
     EpochBakers ->
     -- |The initial 'SkovData'
     SkovData pv
-mkInitialSkovData rp genMeta genState baseTimeout len _skovEpochBakers =
+mkInitialSkovData rp genMeta genState _currentTimeout len _skovEpochBakers =
     let genesisBlock = GenesisBlock genMeta
         genesisTime = timestampToUTCTime $ Base.genesisTime (gmParameters genMeta)
         genesisBlockMetadata =
@@ -270,7 +272,7 @@ mkInitialSkovData rp genMeta genState baseTimeout len _skovEpochBakers =
                   bpBlock = genesisBlock,
                   bpState = genState
                 }
-        _roundStatus = initialRoundStatus baseTimeout len
+        _roundStatus = initialRoundStatus len
         _transactionTable = emptyTransactionTable
         _transactionTablePurgeCounter = 0
         _skovPendingTransactions =
@@ -291,6 +293,12 @@ mkInitialSkovData rp genMeta genState baseTimeout len _skovEpochBakers =
     in  SkovData{..}
 
 -- * Operations on the block table
+
+-- |Look up whether the given block hash is a currently-pending block in the block table.
+isPending :: BlockHash -> SkovData pv -> Bool
+isPending bh sd = case sd ^? blockTable . liveMap . ix bh of
+    Just (MemBlockPending _) -> True
+    _ -> False
 
 -- |Get the 'BlockStatus' of a block that is available in memory based on the 'BlockHash'.
 -- (This includes live and pending blocks, but not finalized blocks, except for the last finalized
@@ -402,6 +410,12 @@ markLiveBlockDead bp = do
 -- (Note, this does not update the pending block table.)
 markPending :: (MonadState (SkovData pv) m) => PendingBlock -> m ()
 markPending pb = blockTable . liveMap . at' (getHash pb) ?=! MemBlockPending pb
+
+-- |Update the transaction table to reflect that a list of blocks are finalized.
+-- This removes them the in-memory transaction table.
+-- The caller is expected to ensure that they are written to the low-level storage.
+markLiveBlocksFinal :: (MonadState (SkovData pv) m) => [BlockPointer pv] -> m ()
+markLiveBlocksFinal blocks = blockTable . liveMap %=! flip (foldr' (HM.delete . getHash)) blocks
 
 -- |Get the parent block of a live or finalized block. (For the genesis block, this will return
 -- the block itself.)
@@ -625,17 +639,19 @@ getNextAccountNonce addr sd = case sd ^. transactionTable . ttNonFinalizedTransa
             Nothing -> (anfts ^. anftNextNonce, True)
             Just (nonce, _) -> (nonce + 1, False)
 
--- |Removes a list of transactions from memory.
+-- |Finalizes a list of transactions in the in-memory transaction table.
+-- This removes the transactions (and any others with the same account and nonce, or update type
+-- and sequence number) and updates the next account nonce/update type sequence number.
 -- Per account, the transactions must be in
 -- continuous sequence by nonce, starting from the next available non-finalized
 -- nonce. This does not write the transactions to the low-level tree state database, but just
 -- updates the in-memory transaction table accordingly.
-removeTransactions ::
+finalizeTransactions ::
     (MonadState (SkovData pv) m, MonadThrow m) =>
     -- |The transactions to remove from the state.
     [BlockItem] ->
     m ()
-removeTransactions = mapM_ removeTrans
+finalizeTransactions = mapM_ removeTrans
   where
     removeTrans WithMetadata{wmdData = NormalTransaction tr, ..} = do
         let nonce = transactionNonce tr
@@ -748,8 +764,7 @@ markTransactionDead ::
 markTransactionDead blockHash transaction =
     transactionTable
         . ttHashMap
-        . at' (getHash transaction)
-        . mapped
+        . ix (getHash transaction)
         . _2
         %= markDeadResult blockHash
 
