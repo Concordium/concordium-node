@@ -188,9 +188,9 @@ genQuorumMessages = do
     msgs <- vectorOf (fromIntegral numMessages) genQuorumMessage
     return $! SignatureMessages (getMessages msgs) (blockCounters msgs) $ fromIntegral timeouts
   where
-    getMessages msgs = foldl' (\acc msg -> Map.insert (FinalizerIndex . fromIntegral $ Map.size acc) msg acc) Map.empty msgs
-    blockCounters qms = foldl' (\acc qm -> Map.alter getCount (qmBlock qm) acc) Map.empty qms
-    getCount mCount = maybe (Just 1) (\cnt -> Just $ cnt + 1) mCount
+    getMessages = foldl' (\acc msg -> Map.insert (FinalizerIndex . fromIntegral $ Map.size acc) msg acc) Map.empty
+    blockCounters = foldl' (\acc qm -> Map.alter getCount (qmBlock qm) acc) Map.empty
+    getCount = maybe (Just 1) (\cnt -> Just $ cnt + 1)
 
 -- |Generates a collection of 'TimeoutSignatureMessage's
 genTimeoutMessages :: Gen (SignatureMessages TimeoutMessage)
@@ -200,7 +200,7 @@ genTimeoutMessages = do
     msgs <- vectorOf (fromIntegral numMessages) genTimeoutMessage
     return $! SignatureMessages (getMessages msgs) Map.empty $ fromIntegral timeouts
   where
-    getMessages msgs = foldl' (\acc msg -> Map.insert (FinalizerIndex . fromIntegral $ Map.size acc) msg acc) Map.empty msgs
+    getMessages = foldl' (\acc msg -> Map.insert (FinalizerIndex . fromIntegral $ Map.size acc) msg acc) Map.empty
 
 -- |Generate an arbitrary 'LeadershipElectionNonce'
 genLeadershipElectionNonce :: Gen LeadershipElectionNonce
@@ -213,7 +213,6 @@ genRoundStatus = do
     rsCurrentRound <- genRound
     rsLastSignedQuourumSignatureMessage <- coinFlip =<< genQuorumSignatureMessage
     rsLastSignedTimeoutSignatureMessage <- coinFlip =<< genTimeoutSignatureMessage
-    rsCurrentTimeout <- Duration <$> arbitrary
     rsHighestQC <- coinFlip =<< genQuorumCertificate
     tc <- genTimeoutCertificate
     qc <- genQuorumCertificate
