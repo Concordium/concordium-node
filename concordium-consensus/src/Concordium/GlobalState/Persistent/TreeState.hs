@@ -25,6 +25,7 @@ import Concordium.GlobalState.Persistent.LMDB
 import Concordium.GlobalState.PurgeTransactions
 import Concordium.GlobalState.Statistics
 import Concordium.GlobalState.TransactionTable
+import Concordium.GlobalState.Transactions
 import qualified Concordium.GlobalState.TreeState as TS
 import Concordium.GlobalState.Types
 import Concordium.Logger
@@ -603,6 +604,14 @@ constructBlock StoredBlock{..} = do
     makeBlockPointerFromPersistentBlock sbBlock bstate sbInfo
 
 instance
+    ( MonadState state m,
+      HasSkovPersistentData pv state
+    ) =>
+    AccountNonceQuery (PersistentTreeStateMonad state m)
+    where
+    getNextAccountNonce addr = nextAccountNonce addr <$> use (skovPersistentData . transactionTable)
+
+instance
     ( MonadLogger (PersistentTreeStateMonad state m),
       MonadIO (PersistentTreeStateMonad state m),
       BlockStateStorage (PersistentTreeStateMonad state m),
@@ -777,14 +786,6 @@ instance
                         Nothing -> Map.toAscList beyond
                         Just s -> (nnce, s) : Map.toAscList beyond
 
-    getNextAccountNonce addr =
-        use (skovPersistentData . transactionTable . ttNonFinalizedTransactions . at' addr) >>= \case
-            Nothing -> return (minNonce, True)
-            Just anfts ->
-                case Map.lookupMax (anfts ^. anftMap) of
-                    Nothing -> return (anfts ^. anftNextNonce, True)
-                    Just (nonce, _) -> return (nonce + 1, False)
-
     -- only looking up the cached part is OK because the precondition of this method is that the
     -- transaction is not yet finalized
     getCredential txHash = do
@@ -819,9 +820,9 @@ instance
                 -- to the `TransactionTable`.
                 -- Verifying the transaction here as opposed to `doReceiveTransactionInternal` avoids
                 -- reverifying a transaction which was received both individually and as part of a block.
-                verRes <- TS.runTransactionVerifierT (TVer.verify ts bi) verResCtx
-                if TVer.definitelyNotValid verRes (verResCtx ^. TS.isTransactionFromBlock)
-                    then return $ TS.NotAdded verRes
+                verRes <- runTransactionVerifierT (TVer.verify ts bi) verResCtx
+                if TVer.definitelyNotValid verRes $ verResCtx ^. ctxTransactionOrigin
+                    then return $ NotAdded verRes
                     else do
                         -- Finalized credentials are not present in the transaction table, so we
                         -- check if they are already in the on-disk transaction table.
@@ -838,14 +839,14 @@ instance
                             then do
                                 skovPersistentData . transactionTablePurgeCounter += 1
                                 skovPersistentData . transactionTable .=! newTT
-                                return (TS.Added bi verRes)
-                            else return TS.ObsoleteNonce
+                                return (Added bi verRes)
+                            else return ObsoleteNonce
             Just (bi', results) -> do
                 -- The transaction is live.
                 let mVerRes = Just $ results ^. tsVerRes
                 -- We update the maximum committed slot if the new slot is later.
                 when (commitPoint slot > results ^. tsCommitPoint) $ skovPersistentData . transactionTable . ttHashMap . at' trHash . mapped . _2 %=! updateCommitPoint slot
-                return $ TS.Duplicate bi' mVerRes
+                return $ Duplicate bi' mVerRes
 
     addVerifiedTransaction bi@WithMetadata{..} okRes = do
         let verRes = TVer.Ok okRes
@@ -866,15 +867,15 @@ instance
                     then do
                         skovPersistentData . transactionTablePurgeCounter += 1
                         skovPersistentData . transactionTable .=! newTT
-                        return (TS.Added bi verRes)
-                    else return TS.ObsoleteNonce
+                        return (Added bi verRes)
+                    else return ObsoleteNonce
             Just (bi', results) -> do
                 -- The `Finalized` case is not reachable because finalized transactions are removed
                 -- from the transaction table.
                 let mVerRes = case results of
                         Received _ verRes' -> Just verRes'
                         Committed _ verRes' _ -> Just verRes'
-                return $ TS.Duplicate bi' mVerRes
+                return $ Duplicate bi' mVerRes
 
     type FinTrans (PersistentTreeStateMonad state m) = [(TransactionHash, FinalizedTransactionStatus)]
     finalizeTransactions bh slot txs = mapM finTrans txs

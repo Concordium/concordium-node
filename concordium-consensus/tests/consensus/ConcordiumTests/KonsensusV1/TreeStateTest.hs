@@ -44,7 +44,7 @@
 -- * 'getNonFinalizedCredential'
 -- * 'getNextAccountNonce'
 -- * 'removeTransactions'
--- * 'putTransaction'
+-- * 'addTransaction'
 -- * 'commitTransaction'
 -- * 'markTransactionDead'
 -- * 'purgeTransactionTable'
@@ -68,6 +68,7 @@ import Data.IORef
 import qualified Data.Map.Strict as Map
 import qualified Data.PQueue.Prio.Min as MPQ
 import qualified Data.Sequence as Seq
+import qualified Data.Vector as Vec
 import Lens.Micro.Platform
 import System.IO.Unsafe
 import System.Random
@@ -87,11 +88,12 @@ import Concordium.Types.HashableTo
 import Concordium.Types.Transactions
 
 -- konsensus v1 related imports.
+import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Parameters (defaultRuntimeParameters)
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.BlockState
 import Concordium.GlobalState.Persistent.TreeState (insertDeadCache, memberDeadCache)
-import Concordium.GlobalState.TransactionTable
+import qualified Concordium.GlobalState.TransactionTable as TT
 import Concordium.ID.Types
 import Concordium.KonsensusV1.TreeState.Implementation
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
@@ -254,6 +256,21 @@ dummyGenesisMetadata =
 dummyLeadershipElectionNonce :: LeadershipElectionNonce
 dummyLeadershipElectionNonce = Hash.hash "LeadershipElectionNonce"
 
+-- |Dummy bakers and finalizers with no bakers or finalizers.
+-- This is only suitable for when the value is not meaningfully used.
+dummyBakersAndFinalizers :: BakersAndFinalizers
+dummyBakersAndFinalizers =
+    BakersAndFinalizers
+        { _bfBakers = FullBakers Vec.empty 0,
+          _bfFinalizers = FinalizationCommittee Vec.empty 0
+        }
+
+-- |Dummy epoch bakers. This is only suitable for when the actual value is not meaningfully used.
+dummyEpochBakers :: EpochBakers
+dummyEpochBakers = EpochBakers 0 bf bf bf 1
+  where
+    bf = dummyBakersAndFinalizers
+
 -- |An initial 'SkovData' suitable for testing.
 -- The block state is empty ('dummyBlockState') only consisting of a
 -- genesis block.
@@ -279,6 +296,7 @@ dummyInitialSkovData =
         dummyBlockState
         10_000
         dummyLeadershipElectionNonce
+        dummyEpochBakers
 
 -- |A 'LowLevelDB' for testing purposes.
 newtype TestLLDB pv = TestLLDB {theTestLLDB :: IORef (LowLevelDB pv)}
@@ -708,15 +726,15 @@ testLookupLiveTransaction = describe "lookupLiveTransaction" $ do
     it "present" $ do
         assertEqual
             "status transaction 1"
-            (Just $ Received 0 (dummySuccessTransactionResult 1))
+            (Just $ TT.Received 0 (dummySuccessTransactionResult 1))
             $ lookupLiveTransaction (txHash 1) sd
         assertEqual
             "status transaction 2"
-            (Just $ Received 0 (dummySuccessTransactionResult 2))
+            (Just $ TT.Received 0 (dummySuccessTransactionResult 2))
             $ lookupLiveTransaction (txHash 2) sd
         assertEqual
             "status transaction 3"
-            (Just $ Received 0 (dummySuccessTransactionResult 3))
+            (Just $ TT.Received 0 (dummySuccessTransactionResult 3))
             $ lookupLiveTransaction (txHash 3) sd
     it "absent"
         $ assertEqual
@@ -725,7 +743,7 @@ testLookupLiveTransaction = describe "lookupLiveTransaction" $ do
         $ lookupLiveTransaction (txHash 4) sd
   where
     txHash nonce = getHash (dummyTransactionBI nonce)
-    addTrans nonce = snd . addTransaction (dummyTransactionBI nonce) 0 (dummySuccessTransactionResult nonce)
+    addTrans nonce = snd . TT.addTransaction (dummyTransactionBI nonce) 0 (dummySuccessTransactionResult nonce)
     sd =
         dummyInitialSkovData
             & transactionTable
@@ -741,11 +759,11 @@ testLookupLiveTransaction = describe "lookupLiveTransaction" $ do
 testLookupTransaction :: Spec
 testLookupTransaction = describe "lookupTransaction" $ do
     it "finalized" $ lookupAndCheck (txHash 1) (Just $ Finalized $ FinalizedTransactionStatus 1 0)
-    it "live" $ lookupAndCheck (txHash 2) (Just $ Live $ Received 0 $ dummySuccessTransactionResult 2)
+    it "live" $ lookupAndCheck (txHash 2) (Just $ Live $ TT.Received 0 $ dummySuccessTransactionResult 2)
     it "absent" $ lookupAndCheck (txHash 5) Nothing
   where
     txHash nonce = getHash (dummyTransactionBI nonce)
-    addTrans nonce = snd . addTransaction (dummyTransactionBI nonce) 0 (dummySuccessTransactionResult nonce)
+    addTrans nonce = snd . TT.addTransaction (dummyTransactionBI nonce) 0 (dummySuccessTransactionResult nonce)
     sd =
         dummyInitialSkovData
             & transactionTable
@@ -792,7 +810,7 @@ testGetNonFinalizedAccountTransactions = describe "getNonFinalizedAccountTransac
             1
             sd
   where
-    addTrans n = snd . addTransaction (dummyTransactionBI n) 0 (dummySuccessTransactionResult n)
+    addTrans n = snd . TT.addTransaction (dummyTransactionBI n) 0 (dummySuccessTransactionResult n)
     sd =
         dummyInitialSkovData
             & transactionTable
@@ -823,7 +841,7 @@ testGetNonFinalizedChainUpdates = describe "getNonFinalizedChainUpdates" $ do
             []
             $ getNonFinalizedChainUpdates UpdateProtocol 1 sd
   where
-    addChainUpdate n = snd . addTransaction (dummyChainUpdate n) 0 (dummySuccessTransactionResult n)
+    addChainUpdate n = snd . TT.addTransaction (dummyChainUpdate n) 0 (dummySuccessTransactionResult n)
     sd =
         dummyInitialSkovData
             & transactionTable
@@ -844,7 +862,7 @@ testGetNonFinalizedCredential = describe "getNonFinalizedCredential" $ do
     it "absent" $ do
         assertEqual "non-finalized credential deployment is absent" Nothing $ getNonFinalizedCredential nonExistingHash sd
   where
-    addCredential = snd . addTransaction dummyCredentialDeployment 0 dummySuccessCredentialDeployment
+    addCredential = snd . TT.addTransaction dummyCredentialDeployment 0 dummySuccessCredentialDeployment
     credDeploymentHash = getHash dummyCredentialDeployment
     nonExistingHash :: TransactionHash
     nonExistingHash = TransactionHashV0 $! Hash.hash $! Hash.hashToByteString $! v0TransactionHash credDeploymentHash
@@ -869,14 +887,14 @@ testGetNextAccountNonce = describe "getNextAccountNonce" $ do
         getNextAccountNonce (accountAddressEmbed (dummyAccountAddressN 2)) sd
             `shouldBe` (7, True)
   where
-    addTrans n = snd . addTransaction (dummyTransactionBI n) 0 (dummySuccessTransactionResult n)
+    addTrans n = snd . TT.addTransaction (dummyTransactionBI n) 0 (dummySuccessTransactionResult n)
     sd =
         dummyInitialSkovData
             & transactionTable
                 %~ addTrans 2
                 . addTrans 3
-                . ( ttNonFinalizedTransactions . at (accountAddressEmbed (dummyAccountAddressN 2))
-                        ?~ emptyANFTWithNonce 7
+                . ( TT.ttNonFinalizedTransactions . at (accountAddressEmbed (dummyAccountAddressN 2))
+                        ?~ TT.emptyANFTWithNonce 7
                   )
 
 -- |Testing 'removeTransactions'.
@@ -893,36 +911,36 @@ testRemoveTransactions = describe "removeTransactions" $ do
         sd' <- execStateT (removeTransactions [normalTransaction tr0]) sd
         assertEqual
             "Account non-finalized transactions"
-            (Just AccountNonFinalizedTransactions{_anftNextNonce = 2, _anftMap = Map.singleton 2 (Map.singleton tr1 (dummySuccessTransactionResult 2))})
-            (sd' ^. transactionTable . ttNonFinalizedTransactions . at sender)
+            (Just TT.AccountNonFinalizedTransactions{_anftNextNonce = 2, _anftMap = Map.singleton 2 (Map.singleton tr1 (dummySuccessTransactionResult 2))})
+            (sd' ^. transactionTable . TT.ttNonFinalizedTransactions . at sender)
         assertEqual
             "transaction hash map"
-            (HM.fromList [(getHash tr1, (normalTransaction tr1, Received 0 (dummySuccessTransactionResult 2)))])
-            (sd' ^. transactionTable . ttHashMap)
+            (HM.fromList [(getHash tr1, (normalTransaction tr1, TT.Received 0 (dummySuccessTransactionResult 2)))])
+            (sd' ^. transactionTable . TT.ttHashMap)
     it "chain updates" $ do
         sd' <- execStateT (removeTransactions [chainUpdate cu0]) sd1
         assertEqual
             "Chain update non-finalized transactions"
-            (Just NonFinalizedChainUpdates{_nfcuNextSequenceNumber = 2, _nfcuMap = Map.singleton 2 (Map.singleton cu1 (dummySuccessTransactionResult 2))})
-            (sd' ^. transactionTable . ttNonFinalizedChainUpdates . at UpdateMicroGTUPerEuro)
+            (Just TT.NonFinalizedChainUpdates{_nfcuNextSequenceNumber = 2, _nfcuMap = Map.singleton 2 (Map.singleton cu1 (dummySuccessTransactionResult 2))})
+            (sd' ^. transactionTable . TT.ttNonFinalizedChainUpdates . at UpdateMicroGTUPerEuro)
         assertEqual
             "transaction hash map"
             ( HM.fromList
-                [ (getHash cu1, (chainUpdate cu1, Received 0 (dummySuccessTransactionResult 2))),
-                  (getHash tr1, (normalTransaction tr1, Received 0 (dummySuccessTransactionResult 2)))
+                [ (getHash cu1, (chainUpdate cu1, TT.Received 0 (dummySuccessTransactionResult 2))),
+                  (getHash tr1, (normalTransaction tr1, TT.Received 0 (dummySuccessTransactionResult 2)))
                 ]
             )
-            (sd' ^. transactionTable . ttHashMap)
+            (sd' ^. transactionTable . TT.ttHashMap)
     it "credential deployments" $ do
         sd' <- execStateT (removeTransactions [credentialDeployment cred0]) sd2
         assertEqual
             "Non-finalized credential deployments"
-            (sd' ^. transactionTable . ttHashMap . at credDeploymentHash)
+            (sd' ^. transactionTable . TT.ttHashMap . at credDeploymentHash)
             Nothing
         assertEqual
             "transaction hash map"
-            (HM.fromList [(getHash tr1, (normalTransaction tr1, Received 0 (dummySuccessTransactionResult 2)))])
-            (sd' ^. transactionTable . ttHashMap)
+            (HM.fromList [(getHash tr1, (normalTransaction tr1, TT.Received 0 (dummySuccessTransactionResult 2)))])
+            (sd' ^. transactionTable . TT.ttHashMap)
   where
     sender = accountAddressEmbed dummyAccountAddress
     tr0 = dummyTransaction 1
@@ -931,9 +949,9 @@ testRemoveTransactions = describe "removeTransactions" $ do
     cu0 = dummyUpdateInstructionWM 1
     cu1 = dummyUpdateInstructionWM 2
     cred0 = credentialDeploymentWM
-    addTrans t = snd . addTransaction (normalTransaction t) 0 (dummySuccessTransactionResult (transactionNonce t))
-    addChainUpdate u = snd . addTransaction (chainUpdate u) 0 (dummySuccessTransactionResult (updateSeqNumber $ uiHeader $ wmdData u))
-    addCredential = snd . addTransaction dummyCredentialDeployment 0 dummySuccessCredentialDeployment
+    addTrans t = snd . TT.addTransaction (normalTransaction t) 0 (dummySuccessTransactionResult (transactionNonce t))
+    addChainUpdate u = snd . TT.addTransaction (chainUpdate u) 0 (dummySuccessTransactionResult (updateSeqNumber $ uiHeader $ wmdData u))
+    addCredential = snd . TT.addTransaction dummyCredentialDeployment 0 dummySuccessCredentialDeployment
     credDeploymentHash = getHash dummyCredentialDeployment
     sd =
         dummyInitialSkovData
@@ -953,29 +971,29 @@ testRemoveTransactions = describe "removeTransactions" $ do
                 %~ addCredential
                 . addTrans tr1
 
--- |Testing 'putTransaction'.
+-- |Testing 'addTransaction'.
 -- This test ensures that the supplied transaction is added
 -- to the transaction table with the provided round.
 -- This test also checks that the transaction table purge counter
 -- is incremented.
-testPutTransaction :: Spec
-testPutTransaction = describe "putTransaction" $ do
-    it "put transaction" $ do
-        sd' <- execStateT (putTransaction tr0Round (normalTransaction tr0) (dummySuccessTransactionResult 1)) dummyInitialSkovData
+testAddTransaction :: Spec
+testAddTransaction = describe "addTransaction" $ do
+    it "add transaction" $ do
+        sd' <- execStateT (addTransaction tr0Round (normalTransaction tr0) (dummySuccessTransactionResult 1)) dummyInitialSkovData
         assertEqual
             "Account non-finalized transactions"
-            (Just AccountNonFinalizedTransactions{_anftNextNonce = 1, _anftMap = Map.singleton 1 (Map.singleton tr0 (dummySuccessTransactionResult 1))})
-            (sd' ^. transactionTable . ttNonFinalizedTransactions . at sender)
+            (Just TT.AccountNonFinalizedTransactions{_anftNextNonce = 1, _anftMap = Map.singleton 1 (Map.singleton tr0 (dummySuccessTransactionResult 1))})
+            (sd' ^. transactionTable . TT.ttNonFinalizedTransactions . at sender)
         assertEqual
             "transaction hash map"
-            (HM.fromList [(getHash tr0, (normalTransaction tr0, Received (commitPoint tr0Round) (dummySuccessTransactionResult 1)))])
-            (sd' ^. transactionTable . ttHashMap)
+            (HM.fromList [(getHash tr0, (normalTransaction tr0, TT.Received (TT.commitPoint tr0Round) (dummySuccessTransactionResult 1)))])
+            (sd' ^. transactionTable . TT.ttHashMap)
         assertEqual
             "transaction table purge counter is incremented"
             (1 + dummyInitialSkovData ^. transactionTablePurgeCounter)
             (sd' ^. transactionTablePurgeCounter)
         sd'' <- execStateT (removeTransactions [normalTransaction tr0]) sd'
-        added <- evalStateT (putTransaction tr0Round (normalTransaction tr0) (dummySuccessTransactionResult 1)) sd''
+        added <- evalStateT (addTransaction tr0Round (normalTransaction tr0) (dummySuccessTransactionResult 1)) sd''
         assertEqual "tx should not be added" False added
   where
     tr0Round = 1
@@ -991,11 +1009,11 @@ testCommitTransaction = describe "commitTransaction" $ do
         sd' <- execStateT (commitTransaction 1 bh 0 (normalTransaction tr0)) sd
         assertEqual
             "transaction hash map"
-            (HM.fromList [(getHash tr0, (normalTransaction tr0, Committed 1 (dummySuccessTransactionResult (transactionNonce tr0)) $ HM.fromList [(bh, TransactionIndex 0)]))])
-            (sd' ^. transactionTable . ttHashMap)
+            (HM.fromList [(getHash tr0, (normalTransaction tr0, TT.Committed 1 (dummySuccessTransactionResult (transactionNonce tr0)) $ HM.fromList [(bh, TransactionIndex 0)]))])
+            (sd' ^. transactionTable . TT.ttHashMap)
   where
     tr0 = dummyTransaction 1
-    addTrans t = snd . addTransaction (normalTransaction t) 0 (dummySuccessTransactionResult (transactionNonce t))
+    addTrans t = snd . TT.addTransaction (normalTransaction t) 0 (dummySuccessTransactionResult (transactionNonce t))
     sd =
         dummyInitialSkovData
             & transactionTable
@@ -1016,17 +1034,17 @@ testMarkTransactionDead = describe "markTransactionDead" $ do
         sd'' <- execStateT (markTransactionDead bh (normalTransaction tr0)) sd'
         assertEqual
             "transaction hash map"
-            (HM.fromList [(getHash tr0, (normalTransaction tr0, Received 1 (dummySuccessTransactionResult (transactionNonce tr0))))])
-            (sd'' ^. transactionTable . ttHashMap)
+            (HM.fromList [(getHash tr0, (normalTransaction tr0, TT.Received 1 (dummySuccessTransactionResult (transactionNonce tr0))))])
+            (sd'' ^. transactionTable . TT.ttHashMap)
     it "mark received transaction dead" $ do
         sd' <- execStateT (markTransactionDead bh (normalTransaction tr0)) sd
         assertEqual
             "transaction hash map"
-            (HM.fromList [(getHash tr0, (normalTransaction tr0, Received 0 (dummySuccessTransactionResult (transactionNonce tr0))))])
-            (sd' ^. transactionTable . ttHashMap)
+            (HM.fromList [(getHash tr0, (normalTransaction tr0, TT.Received 0 (dummySuccessTransactionResult (transactionNonce tr0))))])
+            (sd' ^. transactionTable . TT.ttHashMap)
   where
     tr0 = dummyTransaction 1
-    addTrans t = snd . addTransaction (normalTransaction t) 0 (dummySuccessTransactionResult (transactionNonce t))
+    addTrans t = snd . TT.addTransaction (normalTransaction t) 0 (dummySuccessTransactionResult (transactionNonce t))
     sd =
         dummyInitialSkovData
             & transactionTable
@@ -1042,7 +1060,7 @@ testPurgeTransactionTable :: Spec
 testPurgeTransactionTable = describe "purgeTransactionTable" $ do
     it "force purge the transaction table" $ do
         -- increment the purge counter.
-        sd' <- execStateT (putTransaction 0 (normalTransaction tr0) (dummySuccessTransactionResult 1)) sd
+        sd' <- execStateT (addTransaction 0 (normalTransaction tr0) (dummySuccessTransactionResult 1)) sd
         sd'' <- execStateT (purgeTransactionTable True theTime) sd'
         assertEqual
             "purge counter should be reset"
@@ -1050,19 +1068,19 @@ testPurgeTransactionTable = describe "purgeTransactionTable" $ do
             (sd'' ^. transactionTablePurgeCounter)
         assertEqual
             "Account non-finalized transactions"
-            (Just $ AccountNonFinalizedTransactions{_anftMap = Map.empty, _anftNextNonce = 1})
-            (sd'' ^. transactionTable . ttNonFinalizedTransactions . at sender)
+            (Just $ TT.AccountNonFinalizedTransactions{_anftMap = Map.empty, _anftNextNonce = 1})
+            (sd'' ^. transactionTable . TT.ttNonFinalizedTransactions . at sender)
         assertEqual
             "Chain update non-finalized transactions"
-            (Just $ NonFinalizedChainUpdates{_nfcuMap = Map.empty, _nfcuNextSequenceNumber = 1})
-            (sd'' ^. transactionTable . ttNonFinalizedChainUpdates . at UpdateMicroGTUPerEuro)
+            (Just $ TT.NonFinalizedChainUpdates{_nfcuMap = Map.empty, _nfcuNextSequenceNumber = 1})
+            (sd'' ^. transactionTable . TT.ttNonFinalizedChainUpdates . at UpdateMicroGTUPerEuro)
         assertEqual
             "Non-finalized credential deployments"
             Nothing
-            (sd'' ^. transactionTable . ttHashMap . at credDeploymentHash)
+            (sd'' ^. transactionTable . TT.ttHashMap . at credDeploymentHash)
   where
-    addChainUpdate u = snd . addTransaction (chainUpdate u) 0 (dummySuccessTransactionResult (updateSeqNumber $ uiHeader $ wmdData u))
-    addCredential = snd . addTransaction dummyCredentialDeployment 0 dummySuccessCredentialDeployment
+    addChainUpdate u = snd . TT.addTransaction (chainUpdate u) 0 (dummySuccessTransactionResult (updateSeqNumber $ uiHeader $ wmdData u))
+    addCredential = snd . TT.addTransaction dummyCredentialDeployment 0 dummySuccessCredentialDeployment
     tr0 = dummyTransaction 1
     cu0 = dummyUpdateInstructionWM 1
     theTime = timestampToUTCTime $! Timestamp 1596409021
@@ -1075,7 +1093,7 @@ testPurgeTransactionTable = describe "purgeTransactionTable" $ do
                 %~ addChainUpdate cu0
                 . addCredential
             & pendingTransactionTable
-                %~ addPendingDeployCredential credDeploymentHash
+                %~ TT.addPendingDeployCredential credDeploymentHash
 
 -- |Test 'clearOnProtocolUpdate' function.
 -- This test checks that the following is occurring in the associated 'SkovData' when invoked:
@@ -1103,12 +1121,12 @@ testClearOnProtocolUpdate = describe "clearOnProtocolUpdate" $
             (sd'' ^. branches)
         assertEqual
             "committed transactions should be received"
-            (HM.fromList [(getHash tr0, (normalTransaction tr0, Received 1 (dummySuccessTransactionResult 1)))])
-            (sd'' ^. transactionTable . ttHashMap)
+            (HM.fromList [(getHash tr0, (normalTransaction tr0, TT.Received 1 (dummySuccessTransactionResult 1)))])
+            (sd'' ^. transactionTable . TT.ttHashMap)
   where
     tr0 = dummyTransaction 1
     bh = BlockHash minBound
-    addTrans t = snd . addTransaction (normalTransaction t) 0 (dummySuccessTransactionResult (transactionNonce t))
+    addTrans t = snd . TT.addTransaction (normalTransaction t) 0 (dummySuccessTransactionResult (transactionNonce t))
     sd =
         skovDataWithTestBlocks
             & transactionTable
@@ -1135,7 +1153,7 @@ tests = describe "KonsensusV1.TreeState" $ do
         testGetNonFinalizedCredential
         testGetNextAccountNonce
         testRemoveTransactions
-        testPutTransaction
+        testAddTransaction
         testCommitTransaction
         testMarkTransactionDead
         testPurgeTransactionTable

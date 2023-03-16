@@ -3309,6 +3309,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateQuery (P
     getAnonymityRevokers = doGetAnonymityRevokers . hpbsPointers
     getUpdateKeysCollection = doGetUpdateKeyCollection . hpbsPointers
     getExchangeRates = doGetExchangeRates . hpbsPointers
+    getChainParameters = doGetChainParameters . hpbsPointers
     getPaydayEpoch = doGetPaydayEpoch . hpbsPointers
     getPoolStatus = doGetPoolStatus . hpbsPointers
 

@@ -3,7 +3,6 @@
 
 module Concordium.TransactionVerification where
 
-import Control.Monad.Trans
 import qualified Data.Map.Strict as OrdMap
 import qualified Data.Serialize as S
 
@@ -21,6 +20,12 @@ import qualified Concordium.Types.Transactions as Tx
 import Concordium.Types.Updates (UpdateSequenceNumber)
 import qualified Concordium.Types.Updates as Updates
 import Control.Monad.Except
+
+-- |Type for describing the origin of the transaction.
+-- The transaction can either arrive at the consensus individually,
+-- or the transaction can be received as part of a block.
+data TransactionOrigin = Individual | Block
+    deriving (Eq, Show)
 
 -- |VerificationResults of transactions.
 -- A verification result can either be 'Ok', 'MaybeOk' or 'NotOk'.
@@ -97,6 +102,12 @@ data MaybeOkResult
     | -- |The 'NormalTransaction' contained invalid signatures.
       -- Reason for 'MaybeOk': the sender could've changed account information at a later point in time.
       NormalTransactionInvalidSignatures
+    | -- |The energy requirement of the transaction exceeds the maximum allowed for a block.
+      -- P6 makes the maxBlockEnergy configurable as a chain parameter, so it could be valid in a future block where
+      -- we have not yet processed the chain update.
+      -- This is treated as a 'MaybeOk' for simplicity also for older protocol versions as the transaction will
+      -- be rejected when executed anyhow if it is surpassing the maximum block energy limit.
+      NormalTransactionEnergyExceeded
     deriving (Eq, Show, Ord)
 
 -- |Verification results which always should result in a transaction being rejected.
@@ -119,9 +130,6 @@ data NotOkResult
       ChainUpdateSequenceNumberTooOld !UpdateSequenceNumber
     | -- |Not enough energy was supplied for the transaction.
       NormalTransactionDepositInsufficient
-    | -- |The energy requirement of the transaction exceeds the maximum allowed for a block.
-      -- The transaction can never be part of a block so it is rejected.
-      NormalTransactionEnergyExceeded
     | -- |The 'NormalTransaction' contained an already used nonce.
       NormalTransactionDuplicateNonce !Types.Nonce
     | -- |The transaction was expired
@@ -299,7 +307,7 @@ verifyNormalTransaction meta =
                 unless (Tx.transactionGasAmount meta >= cost) $ throwError $ NotOk NormalTransactionDepositInsufficient
                 -- Check that the required energy does not exceed the maximum allowed for a block
                 maxEnergy <- lift getMaxBlockEnergy
-                when (Tx.transactionGasAmount meta > maxEnergy) $ throwError $ NotOk NormalTransactionEnergyExceeded
+                when (Tx.transactionGasAmount meta > maxEnergy) $ throwError $ MaybeOk NormalTransactionEnergyExceeded
                 -- Check that the sender account exists
                 let addr = Tx.transactionSender meta
                 macc <- lift (getAccount addr)
@@ -352,26 +360,16 @@ type CredentialDeploymentWithStatus = (Tx.CredentialDeploymentWithMeta, Maybe Ve
 -- |A 'ChainUpdate' with its associated 'VerificationResult'
 type ChainUpdateWithStatus = (Tx.WithMetadata Updates.UpdateInstruction, Maybe VerificationResult)
 
--- |Type for describing the origin of the transaction.
--- The transaction can either arrive at the consensus as a single transaction,
--- or the transaction can be received as part of a block.
--- The ´Block´ additionally contains a ´BlockState´ of either the parent block (iff. it's 'alive') or the last finalized block.
-data TransactionOrigin m = Single | Block (GSTypes.BlockState m)
-
--- |Determines if a transaction definitely cannot be valid now or in a future block.
+-- |Determines if a transaction definitely cannot be valid now or in a future block based
+-- on its 'VerificationResult' and 'TransactionOrigin'.
+--
 -- Transactions received individually must be verified successfully.
 -- However there is a looser requirement for transactions received
--- as part of a block. See the 'TransactionVerification' module for more details.
-definitelyNotValid :: VerificationResult -> Bool -> Bool
-definitelyNotValid verificationResult fromBlock =
-    case fromBlock of
-        False ->
-            case verificationResult of
-                Ok _ -> False
-                MaybeOk _ -> True
-                NotOk _ -> True
-        True ->
-            case verificationResult of
-                NotOk _ -> True
-                Ok _ -> False
-                MaybeOk _ -> False
+-- as part of a block.
+definitelyNotValid :: VerificationResult -> TransactionOrigin -> Bool
+definitelyNotValid (Ok _) Block = False
+definitelyNotValid (MaybeOk _) Block = False
+definitelyNotValid (NotOk _) Block = True
+definitelyNotValid (Ok _) Individual = False
+definitelyNotValid (MaybeOk _) Individual = True
+definitelyNotValid (NotOk _) Individual = True
