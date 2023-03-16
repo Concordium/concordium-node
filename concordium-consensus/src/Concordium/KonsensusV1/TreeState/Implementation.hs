@@ -209,7 +209,10 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       _skovPendingBlocks :: !PendingBlocks,
       -- |Pointer to the last finalized block.
       _lastFinalized :: !(BlockPointer pv),
-      -- |Baker and finalizer information with respect to the epoch of the last finalized block.
+      -- |Baker and finalizer information with respect to the current epoch.
+      -- The current epoch should always be the same as the epoch of the last finalized block, or
+      -- the next epoch from the last finalized block if the last finalized block is past the
+      -- trigger block time for its epoch.
       _skovEpochBakers :: !EpochBakers,
       -- |The current consensus statistics.
       _statistics :: !Stats.ConsensusStatistics
@@ -885,10 +888,11 @@ getBakersForLiveEpoch :: (HasEpochBakers s) => Epoch -> s -> Maybe BakersAndFina
 getBakersForLiveEpoch e s
     | e == curEpoch = Just (s ^. currentEpochBakers)
     | e == curEpoch + 1 = Just (s ^. nextEpochBakers)
+    | e == curEpoch - 1 = Just (s ^. previousEpochBakers)
     | curEpoch <= e && e < s ^. nextPayday = Just (s ^. currentEpochBakers)
     | otherwise = Nothing
   where
-    curEpoch = s ^. epochBakersEpoch
+    curEpoch = s ^. currentEpoch
 
 -- * Protocol update
 

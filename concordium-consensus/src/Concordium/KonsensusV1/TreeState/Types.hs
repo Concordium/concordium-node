@@ -217,9 +217,7 @@ data RecentBlockStatus pv
 -- This is the case if the consensus runner has first signed a block
 -- but not enough quorum signature messages were retrieved before timeout.
 data RoundStatus = RoundStatus
-    { -- |The highest 'Epoch' that the consensus runner participated in.
-      rsCurrentEpoch :: !Epoch,
-      -- |The highest 'Round' that the consensus runner participated in.
+    { -- |The highest 'Round' that the consensus runner participated in.
       rsCurrentRound :: !Round,
       -- |The 'QuorumSignatureMessage's for the current 'Round'.
       rsCurrentQuorumSignatureMessages :: !(SignatureMessages QuorumSignatureMessage),
@@ -247,7 +245,6 @@ data RoundStatus = RoundStatus
 
 instance Serialize RoundStatus where
     put RoundStatus{..} = do
-        put rsCurrentEpoch
         put rsCurrentRound
         put rsCurrentQuorumSignatureMessages
         put rsCurrentTimeoutSignatureMessages
@@ -256,7 +253,6 @@ instance Serialize RoundStatus where
         put rsHighestQC
         put rsPreviousRoundTC
     get = do
-        rsCurrentEpoch <- get
         rsCurrentRound <- get
         rsCurrentQuorumSignatureMessages <- get
         rsCurrentTimeoutSignatureMessages <- get
@@ -270,8 +266,7 @@ instance Serialize RoundStatus where
 initialRoundStatus :: RoundStatus
 initialRoundStatus =
     RoundStatus
-        { rsCurrentEpoch = 0,
-          rsCurrentRound = 0,
+        { rsCurrentRound = 0,
           rsCurrentQuorumSignatureMessages = emptySignatureMessages,
           rsCurrentTimeoutSignatureMessages = emptySignatureMessages,
           rsLastSignedQuourumSignatureMessage = Absent,
@@ -294,7 +289,7 @@ makeLenses ''BakersAndFinalizers
 -- particular epoch).
 data EpochBakers = EpochBakers
     { -- |The current epoch under consideration.
-      _epochBakersEpoch :: !Epoch,
+      _currentEpoch :: !Epoch,
       -- |The bakers and finalizers for the previous epoch.
       -- (If the current epoch is 0, then this is the same as the bakers and finalizers for the
       -- current epoch.)
@@ -305,7 +300,7 @@ data EpochBakers = EpochBakers
       _nextEpochBakers :: !BakersAndFinalizers,
       -- |The first epoch of the next payday. The set of bakers is fixed for an entire payday, and
       -- so the '_currentEpochBakers' apply for all epochs @e@ with
-      -- @_epochBakersEpoch <= e < _nextPayday@.
+      -- @_currentEpoch <= e < _nextPayday@.
       _nextPayday :: !Epoch
     }
 

@@ -125,38 +125,6 @@ advanceRound newRound newCertificate = do
     -- the 'Round' progressed to.
     makeBlockIfLeader
 
--- |Advance the provided 'RoundStatus' to the provided 'Epoch'.
--- In particular this does the following to the provided 'RoundStatus'
---
--- * Set the 'rsCurrentEpoch' to the provided 'Epoch'
-advanceRoundStatusEpoch ::
-    -- |The 'Epoch' we advance to.
-    Epoch ->
-    -- |The 'RoundStatus' we're progressing from.
-    RoundStatus ->
-    -- |The new 'RoundStatus'.
-    RoundStatus
-advanceRoundStatusEpoch toEpoch currentRoundStatus =
-    currentRoundStatus
-        { rsCurrentEpoch = toEpoch
-        }
-
--- |Advance the 'Epoch' of the current 'RoundStatus'.
---
--- Advancing epochs in particular carries out the following:
--- * Updates the 'rsCurrentEpoch' to the provided 'Epoch' for the current 'RoundStatus'.
--- * Persist the new 'RoundStatus' to disk.
-advanceEpoch ::
-    ( MonadState (SkovData (MPV m)) m,
-      LowLevel.MonadTreeStateStore m
-    ) =>
-    Epoch ->
-    m ()
-advanceEpoch newEpoch = do
-    currentRoundStatus <- use roundStatus
-    let newRoundStatus = advanceRoundStatusEpoch newEpoch currentRoundStatus
-    setRoundStatus newRoundStatus
-
 -- |Compute the finalization committee given the bakers and the finalization committee parameters.
 computeFinalizationCommittee :: FullBakers -> FinalizationCommitteeParameters -> FinalizationCommittee
 computeFinalizationCommittee FullBakers{..} FinalizationCommitteeParameters{..} =
