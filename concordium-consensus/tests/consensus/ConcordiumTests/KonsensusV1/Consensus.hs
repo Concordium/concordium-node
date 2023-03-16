@@ -32,14 +32,6 @@ propAdvanceRoundStatusFromQuorumRound =
                     Absent
                     (rsPreviousRoundTC newRoundStatus)
                 assertEqual
-                    "Timeout signatures for current round should be empty"
-                    emptySignatureMessages
-                    (rsCurrentTimeoutSignatureMessages newRoundStatus)
-                assertEqual
-                    "QC signatures for current round should be empty"
-                    emptySignatureMessages
-                    (rsCurrentQuorumSignatureMessages newRoundStatus)
-                assertEqual
                     "QC signatures for current round should be empty"
                     (Present highestQC)
                     (rsHighestQC newRoundStatus)
@@ -66,14 +58,6 @@ propAdvanceRoundStatusFromTCRound =
                         "RoundStatus previous round TC should be present"
                         (Present (tc, qc))
                         (rsPreviousRoundTC newRoundStatus)
-                    assertEqual
-                        "Timeout signatures for current round should be empty"
-                        emptySignatureMessages
-                        (rsCurrentTimeoutSignatureMessages newRoundStatus)
-                    assertEqual
-                        "QC signatures for current round should be empty"
-                        emptySignatureMessages
-                        (rsCurrentQuorumSignatureMessages newRoundStatus)
 
 -- |Checking that advancing epochs yields
 -- the correct 'RoundStatus'

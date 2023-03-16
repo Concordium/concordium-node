@@ -11,6 +11,7 @@ import Lens.Micro.Platform
 import Concordium.Types
 import Concordium.Types.Parameters
 
+import Concordium.Utils
 import Concordium.KonsensusV1.Consensus
 import Concordium.KonsensusV1.Flag
 import Concordium.KonsensusV1.TreeState.Implementation
@@ -91,9 +92,8 @@ receiveQuorumMessage qm@QuorumMessage{..} = process =<< get
         isFinalizerPresent finalizerIndex (skovData ^. currentQuorumMessages)
             || isFinalizerPresent finalizerIndex (skovData ^. currentTimeoutMessages)
     storeQuorumMessage quorumMessage = do
-        currentQCMessages <- use currentQuorumMessages
-        let !newCurrentQuorumMessages = addSignatureMessage qmFinalizerIndex quorumMessage currentQCMessages
-        -- todo: setCurrentRoundStatus
+        currentMessages <- use currentQuorumMessages
+        currentQuorumMessages .=! addSignatureMessage qmFinalizerIndex quorumMessage currentMessages
         return ()
 
 -- |If there are enough signatories who have signed the block (in accordance to 'genesisSignatureThreshold')
