@@ -1,4 +1,3 @@
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE MonoLocalBinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -17,18 +16,13 @@ module Concordium.Birk.Bake (
 import Control.Monad
 import Control.Monad.Trans
 import Control.Monad.Trans.Maybe
-import Data.Aeson (FromJSON, parseJSON, withObject, (.:))
 import Data.ByteString (ByteString)
 import Data.List (foldl')
 import Data.Serialize
-import GHC.Generics
 
 import Concordium.Types
 import Concordium.Types.Accounts
 
-import qualified Concordium.Crypto.BlockSignature as Sig
-import qualified Concordium.Crypto.BlsSignature as BLS
-import qualified Concordium.Crypto.VRF as VRF
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Block hiding (PendingBlock, makePendingBlock)
 import Concordium.GlobalState.BlockMonads

@@ -202,6 +202,10 @@ genTimeoutMessages = do
   where
     getMessages msgs = foldl' (\acc msg -> Map.insert (FinalizerIndex . fromIntegral $ Map.size acc) msg acc) Map.empty msgs
 
+-- |Generate an arbitrary 'LeadershipElectionNonce'
+genLeadershipElectionNonce :: Gen LeadershipElectionNonce
+genLeadershipElectionNonce = Hash.Hash . FBS.pack <$> vector 32
+
 -- |Generate a 'RoundStatus' suitable for testing serialization.
 genRoundStatus :: Gen RoundStatus
 genRoundStatus = do
@@ -211,8 +215,6 @@ genRoundStatus = do
     rsLastSignedTimeoutSignatureMessage <- coinFlip =<< genTimeoutSignatureMessage
     rsCurrentTimeout <- Duration <$> arbitrary
     rsHighestQC <- coinFlip =<< genQuorumCertificate
-    rsLeadershipElectionNonce <- Hash.Hash . FBS.pack <$> vector 32
-    rsLatestEpochFinEntry <- coinFlip =<< genFinalizationEntry
     tc <- genTimeoutCertificate
     qc <- genQuorumCertificate
     let rsPreviousRoundTC = Present (tc, qc)

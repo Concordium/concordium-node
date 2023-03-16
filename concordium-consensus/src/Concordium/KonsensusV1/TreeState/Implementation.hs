@@ -251,13 +251,11 @@ mkInitialSkovData ::
     PBS.HashedPersistentBlockState pv ->
     -- |The base timeout
     Duration ->
-    -- |The 'LeadershipElectionNonce'
-    LeadershipElectionNonce ->
     -- |Bakers at the genesis block
     EpochBakers ->
     -- |The initial 'SkovData'
     SkovData pv
-mkInitialSkovData rp genMeta genState _currentTimeout len _skovEpochBakers =
+mkInitialSkovData rp genMeta genState _currentTimeout _skovEpochBakers =
     let genesisBlock = GenesisBlock genMeta
         genesisTime = timestampToUTCTime $ Base.genesisTime (gmParameters genMeta)
         genesisBlockMetadata =
@@ -272,7 +270,7 @@ mkInitialSkovData rp genMeta genState _currentTimeout len _skovEpochBakers =
                   bpBlock = genesisBlock,
                   bpState = genState
                 }
-        _roundStatus = initialRoundStatus len
+        _roundStatus = initialRoundStatus
         _transactionTable = emptyTransactionTable
         _transactionTablePurgeCounter = 0
         _skovPendingTransactions =
@@ -299,6 +297,13 @@ isPending :: BlockHash -> SkovData pv -> Bool
 isPending bh sd = case sd ^? blockTable . liveMap . ix bh of
     Just (MemBlockPending _) -> True
     _ -> False
+
+-- |Get the 'BlockPointer' for a block hash that is live (not finalized).
+-- Returns 'Nothing' if the block is not in the live (non-finalized) blocks.
+getLiveBlock :: BlockHash -> SkovData pv -> Maybe (BlockPointer pv)
+getLiveBlock blockHash sd = case sd ^? blockTable . liveMap . ix blockHash of
+    Just (MemBlockAlive bp) -> Just bp
+    _ -> Nothing
 
 -- |Get the 'BlockStatus' of a block that is available in memory based on the 'BlockHash'.
 -- (This includes live and pending blocks, but not finalized blocks, except for the last finalized
@@ -930,3 +935,9 @@ clearAfterProtocolUpdate = do
     -- Archive the last finalized block state.
     archiveBlockState $ bpState lastFinBlock
     collapseCaches
+
+-- |Updates and persists the 'RoundStatus' of the 'SkovData' to the supplied 'RoundStatus
+setRoundStatus :: (LowLevel.MonadTreeStateStore m, MonadState (SkovData (MPV m)) m) => RoundStatus -> m ()
+setRoundStatus newRoundStatus = do
+    LowLevel.writeCurrentRoundStatus newRoundStatus
+    roundStatus .=! newRoundStatus
