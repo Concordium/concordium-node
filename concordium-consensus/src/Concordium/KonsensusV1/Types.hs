@@ -506,6 +506,8 @@ data TimeoutMessageBody = TimeoutMessageBody
       tmFinalizerIndex :: !FinalizerIndex,
       -- |Round number of the round being timed-out.
       tmRound :: !Round,
+      -- |Epoch number of the finalizer sending the timeout message.
+      tmEpoch :: !Epoch,
       -- |Highest quorum certificate known to the sender at the time of timeout.
       tmQuorumCertificate :: !QuorumCertificate,
       -- |A 'TimeoutSignature' from the sender for this round.
@@ -517,11 +519,13 @@ instance Serialize TimeoutMessageBody where
     put TimeoutMessageBody{..} = do
         put tmFinalizerIndex
         put tmRound
+        put tmEpoch
         put tmQuorumCertificate
         put tmAggregateSignature
     get = label "TimeoutMessageBody" $ do
         tmFinalizerIndex <- get
         tmRound <- get
+        tmEpoch <- get
         tmQuorumCertificate <- get
         unless (qcRound tmQuorumCertificate < tmRound) $ fail $
             "failed check: quorum certificate round (" ++ show (qcRound tmQuorumCertificate) ++ ") < round being timed out (" ++ show tmRound ++ ")"

@@ -203,7 +203,9 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       -- |Baker and finalizer information with respect to the epoch of the last finalized block.
       _skovEpochBakers :: !EpochBakers,
       -- |The current consensus statistics.
-      _statistics :: !Stats.ConsensusStatistics
+      _statistics :: !Stats.ConsensusStatistics,
+      -- | Received timeouts messages in the current round.
+      _receivedTimeoutMessages :: !(Map.Map Epoch (Map.Map FinalizerIndex TimeoutMessage))
     }
 
 makeLenses ''SkovData
@@ -268,6 +270,7 @@ mkInitialSkovData rp genMeta genState baseTimeout len _skovEpochBakers =
         _skovPendingBlocks = emptyPendingBlocks
         _lastFinalized = genesisBlockPointer
         _statistics = Stats.initialConsensusStatistics
+        _receivedTimeoutMessages = Map.empty
     in  SkovData{..}
 
 -- * Operations on the block table
@@ -766,3 +769,11 @@ doSetRoundStatus :: (MonadState (SkovData pv) m, LowLevel.MonadTreeStateStore m)
 doSetRoundStatus rs = do
     LowLevel.writeCurrentRoundStatus rs
     roundStatus .=! rs
+
+doStoreTimeoutMessage :: (MonadState (SkovData pv) m) => TimeoutMessage -> m ()
+doStoreTimeoutMessage tm = do
+    currentTimeoutMessages <- use receivedTimeoutMessages
+    epoch <- rsCurrentEpoch <$> doGetRoundStatus
+    let newTimeoutMessages = currentTimeoutMessages &
+                             at' epoch . non Map.empty . at' (tmFinalizerIndex (tmBody tm)) ?~ tm
+    receivedTimeoutMessages .=! newTimeoutMessages

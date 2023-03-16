@@ -6,7 +6,12 @@ module Concordium.KonsensusV1.Consensus where
 import Control.Monad.Reader
 import Control.Monad.State
 
+import Data.Bits
+import Data.Foldable
+import qualified Data.Map.Strict as Map
 import Data.Ratio
+import qualified Data.Set as Set
+import qualified Data.Vector as Vec
 import Data.Word
 import Lens.Micro.Platform
 
@@ -21,6 +26,8 @@ import Concordium.GlobalState.Types
 import Concordium.Types
 import Concordium.Types.BakerIdentity
 import Concordium.Types.Parameters hiding (getChainParameters)
+import Concordium.Utils
+
 
 -- |A Monad for multicasting timeout messages.
 class MonadMulticast m where
@@ -52,6 +59,19 @@ getBakerId = do
     return $ bakerId bi
 
 
+advanceRound ::
+    Monad m => Round ->
+    -- |If we are advancing from a round that timed out
+    -- then this will be @Left 'TimeoutCertificate, 'QuorumCertificate')@
+    -- The 'TimeoutCertificate' is from the round we're
+    -- advancing from and the associated 'QuorumCertificate' verifies it.
+    --
+    -- Otherwise if we're progressing via a 'QuorumCertificate' then @Right QuorumCertificate@
+    -- should be the QC we're advancing round via.
+    Either (TimeoutCertificate, QuorumCertificate) QuorumCertificate ->
+    m ()
+advanceRound _ _ = return () -- FIXME: merge in advance round when ready
+
 updateRoundStatus :: Ratio Word64 -> RoundStatus -> RoundStatus
 updateRoundStatus timeoutIncrease currentRoundStatus =
     let newNextSignableRound = 1 + rsCurrentRound currentRoundStatus
@@ -79,13 +99,17 @@ uponTimeoutEvent ::
     m ()
 uponTimeoutEvent = do
     bakerId <- getBakerId
-    finComm <- (^. currentEpochBakers . bfFinalizers) <$> use skovEpochBakers
-    let maybeFinalizer = finalizerByBakerId finComm bakerId
+    currentRoundStatus <- doGetRoundStatus
+    -- finComm1 <- (^. currentEpochBakers . bfFinalizers) <$> use skovEpochBakers -- FIXME: Check if this is correct
+    eBakers <- use skovEpochBakers
+    let maybeFinComm = (^. bfFinalizers) <$> getBakersForLiveEpoch (rsCurrentEpoch currentRoundStatus) eBakers
+    let maybeFinalizer = case maybeFinComm of
+            Nothing -> Nothing
+            Just finComm -> finalizerByBakerId finComm bakerId
 
     case maybeFinalizer of
         Nothing -> return ()
         Just finInfo -> do
-            currentRoundStatus <- doGetRoundStatus
             lastFinBlockPtr <- use lastFinalized
             gc <- use genesisMetadata
             let genesisHash = gmFirstGenesisHash gc
@@ -96,7 +120,7 @@ uponTimeoutEvent = do
             let highestQC = rsHighestQC currentRoundStatus
 
             let timeoutSigMessage =
-                    TimeoutSignatureMessage
+                    TimeoutSignatureMessage -- FIXME: Figure out if this should be set in the roundstatus
                         { tsmGenesis = genesisHash,
                         tsmRound = rsCurrentRound currentRoundStatus,
                         tsmQCRound = qcRound highestQC,
@@ -111,6 +135,7 @@ uponTimeoutEvent = do
                         {
                         tmFinalizerIndex = finalizerIndex finInfo,
                         tmRound = rsCurrentRound currentRoundStatus,
+                        tmEpoch = rsCurrentEpoch currentRoundStatus,
                         tmQuorumCertificate = highestQC,
                         tmAggregateSignature = timeoutSig
                         }
@@ -120,5 +145,120 @@ uponTimeoutEvent = do
             processTimeout timeoutMessage
 
 -- |This is 'processTimeout' from the bluepaper. FIXME: add more documentation when spefication is ready.
-processTimeout :: Monad m => TimeoutMessage -> m ()
-processTimeout _ = return () -- FIXME: implement this when specification is ready
+processTimeout :: (Monad m, MonadState (SkovData (MPV m)) m) => TimeoutMessage -> m ()
+processTimeout tm = do
+    -- 1: store timeout locally
+    -- 2: if the epochs of all stored timeouts for round currentRound and highestQC span more
+    -- than 2 epochs then
+    -- 3:     delete all the timeouts with smallest epoch, they are from dishonest people.
+    -- [DONE (minus the fixme)]
+    -- doStoreTimeoutMessage tm
+    currentTimeoutMessages <- use receivedTimeoutMessages
+    currentRoundStatus <- doGetRoundStatus
+    let epoch = tmEpoch $ tmBody tm
+    let highestQC = rsHighestQC currentRoundStatus
+
+    let maybeMinKey = Map.lookupMin currentTimeoutMessages
+    let finIndex = tmFinalizerIndex (tmBody tm)
+    let maybeNewTimeoutMessages = case maybeMinKey of
+                Nothing -> Just (Map.singleton epoch $ Map.singleton finIndex tm)  -- No timeout messages are currently stored. Insert the new timeoutmessage.
+                Just (minKey, _)
+                    |  epoch == minKey || epoch == minKey + 1 ->
+                        Just $ currentTimeoutMessages &
+                             at' epoch . non Map.empty . at' finIndex ?~ tm -- Insert.
+                    | epoch + 1 == minKey && Map.size currentTimeoutMessages == 1 ->
+                        Just $ currentTimeoutMessages &
+                                at' epoch . non Map.empty . at' finIndex ?~ tm -- Insert.
+                    | epoch > minKey + 1 ->
+                        let afterDeletion = Map.filterWithKey (\k _ -> k >= epoch - 1) currentTimeoutMessages -- Delete all epochs < epoch - 1. Then insert epoch.
+                        in Just $ afterDeletion &
+                                at' epoch . non Map.empty . at' finIndex ?~ tm -- Insert.
+                    | otherwise -> Nothing -- Don't insert anything. FIXME: fix this case
+
+    forM_ maybeNewTimeoutMessages $ \newTimeoutMessages -> do
+        receivedTimeoutMessages .=! newTimeoutMessages
+
+        -- 4: if the weight of timeouts for round currentRound is > sigThreshold with weights
+        -- from the payday of highestQC.epoch then
+        eBakers <- use skovEpochBakers
+        let maybeFinComm = (^. bfFinalizers) <$> getBakersForLiveEpoch (qcEpoch highestQC) eBakers
+        case maybeFinComm of
+            Nothing -> return () -- don't do more
+            Just finCommQC -> do
+                let maybeFirstMessages = Map.lookupMin newTimeoutMessages
+
+                let voterPowerSum = case maybeFirstMessages of
+                        Nothing -> 0
+                        Just (firstEpoch, firstMessages) ->
+                            let maybeFirstFinComm = (^. bfFinalizers) <$> getBakersForLiveEpoch firstEpoch eBakers
+                            in case maybeFirstFinComm of
+                                Nothing -> 0
+                                Just firstFinComm ->
+                                    let firstFinIndices = Map.keysSet firstMessages -- fin indices of TMs from first epoch
+                                        firstCommitteeFinalizers = committeeFinalizers firstFinComm
+                                        firstBakerIds = Set.map (finalizerBakerId -- FIXME: use finalizer by index from common branch
+                                                        . (firstCommitteeFinalizers Vec.!)
+                                                        . fromIntegral
+                                                        . theFinalizerIndex) firstFinIndices
+                                        maybeSecondMessages = Map.lookup (firstEpoch + 1) newTimeoutMessages
+                                        maybeSecondFinComm = (^. bfFinalizers) <$> getBakersForLiveEpoch (firstEpoch + 1) eBakers
+
+                                        secondBakerIds = case (maybeSecondMessages, maybeSecondFinComm) of
+                                            (Just secondMessages, Just secondFinComm) ->
+                                                let secondFinIndices = Map.keysSet secondMessages -- fin indices of TMs from second epoch
+                                                    secondCommitteeFinalizers = committeeFinalizers secondFinComm
+                                                in Set.map (finalizerBakerId
+                                                                    . (secondCommitteeFinalizers Vec.!)
+                                                                    . fromIntegral
+                                                                    . theFinalizerIndex) secondFinIndices
+                                            _ -> Set.empty
+                                        finsInFinCommQC = finalizerByBakerId finCommQC <$> Set.toList (firstBakerIds `Set.union` secondBakerIds)
+                                        getFinalizerWeight = maybe 0 finalizerWeight
+                                    in foldl' (+) 0 $ getFinalizerWeight <$> finsInFinCommQC
+                let totalWeightRational = toRational $ committeeTotalWeight finCommQC :: Rational
+                let threshold = totalWeightRational * (2 % 3) :: Rational
+                let thresholdVoterPower = VoterPower $ floor threshold
+                when (voterPowerSum > thresholdVoterPower) $ do
+                    let currentRound = rsCurrentRound currentRoundStatus
+                    let tc = makeTC currentRound newTimeoutMessages
+                    advanceRound (currentRound + 1) (Left (tc, highestQC))
+
+
+
+-- Helper function for folding over a `Map.Map FinalizerIndex TimeoutMessage` to produce a `Map.Map Round FinalizerSet`
+foldHelper :: Map.Map Round FinalizerSet -> FinalizerIndex -> TimeoutMessage -> Map.Map Round FinalizerSet
+foldHelper finRounds finIndex tm = Map.insert roundOfQC newFinSet finRounds
+    where
+        roundOfQC = qcRound $ tmQuorumCertificate $ tmBody tm
+        currentFinSetNatural = case Map.lookup roundOfQC finRounds of
+            Nothing -> 0 -- The empty set of finalizers.
+            Just (FinalizerSet finSet) -> finSet
+        newFinSet = FinalizerSet $ currentFinSetNatural `setBit` fromIntegral (theFinalizerIndex finIndex) -- FIXME: improve this
+
+-- TODO: don't take skovdata but just the things needed
+-- Precondition: receivedTimeoutMessages MUST be non-empty FIXME: improve docs
+makeTC :: Round -> Map.Map Epoch (Map.Map FinalizerIndex TimeoutMessage) -> TimeoutCertificate
+makeTC currentRound messagesMap = do
+    let maybeKey = Map.lookupMin messagesMap
+    case maybeKey of
+        Nothing -> error "No timeout messages present" -- should never happen. FIXME: Find out what to do here
+        Just minKey ->
+            let firstEpoch = snd minKey :: Map.Map FinalizerIndex TimeoutMessage
+                firstAggSigs = tmAggregateSignature . tmBody <$> Map.elems firstEpoch
+                newMapFirstEpoch = FinalizerRounds $ Map.foldlWithKey' foldHelper Map.empty firstEpoch
+                (newMapSecondEpoch, secondAggSigs) = case Map.lookup (fst minKey + 1) $ messagesMap of
+                        Nothing -> (FinalizerRounds Map.empty, [])
+                        Just secondEpoch -> (FinalizerRounds $ Map.foldlWithKey' foldHelper Map.empty secondEpoch,
+                                             tmAggregateSignature . tmBody <$> Map.elems secondEpoch)
+            in TimeoutCertificate
+                { -- |The round that has timed-out.
+                tcRound = currentRound, -- :: !Round,
+                -- |The minimum epoch for which we include signatures.
+                tcMinEpoch = fst minKey, -- :: !Epoch,
+                -- |The rounds for which finalizers have their best QCs in the epoch 'tcMinEpoch'.
+                tcFinalizerQCRoundsFirstEpoch = newMapFirstEpoch, -- :: !FinalizerRounds,
+                -- |The rounds for which finalizers have their best QCs in the epoch @tcMinEpoch + 1@.
+                tcFinalizerQCRoundsSecondEpoch = newMapSecondEpoch, -- :: !FinalizerRounds,
+                -- |Aggregate of the finalizers' 'TimeoutSignature's on the round and QC round.
+                tcAggregateSignature = fold $ firstAggSigs ++ secondAggSigs -- :: !TimeoutSignature
+                }
