@@ -19,16 +19,12 @@ import Data.Maybe (fromMaybe)
 import qualified Data.Vector as Vector
 import Lens.Micro.Platform
 
--- Base package dependencies
-
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Parameters
 import Concordium.Types.Transactions
 import Concordium.Types.Updates (uiHeader, uiPayload, updateType)
 import Concordium.Utils
-
--- Consensus package dependencies
 
 import Concordium.GlobalState.BlockState
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
@@ -40,7 +36,7 @@ import Concordium.KonsensusV1.TreeState.Implementation
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.Scheduler.Types (updateSeqNumber)
-import Concordium.TimeMonad (TimeMonad)
+import Concordium.TimeMonad
 import qualified Concordium.TransactionVerification as TVer
 
 -- |Monad transformer for acquiring the next available account nonce from the
