@@ -37,6 +37,7 @@ data ReceiveQuorumMessageResult
       Awaiting
     | -- |The 'QuorumMessage' points to a round which indicates a catch up is required.
       CatchupRequired
+    deriving (Eq, Show)
 
 -- |Receive a 'QuorumMessage'.
 -- Verify the 'QuorumMessage' and if this turns out succesfull, then the 'QuorumMessage' will be
