@@ -39,17 +39,15 @@ data ReceiveQuorumMessageResult
       CatchupRequired
 
 -- |Receive a 'QuorumMessage'.
--- If the provided 'QuorumMessage' can be verified then
--- the it is being rebroadcast over the network
--- and 'processQuorumSignatureMessage' will be invoked.
+-- Verify the 'QuorumMessage' and if this turns out succesfull, then the 'QuorumMessage' will be
+-- relayed to the network before processing (via 'processQuorumMessage'). Processing checks whether enough (weighted) signatures
+-- are gathered, if this is the case then a 'QuorumCertificate' is formed and the consensus runner advances the round.
 --
--- If the 'QuorumMessage' cannot be verified then it is not
--- being rebroadcast and this procedure terminates.
---
--- If the consensus runner is not able to verify the 'QuorumMessage' due to
--- not being caught up, then 'startCatchup' will be invoked.
---
--- Returns 'False' if the 'QuorumMessage' could not be verified otherwise 'True'.
+-- Possible return codes are
+-- * 'Received' The 'QuorumMessage' was received, relayed and processed.
+-- * 'Rejected' The 'QuorumMessage' failed validation and possible it has been flagged.
+-- * 'Awaiting' The 'QuorumMessage' cannot be processed at this time as it has a dependency on a pending block.
+-- * 'CatchupRequired' The 'QuorumMessage' cannot be processed before it is caught up.
 receiveQuorumMessage ::
     ( IsConsensusV1 (MPV m),
       MonadThrow m,
@@ -64,6 +62,7 @@ receiveQuorumMessage ::
     ) =>
     -- |The 'QuorumMessage' we are receiving.
     QuorumMessage ->
+    -- |Result of receiving the 'QuorumMessage'.
     m ReceiveQuorumMessageResult
 receiveQuorumMessage qm@QuorumMessage{..} = process =<< get
   where
@@ -78,30 +77,35 @@ receiveQuorumMessage qm@QuorumMessage{..} = process =<< get
             case getFinalizerByIndex skovData of
                 -- Signee is not in the finalization committee so we flag it and stop.
                 Nothing -> flag (NotAFinalizer qmFinalizerIndex qm) >> return Rejected
-                Just FinalizerInfo{..} -> do
-                    -- Check whether the signature is ok or not.
-                    if not (checkQuorumSignatureSingle (getQuorumSignatureMessage skovData) finalizerBlsKey qmSignature)
-                        then return Rejected
-                        else do
-                            getRecentBlockStatus qmBlock skovData >>= \case
-                                -- The signatory signed an already signed block. We flag and stop.
-                                OldFinalized -> flag (SignedInvalidBlock qmFinalizerIndex qmBlock qm) >> return Rejected
-                                -- The signatory signed an already signed block. We flag and stop.
-                                RecentBlock (BlockFinalized _) -> flag (SignedInvalidBlock qmFinalizerIndex qmBlock qm) >> return Rejected
-                                -- The signatory signed a dead block. We flag and stop.
-                                RecentBlock BlockDead -> flag (SignedInvalidBlock qmFinalizerIndex qmBlock qm) >> return Rejected
-                                RecentBlock BlockUnknown -> return CatchupRequired
-                                RecentBlock (BlockPending _) -> return Awaiting
-                                RecentBlock (BlockAlive quorumMessagePointer) ->
-                                    if
-                                            -- Finalizer already signed a message for this round.
-                                            | isDoubleSigning finalizerIndex skovData -> flag (DoubleSigning qmFinalizerIndex qm) >> return Rejected
-                                            -- Inconsistent rounds of the quorum signature message and the block it points to.
-                                            | blockRound quorumMessagePointer /= qmRound -> flag (RoundInconsistency qmFinalizerIndex qmRound (blockRound quorumMessagePointer)) >> return Rejected
-                                            -- Inconsistent epochs of the quorum signature message and the block it points to.
-                                            | blockEpoch quorumMessagePointer /= qmEpoch -> flag (EpochInconsistency qmFinalizerIndex qmEpoch (blockEpoch quorumMessagePointer)) >> return Rejected
-                                            -- Store, relay and process the quorum message.
-                                            | otherwise -> storeQuorumMessage qm finalizerWeight >> sendMessage qm >> processQuorumMessage qm >> return Received
+                Just FinalizerInfo{..} ->
+                    if
+                            -- Check whether the signature is ok or not.
+                            | not (checkQuorumSignatureSingle (getQuorumSignatureMessage skovData) finalizerBlsKey qmSignature) -> return Rejected
+                            -- Finalizer already signed a message for this round.
+                            | isDoubleSigning finalizerIndex skovData -> flag (DoubleSigning qmFinalizerIndex qm) >> return Rejected
+                            -- Continue verifying by looking up the block.
+                            | otherwise -> do
+                                getRecentBlockStatus qmBlock skovData >>= \case
+                                    -- The signatory signed an already signed block. We flag and stop.
+                                    OldFinalized -> flag (SignedInvalidBlock qmFinalizerIndex qmBlock qm) >> return Rejected
+                                    -- The signatory signed an already signed block. We flag and stop.
+                                    RecentBlock (BlockFinalized _) -> flag (SignedInvalidBlock qmFinalizerIndex qmBlock qm) >> return Rejected
+                                    -- The signatory signed a dead block. We flag and stop.
+                                    RecentBlock BlockDead -> flag (SignedInvalidBlock qmFinalizerIndex qmBlock qm) >> return Rejected
+                                    -- The block is unknown so catch up.
+                                    RecentBlock BlockUnknown -> return CatchupRequired
+                                    -- The block is already pending so wait for it to be executed.
+                                    RecentBlock (BlockPending _) -> return Awaiting
+                                    -- The block is executed but not finalized.
+                                    -- Perform the remaining checks before processing the 'QuorumMessage'.
+                                    RecentBlock (BlockAlive quorumMessagePointer) ->
+                                        if
+                                                -- Inconsistent rounds of the quorum signature message and the block it points to.
+                                                | blockRound quorumMessagePointer /= qmRound -> flag (RoundInconsistency qmFinalizerIndex qmRound (blockRound quorumMessagePointer)) >> return Rejected
+                                                -- Inconsistent epochs of the quorum signature message and the block it points to.
+                                                | blockEpoch quorumMessagePointer /= qmEpoch -> flag (EpochInconsistency qmFinalizerIndex qmEpoch (blockEpoch quorumMessagePointer)) >> return Rejected
+                                                -- Store, relay and process the quorum message.
+                                                | otherwise -> storeQuorumMessage qm finalizerWeight >> sendMessage qm >> processQuorumMessage qm >> return Received
     -- Extract the quourum signature message
     getQuorumSignatureMessage skovData =
         let genesisHash = skovData ^. genesisMetadata . to gmFirstGenesisHash
