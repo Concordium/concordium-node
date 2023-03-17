@@ -28,6 +28,11 @@ data FlaggableOffense (pv :: ProtocolVersion)
     | BlockExecutionFailure !SignedBlock
     | BlockInvalidTransactionOutcomesHash !SignedBlock !(Block pv)
     | BlockInvalidStateHash !SignedBlock !(Block pv)
+    | NotAFinalizer !FinalizerIndex !QuorumMessage
+    | SignedInvalidBlock !FinalizerIndex !BlockHash !QuorumMessage
+    | DoubleSigning !FinalizerIndex !QuorumMessage
+    | RoundInconsistency !FinalizerIndex !Round !Round
+    | EpochInconsistency !FinalizerIndex !Epoch !Epoch
 
 -- |Flag an offense by a baker. Currently, this does nothing.
 flag :: Monad m => FlaggableOffense pv -> m ()

@@ -12,6 +12,7 @@ module Concordium.KonsensusV1.Types where
 import Control.Monad
 import Data.Bits
 import qualified Data.ByteString as BS
+import Data.List (foldl')
 import qualified Data.Map.Strict as Map
 import Data.Serialize
 import qualified Data.Set as Set
@@ -146,6 +147,17 @@ data QuorumMessage = QuorumMessage
     }
     deriving (Eq, Show)
 
+-- |Get the 'QuorumSignatureMessage' from a 'BlockHash' indicating the
+-- genesis hash and a 'QuorumMessage'
+quorumSignatureMessageFor :: QuorumMessage -> BlockHash -> QuorumSignatureMessage
+quorumSignatureMessageFor QuorumMessage{..} genesisHash =
+    QuorumSignatureMessage
+        { qsmGenesis = genesisHash,
+          qsmBlock = qmBlock,
+          qsmRound = qmRound,
+          qsmEpoch = qmEpoch
+        }
+
 instance Serialize QuorumMessage where
     put QuorumMessage{..} = do
         put qmSignature
@@ -244,6 +256,12 @@ finalizerList = unroll 0 . theFinalizerSet
         | otherwise = r
       where
         r = unroll (i + 1) (shiftR x 1)
+
+-- |Convert a list of [FinalizerIndex] to a 'FinalizerSet'.
+finalizerSet :: [FinalizerIndex] -> FinalizerSet
+finalizerSet = foldl' addFinalizer (FinalizerSet 0)
+  where
+    addFinalizer (FinalizerSet setOfFinalizers) (FinalizerIndex i) = FinalizerSet $ setBit setOfFinalizers (fromIntegral i)
 
 instance Show FinalizerSet where
     show = show . finalizerList
@@ -1122,26 +1140,6 @@ computeBlockHash bhh bqh =
 
 instance HashableTo BlockHash BakedBlock where
     getHash bb = computeBlockHash (getHash bb) (getHash bb)
-
--- |A collection of signatures
--- This is a map from 'FinalizerIndex' to the actual signature message.
-newtype SignatureMessages a = SignatureMessages
-    { smFinIdxToMessage :: Map.Map FinalizerIndex a
-    }
-    deriving (Eq, Show)
-
--- |Construct an empty 'SignatureMessages'
-emptySignatureMessages :: SignatureMessages a
-emptySignatureMessages = SignatureMessages Map.empty
-
--- |Serialize instance for @SignatureMessages a@.
-instance (Serialize a) => Serialize (SignatureMessages a) where
-    put (SignatureMessages fiMsgMap) = do
-        putWord32be $! fromIntegral $! Map.size fiMsgMap
-        putSafeSizedMapOf put put fiMsgMap
-    get = do
-        count <- getWord32be
-        SignatureMessages <$> getSafeSizedMapOf count get get
 
 -- |Configuration information stored for the genesis block.
 data GenesisMetadata = GenesisMetadata
