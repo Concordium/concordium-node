@@ -216,57 +216,54 @@ data RecentBlockStatus pv
 -- This is the case if the consensus runner has first signed a block
 -- but not enough quorum signature messages were retrieved before timeout.
 data RoundStatus = RoundStatus
-    { -- |The highest 'Epoch' that the consensus runner participated in.
-      rsCurrentEpoch :: !Epoch,
-      -- |The highest 'Round' that the consensus runner participated in.
-      rsCurrentRound :: !Round,
+    { -- |The highest 'Round' that the consensus runner participated in.
+      _rsCurrentRound :: !Round,
       -- |If the consensus runner is part of the finalization committee,
       -- then this will yield the last signed 'QuorumSignatureMessage'
-      rsLastSignedQuourumSignatureMessage :: !(Option QuorumSignatureMessage),
+      _rsLastSignedQuourumSignatureMessage :: !(Option QuorumSignatureMessage),
       -- |If the consensus runner is part of the finalization committee,
       -- then this will yield the last signed timeout message.
-      rsLastSignedTimeoutSignatureMessage :: !(Option TimeoutSignatureMessage),
+      _rsLastSignedTimeoutSignatureMessage :: !(Option TimeoutSignatureMessage),
       -- |The highest 'QuorumCertificate' seen so far.
       -- This is 'Nothing' if no rounds since genesis has
       -- been able to produce a 'QuorumCertificate'.
       -- Note: this can potentially be a QC for a block that is not present, but in that case we
       -- should have a finalization entry that contains the QC.
-      rsHighestQC :: !(Option QuorumCertificate),
+      _rsHighestQC :: !(Option QuorumCertificate),
       -- |The previous round timeout certificate if the previous round timed out.
       -- This is @Just (TimeoutCertificate, QuorumCertificate)@ if the previous round timed out or otherwise 'Nothing'.
       -- In the case of @Just@ then the associated 'QuorumCertificate' is the highest 'QuorumCertificate' at the time
       -- that the 'TimeoutCertificate' was built.
-      rsPreviousRoundTC :: !(Option (TimeoutCertificate, QuorumCertificate))
+      _rsPreviousRoundTC :: !(Option (TimeoutCertificate, QuorumCertificate))
     }
     deriving (Show, Eq)
 
+makeLenses ''RoundStatus
+
 instance Serialize RoundStatus where
     put RoundStatus{..} = do
-        put rsCurrentEpoch
-        put rsCurrentRound
-        put rsLastSignedQuourumSignatureMessage
-        put rsLastSignedTimeoutSignatureMessage
-        put rsHighestQC
-        put rsPreviousRoundTC
+        put _rsCurrentRound
+        put _rsLastSignedQuourumSignatureMessage
+        put _rsLastSignedTimeoutSignatureMessage
+        put _rsHighestQC
+        put _rsPreviousRoundTC
     get = do
-        rsCurrentEpoch <- get
-        rsCurrentRound <- get
-        rsLastSignedQuourumSignatureMessage <- get
-        rsLastSignedTimeoutSignatureMessage <- get
-        rsHighestQC <- get
-        rsPreviousRoundTC <- get
+        _rsCurrentRound <- get
+        _rsLastSignedQuourumSignatureMessage <- get
+        _rsLastSignedTimeoutSignatureMessage <- get
+        _rsHighestQC <- get
+        _rsPreviousRoundTC <- get
         return RoundStatus{..}
 
 -- |The 'RoundStatus' for consensus at genesis.
 initialRoundStatus :: RoundStatus
 initialRoundStatus =
     RoundStatus
-        { rsCurrentEpoch = 0,
-          rsCurrentRound = 0,
-          rsLastSignedQuourumSignatureMessage = Absent,
-          rsLastSignedTimeoutSignatureMessage = Absent,
-          rsHighestQC = Absent,
-          rsPreviousRoundTC = Absent
+        { _rsCurrentRound = 0,
+          _rsLastSignedQuourumSignatureMessage = Absent,
+          _rsLastSignedTimeoutSignatureMessage = Absent,
+          _rsHighestQC = Absent,
+          _rsPreviousRoundTC = Absent
         }
 
 -- |The sets of bakers and finalizers for an epoch/payday.
@@ -283,7 +280,7 @@ makeLenses ''BakersAndFinalizers
 -- particular epoch).
 data EpochBakers = EpochBakers
     { -- |The current epoch under consideration.
-      _epochBakersEpoch :: !Epoch,
+      _currentEpoch :: !Epoch,
       -- |The bakers and finalizers for the previous epoch.
       -- (If the current epoch is 0, then this is the same as the bakers and finalizers for the
       -- current epoch.)
@@ -294,7 +291,7 @@ data EpochBakers = EpochBakers
       _nextEpochBakers :: !BakersAndFinalizers,
       -- |The first epoch of the next payday. The set of bakers is fixed for an entire payday, and
       -- so the '_currentEpochBakers' apply for all epochs @e@ with
-      -- @_epochBakersEpoch <= e < _nextPayday@.
+      -- @_currentEpoch <= e < _nextPayday@.
       _nextPayday :: !Epoch
     }
 

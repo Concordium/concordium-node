@@ -15,6 +15,7 @@ import Concordium.Types.HashableTo
 import Concordium.Types.Parameters hiding (getChainParameters)
 import Concordium.Types.SeedState
 
+import qualified Concordium.Crypto.BlockSignature as Sig
 import Concordium.Genesis.Data.BaseV1
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.BlockState
@@ -22,7 +23,8 @@ import Concordium.GlobalState.Parameters hiding (getChainParameters)
 import Concordium.GlobalState.Persistent.BlockState
 import Concordium.GlobalState.Statistics
 import Concordium.GlobalState.Types
-import Concordium.KonsensusV1.Consensus (computeFinalizationCommittee)
+import Concordium.KonsensusV1.Consensus (HasBakerContext, MonadTimeout, advanceRound, computeFinalizationCommittee)
+import qualified Concordium.KonsensusV1.Consensus as Consensus
 import Concordium.KonsensusV1.Consensus.Finality
 import Concordium.KonsensusV1.Flag
 import Concordium.KonsensusV1.LeaderElection
@@ -31,6 +33,8 @@ import Concordium.KonsensusV1.TreeState.Implementation
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
+import Concordium.TimerMonad
+import Concordium.Types.BakerIdentity
 import Control.Monad.Catch
 
 -- |A block that has passed initial verification, but must still be executed, added to the state,
@@ -78,7 +82,8 @@ uponReceivingBlock ::
       BlockState m ~ HashedPersistentBlockState (MPV m),
       MonadIO m,
       TimeMonad m,
-      MonadThrow m
+      MonadThrow m,
+      MonadTimeout m
     ) =>
     PendingBlock ->
     m BlockResult
@@ -106,8 +111,8 @@ uponReceivingBlock pendingBlock = do
 
 -- |Get the bakers for a particular epoch, given that we have a live block that is nominally the
 -- parent block. This will typically get the bakers from the cache that is with respect to the
--- last finalized block. However, in the (unlikely) case that the block is from an epoch further
--- than can be deduced from the last finalized block, we derive the bakers from the supplied parent
+-- current epoch. However, in the (unlikely) case that the block is from an epoch further
+-- than can be deduced from the cache, we derive the bakers from the supplied parent
 -- block.
 --
 -- Preconditions:
@@ -144,7 +149,8 @@ receiveBlockKnownParent ::
       BlockState m ~ HashedPersistentBlockState (MPV m),
       MonadIO m,
       TimeMonad m,
-      MonadThrow m
+      MonadThrow m,
+      MonadTimeout m
     ) =>
     BlockPointer (MPV m) ->
     PendingBlock ->
@@ -320,6 +326,8 @@ addBlock pendingBlock blockState parent = do
 -- * The parent block is correct: @getHash parent == blockParent pendingBlock@.
 -- * The block is signed by a valid baker for its epoch.
 -- * The baker is the leader for the round according to the parent block.
+--
+-- TODO: Transaction processing.
 processBlock ::
     ( IsConsensusV1 (MPV m),
       BlockStateStorage m,
@@ -328,7 +336,8 @@ processBlock ::
       MonadState (SkovData (MPV m)) m,
       MonadIO m,
       TimeMonad m,
-      MonadThrow m
+      MonadThrow m,
+      MonadTimeout m
     ) =>
     -- |Parent block (@parent@)
     BlockPointer (MPV m) ->
@@ -372,10 +381,31 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                     checkTC genMeta parentBF $
                         checkEpochFinalizationEntry genMeta parentBF $
                             checkBlockExecution genMeta $ \blockState -> do
-                                newBlock <- addBlock pendingBlock blockState parent
-                                processEpochFinalizationEntry
+                                -- When adding a block, we guarantee that the new block is at most
+                                -- one epoch after the last finalized block. If the block is in the
+                                -- same epoch as its parent, then the guarantee is upheld by the
+                                -- fact that the parent block was checked to be live (and the
+                                -- last finalized block is unchanged). If the block is in the next
+                                -- epoch from the parent, then 'checkEpochFinalizationEntry' checks:
+                                --  * The block contains a valid epoch finalization entry for the
+                                --    epoch of the parent block. In particular, it finalizes a
+                                --    block in that epoch which triggers the epoch transition.
+                                --  * The block finalized by the finalization entry is now
+                                --    considered finalized.
+                                --  * The parent block is descended from the (new) last finalized
+                                --    block.
+                                -- This implies that the block is in the epoch after the last
+                                -- finalized block.
+                                _ <- addBlock pendingBlock blockState parent
                                 checkFinalityWithBlock (blockQuorumCertificate pendingBlock) parent
-                                undefined
+                                checkedUpdateHighestQC (blockQuorumCertificate pendingBlock)
+                                curRound <- use $ roundStatus . rsCurrentRound
+                                when (curRound < blockRound pendingBlock) $
+                                    advanceRound (blockRound pendingBlock) $
+                                        case blockTimeoutCertificate pendingBlock of
+                                            Present tc -> Left (tc, blockQuorumCertificate pendingBlock)
+                                            Absent -> Right (blockQuorumCertificate pendingBlock)
+                                return True
   where
     sBlock = pbBlock pendingBlock
     -- Check the timestamp and invoke the continue if successful.
@@ -433,15 +463,15 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                                     (parentBF ^. bfFinalizers)
                                     tc
                         let tcOK
-                                | tcMinEpoch tc == eBkrs ^. epochBakersEpoch - 1 =
+                                | tcMinEpoch tc == eBkrs ^. currentEpoch - 1 =
                                     checkTCValid
                                         (eBkrs ^. previousEpochBakers)
                                         (eBkrs ^. currentEpochBakers)
-                                | tcMinEpoch tc == eBkrs ^. epochBakersEpoch =
+                                | tcMinEpoch tc == eBkrs ^. currentEpoch =
                                     checkTCValid
                                         (eBkrs ^. currentEpochBakers)
                                         (eBkrs ^. nextEpochBakers)
-                                | tcMinEpoch tc == eBkrs ^. epochBakersEpoch + 1,
+                                | tcMinEpoch tc == eBkrs ^. currentEpoch + 1,
                                   tcIsSingleEpoch tc =
                                     checkTCValid
                                         (eBkrs ^. nextEpochBakers)
@@ -459,7 +489,8 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
             flag $ BlockUnexpectedTC sBlock
             return False
         | otherwise = continue
-    -- Check the finalization entry
+    -- Check the finalization entry, and process it if it updates our perspective on the last
+    -- finalized block.
     checkEpochFinalizationEntry GenesisMetadata{..} BakersAndFinalizers{..} continue
         -- If the block is in a new epoch, the epoch finalization entry should be present and
         -- correct.
@@ -484,9 +515,27 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                         -- Get the status of the block finalized by the finalization entry for the
                         -- check.
                         get >>= getBlockStatus (qcBlock (feFinalizedQuorumCertificate finEntry)) >>= \case
-                            BlockAliveOrFinalized finBlock
+                            BlockFinalized finBlock
                                 | blockTimestamp finBlock >= parentSeedState ^. triggerBlockTime ->
+                                    -- We already know that the block is finalized.
                                     continue
+                            BlockAlive finBlock
+                                | blockTimestamp finBlock >= parentSeedState ^. triggerBlockTime -> do
+                                    -- We do not currently consider the block finalized, so we
+                                    -- process the finalization now. The block we are finalizing is
+                                    -- a live (non-finalized) block, and therefore it is at most
+                                    -- one epoch after the last finalized block.
+                                    processFinalization finBlock finEntry
+                                    shrinkTimeout finBlock
+                                    -- Update the highest QC.
+                                    checkedUpdateHighestQC $ feSuccessorQuorumCertificate finEntry
+                                    -- We check if the block is descended from the NEW last
+                                    -- finalized block, since that should have changed.
+                                    gets (getMemoryBlockStatus (getHash parent)) >>= \case
+                                        Just (BlockAliveOrFinalized _) -> continue
+                                        _ -> do
+                                            -- Possibly we should flag in this case.
+                                            return False
                             _ -> do
                                 flag $ BlockInvalidEpochFinalization sBlock
                                 return False
@@ -543,24 +592,22 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
             else do
                 flag $ BlockInvalidQC sBlock
                 return False
-    processEpochFinalizationEntry = forM_ (blockEpochFinalizationEntry pendingBlock) $
-        \finEntry -> do
-            mFinalizedBlock <- gets (getLiveBlock (qcBlock (feFinalizedQuorumCertificate finEntry)))
-            forM_ mFinalizedBlock $ \bp -> do
-                processFinalization bp finEntry
-                shrinkTimeout bp
-                -- Update the highest QC.
-                rs <- use roundStatus
-                let successorQC = feSuccessorQuorumCertificate finEntry
-                    isBetterQC
-                        | Present oldQC <- rsHighestQC rs = qcRound oldQC < qcRound successorQC
-                        | otherwise = True
-                when isBetterQC $
-                    -- setRoundStatus $!
-                    --     rs{rsHighestQC = successorQC}
-                    undefined -- TODO: setRoundStatus
-                when (rsCurrentEpoch rs < blockEpoch pendingBlock) $
-                    return () -- TODO: Advance epoch
+
+-- |Update the highest QC if the supplied QC is for a later round than the previous QC.
+checkedUpdateHighestQC ::
+    ( MonadState (SkovData (MPV m)) m,
+      LowLevel.MonadTreeStateStore m
+    ) =>
+    QuorumCertificate ->
+    m ()
+checkedUpdateHighestQC newQC = do
+    rs <- use roundStatus
+    let isBetterQC
+            | Present oldQC <- rs ^. rsHighestQC = qcRound oldQC < qcRound newQC
+            | otherwise = True
+    when isBetterQC $
+        setRoundStatus $!
+            rs{_rsHighestQC = Present newQC}
 
 executeBlock ::
     ( IsConsensusV1 (MPV m),
@@ -570,7 +617,11 @@ executeBlock ::
       MonadState (SkovData (MPV m)) m,
       MonadIO m,
       TimeMonad m,
-      MonadThrow m
+      MonadThrow m,
+      MonadTimeout m,
+      MonadReader r m,
+      HasBakerContext r,
+      TimerMonad m
     ) =>
     VerifiedBlock ->
     m ()
@@ -583,5 +634,38 @@ executeBlock verifiedBlock = do
     ebWithParent parent = do
         success <- processBlock parent verifiedBlock
         when success $ do
-            -- TODO: If we're a finalizer, wait for the timestamp and then validate the block.
-            return ()
+            checkedValidateBlock (vbBlock verifiedBlock)
+
+checkedValidateBlock ::
+    ( MonadReader r m,
+      HasBakerContext r,
+      BlockData b,
+      HashableTo BlockHash b,
+      TimerMonad m,
+      MonadState (SkovData (MPV m)) m
+    ) =>
+    b ->
+    m ()
+checkedValidateBlock validBlock = do
+    mBakerIdentity <- view Consensus.bakerIdentity
+    forM_ mBakerIdentity $ \bakerIdent@BakerIdentity{..} -> do
+        mBakers <- gets $ getBakersForLiveEpoch (blockEpoch validBlock)
+        forM_ mBakers $ \BakersAndFinalizers{..} -> do
+            forM_ (finalizerByBakerId _bfFinalizers bakerId) $ \ !finInfo ->
+                if finalizerSignKey finInfo /= Sig.verifyKey bakerSignKey
+                    || finalizerBlsKey finInfo /= bakerAggregationPublicKey
+                    then do
+                        -- TODO: Log a warning that the key does not match.
+                        return ()
+                    else do
+                        let !blockHash = getHash validBlock
+                        _ <-
+                            onTimeout (DelayUntil (timestampToUTCTime $ blockTimestamp validBlock)) $!
+                                validateBlock blockHash bakerIdent finInfo
+                        return ()
+
+validateBlock :: (MonadState (SkovData (MPV m)) m) => BlockHash -> BakerIdentity -> FinalizerInfo -> m ()
+validateBlock blockHash bakerIdent finInfo = do
+    block <- gets $ getLiveBlock blockHash
+    -- TODO: implementation
+    return ()

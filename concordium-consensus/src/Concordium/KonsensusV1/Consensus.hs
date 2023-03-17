@@ -30,7 +30,7 @@ class MonadMulticast m where
 
 -- |A baker context containing the baker identity. Used for accessing relevant baker keys and the baker id.
 newtype BakerContext = BakerContext
-    { _bakerIdentity :: BakerIdentity
+    { _bakerIdentity :: Maybe BakerIdentity
     }
 
 makeClassy ''BakerContext
@@ -70,14 +70,14 @@ advanceRoundStatus ::
     RoundStatus
 advanceRoundStatus toRound (Left (tc, qc)) currentRoundStatus =
     currentRoundStatus
-        { rsCurrentRound = toRound,
-          rsPreviousRoundTC = Present (tc, qc)
+        { _rsCurrentRound = toRound,
+          _rsPreviousRoundTC = Present (tc, qc)
         }
 advanceRoundStatus toRound (Right qc) currentRoundStatus =
     currentRoundStatus
-        { rsCurrentRound = toRound,
-          rsHighestQC = Present qc,
-          rsPreviousRoundTC = Absent
+        { _rsCurrentRound = toRound,
+          _rsHighestQC = Present qc,
+          _rsPreviousRoundTC = Absent
         }
 
 -- |Advance to the provided 'Round'.
@@ -120,38 +120,6 @@ advanceRound newRound newCertificate = do
     -- Make a new block if the consensus runner is leader of
     -- the 'Round' progressed to.
     makeBlockIfLeader
-
--- |Advance the provided 'RoundStatus' to the provided 'Epoch'.
--- In particular this does the following to the provided 'RoundStatus'
---
--- * Set the 'rsCurrentEpoch' to the provided 'Epoch'
-advanceRoundStatusEpoch ::
-    -- |The 'Epoch' we advance to.
-    Epoch ->
-    -- |The 'RoundStatus' we're progressing from.
-    RoundStatus ->
-    -- |The new 'RoundStatus'.
-    RoundStatus
-advanceRoundStatusEpoch toEpoch currentRoundStatus =
-    currentRoundStatus
-        { rsCurrentEpoch = toEpoch
-        }
-
--- |Advance the 'Epoch' of the current 'RoundStatus'.
---
--- Advancing epochs in particular carries out the following:
--- * Updates the 'rsCurrentEpoch' to the provided 'Epoch' for the current 'RoundStatus'.
--- * Persist the new 'RoundStatus' to disk.
-advanceEpoch ::
-    ( MonadState (SkovData (MPV m)) m,
-      LowLevel.MonadTreeStateStore m
-    ) =>
-    Epoch ->
-    m ()
-advanceEpoch newEpoch = do
-    currentRoundStatus <- use roundStatus
-    let newRoundStatus = advanceRoundStatusEpoch newEpoch currentRoundStatus
-    setRoundStatus newRoundStatus
 
 -- |Compute the finalization committee given the bakers and the finalization committee parameters.
 computeFinalizationCommittee :: FullBakers -> FinalizationCommitteeParameters -> FinalizationCommittee

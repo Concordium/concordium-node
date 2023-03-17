@@ -69,46 +69,44 @@ receiveQuorumMessage qm@QuorumMessage{..} = process =<< get
   where
     process skovData
         -- The round of the quorum signature message is obsolete.
-        | qmRound < rsCurrentRound (skovData ^. roundStatus) = return Rejected
+        | qmRound < (skovData ^. roundStatus . rsCurrentRound) = return Rejected
         -- The epoch of the quroum signature message is obsolete.
-        | qmEpoch <= rsCurrentEpoch (skovData ^. roundStatus) = return Rejected
-        | otherwise = do
+        | qmEpoch <= skovData ^. skovEpochBakers . currentEpoch = return Rejected
+        -- We do not know about the finalization committee for the proposed epoch.
+        -- So we need to catch up.
+        | qmEpoch > skovData ^. skovEpochBakers . currentEpoch = return CatchupRequired
+        |  otherwise = do
             currentBakers <- use skovEpochBakers
-            -- The consensus runner is not caugt up, so we initiate catchup.
-            if qmEpoch > currentBakers ^. epochBakersEpoch
-                then return CatchupRequired
-                else do
-                    let finalizersForCurrentEpoch = currentBakers ^. currentEpochBakers . bfFinalizers
-                    case finalizerByIndex finalizersForCurrentEpoch qmFinalizerIndex of
-                        -- Signee is not in the finalization committee so we flag it and stop.
-                        Nothing -> flag (NotAFinalizer qmFinalizerIndex qm) >> return Rejected
-                        Just FinalizerInfo{..} -> do
-                            genesisHash <- gmFirstGenesisHash <$> use genesisMetadata
-                            let qsm = getQuorumSignatureMessage genesisHash qm
-                            -- Check whether the signature is ok or not.
-                            if not (checkQuorumSignatureSingle qsm finalizerBlsKey qmSignature)
-                                then return Rejected
-                                else do
-                                    getRecentBlockStatus qmBlock skovData >>= \case
-                                        -- The signatory signed an already signed block. We flag and stop.
-                                        OldFinalized -> flag (SignedInvalidBlock qmFinalizerIndex qmBlock qm) >> return Rejected
-                                        -- The signatory signed an already signed block. We flag and stop.
-                                        RecentBlock (BlockFinalized _) -> flag (SignedInvalidBlock qmFinalizerIndex qmBlock qm) >> return Rejected
-                                        -- The signatory signed a dead block. We flag and stop.
-                                        RecentBlock BlockDead -> flag (SignedInvalidBlock qmFinalizerIndex qmBlock qm) >> return Rejected
-                                        RecentBlock BlockUnknown -> return CatchupRequired
-                                        RecentBlock (BlockPending _) -> return Awaiting
-                                        RecentBlock (BlockAlive quorumMessagePointer) -> do
-                                            if isDoubleSigning finalizerIndex skovData
-                                                then flag (DoubleSigning qmFinalizerIndex qm) >> return Rejected
-                                                else -- Inconsistent rounds of the quorum signature message and the block it points to.
-
-                                                    if blockRound quorumMessagePointer /= qmRound
-                                                        then flag (RoundInconsistency qmFinalizerIndex qmRound (blockRound quorumMessagePointer)) >> return Rejected
-                                                        else
-                                                            if blockEpoch quorumMessagePointer /= qmEpoch
-                                                                then flag (EpochInconsistency qmFinalizerIndex qmEpoch (blockEpoch quorumMessagePointer)) >> return Rejected
-                                                                else storeQuorumMessage qm finalizerWeight >> sendMessage qm >> processQuorumMessage qm >> return Received
+            let finalizersForCurrentEpoch = currentBakers ^. currentEpochBakers . bfFinalizers
+            case finalizerByIndex finalizersForCurrentEpoch qmFinalizerIndex of
+                -- Signee is not in the finalization committee so we flag it and stop.
+                Nothing -> flag (NotAFinalizer qmFinalizerIndex qm) >> return Rejected
+                Just FinalizerInfo{..} -> do
+                    genesisHash <- gmFirstGenesisHash <$> use genesisMetadata
+                    let qsm = getQuorumSignatureMessage genesisHash qm
+                    -- Check whether the signature is ok or not.
+                    if not (checkQuorumSignatureSingle qsm finalizerBlsKey qmSignature)
+                        then return Rejected
+                        else do
+                            getRecentBlockStatus qmBlock skovData >>= \case
+                                -- The signatory signed an already signed block. We flag and stop.
+                                OldFinalized -> flag (SignedInvalidBlock qmFinalizerIndex qmBlock qm) >> return Rejected
+                                -- The signatory signed an already signed block. We flag and stop.
+                                RecentBlock (BlockFinalized _) -> flag (SignedInvalidBlock qmFinalizerIndex qmBlock qm) >> return Rejected
+                                -- The signatory signed a dead block. We flag and stop.
+                                RecentBlock BlockDead -> flag (SignedInvalidBlock qmFinalizerIndex qmBlock qm) >> return Rejected
+                                RecentBlock BlockUnknown -> return CatchupRequired
+                                RecentBlock (BlockPending _) -> return Awaiting
+                                RecentBlock (BlockAlive quorumMessagePointer) -> do
+                                    if isDoubleSigning finalizerIndex skovData
+                                        then flag (DoubleSigning qmFinalizerIndex qm) >> return Rejected
+                                        else -- Inconsistent rounds of the quorum signature message and the block it points to.
+                                            if blockRound quorumMessagePointer /= qmRound
+                                                then flag (RoundInconsistency qmFinalizerIndex qmRound (blockRound quorumMessagePointer)) >> return Rejected
+                                                else
+                                                    if blockEpoch quorumMessagePointer /= qmEpoch
+                                                        then flag (EpochInconsistency qmFinalizerIndex qmEpoch (blockEpoch quorumMessagePointer)) >> return Rejected
+                                                        else storeQuorumMessage qm finalizerWeight >> sendMessage qm >> processQuorumMessage qm >> return Received
     -- Checks whether a finalizer present is present in the 'QuourumMessages'.
     hasSignedOffQuorumMessage finalizerIndex skovData = isJust $! skovData ^? currentQuorumMessages . smFinIdxToMessage . ix finalizerIndex
     hasSignedOffTimeoutMessage = False -- TODO: check in the timeout messages for the current round also.
@@ -175,10 +173,9 @@ checkForQuorumWittness qcBlock = do
 
 makeQuorumCertificate :: (MonadState (SkovData (MPV m)) m) => QuorumWitness -> m QuorumCertificate
 makeQuorumCertificate QuorumWitness{..} = do
-    RoundStatus{..} <- use roundStatus
+    qcEpoch <- use $ skovEpochBakers . currentEpoch
+    qcRound <- use $ roundStatus . rsCurrentRound
     let qcBlock = qwBlock
-        qcRound = rsCurrentRound
-        qcEpoch = rsCurrentEpoch
         qcAggregateSignature = qwAggregateSignature
         qcSignatories = qwSignatories
     return QuorumCertificate{..}

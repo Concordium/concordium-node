@@ -25,6 +25,7 @@ import Concordium.KonsensusV1.TreeState.Implementation
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
+import Control.Exception
 
 -- |Shrink the current timeout duration in response to a successful QC for a round.
 -- This updates the timeout to @max timeoutBase (timeoutDecrease * oldTimeout)@, where
@@ -104,11 +105,6 @@ checkFinalityWithBlock qc blockPtr
                     }
         processFinalization blockPtr newFinalizationEntry
         shrinkTimeout blockPtr
-        curEpoch <- use $ roundStatus . to rsCurrentEpoch
-        when (curEpoch <= blockEpoch blockPtr) $ do
-            seedState <- getSeedState (bpState blockPtr)
-            when (seedState ^. epochTransitionTriggered) $
-                advanceEpoch (blockEpoch blockPtr + 1)
     | otherwise = return ()
 
 -- |Process the finalization of a block. The block must be live (not finalized) and the finalization
@@ -170,29 +166,71 @@ processFinalization newFinalizedBlock newFinalizationEntry = do
     branches .= prNewBranches
     -- Purge any pending blocks that are no longer viable.
     purgePending
-    -- Update the epoch bakers if the new finalized block is in a different epoch.
-    when (blockEpoch oldLastFinalized + 1 == blockEpoch newFinalizedBlock) $ do
-        oldEpochBakers <- use epochBakers
-        unless (oldEpochBakers ^. epochBakersEpoch == blockEpoch oldLastFinalized) $
-            throwM $
-                TreeStateInvariantViolation
-                    "epochBakersEpoch does not match the epoch of the last finalized block"
-        let finState = bpState newFinalizedBlock
-        _nextPayday <- getPaydayEpoch finState
-        nextEpochFullBakers <- getNextEpochBakers finState
-        nextEpochFCParams <- getNextEpochFinalizationCommitteeParameters finState
-        epochBakers
-            .= EpochBakers
-                { _epochBakersEpoch = blockEpoch newFinalizedBlock,
-                  _previousEpochBakers = oldEpochBakers ^. currentEpochBakers,
-                  _currentEpochBakers = oldEpochBakers ^. nextEpochBakers,
-                  _nextEpochBakers =
-                    BakersAndFinalizers
-                        { _bfBakers = nextEpochFullBakers,
-                          _bfFinalizers = computeFinalizationCommittee nextEpochFullBakers nextEpochFCParams
-                        },
-                  ..
-                }
+    -- Advance the epoch if the new finalized block triggers the epoch transition.
+    checkedAdvanceEpoch newFinalizedBlock
+
+-- |Advance the current epoch if the new finalized block indicates that it is necessary.
+-- This is deemed to be the case if the following hold:
+--
+--  * The block is in the current epoch; and
+--
+--  * The block timestamp is past the epoch transition time, as indicated by the
+--    'epochTransitionTriggered' flag in the block's seed state.
+--
+-- Note: the implementation here relies on not skipping epochs. In particular, when a block is
+-- finalized, it must either be in the current epoch or the previous epoch. (The latter can occur
+-- if we have seen a QC on a block that justifies finalization of a trigger block, causing us to
+-- advance the epoch, but others did not see it and moved on.)
+checkedAdvanceEpoch ::
+    ( MonadState s m,
+      HasEpochBakers s,
+      IsConsensusV1 (MPV m),
+      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
+      BlockStateQuery m
+    ) =>
+    BlockPointer (MPV m) ->
+    m ()
+checkedAdvanceEpoch newFinalizedBlock = do
+    EpochBakers{..} <- use epochBakers
+    assert (_currentEpoch >= blockEpoch newFinalizedBlock) $
+        when (_currentEpoch == blockEpoch newFinalizedBlock) $ do
+            seedState <- getSeedState finState
+            when (seedState ^. epochTransitionTriggered) $ do
+                let newEpoch = _currentEpoch + 1
+                -- If the new current epoch is the start of a new payday, we need to update the
+                -- next payday epoch.
+                newNextPayday <-
+                    if _nextPayday == newEpoch
+                        then getPaydayEpoch finState
+                        else return _nextPayday
+                -- If the new next epoch is the start of a new payday, we need to compute the
+                -- bakers and finalizers. (If it is not, they are unchanged.)
+                newNextBakers <-
+                    if newNextPayday == newEpoch + 1
+                        then do
+                            nextFullBakers <- getNextEpochBakers finState
+                            nextFCParams <- getNextEpochFinalizationCommitteeParameters finState
+                            let newNextBakers =
+                                    BakersAndFinalizers
+                                        { _bfBakers =
+                                            nextFullBakers,
+                                          _bfFinalizers =
+                                            computeFinalizationCommittee
+                                                nextFullBakers
+                                                nextFCParams
+                                        }
+                            return newNextBakers
+                        else return _nextEpochBakers
+                epochBakers
+                    .= EpochBakers
+                        { _currentEpoch = newEpoch,
+                          _previousEpochBakers = _currentEpochBakers,
+                          _currentEpochBakers = _nextEpochBakers,
+                          _nextEpochBakers = newNextBakers,
+                          _nextPayday = newNextPayday
+                        }
+  where
+    finState = bpState newFinalizedBlock
 
 data PruneResult a = PruneResult
     { prRemoved :: [a],

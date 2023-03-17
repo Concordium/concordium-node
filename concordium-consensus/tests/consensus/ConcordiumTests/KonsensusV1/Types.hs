@@ -2,9 +2,7 @@
 module ConcordiumTests.KonsensusV1.Types where
 
 import qualified Data.ByteString as BS
-import Data.Foldable
 import qualified Data.Map.Strict as Map
-import Data.Maybe (isJust)
 import Data.Serialize
 import qualified Data.Vector as Vector
 import Data.Word
@@ -187,14 +185,13 @@ genLeadershipElectionNonce = Hash.Hash . FBS.pack <$> vector 32
 -- |Generate a 'RoundStatus' suitable for testing serialization.
 genRoundStatus :: Gen RoundStatus
 genRoundStatus = do
-    rsCurrentEpoch <- genEpoch
-    rsCurrentRound <- genRound
-    rsLastSignedQuourumSignatureMessage <- coinFlip =<< genQuorumSignatureMessage
-    rsLastSignedTimeoutSignatureMessage <- coinFlip =<< genTimeoutSignatureMessage
-    rsHighestQC <- coinFlip =<< genQuorumCertificate
+    _rsCurrentRound <- genRound
+    _rsLastSignedQuourumSignatureMessage <- coinFlip =<< genQuorumSignatureMessage
+    _rsLastSignedTimeoutSignatureMessage <- coinFlip =<< genTimeoutSignatureMessage
+    _rsHighestQC <- coinFlip =<< genQuorumCertificate
     tc <- genTimeoutCertificate
     qc <- genQuorumCertificate
-    let rsPreviousRoundTC = Present (tc, qc)
+    let _rsPreviousRoundTC = Present (tc, qc)
     return RoundStatus{..}
   where
     coinFlip x =
