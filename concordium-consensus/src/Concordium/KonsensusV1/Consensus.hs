@@ -386,7 +386,7 @@ processTimeout tm = do
                                         getFinalizerWeight = maybe 0 finalizerWeight
                                     in foldl' (+) 0 $ getFinalizerWeight <$> finsInFinCommQC
                 let totalWeightRational = toRational $ committeeTotalWeight finCommQC :: Rational
-                let threshold = totalWeightRational * (2 % 3) :: Rational
+                let threshold = totalWeightRational * (2 % 3) :: Rational -- FIXME: get from genesis meta data
                 let thresholdVoterPower = VoterPower $ floor threshold
                 when (voterPowerSum > thresholdVoterPower) $ do
                     let currentRound = rsCurrentRound currentRoundStatus
