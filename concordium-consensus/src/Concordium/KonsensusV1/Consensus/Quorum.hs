@@ -147,20 +147,6 @@ addQuorumMessage weight quorumMessage@QuorumMessage{..} (QuorumMessages currentM
     justOrIncrement = maybe (Just (weight, qmSignature, [finalizerIndex])) (\(aggWeight, aggSig, aggFinalizers) -> Just (aggWeight + weight, aggSig <> qmSignature, finalizerIndex : aggFinalizers))
     updatedWeightAndSignature = Map.alter justOrIncrement qmBlock currentWeights
 
--- |A wittness that a 'QuorumCertificate' can be created.
-data QuorumWitness = QuorumWitness
-    { -- |The block that a quorum certificate will refer to.
-      qwBlock :: !BlockHash,
-      -- |The 'Round' to create the 'QuorumCertificate' for.
-      qwRound :: !Round,
-      -- |The 'Epoch' to create the 'QuorumCertificate' for.
-      qwEpoch :: !Epoch,
-      -- |The aggregated signature
-      qwAggregateSignature :: !QuorumSignature,
-      -- |The signatories.
-      qwSignatories :: !FinalizerSet
-    }
-
 -- |If there are enough (weighted) sigantures on the block provided
 -- then this function creates the 'QuorumCertificate' for the block and returns @Just QuorumCertificate@
 --
