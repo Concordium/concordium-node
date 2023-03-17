@@ -1,8 +1,8 @@
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE TypeFamilies #-}
 
--- |This module contains the logic for receiving and
--- verifying quorum signatures.
+-- |This module contains the logic for creating 'QuorumCertificate's, receiving and
+-- verifying quorum signatures that is used for the consensus v1 protocol.
 module Concordium.KonsensusV1.Consensus.Quorum where
 
 import Control.Monad.Catch
@@ -147,52 +147,50 @@ addQuorumMessage weight quorumMessage@QuorumMessage{..} (QuorumMessages currentM
 data QuorumWitness = QuorumWitness
     { -- |The block that a quorum certificate will refer to.
       qwBlock :: !BlockHash,
+      -- |The 'Round' to create the 'QuorumCertificate' for.
+      qwRound :: !Round,
+      -- |The 'Epoch' to create the 'QuorumCertificate' for.
+      qwEpoch :: !Epoch,
       -- |The aggregated signature
       qwAggregateSignature :: !QuorumSignature,
       -- |The signatories.
       qwSignatories :: !FinalizerSet
     }
 
--- |Check whether there is enough weight for the provided
--- block with respect to the signature threshold recorded in the tree state.
-checkForQuorumWittness ::
+-- |If there are enough (weighted) sigantures on the block provided
+-- then this function creates the 'QuorumCertificate' for the block and returns @Just QuorumCertificate@
+--
+-- If a 'QuorumCertificate' could not be formed then this function returns @Nothing@.
+makeQuorumCertificate ::
     (MonadState (SkovData (MPV m)) m) =>
     -- |The block we want to check whether we can
     -- create a 'QuorumCertificate' or not.
     BlockHash ->
-    -- |Return @Just QuorumWitness@ if there are enough (weighted) quorum signatures
+    -- |Return @Just QuorumCertificate@ if there are enough (weighted) quorum signatures
     -- for the provided block.
     -- Otherwise return @Nothing@.
-    m (Maybe QuorumWitness)
-checkForQuorumWittness qcBlock = do
+    m (Maybe QuorumCertificate)
+makeQuorumCertificate blockPointer = do
     currentMessages <- use currentQuorumMessages
-    case currentMessages ^? smBlockToWeightsAndSignatures . ix qcBlock of
+    case currentMessages ^? smBlockToWeightsAndSignatures . ix blockPointer of
         Nothing -> return Nothing
         Just (accummulatedWeight, aggregatedSignature, finalizers) -> do
             signatureThreshold <- genesisSignatureThreshold . gmParameters <$> use genesisMetadata
             totalWeight <- committeeTotalWeight <$> use (skovEpochBakers . currentEpochBakers . bfFinalizers)
             if toRational accummulatedWeight / toRational totalWeight >= toRational signatureThreshold
-                then return $ Just QuorumWitness{qwBlock = qcBlock, qwAggregateSignature = aggregatedSignature, qwSignatories = finalizerSet finalizers}
+                then do
+                    theRound <- use $ roundStatus . rsCurrentRound
+                    theEpoch <- use $ skovEpochBakers . currentEpoch
+                    return $
+                        Just
+                            QuorumCertificate
+                                { qcBlock = blockPointer,
+                                  qcRound = theRound,
+                                  qcEpoch = theEpoch,
+                                  qcAggregateSignature = aggregatedSignature,
+                                  qcSignatories = finalizerSet finalizers
+                                }
                 else return Nothing
-
--- |Make a 'QuorumCertificate' given the provided
--- 'QuorumWitness'.
---
--- This is an internal function and should not be called directly.
--- This is called via 'receiveQuorumMessage'.
-makeQuorumCertificate ::
-    (MonadState (SkovData (MPV m)) m) =>
-    -- |The witness that a quorum certificate can be formed.
-    QuorumWitness ->
-    -- |The created 'QuorumCertificate'.
-    m QuorumCertificate
-makeQuorumCertificate QuorumWitness{..} = do
-    qcEpoch <- use $ skovEpochBakers . currentEpoch
-    qcRound <- use $ roundStatus . rsCurrentRound
-    let qcBlock = qwBlock
-        qcAggregateSignature = qwAggregateSignature
-        qcSignatories = qwSignatories
-    return QuorumCertificate{..}
 
 -- |Process a 'QuorumMessage'
 -- Check whether a 'QuorumCertificate' can be created.
@@ -217,10 +215,9 @@ processQuorumMessage ::
     QuorumMessage ->
     m ()
 processQuorumMessage QuorumMessage{..} = do
-    checkForQuorumWittness qmBlock >>= \case
+    makeQuorumCertificate qmBlock >>= \case
         Nothing -> return ()
-        Just witness -> do
-            newQC <- makeQuorumCertificate witness
+        Just newQC -> do
             checkFinality newQC
             advanceRound (qmRound + 1) (Right newQC)
             return ()
