@@ -10,6 +10,7 @@
 module Concordium.KonsensusV1.TreeState.Types where
 
 import Data.Function
+import qualified Data.Map.Strict as Map
 import Data.Serialize
 import Data.Time
 import Data.Time.Clock.POSIX
@@ -207,8 +208,6 @@ data RecentBlockStatus pv
       RecentBlock !(BlockStatus pv)
     | -- |The block is a predecessor of the last finalized block.
       OldFinalized
-    | -- |The block is unknown.
-      Unknown
     deriving (Show)
 
 -- |The current round status.
@@ -218,61 +217,53 @@ data RecentBlockStatus pv
 -- but not enough quorum signature messages were retrieved before timeout.
 data RoundStatus = RoundStatus
     { -- |The highest 'Round' that the consensus runner participated in.
-      rsCurrentRound :: !Round,
-      -- |The 'QuorumSignatureMessage's for the current 'Round'.
-      rsCurrentQuorumSignatureMessages :: !(SignatureMessages QuorumSignatureMessage),
-      -- |The 'TimeoutSignatureMessage's for the current 'Round'.
-      rsCurrentTimeoutSignatureMessages :: !(SignatureMessages TimeoutSignatureMessage),
+      _rsCurrentRound :: !Round,
       -- |If the consensus runner is part of the finalization committee,
       -- then this will yield the last signed 'QuorumSignatureMessage'
-      rsLastSignedQuourumSignatureMessage :: !(Option QuorumSignatureMessage),
+      _rsLastSignedQuourumSignatureMessage :: !(Option QuorumSignatureMessage),
       -- |If the consensus runner is part of the finalization committee,
       -- then this will yield the last signed timeout message.
-      rsLastSignedTimeoutSignatureMessage :: !(Option TimeoutSignatureMessage),
+      _rsLastSignedTimeoutSignatureMessage :: !(Option TimeoutSignatureMessage),
       -- |The highest 'QuorumCertificate' seen so far.
       -- This is 'Nothing' if no rounds since genesis has
       -- been able to produce a 'QuorumCertificate'.
       -- Note: this can potentially be a QC for a block that is not present, but in that case we
       -- should have a finalization entry that contains the QC.
-      rsHighestQC :: !(Option QuorumCertificate),
+      _rsHighestQC :: !(Option QuorumCertificate),
       -- |The previous round timeout certificate if the previous round timed out.
       -- This is @Just (TimeoutCertificate, QuorumCertificate)@ if the previous round timed out or otherwise 'Nothing'.
       -- In the case of @Just@ then the associated 'QuorumCertificate' is the highest 'QuorumCertificate' at the time
       -- that the 'TimeoutCertificate' was built.
-      rsPreviousRoundTC :: !(Option (TimeoutCertificate, QuorumCertificate))
+      _rsPreviousRoundTC :: !(Option (TimeoutCertificate, QuorumCertificate))
     }
     deriving (Show, Eq)
 
+makeLenses ''RoundStatus
+
 instance Serialize RoundStatus where
     put RoundStatus{..} = do
-        put rsCurrentRound
-        put rsCurrentQuorumSignatureMessages
-        put rsCurrentTimeoutSignatureMessages
-        put rsLastSignedQuourumSignatureMessage
-        put rsLastSignedTimeoutSignatureMessage
-        put rsHighestQC
-        put rsPreviousRoundTC
+        put _rsCurrentRound
+        put _rsLastSignedQuourumSignatureMessage
+        put _rsLastSignedTimeoutSignatureMessage
+        put _rsHighestQC
+        put _rsPreviousRoundTC
     get = do
-        rsCurrentRound <- get
-        rsCurrentQuorumSignatureMessages <- get
-        rsCurrentTimeoutSignatureMessages <- get
-        rsLastSignedQuourumSignatureMessage <- get
-        rsLastSignedTimeoutSignatureMessage <- get
-        rsHighestQC <- get
-        rsPreviousRoundTC <- get
+        _rsCurrentRound <- get
+        _rsLastSignedQuourumSignatureMessage <- get
+        _rsLastSignedTimeoutSignatureMessage <- get
+        _rsHighestQC <- get
+        _rsPreviousRoundTC <- get
         return RoundStatus{..}
 
 -- |The 'RoundStatus' for consensus at genesis.
 initialRoundStatus :: RoundStatus
 initialRoundStatus =
     RoundStatus
-        { rsCurrentRound = 0,
-          rsCurrentQuorumSignatureMessages = emptySignatureMessages,
-          rsCurrentTimeoutSignatureMessages = emptySignatureMessages,
-          rsLastSignedQuourumSignatureMessage = Absent,
-          rsLastSignedTimeoutSignatureMessage = Absent,
-          rsHighestQC = Absent,
-          rsPreviousRoundTC = Absent
+        { _rsCurrentRound = 0,
+          _rsLastSignedQuourumSignatureMessage = Absent,
+          _rsLastSignedTimeoutSignatureMessage = Absent,
+          _rsHighestQC = Absent,
+          _rsPreviousRoundTC = Absent
         }
 
 -- |The sets of bakers and finalizers for an epoch/payday.
@@ -305,3 +296,19 @@ data EpochBakers = EpochBakers
     }
 
 makeClassy ''EpochBakers
+
+-- |Quorum messages collected for a round.
+data QuorumMessages = QuorumMessages
+    { -- |Map of finalizer indecies to signature messages.
+      _smFinalizerToQuorumMessage :: !(Map.Map FinalizerIndex QuorumMessage),
+      -- |Accummulated weights and the aggregated signature for the blocks signed off by quorum signature message.
+      -- The 'VoterPower' here is in relation to the running 'Epoch'.
+      _smBlockToWeightsAndSignatures :: !(Map.Map BlockHash (VoterPower, QuorumSignature, [FinalizerIndex]))
+    }
+    deriving (Eq, Show)
+
+makeLenses ''QuorumMessages
+
+-- |Construct an empty 'QuorumMessages'
+emptyQuorumMessages :: QuorumMessages
+emptyQuorumMessages = QuorumMessages Map.empty Map.empty

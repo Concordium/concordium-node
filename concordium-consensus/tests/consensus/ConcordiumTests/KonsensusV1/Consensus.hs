@@ -1,6 +1,7 @@
 -- |Module testing functions from the 'Concordium.KonsensusV1.Consensus' module.
 module ConcordiumTests.KonsensusV1.Consensus where
 
+import Lens.Micro.Platform
 import Test.HUnit
 import Test.Hspec
 import Test.QuickCheck
@@ -22,27 +23,15 @@ propAdvanceRoundStatusFromQuorumRound =
                 assertEqual
                     "RoundStatus current round should be advanced"
                     toRound
-                    (rsCurrentRound newRoundStatus)
-                assertEqual
-                    "RoundStatus current epoch should remain"
-                    (rsCurrentEpoch fromRoundStatus)
-                    (rsCurrentEpoch newRoundStatus)
+                    (newRoundStatus ^. rsCurrentRound)
                 assertEqual
                     "RoundStatus previous round TC should be absent"
                     Absent
-                    (rsPreviousRoundTC newRoundStatus)
-                assertEqual
-                    "Timeout signatures for current round should be empty"
-                    emptySignatureMessages
-                    (rsCurrentTimeoutSignatureMessages newRoundStatus)
-                assertEqual
-                    "QC signatures for current round should be empty"
-                    emptySignatureMessages
-                    (rsCurrentQuorumSignatureMessages newRoundStatus)
+                    (newRoundStatus ^. rsPreviousRoundTC)
                 assertEqual
                     "QC signatures for current round should be empty"
                     (Present highestQC)
-                    (rsHighestQC newRoundStatus)
+                    (newRoundStatus ^. rsHighestQC)
 
 -- |Checking that advancing rounds via a timeout certificate yields
 -- the correct 'RoundStatus'
@@ -57,38 +46,13 @@ propAdvanceRoundStatusFromTCRound =
                     assertEqual
                         "RoundStatus current round should be advanced"
                         toRound
-                        (rsCurrentRound newRoundStatus)
-                    assertEqual
-                        "RoundStatus current epoch should remain"
-                        (rsCurrentEpoch fromRoundStatus)
-                        (rsCurrentEpoch newRoundStatus)
+                        (newRoundStatus ^. rsCurrentRound)
                     assertEqual
                         "RoundStatus previous round TC should be present"
                         (Present (tc, qc))
-                        (rsPreviousRoundTC newRoundStatus)
-                    assertEqual
-                        "Timeout signatures for current round should be empty"
-                        emptySignatureMessages
-                        (rsCurrentTimeoutSignatureMessages newRoundStatus)
-                    assertEqual
-                        "QC signatures for current round should be empty"
-                        emptySignatureMessages
-                        (rsCurrentQuorumSignatureMessages newRoundStatus)
-
--- |Checking that advancing epochs yields
--- the correct 'RoundStatus'
-propAdvanceRoundStatusEpoch :: Property
-propAdvanceRoundStatusEpoch =
-    forAll genRoundStatus $ \fromRoundStatus ->
-        forAll genEpoch $ \toEpoch -> do
-            let newRoundStatus = advanceRoundStatusEpoch toEpoch fromRoundStatus
-            assertEqual
-                "RoundStatus should have advanced epoch"
-                toEpoch
-                (rsCurrentEpoch newRoundStatus)
+                        (newRoundStatus ^. rsPreviousRoundTC)
 
 tests :: Spec
 tests = describe "KonsensusV1.Consensus" $ do
     it "RoundStatus advances from quorum round" propAdvanceRoundStatusFromQuorumRound
     it "RoundStatus advances from timed out round" propAdvanceRoundStatusFromTCRound
-    it "RoundStatus advances epoch" propAdvanceRoundStatusEpoch

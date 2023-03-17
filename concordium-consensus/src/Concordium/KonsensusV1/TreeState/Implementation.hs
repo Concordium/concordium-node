@@ -215,7 +215,10 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       -- trigger block time for its epoch.
       _skovEpochBakers :: !EpochBakers,
       -- |The current consensus statistics.
-      _statistics :: !Stats.ConsensusStatistics
+      _statistics :: !Stats.ConsensusStatistics,
+      -- |The 'QuorumMessage's for the current 'Round'.
+      -- This should be cleared whenever the consensus runner advances to a new round.
+      _currentQuorumMessages :: !QuorumMessages
     }
 
 makeLenses ''SkovData
@@ -283,6 +286,7 @@ mkInitialSkovData rp genMeta genState _currentTimeout _skovEpochBakers =
         _skovPendingBlocks = emptyPendingBlocks
         _lastFinalized = genesisBlockPointer
         _statistics = Stats.initialConsensusStatistics
+        _currentQuorumMessages = emptyQuorumMessages
     in  SkovData{..}
 
 -- * Operations on the block table
@@ -355,7 +359,7 @@ getRecentBlockStatus blockHash sd = case getMemoryBlockStatus blockHash sd of
     Nothing -> do
         LowLevel.memberBlock blockHash >>= \case
             True -> return OldFinalized
-            False -> return Unknown
+            False -> return $ RecentBlock BlockUnknown
 
 -- |Get a finalized block by height.
 -- This will return 'Nothing' for a block that is either not finalized or unknown.

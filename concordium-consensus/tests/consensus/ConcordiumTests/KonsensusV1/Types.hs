@@ -2,7 +2,6 @@
 module ConcordiumTests.KonsensusV1.Types where
 
 import qualified Data.ByteString as BS
-import Data.Foldable
 import qualified Data.Map.Strict as Map
 import Data.Serialize
 import qualified Data.Vector as Vector
@@ -48,6 +47,10 @@ genBlsSignature = flip Bls.sign someBlsSecretKey . BS.pack <$> vector 10
 -- |Generate a quorum signature.
 genQuorumSignature :: Gen QuorumSignature
 genQuorumSignature = QuorumSignature <$> genBlsSignature
+
+-- |Generate a quorum signature.
+genTimeoutSignature :: Gen TimeoutSignature
+genTimeoutSignature = TimeoutSignature <$> genBlsSignature
 
 -- |Generate a random quorum signature message.
 genQuorumSignatureMessage :: Gen QuorumSignatureMessage
@@ -175,20 +178,6 @@ genTimeoutMessage = do
 genTimestamp :: Gen Timestamp
 genTimestamp = Timestamp <$> arbitrary
 
--- |Generates a collection of 'QuorumSignatureMessage's
-genQuorumSignatureMessages :: Gen (SignatureMessages QuorumSignatureMessage)
-genQuorumSignatureMessages = do
-    numMessages <- chooseInteger (0, 100)
-    msgs <- vectorOf (fromIntegral numMessages) genQuorumSignatureMessage
-    return $! SignatureMessages $! foldl' (\acc msg -> Map.insert (FinalizerIndex . fromIntegral $ Map.size acc) msg acc) Map.empty msgs
-
--- |Generates a collection of 'TimeoutSignatureMessage's
-genTimeoutSignatureMessages :: Gen (SignatureMessages TimeoutSignatureMessage)
-genTimeoutSignatureMessages = do
-    numMessages <- chooseInteger (0, 100)
-    msgs <- vectorOf (fromIntegral numMessages) genTimeoutSignatureMessage
-    return $! SignatureMessages $! foldl' (\acc msg -> Map.insert (FinalizerIndex . fromIntegral $ Map.size acc) msg acc) Map.empty msgs
-
 -- |Generate an arbitrary 'LeadershipElectionNonce'
 genLeadershipElectionNonce :: Gen LeadershipElectionNonce
 genLeadershipElectionNonce = Hash.Hash . FBS.pack <$> vector 32
@@ -196,16 +185,13 @@ genLeadershipElectionNonce = Hash.Hash . FBS.pack <$> vector 32
 -- |Generate a 'RoundStatus' suitable for testing serialization.
 genRoundStatus :: Gen RoundStatus
 genRoundStatus = do
-    rsCurrentEpoch <- genEpoch
-    rsCurrentRound <- genRound
-    rsCurrentQuorumSignatureMessages <- genQuorumSignatureMessages
-    rsLastSignedQuourumSignatureMessage <- coinFlip =<< genQuorumSignatureMessage
-    rsLastSignedTimeoutSignatureMessage <- coinFlip =<< genTimeoutSignatureMessage
-    rsCurrentTimeoutSignatureMessages <- genTimeoutSignatureMessages
-    rsHighestQC <- coinFlip =<< genQuorumCertificate
+    _rsCurrentRound <- genRound
+    _rsLastSignedQuourumSignatureMessage <- coinFlip =<< genQuorumSignatureMessage
+    _rsLastSignedTimeoutSignatureMessage <- coinFlip =<< genTimeoutSignatureMessage
+    _rsHighestQC <- coinFlip =<< genQuorumCertificate
     tc <- genTimeoutCertificate
     qc <- genQuorumCertificate
-    let rsPreviousRoundTC = Present (tc, qc)
+    let _rsPreviousRoundTC = Present (tc, qc)
     return RoundStatus{..}
   where
     coinFlip x =
@@ -420,6 +406,14 @@ propSignBakedBlockDiffKey =
                 forAll genBlockKeyPair $ \(Sig.KeyPair _ pk1) ->
                     not (verifyBlockSignature pk1 genesisHash (signBlock kp genesisHash bb))
 
+propFinalizerListIsInverseOfFinalizerSet :: Property
+propFinalizerListIsInverseOfFinalizerSet =
+    forAll genFinalizerSet $ \fis ->
+        assertEqual
+            "The FinalizerSets should be equal"
+            fis
+            (finalizerSet $ finalizerList fis)
+
 tests :: Spec
 tests = describe "KonsensusV1.Types" $ do
     it "FinalizerSet serialization" propSerializeFinalizerSet
@@ -443,3 +437,4 @@ tests = describe "KonsensusV1.Types" $ do
     it "QuorumSignatureMessage signature check fails with different body" propSignQuorumSignatureMessageDiffBody
     it "SignedBlock signature check positive" propSignBakedBlock
     it "SignedBlock signature fails with different key" propSignBakedBlockDiffKey
+    it "Conversion to and from FinalizerSet" propFinalizerListIsInverseOfFinalizerSet

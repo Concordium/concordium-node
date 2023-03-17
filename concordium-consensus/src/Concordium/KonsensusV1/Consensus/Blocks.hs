@@ -108,7 +108,6 @@ uponReceivingBlock pendingBlock = do
                         RecentBlock BlockDead -> return BlockResultStale
                         RecentBlock BlockUnknown -> receiveBlockUnknownParent pendingBlock
                         OldFinalized -> return BlockResultStale
-                        Unknown -> receiveBlockUnknownParent pendingBlock
 
 -- |Get the bakers for a particular epoch, given that we have a live block that is nominally the
 -- parent block. This will typically get the bakers from the cache that is with respect to the
@@ -400,7 +399,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                                 _ <- addBlock pendingBlock blockState parent
                                 checkFinalityWithBlock (blockQuorumCertificate pendingBlock) parent
                                 checkedUpdateHighestQC (blockQuorumCertificate pendingBlock)
-                                curRound <- use $ roundStatus . to rsCurrentRound
+                                curRound <- use $ roundStatus . rsCurrentRound
                                 when (curRound < blockRound pendingBlock) $
                                     advanceRound (blockRound pendingBlock) $
                                         case blockTimeoutCertificate pendingBlock of
@@ -604,11 +603,11 @@ checkedUpdateHighestQC ::
 checkedUpdateHighestQC newQC = do
     rs <- use roundStatus
     let isBetterQC
-            | Present oldQC <- rsHighestQC rs = qcRound oldQC < qcRound newQC
+            | Present oldQC <- rs ^. rsHighestQC = qcRound oldQC < qcRound newQC
             | otherwise = True
     when isBetterQC $
         setRoundStatus $!
-            rs{rsHighestQC = Present newQC}
+            rs{_rsHighestQC = Present newQC}
 
 executeBlock ::
     ( IsConsensusV1 (MPV m),

@@ -8,6 +8,7 @@ import Data.Foldable
 import Data.List (sortOn)
 import qualified Data.Map.Strict as Map
 import Data.Ord
+import Data.Serialize
 import qualified Data.Vector as Vec
 import Lens.Micro.Platform
 
@@ -24,8 +25,8 @@ import Concordium.KonsensusV1.Types
 
 -- |A Monad for multicasting timeout messages.
 class MonadMulticast m where
-    -- |Multicast a timeout message over the network
-    sendTimeoutMessage :: TimeoutMessage -> m ()
+    -- |Multicast a message.
+    sendMessage :: (Serialize a) => a -> m ()
 
 -- |A baker context containing the baker identity. Used for accessing relevant baker keys and the baker id.
 newtype BakerContext = BakerContext
@@ -54,8 +55,6 @@ makeBlockIfLeader = return ()
 -- All properties from the old 'RoundStatus' are being carried over to new 'RoundStatus'
 -- except for the following.
 -- * 'rsCurrentRound' will become the provided 'Round'.
--- * 'rsCurrentQuorumSignatureMessages' will be 'emptySignatureMessages'.
--- * 'rsCurrentTimeoutSignatureMessages' will be 'emptySignatureMessages'.
 -- * 'rsPreviousRoundTC' will become 'Absent' if we're progressing via a 'QuorumCertificate' otherwise
 --   it will become the values of the supplied @Left (TimeoutCertificate, QuorumCertificate)@.
 -- * 'rsHighestQC' will become the supplied @Right QuorumCertificate@ otherwise it is carried over.
@@ -71,18 +70,14 @@ advanceRoundStatus ::
     RoundStatus
 advanceRoundStatus toRound (Left (tc, qc)) currentRoundStatus =
     currentRoundStatus
-        { rsCurrentRound = toRound,
-          rsCurrentQuorumSignatureMessages = emptySignatureMessages,
-          rsCurrentTimeoutSignatureMessages = emptySignatureMessages,
-          rsPreviousRoundTC = Present (tc, qc)
+        { _rsCurrentRound = toRound,
+          _rsPreviousRoundTC = Present (tc, qc)
         }
 advanceRoundStatus toRound (Right qc) currentRoundStatus =
     currentRoundStatus
-        { rsCurrentRound = toRound,
-          rsCurrentQuorumSignatureMessages = emptySignatureMessages,
-          rsCurrentTimeoutSignatureMessages = emptySignatureMessages,
-          rsHighestQC = Present qc,
-          rsPreviousRoundTC = Absent
+        { _rsCurrentRound = toRound,
+          _rsHighestQC = Present qc,
+          _rsPreviousRoundTC = Absent
         }
 
 -- |Advance to the provided 'Round'.
@@ -120,6 +115,7 @@ advanceRound newRound newCertificate = do
     -- coming into this new (current) epoch - but we still want to ensure that a timeout is thrown either way.
     resetTimer =<< use currentTimeout
     -- Advance and save the round.
+    currentQuorumMessages .= emptyQuorumMessages
     setRoundStatus $! advanceRoundStatus newRound newCertificate currentRoundStatus
     -- Make a new block if the consensus runner is leader of
     -- the 'Round' progressed to.
