@@ -242,12 +242,12 @@ data RoundStatus = RoundStatus
       -- Note: this can potentially be a QC for a block that is not present, but in that case we
       -- should have a finalization entry that contains the QC.
       rsHighestQC :: !QuorumCertificate,
-      -- |The current 'LeadershipElectionNonce'.
-      rsLeadershipElectionNonce :: !LeadershipElectionNonce,
-      -- |The latest 'Epoch' 'FinalizationEntry'.
-      -- This will only be 'Nothing' in between the
-      -- genesis block and the first explicitly finalized block.
-      rsLatestEpochFinEntry :: !(Option FinalizationEntry),
+      -- -- |The current 'LeadershipElectionNonce'.
+      -- rsLeadershipElectionNonce :: !LeadershipElectionNonce,
+      -- -- |The latest 'Epoch' 'FinalizationEntry'.
+      -- -- This will only be 'Nothing' in between the
+      -- -- genesis block and the first explicitly finalized block.
+      -- rsLatestEpochFinEntry :: !(Option FinalizationEntry),
       -- |The previous round timeout certificate if the previous round timed out.
       -- This is @Just (TimeoutCertificate, QuorumCertificate)@ if the previous round timed out or otherwise 'Nothing'.
       -- In the case of @Just@ then the associated 'QuorumCertificate' is the highest 'QuorumCertificate' at the time
@@ -282,8 +282,8 @@ instance Serialize RoundStatus where
         return RoundStatus{..}
 
 -- |The 'RoundStatus' for consensus at genesis.
-initialRoundStatus :: Duration -> LeadershipElectionNonce -> BlockHash -> RoundStatus
-initialRoundStatus baseTimeout leNonce genesisHash =
+initialRoundStatus :: Duration -> BlockHash -> RoundStatus
+initialRoundStatus baseTimeout genesisHash =
     RoundStatus
         { rsCurrentEpoch = 0,
           rsCurrentRound = 0,
@@ -294,8 +294,8 @@ initialRoundStatus baseTimeout leNonce genesisHash =
           rsNextSignableRound = 1,
           rsCurrentTimeout = baseTimeout,
           rsHighestQC = genesisQuorumCertificate genesisHash,
-          rsLeadershipElectionNonce = leNonce,
-          rsLatestEpochFinEntry = Absent,
+          -- rsLeadershipElectionNonce = leNonce,
+          -- rsLatestEpochFinEntry = Absent,
           rsPreviousRoundTC = Absent
         }
 

@@ -11,9 +11,6 @@ import Data.Ratio
 import qualified Data.Set as Set
 import Data.Word
 
-
-import Control.Monad.State.Strict
-
 import Data.Foldable
 import Data.List (sortOn)
 import qualified Data.Map.Strict as Map
@@ -114,7 +111,7 @@ advanceRoundStatus toRound (Right qc) currentRoundStatus =
         { rsCurrentRound = toRound,
           rsCurrentQuorumSignatureMessages = emptySignatureMessages,
           rsCurrentTimeoutSignatureMessages = emptySignatureMessages,
-          rsHighestQC = Present qc,
+          rsHighestQC = qc,
           rsPreviousRoundTC = Absent
         }
 
@@ -255,7 +252,8 @@ updateRoundStatus timeoutIncrease currentRoundStatus =
 -- |This is 'uponTimeoutEvent' from the bluepaper. If a timeout occurs, a finalizers should call this function to
 -- generate and send out a timeout message.
 uponTimeoutEvent ::
-    ( MonadMulticast m,
+    ( MonadTimeout m,
+      MonadMulticast m,
       MonadReader r m,
       HasBakerContext r,
       BlockStateQuery m,
@@ -313,7 +311,11 @@ uponTimeoutEvent = do
             processTimeout timeoutMessage
 
 -- |This is 'processTimeout' from the bluepaper. FIXME: add more documentation when spefication is ready.
-processTimeout :: (Monad m, MonadState (SkovData (MPV m)) m) => TimeoutMessage -> m ()
+processTimeout ::
+    (MonadTimeout m,
+     LowLevel.MonadTreeStateStore m,
+     MonadState (SkovData (MPV m)) m) =>
+     TimeoutMessage -> m ()
 processTimeout tm = do
     -- 1: store timeout locally
     -- 2: if the epochs of all stored timeouts for round currentRound and highestQC span more

@@ -553,10 +553,8 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                 -- Update the highest QC.
                 rs <- use roundStatus
                 let successorQC = feSuccessorQuorumCertificate finEntry
-                    isBetterQC
-                        | Present oldQC <- rsHighestQC rs = qcRound oldQC < qcRound successorQC
-                        | otherwise = True
-                when isBetterQC $
+                    isBetterQC = qcRound (rsHighestQC rs) < qcRound successorQC
+                when isBetterQC -- $
                     -- setRoundStatus $!
                     --     rs{rsHighestQC = successorQC}
                     undefined -- TODO: setRoundStatus
