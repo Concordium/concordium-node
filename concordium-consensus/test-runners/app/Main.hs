@@ -294,6 +294,7 @@ callbacks myPeerId peersRef monitorChan = Callbacks{..}
     notifyRegenesis Nothing = return ()
     notifyBlockArrived = Nothing
     notifyBlockFinalized = Nothing
+    notifyUnsupportedProtocolUpdate = Nothing
 
 -- |Construct a 'MultiVersionConfiguration' to use for each baker node.
 config :: FilePath -> BakerIdentity -> MultiVersionConfiguration (BufferedFinalization ThreadTimer)

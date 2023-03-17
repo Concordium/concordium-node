@@ -124,6 +124,7 @@ instance
     -- The information is used to count the number of finalized baked blocks exposed by a prometheus
     -- metric.
     handleFinalize _ lfbp bps = liftSkov $ do
+        -- Trigger callback notifying Rust of a finalized block.
         lift (asks (notifyBlockFinalized . mvCallbacks)) >>= \case
             Nothing -> return ()
             Just notifyCallback -> do
@@ -204,7 +205,10 @@ data Callbacks = Callbacks
       notifyBlockArrived :: Maybe (BlockHash -> AbsoluteBlockHeight -> Bool -> IO ()),
       -- |Notify a block was finalized. The arguments are the hash of the block,
       -- its absolute height and whether the block was produced by the baker id configured for this node.
-      notifyBlockFinalized :: Maybe (BlockHash -> AbsoluteBlockHeight -> Bool -> IO ())
+      notifyBlockFinalized :: Maybe (BlockHash -> AbsoluteBlockHeight -> Bool -> IO ()),
+      -- |Notify unsupported protocol update is pending when called.
+      -- Takes the effective time of the update as argument.
+      notifyUnsupportedProtocolUpdate :: Maybe (Timestamp -> IO ())
     }
 
 -- |Baker identity and baking thread 'MVar'.
@@ -574,7 +578,7 @@ checkForProtocolUpdate = liftSkov body
                                 else (False, s{Skov.ssHandlerState = AlreadyNotified ts pu})
                         )
                 unless alreadyNotified $ case checkUpdate @lastpv pu of
-                    Left err ->
+                    Left err -> do
                         logEvent Kontrol LLError $
                             "An unsupported protocol update ("
                                 ++ err
@@ -582,7 +586,11 @@ checkForProtocolUpdate = liftSkov body
                                 ++ show (timestampToUTCTime $ transactionTimeToTimestamp ts)
                                 ++ ": "
                                 ++ showPU pu
-                    Right upd ->
+                        callbacks <- lift $ asks mvCallbacks
+                        case notifyUnsupportedProtocolUpdate callbacks of
+                            Just notifyCallback -> liftIO $ notifyCallback $ transactionTimeToTimestamp ts
+                            Nothing -> return ()
+                    Right upd -> do
                         logEvent Kontrol LLInfo $
                             "A protocol update will take effect at "
                                 ++ show (timestampToUTCTime $ transactionTimeToTimestamp ts)
