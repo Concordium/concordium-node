@@ -577,29 +577,27 @@ checkForProtocolUpdate = liftSkov body
                                 then (True, s)
                                 else (False, s{Skov.ssHandlerState = AlreadyNotified ts pu})
                         )
-                case checkUpdate @lastpv pu of
+                unless alreadyNotified $ case checkUpdate @lastpv pu of
                     Left err -> do
-                        unless alreadyNotified $
-                            logEvent Kontrol LLError $
-                                "An unsupported protocol update ("
-                                    ++ err
-                                    ++ ") will take effect at "
-                                    ++ show (timestampToUTCTime $ transactionTimeToTimestamp ts)
-                                    ++ ": "
-                                    ++ showPU pu
+                        logEvent Kontrol LLError $
+                            "An unsupported protocol update ("
+                                ++ err
+                                ++ ") will take effect at "
+                                ++ show (timestampToUTCTime $ transactionTimeToTimestamp ts)
+                                ++ ": "
+                                ++ showPU pu
                         callbacks <- lift $ asks mvCallbacks
                         case notifyUnsupportedProtocolUpdate callbacks of
                             Just notifyCallback -> liftIO $ notifyCallback $ transactionTimeToTimestamp ts
                             Nothing -> return ()
                     Right upd -> do
-                        unless alreadyNotified $
-                            logEvent Kontrol LLInfo $
-                                "A protocol update will take effect at "
-                                    ++ show (timestampToUTCTime $ transactionTimeToTimestamp ts)
-                                    ++ ": "
-                                    ++ showPU pu
-                                    ++ "\n"
-                                    ++ show upd
+                        logEvent Kontrol LLInfo $
+                            "A protocol update will take effect at "
+                                ++ show (timestampToUTCTime $ transactionTimeToTimestamp ts)
+                                ++ ": "
+                                ++ showPU pu
+                                ++ "\n"
+                                ++ show upd
                 return Nothing
 
 -- |Make a 'MultiVersionRunner' for a given configuration.

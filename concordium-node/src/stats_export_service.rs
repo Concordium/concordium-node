@@ -242,7 +242,7 @@ pub struct StatsExportService {
     pub grpc_in_flight_requests_counter: InFlightRequestsCounter,
     /// If non-zero the value represents the effective timestamp of unsupported
     /// protocol update as milliseconds since unix epoch.
-    pub unsupported_pending_protocol_version: IntGauge,
+    pub unsupported_pending_protocol_version: GenericGauge<AtomicU64>,
     /// Total number of bytes received at the point of last
     /// throughput_measurement.
     ///
@@ -455,7 +455,7 @@ impl StatsExportService {
         };
         registry.register(Box::new(grpc_in_flight_requests))?;
 
-        let unsupported_pending_protocol_version = IntGauge::with_opts(Opts::new(
+        let unsupported_pending_protocol_version = GenericGauge::with_opts(Opts::new(
             "consensus_unsupported_pending_protocol_version",
             "If non-zero the value represents the effective time of an unsupported protocol \
              update (Unix time in milliseconds)",

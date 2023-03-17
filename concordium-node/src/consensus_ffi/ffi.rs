@@ -358,7 +358,8 @@ type NotifyUnsupportedUpdatesCallback =
 pub struct NotifyUnsupportedUpdatesContext {
     /// If non-zero the value represents the effective timestamp of unsupported
     /// protocol update as milliseconds since unix epoch.
-    pub unsupported_pending_protocol_version: prometheus::IntGauge,
+    pub unsupported_pending_protocol_version:
+        prometheus::core::GenericGauge<prometheus::core::AtomicU64>,
 }
 
 #[allow(improper_ctypes)]
@@ -1428,7 +1429,7 @@ unsafe extern "C" fn unsupported_update_callback(
     unsupported_update_pending: u64,
 ) {
     let context = &*context_ptr;
-    context.unsupported_pending_protocol_version.set(unsupported_update_pending as i64);
+    context.unsupported_pending_protocol_version.set(unsupported_update_pending);
 }
 
 /// Information needed to start consensus.

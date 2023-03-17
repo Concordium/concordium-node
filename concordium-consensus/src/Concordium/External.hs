@@ -372,7 +372,8 @@ foreign import ccall "dynamic"
         FunPtr NotifyUnsupportedUpdatesCallback ->
         NotifyUnsupportedUpdatesCallback
 
--- |Serialize effective timestamp of unsupported protocol update, to milliseconds since unix epoch.
+-- |Call FFI callback with effective timestamp of unsupported protocol update, as milliseconds since
+-- unix epoch.
 mkNotifyUnsupportedUpdates :: (Word64 -> IO ()) -> Timestamp -> IO ()
 mkNotifyUnsupportedUpdates f unsupportedUpdateEffectiveTime =
     f (tsMillis unsupportedUpdateEffectiveTime)
