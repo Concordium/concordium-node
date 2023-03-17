@@ -180,7 +180,7 @@ data TransactionStatus
 data BlockStatus pv
     = -- |The block is awaiting its parent to become part of chain.
       BlockPending !PendingBlock
-    | -- |The block is alive i.e. head of chain.
+    | -- |The block is alive.
       BlockAlive !(BlockPointer pv)
     | -- |The block is finalized.
       BlockFinalized !(BlockPointer pv)
@@ -303,6 +303,8 @@ data QuorumMessages = QuorumMessages
       _smFinalizerToQuorumMessage :: !(Map.Map FinalizerIndex QuorumMessage),
       -- |Accummulated weights and the aggregated signature for the blocks signed off by quorum signature message.
       -- The 'VoterPower' here is in relation to the running 'Epoch'.
+      -- Note that the order of finalizer indecies does not matter here as we are creating a 'FinalizerSet'
+      -- before creating a 'QuorumCertificate'.
       _smBlockToWeightsAndSignatures :: !(Map.Map BlockHash (VoterPower, QuorumSignature, [FinalizerIndex]))
     }
     deriving (Eq, Show)
