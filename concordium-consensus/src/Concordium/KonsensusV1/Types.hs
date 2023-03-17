@@ -12,13 +12,13 @@ module Concordium.KonsensusV1.Types where
 import Control.Monad
 import Data.Bits
 import qualified Data.ByteString as BS
+import Data.List (foldl')
 import qualified Data.Map.Strict as Map
 import Data.Serialize
 import qualified Data.Set as Set
 import qualified Data.Vector as Vector
 import Data.Word
 import Numeric.Natural
-import Data.List(foldl')
 
 import qualified Concordium.Crypto.BlockSignature as BlockSig
 import qualified Concordium.Crypto.BlsSignature as Bls
@@ -150,8 +150,8 @@ data QuorumMessage = QuorumMessage
 
 -- |Get the 'QuorumSignatureMessage' from a 'BlockHash' indicating the
 -- genesis hash and a 'QuorumMessage'
-getQuorumSignatureMessage :: BlockHash -> QuorumMessage -> QuorumSignatureMessage
-getQuorumSignatureMessage genesisHash QuorumMessage{..} =
+quorumSignatureMessageFor :: QuorumMessage -> BlockHash -> QuorumSignatureMessage
+quorumSignatureMessageFor QuorumMessage{..} genesisHash =
     QuorumSignatureMessage
         { qsmGenesis = genesisHash,
           qsmBlock = qmBlock,

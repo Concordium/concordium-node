@@ -407,7 +407,7 @@ propSignBakedBlockDiffKey =
                     not (verifyBlockSignature pk1 genesisHash (signBlock kp genesisHash bb))
 
 propFinalizerListIsInverseOfFinalizerSet :: Property
-propFinalizerListIsInverseOfFinalizerSet =  
+propFinalizerListIsInverseOfFinalizerSet =
     forAll genFinalizerSet $ \fis ->
         assertEqual
             "The FinalizerSets should be equal"

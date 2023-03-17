@@ -10,11 +10,11 @@
 module Concordium.KonsensusV1.TreeState.Types where
 
 import Data.Function
+import qualified Data.Map.Strict as Map
 import Data.Serialize
 import Data.Time
 import Data.Time.Clock.POSIX
 import Lens.Micro.Platform
-import qualified Data.Map.Strict as Map
 
 import Concordium.Types
 import Concordium.Types.Execution
@@ -300,10 +300,10 @@ makeClassy ''EpochBakers
 -- |Quorum messages collected for a round.
 data QuorumMessages = QuorumMessages
     { -- |Map of finalizer indecies to signature messages.
-      _smFinIdxToMessage :: !(Map.Map FinalizerIndex QuorumMessage),
+      _smFinalizerToQuorumMessage :: !(Map.Map FinalizerIndex QuorumMessage),
       -- |Accummulated weights and the aggregated signature for the blocks signed off by quorum signature message.
       -- The 'VoterPower' here is in relation to the running 'Epoch'.
-      _smWeightsAndSignatures :: !(Map.Map BlockHash (VoterPower, QuorumSignature, [FinalizerIndex]))
+      _smBlockToWeightsAndSignatures :: !(Map.Map BlockHash (VoterPower, QuorumSignature, [FinalizerIndex]))
     }
     deriving (Eq, Show)
 

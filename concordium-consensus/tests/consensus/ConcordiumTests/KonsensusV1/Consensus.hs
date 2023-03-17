@@ -1,10 +1,10 @@
 -- |Module testing functions from the 'Concordium.KonsensusV1.Consensus' module.
 module ConcordiumTests.KonsensusV1.Consensus where
 
+import Lens.Micro.Platform
 import Test.HUnit
 import Test.Hspec
 import Test.QuickCheck
-import Lens.Micro.Platform
 
 import Concordium.KonsensusV1.Consensus
 import Concordium.KonsensusV1.TreeState.Types

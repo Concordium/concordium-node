@@ -1,4 +1,4 @@
-{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |This module contains the logic for receiving and
@@ -72,20 +72,15 @@ receiveQuorumMessage qm@QuorumMessage{..} = process =<< get
         | qmRound < (skovData ^. roundStatus . rsCurrentRound) = return Rejected
         -- The epoch of the quroum signature message is obsolete.
         | qmEpoch <= skovData ^. skovEpochBakers . currentEpoch = return Rejected
-        -- We do not know about the finalization committee for the proposed epoch.
-        -- So we need to catch up.
+        -- The consensus runner is not caught up.
         | qmEpoch > skovData ^. skovEpochBakers . currentEpoch = return CatchupRequired
-        |  otherwise = do
-            currentBakers <- use skovEpochBakers
-            let finalizersForCurrentEpoch = currentBakers ^. currentEpochBakers . bfFinalizers
-            case finalizerByIndex finalizersForCurrentEpoch qmFinalizerIndex of
+        | otherwise = do
+            case getFinalizerByIndex skovData of
                 -- Signee is not in the finalization committee so we flag it and stop.
                 Nothing -> flag (NotAFinalizer qmFinalizerIndex qm) >> return Rejected
                 Just FinalizerInfo{..} -> do
-                    genesisHash <- gmFirstGenesisHash <$> use genesisMetadata
-                    let qsm = getQuorumSignatureMessage genesisHash qm
                     -- Check whether the signature is ok or not.
-                    if not (checkQuorumSignatureSingle qsm finalizerBlsKey qmSignature)
+                    if not (checkQuorumSignatureSingle (getQuorumSignatureMessage skovData) finalizerBlsKey qmSignature)
                         then return Rejected
                         else do
                             getRecentBlockStatus qmBlock skovData >>= \case
@@ -97,29 +92,38 @@ receiveQuorumMessage qm@QuorumMessage{..} = process =<< get
                                 RecentBlock BlockDead -> flag (SignedInvalidBlock qmFinalizerIndex qmBlock qm) >> return Rejected
                                 RecentBlock BlockUnknown -> return CatchupRequired
                                 RecentBlock (BlockPending _) -> return Awaiting
-                                RecentBlock (BlockAlive quorumMessagePointer) -> do
-                                    if isDoubleSigning finalizerIndex skovData
-                                        then flag (DoubleSigning qmFinalizerIndex qm) >> return Rejected
-                                        else -- Inconsistent rounds of the quorum signature message and the block it points to.
-                                            if blockRound quorumMessagePointer /= qmRound
-                                                then flag (RoundInconsistency qmFinalizerIndex qmRound (blockRound quorumMessagePointer)) >> return Rejected
-                                                else
-                                                    if blockEpoch quorumMessagePointer /= qmEpoch
-                                                        then flag (EpochInconsistency qmFinalizerIndex qmEpoch (blockEpoch quorumMessagePointer)) >> return Rejected
-                                                        else storeQuorumMessage qm finalizerWeight >> sendMessage qm >> processQuorumMessage qm >> return Received
-    -- Checks whether a finalizer present is present in the 'QuourumMessages'.
-    hasSignedOffQuorumMessage finalizerIndex skovData = isJust $! skovData ^? currentQuorumMessages . smFinIdxToMessage . ix finalizerIndex
+                                RecentBlock (BlockAlive quorumMessagePointer) ->
+                                    if
+                                            -- Finalizer already signed a message for this round.
+                                            | isDoubleSigning finalizerIndex skovData -> flag (DoubleSigning qmFinalizerIndex qm) >> return Rejected
+                                            -- Inconsistent rounds of the quorum signature message and the block it points to.
+                                            | blockRound quorumMessagePointer /= qmRound -> flag (RoundInconsistency qmFinalizerIndex qmRound (blockRound quorumMessagePointer)) >> return Rejected
+                                            -- Inconsistent epochs of the quorum signature message and the block it points to.
+                                            | blockEpoch quorumMessagePointer /= qmEpoch -> flag (EpochInconsistency qmFinalizerIndex qmEpoch (blockEpoch quorumMessagePointer)) >> return Rejected
+                                            -- Store, relay and process the quorum message.
+                                            | otherwise -> storeQuorumMessage qm finalizerWeight >> sendMessage qm >> processQuorumMessage qm >> return Received
+    -- Extract the quourum signature message
+    getQuorumSignatureMessage skovData =
+        let genesisHash = skovData ^. genesisMetadata . to gmFirstGenesisHash
+        in  quorumSignatureMessageFor qm genesisHash
+    -- Get the finalizer if it is present in the current finalization committee otherwise return 'Nothing'.
+    getFinalizerByIndex skovData =
+        let finalizersForCurrentEpoch = skovData ^. skovEpochBakers . currentEpochBakers . bfFinalizers
+        in  finalizerByIndex finalizersForCurrentEpoch qmFinalizerIndex
+    -- Checks whether a finalizer has signed off a quorum message already.
+    hasSignedOffQuorumMessage finalizerIndex skovData = isJust $! skovData ^? currentQuorumMessages . smFinalizerToQuorumMessage . ix finalizerIndex
+    -- Checks whether a finalizer has signed off a timeout mesage already.
     hasSignedOffTimeoutMessage = False -- TODO: check in the timeout messages for the current round also.
+    -- Checks if the finalizer has signed off either a quourum or a timeout message already.
     isDoubleSigning finalizerIndex skovData = hasSignedOffQuorumMessage finalizerIndex skovData || hasSignedOffTimeoutMessage
     -- Update the collection of quorum messages for the running epoch and store it in the state.
     storeQuorumMessage quorumMessage weight = do
         currentMessages <- use currentQuorumMessages
-        currentQuorumMessages .=! addQuorumMessage qmFinalizerIndex weight quorumMessage currentMessages
-        return ()
+        currentQuorumMessages .=! addQuorumMessage weight quorumMessage currentMessages
 
+-- |Adds a 'QuorumMessage' and the finalizer weight (deducted from the current epoch)
+-- to the 'QuorumMessages' for the current round.
 addQuorumMessage ::
-    -- |Identifier for the finalizer who has signed off.
-    FinalizerIndex ->
     -- |Weight of the finalizer.
     VoterPower ->
     -- |The signature message.
@@ -128,13 +132,13 @@ addQuorumMessage ::
     QuorumMessages ->
     -- |The resulting messages.
     QuorumMessages
-addQuorumMessage finalizerIndex weight quorumMessage@QuorumMessage{..} (QuorumMessages currentMessages currentWeights) = updateQuorumSignatures
+addQuorumMessage weight quorumMessage@QuorumMessage{..} (QuorumMessages currentMessages currentWeights) =
+    QuorumMessages
+        { _smFinalizerToQuorumMessage = newSignatureMessages,
+          _smBlockToWeightsAndSignatures = updatedWeightAndSignature
+        }
   where
-    updateQuorumSignatures =
-        QuorumMessages
-            { _smFinIdxToMessage = newSignatureMessages,
-              _smWeightsAndSignatures = updatedWeightAndSignature
-            }
+    finalizerIndex = qmFinalizerIndex
     newSignatureMessages = Map.insert finalizerIndex quorumMessage currentMessages
     justOrIncrement = maybe (Just (weight, qmSignature, [finalizerIndex])) (\(aggWeight, aggSig, aggFinalizers) -> Just (aggWeight + weight, aggSig <> qmSignature, finalizerIndex : aggFinalizers))
     updatedWeightAndSignature = Map.alter justOrIncrement qmBlock currentWeights
@@ -162,7 +166,7 @@ checkForQuorumWittness ::
     m (Maybe QuorumWitness)
 checkForQuorumWittness qcBlock = do
     currentMessages <- use currentQuorumMessages
-    case currentMessages ^? smWeightsAndSignatures . ix qcBlock of
+    case currentMessages ^? smBlockToWeightsAndSignatures . ix qcBlock of
         Nothing -> return Nothing
         Just (accummulatedWeight, aggregatedSignature, finalizers) -> do
             signatureThreshold <- genesisSignatureThreshold . gmParameters <$> use genesisMetadata
@@ -171,7 +175,17 @@ checkForQuorumWittness qcBlock = do
                 then return $ Just QuorumWitness{qwBlock = qcBlock, qwAggregateSignature = aggregatedSignature, qwSignatories = finalizerSet finalizers}
                 else return Nothing
 
-makeQuorumCertificate :: (MonadState (SkovData (MPV m)) m) => QuorumWitness -> m QuorumCertificate
+-- |Make a 'QuorumCertificate' given the provided
+-- 'QuorumWitness'.
+--
+-- This is an internal function and should not be called directly.
+-- This is called via 'receiveQuorumMessage'.
+makeQuorumCertificate ::
+    (MonadState (SkovData (MPV m)) m) =>
+    -- |The witness that a quorum certificate can be formed.
+    QuorumWitness ->
+    -- |The created 'QuorumCertificate'.
+    m QuorumCertificate
 makeQuorumCertificate QuorumWitness{..} = do
     qcEpoch <- use $ skovEpochBakers . currentEpoch
     qcRound <- use $ roundStatus . rsCurrentRound
@@ -180,6 +194,14 @@ makeQuorumCertificate QuorumWitness{..} = do
         qcSignatories = qwSignatories
     return QuorumCertificate{..}
 
+-- |Process a 'QuorumMessage'
+-- Check whether a 'QuorumCertificate' can be created.
+-- If that is the case the this function checks for finality and
+-- advance the round via the constructed 'QuorumCertificate'.
+--
+-- The is an internal function and should not be called directly.
+-- This is called via 'receiveQuorumMessage'.
+-- Precondition: The 'QuorumMessage' must've been verified.
 processQuorumMessage ::
     ( IsConsensusV1 (MPV m),
       MonadThrow m,
@@ -191,6 +213,7 @@ processQuorumMessage ::
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
       LowLevel.MonadTreeStateStore m
     ) =>
+    -- |The 'QuourumMessage' to process.
     QuorumMessage ->
     m ()
 processQuorumMessage QuorumMessage{..} = do
