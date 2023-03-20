@@ -8,7 +8,6 @@ import Data.Foldable
 import Data.List (sortOn)
 import qualified Data.Map.Strict as Map
 import Data.Ord
-import Data.Serialize
 import qualified Data.Vector as Vec
 import Lens.Micro.Platform
 
@@ -22,11 +21,6 @@ import Concordium.KonsensusV1.TreeState.Implementation
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
-
--- |A Monad for multicasting timeout messages.
-class MonadMulticast m where
-    -- |Multicast a message.
-    sendMessage :: (Serialize a) => a -> m ()
 
 -- |A baker context containing the baker identity. Used for accessing relevant baker keys and the baker id.
 newtype BakerContext = BakerContext

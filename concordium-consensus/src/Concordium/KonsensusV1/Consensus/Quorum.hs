@@ -9,6 +9,7 @@ import Control.Monad.Catch
 import Control.Monad.State
 import qualified Data.Map.Strict as Map
 import Data.Maybe (isJust)
+import qualified Data.Set as Set
 import Lens.Micro.Platform
 
 import Concordium.Genesis.Data.BaseV1
@@ -58,8 +59,7 @@ receiveQuorumMessage ::
       MonadTimeout m,
       MonadState (SkovData (MPV m)) m,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
-      LowLevel.MonadTreeStateStore m,
-      MonadMulticast m
+      LowLevel.MonadTreeStateStore m
     ) =>
     -- |The 'QuorumMessage' we are receiving.
     QuorumMessage ->
@@ -106,7 +106,7 @@ receiveQuorumMessage qm@QuorumMessage{..} = process =<< get
                                                 -- Inconsistent epochs of the quorum signature message and the block it points to.
                                                 | blockEpoch quorumMessagePointer /= qmEpoch -> flag (EpochInconsistency qmFinalizerIndex qmEpoch (blockEpoch quorumMessagePointer)) >> return Rejected
                                                 -- Store, relay and process the quorum message.
-                                                | otherwise -> storeQuorumMessage qm finalizerWeight >> sendMessage qm >> processQuorumMessage qm >> return Received
+                                                | otherwise -> storeQuorumMessage qm finalizerWeight >> return Received
     -- Extract the quourum signature message
     getQuorumSignatureMessage skovData =
         let genesisHash = skovData ^. genesisMetadata . to gmFirstGenesisHash
@@ -128,6 +128,8 @@ receiveQuorumMessage qm@QuorumMessage{..} = process =<< get
 
 -- |Adds a 'QuorumMessage' and the finalizer weight (deducted from the current epoch)
 -- to the 'QuorumMessages' for the current round.
+--
+-- Precondition. The finalizer must not be present already.
 addQuorumMessage ::
     -- |Weight of the finalizer.
     VoterPower ->
@@ -145,7 +147,7 @@ addQuorumMessage weight quorumMessage@QuorumMessage{..} (QuorumMessages currentM
   where
     finalizerIndex = qmFinalizerIndex
     newSignatureMessages = Map.insert finalizerIndex quorumMessage currentMessages
-    justOrIncrement = maybe (Just (weight, qmSignature, [finalizerIndex])) (\(aggWeight, aggSig, aggFinalizers) -> Just (aggWeight + weight, aggSig <> qmSignature, finalizerIndex : aggFinalizers))
+    justOrIncrement = maybe (Just (weight, qmSignature, Set.singleton finalizerIndex)) (\(aggWeight, aggSig, aggFinalizers) -> Just (aggWeight + weight, aggSig <> qmSignature, Set.insert finalizerIndex aggFinalizers))
     updatedWeightAndSignature = Map.alter justOrIncrement qmBlock currentWeights
 
 -- |If there are enough (weighted) sigantures on the block provided
@@ -179,7 +181,7 @@ makeQuorumCertificate blockPointer = do
                                   qcRound = theRound,
                                   qcEpoch = theEpoch,
                                   qcAggregateSignature = aggregatedSignature,
-                                  qcSignatories = finalizerSet finalizers
+                                  qcSignatories = finalizerSet $ Set.toList finalizers
                                 }
                 else return Nothing
 
@@ -188,9 +190,8 @@ makeQuorumCertificate blockPointer = do
 -- If that is the case the this function checks for finality and
 -- advance the round via the constructed 'QuorumCertificate'.
 --
--- The is an internal function and should not be called directly.
--- This is called via 'receiveQuorumMessage'.
--- Precondition: The 'QuorumMessage' must've been verified.
+-- Precondition: The 'QuorumMessage' must've been pre verified via
+-- 'receiveQuorumMessage' (i.e. 'Received' result code) before calling this function.
 processQuorumMessage ::
     ( IsConsensusV1 (MPV m),
       MonadThrow m,
