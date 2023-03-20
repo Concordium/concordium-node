@@ -47,24 +47,6 @@ newtype BakerContext = BakerContext
     }
 makeClassy ''BakerContext
 
--- |Get the private baker aggregation key.
-getBakerAggSecretKey :: (MonadReader r m, HasBakerContext r) => m BakerAggregationPrivateKey
-getBakerAggSecretKey = do
-    bi <- view bakerIdentity
-    return $ bakerAggregationKey bi
-
--- |Get the private baker sign key.
-getBakerSignPrivateKey :: (MonadReader r m, HasBakerContext r) => m BakerSignPrivateKey
-getBakerSignPrivateKey = do
-    bi <- view bakerIdentity
-    return $ bakerSignKey bi
-
--- |Get the baker id.
-getBakerId :: (MonadReader r m, HasBakerContext r) => m BakerId
-getBakerId = do
-    bi <- view bakerIdentity
-    return $ bakerId bi
-
 -- |A Monad for timer related actions.
 class MonadTimeout m where
     -- |Reset the timeout from the supplied 'Duration'.
@@ -105,9 +87,9 @@ advanceRoundStatus toRound (Left (tc, qc)) currentRoundStatus =
         }
 advanceRoundStatus toRound (Right qc) currentRoundStatus =
     currentRoundStatus
-        { rsCurrentRound = toRound,
-          rsHighestQC = qc,
-          rsPreviousRoundTC = Absent
+        { _rsCurrentRound = toRound,
+          _rsHighestQC = qc,
+          _rsPreviousRoundTC = Absent
         }
 
 -- |Advance to the provided 'Round'.
@@ -201,17 +183,19 @@ computeFinalizationCommittee FullBakers{..} FinalizationCommitteeParameters{..} 
     committeeTotalWeight = sum $ finalizerWeight <$> committeeFinalizers
 
 
-updateRoundStatus :: Ratio Word64 -> RoundStatus -> RoundStatus
-updateRoundStatus timeoutIncrease currentRoundStatus =
-    let newNextSignableRound = 1 + rsCurrentRound currentRoundStatus
-        timeoutIncreaseRational = toRational timeoutIncrease :: Rational
-        currentTimeOutRational = toRational $ rsCurrentTimeout currentRoundStatus :: Rational
+updateCurrentTimeout :: Ratio Word64 -> Duration -> Duration
+updateCurrentTimeout timeoutIncrease oldCurrentTimeout =
+    let timeoutIncreaseRational = toRational timeoutIncrease :: Rational
+        currentTimeOutRational = toRational oldCurrentTimeout :: Rational
         newCurrentTimeoutRational = timeoutIncreaseRational * currentTimeOutRational :: Rational
         newCurrentTimeoutInteger = floor newCurrentTimeoutRational :: Integer
-        newCurrentTimeout = Duration $ fromIntegral newCurrentTimeoutInteger
-    in currentRoundStatus{
-        rsNextSignableRound = newNextSignableRound,
-        rsCurrentTimeout = newCurrentTimeout}
+    in  Duration $ fromIntegral newCurrentTimeoutInteger
+
+
+increaseNextSignableRound :: RoundStatus -> RoundStatus
+increaseNextSignableRound currentRoundStatus =
+    let newNextSignableRound = 1 + _rsCurrentRound currentRoundStatus
+    in currentRoundStatus{_rsNextSignableRound = newNextSignableRound}
 
 -- |This is 'uponTimeoutEvent' from the bluepaper. If a timeout occurs, a finalizers should call this function to
 -- generate and send out a timeout message.
@@ -228,51 +212,53 @@ uponTimeoutEvent ::
     ) =>
     m ()
 uponTimeoutEvent = do
-    bakerId <- getBakerId
-    currentRoundStatus <- doGetRoundStatus
-    -- finComm1 <- (^. currentEpochBakers . bfFinalizers) <$> use skovEpochBakers -- FIXME: Check if this is correct
-    eBakers <- use skovEpochBakers
-    let maybeFinComm = (^. bfFinalizers) <$> getBakersForLiveEpoch (rsCurrentEpoch currentRoundStatus) eBakers
-    let maybeFinalizer = case maybeFinComm of
-            Nothing -> Nothing
-            Just finComm -> finalizerByBakerId finComm bakerId
+    maybeBakerIdentity <- view bakerIdentity
+    forM_ maybeBakerIdentity $ \BakerIdentity{..} -> do
+        currentRoundStatus <- doGetRoundStatus
+        eBakers <- use skovEpochBakers
 
-    case maybeFinalizer of
-        Nothing -> return ()
-        Just finInfo -> do
-            lastFinBlockPtr <- use lastFinalized
-            gc <- use genesisMetadata
-            let genesisHash = gmFirstGenesisHash gc
-            cp <- getChainParameters $ bpState lastFinBlockPtr
-            let timeoutIncrease = cp ^. cpConsensusParameters . cpTimeoutParameters . tpTimeoutIncrease
-            doSetRoundStatus $ updateRoundStatus timeoutIncrease currentRoundStatus
+        -- finComm1 <- (^. currentEpochBakers . bfFinalizers) <$> use skovEpochBakers -- FIXME: Would this be better than the below?
+        let maybeFinComm = (^. bfFinalizers) <$> getBakersForLiveEpoch (_currentEpoch eBakers) eBakers
+        let maybeFinalizer = case maybeFinComm of
+                Nothing -> Nothing
+                Just finComm -> finalizerByBakerId finComm bakerId
 
-            let highestQC = rsHighestQC currentRoundStatus
+        case maybeFinalizer of
+            Nothing -> return ()
+            Just finInfo -> do
+                lastFinBlockPtr <- use lastFinalized
+                gc <- use genesisMetadata
+                let genesisHash = gmFirstGenesisHash gc
+                cp <- getChainParameters $ bpState lastFinBlockPtr
+                let timeoutIncrease = cp ^. cpConsensusParameters . cpTimeoutParameters . tpTimeoutIncrease
+                doSetRoundStatus $ increaseNextSignableRound currentRoundStatus
+                oldCurrentTimeout <- use currentTimeout
+                currentTimeout .=! updateCurrentTimeout timeoutIncrease oldCurrentTimeout
 
-            let timeoutSigMessage =
-                    TimeoutSignatureMessage -- FIXME: Figure out if this should be set in the roundstatus
-                        { tsmGenesis = genesisHash,
-                        tsmRound = rsCurrentRound currentRoundStatus,
-                        tsmQCRound = qcRound highestQC,
-                        tsmQCEpoch = qcEpoch highestQC
-                        }
-            bakerAggSk <- getBakerAggSecretKey
-            let timeoutSig = signTimeoutSignatureMessage timeoutSigMessage bakerAggSk
+                let highestQC = _rsHighestQC currentRoundStatus
+
+                let timeoutSigMessage =
+                        TimeoutSignatureMessage
+                            { tsmGenesis = genesisHash,
+                            tsmRound = _rsCurrentRound currentRoundStatus,
+                            tsmQCRound = qcRound highestQC,
+                            tsmQCEpoch = qcEpoch highestQC
+                            }
+                let timeoutSig = signTimeoutSignatureMessage timeoutSigMessage bakerAggregationKey
 
 
-            let timeoutMessageBody =
-                    TimeoutMessageBody
-                        {
-                        tmFinalizerIndex = finalizerIndex finInfo,
-                        tmRound = rsCurrentRound currentRoundStatus,
-                        tmEpoch = rsCurrentEpoch currentRoundStatus,
-                        tmQuorumCertificate = highestQC,
-                        tmAggregateSignature = timeoutSig
-                        }
-            bakerSignSk <- getBakerSignPrivateKey
-            let timeoutMessage = signTimeoutMessage timeoutMessageBody genesisHash bakerSignSk
-            sendTimeoutMessage timeoutMessage
-            processTimeout timeoutMessage
+                let timeoutMessageBody =
+                        TimeoutMessageBody
+                            {
+                            tmFinalizerIndex = finalizerIndex finInfo,
+                            tmRound = _rsCurrentRound currentRoundStatus,
+                            tmEpoch = _currentEpoch eBakers,
+                            tmQuorumCertificate = highestQC,
+                            tmAggregateSignature = timeoutSig
+                            }
+                let timeoutMessage = signTimeoutMessage timeoutMessageBody genesisHash bakerSignKey
+                sendMessage timeoutMessage
+                processTimeout timeoutMessage
 
 -- |This is 'processTimeout' from the bluepaper. FIXME: add more documentation when spefication is ready.
 processTimeout ::
@@ -290,7 +276,7 @@ processTimeout tm = do
     currentTimeoutMessages <- use receivedTimeoutMessages
     currentRoundStatus <- doGetRoundStatus
     let epoch = tmEpoch $ tmBody tm
-    let highestQC = rsHighestQC currentRoundStatus
+    let highestQC = _rsHighestQC currentRoundStatus
 
     let maybeMinKey = Map.lookupMin currentTimeoutMessages
     let finIndex = tmFinalizerIndex (tmBody tm)
@@ -307,7 +293,7 @@ processTimeout tm = do
                         let afterDeletion = Map.filterWithKey (\k _ -> k >= epoch - 1) currentTimeoutMessages -- Delete all epochs < epoch - 1. Then insert epoch.
                         in Just $ afterDeletion &
                                 at' epoch . non Map.empty . at' finIndex ?~ tm -- Insert.
-                    | otherwise -> Nothing -- Don't insert anything. FIXME: fix this case
+                    | otherwise -> Nothing
 
     forM_ maybeNewTimeoutMessages $ \newTimeoutMessages -> do
         receivedTimeoutMessages .=! newTimeoutMessages
@@ -353,7 +339,7 @@ processTimeout tm = do
                 let threshold = totalWeightRational * (2 % 3) :: Rational -- FIXME: get from genesis meta data
                 let thresholdVoterPower = VoterPower $ floor threshold
                 when (voterPowerSum > thresholdVoterPower) $ do
-                    let currentRound = rsCurrentRound currentRoundStatus
+                    let currentRound = _rsCurrentRound currentRoundStatus
                     let tc = makeTC currentRound newTimeoutMessages
                     advanceRound (currentRound + 1) (Left (tc, highestQC))
 

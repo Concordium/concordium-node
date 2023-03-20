@@ -272,7 +272,7 @@ mkInitialSkovData rp genMeta genState _currentTimeout _skovEpochBakers =
                   bpBlock = genesisBlock,
                   bpState = genState
                 }
-        _roundStatus = initialRoundStatus _currentTimeout $ gmFirstGenesisHash genMeta
+        _roundStatus = initialRoundStatus $ gmFirstGenesisHash genMeta
         _transactionTable = emptyTransactionTable
         _transactionTablePurgeCounter = 0
         _skovPendingTransactions =
@@ -947,13 +947,13 @@ doSetRoundStatus rs = do
     LowLevel.writeCurrentRoundStatus rs
     roundStatus .=! rs
 
-doStoreTimeoutMessage :: (MonadState (SkovData pv) m) => TimeoutMessage -> m ()
-doStoreTimeoutMessage tm = do
-    currentTimeoutMessages <- use receivedTimeoutMessages
-    epoch <- rsCurrentEpoch <$> doGetRoundStatus
-    let newTimeoutMessages = currentTimeoutMessages &
-                             at' epoch . non Map.empty . at' (tmFinalizerIndex (tmBody tm)) ?~ tm
-    receivedTimeoutMessages .=! newTimeoutMessages
+-- doStoreTimeoutMessage :: (MonadState (SkovData pv) m) => TimeoutMessage -> m ()
+-- doStoreTimeoutMessage tm = do
+--     currentTimeoutMessages <- use receivedTimeoutMessages
+--     epoch <- rsCurrentEpoch <$> doGetRoundStatus
+--     let newTimeoutMessages = currentTimeoutMessages &
+--                              at' epoch . non Map.empty . at' (tmFinalizerIndex (tmBody tm)) ?~ tm
+--     receivedTimeoutMessages .=! newTimeoutMessages
 
 -- |Updates and persists the 'RoundStatus' of the 'SkovData' to the supplied 'RoundStatus
 setRoundStatus :: (LowLevel.MonadTreeStateStore m, MonadState (SkovData (MPV m)) m) => RoundStatus -> m ()

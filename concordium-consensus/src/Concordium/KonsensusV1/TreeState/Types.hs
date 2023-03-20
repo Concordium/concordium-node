@@ -251,24 +251,24 @@ makeLenses ''RoundStatus
 
 instance Serialize RoundStatus where
     put RoundStatus{..} = do
-        put rsCurrentRound
-        put rsLastSignedQuourumSignatureMessage
-        put rsLastSignedTimeoutSignatureMessage
-        put rsNextSignableRound
-        put rsHighestQC
-        put rsPreviousRoundTC
+        put _rsCurrentRound
+        put _rsLastSignedQuourumSignatureMessage
+        put _rsLastSignedTimeoutSignatureMessage
+        put _rsNextSignableRound
+        put _rsHighestQC
+        put _rsPreviousRoundTC
     get = do
-        rsCurrentRound <- get
-        rsLastSignedQuourumSignatureMessage <- get
-        rsLastSignedTimeoutSignatureMessage <- get
-        rsNextSignableRound <- get
-        rsHighestQC <- get
-        rsPreviousRoundTC <- get
+        _rsCurrentRound <- get
+        _rsLastSignedQuourumSignatureMessage <- get
+        _rsLastSignedTimeoutSignatureMessage <- get
+        _rsNextSignableRound <- get
+        _rsHighestQC <- get
+        _rsPreviousRoundTC <- get
         return RoundStatus{..}
 
 -- |The 'RoundStatus' for consensus at genesis.
-initialRoundStatus :: Duration -> BlockHash -> RoundStatus
-initialRoundStatus baseTimeout genesisHash =
+initialRoundStatus :: BlockHash -> RoundStatus
+initialRoundStatus genesisHash =
     RoundStatus
         { _rsCurrentRound = 0,
           _rsLastSignedQuourumSignatureMessage = Absent,
