@@ -2,19 +2,27 @@
 module ConcordiumTests.KonsensusV1.Quorum where
 
 import Control.Monad.State
-import Data.Maybe (fromJust, isJust, isNothing)
+import Data.Maybe (fromJust, isJust)
 import qualified Data.Set as Set
+import qualified Data.Vector as Vec
 import Lens.Micro.Platform
+import System.IO.Unsafe
 import Test.HUnit
 import Test.Hspec
 import Test.QuickCheck
+import Unsafe.Coerce
 
 import Concordium.Types
 
+import qualified Concordium.Crypto.BlockSignature as Sig
+import qualified Concordium.Crypto.BlsSignature as Bls
+import qualified Concordium.Crypto.VRF as VRF
+import Concordium.GlobalState.BakerInfo
 import Concordium.KonsensusV1.Consensus.Quorum
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 
+import Concordium.KonsensusV1.TreeState.Implementation
 import ConcordiumTests.KonsensusV1.TreeStateTest
 import ConcordiumTests.KonsensusV1.Types
 
@@ -65,6 +73,8 @@ propAddQuorumMessage =
                         (2 * weight, qmSignature qm1 <> qmSignature qm0, Set.insert (qmFinalizerIndex qm1) (Set.singleton $ qmFinalizerIndex qm0))
                         (fromJust $! qsm'' ^? smBlockToWeightsAndSignatures . ix (qmBlock qm1))
 
+-- |Test that checks that a 'QuorumCertificate' can be formed when
+-- there are enough finalizers (weighted) who have signed off a round.
 testMakeQuorumCertificate :: Spec
 testMakeQuorumCertificate = describe "Quorum Certificate creation" $ do
     it "should not create a qc as there are not enough weight" $ do
@@ -74,14 +84,35 @@ testMakeQuorumCertificate = describe "Quorum Certificate creation" $ do
             Nothing
             maybeQC
     it "should create a certificate when there is enough weight" $ do
-        maybeQC <- evalStateT (makeQuorumCertificate bh) sd
+        maybeQC <- evalStateT (makeQuorumCertificate bh) sd'
         assertEqual
             "A quorum certificate should have been generated"
-            1
-            1
+            (Just (QuorumCertificate bh 0 0 (emptyQuorumSignature <> emptyQuorumSignature) (finalizerSet $ FinalizerIndex <$> [1, 2])))
+            maybeQC
   where
-    sd = dummyInitialSkovData
+    fi fIdx = FinalizerInfo (FinalizerIndex fIdx) 1 sigPublicKey vrfPublicKey blsPublicKey (BakerId $ AccountIndex (unsafeCoerce fIdx))
+    blsPublicKey = Bls.derivePublicKey someBlsSecretKey
+    vrfPublicKey = VRF.publicKey someVRFKeyPair
+    sigPublicKey = Sig.verifyKey $ unsafePerformIO Sig.newKeyPair
+    bfs =
+        BakersAndFinalizers
+            { _bfBakers = FullBakers Vec.empty 0,
+              _bfFinalizers = FinalizationCommittee (Vec.fromList $ fi <$> [1, 2, 3]) 3
+            }
+    -- A skov data not capable of forming a quorum certificate
+    sd =
+        dummyInitialSkovData
+            & skovEpochBakers .~ EpochBakers 0 bfs bfs bfs 1
+            & currentQuorumMessages %~ addQuorumMessage 1 (quorumMessage 1)
+    -- A skov data capable of forming a quorum certificate
+    sd' =
+        dummyInitialSkovData
+            & skovEpochBakers .~ EpochBakers 0 bfs bfs bfs 1
+            & currentQuorumMessages %~ addQuorumMessage 1 (quorumMessage 1)
+            & currentQuorumMessages %~ addQuorumMessage 1 (quorumMessage 2)
     bh = BlockHash minBound
+    quorumMessage finalizerIndex = QuorumMessage emptyQuorumSignature bh (FinalizerIndex finalizerIndex) 0 0
+    emptyQuorumSignature = QuorumSignature $ Bls.emptySignature
 
 tests :: Spec
 tests = describe "KonsensusV1.Quorum" $ do
