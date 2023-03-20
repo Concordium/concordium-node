@@ -148,7 +148,7 @@ addQuorumMessage weight quorumMessage@QuorumMessage{..} (QuorumMessages currentM
 --
 -- If a 'QuorumCertificate' could not be formed then this function returns @Nothing@.
 makeQuorumCertificate ::
-    (MonadState (SkovData (MPV m)) m) =>
+    (MonadState (SkovData pv) m) =>
     -- |The block we want to check whether we can
     -- create a 'QuorumCertificate' or not.
     BlockHash ->
