@@ -370,7 +370,7 @@ lldbWithGenesis :: LowLevelDB pv
 lldbWithGenesis =
     initialLowLevelDB
         sb
-        (initialRoundStatus 10_000 dummyLeadershipElectionNonce genesisHash)
+        (initialRoundStatus genesisHash)
     where
         sb = toStoredBlock genB
         genesisHash = getHash sb

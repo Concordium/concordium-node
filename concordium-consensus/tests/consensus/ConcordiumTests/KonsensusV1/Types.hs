@@ -164,6 +164,7 @@ genTimeoutMessageBody = do
             ]
     tmEpochFinalizationEntry <- oneof [return Absent, Present <$> genFinalizationEntry]
     tmAggregateSignature <- TimeoutSignature <$> genBlsSignature
+    let tmEpoch = qcEpoch tmQuorumCertificate -- FIXME: is this correct?
     return TimeoutMessageBody{..}
 
 -- |Generate a 'TimeoutMessage' signed by an arbitrarily-generated keypair.
@@ -188,7 +189,9 @@ genRoundStatus = do
     _rsCurrentRound <- genRound
     _rsLastSignedQuourumSignatureMessage <- coinFlip =<< genQuorumSignatureMessage
     _rsLastSignedTimeoutSignatureMessage <- coinFlip =<< genTimeoutSignatureMessage
-    _rsHighestQC <- coinFlip =<< genQuorumCertificate
+    _rsHighestQC <- genQuorumCertificate
+    nextRound <- genRound
+    let _rsNextSignableRound = min (_rsCurrentRound + 1) nextRound 
     tc <- genTimeoutCertificate
     qc <- genQuorumCertificate
     let _rsPreviousRoundTC = Present (tc, qc)
