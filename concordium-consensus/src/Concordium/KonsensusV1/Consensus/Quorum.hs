@@ -51,14 +51,7 @@ data ReceiveQuorumMessageResult
 -- * 'Awaiting' The 'QuorumMessage' cannot be processed at this time as it has a dependency on a pending block.
 -- * 'CatchupRequired' The 'QuorumMessage' cannot be processed before it is caught up.
 receiveQuorumMessage ::
-    ( IsConsensusV1 (MPV m),
-      MonadThrow m,
-      MonadIO m,
-      BlockStateStorage m,
-      TimeMonad m,
-      MonadTimeout m,
-      MonadState (SkovData (MPV m)) m,
-      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
+    ( MonadState (SkovData (MPV m)) m,
       LowLevel.MonadTreeStateStore m
     ) =>
     -- |The 'QuorumMessage' we are receiving.
