@@ -411,6 +411,13 @@ pub struct GRPC2Config {
     )]
     pub endpoint_config:            Option<PathBuf>,
     #[structopt(
+        long = "grpc2-invoke-max-energy",
+        help = "Maximum amount of energy allowed for the InvokeInstance endpoint.",
+        env = "CONCORDIUM_NODE_GRPC2_INVOKE_MAX_ENERGY",
+        default_value = "1000000"
+    )]
+    pub invoke_max_energy: u64,
+    #[structopt(
         long = "grpc2-health-max-finalized-delay",
         help = "Maximum amount of seconds that the time of the last finalized block can be behind \
                 present before the health check fails.",
