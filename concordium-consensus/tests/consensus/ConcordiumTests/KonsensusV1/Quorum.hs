@@ -1,7 +1,8 @@
 -- |Module testing functions from the 'Concordium.KonsensusV1.Quorum' module.
 module ConcordiumTests.KonsensusV1.Quorum where
 
-import Data.Maybe (fromJust, isJust)
+import Control.Monad.State
+import Data.Maybe (fromJust, isJust, isNothing)
 import qualified Data.Set as Set
 import Lens.Micro.Platform
 import Test.HUnit
@@ -14,6 +15,7 @@ import Concordium.KonsensusV1.Consensus.Quorum
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 
+import ConcordiumTests.KonsensusV1.TreeStateTest
 import ConcordiumTests.KonsensusV1.Types
 
 -- |Generate a random 'VoterPower'.
@@ -29,6 +31,9 @@ genQuorumMessageFor bh = do
     qmEpoch <- genEpoch
     return QuorumMessage{qmBlock = bh, ..}
 
+-- |Test for ensuring that when a
+-- new 'QuorumMessage' is added to the 'QuorumMessages' type,
+-- then the weight is being accummulated and signatures are aggregated.
 propAddQuorumMessage :: Property
 propAddQuorumMessage =
     forAll genQuorumMessage $ \qm0 ->
@@ -60,6 +65,25 @@ propAddQuorumMessage =
                         (2 * weight, qmSignature qm1 <> qmSignature qm0, Set.insert (qmFinalizerIndex qm1) (Set.singleton $ qmFinalizerIndex qm0))
                         (fromJust $! qsm'' ^? smBlockToWeightsAndSignatures . ix (qmBlock qm1))
 
+testMakeQuorumCertificate :: Spec
+testMakeQuorumCertificate = describe "Quorum Certificate creation" $ do
+    it "should not create a qc as there are not enough weight" $ do
+        maybeQC <- evalStateT (makeQuorumCertificate bh) sd
+        assertEqual
+            "No quorum certificate should be created"
+            Nothing
+            maybeQC
+    it "should create a certificate when there is enough weight" $ do
+        maybeQC <- evalStateT (makeQuorumCertificate bh) sd
+        assertEqual
+            "A quorum certificate should have been generated"
+            1
+            1
+  where
+    sd = dummyInitialSkovData
+    bh = BlockHash minBound
+
 tests :: Spec
 tests = describe "KonsensusV1.Quorum" $ do
     it "Adding a quorum message" propAddQuorumMessage
+    testMakeQuorumCertificate
