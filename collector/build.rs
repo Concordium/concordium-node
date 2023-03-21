@@ -4,7 +4,7 @@ fn main() -> std::io::Result<()> {
     // MacOS logger
     #[cfg(target_os = "macos")]
     cc::Build::new().file("macos_log_wrapper.c").compile("macos_log_wrapper");
-    
+
     let cargo_dir = env!("CARGO_MANIFEST_DIR");
     let proto_root_input = format!("{}/../concordium-base/concordium-grpc-api", cargo_dir);
     let service = format!("{}/v2/concordium/service.proto", proto_root_input);

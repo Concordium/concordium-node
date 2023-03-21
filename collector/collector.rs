@@ -1,13 +1,12 @@
-use collector_backend::{IsInBakingCommittee, NodeInfo};
-use futures::TryStreamExt;
+use anyhow::{anyhow, bail, Result};
 use chrono::{SecondsFormat, TimeZone};
-use std::{borrow::ToOwned, fmt, process::exit, str::FromStr, time::Duration};
+use collector_backend::{IsInBakingCommittee, NodeInfo};
+use env_logger::{Builder, Env};
+use futures::TryStreamExt;
+use log::LevelFilter;
+use std::{borrow::ToOwned, fmt, io::Write, process::exit, str::FromStr, time::Duration};
 use structopt::StructOpt;
 use tonic::transport::channel::Channel;
-use anyhow::{anyhow, bail, Result};
-use env_logger::{Builder, Env};
-use log::LevelFilter;
-use std::io::Write;
 
 #[macro_use]
 extern crate log;
@@ -123,10 +122,7 @@ async fn main() {
         info!("{:?}", conf);
     }
 
-    info!(
-        "Starting up node-collector version {}!",
-        env!("CARGO_PKG_VERSION")
-    );
+    info!("Starting up node-collector version {}!", env!("CARGO_PKG_VERSION"));
 
     if conf.node_names.len() != conf.grpc_hosts.len() {
         error!("{:?}, {:?}", conf.node_names, conf.grpc_hosts);
@@ -269,8 +265,8 @@ async fn collect_data<'a>(
         peersList: peer_list,
         bestBlock: hash_to_hex(consensus.best_block)?,
         bestBlockHeight: consensus.best_block_height.req()?.value,
-        bestBlockBakerId: Some(best_block.baker.req()?.value),
-        bestArrivedTime: consensus.block_last_arrived_time.map(from_unix).transpose()?,
+        bestBlockBakerId: (|| Some(best_block.baker?.value))(),
+        bestArrivedTime: Some(from_unix(best_block.arrive_time.req()?.clone())?),
         blockArrivePeriodEMA: consensus.block_arrive_period_ema,
         blockArrivePeriodEMSD: consensus.block_arrive_period_emsd,
         blockArriveLatencyEMA: Some(consensus.block_arrive_latency_ema),
@@ -302,7 +298,7 @@ async fn collect_data<'a>(
         bestBlockTransactionEnergyCost: Some(
             best_block.transactions_energy_cost.req()?.value as u64,
         ),
-        bestBlockExecutionCost: None, // Some(best_block.transactions_energy_cost?.value),
+        bestBlockExecutionCost: None,
         bestBlockCentralBankAmount: foundation_amount.map(|x| x.value),
         blocksReceivedCount: Some(consensus.blocks_received_count as u64),
         blocksVerifiedCount: Some(consensus.blocks_verified_count as u64),
