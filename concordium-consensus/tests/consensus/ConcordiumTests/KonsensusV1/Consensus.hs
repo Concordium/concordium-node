@@ -14,6 +14,7 @@ import Concordium.KonsensusV1.Types
 import Concordium.Types
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.KonsensusV1.Consensus
+import Concordium.KonsensusV1.Consensus.Timeout
 
 import Test.QuickCheck
 
@@ -81,7 +82,7 @@ tests :: Spec
 tests = describe "KonsensusV1.Consensus" $ do
     it "RoundStatus advances from quorum round" propAdvanceRoundStatusFromQuorumRound
     it "RoundStatus advances from timed out round" propAdvanceRoundStatusFromTCRound
-    it "Test updateRoundStatus" $ do
+    it "Test updateCurrentTimeout" $ do
         testUpdateCurrentTimeout 10000 (3 % 2) 15000
         testUpdateCurrentTimeout 10000 (4 % 3) 13333
         testUpdateCurrentTimeout 10000 (5 % 3) 16666
