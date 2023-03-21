@@ -34,7 +34,7 @@ import Concordium.Types.Execution (TransactionSummary)
 import Concordium.Types.HashableTo
 import Concordium.Types.IdentityProviders
 import Concordium.Types.Parameters
-import Concordium.Types.Queries
+import Concordium.Types.Queries hiding (PassiveCommitteeInfo (..), bakerId)
 import Concordium.Types.SeedState
 import Concordium.Types.Transactions
 import qualified Concordium.Types.UpdateQueues as UQ
@@ -66,16 +66,6 @@ import Concordium.Skov as Skov (
     SkovQueryMonad (getBlocksAtHeight),
     evalSkovT,
  )
-
--- |Input to block based queries, i.e., queries which query the state of an
--- entity in a given block.
-data BlockHashInput
-    = -- |Best block.
-      BHIBest
-    | -- |Last finalized block
-      BHILastFinal
-    | -- |Given block hash
-      BHIGiven BlockHash
 
 -- |Run a query against a specific skov version.
 liftSkovQuery ::
@@ -185,7 +175,7 @@ liftSkovQueryBHI ::
     MVR finconf (BlockHash, Maybe a)
 liftSkovQueryBHI a bhi = do
     case bhi of
-        BHIGiven bh ->
+        Given bh ->
             MVR $ \mvr ->
                 (bh,)
                     <$> atLatestSuccessfulVersion
@@ -193,8 +183,8 @@ liftSkovQueryBHI a bhi = do
                         mvr
         other -> liftSkovQueryLatest $ do
             bp <- case other of
-                BHIBest -> bestBlock
-                BHILastFinal -> lastFinalizedBlock
+                Best -> bestBlock
+                LastFinal -> lastFinalizedBlock
             (bpHash bp,) . Just <$> a bp
 
 -- |Try a 'BlockHashInput' based query on the latest skov version. If a specific
@@ -214,7 +204,7 @@ liftSkovQueryBHIAndVersion ::
     MVR finconf (BlockHash, Maybe a)
 liftSkovQueryBHIAndVersion query bhi = do
     case bhi of
-        BHIGiven bh ->
+        Given bh ->
             MVR $ \mvr ->
                 (bh,)
                     <$> atLatestSuccessfulVersion
@@ -225,8 +215,8 @@ liftSkovQueryBHIAndVersion query bhi = do
             let evc = Vec.last versions
             liftSkovQueryLatest $ do
                 bp <- case other of
-                    BHIBest -> bestBlock
-                    BHILastFinal -> lastFinalizedBlock
+                    Best -> bestBlock
+                    LastFinal -> lastFinalizedBlock
                 (bpHash bp,) . Just <$> query evc bp
 
 -- |Try a block based query on the latest skov version, working
@@ -1022,35 +1012,44 @@ data BakerStatus
       AddedButWrongKeys
     deriving (Eq, Ord, Show)
 
--- |Determine the status of the baker with respect to the current best block.
-getBakerStatusBestBlock :: MVR finconf (BakerStatus, Maybe BakerId)
+-- |Determine the status and lottery power of the baker with respect to the current best block.
+getBakerStatusBestBlock :: MVR finconf (BakerStatus, Maybe BakerId, Maybe Double)
 getBakerStatusBestBlock =
     asks mvBaker >>= \case
-        Nothing -> return (NotInCommittee, Nothing)
+        Nothing -> return (NotInCommittee, Nothing, Nothing)
         Just Baker{bakerIdentity = bakerIdent} -> liftSkovQueryLatest $ do
             bb <- bestBlock
             bs <- queryBlockState bb
             bakers <- BS.getCurrentEpochBakers bs
-            bakerStatus <- case fullBaker bakers (bakerId bakerIdent) of
-                Just fbinfo
-                    -- Current baker with valid keys
-                    | validateBakerKeys (fbinfo ^. bakerInfo) bakerIdent ->
-                        return ActiveInComittee
-                    -- Current baker, but invalid keys
-                    | otherwise -> return AddedButWrongKeys
-                Nothing ->
+            (bakerStatus, bakerLotteryPower) <- case fullBaker bakers (bakerId bakerIdent) of
+                Just fbinfo -> do
+                    let status =
+                            if validateBakerKeys (fbinfo ^. bakerInfo) bakerIdent
+                                then -- Current baker with valid keys
+                                    ActiveInComittee
+                                else -- Current baker, but invalid keys
+                                    AddedButWrongKeys
+                    let bakerLotteryPower = fromIntegral (fbinfo ^. bakerStake) / fromIntegral (bakerTotalStake bakers)
+                    return (status, Just bakerLotteryPower)
+                Nothing -> do
                     -- Not a current baker
-                    BS.getBakerAccount bs (bakerId bakerIdent) >>= \case
-                        Just acc ->
-                            -- Account is valid
-                            BS.getAccountBaker acc >>= \case
-                                -- Account has no registered baker
-                                Nothing -> return NotInCommittee
-                                Just ab
-                                    -- Registered baker with valid keys
-                                    | validateBakerKeys (ab ^. accountBakerInfo . bakerInfo) bakerIdent ->
-                                        return AddedButNotActiveInCommittee
-                                    -- Registered baker with invalid keys
-                                    | otherwise -> return AddedButWrongKeys
-                        Nothing -> return NotInCommittee
-            return (bakerStatus, Just $ bakerId bakerIdent)
+                    status <-
+                        BS.getBakerAccount bs (bakerId bakerIdent) >>= \case
+                            Just acc ->
+                                -- Account is valid
+                                BS.getAccountBaker acc >>= \case
+                                    -- Account has no registered baker
+                                    Nothing -> return NotInCommittee
+                                    Just ab
+                                        -- Registered baker with valid keys
+                                        | validateBakerKeys (ab ^. accountBakerInfo . bakerInfo) bakerIdent ->
+                                            return AddedButNotActiveInCommittee
+                                        -- Registered baker with invalid keys
+                                        | otherwise -> return AddedButWrongKeys
+                            Nothing -> return NotInCommittee
+                    return (status, Nothing)
+            return (bakerStatus, Just $ bakerId bakerIdent, bakerLotteryPower)
+
+-- |Get the total number of non-finalized transactions across all accounts.
+getNumberOfNonFinalizedTransactions :: MVR finconf Int
+getNumberOfNonFinalizedTransactions = liftSkovQueryLatest queryNumberOfNonFinalizedTransactions

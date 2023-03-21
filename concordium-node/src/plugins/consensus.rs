@@ -8,10 +8,8 @@ use crate::{
     connection::ConnChange,
     consensus_ffi::{
         catch_up::{PeerList, PeerStatus},
-        consensus::{
-            self, ConsensusContainer, ConsensusRuntimeParameters, Regenesis, CALLBACK_QUEUE,
-        },
-        ffi::{self, ExecuteBlockCallback, NotificationContext},
+        consensus::{ConsensusContainer, ConsensusRuntimeParameters, CALLBACK_QUEUE},
+        ffi::{self, ExecuteBlockCallback, StartConsensusConfig},
         helpers::{
             ConsensusFfiResponse,
             PacketType::{self, *},
@@ -38,12 +36,9 @@ use std::{
 /// Initializes the consensus layer with the given setup.
 pub fn start_consensus_layer(
     conf: &configuration::BakerConfig,
-    genesis_data: Vec<u8>,
+    start_config: StartConsensusConfig,
     private_data: Option<Vec<u8>>,
-    max_logging_level: consensus::ConsensusLogLevel,
     appdata_dir: &Path,
-    regenesis_arc: Arc<Regenesis>,
-    notification_context: Option<NotificationContext>,
 ) -> anyhow::Result<ConsensusContainer> {
     info!("Starting up the consensus thread");
 
@@ -70,15 +65,7 @@ pub fn start_consensus_layer(
         modules_cache_size:         conf.modules_cache_size,
     };
 
-    ConsensusContainer::new(
-        runtime_parameters,
-        genesis_data,
-        private_data,
-        max_logging_level,
-        appdata_dir,
-        regenesis_arc,
-        notification_context,
-    )
+    ConsensusContainer::new(runtime_parameters, start_config, private_data, appdata_dir)
 }
 
 /// Stop consensus container

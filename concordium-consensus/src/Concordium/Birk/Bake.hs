@@ -51,7 +51,34 @@ import Concordium.Scheduler.Types (FilteredTransactions (..))
 
 import Concordium.Logger
 import Concordium.TimeMonad
-import Concordium.Types.BakerIdentity
+
+data BakerIdentity = BakerIdentity
+    { bakerId :: BakerId,
+      bakerSignKey :: BakerSignPrivateKey,
+      bakerElectionKey :: BakerElectionPrivateKey,
+      bakerAggregationKey :: BakerAggregationPrivateKey,
+      bakerAggregationPublicKey :: BakerAggregationVerifyKey
+    }
+    deriving (Eq, Generic)
+
+bakerSignPublicKey :: BakerIdentity -> BakerSignVerifyKey
+bakerSignPublicKey ident = Sig.verifyKey (bakerSignKey ident)
+
+bakerElectionPublicKey :: BakerIdentity -> BakerElectionVerifyKey
+bakerElectionPublicKey ident = VRF.publicKey (bakerElectionKey ident)
+
+instance Serialize BakerIdentity
+
+instance FromJSON BakerIdentity where
+    parseJSON v = flip (withObject "Baker identity:") v $ \obj -> do
+        bakerId <- obj .: "bakerId"
+        bakerSignKey <- parseJSON v
+        bakerElectionKey <- parseJSON v
+        bakerAggregationKey <- obj .: "aggregationSignKey"
+        bakerAggregationPublicKey <- obj .: "aggregationVerifyKey"
+        when (bakerAggregationPublicKey /= BLS.derivePublicKey bakerAggregationKey) $
+            fail "Aggregation signing key does not correspond to the verification key."
+        return BakerIdentity{..}
 
 processTransactions ::
     ( TreeStateMonad m,

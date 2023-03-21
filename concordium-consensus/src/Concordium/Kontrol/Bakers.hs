@@ -228,7 +228,7 @@ generateNextBakers paydayEpoch bs0 = do
                 (cps ^. cpPoolParameters)
                 activeBakers
                 passiveDelegators
-    bs1 <- bsoSetNextEpochBakers bs0 bakerStakes NoParam
+    bs1 <- bsoSetNextEpochBakers bs0 bakerStakes
     capDist <- capitalDistributionM
     bsoSetNextCapitalDistribution bs1 capDist
 

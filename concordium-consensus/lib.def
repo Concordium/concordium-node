@@ -16,6 +16,7 @@ EXPORTS
  getBlockInfo
  getAncestors
  getBranches
+ getNumberOfNonFinalizedTransactions
  getCatchUpStatus
  receiveCatchUpStatus
  getAccountList

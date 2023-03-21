@@ -41,13 +41,13 @@ keyPair0 :: SigScheme.KeyPair
 keyPair0 = Helpers.keyPairFromSeed 0
 
 counterSourceFile :: FilePath
-counterSourceFile = "./testdata/contracts/v1/call-counter.wasm"
+counterSourceFile = "../concordium-base/smart-contracts/testdata/contracts/v1/call-counter.wasm"
 
 version1 :: WasmVersion
 version1 = V1
 
 proxySourceFile :: FilePath
-proxySourceFile = "./testdata/contracts/v1/send-message-v1.wasm"
+proxySourceFile = "../concordium-base/smart-contracts/testdata/contracts/v1/send-message-v1.wasm"
 
 version0 :: WasmVersion
 version0 = V0

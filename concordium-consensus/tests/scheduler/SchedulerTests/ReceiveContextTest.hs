@@ -27,7 +27,7 @@ import Concordium.Scheduler.DummyData
 
 import qualified SchedulerTests.Helpers as Helpers
 
--- See the contract in /testdata/contracts/send/src/lib.rs from which the wasm
+-- See the contract in ../concordium-base/smart-contracts/testdata/contracts/send/src/lib.rs from which the wasm
 -- module is derived. The contract calls check that the invoker or sender is the
 -- account address consisting of only 2's, and that the owner is an account
 -- consisting of only 1's. We set up the state with addresses different from
@@ -72,7 +72,7 @@ sender2 spv
     | otherwise = accountAddress2
 
 wasmPath :: String
-wasmPath = "./testdata/contracts/send/target/concordium/wasm32-unknown-unknown/release/send.wasm"
+wasmPath = "../concordium-base/smart-contracts/testdata/contracts/send/target/concordium/wasm32-unknown-unknown/release/send.wasm"
 
 transactionInputs :: [TransactionJSON]
 transactionInputs =

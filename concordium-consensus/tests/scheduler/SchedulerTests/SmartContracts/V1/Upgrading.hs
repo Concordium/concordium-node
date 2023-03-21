@@ -47,13 +47,13 @@ keyPair0 = Helpers.keyPairFromSeed 0
 
 -- |A module that is used as a base for upgrading.
 upgrading0SourceFile :: FilePath
-upgrading0SourceFile = "./testdata/contracts/v1/upgrading_0.wasm"
+upgrading0SourceFile = "../concordium-base/smart-contracts/testdata/contracts/v1/upgrading_0.wasm"
 
 -- |A v1 module with a matching contract name of 'upgrading0SourceFile'
 -- so it should always be possible to upgrade to this from a contract based on
 -- the former mentioned module.
 upgrading1SourceFile :: FilePath
-upgrading1SourceFile = "./testdata/contracts/v1/upgrading_1.wasm"
+upgrading1SourceFile = "../concordium-base/smart-contracts/testdata/contracts/v1/upgrading_1.wasm"
 
 -- Tests in this module use version 1, creating V1 instances.
 wasmModVersion1 :: WasmVersion
@@ -187,10 +187,10 @@ upgradingTestCase spv pvString =
                     )
 
 selfInvokeSourceFile0 :: FilePath
-selfInvokeSourceFile0 = "./testdata/contracts/v1/upgrading-self-invoke0.wasm"
+selfInvokeSourceFile0 = "../concordium-base/smart-contracts/testdata/contracts/v1/upgrading-self-invoke0.wasm"
 
 selfInvokeSourceFile1 :: FilePath
-selfInvokeSourceFile1 = "./testdata/contracts/v1/upgrading-self-invoke1.wasm"
+selfInvokeSourceFile1 = "../concordium-base/smart-contracts/testdata/contracts/v1/upgrading-self-invoke1.wasm"
 
 -- | The contract in this test triggers an upgrade and then in the same invocation calls a
 -- function in the upgraded module. Checking the new module is being used.
@@ -288,7 +288,7 @@ selfInvokeTestCase spv pvString =
         assertEqual "single Upgraded events" 1 (List.length (filter isUpgradeEvent events))
 
 missingModuleSourceFile :: FilePath
-missingModuleSourceFile = "./testdata/contracts/v1/upgrading-missing-module.wasm"
+missingModuleSourceFile = "../concordium-base/smart-contracts/testdata/contracts/v1/upgrading-missing-module.wasm"
 
 -- |Upgrading to a missing module fails with the correct error code.
 missingModuleTestCase ::
@@ -357,10 +357,10 @@ missingModuleTestCase spv pvString =
         assertBool "Found unexpected event: Upgraded" (not $ List.any isUpgradeEvent events)
 
 missingContractSourceFile0 :: FilePath
-missingContractSourceFile0 = "./testdata/contracts/v1/upgrading-missing-contract0.wasm"
+missingContractSourceFile0 = "../concordium-base/smart-contracts/testdata/contracts/v1/upgrading-missing-contract0.wasm"
 
 missingContractSourceFile1 :: FilePath
-missingContractSourceFile1 = "./testdata/contracts/v1/upgrading-missing-contract1.wasm"
+missingContractSourceFile1 = "../concordium-base/smart-contracts/testdata/contracts/v1/upgrading-missing-contract1.wasm"
 
 -- |Upgrading to a module which does not have the required contract fails with
 -- the correct error code.
@@ -443,10 +443,10 @@ missingContractTestCase spv pvString =
         assertBool "Found unexpected event: Upgraded" (not $ List.any isUpgradeEvent events)
 
 unsupportedVersionSourceFile0 :: FilePath
-unsupportedVersionSourceFile0 = "./testdata/contracts/v1/upgrading-unsupported-version0.wasm"
+unsupportedVersionSourceFile0 = "../concordium-base/smart-contracts/testdata/contracts/v1/upgrading-unsupported-version0.wasm"
 
 unsupportedVersionSourceFile1 :: FilePath
-unsupportedVersionSourceFile1 = "./testdata/contracts/v1/upgrading-unsupported-version1.wasm"
+unsupportedVersionSourceFile1 = "../concordium-base/smart-contracts/testdata/contracts/v1/upgrading-unsupported-version1.wasm"
 
 -- |Attempt to upgrade to a V0 module. This should fail with a specific error
 -- code.
@@ -528,13 +528,13 @@ unsupportedVersionTestCase spv pvString =
         assertBool "Found unexpected event: Upgraded" (not $ List.any isUpgradeEvent events)
 
 twiceSourceFile0 :: FilePath
-twiceSourceFile0 = "./testdata/contracts/v1/upgrading-twice0.wasm"
+twiceSourceFile0 = "../concordium-base/smart-contracts/testdata/contracts/v1/upgrading-twice0.wasm"
 
 twiceSourceFile1 :: FilePath
-twiceSourceFile1 = "./testdata/contracts/v1/upgrading-twice1.wasm"
+twiceSourceFile1 = "../concordium-base/smart-contracts/testdata/contracts/v1/upgrading-twice1.wasm"
 
 twiceSourceFile2 :: FilePath
-twiceSourceFile2 = "./testdata/contracts/v1/upgrading-twice2.wasm"
+twiceSourceFile2 = "../concordium-base/smart-contracts/testdata/contracts/v1/upgrading-twice2.wasm"
 
 -- |Upgrading twice in the same transaction. The effect of the second upgrade
 -- should be in effect at the end.
@@ -638,7 +638,7 @@ twiceTestCase spv pvString =
         assertEqual "Expected two Upgraded events" (List.length (filter isUpgradeEvent events)) 2
 
 chainedSourceFile0 :: FilePath
-chainedSourceFile0 = "./testdata/contracts/v1/upgrading-chained0.wasm"
+chainedSourceFile0 = "../concordium-base/smart-contracts/testdata/contracts/v1/upgrading-chained0.wasm"
 
 -- | The contract in this test exposes an 'upgrade' entrypoint, triggering an upgrade to the same
 -- module and then invokes 'upgrade' again until a counter (provided as the parameter) is 0.
@@ -719,10 +719,10 @@ chainedTestCase spv pvString =
             upgradedEvents
 
 rejectSourceFile0 :: FilePath
-rejectSourceFile0 = "./testdata/contracts/v1/upgrading-reject0.wasm"
+rejectSourceFile0 = "../concordium-base/smart-contracts/testdata/contracts/v1/upgrading-reject0.wasm"
 
 rejectSourceFile1 :: FilePath
-rejectSourceFile1 = "./testdata/contracts/v1/upgrading-reject1.wasm"
+rejectSourceFile1 = "../concordium-base/smart-contracts/testdata/contracts/v1/upgrading-reject1.wasm"
 
 -- |Tests whether a contract which triggers a succesful upgrade, but rejects the transaction from
 -- another cause, rollbacks the upgrade as well.
@@ -815,10 +815,10 @@ rejectTestCase spv pvString =
             other -> assertFailure $ "Unexpected reject reason " ++ show other
 
 changingEntrypointsSourceFile0 :: FilePath
-changingEntrypointsSourceFile0 = "./testdata/contracts/v1/upgrading-changing-entrypoints0.wasm"
+changingEntrypointsSourceFile0 = "../concordium-base/smart-contracts/testdata/contracts/v1/upgrading-changing-entrypoints0.wasm"
 
 changingEntrypointsSourceFile1 :: FilePath
-changingEntrypointsSourceFile1 = "./testdata/contracts/v1/upgrading-changing-entrypoints1.wasm"
+changingEntrypointsSourceFile1 = "../concordium-base/smart-contracts/testdata/contracts/v1/upgrading-changing-entrypoints1.wasm"
 
 -- | Tests calling an entrypoint introduced by an upgrade of the module can be called and whether an
 -- entrypoint removed by an upgrade fail with the appropriate reject reason.
@@ -956,10 +956,10 @@ changingEntrypointsTestCase spv pvString =
         Helpers.assertNumberOfEvents 1
 
 persistingStateSourceFile0 :: FilePath
-persistingStateSourceFile0 = "./testdata/contracts/v1/upgrading-persisting-state0.wasm"
+persistingStateSourceFile0 = "../concordium-base/smart-contracts/testdata/contracts/v1/upgrading-persisting-state0.wasm"
 
 persistingStateSourceFile1 :: FilePath
-persistingStateSourceFile1 = "./testdata/contracts/v1/upgrading-persisting-state1.wasm"
+persistingStateSourceFile1 = "../concordium-base/smart-contracts/testdata/contracts/v1/upgrading-persisting-state1.wasm"
 
 -- | Tests wether state changes, during an invocation triggering an upgrade, persists when using the
 -- upgraded instance.

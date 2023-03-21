@@ -1,7 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
@@ -15,12 +14,9 @@ module Concordium.GlobalState.TreeState (
 import Control.Monad.Reader
 import Control.Monad.Trans.Except
 import Control.Monad.Trans.Maybe
-import Data.Kind (Type)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (isJust)
 import qualified Data.Sequence as Seq
 import Data.Time
-import Lens.Micro.Platform
 
 import Concordium.GlobalState.Block (BlockData (..), BlockPendingData (..), PendingBlock (..))
 import Concordium.GlobalState.BlockMonads
@@ -31,8 +27,8 @@ import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Statistics
 import Concordium.GlobalState.TransactionTable
+import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.Types
-import qualified Concordium.ID.Types as ID
 import Concordium.Types
 import Concordium.Types.Execution (TransactionIndex)
 import Concordium.Types.HashableTo
@@ -61,23 +57,6 @@ instance Show (BlockStatus bp pb) where
 -- the branches, then either it is at the lowest level and its parent is the last finalized block,
 -- or its parent is also in the branches at the level below.
 type Branches m = Seq.Seq [BlockPointerType m]
-
--- |Result of trying to add a transaction to the transaction table.
-data AddTransactionResult
-    = -- |Transaction is a duplicate of the given transaction.
-      -- Contains the duplicate `BlockItem` and the cached `VerificationResult` iff
-      -- the transaction has status `Received` or ´Committed´.
-      Duplicate !BlockItem (Maybe TVer.VerificationResult)
-    | -- |The transaction was newly added.
-      -- Contains the `BlockItem` that was added and the cached `VerificationResult`.
-      Added !BlockItem !TVer.VerificationResult
-    | -- |The nonce of the transaction is not later than the last finalized transaction for the sender.
-      -- The transaction is not added to the table.
-      ObsoleteNonce
-    | -- |The transaction was not added as it could not be deemed verifiable.
-      -- The `NotAdded` contains the `VerificationResult`
-      NotAdded !TVer.VerificationResult
-    deriving (Eq, Show)
 
 -- |Status of a "recent" block. Recent here means that instead of looking up the
 -- full status of a block that is older than the last finalized one, we return
@@ -121,7 +100,7 @@ class
       BlockStateStorage m,
       BlockPointerMonad m,
       B.EncodeBlock (MPV m) (BlockPointerType m),
-      Monad m,
+      AccountNonceQuery m,
       MonadProtocolVersion m
     ) =>
     TreeStateMonad m
@@ -322,11 +301,6 @@ class
         Nonce ->
         m [(Nonce, Map.Map Transaction TVer.VerificationResult)]
 
-    -- |Get the successor of the largest known account for the given account
-    -- The function should return 'True' in the second component if and only if
-    -- all (known) transactions from this account are finalized.
-    getNextAccountNonce :: AccountAddressEq -> m (Nonce, Bool)
-
     -- |Get a credential which has not yet been finalized, i.e., it is correct for this function
     -- to return 'Nothing' if the requested credential has already been finalized.
     getCredential :: TransactionHash -> m (Maybe (CredentialDeploymentWithMeta, TVer.VerificationResult))
@@ -438,6 +412,9 @@ class
     -- |Lookup a transaction status by its hash.
     lookupTransaction :: TransactionHash -> m (Maybe TransactionStatus)
 
+    -- |Get the number of non-finalized transactions stored in the transaction table.
+    numberOfNonFinalizedTransactions :: m Int
+
     -- * Operations on statistics
 
     -- |Get the current consensus statistics.
@@ -502,7 +479,6 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     getPendingTransactions = lift getPendingTransactions
     putPendingTransactions = lift . putPendingTransactions
     getAccountNonFinalized acc = lift . getAccountNonFinalized acc
-    getNextAccountNonce = lift . getNextAccountNonce
     getCredential = lift . getCredential
     getNonFinalizedChainUpdates uty = lift . getNonFinalizedChainUpdates uty
     type FinTrans (MGSTrans t m) = FinTrans m
@@ -513,6 +489,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     purgeTransaction = lift . purgeTransaction
     markDeadTransaction bh = lift . markDeadTransaction bh
     lookupTransaction = lift . lookupTransaction
+    numberOfNonFinalizedTransactions = lift numberOfNonFinalizedTransactions
     getConsensusStatistics = lift getConsensusStatistics
     putConsensusStatistics = lift . putConsensusStatistics
     getRuntimeParameters = lift getRuntimeParameters
@@ -547,7 +524,6 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     {-# INLINE getPendingTransactions #-}
     {-# INLINE putPendingTransactions #-}
     {-# INLINE getAccountNonFinalized #-}
-    {-# INLINE getNextAccountNonce #-}
     {-# INLINE getCredential #-}
     {-# INLINE getNonFinalizedChainUpdates #-}
     {-# INLINE finalizeTransactions #-}
@@ -556,6 +532,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     {-# INLINE addVerifiedTransaction #-}
     {-# INLINE purgeTransaction #-}
     {-# INLINE lookupTransaction #-}
+    {-# INLINE numberOfNonFinalizedTransactions #-}
     {-# INLINE markDeadTransaction #-}
     {-# INLINE getConsensusStatistics #-}
     {-# INLINE putConsensusStatistics #-}
@@ -567,99 +544,3 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
 
 deriving via (MGSTrans MaybeT m) instance TreeStateMonad m => TreeStateMonad (MaybeT m)
 deriving via (MGSTrans (ExceptT e) m) instance TreeStateMonad m => TreeStateMonad (ExceptT e m)
-
--- |The Context that a transaction is verified within
--- in the reader based instance.
--- The `Context` contains the `BlockState`, the maximum energy of a block and
--- also whether the transaction was received individually or as part of a block.
---
--- The `Context` is used for verifying the transaction in a deferred manner.
--- That is, the verification process will only take place if the transaction is not already contained
--- in the `TransactionTable`.
--- Note. The `Context` is created when the transaction is received by `doReceiveTransactionInternal` and
--- the actual verification is carried out within `addCommitTransaction` when it has been checked
--- that the transaction does not already exist in the `TransactionTable`.
-data Context t = Context
-    { _ctxBs :: t,
-      _ctxMaxBlockEnergy :: !Energy,
-      -- |Whether the transaction was received from a block or individually.
-      _isTransactionFromBlock :: Bool
-    }
-
-makeLenses ''Context
-
--- |Helper type for defining 'TransactionVerifierT'. While we only instantiate @r@ with
--- @Context (BlockState m)@, it is simpler to derive the 'MonadTrans' instance using the present
--- definition.
-newtype TransactionVerifierT' (r :: Type) (m :: Type -> Type) (a :: Type) = TransactionVerifierT {runTransactionVerifierT :: r -> m a}
-    deriving (Functor, Applicative, Monad, MonadReader r) via (ReaderT r m)
-    deriving (MonadTrans) via (ReaderT r)
-
-deriving via (ReaderT r) m instance (MonadProtocolVersion m) => MonadProtocolVersion (TransactionVerifierT' r m)
-deriving via (ReaderT r) m instance BlockStateTypes (TransactionVerifierT' r m)
-
-type TransactionVerifierT m = TransactionVerifierT' (Context (BlockState m)) m
-
-instance
-    ( TreeStateMonad m,
-      r ~ Context (BlockState m)
-    ) =>
-    TVer.TransactionVerifier (TransactionVerifierT' r m)
-    where
-    {-# INLINE getIdentityProvider #-}
-    getIdentityProvider ipId = do
-        ctx <- ask
-        lift (getIdentityProvider (ctx ^. ctxBs) ipId)
-    {-# INLINE getAnonymityRevokers #-}
-    getAnonymityRevokers arrIds = do
-        ctx <- ask
-        lift (getAnonymityRevokers (ctx ^. ctxBs) arrIds)
-    {-# INLINE getCryptographicParameters #-}
-    getCryptographicParameters = do
-        ctx <- ask
-        lift (getCryptographicParameters (ctx ^. ctxBs))
-    {-# INLINE registrationIdExists #-}
-    registrationIdExists regId = do
-        ctx <- ask
-        lift $ isJust <$> getAccountByCredId (ctx ^. ctxBs) (ID.toRawCredRegId regId)
-    {-# INLINE getAccount #-}
-    getAccount aaddr = do
-        ctx <- ask
-        fmap snd <$> lift (getAccount (ctx ^. ctxBs) aaddr)
-    {-# INLINE getNextUpdateSequenceNumber #-}
-    getNextUpdateSequenceNumber uType = do
-        ctx <- ask
-        lift (getNextUpdateSequenceNumber (ctx ^. ctxBs) uType)
-    {-# INLINE getUpdateKeysCollection #-}
-    getUpdateKeysCollection = do
-        ctx <- ask
-        lift (getUpdateKeysCollection (ctx ^. ctxBs))
-    {-# INLINE getAccountAvailableAmount #-}
-    getAccountAvailableAmount = lift . getAccountAvailableAmount
-    {-# INLINE getNextAccountNonce #-}
-    getNextAccountNonce acc = do
-        ctx <- ask
-        -- If the transaction was received as part of a block
-        -- then we check the account nonce from the `BlockState` in the context
-        -- Otherwise if the transaction was received individually then we
-        -- check the transaction table for the nonce.
-        if ctx ^. isTransactionFromBlock
-            then lift (getAccountNonce acc)
-            else do
-                aaddr <- lift (getAccountCanonicalAddress acc)
-                lift (fst <$> getNextAccountNonce (accountAddressEmbed aaddr))
-    {-# INLINE getAccountVerificationKeys #-}
-    getAccountVerificationKeys = lift . getAccountVerificationKeys
-    {-# INLINE energyToCcd #-}
-    energyToCcd v = do
-        ctx <- ask
-        rate <- lift $ _erEnergyRate <$> getExchangeRates (ctx ^. ctxBs)
-        return (computeCost rate v)
-    {-# INLINE getMaxBlockEnergy #-}
-    getMaxBlockEnergy = do
-        ctx <- ask
-        return (ctx ^. ctxMaxBlockEnergy)
-    {-# INLINE checkExactNonce #-}
-    checkExactNonce = do
-        ctx <- ask
-        pure $ not (ctx ^. isTransactionFromBlock)

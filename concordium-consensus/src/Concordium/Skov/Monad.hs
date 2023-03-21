@@ -33,6 +33,7 @@ import Concordium.GlobalState.Classes as C
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Statistics (ConsensusStatistics)
+import Concordium.GlobalState.Transactions
 import qualified Concordium.GlobalState.TreeState as TS
 import Concordium.GlobalState.Types
 import Concordium.Logger
@@ -123,6 +124,7 @@ transactionVerificationResultToUpdateResult (TV.MaybeOk TV.NormalTransactionInsu
 transactionVerificationResultToUpdateResult (TV.MaybeOk (TV.NormalTransactionInvalidSender _)) = ResultNonexistingSenderAccount
 transactionVerificationResultToUpdateResult (TV.MaybeOk TV.NormalTransactionInvalidSignatures) = ResultVerificationFailed
 transactionVerificationResultToUpdateResult (TV.MaybeOk (TV.NormalTransactionInvalidNonce _)) = ResultNonceTooLarge
+transactionVerificationResultToUpdateResult (TV.MaybeOk TV.NormalTransactionEnergyExceeded) = ResultEnergyExceeded
 -- 'NotOk' mappings
 transactionVerificationResultToUpdateResult (TV.NotOk (TV.CredentialDeploymentDuplicateAccountRegistrationID _)) = ResultDuplicateAccountRegistrationID
 transactionVerificationResultToUpdateResult (TV.NotOk TV.CredentialDeploymentInvalidSignatures) = ResultCredentialDeploymentInvalidSignatures
@@ -130,7 +132,6 @@ transactionVerificationResultToUpdateResult (TV.NotOk (TV.ChainUpdateSequenceNum
 transactionVerificationResultToUpdateResult (TV.NotOk TV.ChainUpdateEffectiveTimeBeforeTimeout) = ResultChainUpdateInvalidEffectiveTime
 transactionVerificationResultToUpdateResult (TV.NotOk TV.CredentialDeploymentExpired) = ResultCredentialDeploymentExpired
 transactionVerificationResultToUpdateResult (TV.NotOk TV.NormalTransactionDepositInsufficient) = ResultTooLowEnergy
-transactionVerificationResultToUpdateResult (TV.NotOk TV.NormalTransactionEnergyExceeded) = ResultEnergyExceeded
 transactionVerificationResultToUpdateResult (TV.NotOk (TV.NormalTransactionDuplicateNonce _)) = ResultDuplicateNonce
 transactionVerificationResultToUpdateResult (TV.NotOk TV.Expired) = ResultStale
 transactionVerificationResultToUpdateResult (TV.NotOk TV.InvalidPayloadSize) = ResultSerializationFail
@@ -201,6 +202,9 @@ class
 
     -- |Get non-finalized transactions for an account, ordered by increasing nonce.
     queryNonFinalizedTransactions :: AccountAddressEq -> m [TransactionHash]
+
+    -- |Get the total number of non-finalized transactions across all accounts.
+    queryNumberOfNonFinalizedTransactions :: m Int
 
     -- |Get best guess for next account nonce.
     -- The second argument is 'True' if and only if all transactions from this account are finalized.
@@ -349,6 +353,7 @@ instance (Monad (t m), MonadTrans t, SkovQueryMonad m) => SkovQueryMonad (MGSTra
     queryBlockState = lift . queryBlockState
     queryTransactionStatus = lift . queryTransactionStatus
     queryNonFinalizedTransactions = lift . queryNonFinalizedTransactions
+    queryNumberOfNonFinalizedTransactions = lift queryNumberOfNonFinalizedTransactions
     queryNextAccountNonce = lift . queryNextAccountNonce
     blockLastFinalizedIndex = lift . blockLastFinalizedIndex
     getCatchUpStatus = lift . getCatchUpStatus
@@ -438,6 +443,7 @@ deriving via (MGSTrans SkovQueryMonadT m) instance ContractStateOperations m => 
 deriving via (MGSTrans SkovQueryMonadT m) instance ModuleQuery m => ModuleQuery (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance BlockStateQuery m => BlockStateQuery (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance BlockPointerMonad m => BlockPointerMonad (SkovQueryMonadT m)
+deriving via (MGSTrans SkovQueryMonadT m) instance AccountNonceQuery m => AccountNonceQuery (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance TS.TreeStateMonad m => TS.TreeStateMonad (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance BlockStateStorage m => BlockStateStorage (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance BlockStateOperations m => BlockStateOperations (SkovQueryMonadT m)
@@ -504,8 +510,11 @@ instance
         txs <- TS.getAccountNonFinalized addr minNonce
         return $! map getHash (concatMap (Map.keys . snd) txs)
 
+    {- - INLINE queryNumberOfNonFinalizedTransactions - -}
+    queryNumberOfNonFinalizedTransactions = lift TS.numberOfNonFinalizedTransactions
+
     {- - INLINE queryNextAccountNonce - -}
-    queryNextAccountNonce = lift . TS.getNextAccountNonce
+    queryNextAccountNonce = lift . getNextAccountNonce
 
     isShutDown = lift doIsShutDown
     getProtocolUpdateStatus = lift doGetProtocolUpdateStatus

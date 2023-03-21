@@ -31,7 +31,9 @@ use concordium_node::{
     read_or_die,
     rpc::RpcServerImpl,
     spawn_or_die,
-    stats_export_service::{instantiate_stats_export_engine, StatsExportService},
+    stats_export_service::{
+        instantiate_stats_export_engine, StatsConsensusCollector, StatsExportService,
+    },
     utils::get_config_and_logging_setup,
 };
 use mio::{net::TcpListener, Poll};
@@ -100,6 +102,8 @@ async fn main() -> anyhow::Result<()> {
             last_finalized_block_timestamp: node.stats.last_finalized_block_timestamp.clone(),
             last_arrived_block_height: node.stats.last_arrived_block_height.clone(),
             last_arrived_block_timestamp: node.stats.last_arrived_block_timestamp.clone(),
+            baked_blocks: node.stats.baked_blocks.clone(),
+            finalized_baked_blocks: node.stats.finalized_baked_blocks.clone(),
         };
         let notification_handlers = ffi::NotificationHandlers {
             blocks:           receiver_blocks,
@@ -114,18 +118,29 @@ async fn main() -> anyhow::Result<()> {
             last_finalized_block_timestamp: node.stats.last_finalized_block_timestamp.clone(),
             last_arrived_block_height: node.stats.last_arrived_block_height.clone(),
             last_arrived_block_timestamp: node.stats.last_arrived_block_timestamp.clone(),
+            baked_blocks: node.stats.baked_blocks.clone(),
+            finalized_baked_blocks: node.stats.finalized_baked_blocks.clone(),
         };
         (Some(notify_context), None)
     } else {
         (None, None)
     };
 
+    let unsupported_update_context = if conf.prometheus.is_enabled() {
+        Some(ffi::NotifyUnsupportedUpdatesContext {
+            unsupported_pending_protocol_version: node
+                .stats
+                .unsupported_pending_protocol_version
+                .clone(),
+        })
+    } else {
+        None
+    };
+
     info!("Starting consensus layer");
-    let consensus = plugins::consensus::start_consensus_layer(
-        &conf.cli.baker,
-        gen_data,
-        priv_data,
-        if conf.common.no_consensus_logs {
+    let start_consensus_config = ffi::StartConsensusConfig {
+        genesis_data: gen_data,
+        maximum_log_level: if conf.common.no_consensus_logs {
             ConsensusLogLevel::Error
         } else if conf.common.trace {
             ConsensusLogLevel::Trace
@@ -134,11 +149,21 @@ async fn main() -> anyhow::Result<()> {
         } else {
             ConsensusLogLevel::Info
         },
-        &database_directory,
-        regenesis_arc.clone(),
+        regenesis_arc: regenesis_arc.clone(),
         notification_context,
+        unsupported_update_context,
+    };
+    let consensus = plugins::consensus::start_consensus_layer(
+        &conf.cli.baker,
+        start_consensus_config,
+        priv_data,
+        &database_directory,
     )?;
     info!("Consensus layer started");
+
+    // Start stats collecting which depend on querying consensus.
+    let consensus_collector = StatsConsensusCollector::new(consensus.clone())?;
+    node.stats.registry.register(Box::new(consensus_collector))?;
 
     // A flag to record that the import was stopped by a signal handler.
     let import_stopped = Arc::new(atomic::AtomicBool::new(false));

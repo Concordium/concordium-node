@@ -49,7 +49,7 @@ import Concordium.MultiVersion (
     makeMultiVersionRunner,
  )
 import qualified Concordium.MultiVersion as MV
-import Concordium.Queries (BakerStatus (..), BlockHashInput (BHIGiven))
+import Concordium.Queries (BakerStatus (..))
 import qualified Concordium.Queries as Q
 import Concordium.Scheduler.Types
 import Concordium.Skov (
@@ -60,6 +60,7 @@ import Concordium.Skov (
  )
 import Concordium.TimerMonad (ThreadTimer)
 import qualified Concordium.Types.InvokeContract as InvokeContract
+import qualified Concordium.Types.Queries as Queries
 
 -- |A 'PeerID' identifies peer at the p2p layer.
 type PeerID = Word64
@@ -325,29 +326,58 @@ type NotifyCallback =
     Word64 ->
     -- |Absolute block height of either the arrived block or finalized depending on the type of event.
     Word64 ->
+    -- |Byte where a value of 1 indicates the block arrived/finalized was baked by the baker ID
+    -- setup for this node.
+    Word8 ->
     IO ()
 
 foreign import ccall "dynamic" callNotifyCallback :: FunPtr NotifyCallback -> NotifyCallback
 
--- |Serialize the provided arguments (block hash and absolute block height) into
--- an appropriate Proto message, and invoke the provided FFI callback.
-mkNotifyBlockArrived :: (Word8 -> Ptr Word8 -> Word64 -> Word64 -> IO ()) -> BlockHash -> AbsoluteBlockHeight -> IO ()
-mkNotifyBlockArrived f = \bh height -> do
+-- |Serialize the provided arguments (block hash, absolute block height) into an appropriate Proto
+-- message, and invoke the provided FFI callback with the additional arguments providing the rust layer:
+-- block height and whether it was baked by the node.
+mkNotifyBlockArrived :: (Word8 -> Ptr Word8 -> Word64 -> Word64 -> Word8 -> IO ()) -> BlockHash -> AbsoluteBlockHeight -> Bool -> IO ()
+mkNotifyBlockArrived f = \bh height isHomeBaked -> do
     let msg :: Proto.ArrivedBlockInfo = Proto.make $ do
             ProtoFields.hash . ProtoFields.value .= S.encode bh
             ProtoFields.height . ProtoFields.value .= fromIntegral height
+    let isHomeBakedByte = if isHomeBaked then 1 else 0
     BS.unsafeUseAsCStringLen (Proto.encodeMessage msg) $ \(cPtr, len) -> do
-        f 0 (castPtr cPtr) (fromIntegral len) (fromIntegral height)
+        f 0 (castPtr cPtr) (fromIntegral len) (fromIntegral height) isHomeBakedByte
 
--- |Serialize the provided arguments (block hash and block height) into an
--- appropriate Proto message, and invoke the provided FFI callback.
-mkNotifyBlockFinalized :: (Word8 -> Ptr Word8 -> Word64 -> Word64 -> IO ()) -> BlockHash -> AbsoluteBlockHeight -> IO ()
-mkNotifyBlockFinalized f = \bh height -> do
+-- |Serialize the provided arguments (block hash, block height) into an appropriate Proto message,
+-- and invoke the provided FFI callback with the additional arguments providing the rust layer:
+-- block height, whether it was baked by the same baker ID as the one setup for the node.
+mkNotifyBlockFinalized :: (Word8 -> Ptr Word8 -> Word64 -> Word64 -> Word8 -> IO ()) -> BlockHash -> AbsoluteBlockHeight -> Bool -> IO ()
+mkNotifyBlockFinalized f = \bh height isHomeBaked -> do
     let msg :: Proto.FinalizedBlockInfo = Proto.make $ do
             ProtoFields.hash . ProtoFields.value .= S.encode bh
             ProtoFields.height . ProtoFields.value .= fromIntegral height
+    let isHomeBakedByte = if isHomeBaked then 1 else 0
     BS.unsafeUseAsCStringLen (Proto.encodeMessage msg) $ \(cPtr, len) -> do
-        f 1 (castPtr cPtr) (fromIntegral len) (fromIntegral height)
+        f 1 (castPtr cPtr) (fromIntegral len) (fromIntegral height) isHomeBakedByte
+
+-- |Context for when signalling a unsupported protocol update is pending.
+data NotifyUnsupportedUpdatesContext
+
+-- |The callback used to signal a unsupported protocol update is pending.
+type NotifyUnsupportedUpdatesCallback =
+    -- |Handle to the context.
+    Ptr NotifyUnsupportedUpdatesContext ->
+    -- |Effective timestamp of unsupported protocol update as milliseconds since unix epoch.
+    Word64 ->
+    IO ()
+
+foreign import ccall "dynamic"
+    callNotifyUnsupportedUpdates ::
+        FunPtr NotifyUnsupportedUpdatesCallback ->
+        NotifyUnsupportedUpdatesCallback
+
+-- |Call FFI callback with effective timestamp of unsupported protocol update, as milliseconds since
+-- unix epoch.
+mkNotifyUnsupportedUpdates :: (Word64 -> IO ()) -> Timestamp -> IO ()
+mkNotifyUnsupportedUpdates f unsupportedUpdateEffectiveTime =
+    f (tsMillis unsupportedUpdateEffectiveTime)
 
 -- |Start up an instance of Skov without starting the baker thread.
 -- If an error occurs starting Skov, the error will be logged and
@@ -377,6 +407,10 @@ startConsensus ::
     Ptr NotifyContext ->
     -- |The callback used to invoke upon new block arrival, and new finalized blocks.
     FunPtr NotifyCallback ->
+    -- |Context for when signalling a unsupported protocol update is pending.
+    Ptr NotifyUnsupportedUpdatesContext ->
+    -- |The callback used to signal a unsupported protocol update is pending.
+    FunPtr NotifyUnsupportedUpdatesCallback ->
     -- |Handler for generated messages
     FunPtr BroadcastCallback ->
     -- |Handler for sending catch-up status to peers
@@ -412,6 +446,8 @@ startConsensus
     bidLenC
     notifyContext
     notifyCbk
+    unsupportedUpdateContext
+    unsupportedUpdateCallback
     bcbk
     cucbk
     regenesisPtr
@@ -450,6 +486,13 @@ startConsensus
                           notifyBlockFinalized =
                             if notifyContext /= nullPtr
                                 then Just $ mkNotifyBlockFinalized (notifyCallback notifyContext)
+                                else Nothing,
+                          notifyUnsupportedProtocolUpdate =
+                            if unsupportedUpdateContext /= nullPtr
+                                then
+                                    Just $
+                                        mkNotifyUnsupportedUpdates $
+                                            callNotifyUnsupportedUpdates unsupportedUpdateCallback unsupportedUpdateContext
                                 else Nothing,
                           notifyCatchUpStatus = callCatchUpStatusCallback cucbk,
                           notifyRegenesis = callRegenesisCallback regenesisCB regenesisRef
@@ -517,6 +560,10 @@ startConsensusPassive ::
     Ptr NotifyContext ->
     -- |The callback used to invoke upon new block arrival, and new finalized blocks.
     FunPtr NotifyCallback ->
+    -- |Context for when signalling a unsupported protocol update is pending.
+    Ptr NotifyUnsupportedUpdatesContext ->
+    -- |The callback used to signal a unsupported protocol update is pending.
+    FunPtr NotifyUnsupportedUpdatesCallback ->
     -- |Handler for sending catch-up status to peers
     FunPtr CatchUpStatusCallback ->
     -- |Regenesis object
@@ -548,6 +595,8 @@ startConsensusPassive
     gdataLenC
     notifyContext
     notifycbk
+    unsupportedUpdateContext
+    unsupportedUpdateCallback
     cucbk
     regenesisPtr
     regenesisFree
@@ -580,6 +629,13 @@ startConsensusPassive
                           notifyBlockFinalized =
                             if notifyContext /= nullPtr
                                 then Just $ mkNotifyBlockFinalized (notifyCallback notifyContext)
+                                else Nothing,
+                          notifyUnsupportedProtocolUpdate =
+                            if unsupportedUpdateContext /= nullPtr
+                                then
+                                    Just $
+                                        mkNotifyUnsupportedUpdates $
+                                            callNotifyUnsupportedUpdates unsupportedUpdateCallback unsupportedUpdateContext
                                 else Nothing,
                           notifyRegenesis = callRegenesisCallback regenesisCB regenesisRef
                         }
@@ -1041,6 +1097,11 @@ getLastFinalizedBlockHeight cptr = do
     (ConsensusRunner mvr) <- deRefStablePtr cptr
     theBlockHeight <$> runMVR Q.getLastFinalizedBlockHeight mvr
 
+getNumberOfNonFinalizedTransactions :: StablePtr ConsensusRunner -> IO Word64
+getNumberOfNonFinalizedTransactions cptr = do
+    (ConsensusRunner mvr) <- deRefStablePtr cptr
+    fromIntegral <$> runMVR Q.getNumberOfNonFinalizedTransactions mvr
+
 -- ** Block-indexed queries
 
 -- |Given a null-terminated string that represents a block hash (base 16), returns a null-terminated
@@ -1051,7 +1112,7 @@ getBlockInfo :: StablePtr ConsensusRunner -> CString -> IO CString
 getBlockInfo cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (snd <$> Q.getBlockInfo (BHIGiven bh))
+        Just bh -> jsonQuery cptr (snd <$> Q.getBlockInfo (Queries.Given bh))
 
 -- |Get the list of transactions in a block with short summaries of their effects.
 -- Returns a null-terminated string encoding a JSON value.
@@ -1071,7 +1132,7 @@ getRewardStatus :: StablePtr ConsensusRunner -> CString -> IO CString
 getRewardStatus cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (snd <$> Q.getRewardStatus (BHIGiven bh))
+        Just bh -> jsonQuery cptr (snd <$> Q.getRewardStatus (Queries.Given bh))
 
 -- |Get birk parameters for the given block. The block must be given as a
 -- null-terminated base16 encoding of the block hash.
@@ -1081,7 +1142,7 @@ getBirkParameters :: StablePtr ConsensusRunner -> CString -> IO CString
 getBirkParameters cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (snd <$> Q.getBlockBirkParameters (BHIGiven bh))
+        Just bh -> jsonQuery cptr (snd <$> Q.getBlockBirkParameters (Queries.Given bh))
 
 -- |Get the cryptographic parameters in a given block. The block must be given as a
 -- null-terminated base16 encoding of the block hash.
@@ -1091,7 +1152,7 @@ getCryptographicParameters :: StablePtr ConsensusRunner -> CString -> IO CString
 getCryptographicParameters cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr $ Versioned 0 . snd <$> Q.getCryptographicParameters (Q.BHIGiven bh)
+        Just bh -> jsonQuery cptr $ Versioned 0 . snd <$> Q.getCryptographicParameters (Queries.Given bh)
 
 -- |Get all of the identity providers registered in the system as of a given block.
 -- The block must be given as a null-terminated base16 encoding of the block hash.
@@ -1101,7 +1162,7 @@ getAllIdentityProviders :: StablePtr ConsensusRunner -> CString -> IO CString
 getAllIdentityProviders cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (snd <$> Q.getAllIdentityProviders (BHIGiven bh))
+        Just bh -> jsonQuery cptr (snd <$> Q.getAllIdentityProviders (Queries.Given bh))
 
 -- |Get all of the identity providers registered in the system as of a given block.
 -- The block must be given as a null-terminated base16 encoding of the block hash.
@@ -1111,7 +1172,7 @@ getAllAnonymityRevokers :: StablePtr ConsensusRunner -> CString -> IO CString
 getAllAnonymityRevokers cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (snd <$> Q.getAllAnonymityRevokers (BHIGiven bh))
+        Just bh -> jsonQuery cptr (snd <$> Q.getAllAnonymityRevokers (Queries.Given bh))
 
 -- |Given a null-terminated string that represents a block hash (base 16), and a number of blocks,
 -- returns a null-terminated string containing a JSON list of the ancestors of the node (up to the
@@ -1121,7 +1182,7 @@ getAncestors :: StablePtr ConsensusRunner -> CString -> Word64 -> IO CString
 getAncestors cptr blockcstr depth =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (snd <$> Q.getAncestors (Q.BHIGiven bh) (BlockHeight depth))
+        Just bh -> jsonQuery cptr (snd <$> Q.getAncestors (Queries.Given bh) (BlockHeight depth))
 
 -- |Get the list of account addresses in the given block. The block must be
 -- given as a null-terminated base16 encoding of the block hash. The return
@@ -1131,7 +1192,7 @@ getAccountList :: StablePtr ConsensusRunner -> CString -> IO CString
 getAccountList cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (snd <$> Q.getAccountList (Q.BHIGiven bh))
+        Just bh -> jsonQuery cptr (snd <$> Q.getAccountList (Queries.Given bh))
 
 -- |Get the list of contract instances (their addresses) in the given block. The
 -- block must be given as a null-terminated base16 encoding of the block hash.
@@ -1141,7 +1202,7 @@ getInstances :: StablePtr ConsensusRunner -> CString -> IO CString
 getInstances cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (snd <$> Q.getInstanceList (Q.BHIGiven bh))
+        Just bh -> jsonQuery cptr (snd <$> Q.getInstanceList (Queries.Given bh))
 
 -- |Get the list of modules in the given block. The block must be given as a
 -- null-terminated base16 encoding of the block hash.
@@ -1151,7 +1212,7 @@ getModuleList :: StablePtr ConsensusRunner -> CString -> IO CString
 getModuleList cptr blockcstr = do
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (snd <$> Q.getModuleList (Q.BHIGiven bh))
+        Just bh -> jsonQuery cptr (snd <$> Q.getModuleList (Queries.Given bh))
 
 -- |Get account information for the given block and identifier. The block must be
 -- given as a null-terminated base16 encoding of the block hash and the account
@@ -1166,7 +1227,7 @@ getAccountInfo cptr blockcstr acctcstr = do
     acctbs <- BS.packCString acctcstr
     let account = decodeAccountIdentifier acctbs
     case (mblock, account) of
-        (Just bh, Just acct) -> jsonQuery cptr (snd <$> Q.getAccountInfo (Q.BHIGiven bh) acct)
+        (Just bh, Just acct) -> jsonQuery cptr (snd <$> Q.getAccountInfo (Queries.Given bh) acct)
         _ -> jsonCString AE.Null
 
 -- |Get instance information the given block and instance. The block must be
@@ -1180,7 +1241,7 @@ getInstanceInfo cptr blockcstr instcstr = do
     mblock <- decodeBlockHash blockcstr
     minst <- decodeInstanceAddress instcstr
     case (mblock, minst) of
-        (Just bh, Just inst) -> jsonQuery cptr (snd <$> Q.getInstanceInfo (Q.BHIGiven bh) inst)
+        (Just bh, Just inst) -> jsonQuery cptr (snd <$> Q.getInstanceInfo (Queries.Given bh) inst)
         _ -> jsonCString AE.Null
 
 -- |Run the smart contract entrypoint in a given context and in the state at the
@@ -1197,7 +1258,7 @@ invokeContract cptr blockcstr ctxcstr = do
     mblock <- decodeBlockHash blockcstr
     mctx <- decodeContractContext ctxcstr
     case (mblock, mctx) of
-        (Just bh, Just ctx) -> jsonQuery cptr (snd <$> Q.invokeContract (Q.BHIGiven bh) ctx)
+        (Just bh, Just ctx) -> jsonQuery cptr (snd <$> Q.invokeContract (Queries.Given bh) ctx)
         _ -> jsonCString AE.Null
 
 -- |Get the source code of a module as deployed on the chain at a particular block.
@@ -1215,7 +1276,7 @@ getModuleSource cptr blockcstr modcstr = do
     mmod <- decodeModuleRef modcstr
     case (mblock, mmod) of
         (Just bh, Just modref) -> do
-            msrc <- runMVR (snd <$> Q.getModuleSource (Q.BHIGiven bh) modref) mvr
+            msrc <- runMVR (snd <$> Q.getModuleSource (Queries.Given bh) modref) mvr
             byteStringToCString $ maybe BS.empty S.encode msrc
         _ -> byteStringToCString BS.empty
 
@@ -1228,7 +1289,7 @@ getBakerList :: StablePtr ConsensusRunner -> CString -> IO CString
 getBakerList cptr blockcstr = do
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (snd <$> Q.getRegisteredBakers (BHIGiven bh))
+        Just bh -> jsonQuery cptr (snd <$> Q.getRegisteredBakers (Queries.Given bh))
 
 -- |Get the status of a baker pool or the passive delegators with respect to a particular block.
 -- The block must be given as a null-terminated base16 encoding of the block hash.
@@ -1251,7 +1312,7 @@ getPoolStatus ::
 getPoolStatus cptr blockcstr passive bid = do
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (snd <$> Q.getPoolStatus (BHIGiven bh) mbid)
+        Just bh -> jsonQuery cptr (snd <$> Q.getPoolStatus (Queries.Given bh) mbid)
   where
     mbid = if passive /= 0 then Nothing else Just (BakerId (AccountIndex bid))
 
@@ -1327,14 +1388,19 @@ checkIfRunning cptr = do
 -- |Check whether we are a baker from the perspective of the best block.
 -- bakerIdPtr expects to receive the baker ID (optional).
 -- hasBakerIdPtr expects to receive either 0 (representing false) or 1 (representing true) if a baker ID is not found or found respectively.
+-- bakerLotteryPowerPtr expects to receive the lottery power when member of the baking committee.
 -- Returns 1 if we are not added as a baker.
 -- Returns 2 if we are added as a baker, but not part of the baking committee yet.
 -- Returns 3 if we have keys that do not match the baker's public keys on the chain.
 -- Returns 0 if we are part of the baking committee.
-bakerStatusBestBlock :: StablePtr ConsensusRunner -> Ptr Word64 -> Ptr Word8 -> IO Word8
-bakerStatusBestBlock cptr bakerIdPtr hasBakerIdPtr = do
+bakerStatusBestBlock :: StablePtr ConsensusRunner -> Ptr Word64 -> Ptr Word8 -> Ptr Double -> IO Word8
+bakerStatusBestBlock cptr bakerIdPtr hasBakerIdPtr bakerLotteryPowerPtr = do
     (ConsensusRunner mvr) <- deRefStablePtr cptr
-    (bs, mBid) <- runMVR Q.getBakerStatusBestBlock mvr
+    (bs, mBid, lotteryPowerMaybe) <- runMVR Q.getBakerStatusBestBlock mvr
+    case lotteryPowerMaybe of
+        Just lotteryPower -> do
+            poke bakerLotteryPowerPtr lotteryPower
+        Nothing -> return ()
     case mBid of
         Nothing -> poke hasBakerIdPtr 0 >> (return $! getBakerStatusCode bs)
         Just bid -> do
@@ -1377,6 +1443,10 @@ foreign export ccall
         Int64 ->
         Ptr NotifyContext ->
         FunPtr NotifyCallback ->
+        -- |Context for when signalling a unsupported protocol update is pending.
+        Ptr NotifyUnsupportedUpdatesContext ->
+        -- |The callback used to signal a unsupported protocol update is pending.
+        FunPtr NotifyUnsupportedUpdatesCallback ->
         -- |Handler for generated messages
         FunPtr BroadcastCallback ->
         -- |Handler for sending catch-up status to peers
@@ -1419,6 +1489,10 @@ foreign export ccall
         Int64 ->
         Ptr NotifyContext ->
         FunPtr NotifyCallback ->
+        -- |Context for when signalling a unsupported protocol update is pending.
+        Ptr NotifyUnsupportedUpdatesContext ->
+        -- |The callback used to signal a unsupported protocol update is pending.
+        FunPtr NotifyUnsupportedUpdatesCallback ->
         -- |Handler for sending catch-up status to peers
         FunPtr CatchUpStatusCallback ->
         -- |Regenesis object
@@ -1452,6 +1526,7 @@ foreign export ccall getConsensusStatus :: StablePtr ConsensusRunner -> IO CStri
 foreign export ccall getBlockInfo :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getAncestors :: StablePtr ConsensusRunner -> CString -> Word64 -> IO CString
 foreign export ccall getBranches :: StablePtr ConsensusRunner -> IO CString
+foreign export ccall getNumberOfNonFinalizedTransactions :: StablePtr ConsensusRunner -> IO Word64
 
 foreign export ccall
     getCatchUpStatus ::
@@ -1493,7 +1568,7 @@ foreign export ccall getAllAnonymityRevokers :: StablePtr ConsensusRunner -> CSt
 foreign export ccall getCryptographicParameters :: StablePtr ConsensusRunner -> CString -> IO CString
 
 -- baker status checking
-foreign export ccall bakerStatusBestBlock :: StablePtr ConsensusRunner -> Ptr Word64 -> Ptr Word8 -> IO Word8
+foreign export ccall bakerStatusBestBlock :: StablePtr ConsensusRunner -> Ptr Word64 -> Ptr Word8 -> Ptr Double -> IO Word8
 foreign export ccall checkIfWeAreFinalizer :: StablePtr ConsensusRunner -> IO Word8
 foreign export ccall checkIfRunning :: StablePtr ConsensusRunner -> IO Word8
 

@@ -156,7 +156,7 @@ test = do
             check resultingState results 18 ResultSuccess True
             check resultingState results 19 ResultDuplicate True -- already present
             check resultingState results 20 ResultSuccess True
-            check resultingState results 21 ResultEnergyExceeded False
+            check resultingState results 21 ResultEnergyExceeded True
             check resultingState results 22 ResultDuplicateNonce False
             check resultingState results 23 ResultSuccess True -- exactly max block energy
         specify "doReceiveTransactionInternal with valid credential deployment" $ do
@@ -298,7 +298,7 @@ testDoReceiveTransactionInternal trs slot = do
     bs <- queryBlockState =<< lastFinalizedBlock
     mapM
         ( \tr ->
-            doReceiveTransactionInternal (TVer.Block bs) tr (utcTimeToTimestamp theTime) slot
+            doReceiveTransactionInternal TVer.Block bs tr (utcTimeToTimestamp theTime) slot
                 >>= (\res -> pure (wmdHash tr, snd res))
         )
         trs

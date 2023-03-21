@@ -40,7 +40,7 @@ keyPair0 :: SigScheme.KeyPair
 keyPair0 = Helpers.keyPairFromSeed 0
 
 recorderSourceFile :: FilePath
-recorderSourceFile = "./testdata/contracts/v1/record-parameters.wasm"
+recorderSourceFile = "../concordium-base/smart-contracts/testdata/contracts/v1/record-parameters.wasm"
 
 -- Tests in this module use version 1, creating V1 instances.
 wasmModVersion :: WasmVersion

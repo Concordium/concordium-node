@@ -52,6 +52,7 @@ main = do
                   broadcastFinalizationRecord = \_ _ -> return (),
                   notifyBlockArrived = Nothing,
                   notifyBlockFinalized = Nothing,
+                  notifyUnsupportedProtocolUpdate = Nothing,
                   notifyCatchUpStatus = \_ _ -> return (),
                   notifyRegenesis = \_ -> return ()
                 }

@@ -1,6 +1,9 @@
 //! Node's statistics and their exposure.
 
-use crate::{common::p2p_node_id::P2PNodeId, read_or_die, spawn_or_die};
+use crate::{
+    common::p2p_node_id::P2PNodeId, configuration, consensus_ffi::consensus::ConsensusContainer,
+    read_or_die, spawn_or_die,
+};
 use anyhow::Context;
 use gotham::{
     handler::IntoResponse,
@@ -15,13 +18,15 @@ use hyper::Body;
 use prometheus::{
     self,
     core::{Atomic, AtomicI64, AtomicU64, GenericGauge},
-    Encoder, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, Opts, Registry,
-    TextEncoder,
+    Encoder, Gauge, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, Opts,
+    Registry, TextEncoder,
 };
-use std::{net::SocketAddr, sync::RwLock, thread, time};
-
-use crate::configuration;
-use std::sync::Arc;
+use std::{
+    net::SocketAddr,
+    sync::{Arc, RwLock},
+    thread, time,
+};
+use tower_http::metrics::in_flight_requests::InFlightRequestsCounter;
 
 struct HTMLStringResponse(pub String);
 
@@ -44,11 +49,119 @@ impl PrometheusStateData {
     }
 }
 
+/// Wrapper for implementing the prometheus::Collector trait for
+/// InFlightRequestsCounter, which syncs the prometheus gauge with the counter
+/// on scrape.
+struct GrpcInFlightRequestsCollector {
+    /// The prometheus gauge exposed.
+    gauge:   IntGauge,
+    /// Counter used to track in flight requests by
+    /// `tower_http::metrics::InFlightRequestsLayer`.
+    counter: InFlightRequestsCounter,
+}
+
+impl prometheus::core::Collector for GrpcInFlightRequestsCollector {
+    fn desc(&self) -> Vec<&prometheus::core::Desc> { self.gauge.desc() }
+
+    fn collect(&self) -> Vec<prometheus::proto::MetricFamily> {
+        let in_flight_requests = self.counter.get();
+        self.gauge.set(in_flight_requests as i64);
+        self.gauge.collect()
+    }
+}
+
+/// Collector tracking stats which needs to be synced with consensus on scrape
+/// through the FFI.
+pub struct StatsConsensusCollector {
+    /// Reference to consensus to support consensus queries.
+    consensus:                  ConsensusContainer,
+    /// The baking committee status of the node for the current best block.
+    baking_committee:           IntGauge,
+    /// Whether the node is a member of the finalization committee for the
+    /// current finalization round.
+    finalization_committee:     IntGauge,
+    /// Current active lottery power. Is only non-zero when active member of
+    /// the baking committee.
+    baking_lottery_power:       Gauge,
+    /// The current number of non-finalized transactions across all accounts.
+    non_finalized_transactions: IntGauge,
+}
+
+impl StatsConsensusCollector {
+    pub fn new(consensus: ConsensusContainer) -> anyhow::Result<Self> {
+        let baking_committee = IntGauge::with_opts(Opts::new(
+            "consensus_baking_committee",
+            "The baking committee status of the node for the current best block. The value is \
+             mapped to a status, see documentation for details",
+        ))?;
+
+        let finalization_committee = IntGauge::with_opts(Opts::new(
+            "consensus_finalization_committee",
+            "The finalization commmittee status of the node for the current finalization round. \
+             The metric will have a value of 1 when member of the finalization committee",
+        ))?;
+
+        let baking_lottery_power = Gauge::with_opts(Opts::new(
+            "consensus_baking_lottery_power",
+            "Baking lottery power for the current epoch of the best block. Is only non-zero when \
+             active member of the baking committee.",
+        ))?;
+
+        let non_finalized_transactions = IntGauge::with_opts(Opts::new(
+            "consensus_non_finalized_transactions",
+            "The current number of non-finalized transactions across all accounts",
+        ))?;
+
+        Ok(Self {
+            consensus,
+            baking_committee,
+            finalization_committee,
+            baking_lottery_power,
+            non_finalized_transactions,
+        })
+    }
+}
+
+impl prometheus::core::Collector for StatsConsensusCollector {
+    fn desc(&self) -> Vec<&prometheus::core::Desc> {
+        let mut desc = self.baking_committee.desc();
+        desc.extend(self.finalization_committee.desc());
+        desc.extend(self.baking_lottery_power.desc());
+        desc.extend(self.non_finalized_transactions.desc());
+        desc
+    }
+
+    fn collect(&self) -> Vec<prometheus::proto::MetricFamily> {
+        let (status, _has_baker_id, _baker_id, lottery_power) =
+            self.consensus.in_baking_committee();
+        self.baking_committee.set(status as i64);
+        self.baking_lottery_power.set(lottery_power);
+
+        let in_finalization_committee = self.consensus.in_finalization_committee();
+        self.finalization_committee.set(
+            if in_finalization_committee {
+                1
+            } else {
+                0
+            },
+        );
+
+        let non_finalized_transactions = self.consensus.number_of_non_finalized_transactions();
+        self.non_finalized_transactions.set(non_finalized_transactions as i64);
+
+        let mut metrics = self.baking_committee.collect();
+        metrics.extend(self.finalization_committee.collect());
+        metrics.extend(self.baking_lottery_power.collect());
+        metrics.extend(self.non_finalized_transactions.collect());
+        metrics
+    }
+}
+
 /// Collects statistics pertaining to the node.
 pub struct StatsExportService {
     /// The Prometheus registry. Every metric which should be exposed via the
     /// Prometheus exporter should be registered in this registry.
-    registry: Registry,
+    pub registry: Registry,
     /// Total number of network packets received.
     pub packets_received: IntCounter,
     /// Total number of network packets sent.
@@ -77,6 +190,10 @@ pub struct StatsExportService {
     pub last_arrived_block_timestamp: IntGauge,
     /// The block height of the last finalized block.
     pub last_arrived_block_height: GenericGauge<AtomicU64>,
+    /// Total number of blocks baked by the node since startup.
+    pub baked_blocks: IntCounter,
+    /// Total number of finalized blocks baked by the node since startup.
+    pub finalized_baked_blocks: IntCounter,
     /// Total number of consensus messages received. Labelled with message type
     /// (`message=<type>`) and the outcome (`result=<outcome>`).
     ///
@@ -105,6 +222,8 @@ pub struct StatsExportService {
     pub sent_consensus_messages: IntCounterVec,
     /// Current number of soft banned peers.
     pub soft_banned_peers: IntGauge,
+    /// The total number of soft banned peers since startup.
+    pub soft_banned_peers_total: IntCounter,
     /// Total number of peers connected since startup.
     pub total_peers: IntCounter,
     /// Information of the node software. Contains a label `version` with the
@@ -116,6 +235,14 @@ pub struct StatsExportService {
     /// gRPC method name (`method=<name>`) and the gRPC response status
     /// (`status=<status>`).
     pub grpc_request_response_time: HistogramVec,
+    /// Counter for tracking inflight requests.
+    /// This is passed to the Tower layer `InFlightRequestLayer` provided by
+    /// `tower_http::metrics` and then synced with the prometheus gauge on each
+    /// scrape.
+    pub grpc_in_flight_requests_counter: InFlightRequestsCounter,
+    /// If non-zero the value represents the effective timestamp of unsupported
+    /// protocol update as milliseconds since unix epoch.
+    pub unsupported_pending_protocol_version: GenericGauge<AtomicU64>,
     /// Total number of bytes received at the point of last
     /// throughput_measurement.
     ///
@@ -234,6 +361,18 @@ impl StatsExportService {
         ))?;
         registry.register(Box::new(last_arrived_block_timestamp.clone()))?;
 
+        let baked_blocks = IntCounter::with_opts(Opts::new(
+            "consensus_baked_blocks_total",
+            "Total number of blocks baked by the node since startup",
+        ))?;
+        registry.register(Box::new(baked_blocks.clone()))?;
+
+        let finalized_baked_blocks = IntCounter::with_opts(Opts::new(
+            "consensus_finalized_baked_blocks_total",
+            "Total number of finalized blocks baked by the node since startup",
+        ))?;
+        registry.register(Box::new(finalized_baked_blocks.clone()))?;
+
         let received_consensus_messages = IntCounterVec::new(
             Opts::new(
                 "consensus_received_messages_total",
@@ -262,6 +401,12 @@ impl StatsExportService {
         ))?;
         registry.register(Box::new(soft_banned_peers.clone()))?;
 
+        let soft_banned_peers_total = IntCounter::with_opts(Opts::new(
+            "network_soft_banned_peers_total",
+            "Total number of soft banned peers since startup",
+        ))?;
+        registry.register(Box::new(soft_banned_peers_total.clone()))?;
+
         let total_peers = IntCounter::with_opts(Opts::new(
             "network_peers_total",
             "Total number of peers since startup",
@@ -283,7 +428,7 @@ impl StatsExportService {
 
         let node_startup_timestamp = IntGauge::with_opts(Opts::new(
             "node_startup_timestamp",
-            "Timestamp of starting up the node (Unix time in milliseconds).",
+            "Timestamp of starting up the node (Unix time in milliseconds)",
         ))?;
         registry.register(Box::new(node_startup_timestamp.clone()))?;
 
@@ -298,6 +443,24 @@ impl StatsExportService {
             &["method", "status"],
         )?;
         registry.register(Box::new(grpc_request_response_time.clone()))?;
+
+        let grpc_in_flight_requests_gauge = IntGauge::with_opts(Opts::new(
+            "grpc_in_flight_requests",
+            "Current number of gRPC requests being handled by the node",
+        ))?;
+        let grpc_in_flight_requests_counter = InFlightRequestsCounter::new();
+        let grpc_in_flight_requests = GrpcInFlightRequestsCollector {
+            gauge:   grpc_in_flight_requests_gauge,
+            counter: grpc_in_flight_requests_counter.clone(),
+        };
+        registry.register(Box::new(grpc_in_flight_requests))?;
+
+        let unsupported_pending_protocol_version = GenericGauge::with_opts(Opts::new(
+            "consensus_unsupported_pending_protocol_version",
+            "If non-zero the value represents the effective time of an unsupported protocol \
+             update (Unix time in milliseconds)",
+        ))?;
+        registry.register(Box::new(unsupported_pending_protocol_version.clone()))?;
 
         let last_throughput_measurement_timestamp = AtomicI64::new(0);
         let last_throughput_measurement_sent_bytes = AtomicU64::new(0);
@@ -321,13 +484,18 @@ impl StatsExportService {
             last_finalized_block_timestamp,
             last_arrived_block_height,
             last_arrived_block_timestamp,
+            baked_blocks,
+            finalized_baked_blocks,
             received_consensus_messages,
             sent_consensus_messages,
             soft_banned_peers,
+            soft_banned_peers_total,
             total_peers,
             node_info,
             node_startup_timestamp,
             grpc_request_response_time,
+            grpc_in_flight_requests_counter,
+            unsupported_pending_protocol_version,
             last_throughput_measurement_timestamp,
             last_throughput_measurement_sent_bytes,
             last_throughput_measurement_received_bytes,
