@@ -124,9 +124,8 @@ async fn main() {
     }
 
     info!(
-        "Starting up {}-node-collector version {}!",
-        "APPNAME", //concordium_node::APPNAME,
-        "VERSION"  //concordium_node::VERSION
+        "Starting up node-collector version {}!",
+        env!("CARGO_PKG_VERSION")
     );
 
     if conf.node_names.len() != conf.grpc_hosts.len() {
