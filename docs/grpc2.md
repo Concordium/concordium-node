@@ -35,7 +35,7 @@ If these are enabled then the following options become available
   (`CONCORDIUM_NODE_GRPC2_HEALTH_MAX_FINALIZED_DELAY`) is a configuration for the
   `GetNodeHealth` endpoint. It specifies (in seconds) the maximum delay in last
   finalized block time before the health check fails.
-- `--grpc2-health-min-peers` (default is 5min)
+- `--grpc2-health-min-peers`
   (`CONCORDIUM_NODE_GRPC2_HEALTH_MIN_PEERS`) is a configuration for the
   `GetNodeHealth` endpoint. It specifies the minimum number of peers the node
   should have for it to be considered healthy. If this is not set then the
