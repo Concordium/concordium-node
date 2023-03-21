@@ -26,6 +26,7 @@ import qualified Data.HashSet as HS
 import Data.Kind (Type)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (isJust)
+import Data.Ratio
 import Data.Time.Clock
 import Data.Time.Clock.POSIX
 import qualified Data.Vector as Vec
@@ -79,9 +80,6 @@ dummyBakersAndFinalizers =
         { _bfBakers = FullBakers Vec.empty 0,
           _bfFinalizers = FinalizationCommittee Vec.empty 0
         }
-
-dummyLeadershipElectionNonce :: LeadershipElectionNonce
-dummyLeadershipElectionNonce = Hash.hash "LeadershipElectionNonce"
 
 -- |A valid 'AccountCreation' with expiry 1596409020
 validAccountCreation :: AccountCreation
@@ -179,7 +177,6 @@ initialSkovData bs =
         (dummyGenesisMetadata (getHash bs))
         bs
         10_000
-        dummyLeadershipElectionNonce
         dummyEpochBakers
 
 -- |A block hash for the genesis.
@@ -197,7 +194,7 @@ dummyGenesisMetadata stHash =
         }
 
 coreGenesisParams :: CoreGenesisParametersV1
-coreGenesisParams = CoreGenesisParametersV1{genesisTime = 0, genesisEpochDuration = 3_600_000}
+coreGenesisParams = CoreGenesisParametersV1{genesisTime = 0, genesisEpochDuration = 3_600_000, genesisSignatureThreshold = 2 % 3}
 
 -- |Genesis data for P6 suitable for testing transaction processing.
 -- The identity providers should be passed in as it makes it easier
