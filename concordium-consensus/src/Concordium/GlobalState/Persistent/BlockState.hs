@@ -108,9 +108,9 @@ data PersistentBirkParameters (pv :: ProtocolVersion) = PersistentBirkParameters
     { -- |The currently-registered bakers.
       _birkActiveBakers :: !(BufferedRef (PersistentActiveBakers (AccountVersionFor pv))),
       -- |The bakers that will be used for the next epoch.
-      _birkNextEpochBakers :: !(HashedBufferedRef (PersistentEpochBakers (AccountVersionFor pv))),
+      _birkNextEpochBakers :: !(HashedBufferedRef (PersistentEpochBakers pv)),
       -- |The bakers for the current epoch.
-      _birkCurrentEpochBakers :: !(HashedBufferedRef (PersistentEpochBakers (AccountVersionFor pv))),
+      _birkCurrentEpochBakers :: !(HashedBufferedRef (PersistentEpochBakers pv)),
       -- |The seed state used to derive the leadership election nonce.
       _birkSeedState :: !(SeedState (SeedStateVersionFor pv))
     }
@@ -210,6 +210,8 @@ initialBirkParameters ::
     [PersistentAccount av] ->
     -- |The seed state
     SeedState (SeedStateVersionFor pv) ->
+    -- |The finalization committee parameters (if relevant)
+    OFinalizationCommitteeParameters pv ->
     m (PersistentBirkParameters pv)
 initialBirkParameters accounts seedState _bakerFinalizationCommitteeParameters = do
     -- Iterate accounts and collect delegators.
@@ -819,7 +821,7 @@ initialPersistentState ::
     ChainParameters pv ->
     m (HashedPersistentBlockState pv)
 initialPersistentState seedState cryptoParams accounts ips ars keysCollection chainParams = do
-    persistentBirkParameters <- initialBirkParameters accounts seedState
+    persistentBirkParameters <- initialBirkParameters accounts seedState (chainParams ^. cpFinalizationCommitteeParameters)
     modules <- refMake Modules.emptyModules
     identityProviders <- bufferHashed $ makeHashed ips
     anonymityRevokers <- bufferHashed $ makeHashed ars
@@ -2990,6 +2992,7 @@ doSetNextEpochBakers ::
     (SupportsPersistentState pv m) =>
     PersistentBlockState pv ->
     [(PersistentBakerInfoRef (AccountVersionFor pv), Amount)] ->
+    OFinalizationCommitteeParameters pv ->
     m (PersistentBlockState pv)
 doSetNextEpochBakers pbs bakers _bakerFinalizationCommitteeParameters = do
     bsp <- loadPBS pbs

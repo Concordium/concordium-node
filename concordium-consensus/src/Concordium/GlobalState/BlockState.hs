@@ -845,6 +845,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
         (PVSupportsDelegation (MPV m)) =>
         UpdatableBlockState m ->
         [(BakerInfoRef m, Amount)] ->
+        OFinalizationCommitteeParameters (MPV m) ->
         m (UpdatableBlockState m)
 
     -- |Update the bakers for the next epoch.
@@ -1581,7 +1582,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     bsoClearEpochBlocksBaked = lift . bsoClearEpochBlocksBaked
     bsoSetNextCapitalDistribution s cd = lift $ bsoSetNextCapitalDistribution s cd
     bsoRotateCurrentCapitalDistribution = lift . bsoRotateCurrentCapitalDistribution
-    bsoSetNextEpochBakers s = lift . bsoSetNextEpochBakers s
+    bsoSetNextEpochBakers s bkrs = lift . bsoSetNextEpochBakers s bkrs
     bsoGetBankStatus = lift . bsoGetBankStatus
     bsoSetRewardAccounts s = lift . bsoSetRewardAccounts s
     {-# INLINE bsoGetModule #-}
