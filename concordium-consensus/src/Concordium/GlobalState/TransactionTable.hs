@@ -109,10 +109,10 @@ markDeadResult bh Committed{..} =
     in  if HM.null newResults then Received{..} else Committed{tsResults = newResults, ..}
 markDeadResult _ ts = ts
 
-{-# SPECIALIZE updateSlot :: Round -> LiveTransactionStatus -> LiveTransactionStatus #-}
-{-# SPECIALIZE updateSlot :: Slot -> LiveTransactionStatus -> LiveTransactionStatus #-}
-updateSlot :: IsCommitPoint a => a -> LiveTransactionStatus -> LiveTransactionStatus
-updateSlot s ts = ts{_tsCommitPoint = commitPoint s}
+{-# SPECIALIZE updateCommitPoint :: Round -> LiveTransactionStatus -> LiveTransactionStatus #-}
+{-# SPECIALIZE updateCommitPoint :: Slot -> LiveTransactionStatus -> LiveTransactionStatus #-}
+updateCommitPoint :: IsCommitPoint a => a -> LiveTransactionStatus -> LiveTransactionStatus
+updateCommitPoint s ts = ts{_tsCommitPoint = commitPoint s}
 
 {-# INLINE getTransactionIndex #-}
 

@@ -859,7 +859,7 @@ updateFocusBlockTo newFocusBlock = do
                         -- We've reached the common ancestor, so forward the transactions of the
                         -- blocks in the stack.
                         foldl'
-                            (\p f -> forwardPTT (blockTransactions f) p)
+                            (\p f -> TT.forwardPTT (blockTransactions f) p)
                             pendingTable
                             forwardBlocks
                     | otherwise -> do
@@ -871,7 +871,7 @@ updateFocusBlockTo newFocusBlock = do
                             (parent oldBranchBlock)
                             (parent newBranchBlock)
                             (newBranchBlock : forwardBlocks)
-                            (reversePTT (blockTransactions oldBranchBlock) pendingTable)
+                            (TT.reversePTT (blockTransactions oldBranchBlock) pendingTable)
                 GT ->
                     -- If the new branch height is lower than the old branch height, roll back the
                     -- transactions from the old block and continue with the parent of the old
@@ -880,7 +880,7 @@ updateFocusBlockTo newFocusBlock = do
                         (parent oldBranchBlock)
                         newBranchBlock
                         forwardBlocks
-                        (reversePTT (blockTransactions oldBranchBlock) pendingTable)
+                        (TT.reversePTT (blockTransactions oldBranchBlock) pendingTable)
     oldFocusBlock <- use focusBlock
     pendingTransactions . pendingTransactionTable %=! updatePTs oldFocusBlock newFocusBlock []
     focusBlock .=! newFocusBlock
