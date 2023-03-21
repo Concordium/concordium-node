@@ -23,6 +23,7 @@ pipeline {
     }
     stages {
         stage('Precheck') {
+            agent { label 'jenkins-worker' }
             steps {
                 // Fail the job if the OUTFILE already exists in S3.
                 sh '''\
