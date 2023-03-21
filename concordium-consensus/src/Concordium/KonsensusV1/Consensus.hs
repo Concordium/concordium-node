@@ -183,7 +183,8 @@ computeFinalizationCommittee FullBakers{..} FinalizationCommitteeParameters{..} 
     committeeFinalizers = Vec.fromList $ zipWith mkFinalizer [FinalizerIndex 0 ..] sortedFinalizers
     committeeTotalWeight = sum $ finalizerWeight <$> committeeFinalizers
 
-
+-- |Helper function for calcuculating a new @currentTimeout@ given the old @currentTimeout@
+-- and the @timeoutIncrease@ chain parameter.
 updateCurrentTimeout :: Ratio Word64 -> Duration -> Duration
 updateCurrentTimeout timeoutIncrease oldCurrentTimeout =
     let timeoutIncreaseRational = toRational timeoutIncrease :: Rational
@@ -192,14 +193,15 @@ updateCurrentTimeout timeoutIncrease oldCurrentTimeout =
         newCurrentTimeoutInteger = floor newCurrentTimeoutRational :: Integer
     in  Duration $ fromIntegral newCurrentTimeoutInteger
 
-
+-- |Helper function for increasing the '_rsNextSignableRound' of a 'RoundStatus'.
 increaseNextSignableRound :: RoundStatus -> RoundStatus
 increaseNextSignableRound currentRoundStatus =
     let newNextSignableRound = 1 + _rsCurrentRound currentRoundStatus
     in currentRoundStatus{_rsNextSignableRound = newNextSignableRound}
 
 -- |This is 'uponTimeoutEvent' from the bluepaper. If a timeout occurs, a finalizers should call this function to
--- generate and send out a timeout message.
+-- generate, send out a timeout message and process it.
+-- NB: If the caller is not a finalizer, this function does nothing.
 uponTimeoutEvent ::
     ( MonadTimeout m,
       MonadMulticast m,
@@ -218,11 +220,8 @@ uponTimeoutEvent = do
         currentRoundStatus <- doGetRoundStatus
         eBakers <- use skovEpochBakers
 
-        -- finComm1 <- (^. currentEpochBakers . bfFinalizers) <$> use skovEpochBakers -- FIXME: Would this be better than the below?
-        let maybeFinComm = (^. bfFinalizers) <$> getBakersForLiveEpoch (_currentEpoch eBakers) eBakers
-        let maybeFinalizer = case maybeFinComm of
-                Nothing -> Nothing
-                Just finComm -> finalizerByBakerId finComm bakerId
+        finComm <- use $ skovEpochBakers . currentEpochBakers . bfFinalizers
+        let maybeFinalizer = finalizerByBakerId finComm bakerId
 
         case maybeFinalizer of
             Nothing -> return ()
@@ -261,19 +260,18 @@ uponTimeoutEvent = do
                 sendMessage timeoutMessage
                 processTimeout timeoutMessage
 
--- |This is 'processTimeout' from the bluepaper. FIXME: add more documentation.
+-- |Process a timeout message. This stores the timeout, and makes sure the stored timeout messages
+-- do not span more than 2 epochs. If enough timeout messages are stored, we form a timeout certificate and
+-- advance round. 
+--
+-- Precondition:
+-- * The given 'TimeoutMessage' is valid and has already been checked.
 processTimeout ::
     (MonadTimeout m,
      LowLevel.MonadTreeStateStore m,
      MonadState (SkovData (MPV m)) m) =>
      TimeoutMessage -> m ()
 processTimeout tm = do
-    -- 1: store timeout locally
-    -- 2: if the epochs of all stored timeouts for round currentRound and highestQC span more
-    -- than 2 epochs then
-    -- 3:     delete all the timeouts with smallest epoch, they are from dishonest people.
-    -- [DONE (minus the fixme)]
-    -- doStoreTimeoutMessage tm
     currentTimeoutMessages <- use receivedTimeoutMessages
     currentRoundStatus <- doGetRoundStatus
     let epoch = tmEpoch $ tmBody tm
@@ -298,9 +296,6 @@ processTimeout tm = do
 
     forM_ maybeNewTimeoutMessages $ \newTimeoutMessages -> do
         receivedTimeoutMessages .=! newTimeoutMessages
-
-        -- 4: if the weight of timeouts for round currentRound is > sigThreshold with weights
-        -- from the payday of highestQC.epoch then
         eBakers <- use skovEpochBakers
         let maybeFinComm = (^. bfFinalizers) <$> getBakersForLiveEpoch (qcEpoch highestQC) eBakers
         case maybeFinComm of
@@ -333,16 +328,15 @@ processTimeout tm = do
                                     in foldl' (+) 0 $ getFinalizerWeight <$> finsInFinCommQC2
                 let totalWeightRational = toRational $ committeeTotalWeight finCommQC :: Rational
                 genesisSigThreshold <- toRational . genesisSignatureThreshold . gmParameters <$> use genesisMetadata
-                let threshold = totalWeightRational * genesisSigThreshold :: Rational
-                let thresholdVoterPower = VoterPower $ floor threshold
-                when (voterPowerSum >= thresholdVoterPower) $ do
+                let voterPowerSumRational = toRational voterPowerSum
+                when (voterPowerSumRational / totalWeightRational >= genesisSigThreshold) $ do
                     let currentRound = _rsCurrentRound currentRoundStatus
                     let tc = makeTC currentRound newTimeoutMessages
                     advanceRound (currentRound + 1) (Left (tc, highestQC))
 
 
 
--- Helper function for folding over a `Map.Map FinalizerIndex TimeoutMessage` to produce a `Map.Map Round FinalizerSet`
+-- Helper function for folding over a 'Map.Map FinalizerIndex TimeoutMessage' to produce a 'Map.Map Round FinalizerSet'
 foldHelper :: Map.Map Round FinalizerSet -> FinalizerIndex -> TimeoutMessage -> Map.Map Round FinalizerSet
 foldHelper finRounds finIndex tm = Map.insert roundOfQC newFinSet finRounds
     where
@@ -350,7 +344,13 @@ foldHelper finRounds finIndex tm = Map.insert roundOfQC newFinSet finRounds
         currentFinSetNatural = fromMaybe emptyFinalizerSet (Map.lookup roundOfQC finRounds)
         newFinSet = addFinalizer currentFinSetNatural finIndex
 
--- Precondition: receivedTimeoutMessages MUST be non-empty FIXME: improve docs
+-- |Make a 'TimeoutCertificate' from a 'Map.Map Epoch (Map.Map FinalizerIndex TimeoutMessage)'.
+--
+-- Precondition:
+-- * The given map of timeout messages MUST be non-empty.
+-- 
+-- NB: It is not checked whether enough timeoutmessages are present in the map. 
+-- This should be checked before calling 'makeTC'.
 makeTC :: Round -> Map.Map Epoch (Map.Map FinalizerIndex TimeoutMessage) -> TimeoutCertificate
 makeTC currentRound messagesMap = do
     let maybeKey = Map.lookupMin messagesMap
