@@ -53,7 +53,7 @@ impl health_server::Health for HealthServiceImpl {
             let num_peers = self.node.get_peer_stats(Some(PeerType::Node)).len();
             if num_peers < min_allowed_peers {
                 return Err(tonic::Status::unavailable(format!(
-                    "The only has {} peers, but is required to have at least {}.",
+                    "The node only has {} peers, but is required to have at least {}.",
                     num_peers, min_allowed_peers
                 )));
             }
