@@ -9,12 +9,13 @@
   considered healthy.
 - Add a new option `--grpc2-invoke-max-energy` (environment variable
   `CONCORDIUM_NODE_GRPC2_INVOKE_MAX_ENERGY`) that allows the node runner to
-  control the maximum amount of energy allowed by an `InvokeInstance` call. The
-  behaviour of the endpoint is slightly changed as well. The `energy` is no
-  longer required in the request, and the effective energy used by the call will
-  be `min(request.energy, grpc-invoke-max-energy)`. This differs from the
-  previous behaviour where a request would fail if the request either omitted
-  the `energy`, or supplied an excessive value.
+  control the maximum amount of energy allowed by an `InvokeInstance` (and the
+  V1 GRPC `InvokeContract`) call. The behaviour of the endpoint is slightly
+  changed as well. The `energy` is no longer required in the request, and the
+  effective energy used by the call will be `min(request.energy,
+  grpc-invoke-max-energy)`. This differs from the previous behaviour where a
+  request would fail if the request either omitted the `energy`, or supplied an
+  excessive value.
 
 ## 5.3.0
 

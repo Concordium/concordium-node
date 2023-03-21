@@ -186,8 +186,13 @@ async fn main() -> anyhow::Result<()> {
     let rpc_server_task = if !conf.cli.rpc.no_rpc_server {
         let shutdown_sender = shutdown_sender.clone();
         info!("Starting RPC server");
-        let mut serv = RpcServerImpl::new(node.clone(), Some(consensus.clone()), &conf.cli.rpc)
-            .context("Cannot create RPC server.")?;
+        let mut serv = RpcServerImpl::new(
+            node.clone(),
+            Some(consensus.clone()),
+            &conf.cli.rpc,
+            conf.cli.grpc2.invoke_max_energy,
+        )
+        .context("Cannot create RPC server.")?;
 
         let task = tokio::spawn(async move {
             serv.start_server(shutdown_rpc_signal.map(|_| ()), shutdown_sender).await
