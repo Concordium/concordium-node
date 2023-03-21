@@ -154,15 +154,13 @@ genTimeoutMessageBody :: Gen TimeoutMessageBody
 genTimeoutMessageBody = do
     tmFinalizerIndex <- genFinalizerIndex
     tmQuorumCertificate <- genQuorumCertificate
-    (tmRound, tmTimeoutCertificate) <-
+    tmRound <-
         oneof
-            [ return (qcRound tmQuorumCertificate + 1, Absent),
+            [ return (qcRound tmQuorumCertificate + 1),
               do
                 r <- chooseBoundedIntegral (qcRound tmQuorumCertificate, maxBound - 1)
-                tc <- genTimeoutCertificate
-                return (r + 1, Present tc{tcRound = r})
+                return $ r + 1
             ]
-    tmEpochFinalizationEntry <- oneof [return Absent, Present <$> genFinalizationEntry]
     tmAggregateSignature <- TimeoutSignature <$> genBlsSignature
     let tmEpoch = qcEpoch tmQuorumCertificate -- FIXME: is this correct?
     return TimeoutMessageBody{..}

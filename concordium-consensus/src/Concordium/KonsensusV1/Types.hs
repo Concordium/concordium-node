@@ -257,11 +257,17 @@ finalizerList = unroll 0 . theFinalizerSet
       where
         r = unroll (i + 1) (shiftR x 1)
 
+-- |The empty set of finalizers
+emptyFinalizerSet :: FinalizerSet
+emptyFinalizerSet = FinalizerSet 0
+
+-- |Add a finalizer to a 'FinalizerSet'.
+addFinalizer :: FinalizerSet -> FinalizerIndex -> FinalizerSet
+addFinalizer (FinalizerSet setOfFinalizers) (FinalizerIndex i) = FinalizerSet $ setBit setOfFinalizers (fromIntegral i)
+
 -- |Convert a list of [FinalizerIndex] to a 'FinalizerSet'.
 finalizerSet :: [FinalizerIndex] -> FinalizerSet
 finalizerSet = foldl' addFinalizer (FinalizerSet 0)
-  where
-    addFinalizer (FinalizerSet setOfFinalizers) (FinalizerIndex i) = FinalizerSet $ setBit setOfFinalizers (fromIntegral i)
 
 instance Show FinalizerSet where
     show = show . finalizerList
