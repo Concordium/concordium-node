@@ -133,13 +133,8 @@ receiveQuorumMessage qm@QuorumMessage{..} = process =<< get
         let finalizersForCurrentEpoch = skovData ^. skovEpochBakers . currentEpochBakers . bfFinalizers
         in  finalizerByIndex finalizersForCurrentEpoch qmFinalizerIndex
     -- Checks whether a finalizer has signed off a quorum message already.
-    hasSignedOffQuorumMessage finalizerIndex skovData =
-        isJust $! skovData ^? currentQuorumMessages . smFinalizerToQuorumMessage . ix finalizerIndex
-    -- Checks whether a finalizer has signed off a timeout mesage already.
-    hasSignedOffTimeoutMessage = False -- TODO: check in the timeout messages for the current round also.
-    -- Checks if the finalizer has signed off either a quorum or a timeout message already.
     isDoubleSigning finalizerIndex skovData =
-        hasSignedOffQuorumMessage finalizerIndex skovData || hasSignedOffTimeoutMessage
+        isJust $! skovData ^? currentQuorumMessages . smFinalizerToQuorumMessage . ix finalizerIndex
     -- Update the collection of quorum messages for the running epoch and store it in the state.
     storeQuorumMessage quorumMessage weight = do
         currentMessages <- use currentQuorumMessages
