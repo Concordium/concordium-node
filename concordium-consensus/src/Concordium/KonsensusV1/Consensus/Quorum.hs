@@ -1,4 +1,3 @@
-{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |This module contains the logic for creating 'QuorumCertificate's, receiving and
