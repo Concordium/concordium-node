@@ -29,13 +29,12 @@ import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.Utils
 
+-- |Result codes for receiving a 'QuorumMessage'.
 data ReceiveQuorumMessageResult
     = -- |The 'QuorumMessage' was received i.e. it passed verification.
       Received
     | -- |The 'QuorumMessage' was rejected.
       Rejected
-    | -- |The 'QuorumMessage' cannot be processed at this time since the block it is pointing to is pending.
-      Awaiting
     | -- |The 'QuorumMessage' points to a round which indicates a catch up is required.
       CatchupRequired
     deriving (Eq, Show)
@@ -48,7 +47,6 @@ data ReceiveQuorumMessageResult
 -- Possible return codes are
 -- * 'Received' The 'QuorumMessage' was received, relayed and processed.
 -- * 'Rejected' The 'QuorumMessage' failed validation and possible it has been flagged.
--- * 'Awaiting' The 'QuorumMessage' cannot be processed at this time as it has a dependency on a pending block.
 -- * 'CatchupRequired' The 'QuorumMessage' cannot be processed before it is caught up.
 receiveQuorumMessage ::
     ( MonadState (SkovData (MPV m)) m,
@@ -102,7 +100,7 @@ receiveQuorumMessage qm@QuorumMessage{..} = process =<< get
                                 return CatchupRequired
                             -- The block is already pending so wait for it to be executed.
                             RecentBlock (BlockPending _) ->
-                                return Awaiting
+                                return CatchupRequired
                             -- The block is executed but not finalized.
                             -- Perform the remaining checks before processing the 'QuorumMessage'.
                             RecentBlock (BlockAlive quorumMessagePointer)
