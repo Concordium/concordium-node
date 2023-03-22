@@ -68,32 +68,33 @@ receiveQuorumMessage qm@QuorumMessage{..} = process =<< get
             return Rejected
         | otherwise = do
             case getFinalizerByIndex skovData of
-                -- Signee is not in the finalization committee so we flag it and stop.
-                Nothing -> do
-                    flag (NotAFinalizer qm)
-                    return Rejected
+                -- Signee is not in the finalization committee so we reject the message.
+                -- Note. This deviates a bit from the blue paper, as we are not flagging the finalizer here.
+                -- This is because of the fact that we cannot verify a signature from a finalizer who is not
+                -- already present in the finalization committee.
+                Nothing -> return Rejected
                 Just FinalizerInfo{..}
                     -- Check whether the signature is ok or not.
                     | not (checkQuorumSignatureSingle (getQuorumSignatureMessage skovData) finalizerBlsKey qmSignature) ->
                         return Rejected
                     -- Finalizer already signed a message for this round.
                     | isDoubleSigning finalizerIndex skovData -> do
-                        flag (DoubleSigning qm)
+                        flag $ DoubleSigning qm
                         return Rejected
                     -- Continue verifying by looking up the block.
                     | otherwise -> do
                         getRecentBlockStatus qmBlock skovData >>= \case
                             -- The signatory signed an already signed block. We flag and stop.
                             OldFinalized -> do
-                                flag (SignedInvalidBlock qm)
+                                flag $ SignedInvalidBlock qm
                                 return Rejected
                             -- The signatory signed an already signed block. We flag and stop.
                             RecentBlock (BlockFinalized _) -> do
-                                flag (SignedInvalidBlock qm)
+                                flag $ SignedInvalidBlock qm
                                 return Rejected
                             -- The signatory signed a dead block. We flag and stop.
                             RecentBlock BlockDead -> do
-                                flag (SignedInvalidBlock qm)
+                                flag $ SignedInvalidBlock qm
                                 return Rejected
                             -- The block is unknown so catch up.
                             RecentBlock BlockUnknown ->
