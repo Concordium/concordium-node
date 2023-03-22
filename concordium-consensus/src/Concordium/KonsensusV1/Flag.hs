@@ -29,9 +29,19 @@ data FlaggableOffense (pv :: ProtocolVersion)
     | BlockInvalidTransactionOutcomesHash !SignedBlock !(Block pv)
     | BlockInvalidStateHash !SignedBlock !(Block pv)
     | SignedInvalidBlock !QuorumMessage
-    | DoubleSigning !QuorumMessage
-    | RoundInconsistency !FinalizerIndex !Round !Round
-    | EpochInconsistency !FinalizerIndex !Epoch !Epoch
+    | DoubleSigning !QuorumMessage !QuorumMessage
+    | -- Note. This flag is currently triggered before the
+      -- message is relayed and as such the message might not end up
+      -- at a baker and so the bad behaviour won't become part a block.
+      -- If this is to be punished in future, then we should relay the message
+      -- before flagging.
+      RoundInconsistency !QuorumMessage !(Block pv)
+    | -- Note. This flag is currently triggered before the
+      -- message is relayed and as such the message might not end up
+      -- at a baker and so the bad behaviour won't become part a block.
+      -- If this is to be punished in future, then we should relay the message
+      -- before flagging.
+      EpochInconsistency !QuorumMessage !(Block pv)
 
 -- |Flag an offense by a baker. Currently, this does nothing.
 flag :: Monad m => FlaggableOffense pv -> m ()
