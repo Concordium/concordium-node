@@ -108,8 +108,9 @@ advanceRound newRound newCertificate = do
     -- the prior epoch, as it could be the case that the consensus runner left the finalization committee
     -- coming into this new (current) epoch - but we still want to ensure that a timeout is thrown either way.
     resetTimer =<< use currentTimeout
-    -- Advance and save the round.
+    -- Clear the qurorum messages collected.
     currentQuorumMessages .= emptyQuorumMessages
+    -- Advance and save the round.
     setRoundStatus $! advanceRoundStatus newRound newCertificate currentRoundStatus
     -- Make a new block if the consensus runner is leader of
     -- the 'Round' progressed to.

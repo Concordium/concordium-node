@@ -226,12 +226,9 @@ processQuorumMessage vqm@(VerifiedQuorumMessage quorumMessage _) = do
     -- then the rounds (quorum message round and current round) should be equal when this function is
     -- called immediately after 'receiveQuorumMessage'
     -- and so the 'not equal' case below should happen in normal operation.
-    if currentRound /= qmRound quorumMessage
-        then return ()
-        else do
-            currentQuorumMessages %=! addQuorumMessage vqm
-            mapM_ process =<< makeQuorumCertificate (qmBlock quorumMessage)
-  where
-    process newQC = do
-        checkFinality newQC
-        advanceRound (qcRound newQC) (Right newQC)
+    when (currentRound == qmRound quorumMessage) $ do
+        currentQuorumMessages %=! addQuorumMessage vqm
+        maybeQuorumCertificate <- makeQuorumCertificate (qmBlock quorumMessage)
+        forM_ maybeQuorumCertificate $ \newQC -> do
+            checkFinality newQC
+            advanceRound (qcRound newQC) (Right newQC)
