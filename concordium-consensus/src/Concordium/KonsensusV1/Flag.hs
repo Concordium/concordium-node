@@ -28,9 +28,9 @@ data FlaggableOffense (pv :: ProtocolVersion)
     | BlockExecutionFailure !SignedBlock
     | BlockInvalidTransactionOutcomesHash !SignedBlock !(Block pv)
     | BlockInvalidStateHash !SignedBlock !(Block pv)
-    | NotAFinalizer !FinalizerIndex !QuorumMessage
-    | SignedInvalidBlock !FinalizerIndex !BlockHash !QuorumMessage
-    | DoubleSigning !FinalizerIndex !QuorumMessage
+    | NotAFinalizer !QuorumMessage
+    | SignedInvalidBlock !QuorumMessage
+    | DoubleSigning !QuorumMessage
     | RoundInconsistency !FinalizerIndex !Round !Round
     | EpochInconsistency !FinalizerIndex !Epoch !Epoch
 

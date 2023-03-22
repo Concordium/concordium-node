@@ -61,20 +61,18 @@ receiveQuorumMessage ::
 receiveQuorumMessage qm@QuorumMessage{..} = process =<< get
   where
     process skovData
-        -- The round of the quorum signature message is obsolete.
-        | qmRound < (skovData ^. roundStatus . rsCurrentRound) =
-            return Rejected
-        -- The epoch of the quorum signature message is obsolete.
-        | qmEpoch <= skovData ^. skovEpochBakers . currentEpoch =
-            return Rejected
         -- The consensus runner is not caught up.
         | qmEpoch > skovData ^. skovEpochBakers . currentEpoch =
             return CatchupRequired
+        -- The round of the quorum signature message is obsolete.
+        | qmRound < skovData ^. roundStatus . rsCurrentRound
+            && qmEpoch <= skovData ^. skovEpochBakers . currentEpoch =
+            return Rejected
         | otherwise = do
             case getFinalizerByIndex skovData of
                 -- Signee is not in the finalization committee so we flag it and stop.
                 Nothing -> do
-                    flag (NotAFinalizer qmFinalizerIndex qm)
+                    flag (NotAFinalizer qm)
                     return Rejected
                 Just FinalizerInfo{..}
                     -- Check whether the signature is ok or not.
@@ -82,22 +80,22 @@ receiveQuorumMessage qm@QuorumMessage{..} = process =<< get
                         return Rejected
                     -- Finalizer already signed a message for this round.
                     | isDoubleSigning finalizerIndex skovData -> do
-                        flag (DoubleSigning qmFinalizerIndex qm)
+                        flag (DoubleSigning qm)
                         return Rejected
                     -- Continue verifying by looking up the block.
                     | otherwise -> do
                         getRecentBlockStatus qmBlock skovData >>= \case
                             -- The signatory signed an already signed block. We flag and stop.
                             OldFinalized -> do
-                                flag (SignedInvalidBlock qmFinalizerIndex qmBlock qm)
+                                flag (SignedInvalidBlock qm)
                                 return Rejected
                             -- The signatory signed an already signed block. We flag and stop.
                             RecentBlock (BlockFinalized _) -> do
-                                flag (SignedInvalidBlock qmFinalizerIndex qmBlock qm)
+                                flag (SignedInvalidBlock qm)
                                 return Rejected
                             -- The signatory signed a dead block. We flag and stop.
                             RecentBlock BlockDead -> do
-                                flag (SignedInvalidBlock qmFinalizerIndex qmBlock qm)
+                                flag (SignedInvalidBlock qm)
                                 return Rejected
                             -- The block is unknown so catch up.
                             RecentBlock BlockUnknown ->
@@ -186,9 +184,9 @@ makeQuorumCertificate ::
     -- for the provided block.
     -- Otherwise return @Nothing@.
     m (Maybe QuorumCertificate)
-makeQuorumCertificate blockPointer = do
+makeQuorumCertificate blockHash = do
     currentMessages <- use currentQuorumMessages
-    case currentMessages ^? smBlockToWeightsAndSignatures . ix blockPointer of
+    case currentMessages ^? smBlockToWeightsAndSignatures . ix blockHash of
         Nothing -> return Nothing
         Just (accummulatedWeight, aggregatedSignature, finalizers) -> do
             signatureThreshold <- genesisSignatureThreshold . gmParameters <$> use genesisMetadata
@@ -200,7 +198,7 @@ makeQuorumCertificate blockPointer = do
                     return $
                         Just
                             QuorumCertificate
-                                { qcBlock = blockPointer,
+                                { qcBlock = blockHash,
                                   qcRound = theRound,
                                   qcEpoch = theEpoch,
                                   qcAggregateSignature = aggregatedSignature,
@@ -230,9 +228,8 @@ processQuorumMessage ::
     QuorumMessage ->
     m ()
 processQuorumMessage QuorumMessage{..} = do
-    makeQuorumCertificate qmBlock >>= \case
-        Nothing -> return ()
-        Just newQC -> do
-            checkFinality newQC
-            advanceRound (qmRound + 1) (Right newQC)
-            return ()
+    mapM_ process =<< makeQuorumCertificate qmBlock
+  where
+    process newQC = do
+        checkFinality newQC
+        advanceRound (qcRound newQC) (Right newQC)
