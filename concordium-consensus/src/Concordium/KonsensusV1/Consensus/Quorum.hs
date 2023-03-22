@@ -148,15 +148,13 @@ receiveQuorumMessage qm@QuorumMessage{..} = process =<< get
 --
 -- Precondition. The finalizer must not be present already.
 addQuorumMessage ::
-    -- |Weight of the finalizer.
-    VoterPower ->
-    -- |The signature message.
-    QuorumMessage ->
+    -- |The verified quorum message
+    VerifiedQuorumMessage ->
     -- |The messages to update.
     QuorumMessages ->
     -- |The resulting messages.
     QuorumMessages
-addQuorumMessage weight quorumMessage@QuorumMessage{..} (QuorumMessages currentMessages currentWeights) =
+addQuorumMessage (VerifiedQuorumMessage quorumMessage@QuorumMessage{..} weight) (QuorumMessages currentMessages currentWeights) =
     QuorumMessages
         { _smFinalizerToQuorumMessage = newSignatureMessages,
           _smBlockToWeightsAndSignatures = updatedWeightAndSignature
@@ -220,15 +218,15 @@ processQuorumMessage ::
     -- |The 'VerifiedQuorumMessage' to process.
     VerifiedQuorumMessage ->
     m ()
-processQuorumMessage (VerifiedQuorumMessage qm finalizerWeight) = do
+processQuorumMessage vqm@(VerifiedQuorumMessage quorumMessage _) = do
     currentRound <- use (roundStatus . rsCurrentRound)
     -- Check that the round of the 'QuorumMessage' corresponds to
     -- the current round of the tree state.
-    if currentRound /= qmRound qm
+    if currentRound /= qmRound quorumMessage
         then return ()
         else do
-            currentQuorumMessages %=! addQuorumMessage finalizerWeight qm
-            mapM_ process =<< makeQuorumCertificate (qmBlock qm)
+            currentQuorumMessages %=! addQuorumMessage vqm
+            mapM_ process =<< makeQuorumCertificate (qmBlock quorumMessage)
   where
     process newQC = do
         checkFinality newQC
