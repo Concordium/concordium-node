@@ -17,7 +17,6 @@ test_utils = [ ]
 network_dump = []
 static = [ ]
 profiling = [ "static" ]
-collector = [ "reqwest/default-tls", "serde/derive", "rmp-serde", "collector-backend" ]
 
 [profile.release]
 codegen-units = 1
@@ -74,6 +73,8 @@ gotham_derive = { version = "0.6" }
 prometheus = { version = "0.13", default-features = false, features = ["push"] }
 http = { version = "0.2" }
 hyper = { version = "0.14" }
+serde_json = { version = "1" }
+tempfile = { version = "3.1" }
 
 # gRPC dependencies
 tonic = { version = "0.8", features = ["tls"] }
@@ -84,14 +85,6 @@ tonic-web = "0.4"
 prost = "0.11"
 tokio = { version = "1.20", features = ["macros", "rt-multi-thread", "signal", "io-util", "time"] }
 tokio-stream = "0.1"
-
-
-# Feature-gated dependencies
-rmp-serde = { version = "0.15", optional = true }
-serde_json = { version = "1" }
-tempfile = { version = "3.1" }
-
-collector-backend = { version = "*", path = "../collector-backend/", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 macos_logger_wrapper = { version = "*", path = "../macos_logger_wrapper/"}
