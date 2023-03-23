@@ -37,6 +37,8 @@ pub struct RpcServerImpl {
     access_token:           String,
     // this field is optional only for test purposes
     consensus:              Option<ConsensusContainer>,
+    // Maximum amount of energy allowed for invoke_contract.
+    invoke_max_energy:      u64,
 }
 
 impl RpcServerImpl {
@@ -45,6 +47,7 @@ impl RpcServerImpl {
         node: Arc<P2PNode>,
         consensus: Option<ConsensusContainer>,
         conf: &configuration::RpcCliConfig,
+        invoke_max_energy: u64,
     ) -> anyhow::Result<Self> {
         let listen_addr =
             SocketAddr::from((IpAddr::from_str(&conf.rpc_server_addr)?, conf.rpc_server_port));
@@ -55,6 +58,7 @@ impl RpcServerImpl {
             listen_addr,
             access_token: conf.rpc_server_token.clone(),
             consensus,
+            invoke_max_energy,
         })
     }
 
@@ -733,7 +737,11 @@ impl P2p for RpcServerImpl {
     ) -> Result<Response<JsonResponse>, Status> {
         authenticate!(req, self.access_token);
         call_consensus!(self, "InvokeContract", JsonResponse, |cc: &ConsensusContainer| {
-            cc.invoke_contract(&req.get_ref().block_hash, &req.get_ref().context)
+            cc.invoke_contract(
+                &req.get_ref().block_hash,
+                &req.get_ref().context,
+                self.invoke_max_energy,
+            )
         })
     }
 
@@ -1041,7 +1049,7 @@ mod tests {
         config.cli.rpc.rpc_server_port = rpc_port;
         config.cli.rpc.rpc_server_addr = "127.0.0.1".to_owned();
         config.cli.rpc.rpc_server_token = TOKEN.to_owned();
-        let mut rpc_server = RpcServerImpl::new(node.clone(), None, &config.cli.rpc)?;
+        let mut rpc_server = RpcServerImpl::new(node.clone(), None, &config.cli.rpc, 1_000_000)?;
         let (error_sender, _) = tokio::sync::broadcast::channel(1);
         tokio::spawn(async move { rpc_server.start_server(future::pending(), error_sender).await });
         tokio::task::yield_now().await;
