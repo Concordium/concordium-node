@@ -1,25 +1,34 @@
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TypeApplications #-}
+
 -- |Module testing functions from the 'Concordium.KonsensusV1.Quorum' module.
 module ConcordiumTests.KonsensusV1.Quorum where
 
+import Control.Monad.Reader
 import Control.Monad.State
+import Data.Functor.Identity
+import Data.IORef
 import Data.Maybe (fromJust, isJust)
 import qualified Data.Set as Set
 import qualified Data.Vector as Vec
 import Lens.Micro.Platform
 import System.IO.Unsafe
-import Test.HUnit
+import Test.HUnit hiding (State)
 import Test.Hspec
 import Test.QuickCheck
 import Unsafe.Coerce
 
-import Concordium.Types
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.BlsSignature as Bls
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.GlobalState.BakerInfo
 import Concordium.KonsensusV1.Consensus.Quorum
+import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
+import Concordium.KonsensusV1.TreeState.LowLevel.Memory
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
+import Concordium.Types
 
 import Concordium.KonsensusV1.TreeState.Implementation
 import ConcordiumTests.KonsensusV1.TreeStateTest
@@ -79,17 +88,15 @@ propAddQuorumMessage =
 testMakeQuorumCertificate :: Spec
 testMakeQuorumCertificate = describe "Quorum Certificate creation" $ do
     it "should not create a qc as there are not enough weight" $ do
-        maybeQC <- evalStateT (makeQuorumCertificate bh) sd
         assertEqual
             "No quorum certificate should be created"
             Nothing
-            maybeQC
+            (makeQuorumCertificate bh sd)
     it "should create a certificate when there is enough weight" $ do
-        maybeQC <- evalStateT (makeQuorumCertificate bh) sd'
         assertEqual
             "A quorum certificate should have been generated"
             (Just (QuorumCertificate bh 0 0 (emptyQuorumSignature <> emptyQuorumSignature) (finalizerSet $ FinalizerIndex <$> [1, 2])))
-            maybeQC
+            (makeQuorumCertificate bh sd')
   where
     fi fIdx = FinalizerInfo (FinalizerIndex fIdx) 1 sigPublicKey vrfPublicKey blsPublicKey (BakerId $ AccountIndex (unsafeCoerce fIdx))
     blsPublicKey = Bls.derivePublicKey someBlsSecretKey
@@ -116,7 +123,39 @@ testMakeQuorumCertificate = describe "Quorum Certificate creation" $ do
     quorumMessage finalizerIndex = QuorumMessage emptyQuorumSignature bh (FinalizerIndex finalizerIndex) 0 0
     emptyQuorumSignature = QuorumSignature $ Bls.emptySignature
 
+-- |Tests for receiving a quorum message.
+-- In particular this test checks that the return codes are as expected
+-- with respect to the received 'QuorumMessage'
+testReceiveQuorumMessage :: Spec
+testReceiveQuorumMessage = describe "Receive quorum message" $ do
+    it "future epoch triggers catchup" $ receiveAndCheck (quorumMessage 1 0 2) CatchupRequired
+    it "obsolete round rejects" $ receiveAndCheck (quorumMessage 1 0 0) Rejected
+    it "invalid finalizer rejects" $ receiveAndCheck (quorumMessage 2 1 1) Rejected
+  where
+    bh = BlockHash minBound
+    quorumMessage finalizerIndex theRound epoch = QuorumMessage emptyQuorumSignature bh (FinalizerIndex finalizerIndex) theRound epoch
+    emptyQuorumSignature = QuorumSignature $ Bls.emptySignature
+    fi fIdx = FinalizerInfo (FinalizerIndex fIdx) 1 sigPublicKey vrfPublicKey blsPublicKey (BakerId $ AccountIndex (unsafeCoerce fIdx))
+    blsPublicKey = Bls.derivePublicKey someBlsSecretKey
+    vrfPublicKey = VRF.publicKey someVRFKeyPair
+    sigPublicKey = Sig.verifyKey $ unsafePerformIO Sig.newKeyPair
+    bakersAndFinalizers = BakersAndFinalizers (FullBakers Vec.empty 0) (FinalizationCommittee (Vec.singleton (fi 1)) 1)
+    -- A skov data where
+    -- - the current round and epoch is set to 1.
+    -- - there is one finalizer (with index 1).
+    sd =
+        dummyInitialSkovData
+            & roundStatus . rsCurrentRound .~ Round 1
+            & skovEpochBakers . currentEpoch .~ 1
+            & skovEpochBakers . currentEpochBakers .~ bakersAndFinalizers
+            & skovEpochBakers . previousEpochBakers .~ bakersAndFinalizers
+    -- Run the 'receiveQuorumMessage' action.
+    receiveAndCheck qm expect = do
+        resultCode <- runTestLLDB (lldbWithGenesis @'P6) $ receiveQuorumMessage qm sd
+        resultCode `shouldBe` expect
+
 tests :: Spec
 tests = describe "KonsensusV1.Quorum" $ do
     it "Adding a quorum message" propAddQuorumMessage
     testMakeQuorumCertificate
+    testReceiveQuorumMessage

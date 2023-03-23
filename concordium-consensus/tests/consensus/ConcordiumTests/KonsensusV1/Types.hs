@@ -185,8 +185,8 @@ genLeadershipElectionNonce = Hash.Hash . FBS.pack <$> vector 32
 genRoundStatus :: Gen RoundStatus
 genRoundStatus = do
     _rsCurrentRound <- genRound
-    _rsLastSignedQuorumMessage <- coinFlip =<< genQuorumSignatureMessage
-    _rsLastSignedTimeoutMessage <- coinFlip =<< genTimeoutSignatureMessage
+    _rsLastSignedQuorumMessage <- coinFlip =<< genQuorumMessage
+    _rsLastSignedTimeoutMessage <- coinFlip =<< genTimeoutMessage
     _rsHighestQC <- genQuorumCertificate
     nextRound <- genRound
     let _rsNextSignableRound = min (_rsCurrentRound + 1) nextRound
