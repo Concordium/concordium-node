@@ -664,6 +664,9 @@ checkedValidateBlock validBlock = do
 
 validateBlock :: (MonadState (SkovData (MPV m)) m) => BlockHash -> BakerIdentity -> FinalizerInfo -> m ()
 validateBlock blockHash bakerIdent finInfo = do
-    block <- gets $ getLiveBlock blockHash
-    -- TODO: implementation
-    return ()
+    maybeBlock <- gets $ getLiveBlock blockHash
+    forM_ maybeBlock $ \block -> do
+        RoundStatus{..} <- use roundStatus
+        -- when (blockRound block == rsCurrentRound && rsNextS)
+        -- TODO: implementation
+        return ()

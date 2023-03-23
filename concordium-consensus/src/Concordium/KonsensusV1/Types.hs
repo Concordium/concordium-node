@@ -69,6 +69,17 @@ isAbsent :: Option a -> Bool
 isAbsent Absent = True
 isAbsent (Present _) = False
 
+-- |Get the contents of an 'Option' or the supplied default value if it is 'Absent'.
+fromOption :: a -> Option a -> a
+fromOption def Absent = def
+fromOption _ (Present v) = v
+
+-- |Deconstruct an 'Option', returning the first argument if it is 'Absent', and otherwise
+-- applying the second argument to the value if it is 'Present'. (Analogous to 'maybe'.)
+ofOption :: b -> (a -> b) -> Option a -> b
+ofOption ab _ Absent = ab
+ofOption _ pr (Present v) = pr v
+
 -- |The message that is signed by a finalizer to certify a block.
 data QuorumSignatureMessage = QuorumSignatureMessage
     { -- |Hash of the genesis block.

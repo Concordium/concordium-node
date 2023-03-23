@@ -47,7 +47,7 @@ shrinkTimeout blockPtr = do
             grow =
                 Duration . ceiling $
                     toRational (timeoutParams ^. tpTimeoutDecrease) * toRational cur
-    currentTimeout %= updateTimeout
+    currentTimeout %=! updateTimeout
 
 -- |Check if a valid quorum certificate finalizes a block. If so, the block and its ancestors
 -- are finalized, the tree is pruned to the decendants of the new last finalized block, and,

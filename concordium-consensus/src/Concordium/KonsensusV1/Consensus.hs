@@ -6,8 +6,8 @@ module Concordium.KonsensusV1.Consensus where
 import Control.Monad.Reader
 import Control.Monad.State
 
-import Data.Ratio
 import Data.Maybe
+import Data.Ratio
 import qualified Data.Set as Set
 import Data.Word
 
@@ -35,7 +35,6 @@ import Concordium.Types.BakerIdentity
 import Concordium.Types.Parameters hiding (getChainParameters)
 import Concordium.Utils
 
-
 -- |A Monad for multicasting timeout messages.
 class MonadMulticast m where
     -- |Multicast a timeout message.
@@ -45,6 +44,7 @@ class MonadMulticast m where
 newtype BakerContext = BakerContext
     { _bakerIdentity :: Maybe BakerIdentity
     }
+
 makeClassy ''BakerContext
 
 -- |A Monad for timer related actions.
@@ -126,7 +126,7 @@ advanceRound newRound newCertificate = do
     -- the prior epoch, as it could be the case that the consensus runner left the finalization committee
     -- coming into this new (current) epoch - but we still want to ensure that a timeout is thrown either way.
     resetTimer =<< use currentTimeout
-    -- Clear the qurorum messages collected.
+    -- Clear the quorum messages collected.
     currentQuorumMessages .= emptyQuorumMessages
     -- Advance and save the round.
     setRoundStatus $! advanceRoundStatus newRound newCertificate currentRoundStatus

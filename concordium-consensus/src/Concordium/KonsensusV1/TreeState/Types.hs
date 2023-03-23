@@ -220,13 +220,11 @@ data RoundStatus = RoundStatus
     { -- |The highest 'Round' that the consensus runner participated in.
       _rsCurrentRound :: !Round,
       -- |If the consensus runner is part of the finalization committee,
-      -- then this will yield the last signed 'QuorumSignatureMessage'
-      _rsLastSignedQuourumSignatureMessage :: !(Option QuorumSignatureMessage),
+      -- then this will yield the last signed 'QuorumMessage'
+      _rsLastSignedQuorumMessage :: !(Option QuorumMessage),
       -- |If the consensus runner is part of the finalization committee,
       -- then this will yield the last signed timeout message.
-      _rsLastSignedTimeoutSignatureMessage :: !(Option TimeoutSignatureMessage),
-      -- |Next signable round. Blocks in this round and higher can be signed.
-      _rsNextSignableRound :: !Round,
+      _rsLastSignedTimeoutMessage :: !(Option TimeoutMessage),
       -- |The highest 'QuorumCertificate' seen so far.
       -- This contains the empty quorom certificate
       -- (having round 0, epoch 0, empty quorom signature and empty finalizer set)
@@ -234,12 +232,6 @@ data RoundStatus = RoundStatus
       -- Note: this can potentially be a QC for a block that is not present, but in that case we
       -- should have a finalization entry that contains the QC.
       _rsHighestQC :: !QuorumCertificate,
-      -- -- |The current 'LeadershipElectionNonce'.
-      -- rsLeadershipElectionNonce :: !LeadershipElectionNonce,
-      -- -- |The latest 'Epoch' 'FinalizationEntry'.
-      -- -- This will only be 'Nothing' in between the
-      -- -- genesis block and the first explicitly finalized block.
-      -- rsLatestEpochFinEntry :: !(Option FinalizationEntry),
       -- |The previous round timeout certificate if the previous round timed out.
       -- This is @Just (TimeoutCertificate, QuorumCertificate)@ if the previous round timed out or otherwise 'Nothing'.
       -- In the case of @Just@ then the associated 'QuorumCertificate' is the highest 'QuorumCertificate' at the time
@@ -253,16 +245,14 @@ makeLenses ''RoundStatus
 instance Serialize RoundStatus where
     put RoundStatus{..} = do
         put _rsCurrentRound
-        put _rsLastSignedQuourumSignatureMessage
-        put _rsLastSignedTimeoutSignatureMessage
-        put _rsNextSignableRound
+        put _rsLastSignedQuorumMessage
+        put _rsLastSignedTimeoutMessage
         put _rsHighestQC
         put _rsPreviousRoundTC
     get = do
         _rsCurrentRound <- get
-        _rsLastSignedQuourumSignatureMessage <- get
-        _rsLastSignedTimeoutSignatureMessage <- get
-        _rsNextSignableRound <- get
+        _rsLastSignedQuorumMessage <- get
+        _rsLastSignedTimeoutMessage <- get
         _rsHighestQC <- get
         _rsPreviousRoundTC <- get
         return RoundStatus{..}
@@ -272,12 +262,23 @@ initialRoundStatus :: BlockHash -> RoundStatus
 initialRoundStatus genesisHash =
     RoundStatus
         { _rsCurrentRound = 0,
-          _rsLastSignedQuourumSignatureMessage = Absent,
-          _rsLastSignedTimeoutSignatureMessage = Absent,
-          _rsNextSignableRound = 1,
+          _rsLastSignedQuorumMessage = Absent,
+          _rsLastSignedTimeoutMessage = Absent,
           _rsHighestQC = genesisQuorumCertificate genesisHash,
           _rsPreviousRoundTC = Absent
         }
+
+-- |The last signed round (according to a given 'RoundStatus') for which we have produced a
+-- quorum or timeout signature message.
+rsLastSignedRound :: RoundStatus -> Round
+rsLastSignedRound RoundStatus{..} =
+    max
+        (ofOption 0 qmRound _rsLastSignedQuorumMessage)
+        (ofOption 0 (tmRound . tmBody) _rsLastSignedTimeoutMessage)
+
+-- |The next signable round is the round after the latest round for which we have
+rsNextSignableRound :: RoundStatus -> Round
+rsNextSignableRound = (1 +) . rsLastSignedRound
 
 -- |The sets of bakers and finalizers for an epoch/payday.
 data BakersAndFinalizers = BakersAndFinalizers
@@ -312,9 +313,9 @@ makeClassy ''EpochBakers
 
 -- |Quorum messages collected for a round.
 data QuorumMessages = QuorumMessages
-    { -- |Map of finalizer indecies to signature messages.
+    { -- |Map of finalizer indices to signature messages.
       _smFinalizerToQuorumMessage :: !(Map.Map FinalizerIndex QuorumMessage),
-      -- |Accummulated weights and the aggregated signature for the blocks signed off by quorum signature message.
+      -- |Accumulated weights and the aggregated signature for the blocks signed off by quorum signature message.
       -- The 'VoterPower' here is in relation to the running 'Epoch'.
       _smBlockToWeightsAndSignatures :: !(Map.Map BlockHash (VoterPower, QuorumSignature, Set.Set FinalizerIndex))
     }
@@ -325,3 +326,21 @@ makeLenses ''QuorumMessages
 -- |Construct an empty 'QuorumMessages'
 emptyQuorumMessages :: QuorumMessages
 emptyQuorumMessages = QuorumMessages Map.empty Map.empty
+
+-- |A collection of timeout messages for at most two consecutive epochs.
+-- INVARIANTS:
+--  * 'tmFirstEpochTimeouts' is never empty.
+--  * All timeout messages in 'tmFirstEpochTimeouts' have epoch 'tmFirstEpoch' and finalizer index
+--    matching the key in the map.
+--  * All timeout messages in 'tmSecondEpochTimeouts' have epoch @tmFirstEpoch + 1@ and finalizer
+--    index matching the key in the map.
+data TimeoutMessages
+    = -- |Timeout messages for one epoch or two consecutive epochs.
+      TimeoutMessages
+      { -- |First epoch for which we have timeout messages.
+        tmFirstEpoch :: Epoch,
+        -- |Timeout messages for epoch 'tmFirstEpoch' indexed by the 'FinalizerIndex'.
+        tmFirstEpochTimeouts :: !(Map.Map FinalizerIndex TimeoutMessage),
+        -- |Timeout messages for epoch @tmFirstEpoch + 1@ indexed by the 'FinalizerIndex'.
+        tmSecondEpochTimeouts :: !(Map.Map FinalizerIndex TimeoutMessage)
+      }
