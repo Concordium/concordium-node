@@ -13,7 +13,6 @@ import Test.QuickCheck
 import Unsafe.Coerce
 
 import Concordium.Types
-
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.BlsSignature as Bls
 import qualified Concordium.Crypto.VRF as VRF
@@ -48,7 +47,8 @@ propAddQuorumMessage =
         forAll (genQuorumMessageFor (qmBlock qm0)) $ \qm1 ->
             (qm0 /= qm1) ==>
                 forAll genFinalizerWeight $ \weight -> do
-                    let qsm' = addQuorumMessage weight qm0 emptyQuorumMessages
+                    let verifiedQuorumMessage0 = VerifiedQuorumMessage qm0 weight
+                        qsm' = addQuorumMessage verifiedQuorumMessage0 emptyQuorumMessages
                     assertEqual
                         "The quorum message should have been added"
                         (qsm' ^? smFinalizerToQuorumMessage . ix (qmFinalizerIndex qm0))
@@ -60,7 +60,8 @@ propAddQuorumMessage =
                         "The finalizer weight, signature and finalizer index should be present"
                         (weight, qmSignature qm0, Set.singleton $ qmFinalizerIndex qm0)
                         (fromJust $! qsm' ^? smBlockToWeightsAndSignatures . ix (qmBlock qm0))
-                    let qsm'' = addQuorumMessage weight qm1 qsm'
+                    let verifiedQuorumMessage1 = VerifiedQuorumMessage qm1 weight
+                        qsm'' = addQuorumMessage verifiedQuorumMessage1 qsm'
                     assertEqual
                         "The quorum message should have been added"
                         (qsm'' ^? smFinalizerToQuorumMessage . ix (qmFinalizerIndex qm1))
@@ -103,14 +104,15 @@ testMakeQuorumCertificate = describe "Quorum Certificate creation" $ do
     sd =
         dummyInitialSkovData
             & skovEpochBakers .~ EpochBakers 0 bfs bfs bfs 1
-            & currentQuorumMessages %~ addQuorumMessage 1 (quorumMessage 1)
+            & currentQuorumMessages %~ addQuorumMessage (verifiedQuorumMessage 1 1)
     -- A skov data capable of forming a quorum certificate
     sd' =
         dummyInitialSkovData
             & skovEpochBakers .~ EpochBakers 0 bfs bfs bfs 1
-            & currentQuorumMessages %~ addQuorumMessage 1 (quorumMessage 1)
-            & currentQuorumMessages %~ addQuorumMessage 1 (quorumMessage 2)
+            & currentQuorumMessages %~ addQuorumMessage (verifiedQuorumMessage 1 1)
+            & currentQuorumMessages %~ addQuorumMessage (verifiedQuorumMessage 2 1)
     bh = BlockHash minBound
+    verifiedQuorumMessage finalizerIndex weight = VerifiedQuorumMessage (quorumMessage finalizerIndex) weight
     quorumMessage finalizerIndex = QuorumMessage emptyQuorumSignature bh (FinalizerIndex finalizerIndex) 0 0
     emptyQuorumSignature = QuorumSignature $ Bls.emptySignature
 
