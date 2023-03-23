@@ -1253,12 +1253,15 @@ getInstanceInfo cptr blockcstr instcstr = do
 -- in case the input cannot be decoded, or the block does not exist,
 -- or the JSON encoding of InvokeContract.InvokeContractResult.
 -- The returned string should be freed by calling 'freeCStr'.
-invokeContract :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
-invokeContract cptr blockcstr ctxcstr = do
+invokeContract :: StablePtr ConsensusRunner -> CString -> CString -> Word64 -> IO CString
+invokeContract cptr blockcstr ctxcstr maxInvokeEnergy = do
     mblock <- decodeBlockHash blockcstr
     mctx <- decodeContractContext ctxcstr
     case (mblock, mctx) of
-        (Just bh, Just ctx) -> jsonQuery cptr (snd <$> Q.invokeContract (Queries.Given bh) ctx)
+        (Just bh, Just ctx) -> do
+            -- Make sure the max allowed energy is respected.
+            let effectiveCtx = ctx{InvokeContract.ccEnergy = min (InvokeContract.ccEnergy ctx) (fromIntegral maxInvokeEnergy)}
+            jsonQuery cptr (snd <$> Q.invokeContract (Queries.Given bh) effectiveCtx)
         _ -> jsonCString AE.Null
 
 -- |Get the source code of a module as deployed on the chain at a particular block.
@@ -1549,7 +1552,7 @@ foreign export ccall getAccountList :: StablePtr ConsensusRunner -> CString -> I
 foreign export ccall getInstances :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getAccountInfo :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
 foreign export ccall getInstanceInfo :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
-foreign export ccall invokeContract :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
+foreign export ccall invokeContract :: StablePtr ConsensusRunner -> CString -> CString -> Word64 -> IO CString
 foreign export ccall getRewardStatus :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getBirkParameters :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getModuleList :: StablePtr ConsensusRunner -> CString -> IO CString

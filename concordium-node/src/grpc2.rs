@@ -9,11 +9,6 @@ use std::{
     sync::Arc,
 };
 
-/// Maximum allowed energy to use in the `invoke_instance` request.
-/// This is to make sure that there are no conversion errors to interpreter
-/// energy.
-const MAX_ALLOWED_INVOKE_ENERGY: u64 = 100_000_000_000;
-
 /// Types generated from the types.proto file, together
 /// with some auxiliary definitions that help passing values through the FFI
 /// boundary.
@@ -802,6 +797,8 @@ pub mod server {
     struct RpcServerImpl {
         /// Configuration of enabled endpoints.
         service_config: ServiceConfig,
+        /// Maximum amount of energy allowed for the `InvokeInstance` endpoint.
+        invoke_max_energy: u64,
         /// Reference to the node to support network and node status related
         /// queries.
         node: Arc<P2PNode>,
@@ -875,6 +872,7 @@ pub mod server {
                 };
                 let server = RpcServerImpl {
                     service_config,
+                    invoke_max_energy: config.invoke_max_energy,
                     node: Arc::clone(node),
                     consensus: consensus.clone(),
                     blocks_channels: Arc::new(Mutex::new(Vec::new())),
@@ -1406,27 +1404,22 @@ pub mod server {
 
         async fn invoke_instance(
             &self,
-            request: tonic::Request<crate::grpc2::types::InvokeInstanceRequest>,
+            mut request: tonic::Request<crate::grpc2::types::InvokeInstanceRequest>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
             if !self.service_config.invoke_instance {
                 return Err(tonic::Status::unimplemented("`InvokeInstance` is not enabled."));
             }
-            if request
-                .get_ref()
-                .energy
-                .as_ref()
-                .map_or(false, |x| x.value <= MAX_ALLOWED_INVOKE_ENERGY)
-            {
-                let (hash, response) = self.consensus.invoke_instance_v2(request.get_ref())?;
-                let mut response = tonic::Response::new(response);
-                add_hash(&mut response, hash)?;
-                Ok(response)
-            } else {
-                Err(tonic::Status::internal(format!(
-                    "`energy` must be supplied and be less than {}",
-                    MAX_ALLOWED_INVOKE_ENERGY
-                )))
+            let mut max_energy = self.invoke_max_energy;
+            if let Some(nrg) = request.get_ref().energy.as_ref() {
+                max_energy = std::cmp::min(max_energy, nrg.value);
             }
+            request.get_mut().energy = Some(crate::grpc2::types::Energy {
+                value: max_energy,
+            });
+            let (hash, response) = self.consensus.invoke_instance_v2(request.get_ref())?;
+            let mut response = tonic::Response::new(response);
+            add_hash(&mut response, hash)?;
+            Ok(response)
         }
 
         async fn get_cryptographic_parameters(
