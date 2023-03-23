@@ -17,7 +17,8 @@ stack exec -- cargo build --manifest-path concordium-node\Cargo.toml --release
 if ($LASTEXITCODE -ne 0) { throw "Failed building node" }
 
 Write-Output "Building collector..."
-stack exec -- cargo build --manifest-path collector\Cargo.toml --release
+cargo build --manifest-path collector\Cargo.toml --target-dir concordium-node\target
+cargo build --manifest-path collector\Cargo.toml --release
 if ($LASTEXITCODE -ne 0) { throw "Failed building collector" }
 
 Write-Output "Building node runner service..."
