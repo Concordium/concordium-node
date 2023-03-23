@@ -671,7 +671,6 @@ dependencies = [
  "base64 0.13.1",
  "byteorder",
  "bytesize",
- "cc",
  "cfg-if",
  "chrono",
  "circular-queue",
@@ -698,6 +697,7 @@ dependencies = [
  "libc",
  "log",
  "log4rs",
+ "macos_logger_wrapper",
  "mime",
  "mio 0.7.14",
  "nohash-hasher",
@@ -1952,6 +1952,14 @@ dependencies = [
  "toml",
  "typemap-ors",
  "winapi 0.3.9",
+]
+
+[[package]]
+name = "macos_logger_wrapper"
+version = "0.1.0"
+dependencies = [
+ "cc",
+ "log",
 ]
 
 [[package]]

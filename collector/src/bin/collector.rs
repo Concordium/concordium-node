@@ -65,7 +65,7 @@ struct ConfigCli {
     pub trace:                  bool,
     #[structopt(long = "info", help = "Info mode", env = "CONCORDIUM_NODE_COLLECTOR_INFO")]
     #[allow(dead_code)] // allow for backwards compatibility.
-    pub info: bool,
+    pub info:                   bool,
     #[structopt(
         long = "no-log-timestamp",
         help = "Do not output timestamp in log output",
@@ -456,7 +456,7 @@ pub fn setup_macos_logger(trace: bool, debug: bool, subsystem: &str) {
         LevelFilter::Info
     };
 
-    crate::macos_log::MacOsLogger::new(subsystem)
+    macos_logger_wrapper::MacOsLogger::new(subsystem)
         .level_filter(level_filter)
         .category_level_filter("tokio_reactor", LevelFilter::Error)
         .category_level_filter("hyper", LevelFilter::Error)
