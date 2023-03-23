@@ -602,12 +602,10 @@ checkedUpdateHighestQC ::
     m ()
 checkedUpdateHighestQC newQC = do
     rs <- use roundStatus
-    let isBetterQC
-            | Present oldQC <- rs ^. rsHighestQC = qcRound oldQC < qcRound newQC
-            | otherwise = True
+    let isBetterQC = qcRound (rs ^. rsHighestQC) < qcRound newQC
     when isBetterQC $
         setRoundStatus $!
-            rs{_rsHighestQC = Present newQC}
+            rs{_rsHighestQC = newQC}
 
 executeBlock ::
     ( IsConsensusV1 (MPV m),

@@ -23,12 +23,6 @@ import Data.List (foldl')
 import Data.Serialize
 import GHC.Generics
 
-import Concordium.Types
-import Concordium.Types.Accounts
-
-import qualified Concordium.Crypto.BlockSignature as Sig
-import qualified Concordium.Crypto.BlsSignature as BLS
-import qualified Concordium.Crypto.VRF as VRF
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Block hiding (PendingBlock, makePendingBlock)
 import Concordium.GlobalState.BlockMonads
@@ -38,6 +32,9 @@ import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.TreeState as TS
+import Concordium.Types
+import Concordium.Types.Accounts
+import Concordium.Types.BakerIdentity
 import Concordium.Types.HashableTo
 import Concordium.Types.SeedState
 import Concordium.Types.Transactions
@@ -57,34 +54,6 @@ import Concordium.Scheduler.Types (FilteredTransactions (..))
 
 import Concordium.Logger
 import Concordium.TimeMonad
-
-data BakerIdentity = BakerIdentity
-    { bakerId :: BakerId,
-      bakerSignKey :: BakerSignPrivateKey,
-      bakerElectionKey :: BakerElectionPrivateKey,
-      bakerAggregationKey :: BakerAggregationPrivateKey,
-      bakerAggregationPublicKey :: BakerAggregationVerifyKey
-    }
-    deriving (Eq, Generic)
-
-bakerSignPublicKey :: BakerIdentity -> BakerSignVerifyKey
-bakerSignPublicKey ident = Sig.verifyKey (bakerSignKey ident)
-
-bakerElectionPublicKey :: BakerIdentity -> BakerElectionVerifyKey
-bakerElectionPublicKey ident = VRF.publicKey (bakerElectionKey ident)
-
-instance Serialize BakerIdentity
-
-instance FromJSON BakerIdentity where
-    parseJSON v = flip (withObject "Baker identity:") v $ \obj -> do
-        bakerId <- obj .: "bakerId"
-        bakerSignKey <- parseJSON v
-        bakerElectionKey <- parseJSON v
-        bakerAggregationKey <- obj .: "aggregationSignKey"
-        bakerAggregationPublicKey <- obj .: "aggregationVerifyKey"
-        when (bakerAggregationPublicKey /= BLS.derivePublicKey bakerAggregationKey) $
-            fail "Aggregation signing key does not correspond to the verification key."
-        return BakerIdentity{..}
 
 processTransactions ::
     ( TreeStateMonad m,

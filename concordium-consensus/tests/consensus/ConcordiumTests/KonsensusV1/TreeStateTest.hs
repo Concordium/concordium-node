@@ -365,13 +365,15 @@ skovDataWithTestBlocks =
                     . ( deadBlocks %~ insertDeadCache deadH
                       )
                )
-
 -- |A test 'LowLevelDB' with the genesis block.
 lldbWithGenesis :: LowLevelDB pv
 lldbWithGenesis =
     initialLowLevelDB
-        (toStoredBlock genB)
-        initialRoundStatus
+        sb
+        (initialRoundStatus genesisHash)
+    where
+        sb = toStoredBlock genB
+        genesisHash = getHash sb
 
 -- |Testing 'getMemoryBlockStatus' functionality.
 -- In particular this test ensures that a (known) block in memory can

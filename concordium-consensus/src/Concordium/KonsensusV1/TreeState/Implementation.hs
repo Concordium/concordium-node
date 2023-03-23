@@ -216,6 +216,8 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       _skovEpochBakers :: !EpochBakers,
       -- |The current consensus statistics.
       _statistics :: !Stats.ConsensusStatistics,
+      -- | Received timeouts messages in the current round.
+      _receivedTimeoutMessages :: !(Map.Map Epoch (Map.Map FinalizerIndex TimeoutMessage)),
       -- |The 'QuorumMessage's for the current 'Round'.
       -- This should be cleared whenever the consensus runner advances to a new round.
       _currentQuorumMessages :: !QuorumMessages
@@ -270,7 +272,7 @@ mkInitialSkovData rp genMeta genState _currentTimeout _skovEpochBakers =
                   bpBlock = genesisBlock,
                   bpState = genState
                 }
-        _roundStatus = initialRoundStatus
+        _roundStatus = initialRoundStatus $ gmFirstGenesisHash genMeta
         _transactionTable = TT.emptyTransactionTable
         _transactionTablePurgeCounter = 0
         _skovPendingTransactions =
@@ -286,6 +288,7 @@ mkInitialSkovData rp genMeta genState _currentTimeout _skovEpochBakers =
         _skovPendingBlocks = emptyPendingBlocks
         _lastFinalized = genesisBlockPointer
         _statistics = Stats.initialConsensusStatistics
+        _receivedTimeoutMessages = Map.empty
         _currentQuorumMessages = emptyQuorumMessages
     in  SkovData{..}
 
@@ -936,6 +939,22 @@ clearAfterProtocolUpdate = do
     -- Archive the last finalized block state.
     archiveBlockState $ bpState lastFinBlock
     collapseCaches
+
+doGetRoundStatus :: (MonadState (SkovData pv) m) => m RoundStatus
+doGetRoundStatus = use roundStatus
+-- FIXME: clean up here
+doSetRoundStatus :: (MonadState (SkovData pv) m, LowLevel.MonadTreeStateStore m) => RoundStatus -> m ()
+doSetRoundStatus rs = do
+    LowLevel.writeCurrentRoundStatus rs
+    roundStatus .=! rs
+
+-- doStoreTimeoutMessage :: (MonadState (SkovData pv) m) => TimeoutMessage -> m ()
+-- doStoreTimeoutMessage tm = do
+--     currentTimeoutMessages <- use receivedTimeoutMessages
+--     epoch <- rsCurrentEpoch <$> doGetRoundStatus
+--     let newTimeoutMessages = currentTimeoutMessages &
+--                              at' epoch . non Map.empty . at' (tmFinalizerIndex (tmBody tm)) ?~ tm
+--     receivedTimeoutMessages .=! newTimeoutMessages
 
 -- |Updates and persists the 'RoundStatus' of the 'SkovData' to the supplied 'RoundStatus
 setRoundStatus :: (LowLevel.MonadTreeStateStore m, MonadState (SkovData (MPV m)) m) => RoundStatus -> m ()

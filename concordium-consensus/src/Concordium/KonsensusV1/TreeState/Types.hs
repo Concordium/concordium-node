@@ -225,12 +225,21 @@ data RoundStatus = RoundStatus
       -- |If the consensus runner is part of the finalization committee,
       -- then this will yield the last signed timeout message.
       _rsLastSignedTimeoutSignatureMessage :: !(Option TimeoutSignatureMessage),
+      -- |Next signable round. Blocks in this round and higher can be signed.
+      _rsNextSignableRound :: !Round,
       -- |The highest 'QuorumCertificate' seen so far.
-      -- This is 'Nothing' if no rounds since genesis has
-      -- been able to produce a 'QuorumCertificate'.
+      -- This contains the empty quorom certificate
+      -- (having round 0, epoch 0, empty quorom signature and empty finalizer set)
+      -- if no rounds since genesis has been able to produce a 'QuorumCertificate'.
       -- Note: this can potentially be a QC for a block that is not present, but in that case we
       -- should have a finalization entry that contains the QC.
-      _rsHighestQC :: !(Option QuorumCertificate),
+      _rsHighestQC :: !QuorumCertificate,
+      -- -- |The current 'LeadershipElectionNonce'.
+      -- rsLeadershipElectionNonce :: !LeadershipElectionNonce,
+      -- -- |The latest 'Epoch' 'FinalizationEntry'.
+      -- -- This will only be 'Nothing' in between the
+      -- -- genesis block and the first explicitly finalized block.
+      -- rsLatestEpochFinEntry :: !(Option FinalizationEntry),
       -- |The previous round timeout certificate if the previous round timed out.
       -- This is @Just (TimeoutCertificate, QuorumCertificate)@ if the previous round timed out or otherwise 'Nothing'.
       -- In the case of @Just@ then the associated 'QuorumCertificate' is the highest 'QuorumCertificate' at the time
@@ -246,24 +255,27 @@ instance Serialize RoundStatus where
         put _rsCurrentRound
         put _rsLastSignedQuourumSignatureMessage
         put _rsLastSignedTimeoutSignatureMessage
+        put _rsNextSignableRound
         put _rsHighestQC
         put _rsPreviousRoundTC
     get = do
         _rsCurrentRound <- get
         _rsLastSignedQuourumSignatureMessage <- get
         _rsLastSignedTimeoutSignatureMessage <- get
+        _rsNextSignableRound <- get
         _rsHighestQC <- get
         _rsPreviousRoundTC <- get
         return RoundStatus{..}
 
 -- |The 'RoundStatus' for consensus at genesis.
-initialRoundStatus :: RoundStatus
-initialRoundStatus =
+initialRoundStatus :: BlockHash -> RoundStatus
+initialRoundStatus genesisHash =
     RoundStatus
         { _rsCurrentRound = 0,
           _rsLastSignedQuourumSignatureMessage = Absent,
           _rsLastSignedTimeoutSignatureMessage = Absent,
-          _rsHighestQC = Absent,
+          _rsNextSignableRound = 1,
+          _rsHighestQC = genesisQuorumCertificate genesisHash,
           _rsPreviousRoundTC = Absent
         }
 
