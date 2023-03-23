@@ -111,7 +111,7 @@ uponTimeoutEvent = do
                             tmAggregateSignature = timeoutSig
                             }
                 let timeoutMessage = signTimeoutMessage timeoutMessageBody genesisHash bakerSignKey
-                sendMessage timeoutMessage
+                sendTimeoutMessage timeoutMessage
                 processTimeout timeoutMessage
 
 -- |Process a timeout message. This stores the timeout, and makes sure the stored timeout messages

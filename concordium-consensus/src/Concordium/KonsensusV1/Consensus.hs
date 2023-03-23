@@ -38,8 +38,8 @@ import Concordium.Utils
 
 -- |A Monad for multicasting timeout messages.
 class MonadMulticast m where
-    -- |Multicast a message.
-    sendMessage :: (Serialize a) => a -> m ()
+    -- |Multicast a timeout message.
+    sendTimeoutMessage :: TimeoutMessage -> m ()
 
 -- |A baker context containing the baker identity. Used for accessing relevant baker keys and the baker id.
 newtype BakerContext = BakerContext
