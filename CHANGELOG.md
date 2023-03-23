@@ -7,6 +7,8 @@
 - Extend the node health check so that if the node is configured with baker
   credentials then it is required to be in the baking committee for it to be
   considered healthy.
+- Fix a bug that could cause the node to hang indefinitely during the out-of-
+  band-catchup when the node is a finalizer.
 
 ## 5.3.0
 
