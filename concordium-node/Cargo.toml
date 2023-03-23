@@ -17,7 +17,6 @@ test_utils = [ ]
 network_dump = []
 static = [ ]
 profiling = [ "static" ]
-collector = [ "reqwest/default-tls", "serde/derive", "rmp-serde", "collector-backend" ]
 
 [profile.release]
 codegen-units = 1
@@ -126,11 +125,6 @@ name = "concordium-node"
 [[bin]]
 path = "src/bin/bootstrapper.rs"
 name = "p2p_bootstrapper-cli"
-
-[[bin]]
-name = "node-collector"
-path = "src/bin/collector.rs"
-required-features = [ "collector" ]
 
 [[bin]]
 name = "bootstrap_checker"

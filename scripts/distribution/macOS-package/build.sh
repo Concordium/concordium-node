@@ -20,6 +20,7 @@ macPackageDir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 readonly macPackageDir
 
 readonly nodeDir="$macPackageDir/../../../concordium-node"
+readonly collectorDir="$macPackageDir/../../../collector"
 readonly consensusDir="$macPackageDir/../../../concordium-consensus"
 
 readonly toolsDir="$macPackageDir/tools"
@@ -165,11 +166,19 @@ function compileConsensus() {
     logInfo "Done"
 }
 
-# Compile the node and collector using dynamic linking.
-function compileNodeAndCollector() {
+# Compile the node using dynamic linking.
+function compileNode() {
     cd "$nodeDir"
-    logInfo "Building Node and Collector..."
-    cargo build --bin concordium-node --bin node-collector --features collector --release
+    logInfo "Building Node..."
+    cargo build --bin concordium-node --release
+    logInfo "Done"
+}
+
+# Compile the collector using dynamic linking.
+function compileCollector() {
+    cd "$collectorDir"
+    logInfo "Building Collector..."
+    cargo build --bin node-collector --release
     logInfo "Done"
 }
 
@@ -184,7 +193,8 @@ function compileInstallerPlugin() {
 # Compile consensus, node, collector, and the installer plugin.
 function compile() {
     compileConsensus
-    compileNodeAndCollector
+    compileNode
+    compileCollector
     compileInstallerPlugin
 }
 
@@ -200,7 +210,7 @@ function copyInstallerPluginData() {
 function copyNodeBinaries() {
     logInfo "Copy concordium-node and node-collector binaries to '$payloadDir/Library/Concordium Node/'.."
     cp "$nodeDir/target/release/concordium-node" "$payloadDir/Library/Concordium Node"
-    cp "$nodeDir/target/release/node-collector" "$payloadDir/Library/Concordium Node"
+    cp "$collectorDir/target/release/node-collector" "$payloadDir/Library/Concordium Node"
     logInfo "Done"
 }
 
