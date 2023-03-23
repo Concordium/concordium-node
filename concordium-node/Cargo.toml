@@ -1,6 +1,6 @@
 [package]
 name = "concordium_node"
-version = "5.2.4" # must be kept in sync with 'is_compatible_version' in 'src/configuration.rs'
+version = "5.3.0" # must be kept in sync with 'is_compatible_version' in 'src/configuration.rs'
 description = "Concordium Node"
 authors = ["Concordium <developers@concordium.com>"]
 exclude = [".gitignore", ".gitlab-ci.yml", "test/**/*","**/**/.gitignore","**/**/.gitlab-ci.yml"]
@@ -24,7 +24,7 @@ codegen-units = 1
 
 [dependencies]
 # Internal dependencies
-concordium_base = { path = "../concordium-base/rust-src/concordium_base" }
+concordium_base = { path = "../concordium-base/rust-src/concordium_base", features = ["encryption"] }
 concordium-smart-contract-engine = { path = "../concordium-base/smart-contracts/wasm-chain-integration" }
 
 # External dependencies

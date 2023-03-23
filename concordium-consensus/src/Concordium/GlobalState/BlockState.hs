@@ -76,7 +76,7 @@ import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Basic.BlockState.PoolRewards
 import Concordium.GlobalState.CapitalDistribution
 import Concordium.GlobalState.Instance
-import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.Parameters hiding (getChainParameters)
 import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Types
 import Concordium.Types.Accounts
@@ -613,6 +613,9 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
 
     -- |Get the current exchange rates, which are the Euro per NRG, micro CCD per Euro and the derived energy to microCCD rate.
     getExchangeRates :: BlockState m -> m ExchangeRates
+
+    -- |Get the current chain parameters.
+    getChainParameters :: BlockState m -> m (ChainParameters (MPV m))
 
     -- |Get the epoch time of the next scheduled payday.
     getPaydayEpoch :: (PVSupportsDelegation (MPV m)) => BlockState m -> m Epoch
@@ -1410,6 +1413,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
     getAnonymityRevokers s = lift . getAnonymityRevokers s
     getUpdateKeysCollection s = lift $ getUpdateKeysCollection s
     getExchangeRates s = lift $ getExchangeRates s
+    getChainParameters = lift . getChainParameters
     getPaydayEpoch = lift . getPaydayEpoch
     getPoolStatus s = lift . getPoolStatus s
     {-# INLINE getModule #-}
@@ -1442,6 +1446,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
     {-# INLINE getAnonymityRevokers #-}
     {-# INLINE getUpdateKeysCollection #-}
     {-# INLINE getExchangeRates #-}
+    {-# INLINE getChainParameters #-}
 
 instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (MGSTrans t m) where
     getAccountCanonicalAddress = lift . getAccountCanonicalAddress

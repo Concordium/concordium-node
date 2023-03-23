@@ -155,7 +155,7 @@ pub mod types {
         fn from(n: Amount) -> Self { Self::from_micro_ccd(n.value) }
     }
 
-    impl TryFrom<ModuleRef> for concordium_base::smart_contracts::ModuleRef {
+    impl TryFrom<ModuleRef> for concordium_base::contracts_common::ModuleReference {
         type Error = tonic::Status;
 
         fn try_from(value: ModuleRef) -> Result<Self, Self::Error> {
@@ -188,7 +188,7 @@ pub mod types {
         }
     }
 
-    impl TryFrom<Parameter> for concordium_base::smart_contracts::Parameter {
+    impl TryFrom<Parameter> for concordium_base::smart_contracts::OwnedParameter {
         type Error = tonic::Status;
 
         fn try_from(value: Parameter) -> Result<Self, Self::Error> {
@@ -987,8 +987,10 @@ pub mod server {
                         .context("Unable to start the GRPC2 reflection service.")?;
 
                     let health_service = health::HealthServiceImpl {
-                        consensus:                     consensus.clone(),
+                        consensus: consensus.clone(),
+                        node: node.clone(),
                         health_max_finalization_delay: config.health_max_finalized_delay,
+                        health_min_peers: config.health_min_peers,
                     };
                     router
                         .add_service(health::health_server::HealthServer::new(health_service))

@@ -52,7 +52,7 @@ import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import Concordium.GlobalState.Persistent.TreeState (DeadCache, emptyDeadCache, insertDeadCache, memberDeadCache)
 import qualified Concordium.GlobalState.PurgeTransactions as Purge
 import qualified Concordium.GlobalState.Statistics as Stats
-import Concordium.GlobalState.TransactionTable
+import qualified Concordium.GlobalState.TransactionTable as TT
 import qualified Concordium.GlobalState.Types as GSTypes
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
@@ -133,7 +133,7 @@ data PendingTransactions pv = PendingTransactions
     { -- |The block with respect to which the pending transactions are considered pending.
       _focusBlock :: !(BlockPointer pv),
       -- |The table of pending transactions with respect to the focus block.
-      _pendingTransactionTable :: !PendingTransactionTable
+      _pendingTransactionTable :: !TT.PendingTransactionTable
     }
 
 -- We make it classy such that we can provide an instance @HasPendingTransactions (SkovData pv) pv@
@@ -185,7 +185,7 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       -- * Non finalized chain updates
       -- See the documentation of 'TransactionTable' for more elaborate explanation of the three
       -- structures within the 'TransactionTable'.
-      _transactionTable :: !TransactionTable,
+      _transactionTable :: !TT.TransactionTable,
       -- |The purge counter for the 'TransactionTable'
       _transactionTablePurgeCounter :: !Int,
       -- |Pending transactions
@@ -202,6 +202,8 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       _skovPendingBlocks :: !PendingBlocks,
       -- |Pointer to the last finalized block.
       _lastFinalized :: !(BlockPointer pv),
+      -- |Baker and finalizer information with respect to the epoch of the last finalized block.
+      _skovEpochBakers :: !EpochBakers,
       -- |The current consensus statistics.
       _statistics :: !Stats.ConsensusStatistics
     }
@@ -215,6 +217,10 @@ instance HasPendingTransactions (SkovData pv) pv where
 instance HasPendingBlocks (SkovData pv) where
     pendingBlocks = skovPendingBlocks
     {-# INLINE pendingBlocks #-}
+
+instance HasEpochBakers (SkovData pv) where
+    epochBakers = skovEpochBakers
+    {-# INLINE epochBakers #-}
 
 -- |Create an initial 'SkovData pv'
 -- This constructs a 'SkovData pv' from a genesis block
@@ -230,9 +236,11 @@ mkInitialSkovData ::
     Duration ->
     -- |The 'LeadershipElectionNonce'
     LeadershipElectionNonce ->
+    -- |Bakers at the genesis block
+    EpochBakers ->
     -- |The initial 'SkovData'
     SkovData pv
-mkInitialSkovData rp genMeta genState baseTimeout len =
+mkInitialSkovData rp genMeta genState baseTimeout len _skovEpochBakers =
     let genesisBlock = GenesisBlock genMeta
         genesisTime = timestampToUTCTime $ Base.genesisTime (gmParameters genMeta)
         genesisBlockMetadata =
@@ -248,11 +256,11 @@ mkInitialSkovData rp genMeta genState baseTimeout len =
                   bpState = genState
                 }
         _roundStatus = initialRoundStatus baseTimeout len
-        _transactionTable = emptyTransactionTable
+        _transactionTable = TT.emptyTransactionTable
         _transactionTablePurgeCounter = 0
         _skovPendingTransactions =
             PendingTransactions
-                { _pendingTransactionTable = emptyPendingTransactionTable,
+                { _pendingTransactionTable = TT.emptyPendingTransactionTable,
                   _focusBlock = genesisBlockPointer
                 }
         _runtimeParameters = rp
@@ -440,9 +448,9 @@ takeNextPendingUntil targetRound = takeNextUntil =<< use pendingBlocksQueue
 
 -- |Lookup a transaction in the transaction table if it is live.
 -- This will give a 'Nothing' result for finalized transactions.
-lookupLiveTransaction :: TransactionHash -> SkovData pv -> Maybe LiveTransactionStatus
+lookupLiveTransaction :: TransactionHash -> SkovData pv -> Maybe TT.LiveTransactionStatus
 lookupLiveTransaction tHash sd =
-    sd ^? transactionTable . ttHashMap . at tHash . traversed . _2
+    sd ^? transactionTable . TT.ttHashMap . at tHash . traversed . _2
 
 -- |Lookup a transaction in the transaction table, including finalized transactions.
 lookupTransaction :: (LowLevel.MonadTreeStateStore m) => TransactionHash -> SkovData pv -> m (Maybe TransactionStatus)
@@ -464,13 +472,13 @@ getNonFinalizedAccountTransactions ::
     SkovData pv ->
     [(Nonce, Map.Map Transaction TVer.VerificationResult)]
 getNonFinalizedAccountTransactions addr nnce sd =
-    case sd ^. transactionTable . ttNonFinalizedTransactions . at' addr of
+    case sd ^. transactionTable . TT.ttNonFinalizedTransactions . at' addr of
         Nothing -> []
         Just anfts -> case atnnce of
             Nothing -> Map.toAscList beyond
             Just s -> (nnce, s) : Map.toAscList beyond
           where
-            (_, atnnce, beyond) = Map.splitLookup nnce (anfts ^. anftMap)
+            (_, atnnce, beyond) = Map.splitLookup nnce (anfts ^. TT.anftMap)
 
 -- |Get the non finalized chain updates.
 -- This returns a map from update sequence numbers to the
@@ -488,13 +496,13 @@ getNonFinalizedChainUpdates ::
     -- |The resulting list of chain updates.
     [(UpdateSequenceNumber, Map.Map (WithMetadata UpdateInstruction) TVer.VerificationResult)]
 getNonFinalizedChainUpdates uType updateSequenceNumber sd = do
-    case sd ^. transactionTable . ttNonFinalizedChainUpdates . at' uType of
+    case sd ^. transactionTable . TT.ttNonFinalizedChainUpdates . at' uType of
         Nothing -> []
         Just nfcus -> case atsn of
             Nothing -> Map.toAscList beyond
             Just s -> (updateSequenceNumber, s) : Map.toAscList beyond
           where
-            (_, atsn, beyond) = Map.splitLookup updateSequenceNumber (nfcus ^. nfcuMap)
+            (_, atsn, beyond) = Map.splitLookup updateSequenceNumber (nfcus ^. TT.nfcuMap)
 
 -- |Get a non finalized credential by its 'TransactionHash'
 -- This returns 'Nothing' in the case that the credential has already been finalized.
@@ -505,11 +513,11 @@ getNonFinalizedCredential ::
     SkovData pv ->
     Maybe (CredentialDeploymentWithMeta, TVer.VerificationResult)
 getNonFinalizedCredential txhash sd = do
-    case sd ^? transactionTable . ttHashMap . ix txhash of
+    case sd ^? transactionTable . TT.ttHashMap . ix txhash of
         Just (WithMetadata{wmdData = CredentialDeployment{..}, ..}, status) ->
             case status of
-                Received _ verRes -> Just (WithMetadata{wmdData = biCred, ..}, verRes)
-                Committed _ verRes _ -> Just (WithMetadata{wmdData = biCred, ..}, verRes)
+                TT.Received _ verRes -> Just (WithMetadata{wmdData = biCred, ..}, verRes)
+                TT.Committed _ verRes _ -> Just (WithMetadata{wmdData = biCred, ..}, verRes)
         _ -> Nothing
 
 -- |Get the next account nonce for an account.
@@ -526,11 +534,11 @@ getNextAccountNonce ::
     SkovData pv ->
     -- |The resulting account nonce and whether it is finalized or not.
     (Nonce, Bool)
-getNextAccountNonce addr sd = case sd ^. transactionTable . ttNonFinalizedTransactions . at' addr of
+getNextAccountNonce addr sd = case sd ^. transactionTable . TT.ttNonFinalizedTransactions . at' addr of
     Nothing -> (minNonce, True)
     Just anfts ->
-        case Map.lookupMax (anfts ^. anftMap) of
-            Nothing -> (anfts ^. anftNextNonce, True)
+        case Map.lookupMax (anfts ^. TT.anftMap) of
+            Nothing -> (anfts ^. TT.anftNextNonce, True)
             Just (nonce, _) -> (nonce + 1, False)
 
 -- |Removes a list of transactions from memory.
@@ -548,17 +556,17 @@ removeTransactions = mapM_ removeTrans
     removeTrans WithMetadata{wmdData = NormalTransaction tr, ..} = do
         let nonce = transactionNonce tr
             sender = accountAddressEmbed (transactionSender tr)
-        anft <- use (transactionTable . ttNonFinalizedTransactions . at' sender . non emptyANFT)
-        unless (anft ^. anftNextNonce == nonce) $
+        anft <- use (transactionTable . TT.ttNonFinalizedTransactions . at' sender . non TT.emptyANFT)
+        unless (anft ^. TT.anftNextNonce == nonce) $
             throwM . TreeStateInvariantViolation $
                 "The recorded next nonce for the account "
                     ++ show sender
                     ++ " ("
-                    ++ show (anft ^. anftNextNonce)
+                    ++ show (anft ^. TT.anftNextNonce)
                     ++ ") doesn't match the one that is going to be finalized ("
                     ++ show nonce
                     ++ ")"
-        let nfn = anft ^. anftMap . at' nonce . non Map.empty
+        let nfn = anft ^. TT.anftMap . at' nonce . non Map.empty
             wmdtr = WithMetadata{wmdData = tr, ..}
         unless (Map.member wmdtr nfn) $
             throwM . TreeStateInvariantViolation $
@@ -569,31 +577,31 @@ removeTransactions = mapM_ removeTrans
         -- from the transaction table.
         -- They can never be part of any other block after this point.
         forM_ (Map.keys nfn) $
-            \deadTransaction -> transactionTable . ttHashMap . at' (getHash deadTransaction) .= Nothing
+            \deadTransaction -> transactionTable . TT.ttHashMap . at' (getHash deadTransaction) .= Nothing
         -- Update the non-finalized transactions for the sender
         transactionTable
-            . ttNonFinalizedTransactions
+            . TT.ttNonFinalizedTransactions
             . at' sender
             ?=! ( anft
-                    & (anftMap . at' nonce .~ Nothing)
-                    & (anftNextNonce .~ nonce + 1)
+                    & (TT.anftMap . at' nonce .~ Nothing)
+                    & (TT.anftNextNonce .~ nonce + 1)
                 )
     removeTrans WithMetadata{wmdData = CredentialDeployment{}, ..} =
-        transactionTable . ttHashMap . at' wmdHash .= Nothing
+        transactionTable . TT.ttHashMap . at' wmdHash .= Nothing
     removeTrans WithMetadata{wmdData = ChainUpdate cu, ..} = do
         let sn = updateSeqNumber (uiHeader cu)
             uty = updateType (uiPayload cu)
-        nfcu <- use (transactionTable . ttNonFinalizedChainUpdates . at' uty . non emptyNFCU)
-        unless (nfcu ^. nfcuNextSequenceNumber == sn) $
+        nfcu <- use (transactionTable . TT.ttNonFinalizedChainUpdates . at' uty . non TT.emptyNFCU)
+        unless (nfcu ^. TT.nfcuNextSequenceNumber == sn) $
             throwM . TreeStateInvariantViolation $
                 "The recorded next sequence number for update type "
                     ++ show uty
                     ++ " ("
-                    ++ show (nfcu ^. nfcuNextSequenceNumber)
+                    ++ show (nfcu ^. TT.nfcuNextSequenceNumber)
                     ++ ") doesn't match the one that is going to be finalized ("
                     ++ show sn
                     ++ ")"
-        let nfsn = nfcu ^. nfcuMap . at' sn . non Map.empty
+        let nfsn = nfcu ^. TT.nfcuMap . at' sn . non Map.empty
             wmdcu = WithMetadata{wmdData = cu, ..}
         unless (Map.member wmdcu nfsn) $
             throwM . TreeStateInvariantViolation $
@@ -603,12 +611,12 @@ removeTransactions = mapM_ removeTrans
         -- Remove the transaction from the in-memory table, together with
         -- any other updates with the same sequence number, since they weren't finalized
         forM_ (Map.keys nfsn) $
-            \deadUpdate -> transactionTable . ttHashMap . at' (getHash deadUpdate) .= Nothing
+            \deadUpdate -> transactionTable . TT.ttHashMap . at' (getHash deadUpdate) .= Nothing
         -- Update the non-finalized chain updates
         transactionTable
-            . ttNonFinalizedChainUpdates
+            . TT.ttNonFinalizedChainUpdates
             . at' uty
-            ?=! (nfcu & (nfcuMap . at' sn .~ Nothing) & (nfcuNextSequenceNumber .~ sn + 1))
+            ?=! (nfcu & (TT.nfcuMap . at' sn .~ Nothing) & (TT.nfcuNextSequenceNumber .~ sn + 1))
 
 -- |Mark a live transaction as committed in a particular block.
 -- This does nothing if the transaction is not live.
@@ -628,20 +636,20 @@ commitTransaction ::
     m ()
 commitTransaction rnd bh ti transaction =
     transactionTable
-        . ttHashMap
+        . TT.ttHashMap
         . at' (getHash transaction)
         . traversed
         . _2
-        %=! addResult bh rnd ti
+        %=! TT.addResult bh rnd ti
 
 -- |Add a transaction to the transaction table if its nonce/sequence number is at least the next
 -- non-finalized nonce/sequence number. The return value is 'True' if and only if the transaction
 -- was added.
 -- When adding a transaction from a block, use the 'Round' of the block. Otherwise use round @0@.
 -- The transaction must not already be present.
-putTransaction :: (MonadState (SkovData pv) m) => Round -> BlockItem -> VerificationResult -> m Bool
-putTransaction rnd transaction verRes = do
-    added <- transactionTable %%=! addTransaction transaction (commitPoint rnd) verRes
+addTransaction :: (MonadState (SkovData pv) m) => Round -> BlockItem -> VerificationResult -> m Bool
+addTransaction rnd transaction verRes = do
+    added <- transactionTable %%=! TT.addTransaction transaction (TT.commitPoint rnd) verRes
     when added $ transactionTablePurgeCounter += 1
     return added
 
@@ -655,11 +663,11 @@ markTransactionDead ::
     m ()
 markTransactionDead blockHash transaction =
     transactionTable
-        . ttHashMap
+        . TT.ttHashMap
         . at' (getHash transaction)
         . mapped
         . _2
-        %= markDeadResult blockHash
+        %= TT.markDeadResult blockHash
 
 -- |Purge transactions from the transaction table and pending transactions.
 -- Transactions are purged only if they are not included in a live block, and
@@ -712,9 +720,24 @@ purgeTransactionTable force currentTime = do
                     then currentTransactionTime - rpTransactionsKeepAliveTime
                     else 0
             currentTimestamp = utcTimeToTimestamp currentTime
-            (newTT, newPT) = Purge.purgeTables (commitPoint lastFinalizedRound) oldestArrivalTime currentTimestamp transactionTable' pendingTransactions'
+            (newTT, newPT) = Purge.purgeTables (TT.commitPoint lastFinalizedRound) oldestArrivalTime currentTimestamp transactionTable' pendingTransactions'
         transactionTable .=! newTT
         pendingTransactionTable .=! newPT
+
+-- * Bakers
+
+-- |Get the set of bakers and finalizers for an epoch no later than the epoch of the last finalized
+-- block.
+getBakersForLiveEpoch :: (HasEpochBakers s) => Epoch -> s -> Maybe BakersAndFinalizers
+getBakersForLiveEpoch e s
+    | e == curEpoch = Just (s ^. currentEpochBakers)
+    | e == curEpoch + 1 = Just (s ^. nextEpochBakers)
+    | curEpoch <= e && e < s ^. nextPayday = Just (s ^. currentEpochBakers)
+    | otherwise = Nothing
+  where
+    curEpoch = s ^. epochBakersEpoch
+
+-- * Protocol update
 
 -- |Clear pending and non-finalized blocks from the tree state.
 -- Transactions that were committed (to any non-finalized block) have their status changed to
@@ -731,10 +754,10 @@ clearOnProtocolUpdate = do
     -- mark committed transactions as received, since we have dropped any blocks
     -- that they belong to.
     transactionTable
-        . ttHashMap
+        . TT.ttHashMap
         %=! HM.map
             ( \case
-                (bi, Committed{..}) -> (bi, Received{..})
+                (bi, TT.Committed{..}) -> (bi, TT.Received{..})
                 s -> s
             )
 
@@ -743,8 +766,8 @@ clearOnProtocolUpdate = do
 clearAfterProtocolUpdate :: (MonadState (SkovData pv) m, BlockStateStorage m, GSTypes.BlockState m ~ PBS.HashedPersistentBlockState pv) => m ()
 clearAfterProtocolUpdate = do
     -- Clear the transaction table and pending transactions.
-    transactionTable .=! emptyTransactionTable
-    pendingTransactionTable .=! emptyPendingTransactionTable
+    transactionTable .=! TT.emptyTransactionTable
+    pendingTransactionTable .=! TT.emptyPendingTransactionTable
     -- Set the focus block to the last finalized block.
     lastFinBlock <- use lastFinalized
     focusBlock .=! lastFinBlock

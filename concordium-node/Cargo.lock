@@ -20,24 +20,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "aggregate_sig"
-version = "0.1.0"
-dependencies = [
- "crypto_common",
- "crypto_common_derive",
- "curve_arithmetic",
- "ff",
- "generic-array 0.14.6",
- "id",
- "pairing",
- "rand 0.7.3",
- "random_oracle",
- "rayon",
- "serde 1.0.152",
- "sha2 0.10.6",
-]
-
-[[package]]
 name = "ahash"
 version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -385,22 +367,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bulletproofs"
-version = "0.1.0"
-dependencies = [
- "crypto_common",
- "crypto_common_derive",
- "curve_arithmetic",
- "ff",
- "group",
- "pairing",
- "pedersen_scheme",
- "rand 0.7.3",
- "random_oracle",
- "serde 1.0.152",
-]
-
-[[package]]
 name = "bumpalo"
 version = "3.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -502,9 +468,9 @@ dependencies = [
 
 [[package]]
 name = "cipher"
-version = "0.4.3"
+version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d1873270f8f7942c191139cb8a40fd228da6c3fd2fc376d7e92d47aa14aeb59e"
+checksum = "773f3b9af64447d2ce9850330c473515014aa235e6a783b02db81ff39e4a3dad"
 dependencies = [
  "crypto-common",
  "inout",
@@ -586,7 +552,7 @@ dependencies = [
 
 [[package]]
 name = "concordium-contracts-common"
-version = "5.1.1"
+version = "5.3.1"
 dependencies = [
  "bs58",
  "chrono",
@@ -614,7 +580,7 @@ dependencies = [
 
 [[package]]
 name = "concordium-smart-contract-engine"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "anyhow",
  "byteorder",
@@ -647,24 +613,25 @@ dependencies = [
 
 [[package]]
 name = "concordium_base"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
- "aggregate_sig",
+ "aes",
  "anyhow",
+ "base64 0.13.1",
  "bs58",
  "byteorder",
+ "cbc",
  "chrono",
  "concordium-contracts-common",
- "crypto_common",
+ "concordium_base_derive",
+ "curve25519-dalek",
  "derive_more",
- "ecvrf",
  "ed25519-dalek",
- "eddsa_ed25519",
  "either",
- "encrypted_transfers",
  "ff",
+ "group",
  "hex",
- "id",
+ "hmac",
  "itertools",
  "leb128",
  "libc",
@@ -672,19 +639,32 @@ dependencies = [
  "num-bigint 0.4.3",
  "num-traits 0.2.15",
  "pairing",
+ "pbkdf2",
  "rand 0.7.3",
  "rand_core 0.5.1",
- "random_oracle",
+ "rayon",
  "rust_decimal",
  "serde 1.0.152",
  "serde_json 1.0.93",
  "sha2 0.10.6",
+ "sha3",
+ "subtle",
  "thiserror",
+ "zeroize",
+]
+
+[[package]]
+name = "concordium_base_derive"
+version = "1.0.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
 name = "concordium_node"
-version = "5.2.4"
+version = "5.3.0"
 dependencies = [
  "anyhow",
  "app_dirs2",
@@ -908,42 +888,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "crypto_common"
-version = "0.1.0"
-dependencies = [
- "aes",
- "anyhow",
- "base64 0.13.1",
- "byteorder",
- "cbc",
- "concordium-contracts-common",
- "crypto_common_derive",
- "derive_more",
- "ed25519-dalek",
- "either",
- "ff",
- "group",
- "hex",
- "hmac",
- "libc",
- "pairing",
- "pbkdf2",
- "rand 0.7.3",
- "serde 1.0.152",
- "sha2 0.10.6",
- "thiserror",
-]
-
-[[package]]
-name = "crypto_common_derive"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "csv"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -975,23 +919,6 @@ dependencies = [
  "rand_core 0.5.1",
  "subtle",
  "zeroize",
-]
-
-[[package]]
-name = "curve_arithmetic"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "byteorder",
- "crypto_common",
- "crypto_common_derive",
- "ff",
- "group",
- "pairing",
- "rand 0.7.3",
- "serde 1.0.152",
- "sha2 0.10.6",
- "thiserror",
 ]
 
 [[package]]
@@ -1124,40 +1051,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "212d0f5754cb6769937f4501cc0e67f4f4483c8d2c3e1e922ee9edbe4ab4c7c0"
 
 [[package]]
-name = "dodis_yampolskiy_prf"
-version = "0.1.0"
-dependencies = [
- "crypto_common",
- "crypto_common_derive",
- "curve_arithmetic",
- "ff",
- "pairing",
- "rand 0.7.3",
- "rand_core 0.5.1",
- "serde 1.0.152",
- "thiserror",
-]
-
-[[package]]
 name = "dtoa"
 version = "0.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "56899898ce76aaf4a0f24d914c97ea6ed976d42fec6ad33fcbb0a1103e07b2b0"
-
-[[package]]
-name = "ecvrf"
-version = "0.0.1"
-dependencies = [
- "crypto_common",
- "crypto_common_derive",
- "curve25519-dalek",
- "libc",
- "rand 0.7.3",
- "sha2 0.10.6",
- "subtle",
- "thiserror",
- "zeroize",
-]
 
 [[package]]
 name = "ed25519"
@@ -1198,44 +1095,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "eddsa_ed25519"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "crypto_common",
- "crypto_common_derive",
- "curve25519-dalek",
- "ed25519-dalek",
- "libc",
- "rand 0.7.3",
- "random_oracle",
- "serde 1.0.152",
- "sha2 0.10.6",
- "thiserror",
-]
-
-[[package]]
 name = "either"
 version = "1.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7fcaabb2fef8c910e7f4c7ce9f67a1283a1715879a7c230ca9d6d1ae31f16d91"
-
-[[package]]
-name = "elgamal"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "crypto_common",
- "crypto_common_derive",
- "curve_arithmetic",
- "ff",
- "libc",
- "pairing",
- "rand 0.7.3",
- "rand_core 0.5.1",
- "serde 1.0.152",
- "thiserror",
-]
 
 [[package]]
 name = "encoding_rs"
@@ -1244,26 +1107,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "071a31f4ee85403370b58aca746f01041ede6f0da2730960ad001edc2b71b394"
 dependencies = [
  "cfg-if",
-]
-
-[[package]]
-name = "encrypted_transfers"
-version = "0.1.0"
-dependencies = [
- "bulletproofs",
- "crypto_common",
- "crypto_common_derive",
- "curve_arithmetic",
- "elgamal",
- "ff",
- "id",
- "itertools",
- "libc",
- "pairing",
- "pedersen_scheme",
- "rand 0.7.3",
- "random_oracle",
- "serde 1.0.152",
 ]
 
 [[package]]
@@ -1548,10 +1391,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8fc3cb4d91f53b50155bdcfd23f6a4c39ae1969c2ae85982b135750cccaf5fce"
 dependencies = [
  "cfg-if",
- "js-sys",
  "libc",
  "wasi 0.9.0+wasi-snapshot-preview1",
- "wasm-bindgen",
 ]
 
 [[package]]
@@ -1861,38 +1702,6 @@ checksum = "0703ae284fc167426161c2e3f1da3ea71d94b21bedbcc9494e92b28e334e3dca"
 dependencies = [
  "cxx",
  "cxx-build",
-]
-
-[[package]]
-name = "id"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bulletproofs",
- "byteorder",
- "chrono",
- "crypto_common",
- "crypto_common_derive",
- "curve_arithmetic",
- "derive_more",
- "dodis_yampolskiy_prf",
- "ed25519-dalek",
- "either",
- "elgamal",
- "ff",
- "hex",
- "itertools",
- "libc",
- "pairing",
- "pedersen_scheme",
- "ps_sig",
- "rand 0.7.3",
- "rand_core 0.5.1",
- "random_oracle",
- "serde 1.0.152",
- "serde_json 1.0.93",
- "sha2 0.10.6",
- "thiserror",
 ]
 
 [[package]]
@@ -2581,22 +2390,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pedersen_scheme"
-version = "0.1.0"
-dependencies = [
- "byteorder",
- "crypto_common",
- "crypto_common_derive",
- "curve_arithmetic",
- "ff",
- "pairing",
- "rand 0.7.3",
- "rand_core 0.5.1",
- "serde 1.0.152",
- "thiserror",
-]
-
-[[package]]
 name = "percent-encoding"
 version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2841,25 +2634,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "106dd99e98437432fed6519dedecfade6a06a73bb7b2a1e019fdd2bee5778d94"
 
 [[package]]
-name = "ps_sig"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "byteorder",
- "crypto_common",
- "crypto_common_derive",
- "curve_arithmetic",
- "ff",
- "libc",
- "pairing",
- "pedersen_scheme",
- "rand 0.7.3",
- "rand_core 0.5.1",
- "serde 1.0.152",
- "thiserror",
-]
-
-[[package]]
 name = "ptr_meta"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3086,21 +2860,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "random_oracle"
-version = "0.1.0"
-dependencies = [
- "crypto_common",
- "crypto_common_derive",
- "curve_arithmetic",
- "rand 0.7.3",
- "sha3",
-]
-
-[[package]]
 name = "rayon"
-version = "1.6.1"
+version = "1.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6db3a213adf02b3bcfd2d3846bb41cb22857d131789e01df434fb7e7bc0759b7"
+checksum = "1d2df5196e37bcc87abebc0053e20787d73847bb33134a69841207dd0a47f03b"
 dependencies = [
  "either",
  "rayon-core",
@@ -3108,9 +2871,9 @@ dependencies = [
 
 [[package]]
 name = "rayon-core"
-version = "1.10.2"
+version = "1.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "356a0625f1954f730c0201cdab48611198dc6ce21f4acff55089b5a78e6e835b"
+checksum = "4b8f95bd6966f5c87776639160a66bd8ab9895d9d4ab01ddba9fc60661aebe8d"
 dependencies = [
  "crossbeam-channel",
  "crossbeam-deque",

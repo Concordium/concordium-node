@@ -418,6 +418,13 @@ pub struct GRPC2Config {
         default_value = "300"
     )]
     pub health_max_finalized_delay: concordium_base::base::DurationSeconds,
+    #[structopt(
+        long = "grpc2-health-min-peers",
+        help = "Minimum number of peers for the node to be still considered healthy. If not set \
+                the number of peers does not affect the health check.",
+        env = "CONCORDIUM_NODE_GRPC2_HEALTH_MIN_PEERS"
+    )]
+    pub health_min_peers:           Option<usize>,
 }
 
 impl GRPC2Config {

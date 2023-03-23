@@ -190,6 +190,10 @@ pub struct StatsExportService {
     pub last_arrived_block_timestamp: IntGauge,
     /// The block height of the last finalized block.
     pub last_arrived_block_height: GenericGauge<AtomicU64>,
+    /// Total number of blocks baked by the node since startup.
+    pub baked_blocks: IntCounter,
+    /// Total number of finalized blocks baked by the node since startup.
+    pub finalized_baked_blocks: IntCounter,
     /// Total number of consensus messages received. Labelled with message type
     /// (`message=<type>`) and the outcome (`result=<outcome>`).
     ///
@@ -236,6 +240,9 @@ pub struct StatsExportService {
     /// `tower_http::metrics` and then synced with the prometheus gauge on each
     /// scrape.
     pub grpc_in_flight_requests_counter: InFlightRequestsCounter,
+    /// If non-zero the value represents the effective timestamp of unsupported
+    /// protocol update as milliseconds since unix epoch.
+    pub unsupported_pending_protocol_version: GenericGauge<AtomicU64>,
     /// Total number of bytes received at the point of last
     /// throughput_measurement.
     ///
@@ -354,6 +361,18 @@ impl StatsExportService {
         ))?;
         registry.register(Box::new(last_arrived_block_timestamp.clone()))?;
 
+        let baked_blocks = IntCounter::with_opts(Opts::new(
+            "consensus_baked_blocks_total",
+            "Total number of blocks baked by the node since startup",
+        ))?;
+        registry.register(Box::new(baked_blocks.clone()))?;
+
+        let finalized_baked_blocks = IntCounter::with_opts(Opts::new(
+            "consensus_finalized_baked_blocks_total",
+            "Total number of finalized blocks baked by the node since startup",
+        ))?;
+        registry.register(Box::new(finalized_baked_blocks.clone()))?;
+
         let received_consensus_messages = IntCounterVec::new(
             Opts::new(
                 "consensus_received_messages_total",
@@ -409,7 +428,7 @@ impl StatsExportService {
 
         let node_startup_timestamp = IntGauge::with_opts(Opts::new(
             "node_startup_timestamp",
-            "Timestamp of starting up the node (Unix time in milliseconds).",
+            "Timestamp of starting up the node (Unix time in milliseconds)",
         ))?;
         registry.register(Box::new(node_startup_timestamp.clone()))?;
 
@@ -436,6 +455,13 @@ impl StatsExportService {
         };
         registry.register(Box::new(grpc_in_flight_requests))?;
 
+        let unsupported_pending_protocol_version = GenericGauge::with_opts(Opts::new(
+            "consensus_unsupported_pending_protocol_version",
+            "If non-zero the value represents the effective time of an unsupported protocol \
+             update (Unix time in milliseconds)",
+        ))?;
+        registry.register(Box::new(unsupported_pending_protocol_version.clone()))?;
+
         let last_throughput_measurement_timestamp = AtomicI64::new(0);
         let last_throughput_measurement_sent_bytes = AtomicU64::new(0);
         let last_throughput_measurement_received_bytes = AtomicU64::new(0);
@@ -458,6 +484,8 @@ impl StatsExportService {
             last_finalized_block_timestamp,
             last_arrived_block_height,
             last_arrived_block_timestamp,
+            baked_blocks,
+            finalized_baked_blocks,
             received_consensus_messages,
             sent_consensus_messages,
             soft_banned_peers,
@@ -467,6 +495,7 @@ impl StatsExportService {
             node_startup_timestamp,
             grpc_request_response_time,
             grpc_in_flight_requests_counter,
+            unsupported_pending_protocol_version,
             last_throughput_measurement_timestamp,
             last_throughput_measurement_sent_bytes,
             last_throughput_measurement_received_bytes,
