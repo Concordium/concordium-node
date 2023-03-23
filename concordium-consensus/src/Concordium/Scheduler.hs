@@ -186,6 +186,7 @@ checkTransactionVerificationResult (TVer.MaybeOk (TVer.NormalTransactionInvalidS
 checkTransactionVerificationResult (TVer.MaybeOk (TVer.NormalTransactionInvalidNonce nonce)) = Left $ NonSequentialNonce nonce
 checkTransactionVerificationResult (TVer.MaybeOk TVer.NormalTransactionInvalidSignatures) = Left IncorrectSignature
 checkTransactionVerificationResult (TVer.MaybeOk TVer.NormalTransactionInsufficientFunds) = Left InsufficientFunds
+checkTransactionVerificationResult (TVer.MaybeOk TVer.NormalTransactionEnergyExceeded) = Left ExceedsMaxBlockEnergy
 -- 'NotOk' mappings
 checkTransactionVerificationResult (TVer.NotOk (TVer.CredentialDeploymentDuplicateAccountRegistrationID regId)) = Left $ DuplicateAccountRegistrationID regId
 checkTransactionVerificationResult (TVer.NotOk TVer.CredentialDeploymentInvalidSignatures) = Left AccountCredentialInvalid
@@ -193,7 +194,6 @@ checkTransactionVerificationResult (TVer.NotOk TVer.CredentialDeploymentExpired)
 checkTransactionVerificationResult (TVer.NotOk (TVer.ChainUpdateSequenceNumberTooOld nonce)) = Left $ NonSequentialNonce nonce
 checkTransactionVerificationResult (TVer.NotOk TVer.ChainUpdateEffectiveTimeBeforeTimeout) = Left InvalidUpdateTime
 checkTransactionVerificationResult (TVer.NotOk TVer.NormalTransactionDepositInsufficient) = Left DepositInsufficient
-checkTransactionVerificationResult (TVer.NotOk TVer.NormalTransactionEnergyExceeded) = Left ExceedsMaxBlockEnergy
 checkTransactionVerificationResult (TVer.NotOk (TVer.NormalTransactionDuplicateNonce nonce)) = Left $ NonSequentialNonce nonce
 checkTransactionVerificationResult (TVer.NotOk TVer.Expired) = Left ExpiredTransaction
 checkTransactionVerificationResult (TVer.NotOk TVer.InvalidPayloadSize) = Left InvalidPayloadSize

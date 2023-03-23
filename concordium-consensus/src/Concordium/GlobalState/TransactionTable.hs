@@ -419,3 +419,21 @@ reversePTT trs ptt0 = foldr reverse1 ptt0 trs
         upd (Just (low, high)) =
             assert (low == sn + 1) $
                 Just (low - 1, high)
+
+-- |Returns the next available account nonce for the
+-- provided account address in the first component and the
+-- 'Bool' in the second component is 'True' only if all transactions from the
+-- provided account are finalized.
+nextAccountNonce ::
+    -- |The account to look up the next account nonce for.
+    AccountAddressEq ->
+    -- |The transaction table to look up in.
+    TransactionTable ->
+    -- |("the next available account nonce", "whether all transactions from the account are finalized").
+    (Nonce, Bool)
+nextAccountNonce addr tt = case tt ^. ttNonFinalizedTransactions . at' addr of
+    Nothing -> (minNonce, True)
+    Just anfts ->
+        case Map.lookupMax (anfts ^. anftMap) of
+            Nothing -> (anfts ^. anftNextNonce, True)
+            Just (nonce, _) -> (nonce + 1, False)

@@ -41,6 +41,7 @@ import Concordium.GlobalState.Persistent.BlockState.Modules
 import Concordium.GlobalState.Persistent.Cache
 import Concordium.GlobalState.Persistent.LMDB
 import Concordium.GlobalState.Persistent.TreeState
+import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.TreeState
 import Concordium.Logger
 import Concordium.Skov.CatchUp
@@ -582,6 +583,14 @@ instance (c ~ SkovConfig pv finconfig handlerconfig, st ~ BlockStatePointer (Per
 
 instance (c ~ SkovConfig pv finconfig handlerconfig) => HasSkovPersistentData pv (SkovState c) where
     skovPersistentData = lens ssGSState (\s v -> s{ssGSState = v})
+
+deriving instance
+    ( MonadIO m,
+      IsProtocolVersion pv,
+      c ~ SkovConfig pv finconfig handlerconfig,
+      MonadLogger m
+    ) =>
+    AccountNonceQuery (SkovT pv h c m)
 
 deriving instance
     ( MonadIO m,

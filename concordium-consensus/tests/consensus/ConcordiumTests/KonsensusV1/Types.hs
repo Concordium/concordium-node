@@ -115,9 +115,8 @@ genFinalizerRounds =
   where
     genRoundFS = do
         r <- Round <$> arbitrary
-        e <- arbitrary
         fs <- genFinalizerSet
-        return ((r, e), fs)
+        return (r, fs)
 
 -- |Generate an arbitrary round.
 genRound :: Gen Round
@@ -131,7 +130,12 @@ genEpoch = arbitrary
 genTimeoutCertificate :: Gen TimeoutCertificate
 genTimeoutCertificate = do
     tcRound <- genRound
-    tcFinalizerQCRounds <- genFinalizerRounds
+    tcMinEpoch <- arbitrary
+    tcFinalizerQCRoundsFirstEpoch <- genFinalizerRounds
+    tcFinalizerQCRoundsSecondEpoch <-
+        if null (theFinalizerRounds tcFinalizerQCRoundsFirstEpoch)
+            then return tcFinalizerQCRoundsFirstEpoch
+            else genFinalizerRounds
     tcAggregateSignature <- TimeoutSignature <$> genBlsSignature
     return TimeoutCertificate{..}
 

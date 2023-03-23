@@ -13,6 +13,7 @@ import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Finalization
+import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.TreeState
 import Concordium.Skov.CatchUp.Types
 import Concordium.TimeMonad
@@ -139,7 +140,7 @@ doVerifyTransaction bi =
         Nothing -> do
             gd <- getGenesisData
             lfState <- blockState . fst =<< getLastFinalized
-            let verResCtx = Context lfState (gdMaxBlockEnergy gd) False
+            let verResCtx = Context lfState (gdMaxBlockEnergy gd) TV.Individual
             ts <- utcTimeToTimestamp <$> currentTime
             verRes <- runTransactionVerifierT (TV.verify ts bi) verResCtx
             return (False, verRes)

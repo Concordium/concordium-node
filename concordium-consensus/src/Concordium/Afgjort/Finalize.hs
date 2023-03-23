@@ -76,6 +76,7 @@ import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.TreeState
 import Concordium.Kontrol
 import Concordium.Kontrol.BestBlock
@@ -1150,6 +1151,7 @@ newtype ActiveFinalizationM (pv :: ProtocolVersion) (r :: Type) (s :: Type) (m :
           BlockStateOperations,
           BlockStateStorage,
           BlockPointerMonad,
+          AccountNonceQuery,
           TreeStateMonad,
           SkovMonad,
           TimeMonad,

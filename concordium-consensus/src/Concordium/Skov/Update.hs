@@ -35,6 +35,7 @@ import Concordium.Afgjort.Finalize
 import Concordium.Afgjort.Finalize.Types
 import Concordium.Birk.LeaderElection
 import Concordium.GlobalState.TransactionTable
+import Concordium.GlobalState.Transactions
 import Concordium.Kontrol hiding (getGenesisData, getRuntimeParameters)
 import Concordium.Kontrol.Bakers
 import Concordium.Kontrol.UpdateLeaderElectionParameters
@@ -624,7 +625,7 @@ doReceiveBlock pb@GB.PendingBlock{pbBlock = BakedBlock{..}, ..} =
             sequence
                 <$> forM
                     (blockTransactions pb)
-                    (\tr -> fst <$> doReceiveTransactionInternal (TV.Block contextState) tr slotTime (blockSlot pb))
+                    (\tr -> fst <$> doReceiveTransactionInternal TV.Block contextState tr slotTime (blockSlot pb))
         forM (unzip <$> txListWithVerRes) $ \(newTransactions, verificationResults) -> do
             purgeTransactionTable False =<< currentTime
             let block1 = GB.PendingBlock{pbBlock = BakedBlock{bbTransactions = newTransactions, ..}, ..}
@@ -727,7 +728,7 @@ doExecuteBlock (VerifiedPendingBlock pb) = do
             sequence
                 <$> forM
                     (blockTransactions pb)
-                    (\tr -> fst <$> doReceiveTransactionInternal (TV.Block contextState) tr slotTime (blockSlot pb))
+                    (\tr -> fst <$> doReceiveTransactionInternal TV.Block contextState tr slotTime (blockSlot pb))
         forM (unzip <$> txListWithVerRes) $ \(newTransactions, verificationResults) -> do
             purgeTransactionTable False =<< currentTime
             -- We wrap the processed transactions within the pending block as processing
@@ -789,7 +790,8 @@ doReceiveTransaction ::
     m UpdateResult
 doReceiveTransaction tr = unlessShutDown $ do
     now <- currentTime
-    ur <- snd <$> doReceiveTransactionInternal TV.Single tr (utcTimeToTimestamp now) 0
+    state <- blockState . fst =<< getLastFinalized
+    ur <- snd <$> doReceiveTransactionInternal TV.Individual state tr (utcTimeToTimestamp now) 0
     when (ur == ResultSuccess) $ purgeTransactionTable False =<< currentTime
     return ur
 
@@ -834,14 +836,18 @@ doAddPreverifiedTransaction blockItem okRes = do
 -- This function should only be called when a transaction is received as part of a block.
 -- The difference from the above function is that this function returns an already existing
 -- transaction in case of a duplicate, ensuring more sharing of transaction data.
+--
 -- This function also verifies the incoming transactions and adds them to the internal
 -- transaction verification cache such that the verification result can be used by the 'Scheduler'.
+--
 -- The @origin@ parameter means if the transaction was received individually or as part of a block.
+-- Note that if the @origin@ is 'Individual' then the caller MUST pass in the block state of the last finalized block.
+--
 -- The function returns the 'BlockItem' if it was "successfully verified" and added to the transaction table.
 -- Note. "Successfully verified" depends on the 'TransactionOrigin', see 'definitelyNotValid' below for details.
-doReceiveTransactionInternal :: (TreeStateMonad m) => TV.TransactionOrigin m -> BlockItem -> Timestamp -> Slot -> m (Maybe (BlockItem, Maybe TV.VerificationResult), UpdateResult)
-doReceiveTransactionInternal origin tr ts slot = do
-    ctx <- getVerificationCtx =<< getBlockState
+doReceiveTransactionInternal :: (TreeStateMonad m) => TV.TransactionOrigin -> BlockState m -> BlockItem -> Timestamp -> Slot -> m (Maybe (BlockItem, Maybe TV.VerificationResult), UpdateResult)
+doReceiveTransactionInternal origin verifyBs tr ts slot = do
+    ctx <- getVerificationCtx verifyBs
     addCommitTransaction tr ctx ts slot >>= \case
         Added bi@WithMetadata{..} verRes -> do
             ptrs <- getPendingTransactions
@@ -866,8 +872,8 @@ doReceiveTransactionInternal origin tr ts slot = do
                     -- Hence to maintain the invariant we have to inform the pending table what the next available nonce is in the focus block.
                     let add nextNonce = putPendingTransactions $! addPendingTransaction nextNonce WithMetadata{wmdData = tx, ..} ptrs
                     case origin of
-                        TV.Single -> add $ transactionNonce tx
-                        TV.Block _ -> do
+                        TV.Individual -> add $ transactionNonce tx
+                        TV.Block -> do
                             focus <- getFocusBlock
                             st <- blockState focus
                             macct <- getAccount st $! transactionSender tx
@@ -901,18 +907,7 @@ doReceiveTransactionInternal origin tr ts slot = do
   where
     getVerificationCtx state = do
         gd <- getGenesisData
-        let isOriginBlock = case origin of
-                TV.Single -> False
-                TV.Block _ -> True
-        pure $ Context state (gdMaxBlockEnergy gd) isOriginBlock
-    -- We use the last finalized block for transactions received individually.
-    -- For transactions received as part of a block we try use the parent block
-    -- if it's eligible. That is, the parent block must be ´Alive´ otherwise we fallback
-    -- to use the last finalized block.
-    getBlockState = do
-        case origin of
-            TV.Single -> blockState . fst =<< getLastFinalized
-            TV.Block bs -> pure bs
+        pure $ Context state (gdMaxBlockEnergy gd) origin
 
 -- |Clear the skov instance __just before__ handling the protocol update. This
 -- clears all blocks that are not finalized but otherwise maintains all existing
