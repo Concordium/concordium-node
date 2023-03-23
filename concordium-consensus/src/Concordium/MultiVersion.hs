@@ -1270,8 +1270,8 @@ importBlocks importFile = do
         -- Check if the import should be stopped.
         if shouldStop
             then return $ fixResult Skov.ResultConsensusShutDown
-            -- Disable broadcast callbacks as the network layer is not started for out-of-band-catchup.
-            else local disableBroadcastCallbacks $ fixResult <$> receiveExecuteBlock gi bs
+            else -- Disable broadcast callbacks as the network layer is not started for out-of-band-catchup.
+                local disableBroadcastCallbacks $ fixResult <$> receiveExecuteBlock gi bs
     doImport (ImportFinalizationRecord _ gi bs) = fixResult <$> receiveFinalizationRecord gi bs
     fixResult Skov.ResultSuccess = Right ()
     fixResult Skov.ResultDuplicate = Right ()
@@ -1279,10 +1279,11 @@ importBlocks importFile = do
     fixResult e = Left (ImportOtherError e)
     -- Sets broadcast callbacks to do-nothing functions.
     disableBroadcastCallbacks mvr@MultiVersionRunner{..} = do
-        mvr {
-          mvCallbacks = mvCallbacks {
-                broadcastBlock = const . const $ return (),
-                broadcastFinalizationMessage = const . const $ return (),
-                broadcastFinalizationRecord = const . const $ return ()
+        mvr
+            { mvCallbacks =
+                mvCallbacks
+                    { broadcastBlock = const . const $ return (),
+                      broadcastFinalizationMessage = const . const $ return (),
+                      broadcastFinalizationRecord = const . const $ return ()
+                    }
             }
-        }
