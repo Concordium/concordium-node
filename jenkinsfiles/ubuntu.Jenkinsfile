@@ -70,9 +70,6 @@ pipeline {
             }
         }
         stage('Build static-node-binaries') {
-            environment {
-                EXTRA_FEATURES = "collector"
-            }
             steps {
                 sh './scripts/static-binaries/build-static-binaries.sh'
             }

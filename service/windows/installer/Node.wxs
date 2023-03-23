@@ -25,7 +25,7 @@
                             <File Id="HSdll" Name="HSdll.dll" Source="!(bindpath.consensus)HSdll.dll" Checksum="yes" />
                         </Component>
                         <Component Id="NodeCollector" Guid="95747611-1415-483c-9f0a-6f9b78fb22af">
-                            <File Id="NodeCollector" Name="node-collector.exe" Source="!(bindpath.node)node-collector.exe" Checksum="yes" KeyPath="yes" />
+                            <File Id="NodeCollector" Name="node-collector.exe" Source="!(bindpath.collector)node-collector.exe" Checksum="yes" KeyPath="yes" />
                         </Component>
                         <Component Id="NodeRunnerService" Guid="93278686-a434-4a86-a81e-61aaa79982de">
                             <File Id="NodeRunnerService" Name="node-runner-service.exe" Source="!(bindpath.service)node-runner-service.exe" Checksum="yes" KeyPath="yes">

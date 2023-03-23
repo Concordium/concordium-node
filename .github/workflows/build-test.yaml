@@ -110,6 +110,7 @@ jobs:
       run: |
         cargo fmt --manifest-path concordium-node/Cargo.toml --all -- --check
         cargo fmt --manifest-path collector-backend/Cargo.toml --all -- --check
+        cargo fmt --manifest-path collector/Cargo.toml --all -- --check
         cargo fmt --manifest-path service/windows/Cargo.toml --all -- --check
         cargo fmt --manifest-path service/windows/installer/custom-actions/Cargo.toml --all -- --check
 
@@ -243,6 +244,9 @@ jobs:
     - name: Check that the collector-backend compiles
       run: |
         cargo check --locked --manifest-path collector-backend/Cargo.toml --workspace
+    - name: Check that the collector compiles
+      run: |
+        cargo check --locked --manifest-path collector/Cargo.toml
     - name: Check that the Windows node runner service compiles (gnu toolchain, disable embedded resources)
       run: |
         cargo check --locked --target x86_64-pc-windows-gnu --manifest-path service/windows/Cargo.toml --workspace --no-default-features
@@ -252,12 +256,15 @@ jobs:
     - name: Run clippy (without extra features)
       run: |
         cargo clippy --locked --manifest-path concordium-node/Cargo.toml --all -- -D warnings
-    - name: Run clippy (with features 'collector', 'network_dump')
+    - name: Run clippy (with feature 'network_dump')
       run: |
-        cargo clippy --locked --manifest-path concordium-node/Cargo.toml --features=collector,network_dump --all -- -D warnings
+        cargo clippy --locked --manifest-path concordium-node/Cargo.toml --features=network_dump --all -- -D warnings
     - name: Run clippy on collector backend
       run: |
         cargo clippy --locked --manifest-path collector-backend/Cargo.toml -- -D warnings
+    - name: Run clippy on collector
+      run: |
+        cargo clippy --locked --manifest-path collector/Cargo.toml -- -D warnings
     - name: Run clippy on Windows node runner service
       run: |
         cargo clippy --locked --target x86_64-pc-windows-gnu --manifest-path service/windows/Cargo.toml --all --no-default-features -- -D warnings
@@ -267,6 +274,6 @@ jobs:
     - name: Test Rust crates (without extra features)
       run: |
         cargo test --manifest-path concordium-node/Cargo.toml --all
-    - name: Test Rust crates (with features 'collector', 'network_dump')
+    - name: Test Rust crates (with feature 'network_dump')
       run: |
-        cargo test --manifest-path concordium-node/Cargo.toml --all --features=collector,network_dump
+        cargo test --manifest-path concordium-node/Cargo.toml --all --features=network_dump

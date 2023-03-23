@@ -121,11 +121,6 @@ path = "src/bin/bootstrapper.rs"
 name = "p2p_bootstrapper-cli"
 
 [[bin]]
-name = "node-collector"
-path = "src/bin/collector.rs"
-required-features = [ "collector" ]
-
-[[bin]]
 name = "bootstrap_checker"
 path = "src/bin/bootstrap_checker.rs"
 

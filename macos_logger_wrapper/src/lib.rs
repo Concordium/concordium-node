@@ -1,4 +1,4 @@
-#![cfg(target = "macos")]
+#![cfg(target_os = "macos")]
 
 use std::{
     collections::HashMap,
