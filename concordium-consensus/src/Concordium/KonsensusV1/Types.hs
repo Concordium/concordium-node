@@ -25,12 +25,12 @@ import qualified Concordium.Crypto.BlsSignature as Bls
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Genesis.Data.BaseV1
+import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as LFMBT
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Transactions
 import Concordium.Utils.BinarySearch
 import Concordium.Utils.Serialization
-import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as LFMBT
 
 -- |A round number for consensus.
 newtype Round = Round {theRound :: Word64}
@@ -700,8 +700,9 @@ instance Serialize TimeoutMessageBody where
         tmRound <- get
         tmEpoch <- get
         tmQuorumCertificate <- get
-        unless (qcRound tmQuorumCertificate < tmRound) $ fail $
-            "failed check: quorum certificate round (" ++ show (qcRound tmQuorumCertificate) ++ ") < round being timed out (" ++ show tmRound ++ ")"
+        unless (qcRound tmQuorumCertificate < tmRound) $
+            fail $
+                "failed check: quorum certificate round (" ++ show (qcRound tmQuorumCertificate) ++ ") < round being timed out (" ++ show tmRound ++ ")"
         tmAggregateSignature <- get
         return TimeoutMessageBody{..}
 
