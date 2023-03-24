@@ -95,6 +95,11 @@ testMakeQuorumCertificate = describe "Quorum Certificate creation" $ do
             "A quorum certificate should have been generated"
             (Just (QuorumCertificate bh 0 0 (emptyQuorumSignature <> emptyQuorumSignature) (finalizerSet $ FinalizerIndex <$> [1, 2])))
             (makeQuorumCertificate bh sd')
+    it "should not create a qc as there are no signatures present" $ do
+        assertEqual
+            "No quorum certificate should be created"
+            Nothing
+            (makeQuorumCertificate bh sdNoMessages)
   where
     fi fIdx = FinalizerInfo (FinalizerIndex fIdx) 1 sigPublicKey vrfPublicKey blsPublicKey (BakerId $ AccountIndex (unsafeCoerce fIdx))
     blsPublicKey = Bls.derivePublicKey someBlsSecretKey
@@ -116,6 +121,9 @@ testMakeQuorumCertificate = describe "Quorum Certificate creation" $ do
             & skovEpochBakers .~ EpochBakers 0 bfs bfs bfs 1
             & currentQuorumMessages %~ addQuorumMessage (verifiedQuorumMessage 1 1)
             & currentQuorumMessages %~ addQuorumMessage (verifiedQuorumMessage 2 1)
+    sdNoMessages =
+        dummyInitialSkovData
+            & skovEpochBakers .~ EpochBakers 0 bfs bfs bfs 1
     bh = BlockHash minBound
     verifiedQuorumMessage finalizerIndex weight = VerifiedQuorumMessage (quorumMessage finalizerIndex) weight
     quorumMessage finalizerIndex = QuorumMessage emptyQuorumSignature bh (FinalizerIndex finalizerIndex) 0 0

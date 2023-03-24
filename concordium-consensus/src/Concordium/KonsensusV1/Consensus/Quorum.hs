@@ -96,8 +96,7 @@ receiveQuorumMessage qm@QuorumMessage{..} skovData = process
         | qmEpoch > skovData ^. skovEpochBakers . currentEpoch =
             return CatchupRequired
         -- The round of the quorum signature message is obsolete.
-        | qmRound < skovData ^. roundStatus . rsCurrentRound,
-          qmEpoch <= skovData ^. skovEpochBakers . currentEpoch =
+        | qmRound < skovData ^. roundStatus . rsCurrentRound =
             return $ Rejected ObsoleteRound
         | otherwise = case getFinalizerByIndex of
             -- Signer is not in the finalization committee or the committee is old/unknown. Reject the message.
@@ -112,22 +111,22 @@ receiveQuorumMessage qm@QuorumMessage{..} skovData = process
                     return $ Rejected InvalidSignature
                 -- Check whether the finalizer is double signing.
                 | Just existingMessage <- getExistingMessage -> do
-                    flag $ DoubleSigning qm existingMessage
+                    flag $! DoubleSigning qm existingMessage
                     return $ Rejected AlreadySigned
                 -- Continue verifying by looking up the block.
                 | otherwise -> do
                     getRecentBlockStatus qmBlock skovData >>= \case
                         -- The signatory signed an already signed block. We flag and stop.
                         OldFinalized -> do
-                            flag $ SignedInvalidBlock qm
+                            flag $! SignedInvalidBlock qm
                             return $ Rejected InvalidBlock
                         -- The signatory signed an already signed block. We flag and stop.
                         RecentBlock (BlockFinalized _) -> do
-                            flag $ SignedInvalidBlock qm
+                            flag $! SignedInvalidBlock qm
                             return $ Rejected InvalidBlock
                         -- The signer signed a dead block. We flag and stop.
                         RecentBlock BlockDead -> do
-                            flag $ SignedInvalidBlock qm
+                            flag $! SignedInvalidBlock qm
                             return $ Rejected InvalidBlock
                         -- The block is unknown so catch up.
                         RecentBlock BlockUnknown ->
@@ -143,11 +142,11 @@ receiveQuorumMessage qm@QuorumMessage{..} skovData = process
                             -- checks should be deferred until after relaying the message otherwise the
                             -- next baker might not see the bad behaviour.
                             | blockRound targetBlock /= qmRound -> do
-                                flag $ RoundInconsistency qm (bpBlock targetBlock)
+                                flag $! RoundInconsistency qm (bpBlock targetBlock)
                                 return $ Rejected InconsistentRounds
                             -- Inconsistent epochs of the quorum signature message and the block it points to.
                             | blockEpoch targetBlock /= qmEpoch -> do
-                                flag $ EpochInconsistency qm (bpBlock targetBlock)
+                                flag $! EpochInconsistency qm (bpBlock targetBlock)
                                 return $ Rejected InconsistentEpochs
                             -- Return the verified quorum message.
                             | otherwise -> return (Received (VerifiedQuorumMessage qm finalizerWeight))
