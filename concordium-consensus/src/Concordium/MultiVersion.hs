@@ -1281,8 +1281,8 @@ importBlocks importFile = do
         mvr
             { mvCallbacks =
                 mvCallbacks
-                    { broadcastBlock = const . const $ return (),
-                      broadcastFinalizationMessage = const . const $ return (),
-                      broadcastFinalizationRecord = const . const $ return ()
+                    { broadcastBlock = \_ _ -> return (),
+                      broadcastFinalizationMessage = \_ _ -> return (),
+                      broadcastFinalizationRecord = \_ _ -> return ()
                     }
             }
