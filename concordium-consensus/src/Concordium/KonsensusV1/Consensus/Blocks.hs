@@ -110,34 +110,6 @@ uponReceivingBlock pendingBlock = do
                         RecentBlock BlockUnknown -> receiveBlockUnknownParent pendingBlock
                         OldFinalized -> return BlockResultStale
 
--- |Get the bakers for a particular epoch, given that we have a live block that is nominally the
--- parent block. This will typically get the bakers from the cache that is with respect to the
--- current epoch. However, in the (unlikely) case that the block is from an epoch further
--- than can be deduced from the cache, we derive the bakers from the supplied parent
--- block.
---
--- Preconditions:
---  - The target epoch is either the same as the epoch of the parent block, or the next epoch.
---  - The parent block is live, and so either in the same epoch or the next epoch as the last
---    finalized block.
-getBakersForEpochKnownParent ::
-    ( IsConsensusV1 (MPV m),
-      MonadState (SkovData (MPV m)) m,
-      BlockStateQuery m,
-      BlockState m ~ HashedPersistentBlockState (MPV m)
-    ) =>
-    BlockPointer (MPV m) ->
-    Epoch ->
-    m (Maybe BakersAndFinalizers)
-getBakersForEpochKnownParent parent targetEpoch =
-    gets (getBakersForLiveEpoch targetEpoch) >>= \case
-        Nothing | targetEpoch == blockEpoch parent + 1 -> do
-            _bfBakers <- getNextEpochBakers (bpState parent)
-            finParams <- getNextEpochFinalizationCommitteeParameters (bpState parent)
-            let _bfFinalizers = computeFinalizationCommittee _bfBakers finParams
-            return $ Just BakersAndFinalizers{..}
-        mbakers -> return mbakers
-
 -- |Process receiving a block where the parent is live (i.e. descended from the last finalized
 -- block).  If this function returns 'BlockResultSuccess' then the caller is obliged to call
 -- 'executeBlock' on the returned 'VerifiedBlock' in order to complete the processing of the block,
@@ -158,12 +130,14 @@ receiveBlockKnownParent ::
     m BlockResult
 receiveBlockKnownParent parent pendingBlock = do
     genesisHash <- use currentGenesisHash
-    getBakersForEpochKnownParent parent (blockEpoch pendingBlock) >>= \case
+    -- Since the parent block is live, its epoch is either currentEpoch or (currentEpoch - 1).
+    -- [This follows from the invariants on what the current epoch can be.]
+    -- For the new block's epoch to be valid, it must either be in the same epoch as the parent
+    -- block or in the next epoch. Thus, the block's epoch is one of (currentEpoch - 1),
+    -- currentEpoch, or (currentEpoch + 1). 'getBakersForLiveEpoch' will return the bakers for the
+    -- epoch in all of these cases.
+    gets (getBakersForLiveEpoch (blockEpoch pendingBlock)) >>= \case
         Nothing ->
-            -- The block's epoch is not valid. 'getBakersForEpochKnownParent' will return the
-            -- bakers and finalizers if the block is in the same epoch as its parent (which is
-            -- at most one epoch after the last finalized block) or in the next epoch (which
-            -- can be computed from the parent block).
             return BlockResultInvalid
         Just bakersAndFinalizers
             -- We know the bakers
@@ -190,8 +164,9 @@ receiveBlockKnownParent parent pendingBlock = do
                     checkLeader
                         bakersAndFinalizers
                         (nonceForNewEpoch (bakersAndFinalizers ^. bfBakers) seedState)
-                else -- If the transition is not triggered, then the child block should not be
-                -- in the new epoch.
+                else do
+                    -- If the transition is not triggered, then the child block should not be
+                    -- in the new epoch.
                     return BlockResultInvalid
         | otherwise =
             -- The block's epoch is not valid.
@@ -360,7 +335,11 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
         return False
     -- Check that the block epoch is either the same as the epoch of the parent block or the next
     -- epoch.
-    | blockEpoch parent > blockEpoch pendingBlock || blockEpoch parent < blockEpoch pendingBlock - 1 = do
+    -- This is equivalent to the condition from the blue paper:
+    --
+    -- blockEpoch parent > blockEpoch pendingBlock || blockEpoch parent < blockEpoch pendingBlock - 1
+    | blockEpoch parent /= blockEpoch pendingBlock,
+      blockEpoch parent + 1 /= blockEpoch pendingBlock = do
         flag $ BlockEpochInconsistent sBlock
         return False
     -- [Note: the timestamp check is deferred in the implementation compared to the bluepaper.]
@@ -406,6 +385,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                                         case blockTimeoutCertificate pendingBlock of
                                             Present tc -> Left (tc, blockQuorumCertificate pendingBlock)
                                             Absent -> Right (blockQuorumCertificate pendingBlock)
+                                -- FIXME: process pending blocks
                                 return True
   where
     sBlock = pbBlock pendingBlock
@@ -673,6 +653,13 @@ checkedValidateBlock validBlock = do
                                 validateBlock blockHash bakerIdent finInfo
                         return ()
 
+-- |Produce a quorum signature on a block.
+-- This checks that the block is still valid, is in the current round and epoch, and the
+-- round is signable (i.e. we haven't already signed a quorum message or timeout message).
+--
+-- It is assumed that the supplied 'FinalizerInfo' accurately represents the finalizer in the
+-- epoch of the block, and that the baker identity matches the finalizer info (i.e. the keys
+-- are correct).
 validateBlock ::
     ( MonadState (SkovData (MPV m)) m,
       MonadMulticast m,
@@ -685,8 +672,11 @@ validateBlock ::
       TimeMonad m,
       MonadTimeout m
     ) =>
+    -- |The block to sign.
     BlockHash ->
+    -- |The baker keys.
     BakerIdentity ->
+    -- |The details of the finalizer in the finalization committee for the block's epoch.
     FinalizerInfo ->
     m ()
 validateBlock blockHash BakerIdentity{..} finInfo = do

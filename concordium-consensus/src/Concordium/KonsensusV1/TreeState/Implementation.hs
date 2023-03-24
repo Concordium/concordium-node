@@ -174,6 +174,19 @@ emptyPendingBlocks =
         }
 
 -- |Data required to support 'TreeState'.
+--
+-- INVARIANTS:
+--
+-- * The current epoch (as recorded in '_skovEpochBakers') is either:
+--
+--      * the epoch of the last finalized block (as recorded by '_lastFinalized'); or
+--
+--      * 1 + the epoch of the last finalized block. (This is the case exactly when the last
+--        finalized block's timestamp is past the epoch transition trigger time for the epoch.)
+--
+-- * The current epoch is at least the epoch of every live or finalized block.
+--
+-- * The current round is at least the round of every live or finalized block.
 data SkovData (pv :: ProtocolVersion) = SkovData
     { -- |The round status which holds data
       -- associated with the current round of the
@@ -244,6 +257,11 @@ currentGenesisHash = genesisMetadata . to gmCurrentGenesisHash
 -- |Lens for accessing the witness that a baker signed a block in a particular round.
 roundBakerExistingBlock :: Round -> BakerId -> Lens' (SkovData pv) (Maybe BlockSignatureWitness)
 roundBakerExistingBlock rnd bakerId = roundExistingBlocks . at' rnd . nonEmpty . at' bakerId
+
+-- |Remove all entries from 'roundExistingBlocks' with round less than or equal to the supplied
+-- round.
+purgeRoundExistingBlocks :: (MonadState (SkovData pv) m) => Round -> m ()
+purgeRoundExistingBlocks rnd = roundExistingBlocks %=! snd . Map.split rnd
 
 -- |Create an initial 'SkovData pv'
 -- This constructs a 'SkovData pv' from a genesis block

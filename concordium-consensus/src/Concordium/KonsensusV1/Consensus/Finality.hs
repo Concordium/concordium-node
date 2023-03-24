@@ -164,6 +164,10 @@ processFinalization newFinalizedBlock newFinalizationEntry = do
     forM_ prRemoved markLiveBlockDead
     -- Update the branches to reflect the pruning.
     branches .= prNewBranches
+    -- Update the last finalized block.
+    lastFinalized .= newFinalizedBlock
+    -- Purge the 'roundExistingBlocks' up to the last finalized block.
+    purgeRoundExistingBlocks (blockRound newFinalizedBlock)
     -- Purge any pending blocks that are no longer viable.
     purgePending
     -- Advance the epoch if the new finalized block triggers the epoch transition.
