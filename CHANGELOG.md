@@ -16,6 +16,8 @@
   grpc-invoke-max-energy)`. This differs from the previous behaviour where a
   request would fail if the request either omitted the `energy`, or supplied an
   excessive value.
+- Fix a bug that could cause the node to hang indefinitely during the out-of-
+  band-catchup when the node is a finalizer.
 
 ## 5.3.0
 
