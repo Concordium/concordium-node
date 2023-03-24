@@ -36,7 +36,7 @@ MemoryDenyWriteExecute=yes
 
 Environment=CONCORDIUM_NODE_COLLECTOR_COLLECT_INTERVAL=5000
 Environment=CONCORDIUM_NODE_COLLECTOR_URL=${build_collector_backend_url}
-Environment=CONCORDIUM_NODE_COLLECTOR_GRPC_HOST=http://localhost:${build_rpc_server_port}
+Environment=CONCORDIUM_NODE_COLLECTOR_GRPC_HOST=http://localhost:${build_grpc2_listen_port}
 
 [Install]
 # start the service when reaching multi-user target
