@@ -27,12 +27,34 @@ import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.Utils
 
+-- |Reasons that a 'QuorumMessage' can be rejected.
+data ReceiveQuorumMessageRejectReason
+    = -- |The 'Round' presented in the 'QuorumMessage' is obsolete.
+      ObsoleteRound
+    | -- |The finalizer for the 'QuorumMessage' is not present
+      -- in the finalization committee.
+      NotAFinalizer
+    | -- |The signature on the 'QuorumMessage' is invalid.
+      InvalidSignature
+    | -- |The finalizer has already signed another 'QuorumMessage' for the
+      -- 'Round'.
+      AlreadySigned
+    | -- |The 'QuorumMessage' points to an invalid block.
+      InvalidBlock
+    | -- |The 'Round' of the 'QuorumMessage' and the 'Round' of the
+      -- block that it points to are not consistent.
+      InconsistentRounds
+    | -- |The 'Epoch' of the 'QuorumMessage' and the 'Epoch' of the
+      -- block that it points to are not consistent.
+      InconsistentEpochs
+    deriving (Eq, Show)
+
 -- |Result codes for receiving a 'QuorumMessage'.
 data ReceiveQuorumMessageResult
     = -- |The 'QuorumMessage' was received i.e. it passed verification.
       Received !VerifiedQuorumMessage
     | -- |The 'QuorumMessage' was rejected.
-      Rejected
+      Rejected !ReceiveQuorumMessageRejectReason
     | -- |The 'QuorumMessage' points to a round which indicates a catch up is required.
       CatchupRequired
     | -- |The 'QuorumMessage' is a duplicate.
@@ -60,53 +82,53 @@ data VerifiedQuorumMessage = VerifiedQuorumMessage
 -- * 'CatchupRequired' The 'QuorumMessage' cannot be processed before it is caught up.
 -- * 'Duplicate' The 'QuorumMessage' was a duplicate.
 receiveQuorumMessage ::
-    ( MonadState (SkovData (MPV m)) m,
-      LowLevel.MonadTreeStateStore m
-    ) =>
+    LowLevel.MonadTreeStateStore m =>
     -- |The 'QuorumMessage' we are receiving.
     QuorumMessage ->
+    -- |The tree state to verify the 'QuorumMessage' within.
+    SkovData (MPV m) ->
     -- |Result of receiving the 'QuorumMessage'.
     m ReceiveQuorumMessageResult
-receiveQuorumMessage qm@QuorumMessage{..} = process =<< get
+receiveQuorumMessage qm@QuorumMessage{..} skovData = process
   where
-    process skovData
+    process
         -- The consensus runner is not caught up.
         | qmEpoch > skovData ^. skovEpochBakers . currentEpoch =
             return CatchupRequired
         -- The round of the quorum signature message is obsolete.
         | qmRound < skovData ^. roundStatus . rsCurrentRound,
           qmEpoch <= skovData ^. skovEpochBakers . currentEpoch =
-            return Rejected
-        | otherwise = case getFinalizerByIndex skovData of
+            return $ Rejected ObsoleteRound
+        | otherwise = case getFinalizerByIndex of
             -- Signer is not in the finalization committee or the committee is old/unknown. Reject the message.
-            Nothing -> return Rejected
+            Nothing -> return $ Rejected NotAFinalizer
             Just FinalizerInfo{..}
                 -- Check if the quorum message is a duplicate.
                 | Just existingMessage <- getExistingMessage,
                   existingMessage == qm ->
                     return Duplicate
                 -- Check whether the signature is ok or not.
-                | not (checkQuorumSignatureSingle (getQuorumSignatureMessage skovData) finalizerBlsKey qmSignature) ->
-                    return Rejected
+                | not (checkQuorumSignatureSingle getQuorumSignatureMessage finalizerBlsKey qmSignature) ->
+                    return $ Rejected InvalidSignature
                 -- Check whether the finalizer is double signing.
                 | Just existingMessage <- getExistingMessage -> do
                     flag $ DoubleSigning qm existingMessage
-                    return Rejected
+                    return $ Rejected AlreadySigned
                 -- Continue verifying by looking up the block.
                 | otherwise -> do
                     getRecentBlockStatus qmBlock skovData >>= \case
                         -- The signatory signed an already signed block. We flag and stop.
                         OldFinalized -> do
                             flag $ SignedInvalidBlock qm
-                            return Rejected
+                            return $ Rejected InvalidBlock
                         -- The signatory signed an already signed block. We flag and stop.
                         RecentBlock (BlockFinalized _) -> do
                             flag $ SignedInvalidBlock qm
-                            return Rejected
+                            return $ Rejected InvalidBlock
                         -- The signer signed a dead block. We flag and stop.
                         RecentBlock BlockDead -> do
                             flag $ SignedInvalidBlock qm
-                            return Rejected
+                            return $ Rejected InvalidBlock
                         -- The block is unknown so catch up.
                         RecentBlock BlockUnknown ->
                             return CatchupRequired
@@ -122,23 +144,22 @@ receiveQuorumMessage qm@QuorumMessage{..} = process =<< get
                             -- next baker might not see the bad behaviour.
                             | blockRound targetBlock /= qmRound -> do
                                 flag $ RoundInconsistency qm (bpBlock targetBlock)
-                                return Rejected
+                                return $ Rejected InconsistentRounds
                             -- Inconsistent epochs of the quorum signature message and the block it points to.
                             | blockEpoch targetBlock /= qmEpoch -> do
                                 flag $ EpochInconsistency qm (bpBlock targetBlock)
-                                return Rejected
+                                return $ Rejected InconsistentEpochs
                             -- Return the verified quorum message.
                             | otherwise -> return (Received (VerifiedQuorumMessage qm finalizerWeight))
-              where
-                -- Try get an existing 'QuorumMessage' if present otherwise return 'Nothing'.
-                getExistingMessage = skovData ^? currentQuorumMessages . smFinalizerToQuorumMessage . ix finalizerIndex
+    -- Try get an existing 'QuorumMessage' if present otherwise return 'Nothing'.
+    getExistingMessage = skovData ^? currentQuorumMessages . smFinalizerToQuorumMessage . ix qmFinalizerIndex
     -- Extract the quorum signature message
-    getQuorumSignatureMessage skovData =
+    getQuorumSignatureMessage =
         let genesisHash = skovData ^. genesisMetadata . to gmFirstGenesisHash
         in  quorumSignatureMessageFor qm genesisHash
     -- Get the finalizer if it is present in the current finalization committee
     -- or old committee otherwise return 'Nothing'.
-    getFinalizerByIndex skovData = do
+    getFinalizerByIndex = do
         bakers <- getBakersForLiveEpoch qmEpoch skovData
         finalizerByIndex (bakers ^. bfFinalizers) qmFinalizerIndex
 
@@ -169,35 +190,40 @@ addQuorumMessage (VerifiedQuorumMessage quorumMessage@QuorumMessage{..} weight) 
 --
 -- If a 'QuorumCertificate' could not be formed then this function returns @Nothing@.
 makeQuorumCertificate ::
-    (MonadState (SkovData pv) m) =>
     -- |The block we want to check whether we can
     -- create a 'QuorumCertificate' or not.
     BlockHash ->
+    -- | The state to use for making the
+    -- 'QuorumCertificate'.
+    SkovData pv ->
     -- |Return @Just QuorumCertificate@ if there are enough (weighted) quorum signatures
     -- for the provided block.
     -- Otherwise return @Nothing@.
-    m (Maybe QuorumCertificate)
-makeQuorumCertificate blockHash = do
-    currentMessages <- use currentQuorumMessages
-    case currentMessages ^? smBlockToWeightsAndSignatures . ix blockHash of
-        Nothing -> return Nothing
-        Just (accummulatedWeight, aggregatedSignature, finalizers) -> do
-            signatureThreshold <- genesisSignatureThreshold . gmParameters <$> use genesisMetadata
-            totalWeight <- committeeTotalWeight <$> use (skovEpochBakers . currentEpochBakers . bfFinalizers)
-            if toRational accummulatedWeight / toRational totalWeight >= toRational signatureThreshold
-                then do
-                    theRound <- use $ roundStatus . rsCurrentRound
-                    theEpoch <- use $ skovEpochBakers . currentEpoch
-                    return $
-                        Just
-                            QuorumCertificate
-                                { qcBlock = blockHash,
-                                  qcRound = theRound,
-                                  qcEpoch = theEpoch,
-                                  qcAggregateSignature = aggregatedSignature,
-                                  qcSignatories = finalizerSet $ Set.toList finalizers
-                                }
-                else return Nothing
+    (Maybe QuorumCertificate)
+makeQuorumCertificate blockHash SkovData{..} = do
+    case _currentQuorumMessages ^? smBlockToWeightsAndSignatures . ix blockHash of
+        -- There wasn't any signature(s) for the supplied block.
+        Nothing -> Nothing
+        -- Check whether the accummulated weight is more or equal to the configured signature threshold.
+        Just (accummulatedWeight, aggregatedSignature, finalizers) ->
+            if enoughWeight
+                then Just createQuorumCertificate
+                else Nothing
+          where
+            -- The required signature threshold.
+            signatureThreshold = _genesisMetadata ^. to gmParameters ^. to genesisSignatureThreshold
+            -- The total weight of the finalization committee.
+            totalWeight = _skovEpochBakers ^. currentEpochBakers ^. bfFinalizers . to committeeTotalWeight
+            -- Return whether enough weighted signatures has been gathered with respect to the set signature threshold.
+            enoughWeight = toRational accummulatedWeight / toRational totalWeight >= toRational signatureThreshold
+            createQuorumCertificate =
+                QuorumCertificate
+                    { qcBlock = blockHash,
+                      qcRound = _roundStatus ^. rsCurrentRound,
+                      qcEpoch = _skovEpochBakers ^. currentEpoch,
+                      qcAggregateSignature = aggregatedSignature,
+                      qcSignatories = finalizerSet $ Set.toList finalizers
+                    }
 
 -- |Process a 'QuorumMessage'
 -- Check whether a 'QuorumCertificate' can be created.
@@ -227,7 +253,8 @@ processQuorumMessage vqm@(VerifiedQuorumMessage quorumMessage _) = do
     -- and so the 'not equal' case below should happen in normal operation.
     when (currentRound == qmRound quorumMessage) $ do
         currentQuorumMessages %=! addQuorumMessage vqm
-        maybeQuorumCertificate <- makeQuorumCertificate (qmBlock quorumMessage)
+        skovData <- get
+        let maybeQuorumCertificate = makeQuorumCertificate (qmBlock quorumMessage) skovData
         forM_ maybeQuorumCertificate $ \newQC -> do
             checkFinality newQC
             advanceRound (qcRound newQC) (Right newQC)
