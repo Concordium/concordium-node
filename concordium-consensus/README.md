@@ -36,11 +36,11 @@ Copy `%APPDATA%\Local\Programs\stack\x86_64-windows\ghc-9.2.5\mingw\bin\libwinpt
 The core of this repository is the `concordium-consensus` Haskell library. The
 sources are in [src](./src). It depends on
 
-- [haskell-lmdb](./haskell-lmdb/) which is our fork of the bindings for the lmdb
+- [haskell-lmdb](https://github.com/Concordium/haskell-lmdb) which is our fork of the bindings for the lmdb
   library, brought in as a submodule. The fork fixes a number of subtle issues
   and exposes more functions that are needed by globalstate.
 
-- [smart-contracts](./smart-contracts/) contains a number of Rust packages that
+- [smart-contracts](https://github.com/Concordium/concordium-base/tree/main/smart-contracts) contains a number of Rust packages that
   implement validation, processing, and execution of Wasm smart contracts.
   The main dependency is the package `concordium-smart-contract-engine` which is
   automatically built by the `Setup.hs` script for the `concordium-consensus`
