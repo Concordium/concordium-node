@@ -83,22 +83,22 @@ data VerifiedQuorumMessage = VerifiedQuorumMessage
 -- * 'Duplicate' The 'QuorumMessage' was a duplicate.
 receiveQuorumMessage ::
     LowLevel.MonadTreeStateStore m =>
-    -- |The 'QuorumMessage' we are receiving.
+    -- |The 'QuorumMessage' to receive.
     QuorumMessage ->
     -- |The tree state to verify the 'QuorumMessage' within.
     SkovData (MPV m) ->
     -- |Result of receiving the 'QuorumMessage'.
     m ReceiveQuorumMessageResult
-receiveQuorumMessage qm@QuorumMessage{..} skovData = process
+receiveQuorumMessage qm@QuorumMessage{..} skovData = receive
   where
-    process
+    receive
         -- The consensus runner is not caught up.
         | qmEpoch > skovData ^. skovEpochBakers . currentEpoch =
             return CatchupRequired
         -- The round of the quorum signature message is obsolete.
         | qmRound < skovData ^. roundStatus . rsCurrentRound =
             return $ Rejected ObsoleteRound
-        | otherwise = case getFinalizerByIndex of
+        | otherwise = case getFinalizer of
             -- Signer is not in the finalization committee or the committee is old/unknown. Reject the message.
             Nothing -> return $ Rejected NotAFinalizer
             Just FinalizerInfo{..}
@@ -158,7 +158,7 @@ receiveQuorumMessage qm@QuorumMessage{..} skovData = process
         in  quorumSignatureMessageFor qm genesisHash
     -- Get the finalizer if it is present in the current finalization committee
     -- or old committee otherwise return 'Nothing'.
-    getFinalizerByIndex = do
+    getFinalizer = do
         bakers <- getBakersForLiveEpoch qmEpoch skovData
         finalizerByIndex (bakers ^. bfFinalizers) qmFinalizerIndex
 
