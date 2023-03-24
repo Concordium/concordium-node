@@ -25,6 +25,53 @@ import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 
+data ReceiveTimeoutMessageResult
+    = Received
+    | Rejected
+    | CatchupRequired
+    | Duplicate
+
+receiveTimeoutMessage ::
+    LowLevel.MonadTreeStateStore m =>
+    -- |The 'TimeoutMessage' to receive.
+    TimeoutMessage ->
+    -- |The tree state to verify the 'TimeoutMessage' within.
+    SkovData (MPV m) ->
+    -- |Result of receiving the 'TimeoutMessage'.
+    m ReceiveTimeoutMessageResult
+receiveTimeoutMessage tm@TimeoutMessage{tmBody = TimeoutMessageBody{..}, ..} skovData = receive
+  where
+    receive
+        --  The round of the 'TimeoutMessage' is obsolete.
+        | tmRound < skovData ^. roundStatus . rsCurrentRound =
+            return Rejected
+        -- Reject this 'TimeoutMessage' as it could be possible that the sender
+        -- did not receive the 'QuorumMessage' for the round before sending out the
+        -- 'TimeoutMessage'.
+        | qcRound tmQuorumCertificate < skovData ^. lastFinalized . to blockRound
+            || qcEpoch tmQuorumCertificate < skovData ^. lastFinalized . to blockEpoch =
+            return Rejected
+        | otherwise = case getFinalizer of
+            -- Signer is not present in the finalization committee in the
+            -- epoch specified by the 'TimeoutMessage'.
+            Nothing -> return Rejected
+            Just FinalizerInfo{..}
+                -- Check whether the signature is ok or not.
+                | not (checkTimeoutMessageSignature finalizerSignKey genesisBlockHash tm) ->
+                    return Rejected
+                -- Consensus runner is not caught up.
+                | tmRound > currentRound ->
+                    return CatchupRequired
+                | otherwise -> return Rejected
+    genesisBlockHash = skovData ^. genesisMetadata . to gmFirstGenesisHash
+    -- The current round with respect to the tree state supplied.
+    currentRound = skovData ^. roundStatus . rsCurrentRound
+    -- Try get the 'FinalizerInfo' given the epoch and finalizer index
+    -- of the 'TimeoutMessage'.
+    getFinalizer = do
+        bakers <- getBakersForLiveEpoch tmEpoch skovData
+        finalizerByIndex (bakers ^. bfFinalizers) tmFinalizerIndex
+
 -- |Grow the current timeout duration in response to an elapsed timeout.
 -- This updates the timeout to @timeoutIncrease * oldTimeout@.
 growTimeout ::
