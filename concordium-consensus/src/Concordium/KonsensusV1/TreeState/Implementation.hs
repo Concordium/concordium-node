@@ -237,6 +237,10 @@ instance HasEpochBakers (SkovData pv) where
     epochBakers = skovEpochBakers
     {-# INLINE epochBakers #-}
 
+-- |Getter for accessing the genesis hash for the current genesis.
+currentGenesisHash :: SimpleGetter (SkovData pv) BlockHash
+currentGenesisHash = genesisMetadata . to gmCurrentGenesisHash
+
 -- |Lens for accessing the witness that a baker signed a block in a particular round.
 roundBakerExistingBlock :: Round -> BakerId -> Lens' (SkovData pv) (Maybe BlockSignatureWitness)
 roundBakerExistingBlock rnd bakerId = roundExistingBlocks . at' rnd . nonEmpty . at' bakerId

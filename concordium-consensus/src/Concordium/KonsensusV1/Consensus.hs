@@ -40,6 +40,9 @@ class MonadMulticast m where
     -- |Multicast a timeout message.
     sendTimeoutMessage :: TimeoutMessage -> m ()
 
+    -- |Multicast a quorum message.
+    sendQuorumMessage :: QuorumMessage -> m ()
+
 -- |A baker context containing the baker identity. Used for accessing relevant baker keys and the baker id.
 newtype BakerContext = BakerContext
     { _bakerIdentity :: Maybe BakerIdentity

@@ -23,9 +23,10 @@ import Concordium.GlobalState.Parameters hiding (getChainParameters)
 import Concordium.GlobalState.Persistent.BlockState
 import Concordium.GlobalState.Statistics
 import Concordium.GlobalState.Types
-import Concordium.KonsensusV1.Consensus (HasBakerContext, MonadTimeout, advanceRound, computeFinalizationCommittee)
+import Concordium.KonsensusV1.Consensus (HasBakerContext, MonadMulticast (sendQuorumMessage), MonadTimeout, advanceRound, computeFinalizationCommittee)
 import qualified Concordium.KonsensusV1.Consensus as Consensus
 import Concordium.KonsensusV1.Consensus.Finality
+import Concordium.KonsensusV1.Consensus.Quorum
 import Concordium.KonsensusV1.Flag
 import Concordium.KonsensusV1.LeaderElection
 import Concordium.KonsensusV1.Scheduler
@@ -156,7 +157,7 @@ receiveBlockKnownParent ::
     PendingBlock ->
     m BlockResult
 receiveBlockKnownParent parent pendingBlock = do
-    genesisHash <- use $ genesisMetadata . to gmCurrentGenesisHash
+    genesisHash <- use currentGenesisHash
     getBakersForEpochKnownParent parent (blockEpoch pendingBlock) >>= \case
         Nothing ->
             -- The block's epoch is not valid. 'getBakersForEpochKnownParent' will return the
@@ -251,7 +252,7 @@ receiveBlockUnknownParent pendingBlock = do
     if blockTimestamp pendingBlock
         < addDuration (utcTimeToTimestamp $ pbReceiveTime pendingBlock) earlyThreshold
         then do
-            genesisHash <- use $ genesisMetadata . to gmCurrentGenesisHash
+            genesisHash <- use currentGenesisHash
             gets (getBakersForLiveEpoch (blockEpoch pendingBlock)) >>= \case
                 Nothing -> do
                     -- We do not know the bakers
@@ -619,7 +620,8 @@ executeBlock ::
       MonadTimeout m,
       MonadReader r m,
       HasBakerContext r,
-      TimerMonad m
+      TimerMonad m,
+      MonadMulticast m
     ) =>
     VerifiedBlock ->
     m ()
@@ -640,7 +642,16 @@ checkedValidateBlock ::
       BlockData b,
       HashableTo BlockHash b,
       TimerMonad m,
-      MonadState (SkovData (MPV m)) m
+      MonadState (SkovData (MPV m)) m,
+      MonadMulticast m,
+      LowLevel.MonadTreeStateStore m,
+      MonadThrow m,
+      MonadIO m,
+      BlockStateStorage m,
+      BlockState m ~ HashedPersistentBlockState (MPV m),
+      TimeMonad m,
+      MonadTimeout m,
+      IsConsensusV1 (MPV m)
     ) =>
     b ->
     m ()
@@ -662,11 +673,50 @@ checkedValidateBlock validBlock = do
                                 validateBlock blockHash bakerIdent finInfo
                         return ()
 
-validateBlock :: (MonadState (SkovData (MPV m)) m) => BlockHash -> BakerIdentity -> FinalizerInfo -> m ()
-validateBlock blockHash bakerIdent finInfo = do
+validateBlock ::
+    ( MonadState (SkovData (MPV m)) m,
+      MonadMulticast m,
+      LowLevel.MonadTreeStateStore m,
+      IsConsensusV1 (MPV m),
+      MonadThrow m,
+      MonadIO m,
+      BlockStateStorage m,
+      BlockState m ~ HashedPersistentBlockState (MPV m),
+      TimeMonad m,
+      MonadTimeout m
+    ) =>
+    BlockHash ->
+    BakerIdentity ->
+    FinalizerInfo ->
+    m ()
+validateBlock blockHash BakerIdentity{..} finInfo = do
     maybeBlock <- gets $ getLiveBlock blockHash
     forM_ maybeBlock $ \block -> do
-        RoundStatus{..} <- use roundStatus
-        -- when (blockRound block == rsCurrentRound && rsNextS)
-        -- TODO: implementation
-        return ()
+        rs@RoundStatus{..} <- use roundStatus
+        curEpoch <- use currentEpoch
+        when
+            ( blockRound block == _rsCurrentRound
+                && rsNextSignableRound rs <= blockRound block
+                && blockEpoch block == curEpoch
+            )
+            $ do
+                -- TODO: implementation
+                genesisHash <- use currentGenesisHash
+                let qsm =
+                        QuorumSignatureMessage
+                            { qsmGenesis = genesisHash,
+                              qsmBlock = blockHash,
+                              qsmRound = blockRound block,
+                              qsmEpoch = blockEpoch block
+                            }
+                let quorumSignature = signQuorumSignatureMessage qsm bakerAggregationKey
+                let finIndex = finalizerIndex finInfo
+
+                let quorumMessage = buildQuorumMessage qsm quorumSignature finIndex
+                setRoundStatus $! rs{_rsLastSignedQuorumMessage = Present quorumMessage}
+                sendQuorumMessage quorumMessage
+                processQuorumMessage $
+                    VerifiedQuorumMessage
+                        { vqmMessage = quorumMessage,
+                          vqmFinalizerWeight = finalizerWeight finInfo
+                        }

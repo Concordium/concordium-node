@@ -25,12 +25,12 @@ import qualified Concordium.Crypto.BlsSignature as Bls
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Genesis.Data.BaseV1
+import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as LFMBT
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Transactions
 import Concordium.Utils.BinarySearch
 import Concordium.Utils.Serialization
-import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as LFMBT
 
 -- |A round number for consensus.
 newtype Round = Round {theRound :: Word64}
@@ -169,6 +169,14 @@ quorumSignatureMessageFor QuorumMessage{..} genesisHash =
           qsmEpoch = qmEpoch
         }
 
+-- |Construct a 'QuorumMessage' from a 'QuorumSignatureMessage' and related parts.
+buildQuorumMessage :: QuorumSignatureMessage -> QuorumSignature -> FinalizerIndex -> QuorumMessage
+buildQuorumMessage QuorumSignatureMessage{..} qmSignature qmFinalizerIndex = QuorumMessage{..}
+  where
+    qmBlock = qsmBlock
+    qmRound = qsmRound
+    qmEpoch = qsmEpoch
+
 instance Serialize QuorumMessage where
     put QuorumMessage{..} = do
         put qmSignature
@@ -298,7 +306,7 @@ data QuorumCertificate = QuorumCertificate
     }
     deriving (Eq, Show)
 
--- |For generating a genesis quorum certificate with empty signator and empty finalizer set.
+-- |For generating a genesis quorum certificate with empty signature and empty finalizer set.
 genesisQuorumCertificate :: BlockHash -> QuorumCertificate
 genesisQuorumCertificate genesisHash = QuorumCertificate genesisHash 0 0 mempty $ FinalizerSet 0
 
@@ -700,8 +708,9 @@ instance Serialize TimeoutMessageBody where
         tmRound <- get
         tmEpoch <- get
         tmQuorumCertificate <- get
-        unless (qcRound tmQuorumCertificate < tmRound) $ fail $
-            "failed check: quorum certificate round (" ++ show (qcRound tmQuorumCertificate) ++ ") < round being timed out (" ++ show tmRound ++ ")"
+        unless (qcRound tmQuorumCertificate < tmRound) $
+            fail $
+                "failed check: quorum certificate round (" ++ show (qcRound tmQuorumCertificate) ++ ") < round being timed out (" ++ show tmRound ++ ")"
         tmAggregateSignature <- get
         return TimeoutMessageBody{..}
 

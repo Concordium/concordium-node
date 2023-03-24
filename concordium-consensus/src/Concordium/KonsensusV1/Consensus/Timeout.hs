@@ -75,7 +75,7 @@ uponTimeoutEvent = do
             lastFinBlockPtr <- use lastFinalized
             growTimeout lastFinBlockPtr
 
-            genesisHash <- use $ genesisMetadata . to gmCurrentGenesisHash
+            genesisHash <- use currentGenesisHash
             currentRoundStatus <- use roundStatus
             let curRound = _rsCurrentRound currentRoundStatus
             let highestQC = _rsHighestQC currentRoundStatus
