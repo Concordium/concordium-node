@@ -461,7 +461,6 @@ pub fn setup_macos_logger(trace: bool, debug: bool, subsystem: &str) {
         .category_level_filter("tokio_reactor", LevelFilter::Error)
         .category_level_filter("hyper", LevelFilter::Error)
         .category_level_filter("reqwest", LevelFilter::Error)
-        .category_level_filter("gotham", LevelFilter::Error)
         .category_level_filter("h2", LevelFilter::Error)
         .init()
         .expect("Failed to initialise MacOsLogger");
