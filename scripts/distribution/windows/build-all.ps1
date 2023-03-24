@@ -18,7 +18,7 @@ if ($LASTEXITCODE -ne 0) { throw "Failed building node" }
 
 Write-Output "Building the collector..."
 cargo +$rustVersion-x86_64-pc-windows-msvc build --manifest-path collector\Cargo.toml --release
-if ($LASTEXITCODE -ne 0) { throw "Failed building node" }
+if ($LASTEXITCODE -ne 0) { throw "Failed building the collector" }
 
 Write-Output "Building node runner service..."
 
