@@ -3,14 +3,7 @@
 
 module Concordium.KonsensusV1.Consensus where
 
-import Control.Monad.Reader
 import Control.Monad.State
-
-import Data.Maybe
-import Data.Ratio
-import qualified Data.Set as Set
-import Data.Word
-
 import Data.Foldable
 import Data.List (sortOn)
 import qualified Data.Map.Strict as Map
@@ -18,22 +11,16 @@ import Data.Ord
 import qualified Data.Vector as Vec
 import Lens.Micro.Platform
 
+import Concordium.Types
 import qualified Concordium.Types.Accounts as Accounts
+import Concordium.Types.BakerIdentity
+import Concordium.Types.Parameters hiding (getChainParameters)
 
-import Concordium.Genesis.Data.BaseV1
 import Concordium.GlobalState.BakerInfo
 import Concordium.KonsensusV1.TreeState.Implementation
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
-
-import Concordium.GlobalState.BlockState
-import Concordium.GlobalState.Persistent.BlockState
-import Concordium.GlobalState.Types
-import Concordium.Types
-import Concordium.Types.BakerIdentity
-import Concordium.Types.Parameters hiding (getChainParameters)
-import Concordium.Utils
 
 -- |A Monad for multicasting timeout messages.
 class MonadMulticast m where

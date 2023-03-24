@@ -1,4 +1,3 @@
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE MonoLocalBinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -17,11 +16,9 @@ module Concordium.Birk.Bake (
 import Control.Monad
 import Control.Monad.Trans
 import Control.Monad.Trans.Maybe
-import Data.Aeson (FromJSON, parseJSON, withObject, (.:))
 import Data.ByteString (ByteString)
 import Data.List (foldl')
 import Data.Serialize
-import GHC.Generics
 
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Block hiding (PendingBlock, makePendingBlock)
