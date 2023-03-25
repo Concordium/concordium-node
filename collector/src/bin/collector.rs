@@ -11,6 +11,7 @@ use tonic::transport::channel::Channel;
 #[macro_use]
 extern crate log;
 
+#[allow(clippy::large_enum_variant, clippy::enum_variant_names)]
 mod grpc {
     tonic::include_proto!("concordium.v2");
 }
@@ -157,7 +158,14 @@ async fn main() {
                                 }
                             };
                             match client.post(&conf.collector_url).body(msgpack).send().await {
-                                Ok(_) => trace!("Payload sent successfully to collector backend"),
+                                Ok(v) if v.status().is_success() => {
+                                    trace!("Payload sent successfully to collector backend.")
+                                }
+                                Ok(v) => error!(
+                                    "Error sending payload to the collector backend. Status code: \
+                                     {}",
+                                    v.status()
+                                ),
                                 Err(e) => error!(
                                     "Error sending payload to collector backend due to \"{}\"",
                                     e
@@ -296,9 +304,7 @@ async fn collect_data<'a>(
         bestBlockTotalEncryptedAmount: Some(total_encrypted_amount.req()?.value),
         bestBlockTotalAmount: Some(total_amount.req()?.value),
         bestBlockTransactionCount: Some(best_block.transaction_count.into()),
-        bestBlockTransactionEnergyCost: Some(
-            best_block.transactions_energy_cost.req()?.value.into(),
-        ),
+        bestBlockTransactionEnergyCost: Some(best_block.transactions_energy_cost.req()?.value),
         bestBlockExecutionCost: None,
         bestBlockCentralBankAmount: foundation_amount.map(|x| x.value),
         blocksReceivedCount: Some(consensus.blocks_received_count.into()),
@@ -359,7 +365,7 @@ fn from_unix(timestamp: grpc::Timestamp) -> anyhow::Result<String> {
 /// Gets a BlockHashInput from an optional blockhash option. Will panic if input
 /// is None
 fn get_block_hash_input(hash_opt: Option<grpc::BlockHash>) -> anyhow::Result<grpc::BlockHashInput> {
-    let hash = hash_opt.ok_or(anyhow!("Invalid hash received from Node"))?;
+    let hash = hash_opt.ok_or_else(|| anyhow!("Invalid hash received from Node"))?;
     Ok(grpc::BlockHashInput {
         block_hash_input: Some(grpc::block_hash_input::BlockHashInput::Given(hash)),
     })
