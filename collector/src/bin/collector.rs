@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail};
 use chrono::{SecondsFormat, TimeZone};
 use collector_backend::{IsInBakingCommittee, NodeInfo};
 use env_logger::{Builder, Env};
@@ -209,8 +209,10 @@ async fn collect_data<'a>(
         client.get_tokenomics_info(get_block_hash_input(best_block.hash)?).await?.into_inner();
 
     // Helper variables
-    let latencies =
-        peers.iter().map(|p| Ok(p.network_stats.req()?.latency)).collect::<Result<Vec<u64>>>()?;
+    let latencies = peers
+        .iter()
+        .map(|p| Ok(p.network_stats.req()?.latency))
+        .collect::<anyhow::Result<Vec<u64>>>()?;
     let valid_latencies: Vec<u64> = latencies.clone().into_iter().filter(|x| *x != 0).collect();
     let latency_sum = valid_latencies.iter().sum::<u64>() as f64;
 
@@ -218,8 +220,10 @@ async fn collect_data<'a>(
         NodeDetails::Bootstrapper(_) => "Bootstrapper",
         NodeDetails::Node(_) => "Node",
     };
-    let peer_list =
-        peers.iter().map(|p| Ok(p.peer_id.req()?.value.clone())).collect::<Result<Vec<_>>>()?;
+    let peer_list = peers
+        .iter()
+        .map(|p| Ok(p.peer_id.req()?.value.clone()))
+        .collect::<anyhow::Result<Vec<_>>>()?;
 
     let (consensus_is_running, baker_id, committee_info, final_committee_info) =
         get_node_baker_info(&node_info)?;
@@ -314,7 +318,7 @@ async fn collect_data<'a>(
 /// finalization committee.
 fn get_node_baker_info(
     node_info: &grpc::NodeInfo,
-) -> Result<(bool, Option<u64>, IsInBakingCommittee, bool)> {
+) -> anyhow::Result<(bool, Option<u64>, IsInBakingCommittee, bool)> {
     use IsInBakingCommittee::*;
     Ok(match &node_info.details.req()? {
         NodeDetails::Bootstrapper(_) => (false, None, NotInCommittee, false),
@@ -323,7 +327,8 @@ fn get_node_baker_info(
             ConsensusStatus::Passive(_) => (true, None, NotInCommittee, false),
             ConsensusStatus::Active(consensus_info) => {
                 let baker_id = consensus_info.baker_id.req()?.value;
-                let committee_status = match &consensus_info.status.req()? {
+                let baker_status = consensus_info.status.req()?;
+                let committee_status = match baker_status {
                     BakerStatus::PassiveCommitteeInfo(info) => match info {
                         0 => IsInBakingCommittee::NotInCommittee,
                         1 => IsInBakingCommittee::AddedButNotActiveInCommittee,
@@ -332,10 +337,8 @@ fn get_node_baker_info(
                     },
                     _ => IsInBakingCommittee::ActiveInCommittee,
                 };
-                let finalization_committee = match &consensus_info.status.req()? {
-                    BakerStatus::ActiveFinalizerCommitteeInfo(_) => true,
-                    _ => false,
-                };
+                let finalization_committee =
+                    matches!(baker_status, BakerStatus::ActiveFinalizerCommitteeInfo(_));
                 (true, Some(baker_id), committee_status, finalization_committee)
             }
         },
@@ -345,7 +348,7 @@ fn get_node_baker_info(
 // Helper functions and helper traits
 
 /// Converts a GRPC timestamp to a string
-fn from_unix(timestamp: grpc::Timestamp) -> Result<String> {
+fn from_unix(timestamp: grpc::Timestamp) -> anyhow::Result<String> {
     let unix_time: i64 = timestamp.value.try_into()?;
     match chrono::Utc.timestamp_millis_opt(unix_time).single() {
         Some(t) => Ok(t.to_rfc3339_opts(SecondsFormat::Nanos, true)),
@@ -355,7 +358,7 @@ fn from_unix(timestamp: grpc::Timestamp) -> Result<String> {
 
 /// Gets a BlockHashInput from an optional blockhash option. Will panic if input
 /// is None
-fn get_block_hash_input(hash_opt: Option<grpc::BlockHash>) -> Result<grpc::BlockHashInput> {
+fn get_block_hash_input(hash_opt: Option<grpc::BlockHash>) -> anyhow::Result<grpc::BlockHashInput> {
     let hash = hash_opt.ok_or(anyhow!("Invalid hash received from Node"))?;
     Ok(grpc::BlockHashInput {
         block_hash_input: Some(grpc::block_hash_input::BlockHashInput::Given(hash)),
@@ -373,7 +376,7 @@ fn checked_div(a: f64, b: f64) -> Option<f64> {
 }
 
 /// Turns a blockhash into a hex-encoded string
-fn hash_to_hex(x: Option<grpc::BlockHash>) -> Result<String> {
+fn hash_to_hex(x: Option<grpc::BlockHash>) -> anyhow::Result<String> {
     Ok(hex::encode(x.req()?.value.clone()))
 }
 
@@ -387,7 +390,7 @@ trait Require {
 impl<A> Require for Option<A> {
     type A = A;
 
-    fn req(&self) -> Result<&Self::A> {
+    fn req(&self) -> anyhow::Result<&Self::A> {
         match self {
             Some(v) => Ok(v),
             None => bail!("Missing field in response from Node"),
