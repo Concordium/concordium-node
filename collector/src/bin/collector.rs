@@ -18,11 +18,6 @@ use grpc::{node_info::node::ConsensusStatus, tokenomics_info::Tokenomics};
 type NodeDetails = grpc::node_info::Details;
 type BakerStatus = grpc::node_info::baker_consensus_info::Status;
 
-// Force the system allocator on every platform
-use std::alloc::System;
-#[global_allocator]
-static A: System = System;
-
 #[derive(StructOpt, Debug)]
 #[structopt(name = "Node Collector")]
 struct ConfigCli {
@@ -226,7 +221,7 @@ async fn collect_data<'a>(
     let peer_list =
         peers.iter().map(|p| Ok(p.peer_id.req()?.value.clone())).collect::<Result<Vec<_>>>()?;
 
-    let (baker_is_running, baker_id, committee_info, final_committee_info) =
+    let (consensus_is_running, baker_id, committee_info, final_committee_info) =
         get_node_baker_info(&node_info)?;
 
     let (total_amount, total_encrypted_amount, foundation_amount) =
@@ -238,10 +233,10 @@ async fn collect_data<'a>(
         };
 
     let ancestors_since_best_block = {
-        if best_block.finalized {
-            None
-        } else {
-            let height_diff = best_block.height.req()?.value - finalized_block.height.req()?.value;
+        let best_block_height = consensus.best_block_height.req()?.value;
+        let last_finalized_block_height = consensus.last_finalized_block_height.req()?.value;
+        if best_block_height > last_finalized_block_height {
+            let height_diff = best_block_height - last_finalized_block_height;
 
             let req = grpc::AncestorsRequest {
                 block_hash: Some(best),
@@ -251,6 +246,8 @@ async fn collect_data<'a>(
             let hex_ancestors: Vec<String> =
                 ancestors.map_ok(|x| hex::encode(x.value)).try_collect().await?;
             Some(hex_ancestors)
+        } else {
+            None
         }
     };
 
@@ -265,7 +262,7 @@ async fn collect_data<'a>(
         peersList: peer_list,
         bestBlock: hash_to_hex(consensus.best_block)?,
         bestBlockHeight: consensus.best_block_height.req()?.value,
-        bestBlockBakerId: (|| Some(best_block.baker?.value))(),
+        bestBlockBakerId: best_block.baker.map(|id| id.value),
         bestArrivedTime: Some(from_unix(best_block.arrive_time.req()?.clone())?),
         blockArrivePeriodEMA: consensus.block_arrive_period_ema,
         blockArrivePeriodEMSD: consensus.block_arrive_period_emsd,
@@ -282,7 +279,7 @@ async fn collect_data<'a>(
         finalizationPeriodEMSD: consensus.finalization_period_emsd,
         packetsSent: node_info.network_info.req()?.peer_total_sent,
         packetsReceived: node_info.network_info.req()?.peer_total_received,
-        consensusRunning: baker_is_running,
+        consensusRunning: consensus_is_running,
         bakingCommitteeMember: committee_info,
         consensusBakerId: baker_id,
         finalizationCommitteeMember: final_committee_info,
@@ -291,18 +288,18 @@ async fn collect_data<'a>(
         last_updated: 0,
         transactionsPerBlockEMA: Some(consensus.transactions_per_block_ema),
         transactionsPerBlockEMSD: Some(consensus.transactions_per_block_emsd),
-        bestBlockTransactionsSize: Some(best_block.transactions_size as u64),
+        bestBlockTransactionsSize: Some(best_block.transactions_size.into()),
         bestBlockTotalEncryptedAmount: Some(total_encrypted_amount.req()?.value),
         bestBlockTotalAmount: Some(total_amount.req()?.value),
-        bestBlockTransactionCount: Some(best_block.transaction_count as u64),
+        bestBlockTransactionCount: Some(best_block.transaction_count.into()),
         bestBlockTransactionEnergyCost: Some(
-            best_block.transactions_energy_cost.req()?.value as u64,
+            best_block.transactions_energy_cost.req()?.value.into(),
         ),
         bestBlockExecutionCost: None,
         bestBlockCentralBankAmount: foundation_amount.map(|x| x.value),
-        blocksReceivedCount: Some(consensus.blocks_received_count as u64),
-        blocksVerifiedCount: Some(consensus.blocks_verified_count as u64),
-        finalizationCount: Some(consensus.finalization_count as u64),
+        blocksReceivedCount: Some(consensus.blocks_received_count.into()),
+        blocksVerifiedCount: Some(consensus.blocks_verified_count.into()),
+        finalizationCount: Some(consensus.finalization_count.into()),
         genesisBlock: hash_to_hex(consensus.genesis_block)?,
         averageBytesPerSecondIn: node_info.network_info.req()?.avg_bps_in,
         averageBytesPerSecondOut: node_info.network_info.req()?.avg_bps_out,
@@ -312,7 +309,9 @@ async fn collect_data<'a>(
 
 // Helper functions and helper traits
 
-/// Checks that a node is active in the consensus, given a NodeInfo
+/// Return whether the consensus is running, the baker id if running as a baker,
+/// whether the node is in a baking committee, and whether the node is in the
+/// finalization committee.
 fn get_node_baker_info(
     node_info: &grpc::NodeInfo,
 ) -> Result<(bool, Option<u64>, IsInBakingCommittee, bool)> {
