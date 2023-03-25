@@ -14,7 +14,7 @@ hex = "0.4"
 log = "0.4"
 prost = "0.11"
 reqwest = { version = "0.11", features = ["native-tls-vendored"] }
-rmp-serde = "0.15"
+rmp-serde = "1.1.1"
 structopt = "0.3"
 tokio = { version = "1.20", features = ["macros", "rt-multi-thread"] }
 tonic = { version = "0.8", features = ["tls"] }
