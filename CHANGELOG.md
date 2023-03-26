@@ -18,6 +18,9 @@
   excessive value.
 - Fix a bug that could cause the node to hang indefinitely during the out-of-
   band-catchup when the node is a finalizer.
+- Fix an additional bug in `GetAccountInfo` endpoint in GRPCv2 where
+  `incoming_amounts` field of encrypted amounts was not always set correctly.
+
 
 ## 5.3.0
 
