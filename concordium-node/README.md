@@ -22,7 +22,6 @@
 - network_dump - makes the network dumping capabilites available.
 - static - build against static haskell libraries (Linux only)
 - profiling - build against haskell libraries with profiling support enabled (Linux only)
-- collector - enables the build of the node-collector and backend
 - dedup_benchmarks - enable support in the benchmarks for deduplication queues
 
 ## Building the node
@@ -226,16 +225,4 @@ To automatically open the browser with the documentation once it is generated us
 
 ```console
 $> cargo doc --open
-```
-
-## Collector
-
-To allow the network dashboard to display nodes in the network and their current status, a node must run a collector, which is a process that uses the GRPC api of the node to collect information and sends it to a centralized collector backend.
-
-See [./collector-backend/](./collector-backend/) for details of the collector backend and how to run it.
-
-Assuming you have a node running locally with GRPC available at `127.0.0.1:10000` and a collector backend at `127.0.0.1:8080`, a collector can be run using:
-
-```console
-$> cargo run --bin node-collector --features=collector -- --collector-url http://127.0.0.1:8080/post/nodes --grpc-host http://127.0.0.1:10000  --node-name "my-node-name"
 ```
