@@ -16,6 +16,9 @@
   grpc-invoke-max-energy)`. This differs from the previous behaviour where a
   request would fail if the request either omitted the `energy`, or supplied an
   excessive value.
+- Fix an additional bug in `GetAccountInfo` endpoint in GRPCv2 where
+  `incoming_amounts` field of encrypted amounts was not always set correctly.
+
 
 ## 5.3.0
 
