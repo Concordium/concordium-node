@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+## 5.3.1
+
 - Add an option `--grpc2-health-min-peers` (environment variable `CONCORDIUM_NODE_GRPC2_HEALTH_MIN_PEERS`)
   that causes the grpc V2 health endpoint to check minimum number of peers.
 - Extend the node health check so that if the node is configured with baker
