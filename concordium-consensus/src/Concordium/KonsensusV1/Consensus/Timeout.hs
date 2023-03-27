@@ -7,7 +7,9 @@ import Control.Monad.State
 import Data.Foldable
 import qualified Data.Map.Strict as Map
 import Data.Maybe
+import Data.Ratio
 import qualified Data.Set as Set
+import Data.Word
 import Lens.Micro.Platform
 
 import Concordium.Genesis.Data.BaseV1
@@ -72,6 +74,17 @@ receiveTimeoutMessage tm@TimeoutMessage{tmBody = TimeoutMessageBody{..}, ..} sko
         bakers <- getBakersForLiveEpoch tmEpoch skovData
         finalizerByIndex (bakers ^. bfFinalizers) tmFinalizerIndex
 
+
+-- |Helper function for calcuculating a new @currentTimeout@ given the old @currentTimeout@
+-- and the @timeoutIncrease@ chain parameter.
+updateCurrentTimeout :: Ratio Word64 -> Duration -> Duration
+updateCurrentTimeout timeoutIncrease oldCurrentTimeout =
+    let timeoutIncreaseRational = toRational timeoutIncrease :: Rational
+        currentTimeOutRational = toRational oldCurrentTimeout :: Rational
+        newCurrentTimeoutRational = timeoutIncreaseRational * currentTimeOutRational :: Rational
+        newCurrentTimeoutInteger = floor newCurrentTimeoutRational :: Integer
+    in  Duration $ fromIntegral newCurrentTimeoutInteger
+
 -- |Grow the current timeout duration in response to an elapsed timeout.
 -- This updates the timeout to @timeoutIncrease * oldTimeout@.
 growTimeout ::
@@ -88,12 +101,7 @@ growTimeout blockPtr = do
     let timeoutIncrease =
             chainParams
                 ^. cpConsensusParameters . cpTimeoutParameters . tpTimeoutIncrease
-    currentTimeout %=! \oldCurrentTimeout ->
-        let timeoutIncreaseRational = toRational timeoutIncrease
-            currentTimeOutRational = toRational oldCurrentTimeout
-            newCurrentTimeoutRational = timeoutIncreaseRational * currentTimeOutRational
-            newCurrentTimeout = floor newCurrentTimeoutRational
-        in  Duration newCurrentTimeout
+    currentTimeout %=! \oldCurrentTimeout -> updateCurrentTimeout timeoutIncrease oldCurrentTimeout
 
 -- |This is 'uponTimeoutEvent' from the bluepaper. If a timeout occurs, a finalizers should call this function to
 -- generate, send out a timeout message and process it.
