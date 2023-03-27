@@ -198,21 +198,21 @@ makeQuorumCertificate ::
     -- |Return @Just QuorumCertificate@ if there are enough (weighted) quorum signatures
     -- for the provided block.
     -- Otherwise return @Nothing@.
-    (Maybe QuorumCertificate)
+    Maybe QuorumCertificate
 makeQuorumCertificate blockHash SkovData{..} = do
     case _currentQuorumMessages ^? smBlockToWeightsAndSignatures . ix blockHash of
         -- There wasn't any signature(s) for the supplied block.
         Nothing -> Nothing
-        -- Check whether the accummulated weight is more or equal to the configured signature threshold.
+        -- Check whether the accumulated weight is more or equal to the configured signature threshold.
         Just (accummulatedWeight, aggregatedSignature, finalizers) ->
             if enoughWeight
                 then Just createQuorumCertificate
                 else Nothing
           where
             -- The required signature threshold.
-            signatureThreshold = _genesisMetadata ^. to gmParameters ^. to genesisSignatureThreshold
+            signatureThreshold = _genesisMetadata ^. to gmParameters . to genesisSignatureThreshold
             -- The total weight of the finalization committee.
-            totalWeight = _skovEpochBakers ^. currentEpochBakers ^. bfFinalizers . to committeeTotalWeight
+            totalWeight = _skovEpochBakers ^. currentEpochBakers . bfFinalizers . to committeeTotalWeight
             -- Return whether enough weighted signatures has been gathered with respect to the set signature threshold.
             enoughWeight = toRational accummulatedWeight / toRational totalWeight >= toRational signatureThreshold
             createQuorumCertificate =

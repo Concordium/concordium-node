@@ -172,3 +172,12 @@ computeFinalizationCommittee FullBakers{..} FinalizationCommitteeParameters{..} 
             }
     committeeFinalizers = Vec.fromList $ zipWith mkFinalizer [FinalizerIndex 0 ..] sortedFinalizers
     committeeTotalWeight = sum $ finalizerWeight <$> committeeFinalizers
+
+-- |Compute the finalization committee given the bakers and the finalization committee parameters,
+-- returning a 'BakersAndFinalizers'.
+computeBakersAndFinalizers :: FullBakers -> FinalizationCommitteeParameters -> BakersAndFinalizers
+computeBakersAndFinalizers bakers fcp =
+    BakersAndFinalizers
+        { _bfBakers = bakers,
+          _bfFinalizers = computeFinalizationCommittee bakers fcp
+        }

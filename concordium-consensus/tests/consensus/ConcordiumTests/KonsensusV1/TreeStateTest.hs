@@ -128,8 +128,8 @@ dummyBlockState = HashedPersistentBlockState{..}
     hpbsHash = dummyStateHash
 
 -- |A 'QuorumCertificate' pointing to the block provided.
--- The certificate itself is inherenly invalid as it is for round and epoch 0.
--- Further noone signed it and it has an empty signature.
+-- The certificate itself is inherently invalid as it is for round and epoch 0.
+-- Further no one signed it and it has an empty signature.
 -- However for the tests exposed here it is sufficient.
 dummyQuorumCertificate :: BlockHash -> QuorumCertificate
 dummyQuorumCertificate blockHash =
@@ -142,7 +142,7 @@ dummyQuorumCertificate blockHash =
         }
 
 -- |An arbitrary chosen 'VRF.KeyPair'.
--- This is requried to create the 'dummyBlockNonce'.
+-- This is required to create the 'dummyBlockNonce'.
 dummyVRFKeys :: VRF.KeyPair
 dummyVRFKeys = fst $ VRF.randomKeyPair (mkStdGen 0)
 

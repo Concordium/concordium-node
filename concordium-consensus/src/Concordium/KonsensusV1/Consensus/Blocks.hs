@@ -23,7 +23,7 @@ import Concordium.GlobalState.Parameters hiding (getChainParameters)
 import Concordium.GlobalState.Persistent.BlockState
 import Concordium.GlobalState.Statistics
 import Concordium.GlobalState.Types
-import Concordium.KonsensusV1.Consensus (HasBakerContext, MonadMulticast (sendQuorumMessage), MonadTimeout, advanceRound, computeFinalizationCommittee)
+import Concordium.KonsensusV1.Consensus (HasBakerContext, MonadMulticast (sendQuorumMessage), MonadTimeout, advanceRound)
 import qualified Concordium.KonsensusV1.Consensus as Consensus
 import Concordium.KonsensusV1.Consensus.Finality
 import Concordium.KonsensusV1.Consensus.Quorum
@@ -690,7 +690,6 @@ validateBlock blockHash BakerIdentity{..} finInfo = do
                 && blockEpoch block == curEpoch
             )
             $ do
-                -- TODO: implementation
                 genesisHash <- use currentGenesisHash
                 let qsm =
                         QuorumSignatureMessage
