@@ -1,0 +1,31 @@
+[package]
+name = "collector"
+version = "1.0.0"
+edition = "2021"
+
+[dependencies]
+collector-backend = { version = "*", path = "../collector-backend/"}
+
+anyhow = "1.0"
+chrono = "0.4"
+env_logger = "0.8.3"
+futures = "0.3"
+hex = "0.4"
+log = "0.4"
+prost = "0.11"
+reqwest = { version = "0.11", features = ["native-tls-vendored"] }
+rmp-serde = "1.1.1"
+structopt = "0.3"
+tokio = { version = "1.20", features = ["macros", "rt-multi-thread"] }
+tonic = { version = "0.8", features = ["tls"] }
+openssl-src = "=111.25.0" # Fix openssl-src to version 111.25 since the newer ones are not supported on Rust 1.62. Once we update rust to 1.63+ remove this.
+
+[target.'cfg(target_os = "macos")'.dependencies]
+macos_logger_wrapper = { version = "*", path = "../macos_logger_wrapper/"}
+
+[build-dependencies]
+tonic-build = { version = "0.8", default-features = false, features = ["transport", "prost"] }
+
+[[bin]]
+name = "node-collector"
+path = "src/bin/collector.rs"

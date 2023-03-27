@@ -58,7 +58,7 @@ pub fn setup_macos_logger(trace: bool, debug: bool, subsystem: &str) {
         LevelFilter::Info
     };
 
-    crate::macos_log::MacOsLogger::new(subsystem)
+    macos_logger_wrapper::MacOsLogger::new(subsystem)
         .level_filter(level_filter)
         .category_level_filter("tokio_reactor", LevelFilter::Error)
         .category_level_filter("hyper", LevelFilter::Error)

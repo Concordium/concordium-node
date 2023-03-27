@@ -20,6 +20,7 @@ macPackageDir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 readonly macPackageDir
 
 readonly nodeDir="$macPackageDir/../../../concordium-node"
+readonly collectorDir="$macPackageDir/../../../collector"
 readonly consensusDir="$macPackageDir/../../../concordium-consensus"
 
 readonly toolsDir="$macPackageDir/tools"
@@ -169,7 +170,9 @@ function compileConsensus() {
 function compileNodeAndCollector() {
     cd "$nodeDir"
     logInfo "Building Node and Collector..."
-    cargo build --bin concordium-node --bin node-collector --features collector --release
+    cargo build --bin concordium-node --release
+    cd "$collectorDir"
+    cargo build --release
     logInfo "Done"
 }
 
@@ -200,7 +203,7 @@ function copyInstallerPluginData() {
 function copyNodeBinaries() {
     logInfo "Copy concordium-node and node-collector binaries to '$payloadDir/Library/Concordium Node/'.."
     cp "$nodeDir/target/release/concordium-node" "$payloadDir/Library/Concordium Node"
-    cp "$nodeDir/target/release/node-collector" "$payloadDir/Library/Concordium Node"
+    cp "$collectorDir/target/release/node-collector" "$payloadDir/Library/Concordium Node"
     logInfo "Done"
 }
 

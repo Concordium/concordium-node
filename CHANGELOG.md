@@ -20,6 +20,7 @@
   band-catchup when the node is a finalizer.
 - Fix an additional bug in `GetAccountInfo` endpoint in GRPCv2 where
   `incoming_amounts` field of encrypted amounts was not always set correctly.
+- The node collector is migrated to a separate package and now uses the V2 GRPC API.
 
 
 ## 5.3.0

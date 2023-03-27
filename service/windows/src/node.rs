@@ -15,7 +15,7 @@ use toml::Value;
 use winapi::um::winbase::CREATE_NEW_PROCESS_GROUP;
 
 /// Default RPC port
-const DEFAULT_RPC_PORT: u16 = 10000;
+const DEFAULT_GRPC2_PORT: u16 = 20000;
 
 /// Configuration for logging to a rollable log file.
 pub struct LogFileConfig {
@@ -162,13 +162,13 @@ impl NodeConfig {
                     format!(
                         "http://{}:{}",
                         collector_rpc_ip,
-                        self.rpc_port.unwrap_or(DEFAULT_RPC_PORT)
+                        self.grpc2_port.unwrap_or(DEFAULT_GRPC2_PORT)
                     )
                 } else {
                     format!(
                         "http://[{}]:{}",
                         collector_rpc_ip,
-                        self.rpc_port.unwrap_or(DEFAULT_RPC_PORT)
+                        self.grpc2_port.unwrap_or(DEFAULT_GRPC2_PORT)
                     )
                 },
             );
