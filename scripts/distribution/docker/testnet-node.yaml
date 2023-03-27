@@ -34,10 +34,11 @@ services:
       - CONCORDIUM_NODE_RPC_SERVER_ADDR=0.0.0.0
       # And its port
       - CONCORDIUM_NODE_RPC_SERVER_PORT=10001
-      # Address of the V2 GRPC server
-      - CONCORDIUM_NODE_GRPC2_LISTEN_PORT=20001
-      # And its port
+      # Address of the V2 GRPC server.
       - CONCORDIUM_NODE_GRPC2_LISTEN_ADDRESS=0.0.0.0
+      # And its port which has to be the same as in `CONCORDIUM_NODE_COLLECTOR_GRPC_HOST`
+      # that is defined for the collector.
+      - CONCORDIUM_NODE_GRPC2_LISTEN_PORT=20001
       # maximum number of __connections__ the node can have. This can temporarily be more than
       # the number of peers when incoming connections are processed. This limit
       # ensures that there cannot be too many of those.
@@ -92,6 +93,8 @@ services:
       # docker created network which maps `testnet-node` to the internal IP of
       # the `testnet-node`. If the name of the node service is changed from
       # `testnet-node` then the name here must also be changed.
+      # The port also has to be the same as in `CONCORDIUM_NODE_GRPC2_LISTEN_PORT`
+      # that is defined for the node.
       - CONCORDIUM_NODE_COLLECTOR_GRPC_HOST=http://testnet-node:20001
 
     entrypoint: ["/node-collector"]
