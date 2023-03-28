@@ -50,6 +50,7 @@ data VerifiedBlock = VerifiedBlock
       -- |The leadership election nonce for the block's epoch.
       vbLeadershipElectionNonce :: !LeadershipElectionNonce
     }
+    deriving (Show)
 
 instance BlockData VerifiedBlock where
     type BakedBlockDataType VerifiedBlock = SignedBlock
@@ -74,6 +75,7 @@ data BlockResult
       BlockResultEarly
     | -- |We have already seen this block.
       BlockResultDuplicate
+    deriving (Show)
 
 uponReceivingBlock ::
     ( IsConsensusV1 (MPV m),
