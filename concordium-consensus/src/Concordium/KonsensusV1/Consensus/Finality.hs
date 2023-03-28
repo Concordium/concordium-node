@@ -214,16 +214,7 @@ checkedAdvanceEpoch newFinalizedBlock = do
                         then do
                             nextFullBakers <- getNextEpochBakers finState
                             nextFCParams <- getNextEpochFinalizationCommitteeParameters finState
-                            let newNextBakers =
-                                    BakersAndFinalizers
-                                        { _bfBakers =
-                                            nextFullBakers,
-                                          _bfFinalizers =
-                                            computeFinalizationCommittee
-                                                nextFullBakers
-                                                nextFCParams
-                                        }
-                            return newNextBakers
+                            return $! computeBakersAndFinalizers nextFullBakers nextFCParams
                         else return _nextEpochBakers
                 epochBakers
                     .= EpochBakers

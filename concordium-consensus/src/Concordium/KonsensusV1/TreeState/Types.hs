@@ -287,6 +287,7 @@ data BakersAndFinalizers = BakersAndFinalizers
       -- |Finalizers set.
       _bfFinalizers :: !FinalizationCommittee
     }
+    deriving (Eq, Show)
 
 makeLenses ''BakersAndFinalizers
 

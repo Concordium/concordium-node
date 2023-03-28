@@ -23,7 +23,7 @@ import Concordium.GlobalState.Parameters hiding (getChainParameters)
 import Concordium.GlobalState.Persistent.BlockState
 import Concordium.GlobalState.Statistics
 import Concordium.GlobalState.Types
-import Concordium.KonsensusV1.Consensus (HasBakerContext, MonadMulticast (sendQuorumMessage), MonadTimeout, advanceRound, computeFinalizationCommittee)
+import Concordium.KonsensusV1.Consensus (HasBakerContext, MonadMulticast (sendQuorumMessage), MonadTimeout, advanceRound)
 import qualified Concordium.KonsensusV1.Consensus as Consensus
 import Concordium.KonsensusV1.Consensus.Finality
 import Concordium.KonsensusV1.Consensus.Quorum
@@ -50,6 +50,7 @@ data VerifiedBlock = VerifiedBlock
       -- |The leadership election nonce for the block's epoch.
       vbLeadershipElectionNonce :: !LeadershipElectionNonce
     }
+    deriving (Show)
 
 instance BlockData VerifiedBlock where
     type BakedBlockDataType VerifiedBlock = SignedBlock
@@ -74,6 +75,7 @@ data BlockResult
       BlockResultEarly
     | -- |We have already seen this block.
       BlockResultDuplicate
+    deriving (Show)
 
 uponReceivingBlock ::
     ( IsConsensusV1 (MPV m),
@@ -690,7 +692,6 @@ validateBlock blockHash BakerIdentity{..} finInfo = do
                 && blockEpoch block == curEpoch
             )
             $ do
-                -- TODO: implementation
                 genesisHash <- use currentGenesisHash
                 let qsm =
                         QuorumSignatureMessage

@@ -203,7 +203,7 @@ makeQuorumCertificate blockHash SkovData{..} = do
     case _currentQuorumMessages ^? smBlockToWeightsAndSignatures . ix blockHash of
         -- There wasn't any signature(s) for the supplied block.
         Nothing -> Nothing
-        -- Check whether the accummulated weight is more or equal to the configured signature threshold.
+        -- Check whether the accumulated weight is more or equal to the configured signature threshold.
         Just (accummulatedWeight, aggregatedSignature, finalizers) ->
             if enoughWeight
                 then Just createQuorumCertificate
