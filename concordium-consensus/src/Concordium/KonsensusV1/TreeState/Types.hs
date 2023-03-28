@@ -327,7 +327,7 @@ makeLenses ''QuorumMessages
 emptyQuorumMessages :: QuorumMessages
 emptyQuorumMessages = QuorumMessages Map.empty Map.empty
 
--- |A collection of timeout messages for at most two consecutive epochs.
+-- |A collection of timeout messages with respect to the current round and for most two consecutive epochs.
 -- INVARIANTS:
 --  * 'tmFirstEpochTimeouts' is never empty.
 --  * All timeout messages in 'tmFirstEpochTimeouts' have epoch 'tmFirstEpoch' and finalizer index
