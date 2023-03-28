@@ -236,6 +236,8 @@ executeTimeoutMessage (MkPartiallyVerifiedTimeoutMessage tm@TimeoutMessage{tmBod
                                         False -> flag $! TimeoutMessageInvalidQC tm
                                         -- The quorum certificate is valid so check whether it finalises any blocks.
                                         True -> checkFinality tmQuorumCertificate
+                    -- Finally we process the timeout message.
+                    processTimeout tm
   where
     -- Check the quorum certificate of the timeout message.
     checkQC = do
