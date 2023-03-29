@@ -1,18 +1,17 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- |Module testing functions from the 'Concordium.KonsensusV1.Consensus' module.
-module ConcordiumTests.KonsensusV1.Consensus(tests) where
+module ConcordiumTests.KonsensusV1.Consensus (tests) where
 
+import Concordium.KonsensusV1.TreeState.Types
+import Concordium.KonsensusV1.Types
 import Lens.Micro.Platform
 import Test.HUnit
 import Test.Hspec
-import Concordium.KonsensusV1.TreeState.Types
-import Concordium.KonsensusV1.Types
 
 import Concordium.KonsensusV1.Consensus
 
 import Test.QuickCheck
-
 
 import ConcordiumTests.KonsensusV1.Types hiding (tests)
 

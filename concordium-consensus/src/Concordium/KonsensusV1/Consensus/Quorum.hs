@@ -111,7 +111,7 @@ receiveQuorumMessage qm@QuorumMessage{..} skovData = receive
                     return $ Rejected InvalidSignature
                 -- Check whether the finalizer is double signing.
                 | Just existingMessage <- getExistingMessage -> do
-                    flag $! DoubleSigning qm existingMessage
+                    flag $! QuorumDoubleSigning qm existingMessage
                     return $ Rejected AlreadySigned
                 -- Continue verifying by looking up the block.
                 | otherwise -> do
