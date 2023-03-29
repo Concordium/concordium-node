@@ -41,27 +41,27 @@ atLevel a = do
 
 main :: IO ()
 main = atLevel $ \lvl -> hspec $ do
-    -- ConcordiumTests.Update.test
-    -- ConcordiumTests.Afgjort.Types.tests lvl
-    -- ConcordiumTests.Afgjort.CSS.tests lvl
-    -- ConcordiumTests.Afgjort.CSS.NominationSet.tests lvl
-    -- ConcordiumTests.Afgjort.ABBA.tests lvl
-    -- ConcordiumTests.Afgjort.Freeze.tests lvl
-    -- ConcordiumTests.Afgjort.WMVBA.tests lvl
-    -- ConcordiumTests.Afgjort.Lottery.tests lvl
-    -- ConcordiumTests.Konsensus.tests lvl
-    -- ConcordiumTests.CatchUp.tests lvl
-    -- ConcordiumTests.FinalizationRecover.test
-    -- ConcordiumTests.PassiveFinalization.test
-    -- ConcordiumTests.ReceiveTransactionsTest.test
-    -- ConcordiumTests.LeaderElectionTest.tests
-    -- ConcordiumTests.KonsensusV1.Types.tests
-    -- ConcordiumTests.KonsensusV1.TreeStateTest.tests
-    -- ConcordiumTests.KonsensusV1.LMDB.tests
-    -- ConcordiumTests.KonsensusV1.TransactionProcessingTest.tests
-    -- ConcordiumTests.KonsensusV1.LeaderElectionTest.tests
-    -- ConcordiumTests.KonsensusV1.FinalizationCommittee.tests
-    -- ConcordiumTests.KonsensusV1.Consensus.tests
-    -- ConcordiumTests.KonsensusV1.Quorum.tests
-    -- ConcordiumTests.KonsensusV1.Timeout.tests
+    ConcordiumTests.Update.test
+    ConcordiumTests.Afgjort.Types.tests lvl
+    ConcordiumTests.Afgjort.CSS.tests lvl
+    ConcordiumTests.Afgjort.CSS.NominationSet.tests lvl
+    ConcordiumTests.Afgjort.ABBA.tests lvl
+    ConcordiumTests.Afgjort.Freeze.tests lvl
+    ConcordiumTests.Afgjort.WMVBA.tests lvl
+    ConcordiumTests.Afgjort.Lottery.tests lvl
+    ConcordiumTests.Konsensus.tests lvl
+    ConcordiumTests.CatchUp.tests lvl
+    ConcordiumTests.FinalizationRecover.test
+    ConcordiumTests.PassiveFinalization.test
+    ConcordiumTests.ReceiveTransactionsTest.test
+    ConcordiumTests.LeaderElectionTest.tests
+    ConcordiumTests.KonsensusV1.Types.tests
+    ConcordiumTests.KonsensusV1.TreeStateTest.tests
+    ConcordiumTests.KonsensusV1.LMDB.tests
+    ConcordiumTests.KonsensusV1.TransactionProcessingTest.tests
+    ConcordiumTests.KonsensusV1.LeaderElectionTest.tests
+    ConcordiumTests.KonsensusV1.FinalizationCommittee.tests
+    ConcordiumTests.KonsensusV1.Consensus.tests
+    ConcordiumTests.KonsensusV1.Quorum.tests
+    ConcordiumTests.KonsensusV1.Timeout.tests
     ConcordiumTests.KonsensusV1.Consensus.Blocks.tests
