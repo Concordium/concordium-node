@@ -54,6 +54,7 @@ async fn main() -> anyhow::Result<()> {
     start_push_gateway(&conf.prometheus, &node.stats, node.id());
 
     if let Some(plp) = conf.prometheus.prometheus_listen_port {
+        // We ignore the receiver since we do not care about graceful shutdown here.
         let (sender, _) = tokio::sync::broadcast::channel(1);
         tokio::spawn(async move {
             stats_export_service

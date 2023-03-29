@@ -274,7 +274,7 @@ pub struct StatsExportService {
     pub avg_bps_out: AtomicU64,
     /// The number of peers that recently connected to the bootstrapper labelled
     /// by the bucket in which they are contained.
-    pub recent_peers: IntGaugeVec,
+    pub peer_bucket_size: IntGaugeVec,
 }
 
 impl StatsExportService {
@@ -470,16 +470,16 @@ impl StatsExportService {
         let last_throughput_measurement_received_bytes = AtomicU64::new(0);
         let avg_bps_in = AtomicU64::new(0);
         let avg_bps_out = AtomicU64::new(0);
-        let recent_peers = IntGaugeVec::new(
+        let peer_bucket_size = IntGaugeVec::new(
             Opts::new(
-                "recent_peers",
+                "peer_bucket_size",
                 "The number of peers that recently connected to the bootstrapper labelled by the \
                  number of the bucket in which they are contained",
             )
             .variable_label("bucket"),
             &["bucket"],
         )?;
-        registry.register(Box::new(recent_peers.clone()))?;
+        registry.register(Box::new(peer_bucket_size.clone()))?;
 
         Ok(StatsExportService {
             registry,
@@ -514,7 +514,7 @@ impl StatsExportService {
             last_throughput_measurement_received_bytes,
             avg_bps_in,
             avg_bps_out,
-            recent_peers,
+            peer_bucket_size,
         })
     }
 

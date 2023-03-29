@@ -233,6 +233,6 @@ Indicator for unsupported pending protocol updates where a non-zero value indica
 
 This metric is intended for setting up alerts to catch outdated nodes.
 
-### `recent_peers`
+### `peer_bucket_size`
 
 The size of the set of recently connected peers used to generate the peer list included in handshake responses of the bootstrapper. Labelled by the number of the bucket in which the peer is maintained (`bucket=<number>`).
