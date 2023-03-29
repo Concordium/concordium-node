@@ -14,7 +14,6 @@ import System.IO.Unsafe
 import Test.HUnit hiding (State)
 import Test.Hspec
 import Test.QuickCheck
-import Unsafe.Coerce
 
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.BlsSignature as Bls
@@ -101,7 +100,7 @@ testMakeQuorumCertificate = describe "Quorum Certificate creation" $ do
             Nothing
             (makeQuorumCertificate bh sdNoMessages)
   where
-    fi fIdx = FinalizerInfo (FinalizerIndex fIdx) 1 sigPublicKey vrfPublicKey blsPublicKey (BakerId $ AccountIndex (unsafeCoerce fIdx))
+    fi fIdx = FinalizerInfo (FinalizerIndex fIdx) 1 sigPublicKey vrfPublicKey blsPublicKey (BakerId $ AccountIndex (fromIntegral fIdx))
     blsPublicKey = Bls.derivePublicKey someBlsSecretKey
     vrfPublicKey = VRF.publicKey someVRFKeyPair
     sigPublicKey = Sig.verifyKey $ unsafePerformIO Sig.newKeyPair
@@ -176,7 +175,7 @@ testReceiveQuorumMessage = describe "Receive quorum message" $ do
     -- Compute the signature for the message.
     quorumMessageSignature qm = signQuorumSignatureMessage (quorumSignatureMessageFor qm dummyGenesisBlockHash) someBlsSecretKey
     -- A finalizer with the specified finalizer (and bakerid) with a weight of 1 in the finalization committee.
-    fi fIdx = FinalizerInfo (FinalizerIndex fIdx) 1 sigPublicKey vrfPublicKey blsPublicKey (BakerId $ AccountIndex (unsafeCoerce fIdx))
+    fi fIdx = FinalizerInfo (FinalizerIndex fIdx) 1 sigPublicKey vrfPublicKey blsPublicKey (BakerId $ AccountIndex (fromIntegral fIdx))
     blsPublicKey = Bls.derivePublicKey someBlsSecretKey
     vrfPublicKey = VRF.publicKey someVRFKeyPair
     sigPublicKey = Sig.verifyKey $ unsafePerformIO Sig.newKeyPair

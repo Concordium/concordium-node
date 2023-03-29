@@ -35,6 +35,28 @@ import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 
+-- |Reasons that a 'TimeoutMessage' can be rejected.
+data ReceiveTimeoutMessageRejectReason
+    = -- |The 'Round' presented in the 'TimeoutMessage' is obsolete.
+      ObsoleteRound
+    | -- | The 'QuorumCertificate' associcated with the 'TimeoutMessage' is for
+      -- either an obsolete 'Round' or 'Epoch'.
+      ObsoleteQC
+    | -- |The signer of the 'TimeoutMessage' is not a finalizer for the
+      -- current 'Epoch'.
+      NotAFinalizer
+    | -- |The signature on the 'TimeoutMessage' is invalid.
+      InvalidSignature
+    | -- |The finalizer already signed a 'TimeoutMessage' for the
+      -- current round.
+      DoubleSigning
+    | -- |The 'QuorumCertificate' is pointing to a block prior
+      -- to the last finalized block.
+      ObsoleteQCPointer
+    | -- |The 'QuorumCertificate' is ponting to a dead block.
+      DeadQCPointer
+    deriving (Eq, Show)
+
 -- |Possibly return codes for when receiving
 -- a 'TimeoutMessage'.
 data ReceiveTimeoutMessageResult
@@ -43,12 +65,13 @@ data ReceiveTimeoutMessageResult
       Received !PartiallyVerifiedTimeoutMessage
     | -- |The 'TimeoutMessage' could not be verified and should not be
       -- relayed.
-      Rejected
+      Rejected !ReceiveTimeoutMessageRejectReason
     | -- |The consensus runner needs to catch up before processing the
       -- 'TimeoutMessage'.
       CatchupRequired
     | -- |The 'TimeoutMessage' is a duplicate.
       Duplicate
+    deriving (Eq, Show)
 
 -- |A partially verified 'TimeoutMessage' with its associated finalization committees.
 data PartiallyVerifiedTimeoutMessage = MkPartiallyVerifiedTimeoutMessage
@@ -60,6 +83,7 @@ data PartiallyVerifiedTimeoutMessage = MkPartiallyVerifiedTimeoutMessage
       -- in the 'TimeoutMessage'.
       pvtmQuorumFinalizers :: !FinalizationCommittee
     }
+    deriving (Eq, Show)
 
 makeLenses ''PartiallyVerifiedTimeoutMessage
 
@@ -80,7 +104,7 @@ receiveTimeoutMessage tm@TimeoutMessage{tmBody = TimeoutMessageBody{..}} skovDat
     receive
         --  The round of the 'TimeoutMessage' is obsolete.
         | tmRound < skovData ^. roundStatus . rsCurrentRound =
-            return Rejected
+            return $ Rejected ObsoleteRound
         -- If the round or epoch of the qc associated with the timeout message
         -- is behind the last finalized block then reject the timeout message,
         -- then it means that the sender of the timeout message was lacking behind for some reason.
@@ -89,45 +113,45 @@ receiveTimeoutMessage tm@TimeoutMessage{tmBody = TimeoutMessageBody{..}} skovDat
         -- due to e.g. network issues.
         | qcRound tmQuorumCertificate < skovData ^. lastFinalized . to blockRound
             || qcEpoch tmQuorumCertificate < skovData ^. lastFinalized . to blockEpoch =
-            return Rejected
-        -- Consensus runner is not caught up to the round that the timeout message
-        -- refers to. So catch up is required.
-        | tmRound > currentRound =
-            return CatchupRequired
-        -- The consensus runner does not know about the finalization committee for the
-        -- pointer of the qc, hence a catch up is required.
-        | qcEpoch tmQuorumCertificate > theCurrentEpoch =
-            return CatchupRequired
-        -- The consensus runner does not know about the finalization committee for the
-        -- epoch of the timeout message, hence a catch up is required.
-        | tmEpoch > theCurrentEpoch =
-            return CatchupRequired
+            return $ Rejected ObsoleteQC
         -- Obtain the finalizer information for the signer of the
         -- timeout message.
         | otherwise = case getFinalizer of
             -- Signer is not present in the finalization committee in the
             -- proposed epoch specified by the 'TimeoutMessage', hence
             -- the timeout message is rejected.
-            Nothing -> return Rejected
+            Nothing -> return $ Rejected NotAFinalizer
             Just FinalizerInfo{..}
+                -- Consensus runner is not caught up to the round that the timeout message
+                -- refers to. So catch up is required.
+                | tmRound > currentRound ->
+                    return CatchupRequired
+                -- The consensus runner does not know about the finalization committee for the
+                -- pointer of the qc, hence a catch up is required.
+                | qcEpoch tmQuorumCertificate > theCurrentEpoch ->
+                    return CatchupRequired
+                -- The consensus runner does not know about the finalization committee for the
+                -- epoch of the timeout message, hence a catch up is required.
+                | tmEpoch > theCurrentEpoch ->
+                    return CatchupRequired
                 -- The timeout message is a duplicate, we report back this fact.
                 | Just existingMessage <- getExistingMessage,
                   existingMessage == tm ->
                     return Duplicate
                 -- Check whether the signature is ok or not.
                 | not (checkTimeoutMessageSignature finalizerSignKey genesisBlockHash tm) ->
-                    return Rejected
+                    return $ Rejected InvalidSignature
                 -- The finalizer has already sent a timeout message for this round, this is not
                 -- allowed so the behavior is flagged and timeout message is rejected.
                 | Just existingMessage <- getExistingMessage -> do
                     flag $! TimeoutDoubleSigning tm existingMessage
-                    return Rejected
+                    return $ Rejected DoubleSigning
                 | otherwise -> do
                     getRecentBlockStatus (qcBlock tmQuorumCertificate) skovData >>= \case
                         -- The timeout message does not act according to the longest chain rule
                         -- so it is rejected.
                         OldFinalized -> do
-                            return Rejected
+                            return $ Rejected ObsoleteQCPointer
                         -- With respect to the checks carried out above then in case of branching
                         -- in a round it must be checked whether the qc pointer is known or not.
                         -- If the latter then the consensus runner needs to inititate catchup.
@@ -135,7 +159,7 @@ receiveTimeoutMessage tm@TimeoutMessage{tmBody = TimeoutMessageBody{..}} skovDat
                             return CatchupRequired
                         -- The qc pointer points to a block that has been marked deadp
                         RecentBlock BlockDead -> do
-                            return Rejected
+                            return $ Rejected DeadQCPointer
                         -- The qc pointer in the timeout message is pending so catch up
                         -- is required
                         RecentBlock (BlockPending _) ->
