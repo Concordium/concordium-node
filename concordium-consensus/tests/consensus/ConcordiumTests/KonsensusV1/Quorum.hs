@@ -143,7 +143,7 @@ testReceiveQuorumMessage = describe "Receive quorum message" $ do
     it "unknown block" $ receiveAndCheck sd unknownBlockMessage $ CatchupRequired
     it "invalid block | dead" $ receiveAndCheck sd deadBlockMessage $ Rejected InvalidBlock
     it "round inconsistency" $ receiveAndCheck (sd' 0 1) inconsistentRoundsMessage $ Rejected InconsistentRounds
-    it "epoch inconsistency" $ receiveAndCheck (sd' 1 0) inconsistentEpochsMessage $ Rejected InconsistentEpochs
+    it "epoch inconsistency" $ receiveAndCheck (sd' 1 1) inconsistentEpochsMessage $ Rejected InconsistentEpochs
     it "receives" $ receiveAndCheck (sd' 1 1) verifiableMessage $ Received $ VerifiedQuorumMessage verifiableMessage 1
   where
     bh = BlockHash minBound
@@ -168,7 +168,7 @@ testReceiveQuorumMessage = describe "Receive quorum message" $ do
         let someQM = QuorumMessage emptyQuorumSignature liveBlock (FinalizerIndex 2) 1 1
         in  someQM{qmSignature = quorumMessageSignature someQM}
     inconsistentEpochsMessage =
-        let someQM = QuorumMessage emptyQuorumSignature liveBlock (FinalizerIndex 2) 1 1
+        let someQM = QuorumMessage emptyQuorumSignature liveBlock (FinalizerIndex 2) 1 0
         in  someQM{qmSignature = quorumMessageSignature someQM}
     verifiableMessage =
         let someQM = QuorumMessage emptyQuorumSignature liveBlock (FinalizerIndex 2) 1 1
@@ -203,19 +203,19 @@ testReceiveQuorumMessage = describe "Receive quorum message" $ do
             }
     -- the round and epoch here is for making it easier to trigger the various cases
     -- with respect to the alive block (i.e. we set the focus block here).
-    sd = sd' 0 0
+    sd = sd' 1 1
     -- the round and epoch here is for making it easier to trigger the various cases
     -- with respect to the alive block (i.e. we set the focus block here).
     sd' r e =
         dummyInitialSkovData
-            & roundStatus . rsCurrentRound .~ Round 1
-            & skovEpochBakers . currentEpoch .~ 1
+            & roundStatus . rsCurrentRound .~ Round r
+            & skovEpochBakers . currentEpoch .~ e
             & skovEpochBakers . currentEpochBakers .~ bakersAndFinalizers
             & skovEpochBakers . previousEpochBakers .~ bakersAndFinalizers
             & skovEpochBakers . nextPayday .~ 2
             & currentQuorumMessages %~ addQuorumMessage (VerifiedQuorumMessage duplicateMessage 1)
             & blockTable . deadBlocks %~ insertDeadCache deadBlock
-            & skovPendingTransactions . focusBlock .~ (liveBlockPointer r e)
+            & skovPendingTransactions . focusBlock .~ (liveBlockPointer (Round r) e)
     -- Run the 'receiveQuorumMessage' action.
     receiveAndCheck skovData qm expect = do
         resultCode <- runTestLLDB (lldbWithGenesis @'P6) $ receiveQuorumMessage qm skovData
