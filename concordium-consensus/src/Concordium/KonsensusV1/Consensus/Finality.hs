@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -73,9 +74,9 @@ checkFinality qc = do
         Just (BlockAlive block) -> checkFinalityWithBlock qc block
         _ -> return ()
 
--- |Check if a valid quorum certificate finalizes a block. If so, the block and its ancestors
--- are finalized, the tree is pruned to the decendants of the new last finalized block, and,
--- if applicable, the epoch is advanced.
+-- |Check if a valid quorum certificate finalizes a block (the parent of the block in the QC).
+-- If so, the block and its ancestors are finalized, the tree is pruned to the decendants of the
+-- new last finalized block, and, if applicable, the epoch is advanced.
 --
 -- PRECONDITION: the quorum certificate is valid and for the supplied block, which is live
 -- (and not finalized).
@@ -97,14 +98,18 @@ checkFinalityWithBlock qc blockPtr
       let parentQC = blockQuorumCertificate block,
       qcRound qc == qcRound parentQC + 1,
       qcEpoch qc == qcEpoch parentQC = do
-        let newFinalizationEntry =
-                FinalizationEntry
-                    { feFinalizedQuorumCertificate = parentQC,
-                      feSuccessorQuorumCertificate = qc,
-                      feSuccessorProof = getHash (sbBlock block)
-                    }
-        processFinalization blockPtr newFinalizationEntry
-        shrinkTimeout blockPtr
+        let finalizedBlockHash = qcBlock parentQC
+        sd <- get
+        unless (finalizedBlockHash == getHash (sd ^. lastFinalized)) $ do
+            let !newFinalizedPtr = parentOfLive sd blockPtr
+            let newFinalizationEntry =
+                    FinalizationEntry
+                        { feFinalizedQuorumCertificate = parentQC,
+                          feSuccessorQuorumCertificate = qc,
+                          feSuccessorProof = getHash (sbBlock block)
+                        }
+            processFinalization newFinalizedPtr newFinalizationEntry
+            shrinkTimeout blockPtr
     | otherwise = return ()
 
 -- |Process the finalization of a block. The block must be live (not finalized) and the finalization

@@ -334,6 +334,9 @@ instance HashableTo Hash.Hash QuorumCertificate where
 --  * The weights of the committee members are sufficient for the certificate to be valid.
 --
 -- The quorum certificate will be rejected if any signatories are not in the committee.
+--
+-- As an exception, for round 0, only the 'genesisQuorumCertificate' is considered valid.
+-- (This has no signatories.)
 checkQuorumCertificate ::
     -- |Genesis block hash
     BlockHash ->
@@ -344,6 +347,8 @@ checkQuorumCertificate ::
     -- |Certificate to check
     QuorumCertificate ->
     Bool
+checkQuorumCertificate genHash _ _ qc@QuorumCertificate{qcRound = 0} =
+    qc == genesisQuorumCertificate genHash
 checkQuorumCertificate qsmGenesis sigThreshold FinalizationCommittee{..} QuorumCertificate{..} =
     check 0 [] (finalizerList qcSignatories)
   where
@@ -543,7 +548,7 @@ data TimeoutCertificate = TimeoutCertificate
 -- |Returns 'True' if and only if the finalizers are exclusively in 'tcFinalizerQCRoundsFirstEpoch'
 -- in a 'TimeoutCertificate'.
 tcIsSingleEpoch :: TimeoutCertificate -> Bool
-tcIsSingleEpoch = null . theFinalizerRounds . tcFinalizerQCRoundsFirstEpoch
+tcIsSingleEpoch = null . theFinalizerRounds . tcFinalizerQCRoundsSecondEpoch
 
 -- |The maximum epoch for which a 'TimeoutCertificate' includes signatures.
 -- (This will be 'tcMinEpoch' in the case that the certificate contains no signatures.)

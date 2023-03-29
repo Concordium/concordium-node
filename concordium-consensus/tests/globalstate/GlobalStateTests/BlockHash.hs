@@ -1,3 +1,7 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 
 module GlobalStateTests.BlockHash where
@@ -15,19 +19,23 @@ import Concordium.Types
 import Concordium.Types.Accounts
 import Concordium.Types.Transactions
 
-import Lens.Micro.Platform
-
+import Control.Monad.Identity
 import Data.ByteString as BS
 import Data.ByteString.Builder
 import qualified Data.ByteString.Lazy as L
 import Data.Serialize
+import Lens.Micro.Platform
 
 import Concordium.Crypto.SHA256 as Hash
 import Data.FixedByteString as FBS
 
 import Concordium.Crypto.DummyData
 import Concordium.GlobalState.DummyData
+import Concordium.GlobalState.Persistent.BlobStore
+import Concordium.GlobalState.Persistent.BlockState (emptyPersistentTransactionOutcomes)
 import Concordium.Types.DummyData
+import Concordium.Types.HashableTo
+import Control.Monad.IO.Class
 import System.Random
 
 -- This file contains tests relating to the construction of the blockhash.
@@ -89,6 +97,22 @@ transactionH = TransactionOutcomesHash (Hash (FBS.pack (Prelude.replicate 32 (fr
 
 defaultHash :: BlockHash
 defaultHash = Block.generateBlockHash slot parent bakerid bakerSVK blockP nonce blockFinData payload stateHash transactionH
+
+newtype DummyHashMonad a = DummyHashMonad {runDummyHashMonad :: a}
+    deriving (Functor, Applicative, Monad) via Identity
+
+instance MonadIO DummyHashMonad where
+    liftIO = undefined
+
+instance MonadBlobStore DummyHashMonad where
+    storeRaw = undefined
+    loadRaw = undefined
+    flushStore = undefined
+    getCallbacks = undefined
+    loadBlobPtr = undefined
+
+instance MonadProtocolVersion DummyHashMonad where
+    type MPV DummyHashMonad = 'P6
 
 tests :: Spec
 tests = do
@@ -161,3 +185,11 @@ tests = do
                 let transactionH' = TransactionOutcomesHash (Hash (FBS.pack (Prelude.replicate 32 (fromIntegral (1 :: Word)))))
                     hash' = Block.generateBlockHash slot parent bakerid bakerSVK blockP nonce blockFinData payload stateHash transactionH'
                 defaultHash `shouldNotBe` hash'
+
+            specify "Hash of emptyPersistentTransactionOutcomes (TOV0) is hash of emptyTransactionOutcomesV0" $
+                runDummyHashMonad (getHashM @_ @TransactionOutcomesHash (emptyPersistentTransactionOutcomes @'TOV0))
+                    `shouldBe` getHash emptyTransactionOutcomesV0
+
+            specify "Hash of emptyPersistentTransactionOutcomes (TOV1) is emptyTransactionOutcomesHashV1" $
+                runDummyHashMonad (getHashM @_ @TransactionOutcomesHash (emptyPersistentTransactionOutcomes @'TOV1))
+                    `shouldBe` emptyTransactionOutcomesHashV1

@@ -17,6 +17,7 @@ import qualified Data.Map.Strict as Map
 import Data.Time
 import Lens.Micro.Platform
 
+import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.Types
 
@@ -49,13 +50,9 @@ data TestContext (pv :: ProtocolVersion) = TestContext
     { _tcBakerContext :: !BakerContext,
       _tcPersistentBlockStateContext :: PersistentBlockStateContext pv,
       _tcMemoryLLDB :: !(IORef (LowLevelDB pv)),
-      _tcCurrentTime :: !UTCTime
+      _tcCurrentTime :: !UTCTime,
+      _tcLogger :: !(LogMethod (TestMonad pv))
     }
-
-makeLenses ''TestContext
-
-instance HasBakerContext (TestContext pv) where
-    bakerContext = tcBakerContext
 
 instance HasBlobStore (TestContext pv) where
     blobStore = blobStore . _tcPersistentBlockStateContext
@@ -88,6 +85,18 @@ type PersistentBlockStateMonadHelper pv =
         pv
         (TestContext pv)
         (RWST (TestContext pv) TestWrite (TestState pv) IO)
+
+newtype TestMonad (pv :: ProtocolVersion) a = TestMonad {runTestMonad' :: RWST (TestContext pv) TestWrite (TestState pv) IO a}
+    deriving newtype (Functor, Applicative, Monad, MonadReader (TestContext pv), MonadIO, MonadThrow, MonadWriter TestWrite)
+    deriving
+        (BlockStateTypes, ContractStateOperations, ModuleQuery)
+        via (PersistentBlockStateMonadHelper pv)
+
+makeLenses ''TestContext
+makeLenses ''TestState
+
+instance HasBakerContext (TestContext pv) where
+    bakerContext = tcBakerContext
 
 genesisCore :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => GenesisData pv -> BaseV1.CoreGenesisParametersV1
 genesisCore = case protocolVersion @pv of
@@ -143,16 +152,11 @@ runTestMonad _tcBakerContext _tcCurrentTime genData (TestMonad a) =
                     }
         _tcMemoryLLDB <- liftIO . newIORef $! initialLowLevelDB genStoredBlock (_tsSkovData ^. roundStatus)
         _tcPersistentBlockStateContext <- ask
+        let _tcLogger src lvl msg = liftIO $ putStrLn $ "[" ++ show src ++ " " ++ show lvl ++ "] " ++ show msg
         let ctx = TestContext{..}
         let _tsPendingTimers = Map.empty
         let st = TestState{..}
         fst <$> liftIO (evalRWST a ctx st)
-
-newtype TestMonad (pv :: ProtocolVersion) a = TestMonad {runTestMonad' :: RWST (TestContext pv) TestWrite (TestState pv) IO a}
-    deriving newtype (Functor, Applicative, Monad, MonadReader (TestContext pv), MonadIO, MonadThrow, MonadWriter TestWrite)
-    deriving
-        (BlockStateTypes, ContractStateOperations, ModuleQuery) -- , AccountOperations, BlockStateQuery)
-        via (PersistentBlockStateMonadHelper pv)
 
 deriving via
     (PersistentBlockStateMonadHelper pv)
@@ -184,8 +188,6 @@ deriving via
     instance
         IsProtocolVersion pv => LowLevel.MonadTreeStateStore (TestMonad pv)
 
-makeLenses ''TestState
-
 instance MonadState (SkovData pv) (TestMonad pv) where
     state = TestMonad . state . tsSkovData
     get = TestMonad (use tsSkovData)
@@ -211,3 +213,8 @@ instance TimerMonad (TestMonad pv) where
         tsPendingTimers .= Map.insert newIndex (delay, void action) pts
         return newIndex
     cancelTimer timer = TestMonad $ tsPendingTimers %= Map.delete timer
+
+instance MonadLogger (TestMonad pv) where
+    logEvent src lvl msg = do
+        logger <- view tcLogger
+        logger src lvl msg

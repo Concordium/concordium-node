@@ -24,6 +24,7 @@ data Timeout
       DelayFor NominalDiffTime
     | -- |Wait until a given time
       DelayUntil UTCTime
+    deriving (Show)
 
 class Monad m => TimerMonad m where
     type Timer m
