@@ -158,8 +158,7 @@ mod tests {
         };
 
         // and check that only one is inserted
-        let dummy_gauge =
-            IntGaugeVec::new(Opts::new("dummy", "").variable_label("bucket"), &["bucket"]);
+        let dummy_gauge = register_int_gauge_vec!("bucket_dummy_gauge", "help", &["bucket"]);
         if let Ok(bucket_size_gauge_dummy) = dummy_gauge {
             buckets.insert_into_bucket(p2p_peer, Default::default(), &bucket_size_gauge_dummy);
             buckets.insert_into_bucket(
