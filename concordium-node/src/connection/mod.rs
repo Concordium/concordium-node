@@ -586,8 +586,16 @@ impl Connection {
     pub fn populate_remote_end_networks(&mut self, peer: RemotePeer, networks: &Networks) {
         self.remote_end_networks.extend(networks.iter());
 
+        let increment_bucket = |a: u64| {
+            self.handler.stats.recent_peers.with_label_values(&[a.to_string().as_str()]).inc();
+        };
+
         if self.remote_peer.peer_type != PeerType::Bootstrapper {
-            write_or_die!(self.handler.buckets()).insert_into_bucket(peer, networks.to_owned());
+            write_or_die!(self.handler.buckets()).insert_into_bucket(
+                peer,
+                networks.to_owned(),
+                increment_bucket,
+            );
         }
     }
 

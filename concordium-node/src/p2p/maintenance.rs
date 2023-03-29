@@ -739,8 +739,11 @@ pub fn spawn(
                 && Instant::now().duration_since(last_buckets_cleaned)
                     >= Duration::from_millis(node.config.bucket_cleanup_interval)
             {
+                let decrement_bucket = |a: u64| {
+                    node.stats.recent_peers.with_label_values(&[a.to_string().as_str()]).dec();
+                };
                 write_or_die!(node.buckets())
-                    .clean_buckets(node.config.timeout_bucket_entry_period);
+                    .clean_buckets(node.config.timeout_bucket_entry_period, decrement_bucket);
                 last_buckets_cleaned = Instant::now();
             }
         }

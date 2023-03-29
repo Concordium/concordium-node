@@ -48,14 +48,21 @@ impl Default for Buckets {
 
 impl Buckets {
     /// Adds a peer to a bucket.
-    pub fn insert_into_bucket(&mut self, peer: RemotePeer, networks: Networks) {
+    pub fn insert_into_bucket(
+        &mut self,
+        peer: RemotePeer,
+        networks: Networks,
+        on_insert_in_bucket: impl Fn(u64),
+    ) {
         let bucket = &mut self.buckets[0];
 
-        bucket.insert(Node {
+        if bucket.insert(Node {
             peer,
             networks,
             last_seen: get_current_stamp(),
-        });
+        }) {
+            on_insert_in_bucket(0);
+        }
     }
 
     /// Update the networks of a node in the bucket.
@@ -105,9 +112,18 @@ impl Buckets {
     }
 
     /// Removes the bucket nodes older than then specified amount of time.
-    pub fn clean_buckets(&mut self, timeout_bucket_entry_period: u64) {
+    pub fn clean_buckets(
+        &mut self,
+        timeout_bucket_entry_period: u64,
+        on_remove_from_bucket: impl Fn(u64),
+    ) {
         let clean_before = get_current_stamp() - timeout_bucket_entry_period;
-        self.buckets[0].retain(|entry| entry.last_seen >= clean_before);
+        self.buckets[0].retain(|entry| {
+            if entry.last_seen < clean_before {
+                on_remove_from_bucket(0);
+            }
+            entry.last_seen >= clean_before
+        });
     }
 }
 
@@ -142,8 +158,8 @@ mod tests {
         };
 
         // and check that only one is inserted
-        buckets.insert_into_bucket(p2p_peer, Default::default());
-        buckets.insert_into_bucket(p2p_duplicate_peer, Default::default());
+        buckets.insert_into_bucket(p2p_peer, Default::default(), |_| {});
+        buckets.insert_into_bucket(p2p_duplicate_peer, Default::default(), |_| {});
         assert_eq!(buckets.buckets.len(), 1);
     }
 }

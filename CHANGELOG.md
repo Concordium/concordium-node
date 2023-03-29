@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased changes
+- Fix a bug where the prometheus interface was not exposed in the
+  bootstrapper when `CONCORDIUM_NODE_PROMETHEUS_LISTEN_PORT` was set.
+- Extend Prometheus exporter with metric `recent_peers`, see
+  [docs/prometheus-exporter.md](https://github.com/Concordium/concordium-node/blob/main/docs/prometheus-exporter.md) for more details.
 
 ## 5.3.1
 

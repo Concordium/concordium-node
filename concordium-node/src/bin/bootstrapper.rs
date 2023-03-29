@@ -16,8 +16,10 @@ use concordium_node::{
 };
 
 use concordium_node::stats_export_service::start_push_gateway;
+use std::net::SocketAddr;
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     let (mut conf, app_prefs) = get_config_and_logging_setup()?;
     conf.connection.max_allowed_nodes = Some(conf.bootstrapper.max_nodes);
     let data_dir_path = app_prefs.get_data_dir();
@@ -44,12 +46,22 @@ fn main() -> anyhow::Result<()> {
         conf.common.id,
         &conf,
         PeerType::Bootstrapper,
-        stats_export_service,
+        stats_export_service.clone(),
         regenesis_arc,
     )
     .context("Failed to create the network node.")?;
 
     start_push_gateway(&conf.prometheus, &node.stats, node.id());
+
+    if let Some(plp) = conf.prometheus.prometheus_listen_port {
+        let (sender, _) = tokio::sync::broadcast::channel(1);
+        tokio::spawn(async move {
+            stats_export_service
+                .start_server(SocketAddr::new(conf.prometheus.prometheus_listen_addr, plp), sender)
+                .await
+        });
+    }
+
     // Set the startime in the stats.
     node.stats.node_startup_timestamp.set(node.start_time.timestamp_millis());
 

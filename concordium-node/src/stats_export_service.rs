@@ -18,8 +18,8 @@ use hyper::Body;
 use prometheus::{
     self,
     core::{Atomic, AtomicI64, AtomicU64, GenericGauge},
-    Encoder, Gauge, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, Opts,
-    Registry, TextEncoder,
+    Encoder, Gauge, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec,
+    Opts, Registry, TextEncoder,
 };
 use std::{
     net::SocketAddr,
@@ -272,6 +272,9 @@ pub struct StatsExportService {
     /// This is not exposed in the prometheus exporter, but is exposed by the
     /// gRPC API.
     pub avg_bps_out: AtomicU64,
+    /// The number of peers that recently connected to the bootstrapper labelled
+    /// by the bucket in which they are contained.
+    pub recent_peers: IntGaugeVec,
 }
 
 impl StatsExportService {
@@ -467,6 +470,16 @@ impl StatsExportService {
         let last_throughput_measurement_received_bytes = AtomicU64::new(0);
         let avg_bps_in = AtomicU64::new(0);
         let avg_bps_out = AtomicU64::new(0);
+        let recent_peers = IntGaugeVec::new(
+            Opts::new(
+                "recent_peers",
+                "The number of peers that recently connected to the bootstrapper labelled by the \
+                 number of the bucket in which they are contained",
+            )
+            .variable_label("bucket"),
+            &["bucket"],
+        )?;
+        registry.register(Box::new(recent_peers.clone()))?;
 
         Ok(StatsExportService {
             registry,
@@ -501,6 +514,7 @@ impl StatsExportService {
             last_throughput_measurement_received_bytes,
             avg_bps_in,
             avg_bps_out,
+            recent_peers,
         })
     }
 

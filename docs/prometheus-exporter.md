@@ -232,3 +232,7 @@ Finalized blocks received as part of catchup are also counted, when the block wa
 Indicator for unsupported pending protocol updates where a non-zero value indicates the effective time (Unix time in milliseconds) of a pending unsupported protocol update.
 
 This metric is intended for setting up alerts to catch outdated nodes.
+
+### `recent_peers`
+
+The size of the set of recently connected peers used to generate the peer list included in handshake responses of the bootstrapper. Labelled by the number of the bucket in which the peer is maintained (`bucket=<number>`).
