@@ -52,7 +52,7 @@ impl Buckets {
         &mut self,
         peer: RemotePeer,
         networks: Networks,
-        on_insert_in_bucket: impl Fn(u64),
+        on_insert_success: impl Fn(u64),
     ) {
         let bucket = &mut self.buckets[0];
 
@@ -61,7 +61,7 @@ impl Buckets {
             networks,
             last_seen: get_current_stamp(),
         }) {
-            on_insert_in_bucket(0);
+            on_insert_success(0);
         }
     }
 
@@ -112,15 +112,11 @@ impl Buckets {
     }
 
     /// Removes the bucket nodes older than then specified amount of time.
-    pub fn clean_buckets(
-        &mut self,
-        timeout_bucket_entry_period: u64,
-        on_remove_from_bucket: impl Fn(u64),
-    ) {
+    pub fn clean_buckets(&mut self, timeout_bucket_entry_period: u64, on_removal: impl Fn(u64)) {
         let clean_before = get_current_stamp() - timeout_bucket_entry_period;
         self.buckets[0].retain(|entry| {
             if entry.last_seen < clean_before {
-                on_remove_from_bucket(0);
+                on_removal(0);
             }
             entry.last_seen >= clean_before
         });
