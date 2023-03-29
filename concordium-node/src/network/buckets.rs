@@ -121,7 +121,8 @@ impl Buckets {
     ) {
         let clean_before = get_current_stamp() - timeout_bucket_entry_period;
         self.buckets[0].retain(|entry| entry.last_seen >= clean_before);
-        bucket_size_gauge.with_label_values(&["0"]).set(self.buckets[0].len().try_into().unwrap());
+        let new_bucket_size = self.buckets[0].len();
+        bucket_size_gauge.with_label_values(&["0"]).set(new_bucket_size.try_into().unwrap());
     }
 }
 
