@@ -130,7 +130,7 @@ impl Buckets {
 mod tests {
     use super::*;
     use crate::common::P2PNodeId;
-    use prometheus::{core::GenericGaugeVec, Opts};
+    use prometheus::{core::GenericGaugeVec, register_int_gauge_vec, Opts};
     use rand::Rng;
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
@@ -158,7 +158,8 @@ mod tests {
         };
 
         // and check that only one is inserted
-        let dummy_gauge = GenericGaugeVec::new(Opts::new("", ""), &[""]);
+        let dummy_gauge =
+            register_int_gauge_vec!(Opts::new("bucket_opts", "bucket_desc"), &["bucket"]);
         if let Ok(bucket_size_gauge_dummy) = dummy_gauge {
             buckets.insert_into_bucket(p2p_peer, Default::default(), &bucket_size_gauge_dummy);
             buckets.insert_into_bucket(
