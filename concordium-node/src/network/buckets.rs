@@ -4,7 +4,6 @@ use prometheus::IntGaugeVec;
 use rand::seq::IteratorRandom;
 use std::{
     collections::HashSet,
-    convert::TryInto,
     hash::{Hash, Hasher},
 };
 
@@ -122,7 +121,7 @@ impl Buckets {
         let clean_before = get_current_stamp() - timeout_bucket_entry_period;
         self.buckets[0].retain(|entry| entry.last_seen >= clean_before);
         let new_bucket_size = self.buckets[0].len();
-        bucket_size_gauge.with_label_values(&["0"]).set(new_bucket_size.try_into().unwrap());
+        bucket_size_gauge.with_label_values(&["0"]).set(new_bucket_size as i64);
     }
 }
 
@@ -130,7 +129,7 @@ impl Buckets {
 mod tests {
     use super::*;
     use crate::common::P2PNodeId;
-    use prometheus::{core::GenericGaugeVec, register_int_gauge_vec, Opts};
+    use prometheus::register_int_gauge_vec;
     use rand::Rng;
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
@@ -157,18 +156,13 @@ mod tests {
             peer_type: PeerType::Node,
         };
 
-        // and check that only one is inserted
-        let dummy_gauge = register_int_gauge_vec!("bucket_dummy_gauge", "help", &["bucket"]);
-        if let Ok(bucket_size_gauge_dummy) = dummy_gauge {
-            buckets.insert_into_bucket(p2p_peer, Default::default(), &bucket_size_gauge_dummy);
-            buckets.insert_into_bucket(
-                p2p_duplicate_peer,
-                Default::default(),
-                &bucket_size_gauge_dummy,
-            );
-            assert_eq!(buckets.buckets.len(), 1);
-        } else {
-            panic!("Unable to create dummy gauge.")
-        };
+        // create a dummy gauge
+        let dummy_gauge = register_int_gauge_vec!("bucket_dummy_gauge", "help", &["bucket"])
+            .expect("Unable to create dummy gauge.");
+
+        // and check that only one peer is inserted
+        buckets.insert_into_bucket(p2p_peer, Default::default(), &dummy_gauge);
+        buckets.insert_into_bucket(p2p_duplicate_peer, Default::default(), &dummy_gauge);
+        assert_eq!(buckets.buckets.len(), 1);
     }
 }
