@@ -55,13 +55,16 @@ testReceiveTimeoutMessage = describe "Receive timeout message" $ do
     it "initializes catch-up when qc pointer is pending" $ receiveAndCheck sd qcPointerIsPending $ CatchupRequired
     it "returns duplicate upon a duplicate timeout message" $ receiveAndCheck sd duplicateMessage $ Duplicate
     it "rejects double signing" $ receiveAndCheck sd doubleSignMessage $ Rejected DoubleSigning
+    it "rejects when the bls signature is invalid" $ receiveAndCheck sd invalidBLSSignatureMessage $ Rejected InvalidBLSSignature
     it "received a valid timeout message" $
         receiveAndCheck sd validTimeoutMessage $
             Received $
-                MkPartiallyVerifiedTimeoutMessage validTimeoutMessage blsPublicKey finalizers
+                MkPartiallyVerifiedTimeoutMessage validTimeoutMessage finalizers
   where
     -- A valid timeout message that should pass the initial verification.
     validTimeoutMessage = mkTimeoutMessage $! mkTimeoutMessageBody 2 2 0 $ someQC (Round 1) 0
+    -- A timeout message with an invalid BLS signature.
+    invalidBLSSignatureMessage = mkTimeoutMessage $! TimeoutMessageBody (FinalizerIndex 2) (Round 2) 0 (someQC (Round 1) 0) $ TimeoutSignature Bls.emptySignature
     -- A message that will be rejected as double signing as the finalizer already have @duplicateMessage@
     -- in the tree state.
     doubleSignMessage = mkTimeoutMessage $! mkTimeoutMessageBody 1 2 0 $ someQC (Round 124) 0
@@ -81,7 +84,7 @@ testReceiveTimeoutMessage = describe "Receive timeout message" $ do
     -- A message where the round is in the future but the finalizer is present in the epoch.
     futureRoundTM = mkTimeoutMessage $! mkTimeoutMessageBody 1 3 0 $ someQC (Round 1) 0
     -- A message where the signature is invalid
-    invalidSignatureMessage = TimeoutMessage (TimeoutMessageBody (FinalizerIndex 1) (Round 2) 0 (someQC (Round 1) 0) (TimeoutSignature $ Bls.emptySignature)) (Sig.Signature "invalid signature")
+    invalidSignatureMessage = TimeoutMessage (mkTimeoutMessageBody 1 2 0 (someQC (Round 1) 0)) (Sig.Signature "invalid signature")
     -- A message where the round is obsolete.
     obsoleteRoundMessage = mkTimeoutMessage $! mkTimeoutMessageBody 1 1 0 $ someQC (Round 0) 0
     -- A message where the qc is obsolete.
@@ -119,8 +122,10 @@ testReceiveTimeoutMessage = describe "Receive timeout message" $ do
     sigKeyPair = unsafePerformIO Sig.newKeyPair
     -- Public key shared by the finalizers in this test.
     sigPublicKey = Sig.verifyKey sigKeyPair
-    -- make a timeout message body suitable for signing
-    mkTimeoutMessageBody fidx r e qc = TimeoutMessageBody (FinalizerIndex fidx) (Round r) e qc (TimeoutSignature Bls.emptySignature)
+    -- make a timeout message body suitable for signing.
+    mkTimeoutMessageBody fidx r e qc = TimeoutMessageBody (FinalizerIndex fidx) (Round r) e qc $ validTimeoutSignature r (qcRound qc) (qcEpoch qc)
+    -- Create a valid timeout signature.
+    validTimeoutSignature r qr qe = signTimeoutSignatureMessage (TimeoutSignatureMessage genesisBlockHash (Round r) qr qe) blsPrivateKey
     -- sign and create a timeout message.
     mkTimeoutMessage body = signTimeoutMessage body genesisBlockHash sigKeyPair
     -- A block hash for a block marked as pending.

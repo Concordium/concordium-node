@@ -14,7 +14,6 @@ import qualified Data.Set as Set
 import Data.Word
 import Lens.Micro.Platform
 
-import qualified Concordium.Crypto.BlsSignature as Bls
 import Concordium.Genesis.Data.BaseV1
 import Concordium.TimeMonad
 import Concordium.Types
@@ -55,6 +54,8 @@ data ReceiveTimeoutMessageRejectReason
       ObsoleteQCPointer
     | -- |The 'QuorumCertificate' is ponting to a dead block.
       DeadQCPointer
+    | -- |The BLS signature was invalid.
+      InvalidBLSSignature
     deriving (Eq, Show)
 
 -- |Possibly return codes for when receiving
@@ -74,11 +75,10 @@ data ReceiveTimeoutMessageResult
     deriving (Eq, Show)
 
 -- |A partially verified 'TimeoutMessage' with its associated finalization committees.
+-- The timeout message is verified itself but the associated quorum certificate is not.
 data PartiallyVerifiedTimeoutMessage = MkPartiallyVerifiedTimeoutMessage
     { -- |The 'TimeoutMessage' that has been partially verified
       pvtm :: !TimeoutMessage,
-      -- |The bls key for the finalizer that has sent the 'TimeoutMessage'.
-      pvtmTimeoutFinalizerKey :: !Bls.PublicKey,
       -- |The finalization committee with respect to the 'QuorumCertificate' contained
       -- in the 'TimeoutMessage'.
       pvtmQuorumFinalizers :: !FinalizationCommittee
@@ -99,7 +99,7 @@ receiveTimeoutMessage ::
     SkovData (MPV m) ->
     -- |Result of receiving the 'TimeoutMessage'.
     m ReceiveTimeoutMessageResult
-receiveTimeoutMessage tm@TimeoutMessage{tmBody = TimeoutMessageBody{..}} skovData = receive
+receiveTimeoutMessage tm@TimeoutMessage{tmBody = body@TimeoutMessageBody{..}} skovData = receive
   where
     receive
         --  The round of the 'TimeoutMessage' is obsolete.
@@ -174,7 +174,12 @@ receiveTimeoutMessage tm@TimeoutMessage{tmBody = TimeoutMessageBody{..}} skovDat
                         flag $! TimeoutDoubleSigning tm existingMessage
                         return $ Rejected DoubleSigning
             -- Return a 'PartiallyVerifiedTimeoutMessage'
-            Nothing -> return $ Received $ MkPartiallyVerifiedTimeoutMessage tm finalizerBlsKey $ qcFinalizationCommittee
+            Nothing ->
+                if not (checkTimeoutSignatureSingle (tmSignatureMessage genesisBlockHash body) finalizerBlsKey tmAggregateSignature)
+                    then do
+                        flag $ InvalidTimeoutSignature tm
+                        return $ Rejected InvalidBLSSignature
+                    else return $ Received $ MkPartiallyVerifiedTimeoutMessage tm qcFinalizationCommittee
     -- The finalization committee for the proposed qc epoch if present.
     qcEpochFinalizationCommittee = _bfFinalizers <$> getBakersForLiveEpoch (qcEpoch tmQuorumCertificate) skovData
     -- Get an existing message if present otherwise return nothing.
@@ -217,58 +222,48 @@ executeTimeoutMessage ::
     -- |The partially verified 'TimeoutMessage' to execute.
     PartiallyVerifiedTimeoutMessage ->
     m ()
-executeTimeoutMessage (MkPartiallyVerifiedTimeoutMessage tm@TimeoutMessage{tmBody = body@TimeoutMessageBody{..}} finalizerKey qcCommittee) = do
-    -- Verify the bls signature of the timeout message
-    verifyBLSSignature >>= \case
-        -- If the bls signature cannot be verified then flag it.
-        False -> flag $! InvalidTimeoutSignature tm
-        -- Verify the quorum certificate in the timeout message.
-        True -> do
-            highestQCRound <- use (roundStatus . rsHighestQC . to qcRound)
-            -- Check the quorum certificate if it's from a round we have not checked before.
-            if qcRound tmQuorumCertificate > highestQCRound
-                then do
-                    checkQC >>= \case
-                        -- Stop and flag if the quorum certificate is invalid.
-                        False -> flag $! TimeoutMessageInvalidQC tm
-                        -- The quorum certificate is valid and we check whether we can
-                        -- advance by it.
-                        True -> do
-                            -- Check if the quorum certificate of the timeout message
-                            -- finalizes any blocks.
-                            checkFinality tmQuorumCertificate
-                            -- Update the highest QC seen.
-                            roundStatus . rsHighestQC .= tmQuorumCertificate
-                            -- Advance the round if we can advance by the quorum certificate.
-                            currentRound <- use $ roundStatus . rsCurrentRound
-                            when (currentRound <= qcRound tmQuorumCertificate) $ do
-                                advanceRound (currentRound + 1) (Right tmQuorumCertificate)
-                else -- Check whether we have already checked a qc for the round
-                -- todo. this check is probably not correct.
+executeTimeoutMessage (MkPartiallyVerifiedTimeoutMessage tm@TimeoutMessage{tmBody = TimeoutMessageBody{..}} qcCommittee) = do
+    highestQCRound <- use (roundStatus . rsHighestQC . to qcRound)
+    -- Check the quorum certificate if it's from a round we have not checked before.
+    if qcRound tmQuorumCertificate > highestQCRound
+        then do
+            checkQC >>= \case
+                -- Stop and flag if the quorum certificate is invalid.
+                False -> flag $! TimeoutMessageInvalidQC tm
+                -- The quorum certificate is valid and we check whether we can
+                -- advance by it.
+                True -> do
+                    -- Check if the quorum certificate of the timeout message
+                    -- finalizes any blocks.
+                    checkFinality tmQuorumCertificate
+                    -- Update the highest QC seen.
+                    roundStatus . rsHighestQC .= tmQuorumCertificate
+                    -- Advance the round if we can advance by the quorum certificate.
+                    currentRound <- use $ roundStatus . rsCurrentRound
+                    when (currentRound <= qcRound tmQuorumCertificate) $ do
+                        advanceRound (currentRound + 1) (Right tmQuorumCertificate)
+        else -- Check whether we have already checked a qc for the round
+        -- todo. this check is probably not correct.
 
-                    if qcRound tmQuorumCertificate == highestQCRound
-                        then do
-                            qc' <- use (roundStatus . rsHighestQC)
-                            -- the qc is invalid since it was for another epoch.
-                            when (qcEpoch qc' /= qcEpoch tmQuorumCertificate) $ flag $ TimeoutMessageInvalidQC tm
-                        else
-                            checkQC >>= \case
-                                -- the quorum certificate is not valid so flag and stop.
-                                False -> flag $! TimeoutMessageInvalidQC tm
-                                -- The quorum certificate is valid so check whether it finalises any blocks.
-                                True -> checkFinality tmQuorumCertificate
-            -- Finally we process the timeout message.
-            processTimeout tm
+            if qcRound tmQuorumCertificate == highestQCRound
+                then do
+                    qc' <- use (roundStatus . rsHighestQC)
+                    -- the qc is invalid since it was for another epoch.
+                    when (qcEpoch qc' /= qcEpoch tmQuorumCertificate) $ flag $ TimeoutMessageInvalidQC tm
+                else
+                    checkQC >>= \case
+                        -- the quorum certificate is not valid so flag and stop.
+                        False -> flag $! TimeoutMessageInvalidQC tm
+                        -- The quorum certificate is valid so check whether it finalises any blocks.
+                        True -> checkFinality tmQuorumCertificate
+    -- Finally we process the timeout message.
+    processTimeout tm
   where
     -- Check the quorum certificate of the timeout message.
     checkQC = do
         genesisBlockHash <- use $ genesisMetadata . to gmFirstGenesisHash
         signatureThreshold <- use $ genesisMetadata . to gmParameters . to genesisSignatureThreshold
         return $! checkQuorumCertificate genesisBlockHash (toRational signatureThreshold) qcCommittee tmQuorumCertificate
-    -- Verify the bls signature on the timeout message.
-    verifyBLSSignature = do
-        genesisBlockHash <- use (genesisMetadata . to gmFirstGenesisHash)
-        return $ checkTimeoutSignatureSingle (tmSignatureMessage genesisBlockHash body) finalizerKey tmAggregateSignature
 
 -- |Helper function for calcuculating a new @currentTimeout@ given the old @currentTimeout@
 -- and the @timeoutIncrease@ chain parameter.
