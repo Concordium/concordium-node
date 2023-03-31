@@ -47,8 +47,6 @@ data FlaggableOffense (pv :: ProtocolVersion)
       TimeoutDoubleSigning {tdsReceived :: !TimeoutMessage, tdsExisting :: !TimeoutMessage}
     | -- |The bls signature on the timeout message is not valid.
       InvalidTimeoutSignature !TimeoutMessage
-    | -- |The tm and qc rounds are incoherent.
-      TimeoutIncoherentRound !TimeoutMessage
     | -- |The timeout message yields an invalid 'QuorumCertificate'.
       TimeoutMessageInvalidQC !TimeoutMessage
 
