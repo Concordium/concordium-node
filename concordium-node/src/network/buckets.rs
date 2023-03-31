@@ -1,5 +1,6 @@
 //! Network bucket handling.
 
+use prometheus::IntGaugeVec;
 use rand::seq::IteratorRandom;
 use std::{
     collections::HashSet,
@@ -48,14 +49,20 @@ impl Default for Buckets {
 
 impl Buckets {
     /// Adds a peer to a bucket.
-    pub fn insert_into_bucket(&mut self, peer: RemotePeer, networks: Networks) {
+    pub fn insert_into_bucket(
+        &mut self,
+        peer: RemotePeer,
+        networks: Networks,
+        bucket_size_gauge: &IntGaugeVec,
+    ) {
         let bucket = &mut self.buckets[0];
-
-        bucket.insert(Node {
+        if bucket.insert(Node {
             peer,
             networks,
             last_seen: get_current_stamp(),
-        });
+        }) {
+            bucket_size_gauge.with_label_values(&["0"]).inc();
+        }
     }
 
     /// Update the networks of a node in the bucket.
@@ -105,9 +112,16 @@ impl Buckets {
     }
 
     /// Removes the bucket nodes older than then specified amount of time.
-    pub fn clean_buckets(&mut self, timeout_bucket_entry_period: u64) {
+    pub fn clean_buckets(
+        &mut self,
+        timeout_bucket_entry_period: u64,
+        bucket_size_gauge: &IntGaugeVec,
+    ) {
         let clean_before = get_current_stamp() - timeout_bucket_entry_period;
-        self.buckets[0].retain(|entry| entry.last_seen >= clean_before);
+        let bucket = &mut self.buckets[0];
+        bucket.retain(|entry| entry.last_seen >= clean_before);
+        let new_bucket_size = bucket.len();
+        bucket_size_gauge.with_label_values(&["0"]).set(new_bucket_size as i64);
     }
 }
 
@@ -115,6 +129,7 @@ impl Buckets {
 mod tests {
     use super::*;
     use crate::common::P2PNodeId;
+    use prometheus::register_int_gauge_vec;
     use rand::Rng;
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
@@ -141,9 +156,13 @@ mod tests {
             peer_type: PeerType::Node,
         };
 
-        // and check that only one is inserted
-        buckets.insert_into_bucket(p2p_peer, Default::default());
-        buckets.insert_into_bucket(p2p_duplicate_peer, Default::default());
+        // create a dummy gauge
+        let dummy_gauge = register_int_gauge_vec!("bucket_dummy_gauge", "help", &["bucket"])
+            .expect("Unable to create dummy gauge.");
+
+        // and check that only one peer is inserted
+        buckets.insert_into_bucket(p2p_peer, Default::default(), &dummy_gauge);
+        buckets.insert_into_bucket(p2p_duplicate_peer, Default::default(), &dummy_gauge);
         assert_eq!(buckets.buckets.len(), 1);
     }
 }
