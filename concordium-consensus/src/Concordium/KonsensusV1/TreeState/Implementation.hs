@@ -61,6 +61,7 @@ import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.TransactionVerification
 import qualified Concordium.TransactionVerification as TVer
+import GHC.Stack
 
 -- |Exception occurring from a violation of tree state invariants.
 newtype TreeStateInvariantViolation = TreeStateInvariantViolation String
@@ -467,13 +468,17 @@ parentOf block
 -- By definition, the parent block must either also be live or be the last finalized block.
 --
 -- If the block is not live, this function may fail with an error.
-parentOfLive :: SkovData pv -> BlockPointer pv -> BlockPointer pv
+parentOfLive :: (HasCallStack) => SkovData pv -> BlockPointer pv -> BlockPointer pv
 parentOfLive sd block
     | let lastFin = sd ^. lastFinalized,
       parentHash == getHash lastFin =
         lastFin
     | Just (MemBlockAlive parent) <- sd ^. blockTable . liveMap . at' parentHash = parent
-    | otherwise = error "parentOfLive: parent block is neither live nor last-finalized"
+    | otherwise =
+        error $
+            "parentOfLive: parent block ("
+                ++ show parentHash
+                ++ ") is neither live nor last-finalized"
   where
     parentHash
         | Present blockData <- blockBakedData block = blockParent blockData

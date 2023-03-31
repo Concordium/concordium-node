@@ -27,6 +27,7 @@ import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Control.Exception
+import GHC.Stack
 
 -- |Shrink the current timeout duration in response to a successful QC for a round.
 -- This updates the timeout to @max timeoutBase (timeoutDecrease * oldTimeout)@, where
@@ -54,8 +55,8 @@ shrinkTimeout blockPtr = do
 -- are finalized, the tree is pruned to the decendants of the new last finalized block, and,
 -- if applicable, the epoch is advanced.
 --
--- PRECONDITION: the quorum certificate is valid and for a live (non-finalized) block. (If the
--- block is not live, this function will not make any change to the state, and will not error.)
+-- PRECONDITION: the quorum certificate is valid. (If the target of the QC is not live, this
+-- function will not make any change to the state, and will not error.)
 checkFinality ::
     ( MonadState (SkovData (MPV m)) m,
       TimeMonad m,
@@ -88,7 +89,8 @@ checkFinalityWithBlock ::
       BlockStateStorage m,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
       MonadThrow m,
-      IsConsensusV1 (MPV m)
+      IsConsensusV1 (MPV m),
+      HasCallStack
     ) =>
     QuorumCertificate ->
     BlockPointer (MPV m) ->
@@ -124,7 +126,8 @@ processFinalization ::
       BlockStateStorage m,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
       MonadThrow m,
-      IsConsensusV1 (MPV m)
+      IsConsensusV1 (MPV m),
+      HasCallStack
     ) =>
     BlockPointer (MPV m) ->
     FinalizationEntry ->

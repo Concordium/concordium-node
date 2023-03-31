@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE EmptyDataDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 
@@ -62,6 +63,7 @@ data BlockExecutionData (pv :: ProtocolVersion) = BlockExecutionData
     }
 
 data FailureReason
+    deriving (Eq, Show)
 
 -- |Compute the updated state resulting from executing a block.
 -- If block execution fails, the return value is a reason for the failure.

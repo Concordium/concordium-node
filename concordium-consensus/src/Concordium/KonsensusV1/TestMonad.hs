@@ -152,7 +152,7 @@ runTestMonad _tcBakerContext _tcCurrentTime genData (TestMonad a) =
                     }
         _tcMemoryLLDB <- liftIO . newIORef $! initialLowLevelDB genStoredBlock (_tsSkovData ^. roundStatus)
         _tcPersistentBlockStateContext <- ask
-        let _tcLogger src lvl msg = liftIO $ putStrLn $ "[" ++ show src ++ " " ++ show lvl ++ "] " ++ show msg
+        let _tcLogger src lvl msg = liftIO $ putStrLn $ "[" ++ show lvl ++ "] " ++ show src ++ ": " ++ msg
         let ctx = TestContext{..}
         let _tsPendingTimers = Map.empty
         let st = TestState{..}

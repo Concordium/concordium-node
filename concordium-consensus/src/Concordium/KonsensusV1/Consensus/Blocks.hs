@@ -49,6 +49,7 @@ data BlockTraceLogEvent
     | LogBlockIncorrectBaker BlockHash BakerId BakerId
     | LogBlockQCRoundInconsistent BlockHash
     | LogBlockQCEpochInconsistent BlockHash
+    | LogBlockInvalidQC BlockHash
     | LogBlockRoundInconsistent BlockHash
     | LogBlockEpochInconsistent BlockHash
     | LogBlockNonceIncorrect BlockHash
@@ -59,7 +60,11 @@ data BlockTraceLogEvent
     | LogBlockInvalidTC BlockHash
     | LogBlockUnexpectedTC BlockHash
     | LogBlockEpochFinalizationMissing BlockHash
+    | LogBlockUnrelatedEpochFinalization BlockHash BlockHash
+    | LogBlockInvalidEpochFinalizationTarget BlockHash BlockHash
+    | LogBlockInvalidEpochFinalization BlockHash
     | LogBlockUnexpectedEpochFinalization BlockHash
+    | LogBlockExecutionFailure BlockHash FailureReason
     | LogBlockInvalidTransactionOutcomesHash BlockHash TransactionOutcomesHash TransactionOutcomesHash
     | LogBlockInvalidStateHash BlockHash StateHash StateHash
 
@@ -94,6 +99,8 @@ instance Loggable BlockTraceLogEvent where
         "Block " ++ show bh ++ " QC round does not match parent block's round."
     loggableMessage (LogBlockQCEpochInconsistent bh) =
         "Block " ++ show bh ++ " QC epoch does not match parent block's epoch."
+    loggableMessage (LogBlockInvalidQC bh) =
+        "Block " ++ show bh ++ " contains an invalid QC."
     loggableMessage (LogBlockRoundInconsistent bh) =
         "Block " ++ show bh ++ " round is not higher than parent block's round."
     loggableMessage (LogBlockEpochInconsistent bh) =
@@ -124,8 +131,31 @@ instance Loggable BlockTraceLogEvent where
         "Block " ++ show bh ++ " has unexpected timeout certificate."
     loggableMessage (LogBlockEpochFinalizationMissing bh) =
         "Block " ++ show bh ++ " missing an epoch finalization entry."
+    loggableMessage (LogBlockUnrelatedEpochFinalization bh target) =
+        "Block "
+            ++ show bh
+            ++ " contains epoch finalization entry for a block ("
+            ++ show target
+            ++ ") it does not descend from."
+    loggableMessage (LogBlockInvalidEpochFinalizationTarget bh target) =
+        "Block "
+            ++ show bh
+            ++ " contains epoch finalization entry for a block ("
+            ++ show target
+            ++ ") that is not part of the chain."
+    loggableMessage (LogBlockInvalidEpochFinalization bh) =
+        "Block "
+            ++ show bh
+            ++ " contains an invalid epoch finalization entry."
     loggableMessage (LogBlockUnexpectedEpochFinalization bh) =
-        "Block " ++ show bh ++ " contains finalization entry for a block it does not descend from."
+        "Block "
+            ++ show bh
+            ++ " contains an epoch finalization entry when it should not."
+    loggableMessage (LogBlockExecutionFailure bh failureReason) =
+        "Block "
+            ++ show bh
+            ++ " failed execution: "
+            ++ show failureReason
     loggableMessage (LogBlockInvalidTransactionOutcomesHash bh stated computed) =
         "Block "
             ++ show bh
@@ -151,6 +181,18 @@ instance Loggable BlockDebugLogEvent where
     loggableLevel _ = LLDebug
     loggableMessage (LogBlockMultipleSigned baker rnd) =
         "Baker " ++ show baker ++ " signed multiple blocks in round " ++ show rnd ++ "."
+
+data BlockInfoLogEvent
+    = LogBlockPending BlockHash BlockHash
+    | LogBlockArrive BlockHash
+
+instance Loggable BlockInfoLogEvent where
+    loggableSource _ = Konsensus
+    loggableLevel _ = LLInfo
+    loggableMessage (LogBlockPending block parent) =
+        "Block " ++ show block ++ " is pending its parent " ++ show parent ++ "."
+    loggableMessage (LogBlockArrive block) =
+        "Block " ++ show block ++ " arrived."
 
 -- |A block that has passed initial verification, but must still be executed, added to the state,
 -- and (potentially) signed as a finalizer.
@@ -362,7 +404,8 @@ receiveBlockKnownParent parent pendingBlock = do
 -- * TODO: if any of the transactions in the block is invalid.
 receiveBlockUnknownParent ::
     ( LowLevel.MonadTreeStateStore m,
-      MonadState (SkovData (MPV m)) m
+      MonadState (SkovData (MPV m)) m,
+      MonadLogger m
     ) =>
     PendingBlock ->
     m BlockResult
@@ -381,8 +424,9 @@ receiveBlockUnknownParent pendingBlock = do
                       verifyBlockSignature (baker ^. bakerSignatureVerifyKey) genesisHash pendingBlock ->
                         -- The signature is valid
                         continuePending
-                    | otherwise ->
+                    | otherwise -> do
                         -- The signature is invalid
+                        logLoggable $ LogBlockInvalidSignature (getHash pendingBlock)
                         return BlockResultInvalid
         else return BlockResultEarly
   where
@@ -390,10 +434,10 @@ receiveBlockUnknownParent pendingBlock = do
         -- TODO: Check the transactions in the block
         addPendingBlock pendingBlock
         markPending pendingBlock
+        logLoggable $ LogBlockPending (getHash pendingBlock) (blockParent pendingBlock)
         return BlockResultPending
 
--- |Get the minimum time between consecutive blocks.
--- TODO: should account for pending changes?
+-- |Get the minimum time between consecutive blocks, as of the specified block.
 getMinBlockTime ::
     ( IsConsensusV1 (MPV m),
       BlockStateQuery m,
@@ -419,7 +463,7 @@ getMinBlockTime b = do
 --
 --  * The block must not already be a live block.
 addBlock ::
-    (TimeMonad m, MonadState (SkovData (MPV m)) m) =>
+    (TimeMonad m, MonadState (SkovData (MPV m)) m, MonadLogger m) =>
     -- |Block to add
     PendingBlock ->
     -- |Block state
@@ -432,6 +476,7 @@ addBlock pendingBlock blockState parent = do
     now <- currentTime
     newBlock <- makeLiveBlock pendingBlock blockState height now
     addToBranches newBlock
+    logLoggable $ LogBlockArrive (getHash pendingBlock)
     let nominalTime = timestampToUTCTime $ blockTimestamp newBlock
     let numTransactions = blockTransactionCount newBlock
     !stats <- updateStatsOnArrive nominalTime now numTransactions <$> use statistics
@@ -486,6 +531,9 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
     -- This is equivalent to the condition from the blue paper:
     --
     -- blockEpoch parent > blockEpoch pendingBlock || blockEpoch parent < blockEpoch pendingBlock - 1
+    --
+    -- If the block has been successfully verified by 'receiveBlockKnownParent', this test cannot
+    -- fail, because it is already checked there.
     | blockEpoch parent /= blockEpoch pendingBlock,
       blockEpoch parent + 1 /= blockEpoch pendingBlock = do
         logLoggable $ LogBlockEpochInconsistent pbHash
@@ -527,7 +575,10 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                                 -- This implies that the block is in the epoch after the last
                                 -- finalized block.
                                 _ <- addBlock pendingBlock blockState parent
-                                checkFinalityWithBlock (blockQuorumCertificate pendingBlock) parent
+                                -- Note that the parent block could potentially no longer be live
+                                -- as a result of finalization processing in
+                                -- 'checkEpochFinalizationEntry'.
+                                checkFinality (blockQuorumCertificate pendingBlock)
                                 checkedUpdateHighestQC (blockQuorumCertificate pendingBlock)
                                 curRound <- use $ roundStatus . rsCurrentRound
                                 when (curRound < blockRound pendingBlock) $
@@ -577,6 +628,11 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                         || blockEpoch parent < tcMaxEpoch tc
                         || blockEpoch parent - tcMinEpoch tc > 2 -> do
                         logLoggable $ LogBlockQCInconsistentWithTC pbHash
+                        logEvent Konsensus LLTrace $ "blockRound parent: " ++ show (blockRound parent)
+                        logEvent Konsensus LLTrace $ "tcMaxRound tc: " ++ show (tcMaxRound tc)
+                        logEvent Konsensus LLTrace $ "blockEpoch parent: " ++ show (blockEpoch parent)
+                        logEvent Konsensus LLTrace $ "tcMaxEpoch tc: " ++ show (tcMaxEpoch tc)
+                        logEvent Konsensus LLTrace $ "tcMinEpoch tc: " ++ show (tcMinEpoch tc)
                         flag $ BlockQCInconsistentWithTC sBlock
                         return False
                     | otherwise -> do
@@ -659,7 +715,8 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                         parentSeedState <- getSeedState (bpState parent)
                         -- Get the status of the block finalized by the finalization entry for the
                         -- check.
-                        get >>= getBlockStatus (qcBlock (feFinalizedQuorumCertificate finEntry)) >>= \case
+                        let finBlockHash = qcBlock (feFinalizedQuorumCertificate finEntry)
+                        get >>= getBlockStatus finBlockHash >>= \case
                             BlockFinalized finBlock
                                 | blockTimestamp finBlock >= parentSeedState ^. triggerBlockTime ->
                                     -- We already know that the block is finalized.
@@ -679,18 +736,27 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                                     gets (getMemoryBlockStatus (getHash parent)) >>= \case
                                         Just (BlockAliveOrFinalized _) -> continue
                                         _ -> do
-                                            logLoggable $ LogBlockUnexpectedEpochFinalization pbHash
+                                            logLoggable $
+                                                LogBlockUnrelatedEpochFinalization
+                                                    pbHash
+                                                    finBlockHash
                                             -- Possibly we should flag in this case.
                                             return False
                             _ -> do
+                                logLoggable $
+                                    LogBlockInvalidEpochFinalizationTarget
+                                        pbHash
+                                        finBlockHash
                                 flag $ BlockInvalidEpochFinalization sBlock
                                 return False
                     | otherwise -> do
+                        logLoggable $ LogBlockInvalidEpochFinalization pbHash
                         flag $ BlockInvalidEpochFinalization sBlock
                         return False
         -- Here, the epoch must be the same as the parent epoch by the earlier epoch consistency
         -- check, and so we require the epoch finalization entry to be absent.
         | Present _ <- blockEpochFinalizationEntry pendingBlock = do
+            logLoggable $ LogBlockUnexpectedEpochFinalization pbHash
             flag $ BlockUnexpectedEpochFinalization sBlock
             return False
         | otherwise = continue
@@ -704,7 +770,8 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                       bedParentState = bpState parent
                     }
         executeBlockStateUpdate execData >>= \case
-            Left _ -> do
+            Left failureReason -> do
+                logLoggable $ LogBlockExecutionFailure pbHash failureReason
                 flag (BlockExecutionFailure sBlock)
                 return False
             Right newState -> do
@@ -748,6 +815,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
         if qcOK
             then continue
             else do
+                logLoggable $ LogBlockInvalidQC pbHash
                 flag $ BlockInvalidQC sBlock
                 return False
 
