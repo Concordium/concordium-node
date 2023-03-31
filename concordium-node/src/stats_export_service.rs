@@ -272,8 +272,8 @@ pub struct StatsExportService {
     /// This is not exposed in the prometheus exporter, but is exposed by the
     /// gRPC API.
     pub avg_bps_out: AtomicU64,
-    /// The number of peers that recently connected to the bootstrapper labelled
-    /// by the bucket in which they are contained.
+    /// The number of peers that recently connected to the node labelled by the
+    /// bucket in which they are contained.
     pub peer_bucket_size: IntGaugeVec,
 }
 
@@ -473,8 +473,8 @@ impl StatsExportService {
         let peer_bucket_size = IntGaugeVec::new(
             Opts::new(
                 "peer_bucket_size",
-                "The number of peers that recently connected to the bootstrapper labelled by the \
-                 number of the bucket in which they are contained",
+                "The number of peers that recently connected to the node labelled by the number \
+                 of the bucket in which they are contained",
             )
             .variable_label("bucket"),
             &["bucket"],

@@ -56,7 +56,6 @@ impl Buckets {
         bucket_size_gauge: &IntGaugeVec,
     ) {
         let bucket = &mut self.buckets[0];
-
         if bucket.insert(Node {
             peer,
             networks,
@@ -119,8 +118,9 @@ impl Buckets {
         bucket_size_gauge: &IntGaugeVec,
     ) {
         let clean_before = get_current_stamp() - timeout_bucket_entry_period;
-        self.buckets[0].retain(|entry| entry.last_seen >= clean_before);
-        let new_bucket_size = self.buckets[0].len();
+        let bucket = &mut self.buckets[0];
+        bucket.retain(|entry| entry.last_seen >= clean_before);
+        let new_bucket_size = bucket.len();
         bucket_size_gauge.with_label_values(&["0"]).set(new_bucket_size as i64);
     }
 }

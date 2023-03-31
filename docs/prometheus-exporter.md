@@ -235,4 +235,4 @@ This metric is intended for setting up alerts to catch outdated nodes.
 
 ### `peer_bucket_size`
 
-The number of recently connected peers used to generate the peer list included in handshake responses of the bootstrapper. Labelled by the number of the bucket in which the peer is maintained (`bucket=<number>`).
+The number of recently connected peers used to generate the peer list included in handshake responses of the node. Labelled by the number of the bucket in which the peer is maintained (`bucket=<number>`).
