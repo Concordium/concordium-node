@@ -251,7 +251,6 @@ dependencies = [
  "hex",
  "log",
  "macos_logger_wrapper",
- "openssl-src",
  "prost",
  "reqwest",
  "rmp-serde",

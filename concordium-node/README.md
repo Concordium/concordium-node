@@ -2,7 +2,7 @@
 
 ## Dependencies to build the project
 
-- Rust (stable 1.62 for using static libraries)
+- Rust (stable 1.68 for using static libraries)
 - binutils >= 2.22
   - For macOS one should use the binutils provided by Xcode.
 - cmake >= 3.8.0
@@ -148,8 +148,8 @@ Before building the node, you should install the following dependencies:
 
 - Haskell [stack](https://docs.haskellstack.org/en/stable/install_and_upgrade/)
 - [Rust](https://www.rust-lang.org/tools/install)
-  - For building the node, the toolchain `1.62.1-x86_64-pc-windows-gnu` is required, which can be installed with the command: `rustup toolchain install 1.62.1-x86_64-pc-windows-gnu`.
-  - For building the node runner service (optional), the toolchain `1.62.1-x86_64-pc-windows-msvc`  is required, which can be installed with the command: `rustup toolchain install 1.62.1-x86_64-pc-windows-msvc`.
+  - For building the node, the toolchain `1.68.2-x86_64-pc-windows-gnu` is required, which can be installed with the command: `rustup toolchain install 1.68.1-x86_64-pc-windows-gnu`.
+  - For building the node runner service (optional), the toolchain `1.68.1-x86_64-pc-windows-msvc`  is required, which can be installed with the command: `rustup toolchain install 1.68.2-x86_64-pc-windows-msvc`.
 - [flatc](https://github.com/google/flatbuffers/releases/tag/v22.12.06) 22.12.06 (should be in the path)
 - [protoc](https://github.com/protocolbuffers/protobuf/releases) >= 3.15
 - LMDB should be installed under `stack`'s `msys2` installation, which can be done with the following commands:
