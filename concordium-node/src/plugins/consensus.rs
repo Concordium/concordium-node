@@ -97,7 +97,7 @@ pub fn get_baker_data(
     };
 
     let private_data = if let Some(path) = &conf.baker_credentials_file {
-        let read_data = match std::fs::read(&path) {
+        let read_data = match std::fs::read(path) {
             Ok(read_data) => read_data,
             Err(e) => bail!("Cannot open the baker credentials file ({})!", e),
         };

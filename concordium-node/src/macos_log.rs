@@ -111,6 +111,7 @@ pub struct MacOsLogger {
 }
 
 impl MacOsLogger {
+    #[allow(dead_code)]
     /// Create a new logger with a given subsystem. The subsystem is an
     /// identifier string in reverse DNS notation, e.g. "com.example.
     /// Default and category/target filters can be set with [level_filter] and
@@ -123,6 +124,7 @@ impl MacOsLogger {
         }
     }
 
+    #[allow(dead_code)]
     /// Set a default level filter for the logger. If not set, `Trace` is used.
     /// If set, it can be overridden on individual categories/targets with
     /// [category_level_filter].
@@ -131,6 +133,7 @@ impl MacOsLogger {
         self
     }
 
+    #[allow(dead_code)]
     /// Set a level filter on a given category/target. Overrides the default
     /// level filter set by [level_filter].
     pub fn category_level_filter(self, category: &str, level: log::LevelFilter) -> Self {
@@ -141,6 +144,7 @@ impl MacOsLogger {
         self
     }
 
+    #[allow(dead_code)]
     /// Initialises the logger with `log::set_boxed_logger`.
     /// **Must be called**, otherwise logging is not enabled.
     pub fn init(self) -> Result<(), log::SetLoggerError> { log::set_boxed_logger(Box::new(self)) }

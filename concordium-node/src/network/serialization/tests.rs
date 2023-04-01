@@ -76,9 +76,7 @@ test_s11n!(
                 peer_type: PeerType::Node,
             },
         ]
-        .iter()
-        .cloned()
-        .collect(),
+        .to_vec(),
     ))
 );
 
