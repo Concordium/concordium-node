@@ -124,9 +124,9 @@ testMakeQuorumCertificate = describe "Quorum Certificate creation" $ do
         dummyInitialSkovData
             & skovEpochBakers .~ EpochBakers 0 bfs bfs bfs 1
     bh = BlockHash minBound
-    verifiedQuorumMessage finalizerIndex weight = VerifiedQuorumMessage (quorumMessage finalizerIndex) weight
+    verifiedQuorumMessage finalizerIndex = VerifiedQuorumMessage (quorumMessage finalizerIndex)
     quorumMessage finalizerIndex = QuorumMessage emptyQuorumSignature bh (FinalizerIndex finalizerIndex) 0 0
-    emptyQuorumSignature = QuorumSignature $ Bls.emptySignature
+    emptyQuorumSignature = QuorumSignature Bls.emptySignature
 
 -- |Tests for receiving a quorum message.
 -- In particular this test checks that the return codes are as expected
@@ -139,14 +139,14 @@ testReceiveQuorumMessage = describe "Receive quorum message" $ do
     it "duplicate message" $ receiveAndCheck sd duplicateMessage Duplicate
     it "invalid signature" $ receiveAndCheck sd invalidSignatureMessage $ Rejected InvalidSignature
     it "double signing" $ receiveAndCheck sd doubleSigningMessage $ Rejected AlreadySigned
-    it "unknown block" $ receiveAndCheck sd unknownBlockMessage $ CatchupRequired
+    it "unknown block" $ receiveAndCheck sd unknownBlockMessage CatchupRequired
     it "invalid block | dead" $ receiveAndCheck sd deadBlockMessage $ Rejected InvalidBlock
     it "round inconsistency" $ receiveAndCheck (sd' 0 1) inconsistentRoundsMessage $ Rejected InconsistentRounds
     it "epoch inconsistency" $ receiveAndCheck (sd' 1 1) inconsistentEpochsMessage $ Rejected InconsistentEpochs
     it "receives" $ receiveAndCheck (sd' 1 1) verifiableMessage $ Received $ VerifiedQuorumMessage verifiableMessage 1
   where
     bh = BlockHash minBound
-    emptyQuorumSignature = QuorumSignature $ Bls.emptySignature
+    emptyQuorumSignature = QuorumSignature Bls.emptySignature
     -- a quorum message from the specified finalizer and for the specified round and epoch.
     -- The signature is invalid on this quorum message.
     messageFromFuture = QuorumMessage emptyQuorumSignature bh (FinalizerIndex 1) 1 2
@@ -214,7 +214,7 @@ testReceiveQuorumMessage = describe "Receive quorum message" $ do
             & skovEpochBakers . nextPayday .~ 2
             & currentQuorumMessages %~ addQuorumMessage (VerifiedQuorumMessage duplicateMessage 1)
             & blockTable . deadBlocks %~ insertDeadCache deadBlock
-            & skovPendingTransactions . focusBlock .~ (liveBlockPointer (Round r) e)
+            & skovPendingTransactions . focusBlock .~ liveBlockPointer (Round r) e
     -- Run the 'receiveQuorumMessage' action.
     receiveAndCheck skovData qm expect = do
         resultCode <- runTestLLDB (lldbWithGenesis @'P6) $ receiveQuorumMessage qm skovData

@@ -45,15 +45,15 @@ testReceiveTimeoutMessage :: Spec
 testReceiveTimeoutMessage = describe "Receive timeout message" $ do
     it "rejects obsolete round" $ receiveAndCheck sd obsoleteRoundMessage $ Rejected ObsoleteRound
     it "rejects obsolete qc" $ receiveAndCheck sd obsoleteQCMessage $ Rejected ObsoleteQC
-    it "initializes catch-up upon future epoch" $ receiveAndCheck sd futureEpochTM $ CatchupRequired
+    it "initializes catch-up upon future epoch" $ receiveAndCheck sd futureEpochTM CatchupRequired
     it "rejects from a non finalizer" $ receiveAndCheck sd notAFinalizerQCMessage $ Rejected NotAFinalizer
     it "rejects on an invalid signature" $ receiveAndCheck sd invalidSignatureMessage $ Rejected InvalidSignature
-    it "initializes catch-up upon a future round" $ receiveAndCheck sd futureRoundTM $ CatchupRequired
+    it "initializes catch-up upon a future round" $ receiveAndCheck sd futureRoundTM CatchupRequired
     it "rejects when the qc points to an old finalized block" $ receiveAndCheck sd obsoleteQCPointer $ Rejected ObsoleteQCPointer
-    it "initializes catch-up when the qc pointer is unknown" $ receiveAndCheck sd unknownQCPointer $ CatchupRequired
+    it "initializes catch-up when the qc pointer is unknown" $ receiveAndCheck sd unknownQCPointer CatchupRequired
     it "rejects when the qc points to a dead block" $ receiveAndCheck sd qcPointerIsDead $ Rejected DeadQCPointer
-    it "initializes catch-up when qc pointer is pending" $ receiveAndCheck sd qcPointerIsPending $ CatchupRequired
-    it "returns duplicate upon a duplicate timeout message" $ receiveAndCheck sd duplicateMessage $ Duplicate
+    it "initializes catch-up when qc pointer is pending" $ receiveAndCheck sd qcPointerIsPending CatchupRequired
+    it "returns duplicate upon a duplicate timeout message" $ receiveAndCheck sd duplicateMessage Duplicate
     it "rejects double signing" $ receiveAndCheck sd doubleSignMessage $ Rejected DoubleSigning
     it "rejects when the bls signature is invalid" $ receiveAndCheck sd invalidBLSSignatureMessage $ Rejected InvalidBLSSignature
     it "received a valid timeout message" $
@@ -72,13 +72,13 @@ testReceiveTimeoutMessage = describe "Receive timeout message" $ do
     -- tree state before running the test.
     duplicateMessage = mkTimeoutMessage $! mkTimeoutMessageBody 1 2 0 $ someQC (Round 123) 0
     -- A message where the qc pointer is pending
-    qcPointerIsPending = mkTimeoutMessage $! mkTimeoutMessageBody 1 2 0 $ qcWithPendingPointer
+    qcPointerIsPending = mkTimeoutMessage $! mkTimeoutMessageBody 1 2 0 qcWithPendingPointer
     -- A message where the qc pointer is pointing to a dead block
-    qcPointerIsDead = mkTimeoutMessage $! mkTimeoutMessageBody 1 2 0 $ qcWithDeadPointer
+    qcPointerIsDead = mkTimeoutMessage $! mkTimeoutMessageBody 1 2 0 qcWithDeadPointer
     -- A message where the qc pointer is unknown
-    unknownQCPointer = mkTimeoutMessage $! mkTimeoutMessageBody 1 2 0 $ qcWithUnknownPointer
+    unknownQCPointer = mkTimeoutMessage $! mkTimeoutMessageBody 1 2 0 qcWithUnknownPointer
     -- A message where the qc pointer is to a block prior to the last finalized block.
-    obsoleteQCPointer = mkTimeoutMessage $! mkTimeoutMessageBody 1 2 0 $ someQCPointingToAndOldFinalizedBlock
+    obsoleteQCPointer = mkTimeoutMessage $! mkTimeoutMessageBody 1 2 0 someQCPointingToAndOldFinalizedBlock
     -- A message where the epoch is in the future
     futureEpochTM = mkTimeoutMessage $! mkTimeoutMessageBody 1 2 1 $ someQC (Round 1) 0
     -- A message where the round is in the future but the finalizer is present in the epoch.
