@@ -104,16 +104,12 @@ testReceiveTimeoutMessage = describe "Receive timeout message" $ do
     someQCPointingToAndOldFinalizedBlock = QuorumCertificate someOldFinalizedBlockHash 1 0 qcSignature $ finalizerSet [FinalizerIndex 1, FinalizerIndex 2]
     -- Some unsigned quorum certificate message
     someQCMessage finalizerIndex = QuorumMessage (QuorumSignature Bls.emptySignature) someBlockHash (FinalizerIndex finalizerIndex) 1 1
-    -- The signed quorum message from the provided finalizer
-    someSignedQCMessage finalizerIndex = (someQCMessage finalizerIndex){qmSignature = someQCMessageSignature finalizerIndex}
     -- A quorum certificate message signature for some quorum certificate message.
     someQCMessageSignature finalizerIndex = signQuorumSignatureMessage (quorumSignatureMessageFor (someQCMessage finalizerIndex) genesisBlockHash) blsPrivateKey
     -- A private bls key shared by the finalizers in this test.
     blsPrivateKey = someBlsSecretKey
     -- A public bls key shared by the finalizers in this test.
     blsPublicKey = Bls.derivePublicKey blsPrivateKey
-    -- A finalizer info with a weight of 1.
-    finalizerInfo finalizerIndex = FinalizerInfo (FinalizerIndex finalizerIndex) 1 sigPublicKey
     -- The aggregate signature for the quorum certificate signed off by finalizer 1 and 2.
     qcSignature = someQCMessageSignature 1 <> someQCMessageSignature 1
     --- A VRF public key shared by the finalizers in this test.
