@@ -1,10 +1,14 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- |Module testing functions from the 'Concordium.KonsensusV1.Consensus.Timeout' module.
 module ConcordiumTests.KonsensusV1.Timeout (tests) where
 
+import Control.Monad.State
+import qualified Data.HashMap.Strict as HM
+import qualified Data.Map.Strict as Map
 import Data.Ratio
 import qualified Data.Vector as Vec
 import Data.Word
@@ -15,16 +19,21 @@ import Test.Hspec
 
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.BlsSignature as Bls
+import qualified Concordium.Crypto.DummyData as Dummy
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.VRF as VRF
+import qualified Concordium.Genesis.Data as GD
 import Concordium.GlobalState.BakerInfo
+import qualified Concordium.GlobalState.DummyData as Dummy
 import Concordium.GlobalState.Persistent.TreeState (insertDeadCache)
+import Concordium.Startup
 import Concordium.Types
+import qualified Concordium.Types.DummyData as Dummy
 import Concordium.Types.Transactions
-import qualified Data.HashMap.Strict as HM
-import qualified Data.Map.Strict as Map
 
+import Concordium.KonsensusV1.Consensus
 import Concordium.KonsensusV1.Consensus.Timeout
+import Concordium.KonsensusV1.TestMonad
 import Concordium.KonsensusV1.TreeState.Implementation
 import Concordium.KonsensusV1.TreeState.LowLevel.Memory
 import Concordium.KonsensusV1.TreeState.Types
@@ -187,13 +196,66 @@ testReceiveTimeoutMessage = describe "Receive timeout message" $ do
         resultCode <- runTestLLDB lldb $ receiveTimeoutMessage tm skovData
         resultCode `shouldBe` expect
 
+testExecuteTimeoutMessages :: Assertion
+testExecuteTimeoutMessages = runTestMonad @'P6 noBaker time genesisData $ do
+    res <- executeTimeoutMessage invalidQCTimeoutMessage
+    return ()
+  where
+    --    when (res /=InvalidQC (someQC 1 1)) $ do
+    --        liftIO $ assertFailure "The quorum certificate should be rejected"
+    --    when (res /= InvalidQCEpoch 0 (someQC 1 1)) $ do
+    --        liftIO $ assertFailure "The quorum certificate should be for a wrong epoch"
+    --    finalizers <- use $ skovEpochBakers . currentEpochBakers . bfFinalizers
+    --    executeTimeoutMessage $ validQCTimeoutMessage finalizers
+    --    when (sd == sd'') $ do
+    --        liftIO $ assertFailure "The round status should have changed."
+
+    fi :: Word32 -> FinalizerInfo
+    fi fIdx = FinalizerInfo (FinalizerIndex fIdx) 1 sigPublicKey (VRF.publicKey someVRFKeyPair) (Bls.derivePublicKey someBlsSecretKey) (BakerId $ AccountIndex $ fromIntegral fIdx)
+    validQCTimeoutMessage = MkPartiallyVerifiedTimeoutMessage validTimeoutMessage
+    invalidQCTimeoutMessage = MkPartiallyVerifiedTimeoutMessage validTimeoutMessage failingFinalizers
+    failingFinalizers :: FinalizationCommittee
+    failingFinalizers = FinalizationCommittee (Vec.fromList [fi 1, fi 2]) 2
+    time = timestampToUTCTime 0
+    noBaker = BakerContext Nothing
+    genesisBlockHash = GD.genesisBlockHash genesisData
+    mkTimeoutMessageBody fidx r e qc = TimeoutMessageBody (FinalizerIndex fidx) (Round r) e qc $ validTimeoutSignature r (qcRound qc) (qcEpoch qc)
+    validTimeoutSignature r qr qe = signTimeoutSignatureMessage (TimeoutSignatureMessage genesisBlockHash (Round r) qr qe) someBlsSecretKey
+    validTimeoutMessage = mkTimeoutMessage $! mkTimeoutMessageBody 2 2 0 $ someQC (Round 1) 0
+    someQCMessage finalizerIndex = QuorumMessage (QuorumSignature Bls.emptySignature) someBlockHash (FinalizerIndex finalizerIndex) 1 1
+    someQCMessageSignature finalizerIndex = signQuorumSignatureMessage (quorumSignatureMessageFor (someQCMessage finalizerIndex) genesisBlockHash) someBlsSecretKey
+    someBlockHash = BlockHash $ Hash.hash "a block hash"
+    qcSignature = someQCMessageSignature 1 <> someQCMessageSignature 1
+    someQC r e = QuorumCertificate someBlockHash r e qcSignature $ finalizerSet [FinalizerIndex 1, FinalizerIndex 2, FinalizerIndex 3]
+    mkTimeoutMessage body = signTimeoutMessage body genesisBlockHash sigKeyPair
+    sigKeyPair = unsafePerformIO Sig.newKeyPair
+    sigPublicKey = Sig.verifyKey sigKeyPair
+    foundationAcct =
+        Dummy.createCustomAccount
+            1_000_000_000_000
+            (Dummy.deterministicKP 0)
+            (Dummy.accountAddressFrom 0)
+    (genesisData, _, _) =
+        makeGenesisDataV1 @'P6
+            (Timestamp 0)
+            3
+            3_600_000
+            Dummy.dummyCryptographicParameters
+            Dummy.dummyIdentityProviders
+            Dummy.dummyArs
+            [ foundationAcct
+            ]
+            Dummy.dummyKeyCollection
+            Dummy.dummyChainParameters
+
 tests :: Spec
 tests = describe "KonsensusV1.Timeout" $ do
     testReceiveTimeoutMessage
     it "Test updateCurrentTimeout" $ do
-        testUpdateCurrentTimeout 10000 (3 % 2) 15000
-        testUpdateCurrentTimeout 10000 (4 % 3) 13333
-        testUpdateCurrentTimeout 10000 (5 % 3) 16666
-        testUpdateCurrentTimeout 3000 (4 % 3) 4000
-        testUpdateCurrentTimeout 80000 (10 % 9) 88888
-        testUpdateCurrentTimeout 8000 (8 % 7) 9142
+        testUpdateCurrentTimeout 10_000 (3 % 2) 15_000
+        testUpdateCurrentTimeout 10_000 (4 % 3) 13_333
+        testUpdateCurrentTimeout 10_000 (5 % 3) 16_666
+        testUpdateCurrentTimeout 3_000 (4 % 3) 4_000
+        testUpdateCurrentTimeout 80_000 (10 % 9) 88_888
+        testUpdateCurrentTimeout 8_000 (8 % 7) 9_142
+    it "execute timeout messages" testExecuteTimeoutMessages
