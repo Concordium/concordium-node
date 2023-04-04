@@ -434,6 +434,7 @@ succeedReceiveBlock pb = do
             status <- getBlockStatus (getHash pb) =<< get
             case status of
                 BlockAlive _ -> return ()
+                BlockFinalized _ -> return ()
                 _ -> liftIO . assertFailure $ "Expected BlockAlive after executeBlock, but found: " ++ show status ++ "\n" ++ show pb
         _ -> liftIO . assertFailure $ "Expected BlockResultSuccess after uponReceivingBlock, but found: " ++ show res ++ "\n" ++ show pb
 
@@ -441,12 +442,13 @@ duplicateReceiveBlock :: PendingBlock -> TestMonad 'P6 ()
 duplicateReceiveBlock pb = do
     res <- uponReceivingBlock pb
     case res of
-        BlockResultDuplicate -> do
+        BlockResultDoubleSign vb -> do
+            executeBlock vb
             status <- getBlockStatus (getHash pb) =<< get
             case status of
                 BlockAlive _ -> return ()
                 _ -> liftIO . assertFailure $ "Expected BlockAlive after executeBlock, but found: " ++ show status ++ "\n" ++ show pb
-        _ -> liftIO . assertFailure $ "Expected BlockResultDuplicate after uponReceivingBlock, but found: " ++ show res ++ "\n" ++ show pb
+        _ -> liftIO . assertFailure $ "Expected BlockResultDoubleSign after uponReceivingBlock, but found: " ++ show res ++ "\n" ++ show pb
 
 succeedReceiveBlockFailExecute :: PendingBlock -> TestMonad 'P6 ()
 succeedReceiveBlockFailExecute pb = do
@@ -465,13 +467,14 @@ duplicateReceiveBlockFailExecute :: PendingBlock -> TestMonad 'P6 ()
 duplicateReceiveBlockFailExecute pb = do
     res <- uponReceivingBlock pb
     case res of
-        BlockResultDuplicate -> do
+        BlockResultDoubleSign vb -> do
+            executeBlock vb
             status <- getBlockStatus (getHash pb) =<< get
             case status of
                 BlockUnknown -> return ()
                 BlockDead -> return ()
                 _ -> liftIO . assertFailure $ "Expected BlockUnknown or BlockDead after executeBlock, but found: " ++ show status ++ "\n" ++ show pb
-        _ -> liftIO . assertFailure $ "Expected BlockResultDuplicate after uponReceivingBlock, but found: " ++ show res ++ "\n" ++ show pb
+        _ -> liftIO . assertFailure $ "Expected BlockResultDoubleSign after uponReceivingBlock, but found: " ++ show res ++ "\n" ++ show pb
 
 pendingReceiveBlock :: PendingBlock -> TestMonad 'P6 ()
 pendingReceiveBlock pb = do
@@ -489,6 +492,24 @@ invalidReceiveBlock :: PendingBlock -> TestMonad 'P6 ()
 invalidReceiveBlock sb = do
     res <- uponReceivingBlock sb
     liftIO $ res `shouldBe` BlockResultInvalid
+
+earlyReceiveBlock :: PendingBlock -> TestMonad 'P6 ()
+earlyReceiveBlock sb = do
+    res <- uponReceivingBlock sb
+    liftIO $ res `shouldBe` BlockResultEarly
+
+checkLive :: HashableTo BlockHash b => b -> TestMonad 'P6 ()
+checkLive b =
+    get >>= getBlockStatus bh >>= \case
+        BlockAlive _ -> return ()
+        status ->
+            liftIO . assertFailure $
+                "Expected BlockFinalized for block "
+                    ++ show bh
+                    ++ " but found: "
+                    ++ show status
+  where
+    bh = getHash b
 
 checkFinalized :: HashableTo BlockHash b => b -> TestMonad 'P6 ()
 checkFinalized b =
@@ -554,6 +575,24 @@ testReceive3Reordered = runTestMonad noBaker testTime genesisData $ do
     succeedReceiveBlock b3
     -- b3's QC is for b2, which has QC for b1, so b1 should now be finalized.
     checkFinalized b1
+
+-- |Receive 4 valid blocks reordered across epochs.
+-- Also receive 2 pending blocks that should get pruned.
+testReceive4Reordered :: Assertion
+testReceive4Reordered = runTestMonad noBaker testTime genesisData $ do
+    pendingReceiveBlock (signedPB testBB4E)
+    pendingReceiveBlock (signedPB testBB2E)
+    pendingReceiveBlock (signedPB testBB3E)
+    pendingReceiveBlock (signedPB testBB3')
+    pendingReceiveBlock (signedPB testBB4')
+    succeedReceiveBlock (signedPB testBB1E)
+    checkFinalized testBB1E
+    -- Note: testBB2E is not finalized because it is in a different epoch from testBB3E.
+    checkLive testBB2E
+    checkLive testBB3E
+    checkLive testBB4E
+    checkDead testBB3'
+    checkDead testBB4'
 
 -- |Receive 3 blocks where the first round is skipped due to timeout.
 testReceiveWithTimeout :: Assertion
@@ -658,7 +697,7 @@ testReceiveBadSignatureUnknownParent = runTestMonad noBaker testTime genesisData
 -- is still in the present.)
 testReceiveFutureEpochUnknownParent :: Assertion
 testReceiveFutureEpochUnknownParent = runTestMonad noBaker testTime genesisData $ do
-    pendingReceiveBlock $ signedPB testBB2{bbEpoch = 30}
+    earlyReceiveBlock $ signedPB testBB2{bbEpoch = 30}
 
 -- |Test receiving a block where the QC is not consistent with the round of the parent block.
 testReceiveInconsistentQCRound :: Assertion
@@ -808,6 +847,7 @@ tests = describe "KonsensusV1.Consensus.Blocks" $ do
     describe "uponReceiveingBlock" $ do
         it "receive 3 consecutive blocks" testReceive3
         it "receive 3 blocks reordered" testReceive3Reordered
+        it "receive 4 blocks reordered, multiple epochs" testReceive4Reordered
         it "skip round 1, receive rounds 2,3,4" testReceiveWithTimeout
         it "receive duplicate block" testReceiveDuplicate
         it "receive stale round" testReceiveStale

@@ -4,12 +4,15 @@
 
 module Concordium.KonsensusV1.Consensus.Finality where
 
+import Control.Exception
 import Control.Monad.Catch
 import Control.Monad.State
 import qualified Data.List as List
 import qualified Data.Sequence as Seq
+import GHC.Stack
 import Lens.Micro.Platform
 
+import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.Types
 import Concordium.Types.HashableTo
@@ -26,8 +29,6 @@ import Concordium.KonsensusV1.TreeState.Implementation
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
-import Control.Exception
-import GHC.Stack
 
 -- |Shrink the current timeout duration in response to a successful QC for a round.
 -- This updates the timeout to @max timeoutBase (timeoutDecrease * oldTimeout)@, where
@@ -65,6 +66,7 @@ checkFinality ::
       BlockStateStorage m,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
       MonadThrow m,
+      MonadLogger m,
       IsConsensusV1 (MPV m)
     ) =>
     QuorumCertificate ->
@@ -89,6 +91,7 @@ checkFinalityWithBlock ::
       BlockStateStorage m,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
       MonadThrow m,
+      MonadLogger m,
       IsConsensusV1 (MPV m),
       HasCallStack
     ) =>
@@ -126,6 +129,7 @@ processFinalization ::
       BlockStateStorage m,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
       MonadThrow m,
+      MonadLogger m,
       IsConsensusV1 (MPV m),
       HasCallStack
     ) =>
@@ -269,14 +273,15 @@ pruneBranches parent newFin deltaHeight oldBranches = PruneResult{..}
 
 -- |Given a block that has never been live, mark the block as dead.
 -- Any pending children will also be marked dead recursively.
-blockArriveDead :: MonadState (SkovData pv) m => BlockHash -> m ()
+blockArriveDead :: (MonadState (SkovData pv) m, MonadLogger m) => BlockHash -> m ()
 blockArriveDead blockHsh = do
+    logEvent Konsensus LLDebug $ "Block " ++ show blockHsh ++ " arrived dead."
     markBlockDead blockHsh
     children <- takePendingChildren blockHsh
     forM_ children (blockArriveDead . getHash)
 
 -- |Purge pending blocks with timestamps preceding the last finalized block.
-purgePending :: (MonadState (SkovData pv) m) => m ()
+purgePending :: (MonadState (SkovData pv) m, MonadLogger m) => m ()
 purgePending = do
     lfTimestamp <- use $ lastFinalized . to blockTimestamp
     let purgeLoop =

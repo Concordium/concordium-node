@@ -15,6 +15,7 @@ import Data.Word
 import Lens.Micro.Platform
 
 import Concordium.Genesis.Data.BaseV1
+import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.Types
 import Concordium.Types.BakerIdentity
@@ -38,7 +39,7 @@ import Concordium.KonsensusV1.Types
 data ReceiveTimeoutMessageRejectReason
     = -- |The 'Round' presented in the 'TimeoutMessage' is obsolete.
       ObsoleteRound
-    | -- | The 'QuorumCertificate' associcated with the 'TimeoutMessage' is for
+    | -- | The 'QuorumCertificate' associated with the 'TimeoutMessage' is for
       -- either an obsolete 'Round' or 'Epoch'.
       ObsoleteQC
     | -- |The signer of the 'TimeoutMessage' is not a finalizer for the
@@ -216,6 +217,7 @@ executeTimeoutMessage ::
       TimeMonad m,
       MonadTimeout m,
       MonadState (SkovData (MPV m)) m,
+      MonadLogger m,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
       LowLevel.MonadTreeStateStore m
     ) =>

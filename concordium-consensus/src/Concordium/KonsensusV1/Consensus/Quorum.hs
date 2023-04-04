@@ -11,9 +11,11 @@ import qualified Data.Set as Set
 import Lens.Micro.Platform
 
 import Concordium.Genesis.Data.BaseV1
+import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.Types
 import Concordium.Types.Parameters
+import Concordium.Utils
 
 import Concordium.GlobalState.BlockState
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
@@ -25,7 +27,6 @@ import Concordium.KonsensusV1.TreeState.Implementation
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
-import Concordium.Utils
 
 -- |Reasons that a 'QuorumMessage' can be rejected.
 data ReceiveQuorumMessageRejectReason
@@ -236,6 +237,7 @@ processQuorumMessage ::
       TimeMonad m,
       MonadTimeout m,
       MonadState (SkovData (MPV m)) m,
+      MonadLogger m,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
       LowLevel.MonadTreeStateStore m
     ) =>

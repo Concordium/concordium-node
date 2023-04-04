@@ -330,6 +330,13 @@ getLiveBlock blockHash sd = case sd ^? blockTable . liveMap . ix blockHash of
     Just (MemBlockAlive bp) -> Just bp
     _ -> Nothing
 
+-- |Get the 'BlockPointer' for a block hash that is live or the last finalized block.
+-- Returns 'Nothing' if the block is neither live nor the last finalized block.
+getLiveOrLastFinalizedBlock :: BlockHash -> SkovData pv -> Maybe (BlockPointer pv)
+getLiveOrLastFinalizedBlock blockHash sd
+    | blockHash == getHash (sd ^. lastFinalized) = Just $! sd ^. lastFinalized
+    | otherwise = getLiveBlock blockHash sd
+
 -- |Get the 'BlockStatus' of a block that is available in memory based on the 'BlockHash'.
 -- (This includes live and pending blocks, but not finalized blocks, except for the last finalized
 -- block.)
@@ -441,6 +448,10 @@ markLiveBlockDead bp = do
 markPending :: (MonadState (SkovData pv) m) => PendingBlock -> m ()
 markPending pb = blockTable . liveMap . at' (getHash pb) ?=! MemBlockPending pb
 
+-- |Remove a (presumably) pending block from the block table.
+unmarkPending :: (MonadState (SkovData pv) m) => PendingBlock -> m ()
+unmarkPending pb = blockTable . liveMap . at' (getHash pb) .=! Nothing
+
 -- |Update the transaction table to reflect that a list of blocks are finalized.
 -- This removes them the in-memory transaction table.
 -- The caller is expected to ensure that they are written to the low-level storage.
@@ -550,7 +561,7 @@ addPendingBlock !pb = do
 
 -- |Take the set of blocks that are pending a particular parent from the pending block table.
 -- Note: this does not remove them from the pending blocks queue; blocks should be removed from
--- the queue as the finalized round progresses.
+-- the queue as the finalized timestamp progresses.
 takePendingChildren :: (MonadState s m, HasPendingBlocks s) => BlockHash -> m [PendingBlock]
 takePendingChildren parent = pendingBlocksTable . at' parent . non [] <<.= []
 

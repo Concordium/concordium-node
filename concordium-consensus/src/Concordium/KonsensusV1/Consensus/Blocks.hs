@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Concordium.KonsensusV1.Consensus.Blocks where
@@ -39,6 +40,8 @@ import Concordium.KonsensusV1.Types
 import Concordium.TimerMonad
 import Concordium.Types.BakerIdentity
 import Control.Monad.Catch
+import Data.Function
+import Data.Ord
 
 data BlockTraceLogEvent
     = LogBlockOld BlockHash
@@ -221,6 +224,9 @@ instance BlockData VerifiedBlock where
 data BlockResult
     = -- |The block was successfully received, but not yet executed.
       BlockResultSuccess !VerifiedBlock
+    | -- |The baker also signed another block in the same slot, but the block was otherwise
+      -- successfully received, but not yet executed.
+      BlockResultDoubleSign !VerifiedBlock
     | -- |The block contains data that is not valid with respect to the chain.
       BlockResultInvalid
     | -- |The block is too old to be added to the chain.
@@ -239,10 +245,6 @@ uponReceivingBlock ::
       MonadState (SkovData (MPV m)) m,
       BlockStateStorage m,
       BlockState m ~ HashedPersistentBlockState (MPV m),
-      MonadIO m,
-      TimeMonad m,
-      MonadThrow m,
-      MonadTimeout m,
       MonadLogger m
     ) =>
     PendingBlock ->
@@ -283,16 +285,28 @@ uponReceivingBlock pendingBlock = do
 -- block).  If this function returns 'BlockResultSuccess' then the caller is obliged to call
 -- 'executeBlock' on the returned 'VerifiedBlock' in order to complete the processing of the block,
 -- after relaying the block to peers.
+--
+-- The result can be one of the following:
+--
+-- * @'BlockResultSuccess' vb@: the block has a valid signature and is baked by the correct leader
+--   in the block's round. (Note, this implies that the block is in the same or the next epoch from
+--   its parent, since we can only determine the leadership election nonce if one of these is the
+--   case.) The block is not yet added to the state, except that its existence is recorded in the
+--   'roundExistingBlocks' index for checking double signing. The block must be subsequently
+--   processed by calling @'executeBlock' vb@
+--
+-- * @'BlockResultDoubleSign' vb@: the block is valid, but the result of double signing.
+--   As with 'BlockResultSuccess', the block is not yet added to the state and must be subsequently
+--   processed by calling @'executeBlock' vb@.
+--
+-- * 'BlockResultInvalid': the epoch is invalid, the signature is invalid, or the baker is not the
+--   round leader.
 receiveBlockKnownParent ::
     ( IsConsensusV1 (MPV m),
       LowLevel.MonadTreeStateStore m,
       MonadState (SkovData (MPV m)) m,
       BlockStateStorage m,
       BlockState m ~ HashedPersistentBlockState (MPV m),
-      MonadIO m,
-      TimeMonad m,
-      MonadThrow m,
-      MonadTimeout m,
       MonadLogger m
     ) =>
     BlockPointer (MPV m) ->
@@ -341,6 +355,7 @@ receiveBlockKnownParent parent pendingBlock = do
                 else do
                     -- If the transition is not triggered, then the child block should not be
                     -- in the new epoch.
+                    logLoggable $ LogBlockInvalidEpoch pbHash (blockEpoch pendingBlock)
                     return BlockResultInvalid
         | otherwise = do
             -- The block's epoch is not valid.
@@ -360,13 +375,11 @@ receiveBlockKnownParent parent pendingBlock = do
             -- Check if we've already seen a signed block from this baker in this round.
             use (roundBakerExistingBlock (blockRound pendingBlock) (blockBaker pendingBlock)) >>= \case
                 Just w -> do
-                    -- If the baker has already signed a block in this round then we flag it and
-                    -- execute it immediately (without rebroadcasting).
+                    -- If the baker has already signed a block in this round then we flag it.
                     logLoggable $
                         LogBlockMultipleSigned (blockBaker pendingBlock) (blockRound pendingBlock)
                     flag (DuplicateBlock w blockWitness)
-                    _ <- processBlock parent verifiedBlock
-                    return BlockResultDuplicate
+                    return $ BlockResultDoubleSign verifiedBlock
                 Nothing -> do
                     -- If the baker has not already signed a block in this round, we record that
                     -- it has now and return control to the caller for retransmitting the block.
@@ -417,8 +430,8 @@ receiveBlockUnknownParent pendingBlock = do
             genesisHash <- use currentGenesisHash
             gets (getBakersForLiveEpoch (blockEpoch pendingBlock)) >>= \case
                 Nothing -> do
-                    -- We do not know the bakers
-                    continuePending
+                    -- We do not know the bakers, so we treat this like an early block.
+                    return BlockResultEarly
                 Just bf -- We know the bakers
                     | Just baker <- fullBaker (bf ^. bfBakers) (blockBaker pendingBlock),
                       verifyBlockSignature (baker ^. bakerSignatureVerifyKey) genesisHash pendingBlock ->
@@ -426,15 +439,16 @@ receiveBlockUnknownParent pendingBlock = do
                         continuePending
                     | otherwise -> do
                         -- The signature is invalid
-                        logLoggable $ LogBlockInvalidSignature (getHash pendingBlock)
+                        logLoggable $ LogBlockInvalidSignature pbHash
                         return BlockResultInvalid
         else return BlockResultEarly
   where
+    pbHash = getHash pendingBlock
     continuePending = do
         -- TODO: Check the transactions in the block
         addPendingBlock pendingBlock
         markPending pendingBlock
-        logLoggable $ LogBlockPending (getHash pendingBlock) (blockParent pendingBlock)
+        logLoggable $ LogBlockPending pbHash (blockParent pendingBlock)
         return BlockResultPending
 
 -- |Get the minimum time between consecutive blocks, as of the specified block.
@@ -483,8 +497,102 @@ addBlock pendingBlock blockState parent = do
     statistics .= stats
     return newBlock
 
+-- |A 'BlockPointer', ordered lexicographically on:
+--
+-- * Round number
+-- * Epoch number
+-- * Descending timestamp
+-- * Descending receive time
+-- * Descending arrival time
+-- * Block hash
+newtype OrderedBlock pv = OrderedBlock {theOrderedBlock :: BlockPointer pv}
+
+instance Ord (OrderedBlock pv) where
+    compare =
+        compare `on` toTuple
+      where
+        toTuple (OrderedBlock blk) =
+            ( blockRound blk,
+              blockEpoch blk,
+              Down (blockTimestamp blk, blockReceiveTime blk, blockArriveTime blk),
+              getHash @BlockHash blk
+            )
+
+instance Eq (OrderedBlock pv) where
+    a == b = compare a b == EQ
+
+processPendingChildren ::
+    ( IsConsensusV1 (MPV m),
+      BlockState m ~ HashedPersistentBlockState (MPV m),
+      MonadState (SkovData (MPV m)) m,
+      LowLevel.MonadTreeStateStore m,
+      BlockStateStorage m,
+      MonadIO m,
+      TimeMonad m,
+      MonadThrow m,
+      MonadTimeout m,
+      MonadLogger m
+    ) =>
+    BlockPointer (MPV m) ->
+    m (OrderedBlock (MPV m))
+processPendingChildren parent = do
+    children <- takePendingChildren (getHash parent)
+    foldM process (OrderedBlock parent) children
+  where
+    process best child = do
+        res <- processPendingChild child
+        return $! maybe best (max best) res
+
+-- |Process a pending child block given that its parent has become live.
+--
+-- PRECONDITIONS:
+--   - The block's signature has been verified. (This is the case for )
+--
+-- TODO: Notify pending live
+processPendingChild ::
+    ( IsConsensusV1 (MPV m),
+      BlockStateStorage m,
+      BlockState m ~ HashedPersistentBlockState (MPV m),
+      LowLevel.MonadTreeStateStore m,
+      MonadState (SkovData (MPV m)) m,
+      MonadIO m,
+      TimeMonad m,
+      MonadThrow m,
+      MonadTimeout m,
+      MonadLogger m
+    ) =>
+    PendingBlock ->
+    m (Maybe (OrderedBlock (MPV m)))
+processPendingChild block = do
+    sd <- get
+    if isPending blockHash sd
+        then case getLiveOrLastFinalizedBlock (blockParent block) sd of
+            Just parent -> do
+                receiveBlockKnownParent parent block >>= \case
+                    BlockResultSuccess vb -> do
+                        processReceiveOK parent vb
+                    BlockResultDoubleSign vb -> do
+                        processReceiveOK parent vb
+                    _ -> do
+                        processAsDead
+            Nothing -> do
+                -- The block can never be part of the tree since the parent is not live/last
+                -- finalized, and yet the parent has already been processed.
+                processAsDead
+        else return Nothing
+  where
+    blockHash = getHash block
+    processAsDead = do
+        blockArriveDead blockHash
+        return Nothing
+    processReceiveOK parent vb = do
+        processBlock parent vb >>= \case
+            Just newBlock -> Just <$> processPendingChildren newBlock
+            Nothing -> processAsDead
+
 -- |Process a received block. This handles the processing after the initial checks and after the
--- block has been relayed (or not). This DOES NOT include signing the block as a finalizer.
+-- block has been relayed (or not). This DOES NOT include processing pending children of the block
+-- or signing the block as a finalizer.
 --
 -- Precondition:
 --
@@ -509,23 +617,23 @@ processBlock ::
     BlockPointer (MPV m) ->
     -- |Block being processed (@pendingBlock@)
     VerifiedBlock ->
-    m Bool
+    m (Maybe (BlockPointer (MPV m)))
 processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
     -- Check that the QC is consistent with the parent block round.
     | qcRound (blockQuorumCertificate pendingBlock) /= blockRound parent = do
         logLoggable $ LogBlockQCRoundInconsistent pbHash
         flag $ BlockQCRoundInconsistent sBlock
-        return False
+        rejectBlock
     -- Check that the QC is consistent with the parent block epoch.
     | qcEpoch (blockQuorumCertificate pendingBlock) /= blockEpoch parent = do
         logLoggable $ LogBlockQCEpochInconsistent pbHash
         flag $ BlockQCEpochInconsistent sBlock
-        return False
+        rejectBlock
     -- Check that the block round is greater than the round of the parent block.
     | blockRound parent >= blockRound pendingBlock = do
         logLoggable $ LogBlockRoundInconsistent pbHash
         flag $ BlockRoundInconsistent sBlock
-        return False
+        rejectBlock
     -- Check that the block epoch is either the same as the epoch of the parent block or the next
     -- epoch.
     -- This is equivalent to the condition from the blue paper:
@@ -538,7 +646,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
       blockEpoch parent + 1 /= blockEpoch pendingBlock = do
         logLoggable $ LogBlockEpochInconsistent pbHash
         flag $ BlockEpochInconsistent sBlock
-        return False
+        rejectBlock
     -- [Note: the timestamp check is deferred in the implementation compared to the bluepaper.]
     -- Check that the block nonce is correctly formed
     | not $
@@ -550,7 +658,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
         do
             logLoggable $ LogBlockNonceIncorrect pbHash
             flag $ BlockNonceIncorrect sBlock
-            return False
+            rejectBlock
     | otherwise = do
         genMeta <- use genesisMetadata
         checkTimestamp $
@@ -574,7 +682,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                                 --    block.
                                 -- This implies that the block is in the epoch after the last
                                 -- finalized block.
-                                _ <- addBlock pendingBlock blockState parent
+                                newBlock <- addBlock pendingBlock blockState parent
                                 -- Note that the parent block could potentially no longer be live
                                 -- as a result of finalization processing in
                                 -- 'checkEpochFinalizationEntry'.
@@ -586,12 +694,12 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                                         case blockTimeoutCertificate pendingBlock of
                                             Present tc -> Left (tc, blockQuorumCertificate pendingBlock)
                                             Absent -> Right (blockQuorumCertificate pendingBlock)
-                                -- FIXME: process pending blocks
-                                return True
+                                return (Just newBlock)
   where
     pbHash :: BlockHash
     pbHash = getHash pendingBlock
     sBlock = pbBlock pendingBlock
+    rejectBlock = return Nothing
     -- Check the timestamp and invoke the continue if successful.
     checkTimestamp continue = do
         -- Check the timestamp is sufficiently far after the parent block.
@@ -605,7 +713,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                         minBlockTime
                         (blockTimestamp parent)
                 flag $ BlockTooFast sBlock (bpBlock parent)
-                return False
+                rejectBlock
             else continue
     -- Check the timeout certificate for presence and well-formedness when required.
     -- If successful, invoke the continuation with the timeout certificate, if it is required.
@@ -617,13 +725,13 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                 Absent -> do
                     logLoggable $ LogBlockTCMissing pbHash
                     flag $ BlockTCMissing sBlock
-                    return False
+                    rejectBlock
                 Present tc
                     -- Check that the TC round is correct.
                     | tcRound tc /= blockRound pendingBlock - 1 -> do
                         logLoggable $ LogBlockTCRoundInconsistent pbHash
                         flag $ BlockTCRoundInconsistent sBlock
-                        return False
+                        rejectBlock
                     | blockRound parent < tcMaxRound tc
                         || blockEpoch parent < tcMaxEpoch tc
                         || blockEpoch parent - tcMinEpoch tc > 2 -> do
@@ -634,7 +742,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                         logEvent Konsensus LLTrace $ "tcMaxEpoch tc: " ++ show (tcMaxEpoch tc)
                         logEvent Konsensus LLTrace $ "tcMinEpoch tc: " ++ show (tcMinEpoch tc)
                         flag $ BlockQCInconsistentWithTC sBlock
-                        return False
+                        rejectBlock
                     | otherwise -> do
                         -- Check correctness of the timeout certificate.
                         -- The timeout certificate should only contain timeouts for epochs that
@@ -660,6 +768,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                                     (eb2 ^. bfFinalizers)
                                     (parentBF ^. bfFinalizers)
                                     tc
+                        -- FIXME: can have tcMinEpoch tc == eBkrs ^. currentEpoch - 2
                         let tcOK
                                 | tcMinEpoch tc == eBkrs ^. currentEpoch - 1 =
                                     checkTCValid
@@ -682,12 +791,12 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                             else do
                                 logLoggable $ LogBlockInvalidTC pbHash
                                 flag $ BlockInvalidTC sBlock
-                                return False
+                                rejectBlock
         -- If the previous round didn't timeout, check we have no timeout certificate
         | Present _ <- blockTimeoutCertificate pendingBlock = do
             logLoggable $ LogBlockUnexpectedTC pbHash
             flag $ BlockUnexpectedTC sBlock
-            return False
+            rejectBlock
         | otherwise = continue
     -- Check the finalization entry, and process it if it updates our perspective on the last
     -- finalized block.
@@ -699,7 +808,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                 Absent -> do
                     logLoggable $ LogBlockEpochFinalizationMissing pbHash
                     flag $ BlockEpochFinalizationMissing sBlock
-                    return False
+                    rejectBlock
                 Present finEntry
                     -- Check that the finalization entry is for the correct epoch and
                     -- contains valid QCs.
@@ -733,32 +842,32 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                                     checkedUpdateHighestQC $ feSuccessorQuorumCertificate finEntry
                                     -- We check if the block is descended from the NEW last
                                     -- finalized block, since that should have changed.
-                                    gets (getMemoryBlockStatus (getHash parent)) >>= \case
-                                        Just (BlockAliveOrFinalized _) -> continue
+                                    gets (getLiveOrLastFinalizedBlock (getHash parent)) >>= \case
+                                        Just _ -> continue
                                         _ -> do
                                             logLoggable $
                                                 LogBlockUnrelatedEpochFinalization
                                                     pbHash
                                                     finBlockHash
                                             -- Possibly we should flag in this case.
-                                            return False
+                                            rejectBlock
                             _ -> do
                                 logLoggable $
                                     LogBlockInvalidEpochFinalizationTarget
                                         pbHash
                                         finBlockHash
                                 flag $ BlockInvalidEpochFinalization sBlock
-                                return False
+                                rejectBlock
                     | otherwise -> do
                         logLoggable $ LogBlockInvalidEpochFinalization pbHash
                         flag $ BlockInvalidEpochFinalization sBlock
-                        return False
+                        rejectBlock
         -- Here, the epoch must be the same as the parent epoch by the earlier epoch consistency
         -- check, and so we require the epoch finalization entry to be absent.
         | Present _ <- blockEpochFinalizationEntry pendingBlock = do
             logLoggable $ LogBlockUnexpectedEpochFinalization pbHash
             flag $ BlockUnexpectedEpochFinalization sBlock
-            return False
+            rejectBlock
         | otherwise = continue
     checkBlockExecution GenesisMetadata{..} continue = do
         let execData =
@@ -773,7 +882,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
             Left failureReason -> do
                 logLoggable $ LogBlockExecutionFailure pbHash failureReason
                 flag (BlockExecutionFailure sBlock)
-                return False
+                rejectBlock
             Right newState -> do
                 outcomesHash <- getTransactionOutcomesHash newState
                 if
@@ -785,7 +894,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                                     (blockTransactionOutcomesHash pendingBlock)
                                     outcomesHash
                             flag $ BlockInvalidTransactionOutcomesHash sBlock (bpBlock parent)
-                            return False
+                            rejectBlock
                         | getHash newState /= blockStateHash pendingBlock -> do
                             -- Incorrect state hash
                             logLoggable $
@@ -794,7 +903,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                                     (blockStateHash pendingBlock)
                                     (getHash newState)
                             flag $ BlockInvalidStateHash sBlock (bpBlock parent)
-                            return False
+                            rejectBlock
                         | otherwise ->
                             continue newState
     getParentBakersAndFinalizers continue
@@ -803,7 +912,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
             gets (getBakersForLiveEpoch (blockEpoch parent)) >>= \case
                 -- If this case happens, the parent block must now precede the last finalized block,
                 -- so we can no longer add the block.
-                Nothing -> return False
+                Nothing -> rejectBlock
                 Just bf -> continue bf
     checkQC GenesisMetadata{..} BakersAndFinalizers{..} continue = do
         let qcOK =
@@ -817,7 +926,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
             else do
                 logLoggable $ LogBlockInvalidQC pbHash
                 flag $ BlockInvalidQC sBlock
-                return False
+                rejectBlock
 
 -- |Update the highest QC if the supplied QC is for a later round than the previous QC.
 checkedUpdateHighestQC ::
@@ -853,14 +962,13 @@ executeBlock ::
     m ()
 executeBlock verifiedBlock = do
     -- TODO: check for consensus shutdown
-    get >>= getRecentBlockStatus (blockParent (vbBlock verifiedBlock)) >>= \case
-        RecentBlock (BlockAliveOrFinalized parent) -> ebWithParent parent
-        _ -> return ()
-  where
-    ebWithParent parent = do
-        success <- processBlock parent verifiedBlock
-        when success $ do
-            checkedValidateBlock (vbBlock verifiedBlock)
+    gets (getLiveOrLastFinalizedBlock (blockParent (vbBlock verifiedBlock))) >>= \case
+        Just parent -> do
+            res <- processBlock parent verifiedBlock
+            forM_ res $ \newBlock -> do
+                OrderedBlock best <- processPendingChildren newBlock
+                checkedValidateBlock best
+        Nothing -> return ()
 
 checkedValidateBlock ::
     ( MonadReader r m,
@@ -877,6 +985,7 @@ checkedValidateBlock ::
       BlockState m ~ HashedPersistentBlockState (MPV m),
       TimeMonad m,
       MonadTimeout m,
+      MonadLogger m,
       IsConsensusV1 (MPV m)
     ) =>
     b ->
@@ -916,7 +1025,8 @@ validateBlock ::
       BlockStateStorage m,
       BlockState m ~ HashedPersistentBlockState (MPV m),
       TimeMonad m,
-      MonadTimeout m
+      MonadTimeout m,
+      MonadLogger m
     ) =>
     -- |The block to sign.
     BlockHash ->
