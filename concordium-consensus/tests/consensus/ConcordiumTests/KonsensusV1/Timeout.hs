@@ -1,10 +1,14 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- |Module testing functions from the 'Concordium.KonsensusV1.Consensus.Timeout' module.
 module ConcordiumTests.KonsensusV1.Timeout (tests) where
 
+import Control.Monad.State
+import qualified Data.HashMap.Strict as HM
+import qualified Data.Map.Strict as Map
 import Data.Ratio
 import qualified Data.Vector as Vec
 import Data.Word
@@ -15,16 +19,21 @@ import Test.Hspec
 
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.BlsSignature as Bls
+import qualified Concordium.Crypto.DummyData as Dummy
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.VRF as VRF
+import qualified Concordium.Genesis.Data as GD
 import Concordium.GlobalState.BakerInfo
+import qualified Concordium.GlobalState.DummyData as Dummy
 import Concordium.GlobalState.Persistent.TreeState (insertDeadCache)
+import Concordium.Startup
 import Concordium.Types
+import qualified Concordium.Types.DummyData as Dummy
 import Concordium.Types.Transactions
-import qualified Data.HashMap.Strict as HM
-import qualified Data.Map.Strict as Map
 
+import Concordium.KonsensusV1.Consensus
 import Concordium.KonsensusV1.Consensus.Timeout
+import Concordium.KonsensusV1.TestMonad
 import Concordium.KonsensusV1.TreeState.Implementation
 import Concordium.KonsensusV1.TreeState.LowLevel.Memory
 import Concordium.KonsensusV1.TreeState.Types
@@ -45,15 +54,15 @@ testReceiveTimeoutMessage :: Spec
 testReceiveTimeoutMessage = describe "Receive timeout message" $ do
     it "rejects obsolete round" $ receiveAndCheck sd obsoleteRoundMessage $ Rejected ObsoleteRound
     it "rejects obsolete qc" $ receiveAndCheck sd obsoleteQCMessage $ Rejected ObsoleteQC
-    it "initializes catch-up upon future epoch" $ receiveAndCheck sd futureEpochTM $ CatchupRequired
+    it "initializes catch-up upon future epoch" $ receiveAndCheck sd futureEpochTM CatchupRequired
     it "rejects from a non finalizer" $ receiveAndCheck sd notAFinalizerQCMessage $ Rejected NotAFinalizer
     it "rejects on an invalid signature" $ receiveAndCheck sd invalidSignatureMessage $ Rejected InvalidSignature
-    it "initializes catch-up upon a future round" $ receiveAndCheck sd futureRoundTM $ CatchupRequired
+    it "initializes catch-up upon a future round" $ receiveAndCheck sd futureRoundTM CatchupRequired
     it "rejects when the qc points to an old finalized block" $ receiveAndCheck sd obsoleteQCPointer $ Rejected ObsoleteQCPointer
-    it "initializes catch-up when the qc pointer is unknown" $ receiveAndCheck sd unknownQCPointer $ CatchupRequired
+    it "initializes catch-up when the qc pointer is unknown" $ receiveAndCheck sd unknownQCPointer CatchupRequired
     it "rejects when the qc points to a dead block" $ receiveAndCheck sd qcPointerIsDead $ Rejected DeadQCPointer
-    it "initializes catch-up when qc pointer is pending" $ receiveAndCheck sd qcPointerIsPending $ CatchupRequired
-    it "returns duplicate upon a duplicate timeout message" $ receiveAndCheck sd duplicateMessage $ Duplicate
+    it "initializes catch-up when qc pointer is pending" $ receiveAndCheck sd qcPointerIsPending CatchupRequired
+    it "returns duplicate upon a duplicate timeout message" $ receiveAndCheck sd duplicateMessage Duplicate
     it "rejects double signing" $ receiveAndCheck sd doubleSignMessage $ Rejected DoubleSigning
     it "rejects when the bls signature is invalid" $ receiveAndCheck sd invalidBLSSignatureMessage $ Rejected InvalidBLSSignature
     it "received a valid timeout message" $
@@ -72,13 +81,13 @@ testReceiveTimeoutMessage = describe "Receive timeout message" $ do
     -- tree state before running the test.
     duplicateMessage = mkTimeoutMessage $! mkTimeoutMessageBody 1 2 0 $ someQC (Round 123) 0
     -- A message where the qc pointer is pending
-    qcPointerIsPending = mkTimeoutMessage $! mkTimeoutMessageBody 1 2 0 $ qcWithPendingPointer
+    qcPointerIsPending = mkTimeoutMessage $! mkTimeoutMessageBody 1 2 0 qcWithPendingPointer
     -- A message where the qc pointer is pointing to a dead block
-    qcPointerIsDead = mkTimeoutMessage $! mkTimeoutMessageBody 1 2 0 $ qcWithDeadPointer
+    qcPointerIsDead = mkTimeoutMessage $! mkTimeoutMessageBody 1 2 0 qcWithDeadPointer
     -- A message where the qc pointer is unknown
-    unknownQCPointer = mkTimeoutMessage $! mkTimeoutMessageBody 1 2 0 $ qcWithUnknownPointer
+    unknownQCPointer = mkTimeoutMessage $! mkTimeoutMessageBody 1 2 0 qcWithUnknownPointer
     -- A message where the qc pointer is to a block prior to the last finalized block.
-    obsoleteQCPointer = mkTimeoutMessage $! mkTimeoutMessageBody 1 2 0 $ someQCPointingToAndOldFinalizedBlock
+    obsoleteQCPointer = mkTimeoutMessage $! mkTimeoutMessageBody 1 2 0 someQCPointingToAndOldFinalizedBlock
     -- A message where the epoch is in the future
     futureEpochTM = mkTimeoutMessage $! mkTimeoutMessageBody 1 2 1 $ someQC (Round 1) 0
     -- A message where the round is in the future but the finalizer is present in the epoch.
@@ -104,16 +113,12 @@ testReceiveTimeoutMessage = describe "Receive timeout message" $ do
     someQCPointingToAndOldFinalizedBlock = QuorumCertificate someOldFinalizedBlockHash 1 0 qcSignature $ finalizerSet [FinalizerIndex 1, FinalizerIndex 2]
     -- Some unsigned quorum certificate message
     someQCMessage finalizerIndex = QuorumMessage (QuorumSignature Bls.emptySignature) someBlockHash (FinalizerIndex finalizerIndex) 1 1
-    -- The signed quorum message from the provided finalizer
-    someSignedQCMessage finalizerIndex = (someQCMessage finalizerIndex){qmSignature = someQCMessageSignature finalizerIndex}
     -- A quorum certificate message signature for some quorum certificate message.
     someQCMessageSignature finalizerIndex = signQuorumSignatureMessage (quorumSignatureMessageFor (someQCMessage finalizerIndex) genesisBlockHash) blsPrivateKey
     -- A private bls key shared by the finalizers in this test.
     blsPrivateKey = someBlsSecretKey
     -- A public bls key shared by the finalizers in this test.
     blsPublicKey = Bls.derivePublicKey blsPrivateKey
-    -- A finalizer info with a weight of 1.
-    finalizerInfo finalizerIndex = FinalizerInfo (FinalizerIndex finalizerIndex) 1 sigPublicKey
     -- The aggregate signature for the quorum certificate signed off by finalizer 1 and 2.
     qcSignature = someQCMessageSignature 1 <> someQCMessageSignature 1
     --- A VRF public key shared by the finalizers in this test.
@@ -191,13 +196,66 @@ testReceiveTimeoutMessage = describe "Receive timeout message" $ do
         resultCode <- runTestLLDB lldb $ receiveTimeoutMessage tm skovData
         resultCode `shouldBe` expect
 
+testExecuteTimeoutMessages :: Assertion
+testExecuteTimeoutMessages = runTestMonad @'P6 noBaker time genesisData $ do
+    res <- executeTimeoutMessage invalidQCTimeoutMessage
+    return ()
+  where
+    --    when (res /=InvalidQC (someQC 1 1)) $ do
+    --        liftIO $ assertFailure "The quorum certificate should be rejected"
+    --    when (res /= InvalidQCEpoch 0 (someQC 1 1)) $ do
+    --        liftIO $ assertFailure "The quorum certificate should be for a wrong epoch"
+    --    finalizers <- use $ skovEpochBakers . currentEpochBakers . bfFinalizers
+    --    executeTimeoutMessage $ validQCTimeoutMessage finalizers
+    --    when (sd == sd'') $ do
+    --        liftIO $ assertFailure "The round status should have changed."
+
+    fi :: Word32 -> FinalizerInfo
+    fi fIdx = FinalizerInfo (FinalizerIndex fIdx) 1 sigPublicKey (VRF.publicKey someVRFKeyPair) (Bls.derivePublicKey someBlsSecretKey) (BakerId $ AccountIndex $ fromIntegral fIdx)
+    validQCTimeoutMessage = MkPartiallyVerifiedTimeoutMessage validTimeoutMessage
+    invalidQCTimeoutMessage = MkPartiallyVerifiedTimeoutMessage validTimeoutMessage failingFinalizers
+    failingFinalizers :: FinalizationCommittee
+    failingFinalizers = FinalizationCommittee (Vec.fromList [fi 1, fi 2]) 2
+    time = timestampToUTCTime 0
+    noBaker = BakerContext Nothing
+    genesisBlockHash = GD.genesisBlockHash genesisData
+    mkTimeoutMessageBody fidx r e qc = TimeoutMessageBody (FinalizerIndex fidx) (Round r) e qc $ validTimeoutSignature r (qcRound qc) (qcEpoch qc)
+    validTimeoutSignature r qr qe = signTimeoutSignatureMessage (TimeoutSignatureMessage genesisBlockHash (Round r) qr qe) someBlsSecretKey
+    validTimeoutMessage = mkTimeoutMessage $! mkTimeoutMessageBody 2 2 0 $ someQC (Round 1) 0
+    someQCMessage finalizerIndex = QuorumMessage (QuorumSignature Bls.emptySignature) someBlockHash (FinalizerIndex finalizerIndex) 1 1
+    someQCMessageSignature finalizerIndex = signQuorumSignatureMessage (quorumSignatureMessageFor (someQCMessage finalizerIndex) genesisBlockHash) someBlsSecretKey
+    someBlockHash = BlockHash $ Hash.hash "a block hash"
+    qcSignature = someQCMessageSignature 1 <> someQCMessageSignature 1
+    someQC r e = QuorumCertificate someBlockHash r e qcSignature $ finalizerSet [FinalizerIndex 1, FinalizerIndex 2, FinalizerIndex 3]
+    mkTimeoutMessage body = signTimeoutMessage body genesisBlockHash sigKeyPair
+    sigKeyPair = unsafePerformIO Sig.newKeyPair
+    sigPublicKey = Sig.verifyKey sigKeyPair
+    foundationAcct =
+        Dummy.createCustomAccount
+            1_000_000_000_000
+            (Dummy.deterministicKP 0)
+            (Dummy.accountAddressFrom 0)
+    (genesisData, _, _) =
+        makeGenesisDataV1 @'P6
+            (Timestamp 0)
+            3
+            3_600_000
+            Dummy.dummyCryptographicParameters
+            Dummy.dummyIdentityProviders
+            Dummy.dummyArs
+            [ foundationAcct
+            ]
+            Dummy.dummyKeyCollection
+            Dummy.dummyChainParameters
+
 tests :: Spec
 tests = describe "KonsensusV1.Timeout" $ do
     testReceiveTimeoutMessage
     it "Test updateCurrentTimeout" $ do
-        testUpdateCurrentTimeout 10000 (3 % 2) 15000
-        testUpdateCurrentTimeout 10000 (4 % 3) 13333
-        testUpdateCurrentTimeout 10000 (5 % 3) 16666
-        testUpdateCurrentTimeout 3000 (4 % 3) 4000
-        testUpdateCurrentTimeout 80000 (10 % 9) 88888
-        testUpdateCurrentTimeout 8000 (8 % 7) 9142
+        testUpdateCurrentTimeout 10_000 (3 % 2) 15_000
+        testUpdateCurrentTimeout 10_000 (4 % 3) 13_333
+        testUpdateCurrentTimeout 10_000 (5 % 3) 16_666
+        testUpdateCurrentTimeout 3_000 (4 % 3) 4_000
+        testUpdateCurrentTimeout 80_000 (10 % 9) 88_888
+        testUpdateCurrentTimeout 8_000 (8 % 7) 9_142
+    it "execute timeout messages" testExecuteTimeoutMessages

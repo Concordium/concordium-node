@@ -199,16 +199,24 @@ receiveTimeoutMessage tm@TimeoutMessage{tmBody = body@TimeoutMessageBody{..}} sk
         bakers <- getBakersForLiveEpoch tmEpoch skovData
         finalizerByIndex (bakers ^. bfFinalizers) tmFinalizerIndex
 
--- |Execute a 'TimeoutMessage' that has been _received_ ('receiveTimeoutMessage') prior to
+-- |The result of executing a 'TimeoutMessage'.
+data ExecuteTimeoutMessageResult
+    = -- |The 'TimeoutMessage' was succesfully executed.
+      Success
+    | -- |The 'QuorumCertificate' for the 'TimeoutMessage'
+      -- is invalid.
+      InvalidQC !QuorumCertificate
+    | -- |The 'QuorumCertificate' for the 'TimeoutMessage'
+      -- is for a wrong 'Epoch'.
+      InvalidQCEpoch !Epoch !QuorumCertificate
+    deriving (Eq, Show)
+
+-- |Execute a 'PartiallyVerifiedTimeoutMessage' that has been _received_ ('receiveTimeoutMessage') prior to
 -- this call.
 --
--- This function carries out the following:
--- * Verifies the BLS signature of the timeout message.
--- * Verifies the 'QuorumCertificate of the timeout message.
--- * Possibly advances the round by the 'QuorumCertificate' of the 'TimeoutMessage'.
--- *
---
--- Pre condition: The supplied timeout message must have been _received_ before this call.
+-- This function verifies the 'QuorumCertificate' and possibly advances the round.
+-- This function also makes sure the check whether a block can be finalized due to the
+-- 'QuorumCertificate' of the 'TimeoutMessage'.
 executeTimeoutMessage ::
     ( IsConsensusV1 (MPV m),
       MonadThrow m,
@@ -223,7 +231,9 @@ executeTimeoutMessage ::
     ) =>
     -- |The partially verified 'TimeoutMessage' to execute.
     PartiallyVerifiedTimeoutMessage ->
-    m ()
+    -- |Returns @Left TimeoutMessage@ if the 'QuorumCertificate' could not be verified,
+    -- and otherwise @Right ()@.
+    m ExecuteTimeoutMessageResult
 executeTimeoutMessage (MkPartiallyVerifiedTimeoutMessage tm@TimeoutMessage{tmBody = TimeoutMessageBody{..}} qcCommittee) = do
     highestQCRound <- use (roundStatus . rsHighestQC . to qcRound)
     -- Check the quorum certificate if it's from a round we have not checked before.
@@ -231,7 +241,9 @@ executeTimeoutMessage (MkPartiallyVerifiedTimeoutMessage tm@TimeoutMessage{tmBod
         then do
             checkQC >>= \case
                 -- Stop and flag if the quorum certificate is invalid.
-                False -> flag $! TimeoutMessageInvalidQC tm
+                False -> do
+                    flag $! TimeoutMessageInvalidQC tm
+                    return $ InvalidQC tmQuorumCertificate
                 -- The quorum certificate is valid and we check whether we can
                 -- advance by it.
                 True -> do
@@ -244,6 +256,8 @@ executeTimeoutMessage (MkPartiallyVerifiedTimeoutMessage tm@TimeoutMessage{tmBod
                     currentRound <- use $ roundStatus . rsCurrentRound
                     when (currentRound <= qcRound tmQuorumCertificate) $ do
                         advanceRound (currentRound + 1) (Right tmQuorumCertificate)
+                    processTimeout tm
+                    return Success
         else -- Check whether we have already checked a qc for the round
         -- todo. this check is probably not correct.
 
@@ -251,15 +265,24 @@ executeTimeoutMessage (MkPartiallyVerifiedTimeoutMessage tm@TimeoutMessage{tmBod
                 then do
                     qc' <- use (roundStatus . rsHighestQC)
                     -- the qc is invalid since it was for another epoch.
-                    when (qcEpoch qc' /= qcEpoch tmQuorumCertificate) $ flag $ TimeoutMessageInvalidQC tm
+                    if qcEpoch qc' /= qcEpoch tmQuorumCertificate
+                        then do
+                            flag $ TimeoutMessageInvalidQC tm
+                            return $ InvalidQCEpoch (qcEpoch qc') tmQuorumCertificate
+                        else do
+                            processTimeout tm
+                            return Success
                 else
                     checkQC >>= \case
                         -- the quorum certificate is not valid so flag and stop.
-                        False -> flag $! TimeoutMessageInvalidQC tm
+                        False -> do
+                            flag $! TimeoutMessageInvalidQC tm
+                            return $ InvalidQC tmQuorumCertificate
                         -- The quorum certificate is valid so check whether it finalises any blocks.
-                        True -> checkFinality tmQuorumCertificate
-    -- Finally we process the timeout message.
-    processTimeout tm
+                        True -> do
+                            checkFinality tmQuorumCertificate
+                            processTimeout tm
+                            return Success
   where
     -- Check the quorum certificate of the timeout message.
     checkQC = do
