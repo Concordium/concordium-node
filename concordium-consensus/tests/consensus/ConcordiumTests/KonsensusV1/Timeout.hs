@@ -124,7 +124,8 @@ testReceiveTimeoutMessage = describe "Receive timeout message" $ do
     --- A VRF public key shared by the finalizers in this test.
     vrfPublicKey = VRF.publicKey someVRFKeyPair
     -- Keypair shared by the finalizers in this test.
-    sigKeyPair fidx = fst $ Dummy.randomBlockKeyPair $ mkStdGen $ fromIntegral fidx
+    sigKeyPair :: Int -> Sig.KeyPair
+    sigKeyPair fidx = fst $ Dummy.randomBlockKeyPair $ mkStdGen fidx
     -- Public key shared by the finalizers in this test.
     sigPublicKey fidx = Sig.verifyKey $ sigKeyPair fidx
     -- make a timeout message body suitable for signing.
@@ -165,7 +166,7 @@ testReceiveTimeoutMessage = describe "Receive timeout message" $ do
     -- FinalizerInfo for the finalizer index provided.
     -- All finalizers has the same keys attacched.
     fi :: Word32 -> FinalizerInfo
-    fi fIdx = FinalizerInfo (FinalizerIndex fIdx) 1 (sigPublicKey fIdx) vrfPublicKey (blsPublicKey fIdx) (BakerId $ AccountIndex $ fromIntegral fIdx)
+    fi fIdx = FinalizerInfo (FinalizerIndex fIdx) 1 (sigPublicKey (fromIntegral fIdx)) vrfPublicKey (blsPublicKey fIdx) (BakerId $ AccountIndex $ fromIntegral fIdx)
     -- COnstruct the finalization committee
     finalizers = FinalizationCommittee (Vec.fromList [fi 0, fi 1, fi 2]) 3
     -- Construct a set of 0 bakers and 3 finalisers with indecies 1,2,3.
@@ -199,13 +200,18 @@ testReceiveTimeoutMessage = describe "Receive timeout message" $ do
 testExecuteTimeoutMessages :: Spec
 testExecuteTimeoutMessages = describe "execute timeout messages" $ do
     it "rejects message with invalid qc signature (qc round is better than recorded highest qc)" $ execute invalidQCTimeoutMessage $ InvalidQC $ someInvalidQC 1 0
-    it "accepts message where qc is ok (qc round is better than recorded highest qc)" $ execute validQCTimeoutMessage ExecutionSuccess
+    --    it "accepts message where qc is ok (qc round is better than recorded highest qc)" $ execute (validQCTimeoutMessage 3 2) ExecutionSuccess
+    it "rejects message with qc round no greater than highest qc and invalic qc" $ execute wrongEpochMessage $ InvalidQC $ someInvalidQC 0 0
+    it "accepts message with qc round no greather than highest qc and valid qc" $ execute (validQCTimeoutMessage 3 1) ExecutionSuccess
   where
     --    it "rejects message with invalid qc signature (qc round is already checked, but another epoch)" $ execute invalidEpochQCTimeoutMessage $ InvalidQCEpoch 0 (someQC 0 1)
 
     -- action that runs @executeTimeoutMessage@ on the provided
     -- timeout message and checks that it matches the expectation.
+    -- Note that the highest qc in the round status to be a qc for round 1, epoch 0.
     execute timeoutMessage expect = runTestMonad @'P6 noBaker time genesisData $ do
+        -- Set the highest qc to round 1.
+        roundStatus . rsHighestQC .= someQC (Round 1) 0
         resultCode <- executeTimeoutMessage timeoutMessage
         liftIO $ expect @=? resultCode
     -- the finalizer with the provided finalizer index.
@@ -213,9 +219,11 @@ testExecuteTimeoutMessages = describe "execute timeout messages" $ do
     fi :: Word32 -> FinalizerInfo
     fi fIdx = FinalizerInfo (FinalizerIndex fIdx) 1 sigPublicKey (VRF.publicKey someVRFKeyPair) (Bls.derivePublicKey $ blsSk fIdx) (BakerId $ AccountIndex $ fromIntegral fIdx)
     -- a valid timeout message with a valid qc.
-    validQCTimeoutMessage = MkPartiallyVerifiedTimeoutMessage validTimeoutMessage finalizers
+    validQCTimeoutMessage r qcr = MkPartiallyVerifiedTimeoutMessage (validTimeoutMessage r qcr) finalizers
     -- a timeout message where the qc signature does not check out.
     invalidQCTimeoutMessage = MkPartiallyVerifiedTimeoutMessage (mkTimeoutMessage $! mkTimeoutMessageBody 2 1 0 (someInvalidQC 1 0)) finalizers
+    -- wrong epoch
+    wrongEpochMessage = MkPartiallyVerifiedTimeoutMessage (mkTimeoutMessage $! mkTimeoutMessageBody 2 0 0 (someInvalidQC 0 0)) finalizers
     -- the finalization committee.
     finalizers = FinalizationCommittee (Vec.fromList [fi 0, fi 1, fi 2]) 3
     -- the time that we run our test computation with respect to.
@@ -231,7 +239,7 @@ testExecuteTimeoutMessages = describe "execute timeout messages" $ do
     -- A bls key for the finalizer.
     blsSk fidx = fst <$> Dummy.randomBlsSecretKey $ mkStdGen $ fromIntegral fidx
     -- a valid timeout message.
-    validTimeoutMessage = mkTimeoutMessage $! mkTimeoutMessageBody 0 2 0 $ someQC (Round 1) 0
+    validTimeoutMessage r qcr = mkTimeoutMessage $! mkTimeoutMessageBody 0 r 0 $ someQC (Round qcr) 0
     -- some valid qc message by the provided finalizer.
     someQCMessage finalizerIndex = QuorumMessage (QuorumSignature Bls.emptySignature) someBlockHash (FinalizerIndex finalizerIndex) 1 0
     -- some valid qc message signature signed by the provide
