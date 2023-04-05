@@ -938,7 +938,8 @@ checkedUpdateHighestQC ::
 checkedUpdateHighestQC newQC = do
     rs <- use roundStatus
     let isBetterQC = qcRound (rs ^. rsHighestQC) < qcRound newQC
-    when isBetterQC $
+    when isBetterQC $ do
+        roundExistingQuorumCertificate (qcRound newQC) ?= toQuorumCertificateWitness newQC
         setRoundStatus $!
             rs{_rsHighestQC = newQC}
 
