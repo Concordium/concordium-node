@@ -4,7 +4,7 @@ set -ex
 
 #############################################################################################################################
 ## Copy GHC libs
-
+apt install libtinfo-dev
 mkdir -p /target/{profiling,vanilla}/{ghc,dependencies,concordium}
 mkdir -p /binaries/{lib,bin}
 
