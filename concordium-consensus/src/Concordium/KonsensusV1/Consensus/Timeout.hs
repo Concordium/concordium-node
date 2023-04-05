@@ -415,14 +415,14 @@ updateTimeoutMessages tms tm =
                           tmFirstEpochTimeouts = singletonTimeout,
                           tmSecondEpochTimeouts = tmFirstEpochTimeouts
                         }
-            | epoch == tmFirstEpoch + 2 ->
+            | epoch == tmFirstEpoch + 2 && not (null tmSecondEpochTimeouts) ->
                 Just $
                     TimeoutMessages
                         { tmFirstEpoch = tmFirstEpoch + 1,
                           tmFirstEpochTimeouts = tmSecondEpochTimeouts,
                           tmSecondEpochTimeouts = singletonTimeout
                         }
-            | epoch > tmFirstEpoch + 2 ->
+            | epoch >= tmFirstEpoch + 2 ->
                 Just $
                     TimeoutMessages
                         { tmFirstEpoch = epoch,

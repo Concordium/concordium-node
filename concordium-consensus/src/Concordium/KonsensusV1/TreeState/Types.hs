@@ -261,7 +261,7 @@ instance Serialize RoundStatus where
 initialRoundStatus :: BlockHash -> RoundStatus
 initialRoundStatus genesisHash =
     RoundStatus
-        { _rsCurrentRound = 0,
+        { _rsCurrentRound = 1,
           _rsLastSignedQuorumMessage = Absent,
           _rsLastSignedTimeoutMessage = Absent,
           _rsHighestQC = genesisQuorumCertificate genesisHash,
@@ -345,3 +345,4 @@ data TimeoutMessages
         -- |Timeout messages for epoch @tmFirstEpoch + 1@ indexed by the 'FinalizerIndex'.
         tmSecondEpochTimeouts :: !(Map.Map FinalizerIndex TimeoutMessage)
       }
+    deriving (Eq, Show)
