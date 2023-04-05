@@ -92,7 +92,7 @@ testMakeQuorumCertificate = describe "Quorum Certificate creation" $ do
     it "should create a certificate when there is enough weight" $ do
         assertEqual
             "A quorum certificate should have been generated"
-            (Just (QuorumCertificate bh 0 0 (emptyQuorumSignature <> emptyQuorumSignature) (finalizerSet $ FinalizerIndex <$> [1, 2])))
+            (Just (QuorumCertificate bh 1 0 (emptyQuorumSignature <> emptyQuorumSignature) (finalizerSet $ FinalizerIndex <$> [1, 2])))
             (makeQuorumCertificate bh sd')
     it "should not create a qc as there are no signatures present" $ do
         assertEqual

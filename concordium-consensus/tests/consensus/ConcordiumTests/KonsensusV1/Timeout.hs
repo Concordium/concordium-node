@@ -156,6 +156,7 @@ testUponTimeoutEvent = do
 -- The following is tested after receival of enough timeout messages to form a valid TC:
 -- * that the round is indeed advanced
 -- * that the field @rsPreviousRoundTC@ is set with a valid TC
+-- * that the field @receivedTimeoutMessages@ of 'SkovData' is now @Absent@
 testProcessTimeout :: Assertion
 testProcessTimeout = do
     runTestMonad noBaker testTime genesisData $ do
