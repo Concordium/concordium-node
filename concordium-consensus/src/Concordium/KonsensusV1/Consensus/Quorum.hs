@@ -258,4 +258,6 @@ processQuorumMessage vqm@(VerifiedQuorumMessage quorumMessage _) = do
         let maybeQuorumCertificate = makeQuorumCertificate (qmBlock quorumMessage) skovData
         forM_ maybeQuorumCertificate $ \newQC -> do
             checkFinality newQC
-            advanceRound (qcRound newQC) (Right newQC)
+            let qcRnd = qcRound newQC
+            advanceRound qcRnd (Right newQC)
+            roundExistingQuorumCertificate qcRnd ?= toQuorumCertificateWitness newQC

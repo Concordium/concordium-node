@@ -217,6 +217,9 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       -- |For non-finalized rounds, tracks which bakers we have seen legally-signed blocks with
       -- live parent blocks from. This is used for duplicate detection.
       _roundExistingBlocks :: !(Map.Map Round (Map.Map BakerId BlockSignatureWitness)),
+      -- |For non finalized rounds, keep track of which rounds where we have succesfully
+      -- checked a 'QuorumCertificate'.
+      _roundExistingQCs :: !(Map.Map Round QuorumCertificateWitness),
       -- |Genesis metadata
       _genesisMetadata :: !GenesisMetadata,
       -- |Pending blocks
@@ -264,6 +267,15 @@ roundBakerExistingBlock rnd bakerId = roundExistingBlocks . at' rnd . nonEmpty .
 purgeRoundExistingBlocks :: (MonadState (SkovData pv) m) => Round -> m ()
 purgeRoundExistingBlocks rnd = roundExistingBlocks %=! snd . Map.split rnd
 
+-- |Lens for accessing the witness that we have checked a 'QuorumCertificate' for a particular 'Round'.
+roundExistingQuorumCertificate :: Round -> Lens' (SkovData pv) (Maybe QuorumCertificateWitness)
+roundExistingQuorumCertificate rnd = roundExistingQCs . at' rnd
+
+-- |Remove all entries from 'roundExistingQCs' with a 'Round' less than or equal to the
+-- supplied 'Round'.
+purgeRoundExistingQCs :: (MonadState (SkovData pv) m) => Round -> m ()
+purgeRoundExistingQCs rnd = roundExistingQCs %= snd . Map.split rnd
+
 -- |Create an initial 'SkovData pv'
 -- This constructs a 'SkovData pv' from a genesis block
 -- which is suitable to grow the tree from.
@@ -307,6 +319,7 @@ mkInitialSkovData rp genMeta genState _currentTimeout _skovEpochBakers =
         _blockTable = emptyBlockTable
         _branches = Seq.empty
         _roundExistingBlocks = Map.empty
+        _roundExistingQCs = Map.empty
         _genesisMetadata = genMeta
         _skovPendingBlocks = emptyPendingBlocks
         _lastFinalized = genesisBlockPointer

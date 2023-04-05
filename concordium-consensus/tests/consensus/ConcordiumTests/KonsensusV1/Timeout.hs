@@ -196,45 +196,68 @@ testReceiveTimeoutMessage = describe "Receive timeout message" $ do
         resultCode <- runTestLLDB lldb $ receiveTimeoutMessage tm skovData
         resultCode `shouldBe` expect
 
-testExecuteTimeoutMessages :: Assertion
-testExecuteTimeoutMessages = runTestMonad @'P6 noBaker time genesisData $ do
-    res <- executeTimeoutMessage invalidQCTimeoutMessage
-    return ()
+testExecuteTimeoutMessages :: Spec
+testExecuteTimeoutMessages = describe "execute timeout messages" $ do
+    it "rejects message with invalid qc signature (qc round is better than recorded highest qc)" $ execute invalidQCTimeoutMessage $ InvalidQC $ someInvalidQC 1 0
+    it "accepts message where qc is ok (qc round is better than recorded highest qc)" $ execute validQCTimeoutMessage ExecutionSuccess
   where
-    --    when (res /=InvalidQC (someQC 1 1)) $ do
-    --        liftIO $ assertFailure "The quorum certificate should be rejected"
-    --    when (res /= InvalidQCEpoch 0 (someQC 1 1)) $ do
-    --        liftIO $ assertFailure "The quorum certificate should be for a wrong epoch"
-    --    finalizers <- use $ skovEpochBakers . currentEpochBakers . bfFinalizers
-    --    executeTimeoutMessage $ validQCTimeoutMessage finalizers
-    --    when (sd == sd'') $ do
-    --        liftIO $ assertFailure "The round status should have changed."
+    --    it "rejects message with invalid qc signature (qc round is already checked, but another epoch)" $ execute invalidEpochQCTimeoutMessage $ InvalidQCEpoch 0 (someQC 0 1)
 
+    -- action that runs @executeTimeoutMessage@ on the provided
+    -- timeout message and checks that it matches the expectation.
+    execute timeoutMessage expect = runTestMonad @'P6 noBaker time genesisData $ do
+        resultCode <- executeTimeoutMessage timeoutMessage
+        liftIO $ expect @=? resultCode
+    -- the finalizer with the provided finalizer index.
+    -- Note that all finalizers use the same keys.
     fi :: Word32 -> FinalizerInfo
     fi fIdx = FinalizerInfo (FinalizerIndex fIdx) 1 sigPublicKey (VRF.publicKey someVRFKeyPair) (Bls.derivePublicKey someBlsSecretKey) (BakerId $ AccountIndex $ fromIntegral fIdx)
-    validQCTimeoutMessage = MkPartiallyVerifiedTimeoutMessage validTimeoutMessage
-    invalidQCTimeoutMessage = MkPartiallyVerifiedTimeoutMessage validTimeoutMessage failingFinalizers
-    failingFinalizers :: FinalizationCommittee
-    failingFinalizers = FinalizationCommittee (Vec.fromList [fi 1, fi 2]) 2
-    time = timestampToUTCTime 0
+    -- a valid timeout message with a valid qc.
+    validQCTimeoutMessage = MkPartiallyVerifiedTimeoutMessage validTimeoutMessage finalizers
+    -- a timeout message where the qc signature does not check out.
+    invalidQCTimeoutMessage = MkPartiallyVerifiedTimeoutMessage (mkTimeoutMessage $! mkTimeoutMessageBody 2 1 0 (someInvalidQC 1 0)) finalizers
+    -- a timeout message where the qc pointer points to a wrong epoch.
+    invalidEpochQCTimeoutMessage = MkPartiallyVerifiedTimeoutMessage (mkTimeoutMessage $! mkTimeoutMessageBody 2 1 0 (someQC 0 1)) finalizers
+    -- the finalization committee.
+    finalizers = FinalizationCommittee (Vec.fromList [fi 0, fi 1, fi 2]) 3
+    -- the time that we run our test computation with respect to.
+    time = timestampToUTCTime 1
+    -- The @executeTimeoutMessage@ runs in a no baker context.
     noBaker = BakerContext Nothing
+    -- the genesis block hash
     genesisBlockHash = GD.genesisBlockHash genesisData
+    -- a timeout message body by the finalizer, round epoch and qc provided.
     mkTimeoutMessageBody fidx r e qc = TimeoutMessageBody (FinalizerIndex fidx) (Round r) e qc $ validTimeoutSignature r (qcRound qc) (qcEpoch qc)
+    -- a valid timeout signature.
     validTimeoutSignature r qr qe = signTimeoutSignatureMessage (TimeoutSignatureMessage genesisBlockHash (Round r) qr qe) someBlsSecretKey
-    validTimeoutMessage = mkTimeoutMessage $! mkTimeoutMessageBody 2 2 0 $ someQC (Round 1) 0
+    -- a valid timeout message.
+    validTimeoutMessage = mkTimeoutMessage $! mkTimeoutMessageBody 2 1 0 $ someQC (Round 1) 0
+    -- some valid qc message by the provided finalizer.
     someQCMessage finalizerIndex = QuorumMessage (QuorumSignature Bls.emptySignature) someBlockHash (FinalizerIndex finalizerIndex) 1 1
+    -- some valid qc message signature signed by the provide
     someQCMessageSignature finalizerIndex = signQuorumSignatureMessage (quorumSignatureMessageFor (someQCMessage finalizerIndex) genesisBlockHash) someBlsSecretKey
+    -- just a block hash for testing purposes.
     someBlockHash = BlockHash $ Hash.hash "a block hash"
-    qcSignature = someQCMessageSignature 1 <> someQCMessageSignature 1
+    -- a valid signature.
+    qcSignature = someQCMessageSignature 0 <> someQCMessageSignature 1 <> someQCMessageSignature 2
+    -- a qc with a valid signature created by finalizers 0,1,2
     someQC r e = QuorumCertificate someBlockHash r e qcSignature $ finalizerSet [FinalizerIndex 1, FinalizerIndex 2, FinalizerIndex 3]
+    -- a qc with the empty signature.
+    someInvalidQC r e = QuorumCertificate someBlockHash r e (QuorumSignature Bls.emptySignature) $ finalizerSet [FinalizerIndex 1, FinalizerIndex 2, FinalizerIndex 3]
+    -- a signed timeout message with the provided body.
     mkTimeoutMessage body = signTimeoutMessage body genesisBlockHash sigKeyPair
+    -- the sig key pair that is used for all entities in this test.
     sigKeyPair = unsafePerformIO Sig.newKeyPair
+    -- the public key corresponding to the above sigKeyPair.
     sigPublicKey = Sig.verifyKey sigKeyPair
+    -- the foundation account for the genesis data.
     foundationAcct =
         Dummy.createCustomAccount
             1_000_000_000_000
             (Dummy.deterministicKP 0)
             (Dummy.accountAddressFrom 0)
+    -- the genesis data for composing the monad that the computations are run within.
+    -- it consists of 3 finalizers with indecies 0,1,2
     (genesisData, _, _) =
         makeGenesisDataV1 @'P6
             (Timestamp 0)
@@ -251,6 +274,7 @@ testExecuteTimeoutMessages = runTestMonad @'P6 noBaker time genesisData $ do
 tests :: Spec
 tests = describe "KonsensusV1.Timeout" $ do
     testReceiveTimeoutMessage
+    testExecuteTimeoutMessages
     it "Test updateCurrentTimeout" $ do
         testUpdateCurrentTimeout 10_000 (3 % 2) 15_000
         testUpdateCurrentTimeout 10_000 (4 % 3) 13_333
@@ -258,4 +282,3 @@ tests = describe "KonsensusV1.Timeout" $ do
         testUpdateCurrentTimeout 3_000 (4 % 3) 4_000
         testUpdateCurrentTimeout 80_000 (10 % 9) 88_888
         testUpdateCurrentTimeout 8_000 (8 % 7) 9_142
-    it "execute timeout messages" testExecuteTimeoutMessages

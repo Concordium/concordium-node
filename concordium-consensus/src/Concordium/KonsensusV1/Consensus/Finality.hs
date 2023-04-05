@@ -180,6 +180,8 @@ processFinalization newFinalizedBlock newFinalizationEntry = do
     lastFinalized .= newFinalizedBlock
     -- Purge the 'roundExistingBlocks' up to the last finalized block.
     purgeRoundExistingBlocks (blockRound newFinalizedBlock)
+    -- Purge the 'roundExistingQCs' up to the last finalized block.
+    purgeRoundExistingQCs (blockRound newFinalizedBlock)
     -- Purge any pending blocks that are no longer viable.
     purgePending
     -- Advance the epoch if the new finalized block triggers the epoch transition.

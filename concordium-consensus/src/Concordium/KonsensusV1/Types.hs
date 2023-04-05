@@ -1277,3 +1277,11 @@ data BlockSignatureWitness = BlockSignatureWitness
 -- |Derive a 'BlockSignatureWitness' from a signed block.
 toBlockSignatureWitness :: SignedBlock -> BlockSignatureWitness
 toBlockSignatureWitness _ = BlockSignatureWitness
+
+-- |A proof that contains the 'Epoch' for a 'QuorumCertificate'
+-- has been checked for a particular 'Round'.
+newtype QuorumCertificateWitness = QuorumCertificateWitness Epoch
+
+-- |Get the assoicated 'QuorumCertificateWitness' for a 'QuorumCertificate'.
+toQuorumCertificateWitness :: QuorumCertificate -> QuorumCertificateWitness
+toQuorumCertificateWitness qc = QuorumCertificateWitness (qcEpoch qc)
