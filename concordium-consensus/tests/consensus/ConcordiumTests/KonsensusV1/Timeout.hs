@@ -13,7 +13,7 @@ import Data.Ratio
 import qualified Data.Vector as Vec
 import Data.Word
 import Lens.Micro.Platform
-import System.IO.Unsafe
+import System.Random
 import Test.HUnit
 import Test.Hspec
 
@@ -114,25 +114,25 @@ testReceiveTimeoutMessage = describe "Receive timeout message" $ do
     -- Some unsigned quorum certificate message
     someQCMessage finalizerIndex = QuorumMessage (QuorumSignature Bls.emptySignature) someBlockHash (FinalizerIndex finalizerIndex) 1 1
     -- A quorum certificate message signature for some quorum certificate message.
-    someQCMessageSignature finalizerIndex = signQuorumSignatureMessage (quorumSignatureMessageFor (someQCMessage finalizerIndex) genesisBlockHash) blsPrivateKey
+    someQCMessageSignature finalizerIndex = signQuorumSignatureMessage (quorumSignatureMessageFor (someQCMessage finalizerIndex) genesisBlockHash) $ blsPrivateKey finalizerIndex
     -- A private bls key shared by the finalizers in this test.
-    blsPrivateKey = someBlsSecretKey
+    blsPrivateKey fidx = fst $ Dummy.randomBlsSecretKey $ mkStdGen (fromIntegral fidx)
     -- A public bls key shared by the finalizers in this test.
-    blsPublicKey = Bls.derivePublicKey blsPrivateKey
+    blsPublicKey fidx = Bls.derivePublicKey (blsPrivateKey fidx)
     -- The aggregate signature for the quorum certificate signed off by finalizer 1 and 2.
     qcSignature = someQCMessageSignature 1 <> someQCMessageSignature 1
     --- A VRF public key shared by the finalizers in this test.
     vrfPublicKey = VRF.publicKey someVRFKeyPair
     -- Keypair shared by the finalizers in this test.
-    sigKeyPair = unsafePerformIO Sig.newKeyPair
+    sigKeyPair fidx = fst $ Dummy.randomBlockKeyPair $ mkStdGen $ fromIntegral fidx
     -- Public key shared by the finalizers in this test.
-    sigPublicKey = Sig.verifyKey sigKeyPair
+    sigPublicKey fidx = Sig.verifyKey $ sigKeyPair fidx
     -- make a timeout message body suitable for signing.
-    mkTimeoutMessageBody fidx r e qc = TimeoutMessageBody (FinalizerIndex fidx) (Round r) e qc $ validTimeoutSignature r (qcRound qc) (qcEpoch qc)
+    mkTimeoutMessageBody fidx r e qc = TimeoutMessageBody (FinalizerIndex fidx) (Round r) e qc $ validTimeoutSignature fidx r (qcRound qc) (qcEpoch qc)
     -- Create a valid timeout signature.
-    validTimeoutSignature r qr qe = signTimeoutSignatureMessage (TimeoutSignatureMessage genesisBlockHash (Round r) qr qe) blsPrivateKey
+    validTimeoutSignature fidx r qr qe = signTimeoutSignatureMessage (TimeoutSignatureMessage genesisBlockHash (Round r) qr qe) (blsPrivateKey fidx)
     -- sign and create a timeout message.
-    mkTimeoutMessage body = signTimeoutMessage body genesisBlockHash sigKeyPair
+    mkTimeoutMessage body = signTimeoutMessage body genesisBlockHash $ sigKeyPair (fromIntegral $ theFinalizerIndex $ tmFinalizerIndex body)
     -- A block hash for a block marked as pending.
     pendingBlockHash = BlockHash $ Hash.hash "A pending block"
     -- A block hash for a block marked as dead.
@@ -148,8 +148,8 @@ testReceiveTimeoutMessage = describe "Receive timeout message" $ do
     -- Some pending block with no meaningful content.
     -- It is inserted into the tree state before running tests.
     pendingBlock = MemBlockPending $ PendingBlock signedBlock $ timestampToUTCTime 0
-    -- A signed block.
-    signedBlock = SignedBlock (bakedBlock 4 0) pendingBlockHash $ Sig.sign (unsafePerformIO Sig.newKeyPair) "foo"
+    -- A block signed by finalizer 1.
+    signedBlock = SignedBlock (bakedBlock 4 0) pendingBlockHash $ Sig.sign (sigKeyPair 1) "foo"
     -- Some dummy block pointer for the provided round and epoch
     someBlockPointer r e =
         BlockPointer
@@ -159,15 +159,15 @@ testReceiveTimeoutMessage = describe "Receive timeout message" $ do
                       bmReceiveTime = timestampToUTCTime 0,
                       bmArriveTime = timestampToUTCTime 0
                     },
-              bpBlock = NormalBlock $ SignedBlock (bakedBlock r e) someBlockHash (Sig.sign (unsafePerformIO Sig.newKeyPair) "foo"),
+              bpBlock = NormalBlock $ SignedBlock (bakedBlock r e) someBlockHash (Sig.sign (sigKeyPair 1) "foo"),
               bpState = dummyBlockState
             }
     -- FinalizerInfo for the finalizer index provided.
     -- All finalizers has the same keys attacched.
     fi :: Word32 -> FinalizerInfo
-    fi fIdx = FinalizerInfo (FinalizerIndex fIdx) 1 sigPublicKey vrfPublicKey blsPublicKey (BakerId $ AccountIndex $ fromIntegral fIdx)
+    fi fIdx = FinalizerInfo (FinalizerIndex fIdx) 1 (sigPublicKey fIdx) vrfPublicKey (blsPublicKey fIdx) (BakerId $ AccountIndex $ fromIntegral fIdx)
     -- COnstruct the finalization committee
-    finalizers = FinalizationCommittee (Vec.fromList [fi 1, fi 2, fi 3]) 3
+    finalizers = FinalizationCommittee (Vec.fromList [fi 0, fi 1, fi 2]) 3
     -- Construct a set of 0 bakers and 3 finalisers with indecies 1,2,3.
     bakersAndFinalizers = BakersAndFinalizers (FullBakers Vec.empty 0) finalizers
     -- A tree state where the following applies:
@@ -211,13 +211,11 @@ testExecuteTimeoutMessages = describe "execute timeout messages" $ do
     -- the finalizer with the provided finalizer index.
     -- Note that all finalizers use the same keys.
     fi :: Word32 -> FinalizerInfo
-    fi fIdx = FinalizerInfo (FinalizerIndex fIdx) 1 sigPublicKey (VRF.publicKey someVRFKeyPair) (Bls.derivePublicKey someBlsSecretKey) (BakerId $ AccountIndex $ fromIntegral fIdx)
+    fi fIdx = FinalizerInfo (FinalizerIndex fIdx) 1 sigPublicKey (VRF.publicKey someVRFKeyPair) (Bls.derivePublicKey $ blsSk fIdx) (BakerId $ AccountIndex $ fromIntegral fIdx)
     -- a valid timeout message with a valid qc.
     validQCTimeoutMessage = MkPartiallyVerifiedTimeoutMessage validTimeoutMessage finalizers
     -- a timeout message where the qc signature does not check out.
     invalidQCTimeoutMessage = MkPartiallyVerifiedTimeoutMessage (mkTimeoutMessage $! mkTimeoutMessageBody 2 1 0 (someInvalidQC 1 0)) finalizers
-    -- a timeout message where the qc pointer points to a wrong epoch.
-    invalidEpochQCTimeoutMessage = MkPartiallyVerifiedTimeoutMessage (mkTimeoutMessage $! mkTimeoutMessageBody 2 1 0 (someQC 0 1)) finalizers
     -- the finalization committee.
     finalizers = FinalizationCommittee (Vec.fromList [fi 0, fi 1, fi 2]) 3
     -- the time that we run our test computation with respect to.
@@ -227,27 +225,29 @@ testExecuteTimeoutMessages = describe "execute timeout messages" $ do
     -- the genesis block hash
     genesisBlockHash = GD.genesisBlockHash genesisData
     -- a timeout message body by the finalizer, round epoch and qc provided.
-    mkTimeoutMessageBody fidx r e qc = TimeoutMessageBody (FinalizerIndex fidx) (Round r) e qc $ validTimeoutSignature r (qcRound qc) (qcEpoch qc)
+    mkTimeoutMessageBody fidx r e qc = TimeoutMessageBody (FinalizerIndex fidx) (Round r) e qc $ validTimeoutSignature fidx r (qcRound qc) (qcEpoch qc)
     -- a valid timeout signature.
-    validTimeoutSignature r qr qe = signTimeoutSignatureMessage (TimeoutSignatureMessage genesisBlockHash (Round r) qr qe) someBlsSecretKey
+    validTimeoutSignature fidx r qr qe = signTimeoutSignatureMessage (TimeoutSignatureMessage genesisBlockHash (Round r) qr qe) $ blsSk fidx
+    -- A bls key for the finalizer.
+    blsSk fidx = fst <$> Dummy.randomBlsSecretKey $ mkStdGen $ fromIntegral fidx
     -- a valid timeout message.
-    validTimeoutMessage = mkTimeoutMessage $! mkTimeoutMessageBody 2 1 0 $ someQC (Round 1) 0
+    validTimeoutMessage = mkTimeoutMessage $! mkTimeoutMessageBody 0 2 0 $ someQC (Round 1) 0
     -- some valid qc message by the provided finalizer.
-    someQCMessage finalizerIndex = QuorumMessage (QuorumSignature Bls.emptySignature) someBlockHash (FinalizerIndex finalizerIndex) 1 1
+    someQCMessage finalizerIndex = QuorumMessage (QuorumSignature Bls.emptySignature) someBlockHash (FinalizerIndex finalizerIndex) 1 0
     -- some valid qc message signature signed by the provide
-    someQCMessageSignature finalizerIndex = signQuorumSignatureMessage (quorumSignatureMessageFor (someQCMessage finalizerIndex) genesisBlockHash) someBlsSecretKey
+    someQCMessageSignature finalizerIndex = signQuorumSignatureMessage (quorumSignatureMessageFor (someQCMessage finalizerIndex) genesisBlockHash) (blsSk finalizerIndex)
     -- just a block hash for testing purposes.
     someBlockHash = BlockHash $ Hash.hash "a block hash"
     -- a valid signature.
     qcSignature = someQCMessageSignature 0 <> someQCMessageSignature 1 <> someQCMessageSignature 2
     -- a qc with a valid signature created by finalizers 0,1,2
-    someQC r e = QuorumCertificate someBlockHash r e qcSignature $ finalizerSet [FinalizerIndex 1, FinalizerIndex 2, FinalizerIndex 3]
+    someQC r e = QuorumCertificate someBlockHash r e qcSignature $ finalizerSet [FinalizerIndex 0, FinalizerIndex 1, FinalizerIndex 2]
     -- a qc with the empty signature.
     someInvalidQC r e = QuorumCertificate someBlockHash r e (QuorumSignature Bls.emptySignature) $ finalizerSet [FinalizerIndex 1, FinalizerIndex 2, FinalizerIndex 3]
     -- a signed timeout message with the provided body.
     mkTimeoutMessage body = signTimeoutMessage body genesisBlockHash sigKeyPair
     -- the sig key pair that is used for all entities in this test.
-    sigKeyPair = unsafePerformIO Sig.newKeyPair
+    sigKeyPair = fst $ Dummy.randomBlockKeyPair $ mkStdGen 42
     -- the public key corresponding to the above sigKeyPair.
     sigPublicKey = Sig.verifyKey sigKeyPair
     -- the foundation account for the genesis data.
