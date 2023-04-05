@@ -207,10 +207,10 @@ data FinalizerInfo = FinalizerInfo
       -- |The baker ID of the finalizer
       finalizerBakerId :: !BakerId
     }
-    deriving (Eq, Ord)
+    deriving (Eq, Ord, Show)
 
-instance Show FinalizerInfo where
-    show = show . finalizerIndex
+-- instance Show FinalizerInfo where
+--     show = show . finalizerIndex
 
 -- |The finalization committee.
 data FinalizationCommittee = FinalizationCommittee
