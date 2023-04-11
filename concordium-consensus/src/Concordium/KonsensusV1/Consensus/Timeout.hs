@@ -255,7 +255,7 @@ executeTimeoutMessage (MkPartiallyVerifiedTimeoutMessage tm@TimeoutMessage{tmBod
                     -- Advance the round if we can advance by the quorum certificate.
                     currentRound <- use $ roundStatus . rsCurrentRound
                     when (currentRound <= qcRound tmQuorumCertificate) $ do
-                        advanceRound (currentRound + 1) (Right tmQuorumCertificate)
+                        advanceRound (qcRound tmQuorumCertificate + 1) (Right tmQuorumCertificate)
                     -- Record the witness of the quorum certificate in the existing qcs on the treestate.
                     roundExistingQuorumCertificate (qcRound tmQuorumCertificate) ?= toQuorumCertificateWitness tmQuorumCertificate
                     -- Process the timeout
