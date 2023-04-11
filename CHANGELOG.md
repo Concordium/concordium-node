@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased changes
+
+## 5.3.2
+
 - Extend Prometheus exporter with metric `peer_bucket_size`, see
   [docs/prometheus-exporter.md](https://github.com/Concordium/concordium-node/blob/main/docs/prometheus-exporter.md) for more details.
 
