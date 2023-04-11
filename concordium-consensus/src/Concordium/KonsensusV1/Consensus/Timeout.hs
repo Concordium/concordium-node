@@ -235,7 +235,7 @@ executeTimeoutMessage ::
     -- and otherwise @Right ()@.
     m ExecuteTimeoutMessageResult
 executeTimeoutMessage (MkPartiallyVerifiedTimeoutMessage tm@TimeoutMessage{tmBody = TimeoutMessageBody{..}} qcCommittee) = do
-    highestQCRound <- use (roundStatus . rsHighestQC . to qcRound)
+    highestQCRound <- use $ roundStatus . rsHighestQC . to qcRound
     -- Check the quorum certificate if it's from a round we have not checked before.
     if qcRound tmQuorumCertificate > highestQCRound
         then do
@@ -243,7 +243,7 @@ executeTimeoutMessage (MkPartiallyVerifiedTimeoutMessage tm@TimeoutMessage{tmBod
                 -- Stop and flag if the quorum certificate is invalid.
                 False -> do
                     flag $! TimeoutMessageInvalidQC tm
-                    return $ InvalidQC tmQuorumCertificate
+                    return $! InvalidQC tmQuorumCertificate
                 -- The quorum certificate is valid and we check whether we can
                 -- advance by it.
                 True -> do
@@ -280,7 +280,7 @@ executeTimeoutMessage (MkPartiallyVerifiedTimeoutMessage tm@TimeoutMessage{tmBod
                         -- the quorum certificate is not valid so flag and stop.
                         False -> do
                             flag $! TimeoutMessageInvalidQC tm
-                            return $ InvalidQC tmQuorumCertificate
+                            return $! InvalidQC tmQuorumCertificate
                         -- The quorum certificate is valid so check whether it finalises any blocks.
                         True -> do
                             checkFinality tmQuorumCertificate
@@ -414,14 +414,14 @@ updateTimeoutMessages tms tm =
                           tmFirstEpochTimeouts = singletonTimeout,
                           tmSecondEpochTimeouts = tmFirstEpochTimeouts
                         }
-            | epoch == tmFirstEpoch + 2 ->
+            | epoch == tmFirstEpoch + 2 && not (null tmSecondEpochTimeouts) ->
                 Just $
                     TimeoutMessages
                         { tmFirstEpoch = tmFirstEpoch + 1,
                           tmFirstEpochTimeouts = tmSecondEpochTimeouts,
                           tmSecondEpochTimeouts = singletonTimeout
                         }
-            | epoch > tmFirstEpoch + 2 ->
+            | epoch >= tmFirstEpoch + 2 ->
                 Just $
                     TimeoutMessages
                         { tmFirstEpoch = epoch,

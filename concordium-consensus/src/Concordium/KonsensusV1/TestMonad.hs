@@ -77,6 +77,7 @@ data TestEvent
     = ResetTimer !Duration
     | SendTimeoutMessage !TimeoutMessage
     | SendQuorumMessage !QuorumMessage
+    deriving (Eq, Show)
 
 type TestWrite = [TestEvent]
 

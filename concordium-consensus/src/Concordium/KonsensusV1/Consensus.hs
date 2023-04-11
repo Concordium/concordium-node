@@ -118,6 +118,8 @@ advanceRound newRound newCertificate = do
     resetTimer =<< use currentTimeout
     -- Clear the quorum messages collected.
     currentQuorumMessages .= emptyQuorumMessages
+    -- Clear the timeout messages collected.
+    receivedTimeoutMessages .= Absent
     -- Advance and save the round.
     setRoundStatus $! advanceRoundStatus newRound newCertificate currentRoundStatus
     -- Make a new block if the consensus runner is leader of
