@@ -291,12 +291,10 @@ data BakersAndFinalizers = BakersAndFinalizers
 
 makeLenses ''BakersAndFinalizers
 
--- |The bakers and finalizers associated with the current and next epoch (with respect to a
--- particular epoch).
+-- |The bakers and finalizers associated with the previous, current and next epochs (with respect
+-- to a particular epoch).
 data EpochBakers = EpochBakers
-    { -- |The current epoch under consideration.
-      _currentEpoch :: !Epoch,
-      -- |The bakers and finalizers for the previous epoch.
+    { -- |The bakers and finalizers for the previous epoch.
       -- (If the current epoch is 0, then this is the same as the bakers and finalizers for the
       -- current epoch.)
       _previousEpochBakers :: !BakersAndFinalizers,

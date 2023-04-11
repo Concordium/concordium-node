@@ -178,7 +178,7 @@ testReceiveTimeoutMessage = describe "Receive timeout message" $ do
     sd =
         dummyInitialSkovData
             & roundStatus . rsCurrentRound .~ Round 2
-            & skovEpochBakers . currentEpoch .~ 0
+            & currentEpoch .~ 0
             & genesisMetadata %~ (\existingGenesis -> existingGenesis{gmFirstGenesisHash = genesisBlockHash})
             & lastFinalized .~ someBlockPointer (Round 1) 0
             & skovEpochBakers . currentEpochBakers .~ bakersAndFinalizers

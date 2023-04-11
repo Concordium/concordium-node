@@ -24,6 +24,7 @@
 -- the caller persists data upon finalization via the said module above.
 module Concordium.KonsensusV1.TreeState.Implementation where
 
+import Control.Exception
 import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State
@@ -31,6 +32,7 @@ import Data.Foldable
 import Data.IORef
 import Data.Time
 import Data.Typeable
+import GHC.Stack
 import Lens.Micro.Platform
 
 import qualified Data.HashMap.Strict as HM
@@ -61,7 +63,6 @@ import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.TransactionVerification
 import qualified Concordium.TransactionVerification as TVer
-import GHC.Stack
 
 -- |Exception occurring from a violation of tree state invariants.
 newtype TreeStateInvariantViolation = TreeStateInvariantViolation String
@@ -178,7 +179,7 @@ emptyPendingBlocks =
 --
 -- INVARIANTS:
 --
--- * The current epoch (as recorded in '_skovEpochBakers') is either:
+-- * The current epoch (as recorded by '_currentEpoch') is either:
 --
 --      * the epoch of the last finalized block (as recorded by '_lastFinalized'); or
 --
@@ -193,6 +194,8 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       -- associated with the current round of the
       -- consensus protocol.
       _roundStatus :: !RoundStatus,
+      -- |The current epoch.
+      _currentEpoch :: !Epoch,
       -- |The current duration to wait before a round times out.
       _currentTimeout :: !Duration,
       -- |Transactions.
@@ -226,10 +229,8 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       _skovPendingBlocks :: !PendingBlocks,
       -- |Pointer to the last finalized block.
       _lastFinalized :: !(BlockPointer pv),
-      -- |Baker and finalizer information with respect to the current epoch.
-      -- The current epoch should always be the same as the epoch of the last finalized block, or
-      -- the next epoch from the last finalized block if the last finalized block is past the
-      -- trigger block time for its epoch.
+      -- |Baker and finalizer information with respect to the epoch of the last finalized block.
+      -- Note: this is distinct from the current epoch.
       _skovEpochBakers :: !EpochBakers,
       -- |The current consensus statistics.
       _statistics :: !Stats.ConsensusStatistics,
@@ -308,6 +309,7 @@ mkInitialSkovData rp genMeta genState _currentTimeout _skovEpochBakers =
                   bpState = genState
                 }
         _roundStatus = initialRoundStatus $ gmFirstGenesisHash genMeta
+        _currentEpoch = 0
         _transactionTable = TT.emptyTransactionTable
         _transactionTablePurgeCounter = 0
         _skovPendingTransactions =
@@ -492,7 +494,7 @@ parentOf block
 -- By definition, the parent block must either also be live or be the last finalized block.
 --
 -- If the block is not live, this function may fail with an error.
-parentOfLive :: (HasCallStack) => SkovData pv -> BlockPointer pv -> BlockPointer pv
+parentOfLive :: HasCallStack => SkovData pv -> BlockPointer pv -> BlockPointer pv
 parentOfLive sd block
     | let lastFin = sd ^. lastFinalized,
       parentHash == getHash lastFin =
@@ -941,17 +943,31 @@ updateFocusBlockTo newFocusBlock = do
 
 -- * Bakers
 
--- |Get the set of bakers and finalizers for an epoch no later than the epoch of the last finalized
+-- |Get the bakers and finalizers for a given epoch if they are available.
+-- They are always available for an epoch within 1 of the epoch of the last finalized block.
+-- Additionally, they may be available for future epochs in the same payday as the last finalized
 -- block.
-getBakersForLiveEpoch :: (HasEpochBakers s) => Epoch -> s -> Maybe BakersAndFinalizers
-getBakersForLiveEpoch e s
+-- Returns 'Nothing' if the bakers and finalizers are not available.
+getBakersForEpoch :: Epoch -> SkovData pv -> Maybe BakersAndFinalizers
+getBakersForEpoch e s
     | e == curEpoch = Just (s ^. currentEpochBakers)
     | e == curEpoch + 1 = Just (s ^. nextEpochBakers)
     | e == curEpoch - 1 = Just (s ^. previousEpochBakers)
     | curEpoch <= e && e < s ^. nextPayday = Just (s ^. currentEpochBakers)
     | otherwise = Nothing
   where
-    curEpoch = s ^. currentEpoch
+    curEpoch = s ^. lastFinalized . to blockEpoch
+
+-- |Get the bakers at the current epoch.
+-- This relies on the fact that the current epoch is either the same as the epoch of the last
+-- finalized block, or the next epoch.
+bakersForCurrentEpoch :: SkovData pv -> BakersAndFinalizers
+bakersForCurrentEpoch sd
+    | sd ^. currentEpoch == sd ^. lastFinalized . to blockEpoch =
+        sd ^. currentEpochBakers
+    | otherwise =
+        assert (sd ^. currentEpoch == (sd ^. lastFinalized . to blockEpoch) + 1) $
+            sd ^. nextEpochBakers
 
 -- * Protocol update
 

@@ -120,8 +120,7 @@ runTestMonad _tcBakerContext _tcCurrentTime genData (TestMonad a) =
                     payday <- getPaydayEpoch genState
                     let genEpochBakers =
                             EpochBakers
-                                { _currentEpoch = 0,
-                                  _previousEpochBakers = curBF,
+                                { _previousEpochBakers = curBF,
                                   _currentEpochBakers = curBF,
                                   _nextEpochBakers = nextBF,
                                   _nextPayday = payday

@@ -314,13 +314,7 @@ receiveBlockKnownParent ::
     m BlockResult
 receiveBlockKnownParent parent pendingBlock = do
     genesisHash <- use currentGenesisHash
-    -- Since the parent block is live, its epoch is either currentEpoch or (currentEpoch - 1).
-    -- [This follows from the invariants on what the current epoch can be.]
-    -- For the new block's epoch to be valid, it must either be in the same epoch as the parent
-    -- block or in the next epoch. Thus, the block's epoch is one of (currentEpoch - 1),
-    -- currentEpoch, or (currentEpoch + 1). 'getBakersForLiveEpoch' will return the bakers for the
-    -- epoch in all of these cases.
-    gets (getBakersForLiveEpoch (blockEpoch pendingBlock)) >>= \case
+    getBakers >>= \case
         Nothing -> do
             logLoggable $ LogBlockInvalidEpoch pbHash (blockEpoch pendingBlock)
             return BlockResultInvalid
@@ -337,6 +331,19 @@ receiveBlockKnownParent parent pendingBlock = do
   where
     pbHash :: BlockHash
     pbHash = getHash pendingBlock
+    -- Since the parent block is live, its epoch is either currentEpoch or (currentEpoch - 1).
+    -- [This follows from the invariants on what the current epoch can be.]
+    -- For the new block's epoch to be valid, it must either be in the same epoch as the parent
+    -- block or in the next epoch. Thus, the block's epoch is one of (currentEpoch - 1),
+    -- currentEpoch, or (currentEpoch + 1). Either currentEpoch == lastFinalizedEpoch, or
+    -- currentEpoch == (lastFinalizedEpoch + 1). 'getBakersForEpoch' will return the bakers in all
+    -- cases except where the block's epoch is (lastFinalizedEpoch + 2).
+    getBakers =
+        gets (getBakersForEpoch (blockEpoch pendingBlock)) >>= \case
+            Nothing
+                | blockEpoch pendingBlock == blockEpoch parent + 1 ->
+                    Just <$> getNextEpochBakersAndFinalizers (bpState parent)
+            res -> return res
     receiveSigned bakersAndFinalizers
         | blockEpoch pendingBlock == blockEpoch parent = do
             -- Block is in the current epoch, so use the leadership election nonce
@@ -428,7 +435,7 @@ receiveBlockUnknownParent pendingBlock = do
         < addDuration (utcTimeToTimestamp $ pbReceiveTime pendingBlock) earlyThreshold
         then do
             genesisHash <- use currentGenesisHash
-            gets (getBakersForLiveEpoch (blockEpoch pendingBlock)) >>= \case
+            gets (getBakersForEpoch (blockEpoch pendingBlock)) >>= \case
                 Nothing -> do
                     -- We do not know the bakers, so we treat this like an early block.
                     return BlockResultEarly
@@ -757,8 +764,8 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                         -- Also, there cannot be a timeout more than one epoch later than the LFB.
                         -- This is because we already reject above if
                         --    blockEpoch parent < tcMaxEpoch tc
-                        -- Given that the parent is live and descended from the LFB, it can be
-                        -- at most one epoch later than the LFB, and so also the tcMaxEpoch.
+                        -- Given that the parent is live and descended from the LFB, the parent is
+                        -- at most one epoch later than the LFB, and so the tcMaxEpoch is also.
                         eBkrs <- use epochBakers
                         let checkTCValid eb1 eb2 =
                                 checkTimeoutCertificate
@@ -768,17 +775,17 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                                     (eb2 ^. bfFinalizers)
                                     (parentBF ^. bfFinalizers)
                                     tc
-                        -- FIXME: can have tcMinEpoch tc == eBkrs ^. currentEpoch - 2
+                        lastFinEpoch <- use $ lastFinalized . to blockEpoch
                         let tcOK
-                                | tcMinEpoch tc == eBkrs ^. currentEpoch - 1 =
+                                | tcMinEpoch tc == lastFinEpoch - 1 =
                                     checkTCValid
                                         (eBkrs ^. previousEpochBakers)
                                         (eBkrs ^. currentEpochBakers)
-                                | tcMinEpoch tc == eBkrs ^. currentEpoch =
+                                | tcMinEpoch tc == lastFinEpoch =
                                     checkTCValid
                                         (eBkrs ^. currentEpochBakers)
                                         (eBkrs ^. nextEpochBakers)
-                                | tcMinEpoch tc == eBkrs ^. currentEpoch + 1,
+                                | tcMinEpoch tc == lastFinEpoch + 1,
                                   tcIsSingleEpoch tc =
                                     checkTCValid
                                         (eBkrs ^. nextEpochBakers)
@@ -909,7 +916,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
     getParentBakersAndFinalizers continue
         | blockEpoch parent == blockEpoch pendingBlock = continue vbBakersAndFinalizers
         | otherwise =
-            gets (getBakersForLiveEpoch (blockEpoch parent)) >>= \case
+            gets (getBakersForEpoch (blockEpoch parent)) >>= \case
                 -- If this case happens, the parent block must now precede the last finalized block,
                 -- so we can no longer add the block.
                 Nothing -> rejectBlock
@@ -993,7 +1000,7 @@ checkedValidateBlock ::
 checkedValidateBlock validBlock = do
     mBakerIdentity <- view Consensus.bakerIdentity
     forM_ mBakerIdentity $ \bakerIdent@BakerIdentity{..} -> do
-        mBakers <- gets $ getBakersForLiveEpoch (blockEpoch validBlock)
+        mBakers <- gets $ getBakersForEpoch (blockEpoch validBlock)
         forM_ mBakers $ \BakersAndFinalizers{..} -> do
             forM_ (finalizerByBakerId _bfFinalizers bakerId) $ \ !finInfo ->
                 if finalizerSignKey finInfo /= Sig.verifyKey bakerSignKey

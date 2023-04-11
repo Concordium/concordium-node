@@ -112,17 +112,17 @@ testMakeQuorumCertificate = describe "Quorum Certificate creation" $ do
     -- A skov data not capable of forming a quorum certificate
     sd =
         dummyInitialSkovData
-            & skovEpochBakers .~ EpochBakers 0 bfs bfs bfs 1
+            & skovEpochBakers .~ EpochBakers bfs bfs bfs 1
             & currentQuorumMessages %~ addQuorumMessage (verifiedQuorumMessage 1 1)
     -- A skov data capable of forming a quorum certificate
     sd' =
         dummyInitialSkovData
-            & skovEpochBakers .~ EpochBakers 0 bfs bfs bfs 1
+            & skovEpochBakers .~ EpochBakers bfs bfs bfs 1
             & currentQuorumMessages %~ addQuorumMessage (verifiedQuorumMessage 1 1)
             & currentQuorumMessages %~ addQuorumMessage (verifiedQuorumMessage 2 1)
     sdNoMessages =
         dummyInitialSkovData
-            & skovEpochBakers .~ EpochBakers 0 bfs bfs bfs 1
+            & skovEpochBakers .~ EpochBakers bfs bfs bfs 1
     bh = BlockHash minBound
     verifiedQuorumMessage finalizerIndex = VerifiedQuorumMessage (quorumMessage finalizerIndex)
     quorumMessage finalizerIndex = QuorumMessage emptyQuorumSignature bh (FinalizerIndex finalizerIndex) 0 0
@@ -208,7 +208,7 @@ testReceiveQuorumMessage = describe "Receive quorum message" $ do
     sd' r e =
         dummyInitialSkovData
             & roundStatus . rsCurrentRound .~ Round r
-            & skovEpochBakers . currentEpoch .~ e
+            & currentEpoch .~ e
             & skovEpochBakers . currentEpochBakers .~ bakersAndFinalizers
             & skovEpochBakers . previousEpochBakers .~ bakersAndFinalizers
             & skovEpochBakers . nextPayday .~ 2

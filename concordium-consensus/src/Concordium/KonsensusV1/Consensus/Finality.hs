@@ -178,6 +178,8 @@ processFinalization newFinalizedBlock newFinalizationEntry = do
     branches .= prNewBranches
     -- Update the last finalized block.
     lastFinalized .= newFinalizedBlock
+    -- Update the epoch bakers to reflect the new last finalized block.
+    checkedAdvanceEpochBakers oldLastFinalized newFinalizedBlock
     -- Purge the 'roundExistingBlocks' up to the last finalized block.
     purgeRoundExistingBlocks (blockRound newFinalizedBlock)
     -- Purge the 'roundExistingQCs' up to the last finalized block.
@@ -200,8 +202,7 @@ processFinalization newFinalizedBlock newFinalizationEntry = do
 -- if we have seen a QC on a block that justifies finalization of a trigger block, causing us to
 -- advance the epoch, but others did not see it and moved on.)
 checkedAdvanceEpoch ::
-    ( MonadState s m,
-      HasEpochBakers s,
+    ( MonadState (SkovData (MPV m)) m,
       IsConsensusV1 (MPV m),
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
       BlockStateQuery m
@@ -209,36 +210,66 @@ checkedAdvanceEpoch ::
     BlockPointer (MPV m) ->
     m ()
 checkedAdvanceEpoch newFinalizedBlock = do
-    EpochBakers{..} <- use epochBakers
-    assert (_currentEpoch >= blockEpoch newFinalizedBlock) $
-        when (_currentEpoch == blockEpoch newFinalizedBlock) $ do
+    oldEpoch <- use currentEpoch
+    assert (oldEpoch >= blockEpoch newFinalizedBlock) $
+        when (oldEpoch == blockEpoch newFinalizedBlock) $ do
             seedState <- getSeedState finState
             when (seedState ^. epochTransitionTriggered) $ do
-                let newEpoch = _currentEpoch + 1
-                -- If the new current epoch is the start of a new payday, we need to update the
-                -- next payday epoch.
-                newNextPayday <-
-                    if _nextPayday == newEpoch
-                        then getPaydayEpoch finState
-                        else return _nextPayday
-                -- If the new next epoch is the start of a new payday, we need to compute the
-                -- bakers and finalizers. (If it is not, they are unchanged.)
-                newNextBakers <-
-                    if newNextPayday == newEpoch + 1
-                        then do
-                            nextFullBakers <- getNextEpochBakers finState
-                            nextFCParams <- getNextEpochFinalizationCommitteeParameters finState
-                            return $! computeBakersAndFinalizers nextFullBakers nextFCParams
-                        else return _nextEpochBakers
-                epochBakers
-                    .= EpochBakers
-                        { _currentEpoch = newEpoch,
-                          _previousEpochBakers = _currentEpochBakers,
-                          _currentEpochBakers = _nextEpochBakers,
-                          _nextEpochBakers = newNextBakers,
-                          _nextPayday = newNextPayday
-                        }
+                currentEpoch .=! oldEpoch + 1
   where
+    finState = bpState newFinalizedBlock
+
+-- |Get the computed 'BakersAndFinalizers' for the next epoch from a given block state.
+getNextEpochBakersAndFinalizers ::
+    ( IsConsensusV1 (MPV m),
+      BlockStateQuery m
+    ) =>
+    GSTypes.BlockState m ->
+    m BakersAndFinalizers
+getNextEpochBakersAndFinalizers finState = do
+    nextFullBakers <- getNextEpochBakers finState
+    nextFCParams <- getNextEpochFinalizationCommitteeParameters finState
+    return $! computeBakersAndFinalizers nextFullBakers nextFCParams
+
+-- |Update the 'epochBakers' to be relative to the new last finalized block.
+-- This only updates the bakers if the new last finalized block is in the next epoch from the
+-- previous last finalized block. The new last finalized block MUST be at most one epoch after the
+-- previous one.
+checkedAdvanceEpochBakers ::
+    ( IsConsensusV1 (MPV m),
+      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
+      MonadState s m,
+      BlockStateQuery m,
+      HasEpochBakers s
+    ) =>
+    -- |The previous last finalized block.
+    BlockPointer (MPV m) ->
+    -- |The new last finalized block.
+    BlockPointer (MPV m) ->
+    m ()
+checkedAdvanceEpochBakers oldFinalizedBlock newFinalizedBlock
+    | newEpoch == oldEpoch + 1 = do
+        EpochBakers{..} <- use epochBakers
+        -- If the new current epoch is the start of a new payday, we need to update the
+        -- next payday epoch.
+        newNextPayday <- if _nextPayday == newEpoch then getPaydayEpoch finState else return _nextPayday
+        -- If the new next epoch is the start of a new payday, we need to compute the
+        -- bakers and finalizers. (If it is not, they are unchanged.)
+        newNextBakers <-
+            if newNextPayday == newEpoch + 1
+                then getNextEpochBakersAndFinalizers finState
+                else return _nextEpochBakers
+        epochBakers
+            .= EpochBakers
+                { _previousEpochBakers = _currentEpochBakers,
+                  _currentEpochBakers = _nextEpochBakers,
+                  _nextEpochBakers = newNextBakers,
+                  _nextPayday = newNextPayday
+                }
+    | otherwise = assert (newEpoch == oldEpoch) $ return ()
+  where
+    oldEpoch = blockEpoch oldFinalizedBlock
+    newEpoch = blockEpoch newFinalizedBlock
     finState = bpState newFinalizedBlock
 
 data PruneResult a = PruneResult

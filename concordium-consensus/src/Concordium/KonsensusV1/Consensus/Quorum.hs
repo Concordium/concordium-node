@@ -94,7 +94,7 @@ receiveQuorumMessage qm@QuorumMessage{..} skovData = receive
   where
     receive
         -- The consensus runner is not caught up.
-        | qmEpoch > skovData ^. skovEpochBakers . currentEpoch =
+        | qmEpoch > skovData ^. currentEpoch =
             return CatchupRequired
         -- The round of the quorum signature message is obsolete.
         | qmRound < skovData ^. roundStatus . rsCurrentRound =
@@ -160,7 +160,7 @@ receiveQuorumMessage qm@QuorumMessage{..} skovData = receive
     -- Get the finalizer if it is present in the current finalization committee
     -- or old committee otherwise return 'Nothing'.
     getFinalizer = do
-        bakers <- getBakersForLiveEpoch qmEpoch skovData
+        bakers <- getBakersForEpoch qmEpoch skovData
         finalizerByIndex (bakers ^. bfFinalizers) qmFinalizerIndex
 
 -- |Adds a 'QuorumMessage' and the finalizer weight (deducted from the current epoch)
@@ -200,7 +200,7 @@ makeQuorumCertificate ::
     -- for the provided block.
     -- Otherwise return @Nothing@.
     Maybe QuorumCertificate
-makeQuorumCertificate blockHash SkovData{..} = do
+makeQuorumCertificate blockHash sd@SkovData{..} = do
     case _currentQuorumMessages ^? smBlockToWeightsAndSignatures . ix blockHash of
         -- There wasn't any signature(s) for the supplied block.
         Nothing -> Nothing
@@ -213,14 +213,14 @@ makeQuorumCertificate blockHash SkovData{..} = do
             -- The required signature threshold.
             signatureThreshold = _genesisMetadata ^. to gmParameters . to genesisSignatureThreshold
             -- The total weight of the finalization committee.
-            totalWeight = _skovEpochBakers ^. currentEpochBakers . bfFinalizers . to committeeTotalWeight
+            totalWeight = bakersForCurrentEpoch sd ^. bfFinalizers . to committeeTotalWeight
             -- Return whether enough weighted signatures has been gathered with respect to the set signature threshold.
             enoughWeight = toRational accummulatedWeight / toRational totalWeight >= toRational signatureThreshold
             createQuorumCertificate =
                 QuorumCertificate
                     { qcBlock = blockHash,
                       qcRound = _roundStatus ^. rsCurrentRound,
-                      qcEpoch = _skovEpochBakers ^. currentEpoch,
+                      qcEpoch = _currentEpoch,
                       qcAggregateSignature = aggregatedSignature,
                       qcSignatories = finalizerSet $ Set.toList finalizers
                     }

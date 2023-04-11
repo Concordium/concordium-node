@@ -11,7 +11,7 @@
 -- verification results, the tests care about if a particular block item can
 -- be deemed verifiable or not.
 -- The module 'ConcordiumTests.ReceiveTransactionsTest' contains more fine grained tests
--- for each individual type of transction, this is ok since the two
+-- for each individual type of transaction, this is ok since the two
 -- consensus implementations share the same transaction verifier.
 module ConcordiumTests.KonsensusV1.TransactionProcessingTest (tests) where
 
@@ -70,7 +70,7 @@ import Concordium.KonsensusV1.Types
 
 -- |Dummy epoch bakers. This is only suitable for when the actual value is not meaningfully used.
 dummyEpochBakers :: EpochBakers
-dummyEpochBakers = EpochBakers 0 dummyBakersAndFinalizers dummyBakersAndFinalizers dummyBakersAndFinalizers 1
+dummyEpochBakers = EpochBakers dummyBakersAndFinalizers dummyBakersAndFinalizers dummyBakersAndFinalizers 1
 
 -- |Dummy bakers and finalizers with no bakers or finalizers.
 -- This is only suitable for when the value is not meaningfully used.

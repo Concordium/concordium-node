@@ -100,68 +100,68 @@ receiveTimeoutMessage ::
     SkovData (MPV m) ->
     -- |Result of receiving the 'TimeoutMessage'.
     m ReceiveTimeoutMessageResult
-receiveTimeoutMessage tm@TimeoutMessage{tmBody = body@TimeoutMessageBody{..}} skovData = receive
+receiveTimeoutMessage tm@TimeoutMessage{tmBody = body@TimeoutMessageBody{..}} skovData
+    --  The round of the 'TimeoutMessage' is obsolete.
+    | tmRound < skovData ^. roundStatus . rsCurrentRound =
+        return $ Rejected ObsoleteRound
+    -- If the round or epoch of the qc associated with the timeout message
+    -- is behind the last finalized block then reject the timeout message,
+    -- then it means that the sender of the timeout message was lacking behind for some reason.
+    -- This can for instance happen if the sender of the timeout message
+    -- did not receive the quorum message before sending out the time out message
+    -- due to e.g. network issues.
+    | let lastFin = skovData ^. lastFinalized,
+      qcRound tmQuorumCertificate < blockRound lastFin
+        || qcEpoch tmQuorumCertificate < blockEpoch lastFin =
+        return $ Rejected ObsoleteQC
+    -- Before looking up the finalizer we check whether the message is from
+    -- a future epoch. If that is the case then we should catch up as
+    -- we cannot determine whether the proposed finalizer is actually part of the
+    -- finalization committee.
+    | tmEpoch > theCurrentEpoch =
+        return CatchupRequired
+    -- Obtain the finalizer information for the signer of the
+    -- timeout message.
+    | otherwise = case (getFinalizer, qcEpochFinalizationCommittee) of
+        -- Signer is not present in the finalization committee in the
+        -- proposed epoch specified by the 'TimeoutMessage', hence
+        -- the timeout message is rejected.
+        (Nothing, _) -> return $ Rejected NotAFinalizer
+        -- Since we can't retrieve the finalization committee with respect
+        -- to the qc pointer then we must initiate catch up.
+        -- Note that the deserialization checks that the timeout message consists
+        -- of coherent rounds i.e. (tm round > qc pointer round)
+        (Just _, Nothing) -> return CatchupRequired
+        (Just FinalizerInfo{..}, Just qcFinalizationCommittee)
+            -- Check whether the signature is ok or not.
+            | not (checkTimeoutMessageSignature finalizerSignKey genesisBlockHash tm) ->
+                return $ Rejected InvalidSignature
+            -- Consensus runner is not caught up to the round that the timeout message
+            -- refers to. So catch up is required.
+            | tmRound > currentRound,
+              qcRound tmQuorumCertificate < tmRound - 1 ->
+                return CatchupRequired
+            | otherwise -> do
+                getRecentBlockStatus (qcBlock tmQuorumCertificate) skovData >>= \case
+                    -- The timeout message does not act according to the longest chain rule
+                    -- so it is rejected.
+                    OldFinalized -> do
+                        return $ Rejected ObsoleteQCPointer
+                    -- With respect to the checks carried out above then in case of branching
+                    -- in a round it must be checked whether the qc pointer is known or not.
+                    -- If the latter then the consensus runner needs to initiate catchup.
+                    RecentBlock BlockUnknown -> do
+                        return CatchupRequired
+                    -- The qc pointer points to a block that has been marked dead
+                    RecentBlock BlockDead -> do
+                        return $ Rejected DeadQCPointer
+                    -- The qc pointer in the timeout message is pending so catch up
+                    -- is required
+                    RecentBlock (BlockPending _) ->
+                        return CatchupRequired
+                    RecentBlock (BlockFinalized _) -> checkWithValidQCPointer finalizerBlsKey qcFinalizationCommittee
+                    RecentBlock (BlockAlive _) -> checkWithValidQCPointer finalizerBlsKey qcFinalizationCommittee
   where
-    receive
-        --  The round of the 'TimeoutMessage' is obsolete.
-        | tmRound < skovData ^. roundStatus . rsCurrentRound =
-            return $ Rejected ObsoleteRound
-        -- If the round or epoch of the qc associated with the timeout message
-        -- is behind the last finalized block then reject the timeout message,
-        -- then it means that the sender of the timeout message was lacking behind for some reason.
-        -- This can for instance happen if the sender of the timeout message
-        -- did not receive the quourum message before sending out the time out message
-        -- due to e.g. network issues.
-        | qcRound tmQuorumCertificate < skovData ^. lastFinalized . to blockRound
-            || qcEpoch tmQuorumCertificate < skovData ^. lastFinalized . to blockEpoch =
-            return $ Rejected ObsoleteQC
-        -- Before looking up the finalizer we check whether the message is from
-        -- a future epoch. If that is the case then we should catch up as
-        -- we cannot determine whether the proposed finalizer is actually part of the
-        -- finalization committee.
-        | tmEpoch > theCurrentEpoch =
-            return CatchupRequired
-        -- Obtain the finalizer information for the signer of the
-        -- timeout message.
-        | otherwise = case (getFinalizer, qcEpochFinalizationCommittee) of
-            -- Signer is not present in the finalization committee in the
-            -- proposed epoch specified by the 'TimeoutMessage', hence
-            -- the timeout message is rejected.
-            (Nothing, _) -> return $ Rejected NotAFinalizer
-            -- Since we can't retrieve the finalization committee with respect
-            -- to the qc pointer then we must initiate catch up.
-            -- Note that the deserialization checks that the timeout message consists
-            -- of coherent rounds i.e. (tm round > qc pointer round)
-            (Just _, Nothing) -> return CatchupRequired
-            (Just FinalizerInfo{..}, Just qcFinalizationCommittee)
-                -- Check whether the signature is ok or not.
-                | not (checkTimeoutMessageSignature finalizerSignKey genesisBlockHash tm) ->
-                    return $ Rejected InvalidSignature
-                -- Consensus runner is not caught up to the round that the timeout message
-                -- refers to. So catch up is required.
-                | tmRound > currentRound,
-                  qcRound tmQuorumCertificate < tmRound - 1 ->
-                    return CatchupRequired
-                | otherwise -> do
-                    getRecentBlockStatus (qcBlock tmQuorumCertificate) skovData >>= \case
-                        -- The timeout message does not act according to the longest chain rule
-                        -- so it is rejected.
-                        OldFinalized -> do
-                            return $ Rejected ObsoleteQCPointer
-                        -- With respect to the checks carried out above then in case of branching
-                        -- in a round it must be checked whether the qc pointer is known or not.
-                        -- If the latter then the consensus runner needs to inititate catchup.
-                        RecentBlock BlockUnknown -> do
-                            return CatchupRequired
-                        -- The qc pointer points to a block that has been marked deadp
-                        RecentBlock BlockDead -> do
-                            return $ Rejected DeadQCPointer
-                        -- The qc pointer in the timeout message is pending so catch up
-                        -- is required
-                        RecentBlock (BlockPending _) ->
-                            return CatchupRequired
-                        RecentBlock (BlockFinalized _) -> checkWithValidQCPointer finalizerBlsKey qcFinalizationCommittee
-                        RecentBlock (BlockAlive _) -> checkWithValidQCPointer finalizerBlsKey qcFinalizationCommittee
     -- Check the quorum message when the qc pointer is alive or finalized.
     checkWithValidQCPointer finalizerBlsKey qcFinalizationCommittee =
         case getExistingMessage of
@@ -182,7 +182,7 @@ receiveTimeoutMessage tm@TimeoutMessage{tmBody = body@TimeoutMessageBody{..}} sk
                         return $ Rejected InvalidBLSSignature
                     else return $ Received $ MkPartiallyVerifiedTimeoutMessage tm qcFinalizationCommittee
     -- The finalization committee for the proposed qc epoch if present.
-    qcEpochFinalizationCommittee = _bfFinalizers <$> getBakersForLiveEpoch (qcEpoch tmQuorumCertificate) skovData
+    qcEpochFinalizationCommittee = _bfFinalizers <$> getBakersForEpoch (qcEpoch tmQuorumCertificate) skovData
     -- Get an existing message if present otherwise return nothing.
     getExistingMessage = case skovData ^. receivedTimeoutMessages of
         Absent -> Nothing
@@ -192,16 +192,16 @@ receiveTimeoutMessage tm@TimeoutMessage{tmBody = body@TimeoutMessageBody{..}} sk
     -- The current round with respect to the tree state supplied.
     currentRound = skovData ^. roundStatus . rsCurrentRound
     -- The current epoch with respect to the tree state supplied.
-    theCurrentEpoch = skovData ^. skovEpochBakers . currentEpoch
+    theCurrentEpoch = skovData ^. currentEpoch
     -- Try get the 'FinalizerInfo' given the epoch and finalizer index
     -- of the 'TimeoutMessage'.
     getFinalizer = do
-        bakers <- getBakersForLiveEpoch tmEpoch skovData
+        bakers <- getBakersForEpoch tmEpoch skovData
         finalizerByIndex (bakers ^. bfFinalizers) tmFinalizerIndex
 
 -- |The result of executing a 'TimeoutMessage'.
 data ExecuteTimeoutMessageResult
-    = -- |The 'TimeoutMessage' was succesfully executed.
+    = -- |The 'TimeoutMessage' was successfully executed.
       ExecutionSuccess
     | -- |The 'QuorumCertificate' for the 'TimeoutMessage'
       -- is invalid.
@@ -293,7 +293,7 @@ executeTimeoutMessage (MkPartiallyVerifiedTimeoutMessage tm@TimeoutMessage{tmBod
         signatureThreshold <- use $ genesisMetadata . to gmParameters . to genesisSignatureThreshold
         return $! checkQuorumCertificate genesisBlockHash (toRational signatureThreshold) qcCommittee tmQuorumCertificate
 
--- |Helper function for calcuculating a new @currentTimeout@ given the old @currentTimeout@
+-- |Helper function for calculating a new @currentTimeout@ given the old @currentTimeout@
 -- and the @timeoutIncrease@ chain parameter.
 updateCurrentTimeout :: Ratio Word64 -> Duration -> Duration
 updateCurrentTimeout timeoutIncrease oldCurrentTimeout =
@@ -339,9 +339,8 @@ uponTimeoutEvent ::
 uponTimeoutEvent = do
     maybeBakerIdentity <- view bakerIdentity
     forM_ maybeBakerIdentity $ \BakerIdentity{..} -> do
-        eBakers <- use skovEpochBakers
-
-        let finComm = eBakers ^. currentEpochBakers . bfFinalizers
+        curEpoch <- use currentEpoch
+        finComm <- use $ to bakersForCurrentEpoch . bfFinalizers
         let maybeFinalizer = finalizerByBakerId finComm bakerId
 
         forM_ maybeFinalizer $ \finInfo -> do
@@ -366,7 +365,7 @@ uponTimeoutEvent = do
                     TimeoutMessageBody
                         { tmFinalizerIndex = finalizerIndex finInfo,
                           tmRound = curRound,
-                          tmEpoch = _currentEpoch eBakers,
+                          tmEpoch = curEpoch,
                           tmQuorumCertificate = highestQC,
                           tmAggregateSignature = timeoutSig
                         }
@@ -458,8 +457,8 @@ processTimeout tm = do
     let maybeNewTimeoutMessages = updateTimeoutMessages currentTimeoutMessages tm
     forM_ maybeNewTimeoutMessages $ \newTimeoutMessages@TimeoutMessages{..} -> do
         receivedTimeoutMessages .=! Present newTimeoutMessages
-        eBakers <- use skovEpochBakers
-        let getFinalizersForEpoch epoch = (^. bfFinalizers) <$> getBakersForLiveEpoch epoch eBakers
+        skovData <- get
+        let getFinalizersForEpoch epoch = (^. bfFinalizers) <$> getBakersForEpoch epoch skovData
         -- We should not fail to get the finalizers for the epoch of the highest QC, because it
         -- should either be the current epoch or the previous one.
         let maybeFinComm = getFinalizersForEpoch (qcEpoch highestQC)
