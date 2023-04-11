@@ -3,11 +3,11 @@ use std::{env, path::Path};
 use std::{process::Command, str};
 
 #[cfg(all(not(feature = "static"), target_os = "linux"))]
-const GHC_VARIANT: &str = "x86_64-linux-ghc-9.2.5";
+const GHC_VARIANT: &str = "x86_64-linux-ghc-9.2.7";
 #[cfg(all(not(feature = "static"), target_os = "macos", target_arch = "x86_64"))]
-const GHC_VARIANT: &str = "x86_64-osx-ghc-9.2.5";
+const GHC_VARIANT: &str = "x86_64-osx-ghc-9.2.7";
 #[cfg(all(not(feature = "static"), target_os = "macos", target_arch = "aarch64"))]
-const GHC_VARIANT: &str = "aarch64-osx-ghc-9.2.5";
+const GHC_VARIANT: &str = "aarch64-osx-ghc-9.2.7";
 
 #[cfg(not(feature = "static"))]
 fn command_output(cmd: &mut Command) -> String {
@@ -66,7 +66,7 @@ fn main() -> std::io::Result<()> {
                 println!("cargo:rustc-link-lib=dylib=HSlmdb-0.2.5");
             } else {
                 // otherwise auto-discover the directories via stack
-                let stack_install_root_command = command_output(Command::new("stack").args(&[
+                let stack_install_root_command = command_output(Command::new("stack").args([
                     "--stack-yaml",
                     "../concordium-consensus/stack.yaml",
                     "path",
@@ -665,7 +665,7 @@ fn link_ghc_libs() -> std::io::Result<std::path::PathBuf> {
     let rts_variant =
         env::var("HASKELL_RTS_VARIANT").unwrap_or_else(|_| "libHSrts_thr-".to_owned());
     let ghc_lib_dir = env::var("HASKELL_GHC_LIBDIR").unwrap_or_else(|_| {
-        command_output(Command::new("stack").args(&[
+        command_output(Command::new("stack").args([
             "--stack-yaml",
             "../concordium-consensus/stack.yaml",
             "ghc",

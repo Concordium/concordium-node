@@ -1953,7 +1953,7 @@ pub mod server {
                 return Err(tonic::Status::unimplemented("`GetPeersInfo` is not enabled."));
             }
             // we do a clone so we can release the lock quickly.
-            let peer_statuses = (*crate::read_or_die!(self.node.peers)).peer_states.clone();
+            let peer_statuses = crate::read_or_die!(self.node.peers).peer_states.clone();
             let peers = self
                 .node
                 .get_peer_stats(None)
@@ -2267,7 +2267,7 @@ pub mod server {
 /// Add a block hash to the metadata of a response. Used for returning the block
 /// hash.
 fn add_hash<T>(response: &mut tonic::Response<T>, hash: [u8; 32]) -> Result<(), tonic::Status> {
-    let value = tonic::metadata::MetadataValue::try_from(hex::encode(&hash))
+    let value = tonic::metadata::MetadataValue::try_from(hex::encode(hash))
         .map_err(|_| tonic::Status::internal("Cannot add metadata hash."))?;
     response.metadata_mut().insert("blockhash", value);
     Ok(())

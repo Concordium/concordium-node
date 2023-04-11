@@ -24,16 +24,16 @@ Full details of the configuration options available are to be found in [Configur
 Building the Node Runner Service currently requires the `msvc` rust toolchain.
 (Note, this is different to the node itself, which requires the `gnu` rust toolchain.)
 Building is only supported on Windows.
-Currently, we support rust version 1.62.
+Currently, we support rust version 1.68.
 
 The service can be built with the following command:
 ```
-cargo +1.62.1-msvc build
+cargo +1.68.2-msvc build
 ```
 
 If the toolchain is not already installed, it can be done with the following command:
 ```
-rustup toolchain install 1.62.1-x86_64-pc-windows-msvc
+rustup toolchain install 1.68.2-x86_64-pc-windows-msvc
 ```
 
 ## Installer

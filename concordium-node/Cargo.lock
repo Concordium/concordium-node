@@ -680,7 +680,6 @@ dependencies = [
  "mio 0.7.14",
  "nohash-hasher",
  "noiseexplorer_xx",
- "openssl-src",
  "preferences",
  "prometheus",
  "prost",

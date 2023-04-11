@@ -2,7 +2,7 @@
 // - environment (e.g., testnet, mainnet, stagenet)
 // - image_tag (default: "latest")
 // - static_libraries_image_tag (default: "latest")
-// - ghc_version (default: "9.2.5")
+// - ghc_version (default: "9.2.7")
 // - genesis_ref (default: "master")
 // - genesis_path
 

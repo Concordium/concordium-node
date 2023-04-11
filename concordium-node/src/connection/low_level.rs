@@ -263,7 +263,7 @@ impl ConnectionLowLevel {
     fn initialize(&mut self) {
         // Set linger time if requested
         if let Some(linger) = self.so_linger {
-            self.set_linger(true, linger as u16);
+            self.set_linger(true, linger);
         }
 
         if let Err(e) = self.socket.set_nodelay(true) {
