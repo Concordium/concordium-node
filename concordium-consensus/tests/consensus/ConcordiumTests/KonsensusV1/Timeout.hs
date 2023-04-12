@@ -344,6 +344,7 @@ testReceiveTimeoutMessage = describe "Receive timeout message" $ do
     it "rejects obsolete qc" $ receiveAndCheck sd obsoleteQCMessage $ Rejected ObsoleteQC
     it "initializes catch-up upon future epoch" $ receiveAndCheck sd futureEpochTM CatchupRequired
     it "rejects from a non finalizer" $ receiveAndCheck sd notAFinalizerQCMessage $ Rejected NotAFinalizer
+    it "initializes catchup on unknown finalization committee" $ receiveAndCheck sd unknownFinalizationCommittee CatchupRequired
     it "rejects on an invalid signature" $ receiveAndCheck sd invalidSignatureMessage $ Rejected InvalidSignature
     it "initializes catch-up upon a future round" $ receiveAndCheck sd futureRoundTM CatchupRequired
     it "rejects when the qc points to an old finalized block" $ receiveAndCheck sd obsoleteQCPointer $ Rejected ObsoleteQCPointer
@@ -386,6 +387,8 @@ testReceiveTimeoutMessage = describe "Receive timeout message" $ do
     obsoleteRoundMessage = mkTimeoutMessage $! mkTimeoutMessageBody 1 1 0 $ someQC (Round 0) 0
     -- A message where the qc is obsolete.
     obsoleteQCMessage = mkTimeoutMessage $! mkTimeoutMessageBody 1 2 0 $ someQC (Round 0) 0
+    -- A message with an unknown finalization committee associated.
+    unknownFinalizationCommittee = mkTimeoutMessage $! mkTimeoutMessageBody 2 2 0 $ someQC (Round 1) 42
     -- A message from a non finalizer (42)
     notAFinalizerQCMessage = mkTimeoutMessage $! mkTimeoutMessageBody 42 2 0 $ someQC (Round 1) 0
     -- Some quorum certificate for the specified round and epoch
@@ -487,31 +490,45 @@ testReceiveTimeoutMessage = describe "Receive timeout message" $ do
 
 testExecuteTimeoutMessages :: Spec
 testExecuteTimeoutMessages = describe "execute timeout messages" $ do
-    it "rejects message with invalid qc signature (qc round is better than recorded highest qc)" $ execute invalidQCTimeoutMessage $ InvalidQC $ someInvalidQC 1 0
+    it "rejects message with invalid qc signature (qc round is better than recorded highest qc)" $ execute invalidQCTimeoutMessage $ InvalidQC $ someInvalidQC 2 0
     it "accepts message where qc is ok (qc round is better than recorded highest qc)" $ execute newValidQCTimeoutMessage ExecutionSuccess
     it "rejects message with qc round no greater than highest qc and invalic qc" $ execute wrongEpochMessage $ InvalidQC $ someInvalidQC 0 0
     it "accepts message with qc round no greather than highest qc and valid qc" $ execute oldValidQCTimeoutMessage ExecutionSuccess
+    it "rejects with invalid epoch if qc already checked for round and epochs does not match (qc round <= higest qc)" $ execute oldRoundDifferentEpoch $ InvalidQCEpoch 0 $ someQC (Round 1) 1
+    it "accepts message with qc already checked for that round and qc checks out (qc round <= higest qc)" $ execute oldRoundValidTimeoutMessage ExecutionSuccess
   where
     -- action that runs @executeTimeoutMessage@ on the provided
     -- timeout message and checks that it matches the expectation.
-    -- Note that the highest qc in the round status to be a qc for round 1, epoch 0.
+    --
+    -- In particular the context we're executing the action within
+    -- - current round is 2
+    -- - highest QC seen is round 1 and epoch 0
+    -- - a qc for round 1 epoch 0 has been checked (witnessed)
     execute timeoutMessage expect = runTestMonad @'P6 noBaker time myGenesisData $ do
-        -- Set the highest qc to round 1.
+        -- Set the highest qc to round 1 epoch 0.
         roundStatus . rsHighestQC .= someQC (Round 1) 0
         -- Set the current round to round 2.
         roundStatus . rsCurrentRound .= Round 2
+        -- Insert the witness for an already received qc for round 2 with epoch 0
+        roundExistingQCs %= Map.insert (Round 1) (QuorumCertificateWitness 0)
+        -- Execute the timeout message
         resultCode <- executeTimeoutMessage timeoutMessage
+        -- Check that the result matches the expected one.
         liftIO $ expect @=? resultCode
     -- the finalizer with the provided finalizer index.
     -- Note that all finalizers use the same keys.
     fi :: Word32 -> FinalizerInfo
     fi fIdx = FinalizerInfo (FinalizerIndex fIdx) 1 sigPublicKey (VRF.publicKey someVRFKeyPair) (Bls.derivePublicKey $ blsSk fIdx) (BakerId $ AccountIndex $ fromIntegral fIdx)
+    -- round is already checked
+    oldRoundValidTimeoutMessage = MkPartiallyVerifiedTimeoutMessage (validTimeoutMessage 1 1 0) finalizers
+    -- qc for an old round but different epoch.
+    oldRoundDifferentEpoch = MkPartiallyVerifiedTimeoutMessage (validTimeoutMessage 2 1 1) finalizers
     -- a valid timeout message pointing to an "old qc" (round 1 epoch 0).
-    oldValidQCTimeoutMessage = MkPartiallyVerifiedTimeoutMessage (validTimeoutMessage 3 1) finalizers
+    oldValidQCTimeoutMessage = MkPartiallyVerifiedTimeoutMessage (validTimeoutMessage 3 0 0) finalizers
     -- a new valid timeout message for round 3 with a valid qc for round 2 (epoch 0).
-    newValidQCTimeoutMessage = MkPartiallyVerifiedTimeoutMessage (validTimeoutMessage 3 2) finalizers
+    newValidQCTimeoutMessage = MkPartiallyVerifiedTimeoutMessage (validTimeoutMessage 3 2 0) finalizers
     -- a timeout message where the qc signature does not check out.
-    invalidQCTimeoutMessage = MkPartiallyVerifiedTimeoutMessage (mkTimeoutMessage $! mkTimeoutMessageBody 2 1 0 (someInvalidQC 1 0)) finalizers
+    invalidQCTimeoutMessage = MkPartiallyVerifiedTimeoutMessage (mkTimeoutMessage $! mkTimeoutMessageBody 2 2 0 (someInvalidQC 2 0)) finalizers
     -- wrong epoch
     wrongEpochMessage = MkPartiallyVerifiedTimeoutMessage (mkTimeoutMessage $! mkTimeoutMessageBody 2 0 0 (someInvalidQC 0 0)) finalizers
     -- the finalization committee.
@@ -529,7 +546,7 @@ testExecuteTimeoutMessages = describe "execute timeout messages" $ do
     -- A bls key for the finalizer.
     blsSk fidx = fst <$> Dummy.randomBlsSecretKey $ mkStdGen $ fromIntegral fidx
     -- a valid timeout message for the given round and qc round. Epoch 0 is used.
-    validTimeoutMessage r qcr = mkTimeoutMessage $! mkTimeoutMessageBody 0 r 0 $ someQC (Round qcr) 0
+    validTimeoutMessage r qcr e = mkTimeoutMessage $! mkTimeoutMessageBody 0 r 0 $ someQC (Round qcr) e
     -- some valid qc message by the provided finalizer.
     someQCMessage finalizerIndex r = QuorumMessage (QuorumSignature Bls.emptySignature) someBlockHash (FinalizerIndex finalizerIndex) r 0
     -- some valid qc message signature signed by the provide
@@ -538,6 +555,8 @@ testExecuteTimeoutMessages = describe "execute timeout messages" $ do
     someBlockHash = BlockHash $ Hash.hash "a block hash"
     -- a valid signature.
     qcSignature = someQCMessageSignature 0 <> someQCMessageSignature 1 <> someQCMessageSignature 2
+    -- a valid qc for round 0 i.e. the genesis quorum certificate.
+    someQC 0 _ = genesisQuorumCertificate genesisBlkHash
     -- a qc with a valid signature created by finalizers 0,1,2
     someQC r e = QuorumCertificate someBlockHash r e (qcSignature r) $ finalizerSet [FinalizerIndex 0, FinalizerIndex 1, FinalizerIndex 2]
     -- a qc with the empty signature.

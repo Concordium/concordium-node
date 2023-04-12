@@ -266,15 +266,7 @@ executeTimeoutMessage (MkPartiallyVerifiedTimeoutMessage tm@TimeoutMessage{tmBod
             -- As the timeout message has been succesfully received before this we know that the qc
             -- is for a round greater than the last finalized block.
             use (roundExistingQuorumCertificate (qcRound tmQuorumCertificate)) >>= \case
-                Just (QuorumCertificateWitness qcEpoch') -> do
-                    -- the qc is invalid since it was for another epoch.
-                    if qcEpoch' /= qcEpoch tmQuorumCertificate
-                        then do
-                            flag $ TimeoutMessageInvalidQC tm
-                            return $ InvalidQCEpoch qcEpoch' tmQuorumCertificate
-                        else do
-                            processTimeout tm
-                            return ExecutionSuccess
+                -- We only check the qc if we haven't done so for the round already.
                 Nothing ->
                     checkQC >>= \case
                         -- the quorum certificate is not valid so flag and stop.
@@ -284,6 +276,17 @@ executeTimeoutMessage (MkPartiallyVerifiedTimeoutMessage tm@TimeoutMessage{tmBod
                         -- The quorum certificate is valid so check whether it finalises any blocks.
                         True -> do
                             checkFinality tmQuorumCertificate
+                            processTimeout tm
+                            return ExecutionSuccess
+                -- A qc for the qc round is already checked, we just check that the
+                -- epochs are consistent now.
+                Just (QuorumCertificateWitness qcEpoch') -> do
+                    -- the qc is invalid since it was for another epoch.
+                    if qcEpoch' /= qcEpoch tmQuorumCertificate
+                        then do
+                            flag $ TimeoutMessageInvalidQC tm
+                            return $ InvalidQCEpoch qcEpoch' tmQuorumCertificate
+                        else do
                             processTimeout tm
                             return ExecutionSuccess
   where
