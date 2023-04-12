@@ -31,7 +31,7 @@ import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 
 -- |Shrink the current timeout duration in response to a successful QC for a round.
--- This updates the timeout to @max timeoutBase (timeoutDecrease * oldTimeout)@, where
+-- This updates the current timeout to @max timeoutBase (timeoutDecrease * oldTimeout)@, where
 -- @timeoutBase@ and @timeoutDecrease@ are taken from the chain parameters of the supplied block.
 shrinkTimeout ::
     ( GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
@@ -95,7 +95,11 @@ checkFinalityWithBlock ::
       IsConsensusV1 (MPV m),
       HasCallStack
     ) =>
+    -- |An already verified 'QuorumCertificate' that points
+    -- to the provided @BlockPointer (MPV m)@
     QuorumCertificate ->
+    -- |A pointer to the block that is
+    -- checked wheter it can be finalized or not.
     BlockPointer (MPV m) ->
     m ()
 checkFinalityWithBlock qc blockPtr
