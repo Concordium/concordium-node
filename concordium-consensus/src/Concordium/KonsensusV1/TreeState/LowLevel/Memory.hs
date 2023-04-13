@@ -38,13 +38,13 @@ data LowLevelDB pv = LowLevelDB
       -- |The last finalization entry (if any).
       lldbLatestFinalizationEntry :: !(Maybe FinalizationEntry),
       -- |The current round status.
-      lldbRoundStatus :: !RoundStatus
+      lldbRoundStatus :: !PersistentRoundStatus
     }
 
 -- |An initial 'LowLevelDB' with the supplied genesis block and round status, but otherwise with
 -- no blocks, no transactions and no finalization entry.
 -- The genesis block should have height 0; this is not checked.
-initialLowLevelDB :: StoredBlock pv -> RoundStatus -> LowLevelDB pv
+initialLowLevelDB :: StoredBlock pv -> PersistentRoundStatus -> LowLevelDB pv
 initialLowLevelDB genBlock roundStatus =
     LowLevelDB
         { lldbBlockHashes = HM.singleton (getHash genBlock) 0,

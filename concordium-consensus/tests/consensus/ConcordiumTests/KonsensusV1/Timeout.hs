@@ -357,7 +357,7 @@ testReceiveTimeoutMessage = describe "Receive timeout message" $ do
     it "received a valid timeout message" $
         receiveAndCheck sd validTimeoutMessage $
             Received $
-                MkPartiallyVerifiedTimeoutMessage validTimeoutMessage finalizers
+                PartiallyVerifiedTimeoutMessage validTimeoutMessage finalizers
   where
     -- A valid timeout message that should pass the initial verification.
     validTimeoutMessage = mkTimeoutMessage $! mkTimeoutMessageBody 2 2 0 $ someQC (Round 1) 0
@@ -520,17 +520,17 @@ testExecuteTimeoutMessages = describe "execute timeout messages" $ do
     fi :: Word32 -> FinalizerInfo
     fi fIdx = FinalizerInfo (FinalizerIndex fIdx) 1 sigPublicKey (VRF.publicKey someVRFKeyPair) (Bls.derivePublicKey $ blsSk fIdx) (BakerId $ AccountIndex $ fromIntegral fIdx)
     -- round is already checked
-    oldRoundValidTimeoutMessage = MkPartiallyVerifiedTimeoutMessage (validTimeoutMessage 1 1 0) finalizers
+    oldRoundValidTimeoutMessage = PartiallyVerifiedTimeoutMessage (validTimeoutMessage 1 1 0) finalizers
     -- qc for an old round but different epoch.
-    oldRoundDifferentEpoch = MkPartiallyVerifiedTimeoutMessage (validTimeoutMessage 2 1 1) finalizers
+    oldRoundDifferentEpoch = PartiallyVerifiedTimeoutMessage (validTimeoutMessage 2 1 1) finalizers
     -- a valid timeout message pointing to an "old qc" (round 1 epoch 0).
-    oldValidQCTimeoutMessage = MkPartiallyVerifiedTimeoutMessage (validTimeoutMessage 3 0 0) finalizers
+    oldValidQCTimeoutMessage = PartiallyVerifiedTimeoutMessage (validTimeoutMessage 3 0 0) finalizers
     -- a new valid timeout message for round 3 with a valid qc for round 2 (epoch 0).
-    newValidQCTimeoutMessage = MkPartiallyVerifiedTimeoutMessage (validTimeoutMessage 3 2 0) finalizers
+    newValidQCTimeoutMessage = PartiallyVerifiedTimeoutMessage (validTimeoutMessage 3 2 0) finalizers
     -- a timeout message where the qc signature does not check out.
-    invalidQCTimeoutMessage = MkPartiallyVerifiedTimeoutMessage (mkTimeoutMessage $! mkTimeoutMessageBody 2 2 0 (someInvalidQC 2 0)) finalizers
+    invalidQCTimeoutMessage = PartiallyVerifiedTimeoutMessage (mkTimeoutMessage $! mkTimeoutMessageBody 2 2 0 (someInvalidQC 2 0)) finalizers
     -- wrong epoch
-    wrongEpochMessage = MkPartiallyVerifiedTimeoutMessage (mkTimeoutMessage $! mkTimeoutMessageBody 2 0 0 (someInvalidQC 0 0)) finalizers
+    wrongEpochMessage = PartiallyVerifiedTimeoutMessage (mkTimeoutMessage $! mkTimeoutMessageBody 2 0 0 (someInvalidQC 0 0)) finalizers
     -- the finalization committee.
     finalizers = FinalizationCommittee (Vec.fromList [fi 0, fi 1, fi 2]) 3
     -- the time that we run our test computation with respect to.

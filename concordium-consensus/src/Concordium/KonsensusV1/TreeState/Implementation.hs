@@ -190,12 +190,23 @@ emptyPendingBlocks =
 --
 -- * The current round is at least the round of every live or finalized block.
 data SkovData (pv :: ProtocolVersion) = SkovData
-    { -- |The round status which holds data
+    { -- |Status for the current round that is persisted to the low-level database.
+      -- This is used to record when we have signed messages to ensure that we avoid double
+      -- signing across node restarts.
+      _persistentRoundStatus :: !PersistentRoundStatus,
+      -- |The round status which holds data
       -- associated with the current round of the
       -- consensus protocol.
-      _roundStatus :: !RoundStatus,
+      _roundStatus :: !(RoundStatus pv),
       -- |The current epoch.
       _currentEpoch :: !Epoch,
+      -- |If present, an epoch finalization entry for @_currentEpoch - 1@. An entry MUST be
+      -- present if @_currentEpoch > blockEpoch _lastFinalized@. Otherwise, an entry MAY be present,
+      -- but is not required.
+      --
+      -- The purpose of this field is to support the creation of a block that is the first in a new
+      -- epoch. It should
+      _lastEpochFinalizationEntry :: !(Option FinalizationEntry),
       -- |The current duration to wait before a round times out.
       _currentTimeout :: !Duration,
       -- |Transactions.
@@ -220,7 +231,7 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       -- |For non-finalized rounds, tracks which bakers we have seen legally-signed blocks with
       -- live parent blocks from. This is used for duplicate detection.
       _roundExistingBlocks :: !(Map.Map Round (Map.Map BakerId BlockSignatureWitness)),
-      -- |For non finalized rounds, keep track of which rounds where we have succesfully
+      -- |For non finalized rounds, keep track of which rounds where we have successfully
       -- checked a 'QuorumCertificate'.
       _roundExistingQCs :: !(Map.Map Round QuorumCertificateWitness),
       -- |Genesis metadata
@@ -272,6 +283,14 @@ purgeRoundExistingBlocks rnd = roundExistingBlocks %=! snd . Map.split rnd
 roundExistingQuorumCertificate :: Round -> Lens' (SkovData pv) (Maybe QuorumCertificateWitness)
 roundExistingQuorumCertificate rnd = roundExistingQCs . at' rnd
 
+-- |Record that we have checked a 'QuorumCertificate' in the 'roundExistingQCs'.
+-- The certificate should be for a round that is later than the last finalized round.
+recordCheckedQuorumCertificate :: (MonadState (SkovData pv) m) => QuorumCertificate -> m ()
+recordCheckedQuorumCertificate qc =
+    roundExistingQuorumCertificate (qcRound qc) ?= witness
+  where
+    !witness = toQuorumCertificateWitness qc
+
 -- |Remove all entries from 'roundExistingQCs' with a 'Round' less than or equal to the
 -- supplied 'Round'.
 purgeRoundExistingQCs :: (MonadState (SkovData pv) m) => Round -> m ()
@@ -308,8 +327,10 @@ mkInitialSkovData rp genMeta genState _currentTimeout _skovEpochBakers =
                   bpBlock = genesisBlock,
                   bpState = genState
                 }
-        _roundStatus = initialRoundStatus $ gmFirstGenesisHash genMeta
+        _persistentRoundStatus = initialPersistentRoundStatus
+        _roundStatus = initialRoundStatus genesisBlockPointer
         _currentEpoch = 0
+        _lastEpochFinalizationEntry = Absent
         _transactionTable = TT.emptyTransactionTable
         _transactionTablePurgeCounter = 0
         _skovPendingTransactions =
@@ -1007,8 +1028,15 @@ clearAfterProtocolUpdate = do
     archiveBlockState $ bpState lastFinBlock
     collapseCaches
 
--- |Updates and persists the 'RoundStatus' of the 'SkovData' to the supplied 'RoundStatus
-setRoundStatus :: (LowLevel.MonadTreeStateStore m, MonadState (SkovData (MPV m)) m) => RoundStatus -> m ()
-setRoundStatus newRoundStatus = do
+-- |Sets and persists the 'PersistentRoundStatus' of the 'SkovData'.
+setPersistentRoundStatus :: (LowLevel.MonadTreeStateStore m, MonadState (SkovData (MPV m)) m) => PersistentRoundStatus -> m ()
+setPersistentRoundStatus = updatePersistentRoundStatus . const
+
+-- |Updates and persists the 'PersistentRoundStatus' of the 'SkovData'.
+updatePersistentRoundStatus ::
+    (LowLevel.MonadTreeStateStore m, MonadState (SkovData (MPV m)) m) =>
+    (PersistentRoundStatus -> PersistentRoundStatus) ->
+    m ()
+updatePersistentRoundStatus change = do
+    newRoundStatus <- persistentRoundStatus <%=! change
     LowLevel.writeCurrentRoundStatus newRoundStatus
-    roundStatus .=! newRoundStatus

@@ -77,6 +77,7 @@ data TestEvent
     = ResetTimer !Duration
     | SendTimeoutMessage !TimeoutMessage
     | SendQuorumMessage !QuorumMessage
+    | SendBlock !SignedBlock
     deriving (Eq, Show)
 
 type TestWrite = [TestEvent]
@@ -150,7 +151,9 @@ runTestMonad _tcBakerContext _tcCurrentTime genData (TestMonad a) =
                       stbBlock = bpBlock genBlockPtr,
                       stbStatePointer = genStateRef
                     }
-        _tcMemoryLLDB <- liftIO . newIORef $! initialLowLevelDB genStoredBlock (_tsSkovData ^. roundStatus)
+        _tcMemoryLLDB <-
+            liftIO . newIORef $!
+                initialLowLevelDB genStoredBlock (_tsSkovData ^. persistentRoundStatus)
         _tcPersistentBlockStateContext <- ask
         let _tcLogger src lvl msg = liftIO $ putStrLn $ "[" ++ show lvl ++ "] " ++ show src ++ ": " ++ msg
         let ctx = TestContext{..}
@@ -202,6 +205,7 @@ instance MonadTimeout (TestMonad pv) where
 instance MonadMulticast (TestMonad pv) where
     sendTimeoutMessage = tell . (: []) . SendTimeoutMessage
     sendQuorumMessage = tell . (: []) . SendQuorumMessage
+    sendBlock = tell . (: []) . SendBlock
 
 instance TimerMonad (TestMonad pv) where
     type Timer (TestMonad pv) = Integer

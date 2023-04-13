@@ -1,14 +1,23 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Concordium.KonsensusV1.Consensus.Blocks where
 
+import Control.Applicative
+import Control.Exception
+import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State
+import Control.Monad.Trans.Maybe
+import Data.Function
+import Data.Ord
 import Lens.Micro.Platform
 
+import qualified Concordium.Crypto.BlockSignature as Sig
 import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.Types
@@ -17,8 +26,8 @@ import Concordium.Types.HashableTo
 import Concordium.Types.Parameters hiding (getChainParameters)
 import Concordium.Types.SeedState
 import Concordium.Types.Transactions
+import Concordium.Utils
 
-import qualified Concordium.Crypto.BlockSignature as Sig
 import Concordium.Genesis.Data.BaseV1
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.BlockState
@@ -26,7 +35,7 @@ import Concordium.GlobalState.Parameters hiding (getChainParameters)
 import Concordium.GlobalState.Persistent.BlockState
 import Concordium.GlobalState.Statistics
 import Concordium.GlobalState.Types
-import Concordium.KonsensusV1.Consensus (HasBakerContext, MonadMulticast (sendQuorumMessage), MonadTimeout, advanceRound)
+import Concordium.KonsensusV1.Consensus hiding (bakerIdentity)
 import qualified Concordium.KonsensusV1.Consensus as Consensus
 import Concordium.KonsensusV1.Consensus.Finality
 import Concordium.KonsensusV1.Consensus.Quorum
@@ -39,9 +48,7 @@ import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.TimerMonad
 import Concordium.Types.BakerIdentity
-import Control.Monad.Catch
-import Data.Function
-import Data.Ord
+import Data.Time
 
 data BlockTraceLogEvent
     = LogBlockOld BlockHash
@@ -187,15 +194,36 @@ instance Loggable BlockDebugLogEvent where
 
 data BlockInfoLogEvent
     = LogBlockPending BlockHash BlockHash
-    | LogBlockArrive BlockHash
+    | LogBlockReceive BlockHash
+    | LogBlockArrive BlockHash UTCTime UTCTime
 
 instance Loggable BlockInfoLogEvent where
     loggableSource _ = Konsensus
     loggableLevel _ = LLInfo
     loggableMessage (LogBlockPending block parent) =
         "Block " ++ show block ++ " is pending its parent " ++ show parent ++ "."
-    loggableMessage (LogBlockArrive block) =
-        "Block " ++ show block ++ " arrived."
+    loggableMessage (LogBlockReceive block) =
+        "Block " ++ show block ++ " received."
+    loggableMessage (LogBlockArrive block received arrived) =
+        "Block "
+            ++ show block
+            ++ " arrived at "
+            ++ show arrived
+            ++ ". Processed in "
+            ++ show (diffUTCTime arrived received)
+            ++ "."
+
+data BakerWarnLogEvent
+    = LogBakerIncorrectSignKey
+    | LogBakerIncorrectElectionKey
+
+instance Loggable BakerWarnLogEvent where
+    loggableSource _ = Baker
+    loggableLevel _ = LLWarning
+    loggableMessage LogBakerIncorrectSignKey =
+        "Baker signing key does not match the key in the current committee."
+    loggableMessage LogBakerIncorrectElectionKey =
+        "Baker election key does not match the key in the current committee."
 
 -- |A block that has passed initial verification, but must still be executed, added to the state,
 -- and (potentially) signed as a finalizer.
@@ -313,6 +341,9 @@ receiveBlockKnownParent ::
     PendingBlock ->
     m BlockResult
 receiveBlockKnownParent parent pendingBlock = do
+    logLoggable $ LogBlockReceive pbHash
+    let nominalTime = timestampToUTCTime $ blockTimestamp pendingBlock
+    statistics %=! updateStatsOnReceive nominalTime (pbReceiveTime pendingBlock)
     genesisHash <- use currentGenesisHash
     getBakers >>= \case
         Nothing -> do
@@ -497,11 +528,10 @@ addBlock pendingBlock blockState parent = do
     now <- currentTime
     newBlock <- makeLiveBlock pendingBlock blockState height now
     addToBranches newBlock
-    logLoggable $ LogBlockArrive (getHash pendingBlock)
+    logLoggable $ LogBlockArrive (getHash pendingBlock) (pbReceiveTime pendingBlock) now
     let nominalTime = timestampToUTCTime $ blockTimestamp newBlock
     let numTransactions = blockTransactionCount newBlock
-    !stats <- updateStatsOnArrive nominalTime now numTransactions <$> use statistics
-    statistics .= stats
+    statistics %=! updateStatsOnArrive nominalTime now numTransactions
     return newBlock
 
 -- |A 'BlockPointer', ordered lexicographically on:
@@ -694,13 +724,24 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                                 -- as a result of finalization processing in
                                 -- 'checkEpochFinalizationEntry'.
                                 checkFinality (blockQuorumCertificate pendingBlock)
-                                checkedUpdateHighestQC (blockQuorumCertificate pendingBlock)
                                 curRound <- use $ roundStatus . rsCurrentRound
-                                when (curRound < blockRound pendingBlock) $
-                                    advanceRound (blockRound pendingBlock) $
-                                        case blockTimeoutCertificate pendingBlock of
-                                            Present tc -> Left (tc, blockQuorumCertificate pendingBlock)
-                                            Absent -> Right (blockQuorumCertificate pendingBlock)
+                                let certifiedParent =
+                                        CertifiedBlock
+                                            { cbQuorumCertificate = blockQuorumCertificate pendingBlock,
+                                              cbQuorumBlock = parent
+                                            }
+                                if curRound < blockRound pendingBlock
+                                    then case blockTimeoutCertificate pendingBlock of
+                                        Present tc ->
+                                            advanceRoundWithTimeout
+                                                RoundTimeout
+                                                    { rtTimeoutCertificate = tc,
+                                                      rtCertifiedBlock = certifiedParent
+                                                    }
+                                        Absent ->
+                                            advanceRoundWithQuorum
+                                                certifiedParent
+                                    else checkedUpdateHighestCertifiedBlock certifiedParent
                                 return (Just newBlock)
   where
     pbHash :: BlockHash
@@ -817,14 +858,20 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                     flag $ BlockEpochFinalizationMissing sBlock
                     rejectBlock
                 Present finEntry
-                    -- Check that the finalization entry is for the correct epoch and
+                    -- Check that the finalization entry is for the correct epoch,
+                    -- that the higher QC round is at most the round of the parent block, and
                     -- contains valid QCs.
                     | qcEpoch (feFinalizedQuorumCertificate finEntry) == blockEpoch parent,
+                      qcRound (feSuccessorQuorumCertificate finEntry) <= blockRound parent,
                       checkFinalizationEntry
                         gmCurrentGenesisHash
                         (toRational $ genesisSignatureThreshold gmParameters)
                         _bfFinalizers
                         finEntry -> do
+                        -- We record that we have checked a valid QC for the successor round.
+                        -- We do not record the finalized round, because we expect it to be
+                        -- finalized, and we only keep entries for non-finalized rounds.
+                        recordCheckedQuorumCertificate (feSuccessorQuorumCertificate finEntry)
                         -- Check that the finalized block has timestamp past the trigger time for
                         -- the epoch. We use the seed state for the parent block to get the trigger
                         -- time, because that is in the same epoch.
@@ -845,8 +892,11 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                                     -- one epoch after the last finalized block.
                                     processFinalization finBlock finEntry
                                     shrinkTimeout finBlock
-                                    -- Update the highest QC.
-                                    checkedUpdateHighestQC $ feSuccessorQuorumCertificate finEntry
+                                    -- Note: we do not update the highest certified block here
+                                    -- because the parent block will be at least as high as that
+                                    -- in the successor QC. (Also, we may not have the block
+                                    -- pointed to by the successor QC.)
+                                    --
                                     -- We check if the block is descended from the NEW last
                                     -- finalized block, since that should have changed.
                                     gets (getLiveOrLastFinalizedBlock (getHash parent)) >>= \case
@@ -922,33 +972,21 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                 Nothing -> rejectBlock
                 Just bf -> continue bf
     checkQC GenesisMetadata{..} BakersAndFinalizers{..} continue = do
+        let qc = blockQuorumCertificate pendingBlock
         let qcOK =
                 checkQuorumCertificate
                     gmCurrentGenesisHash
                     (toRational $ genesisSignatureThreshold gmParameters)
                     _bfFinalizers
-                    (blockQuorumCertificate pendingBlock)
+                    qc
         if qcOK
-            then continue
+            then do
+                roundExistingQuorumCertificate (qcRound qc) ?= toQuorumCertificateWitness qc
+                continue
             else do
                 logLoggable $ LogBlockInvalidQC pbHash
                 flag $ BlockInvalidQC sBlock
                 rejectBlock
-
--- |Update the highest QC if the supplied QC is for a later round than the previous QC.
-checkedUpdateHighestQC ::
-    ( MonadState (SkovData (MPV m)) m,
-      LowLevel.MonadTreeStateStore m
-    ) =>
-    QuorumCertificate ->
-    m ()
-checkedUpdateHighestQC newQC = do
-    rs <- use roundStatus
-    let isBetterQC = qcRound (rs ^. rsHighestQC) < qcRound newQC
-    when isBetterQC $ do
-        roundExistingQuorumCertificate (qcRound newQC) ?= toQuorumCertificateWitness newQC
-        setRoundStatus $!
-            rs{_rsHighestQC = newQC}
 
 executeBlock ::
     ( IsConsensusV1 (MPV m),
@@ -1046,11 +1084,12 @@ validateBlock ::
 validateBlock blockHash BakerIdentity{..} finInfo = do
     maybeBlock <- gets $ getLiveBlock blockHash
     forM_ maybeBlock $ \block -> do
-        rs@RoundStatus{..} <- use roundStatus
+        persistentRS <- use persistentRoundStatus
+        curRound <- use $ roundStatus . rsCurrentRound
         curEpoch <- use currentEpoch
         when
-            ( blockRound block == _rsCurrentRound
-                && rsNextSignableRound rs <= blockRound block
+            ( blockRound block == curRound
+                && rsNextSignableRound persistentRS <= blockRound block
                 && blockEpoch block == curEpoch
             )
             $ do
@@ -1066,10 +1105,190 @@ validateBlock blockHash BakerIdentity{..} finInfo = do
                 let finIndex = finalizerIndex finInfo
 
                 let quorumMessage = buildQuorumMessage qsm quorumSignature finIndex
-                setRoundStatus $! rs{_rsLastSignedQuorumMessage = Present quorumMessage}
+                setPersistentRoundStatus $!
+                    persistentRS
+                        { _rsLastSignedQuorumMessage = Present quorumMessage
+                        }
                 sendQuorumMessage quorumMessage
                 processQuorumMessage $
                     VerifiedQuorumMessage
                         { vqmMessage = quorumMessage,
-                          vqmFinalizerWeight = finalizerWeight finInfo
+                          vqmFinalizerWeight = finalizerWeight finInfo,
+                          vqmBlock = block
                         }
+
+{- Problems:
+    - triggering makeBlock
+    - recording if we've made a block? We probably don't need to, if we try to make the block
+        just after advancing the round.
+    - waiting to make a block
+    - highest QC problem
+-}
+
+prepareBakeBlockInputs ::
+    ( MonadReader r m,
+      HasBakerContext r,
+      MonadState (SkovData (MPV m)) m,
+      BlockStateStorage m,
+      BlockState m ~ HashedPersistentBlockState (MPV m),
+      IsConsensusV1 (MPV m),
+      MonadLogger m
+    ) =>
+    m (Maybe (BakeBlockInputs (MPV m)))
+prepareBakeBlockInputs = runMaybeT $ do
+    canBake <- roundStatus . rsRoundEligibleToBake <<.= False
+    -- Terminate if we've already tried to bake for this round.
+    guard canBake
+    sd <- get
+    let rs = sd ^. roundStatus
+    -- Note: we rely on the current round being always in sync with the previous round TC/
+    -- highest QC.
+    let bbiRound = rs ^. rsCurrentRound
+    -- Check that we haven't baked for this or a more recent round.
+    guard (bbiRound > sd ^. persistentRoundStatus . rsLastBakedRound)
+    -- Terminate if we do not have baker credentials.
+    bbiBakerIdentity@BakerIdentity{..} <- MaybeT (view Consensus.bakerIdentity)
+    -- Determine the parent block and its quorum certificate, as well as the timeout certificate if
+    -- applicable.
+    let ( bbiTimeoutCertificate,
+          CertifiedBlock
+            { cbQuorumBlock = bbiParent,
+              cbQuorumCertificate = bbiQuorumCertificate
+            }
+            )
+                | Present RoundTimeout{..} <- rs ^. rsPreviousRoundTimeout =
+                    ( Present rtTimeoutCertificate,
+                      if cbEpoch highestCB > cbEpoch rtCertifiedBlock
+                        then rtCertifiedBlock
+                        else highestCB
+                    )
+                | otherwise =
+                    ( Absent,
+                      highestCB
+                    )
+              where
+                highestCB = rs ^. rsHighestCertifiedBlock
+    let bbiEpoch = sd ^. currentEpoch
+    let bbiEpochFinalizationEntry
+            | bbiEpoch > qcEpoch bbiQuorumCertificate =
+                -- This assertion should not fail because the invariant on
+                -- '_lastEpochFinalizationEntry' requires the entry to be present whenever
+                -- @_currentEpoch > blockEpoch _lastFinalized@, and 'bbQuorumCer
+                assert (isPresent finEntry) finEntry
+            | otherwise = Absent
+          where
+            finEntry = sd ^. lastEpochFinalizationEntry
+    bbiEpochBakers <-
+        if isAbsent bbiEpochFinalizationEntry
+            then getCurrentEpochBakers (bpState bbiParent)
+            else getNextEpochBakers (bpState bbiParent)
+    parentSeedState <- getSeedState (bpState bbiParent)
+    let bbiLeadershipElectionNonce =
+            if isAbsent bbiEpochFinalizationEntry
+                then parentSeedState ^. currentLeadershipElectionNonce
+                else nonceForNewEpoch bbiEpochBakers parentSeedState
+    let leader = getLeaderFullBakers bbiEpochBakers bbiLeadershipElectionNonce bbiRound
+    guard (leader ^. bakerIdentity == bakerId)
+    unless (bakerSignPublicKey bbiBakerIdentity == leader ^. bakerSignatureVerifyKey) $ do
+        logLoggable LogBakerIncorrectSignKey
+        empty
+    unless (bakerElectionPublicKey bbiBakerIdentity == leader ^. bakerElectionVerifyKey) $ do
+        logLoggable LogBakerIncorrectElectionKey
+        empty
+    return BakeBlockInputs{..}
+
+data BakeBlockInputs (pv :: ProtocolVersion) = BakeBlockInputs
+    { bbiBakerIdentity :: BakerIdentity,
+      bbiRound :: Round,
+      bbiEpoch :: Epoch,
+      bbiParent :: BlockPointer pv,
+      bbiQuorumCertificate :: QuorumCertificate,
+      bbiTimeoutCertificate :: Option TimeoutCertificate,
+      bbiEpochFinalizationEntry :: Option FinalizationEntry,
+      bbiEpochBakers :: FullBakers,
+      bbiLeadershipElectionNonce :: LeadershipElectionNonce
+    }
+
+bakeBlock ::
+    ( MonadState (SkovData (MPV m)) m,
+      BlockStateStorage m,
+      BlockState m ~ HashedPersistentBlockState (MPV m),
+      TimeMonad m,
+      IsConsensusV1 (MPV m),
+      LowLevel.MonadTreeStateStore m,
+      MonadLogger m
+    ) =>
+    BakeBlockInputs (MPV m) ->
+    m SignedBlock
+bakeBlock BakeBlockInputs{..} = do
+    curTimestamp <- utcTimeToTimestamp <$> currentTime
+    minBlockTime <- getMinBlockTime bbiParent
+    let bbTimestamp = max curTimestamp (addDuration (blockTimestamp bbiParent) minBlockTime)
+    epochDuration <- use $ genesisMetadata . to (genesisEpochDuration . gmParameters)
+    let bbNonce =
+            computeBlockNonce
+                bbiLeadershipElectionNonce
+                bbiRound
+                (bakerElectionKey bbiBakerIdentity)
+    let executionData =
+            BlockExecutionData
+                { bedIsNewEpoch = isPresent bbiEpochFinalizationEntry,
+                  bedEpochDuration = epochDuration,
+                  bedTimestamp = bbTimestamp,
+                  bedBlockNonce = bbNonce,
+                  bedParentState = bpState bbiParent
+                }
+    -- TODO: When the scheduler is integrated, this will be changed.
+    executeBlockStateUpdate executionData >>= \case
+        Left err -> case err of {}
+        Right newState -> do
+            bbTransactionOutcomesHash <- getTransactionOutcomesHash newState
+            bbStateHash <- getStateHash newState
+            let bakedBlock =
+                    BakedBlock
+                        { bbRound = bbiRound,
+                          bbEpoch = bbiEpoch,
+                          bbBaker = bakerId bbiBakerIdentity,
+                          bbQuorumCertificate = bbiQuorumCertificate,
+                          bbTimeoutCertificate = bbiTimeoutCertificate,
+                          bbEpochFinalizationEntry = bbiEpochFinalizationEntry,
+                          bbTransactions = mempty,
+                          ..
+                        }
+            genesisHash <- use currentGenesisHash
+            let signedBlock = signBlock (bakerSignKey bbiBakerIdentity) genesisHash bakedBlock
+            updatePersistentRoundStatus $ rsLastBakedRound .~ bbiRound
+            now <- currentTime
+            let nominalTime = timestampToUTCTime bbTimestamp
+            statistics %=! updateStatsOnReceive nominalTime now
+            _ <-
+                addBlock
+                    PendingBlock{pbBlock = signedBlock, pbReceiveTime = now}
+                    newState
+                    bbiParent
+            return signedBlock
+
+makeBlock ::
+    ( MonadReader r m,
+      HasBakerContext r,
+      MonadState (SkovData (MPV m)) m,
+      BlockStateStorage m,
+      BlockState m ~ HashedPersistentBlockState (MPV m),
+      IsConsensusV1 (MPV m),
+      LowLevel.MonadTreeStateStore m,
+      TimeMonad m,
+      TimerMonad m,
+      MonadMulticast m,
+      MonadThrow m,
+      MonadIO m,
+      MonadTimeout m,
+      MonadLogger m
+    ) =>
+    m ()
+makeBlock = do
+    mInputs <- prepareBakeBlockInputs
+    forM_ mInputs $ \inputs -> do
+        block <- bakeBlock inputs
+        void $ onTimeout (DelayUntil (timestampToUTCTime $ blockTimestamp block)) $ do
+            sendBlock block
+            checkedValidateBlock block

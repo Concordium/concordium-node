@@ -15,10 +15,10 @@ import Concordium.Types
 import qualified Concordium.Types.Accounts as Accounts
 import Concordium.Types.BakerIdentity
 import Concordium.Types.Parameters hiding (getChainParameters)
+import Concordium.Utils
 
 import Concordium.GlobalState.BakerInfo
 import Concordium.KonsensusV1.TreeState.Implementation
-import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 
@@ -29,6 +29,9 @@ class MonadMulticast m where
 
     -- |Multicast a quorum message.
     sendQuorumMessage :: QuorumMessage -> m ()
+
+    -- |Multicast a block.
+    sendBlock :: SignedBlock -> m ()
 
 -- |A baker context containing the baker identity. Used for accessing relevant baker keys and the baker id.
 newtype BakerContext = BakerContext
@@ -48,65 +51,15 @@ class MonadTimeout m where
 makeBlockIfLeader :: MonadState (SkovData (MPV m)) m => m ()
 makeBlockIfLeader = return ()
 
--- |Advance the provided 'RoundStatus' to the provided 'Round'.
---
--- The consensus protocol can advance round in two ways.
--- 1. Via a QC i.e. @Right QuorumCertificate@
--- 2. Via a TC i.e. @Left (TimeoutCertificate, QuorumCertificate)@
---
--- All properties from the old 'RoundStatus' are being carried over to new 'RoundStatus'
--- except for the following.
--- * 'rsCurrentRound' will become the provided 'Round'.
--- * 'rsPreviousRoundTC' will become 'Absent' if we're progressing via a 'QuorumCertificate' otherwise
---   it will become the values of the supplied @Left (TimeoutCertificate, QuorumCertificate)@.
--- * 'rsHighestQC' will become the supplied @Right QuorumCertificate@ otherwise it is carried over.
-advanceRoundStatus ::
-    -- |The round to advance to.
-    Round ->
-    -- |@Left (tc, qc)@ if consensus is advancing from a TC.
-    -- @Right qc@ if consensus is advancing from a QC.
-    Either (TimeoutCertificate, QuorumCertificate) QuorumCertificate ->
-    -- |The 'RoundStatus' we are advancing from.
-    RoundStatus ->
-    -- |The advanced 'RoundStatus'.
-    RoundStatus
-advanceRoundStatus toRound (Left (tc, qc)) currentRoundStatus =
-    currentRoundStatus
-        { _rsCurrentRound = toRound,
-          _rsPreviousRoundTC = Present (tc, qc)
-        }
-advanceRoundStatus toRound (Right qc) currentRoundStatus =
-    currentRoundStatus
-        { _rsCurrentRound = toRound,
-          _rsHighestQC = qc,
-          _rsPreviousRoundTC = Absent
-        }
-
--- |Advance to the provided 'Round'.
---
--- This function does the following:
--- * Update the current 'RoundStatus'.
--- * Persist the new 'RoundStatus'.
--- * If the consensus runner is leader in the new
---   round then make the new block.
-advanceRound ::
+-- |Reset the timeout timer, and clear the collected quorum and timeout messages for the current
+-- round. This should not be called directly, except by 'advanceRoundWithTimeout' and
+-- 'advanceRoundWithQuorum'.
+onNewRound ::
     ( MonadTimeout m,
-      LowLevel.MonadTreeStateStore m,
       MonadState (SkovData (MPV m)) m
     ) =>
-    -- |The 'Round' to progress to.
-    Round ->
-    -- |If we are advancing from a round that timed out
-    -- then this will be @Left 'TimeoutCertificate, 'QuorumCertificate')@
-    -- The 'TimeoutCertificate' is from the round we're
-    -- advancing from and the associated 'QuorumCertificate' verifies it.
-    --
-    -- Otherwise if we're progressing via a 'QuorumCertificate' then @Right QuorumCertificate@
-    -- should be the QC we're advancing round via.
-    Either (TimeoutCertificate, QuorumCertificate) QuorumCertificate ->
     m ()
-advanceRound newRound newCertificate = do
-    currentRoundStatus <- use roundStatus
+onNewRound = do
     -- We always reset the timer.
     -- This ensures that the timer is correct for consensus runners which have been
     -- leaving or joining the finalization committee (if we're advancing to the first round
@@ -120,11 +73,62 @@ advanceRound newRound newCertificate = do
     currentQuorumMessages .= emptyQuorumMessages
     -- Clear the timeout messages collected.
     receivedTimeoutMessages .= Absent
-    -- Advance and save the round.
-    setRoundStatus $! advanceRoundStatus newRound newCertificate currentRoundStatus
-    -- Make a new block if the consensus runner is leader of
-    -- the 'Round' progressed to.
-    makeBlockIfLeader
+
+-- |Advance the round as the result of a timeout. This will also set the highest certified block
+-- if the round timeout contains a higher one.
+--
+-- PRECONDITION:
+--
+-- * The round timeout MUST be for a round that is at least current round.
+advanceRoundWithTimeout ::
+    ( MonadTimeout m,
+      MonadState (SkovData (MPV m)) m
+    ) =>
+    RoundTimeout (MPV m) ->
+    m ()
+advanceRoundWithTimeout roundTimeout@RoundTimeout{..} = do
+    onNewRound
+    roundStatus %=! updateQC . updateTC . (rsRoundEligibleToBake .~ True)
+  where
+    updateQC rs
+        | cbRound (_rsHighestCertifiedBlock rs) < cbRound rtCertifiedBlock =
+            rs & rsHighestCertifiedBlock .~ rtCertifiedBlock
+        | otherwise = rs
+    updateTC =
+        (rsCurrentRound .~ 1 + tcRound rtTimeoutCertificate)
+            . (rsPreviousRoundTimeout .~ Present roundTimeout)
+
+-- |Advance the round as the result of a quorum certificate.
+--
+-- PRECONDITION:
+--
+-- * The certified block MUST be for a round that is at least the current round.
+advanceRoundWithQuorum ::
+    ( MonadTimeout m,
+      MonadState (SkovData (MPV m)) m
+    ) =>
+    -- |Certified block
+    CertifiedBlock (MPV m) ->
+    m ()
+advanceRoundWithQuorum certBlock = do
+    onNewRound
+    roundStatus
+        %=! (rsCurrentRound .~ 1 + qcRound (cbQuorumCertificate certBlock))
+        . (rsPreviousRoundTimeout .~ Absent)
+        . (rsHighestCertifiedBlock .~ certBlock)
+        . (rsRoundEligibleToBake .~ True)
+
+-- |Update the highest certified block if the supplied block is for a later round than the previous
+-- highest certified block.
+checkedUpdateHighestCertifiedBlock ::
+    (MonadState (SkovData (MPV m)) m) =>
+    -- |Certified block
+    CertifiedBlock (MPV m) ->
+    m ()
+checkedUpdateHighestCertifiedBlock newCB = do
+    rs <- use roundStatus
+    let isBetterQC = cbRound (rs ^. rsHighestCertifiedBlock) < cbRound newCB
+    when isBetterQC $ roundStatus . rsHighestCertifiedBlock .= newCB
 
 -- |Compute the finalization committee given the bakers and the finalization committee parameters.
 computeFinalizationCommittee :: FullBakers -> FinalizationCommitteeParameters -> FinalizationCommittee

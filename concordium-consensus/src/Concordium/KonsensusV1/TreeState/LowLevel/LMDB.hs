@@ -109,7 +109,7 @@ newtype RoundStatusStore = RoundStatusStore MDB_dbi'
 
 instance MDBDatabase RoundStatusStore where
     type DBKey RoundStatusStore = RoundStatusKey
-    type DBValue RoundStatusStore = RoundStatus
+    type DBValue RoundStatusStore = PersistentRoundStatus
 
 -- |Key used to index the latest finalization entry in the consensus status table.
 -- Represented as the byte @1@.

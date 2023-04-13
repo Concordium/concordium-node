@@ -202,6 +202,9 @@ blockStatusBlock _ = Nothing
 pattern BlockAliveOrFinalized :: BlockPointer pv -> BlockStatus pv
 pattern BlockAliveOrFinalized b <- (blockStatusBlock -> Just b)
 
+-- This tells GHC that these patterns are complete for 'BlockStatus'.
+{-# COMPLETE BlockPending, BlockAliveOrFinalized, BlockDead, BlockUnknown #-}
+
 -- |The status of a block as obtained without loading the block from disk.
 data RecentBlockStatus pv
     = -- |The block is recent i.e. it is either 'Alive',
@@ -211,74 +214,139 @@ data RecentBlockStatus pv
       OldFinalized
     deriving (Show)
 
--- |The current round status.
--- Note that it can be the case that both the 'QuorumSignatureMessage' and the
--- 'TimeoutSignatureMessage' are present.
--- This is the case if the consensus runner has first signed a block
--- but not enough quorum signature messages were retrieved before timeout.
-data RoundStatus = RoundStatus
-    { -- |The highest 'Round' that the consensus runner participated in.
-      _rsCurrentRound :: !Round,
-      -- |If the consensus runner is part of the finalization committee,
+-- |Round status information that is persisted to the database.
+data PersistentRoundStatus = PersistentRoundStatus
+    { -- |If the consensus runner is part of the finalization committee,
       -- then this will yield the last signed 'QuorumMessage'
       _rsLastSignedQuorumMessage :: !(Option QuorumMessage),
       -- |If the consensus runner is part of the finalization committee,
       -- then this will yield the last signed timeout message.
       _rsLastSignedTimeoutMessage :: !(Option TimeoutMessage),
-      -- |The highest 'QuorumCertificate' seen so far.
-      -- This contains the empty quorom certificate
-      -- (having round 0, epoch 0, empty quorom signature and empty finalizer set)
-      -- if no rounds since genesis has been able to produce a 'QuorumCertificate'.
-      -- Note: this can potentially be a QC for a block that is not present, but in that case we
-      -- should have a finalization entry that contains the QC.
-      _rsHighestQC :: !QuorumCertificate,
-      -- |The previous round timeout certificate if the previous round timed out.
-      -- This is @Just (TimeoutCertificate, QuorumCertificate)@ if the previous round timed out or otherwise 'Nothing'.
-      -- In the case of @Just@ then the associated 'QuorumCertificate' is the highest 'QuorumCertificate' at the time
-      -- that the 'TimeoutCertificate' was built.
-      _rsPreviousRoundTC :: !(Option (TimeoutCertificate, QuorumCertificate))
+      -- |The round number of the last round for which we baked a block, or 0 if we have never
+      -- baked a block.
+      _rsLastBakedRound :: !Round
     }
-    deriving (Show, Eq)
+    deriving (Eq, Show)
 
-makeLenses ''RoundStatus
+makeLenses ''PersistentRoundStatus
 
-instance Serialize RoundStatus where
-    put RoundStatus{..} = do
-        put _rsCurrentRound
+instance Serialize PersistentRoundStatus where
+    put PersistentRoundStatus{..} = do
         put _rsLastSignedQuorumMessage
         put _rsLastSignedTimeoutMessage
-        put _rsHighestQC
-        put _rsPreviousRoundTC
+        put _rsLastBakedRound
     get = do
-        _rsCurrentRound <- get
         _rsLastSignedQuorumMessage <- get
         _rsLastSignedTimeoutMessage <- get
-        _rsHighestQC <- get
-        _rsPreviousRoundTC <- get
-        return RoundStatus{..}
+        _rsLastBakedRound <- get
+        return PersistentRoundStatus{..}
 
--- |The 'RoundStatus' for consensus at genesis.
-initialRoundStatus :: BlockHash -> RoundStatus
-initialRoundStatus genesisHash =
-    RoundStatus
-        { _rsCurrentRound = 1,
-          _rsLastSignedQuorumMessage = Absent,
+-- |The 'PersistentRoundStatus' at genesis.
+initialPersistentRoundStatus :: PersistentRoundStatus
+initialPersistentRoundStatus =
+    PersistentRoundStatus
+        { _rsLastSignedQuorumMessage = Absent,
           _rsLastSignedTimeoutMessage = Absent,
-          _rsHighestQC = genesisQuorumCertificate genesisHash,
-          _rsPreviousRoundTC = Absent
+          _rsLastBakedRound = 0
         }
 
 -- |The last signed round (according to a given 'RoundStatus') for which we have produced a
 -- quorum or timeout signature message.
-rsLastSignedRound :: RoundStatus -> Round
-rsLastSignedRound RoundStatus{..} =
+rsLastSignedRound :: PersistentRoundStatus -> Round
+rsLastSignedRound PersistentRoundStatus{..} =
     max
         (ofOption 0 qmRound _rsLastSignedQuorumMessage)
         (ofOption 0 (tmRound . tmBody) _rsLastSignedTimeoutMessage)
 
 -- |The next signable round is the round after the latest round for which we have
-rsNextSignableRound :: RoundStatus -> Round
+rsNextSignableRound :: PersistentRoundStatus -> Round
 rsNextSignableRound = (1 +) . rsLastSignedRound
+
+-- |A valid quorum certificate together with the block that is certified.
+--
+-- * @qcBlock cbQuorumCertificate == getHash cbQuorumBlock@
+-- * @qcRound cbQuorumCertificate == blockRound cbQuorumBlock@
+-- * @qcEpoch cbQuorumCertificate == blockEpoch cbQuorumBlock@
+data CertifiedBlock (pv :: ProtocolVersion) = CertifiedBlock
+    { -- |A valid quorum certificate.
+      cbQuorumCertificate :: !QuorumCertificate,
+      -- |The certified block.
+      cbQuorumBlock :: !(BlockPointer pv)
+    }
+    deriving (Eq, Show)
+
+-- |The 'Round' number of a certified block.
+cbRound :: CertifiedBlock pv -> Round
+cbRound = qcRound . cbQuorumCertificate
+
+-- |The 'Epoch' number of a certified block
+cbEpoch :: CertifiedBlock pv -> Epoch
+cbEpoch = qcEpoch . cbQuorumCertificate
+
+-- |Details of a round timeout that can be used to produce a new block in round
+-- @tcRound trTimeoutCertificate + 1@. We require that the 'QuorumCertificate' and
+-- 'TimeoutCertificate' are valid and they are compatible in the following sense:
+--
+--   * @cbRound rtCertifiedBlock < tcRound rtTimeoutCertificate@
+--   * @cbRound rtCertifiedBlock >= tcMaxRound rtTimeoutCertificate@
+--   * @cbEpoch rtCertifiedBlock >= tcMaxEpoch rtTimeoutCertificate@
+--   * @cbEpoch rtCertifiedBlock <= 2 + tcMinEpoch rtTimeoutCertificate@
+data RoundTimeout (pv :: ProtocolVersion) = RoundTimeout
+    { -- |A timeout certificate.
+      rtTimeoutCertificate :: !TimeoutCertificate,
+      -- |Certified block for the highest known round that did not time out.
+      rtCertifiedBlock :: !(CertifiedBlock pv)
+    }
+    deriving (Eq, Show)
+
+-- |The current round status.
+-- Note that it can be the case that both the 'QuorumSignatureMessage' and the
+-- 'TimeoutSignatureMessage' are present.
+-- This is the case if the consensus runner has first signed a block
+-- but not enough quorum signature messages were retrieved before timeout.
+--
+-- INVARIANTS:
+--
+--  * @_rsCurrentRound > qcEpoch (cbQuorumCertificate _rsHighestCertifiedBlock)@.
+--
+--  * If @_rsPreviousRoundTimeout = Absent@ then
+--    @_rsCurrentRound = 1 + qcEpoch (cbQuorumCertificate _rsHighestCertifiedBlock)@.
+--
+--  * If @_rsPreviousRoundTimeout = Present timeout@ then
+--    @_rsCurrentRound = 1 + qcEpoch (rtQuorumCertificate timeout)@.
+data RoundStatus (pv :: ProtocolVersion) = RoundStatus
+    { -- |The current 'Round'.
+      _rsCurrentRound :: !Round,
+      -- |The 'CertifiedBlock' with the highest 'QuorumCertificate' we have seen so far.
+      -- (At genesis, this contains the empty quorum certificate.)
+      _rsHighestCertifiedBlock :: !(CertifiedBlock pv),
+      -- |The previous round timeout certificate if the previous round timed out.
+      -- This is @Present (timeoutCertificate, quorumCertificate)@ if the previous round timed out
+      -- and otherwise 'Absent'. In the case of @Present@ then @quorumCertificate@ is the highest
+      -- 'QuorumCertificate' at the time that the 'TimeoutCertificate' was built.
+      _rsPreviousRoundTimeout :: !(Option (RoundTimeout pv)),
+      -- |Flag that is 'True' if we should attempt to bake for the current round.
+      -- This is set to 'True' when the round is advanced, and set to 'False' when we have attempted
+      -- to bake for the round.
+      _rsRoundEligibleToBake :: !Bool
+    }
+    deriving (Eq, Show)
+
+makeLenses ''RoundStatus
+
+-- |The 'RoundStatus' for consensus at genesis.
+initialRoundStatus :: BlockPointer pv -> RoundStatus pv
+initialRoundStatus genesisBlock =
+    RoundStatus
+        { _rsCurrentRound = 1,
+          _rsHighestCertifiedBlock =
+            CertifiedBlock
+                { cbQuorumCertificate = genesisQuorumCertificate (getHash genesisBlock),
+                  cbQuorumBlock = genesisBlock
+                },
+          _rsPreviousRoundTimeout = Absent,
+          _rsRoundEligibleToBake = True
+        }
 
 -- |The sets of bakers and finalizers for an epoch/payday.
 data BakersAndFinalizers = BakersAndFinalizers

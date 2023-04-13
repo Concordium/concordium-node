@@ -10,6 +10,6 @@ module Concordium.KonsensusV1.Consensus.CatchUp where
 --
 -- (In an aggregated fashion qcs, tcs, qms, tms)
 --
--- Catchup responses must bybass the deduplication layer,
+-- Catchup responses must bypass the deduplication layer,
 -- hence if we are catching up from a peer then their responses should
 -- not be deduplicated.

@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |This module contains the logic for creating 'QuorumCertificate's, receiving and
@@ -51,9 +52,9 @@ data ReceiveQuorumMessageRejectReason
     deriving (Eq, Show)
 
 -- |Result codes for receiving a 'QuorumMessage'.
-data ReceiveQuorumMessageResult
+data ReceiveQuorumMessageResult (pv :: ProtocolVersion)
     = -- |The 'QuorumMessage' was received i.e. it passed verification.
-      Received !VerifiedQuorumMessage
+      Received !(VerifiedQuorumMessage pv)
     | -- |The 'QuorumMessage' was rejected.
       Rejected !ReceiveQuorumMessageRejectReason
     | -- |The 'QuorumMessage' points to a round which indicates a catch up is required.
@@ -64,11 +65,13 @@ data ReceiveQuorumMessageResult
 
 -- |A _received_ and verified 'QuorumMessage' together with
 -- the weight associated with the finalizer for the quorum message.
-data VerifiedQuorumMessage = VerifiedQuorumMessage
+data VerifiedQuorumMessage (pv :: ProtocolVersion) = VerifiedQuorumMessage
     { -- |The verified 'QuorumMessage'.
       vqmMessage :: !QuorumMessage,
       -- |The weight of the finalizer.
-      vqmFinalizerWeight :: !VoterPower
+      vqmFinalizerWeight :: !VoterPower,
+      -- |The block that is the target of the quorum message.
+      vqmBlock :: !(BlockPointer pv)
     }
     deriving (Eq, Show)
 
@@ -89,7 +92,7 @@ receiveQuorumMessage ::
     -- |The tree state to verify the 'QuorumMessage' within.
     SkovData (MPV m) ->
     -- |Result of receiving the 'QuorumMessage'.
-    m ReceiveQuorumMessageResult
+    m (ReceiveQuorumMessageResult (MPV m))
 receiveQuorumMessage qm@QuorumMessage{..} skovData = receive
   where
     receive
@@ -150,12 +153,14 @@ receiveQuorumMessage qm@QuorumMessage{..} skovData = receive
                                 flag $! EpochInconsistency qm (bpBlock targetBlock)
                                 return $ Rejected InconsistentEpochs
                             -- Return the verified quorum message.
-                            | otherwise -> return (Received (VerifiedQuorumMessage qm finalizerWeight))
+                            | otherwise ->
+                                return $
+                                    Received (VerifiedQuorumMessage qm finalizerWeight targetBlock)
     -- Try get an existing 'QuorumMessage' if present otherwise return 'Nothing'.
     getExistingMessage = skovData ^? currentQuorumMessages . smFinalizerToQuorumMessage . ix qmFinalizerIndex
     -- Extract the quorum signature message
     getQuorumSignatureMessage =
-        let genesisHash = skovData ^. genesisMetadata . to gmFirstGenesisHash
+        let genesisHash = skovData ^. genesisMetadata . to gmCurrentGenesisHash
         in  quorumSignatureMessageFor qm genesisHash
     -- Get the finalizer if it is present in the current finalization committee
     -- or old committee otherwise return 'Nothing'.
@@ -169,21 +174,32 @@ receiveQuorumMessage qm@QuorumMessage{..} skovData = receive
 -- Precondition. The finalizer must not be present already.
 addQuorumMessage ::
     -- |The verified quorum message
-    VerifiedQuorumMessage ->
+    VerifiedQuorumMessage pv ->
     -- |The messages to update.
     QuorumMessages ->
     -- |The resulting messages.
     QuorumMessages
-addQuorumMessage (VerifiedQuorumMessage quorumMessage@QuorumMessage{..} weight) (QuorumMessages currentMessages currentWeights) =
-    QuorumMessages
-        { _smFinalizerToQuorumMessage = newSignatureMessages,
-          _smBlockToWeightsAndSignatures = updatedWeightAndSignature
-        }
-  where
-    finalizerIndex = qmFinalizerIndex
-    newSignatureMessages = Map.insert finalizerIndex quorumMessage currentMessages
-    justOrIncrement = maybe (Just (weight, qmSignature, Set.singleton finalizerIndex)) (\(aggWeight, aggSig, aggFinalizers) -> Just (aggWeight + weight, aggSig <> qmSignature, Set.insert finalizerIndex aggFinalizers))
-    updatedWeightAndSignature = Map.alter justOrIncrement qmBlock currentWeights
+addQuorumMessage
+    (VerifiedQuorumMessage quorumMessage@QuorumMessage{..} weight _)
+    (QuorumMessages currentMessages currentWeights) =
+        QuorumMessages
+            { _smFinalizerToQuorumMessage = newSignatureMessages,
+              _smBlockToWeightsAndSignatures = updatedWeightAndSignature
+            }
+      where
+        finalizerIndex = qmFinalizerIndex
+        newSignatureMessages = Map.insert finalizerIndex quorumMessage currentMessages
+        justOrIncrement =
+            maybe
+                (Just (weight, qmSignature, Set.singleton finalizerIndex))
+                ( \(aggWeight, aggSig, aggFinalizers) ->
+                    Just
+                        ( aggWeight + weight,
+                          aggSig <> qmSignature,
+                          Set.insert finalizerIndex aggFinalizers
+                        )
+                )
+        updatedWeightAndSignature = Map.alter justOrIncrement qmBlock currentWeights
 
 -- |If there are enough (weighted) signatures on the block provided
 -- then this function creates the 'QuorumCertificate' for the block and returns @Just QuorumCertificate@
@@ -242,9 +258,9 @@ processQuorumMessage ::
       LowLevel.MonadTreeStateStore m
     ) =>
     -- |The 'VerifiedQuorumMessage' to process.
-    VerifiedQuorumMessage ->
+    VerifiedQuorumMessage (MPV m) ->
     m ()
-processQuorumMessage vqm@(VerifiedQuorumMessage quorumMessage _) = do
+processQuorumMessage vqm@(VerifiedQuorumMessage quorumMessage _ quorumBlock) = do
     currentRound <- use (roundStatus . rsCurrentRound)
     -- Check that the round of the 'QuorumMessage' corresponds to
     -- the current round of the tree state.
@@ -258,6 +274,9 @@ processQuorumMessage vqm@(VerifiedQuorumMessage quorumMessage _) = do
         let maybeQuorumCertificate = makeQuorumCertificate (qmBlock quorumMessage) skovData
         forM_ maybeQuorumCertificate $ \newQC -> do
             checkFinality newQC
-            let qcRnd = qcRound newQC
-            advanceRound qcRnd (Right newQC)
-            roundExistingQuorumCertificate qcRnd ?= toQuorumCertificateWitness newQC
+            advanceRoundWithQuorum
+                CertifiedBlock
+                    { cbQuorumCertificate = newQC,
+                      cbQuorumBlock = quorumBlock
+                    }
+            recordCheckedQuorumCertificate newQC

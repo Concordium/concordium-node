@@ -371,10 +371,9 @@ lldbWithGenesis :: LowLevelDB pv
 lldbWithGenesis =
     initialLowLevelDB
         sb
-        (initialRoundStatus genesisHash)
+        initialPersistentRoundStatus
   where
     sb = toStoredBlock genB
-    genesisHash = getHash sb
 
 -- |Testing 'getMemoryBlockStatus' functionality.
 -- In particular this test ensures that a (known) block in memory can
