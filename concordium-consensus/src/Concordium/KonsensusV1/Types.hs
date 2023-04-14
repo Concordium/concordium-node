@@ -721,7 +721,11 @@ instance Serialize TimeoutMessageBody where
         tmQuorumCertificate <- get
         unless (qcRound tmQuorumCertificate < tmRound) $
             fail $
-                "failed check: quorum certificate round (" ++ show (qcRound tmQuorumCertificate) ++ ") < round being timed out (" ++ show tmRound ++ ")"
+                "failed check: quorum certificate round ("
+                    ++ show (qcRound tmQuorumCertificate)
+                    ++ ") < round being timed out ("
+                    ++ show tmRound
+                    ++ ")"
         tmAggregateSignature <- get
         return TimeoutMessageBody{..}
 
