@@ -181,24 +181,13 @@ genTimestamp = Timestamp <$> arbitrary
 genLeadershipElectionNonce :: Gen LeadershipElectionNonce
 genLeadershipElectionNonce = Hash.Hash . FBS.pack <$> vector 32
 
--- |Generate a 'RoundStatus' suitable for testing serialization.
-genRoundStatus :: Gen RoundStatus
-genRoundStatus = do
-    _rsCurrentRound <- genRound
-    _rsLastSignedQuorumMessage <- coinFlip =<< genQuorumMessage
-    _rsLastSignedTimeoutMessage <- coinFlip =<< genTimeoutMessage
-    _rsHighestQC <- genQuorumCertificate
-    nextRound <- genRound
-    let _rsNextSignableRound = min (_rsCurrentRound + 1) nextRound
-    tc <- genTimeoutCertificate
-    qc <- genQuorumCertificate
-    let _rsPreviousRoundTC = Present (tc, qc)
-    return RoundStatus{..}
-  where
-    coinFlip x =
-        chooseInteger (0, 1) >>= \case
-            0 -> return Absent
-            _ -> return $! Present x
+-- |Generate a 'PersistentRoundStatus' suitable for testing serialization.
+genPersistentRoundStatus :: Gen PersistentRoundStatus
+genPersistentRoundStatus = do
+    _rsLastSignedQuorumMessage <- oneof [Present <$> genQuorumMessage, return Absent]
+    _rsLastSignedTimeoutMessage <- oneof [Present <$> genTimeoutMessage, return Absent]
+    _rsLastBakedRound <- genRound
+    return PersistentRoundStatus{..}
 
 -- |Generate an arbitrary vrf key pair.
 someVRFKeyPair :: VRF.KeyPair
@@ -301,7 +290,7 @@ propSerializeBakedBlock =
             Left _ -> False
             Right bb' -> bb == bb'
 
--- |Test that serializing then deserializng a signed block is the identity.
+-- |Test that serializing then deserializing a signed block is the identity.
 propSerializeSignedBlock :: Property
 propSerializeSignedBlock =
     forAll genSignedBlock $ \sb ->
@@ -309,8 +298,8 @@ propSerializeSignedBlock =
             Left _ -> False
             Right sb' -> sb == sb'
 
-propSerializeRoundStatus :: Property
-propSerializeRoundStatus = forAll genRoundStatus serCheck
+propSerializePersistentRoundStatus :: Property
+propSerializePersistentRoundStatus = forAll genPersistentRoundStatus serCheck
 
 -- |Check that a signing a timeout message produces a timeout message that verifies with the key.
 propSignTimeoutMessagePositive :: Property
@@ -426,7 +415,7 @@ tests = describe "KonsensusV1.Types" $ do
     it "TimeoutMessage serialization" propSerializeTimeoutMessage
     it "BakedBlock serialization" propSerializeBakedBlock
     it "SignedBlock serialization" propSerializeSignedBlock
-    it "RoundStatus serialization" propSerializeRoundStatus
+    it "RoundStatus serialization" propSerializePersistentRoundStatus
     it "TimeoutMessage signature check positive" propSignTimeoutMessagePositive
     it "TimeoutMessage signature check fails with different key" propSignTimeoutMessageDiffKey
     it "TimeoutMessage signature check fails with different body" propSignTimeoutMessageDiffBody
