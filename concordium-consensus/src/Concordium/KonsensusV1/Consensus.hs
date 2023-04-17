@@ -21,6 +21,9 @@ import Concordium.GlobalState.BakerInfo
 import Concordium.KonsensusV1.TreeState.Implementation
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
+import qualified Concordium.Crypto.BlockSignature as Sig
+import Control.Monad.Reader.Class
+import Concordium.Logger
 
 -- |A Monad for multicasting timeout messages.
 class MonadMulticast m where
@@ -187,3 +190,30 @@ computeBakersAndFinalizers bakers fcp =
         { _bfBakers = bakers,
           _bfFinalizers = computeFinalizationCommittee bakers fcp
         }
+
+-- |Get the baker identity and finalizer info if we are a finalizer in the specified epoch.
+-- This checks that the signing key and aggregate signing key match those for the finalizer,
+-- and will log a warning if they do not (instead of invoking the continuation).
+withFinalizerForEpoch :: 
+     ( MonadReader r m,
+      HasBakerContext r,
+      MonadState (SkovData (MPV m)) m,
+      MonadLogger m
+    ) =>
+    Epoch 
+    -> (BakerIdentity -> FinalizerInfo -> m ())
+    -> m ()
+withFinalizerForEpoch epoch cont = do
+    mBakerIdentity <- view bakerIdentity
+    forM_ mBakerIdentity $ \bakerIdent@BakerIdentity{..} -> do
+        mBakers <- gets $ getBakersForEpoch epoch
+        forM_ mBakers $ \BakersAndFinalizers{..} -> do
+            forM_ (finalizerByBakerId _bfFinalizers bakerId) $ \ !finInfo ->
+                if finalizerSignKey finInfo /= Sig.verifyKey bakerSignKey
+                    || finalizerBlsKey finInfo /= bakerAggregationPublicKey
+                    then do
+                        logEvent
+                            Konsensus
+                            LLWarning
+                            "Finalizer keys do not match the keys in the current committee."
+                    else cont bakerIdent finInfo

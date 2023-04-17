@@ -25,32 +25,11 @@ import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import Concordium.GlobalState.Statistics
 import qualified Concordium.GlobalState.Types as GSTypes
 import Concordium.KonsensusV1.Consensus
+import Concordium.KonsensusV1.Consensus.Timeout.Internal
 import Concordium.KonsensusV1.TreeState.Implementation
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
-
--- |Shrink the current timeout duration in response to a successful QC for a round.
--- This updates the current timeout to @max timeoutBase (timeoutDecrease * oldTimeout)@, where
--- @timeoutBase@ and @timeoutDecrease@ are taken from the chain parameters of the supplied block.
-shrinkTimeout ::
-    ( GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
-      IsConsensusV1 (MPV m),
-      BlockStateQuery m,
-      MonadState (SkovData (MPV m)) m
-    ) =>
-    -- |Block to take the timeout parameters from
-    BlockPointer (MPV m) ->
-    m ()
-shrinkTimeout blockPtr = do
-    chainParams <- getChainParameters (bpState blockPtr)
-    let timeoutParams = chainParams ^. cpConsensusParameters . cpTimeoutParameters
-        updateTimeout cur = max (timeoutParams ^. tpTimeoutBase) grow
-          where
-            grow =
-                Duration . ceiling $
-                    toRational (timeoutParams ^. tpTimeoutDecrease) * toRational cur
-    currentTimeout %=! updateTimeout
 
 -- |Check if a valid quorum certificate finalizes a block. If so, the block and its ancestors
 -- are finalized, the tree is pruned to the decendants of the new last finalized block, and,
@@ -98,8 +77,7 @@ checkFinalityWithBlock ::
     -- |An already verified 'QuorumCertificate' that points
     -- to the provided @BlockPointer (MPV m)@
     QuorumCertificate ->
-    -- |A pointer to the block that is
-    -- checked wheter it can be finalized or not.
+    -- |A pointer to the block that is checked whether it can be finalized or not.
     BlockPointer (MPV m) ->
     m ()
 checkFinalityWithBlock qc blockPtr

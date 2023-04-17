@@ -15,6 +15,7 @@ import Control.Monad.State
 import Control.Monad.Trans.Maybe
 import Data.Function
 import Data.Ord
+import Data.Time
 import Lens.Micro.Platform
 
 import qualified Concordium.Crypto.BlockSignature as Sig
@@ -39,6 +40,7 @@ import Concordium.KonsensusV1.Consensus hiding (bakerIdentity)
 import qualified Concordium.KonsensusV1.Consensus as Consensus
 import Concordium.KonsensusV1.Consensus.Finality
 import Concordium.KonsensusV1.Consensus.Quorum
+import Concordium.KonsensusV1.Consensus.Timeout.Internal
 import Concordium.KonsensusV1.Flag
 import Concordium.KonsensusV1.LeaderElection
 import Concordium.KonsensusV1.Scheduler
@@ -48,7 +50,6 @@ import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.TimerMonad
 import Concordium.Types.BakerIdentity
-import Data.Time
 
 data BlockTraceLogEvent
     = LogBlockOld BlockHash
@@ -1037,22 +1038,12 @@ checkedValidateBlock ::
     b ->
     m ()
 checkedValidateBlock validBlock = do
-    mBakerIdentity <- view Consensus.bakerIdentity
-    forM_ mBakerIdentity $ \bakerIdent@BakerIdentity{..} -> do
-        mBakers <- gets $ getBakersForEpoch (blockEpoch validBlock)
-        forM_ mBakers $ \BakersAndFinalizers{..} -> do
-            forM_ (finalizerByBakerId _bfFinalizers bakerId) $ \ !finInfo ->
-                if finalizerSignKey finInfo /= Sig.verifyKey bakerSignKey
-                    || finalizerBlsKey finInfo /= bakerAggregationPublicKey
-                    then do
-                        -- TODO: Log a warning that the key does not match.
-                        return ()
-                    else do
-                        let !blockHash = getHash validBlock
-                        _ <-
-                            onTimeout (DelayUntil (timestampToUTCTime $ blockTimestamp validBlock)) $!
-                                validateBlock blockHash bakerIdent finInfo
-                        return ()
+    withFinalizerForEpoch (blockEpoch validBlock) $ \bakerIdent finInfo -> do
+        let !blockHash = getHash validBlock
+        _ <-
+            onTimeout (DelayUntil (timestampToUTCTime $ blockTimestamp validBlock)) $!
+                validateBlock blockHash bakerIdent finInfo
+        return ()
 
 -- |Produce a quorum signature on a block.
 -- This checks that the block is still valid, is in the current round and epoch, and the
@@ -1116,14 +1107,6 @@ validateBlock blockHash BakerIdentity{..} finInfo = do
                           vqmFinalizerWeight = finalizerWeight finInfo,
                           vqmBlock = block
                         }
-
-{- Problems:
-    - triggering makeBlock
-    - recording if we've made a block? We probably don't need to, if we try to make the block
-        just after advancing the round.
-    - waiting to make a block
-    - highest QC problem
--}
 
 prepareBakeBlockInputs ::
     ( MonadReader r m,

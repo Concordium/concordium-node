@@ -30,6 +30,7 @@ import qualified Concordium.GlobalState.DummyData as Dummy
 import Concordium.GlobalState.Persistent.TreeState (insertDeadCache)
 import Concordium.KonsensusV1.Consensus
 import Concordium.KonsensusV1.Consensus.Timeout
+import Concordium.KonsensusV1.Consensus.Timeout.Internal
 import Concordium.KonsensusV1.TestMonad
 import Concordium.KonsensusV1.TreeState.Implementation
 import Concordium.KonsensusV1.TreeState.LowLevel.Memory

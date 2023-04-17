@@ -9,9 +9,7 @@ import Control.Monad.State
 import Data.Foldable
 import qualified Data.Map.Strict as Map
 import Data.Maybe
-import Data.Ratio
 import qualified Data.Set as Set
-import Data.Word
 import Lens.Micro.Platform
 
 import Concordium.Genesis.Data.BaseV1
@@ -29,6 +27,7 @@ import Concordium.GlobalState.Types
 import qualified Concordium.GlobalState.Types as GSTypes
 import Concordium.KonsensusV1.Consensus
 import Concordium.KonsensusV1.Consensus.Finality (checkFinality)
+import Concordium.KonsensusV1.Consensus.Timeout.Internal
 import Concordium.KonsensusV1.Flag
 import Concordium.KonsensusV1.TreeState.Implementation
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
@@ -264,14 +263,14 @@ executeTimeoutMessage (PartiallyVerifiedTimeoutMessage{..})
     | not pvtmAggregateSignatureValid = do
         flag $ InvalidTimeoutSignature pvtmTimeoutMessage
         return InvalidAggregateSignature
+    -- Note: deserialization of the 'TimeoutMessageBody' checks that the timeout round and
+    -- QC round are coherent, so we do not need to check that here.
     | Absent <- pvtmBlock = do
         -- In this case, we have already checked a valid QC for the round and epoch of the timeout
         -- message, so we just need to process the timeout.
         processTimeout pvtmTimeoutMessage
         return ExecutionSuccess
     | Present block <- pvtmBlock = do
-        -- Note: deserialization of the 'TimeoutMessageBody' checks that the timeout round and
-        -- QC round are coherent, so we do not need to check that here.
         highestQCRound <- use $ roundStatus . rsHighestCertifiedBlock . to cbRound
         -- Check the quorum certificate if it's from a round we have not checked before.
         if qcRound tmQuorumCertificate > highestQCRound
@@ -332,36 +331,8 @@ executeTimeoutMessage (PartiallyVerifiedTimeoutMessage{..})
                 flag $! TimeoutMessageInvalidQC pvtmTimeoutMessage
                 return $! InvalidQC tmQuorumCertificate
 
--- |Helper function for calculating a new @currentTimeout@ given the old @currentTimeout@
--- and the @timeoutIncrease@ chain parameter.
-updateCurrentTimeout :: Ratio Word64 -> Duration -> Duration
-updateCurrentTimeout timeoutIncrease oldCurrentTimeout =
-    let timeoutIncreaseRational = toRational timeoutIncrease :: Rational
-        currentTimeOutRational = toRational oldCurrentTimeout :: Rational
-        newCurrentTimeoutRational = timeoutIncreaseRational * currentTimeOutRational :: Rational
-        newCurrentTimeoutInteger = floor newCurrentTimeoutRational :: Integer
-    in  Duration $ fromIntegral newCurrentTimeoutInteger
-
--- |Grow the current timeout duration in response to an elapsed timeout.
--- This updates the timeout to @timeoutIncrease * oldTimeout@.
-growTimeout ::
-    ( BlockState m ~ HashedPersistentBlockState (MPV m),
-      IsConsensusV1 (MPV m),
-      BlockStateQuery m,
-      MonadState (SkovData (MPV m)) m
-    ) =>
-    -- |Block to take the timeout parameters from
-    BlockPointer (MPV m) ->
-    m ()
-growTimeout blockPtr = do
-    chainParams <- getChainParameters $ bpState blockPtr
-    let timeoutIncrease =
-            chainParams
-                ^. cpConsensusParameters . cpTimeoutParameters . tpTimeoutIncrease
-    currentTimeout %=! \oldCurrentTimeout -> updateCurrentTimeout timeoutIncrease oldCurrentTimeout
-
--- |This is 'uponTimeoutEvent' from the bluepaper. If a timeout occurs, a finalizers should call this function to
--- generate, send out a timeout message and process it.
+-- |This is 'uponTimeoutEvent' from the bluepaper. If a timeout occurs, a finalizers should call
+-- this function to generate a timeout message, send it out, and process it.
 -- NB: If the caller is not a finalizer, this function does nothing.
 uponTimeoutEvent ::
     ( MonadTimeout m,
@@ -372,48 +343,46 @@ uponTimeoutEvent ::
       BlockState m ~ HashedPersistentBlockState (MPV m),
       IsConsensusV1 (MPV m),
       MonadState (SkovData (MPV m)) m,
-      LowLevel.MonadTreeStateStore m
+      LowLevel.MonadTreeStateStore m,
+      MonadLogger m
     ) =>
     m ()
 uponTimeoutEvent = do
-    maybeBakerIdentity <- view bakerIdentity
-    forM_ maybeBakerIdentity $ \BakerIdentity{..} -> do
-        currentRoundStatus <- use roundStatus
-        let highestQC = currentRoundStatus ^. rsHighestCertifiedBlock . to cbQuorumCertificate
-        mBakers <- gets $ getBakersForEpoch (qcEpoch highestQC)
-        let maybeFinalizer = do
-                bakers <- mBakers
-                finalizerByBakerId (bakers ^. bfFinalizers) bakerId
+    currentRoundStatus <- use roundStatus
+    -- We need to timeout the round in the epoch of the highest QC, which may differ from our
+    -- current epoch.
+    let highestQC = currentRoundStatus ^. rsHighestCertifiedBlock . to cbQuorumCertificate
+    withFinalizerForEpoch (qcEpoch highestQC) $ \BakerIdentity{..} finInfo -> do
+        -- We do not directly update the next signable round, as that is implicitly updated by
+        -- setting 'rsLastSignedTimeoutMessage'.
+        lastFinBlockPtr <- use lastFinalized
+        growTimeout lastFinBlockPtr
 
-        forM_ maybeFinalizer $ \finInfo -> do
-            lastFinBlockPtr <- use lastFinalized
-            growTimeout lastFinBlockPtr
+        genesisHash <- use currentGenesisHash
+        let curRound = _rsCurrentRound currentRoundStatus
 
-            genesisHash <- use currentGenesisHash
-            let curRound = _rsCurrentRound currentRoundStatus
-
-            let timeoutSigMessage =
-                    TimeoutSignatureMessage
-                        { tsmGenesis = genesisHash,
-                          tsmRound = curRound,
-                          tsmQCRound = qcRound highestQC,
-                          tsmQCEpoch = qcEpoch highestQC
-                        }
-            let timeoutSig = signTimeoutSignatureMessage timeoutSigMessage bakerAggregationKey
-            curEpoch <- use currentEpoch
-            let timeoutMessageBody =
-                    TimeoutMessageBody
-                        { tmFinalizerIndex = finalizerIndex finInfo,
-                          tmRound = curRound,
-                          tmEpoch = curEpoch,
-                          tmQuorumCertificate = highestQC,
-                          tmAggregateSignature = timeoutSig
-                        }
-            let timeoutMessage = signTimeoutMessage timeoutMessageBody genesisHash bakerSignKey
-            updatePersistentRoundStatus $
-                rsLastSignedTimeoutMessage .~ Present timeoutMessage
-            sendTimeoutMessage timeoutMessage
-            processTimeout timeoutMessage
+        let timeoutSigMessage =
+                TimeoutSignatureMessage
+                    { tsmGenesis = genesisHash,
+                      tsmRound = curRound,
+                      tsmQCRound = qcRound highestQC,
+                      tsmQCEpoch = qcEpoch highestQC
+                    }
+        let timeoutSig = signTimeoutSignatureMessage timeoutSigMessage bakerAggregationKey
+        curEpoch <- use currentEpoch
+        let timeoutMessageBody =
+                TimeoutMessageBody
+                    { tmFinalizerIndex = finalizerIndex finInfo,
+                      tmRound = curRound,
+                      tmEpoch = curEpoch,
+                      tmQuorumCertificate = highestQC,
+                      tmAggregateSignature = timeoutSig
+                    }
+        let timeoutMessage = signTimeoutMessage timeoutMessageBody genesisHash bakerSignKey
+        updatePersistentRoundStatus $
+            rsLastSignedTimeoutMessage .~ Present timeoutMessage
+        sendTimeoutMessage timeoutMessage
+        processTimeout timeoutMessage
 
 -- |Add a 'TimeoutMessage' to an existing set of timeout messages. Returns 'Nothing' if there is
 -- no change (i.e. the new message was from an epoch that is too early).
