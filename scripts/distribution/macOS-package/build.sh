@@ -248,6 +248,10 @@ function collectDylibs() {
         local fileToFix=${1:?"Missing file to fix with dylibbundler"};
         cd "$payloadDir/Library/Concordium Node"
         # Paths to search for dylibs are added with the '-s' flag.
+        # We use `--create-dir` to ensure that the `./libs` folder exists.
+        # But we should not use `--overwrite-dir` even though it implies `--create-dir`
+        # because it will delete the libs folder if it already exists, which would delete 
+        # the results of previous calls to `collectDylibsFor`.
         "$macdylibbundlerDir/dylibbundler" --fix-file "$fileToFix" --bundle-deps --dest-dir "./libs" --install-path "@executable_path/libs/" --create-dir \
             -s "$concordiumDylibDir" \
             -s "$stackSnapshotDir" \
