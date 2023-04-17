@@ -643,7 +643,7 @@ dependencies = [
 
 [[package]]
 name = "concordium_node"
-version = "5.3.1"
+version = "5.3.2"
 dependencies = [
  "anyhow",
  "app_dirs2",
@@ -680,7 +680,6 @@ dependencies = [
  "mio 0.7.14",
  "nohash-hasher",
  "noiseexplorer_xx",
- "openssl-src",
  "preferences",
  "prometheus",
  "prost",

@@ -449,7 +449,7 @@ impl P2p for RpcServerImpl {
             return Err(Status::unimplemented("The method is not enabled."));
         }
         authenticate!(req, self.access_token);
-        let peer_catchup_stats = (*read_or_die!(self.node.peers)).peer_states.clone();
+        let peer_catchup_stats = read_or_die!(self.node.peers).peer_states.clone();
         let list = self
             .node
             .get_peer_stats(None)
