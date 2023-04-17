@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -17,13 +18,13 @@ import Concordium.Types.BakerIdentity
 import Concordium.Types.Parameters hiding (getChainParameters)
 import Concordium.Utils
 
+import qualified Concordium.Crypto.BlockSignature as Sig
 import Concordium.GlobalState.BakerInfo
 import Concordium.KonsensusV1.TreeState.Implementation
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
-import qualified Concordium.Crypto.BlockSignature as Sig
-import Control.Monad.Reader.Class
 import Concordium.Logger
+import Control.Monad.Reader.Class
 
 -- |A Monad for multicasting timeout messages.
 class MonadMulticast m where
@@ -35,6 +36,20 @@ class MonadMulticast m where
 
     -- |Multicast a block.
     sendBlock :: SignedBlock -> m ()
+
+-- |This class provides event handlers for consensus events. A runner should implement this to
+-- handle these events.
+class MonadConsensusEvent m where
+    -- |Called when a block becomes live.
+    onBlock :: BlockPointer (MPV m) -> m ()
+
+    -- |Called when a block becomes finalized. This is only called with explicitly finalized blocks.
+    onFinalize :: FinalizationEntry -> BlockPointer (MPV m) -> m ()
+
+    -- |Called when a previously pending block becomes live. This should be used to trigger sending
+    -- a catch-up status message to all (non-pending) peers, since they may not be aware of the
+    -- block as it was not relayed when first received.
+    onPendingLive :: m ()
 
 -- |A baker context containing the baker identity. Used for accessing relevant baker keys and the baker id.
 newtype BakerContext = BakerContext
@@ -194,15 +209,15 @@ computeBakersAndFinalizers bakers fcp =
 -- |Get the baker identity and finalizer info if we are a finalizer in the specified epoch.
 -- This checks that the signing key and aggregate signing key match those for the finalizer,
 -- and will log a warning if they do not (instead of invoking the continuation).
-withFinalizerForEpoch :: 
-     ( MonadReader r m,
+withFinalizerForEpoch ::
+    ( MonadReader r m,
       HasBakerContext r,
       MonadState (SkovData (MPV m)) m,
       MonadLogger m
     ) =>
-    Epoch 
-    -> (BakerIdentity -> FinalizerInfo -> m ())
-    -> m ()
+    Epoch ->
+    (BakerIdentity -> FinalizerInfo -> m ()) ->
+    m ()
 withFinalizerForEpoch epoch cont = do
     mBakerIdentity <- view bakerIdentity
     forM_ mBakerIdentity $ \bakerIdent@BakerIdentity{..} -> do

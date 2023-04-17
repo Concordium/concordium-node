@@ -5,6 +5,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
+-- | This module defines functionality for receiving, validating and producing blocks.
 module Concordium.KonsensusV1.Consensus.Blocks where
 
 import Control.Applicative
@@ -18,7 +19,6 @@ import Data.Ord
 import Data.Time
 import Lens.Micro.Platform
 
-import qualified Concordium.Crypto.BlockSignature as Sig
 import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.Types
@@ -250,6 +250,7 @@ instance BlockData VerifiedBlock where
     blockTransactionCount = blockTransactionCount . vbBlock
     blockStateHash = blockStateHash . vbBlock
 
+-- |The result type for 'uponReceivingBlock'.
 data BlockResult
     = -- |The block was successfully received, but not yet executed.
       BlockResultSuccess !VerifiedBlock
@@ -268,6 +269,15 @@ data BlockResult
       BlockResultDuplicate
     deriving (Eq, Show)
 
+-- |Handle initial verification of a block before it is relayed to peers.
+-- If the result is @'BlockResultSuccess' vb@, the block should be relayed on the network and
+-- @'executeBlock' vb@ should be called. If the result is @'BlockResultDoubleSign' vb@, the block
+-- should not be relayed on the network, but @'executeBlock' vb@ should still be called.
+-- For any other result, the block should not be relayed, nor 'executeBlock' be called.
+--
+-- With reference to the bluepaper, this implements **uponReceivingBlock** up to the point at which
+-- the block is relayed. The caller is responsible for relaying the block and invoking
+-- 'executeBlock' to complete the procedure (as necessary).
 uponReceivingBlock ::
     ( IsConsensusV1 (MPV m),
       LowLevel.MonadTreeStateStore m,
@@ -279,7 +289,7 @@ uponReceivingBlock ::
     PendingBlock ->
     m BlockResult
 uponReceivingBlock pendingBlock = do
-    -- TODO: Check for consensus shutdown
+    -- TODO: Check for consensus shutdown. Issue #825
     lfb <- use lastFinalized
     if blockEpoch pendingBlock < blockEpoch lfb || blockRound pendingBlock <= blockRound lfb
         then do
@@ -445,7 +455,8 @@ receiveBlockKnownParent parent pendingBlock = do
 -- A block with an unknown parent is added to the pending block table and marked pending, unless
 -- one of the following conditions holds, in which case the block is rejected as invalid:
 --
--- * The timestamp is no less than the receive time of the block + the early block threshold.
+-- * The timestamp is no less than the receive time of the block + the early block threshold, or
+--   we do not know the set of bakers for the block's epoch.
 --   (Returns 'BlockResultEarly'.)
 --
 -- * The bakers for the block's epoch are known and either:
@@ -453,7 +464,7 @@ receiveBlockKnownParent parent pendingBlock = do
 --     - the baker is not a valid baker for the epoch; or
 --     - the baker is valid but the signature on the block is not valid.
 --
--- * TODO: if any of the transactions in the block is invalid.
+-- TODO: if any of the transactions in the block is invalid. Issue #699
 receiveBlockUnknownParent ::
     ( LowLevel.MonadTreeStateStore m,
       MonadState (SkovData (MPV m)) m,
@@ -477,14 +488,16 @@ receiveBlockUnknownParent pendingBlock = do
                         -- The signature is valid
                         continuePending
                     | otherwise -> do
-                        -- The signature is invalid
+                        -- The signature is invalid.
+                        -- Note: we do not mark the block dead, because potentially a valid block
+                        -- with the same hash exists.
                         logLoggable $ LogBlockInvalidSignature pbHash
                         return BlockResultInvalid
         else return BlockResultEarly
   where
     pbHash = getHash pendingBlock
     continuePending = do
-        -- TODO: Check the transactions in the block
+        -- TODO: Check the transactions in the block. Issue #699
         addPendingBlock pendingBlock
         markPending pendingBlock
         logLoggable $ LogBlockPending pbHash (blockParent pendingBlock)
@@ -510,13 +523,15 @@ getMinBlockTime b = do
 --
 --  * Updates the statistics to reflect the arrival time of the new block.
 --
+--  * Invokes the 'onBlock' event handler provided by 'MonadConsensusEvent'.
+--
 -- Preconditions:
 --
 --  * The block's parent must be the last finalized block or another live block.
 --
 --  * The block must not already be a live block.
 addBlock ::
-    (TimeMonad m, MonadState (SkovData (MPV m)) m, MonadLogger m) =>
+    (TimeMonad m, MonadState (SkovData (MPV m)) m, MonadConsensusEvent m, MonadLogger m) =>
     -- |Block to add
     PendingBlock ->
     -- |Block state
@@ -533,104 +548,22 @@ addBlock pendingBlock blockState parent = do
     let nominalTime = timestampToUTCTime $ blockTimestamp newBlock
     let numTransactions = blockTransactionCount newBlock
     statistics %=! updateStatsOnArrive nominalTime now numTransactions
+    onBlock newBlock
     return newBlock
-
--- |A 'BlockPointer', ordered lexicographically on:
---
--- * Round number
--- * Epoch number
--- * Descending timestamp
--- * Descending receive time
--- * Descending arrival time
--- * Block hash
-newtype OrderedBlock pv = OrderedBlock {theOrderedBlock :: BlockPointer pv}
-
-instance Ord (OrderedBlock pv) where
-    compare =
-        compare `on` toTuple
-      where
-        toTuple (OrderedBlock blk) =
-            ( blockRound blk,
-              blockEpoch blk,
-              Down (blockTimestamp blk, blockReceiveTime blk, blockArriveTime blk),
-              getHash @BlockHash blk
-            )
-
-instance Eq (OrderedBlock pv) where
-    a == b = compare a b == EQ
-
-processPendingChildren ::
-    ( IsConsensusV1 (MPV m),
-      BlockState m ~ HashedPersistentBlockState (MPV m),
-      MonadState (SkovData (MPV m)) m,
-      LowLevel.MonadTreeStateStore m,
-      BlockStateStorage m,
-      MonadIO m,
-      TimeMonad m,
-      MonadThrow m,
-      MonadTimeout m,
-      MonadLogger m
-    ) =>
-    BlockPointer (MPV m) ->
-    m (OrderedBlock (MPV m))
-processPendingChildren parent = do
-    children <- takePendingChildren (getHash parent)
-    foldM process (OrderedBlock parent) children
-  where
-    process best child = do
-        res <- processPendingChild child
-        return $! maybe best (max best) res
-
--- |Process a pending child block given that its parent has become live.
---
--- PRECONDITIONS:
---   - The block's signature has been verified. (This is the case for )
---
--- TODO: Notify pending live
-processPendingChild ::
-    ( IsConsensusV1 (MPV m),
-      BlockStateStorage m,
-      BlockState m ~ HashedPersistentBlockState (MPV m),
-      LowLevel.MonadTreeStateStore m,
-      MonadState (SkovData (MPV m)) m,
-      MonadIO m,
-      TimeMonad m,
-      MonadThrow m,
-      MonadTimeout m,
-      MonadLogger m
-    ) =>
-    PendingBlock ->
-    m (Maybe (OrderedBlock (MPV m)))
-processPendingChild block = do
-    sd <- get
-    if isPending blockHash sd
-        then case getLiveOrLastFinalizedBlock (blockParent block) sd of
-            Just parent -> do
-                receiveBlockKnownParent parent block >>= \case
-                    BlockResultSuccess vb -> do
-                        processReceiveOK parent vb
-                    BlockResultDoubleSign vb -> do
-                        processReceiveOK parent vb
-                    _ -> do
-                        processAsDead
-            Nothing -> do
-                -- The block can never be part of the tree since the parent is not live/last
-                -- finalized, and yet the parent has already been processed.
-                processAsDead
-        else return Nothing
-  where
-    blockHash = getHash block
-    processAsDead = do
-        blockArriveDead blockHash
-        return Nothing
-    processReceiveOK parent vb = do
-        processBlock parent vb >>= \case
-            Just newBlock -> Just <$> processPendingChildren newBlock
-            Nothing -> processAsDead
 
 -- |Process a received block. This handles the processing after the initial checks and after the
 -- block has been relayed (or not). This DOES NOT include processing pending children of the block
 -- or signing the block as a finalizer.
+--
+-- If the block is executed successfully, it is added to the tree and returned.
+-- Otherwise, 'Nothing' is returned.
+--
+-- The last finalized block may be updated as a result of the processing. In particular, if the
+-- block is the first in a new epoch and contains a valid epoch finalization entry, the block
+-- finalized by that entry will be finalized (if it was not already). Furthermore, if the block's QC
+-- allows for the grandparent block to be finalized, then that will be finalized. (Note: both of
+-- these do not happen for the same block, since the former requires the block to be in a different
+-- epoch from its parent, and the latter requires it to be in the same epoch as its parent.)
 --
 -- Precondition:
 --
@@ -649,6 +582,7 @@ processBlock ::
       TimeMonad m,
       MonadThrow m,
       MonadTimeout m,
+      MonadConsensusEvent m,
       MonadLogger m
     ) =>
     -- |Parent block (@parent@)
@@ -721,9 +655,6 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                                 -- This implies that the block is in the epoch after the last
                                 -- finalized block.
                                 newBlock <- addBlock pendingBlock blockState parent
-                                -- Note that the parent block could potentially no longer be live
-                                -- as a result of finalization processing in
-                                -- 'checkEpochFinalizationEntry'.
                                 checkFinality (blockQuorumCertificate pendingBlock)
                                 curRound <- use $ roundStatus . rsCurrentRound
                                 let certifiedParent =
@@ -785,11 +716,6 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                         || blockEpoch parent < tcMaxEpoch tc
                         || blockEpoch parent - tcMinEpoch tc > 2 -> do
                         logLoggable $ LogBlockQCInconsistentWithTC pbHash
-                        logEvent Konsensus LLTrace $ "blockRound parent: " ++ show (blockRound parent)
-                        logEvent Konsensus LLTrace $ "tcMaxRound tc: " ++ show (tcMaxRound tc)
-                        logEvent Konsensus LLTrace $ "blockEpoch parent: " ++ show (blockEpoch parent)
-                        logEvent Konsensus LLTrace $ "tcMaxEpoch tc: " ++ show (tcMaxEpoch tc)
-                        logEvent Konsensus LLTrace $ "tcMinEpoch tc: " ++ show (tcMinEpoch tc)
                         flag $ BlockQCInconsistentWithTC sBlock
                         rejectBlock
                     | otherwise -> do
@@ -989,7 +915,68 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                 flag $ BlockInvalidQC sBlock
                 rejectBlock
 
-executeBlock ::
+-- |A 'BlockPointer', ordered lexicographically on:
+--
+-- * Round number
+-- * Epoch number
+-- * Descending timestamp
+-- * Descending receive time
+-- * Descending arrival time
+-- * Block hash
+--
+-- This ordering is used to determine the "best block" to sign when a block arrives.
+newtype OrderedBlock pv = OrderedBlock {theOrderedBlock :: BlockPointer pv}
+
+instance Ord (OrderedBlock pv) where
+    compare =
+        compare `on` toTuple
+      where
+        toTuple (OrderedBlock blk) =
+            ( blockRound blk,
+              blockEpoch blk,
+              Down (blockTimestamp blk, blockReceiveTime blk, blockArriveTime blk),
+              getHash @BlockHash blk
+            )
+
+instance Eq (OrderedBlock pv) where
+    a == b = compare a b == EQ
+
+-- |Process the pending children of a block that has just become live.
+-- A pending child block either becomes alive or dead after it is processed.
+-- Pending children are processed recursively (i.e. pending children of pending children are also
+-- processed, etc.).
+-- The returned block is the best resulting live block among the supplied block and any pending
+-- children that become live. ("Best" here means the greatest with respect to the order on
+-- 'OrderedBlock'.)
+processPendingChildren ::
+    ( IsConsensusV1 (MPV m),
+      BlockState m ~ HashedPersistentBlockState (MPV m),
+      MonadState (SkovData (MPV m)) m,
+      LowLevel.MonadTreeStateStore m,
+      BlockStateStorage m,
+      MonadIO m,
+      TimeMonad m,
+      MonadThrow m,
+      MonadTimeout m,
+      MonadLogger m,
+      MonadConsensusEvent m
+    ) =>
+    BlockPointer (MPV m) ->
+    m (OrderedBlock (MPV m))
+processPendingChildren parent = do
+    children <- takePendingChildren (getHash parent)
+    foldM process (OrderedBlock parent) children
+  where
+    process best child = do
+        res <- processPendingChild child
+        return $! maybe best (max best) res
+
+-- |Process a pending child block given that its parent has become live.
+--
+-- PRECONDITIONS:
+--   - The block's signature has been verified. (This is the case for blocks that are marked as
+--     pending.)
+processPendingChild ::
     ( IsConsensusV1 (MPV m),
       BlockStateStorage m,
       BlockState m ~ HashedPersistentBlockState (MPV m),
@@ -999,51 +986,39 @@ executeBlock ::
       TimeMonad m,
       MonadThrow m,
       MonadTimeout m,
-      MonadReader r m,
-      HasBakerContext r,
-      TimerMonad m,
-      MonadMulticast m,
-      MonadLogger m
-    ) =>
-    VerifiedBlock ->
-    m ()
-executeBlock verifiedBlock = do
-    -- TODO: check for consensus shutdown
-    gets (getLiveOrLastFinalizedBlock (blockParent (vbBlock verifiedBlock))) >>= \case
-        Just parent -> do
-            res <- processBlock parent verifiedBlock
-            forM_ res $ \newBlock -> do
-                OrderedBlock best <- processPendingChildren newBlock
-                checkedValidateBlock best
-        Nothing -> return ()
-
-checkedValidateBlock ::
-    ( MonadReader r m,
-      HasBakerContext r,
-      BlockData b,
-      HashableTo BlockHash b,
-      TimerMonad m,
-      MonadState (SkovData (MPV m)) m,
-      MonadMulticast m,
-      LowLevel.MonadTreeStateStore m,
-      MonadThrow m,
-      MonadIO m,
-      BlockStateStorage m,
-      BlockState m ~ HashedPersistentBlockState (MPV m),
-      TimeMonad m,
-      MonadTimeout m,
       MonadLogger m,
-      IsConsensusV1 (MPV m)
+      MonadConsensusEvent m
     ) =>
-    b ->
-    m ()
-checkedValidateBlock validBlock = do
-    withFinalizerForEpoch (blockEpoch validBlock) $ \bakerIdent finInfo -> do
-        let !blockHash = getHash validBlock
-        _ <-
-            onTimeout (DelayUntil (timestampToUTCTime $ blockTimestamp validBlock)) $!
-                validateBlock blockHash bakerIdent finInfo
-        return ()
+    PendingBlock ->
+    m (Maybe (OrderedBlock (MPV m)))
+processPendingChild block = do
+    sd <- get
+    if isPending blockHash sd
+        then case getLiveOrLastFinalizedBlock (blockParent block) sd of
+            Just parent -> do
+                receiveBlockKnownParent parent block >>= \case
+                    BlockResultSuccess vb -> do
+                        processReceiveOK parent vb
+                    BlockResultDoubleSign vb -> do
+                        processReceiveOK parent vb
+                    _ -> do
+                        processAsDead
+            Nothing -> do
+                -- The block can never be part of the tree since the parent is not live/last
+                -- finalized, and yet the parent has already been processed.
+                processAsDead
+        else return Nothing
+  where
+    blockHash = getHash block
+    processAsDead = do
+        blockArriveDead blockHash
+        return Nothing
+    processReceiveOK parent vb = do
+        processBlock parent vb >>= \case
+            Just newBlock -> do
+                onPendingLive
+                Just <$> processPendingChildren newBlock
+            Nothing -> processAsDead
 
 -- |Produce a quorum signature on a block.
 -- This checks that the block is still valid, is in the current round and epoch, and the
@@ -1063,6 +1038,7 @@ validateBlock ::
       BlockState m ~ HashedPersistentBlockState (MPV m),
       TimeMonad m,
       MonadTimeout m,
+      MonadConsensusEvent m,
       MonadLogger m
     ) =>
     -- |The block to sign.
@@ -1108,6 +1084,115 @@ validateBlock blockHash BakerIdentity{..} finInfo = do
                           vqmBlock = block
                         }
 
+-- |Produce a quorum signature on a block if the block is eligible and we are a finalizer for the
+-- block's epoch. This will delay until the timestamp of the block has elapsed so that we do not
+-- sign blocks prematurely.
+checkedValidateBlock ::
+    ( MonadReader r m,
+      HasBakerContext r,
+      BlockData b,
+      HashableTo BlockHash b,
+      TimerMonad m,
+      MonadState (SkovData (MPV m)) m,
+      MonadMulticast m,
+      LowLevel.MonadTreeStateStore m,
+      MonadThrow m,
+      MonadIO m,
+      BlockStateStorage m,
+      BlockState m ~ HashedPersistentBlockState (MPV m),
+      TimeMonad m,
+      MonadTimeout m,
+      MonadConsensusEvent m,
+      MonadLogger m,
+      IsConsensusV1 (MPV m)
+    ) =>
+    -- |Block to (potentially) sign.
+    b ->
+    m ()
+checkedValidateBlock validBlock = do
+    withFinalizerForEpoch (blockEpoch validBlock) $ \bakerIdent finInfo -> do
+        let !blockHash = getHash validBlock
+        _ <-
+            onTimeout (DelayUntil (timestampToUTCTime $ blockTimestamp validBlock)) $!
+                validateBlock blockHash bakerIdent finInfo
+        return ()
+
+-- |Execute a block that has previously been verified by 'uponReceivingBlock'.
+--
+-- This should be robust against other consensus operations occurring in between
+-- 'uponReceivingBlock' and 'executeBlock'. However, in practise it is recommended that
+-- 'executeBlock' should be called immediately, without releasing the lock on the consensus
+-- state.
+executeBlock ::
+    ( IsConsensusV1 (MPV m),
+      BlockStateStorage m,
+      BlockState m ~ HashedPersistentBlockState (MPV m),
+      LowLevel.MonadTreeStateStore m,
+      MonadState (SkovData (MPV m)) m,
+      MonadIO m,
+      TimeMonad m,
+      MonadThrow m,
+      MonadTimeout m,
+      MonadReader r m,
+      HasBakerContext r,
+      TimerMonad m,
+      MonadMulticast m,
+      MonadConsensusEvent m,
+      MonadLogger m
+    ) =>
+    VerifiedBlock ->
+    m ()
+executeBlock verifiedBlock = do
+    -- TODO: check for consensus shutdown. Issue #825
+    gets (getLiveOrLastFinalizedBlock (blockParent (vbBlock verifiedBlock))) >>= \case
+        Just parent -> do
+            res <- processBlock parent verifiedBlock
+            forM_ res $ \newBlock -> do
+                OrderedBlock best <- processPendingChildren newBlock
+                checkedValidateBlock best
+        Nothing -> return ()
+
+-- * Block production
+
+-- |Inputs used for baking a new block.
+data BakeBlockInputs (pv :: ProtocolVersion) = BakeBlockInputs
+    { -- |Secret keys for the baker.
+      bbiBakerIdentity :: BakerIdentity,
+      -- |Round in which the block is to be produced.
+      bbiRound :: Round,
+      -- |Epoch in which the block is to be produced.
+      -- Should always be either @blockEpoch bbiParent@ or @1 + blockEpoch bbiParent@.
+      bbiEpoch :: Epoch,
+      -- |Parent block.
+      bbiParent :: BlockPointer pv,
+      -- |A valid quorum certificate for the parent block.
+      bbiQuorumCertificate :: QuorumCertificate,
+      -- |If the parent block belongs to a round earlier than @bbiRound - 1@, this is a valid
+      -- timeout certificate for round @bbiRound - 1@ in the same epoch as the parent block.
+      -- Otherwise, it is 'Absent'.
+      bbiTimeoutCertificate :: Option TimeoutCertificate,
+      -- |If the block is to be the first in a new epoch (i.e. @bbiEpoch@ is
+      -- @blockEpoch bbiParent + 1@) then this is a valid finalization entry for a block after the
+      -- trigger time in epoch @blockEpoch bbiParent@.
+      bbiEpochFinalizationEntry :: Option FinalizationEntry,
+      -- |The set of bakers for the epoch 'bbiEpoch'.
+      bbiEpochBakers :: FullBakers,
+      -- |The leadership election nonce used in the election.
+      bbiLeadershipElectionNonce :: LeadershipElectionNonce
+    }
+
+-- |Determine if the node is a baker and eligible to bake in the current round, and produce
+-- 'BakeBlockInputs' if so. This checks:
+--
+--   * We have not already attempted to bake for this round.
+--
+--   * We have not baked for a more recent round.
+--
+--   * We have baker credentials.
+--
+--   * We are the winner of the round in the current epoch.
+--
+--   * The baker's public keys match those in the baking committee.
 prepareBakeBlockInputs ::
     ( MonadReader r m,
       HasBakerContext r,
@@ -1180,18 +1265,6 @@ prepareBakeBlockInputs = runMaybeT $ do
         empty
     return BakeBlockInputs{..}
 
-data BakeBlockInputs (pv :: ProtocolVersion) = BakeBlockInputs
-    { bbiBakerIdentity :: BakerIdentity,
-      bbiRound :: Round,
-      bbiEpoch :: Epoch,
-      bbiParent :: BlockPointer pv,
-      bbiQuorumCertificate :: QuorumCertificate,
-      bbiTimeoutCertificate :: Option TimeoutCertificate,
-      bbiEpochFinalizationEntry :: Option FinalizationEntry,
-      bbiEpochBakers :: FullBakers,
-      bbiLeadershipElectionNonce :: LeadershipElectionNonce
-    }
-
 bakeBlock ::
     ( MonadState (SkovData (MPV m)) m,
       BlockStateStorage m,
@@ -1199,6 +1272,7 @@ bakeBlock ::
       TimeMonad m,
       IsConsensusV1 (MPV m),
       LowLevel.MonadTreeStateStore m,
+      MonadConsensusEvent m,
       MonadLogger m
     ) =>
     BakeBlockInputs (MPV m) ->
@@ -1221,7 +1295,7 @@ bakeBlock BakeBlockInputs{..} = do
                   bedBlockNonce = bbNonce,
                   bedParentState = bpState bbiParent
                 }
-    -- TODO: When the scheduler is integrated, this will be changed.
+    -- TODO: When the scheduler is integrated, this will be changed. Issue #699
     executeBlockStateUpdate executionData >>= \case
         Left err -> case err of {}
         Right newState -> do
@@ -1265,6 +1339,7 @@ makeBlock ::
       MonadThrow m,
       MonadIO m,
       MonadTimeout m,
+      MonadConsensusEvent m,
       MonadLogger m
     ) =>
     m ()

@@ -45,6 +45,7 @@ checkFinality ::
       BlockStateStorage m,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
       MonadThrow m,
+      MonadConsensusEvent m,
       MonadLogger m,
       IsConsensusV1 (MPV m)
     ) =>
@@ -70,6 +71,7 @@ checkFinalityWithBlock ::
       BlockStateStorage m,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
       MonadThrow m,
+      MonadConsensusEvent m,
       MonadLogger m,
       IsConsensusV1 (MPV m),
       HasCallStack
@@ -111,6 +113,7 @@ processFinalization ::
       BlockStateStorage m,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
       MonadThrow m,
+      MonadConsensusEvent m,
       MonadLogger m,
       IsConsensusV1 (MPV m),
       HasCallStack
@@ -170,6 +173,7 @@ processFinalization newFinalizedBlock newFinalizationEntry = do
     purgePending
     -- Advance the epoch if the new finalized block triggers the epoch transition.
     checkedAdvanceEpoch newFinalizedBlock
+    onFinalize newFinalizationEntry newFinalizedBlock
 
 -- |Advance the current epoch if the new finalized block indicates that it is necessary.
 -- This is deemed to be the case if the following hold:

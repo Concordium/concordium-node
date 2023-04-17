@@ -249,6 +249,7 @@ executeTimeoutMessage ::
       TimeMonad m,
       MonadTimeout m,
       MonadState (SkovData (MPV m)) m,
+      MonadConsensusEvent m,
       MonadLogger m,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
       LowLevel.MonadTreeStateStore m

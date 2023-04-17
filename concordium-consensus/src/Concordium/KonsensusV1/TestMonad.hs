@@ -8,6 +8,8 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
+-- |This module provides a 'TestMonad' that implements a number of interfaces that are used by
+-- consensus. The implementation provides a bare-bones scaffolding that can be used for testing.
 module Concordium.KonsensusV1.TestMonad where
 
 import Control.Monad.Catch
@@ -46,11 +48,17 @@ import Concordium.TimerMonad (Timeout, TimerMonad (..))
 import Concordium.Types.HashableTo
 import Concordium.Types.Parameters hiding (getChainParameters)
 
+-- |Context used for running the 'TestMonad'.
 data TestContext (pv :: ProtocolVersion) = TestContext
-    { _tcBakerContext :: !BakerContext,
+    { -- |The baker context (i.e. baker keys if any).
+      _tcBakerContext :: !BakerContext,
+      -- |Blob store and caches used by the block state storage.
       _tcPersistentBlockStateContext :: PersistentBlockStateContext pv,
+      -- |In-memory low-level tree state database.
       _tcMemoryLLDB :: !(IORef (LowLevelDB pv)),
+      -- |The current time (reported by 'currentTime').
       _tcCurrentTime :: !UTCTime,
+      -- |Callback to use for logging.
       _tcLogger :: !(LogMethod (TestMonad pv))
     }
 
@@ -68,28 +76,50 @@ instance Cache.HasCache Module.ModuleCache (TestContext pv) where
 instance HasMemoryLLDB pv (TestContext pv) where
     theMemoryLLDB = _tcMemoryLLDB
 
+-- |State used for running the 'TestMonad'.
 data TestState pv = TestState
-    { _tsSkovData :: !(SkovData pv),
+    { -- |The 'SkovData'.
+      _tsSkovData :: !(SkovData pv),
+      -- |The pending timers.
       _tsPendingTimers :: !(Map.Map Integer (Timeout, TestMonad pv ()))
     }
 
-data TestEvent
-    = ResetTimer !Duration
-    | SendTimeoutMessage !TimeoutMessage
-    | SendQuorumMessage !QuorumMessage
-    | SendBlock !SignedBlock
+-- |Events raised in running the 'TestMonad'.
+data TestEvent (pv :: ProtocolVersion)
+    = -- |Implements 'resetTimer' of 'MonadTimeout'
+      ResetTimer !Duration
+    | -- |Implements 'sendTimeoutMessage' of 'MonadMulticast'.
+      SendTimeoutMessage !TimeoutMessage
+    | -- |Implements 'sendQuorumMessage' of 'MonadMulticast'.
+      SendQuorumMessage !QuorumMessage
+    | -- |Implements 'sendBlock' of 'MonadMulticast'.
+      SendBlock !SignedBlock
+    | -- |Implements 'onBlock' of 'MonadConsensusEvent'.
+      OnBlock !(Block pv)
+    | -- |Implements 'onFinalize' of 'MonadConsensusEvent'.
+      OnFinalize !FinalizationEntry
+    | -- |Implements 'onPendingLive' of 'MonadConsensusEvent'.
+      OnPendingLive
     deriving (Eq, Show)
 
-type TestWrite = [TestEvent]
+-- |Write event monoid. This is simply a list of events.
+type TestWrite pv = [TestEvent pv]
 
+-- |This type is used to derive instances of various block state classes for 'TestMonad'.
 type PersistentBlockStateMonadHelper pv =
     PersistentBlockStateMonad
         pv
         (TestContext pv)
-        (RWST (TestContext pv) TestWrite (TestState pv) IO)
+        (RWST (TestContext pv) (TestWrite pv) (TestState pv) IO)
 
-newtype TestMonad (pv :: ProtocolVersion) a = TestMonad {runTestMonad' :: RWST (TestContext pv) TestWrite (TestState pv) IO a}
-    deriving newtype (Functor, Applicative, Monad, MonadReader (TestContext pv), MonadIO, MonadThrow, MonadWriter TestWrite)
+-- |The 'TestMonad' type itself wraps 'RWST' over 'IO'.
+-- The reader context is 'TestContext'.
+-- The writer monoid is 'TestWrite', which is a list of 'TestEvent's, each of which represents a
+-- callback from the consensus to an operation of 'MonadTimeout', 'MonadMulticast', or
+-- 'MonadConsensusEvent'.
+-- The state is 'TestState', which includes the 'SkovData' and a map of the pending timer events.
+newtype TestMonad (pv :: ProtocolVersion) a = TestMonad {runTestMonad' :: RWST (TestContext pv) (TestWrite pv) (TestState pv) IO a}
+    deriving newtype (Functor, Applicative, Monad, MonadReader (TestContext pv), MonadIO, MonadThrow, MonadWriter (TestWrite pv))
     deriving
         (BlockStateTypes, ContractStateOperations, ModuleQuery)
         via (PersistentBlockStateMonadHelper pv)
@@ -100,10 +130,13 @@ makeLenses ''TestState
 instance HasBakerContext (TestContext pv) where
     bakerContext = tcBakerContext
 
+-- |Project the core genesis data from genesis data for consensus version 1.
 genesisCore :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => GenesisData pv -> BaseV1.CoreGenesisParametersV1
 genesisCore = case protocolVersion @pv of
     SP6 -> \(GDP6 P6.GDP6Initial{genesisCore = core}) -> core
 
+-- |Run an operation in the 'TestMonad' with the given baker, time and genesis data.
+-- This sets up a temporary blob store for the block state that is deleted after use.
 runTestMonad :: (IsConsensusV1 pv, IsProtocolVersion pv) => BakerContext -> UTCTime -> GenesisData pv -> TestMonad pv a -> IO a
 runTestMonad _tcBakerContext _tcCurrentTime genData (TestMonad a) =
     runBlobStoreTemp "." $ withNewAccountCache 1000 $ do
@@ -187,7 +220,7 @@ deriving via
         IsProtocolVersion pv => BlockStateStorage (TestMonad pv)
 
 deriving via
-    (MemoryLLDBM pv (RWST (TestContext pv) TestWrite (TestState pv) IO))
+    (MemoryLLDBM pv (RWST (TestContext pv) (TestWrite pv) (TestState pv) IO))
     instance
         IsProtocolVersion pv => LowLevel.MonadTreeStateStore (TestMonad pv)
 
@@ -217,6 +250,11 @@ instance TimerMonad (TestMonad pv) where
         tsPendingTimers .= Map.insert newIndex (delay, void action) pts
         return newIndex
     cancelTimer timer = TestMonad $ tsPendingTimers %= Map.delete timer
+
+instance MonadConsensusEvent (TestMonad pv) where
+    onBlock = tell . (: []) . OnBlock . bpBlock
+    onFinalize fe _ = tell [OnFinalize fe]
+    onPendingLive = tell [OnPendingLive]
 
 instance MonadLogger (TestMonad pv) where
     logEvent src lvl msg = do
