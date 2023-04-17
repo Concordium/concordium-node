@@ -243,7 +243,7 @@ checkpointingTest2 spv pvString =
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $ Helpers.assertSuccessWhere (Helpers.assertNumberOfEvents 6) result
+                return $ Helpers.assertSuccessWhere (Helpers.assertNumberOfEvents 7) result
             }
         ]
     parameters = BSS.toShort $ runPut $ do
