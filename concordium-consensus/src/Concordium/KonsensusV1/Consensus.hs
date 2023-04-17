@@ -109,7 +109,7 @@ advanceRoundWithTimeout roundTimeout@RoundTimeout{..} = do
     roundStatus %=! updateQC . updateTC . (rsRoundEligibleToBake .~ True)
   where
     updateQC rs
-        | cbRound (_rsHighestCertifiedBlock rs) < cbRound rtCertifiedBlock =
+        | cbRound (rs ^. rsHighestCertifiedBlock) < cbRound rtCertifiedBlock =
             rs & rsHighestCertifiedBlock .~ rtCertifiedBlock
         | otherwise = rs
     updateTC =
