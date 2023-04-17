@@ -1,4 +1,4 @@
-param ([string] $rustVersion = "1.62.1")
+param ([string] $rustVersion = "1.68.2")
 
 Write-Output "stack version: $(stack --version)"
 Write-Output "cargo version: $(cargo --version)"
@@ -13,8 +13,12 @@ stack build
 if ($LASTEXITCODE -ne 0) { throw "Failed building consensus" }
 
 Write-Output "Building node..."
-stack exec -- cargo build --manifest-path concordium-node\Cargo.toml --release --features collector
+stack exec -- cargo build --manifest-path concordium-node\Cargo.toml --release
 if ($LASTEXITCODE -ne 0) { throw "Failed building node" }
+
+Write-Output "Building the collector..."
+cargo +$rustVersion-x86_64-pc-windows-msvc build --manifest-path collector\Cargo.toml --release
+if ($LASTEXITCODE -ne 0) { throw "Failed building the collector" }
 
 Write-Output "Building node runner service..."
 

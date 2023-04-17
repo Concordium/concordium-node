@@ -2,7 +2,7 @@
 
 ## Dependencies to build the project
 
-- Rust (stable 1.62 for using static libraries)
+- Rust (stable 1.68 for using static libraries)
 - binutils >= 2.22
   - For macOS one should use the binutils provided by Xcode.
 - cmake >= 3.8.0
@@ -22,7 +22,6 @@
 - network_dump - makes the network dumping capabilites available.
 - static - build against static haskell libraries (Linux only)
 - profiling - build against haskell libraries with profiling support enabled (Linux only)
-- collector - enables the build of the node-collector and backend
 - dedup_benchmarks - enable support in the benchmarks for deduplication queues
 
 ## Building the node
@@ -46,7 +45,7 @@ The package supports the following features related to linking with the Haskell 
   mkdir out
   docker run -v $(pwd)/out:/out concordium/static-libraries
   mkdir -p concordium-node/deps/static-libs/linux
-  tar -xf out/static-consensus-9.2.5.tar.gz --strip-components=1 -C concordium-node/deps/static-libs/linux
+  tar -xf out/static-consensus-9.2.7.tar.gz --strip-components=1 -C concordium-node/deps/static-libs/linux
   ```
 
   (this is assuming a GNU version of tar)
@@ -149,8 +148,8 @@ Before building the node, you should install the following dependencies:
 
 - Haskell [stack](https://docs.haskellstack.org/en/stable/install_and_upgrade/)
 - [Rust](https://www.rust-lang.org/tools/install)
-  - For building the node, the toolchain `1.62.1-x86_64-pc-windows-gnu` is required, which can be installed with the command: `rustup toolchain install 1.62.1-x86_64-pc-windows-gnu`.
-  - For building the node runner service (optional), the toolchain `1.62.1-x86_64-pc-windows-msvc`  is required, which can be installed with the command: `rustup toolchain install 1.62.1-x86_64-pc-windows-msvc`.
+  - For building the node, the toolchain `1.68.2-x86_64-pc-windows-gnu` is required, which can be installed with the command: `rustup toolchain install 1.68.2-x86_64-pc-windows-gnu`.
+  - For building the node runner service (optional), the toolchain `1.68.2-x86_64-pc-windows-msvc`  is required, which can be installed with the command: `rustup toolchain install 1.68.2-x86_64-pc-windows-msvc`.
 - [flatc](https://github.com/google/flatbuffers/releases/tag/v22.12.06) 22.12.06 (should be in the path)
 - [protoc](https://github.com/protocolbuffers/protobuf/releases) >= 3.15
 - LMDB should be installed under `stack`'s `msys2` installation, which can be done with the following commands:
@@ -226,16 +225,4 @@ To automatically open the browser with the documentation once it is generated us
 
 ```console
 $> cargo doc --open
-```
-
-## Collector
-
-To allow the network dashboard to display nodes in the network and their current status, a node must run a collector, which is a process that uses the GRPC api of the node to collect information and sends it to a centralized collector backend.
-
-See [./collector-backend/](./collector-backend/) for details of the collector backend and how to run it.
-
-Assuming you have a node running locally with GRPC available at `127.0.0.1:10000` and a collector backend at `127.0.0.1:8080`, a collector can be run using:
-
-```console
-$> cargo run --bin node-collector --features=collector -- --collector-url http://127.0.0.1:8080/post/nodes --grpc-host http://127.0.0.1:10000  --node-name "my-node-name"
 ```

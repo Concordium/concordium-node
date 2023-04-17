@@ -2,9 +2,9 @@
 <!-- When updating the product version, the Product Id should be refreshed, otherwise it will not be
     possible to upgrade an existing installation.
 -->
-<?define VersionNumber="5.3.0" ?>
+<?define VersionNumber="5.3.2" ?>
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi" xmlns:Util="http://schemas.microsoft.com/wix/UtilExtension">
-    <Product Name="Concordium Node" Manufacturer="Concordium Software" Id="f0a8d068-ca91-4f4e-9742-800a4b7501a2" UpgradeCode="297295b4-c716-4d33-8170-0f6136663bfd" Language="1033" Codepage="1252" Version="$(var.VersionNumber)">
+    <Product Name="Concordium Node" Manufacturer="Concordium Software" Id="af24341f-3557-421a-b055-bd41775f3f11" UpgradeCode="297295b4-c716-4d33-8170-0f6136663bfd" Language="1033" Codepage="1252" Version="$(var.VersionNumber)">
         <Package Id="*" Keywords="Concordium Installer" Description="Concordium Node $(var.VersionNumber) Installer" Manufacturer="Concordium Software" InstallerVersion="500" Languages="1033" Compressed="yes" InstallScope="perMachine" />
         <MajorUpgrade Schedule="afterInstallValidate" DowngradeErrorMessage="The currently-installed version of [ProductName] is newer than the version you are trying to install. The installation cannot continue. If you wish to install this version, please remove the newer version first." />
         <Media Id="1" Cabinet="Node.cab" EmbedCab="yes" />
@@ -25,7 +25,7 @@
                             <File Id="HSdll" Name="HSdll.dll" Source="!(bindpath.consensus)HSdll.dll" Checksum="yes" />
                         </Component>
                         <Component Id="NodeCollector" Guid="95747611-1415-483c-9f0a-6f9b78fb22af">
-                            <File Id="NodeCollector" Name="node-collector.exe" Source="!(bindpath.node)node-collector.exe" Checksum="yes" KeyPath="yes" />
+                            <File Id="NodeCollector" Name="node-collector.exe" Source="!(bindpath.collector)node-collector.exe" Checksum="yes" KeyPath="yes" />
                         </Component>
                         <Component Id="NodeRunnerService" Guid="93278686-a434-4a86-a81e-61aaa79982de">
                             <File Id="NodeRunnerService" Name="node-runner-service.exe" Source="!(bindpath.service)node-runner-service.exe" Checksum="yes" KeyPath="yes">

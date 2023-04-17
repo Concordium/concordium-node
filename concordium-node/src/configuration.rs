@@ -411,6 +411,14 @@ pub struct GRPC2Config {
     )]
     pub endpoint_config:            Option<PathBuf>,
     #[structopt(
+        long = "grpc2-invoke-max-energy",
+        help = "Maximum amount of energy allowed for the InvokeInstance and InvokeContract (V1 \
+                API) endpoints.",
+        env = "CONCORDIUM_NODE_GRPC2_INVOKE_MAX_ENERGY",
+        default_value = "1000000"
+    )]
+    pub invoke_max_energy:          u64,
+    #[structopt(
         long = "grpc2-health-max-finalized-delay",
         help = "Maximum amount of seconds that the time of the last finalized block can be behind \
                 present before the health check fails.",
@@ -418,6 +426,13 @@ pub struct GRPC2Config {
         default_value = "300"
     )]
     pub health_max_finalized_delay: concordium_base::base::DurationSeconds,
+    #[structopt(
+        long = "grpc2-health-min-peers",
+        help = "Minimum number of peers for the node to be still considered healthy. If not set \
+                the number of peers does not affect the health check.",
+        env = "CONCORDIUM_NODE_GRPC2_HEALTH_MIN_PEERS"
+    )]
+    pub health_min_peers:           Option<usize>,
 }
 
 impl GRPC2Config {
@@ -976,7 +991,7 @@ impl AppPreferences {
         };
         let file_path =
             Self::calculate_config_file_path(&self.override_config_dir, APP_PREFERENCES_MAIN);
-        match OpenOptions::new().read(true).write(true).truncate(true).open(&file_path) {
+        match OpenOptions::new().read(true).write(true).truncate(true).open(file_path) {
             Ok(ref mut file) => {
                 let mut writer = BufWriter::new(file);
                 if self.preferences_map.save_to(&mut writer).is_err() {

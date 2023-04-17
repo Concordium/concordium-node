@@ -20,10 +20,11 @@ macPackageDir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 readonly macPackageDir
 
 readonly nodeDir="$macPackageDir/../../../concordium-node"
+readonly collectorDir="$macPackageDir/../../../collector"
 readonly consensusDir="$macPackageDir/../../../concordium-consensus"
 
 readonly toolsDir="$macPackageDir/tools"
-readonly macdylibbundlerDir="$toolsDir/macdylibbundler-1.0.0"
+readonly macdylibbundlerDir="$toolsDir/macdylibbundler-1.0.5"
 
 readonly buildDir="$macPackageDir/build"
 readonly payloadDir="$buildDir/payload"
@@ -169,7 +170,9 @@ function compileConsensus() {
 function compileNodeAndCollector() {
     cd "$nodeDir"
     logInfo "Building Node and Collector..."
-    cargo build --bin concordium-node --bin node-collector --features collector --release
+    cargo build --bin concordium-node --release
+    cd "$collectorDir"
+    cargo build --release
     logInfo "Done"
 }
 
@@ -200,7 +203,7 @@ function copyInstallerPluginData() {
 function copyNodeBinaries() {
     logInfo "Copy concordium-node and node-collector binaries to '$payloadDir/Library/Concordium Node/'.."
     cp "$nodeDir/target/release/concordium-node" "$payloadDir/Library/Concordium Node"
-    cp "$nodeDir/target/release/node-collector" "$payloadDir/Library/Concordium Node"
+    cp "$collectorDir/target/release/node-collector" "$payloadDir/Library/Concordium Node"
     logInfo "Done"
 }
 
@@ -223,7 +226,7 @@ function getDylibbundler() {
         logInfo " -- Downloading..."
         mkdir "$toolsDir"
         cd "$macPackageDir"
-        curl -sSL "https://github.com/auriamg/macdylibbundler/archive/refs/tags/1.0.0.zip" > "$toolsDir/dylibbundler.zip" \
+        curl -sSL "https://github.com/auriamg/macdylibbundler/archive/refs/tags/1.0.5.zip" > "$toolsDir/dylibbundler.zip" \
                     && logInfo " -- Unzipping..." \
                     && cd "$toolsDir" \
                     && unzip "dylibbundler.zip" \
@@ -245,7 +248,11 @@ function collectDylibs() {
         local fileToFix=${1:?"Missing file to fix with dylibbundler"};
         cd "$payloadDir/Library/Concordium Node"
         # Paths to search for dylibs are added with the '-s' flag.
-        "$macdylibbundlerDir/dylibbundler" --fix-file "$fileToFix" --bundle-deps --dest-dir "./libs" --install-path "@executable_path/libs/" --overwrite-dir \
+        # We use `--create-dir` to ensure that the `./libs` folder exists.
+        # But we should not use `--overwrite-dir` even though it implies `--create-dir`
+        # because it will delete the libs folder if it already exists, which would delete 
+        # the results of previous calls to `collectDylibsFor`.
+        "$macdylibbundlerDir/dylibbundler" --fix-file "$fileToFix" --bundle-deps --dest-dir "./libs" --install-path "@executable_path/libs/" --create-dir \
             -s "$concordiumDylibDir" \
             -s "$stackSnapshotDir" \
             $stackLibDirs # Unquoted on purpose to use as arguments correctly

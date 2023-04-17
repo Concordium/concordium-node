@@ -1,6 +1,6 @@
 [package]
 name = "concordium_node"
-version = "5.3.0" # must be kept in sync with 'is_compatible_version' in 'src/configuration.rs'
+version = "5.3.2" # must be kept in sync with 'is_compatible_version' in 'src/configuration.rs'
 description = "Concordium Node"
 authors = ["Concordium <developers@concordium.com>"]
 exclude = [".gitignore", ".gitlab-ci.yml", "test/**/*","**/**/.gitignore","**/**/.gitlab-ci.yml"]
@@ -17,7 +17,6 @@ test_utils = [ ]
 network_dump = []
 static = [ ]
 profiling = [ "static" ]
-collector = [ "reqwest/default-tls", "serde/derive", "rmp-serde", "collector-backend" ]
 
 [profile.release]
 codegen-units = 1
@@ -63,7 +62,6 @@ thiserror = "1.0"
 futures = { version = "0.3" }
 url = "2.2"
 reqwest = { version = "0.11", features = ["stream", "native-tls-vendored"] }
-openssl-src = "=111.25.0" # Fix openssl-src to version 111.25 since the newer ones are not supported on Rust 1.62. Once we update rust to 1.63+ remove this.
 csv = "1.1"
 tokio-util = { version = "0.7.3", features = ["io"] }
 libc = "0.2"
@@ -74,6 +72,8 @@ gotham_derive = { version = "0.6" }
 prometheus = { version = "0.13", default-features = false, features = ["push"] }
 http = { version = "0.2" }
 hyper = { version = "0.14" }
+serde_json = { version = "1" }
+tempfile = { version = "3.1" }
 
 # gRPC dependencies
 tonic = { version = "0.8", features = ["tls"] }
@@ -85,16 +85,8 @@ prost = "0.11"
 tokio = { version = "1.20", features = ["macros", "rt-multi-thread", "signal", "io-util", "time"] }
 tokio-stream = "0.1"
 
-
-# Feature-gated dependencies
-rmp-serde = { version = "0.15", optional = true }
-serde_json = { version = "1" }
-tempfile = { version = "3.1" }
-
-collector-backend = { version = "*", path = "../collector-backend/", optional = true }
-
-[target.'cfg(target_os = "macos")'.build-dependencies]
-cc = "1.0"
+[target.'cfg(target_os = "macos")'.dependencies]
+macos_logger_wrapper = { version = "*", path = "../macos_logger_wrapper/"}
 
 [target.'cfg(windows)'.dependencies]
 ipconfig = { version = "0.2" }
@@ -126,11 +118,6 @@ name = "concordium-node"
 [[bin]]
 path = "src/bin/bootstrapper.rs"
 name = "p2p_bootstrapper-cli"
-
-[[bin]]
-name = "node-collector"
-path = "src/bin/collector.rs"
-required-features = [ "collector" ]
 
 [[bin]]
 name = "bootstrap_checker"

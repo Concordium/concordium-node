@@ -443,7 +443,7 @@ pub fn connect(
                           * what the peer will be, not what it actually is. */
     peer_addr: SocketAddr,      // address to connect to
     peer_id: Option<P2PNodeId>, // id of the peer we are connecting to, if known
-    respect_max_peers: bool,    // whether this should respect the maximum peeers setting or not.
+    respect_max_peers: bool,    // whether this should respect the maximum peers setting or not.
 ) -> anyhow::Result<()> {
     debug!(
         "Attempting to connect to {}{}",

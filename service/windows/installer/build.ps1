@@ -18,6 +18,7 @@ try {
     $Binds = @(
         "-b", "consensus=..\..\..\concordium-consensus",
         "-b", "node=..\..\..\concordium-node\target\release",
+        "-b", "collector=..\..\..\collector\target\release",
         "-b", "service=..\target\x86_64-pc-windows-msvc\release"
         "-b", "ca=.\custom-actions\target\x86_64-pc-windows-msvc\release",
         "-b", "res=.\resources")

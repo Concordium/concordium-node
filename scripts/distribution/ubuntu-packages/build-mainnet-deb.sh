@@ -6,7 +6,7 @@ set -euxo pipefail
 # - UBUNTU_VERSION (mandatory)
 # - STATIC_LIBRARIES_IMAGE_TAG (defaults to 'latest' if not given)
 # - STATIC_BINARIES_IMAGE_TAG (defaults to 'latest' if not given)
-# - GHC_VERSION (defaults to '9.2.5' if not given)
+# - GHC_VERSION (defaults to '9.2.7' if not given)
 
 # Set STATIC_BINARIES_IMAGE_TAG to latest if not already set
 export STATIC_BINARIES_IMAGE_TAG="${STATIC_BINARIES_IMAGE_TAG:-latest}"
@@ -14,8 +14,7 @@ export STATIC_BINARIES_IMAGE_TAG="${STATIC_BINARIES_IMAGE_TAG:-latest}"
 if ! docker inspect --type=image static-node-binaries:$STATIC_BINARIES_IMAGE_TAG > /dev/null 2> /dev/null ; then
     # build static binaries
     export STATIC_LIBRARIES_IMAGE_TAG="${STATIC_LIBRARIES_IMAGE_TAG:-latest}"
-    export GHC_VERSION="${GHC_VERSION:-9.2.5}"
-    export EXTRA_FEATURES="collector"
+    export GHC_VERSION="${GHC_VERSION:-9.2.7}"
     (cd ../../../; ./scripts/static-binaries/build-static-binaries.sh)
 fi
 

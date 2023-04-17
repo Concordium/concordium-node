@@ -1,11 +1,11 @@
+#![cfg(target_os = "macos")]
+
 use std::{
     collections::HashMap,
     ffi::{c_void, CString},
     os::raw::c_char,
     sync::RwLock,
 };
-
-use crate::{read_or_die, write_or_die};
 
 /// The native representation of a logger. Used by [LogT].
 #[repr(C)]
@@ -134,7 +134,9 @@ impl MacOsLogger {
     /// Set a level filter on a given category/target. Overrides the default
     /// level filter set by [level_filter].
     pub fn category_level_filter(self, category: &str, level: log::LevelFilter) -> Self {
-        write_or_die!(self.loggers)
+        self.loggers
+            .write()
+            .expect("Unable to acquire write lock.")
             .entry(category.into())
             .and_modify(|(existing_level, _)| *existing_level = Some(level))
             .or_insert((Some(level), MacOsLog::new(&self.subsystem, category)));
@@ -148,7 +150,10 @@ impl MacOsLogger {
 
 impl log::Log for MacOsLogger {
     fn enabled(&self, metadata: &log::Metadata) -> bool {
-        let max_level = read_or_die!(self.loggers)
+        let max_level = self
+            .loggers
+            .read()
+            .expect("Unable to acquire a read lock")
             .get(metadata.target())
             .and_then(|pair| pair.0)
             .unwrap_or_else(log::max_level);
@@ -159,7 +164,11 @@ impl log::Log for MacOsLogger {
         if self.enabled(record.metadata()) {
             let message = record.args().to_string();
 
-            if let Some((_, logger)) = read_or_die!(self.loggers).get(&record.target().to_string())
+            if let Some((_, logger)) = self
+                .loggers
+                .read()
+                .expect("Unable to acquire a read lock")
+                .get(&record.target().to_string())
             {
                 logger.log_with_level(record.level().into(), &message);
                 return;
@@ -167,7 +176,10 @@ impl log::Log for MacOsLogger {
 
             let new_logger = MacOsLog::new(&self.subsystem, record.target());
             new_logger.log_with_level(record.level().into(), &message);
-            write_or_die!(self.loggers).insert(record.target().to_string(), (None, new_logger));
+            self.loggers
+                .write()
+                .expect("Unable to acquire write lock")
+                .insert(record.target().to_string(), (None, new_logger));
         }
     }
 
@@ -176,6 +188,7 @@ impl log::Log for MacOsLogger {
 
 #[cfg(test)]
 mod tests {
+    use log::*;
     #[test]
     pub fn logs_correctly_to_syslog() {
         use super::*;

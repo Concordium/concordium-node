@@ -2,9 +2,37 @@
 
 ## Unreleased changes
 
+## 5.3.2
+
+- Extend Prometheus exporter with metric `peer_bucket_size`, see
+  [docs/prometheus-exporter.md](https://github.com/Concordium/concordium-node/blob/main/docs/prometheus-exporter.md) for more details.
+
+## 5.3.1
+
+- Add an option `--grpc2-health-min-peers` (environment variable `CONCORDIUM_NODE_GRPC2_HEALTH_MIN_PEERS`)
+  that causes the grpc V2 health endpoint to check minimum number of peers.
+- Extend the node health check so that if the node is configured with baker
+  credentials then it is required to be in the baking committee for it to be
+  considered healthy.
+- Add a new option `--grpc2-invoke-max-energy` (environment variable
+  `CONCORDIUM_NODE_GRPC2_INVOKE_MAX_ENERGY`) that allows the node runner to
+  control the maximum amount of energy allowed by an `InvokeInstance` (and the
+  V1 GRPC `InvokeContract`) call. The behaviour of the endpoint is slightly
+  changed as well. The `energy` is no longer required in the request, and the
+  effective energy used by the call will be `min(request.energy,
+  grpc-invoke-max-energy)`. This differs from the previous behaviour where a
+  request would fail if the request either omitted the `energy`, or supplied an
+  excessive value.
+- Fix a bug that could cause the node to hang indefinitely during the out-of-
+  band-catchup when the node is a finalizer.
+- Fix an additional bug in `GetAccountInfo` endpoint in GRPCv2 where
+  `incoming_amounts` field of encrypted amounts was not always set correctly.
+- The node collector is migrated to a separate package and now uses the V2 GRPC API.
+
+
 ## 5.3.0
 
-- Extend Prometheus exporter with metrics: `grpc_request_duration_seconds`, `grpc_in_flight_requests`, `consensus_baking_committee`, `consensus_finalization_committee`, `consensus_baking_lottery_power`, `consensus_baked_blocks_total`, `consensus_finalized_baked_blocks_total`, `network_soft_banned_peers_total`, `consensus_non_finalized_transactions` and `consensus_unsupported_pending_protocol_version` see [docs/prometheus-exporter.md](https://github.com/Concordium/concordium-node/blob/main/docs/prometheus-exporter.md) for more details.
+- Extend Prometheus exporter with metrics: `grpc_request_response_time_seconds`, `grpc_in_flight_requests`, `consensus_baking_committee`, `consensus_finalization_committee`, `consensus_baking_lottery_power`, `consensus_baked_blocks_total`, `consensus_finalized_baked_blocks_total`, `network_soft_banned_peers_total`, `consensus_non_finalized_transactions` and `consensus_unsupported_pending_protocol_version` see [docs/prometheus-exporter.md](https://github.com/Concordium/concordium-node/blob/main/docs/prometheus-exporter.md) for more details.
 
 ## 5.2.4
 

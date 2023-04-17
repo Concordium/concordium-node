@@ -520,27 +520,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "collector-backend"
-version = "1.1.2"
-dependencies = [
- "anyhow",
- "chrono",
- "env_logger",
- "futures",
- "gotham",
- "gotham_derive",
- "hyper",
- "log",
- "mime",
- "rmp-serde",
- "serde 1.0.152",
- "serde_json 1.0.93",
- "structopt",
- "tokio",
- "twox-hash",
-]
-
-[[package]]
 name = "combine"
 version = "4.6.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -664,18 +643,16 @@ dependencies = [
 
 [[package]]
 name = "concordium_node"
-version = "5.3.0"
+version = "5.3.2"
 dependencies = [
  "anyhow",
  "app_dirs2",
  "base64 0.13.1",
  "byteorder",
  "bytesize",
- "cc",
  "cfg-if",
  "chrono",
  "circular-queue",
- "collector-backend",
  "concordium-smart-contract-engine",
  "concordium_base",
  "criterion",
@@ -698,11 +675,11 @@ dependencies = [
  "libc",
  "log",
  "log4rs",
+ "macos_logger_wrapper",
  "mime",
  "mio 0.7.14",
  "nohash-hasher",
  "noiseexplorer_xx",
- "openssl-src",
  "preferences",
  "prometheus",
  "prost",
@@ -712,7 +689,6 @@ dependencies = [
  "rayon",
  "reqwest",
  "rkv",
- "rmp-serde",
  "rpassword",
  "semver 1.0.16",
  "serde 1.0.152",
@@ -1955,6 +1931,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "macos_logger_wrapper"
+version = "0.1.0"
+dependencies = [
+ "cc",
+ "log",
+]
+
+[[package]]
 name = "matchit"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3036,28 +3020,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
-]
-
-[[package]]
-name = "rmp"
-version = "0.8.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "44519172358fd6d58656c86ab8e7fbc9e1490c3e8f14d35ed78ca0dd07403c9f"
-dependencies = [
- "byteorder",
- "num-traits 0.2.15",
- "paste",
-]
-
-[[package]]
-name = "rmp-serde"
-version = "0.15.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "723ecff9ad04f4ad92fe1c8ca6c20d2196d9286e9c60727c4cb5511629260e9d"
-dependencies = [
- "byteorder",
- "rmp",
- "serde 1.0.152",
 ]
 
 [[package]]

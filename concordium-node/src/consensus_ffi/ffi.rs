@@ -492,6 +492,7 @@ extern "C" {
         consensus: *mut consensus_runner,
         block_hash: *const c_char,
         context: *const c_char,
+        invoke_max_energy: u64,
     ) -> *const c_char;
     pub fn getRewardStatus(
         consensus: *mut consensus_runner,
@@ -1712,13 +1713,19 @@ impl ConsensusContainer {
         )))
     }
 
-    pub fn invoke_contract(&self, block_hash: &str, context: &str) -> anyhow::Result<String> {
+    pub fn invoke_contract(
+        &self,
+        block_hash: &str,
+        context: &str,
+        invoke_max_energy: u64,
+    ) -> anyhow::Result<String> {
         let block_hash = CString::new(block_hash)?;
         let context = CString::new(context)?;
         Ok(wrap_c_call_string!(self, consensus, |consensus| invokeContract(
             consensus,
             block_hash.as_ptr(),
-            context.as_ptr()
+            context.as_ptr(),
+            invoke_max_energy
         )))
     }
 

@@ -1,7 +1,7 @@
 // Parameters:
 // - VERSION
 // - UBUNTU_VERSION (default: "20.04")
-// - GHC_VERSION (default: "9.2.5")
+// - GHC_VERSION (default: "9.2.7")
 
 pipeline {
     agent any

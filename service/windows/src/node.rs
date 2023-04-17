@@ -15,7 +15,7 @@ use toml::Value;
 use winapi::um::winbase::CREATE_NEW_PROCESS_GROUP;
 
 /// Default RPC port
-const DEFAULT_RPC_PORT: u16 = 10000;
+const DEFAULT_GRPC2_PORT: u16 = 20000;
 
 /// Configuration for logging to a rollable log file.
 pub struct LogFileConfig {
@@ -162,13 +162,13 @@ impl NodeConfig {
                     format!(
                         "http://{}:{}",
                         collector_rpc_ip,
-                        self.rpc_port.unwrap_or(DEFAULT_RPC_PORT)
+                        self.grpc2_port.unwrap_or(DEFAULT_GRPC2_PORT)
                     )
                 } else {
                     format!(
                         "http://[{}]:{}",
                         collector_rpc_ip,
-                        self.rpc_port.unwrap_or(DEFAULT_RPC_PORT)
+                        self.grpc2_port.unwrap_or(DEFAULT_GRPC2_PORT)
                     )
                 },
             );
@@ -185,7 +185,7 @@ impl NodeConfig {
 
             if let Some(auth_token) = &self.rpc_token {
                 collector_cmd
-                    .env("CONCORDIUM_NODE_COLLECTOR_GRPC_AUTHENTICATION_TOKEN", &auth_token);
+                    .env("CONCORDIUM_NODE_COLLECTOR_GRPC_AUTHENTICATION_TOKEN", auth_token);
             }
 
             collector_cmd.args(&self.collector_args);
@@ -238,7 +238,7 @@ impl NodeConfig {
             .map(|rpcport| cmd.env("CONCORDIUM_NODE_GRPC2_LISTEN_PORT", rpcport.to_string()));
         self.rpc_token
             .as_ref()
-            .map(|rpctoken| cmd.env("CONCORDIUM_NODE_RPC_SERVER_TOKEN", &rpctoken));
+            .map(|rpctoken| cmd.env("CONCORDIUM_NODE_RPC_SERVER_TOKEN", rpctoken));
         if Some(false) == self.rpc_enabled {
             cmd.env("CONCORDIUM_NODE_DISABLE_RPC_SERVER", "true");
         }
@@ -307,7 +307,7 @@ fn make_log_config_file(
             Ok(Some(lc_path))
         }
         LoggerConfig::Config(log_config_file) => {
-            cmd.env("CONCORDIUM_NODE_LOG_CONFIG", &log_config_file);
+            cmd.env("CONCORDIUM_NODE_LOG_CONFIG", log_config_file);
             Ok(None)
         }
         LoggerConfig::File(log_config) => {

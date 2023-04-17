@@ -587,7 +587,11 @@ impl Connection {
         self.remote_end_networks.extend(networks.iter());
 
         if self.remote_peer.peer_type != PeerType::Bootstrapper {
-            write_or_die!(self.handler.buckets()).insert_into_bucket(peer, networks.to_owned());
+            write_or_die!(self.handler.buckets()).insert_into_bucket(
+                peer,
+                networks.to_owned(),
+                &self.handler.stats.peer_bucket_size,
+            );
         }
     }
 

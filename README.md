@@ -5,7 +5,7 @@
 - ![Build and test](https://github.com/Concordium/concordium-node/actions/workflows/build-test.yaml/badge.svg)
 
 This repository contains the implementation of the concordium p2p node with its
-dependencies. It is split into two parts
+dependencies and auxiliaries. The node is split into two parts
 
 - [concordium-consensus](./concordium-consensus/)
   is a Haskell package that contains the implementation of the consensus with
@@ -19,6 +19,20 @@ dependencies. It is split into two parts
   [concordium-consensus](./concordium-consensus/) as a package, either linked
   dynamically or statically, depending on the build configuration. The main
   feature added by the [concordium-node](./concordium-node/) is the network layer.
+
+The auxiliary packages are the
+- [collector](./collector) The collector is a service that queries the node for
+  some information and publishes data to the `collector-backend`. The collector
+  runs alongside the node.
+- [collector-backend](./collector-backend) The collector backend listens for
+  data from the collectors and serves a summary of it. This component is used by
+  the
+  [concordium-network-dashboard](https://github.com/Concordium/concordium-network-dashboard)
+  to display the network overview.
+- [macos_logger_wrapper](./macos_logger_wrapper/) provides an interface to the
+  macOS logging interface using `os_log_create`. This is used by both the node
+  and the collector so that the mac distribution package logs to the system
+  logging service.
 
 ## Submodules
 
@@ -89,7 +103,7 @@ issues.
 
 ## Rust workflow
 
-We use **stable version** of rust, 1.62, to compile the code.
+We use **stable version** of rust, 1.68, to compile the code.
 
 The CI is configured to check two things
 - the [clippy](https://github.com/rust-lang/rust-clippy) tool is run to check

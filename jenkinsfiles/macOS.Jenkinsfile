@@ -15,6 +15,19 @@ pipeline {
         OUTFILE = "s3://distribution.concordium.software/macos/concordium-node-${TAG}.pkg"
     }
     stages {
+        stage('Precheck') {
+            steps {
+                // Fail the job if the OUTFILE already exists in S3.
+                sh '''\
+                    # Fail if file already exists
+                    totalFoundObjects=$(aws s3 ls "$OUTFILE" --summarize | grep "Total Objects: " | sed "s/[^0-9]*//g")
+                    if [ "$totalFoundObjects" -ne "0" ]; then
+                        echo "$OUTFILE already exists"
+                        false
+                    fi
+                '''.stripIndent()
+            }
+        }
         stage('Build') {
             agent { label 'mac' }
             steps {
