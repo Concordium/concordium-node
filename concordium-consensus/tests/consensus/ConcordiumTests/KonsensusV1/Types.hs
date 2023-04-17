@@ -184,9 +184,9 @@ genLeadershipElectionNonce = Hash.Hash . FBS.pack <$> vector 32
 -- |Generate a 'PersistentRoundStatus' suitable for testing serialization.
 genPersistentRoundStatus :: Gen PersistentRoundStatus
 genPersistentRoundStatus = do
-    _rsLastSignedQuorumMessage <- oneof [Present <$> genQuorumMessage, return Absent]
-    _rsLastSignedTimeoutMessage <- oneof [Present <$> genTimeoutMessage, return Absent]
-    _rsLastBakedRound <- genRound
+    _prsLastSignedQuorumMessage <- oneof [Present <$> genQuorumMessage, return Absent]
+    _prsLastSignedTimeoutMessage <- oneof [Present <$> genTimeoutMessage, return Absent]
+    _prsLastBakedRound <- genRound
     return PersistentRoundStatus{..}
 
 -- |Generate an arbitrary vrf key pair.

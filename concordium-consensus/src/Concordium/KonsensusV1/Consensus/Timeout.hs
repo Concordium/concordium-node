@@ -381,7 +381,7 @@ uponTimeoutEvent = do
                     }
         let timeoutMessage = signTimeoutMessage timeoutMessageBody genesisHash bakerSignKey
         updatePersistentRoundStatus $
-            rsLastSignedTimeoutMessage .~ Present timeoutMessage
+            prsLastSignedTimeoutMessage .~ Present timeoutMessage
         sendTimeoutMessage timeoutMessage
         processTimeout timeoutMessage
 
