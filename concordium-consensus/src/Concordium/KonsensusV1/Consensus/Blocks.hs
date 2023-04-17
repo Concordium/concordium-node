@@ -18,7 +18,6 @@ import Data.Ord
 import Data.Time
 import Lens.Micro.Platform
 
-import qualified Concordium.Crypto.BlockSignature as Sig
 import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.Types
@@ -1080,7 +1079,7 @@ validateBlock blockHash BakerIdentity{..} finInfo = do
         curEpoch <- use currentEpoch
         when
             ( blockRound block == curRound
-                && rsNextSignableRound persistentRS <= blockRound block
+                && prsNextSignableRound persistentRS <= blockRound block
                 && blockEpoch block == curEpoch
             )
             $ do
@@ -1098,7 +1097,7 @@ validateBlock blockHash BakerIdentity{..} finInfo = do
                 let quorumMessage = buildQuorumMessage qsm quorumSignature finIndex
                 setPersistentRoundStatus $!
                     persistentRS
-                        { _rsLastSignedQuorumMessage = Present quorumMessage
+                        { _prsLastSignedQuorumMessage = Present quorumMessage
                         }
                 sendQuorumMessage quorumMessage
                 processQuorumMessage $
@@ -1128,7 +1127,7 @@ prepareBakeBlockInputs = runMaybeT $ do
     -- highest QC.
     let bbiRound = rs ^. rsCurrentRound
     -- Check that we haven't baked for this or a more recent round.
-    guard (bbiRound > sd ^. persistentRoundStatus . rsLastBakedRound)
+    guard (bbiRound > sd ^. persistentRoundStatus . prsLastBakedRound)
     -- Terminate if we do not have baker credentials.
     bbiBakerIdentity@BakerIdentity{..} <- MaybeT (view Consensus.bakerIdentity)
     -- Determine the parent block and its quorum certificate, as well as the timeout certificate if
@@ -1240,7 +1239,7 @@ bakeBlock BakeBlockInputs{..} = do
                         }
             genesisHash <- use currentGenesisHash
             let signedBlock = signBlock (bakerSignKey bbiBakerIdentity) genesisHash bakedBlock
-            updatePersistentRoundStatus $ rsLastBakedRound .~ bbiRound
+            updatePersistentRoundStatus $ prsLastBakedRound .~ bbiRound
             now <- currentTime
             let nominalTime = timestampToUTCTime bbTimestamp
             statistics %=! updateStatsOnReceive nominalTime now

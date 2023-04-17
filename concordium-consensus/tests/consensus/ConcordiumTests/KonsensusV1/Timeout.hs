@@ -118,10 +118,10 @@ dummyTimeoutMessage fid e =
 testUponTimeoutEvent :: Assertion
 testUponTimeoutEvent = do
     runTestMonad baker testTime genesisData $ do
-        lastSigned <- use $ roundStatus . rsLastSignedTimeoutMessage
+        lastSigned <- use $ persistentRoundStatus . prsLastSignedTimeoutMessage
         liftIO $ assertEqual "last signed timeout message should be absent" Absent lastSigned
         (_, events) <- listen uponTimeoutEvent
-        lastSigned2 <- use $ roundStatus . rsLastSignedTimeoutMessage
+        lastSigned2 <- use $ persistentRoundStatus . prsLastSignedTimeoutMessage
         liftIO $
             assertEqual
                 "last signed timeout message should be present and correct"
@@ -197,7 +197,7 @@ testProcessTimeout = do
                 1
                 currentRound2
 
-        previousRoundTC <- use $ roundStatus . rsPreviousRoundTC
+        previousRoundTC <- use $ roundStatus . rsPreviousRoundTimeout
         liftIO $
             assertEqual
                 "Previous round TC should be absent since no TC has been formed yet"
@@ -222,10 +222,10 @@ testProcessTimeout = do
                 2
                 currentRound3
 
-        previousRoundTC2 <- use $ roundStatus . rsPreviousRoundTC
+        previousRoundTC2 <- use $ roundStatus . rsPreviousRoundTimeout
         case previousRoundTC2 of
             Absent -> liftIO $ assertFailure "TC should be present due to advanced round"
-            Present (tc, _) -> do
+            Present (RoundTimeout tc _) -> do
                 finComm <- use $ skovEpochBakers . currentEpochBakers . bfFinalizers
                 liftIO $
                     assertBool "TC should be valid" $
@@ -358,7 +358,7 @@ testReceiveTimeoutMessage = describe "Receive timeout message" $ do
     it "received a valid timeout message" $
         receiveAndCheck sd validTimeoutMessage $
             Received $
-                PartiallyVerifiedTimeoutMessage validTimeoutMessage finalizers
+                PartiallyVerifiedTimeoutMessage validTimeoutMessage finalizers True Absent
   where
     -- A valid timeout message that should pass the initial verification.
     validTimeoutMessage = mkTimeoutMessage $! mkTimeoutMessageBody 2 2 0 $ someQC (Round 1) 0
@@ -489,6 +489,9 @@ testReceiveTimeoutMessage = describe "Receive timeout message" $ do
         resultCode <- runTestLLDB lldb $ receiveTimeoutMessage tm skovData
         resultCode `shouldBe` expect
 
+-- |Tests for executing timeout messages.
+-- The @executeTimeoutMessage@ executes a 'TimeoutMessage' which is partially verified
+-- by @receiveTimeoutMessage@.
 testExecuteTimeoutMessages :: Spec
 testExecuteTimeoutMessages = describe "execute timeout messages" $ do
     it "rejects message with invalid qc signature (qc round is better than recorded highest qc)" $ execute invalidQCTimeoutMessage $ InvalidQC $ someInvalidQC 2 0
@@ -507,7 +510,11 @@ testExecuteTimeoutMessages = describe "execute timeout messages" $ do
     -- - a qc for round 1 epoch 0 has been checked (witnessed)
     execute timeoutMessage expect = runTestMonad @'P6 noBaker time myGenesisData $ do
         -- Set the highest qc to round 1 epoch 0.
-        roundStatus . rsHighestQC .= someQC (Round 1) 0
+        roundStatus . rsHighestCertifiedBlock
+            .= CertifiedBlock
+                { cbQuorumCertificate = someQC (Round 1) 0,
+                  cbQuorumBlock = undefined
+                }
         -- Set the current round to round 2.
         roundStatus . rsCurrentRound .= Round 2
         -- Insert the witness for an already received qc for round 2 with epoch 0
@@ -521,17 +528,17 @@ testExecuteTimeoutMessages = describe "execute timeout messages" $ do
     fi :: Word32 -> FinalizerInfo
     fi fIdx = FinalizerInfo (FinalizerIndex fIdx) 1 sigPublicKey (VRF.publicKey someVRFKeyPair) (Bls.derivePublicKey $ blsSk fIdx) (BakerId $ AccountIndex $ fromIntegral fIdx)
     -- round is already checked
-    oldRoundValidTimeoutMessage = PartiallyVerifiedTimeoutMessage (validTimeoutMessage 1 1 0) finalizers
+    oldRoundValidTimeoutMessage = PartiallyVerifiedTimeoutMessage (validTimeoutMessage 1 1 0) finalizers True Absent
     -- qc for an old round but different epoch.
-    oldRoundDifferentEpoch = PartiallyVerifiedTimeoutMessage (validTimeoutMessage 2 1 1) finalizers
+    oldRoundDifferentEpoch = PartiallyVerifiedTimeoutMessage (validTimeoutMessage 2 1 1) finalizers True Absent
     -- a valid timeout message pointing to an "old qc" (round 1 epoch 0).
-    oldValidQCTimeoutMessage = PartiallyVerifiedTimeoutMessage (validTimeoutMessage 3 0 0) finalizers
+    oldValidQCTimeoutMessage = PartiallyVerifiedTimeoutMessage (validTimeoutMessage 3 0 0) finalizers True Absent
     -- a new valid timeout message for round 3 with a valid qc for round 2 (epoch 0).
-    newValidQCTimeoutMessage = PartiallyVerifiedTimeoutMessage (validTimeoutMessage 3 2 0) finalizers
+    newValidQCTimeoutMessage = PartiallyVerifiedTimeoutMessage (validTimeoutMessage 3 2 0) finalizers True Absent
     -- a timeout message where the qc signature does not check out.
-    invalidQCTimeoutMessage = PartiallyVerifiedTimeoutMessage (mkTimeoutMessage $! mkTimeoutMessageBody 2 2 0 (someInvalidQC 2 0)) finalizers
+    invalidQCTimeoutMessage = PartiallyVerifiedTimeoutMessage (mkTimeoutMessage $! mkTimeoutMessageBody 2 2 0 (someInvalidQC 2 0)) finalizers True Absent
     -- wrong epoch
-    wrongEpochMessage = PartiallyVerifiedTimeoutMessage (mkTimeoutMessage $! mkTimeoutMessageBody 2 0 0 (someInvalidQC 0 0)) finalizers
+    wrongEpochMessage = PartiallyVerifiedTimeoutMessage (mkTimeoutMessage $! mkTimeoutMessageBody 2 0 0 (someInvalidQC 0 0)) finalizers True Absent
     -- the finalization committee.
     finalizers = FinalizationCommittee (Vec.fromList [fi 0, fi 1, fi 2]) 3
     -- the time that we run our test computation with respect to.

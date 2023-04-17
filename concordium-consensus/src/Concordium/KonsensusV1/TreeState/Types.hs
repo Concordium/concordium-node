@@ -218,13 +218,13 @@ data RecentBlockStatus pv
 data PersistentRoundStatus = PersistentRoundStatus
     { -- |If the consensus runner is part of the finalization committee,
       -- then this will yield the last signed 'QuorumMessage'
-      _rsLastSignedQuorumMessage :: !(Option QuorumMessage),
+      _prsLastSignedQuorumMessage :: !(Option QuorumMessage),
       -- |If the consensus runner is part of the finalization committee,
       -- then this will yield the last signed timeout message.
-      _rsLastSignedTimeoutMessage :: !(Option TimeoutMessage),
+      _prsLastSignedTimeoutMessage :: !(Option TimeoutMessage),
       -- |The round number of the last round for which we baked a block, or 0 if we have never
       -- baked a block.
-      _rsLastBakedRound :: !Round
+      _prsLastBakedRound :: !Round
     }
     deriving (Eq, Show)
 
@@ -232,35 +232,35 @@ makeLenses ''PersistentRoundStatus
 
 instance Serialize PersistentRoundStatus where
     put PersistentRoundStatus{..} = do
-        put _rsLastSignedQuorumMessage
-        put _rsLastSignedTimeoutMessage
-        put _rsLastBakedRound
+        put _prsLastSignedQuorumMessage
+        put _prsLastSignedTimeoutMessage
+        put _prsLastBakedRound
     get = do
-        _rsLastSignedQuorumMessage <- get
-        _rsLastSignedTimeoutMessage <- get
-        _rsLastBakedRound <- get
+        _prsLastSignedQuorumMessage <- get
+        _prsLastSignedTimeoutMessage <- get
+        _prsLastBakedRound <- get
         return PersistentRoundStatus{..}
 
 -- |The 'PersistentRoundStatus' at genesis.
 initialPersistentRoundStatus :: PersistentRoundStatus
 initialPersistentRoundStatus =
     PersistentRoundStatus
-        { _rsLastSignedQuorumMessage = Absent,
-          _rsLastSignedTimeoutMessage = Absent,
-          _rsLastBakedRound = 0
+        { _prsLastSignedQuorumMessage = Absent,
+          _prsLastSignedTimeoutMessage = Absent,
+          _prsLastBakedRound = 0
         }
 
 -- |The last signed round (according to a given 'RoundStatus') for which we have produced a
 -- quorum or timeout signature message.
-rsLastSignedRound :: PersistentRoundStatus -> Round
-rsLastSignedRound PersistentRoundStatus{..} =
+prsLastSignedRound :: PersistentRoundStatus -> Round
+prsLastSignedRound PersistentRoundStatus{..} =
     max
-        (ofOption 0 qmRound _rsLastSignedQuorumMessage)
-        (ofOption 0 (tmRound . tmBody) _rsLastSignedTimeoutMessage)
+        (ofOption 0 qmRound _prsLastSignedQuorumMessage)
+        (ofOption 0 (tmRound . tmBody) _prsLastSignedTimeoutMessage)
 
 -- |The next signable round is the round after the latest round for which we have
-rsNextSignableRound :: PersistentRoundStatus -> Round
-rsNextSignableRound = (1 +) . rsLastSignedRound
+prsNextSignableRound :: PersistentRoundStatus -> Round
+prsNextSignableRound = (1 +) . prsLastSignedRound
 
 -- |A valid quorum certificate together with the block that is certified.
 --

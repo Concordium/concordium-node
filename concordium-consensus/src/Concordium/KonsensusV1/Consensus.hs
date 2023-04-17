@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -17,13 +18,13 @@ import Concordium.Types.BakerIdentity
 import Concordium.Types.Parameters hiding (getChainParameters)
 import Concordium.Utils
 
+import qualified Concordium.Crypto.BlockSignature as Sig
 import Concordium.GlobalState.BakerInfo
 import Concordium.KonsensusV1.TreeState.Implementation
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
-import qualified Concordium.Crypto.BlockSignature as Sig
-import Control.Monad.Reader.Class
 import Concordium.Logger
+import Control.Monad.Reader.Class
 
 -- |A Monad for multicasting timeout messages.
 class MonadMulticast m where
@@ -194,15 +195,15 @@ computeBakersAndFinalizers bakers fcp =
 -- |Get the baker identity and finalizer info if we are a finalizer in the specified epoch.
 -- This checks that the signing key and aggregate signing key match those for the finalizer,
 -- and will log a warning if they do not (instead of invoking the continuation).
-withFinalizerForEpoch :: 
-     ( MonadReader r m,
+withFinalizerForEpoch ::
+    ( MonadReader r m,
       HasBakerContext r,
       MonadState (SkovData (MPV m)) m,
       MonadLogger m
     ) =>
-    Epoch 
-    -> (BakerIdentity -> FinalizerInfo -> m ())
-    -> m ()
+    Epoch ->
+    (BakerIdentity -> FinalizerInfo -> m ()) ->
+    m ()
 withFinalizerForEpoch epoch cont = do
     mBakerIdentity <- view bakerIdentity
     forM_ mBakerIdentity $ \bakerIdent@BakerIdentity{..} -> do

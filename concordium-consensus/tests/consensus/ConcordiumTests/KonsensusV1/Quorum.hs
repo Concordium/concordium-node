@@ -10,13 +10,14 @@ import Data.Maybe (fromJust, isJust)
 import qualified Data.Set as Set
 import qualified Data.Vector as Vec
 import Lens.Micro.Platform
-import System.IO.Unsafe
+import System.Random
 import Test.HUnit hiding (State)
 import Test.Hspec
 import Test.QuickCheck
 
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.BlsSignature as Bls
+import qualified Concordium.Crypto.DummyData as Dummy
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.GlobalState.BakerInfo
@@ -44,6 +45,25 @@ genQuorumMessageFor bh = do
     qmEpoch <- genEpoch
     return QuorumMessage{qmBlock = bh, ..}
 
+-- |A 'BlockPointer' which refers to a block with no meaningful state.
+someBlockPointer :: Round -> Epoch -> BlockPointer 'P6
+someBlockPointer r e =
+    BlockPointer
+        { bpInfo =
+            BlockMetadata
+                { bmHeight = 0,
+                  bmReceiveTime = timestampToUTCTime 0,
+                  bmArriveTime = timestampToUTCTime 0
+                },
+          bpBlock = NormalBlock $ SignedBlock bakedBlock (BlockHash $ Hash.hash "my block hash") (Sig.sign sigKeyPair "foo"),
+          bpState = dummyBlockState
+        }
+  where
+    -- A key pair used for signing the block that the quorum certificate refers to.
+    sigKeyPair = fst $ Dummy.randomBlockKeyPair $ mkStdGen 42
+    -- A dummy block pointer with no meaningful state.
+    bakedBlock = BakedBlock r e 0 0 (dummyQuorumCertificate $ BlockHash minBound) Absent Absent dummyBlockNonce Vec.empty emptyTransactionOutcomesHashV1 (StateHashV0 $ Hash.hash "empty state hash")
+
 -- |Test for ensuring that when a
 -- new 'QuorumMessage' is added to the 'QuorumMessages' type,
 -- then the weight is being accummulated and signatures are aggregated.
@@ -53,7 +73,7 @@ propAddQuorumMessage =
         forAll (genQuorumMessageFor (qmBlock qm0)) $ \qm1 ->
             (qm0 /= qm1) ==>
                 forAll genFinalizerWeight $ \weight -> do
-                    let verifiedQuorumMessage0 = VerifiedQuorumMessage qm0 weight
+                    let verifiedQuorumMessage0 = VerifiedQuorumMessage qm0 weight $! someBlockPointer 0 0
                         qsm' = addQuorumMessage verifiedQuorumMessage0 emptyQuorumMessages
                     assertEqual
                         "The quorum message should have been added"
@@ -66,7 +86,7 @@ propAddQuorumMessage =
                         "The finalizer weight, signature and finalizer index should be present"
                         (weight, qmSignature qm0, Set.singleton $ qmFinalizerIndex qm0)
                         (fromJust $! qsm' ^? smBlockToWeightsAndSignatures . ix (qmBlock qm0))
-                    let verifiedQuorumMessage1 = VerifiedQuorumMessage qm1 weight
+                    let verifiedQuorumMessage1 = VerifiedQuorumMessage qm1 weight $! someBlockPointer 0 0
                         qsm'' = addQuorumMessage verifiedQuorumMessage1 qsm'
                     assertEqual
                         "The quorum message should have been added"
@@ -103,7 +123,8 @@ testMakeQuorumCertificate = describe "Quorum Certificate creation" $ do
     fi fIdx = FinalizerInfo (FinalizerIndex fIdx) 1 sigPublicKey vrfPublicKey blsPublicKey (BakerId $ AccountIndex (fromIntegral fIdx))
     blsPublicKey = Bls.derivePublicKey someBlsSecretKey
     vrfPublicKey = VRF.publicKey someVRFKeyPair
-    sigPublicKey = Sig.verifyKey $ unsafePerformIO Sig.newKeyPair
+    sigKeyPair = fst $ Dummy.randomBlockKeyPair $ mkStdGen 42
+    sigPublicKey = Sig.verifyKey sigKeyPair
     bfs =
         BakersAndFinalizers
             { _bfBakers = FullBakers Vec.empty 0,
@@ -124,7 +145,7 @@ testMakeQuorumCertificate = describe "Quorum Certificate creation" $ do
         dummyInitialSkovData
             & skovEpochBakers .~ EpochBakers bfs bfs bfs 1
     bh = BlockHash minBound
-    verifiedQuorumMessage finalizerIndex = VerifiedQuorumMessage (quorumMessage finalizerIndex)
+    verifiedQuorumMessage finalizerIndex weight = VerifiedQuorumMessage (quorumMessage finalizerIndex) weight $ someBlockPointer 0 0
     quorumMessage finalizerIndex = QuorumMessage emptyQuorumSignature bh (FinalizerIndex finalizerIndex) 0 0
     emptyQuorumSignature = QuorumSignature Bls.emptySignature
 
@@ -143,7 +164,7 @@ testReceiveQuorumMessage = describe "Receive quorum message" $ do
     it "invalid block | dead" $ receiveAndCheck sd deadBlockMessage $ Rejected InvalidBlock
     it "round inconsistency" $ receiveAndCheck (sd' 0 1) inconsistentRoundsMessage $ Rejected InconsistentRounds
     it "epoch inconsistency" $ receiveAndCheck (sd' 1 1) inconsistentEpochsMessage $ Rejected InconsistentEpochs
-    it "receives" $ receiveAndCheck (sd' 1 1) verifiableMessage $ Received $ VerifiedQuorumMessage verifiableMessage 1
+    it "receives" $ receiveAndCheck (sd' 1 1) verifiableMessage $ Received $ VerifiedQuorumMessage verifiableMessage 1 $ someBlockPointer 0 0
   where
     bh = BlockHash minBound
     emptyQuorumSignature = QuorumSignature Bls.emptySignature
@@ -178,7 +199,8 @@ testReceiveQuorumMessage = describe "Receive quorum message" $ do
     fi fIdx = FinalizerInfo (FinalizerIndex fIdx) 1 sigPublicKey vrfPublicKey blsPublicKey (BakerId $ AccountIndex (fromIntegral fIdx))
     blsPublicKey = Bls.derivePublicKey someBlsSecretKey
     vrfPublicKey = VRF.publicKey someVRFKeyPair
-    sigPublicKey = Sig.verifyKey $ unsafePerformIO Sig.newKeyPair
+    sigKeyPair = fst $ Dummy.randomBlockKeyPair $ mkStdGen 42
+    sigPublicKey = Sig.verifyKey $ sigKeyPair
     bakersAndFinalizers = BakersAndFinalizers (FullBakers Vec.empty 0) (FinalizationCommittee (Vec.fromList [fi 1, fi 2, fi 3]) 3)
     -- A skov data where
     -- - the current round and epoch is set to 1 (next payday is at epoch 2).
@@ -197,7 +219,7 @@ testReceiveQuorumMessage = describe "Receive quorum message" $ do
                       bmReceiveTime = timestampToUTCTime 0,
                       bmArriveTime = timestampToUTCTime 0
                     },
-              bpBlock = NormalBlock $ SignedBlock (bakedBlock r e) liveBlock (Sig.sign (unsafePerformIO Sig.newKeyPair) "foo"),
+              bpBlock = NormalBlock $ SignedBlock (bakedBlock r e) liveBlock (Sig.sign sigKeyPair "foo"),
               bpState = dummyBlockState
             }
     -- the round and epoch here is for making it easier to trigger the various cases
@@ -212,7 +234,7 @@ testReceiveQuorumMessage = describe "Receive quorum message" $ do
             & skovEpochBakers . currentEpochBakers .~ bakersAndFinalizers
             & skovEpochBakers . previousEpochBakers .~ bakersAndFinalizers
             & skovEpochBakers . nextPayday .~ 2
-            & currentQuorumMessages %~ addQuorumMessage (VerifiedQuorumMessage duplicateMessage 1)
+            & currentQuorumMessages %~ addQuorumMessage (VerifiedQuorumMessage duplicateMessage 1 $ someBlockPointer (Round r) e)
             & blockTable . deadBlocks %~ insertDeadCache deadBlock
             & skovPendingTransactions . focusBlock .~ liveBlockPointer (Round r) e
     -- Run the 'receiveQuorumMessage' action.
