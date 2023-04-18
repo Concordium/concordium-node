@@ -29,6 +29,7 @@ import Concordium.Types
 import Concordium.Types.Transactions
 
 import Concordium.KonsensusV1.TreeState.Implementation
+import ConcordiumTests.KonsensusV1.Common
 import ConcordiumTests.KonsensusV1.TreeStateTest
 import ConcordiumTests.KonsensusV1.Types
 
@@ -44,31 +45,6 @@ genQuorumMessageFor bh = do
     qmRound <- genRound
     qmEpoch <- genEpoch
     return QuorumMessage{qmBlock = bh, ..}
-
-myBlockHash :: BlockHash
-myBlockHash = BlockHash $ Hash.hash "my block hash"
-
--- |A 'BlockPointer' which refers to a block with no meaningful state.
-someBlockPointer :: BlockHash -> Round -> Epoch -> BlockPointer 'P6
-someBlockPointer bh r e =
-    BlockPointer
-        { bpInfo =
-            BlockMetadata
-                { bmHeight = 0,
-                  bmReceiveTime = timestampToUTCTime 0,
-                  bmArriveTime = timestampToUTCTime 0
-                },
-          bpBlock = NormalBlock $ SignedBlock bakedBlock bh (Sig.sign sigKeyPair "foo"),
-          bpState = dummyBlockState
-        }
-  where
-    -- A key pair used for signing the block that the quorum certificate refers to.
-    sigKeyPair = fst $ Dummy.randomBlockKeyPair $ mkStdGen 42
-    -- A dummy block pointer with no meaningful state.
-    bakedBlock = BakedBlock r e 0 0 (dummyQuorumCertificate $ BlockHash minBound) Absent Absent dummyBlockNonce Vec.empty emptyTransactionOutcomesHashV1 (StateHashV0 $ Hash.hash "empty state hash")
-
-myBlockPointer :: Round -> Epoch -> BlockPointer 'P6
-myBlockPointer = someBlockPointer myBlockHash
 
 -- |Test for ensuring that when a
 -- new 'QuorumMessage' is added to the 'QuorumMessages' type,
@@ -129,7 +105,6 @@ testMakeQuorumCertificate = describe "Quorum Certificate creation" $ do
     fi fIdx = FinalizerInfo (FinalizerIndex fIdx) 1 sigPublicKey vrfPublicKey blsPublicKey (BakerId $ AccountIndex (fromIntegral fIdx))
     blsPublicKey = Bls.derivePublicKey someBlsSecretKey
     vrfPublicKey = VRF.publicKey someVRFKeyPair
-    sigKeyPair = fst $ Dummy.randomBlockKeyPair $ mkStdGen 42
     sigPublicKey = Sig.verifyKey sigKeyPair
     bfs =
         BakersAndFinalizers
@@ -205,7 +180,6 @@ testReceiveQuorumMessage = describe "Receive quorum message" $ do
     fi fIdx = FinalizerInfo (FinalizerIndex fIdx) 1 sigPublicKey vrfPublicKey blsPublicKey (BakerId $ AccountIndex (fromIntegral fIdx))
     blsPublicKey = Bls.derivePublicKey someBlsSecretKey
     vrfPublicKey = VRF.publicKey someVRFKeyPair
-    sigKeyPair = fst $ Dummy.randomBlockKeyPair $ mkStdGen 42
     sigPublicKey = Sig.verifyKey $ sigKeyPair
     bakersAndFinalizers = BakersAndFinalizers (FullBakers Vec.empty 0) (FinalizationCommittee (Vec.fromList [fi 1, fi 2, fi 3]) 3)
     -- A skov data where

@@ -54,8 +54,6 @@ data ReceiveTimeoutMessageRejectReason
       ObsoleteQCPointer
     | -- |The 'QuorumCertificate' is ponting to a dead block.
       DeadQCPointer
-    | -- |The BLS signature was invalid.
-      InvalidBLSSignature
     | -- |The epoch of the 'QuorumCertificate' does not agree with the epoch of an existing
       -- certificate for that round.
       BadQCEpoch
