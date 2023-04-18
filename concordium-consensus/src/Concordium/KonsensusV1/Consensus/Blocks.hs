@@ -51,6 +51,9 @@ import Concordium.KonsensusV1.Types
 import Concordium.TimerMonad
 import Concordium.Types.BakerIdentity
 
+-- * Logging events
+
+-- |Trace-level log events for block operations.
 data BlockTraceLogEvent
     = LogBlockOld BlockHash
     | LogBlockDuplicate BlockHash
@@ -184,6 +187,7 @@ instance Loggable BlockTraceLogEvent where
             ++ show computed
             ++ ")."
 
+-- |Debug-level log events for block operations.
 data BlockDebugLogEvent
     = LogBlockMultipleSigned BakerId Round
 
@@ -193,6 +197,7 @@ instance Loggable BlockDebugLogEvent where
     loggableMessage (LogBlockMultipleSigned baker rnd) =
         "Baker " ++ show baker ++ " signed multiple blocks in round " ++ show rnd ++ "."
 
+-- |Info-level log events for block operations.
 data BlockInfoLogEvent
     = LogBlockPending BlockHash BlockHash
     | LogBlockReceive BlockHash
@@ -214,6 +219,7 @@ instance Loggable BlockInfoLogEvent where
             ++ show (diffUTCTime arrived received)
             ++ "."
 
+-- |Warn-level log events for block operations.
 data BakerWarnLogEvent
     = LogBakerIncorrectSignKey
     | LogBakerIncorrectElectionKey
@@ -249,6 +255,8 @@ instance BlockData VerifiedBlock where
     blockTransactions = blockTransactions . vbBlock
     blockTransactionCount = blockTransactionCount . vbBlock
     blockStateHash = blockStateHash . vbBlock
+
+-- * Receiving blocks
 
 -- |The result type for 'uponReceivingBlock'.
 data BlockResult
@@ -571,7 +579,7 @@ addBlock pendingBlock blockState parent = do
 -- * The block is signed by a valid baker for its epoch.
 -- * The baker is the leader for the round according to the parent block.
 --
--- TODO: Transaction processing.
+-- TODO: Transaction processing. Issue #699.
 processBlock ::
     ( IsConsensusV1 (MPV m),
       BlockStateStorage m,
@@ -1265,6 +1273,7 @@ prepareBakeBlockInputs = runMaybeT $ do
         empty
     return BakeBlockInputs{..}
 
+-- |Construct a block given 'BakeBlockInputs'.
 bakeBlock ::
     ( MonadState (SkovData (MPV m)) m,
       BlockStateStorage m,
@@ -1325,6 +1334,18 @@ bakeBlock BakeBlockInputs{..} = do
                     bbiParent
             return signedBlock
 
+-- |Try to make a block, distribute it on the network and sign it as a finalizer.
+-- This function should be called after any operation that can advance the current round to
+-- attempt block production. A block will only be produced if we have credentials, are the
+-- winner of the round in the current epoch, and have not already tried to produce a block in the
+-- round.
+--
+-- Note: We will only attempt to bake a block once for a round. It is possible (if unlikely) that
+-- we might enter a round and subsequently advance epoch, while remaining in the same round.
+-- It could be that we did not win the round in the old epoch, but do in the new one. In such a
+-- case, it would be reasonable to produce a block for the round in the new epoch, but we do not.
+-- The circumstances creating this scenario are sufficiently rare that it shouldn't be a problem to
+-- allow the round to time out.
 makeBlock ::
     ( MonadReader r m,
       HasBakerContext r,
