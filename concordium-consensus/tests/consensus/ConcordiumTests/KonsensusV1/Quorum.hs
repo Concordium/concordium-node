@@ -45,9 +45,12 @@ genQuorumMessageFor bh = do
     qmEpoch <- genEpoch
     return QuorumMessage{qmBlock = bh, ..}
 
+myBlockHash :: BlockHash
+myBlockHash = BlockHash $ Hash.hash "my block hash"
+
 -- |A 'BlockPointer' which refers to a block with no meaningful state.
-someBlockPointer :: Round -> Epoch -> BlockPointer 'P6
-someBlockPointer r e =
+someBlockPointer :: BlockHash -> Round -> Epoch -> BlockPointer 'P6
+someBlockPointer bh r e =
     BlockPointer
         { bpInfo =
             BlockMetadata
@@ -55,7 +58,7 @@ someBlockPointer r e =
                   bmReceiveTime = timestampToUTCTime 0,
                   bmArriveTime = timestampToUTCTime 0
                 },
-          bpBlock = NormalBlock $ SignedBlock bakedBlock (BlockHash $ Hash.hash "my block hash") (Sig.sign sigKeyPair "foo"),
+          bpBlock = NormalBlock $ SignedBlock bakedBlock bh (Sig.sign sigKeyPair "foo"),
           bpState = dummyBlockState
         }
   where
@@ -63,6 +66,9 @@ someBlockPointer r e =
     sigKeyPair = fst $ Dummy.randomBlockKeyPair $ mkStdGen 42
     -- A dummy block pointer with no meaningful state.
     bakedBlock = BakedBlock r e 0 0 (dummyQuorumCertificate $ BlockHash minBound) Absent Absent dummyBlockNonce Vec.empty emptyTransactionOutcomesHashV1 (StateHashV0 $ Hash.hash "empty state hash")
+
+myBlockPointer :: Round -> Epoch -> BlockPointer 'P6
+myBlockPointer = someBlockPointer myBlockHash
 
 -- |Test for ensuring that when a
 -- new 'QuorumMessage' is added to the 'QuorumMessages' type,
@@ -73,7 +79,7 @@ propAddQuorumMessage =
         forAll (genQuorumMessageFor (qmBlock qm0)) $ \qm1 ->
             (qm0 /= qm1) ==>
                 forAll genFinalizerWeight $ \weight -> do
-                    let verifiedQuorumMessage0 = VerifiedQuorumMessage qm0 weight $! someBlockPointer 0 0
+                    let verifiedQuorumMessage0 = VerifiedQuorumMessage qm0 weight $! myBlockPointer 0 0
                         qsm' = addQuorumMessage verifiedQuorumMessage0 emptyQuorumMessages
                     assertEqual
                         "The quorum message should have been added"
@@ -86,7 +92,7 @@ propAddQuorumMessage =
                         "The finalizer weight, signature and finalizer index should be present"
                         (weight, qmSignature qm0, Set.singleton $ qmFinalizerIndex qm0)
                         (fromJust $! qsm' ^? smBlockToWeightsAndSignatures . ix (qmBlock qm0))
-                    let verifiedQuorumMessage1 = VerifiedQuorumMessage qm1 weight $! someBlockPointer 0 0
+                    let verifiedQuorumMessage1 = VerifiedQuorumMessage qm1 weight $! myBlockPointer 0 0
                         qsm'' = addQuorumMessage verifiedQuorumMessage1 qsm'
                     assertEqual
                         "The quorum message should have been added"
@@ -145,7 +151,7 @@ testMakeQuorumCertificate = describe "Quorum Certificate creation" $ do
         dummyInitialSkovData
             & skovEpochBakers .~ EpochBakers bfs bfs bfs 1
     bh = BlockHash minBound
-    verifiedQuorumMessage finalizerIndex weight = VerifiedQuorumMessage (quorumMessage finalizerIndex) weight $ someBlockPointer 0 0
+    verifiedQuorumMessage finalizerIndex weight = VerifiedQuorumMessage (quorumMessage finalizerIndex) weight $ myBlockPointer 0 0
     quorumMessage finalizerIndex = QuorumMessage emptyQuorumSignature bh (FinalizerIndex finalizerIndex) 0 0
     emptyQuorumSignature = QuorumSignature Bls.emptySignature
 
@@ -164,7 +170,7 @@ testReceiveQuorumMessage = describe "Receive quorum message" $ do
     it "invalid block | dead" $ receiveAndCheck sd deadBlockMessage $ Rejected InvalidBlock
     it "round inconsistency" $ receiveAndCheck (sd' 0 1) inconsistentRoundsMessage $ Rejected InconsistentRounds
     it "epoch inconsistency" $ receiveAndCheck (sd' 1 1) inconsistentEpochsMessage $ Rejected InconsistentEpochs
-    it "receives" $ receiveAndCheck (sd' 1 1) verifiableMessage $ Received $ VerifiedQuorumMessage verifiableMessage 1 $ someBlockPointer 0 0
+    it "receives" $ receiveAndCheck (sd' 1 1) verifiableMessage $ Received $ VerifiedQuorumMessage verifiableMessage 1 $ liveBlockPointer 1 1
   where
     bh = BlockHash minBound
     emptyQuorumSignature = QuorumSignature Bls.emptySignature
@@ -208,20 +214,9 @@ testReceiveQuorumMessage = describe "Receive quorum message" $ do
     -- - one collected quorum message from the present finalizer index for round 1 and epoch 1.
     deadBlock = BlockHash $ Hash.hash "dead block"
     liveBlock = BlockHash $ Hash.hash "live block"
-    -- A dummy block pointer with no meaningful state.
-    -- It has round and epoch set to 0 for testing round/epoch inconsistencies.
-    bakedBlock r e = BakedBlock r e 0 0 (dummyQuorumCertificate $ BlockHash minBound) Absent Absent dummyBlockNonce Vec.empty emptyTransactionOutcomesHashV1 (StateHashV0 $ Hash.hash "empty state hash")
-    liveBlockPointer r e =
-        BlockPointer
-            { bpInfo =
-                BlockMetadata
-                    { bmHeight = 0,
-                      bmReceiveTime = timestampToUTCTime 0,
-                      bmArriveTime = timestampToUTCTime 0
-                    },
-              bpBlock = NormalBlock $ SignedBlock (bakedBlock r e) liveBlock (Sig.sign sigKeyPair "foo"),
-              bpState = dummyBlockState
-            }
+    finalizedBlock = BlockHash $ Hash.hash "finalized block"
+    finalizedBlockPointer = someBlockPointer finalizedBlock
+    liveBlockPointer = someBlockPointer liveBlock
     -- the round and epoch here is for making it easier to trigger the various cases
     -- with respect to the alive block (i.e. we set the focus block here).
     sd = sd' 1 1
@@ -234,9 +229,10 @@ testReceiveQuorumMessage = describe "Receive quorum message" $ do
             & skovEpochBakers . currentEpochBakers .~ bakersAndFinalizers
             & skovEpochBakers . previousEpochBakers .~ bakersAndFinalizers
             & skovEpochBakers . nextPayday .~ 2
-            & currentQuorumMessages %~ addQuorumMessage (VerifiedQuorumMessage duplicateMessage 1 $ someBlockPointer (Round r) e)
+            & currentQuorumMessages %~ addQuorumMessage (VerifiedQuorumMessage duplicateMessage 1 $ myBlockPointer (Round r) e)
             & blockTable . deadBlocks %~ insertDeadCache deadBlock
             & skovPendingTransactions . focusBlock .~ liveBlockPointer (Round r) e
+            & lastFinalized .~ finalizedBlockPointer (Round 0) 1
     -- Run the 'receiveQuorumMessage' action.
     receiveAndCheck skovData qm expect = do
         resultCode <- runTestLLDB (lldbWithGenesis @'P6) $ receiveQuorumMessage qm skovData
