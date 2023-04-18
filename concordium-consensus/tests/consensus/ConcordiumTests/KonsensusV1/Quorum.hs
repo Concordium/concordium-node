@@ -105,7 +105,6 @@ testMakeQuorumCertificate = describe "Quorum Certificate creation" $ do
     fi fIdx = FinalizerInfo (FinalizerIndex fIdx) 1 sigPublicKey vrfPublicKey blsPublicKey (BakerId $ AccountIndex (fromIntegral fIdx))
     blsPublicKey = Bls.derivePublicKey someBlsSecretKey
     vrfPublicKey = VRF.publicKey someVRFKeyPair
-    sigPublicKey = Sig.verifyKey sigKeyPair
     bfs =
         BakersAndFinalizers
             { _bfBakers = FullBakers Vec.empty 0,
@@ -180,7 +179,6 @@ testReceiveQuorumMessage = describe "Receive quorum message" $ do
     fi fIdx = FinalizerInfo (FinalizerIndex fIdx) 1 sigPublicKey vrfPublicKey blsPublicKey (BakerId $ AccountIndex (fromIntegral fIdx))
     blsPublicKey = Bls.derivePublicKey someBlsSecretKey
     vrfPublicKey = VRF.publicKey someVRFKeyPair
-    sigPublicKey = Sig.verifyKey $ sigKeyPair
     bakersAndFinalizers = BakersAndFinalizers (FullBakers Vec.empty 0) (FinalizationCommittee (Vec.fromList [fi 1, fi 2, fi 3]) 3)
     -- A skov data where
     -- - the current round and epoch is set to 1 (next payday is at epoch 2).

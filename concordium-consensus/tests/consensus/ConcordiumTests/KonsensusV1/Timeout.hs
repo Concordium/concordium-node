@@ -80,9 +80,9 @@ sigThreshold :: Rational
 sigThreshold = 2 % 3
 
 -- |Generate a timeout message signed by the finalizer with the finalizer index @fid@ from
--- 'bakers' above in epoch @e@.
-dummyTimeoutMessage :: Int -> Epoch -> TimeoutMessage
-dummyTimeoutMessage fid e =
+-- 'bakers' above in epoch @e@ with a qc epoch @qce@.
+dummyTimeoutMessage' :: Int -> Epoch -> Epoch -> TimeoutMessage
+dummyTimeoutMessage' fid e qce =
     signTimeoutMessage timeoutMessageBody genesisHash $
         bakerSignKey $
             fst $
@@ -93,7 +93,7 @@ dummyTimeoutMessage fid e =
             { tmFinalizerIndex = FinalizerIndex $ fromIntegral fid,
               tmRound = 1,
               tmEpoch = e,
-              tmQuorumCertificate = genesisQuorumCertificate genesisHash,
+              tmQuorumCertificate = quorumCert,
               tmAggregateSignature = dummyTimeoutSig
             }
     dummyTimeoutSig =
@@ -108,6 +108,12 @@ dummyTimeoutMessage fid e =
               tsmQCRound = 0,
               tsmQCEpoch = 0
             }
+    quorumCert = QuorumCertificate genesisHash 0 qce mempty $ FinalizerSet 0
+
+-- |Generate a timeout message signed by the finalizer index @fid@ from
+-- 'bakers' above in epoch @e@ and qc epoch @e@.
+dummyTimeoutMessage :: Int -> Epoch -> TimeoutMessage
+dummyTimeoutMessage fid e = dummyTimeoutMessage' fid e e
 
 -- |Test the function 'uponTimeoutEvent' using the baker context of the finalizer with index 0 from
 -- @bakers@. This tests the following:
@@ -247,6 +253,10 @@ testUpdateTimeoutMessages =
             assertEqual "Should get stored" (Just messages2) $
                 updateTimeoutMessages (Present messages1) $
                     dummyTimeoutMessage 1 0
+        it "Adding message in first epoch + 1, where the qc is in epoch." $
+            assertEqual "Should get stored" (Just messages3') $
+                updateTimeoutMessages (Present messages1) $
+                    dummyTimeoutMessage' 1 1 0
         it "Adding message in first epoch + 1, where one message is already stored in first epoch." $
             assertEqual "Should get stored" (Just messages3) $
                 updateTimeoutMessages (Present messages1) $
@@ -322,6 +332,12 @@ testUpdateTimeoutMessages =
         TimeoutMessages
             { tmSecondEpochTimeouts = Map.fromList [(FinalizerIndex 1, dummyTimeoutMessage 1 1)],
               tmFirstEpochTimeouts = Map.fromList [(FinalizerIndex 0, dummyTimeoutMessage 0 0), (FinalizerIndex 2, dummyTimeoutMessage 2 0)],
+              tmFirstEpoch = 0
+            }
+    messages3' =
+        TimeoutMessages
+            { tmSecondEpochTimeouts = Map.empty,
+              tmFirstEpochTimeouts = Map.fromList [(FinalizerIndex 0, dummyTimeoutMessage 0 0), (FinalizerIndex 1, dummyTimeoutMessage' 1 1 0)],
               tmFirstEpoch = 0
             }
     messages3 =
