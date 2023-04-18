@@ -494,6 +494,8 @@ testReceiveTimeoutMessage = describe "Receive timeout message" $ do
 -- by @receiveTimeoutMessage@.
 testExecuteTimeoutMessages :: Spec
 testExecuteTimeoutMessages = describe "execute timeout messages" $ do
+    it "rejects message with invalid bls signature" $ execute invalidAggregateSignature InvalidAggregateSignature
+    it "accepts message where there is already checked a valid qc for the round" $ execute validMessageAbsentQCPointer ExecutionSuccess
     it "rejects message with invalid qc signature (qc round is better than recorded highest qc)" $ execute invalidQCTimeoutMessage $ InvalidQC $ someInvalidQC 2 0
     it "accepts message where qc is ok (qc round is better than recorded highest qc)" $ execute newValidQCTimeoutMessage ExecutionSuccess
     it "rejects message with qc round no greater than highest qc and invalic qc" $ execute wrongEpochMessage $ InvalidQC $ someInvalidQC 0 0
@@ -527,18 +529,40 @@ testExecuteTimeoutMessages = describe "execute timeout messages" $ do
     -- Note that all finalizers use the same keys.
     fi :: Word32 -> FinalizerInfo
     fi fIdx = FinalizerInfo (FinalizerIndex fIdx) 1 sigPublicKey (VRF.publicKey someVRFKeyPair) (Bls.derivePublicKey $ blsSk fIdx) (BakerId $ AccountIndex $ fromIntegral fIdx)
+    -- a qc has already been checked for the round and the @pvtmBlock@ is absent
+    validMessageAbsentQCPointer = PartiallyVerifiedTimeoutMessage (validTimeoutMessage 1 1 0) finalizers True Absent
+    -- The bls signature will be rejected.
+    invalidAggregateSignature = PartiallyVerifiedTimeoutMessage (validTimeoutMessage 1 1 0) finalizers False Absent
     -- round is already checked
     oldRoundValidTimeoutMessage = PartiallyVerifiedTimeoutMessage (validTimeoutMessage 1 1 0) finalizers True Absent
     -- qc for an old round but different epoch.
-    oldRoundDifferentEpoch = PartiallyVerifiedTimeoutMessage (validTimeoutMessage 2 1 1) finalizers True Absent
+    oldRoundDifferentEpoch =
+        PartiallyVerifiedTimeoutMessage
+            { pvtmTimeoutMessage = validTimeoutMessage 2 1 1,
+              pvtmQuorumFinalizers = finalizers,
+              pvtmAggregateSignatureValid = True,
+              pvtmBlock = Present $ myBlockPointer 1 0
+            }
     -- a valid timeout message pointing to an "old qc" (round 1 epoch 0).
     oldValidQCTimeoutMessage = PartiallyVerifiedTimeoutMessage (validTimeoutMessage 3 0 0) finalizers True Absent
     -- a new valid timeout message for round 3 with a valid qc for round 2 (epoch 0).
     newValidQCTimeoutMessage = PartiallyVerifiedTimeoutMessage (validTimeoutMessage 3 2 0) finalizers True Absent
     -- a timeout message where the qc signature does not check out.
-    invalidQCTimeoutMessage = PartiallyVerifiedTimeoutMessage (mkTimeoutMessage $! mkTimeoutMessageBody 2 2 0 (someInvalidQC 2 0)) finalizers True Absent
+    invalidQCTimeoutMessage =
+        PartiallyVerifiedTimeoutMessage
+            { pvtmTimeoutMessage = mkTimeoutMessage $! mkTimeoutMessageBody 2 2 0 (someInvalidQC 2 0),
+              pvtmQuorumFinalizers = finalizers,
+              pvtmAggregateSignatureValid = True,
+              pvtmBlock = Present $ myBlockPointer 1 0
+            }
     -- wrong epoch
-    wrongEpochMessage = PartiallyVerifiedTimeoutMessage (mkTimeoutMessage $! mkTimeoutMessageBody 2 0 0 (someInvalidQC 0 0)) finalizers True Absent
+    wrongEpochMessage =
+        PartiallyVerifiedTimeoutMessage
+            { pvtmTimeoutMessage = mkTimeoutMessage $! mkTimeoutMessageBody 2 0 0 (someInvalidQC 0 0),
+              pvtmQuorumFinalizers = finalizers,
+              pvtmAggregateSignatureValid = True,
+              pvtmBlock = Present $ myBlockPointer 1 0
+            }
     -- the finalization committee.
     finalizers = FinalizationCommittee (Vec.fromList [fi 0, fi 1, fi 2]) 3
     -- the time that we run our test computation with respect to.

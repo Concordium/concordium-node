@@ -46,7 +46,7 @@ sigKeyPair' :: Int -> Sig.KeyPair
 sigKeyPair' seed = fst $ Dummy.randomBlockKeyPair $ mkStdGen seed
 
 -- |The public key of the 'sigKeyPair''.
-sigPublicKey' :: Int ->  Sig.VerifyKey
+sigPublicKey' :: Int -> Sig.VerifyKey
 sigPublicKey' seed = Sig.verifyKey $ sigKeyPair' seed
 
 -- |An arbitrary chosen key pair
