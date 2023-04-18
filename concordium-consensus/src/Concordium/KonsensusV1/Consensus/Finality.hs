@@ -312,4 +312,3 @@ purgePending = do
                     when blockIsPending $ blockArriveDead pendingHash
                     purgeLoop
     purgeLoop
-    return ()

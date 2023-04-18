@@ -10,14 +10,11 @@ import Data.Maybe (fromJust, isJust)
 import qualified Data.Set as Set
 import qualified Data.Vector as Vec
 import Lens.Micro.Platform
-import System.Random
 import Test.HUnit hiding (State)
 import Test.Hspec
 import Test.QuickCheck
 
-import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.BlsSignature as Bls
-import qualified Concordium.Crypto.DummyData as Dummy
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.GlobalState.BakerInfo
@@ -26,7 +23,6 @@ import Concordium.KonsensusV1.Consensus.Quorum
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.Types
-import Concordium.Types.Transactions
 
 import Concordium.KonsensusV1.TreeState.Implementation
 import ConcordiumTests.KonsensusV1.Common

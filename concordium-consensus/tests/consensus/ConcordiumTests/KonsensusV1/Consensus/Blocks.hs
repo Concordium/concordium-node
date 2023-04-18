@@ -273,7 +273,7 @@ testBB1E =
   where
     bakerId = 2
 
--- |Valid block for round 2.
+-- |Valid block for round 2. Descends from 'testBB1E'.
 testBB2E :: BakedBlock
 testBB2E =
     BakedBlock
@@ -307,6 +307,8 @@ testEpochLEN = nonceForNewEpoch genesisFullBakers $ upd testBB1E genesisSeedStat
   where
     upd b = updateSeedStateForBlock (bbTimestamp b) (bbNonce b)
 
+-- |Valid block for round 3, epoch 1. Descends from 'testBB2E'. The finalization entry is
+-- 'testEpochFinEntry'.
 testBB3E :: BakedBlock
 testBB3E =
     BakedBlock
@@ -325,6 +327,10 @@ testBB3E =
   where
     bakerId = 5
 
+-- |Invalid block for round 3, epoch 1. Descends from 'testBB1E', with finalization entry
+-- 'testEpochFinEntry'. The block contains a valid timeout certificate for round 2.
+-- The block is not valid, because the highest round in the finalization entry is lower than the
+-- round of the parent block.
 testBB3E' :: BakedBlock
 testBB3E' =
     testBB3E
@@ -332,6 +338,7 @@ testBB3E' =
           bbTimeoutCertificate = Present (validTimeoutFor (validQCFor testBB1E) 2)
         }
 
+-- |Valid block for round 3, epoch 1. Descends from 'testBB3E'.
 testBB4E :: BakedBlock
 testBB4E =
     BakedBlock
@@ -350,6 +357,19 @@ testBB4E =
   where
     bakerId = 1
 
+-- |Valid block for round 4 epoch 1. Descends from 'testBB2E', with finalization entry
+-- 'testEpochFinEntry'. The block contains a valid timeout for round 3.
+testBB4E' :: BakedBlock
+testBB4E' =
+    testBB4E
+        { bbQuorumCertificate = validQCFor testBB2E,
+          bbTimeoutCertificate = Present (validTimeoutFor (validQCFor testBB1E) 3),
+          bbEpochFinalizationEntry = Present testEpochFinEntry,
+          bbStateHash = read "a07d7f1bafe0f8faf23e8a79c24d6964c59682808ea2c738d56a6e082b140b74"
+        }
+
+-- |Valid block for round 5, epoch 1. Descends from 'testBB3E'. The timeout certificate for round
+-- 4 spans epoch 0 and 1.
 testBB5E' :: BakedBlock
 testBB5E' =
     BakedBlock
@@ -801,7 +821,15 @@ testReceiveTCInconsistent1 = runTestMonad noBaker testTime genesisData $ do
 -- timing out.
 testReceiveTimeoutPastEpoch :: Assertion
 testReceiveTimeoutPastEpoch = runTestMonad noBaker testTime genesisData $ do
-    mapM_ (succeedReceiveBlock . signedPB) [testBB1E, testBB3E']
+    mapM_ (succeedReceiveBlock . signedPB) [testBB1E, testBB2E, testBB4E']
+
+-- |Test receiving a block that is the start of a new epoch, but with the previous round
+-- timing out, but where the high QC in the finalization entry is higher than the QC of the parent
+-- block.
+testReceiveTimeoutPastEpochInvalid :: Assertion
+testReceiveTimeoutPastEpochInvalid = runTestMonad noBaker testTime genesisData $ do
+    succeedReceiveBlock $ signedPB testBB1E
+    succeedReceiveBlockFailExecute $ signedPB testBB3E'
 
 -- |Test receiving a block that is the start of a new epoch, but with an epoch finalization entry
 -- for a different branch.
@@ -872,6 +900,7 @@ tests = describe "KonsensusV1.Consensus.Blocks" $ do
         it "receive a block with an unexpected TC" testReceiveTCUnexpected
         it "receive a block with a QC behind the max QC of the TC" testReceiveTCInconsistent1
         it "receive a block with a timeout where the block is in a new epoch" testReceiveTimeoutPastEpoch
+        it "receive a block with an invalid timeout where the block is in a new epoch" testReceiveTimeoutPastEpochInvalid
         it "receive a block with an epoch finalization certificate for a different branch" testReceiveFinalizationBranch
         it "receive a block with a timeout spanning epochs" testReceiveEpochTransitionTimeout
         it "receive a block with an incorrect transaction outcomes hash" testReceiveIncorrectTransactionOutcomesHash
