@@ -63,12 +63,6 @@ class MonadTimeout m where
     -- |Reset the timeout from the supplied 'Duration'.
     resetTimer :: Duration -> m ()
 
--- |Make a block if the consensus runner is leader for the
--- current round.
--- TODO: call 'makeBlock' if we're leader for the current round.
-makeBlockIfLeader :: MonadState (SkovData (MPV m)) m => m ()
-makeBlockIfLeader = return ()
-
 -- |Reset the timeout timer, and clear the collected quorum and timeout messages for the current
 -- round. This should not be called directly, except by 'advanceRoundWithTimeout' and
 -- 'advanceRoundWithQuorum'.
