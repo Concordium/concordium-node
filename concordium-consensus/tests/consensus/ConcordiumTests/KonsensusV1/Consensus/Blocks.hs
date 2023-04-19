@@ -5,9 +5,13 @@ module ConcordiumTests.KonsensusV1.Consensus.Blocks (tests) where
 
 import Control.Monad.IO.Class
 import Control.Monad.State
+import Control.Monad.Writer.Class
 import Data.Foldable
 import qualified Data.Map.Strict as Map
+import Data.Maybe
+import Data.Time
 import qualified Data.Vector as Vec
+import Lens.Micro.Platform
 import Test.HUnit
 import Test.Hspec
 
@@ -24,16 +28,15 @@ import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.DummyData as Dummy
 import Concordium.KonsensusV1.Consensus
 import Concordium.KonsensusV1.Consensus.Blocks
+import Concordium.KonsensusV1.Consensus.Timeout
 import Concordium.KonsensusV1.LeaderElection
 import Concordium.KonsensusV1.TestMonad
 import Concordium.KonsensusV1.TreeState.Implementation
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.Startup
+import Concordium.TimerMonad
 import Concordium.Types.BakerIdentity
-import Data.Maybe
-import Data.Time
-import Lens.Micro.Platform
 
 maxBaker :: Integral a => a
 maxBaker = 5
@@ -129,21 +132,49 @@ invalidSignBlock bb = signBlock (bakerKey (bbBaker bb)) (getHash bb) bb
 -- |Create a valid timeout message given a QC and a round.
 -- All finalizers sign the certificate and they all have the QC as their highest QC.
 validTimeoutFor :: QuorumCertificate -> Round -> TimeoutCertificate
-validTimeoutFor qc rnd =
+validTimeoutFor = validTimeoutForFinalizers theFinalizers
+
+validTimeoutForFinalizers :: [Int] -> QuorumCertificate -> Round -> TimeoutCertificate
+validTimeoutForFinalizers finalizers qc rnd =
     TimeoutCertificate
         { tcRound = rnd,
           tcMinEpoch = qcEpoch qc,
-          tcFinalizerQCRoundsFirstEpoch = FinalizerRounds (Map.singleton (qcRound qc) allFinalizers),
+          tcFinalizerQCRoundsFirstEpoch = FinalizerRounds (Map.singleton (qcRound qc) finSet),
           tcFinalizerQCRoundsSecondEpoch = FinalizerRounds Map.empty,
           tcAggregateSignature =
             fold
-                [signTimeoutSignatureMessage tsm (bakerAggKey i) | i <- theFinalizers]
+                [signTimeoutSignatureMessage tsm (bakerAggKey i) | i <- finalizers]
         }
   where
+    finSet = finalizerSet $ FinalizerIndex . fromIntegral <$> finalizers
     tsm =
         TimeoutSignatureMessage
             { tsmGenesis = genesisHash,
               tsmRound = rnd,
+              tsmQCRound = qcRound qc,
+              tsmQCEpoch = qcEpoch qc
+            }
+
+-- |Produce properly-signed timeout message for the given QC, round and current epoch from each
+-- baker. (This assumes that all of the bakers are finalizers for the purposes of computing
+-- finalizer indexes.)
+timeoutMessagesFor :: QuorumCertificate -> Round -> Epoch -> [TimeoutMessage]
+timeoutMessagesFor qc curRound curEpoch = mkTm <$> bakers
+  where
+    mkTm (BakerIdentity{..}, _) =
+        signTimeoutMessage (tmb bakerId bakerAggregationKey) genesisHash bakerSignKey
+    tmb bid aggKey =
+        TimeoutMessageBody
+            { tmFinalizerIndex = FinalizerIndex (fromIntegral bid),
+              tmRound = curRound,
+              tmEpoch = curEpoch,
+              tmQuorumCertificate = qc,
+              tmAggregateSignature = signTimeoutSignatureMessage tsm aggKey
+            }
+    tsm =
+        TimeoutSignatureMessage
+            { tsmGenesis = genesisHash,
+              tsmRound = curRound,
               tsmQCRound = qcRound qc,
               tsmQCEpoch = qcEpoch qc
             }
@@ -243,6 +274,7 @@ testBB4' =
   where
     bakerId = 3
 
+-- |A valid block for round 3 descended from the genesis block with a timeout for round 2.
 testBB3'' :: BakedBlock
 testBB3'' =
     testBB3
@@ -285,6 +317,27 @@ testBB2E =
           bbTimeoutCertificate = Absent,
           bbEpochFinalizationEntry = Absent,
           bbNonce = computeBlockNonce genesisLEN 2 (bakerVRFKey bakerId),
+          bbTransactions = Vec.empty,
+          bbTransactionOutcomesHash = emptyTransactionOutcomesHashV1,
+          bbStateHash = read "ac8e0ac03625706bc350b65557aaae1774d687810c9029d85db0e4ffcd229f56"
+        }
+  where
+    bakerId = 4
+
+-- |A block that is valid for round 3, descending from 'testBB2E', but which should not be validated
+-- by a finalizer because it is in epoch 0. With the QC for 'testBB2E', a finalizer should move into
+-- epoch 1, and thus refuse to validate this block.
+testBB3EX :: BakedBlock
+testBB3EX =
+    BakedBlock
+        { bbRound = 3,
+          bbEpoch = 0,
+          bbTimestamp = 3_602_000,
+          bbBaker = bakerId,
+          bbQuorumCertificate = validQCFor testBB2E,
+          bbTimeoutCertificate = Absent,
+          bbEpochFinalizationEntry = Absent,
+          bbNonce = computeBlockNonce genesisLEN 3 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbTransactionOutcomesHash = emptyTransactionOutcomesHashV1,
           bbStateHash = read "ac8e0ac03625706bc350b65557aaae1774d687810c9029d85db0e4ffcd229f56"
@@ -450,12 +503,18 @@ succeedReceiveBlock pb = do
     res <- uponReceivingBlock pb
     case res of
         BlockResultSuccess vb -> do
-            executeBlock vb
+            ((), events) <- listen $ executeBlock vb
             status <- getBlockStatus (getHash pb) =<< get
             case status of
                 BlockAlive _ -> return ()
                 BlockFinalized _ -> return ()
                 _ -> liftIO . assertFailure $ "Expected BlockAlive after executeBlock, but found: " ++ show status ++ "\n" ++ show pb
+            case events of
+                (OnBlock (NormalBlock b) : _)
+                    | b == pbBlock pb -> return ()
+                (OnFinalize _ : OnBlock (NormalBlock b) : _)
+                    | b == pbBlock pb -> return ()
+                _ -> liftIO . assertFailure $ "Expected OnBlock event on executeBlock, but saw: " ++ show events
         _ -> liftIO . assertFailure $ "Expected BlockResultSuccess after uponReceivingBlock, but found: " ++ show res ++ "\n" ++ show pb
 
 duplicateReceiveBlock :: PendingBlock -> TestMonad 'P6 ()
@@ -567,6 +626,10 @@ signedPB bb =
 -- |Baker context with no baker.
 noBaker :: BakerContext
 noBaker = BakerContext Nothing
+
+-- |Baker context with baker @i@.
+baker :: Int -> BakerContext
+baker i = BakerContext $ Just $ fst $ bakers !! i
 
 -- |Current time used for running (some) tests. 5 seconds after genesis.
 testTime :: UTCTime
@@ -870,6 +933,240 @@ testReceiveInvalidQC = runTestMonad noBaker testTime genesisData $ do
                 { bbQuorumCertificate = (bbQuorumCertificate testBB2){qcAggregateSignature = mempty}
                 }
 
+-- |Test calling 'makeBlock' in the first round for a baker that should produce a block.
+testMakeFirstBlock :: Assertion
+testMakeFirstBlock = runTestMonad (baker bakerId) testTime genesisData $ do
+    ((), r) <- listen makeBlock
+    let expectBlock = validSignBlock testBB1{bbTimestamp = utcTimeToTimestamp testTime}
+    let qsm =
+            QuorumSignatureMessage
+                { qsmGenesis = genesisHash,
+                  qsmBlock = getHash expectBlock,
+                  qsmRound = blockRound expectBlock,
+                  qsmEpoch = blockEpoch expectBlock
+                }
+    let qsig = signQuorumSignatureMessage qsm (bakerAggregationKey . fst $ bakers !! bakerId)
+    let expectQM = buildQuorumMessage qsm qsig (FinalizerIndex $ fromIntegral bakerId)
+    liftIO $ assertEqual "Produced events (makeBlock)" [OnBlock (NormalBlock expectBlock)] r
+    timers <- getPendingTimers
+    case Map.toAscList timers of
+        [(0, (DelayUntil t, a))]
+            | t == testTime -> do
+                clearPendingTimers
+                ((), r2) <- listen a
+                liftIO $ assertEqual "Produced events (after first timer)" [SendBlock expectBlock] r2
+                timers2 <- getPendingTimers
+                case Map.toAscList timers2 of
+                    [(0, (DelayUntil t2, a2))]
+                        | t2 == testTime -> do
+                            ((), r3) <- listen a2
+                            liftIO $ assertEqual "Produced events (after second timer)" [SendQuorumMessage expectQM] r3
+                    _ -> timerFail timers2
+                return ()
+        _ -> timerFail timers
+  where
+    bakerId = 2
+    timerFail timers =
+        liftIO $
+            assertFailure $
+                "Expected a single timer event at "
+                    ++ show testTime
+                    ++ " but got: "
+                    ++ show (fst <$> timers)
+
+-- |Test calling 'makeBlock' in the first round for a baker that should not produce a block.
+testNoMakeFirstBlock :: Assertion
+testNoMakeFirstBlock = runTestMonad (baker 0) testTime genesisData $ do
+    ((), r) <- listen makeBlock
+    liftIO $ assertEqual "Produced events" [] r
+    timers <- getPendingTimers
+    liftIO $ assertBool "Pending timers should be empty" (null timers)
+
+-- |Test calling 'makeBlock' in the second round, after sending timeout messages to time out the
+-- first round, where the baker should win the second round.
+testTimeoutMakeBlock :: Assertion
+testTimeoutMakeBlock = runTestMonad (baker 4) testTime genesisData $ do
+    let genQC = genesisQuorumCertificate genesisHash
+    mapM_ processTimeout $ timeoutMessagesFor genQC 1 0
+    ((), r) <- listen makeBlock
+    let expectBlock =
+            validSignBlock
+                testBB2'
+                    { bbTimestamp = utcTimeToTimestamp testTime,
+                      bbTimeoutCertificate = Present $ validTimeoutForFinalizers [0 .. 3] genQC 1
+                    }
+    liftIO $ assertEqual "Produced events (makeBlock)" [OnBlock (NormalBlock expectBlock)] r
+
+-- |Test that if we receive three blocks such that the QC contained in the last one justifies
+-- transitioning to a new epoch, we do not sign the third block, since it is in an old epoch.
+testNoSignIncorrectEpoch :: Assertion
+testNoSignIncorrectEpoch = runTestMonad (baker 0) testTime genesisData $ do
+    let blocks = [testBB1E, testBB2E, testBB3EX]
+    ((), r) <- listen $ mapM_ (succeedReceiveBlock . signedPB) blocks
+    let onblock = OnBlock . NormalBlock . validSignBlock
+        expectEvents =
+            [ onblock testBB1E,
+              onblock testBB2E,
+              ResetTimer 10_000, -- Advance to round 2 from the QC in testBB2E
+              onblock testBB3EX,
+              OnFinalize testEpochFinEntry, -- Finalize from the QC in testBB3EX
+              ResetTimer 10_000 -- Advance to round 3
+            ]
+    liftIO $
+        assertEqual
+            "Produced events (receive/execute block)"
+            expectEvents
+            r
+    timers <- getPendingTimers
+    case Map.toAscList timers of
+        [(0, (DelayUntil to0, a0)), (1, (DelayUntil to1, a1)), (2, (DelayUntil to2, a2))]
+            | to0 == timestampToUTCTime (bbTimestamp testBB1E),
+              to1 == timestampToUTCTime (bbTimestamp testBB2E),
+              to2 == timestampToUTCTime (bbTimestamp testBB3EX) ->
+                do
+                    clearPendingTimers
+                    ((), r0) <- listen a0
+                    liftIO $ assertEqual "Timer 0 events" [] r0
+                    ((), r1) <- listen a1
+                    liftIO $ assertEqual "Timer 1 events" [] r1
+                    ((), r2) <- listen a2
+                    liftIO $ assertEqual "Timer 2 events" [] r2
+        _ -> liftIO $ assertFailure $ "Unexpected timers: " ++ show (fst <$> timers)
+
+-- |Test that if we receive 3 blocks that transition into a new epoch as a finalizer, we
+-- will sign the last of the blocks.
+testSignCorrectEpoch :: Assertion
+testSignCorrectEpoch = runTestMonad (baker bakerId) testTime genesisData $ do
+    ((), r) <- listen $ mapM_ (succeedReceiveBlock . signedPB) blocks
+    let onblock = OnBlock . NormalBlock . validSignBlock
+        expectEvents =
+            [ onblock testBB1E,
+              onblock testBB2E,
+              ResetTimer 10_000, -- Advance to round 2 from the QC in testBB2E
+              OnFinalize testEpochFinEntry, -- Finalize from the epoch finalization entry in testBB3E
+              onblock testBB3E,
+              ResetTimer 10_000 -- Advance to round 3
+            ]
+    liftIO $
+        assertEqual
+            "Produced events (receive/execute block)"
+            expectEvents
+            r
+    timers <- getPendingTimers
+    case Map.toAscList timers of
+        [(0, (DelayUntil to0, a0)), (1, (DelayUntil to1, a1)), (2, (DelayUntil to2, a2))]
+            | to0 == timestampToUTCTime (bbTimestamp testBB1E),
+              to1 == timestampToUTCTime (bbTimestamp testBB2E),
+              to2 == timestampToUTCTime (bbTimestamp testBB3E) ->
+                do
+                    clearPendingTimers
+                    ((), r0) <- listen a0
+                    liftIO $ assertEqual "Timer 0 events" [] r0
+                    ((), r1) <- listen a1
+                    liftIO $ assertEqual "Timer 1 events" [] r1
+                    ((), r2) <- listen a2
+
+                    liftIO $ assertEqual "Timer 2 events" [SendQuorumMessage expectQM] r2
+        _ -> liftIO $ assertFailure $ "Unexpected timers: " ++ show (fst <$> timers)
+  where
+    bakerId = 0
+    blocks = [testBB1E, testBB2E, testBB3E]
+    qsm =
+        QuorumSignatureMessage
+            { qsmGenesis = genesisHash,
+              qsmBlock = getHash testBB3E,
+              qsmRound = bbRound testBB3E,
+              qsmEpoch = bbEpoch testBB3E
+            }
+    qsig = signQuorumSignatureMessage qsm (bakerAggregationKey . fst $ bakers !! bakerId)
+    expectQM = buildQuorumMessage qsm qsig (FinalizerIndex $ fromIntegral bakerId)
+
+-- |Test that if we receive 3 blocks that transition into a new epoch as a finalizer, we
+-- will sign the last of the blocks. Here, the blocks arrive in reverse order.
+testSignCorrectEpochReordered :: Assertion
+testSignCorrectEpochReordered = runTestMonad (baker bakerId) testTime genesisData $ do
+    ((), events0) <- listen $ pendingReceiveBlock $ signedPB testBB3E
+    liftIO $ assertEqual "Events after receiving testBB3E" [] events0
+    ((), events1) <- listen $ pendingReceiveBlock $ signedPB testBB2E
+    liftIO $ assertEqual "Events after receiving testBB3E" [] events1
+    ((), events2) <- listen $ succeedReceiveBlock $ signedPB testBB1E
+    let onblock = OnBlock . NormalBlock . validSignBlock
+        expectEvents =
+            [ onblock testBB1E,
+              onblock testBB2E,
+              ResetTimer 10_000, -- Advance to round 2 from the QC in testBB2E
+              OnPendingLive,
+              OnFinalize testEpochFinEntry, -- Finalize from the epoch finalization entry in testBB3E
+              onblock testBB3E,
+              ResetTimer 10_000, -- Advance to round 3
+              OnPendingLive
+            ]
+    liftIO $ assertEqual "Events after receiving testBB1E" expectEvents events2
+    timers <- getPendingTimers
+    case Map.toAscList timers of
+        [(0, (DelayUntil to2, a2))]
+            | to2 == timestampToUTCTime (bbTimestamp testBB3E) ->
+                do
+                    ((), r2) <- listen a2
+                    liftIO $ assertEqual "Timer events" [SendQuorumMessage expectQM] r2
+        _ -> liftIO $ assertFailure $ "Unexpected timers: " ++ show (fst <$> timers)
+  where
+    bakerId = 0
+    qsm =
+        QuorumSignatureMessage
+            { qsmGenesis = genesisHash,
+              qsmBlock = getHash testBB3E,
+              qsmRound = bbRound testBB3E,
+              qsmEpoch = bbEpoch testBB3E
+            }
+    qsig = signQuorumSignatureMessage qsm (bakerAggregationKey . fst $ bakers !! bakerId)
+    expectQM = buildQuorumMessage qsm qsig (FinalizerIndex $ fromIntegral bakerId)
+
+-- |Test calling 'makeBlock' to construct the first block in a new epoch.
+testMakeBlockNewEpoch :: Assertion
+testMakeBlockNewEpoch = runTestMonad (baker bakerId) testTime genesisData $ do
+    -- We use 'testBB3EX' because it contains a QC that finalizes the trigger block.
+    mapM_ (succeedReceiveBlock . signedPB) [testBB1E, testBB2E, testBB3EX]
+    clearPendingTimers
+    ((), r) <- listen makeBlock
+    let expectBlock = validSignBlock testBB3E
+    liftIO $ assertEqual "Produced events (makeBlock)" [OnBlock (NormalBlock expectBlock)] r
+    timers <- getPendingTimers
+    let bb3Time = timestampToUTCTime $ bbTimestamp testBB3E
+    case Map.toAscList timers of
+        [(0, (DelayUntil t, a))]
+            | t == bb3Time -> do
+                clearPendingTimers
+                ((), r2) <- listen a
+                liftIO $ assertEqual "Produced events (after first timer)" [SendBlock expectBlock] r2
+                timers2 <- getPendingTimers
+                case Map.toAscList timers2 of
+                    [(0, (DelayUntil t2, a2))]
+                        | t2 == bb3Time -> do
+                            ((), r3) <- listen a2
+                            liftIO $ assertEqual "Produced events (after second timer)" [SendQuorumMessage expectQM] r3
+                    _ -> timerFail timers2
+                return ()
+        _ -> timerFail timers
+  where
+    bakerId = 5
+    timerFail timers =
+        liftIO $
+            assertFailure $
+                "Expected a single timer event at "
+                    ++ show testTime
+                    ++ " but got: "
+                    ++ show (fst <$> timers)
+    qsm =
+        QuorumSignatureMessage
+            { qsmGenesis = genesisHash,
+              qsmBlock = getHash testBB3E,
+              qsmRound = bbRound testBB3E,
+              qsmEpoch = bbEpoch testBB3E
+            }
+    qsig = signQuorumSignatureMessage qsm (bakerAggregationKey . fst $ bakers !! bakerId)
+    expectQM = buildQuorumMessage qsm qsig (FinalizerIndex $ fromIntegral bakerId)
+
 tests :: Spec
 tests = describe "KonsensusV1.Consensus.Blocks" $ do
     describe "uponReceiveingBlock" $ do
@@ -906,3 +1203,10 @@ tests = describe "KonsensusV1.Consensus.Blocks" $ do
         it "receive a block with an incorrect transaction outcomes hash" testReceiveIncorrectTransactionOutcomesHash
         it "receive a block with an incorrect state hash" testReceiveIncorrectStateHash
         it "receive a block with an invalid QC signature" testReceiveInvalidQC
+        it "make a block as baker 2" testMakeFirstBlock
+        it "fail to make a block as baker 0" testNoMakeFirstBlock
+        it "make a block after first round timeout" testTimeoutMakeBlock
+        it "refuse to sign a block in old epoch after epoch transition" testNoSignIncorrectEpoch
+        it "sign a block in a new epoch" testSignCorrectEpoch
+        it "sign a block in a new epoch where blocks are reordered" testSignCorrectEpochReordered
+        it "make first block in a new epoch" testMakeBlockNewEpoch

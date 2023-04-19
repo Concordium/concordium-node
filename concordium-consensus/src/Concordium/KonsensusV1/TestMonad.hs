@@ -260,3 +260,11 @@ instance MonadLogger (TestMonad pv) where
     logEvent src lvl msg = do
         logger <- view tcLogger
         logger src lvl msg
+
+-- |Get the currently-pending timers.
+getPendingTimers :: TestMonad pv (Map.Map Integer (Timeout, TestMonad pv ()))
+getPendingTimers = TestMonad (gets _tsPendingTimers)
+
+-- |Clear all currently-pending timers.
+clearPendingTimers :: TestMonad pv ()
+clearPendingTimers = TestMonad (modify (\s -> s{_tsPendingTimers = Map.empty}))

@@ -1249,7 +1249,8 @@ prepareBakeBlockInputs = runMaybeT $ do
             | bbiEpoch > qcEpoch bbiQuorumCertificate =
                 -- This assertion should not fail because the invariant on
                 -- '_lastEpochFinalizationEntry' requires the entry to be present whenever
-                -- @_currentEpoch > blockEpoch _lastFinalized@, and 'bbQuorumCer
+                -- @_currentEpoch > blockEpoch _lastFinalized@, and @bbiQuorumCertificate@ is for
+                -- the parent block which is in at least the epoch of the last finalized block.
                 assert (isPresent finEntry) finEntry
             | otherwise = Absent
           where

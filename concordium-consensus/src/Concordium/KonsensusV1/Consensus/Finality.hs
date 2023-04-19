@@ -172,7 +172,7 @@ processFinalization newFinalizedBlock newFinalizationEntry = do
     -- Purge any pending blocks that are no longer viable.
     purgePending
     -- Advance the epoch if the new finalized block triggers the epoch transition.
-    checkedAdvanceEpoch newFinalizedBlock
+    checkedAdvanceEpoch newFinalizationEntry newFinalizedBlock
     onFinalize newFinalizationEntry newFinalizedBlock
 
 -- |Advance the current epoch if the new finalized block indicates that it is necessary.
@@ -193,15 +193,19 @@ checkedAdvanceEpoch ::
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
       BlockStateQuery m
     ) =>
+    -- |Finalization entry.
+    FinalizationEntry ->
+    -- |The block that becomes finalized.
     BlockPointer (MPV m) ->
     m ()
-checkedAdvanceEpoch newFinalizedBlock = do
+checkedAdvanceEpoch finEntry newFinalizedBlock = do
     oldEpoch <- use currentEpoch
     assert (oldEpoch >= blockEpoch newFinalizedBlock) $
         when (oldEpoch == blockEpoch newFinalizedBlock) $ do
             seedState <- getSeedState finState
             when (seedState ^. epochTransitionTriggered) $ do
                 currentEpoch .=! oldEpoch + 1
+                lastEpochFinalizationEntry .= Present finEntry
   where
     finState = bpState newFinalizedBlock
 
