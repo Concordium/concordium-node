@@ -80,6 +80,17 @@ initialConsensusStatistics =
         }
 
 -- |Update the statistics when a block becomes fully validated (arrives).
+-- This updates:
+--
+--   * The count of blocks verified.
+--
+--   * The block arrival latency statistics (i.e. time between nominal production and arrival).
+--
+--   * The last block arrival time.
+--
+--   * The block arrival period statistics (i.e. time between successive arrivals).
+--
+--   * The transactions per block statistics.
 updateStatsOnArrive ::
     -- |Nominal block time.
     UTCTime ->
@@ -92,6 +103,7 @@ updateStatsOnArrive ::
 updateStatsOnArrive nominalTime arrivalTime transactionCount =
     updateTransactionsPerBlock . updatePeriod . updateLatency . (blocksVerifiedCount +~ 1)
   where
+    -- Update the block arrival latency stats.
     updateLatency s =
         s
             & (blockArriveLatencyEMA .~ oldEMA + emaWeight * delta)
@@ -100,6 +112,7 @@ updateStatsOnArrive nominalTime arrivalTime transactionCount =
         oldEMA = s ^. blockArriveLatencyEMA
         delta = realToFrac (diffUTCTime arrivalTime nominalTime) - oldEMA
 
+    -- Update the last block arrival time and block arrival period stats.
     updatePeriod s =
         case s ^. blockLastArrive of
             Nothing -> s & blockLastArrive ?~! arrivalTime
@@ -114,6 +127,7 @@ updateStatsOnArrive nominalTime arrivalTime transactionCount =
                 delta = blockTime - oldEMA
                 oldEMVar = fromMaybe 0 (s ^. blockArrivePeriodEMVar)
 
+    -- Update the transactions per block stats.
     updateTransactionsPerBlock s =
         s
             & (transactionsPerBlockEMA .~ oldEMA + emaWeight * delta)
@@ -144,6 +158,15 @@ showArriveStatistics s =
         ++ show (sqrt $ s ^. transactionsPerBlockEMVar)
 
 -- |Update the statistics when a block is received by the consensus.
+-- This updates:
+--
+--    * The count of received blocks.
+--
+--    * The block receive latency statistics (i.e. time between nominal production and receipt).
+--
+--    * The last block received time.
+--
+--    * The block receive period statistics (i.e. the time between successively receiving blocks).
 updateStatsOnReceive ::
     -- |Nominal block time.
     UTCTime ->
@@ -154,6 +177,7 @@ updateStatsOnReceive ::
 updateStatsOnReceive nominalTime receiveTime =
     updatePeriod . updateLatency . (blocksReceivedCount +~ 1)
   where
+    -- Update the block receive latency stats.
     updateLatency s =
         s
             & (blockReceiveLatencyEMA .~ oldEMA + emaWeight * delta)
@@ -161,6 +185,7 @@ updateStatsOnReceive nominalTime receiveTime =
       where
         oldEMA = s ^. blockReceiveLatencyEMA
         delta = realToFrac (diffUTCTime receiveTime nominalTime) - oldEMA
+    -- Update the block receive period stats.
     updatePeriod s =
         case s ^. blockLastReceived of
             Nothing -> s & blockLastReceived ?~! receiveTime
@@ -192,7 +217,15 @@ showReceiveStatistics s =
         ++ " blockReceivePeriodEMSD="
         ++ show (sqrt <$> s ^. blockReceivePeriodEMVar)
 
--- |Update the statistics when a block becomes (explicitly) finalized.
+-- |Update the statistics when a finalization occurs. This should be called once per finalization,
+-- rather than per finalized block, since multiple blocks can be finalized in a single finalization.
+-- This updates:
+--
+--    * The count of finalizations.
+--
+--    * The last finalization time.
+--
+--    * The finalization period statistics (i.e. the time between successive finalizations).
 updateStatsOnFinalize ::
     -- |Current time
     UTCTime ->
@@ -201,6 +234,7 @@ updateStatsOnFinalize ::
 updateStatsOnFinalize curTime =
     (lastFinalizedTime ?~! curTime) . updatePeriod . (finalizationCount +~ 1)
   where
+    -- Update the finalization period stats.
     updatePeriod s
         | Just lastFinTime <- s ^. lastFinalizedTime =
             let
