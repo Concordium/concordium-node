@@ -4,8 +4,15 @@
 
 module Concordium.GlobalState.TransactionTable where
 
+import Control.Exception
 import Data.Coerce
+import Data.Foldable
+import qualified Data.HashMap.Strict as HM
+import qualified Data.HashSet as HS
+import qualified Data.Map.Strict as Map
+import qualified Data.PQueue.Prio.Min as MinPQ
 import Data.Word
+import Lens.Micro.Platform
 
 import Concordium.KonsensusV1.Types
 import qualified Concordium.TransactionVerification as TVer
@@ -14,12 +21,6 @@ import Concordium.Types.Execution
 import Concordium.Types.Transactions
 import Concordium.Types.Updates
 import Concordium.Utils
-import Control.Exception
-import Data.Foldable
-import qualified Data.HashMap.Strict as HM
-import qualified Data.HashSet as HS
-import qualified Data.Map.Strict as Map
-import Lens.Micro.Platform
 
 -- |A commit point is a specific point in which a block can be produced.
 -- For ConsensusV0 it is a 'Slot'.
@@ -283,6 +284,54 @@ addTransaction blockItem@WithMetadata{..} cp !verRes tt0 =
   where
     tt1 = tt0 & ttHashMap . at' wmdHash ?~ (blockItem, Received cp verRes)
 
+-- |Look up a credential deployment in the transaction table. Returns 'Nothing' if the table
+-- contains no live 'CredentialDeployment' with the given hash.
+lookupCredential :: TransactionHash -> TransactionTable -> Maybe (CredentialDeploymentWithMeta, TVer.VerificationResult)
+lookupCredential txHash tt = case tt ^? ttHashMap . ix txHash of
+    Just (WithMetadata{wmdData = CredentialDeployment{..}, ..}, status) ->
+        Just (WithMetadata{wmdData = biCred, ..}, _tsVerRes status)
+    _ -> Nothing
+
+-- |Look up the live transactions for the given account starting at the given nonce (inclusive).
+-- These are returned as an ordered list of pairs of nonce and non-empty set of transactions
+-- with that nonce. Transaction groups are ordered by increasing nonce.
+lookupAccountTransactions ::
+    AccountAddressEq ->
+    Nonce ->
+    TransactionTable ->
+    [(Nonce, Map.Map Transaction TVer.VerificationResult)]
+lookupAccountTransactions addr nnce tt =
+    case tt ^. ttNonFinalizedTransactions . at' addr of
+        Nothing -> []
+        Just anfts ->
+            let (_, atnnce, beyond) = Map.splitLookup nnce (anfts ^. anftMap)
+            in  case atnnce of
+                    Nothing -> Map.toAscList beyond
+                    Just s -> (nnce, s) : Map.toAscList beyond
+
+-- |Look up live chain updates of a given type starting at the given sequence number (inclusive).
+-- These are returned as an ordered list of pairs of sequence number and
+-- non-empty set of updates with that sequence number. Update groups are ordered by
+-- increasing sequence number.
+lookupChainUpdates ::
+    UpdateType ->
+    UpdateSequenceNumber ->
+    TransactionTable ->
+    [ ( UpdateSequenceNumber,
+        Map.Map (WithMetadata UpdateInstruction) TVer.VerificationResult
+      )
+    ]
+lookupChainUpdates uty sn tt = case tt ^. ttNonFinalizedChainUpdates . at' uty of
+    Nothing -> []
+    Just nfcus ->
+        let (_, atsn, beyond) = Map.splitLookup sn (nfcus ^. nfcuMap)
+        in  case atsn of
+                Nothing -> Map.toAscList beyond
+                Just s ->
+                    let first = (sn, s)
+                        rest = Map.toAscList beyond
+                    in  first : rest
+
 -- * Pending transaction table
 
 -- |A pending transaction table records whether transactions are pending after
@@ -437,3 +486,60 @@ nextAccountNonce addr tt = case tt ^. ttNonFinalizedTransactions . at' addr of
         case Map.lookupMax (anfts ^. anftMap) of
             Nothing -> (anfts ^. anftNextNonce, True)
             Just (nonce, _) -> (nonce + 1, False)
+
+-- * Transaction grouping
+
+-- |A group of one or more block items with sequential dependencies.
+data TransactionGroup
+    = -- |A collection of transactions for a single account, ordered with non-decreasing nonce.
+      TGAccountTransactions [TVer.TransactionWithStatus]
+    | -- |A single credential deployment.
+      TGCredentialDeployment TVer.CredentialDeploymentWithStatus
+    | -- |A collection of update instructions of a single type, ordered with non-decreasing sequence number.
+      TGUpdateInstructions [TVer.ChainUpdateWithStatus]
+
+-- |Group the pending transactions for use in constructing a block.
+-- Each group consists of one of the following:
+--
+--   * A single credential.
+--
+--   * The pending transactions on a single account, ordered by increasing account nonce.
+--
+--   * The pending chain update instructions, ordered by increasing sequence number.
+--
+-- The transaction groups are ordered by the earliest arrival time of a transaction in the group
+-- with minimal nonce/sequence number.
+--
+-- PRECONDITION: The pending transaction table correctly refers to the transaction table.
+groupPendingTransactions :: TransactionTable -> PendingTransactionTable -> [TransactionGroup]
+groupPendingTransactions transTable pendingTable = transactionGroups
+  where
+    -- lookupCredential shouldn't return Nothing based on the transaction table invariants
+    credentials =
+        flip lookupCredential transTable
+            <$> HS.toList (pendingTable ^. pttDeployCredential)
+    grouped0 =
+        MinPQ.fromList
+            [ (wmdArrivalTime c, TGCredentialDeployment (c, Just verRes))
+              | Just (c, verRes) <- credentials
+            ]
+    groupAcctTxs groups (acc, (l, _)) =
+        case lookupAccountTransactions acc l transTable of
+            accTxs@((_, firstNonceTxs) : _) ->
+                let txsList = concatMap (Map.toList . snd) accTxs
+                    minTime = minimum $ wmdArrivalTime <$> Map.keys firstNonceTxs
+                in  MinPQ.insert minTime (TGAccountTransactions $ map (_2 %~ Just) txsList) groups
+            -- This should not happen since the pending transaction table should
+            -- only have entries where there are actually transactions.
+            [] -> groups
+    grouped1 = foldl' groupAcctTxs grouped0 (HM.toList (pendingTable ^. pttWithSender))
+    groupUpdates groups (uty, (l, _)) =
+        case lookupChainUpdates uty l transTable of
+            uds@((_, firstSNUs) : _) ->
+                let udsList = concatMap (Map.toList . snd) uds
+                    minTime = minimum $ wmdArrivalTime <$> Map.keys firstSNUs
+                in  MinPQ.insert minTime (TGUpdateInstructions $ map (_2 %~ Just) udsList) groups
+            [] -> groups
+    transactionGroups =
+        MinPQ.elems $
+            foldl' groupUpdates grouped1 (Map.toList (pendingTable ^. pttUpdates))

@@ -17,11 +17,8 @@ module Concordium.Scheduler.TreeStateEnvironment where
 
 import Control.Monad
 import Data.Foldable
-import qualified Data.HashMap.Strict as HM
-import qualified Data.HashSet as HashSet
 import qualified Data.Map as Map
 import Data.Maybe
-import qualified Data.PQueue.Prio.Min as MinPQ
 import Data.Ratio
 import qualified Data.Sequence as Seq
 import Data.Time
@@ -36,7 +33,6 @@ import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.CapitalDistribution
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Rewards
-import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.TreeState
 import Concordium.Kontrol.Bakers
 import Concordium.Logger
@@ -1351,38 +1347,8 @@ constructBlock slotNumber slotTime blockParent blockBaker mfinInfo newSeedState 
             let accountCreationLim = oldChainParameters ^. cpAccountCreationLimit
             -- Execute the block prologue
             PrologueResult{..} <- executeBlockPrologue slotTime newSeedState oldChainParameters bshandle0
-            pt <- getPendingTransactions
 
-            -- Prioritise the block items for inclusion in a block.
-            -- We do this by building a priority queue, keyed by arrival time,
-            -- consisting of:
-            -- - each credential, keyed by its arrival time
-            -- - the pending transactions for each account with pending transactions,
-            --   keyed by the lowest arrival time of a transaction with the lowest nonce.
-            -- - the pending update instructions for each update type, keyed by the lowest
-            --   arrival time of an update with the lowest sequence number.
-
-            -- getCredential shouldn't return Nothing based on the transaction table invariants
-            credentials <- mapM getCredential (HashSet.toList (pt ^. pttDeployCredential))
-            let grouped0 = MinPQ.fromList [(wmdArrivalTime c, TGCredentialDeployment (c, Just verRes)) | Just (c, verRes) <- credentials]
-            let groupAcctTxs groups (acc, (l, _)) =
-                    getAccountNonFinalized acc l <&> \case
-                        accTxs@((_, firstNonceTxs) : _) ->
-                            let txsList = concatMap (Map.toList . snd) accTxs
-                                minTime = minimum $ wmdArrivalTime <$> Map.keys firstNonceTxs
-                            in  MinPQ.insert minTime (TGAccountTransactions $ map (_2 %~ Just) txsList) groups
-                        -- This should not happen since the pending transaction table should
-                        -- only have entries where there are actually transactions.
-                        [] -> groups
-            grouped1 <- foldM groupAcctTxs grouped0 (HM.toList (pt ^. pttWithSender))
-            let groupUpdates groups (uty, (l, _)) =
-                    getNonFinalizedChainUpdates uty l <&> \case
-                        uds@((_, firstSNUs) : _) ->
-                            let udsList = concatMap (Map.toList . snd) uds
-                                minTime = minimum $ wmdArrivalTime <$> Map.keys firstSNUs
-                            in  MinPQ.insert minTime (TGUpdateInstructions $ map (_2 %~ Just) udsList) groups
-                        [] -> groups
-            transactionGroups <- MinPQ.elems <$> foldM groupUpdates grouped1 (Map.toList (pt ^. pttUpdates))
+            transactionGroups <- getGroupedPendingTransactions
 
             -- lookup the maximum block size as mandated by the runtime parameters
             maxSize <- rpBlockSize <$> getRuntimeParameters

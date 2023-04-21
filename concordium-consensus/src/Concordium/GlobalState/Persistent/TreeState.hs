@@ -777,36 +777,23 @@ instance
     getPendingTransactions = use (skovPersistentData . pendingTransactions)
     putPendingTransactions pts = skovPersistentData . pendingTransactions .= pts
 
-    getAccountNonFinalized addr nnce = do
-        use (skovPersistentData . transactionTable . ttNonFinalizedTransactions . at' addr) >>= \case
-            Nothing -> return []
-            Just anfts ->
-                let (_, atnnce, beyond) = Map.splitLookup nnce (anfts ^. anftMap)
-                in  return $ case atnnce of
-                        Nothing -> Map.toAscList beyond
-                        Just s -> (nnce, s) : Map.toAscList beyond
+    getAccountNonFinalized addr nnce =
+        use $
+            skovPersistentData
+                . transactionTable
+                . to (lookupAccountTransactions addr nnce)
 
     -- only looking up the cached part is OK because the precondition of this method is that the
     -- transaction is not yet finalized
-    getCredential txHash = do
-        preuse (skovPersistentData . transactionTable . ttHashMap . ix txHash) >>= \case
-            Just (WithMetadata{wmdData = CredentialDeployment{..}, ..}, status) ->
-                case status of
-                    Received _ verRes -> return $ Just (WithMetadata{wmdData = biCred, ..}, verRes)
-                    Committed _ verRes _ -> return $ Just (WithMetadata{wmdData = biCred, ..}, verRes)
-            _ -> return Nothing
+    getCredential txHash =
+        use (skovPersistentData . transactionTable . to (lookupCredential txHash))
 
-    getNonFinalizedChainUpdates uty sn = do
-        use (skovPersistentData . transactionTable . ttNonFinalizedChainUpdates . at' uty) >>= \case
-            Nothing -> return []
-            Just nfcus ->
-                let (_, atsn, beyond) = Map.splitLookup sn (nfcus ^. nfcuMap)
-                in  return $ case atsn of
-                        Nothing -> Map.toAscList beyond
-                        Just s ->
-                            let first = (sn, s)
-                                rest = Map.toAscList beyond
-                            in  first : rest
+    getNonFinalizedChainUpdates uty sn =
+        use (skovPersistentData . transactionTable . to (lookupChainUpdates uty sn))
+
+    getGroupedPendingTransactions = do
+        spd <- use skovPersistentData
+        return $ groupPendingTransactions (spd ^. transactionTable) (spd ^. pendingTransactions)
 
     addCommitTransaction bi@WithMetadata{..} verResCtx ts slot = do
         let trHash = wmdHash

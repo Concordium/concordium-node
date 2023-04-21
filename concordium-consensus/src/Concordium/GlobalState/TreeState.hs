@@ -314,6 +314,19 @@ class
         UpdateSequenceNumber ->
         m [(UpdateSequenceNumber, Map.Map (WithMetadata UpdateInstruction) TVer.VerificationResult)]
 
+    -- |Get the pending transactions grouped for use in constructing a block.
+    -- Each group consists of one of the following:
+    --
+    --   * A single credential.
+    --
+    --   * The pending transactions on a single account, ordered by increasing account nonce.
+    --
+    --   * The pending chain update instructions, ordered by increasing sequence number.
+    --
+    -- The transaction groups are ordered by the earliest arrival time of a transaction in the group
+    -- with minimal nonce/sequence number.
+    getGroupedPendingTransactions :: m [TransactionGroup]
+
     -- | Depending on the implementation, `finalizeTransactions` may return a value of this
     -- type. The primary intent is to allow the persistent implementation to pass a list of
     -- transaction hashes and statuses to `wrapupFinalization` which will write them to disk,
@@ -481,6 +494,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     getAccountNonFinalized acc = lift . getAccountNonFinalized acc
     getCredential = lift . getCredential
     getNonFinalizedChainUpdates uty = lift . getNonFinalizedChainUpdates uty
+    getGroupedPendingTransactions = lift getGroupedPendingTransactions
     type FinTrans (MGSTrans t m) = FinTrans m
     finalizeTransactions bh slot = lift . finalizeTransactions bh slot
     commitTransaction slot bh tr = lift . commitTransaction slot bh tr

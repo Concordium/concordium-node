@@ -5,13 +5,21 @@
 
 module Concordium.KonsensusV1.Scheduler where
 
+import Data.Time
+import Lens.Micro.Platform
+
+import Concordium.Logger
+import Concordium.TimeMonad
 import Concordium.Types
 
 import Concordium.GlobalState.BlockState
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
+import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.Types
 import Concordium.KonsensusV1.LeaderElection
-import Concordium.Types.Parameters
+import Concordium.Scheduler
+import qualified Concordium.Scheduler.EnvironmentImplementation as EnvImpl
+import Concordium.Scheduler.Types
 
 -- |Update the state to reflect an epoch transition. This makes the following changes:
 --
@@ -83,3 +91,34 @@ executeBlockStateUpdate BlockExecutionData{..} = do
     -- TODO: Snapshot bakers in last epoch of payday, update chain parameters, process releases, mint and reward, execute transactions, etc.
     res <- freezeBlockState theState
     return $ Right res
+
+constructBlockTransactions ::
+    (BlockStateStorage m, IsConsensusV1 (MPV m), TimeMonad m, MonadLogger m, MonadProtocolVersion m) =>
+    RuntimeParameters ->
+    TransactionTable ->
+    PendingTransactionTable ->
+    Timestamp ->
+    UpdatableBlockState m ->
+    m (FilteredTransactions, UpdatableBlockState m, Energy)
+constructBlockTransactions runtimeParams transTable pendingTable blockTimestamp theState = do
+    startTime <- currentTime
+    let timeout = addUTCTime (durationToNominalDiffTime (rpBlockTimeout runtimeParams)) startTime
+
+    chainParams <- bsoGetChainParameters theState
+    let context =
+            EnvImpl.ContextState
+                { _chainMetadata = ChainMetadata blockTimestamp,
+                  _maxBlockEnergy = chainParams ^. cpConsensusParameters . cpBlockEnergyLimit,
+                  _accountCreationLimit = chainParams ^. cpAccountCreationLimit
+                }
+
+    (ft, finState) <-
+        EnvImpl.runSchedulerT
+            (filterTransactions maxBlockSize timeout transactionGroups)
+            context
+            (EnvImpl.makeInitialSchedulerState theState)
+
+    return (ft, finState ^. EnvImpl.ssBlockState, finState ^. EnvImpl.ssEnergyUsed)
+  where
+    transactionGroups = groupPendingTransactions transTable pendingTable
+    maxBlockSize = fromIntegral (rpBlockSize runtimeParams)

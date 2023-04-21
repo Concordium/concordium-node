@@ -70,7 +70,7 @@ instance (MonadState (SkovData (MPV m)) m) => AccountNonceQuery (AccountNonceQue
 -- (That is a pre condition of this function)
 --
 -- This ensures the invariant of the pending transaction table and the focus block.
--- Namely that the recorded next availble nonce with respect to the pending transaction table
+-- Namely that the recorded next available nonce with respect to the pending transaction table
 -- must be the same of what is recorded in the focus block.
 --
 -- For transactions received as part of a block we must check that the transaction nonce
