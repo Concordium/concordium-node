@@ -49,7 +49,7 @@ This should be set a bit higher than the maximum number of nodes, so that new pe
 ## gRPC
 Configuration parameters related to the built-in gRPC server.
 
-- `CONCORDIUM_NODE_RPC_NO_SERVER` Disables the gRPC server. Default the RPC server is turned on.
+- `CONCORDIUM_NODE_DISABLE_RPC_SERVER` Disables the gRPC server. Default the RPC server is turned on.
 
 - `CONCORDIUM_NODE_RPC_SERVER_ADDR` Is the listen address of the node's gRPC server. The default value is 127.0.0.1.
 
