@@ -43,6 +43,9 @@ instance IsCommitPoint Slot
 -- as 'Round' is just a wrapper around 'Word64'
 instance IsCommitPoint Round
 
+instance IsCommitPoint CommitPoint where
+    commitPoint = id
+
 -- * Transaction status
 
 -- |The status of a transaction that has been verified and is not yet finalized.
@@ -505,7 +508,7 @@ data TransactionGroup
 --
 --   * The pending transactions on a single account, ordered by increasing account nonce.
 --
---   * The pending chain update instructions, ordered by increasing sequence number.
+--   * The pending chain update instructions of a single type, ordered by increasing sequence number.
 --
 -- The transaction groups are ordered by the earliest arrival time of a transaction in the group
 -- with minimal nonce/sequence number.

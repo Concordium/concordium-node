@@ -92,25 +92,43 @@ data TransactionExecutionResult m = TransactionExecutionResult
       terBlockState :: UpdatableBlockState m
     }
 
--- TODO: Remove
-data FailureReason
-    deriving (Eq, Show)
-
+-- |The result of executing the prologue.
 data PrologueResult m = PrologueResult
-    { prologueBlockState :: UpdatableBlockState m,
+    { -- |The block state after prologue execution.
+      prologueBlockState :: UpdatableBlockState m,
+      -- |If the block should pay out for a payday, these parameters determine the pay out.
+      -- Otherwise, they are 'Nothing'.
       prologuePaydayParameters :: Maybe PaydayParameters
     }
 
--- |Update the state to reflect an epoch transition. This makes the following changes:
+-- * Block prologue
+
+-- |Update the state to reflect an epoch transition.  If the block is not the first in a new epoch
+-- then this does nothing.  Otherwise, it makes the following changes:
 --
---  * The current epoch bakers and capital distribution are replaced with the next epoch bakers
---    and capital distribution.
+--  * If the new epoch is the first block of a new payday:
+--
+--      - Captures the 'PaydayParameters' from the state, which are returned.
+--
+--      - Rotates the capital distribution and epoch bakers so that the values snapshotted at the
+--        start of the previous epoch become the current values.
+--
+--      - Updates the time and mint rate for the next payday, based on the current chain parameters.
+--
+--      - Process pending cooldowns on bakers and delegators that were set to elapse by the
+--        trigger block time for the previous epoch.
 --
 --  * The seed state is updated to reflect the epoch transition.
 --
--- Note: this does not update the next epoch bakers or capital distribution, which should be done
--- subsequently where necessary. This also does not update the seed state to account for the block
--- nonce, which should also be done subsequently.
+--  * Of the new epoch is the epoch before the next payday, take a snapshot of bakers and
+--    delegators, allowing for cooldowns that are set to elapse at by the trigger block time for
+--    this epoch.
+--
+-- Note: If the baker or delegator cooldown period is ever less than the duration of an epoch, then
+-- it would be possible to have a baker not in cooldown when the baker snapshot is taken, but be
+-- removed when the cooldowns are processed at the payday. This bad, because the baker/delegator
+-- would not have their stake locked while they are baking/delegating. However, this should not be
+-- a catastrophic invariant violation.
 doEpochTransition ::
     forall m.
     (BlockStateOperations m, IsConsensusV1 (MPV m)) =>
@@ -137,15 +155,21 @@ doEpochTransition True epochDuration theState = do
                 paydayPoolRewards <- bsoGetBakerPoolRewardDetails theState
                 paydayMintRate <- bsoGetPaydayMintRate theState
                 let paydayParams = PaydayParameters{..}
+                -- Rotate the capital distribution and bakers so that the current values are
+                -- replaced by the next values.
                 theState <- bsoRotateCurrentCapitalDistribution theState
                 theState <- bsoRotateCurrentEpochBakers theState
+                -- Set the mint rate and epoch for the next payday.
                 let timeParams = chainParams ^. cpTimeParameters
-                let newPayday = nextPayday + rewardPeriodEpochs (timeParams ^. tpRewardPeriodLength)
                 theState <- bsoSetPaydayMintRate theState (timeParams ^. tpMintPerPayday)
+                let newPayday = nextPayday + rewardPeriodEpochs (timeParams ^. tpRewardPeriodLength)
                 theState <- bsoSetPaydayEpoch theState newPayday
-                theState <- bsoProcessPendingChanges theState (<= (oldSeedState ^. triggerBlockTime))
+                -- Process bakers and delegators where the cooldown elapsed by the trigger block
+                -- time of the previous epoch.
+                theState <- bsoProcessPendingChanges theState (<= oldSeedState ^. triggerBlockTime)
                 return (theState, Just paydayParams, newPayday)
             else return (theState, Nothing, nextPayday)
+    -- Update the seed state.
     newBakers <- bsoGetCurrentEpochBakers theState
     let newSeedState = updateSeedStateForEpoch newBakers epochDuration oldSeedState
     theState <- bsoSetSeedState theState newSeedState
@@ -185,6 +209,18 @@ doUpdateSeedStateForBlock blkTimestamp blkNonce theState = do
     let newSeedState = updateSeedStateForBlock blkTimestamp blkNonce oldSeedState
     bsoSetSeedState theState newSeedState
 
+-- |Execute the block prologue. This does the following:
+--
+--  * Thaw the block state.
+--  * Process any chain parameter updates that are effective at or before the timestamp of the block.
+--  * If the commission bounds are updated, then constrain the baker commission rates accordingly.
+--    (This is done for each commission bound update in sequence).
+--  * Unlock scheduled releases that have expired.
+--  * Update the seed state and bakers appropriately if transitioning to a new epoch.
+--  * Update the seed state to reflect the block nonce.
+--
+-- Returns the updated state, and, when the block is the first in a new payday, the parameters for
+-- paying rewards for the previous payday.
 executeBlockPrologue ::
     ( pv ~ MPV m,
       BlockStateStorage m,
@@ -207,13 +243,17 @@ executeBlockPrologue BlockExecutionData{..} = do
     theState <- foldM applyCommissionBounds theState updates
     -- unlock the scheduled releases that have expired
     theState <- bsoProcessReleaseSchedule theState bedTimestamp
+    -- transition the epoch if necessary
     (mPaydayParms, theState) <- doEpochTransition bedIsNewEpoch bedEpochDuration theState
+    -- update the seed state using the block time and block nonce
     theState <- doUpdateSeedStateForBlock bedTimestamp bedBlockNonce theState
     return
         PrologueResult
             { prologueBlockState = theState,
               prologuePaydayParameters = mPaydayParms
             }
+
+-- * Block epilogue
 
 -- |Mint for the payday and record a special transaction outcome for the minting.
 -- The amount to mint is determined from the specified mint rate.
@@ -266,6 +306,9 @@ processPaydayRewards (Just PaydayParameters{..}) theState = do
     theState <- doMintingP6 paydayMintRate foundationAddr theState
     distributeRewards foundationAddr paydayCapitalDistribution paydayBakers paydayPoolRewards theState
 
+-- |Records that the baker baked this block (so it is eligible for baking rewards) and that the
+-- finalizers that signed the QC in the block are awake (and eligible for finalizer rewards).
+-- Distributes the transaction fees to the appropriate reward accounts.
 processBlockRewards ::
     ( pv ~ MPV m,
       BlockStateStorage m,
@@ -283,6 +326,9 @@ processBlockRewards ParticipatingBakers{..} TransactionRewardParameters{..} theS
     theState <- bsoMarkFinalizationAwakeBakers theState pbQCSignatories
     doBlockRewardP4 trpTransactionFees trpFreeTransactionCounts pbBlockBaker theState
 
+-- |Execute the block epilogue. This mints and distributes the rewards for a payday if the block is
+-- in a new payday. This also accrues the rewards for the block that will be paid at the next
+-- payday.
 executeBlockEpilogue ::
     ( pv ~ MPV m,
       BlockStateStorage m,
@@ -299,38 +345,35 @@ executeBlockEpilogue participants paydayParams transactionRewardParams theState 
     theState <- processBlockRewards participants transactionRewardParams theState
     freezeBlockState theState
 
--- |Compute the updated state resulting from executing a block.
--- If block execution fails, the return value is a reason for the failure.
--- FIXME: This currently only really updates the seed state and rotates the bakers.
-executeBlockStateUpdate ::
-    ( pv ~ MPV m,
-      BlockStateStorage m,
-      BlockState m ~ PBS.HashedPersistentBlockState pv,
-      IsConsensusV1 pv,
-      IsProtocolVersion pv
-    ) =>
-    BlockExecutionData pv ->
-    m (Either FailureReason (PBS.HashedPersistentBlockState pv))
-executeBlockStateUpdate BlockExecutionData{..} = do
-    theState <- thawBlockState bedParentState
-    (mPaydayParams, theState) <- doEpochTransition bedIsNewEpoch bedEpochDuration theState
-    theState <- doUpdateSeedStateForBlock bedTimestamp bedBlockNonce theState
-    -- TODO: Snapshot bakers in last epoch of payday, update chain parameters, process releases, mint and reward, execute transactions, etc.
-    res <- freezeBlockState theState
-    return $ Right res
+-- * Transactions
 
+-- |Execute transactions for constructing a block. This draws transactions from the transaction
+-- table (that are pending according to the pending transaction table) and executes them, selecting
+-- only valid transactions for inclusion.  The runtime parameters limit the block size and time to
+-- spend on constructing the block.
+-- The return value is the 'TransactionExecutionResult', which records the energy used, reward
+-- parameters (fees and free transaction counts), and the resulting block state.
+--
+-- Note that this does not update the transaction table or pending transaction table.
 constructBlockTransactions ::
-    (BlockStateStorage m, IsConsensusV1 (MPV m), TimeMonad m, MonadLogger m, MonadProtocolVersion m) =>
+    ( BlockStateStorage m,
+      IsConsensusV1 (MPV m),
+      TimeMonad m,
+      MonadLogger m,
+      MonadProtocolVersion m
+    ) =>
     RuntimeParameters ->
+    -- |Time at start of block construction.
+    UTCTime ->
     TransactionTable ->
     PendingTransactionTable ->
+    -- |Block timestamp.
     Timestamp ->
+    -- |Block state.
     UpdatableBlockState m ->
     m (FilteredTransactions, TransactionExecutionResult m)
-constructBlockTransactions runtimeParams transTable pendingTable blockTimestamp theState = do
-    startTime <- currentTime
-    let timeout = addUTCTime (durationToNominalDiffTime (rpBlockTimeout runtimeParams)) startTime
-
+constructBlockTransactions runtimeParams startTime transTable pendingTable blockTimestamp theState = do
+    -- The block energy limit and account creation limit are taken from the current chain parameters.
     chainParams <- bsoGetChainParameters theState
     let context =
             EnvImpl.ContextState
@@ -338,13 +381,14 @@ constructBlockTransactions runtimeParams transTable pendingTable blockTimestamp 
                   _maxBlockEnergy = chainParams ^. cpConsensusParameters . cpBlockEnergyLimit,
                   _accountCreationLimit = chainParams ^. cpAccountCreationLimit
                 }
-
+    -- Filter the transactions, executing the valid ones.
     (ft, finState) <-
         EnvImpl.runSchedulerT
             (filterTransactions maxBlockSize timeout transactionGroups)
             context
             (EnvImpl.makeInitialSchedulerState theState)
     let theState = finState ^. EnvImpl.ssBlockState
+    -- Record the transaction outcomes.
     theState <- bsoSetTransactionOutcomes theState (snd <$> ftAdded ft)
     let result =
             TransactionExecutionResult
@@ -360,18 +404,27 @@ constructBlockTransactions runtimeParams transTable pendingTable blockTimestamp 
                 }
     return (ft, result)
   where
+    timeout = addUTCTime (durationToNominalDiffTime (rpBlockTimeout runtimeParams)) startTime
     transactionGroups = groupPendingTransactions transTable pendingTable
     maxBlockSize = fromIntegral (rpBlockSize runtimeParams)
 
+-- |Execute the transactions within a block. If successful, the return value is the
+-- 'TransactionExecutionResult', which records the energy used, reward parameters (fees and free
+-- transaction counts), and the resulting block state. If unsuccessful, a result of @Left Nothing@
+-- indicates that the block energy limit was succeeded, and otherwise a result of @Left (Just fk)@
+-- indicates the failure kind of the first failed transaction.
 executeBlockTransactions ::
     (BlockStateStorage m, IsConsensusV1 (MPV m), MonadLogger m, MonadProtocolVersion m) =>
     Timestamp ->
-    [TVer.BlockItemWithStatus] ->
+    [(BlockItem, TVer.VerificationResult)] ->
     UpdatableBlockState m ->
     m (Either (Maybe FailureKind) (TransactionExecutionResult m))
 executeBlockTransactions blockTimestamp transactions theState = do
+    -- The account creation limit and max block energy are determined by the current chain parameters.
     chainParams <- bsoGetChainParameters theState
     let accountCreationLim = chainParams ^. cpAccountCreationLimit
+    -- The number of free transaction is later used for allocating rewards, but we can also abort
+    -- execution if the account creation limit is exceeded here.
     let freeCounts = countFreeTransactions (fst <$> transactions) False
     if countAccountCreation freeCounts > accountCreationLim
         then do
@@ -382,10 +435,14 @@ executeBlockTransactions blockTimestamp transactions theState = do
                     EnvImpl.ContextState
                         { _chainMetadata = ChainMetadata blockTimestamp,
                           _maxBlockEnergy = chainParams ^. cpConsensusParameters . cpBlockEnergyLimit,
-                          _accountCreationLimit = chainParams ^. cpAccountCreationLimit
+                          _accountCreationLimit = accountCreationLim
                         }
             let initState = EnvImpl.makeInitialSchedulerState theState
-            (res, finState) <- EnvImpl.runSchedulerT (runTransactions transactions) context initState
+            (res, finState) <-
+                EnvImpl.runSchedulerT
+                    (runTransactions ((_2 %~ Just) <$> transactions))
+                    context
+                    initState
             let theState = finState ^. EnvImpl.ssBlockState
             case res of
                 Left failKind -> do
@@ -405,7 +462,13 @@ executeBlockTransactions blockTimestamp transactions theState = do
                                 }
                     return $ Right result
 
-executeBlock ::
+-- * Blocks
+
+-- |Execute a block, computing the new block state. If successful, the return value is the
+-- resulting block state. If unsuccessful, a result of @Left Nothing@ indicates that the block
+-- energy limit was succeeded, and otherwise a result of @Left (Just fk)@ indicates the failure kind
+-- of the first failed transaction.
+executeBlockState ::
     ( pv ~ MPV m,
       BlockStateStorage m,
       BlockState m ~ PBS.HashedPersistentBlockState pv,
@@ -414,9 +477,9 @@ executeBlock ::
       MonadProtocolVersion m
     ) =>
     BlockExecutionData pv ->
-    [TVer.BlockItemWithStatus] ->
+    [(BlockItem, TVer.VerificationResult)] ->
     m (Either (Maybe FailureKind) (PBS.HashedPersistentBlockState pv))
-executeBlock execData@BlockExecutionData{..} transactions = do
+executeBlockState execData@BlockExecutionData{..} transactions = do
     PrologueResult{..} <- executeBlockPrologue execData
     tRes <- executeBlockTransactions bedTimestamp transactions prologueBlockState
     forM tRes $ \TransactionExecutionResult{..} -> do
@@ -426,7 +489,15 @@ executeBlock execData@BlockExecutionData{..} transactions = do
             terTransactionRewardParameters
             terBlockState
 
-constructBlock ::
+-- |Construct a block, computing the new block state. This draws transactions from the transaction
+-- table (that are pending according to the pending transaction table) and executes them, selecting
+-- only valid transactions for inclusion.  The runtime parameters limit the block size and time to
+-- spend on constructing the block.  This returns a 'FilteredTransactions' that indicates which
+-- transactions were included in the block, as well as any that were found to be invalid. It also
+-- returns the new block state.
+--
+-- Note that this does not update the transaction table.
+constructBlockState ::
     ( pv ~ MPV m,
       BlockStateStorage m,
       BlockState m ~ PBS.HashedPersistentBlockState pv,
@@ -440,11 +511,13 @@ constructBlock ::
     PendingTransactionTable ->
     BlockExecutionData pv ->
     m (FilteredTransactions, PBS.HashedPersistentBlockState pv)
-constructBlock runtimeParams transactionTable pendingTable execData@BlockExecutionData{..} = do
+constructBlockState runtimeParams transactionTable pendingTable execData@BlockExecutionData{..} = do
+    startTime <- currentTime
     PrologueResult{..} <- executeBlockPrologue execData
     (filtered, TransactionExecutionResult{..}) <-
         constructBlockTransactions
             runtimeParams
+            startTime
             transactionTable
             pendingTable
             bedTimestamp
@@ -455,4 +528,6 @@ constructBlock runtimeParams transactionTable pendingTable execData@BlockExecuti
             prologuePaydayParameters
             terTransactionRewardParameters
             terBlockState
+    endTime <- currentTime
+    logEvent Scheduler LLInfo $ "Constructed a block in " ++ show (diffUTCTime endTime startTime)
     return (filtered, finalState)

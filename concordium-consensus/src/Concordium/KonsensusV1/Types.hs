@@ -14,6 +14,7 @@ import Data.Bits
 import qualified Data.ByteString as BS
 import Data.List (foldl')
 import qualified Data.Map.Strict as Map
+import Data.Maybe
 import Data.Serialize
 import qualified Data.Set as Set
 import qualified Data.Vector as Vector
@@ -367,6 +368,18 @@ checkQuorumCertificate qsmGenesis sigThreshold FinalizationCommittee{..} QuorumC
         case committeeFinalizers Vector.!? fromIntegral (theFinalizerIndex i) of
             Nothing -> False
             Just FinalizerInfo{..} -> check (finalizerWeight + accumWeight) (finalizerBlsKey : keys) is
+
+-- |Determine the 'BakerId's of the finalizers that signed a 'QuorumCertificate'.
+-- This assumes that all of the signatories are valid indexes into the finalization committee
+-- (which is checked by 'checkQuorumCertificate'). Any invalid finalization indexes will be
+-- omitted.
+quorumCertificateSigningBakers :: FinalizationCommittee -> QuorumCertificate -> [BakerId]
+quorumCertificateSigningBakers finalizers qc =
+    mapMaybe finBakerId $ finalizerList (qcSignatories qc)
+  where
+    finBakerId finIndex =
+        finalizerBakerId
+            <$> committeeFinalizers finalizers Vector.!? fromIntegral (theFinalizerIndex finIndex)
 
 -- |A Merkle proof that one block is the successor of another.
 type SuccessorProof = BlockQuasiHash
