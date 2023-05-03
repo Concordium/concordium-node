@@ -36,6 +36,7 @@ import Concordium.Types.Transactions as Transactions
 import Concordium.Types.Updates hiding (getUpdateKeysCollection)
 
 import qualified Concordium.GlobalState.Block as B
+import Concordium.Scheduler.Types (FilteredTransactions)
 import qualified Concordium.TransactionVerification as TVer
 
 data BlockStatus bp pb
@@ -418,6 +419,23 @@ class
         UTCTime ->
         m ()
 
+    -- |Update the transaction table and pending transaction table as a result of constructing a
+    -- block. The transactions added to the block are marked as committed. Failed transactions are
+    -- purged from the transaction table if they are not committed since the last finalized block.
+    -- The pending transaction table is updated to reflect the executed transactions and the purged
+    -- transactions.
+    --
+    -- PRECONDITION: All of the filtered transactions are present in the transaction table and
+    -- pending transaction table.
+    filterTransactionTables ::
+        -- |Slot of the block being constructed.
+        Slot ->
+        -- |Hash of the block being constructed.
+        BlockHash ->
+        -- |Filtered transactions as a result of constructing the block.
+        FilteredTransactions ->
+        m ()
+
     -- |Mark a transaction as no longer on a given block. This is used when a block is
     -- marked as dead.
     markDeadTransaction :: BlockHash -> BlockItem -> m ()
@@ -508,6 +526,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     putConsensusStatistics = lift . putConsensusStatistics
     getRuntimeParameters = lift getRuntimeParameters
     purgeTransactionTable tm = lift . (purgeTransactionTable tm)
+    filterTransactionTables slot hash filtered = lift $ filterTransactionTables slot hash filtered
     getNonFinalizedTransactionVerificationResult = lift . getNonFinalizedTransactionVerificationResult
     clearOnProtocolUpdate = lift clearOnProtocolUpdate
     clearAfterProtocolUpdate = lift clearAfterProtocolUpdate

@@ -1019,6 +1019,14 @@ instance
             skovPersistentData . transactionTable .= newTT
             skovPersistentData . pendingTransactions .= newPT
 
+    filterTransactionTables slot bh filteredTrs = do
+        oldTT <- use $ skovPersistentData . transactionTable
+        oldPTT <- use $ skovPersistentData . pendingTransactions
+        lfCommit <- use $ skovPersistentData . lastFinalized . to blockSlot
+        let (!newTT, !newPTT) = filterTables lfCommit slot bh filteredTrs oldTT oldPTT
+        skovPersistentData . transactionTable .=! newTT
+        skovPersistentData . pendingTransactions .=! newPTT
+
     clearOnProtocolUpdate = do
         -- clear the pending blocks
         skovPersistentData . possiblyPendingTable .=! HM.empty

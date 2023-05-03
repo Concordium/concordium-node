@@ -1375,7 +1375,6 @@ bakeBlock BakeBlockInputs{..} = do
     let (!newTT, !newPTT) =
             filterTables
                 (blockRound lfb)
-                (rpBlockSize runtime)
                 (blockRound signedBlock)
                 (getHash signedBlock)
                 filteredTransactions
