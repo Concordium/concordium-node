@@ -15,6 +15,7 @@ import Lens.Micro.Platform
 import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.Types
+import Concordium.Types.SeedState
 
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Basic.BlockState.PoolRewards (BakerPoolRewardDetails)
@@ -30,7 +31,6 @@ import qualified Concordium.Scheduler.EnvironmentImplementation as EnvImpl
 import Concordium.Scheduler.TreeStateEnvironment (FreeTransactionCounts (countAccountCreation), countFreeTransactions, distributeRewards, doBlockRewardP4, doCalculatePaydayMintAmounts)
 import Concordium.Scheduler.Types
 import qualified Concordium.TransactionVerification as TVer
-import Concordium.Types.SeedState
 
 -- * Helper types
 

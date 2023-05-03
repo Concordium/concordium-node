@@ -528,7 +528,7 @@ blockArrive block parentP lfBlockP ExecutionResult{..} = do
     let height = bpHeight parentP + 1
     curTime <- currentTime
     blockP <- makeLiveBlock block parentP lfBlockP _finalState curTime _energyUsed
-    logEvent Skov LLInfo $ "Block " ++ show block ++ " arrived [" ++ show (length (blockTransactions block)) ++ " transactions]"
+    logEvent Skov LLInfo $ "Block " ++ show block ++ " arrived"
     -- Update the statistics
     updateArriveStatistics blockP
     -- Add to the branches
