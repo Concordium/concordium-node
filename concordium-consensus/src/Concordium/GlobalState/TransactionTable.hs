@@ -373,23 +373,6 @@ addPendingTransaction nextNonce tx PTT{..} = assert (nextNonce <= nonce) $ let v
     nonce = transactionNonce tx
     sender = accountAddressEmbed (transactionSender tx)
 
--- |Insert an additional element in the pending transaction table.
--- Does nothing if the next nonce is greater than the transaction nonce.
--- If the account does not yet exist create it.
--- NB: This only updates the pending table, and does not ensure that invariants elsewhere are maintained.
-checkedAddPendingTransaction :: TransactionData t => Nonce -> t -> PendingTransactionTable -> PendingTransactionTable
-checkedAddPendingTransaction nextNonce tx pt =
-    if nextNonce > nonce
-        then pt
-        else
-            pt
-                & pttWithSender . at' sender %~ \case
-                    Nothing -> Just (nextNonce, nonce)
-                    Just (l, u) -> Just (l, max u nonce)
-  where
-    nonce = transactionNonce tx
-    sender = accountAddressEmbed (transactionSender tx)
-
 -- |Extend the pending transaction table with a credential hash.
 addPendingDeployCredential :: TransactionHash -> PendingTransactionTable -> PendingTransactionTable
 addPendingDeployCredential hash pt =
@@ -410,14 +393,6 @@ addPendingUpdate nextSN ui ptt = assert (nextSN <= sn) $ ptt & pttUpdates . at' 
     f (Just (l, u)) = Just (l, max u sn)
     sn = updateSeqNumber (uiHeader ui)
     ut = updateType (uiPayload ui)
-
--- |Add an update instruction to the pending transaction table, checking
--- that its sequence number is high enough.  (Does nothing if it is not.)
--- NB: This only updates the pending table.
-checkedAddPendingUpdate :: UpdateSequenceNumber -> UpdateInstruction -> PendingTransactionTable -> PendingTransactionTable
-checkedAddPendingUpdate nextSN ui ptt
-    | nextSN > updateSeqNumber (uiHeader ui) = ptt
-    | otherwise = addPendingUpdate nextSN ui ptt
 
 -- |Update the pending transaction table by considering the supplied 'BlockItem's
 -- as no longer pending. The 'BlockItem's must be ordered correctly with respect

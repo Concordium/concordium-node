@@ -949,34 +949,6 @@ instance
         -- statuses are no longer updated.
         skovPersistentData . transactionTable . ttHashMap . at' (getHash tr) %= fmap (_2 %~ addResult bh slot idx)
 
-    purgeTransaction WithMetadata{..} =
-        use (skovPersistentData . transactionTable . ttHashMap . at' wmdHash) >>= \case
-            Nothing -> return True
-            Just (_, results) -> do
-                lastFinSlot <- blockSlot . _bpBlock . fst <$> TS.getLastFinalized
-                if commitPoint lastFinSlot >= results ^. tsCommitPoint
-                    then do
-                        -- remove from the table
-                        skovPersistentData . transactionTable . ttHashMap . at' wmdHash .= Nothing
-                        -- if the transaction is from a sender also delete the relevant
-                        -- entry in the account non finalized table
-                        case wmdData of
-                            NormalTransaction tr -> do
-                                let nonce = transactionNonce tr
-                                    sender = accountAddressEmbed (transactionSender tr)
-                                skovPersistentData
-                                    . transactionTable
-                                    . ttNonFinalizedTransactions
-                                    . at' sender
-                                    . non emptyANFT
-                                    . anftMap
-                                    . at' nonce
-                                    . non Map.empty
-                                    %= Map.delete WithMetadata{wmdData = tr, ..}
-                            _ -> return () -- do nothing.
-                        return True
-                    else return False
-
     markDeadTransaction bh tr =
         -- We only need to update the outcomes. The anf table nor the pending table need be updated
         -- here since a transaction should not be marked dead in a finalized block.

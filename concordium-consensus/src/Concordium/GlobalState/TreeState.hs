@@ -368,12 +368,6 @@ class
     -- See documentation of 'AddTransactionResult' for meaning of the return value.
     addVerifiedTransaction :: BlockItem -> TVer.OkResult -> m AddTransactionResult
 
-    -- |Purge a transaction from the transaction table if its last committed slot
-    -- number does not exceed the slot number of the last finalized block.
-    -- (A transaction that has been committed to a finalized block should not be purged.)
-    -- Returns @True@ if and only if the transaction is purged.
-    purgeTransaction :: BlockItem -> m Bool
-
     -- |Get the `VerificationResult` for a `BlockItem` if such one exist.
     -- A `VerificationResult` exists for `Received` and `Committed` transactions while
     -- finalized transactions will yield a `Nothing`.
@@ -518,7 +512,6 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     commitTransaction slot bh tr = lift . commitTransaction slot bh tr
     addCommitTransaction tr ctx ts slot = lift $ addCommitTransaction tr ctx ts slot
     addVerifiedTransaction tr vr = lift $ addVerifiedTransaction tr vr
-    purgeTransaction = lift . purgeTransaction
     markDeadTransaction bh = lift . markDeadTransaction bh
     lookupTransaction = lift . lookupTransaction
     numberOfNonFinalizedTransactions = lift numberOfNonFinalizedTransactions
@@ -563,7 +556,6 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     {-# INLINE commitTransaction #-}
     {-# INLINE addCommitTransaction #-}
     {-# INLINE addVerifiedTransaction #-}
-    {-# INLINE purgeTransaction #-}
     {-# INLINE lookupTransaction #-}
     {-# INLINE numberOfNonFinalizedTransactions #-}
     {-# INLINE markDeadTransaction #-}
