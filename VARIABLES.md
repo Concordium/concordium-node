@@ -34,12 +34,12 @@ Network related configurations for a node.
 If the node has fewer connected nodes than specified, then the node will try to acquire more nodes via bootstrapping or requesting more nodes from its existing peers. The default value is 7.
 
 - `CONCORDIUM_NODE_CONNECTION_MAX_ALLOWED_NODES` Is the maximum allowed number of peers the node will tolerate. 
-If the node gets more than specificed, then the node will start dropping its peers until the number of peers is below the specified amount.
+If the node gets more than specified, then the node will start dropping its peers until the number of peers is below the specified amount.
 
 - `CONCORDIUM_NODE_CONNECTION_MAX_ALLOWED_NODES_PERCENTAGE` Is the default way of setting the maximum number of peers, that the node will tolerate. 
 This variable is set as a percentage wrt. `CONCORDIUM_NODE_CONNECTION_DESIRED_NODES`. The default value is 150.
 
-- `CONCORDIUM_NODE_CONNECTION_BOOTSTRAP_NODES` A comma seperated list of URLs specifying the first nodes that the node should connect to. (This option disables DNS bootstrapping feature).
+- `CONCORDIUM_NODE_CONNECTION_BOOTSTRAP_NODES` A comma separated list of URLs specifying the first nodes that the node should connect to. (This option disables DNS bootstrapping feature).
 
 - `CONCORDIUM_NODE_CONNECTION_HARD_CONNECTION_LIMIT` Is the maximum number of ***connections*** (as opposed to nodes) that a node will have at a given time. 
 This should be set a bit higher than the maximum number of nodes, so that new peers are accepted and discovered over time. The default value is 20. 
