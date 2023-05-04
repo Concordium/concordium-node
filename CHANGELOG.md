@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+- Enable CORS support in grpc-web. This only applies when grpc-web is enabled.
+
 ## 5.3.2
 
 - Extend Prometheus exporter with metric `peer_bucket_size`, see
