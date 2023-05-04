@@ -479,7 +479,18 @@ receiveBlockKnownParent parent pendingBlock = do
 --     - the baker is not a valid baker for the epoch; or
 --     - the baker is valid but the signature on the block is not valid.
 --
--- TODO: if any of the transactions in the block is invalid. Issue #699
+-- We do not process any of the transactions in pending blocks. The transactions will be processed
+-- as part of 'processPendingChild', if and when the parent block becomes live. Some reasons for
+-- this choice include:
+--
+-- * When we encounter (honest) pending blocks, we are or should be catching up with the network.
+--   Processing pending blocks' transactions prematurely will likely divert resources from that.
+--
+-- * Under normal circumstances, we would expect to receive any transactions in the block separately
+--   from the block itself, so they likely will be processed in any event.
+--
+-- * Having a single point at which transactions are processed (i.e. in 'processBlock') simplifies
+--   the block processing flow and avoids duplicating effort.
 receiveBlockUnknownParent ::
     ( LowLevel.MonadTreeStateStore m,
       MonadState (SkovData (MPV m)) m,
@@ -512,7 +523,6 @@ receiveBlockUnknownParent pendingBlock = do
   where
     pbHash = getHash pendingBlock
     continuePending = do
-        -- TODO: Check the transactions in the block. Issue #699
         addPendingBlock pendingBlock
         markPending pendingBlock
         logLoggable $ LogBlockPending pbHash (blockParent pendingBlock)
@@ -585,8 +595,6 @@ addBlock pendingBlock blockState parent = do
 -- * The parent block is correct: @getHash parent == blockParent pendingBlock@.
 -- * The block is signed by a valid baker for its epoch.
 -- * The baker is the leader for the round according to the parent block.
---
--- TODO: Transaction processing. Issue #699.
 processBlock ::
     ( IsConsensusV1 (MPV m),
       BlockStateStorage m,
