@@ -147,8 +147,8 @@ computeFinalizationCommittee :: FullBakers -> FinalizationCommitteeParameters ->
 computeFinalizationCommittee FullBakers{..} FinalizationCommitteeParameters{..} =
     FinalizationCommittee{..}
   where
-    -- We use an insertion sort to construct the '_fcpMaxFinalizers' top bakers.
-    -- Order them by descending stake and ascending baker ID.
+    -- We construct a map with the top bakers ordered by descending stake and ascending baker ID.
+    -- The size of the map is limited to '_fcpMaxFinalizers'.
     insert ::
         Map.Map (Down Amount, BakerId) FullBakerInfo ->
         FullBakerInfo ->

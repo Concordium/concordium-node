@@ -512,6 +512,8 @@ receiveBlockUnknownParent pendingBlock = do
         return BlockResultPending
 
 -- |Get the minimum time between consecutive blocks, as of the specified block.
+-- This is the value of the minimum block time chain parameter, and determines the minimum interval
+-- between the block and a child block.
 getMinBlockTime ::
     ( IsConsensusV1 (MPV m),
       BlockStateQuery m,
@@ -1092,6 +1094,15 @@ validateBlock blockHash BakerIdentity{..} finInfo = do
                           vqmBlock = block
                         }
 
+-- |If the given time has elapsed, perform the supplied action. Otherwise, start a timer to
+-- asynchronously perform the action at the given time.
+doAfter :: (TimeMonad m, TimerMonad m) => UTCTime -> m () -> m ()
+doAfter time action = do
+    now <- currentTime
+    if time <= now
+        then action
+        else void $ onTimeout (DelayUntil time) action
+
 -- |Produce a quorum signature on a block if the block is eligible and we are a finalizer for the
 -- block's epoch. This will delay until the timestamp of the block has elapsed so that we do not
 -- sign blocks prematurely.
@@ -1120,10 +1131,8 @@ checkedValidateBlock ::
 checkedValidateBlock validBlock = do
     withFinalizerForEpoch (blockEpoch validBlock) $ \bakerIdent finInfo -> do
         let !blockHash = getHash validBlock
-        _ <-
-            onTimeout (DelayUntil (timestampToUTCTime $ blockTimestamp validBlock)) $!
-                validateBlock blockHash bakerIdent finInfo
-        return ()
+        doAfter (timestampToUTCTime $ blockTimestamp validBlock) $!
+            validateBlock blockHash bakerIdent finInfo
 
 -- |Execute a block that has previously been verified by 'uponReceivingBlock'.
 --
@@ -1201,6 +1210,11 @@ data BakeBlockInputs (pv :: ProtocolVersion) = BakeBlockInputs
 --   * We are the winner of the round in the current epoch.
 --
 --   * The baker's public keys match those in the baking committee.
+--
+-- Note, if any of the tests fails, it is expected to fail on subsequent calls in the same round.
+-- (In particular, we do not expect the baker keys to change.) Thus, when 'prepareBakeBlockInputs'
+-- is called, it marks that we have attempted to bake for the round, so subsequent calls will fail
+-- until the round is advanced (and so the flag is reset).
 prepareBakeBlockInputs ::
     ( MonadReader r m,
       HasBakerContext r,
@@ -1369,6 +1383,6 @@ makeBlock = do
     mInputs <- prepareBakeBlockInputs
     forM_ mInputs $ \inputs -> do
         block <- bakeBlock inputs
-        void $ onTimeout (DelayUntil (timestampToUTCTime $ blockTimestamp block)) $ do
+        doAfter (timestampToUTCTime $ blockTimestamp block) $ do
             sendBlock block
             checkedValidateBlock block
