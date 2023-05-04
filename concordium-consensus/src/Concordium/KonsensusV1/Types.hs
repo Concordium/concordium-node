@@ -804,6 +804,18 @@ checkTimeoutMessageSignature ::
 checkTimeoutMessageSignature pubKey genesisHash TimeoutMessage{..} =
     BlockSig.verify pubKey (timeoutMessageBodySignatureBytes tmBody genesisHash) tmSignature
 
+data FinalizationMessage = FMQuorumMessage !QuorumMessage | FMTimeoutMessage !TimeoutMessage
+
+instance Serialize FinalizationMessage where
+    put (FMQuorumMessage qm) = putWord8 0 >> put qm
+    put (FMTimeoutMessage tm) = putWord8 1 >> put tm
+
+    get =
+        getWord8 >>= \case
+            0 -> FMQuorumMessage <$> get
+            1 -> FMTimeoutMessage <$> get
+            _ -> fail "Invalid finalization message type."
+
 -- |Projections for the data associated with a baked (i.e. non-genesis) block.
 class BakedBlockData d where
     -- |Quorum certificate on the parent block.

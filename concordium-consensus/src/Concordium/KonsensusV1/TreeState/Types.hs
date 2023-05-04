@@ -25,6 +25,7 @@ import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import Concordium.GlobalState.TransactionTable
 import Concordium.KonsensusV1.Types
+import qualified Data.ByteString as BS
 
 -- |Status information for a finalized transaction.
 data FinalizedTransactionStatus = FinalizedTransactionStatus
@@ -167,6 +168,12 @@ instance BakedBlockData PendingBlock where
     blockNonce = blockNonce . pbBlock
     blockSignature = blockSignature . pbBlock
     blockTransactionOutcomesHash = blockTransactionOutcomesHash . pbBlock
+
+deserializeExactVersionedPendingBlock :: SProtocolVersion pv -> BS.ByteString -> UTCTime -> Either String PendingBlock
+deserializeExactVersionedPendingBlock spv blockBS recTime =
+    case runGet (getSignedBlock spv (utcTimeToTransactionTime recTime)) blockBS of
+        Left err -> Left $ "Block deserialization failed: " ++ err
+        Right signedBlock -> Right $ PendingBlock signedBlock recTime
 
 -- |Status of a transaction.
 data TransactionStatus
