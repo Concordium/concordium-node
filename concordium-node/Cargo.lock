@@ -531,7 +531,7 @@ dependencies = [
 
 [[package]]
 name = "concordium-contracts-common"
-version = "5.3.1"
+version = "6.0.0"
 dependencies = [
  "bs58",
  "chrono",
@@ -550,7 +550,7 @@ dependencies = [
 
 [[package]]
 name = "concordium-contracts-common-derive"
-version = "1.0.1"
+version = "2.0.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -559,7 +559,7 @@ dependencies = [
 
 [[package]]
 name = "concordium-smart-contract-engine"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "anyhow",
  "byteorder",
@@ -581,7 +581,7 @@ dependencies = [
 
 [[package]]
 name = "concordium-wasm"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "anyhow",
  "concordium-contracts-common",
@@ -592,7 +592,7 @@ dependencies = [
 
 [[package]]
 name = "concordium_base"
-version = "1.1.1"
+version = "1.2.0"
 dependencies = [
  "aes",
  "anyhow",
