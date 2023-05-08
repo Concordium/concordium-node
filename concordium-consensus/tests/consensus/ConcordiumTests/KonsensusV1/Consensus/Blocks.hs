@@ -947,30 +947,58 @@ testMakeFirstBlock = runTestMonad (baker bakerId) testTime genesisData $ do
                 }
     let qsig = signQuorumSignatureMessage qsm (bakerAggregationKey . fst $ bakers !! bakerId)
     let expectQM = buildQuorumMessage qsm qsig (FinalizerIndex $ fromIntegral bakerId)
+    liftIO $
+        assertEqual
+            "Produced events (makeBlock)"
+            [OnBlock (NormalBlock expectBlock), SendBlock expectBlock, SendQuorumMessage expectQM]
+            r
+    timers <- getPendingTimers
+    liftIO $ assertBool "Timers should not be pending" (null timers)
+  where
+    bakerId = 2
+
+-- |Test calling 'makeBlock' in the first round for a baker that should produce a block.
+-- We try to make the block earlier than it should be, which should succeed, but delay sending
+-- the block.
+testMakeFirstBlockEarly :: Assertion
+testMakeFirstBlockEarly = runTestMonad (baker bakerId) curTime genesisData $ do
+    ((), r) <- listen makeBlock
+    let expectBlock = validSignBlock testBB1{bbTimestamp = utcTimeToTimestamp blkTime}
+    let qsm =
+            QuorumSignatureMessage
+                { qsmGenesis = genesisHash,
+                  qsmBlock = getHash expectBlock,
+                  qsmRound = blockRound expectBlock,
+                  qsmEpoch = blockEpoch expectBlock
+                }
+    let qsig = signQuorumSignatureMessage qsm (bakerAggregationKey . fst $ bakers !! bakerId)
+    let expectQM = buildQuorumMessage qsm qsig (FinalizerIndex $ fromIntegral bakerId)
     liftIO $ assertEqual "Produced events (makeBlock)" [OnBlock (NormalBlock expectBlock)] r
     timers <- getPendingTimers
     case Map.toAscList timers of
         [(0, (DelayUntil t, a))]
-            | t == testTime -> do
+            | t == blkTime -> do
                 clearPendingTimers
                 ((), r2) <- listen a
                 liftIO $ assertEqual "Produced events (after first timer)" [SendBlock expectBlock] r2
                 timers2 <- getPendingTimers
                 case Map.toAscList timers2 of
                     [(0, (DelayUntil t2, a2))]
-                        | t2 == testTime -> do
+                        | t2 == blkTime -> do
                             ((), r3) <- listen a2
                             liftIO $ assertEqual "Produced events (after second timer)" [SendQuorumMessage expectQM] r3
                     _ -> timerFail timers2
                 return ()
         _ -> timerFail timers
   where
+    curTime = timestampToUTCTime 250
+    blkTime = timestampToUTCTime 1_000
     bakerId = 2
     timerFail timers =
         liftIO $
             assertFailure $
                 "Expected a single timer event at "
-                    ++ show testTime
+                    ++ show blkTime
                     ++ " but got: "
                     ++ show (fst <$> timers)
 
@@ -985,7 +1013,7 @@ testNoMakeFirstBlock = runTestMonad (baker 0) testTime genesisData $ do
 -- |Test calling 'makeBlock' in the second round, after sending timeout messages to time out the
 -- first round, where the baker should win the second round.
 testTimeoutMakeBlock :: Assertion
-testTimeoutMakeBlock = runTestMonad (baker 4) testTime genesisData $ do
+testTimeoutMakeBlock = runTestMonad (baker bakerId) testTime genesisData $ do
     let genQC = genesisQuorumCertificate genesisHash
     mapM_ processTimeout $ timeoutMessagesFor genQC 1 0
     ((), r) <- listen makeBlock
@@ -995,7 +1023,22 @@ testTimeoutMakeBlock = runTestMonad (baker 4) testTime genesisData $ do
                     { bbTimestamp = utcTimeToTimestamp testTime,
                       bbTimeoutCertificate = Present $ validTimeoutForFinalizers [0 .. 3] genQC 1
                     }
-    liftIO $ assertEqual "Produced events (makeBlock)" [OnBlock (NormalBlock expectBlock)] r
+    let qsm =
+            QuorumSignatureMessage
+                { qsmGenesis = genesisHash,
+                  qsmBlock = getHash expectBlock,
+                  qsmRound = blockRound expectBlock,
+                  qsmEpoch = blockEpoch expectBlock
+                }
+    let qsig = signQuorumSignatureMessage qsm (bakerAggregationKey . fst $ bakers !! bakerId)
+    let expectQM = buildQuorumMessage qsm qsig (FinalizerIndex $ fromIntegral bakerId)
+    liftIO $
+        assertEqual
+            "Produced events (makeBlock)"
+            [OnBlock (NormalBlock expectBlock), SendBlock expectBlock, SendQuorumMessage expectQM]
+            r
+  where
+    bakerId = 4
 
 -- |Test that if we receive three blocks such that the QC contained in the last one justifies
 -- transitioning to a new epoch, we do not sign the third block, since it is in an old epoch.
@@ -1204,6 +1247,7 @@ tests = describe "KonsensusV1.Consensus.Blocks" $ do
         it "receive a block with an incorrect state hash" testReceiveIncorrectStateHash
         it "receive a block with an invalid QC signature" testReceiveInvalidQC
         it "make a block as baker 2" testMakeFirstBlock
+        it "make a block as baker 2 early" testMakeFirstBlockEarly
         it "fail to make a block as baker 0" testNoMakeFirstBlock
         it "make a block after first round timeout" testTimeoutMakeBlock
         it "refuse to sign a block in old epoch after epoch transition" testNoSignIncorrectEpoch
