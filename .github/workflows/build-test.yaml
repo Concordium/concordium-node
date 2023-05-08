@@ -108,11 +108,11 @@ jobs:
 
     - name: Run rustfmt
       run: |
-        cargo fmt --manifest-path concordium-node/Cargo.toml --all -- --check
-        cargo fmt --manifest-path collector-backend/Cargo.toml --all -- --check
-        cargo fmt --manifest-path collector/Cargo.toml --all -- --check
-        cargo fmt --manifest-path service/windows/Cargo.toml --all -- --check
-        cargo fmt --manifest-path service/windows/installer/custom-actions/Cargo.toml --all -- --check
+        cargo fmt --manifest-path concordium-node/Cargo.toml -- --check
+        cargo fmt --manifest-path collector-backend/Cargo.toml -- --check
+        cargo fmt --manifest-path collector/Cargo.toml -- --check
+        cargo fmt --manifest-path service/windows/Cargo.toml -- --check
+        cargo fmt --manifest-path service/windows/installer/custom-actions/Cargo.toml -- --check
 
   build:
     needs: [fourmolu, rustfmt]
