@@ -531,6 +531,23 @@ parentOfLive sd block
         | Present blockData <- blockBakedData block = blockParent blockData
         | otherwise = error "parentOfLive: unexpected genesis block"
 
+-- |Get the last finalized block from the perspective of a block. That is, follow the QC chain
+-- back until we reach two blocks in consecutive rounds.
+-- FIXME: Possibly consider epoch finalization entries too.
+lastFinalizedOf ::
+    (LowLevel.MonadTreeStateStore m, MonadIO m, MonadState (SkovData (MPV m)) m) =>
+    BlockPointer (MPV m) ->
+    m (BlockPointer (MPV m))
+lastFinalizedOf = go <=< parentOf
+  where
+    go block
+        | blockRound block == 0 = return block
+        | otherwise = do
+            parent <- parentOf block
+            if blockRound block == blockRound parent + 1
+                then return parent
+                else go parent
+
 -- |Determine if one block is an ancestor of another.
 -- A block is considered to be an ancestor of itself.
 isAncestorOf ::

@@ -524,7 +524,7 @@ deriving instance
     (MonadState state m) =>
     MonadState state (PersistentTreeStateMonad state m)
 
-instance (IsProtocolVersion pv, pv ~ MPV m) => GlobalStateTypes (PersistentTreeStateMonad state m) where
+instance GlobalStateTypes (PersistentTreeStateMonad state m) where
     type BlockPointerType (PersistentTreeStateMonad state m) = PersistentBlockPointer (MPV m) (BlockState m)
 
 class HasDatabaseHandlers pv (BlockStatePointer (PBS.PersistentBlockState pv)) s => HasSkovPersistentData pv s | s -> pv where

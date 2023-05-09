@@ -9,9 +9,10 @@
 module Concordium.KonsensusV1.SkovMonad where
 
 import Control.Monad.Catch
-import Control.Monad.RWS
+import Control.Monad.RWS.Strict
 import Lens.Micro.Platform
 
+import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Persistent.Account
 import Concordium.GlobalState.Persistent.BlobStore
@@ -57,6 +58,11 @@ runSkovT comp ctx st = do
     (ret, st', _) <- runRWST (runSkovT' comp) ctx st
     return (ret, st')
 
+evalSkovT :: Monad m => SkovV1T pv m a -> SkovV1Context pv m -> SkovV1State pv -> m a
+evalSkovT comp ctx st = do
+    (ret, _) <- evalRWST (runSkovT' comp) ctx st
+    return ret
+
 data SkovV1State pv = SkovV1State
     { _v1sSkovData :: SkovData pv,
       _v1sTimer :: Maybe ThreadTimer
@@ -69,8 +75,6 @@ data SkovV1Context (pv :: ProtocolVersion) m = SkovV1Context
       _vcPersistentBlockStateContext :: PersistentBlockStateContext pv,
       -- |In-memory low-level tree state database.
       _vcDisk :: !(DatabaseHandlers pv),
-      -- \|Callback to use for logging.
-      --   _tcLogger :: !(LogMethod (TestMonad pv))
       _sendTimeoutHandler :: TimeoutMessage -> m (),
       _sendQuorumHandler :: QuorumMessage -> m (),
       _sendBlockHandler :: SignedBlock -> m (),
@@ -189,3 +193,11 @@ instance
         mapM_ cancelTimer mTimer
         newTimer <- onTimeout (DelayFor $ durationToNominalDiffTime dur) uponTimeoutEvent
         SkovV1T $ v1sTimer ?= newTimer
+
+instance GlobalStateTypes (SkovV1T pv m) where
+    type BlockPointerType (SkovV1T pv m) = BlockPointer pv
+
+instance (IsProtocolVersion pv, MonadIO m, MonadCatch m, MonadLogger m) => BlockPointerMonad (SkovV1T pv m) where
+    blockState = return . bpState
+    bpParent = parentOf
+    bpLastFinalized = lastFinalizedOf

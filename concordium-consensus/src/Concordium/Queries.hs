@@ -24,6 +24,7 @@ import Lens.Micro.Platform
 
 import Concordium.Common.Version
 import Concordium.Genesis.Data
+import qualified Concordium.Genesis.Data.BaseV1 as BaseV1
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import Concordium.GlobalState.Instance
 import Concordium.Types
@@ -59,6 +60,10 @@ import qualified Concordium.GlobalState.TreeState as TS
 import Concordium.GlobalState.Types
 import qualified Concordium.GlobalState.Wasm as GSWasm
 import Concordium.ID.Types
+import qualified Concordium.KonsensusV1.SkovMonad as SkovV1
+import qualified Concordium.KonsensusV1.TreeState.Implementation as SkovV1
+import qualified Concordium.KonsensusV1.TreeState.Types as SkovV1
+import qualified Concordium.KonsensusV1.Types as SkovV1
 import Concordium.Kontrol
 import Concordium.Kontrol.BestBlock
 import Concordium.MultiVersion
@@ -66,48 +71,61 @@ import Concordium.Skov as Skov (
     SkovQueryMonad (getBlocksAtHeight),
     evalSkovT,
  )
+import Control.Monad.State.Class
+import Data.Time
+
+-- |Type of a query that can be run against consensus version 0.
+type QueryV0M finconf a =
+    forall (pv :: ProtocolVersion).
+    ( SkovMonad (VersionedSkovM finconf pv),
+      FinalizationMonad (VersionedSkovM finconf pv)
+    ) =>
+    VersionedSkovM finconf pv a
+
+-- |Type of a query that can be run against consensus version 1.
+type QueryV1M finconf a =
+    forall (pv :: ProtocolVersion).
+    (IsConsensusV1 pv, IsProtocolVersion pv) =>
+    VersionedSkovV1M finconf pv a
 
 -- |Run a query against a specific skov version.
 liftSkovQuery ::
     MultiVersionRunner finconf ->
     EVersionedConfiguration finconf ->
-    ( forall (pv :: ProtocolVersion).
-      ( SkovMonad (VersionedSkovM finconf pv),
-        FinalizationMonad (VersionedSkovM finconf pv)
-      ) =>
-      VersionedSkovM finconf pv a
-    ) ->
+    -- |Query to run at version 0 consensus.
+    QueryV0M finconf a ->
+    -- |Query to run at version 1 consensus.
+    QueryV1M finconf a ->
     IO a
-liftSkovQuery mvr (EVersionedConfiguration vc) a = do
-    st <- readIORef (vcState vc)
-    runMVR (evalSkovT a (mvrSkovHandlers vc mvr) (vcContext vc) st) mvr
+liftSkovQuery mvr (EVersionedConfigurationV0 vc) av0 _ = do
+    st <- readIORef (vc0State vc)
+    runMVR (evalSkovT av0 (mvrSkovHandlers vc mvr) (vc0Context vc) st) mvr
+liftSkovQuery mvr (EVersionedConfigurationV1 vc) _ av1 = do
+    st <- readIORef (vc1State vc)
+    runMVR (SkovV1.evalSkovT av1 (vc1Context vc) st) mvr
 
 -- |Run a query against the latest skov version.
 liftSkovQueryLatest ::
-    ( forall (pv :: ProtocolVersion).
-      ( SkovMonad (VersionedSkovM finconf pv),
-        FinalizationMonad (VersionedSkovM finconf pv)
-      ) =>
-      VersionedSkovM finconf pv a
-    ) ->
+    -- |Query to run at consensus version 0.
+    QueryV0M finconf a ->
+    -- |Query to run at consensus version 1.
+    QueryV1M finconf a ->
     MVR finconf a
-liftSkovQueryLatest a = MVR $ \mvr -> do
+liftSkovQueryLatest av0 av1 = MVR $ \mvr -> do
     versions <- readIORef (mvVersions mvr)
-    liftSkovQuery mvr (Vec.last versions) a
+    liftSkovQuery mvr (Vec.last versions) av0 av1
 
 -- |Run a query at a specific genesis index. The genesis index is assumed to be valid.
 liftSkovQueryAtGenesisIndex ::
     GenesisIndex ->
-    ( forall (pv :: ProtocolVersion).
-      ( SkovMonad (VersionedSkovM finconf pv),
-        FinalizationMonad (VersionedSkovM finconf pv)
-      ) =>
-      VersionedSkovM finconf pv a
-    ) ->
+    -- |Query to run at consensus version 0.
+    QueryV0M finconf a ->
+    -- |Query to run at consensus version 1.
+    QueryV1M finconf a ->
     MVR finconf a
-liftSkovQueryAtGenesisIndex genIndex a = MVR $ \mvr -> do
+liftSkovQueryAtGenesisIndex genIndex av0 av1 = MVR $ \mvr -> do
     versions <- readIORef (mvVersions mvr)
-    liftSkovQuery mvr (versions Vec.! fromIntegral genIndex) a
+    liftSkovQuery mvr (versions Vec.! fromIntegral genIndex) av0 av1
 
 -- |Run a function at each genesis index from the latest, until it returns a 'Just' result.
 atLatestSuccessfulVersion ::
@@ -129,20 +147,20 @@ atLatestSuccessfulVersion a mvr = do
 -- to earlier versions until we obtain a result or run out of
 -- versions to check.
 liftSkovQueryLatestResult ::
-    ( forall (pv :: ProtocolVersion).
-      ( SkovMonad (VersionedSkovM finconf pv),
-        FinalizationMonad (VersionedSkovM finconf pv)
-      ) =>
-      VersionedSkovM finconf pv (Maybe a)
-    ) ->
+    -- |Query to run at consensus version 0.
+    QueryV0M finconf (Maybe a) ->
+    -- |Query to run at consensus version 1.
+    QueryV1M finconf (Maybe a) ->
     MVR finconf (Maybe a)
-liftSkovQueryLatestResult a = MVR $ \mvr ->
-    atLatestSuccessfulVersion (\vc -> liftSkovQuery mvr vc a) mvr
+liftSkovQueryLatestResult av0 av1 = MVR $ \mvr ->
+    atLatestSuccessfulVersion (\vc -> liftSkovQuery mvr vc av0 av1) mvr
 
 -- |Try a block based query on the latest skov version, working
 -- backwards until we find the specified block or run out of
 -- versions.
 liftSkovQueryBlock ::
+    forall finconf a.
+    -- |Query to run at consensus version 0.
     ( forall (pv :: ProtocolVersion).
       ( SkovMonad (VersionedSkovM finconf pv),
         FinalizationMonad (VersionedSkovM finconf pv)
@@ -150,19 +168,36 @@ liftSkovQueryBlock ::
       BlockPointerType (VersionedSkovM finconf pv) ->
       VersionedSkovM finconf pv a
     ) ->
+    -- |Query to run at consensus version 1.
+    ( forall (pv :: ProtocolVersion).
+      (IsConsensusV1 pv, IsProtocolVersion pv) =>
+      SkovV1.BlockPointer pv ->
+      VersionedSkovV1M finconf pv a
+    ) ->
     BlockHash ->
     MVR finconf (Maybe a)
-liftSkovQueryBlock a bh =
+liftSkovQueryBlock av0 av1 bh =
     MVR $ \mvr ->
         atLatestSuccessfulVersion
-            (\vc -> liftSkovQuery mvr vc (mapM a =<< resolveBlock bh))
+            (\vc -> liftSkovQuery mvr vc withBlockV0 withBlockV1)
             mvr
+  where
+    withBlockV0 :: QueryV0M finconf (Maybe a)
+    withBlockV0 = mapM av0 =<< resolveBlock bh
+    withBlockV1 :: QueryV1M finconf (Maybe a)
+    withBlockV1 = do
+        status <- SkovV1.getBlockStatus bh =<< get
+        case status of
+            SkovV1.BlockAliveOrFinalized bp -> Just <$> av1 bp
+            _ -> return Nothing
 
 -- |Try a 'BlockHashInput' based query on the latest skov version. If a specific
 -- block hash is given we work backwards through consensus versions until we
 -- find the specified block or run out of versions.
 -- The return value is the hash used for the query, and a result if it was found.
 liftSkovQueryBHI ::
+    forall finconf a.
+    -- |Query to run at consensus version 0.
     ( forall (pv :: ProtocolVersion).
       ( SkovMonad (VersionedSkovM finconf pv),
         FinalizationMonad (VersionedSkovM finconf pv),
@@ -171,132 +206,234 @@ liftSkovQueryBHI ::
       BlockPointerType (VersionedSkovM finconf pv) ->
       VersionedSkovM finconf pv a
     ) ->
+    -- |Query to run at consensus version 1.
+    ( forall (pv :: ProtocolVersion).
+      (IsConsensusV1 pv, IsProtocolVersion pv) =>
+      SkovV1.BlockPointer pv ->
+      VersionedSkovV1M finconf pv a
+    ) ->
     BlockHashInput ->
     MVR finconf (BlockHash, Maybe a)
-liftSkovQueryBHI a bhi = do
+liftSkovQueryBHI av0 av1 bhi = do
     case bhi of
         Given bh ->
             MVR $ \mvr ->
                 (bh,)
                     <$> atLatestSuccessfulVersion
-                        (\vc -> liftSkovQuery mvr vc (mapM a =<< resolveBlock bh))
+                        ( \vc ->
+                            liftSkovQuery
+                                mvr
+                                vc
+                                -- consensus version 0
+                                (mapM av0 =<< resolveBlock bh)
+                                -- consensus version 1
+                                ( do
+                                    status <- SkovV1.getBlockStatus bh =<< get
+                                    case status of
+                                        SkovV1.BlockAliveOrFinalized bp -> Just <$> av1 bp
+                                        _ -> return Nothing
+                                )
+                        )
                         mvr
-        other -> liftSkovQueryLatest $ do
-            bp <- case other of
-                Best -> bestBlock
-                LastFinal -> lastFinalizedBlock
-            (bpHash bp,) . Just <$> a bp
+        other ->
+            liftSkovQueryLatest
+                ( do
+                    -- consensus version 0
+                    bp <- case other of
+                        Best -> bestBlock
+                        LastFinal -> lastFinalizedBlock
+                    (bpHash bp,) . Just <$> av0 bp
+                )
+                ( do
+                    -- consensus version 1
+                    bp <- case other of
+                        Best -> use SkovV1.lastFinalized -- FIXME: Use "best" block
+                        LastFinal -> use SkovV1.lastFinalized
+                    (getHash bp,) . Just <$> av1 bp
+                )
 
 -- |Try a 'BlockHashInput' based query on the latest skov version. If a specific
 -- block hash is given we work backwards through consensus versions until we
 -- find the specified block or run out of versions.
 -- The return value is the hash used for the query, and a result if it was found.
 liftSkovQueryBHIAndVersion ::
+    forall finconf a.
+    -- |Query to run at consensus version 0.
     ( forall (pv :: ProtocolVersion).
       ( SkovMonad (VersionedSkovM finconf pv),
-        FinalizationMonad (VersionedSkovM finconf pv)
+        FinalizationMonad (VersionedSkovM finconf pv),
+        IsProtocolVersion pv
       ) =>
       EVersionedConfiguration finconf ->
       BlockPointerType (VersionedSkovM finconf pv) ->
       VersionedSkovM finconf pv a
     ) ->
+    -- |Query to run at consensus version 1.
+    ( forall (pv :: ProtocolVersion).
+      (IsConsensusV1 pv, IsProtocolVersion pv) =>
+      EVersionedConfiguration finconf ->
+      SkovV1.BlockPointer pv ->
+      VersionedSkovV1M finconf pv a
+    ) ->
     BlockHashInput ->
     MVR finconf (BlockHash, Maybe a)
-liftSkovQueryBHIAndVersion query bhi = do
+liftSkovQueryBHIAndVersion av0 av1 bhi = do
     case bhi of
         Given bh ->
             MVR $ \mvr ->
                 (bh,)
                     <$> atLatestSuccessfulVersion
-                        (\evc -> liftSkovQuery mvr evc (mapM (query evc) =<< resolveBlock bh))
+                        ( \vc ->
+                            liftSkovQuery
+                                mvr
+                                vc
+                                -- consensus version 0
+                                (mapM (av0 vc) =<< resolveBlock bh)
+                                -- consensus version 1
+                                ( do
+                                    status <- SkovV1.getBlockStatus bh =<< get
+                                    case status of
+                                        SkovV1.BlockAliveOrFinalized bp -> Just <$> av1 vc bp
+                                        _ -> return Nothing
+                                )
+                        )
                         mvr
         other -> do
             versions <- liftIO . readIORef =<< asks mvVersions
             let evc = Vec.last versions
-            liftSkovQueryLatest $ do
-                bp <- case other of
-                    Best -> bestBlock
-                    LastFinal -> lastFinalizedBlock
-                (bpHash bp,) . Just <$> query evc bp
-
--- |Try a block based query on the latest skov version, working
--- backwards until we find the specified block or run out of
--- versions.  This version also passes the version configuration
--- to the query function.
-liftSkovQueryBlockAndVersion ::
-    ( forall (pv :: ProtocolVersion).
-      ( SkovMonad (VersionedSkovM finconf pv),
-        FinalizationMonad (VersionedSkovM finconf pv)
-      ) =>
-      VersionedConfiguration finconf pv ->
-      BlockPointerType (VersionedSkovM finconf pv) ->
-      VersionedSkovM finconf pv a
-    ) ->
-    BlockHash ->
-    MVR finconf (Maybe a)
-liftSkovQueryBlockAndVersion a bh = MVR $ \mvr ->
-    atLatestSuccessfulVersion
-        ( \(EVersionedConfiguration vc) -> do
-            st <- readIORef (vcState vc)
-            runMVR
-                ( evalSkovT
-                    (mapM (a vc) =<< resolveBlock bh)
-                    (mvrSkovHandlers vc mvr)
-                    (vcContext vc)
-                    st
+            liftSkovQueryLatest
+                ( do
+                    -- consensus version 0
+                    bp <- case other of
+                        Best -> bestBlock
+                        LastFinal -> lastFinalizedBlock
+                    (bpHash bp,) . Just <$> av0 evc bp
                 )
-                mvr
-        )
-        mvr
+                ( do
+                    -- consensus version 1
+                    bp <- case other of
+                        Best -> use SkovV1.lastFinalized -- FIXME: Use "best" block
+                        LastFinal -> use SkovV1.lastFinalized
+                    (getHash bp,) . Just <$> av1 evc bp
+                )
 
+{-
 -- |Retrieve the consensus status.
-getConsensusStatus :: MVR finconf ConsensusStatus
+getConsensusStatus :: forall finconf. MVR finconf ConsensusStatus
 getConsensusStatus = MVR $ \mvr -> do
     versions <- readIORef (mvVersions mvr)
-    (csGenesisBlock, csGenesisTime) <- liftSkovQuery mvr (Vec.head versions) $ do
-        genesis <- genesisBlock
-        genTime <- getGenesisTime
-        return (getHash genesis :: BlockHash, timestampToUTCTime genTime)
+    genInfo <-
+        liftSkovQuery
+            mvr
+            (Vec.head versions)
+            ( do
+                genesis <- genesisBlock
+                genTime <- getGenesisTime
+                return (getHash genesis :: BlockHash, timestampToUTCTime genTime)
+            )
+            ( do
+                SkovV1.GenesisMetadata{..} <- use SkovV1.genesisMetadata
+                return (gmFirstGenesisHash, timestampToUTCTime (BaseV1.genesisTime gmParameters))
+            )
     -- while this case statement might look strange, it is needed because EVersionedConfiguration
     -- is an existential type and in the subsequent computation we need access to the implicit parameter `pv`
     -- the protocol version.
-    case Vec.last versions of
-        evc@(EVersionedConfiguration (vc :: VersionedConfiguration finconf pv)) -> do
-            liftSkovQuery mvr evc $ do
-                let absoluteHeight = localToAbsoluteBlockHeight (vcGenesisHeight vc) . bpHeight
-                bb <- bestBlock
-                let csBestBlock = getHash bb
-                let csBestBlockHeight = absoluteHeight bb
-                csCurrentEraGenesisBlock <- getHash <$> genesisBlock
-                csCurrentEraGenesisTime <- timestampToUTCTime <$> getGenesisTime
-                genData <- getGenesisData
-                let csSlotDuration = gdSlotDuration genData
-                let csEpochDuration = fromIntegral (gdEpochLength genData) * csSlotDuration
-                lfb <- lastFinalizedBlock
-                let csLastFinalizedBlock = getHash lfb
-                let csLastFinalizedBlockHeight = absoluteHeight lfb
-                let csGenesisIndex = vcIndex vc
-                let csProtocolVersion = demoteProtocolVersion (protocolVersion @pv)
-                stats <- getConsensusStatistics
-                let csBlocksReceivedCount = stats ^. blocksReceivedCount
-                    csBlockLastReceivedTime = stats ^. blockLastReceived
-                    csBlockReceiveLatencyEMA = stats ^. blockReceiveLatencyEMA
-                    csBlockReceiveLatencyEMSD = sqrt $ stats ^. blockReceiveLatencyEMVar
-                    csBlockReceivePeriodEMA = stats ^. blockReceivePeriodEMA
-                    csBlockReceivePeriodEMSD = sqrt <$> stats ^. blockReceivePeriodEMVar
-                    csBlocksVerifiedCount = stats ^. blocksVerifiedCount
-                    csBlockLastArrivedTime = stats ^. blockLastArrive
-                    csBlockArriveLatencyEMA = stats ^. blockArriveLatencyEMA
-                    csBlockArriveLatencyEMSD = sqrt $ stats ^. blockArriveLatencyEMVar
-                    csBlockArrivePeriodEMA = stats ^. blockArrivePeriodEMA
-                    csBlockArrivePeriodEMSD = sqrt <$> stats ^. blockArrivePeriodEMVar
-                    csTransactionsPerBlockEMA = stats ^. transactionsPerBlockEMA
-                    csTransactionsPerBlockEMSD = sqrt $ stats ^. transactionsPerBlockEMVar
-                    csFinalizationCount = stats ^. finalizationCount
-                    csLastFinalizedTime = stats ^. lastFinalizedTime
-                    csFinalizationPeriodEMA = stats ^. finalizationPeriodEMA
-                    csFinalizationPeriodEMSD = sqrt <$> stats ^. finalizationPeriodEMVar
-                return ConsensusStatus{..}
+    let evc = Vec.last versions
+    liftSkovQuery
+        mvr
+        evc
+        (statusV0 genInfo evc)
+        undefined -- (statusV1 genInfo evc)
+  where
+    statusV0 ::
+        forall (pv :: ProtocolVersion).
+        ( SkovMonad (VersionedSkovM finconf pv),
+          FinalizationMonad (VersionedSkovM finconf pv)
+        ) =>
+        (BlockHash, UTCTime) ->
+        EVersionedConfiguration finconf ->
+        VersionedSkovM finconf pv ConsensusStatus
+    statusV0 (csGenesisBlock, csGenesisTime) evc = do
+        let absoluteHeight = localToAbsoluteBlockHeight (evcGenesisHeight evc) . bpHeight
+        bb <- bestBlock
+        let csBestBlock = getHash bb
+        let csBestBlockHeight = absoluteHeight bb
+        csCurrentEraGenesisBlock <- getHash <$> genesisBlock
+        csCurrentEraGenesisTime <- timestampToUTCTime <$> getGenesisTime
+        genData <- getGenesisData
+        let csSlotDuration = gdSlotDuration genData
+        let csEpochDuration = fromIntegral (gdEpochLength genData) * csSlotDuration
+        lfb <- lastFinalizedBlock
+        let csLastFinalizedBlock = getHash lfb
+        let csLastFinalizedBlockHeight = absoluteHeight lfb
+        let csGenesisIndex = evcIndex evc
+        let csProtocolVersion = demoteProtocolVersion (protocolVersion @pv)
+        stats <- getConsensusStatistics
+        let csBlocksReceivedCount = stats ^. blocksReceivedCount
+            csBlockLastReceivedTime = stats ^. blockLastReceived
+            csBlockReceiveLatencyEMA = stats ^. blockReceiveLatencyEMA
+            csBlockReceiveLatencyEMSD = sqrt $ stats ^. blockReceiveLatencyEMVar
+            csBlockReceivePeriodEMA = stats ^. blockReceivePeriodEMA
+            csBlockReceivePeriodEMSD = sqrt <$> stats ^. blockReceivePeriodEMVar
+            csBlocksVerifiedCount = stats ^. blocksVerifiedCount
+            csBlockLastArrivedTime = stats ^. blockLastArrive
+            csBlockArriveLatencyEMA = stats ^. blockArriveLatencyEMA
+            csBlockArriveLatencyEMSD = sqrt $ stats ^. blockArriveLatencyEMVar
+            csBlockArrivePeriodEMA = stats ^. blockArrivePeriodEMA
+            csBlockArrivePeriodEMSD = sqrt <$> stats ^. blockArrivePeriodEMVar
+            csTransactionsPerBlockEMA = stats ^. transactionsPerBlockEMA
+            csTransactionsPerBlockEMSD = sqrt $ stats ^. transactionsPerBlockEMVar
+            csFinalizationCount = stats ^. finalizationCount
+            csLastFinalizedTime = stats ^. lastFinalizedTime
+            csFinalizationPeriodEMA = stats ^. finalizationPeriodEMA
+            csFinalizationPeriodEMSD = sqrt <$> stats ^. finalizationPeriodEMVar
+        return ConsensusStatus{..}
+    statusV1 ::
+        forall (pv :: ProtocolVersion).
+        (IsConsensusV1 pv, IsProtocolVersion pv) =>
+        (BlockHash, UTCTime) ->
+        EVersionedConfiguration finconf ->
+        VersionedSkovV1M finconf pv ConsensusStatus
+    statusV1 (csGenesisBlock, csGenesisTime) evc = do
+        let absoluteHeight =
+                localToAbsoluteBlockHeight (evcGenesisHeight evc)
+                    . SkovV1.bmHeight
+                    . SkovV1.bpInfo
+        bb <- use SkovV1.lastFinalized -- FIXME: Use best block.
+        let csBestBlock = getHash bb
+        let csBestBlockHeight = absoluteHeight bb
+
+        genMetadata <-
+        csCurrentEraGenesisBlock <- getHash <$> genesisBlock
+        csCurrentEraGenesisTime <- timestampToUTCTime <$> getGenesisTime
+        genData <- getGenesisData
+        let csSlotDuration = gdSlotDuration genData
+        let csEpochDuration = fromIntegral (gdEpochLength genData) * csSlotDuration
+        lfb <- lastFinalizedBlock
+        let csLastFinalizedBlock = getHash lfb
+        let csLastFinalizedBlockHeight = absoluteHeight lfb
+        let csGenesisIndex = evcIndex evc
+        let csProtocolVersion = undefined -- FIXME: demoteProtocolVersion (protocolVersion @pv)
+        stats <- getConsensusStatistics
+        let csBlocksReceivedCount = stats ^. blocksReceivedCount
+            csBlockLastReceivedTime = stats ^. blockLastReceived
+            csBlockReceiveLatencyEMA = stats ^. blockReceiveLatencyEMA
+            csBlockReceiveLatencyEMSD = sqrt $ stats ^. blockReceiveLatencyEMVar
+            csBlockReceivePeriodEMA = stats ^. blockReceivePeriodEMA
+            csBlockReceivePeriodEMSD = sqrt <$> stats ^. blockReceivePeriodEMVar
+            csBlocksVerifiedCount = stats ^. blocksVerifiedCount
+            csBlockLastArrivedTime = stats ^. blockLastArrive
+            csBlockArriveLatencyEMA = stats ^. blockArriveLatencyEMA
+            csBlockArriveLatencyEMSD = sqrt $ stats ^. blockArriveLatencyEMVar
+            csBlockArrivePeriodEMA = stats ^. blockArrivePeriodEMA
+            csBlockArrivePeriodEMSD = sqrt <$> stats ^. blockArrivePeriodEMVar
+            csTransactionsPerBlockEMA = stats ^. transactionsPerBlockEMA
+            csTransactionsPerBlockEMSD = sqrt $ stats ^. transactionsPerBlockEMVar
+            csFinalizationCount = stats ^. finalizationCount
+            csLastFinalizedTime = stats ^. lastFinalizedTime
+            csFinalizationPeriodEMA = stats ^. finalizationPeriodEMA
+            csFinalizationPeriodEMSD = sqrt <$> stats ^. finalizationPeriodEMVar
+        return ConsensusStatus{..}
 
 -- |Retrieve the slot time of the last finalized block.
 getLastFinalizedSlotTime :: MVR finconf Timestamp
@@ -350,7 +487,7 @@ getBlocksAtHeight basedHeight baseGI False = MVR $ \mvr -> do
             else do
                 versions <- readIORef (mvVersions mvr)
                 return $
-                    (\(EVersionedConfiguration vc) -> vcGenesisHeight vc)
+                    evcGenesisHeight
                         <$> (versions Vec.!? fromIntegral baseGI)
     case baseGenHeight of
         Nothing -> return [] -- This occurs if the genesis index is invalid
@@ -360,8 +497,8 @@ getBlocksAtHeight basedHeight baseGI False = MVR $ \mvr -> do
             -- at a genesis block height of 0, which should be the case for the initial genesis.
             fromMaybe []
                 <$> atLatestSuccessfulVersion
-                    ( \evc@(EVersionedConfiguration vc) ->
-                        forM (absoluteToLocalBlockHeight (vcGenesisHeight vc) height) $ \localHeight ->
+                    ( \evc ->
+                        forM (absoluteToLocalBlockHeight (evcGenesisHeight evc) height) $ \localHeight ->
                             liftSkovQuery mvr evc (map getHash <$> Skov.getBlocksAtHeight localHeight)
                     )
                     mvr
@@ -399,10 +536,10 @@ getNextAccountNonce accountAddress = liftSkovQueryLatest $ do
 getBlockInfo :: BlockHashInput -> MVR finconf (BlockHash, Maybe BlockInfo)
 getBlockInfo =
     liftSkovQueryBHIAndVersion
-        ( \(EVersionedConfiguration vc) bp -> do
+        ( \(EVersionedConfigurationV0 vc) bp -> do
             let biBlockHash = getHash bp
             biBlockParent <-
-                if blockSlot bp == 0 && vcIndex vc /= 0
+                if blockSlot bp == 0 && vc0Index vc /= 0
                     then do
                         -- The block is the genesis block of a non-initial chain, so we use the
                         -- hash of the last finalized block of the previous chain as the parent block.
@@ -410,12 +547,12 @@ getBlockInfo =
                         -- chain, and that it will be shut down with the last finalized block being
                         -- terminal.
                         lift $
-                            liftSkovQueryAtGenesisIndex (vcIndex vc - 1) $
+                            liftSkovQueryAtGenesisIndex (vc0Index vc - 1) $
                                 getHash <$> lastFinalizedBlock
                     else getHash <$> bpParent bp
             biBlockLastFinalized <- getHash <$> bpLastFinalized bp
-            let biBlockHeight = localToAbsoluteBlockHeight (vcGenesisHeight vc) (bpHeight bp)
-            let biGenesisIndex = vcIndex vc
+            let biBlockHeight = localToAbsoluteBlockHeight (vc0GenesisHeight vc) (bpHeight bp)
+            let biGenesisIndex = vc0Index vc
             let biEraBlockHeight = bpHeight bp
             let biBlockReceiveTime = bpReceiveTime bp
             let biBlockArriveTime = bpArriveTime bp
@@ -1053,3 +1190,4 @@ getBakerStatusBestBlock =
 -- |Get the total number of non-finalized transactions across all accounts.
 getNumberOfNonFinalizedTransactions :: MVR finconf Int
 getNumberOfNonFinalizedTransactions = liftSkovQueryLatest queryNumberOfNonFinalizedTransactions
+-}

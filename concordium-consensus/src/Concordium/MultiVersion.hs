@@ -6,6 +6,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuantifiedConstraints #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -55,6 +56,7 @@ import Concordium.ImportExport
 import qualified Concordium.KonsensusV1 as KonsensusV1
 import qualified Concordium.KonsensusV1.Consensus.Blocks as SkovV1
 import qualified Concordium.KonsensusV1.SkovMonad as SkovV1
+import qualified Concordium.KonsensusV1.Transactions as SkovV1
 import qualified Concordium.KonsensusV1.TreeState.Types as SkovV1
 import Concordium.ProtocolUpdate
 import qualified Concordium.Skov as Skov
@@ -295,6 +297,10 @@ evcShutdown :: EVersionedConfiguration finconf -> LogIO ()
 evcShutdown (EVersionedConfigurationV0 vc) = vc0Shutdown vc
 evcShutdown (EVersionedConfigurationV1 vc) = vc1Shutdown vc
 
+evcIndex :: EVersionedConfiguration finconf -> GenesisIndex
+evcIndex (EVersionedConfigurationV0 vc) = vc0Index vc
+evcIndex (EVersionedConfigurationV1 vc) = vc1Index vc
+
 -- |Activate an 'EVersionedConfiguration'. This means caching the state and
 -- establishing state invariants so that the configuration can be used as the
 -- currently active one for processing blocks, transactions, etc.
@@ -424,6 +430,46 @@ withWriteLockIO MultiVersionRunner{..} a =
         putMVar mvWriteLock ()
         mvLog Runner LLTrace $ "Released global state lock on thread " ++ show tid
         return res
+
+-- |Perform an action while holding the global state write lock. Optionally, when the action
+-- completes, a thread is forked to perform a follow-up action before realeasing the lock.
+-- If either the action or the follow-up action throws an exception, the write lock will be
+-- released.
+withWriteLockMaybeFork :: MVR finconf (a, Maybe b) -> (b -> MVR finconf ()) -> MVR finconf a
+withWriteLockMaybeFork action followup = MVR $ \mvr ->
+    withWriteLockMaybeForkIO mvr (runMVR action mvr) (\b -> runMVR (followup b) mvr)
+
+-- |Perform an action while holding the global state write lock. Optionally, when the action
+-- completes, a thread is forked to perform a follow-up action before realeasing the lock.
+-- If either the action or the follow-up action throws an exception, the write lock will be
+-- released.
+withWriteLockMaybeForkIO :: MultiVersionRunner finconf -> IO (a, Maybe b) -> (b -> IO ()) -> IO a
+{-# INLINE withWriteLockMaybeForkIO #-}
+withWriteLockMaybeForkIO MultiVersionRunner{..} action followup = mask $ \unmask -> do
+    () <- takeMVar mvWriteLock
+    tid <- myThreadId
+    mvLog Runner LLTrace $ "Acquired global state lock on thread " ++ show tid
+    (res, mContinue) <- unmask action `onException` tryPutMVar mvWriteLock ()
+    case mContinue of
+        Just continueArg -> do
+            let release = do
+                    putMVar mvWriteLock ()
+                    tid' <- myThreadId
+                    mvLog Runner LLTrace $ "Released global state lock on thread " ++ show tid'
+            -- forkIO is guaranteed to be uninterruptible, so we can be sure that an async exception
+            -- won't prevent the lock being released. Also note that the masking state of the thread
+            -- is inherited, so we unmask when running the follow-up.
+            followupThread <-
+                forkIO (unmask (try @SomeException (followup continueArg)) >> release)
+            mvLog Runner LLTrace $
+                "Transferred global state lock from thread "
+                    ++ show tid
+                    ++ " to thread "
+                    ++ show followupThread
+        Nothing -> do
+            putMVar mvWriteLock ()
+            mvLog Runner LLTrace $ "Released global state lock on thread " ++ show tid
+    return res
 
 -- |Lift a 'LogIO' action into the 'MVR' monad.
 mvrLogIO :: LogIO a -> MVR finconf a
@@ -1136,24 +1182,16 @@ receiveBlock gi blockBS = withLatestExpectedVersion gi $ \case
                 Right block -> do
                     blockResult <- runMVR (runSkovV1Transaction vc (SkovV1.uponReceivingBlock block)) mvr
                     case blockResult of
-                        -- \|The block was successfully received, but not yet executed.
                         SkovV1.BlockResultSuccess vb -> do
                             let cont = ExecuteBlock $ runMVR (runSkovV1Transaction vc (Skov.ResultSuccess <$ SkovV1.executeBlock vb)) mvr
                             return (Skov.ResultSuccess, Just cont)
-                        -- \|The baker also signed another block in the same slot, but the block was otherwise
-                        -- successfully received, but not yet executed.
                         SkovV1.BlockResultDoubleSign vb -> do
                             runMVR (runSkovV1Transaction vc (SkovV1.executeBlock vb)) mvr
                             return (Skov.ResultDuplicate, Nothing) -- TODO: check if ResultDuplicate is appropiate here
-                            -- \|The block contains data that is not valid with respect to the chain.
                         SkovV1.BlockResultInvalid -> return (Skov.ResultInvalid, Nothing)
-                        -- \|The block is too old to be added to the chain.
                         SkovV1.BlockResultStale -> return (Skov.ResultStale, Nothing)
-                        -- \|The block is pending its parent.
                         SkovV1.BlockResultPending -> return (Skov.ResultPendingBlock, Nothing)
-                        -- \|The timestamp of this block is too early.
                         SkovV1.BlockResultEarly -> return (Skov.ResultEarlyBlock, Nothing)
-                        -- \|We have already seen this block.
                         SkovV1.BlockResultDuplicate -> return (Skov.ResultDuplicate, Nothing)
 
 -- Nothing -> return (updateResult, Nothing)
@@ -1182,20 +1220,26 @@ receiveFinalizationMessage gi finMsgBS = withLatestExpectedVersion_ gi $ \case
                 logEvent Runner LLDebug $ "Could not deserialize finalization message: " ++ err
                 return Skov.ResultSerializationFail
             Right finMsg -> do
-                res <- runSkovV1Transaction vc (KonsensusV1.receiveFinalizationMessage finMsg)
-                case res of
-                    Left leftRes -> return leftRes
-                    Right cont -> do
+                let receive = liftSkovV1Update vc $ do
+                        res <- KonsensusV1.receiveFinalizationMessage finMsg
+                        return $ case res of
+                            Left leftRes -> (leftRes, Nothing)
+                            Right cont -> (Skov.ResultSuccess, Just cont)
+                    followup = liftSkovV1Update vc
+                withWriteLockMaybeFork receive followup
 
 -- |Deserialize and receive a finalization record at a given genesis index.
 receiveFinalizationRecord :: GenesisIndex -> ByteString -> MVR finconf Skov.UpdateResult
-receiveFinalizationRecord gi finRecBS = withLatestExpectedVersion_ gi $
-    \(EVersionedConfigurationV0 (vc :: VersionedConfigurationV0 finconf pv)) ->
+receiveFinalizationRecord gi finRecBS = withLatestExpectedVersion_ gi $ \case
+    (EVersionedConfigurationV0 (vc :: VersionedConfigurationV0 finconf pv)) ->
         case runGet getExactVersionedFinalizationRecord finRecBS of
             Left err -> do
                 logEvent Runner LLDebug $ "Could not deserialized finalization record: " ++ err
                 return Skov.ResultSerializationFail
             Right finRec -> runSkovTransaction vc (finalizationReceiveRecord False finRec)
+    (EVersionedConfigurationV1 _) -> do
+        logEvent Runner LLDebug "Unexpected finalization record event in consensus version 1."
+        return Skov.ResultInvalid
 
 -- |Configuration parameters for handling receipt of a catch-up status message.
 data CatchUpConfiguration = CatchUpConfiguration
@@ -1252,6 +1296,9 @@ receiveCatchUpStatus gi catchUpBS CatchUpConfiguration{..} =
                                 runPut $
                                     Skov.putVersionedCatchUpStatus cusResp
                         return res
+                Just (EVersionedConfigurationV1 _) -> do
+                    logEvent Runner LLDebug $ "Unsupported catch-up status message at consensus v1:" ++ show catchUp
+                    return Skov.ResultInvalid
                 -- If we have no regenesis at the given index then...
                 Nothing -> case catchUp of
                     -- if it is a request, inform the peer we have no genesis and queue to catch up
@@ -1279,6 +1326,9 @@ getCatchUpRequest = do
             st <- liftIO $ readIORef $ vc0State vc
             cus <- Skov.evalSkovT (Skov.getCatchUpStatus @(VersionedSkovM _ pv) True) (mvrSkovHandlers vc mvr) (vc0Context vc) st
             return (vc0Index vc, runPutLazy $ Skov.putVersionedCatchUpStatus cus)
+        (EVersionedConfigurationV1 vc) -> do
+            -- FIXME: Dummy implementation
+            return (vc1Index vc, "\x01")
 
 -- |Deserialize and receive a transaction.  The transaction is passed to
 -- the current version of the chain.
@@ -1312,64 +1362,114 @@ receiveTransaction transactionBS = do
     vvec <- liftIO $ readIORef $ mvVersions mvr
     case Vec.last vvec of
         (EVersionedConfigurationV0 (vc :: VersionedConfigurationV0 finconf pv)) ->
-            case runGet (getExactVersionedBlockItem (protocolVersion @pv) now) transactionBS of
-                Left err -> do
-                    logEvent Runner LLDebug err
-                    return (Nothing, Skov.ResultSerializationFail)
-                Right transaction ->
-                    (Just (wmdHash transaction),) <$> do
-                        st <- liftIO $ readIORef $ vc0State vc
-                        (known, verRes) <-
-                            Skov.evalSkovT @_ @pv
-                                (Skov.preverifyTransaction transaction)
-                                (mvrSkovHandlers vc mvr)
-                                (vc0Context vc)
-                                st
-                        if known
-                            then return Skov.ResultDuplicate
-                            else case verRes of
-                                TVer.Ok okRes -> withWriteLock $ do
-                                    vvec' <- liftIO $ readIORef $ mvVersions mvr
-                                    case Vec.last vvec' of
-                                        (EVersionedConfigurationV0 vc')
-                                            | Vec.length vvec == Vec.length vvec' ->
-                                                -- There hasn't been a protocol update since we did
-                                                -- the preverification, so we add the transaction
-                                                -- with the verification result.
-                                                liftSkovUpdate vc' $
-                                                    Skov.addPreverifiedTransaction transaction okRes
-                                            | otherwise ->
-                                                -- There HAS been a protocol update since we did the
-                                                -- preverification, so we call 'receiveTransaction',
-                                                -- which re-does the verification.
-                                                liftSkovUpdate vc' $
-                                                    Skov.receiveTransaction transaction
-                                _ -> return $! Skov.transactionVerificationResultToUpdateResult verRes
+            withDeserializedTransaction (protocolVersion @pv) now $ \transaction -> do
+                st <- liftIO $ readIORef $ vc0State vc
+                (known, verRes) <-
+                    Skov.evalSkovT @_ @pv
+                        (Skov.preverifyTransaction transaction)
+                        (mvrSkovHandlers vc mvr)
+                        (vc0Context vc)
+                        st
+                if known
+                    then return Skov.ResultDuplicate
+                    else case verRes of
+                        TVer.Ok okRes -> withWriteLock $ do
+                            vvec' <- liftIO $ readIORef $ mvVersions mvr
+                            if Vec.length vvec == Vec.length vvec'
+                                then do
+                                    -- There hasn't been a protocol update since we did
+                                    -- the preverification, so we add the transaction
+                                    -- with the verification result.
+                                    liftSkovUpdate vc $
+                                        Skov.addPreverifiedTransaction transaction okRes
+                                else do
+                                    -- There HAS been a protocol update since we did the
+                                    -- preverification, so we call 'receiveTransaction',
+                                    -- which re-does the verification.
+                                    receiveUnverified (Vec.last vvec') transaction
+                        _ -> return $! Skov.transactionVerificationResultToUpdateResult verRes
+        (EVersionedConfigurationV1 (vc :: VersionedConfigurationV1 finconf pv)) ->
+            withDeserializedTransaction (protocolVersion @pv) now $ \transaction -> do
+                st <- liftIO $ readIORef $ vc1State vc
+                (known, verRes) <-
+                    SkovV1.evalSkovT (SkovV1.preverifyTransaction transaction) (vc1Context vc) st
+                if known
+                    then return Skov.ResultDuplicate
+                    else case verRes of
+                        TVer.Ok okRes -> withWriteLock $ do
+                            vvec' <- liftIO $ readIORef $ mvVersions mvr
+                            if Vec.length vvec == Vec.length vvec'
+                                then do
+                                    -- No protocol update has occurred.
+                                    liftSkovV1Update vc $
+                                        KonsensusV1.addTransactionResult
+                                            <$> SkovV1.addPreverifiedTransaction transaction okRes
+                                else do
+                                    -- A protocol update has occurred.
+                                    receiveUnverified (Vec.last vvec') transaction
+                        _ -> return $! Skov.transactionVerificationResultToUpdateResult verRes
+  where
+    withDeserializedTransaction ::
+        SProtocolVersion spv ->
+        TransactionTime ->
+        (BlockItem -> MVR finconf Skov.UpdateResult) ->
+        MVR finconf (Maybe TransactionHash, Skov.UpdateResult)
+    withDeserializedTransaction spv now cont =
+        case runGet (getExactVersionedBlockItem spv now) transactionBS of
+            Left err -> do
+                logEvent Runner LLDebug err
+                return (Nothing, Skov.ResultSerializationFail)
+            Right transaction -> (Just (wmdHash transaction),) <$> cont transaction
+    receiveUnverified (EVersionedConfigurationV0 vc') transaction =
+        liftSkovUpdate vc' $
+            Skov.receiveTransaction transaction
+    receiveUnverified (EVersionedConfigurationV1 vc') transaction =
+        liftSkovV1Update vc' $
+            KonsensusV1.addTransactionResult
+                <$> SkovV1.processBlockItem transaction
 
 -- |Receive and execute the block immediately.
 -- Used for importing blocks i.e. out of band catchup.
 receiveExecuteBlock :: GenesisIndex -> ByteString -> MVR finconf Skov.UpdateResult
-receiveExecuteBlock gi blockBS = withLatestExpectedVersion_ gi $
-    \(EVersionedConfigurationV0 (vc :: VersionedConfigurationV0 finconf pv)) -> do
+receiveExecuteBlock gi blockBS = withLatestExpectedVersion_ gi $ \case
+    EVersionedConfigurationV0 (vc :: VersionedConfigurationV0 finconf pv) -> do
         now <- currentTime
         case deserializeExactVersionedPendingBlock (protocolVersion @pv) blockBS now of
             Left err -> do
                 logEvent Runner LLDebug err
                 return Skov.ResultSerializationFail
             Right block -> runSkovTransaction vc (Skov.receiveExecuteBlock block)
+    EVersionedConfigurationV1 (vc :: VersionedConfigurationV1 finconf pv) -> do
+        now <- currentTime
+        case SkovV1.deserializeExactVersionedPendingBlock (protocolVersion @pv) blockBS now of
+            Left err -> do
+                logEvent Runner LLDebug err
+                return Skov.ResultSerializationFail
+            Right block ->
+                runSkovV1Transaction vc $ do
+                    res <- SkovV1.uponReceivingBlock block
+                    case res of
+                        SkovV1.BlockResultSuccess vb ->
+                            Skov.ResultSuccess <$ SkovV1.executeBlock vb
+                        SkovV1.BlockResultDoubleSign vb ->
+                            Skov.ResultSuccess <$ SkovV1.executeBlock vb
+                        SkovV1.BlockResultInvalid -> return Skov.ResultInvalid
+                        SkovV1.BlockResultStale -> return Skov.ResultStale
+                        SkovV1.BlockResultPending -> return Skov.ResultPendingBlock
+                        SkovV1.BlockResultEarly -> return Skov.ResultEarlyBlock
+                        SkovV1.BlockResultDuplicate -> return Skov.ResultDuplicate
 
 -- |Import a block file for out-of-band catch-up.
 importBlocks :: FilePath -> MVR finconf Skov.UpdateResult
 importBlocks importFile = do
     vvec <- liftIO . readIORef =<< asks mvVersions
-    case Vec.last vvec of
-        EVersionedConfigurationV0 vc -> do
-            -- Import starting from the genesis index of the latest consensus
-            res <- importBlocksV3 importFile (vc0Index vc) doImport
-            case res of
-                Left ImportSerializationFail -> return Skov.ResultSerializationFail
-                Left (ImportOtherError a) -> return a
-                Right _ -> return Skov.ResultSuccess
+    -- Import starting from the genesis index of the latest consensus
+    let genIndex = evcIndex (Vec.last vvec)
+    res <- importBlocksV3 importFile genIndex doImport
+    case res of
+        Left ImportSerializationFail -> return Skov.ResultSerializationFail
+        Left (ImportOtherError a) -> return a
+        Right _ -> return Skov.ResultSuccess
   where
     doImport (ImportBlock _ gi bs) = do
         shouldStop <- liftIO . readIORef =<< asks mvShouldStopImportingBlocks

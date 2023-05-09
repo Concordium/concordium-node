@@ -9,6 +9,7 @@ import Control.Monad.State.Class
 
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Persistent.BlockState
+import qualified Concordium.GlobalState.Transactions as Transactions
 import Concordium.GlobalState.Types
 import Concordium.KonsensusV1.Consensus
 import qualified Concordium.KonsensusV1.Consensus.Quorum as Quorum
@@ -17,11 +18,15 @@ import Concordium.KonsensusV1.TreeState.Implementation
 import Concordium.KonsensusV1.TreeState.LowLevel
 import Concordium.KonsensusV1.Types
 import Concordium.Logger
-import Concordium.Skov.Monad (UpdateResult (..))
+import Concordium.Skov.Monad (UpdateResult (..), transactionVerificationResultToUpdateResult)
 import Concordium.TimeMonad
 import Concordium.Types
 import Concordium.Types.Parameters
 
+-- |Handle receiving a finalization message (either a quorum message or a timeout message).
+-- Returns @Left res@ in the event of a failure, with the appropriate failure code.
+-- Otherwise, returns @Right followup@, where @followup@ is an action that should be performed
+-- after or concurrently with relaying the message.
 receiveFinalizationMessage ::
     ( IsConsensusV1 (MPV m),
       MonadThrow m,
@@ -51,3 +56,11 @@ receiveFinalizationMessage (FMTimeoutMessage tm) = do
         Timeout.Rejected _ -> return $ Left ResultInvalid
         Timeout.CatchupRequired -> return $ Left ResultUnverifiable
         Timeout.Duplicate -> return $ Left ResultDuplicate
+
+-- |Convert an 'Transactions.AddTransactionResult' to the corresponding 'UpdateResult'.
+addTransactionResult :: Transactions.AddTransactionResult -> UpdateResult
+addTransactionResult Transactions.Duplicate{} = ResultDuplicate
+addTransactionResult Transactions.Added{} = ResultSuccess
+addTransactionResult Transactions.ObsoleteNonce{} = ResultStale
+addTransactionResult (Transactions.NotAdded verRes) =
+    transactionVerificationResultToUpdateResult verRes

@@ -13,7 +13,6 @@ import Control.Monad.Trans.Reader
 import Data.Kind
 
 import Concordium.Genesis.Data
-import Concordium.GlobalState.BlockPointer (BlockPointerData)
 import Concordium.GlobalState.Classes
 import Concordium.Types
 import Concordium.Wasm (WasmVersion)
@@ -77,11 +76,11 @@ deriving via MGSTrans (ReaderT r) m instance BlockStateTypes (ReaderT r m)
 
 -- |The basic types associated with a monad providing an
 -- implementation of the global state.
-class (BlockStateTypes m, BlockPointerData (BlockPointerType m)) => GlobalStateTypes m where
+class (BlockStateTypes m) => GlobalStateTypes m where
     type BlockPointerType m :: Type
 
-instance BlockPointerData (BlockPointerType m) => GlobalStateTypes (MGSTrans t m) where
+instance GlobalStateTypes (MGSTrans t m) where
     type BlockPointerType (MGSTrans t m) = BlockPointerType m
 
-deriving via MGSTrans MaybeT m instance GlobalStateTypes m => GlobalStateTypes (MaybeT m)
-deriving via MGSTrans (ExceptT e) m instance GlobalStateTypes m => GlobalStateTypes (ExceptT e m)
+deriving via MGSTrans MaybeT m instance GlobalStateTypes (MaybeT m)
+deriving via MGSTrans (ExceptT e) m instance GlobalStateTypes (ExceptT e m)

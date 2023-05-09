@@ -141,6 +141,7 @@ class
       Eq (BlockPointerType m),
       HashableTo BlockHash (BlockPointerType m),
       BlockPointerData (BlockPointerType m),
+      GlobalStateTypes m,
       BlockPointerMonad m,
       BlockStateQuery m,
       MonadProtocolVersion m,
