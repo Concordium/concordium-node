@@ -1039,7 +1039,7 @@ processPendingChild block = do
 -- are correct).
 validateBlock ::
     ( MonadState (SkovData (MPV m)) m,
-      MonadMulticast m,
+      MonadBroadcast m,
       LowLevel.MonadTreeStateStore m,
       IsConsensusV1 (MPV m),
       MonadThrow m,
@@ -1113,7 +1113,7 @@ checkedValidateBlock ::
       HashableTo BlockHash b,
       TimerMonad m,
       MonadState (SkovData (MPV m)) m,
-      MonadMulticast m,
+      MonadBroadcast m,
       LowLevel.MonadTreeStateStore m,
       MonadThrow m,
       MonadIO m,
@@ -1153,7 +1153,7 @@ executeBlock ::
       MonadReader r m,
       HasBakerContext r,
       TimerMonad m,
-      MonadMulticast m,
+      MonadBroadcast m,
       MonadConsensusEvent m,
       MonadLogger m
     ) =>
@@ -1371,7 +1371,7 @@ makeBlock ::
       LowLevel.MonadTreeStateStore m,
       TimeMonad m,
       TimerMonad m,
-      MonadMulticast m,
+      MonadBroadcast m,
       MonadThrow m,
       MonadIO m,
       MonadTimeout m,

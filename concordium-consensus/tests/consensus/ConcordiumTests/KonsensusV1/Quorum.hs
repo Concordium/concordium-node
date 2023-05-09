@@ -178,7 +178,7 @@ testReceiveQuorumMessage = describe "Receive quorum message" $ do
     bakersAndFinalizers = BakersAndFinalizers (FullBakers Vec.empty 0) (FinalizationCommittee (Vec.fromList [fi 1, fi 2, fi 3]) 3)
     -- A skov data where
     -- - the current round and epoch is set to 1 (next payday is at epoch 2).
-    -- - there is 3 finalizers 1, 2 and 3 each with a weight of 1 (total weight is 3).
+    -- - there are 3 finalizers 1, 2 and 3 each with a weight of 1 (total weight is 3).
     -- - one collected quorum message from the present finalizer index for round 1 and epoch 1.
     deadBlock = BlockHash $ Hash.hash "dead block"
     liveBlock = BlockHash $ Hash.hash "live block"

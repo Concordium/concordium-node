@@ -335,7 +335,7 @@ executeTimeoutMessage (PartiallyVerifiedTimeoutMessage{..})
 -- NB: If the caller is not a finalizer, this function does nothing.
 uponTimeoutEvent ::
     ( MonadTimeout m,
-      MonadMulticast m,
+      MonadBroadcast m,
       MonadReader r m,
       HasBakerContext r,
       BlockStateQuery m,

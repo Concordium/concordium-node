@@ -88,11 +88,11 @@ data TestState pv = TestState
 data TestEvent (pv :: ProtocolVersion)
     = -- |Implements 'resetTimer' of 'MonadTimeout'
       ResetTimer !Duration
-    | -- |Implements 'sendTimeoutMessage' of 'MonadMulticast'.
+    | -- |Implements 'sendTimeoutMessage' of 'MonadBroadcast'.
       SendTimeoutMessage !TimeoutMessage
-    | -- |Implements 'sendQuorumMessage' of 'MonadMulticast'.
+    | -- |Implements 'sendQuorumMessage' of 'MonadBroadcast'.
       SendQuorumMessage !QuorumMessage
-    | -- |Implements 'sendBlock' of 'MonadMulticast'.
+    | -- |Implements 'sendBlock' of 'MonadBroadcast'.
       SendBlock !SignedBlock
     | -- |Implements 'onBlock' of 'MonadConsensusEvent'.
       OnBlock !(Block pv)
@@ -115,7 +115,7 @@ type PersistentBlockStateMonadHelper pv =
 -- |The 'TestMonad' type itself wraps 'RWST' over 'IO'.
 -- The reader context is 'TestContext'.
 -- The writer monoid is 'TestWrite', which is a list of 'TestEvent's, each of which represents a
--- callback from the consensus to an operation of 'MonadTimeout', 'MonadMulticast', or
+-- callback from the consensus to an operation of 'MonadTimeout', 'MonadBroadcast', or
 -- 'MonadConsensusEvent'.
 -- The state is 'TestState', which includes the 'SkovData' and a map of the pending timer events.
 newtype TestMonad (pv :: ProtocolVersion) a = TestMonad {runTestMonad' :: RWST (TestContext pv) (TestWrite pv) (TestState pv) IO a}
@@ -235,7 +235,7 @@ instance TimeMonad (TestMonad pv) where
 instance MonadTimeout (TestMonad pv) where
     resetTimer = tell . (: []) . ResetTimer
 
-instance MonadMulticast (TestMonad pv) where
+instance MonadBroadcast (TestMonad pv) where
     sendTimeoutMessage = tell . (: []) . SendTimeoutMessage
     sendQuorumMessage = tell . (: []) . SendQuorumMessage
     sendBlock = tell . (: []) . SendBlock

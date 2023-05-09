@@ -618,7 +618,7 @@ testExecuteTimeoutMessages = describe "execute timeout messages" $ do
             (Dummy.deterministicKP 0)
             (Dummy.accountAddressFrom 0)
     -- the genesis data for composing the monad that the computations are run within.
-    -- it consists of 3 finalizers with indecies 0,1,2
+    -- it consists of 3 finalizers with indices 0,1,2
     (myGenesisData, _, _) =
         makeGenesisDataV1 @'P6
             (Timestamp 0)

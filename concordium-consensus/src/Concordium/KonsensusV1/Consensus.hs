@@ -26,15 +26,16 @@ import Concordium.KonsensusV1.Types
 import Concordium.Logger
 import Control.Monad.Reader.Class
 
--- |A Monad for multicasting timeout messages.
-class MonadMulticast m where
-    -- |Multicast a timeout message.
+-- |A Monad for broadcasting either a 'TimeoutMessage',
+-- 'QuorumMessage' or a 'SignedBlock'.
+class MonadBroadcast m where
+    -- |Broadcast a 'TimeoutMessage'.
     sendTimeoutMessage :: TimeoutMessage -> m ()
 
-    -- |Multicast a quorum message.
+    -- |Broadcast a 'QuorumMessage'.
     sendQuorumMessage :: QuorumMessage -> m ()
 
-    -- |Multicast a block.
+    -- |Broadcast a 'SignedBlock'.
     sendBlock :: SignedBlock -> m ()
 
 -- |This class provides event handlers for consensus events. A runner should implement this to
