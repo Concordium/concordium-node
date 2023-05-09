@@ -78,7 +78,7 @@ struct ConfigCli {
     pub trace:                  bool,
     #[structopt(long = "info", help = "Info mode", env = "COLLECTOR_BACKEND_LOG_LEVEL_INFO")]
     #[allow(dead_code)] // for backwards compatibility
-    pub info:                   bool,
+    pub info: bool,
     #[structopt(
         long = "no-log-timestamp",
         help = "Do not output timestamp in log output",
