@@ -108,7 +108,7 @@ Environment variables only apply to the default build. This links with shared Ha
 
   to be run in release mode for improved performance. Note that the
   [concordium-consensus](../concordium-consensus/) dependency is the same regardless of how the
-  node itself is built, the `--release` only applies to the optimization of the rust node xcomponents.
+  node itself is built, the `--release` only applies to the optimization of the rust node components.
   
 Documentation about what <CONCORDIUM_NODE_CONFIG_DIR> and <CONCORDIUM_NODE_DATA_DIR> is seen at https://github.com/Concordium/concordium-node/blob/main/VARIABLES.md#common
 
