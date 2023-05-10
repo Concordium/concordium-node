@@ -9,12 +9,14 @@
 
 module Concordium.KonsensusV1.TreeState.Types where
 
+import qualified Data.ByteString as BS
 import Data.Function
 import qualified Data.Map.Strict as Map
 import Data.Serialize
 import qualified Data.Set as Set
 import Data.Time
 import Data.Time.Clock.POSIX
+import Data.Word
 import Lens.Micro.Platform
 
 import Concordium.Types
@@ -25,7 +27,6 @@ import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import Concordium.GlobalState.TransactionTable
 import Concordium.KonsensusV1.Types
-import qualified Data.ByteString as BS
 
 -- |Status information for a finalized transaction.
 data FinalizedTransactionStatus = FinalizedTransactionStatus
@@ -54,7 +55,11 @@ data BlockMetadata = BlockMetadata
       bmReceiveTime :: !UTCTime,
       -- |The time that the block has become live,
       -- i.e. it has been processed and current head of the chain.
-      bmArriveTime :: !UTCTime
+      bmArriveTime :: !UTCTime,
+      -- |Energy cost of all transactions in the block.
+      bmEnergyCost :: !Energy,
+      -- |Size of the transaction data in bytes.
+      bmTransactionsSize :: !Word64
     }
     deriving (Eq, Show)
 
@@ -63,12 +68,16 @@ instance Serialize BlockMetadata where
         put bmHeight
         putUTCPOSIXMicros bmReceiveTime
         putUTCPOSIXMicros bmArriveTime
+        put bmEnergyCost
+        putWord64be bmTransactionsSize
       where
         putUTCPOSIXMicros = putWord64be . floor . (1_000_000 *) . utcTimeToPOSIXSeconds
     get = do
         bmHeight <- get
         bmReceiveTime <- getUTCPOSIXMicros
         bmArriveTime <- getUTCPOSIXMicros
+        bmEnergyCost <- get
+        bmTransactionsSize <- getWord64be
         return BlockMetadata{..}
       where
         getUTCPOSIXMicros = posixSecondsToUTCTime . (/ 1_000_000) . realToFrac <$> getWord64be
@@ -92,6 +101,16 @@ class HasBlockMetadata bm where
     blockArriveTime :: bm -> UTCTime
     blockArriveTime = bmArriveTime . blockMetadata
     {-# INLINE blockArriveTime #-}
+
+    -- |The total energy usage in executing the transactions in the block.
+    blockEnergyCost :: bm -> Energy
+    blockEnergyCost = bmEnergyCost . blockMetadata
+    {-# INLINE blockEnergyCost #-}
+
+    -- |The size in bytes of the transactions in the block.
+    blockTransactionsSize :: bm -> Word64
+    blockTransactionsSize = bmTransactionsSize . blockMetadata
+    {-# INLINE blockTransactionsSize #-}
 
 instance HasBlockMetadata BlockMetadata where
     blockMetadata = id

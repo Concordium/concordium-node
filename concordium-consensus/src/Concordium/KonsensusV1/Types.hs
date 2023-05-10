@@ -1013,6 +1013,7 @@ instance BlockData SignedBlock where
     blockTimestamp = bbTimestamp . sbBlock
     blockBakedData = Present
     blockTransactions = Vector.toList . bbTransactions . sbBlock
+    {-# INLINE blockTransactions #-}
     blockTransactionCount = Vector.length . bbTransactions . sbBlock
     blockStateHash = bbStateHash . sbBlock
 
@@ -1242,6 +1243,7 @@ instance BlockData (Block pv) where
     blockBakedData (NormalBlock b) = blockBakedData b
     blockTransactions GenesisBlock{} = []
     blockTransactions (NormalBlock b) = blockTransactions b
+    {-# INLINE blockTransactions #-}
     blockTransactionCount GenesisBlock{} = 0
     blockTransactionCount (NormalBlock b) = blockTransactionCount b
     blockStateHash (GenesisBlock gc) = gmStateHash gc

@@ -319,7 +319,9 @@ mkInitialSkovData rp genMeta genState _currentTimeout _skovEpochBakers =
             BlockMetadata
                 { bmHeight = 0,
                   bmReceiveTime = genesisTime,
-                  bmArriveTime = genesisTime
+                  bmArriveTime = genesisTime,
+                  bmEnergyCost = 0,
+                  bmTransactionsSize = 0
                 }
         genesisBlockPointer =
             BlockPointer
@@ -438,16 +440,49 @@ getFinalizedBlockAtHeight height = do
         Nothing -> return Nothing
         Just sb -> return <$> Just =<< mkBlockPointer sb
 
+-- |Get a list of the live or finalized blocks at a particular height. The order of the blocks in
+-- the resulting list is unspecified. If there are no blocks at the given height, this will return
+-- the empty list.
+getBlocksAtHeight ::
+    (LowLevel.MonadTreeStateStore m, MonadIO m) =>
+    BlockHeight ->
+    SkovData (MPV m) ->
+    m [BlockPointer (MPV m)]
+getBlocksAtHeight height sd = case compare height lastFinHeight of
+    LT -> toList <$> getFinalizedBlockAtHeight height
+    EQ -> return [sd ^. lastFinalized]
+    GT -> return $ sd ^. branches . ix (fromIntegral $ height - lastFinHeight - 1)
+  where
+    lastFin = sd ^. lastFinalized
+    lastFinHeight = bmHeight (blockMetadata lastFin)
+
 -- |Turn a 'PendingBlock' into a live block.
 -- This marks the block as 'MemBlockAlive' in the block table, records the arrive time of the block,
 -- and returns the resulting 'BlockPointer'.
 -- The hash of the block state MUST match the block state hash of the block; this is not checked.
 -- [Note: this does not affect the '_branches' of the 'SkovData'.]
-makeLiveBlock :: (MonadState (SkovData pv) m) => PendingBlock -> PBS.HashedPersistentBlockState pv -> BlockHeight -> UTCTime -> m (BlockPointer pv)
-makeLiveBlock pb st height arriveTime = do
+makeLiveBlock ::
+    (MonadState (SkovData pv) m) =>
+    -- |Pending block to make live
+    PendingBlock ->
+    -- |Block state associated with the block
+    PBS.HashedPersistentBlockState pv ->
+    BlockHeight ->
+    UTCTime ->
+    -- |Energy used in executing the block
+    Energy ->
+    m (BlockPointer pv)
+makeLiveBlock pb st height arriveTime energyCost = do
     let bp =
             BlockPointer
-                { bpInfo = BlockMetadata{bmReceiveTime = pbReceiveTime pb, bmArriveTime = arriveTime, bmHeight = height},
+                { bpInfo =
+                    BlockMetadata
+                        { bmReceiveTime = pbReceiveTime pb,
+                          bmArriveTime = arriveTime,
+                          bmHeight = height,
+                          bmEnergyCost = energyCost,
+                          bmTransactionsSize = fromIntegral $ sum (biSize <$> blockTransactions pb)
+                        },
                   bpBlock = NormalBlock (pbBlock pb),
                   bpState = st
                 }
@@ -580,6 +615,15 @@ addToBranches block = do
         GT ->
             error $
                 "Attempted to add a block at invalid height (" ++ show (blockHeight block) ++ ")"
+
+-- |Get the blocks in the branches of the tree grouped by descending height.
+-- That is the first element of the list is all of the blocks at 'getCurrentHeight',
+-- the next is those at @getCurrentHeight - 1@, etc.
+branchesFromTop :: SkovData pv -> [[BlockPointer pv]]
+branchesFromTop = revSeqToList . _branches
+  where
+    revSeqToList Seq.Empty = []
+    revSeqToList (r Seq.:|> t) = t : revSeqToList r
 
 -- * Operations on pending blocks
 

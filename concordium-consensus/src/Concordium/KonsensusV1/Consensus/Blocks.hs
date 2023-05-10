@@ -546,11 +546,13 @@ addBlock ::
     HashedPersistentBlockState (MPV m) ->
     -- |Parent pointer
     BlockPointer (MPV m) ->
+    -- |Energy used in executing the block
+    Energy ->
     m (BlockPointer (MPV m))
-addBlock pendingBlock blockState parent = do
+addBlock pendingBlock blockState parent energyUsed = do
     let height = blockHeight parent + 1
     now <- currentTime
-    newBlock <- makeLiveBlock pendingBlock blockState height now
+    newBlock <- makeLiveBlock pendingBlock blockState height now energyUsed
     addToBranches newBlock
     logLoggable $ LogBlockArrive (getHash pendingBlock) (pbReceiveTime pendingBlock) now
     let nominalTime = timestampToUTCTime $ blockTimestamp newBlock
@@ -646,7 +648,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                 checkQC genMeta parentBF $
                     checkTC genMeta parentBF $
                         checkEpochFinalizationEntry genMeta parentBF $
-                            checkBlockExecution genMeta $ \blockState -> do
+                            checkBlockExecution genMeta $ \blockState energyUsed -> do
                                 -- When adding a block, we guarantee that the new block is at most
                                 -- one epoch after the last finalized block. If the block is in the
                                 -- same epoch as its parent, then the guarantee is upheld by the
@@ -662,7 +664,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                                 --    block.
                                 -- This implies that the block is in the epoch after the last
                                 -- finalized block.
-                                newBlock <- addBlock pendingBlock blockState parent
+                                newBlock <- addBlock pendingBlock blockState parent energyUsed
                                 checkFinality (blockQuorumCertificate pendingBlock)
                                 curRound <- use $ roundStatus . rsCurrentRound
                                 let certifiedParent =
@@ -875,7 +877,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                 logLoggable $ LogBlockExecutionFailure pbHash failureReason
                 flag (BlockExecutionFailure sBlock)
                 rejectBlock
-            Right newState -> do
+            Right (newState, energyUsed) -> do
                 outcomesHash <- getTransactionOutcomesHash newState
                 if
                         | outcomesHash /= blockTransactionOutcomesHash pendingBlock -> do
@@ -897,7 +899,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                             flag $ BlockInvalidStateHash sBlock (bpBlock parent)
                             rejectBlock
                         | otherwise ->
-                            continue newState
+                            continue newState energyUsed
     getParentBakersAndFinalizers continue
         | blockEpoch parent == blockEpoch pendingBlock = continue vbBakersAndFinalizers
         | otherwise =
@@ -1308,7 +1310,7 @@ bakeBlock BakeBlockInputs{..} = do
     -- TODO: When the scheduler is integrated, this will be changed. Issue #699
     executeBlockStateUpdate executionData >>= \case
         Left err -> case err of {}
-        Right newState -> do
+        Right (newState, energyUsed) -> do
             bbTransactionOutcomesHash <- getTransactionOutcomesHash newState
             bbStateHash <- getStateHash newState
             let bakedBlock =
@@ -1333,6 +1335,7 @@ bakeBlock BakeBlockInputs{..} = do
                     PendingBlock{pbBlock = signedBlock, pbReceiveTime = now}
                     newState
                     bbiParent
+                    energyUsed
             return signedBlock
 
 -- |Try to make a block, distribute it on the network and sign it as a finalizer.

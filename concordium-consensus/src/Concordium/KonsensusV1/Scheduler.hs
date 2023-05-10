@@ -75,11 +75,11 @@ executeBlockStateUpdate ::
       IsConsensusV1 pv
     ) =>
     BlockExecutionData pv ->
-    m (Either FailureReason (PBS.HashedPersistentBlockState pv))
+    m (Either FailureReason (PBS.HashedPersistentBlockState pv, Energy))
 executeBlockStateUpdate BlockExecutionData{..} = do
     theState <- thawBlockState bedParentState
     theState <- doEpochTransition bedIsNewEpoch bedEpochDuration theState
     theState <- doUpdateSeedStateForBlock bedTimestamp bedBlockNonce theState
     -- TODO: Snapshot bakers in last epoch of payday, update chain parameters, process releases, mint and reward, execute transactions, etc.
     res <- freezeBlockState theState
-    return $ Right res
+    return $ Right (res, 0)
