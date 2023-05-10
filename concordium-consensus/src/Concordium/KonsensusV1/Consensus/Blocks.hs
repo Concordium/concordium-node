@@ -1063,7 +1063,7 @@ validateBlock blockHash BakerIdentity{..} finInfo = do
     forM_ maybeBlock $ \block -> do
         persistentRS <- use persistentRoundStatus
         curRound <- use $ roundStatus . rsCurrentRound
-        curEpoch <- use currentEpoch
+        curEpoch <- use $ roundStatus . rsCurrentEpoch
         when
             ( blockRound block == curRound
                 && prsNextSignableRound persistentRS <= blockRound block
@@ -1258,7 +1258,7 @@ prepareBakeBlockInputs = runMaybeT $ do
                     )
               where
                 highestCB = rs ^. rsHighestCertifiedBlock
-    let bbiEpoch = sd ^. currentEpoch
+    let bbiEpoch = sd ^. roundStatus . rsCurrentEpoch
     let bbiEpochFinalizationEntry
             | bbiEpoch > qcEpoch bbiQuorumCertificate =
                 -- This assertion should not fail because the invariant on
@@ -1268,7 +1268,7 @@ prepareBakeBlockInputs = runMaybeT $ do
                 assert (isPresent finEntry) finEntry
             | otherwise = Absent
           where
-            finEntry = sd ^. lastEpochFinalizationEntry
+            finEntry = sd ^. roundStatus . rsLastEpochFinalizationEntry
     bbiEpochBakers <-
         if isAbsent bbiEpochFinalizationEntry
             then getCurrentEpochBakers (bpState bbiParent)

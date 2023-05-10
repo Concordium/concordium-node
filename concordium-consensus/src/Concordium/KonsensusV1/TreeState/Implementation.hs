@@ -198,17 +198,6 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       -- associated with the current round of the
       -- consensus protocol.
       _roundStatus :: !(RoundStatus pv),
-      -- |The current epoch.
-      _currentEpoch :: !Epoch,
-      -- |If present, an epoch finalization entry for @_currentEpoch - 1@. An entry MUST be
-      -- present if @_currentEpoch > blockEpoch _lastFinalized@. Otherwise, an entry MAY be present,
-      -- but is not required.
-      --
-      -- The purpose of this field is to support the creation of a block that is the first in a new
-      -- epoch. It should
-      _lastEpochFinalizationEntry :: !(Option FinalizationEntry),
-      -- |The current duration to wait before a round times out.
-      _currentTimeout :: !Duration,
       -- |Transactions.
       -- The transaction table tracks the following:
       -- * Live transactions: mapping from a 'TransactionHash' to the status of the transaction,
@@ -328,9 +317,7 @@ mkInitialSkovData rp genMeta genState _currentTimeout _skovEpochBakers =
                   bpState = genState
                 }
         _persistentRoundStatus = initialPersistentRoundStatus
-        _roundStatus = initialRoundStatus genesisBlockPointer
-        _currentEpoch = 0
-        _lastEpochFinalizationEntry = Absent
+        _roundStatus = initialRoundStatus _currentTimeout genesisBlockPointer
         _transactionTable = TT.emptyTransactionTable
         _transactionTablePurgeCounter = 0
         _skovPendingTransactions =
@@ -984,10 +971,10 @@ getBakersForEpoch e s
 -- finalized block, or the next epoch.
 bakersForCurrentEpoch :: SkovData pv -> BakersAndFinalizers
 bakersForCurrentEpoch sd
-    | sd ^. currentEpoch == sd ^. lastFinalized . to blockEpoch =
+    | sd ^. roundStatus . rsCurrentEpoch == sd ^. lastFinalized . to blockEpoch =
         sd ^. currentEpochBakers
     | otherwise =
-        assert (sd ^. currentEpoch == (sd ^. lastFinalized . to blockEpoch) + 1) $
+        assert (sd ^. roundStatus . rsCurrentEpoch == (sd ^. lastFinalized . to blockEpoch) + 1) $
             sd ^. nextEpochBakers
 
 -- * Protocol update

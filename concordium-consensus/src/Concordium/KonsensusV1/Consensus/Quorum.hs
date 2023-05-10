@@ -97,7 +97,7 @@ receiveQuorumMessage qm@QuorumMessage{..} skovData = receive
   where
     receive
         -- The consensus runner is not caught up.
-        | qmEpoch > skovData ^. currentEpoch =
+        | qmEpoch > skovData ^. roundStatus . rsCurrentEpoch =
             return CatchupRequired
         -- The round of the quorum signature message is obsolete.
         | qmRound < skovData ^. roundStatus . rsCurrentRound =
@@ -236,7 +236,7 @@ makeQuorumCertificate blockHash sd@SkovData{..} = do
                 QuorumCertificate
                     { qcBlock = blockHash,
                       qcRound = _roundStatus ^. rsCurrentRound,
-                      qcEpoch = _currentEpoch,
+                      qcEpoch = _roundStatus ^. rsCurrentEpoch,
                       qcAggregateSignature = aggregatedSignature,
                       qcSignatories = finalizerSet $ Set.toList finalizers
                     }

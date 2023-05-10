@@ -217,7 +217,7 @@ receiveTimeoutMessage tm@TimeoutMessage{tmBody = TimeoutMessageBody{..}} skovDat
     -- The current round with respect to the tree state supplied.
     currentRound = skovData ^. roundStatus . rsCurrentRound
     -- The current epoch with respect to the tree state supplied.
-    theCurrentEpoch = skovData ^. currentEpoch
+    theCurrentEpoch = skovData ^. roundStatus . rsCurrentEpoch
 
 -- |The result of executing a 'TimeoutMessage'.
 data ExecuteTimeoutMessageResult
@@ -368,7 +368,7 @@ uponTimeoutEvent = do
                       tsmQCEpoch = qcEpoch highestQC
                     }
         let timeoutSig = signTimeoutSignatureMessage timeoutSigMessage bakerAggregationKey
-        curEpoch <- use currentEpoch
+        curEpoch <- use $ roundStatus . rsCurrentEpoch
         let timeoutMessageBody =
                 TimeoutMessageBody
                     { tmFinalizerIndex = finalizerIndex finInfo,

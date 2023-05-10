@@ -193,7 +193,7 @@ testReceiveQuorumMessage = describe "Receive quorum message" $ do
     sd' r e =
         dummyInitialSkovData
             & roundStatus . rsCurrentRound .~ Round r
-            & currentEpoch .~ e
+            & roundStatus . rsCurrentEpoch .~ e
             & skovEpochBakers . currentEpochBakers .~ bakersAndFinalizers
             & skovEpochBakers . previousEpochBakers .~ bakersAndFinalizers
             & skovEpochBakers . nextPayday .~ 2

@@ -81,7 +81,7 @@ onNewRound = do
     -- the consensus runner is either part of the current epoch (i.e. the new one) OR
     -- the prior epoch, as it could be the case that the consensus runner left the finalization committee
     -- coming into this new (current) epoch - but we still want to ensure that a timeout is thrown either way.
-    resetTimer =<< use currentTimeout
+    resetTimer =<< use (roundStatus . rsCurrentTimeout)
     -- Clear the quorum messages collected.
     currentQuorumMessages .= emptyQuorumMessages
     -- Clear the timeout messages collected.

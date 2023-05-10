@@ -48,7 +48,7 @@ growTimeout blockPtr = do
     let timeoutIncrease =
             chainParams
                 ^. cpConsensusParameters . cpTimeoutParameters . tpTimeoutIncrease
-    currentTimeout %=! updateCurrentTimeout timeoutIncrease
+    roundStatus . rsCurrentTimeout %=! updateCurrentTimeout timeoutIncrease
 
 -- |Shrink the current timeout duration in response to a successful QC for a round.
 -- This updates the current timeout to @max timeoutBase (timeoutDecrease * oldTimeout)@, where
@@ -70,4 +70,4 @@ shrinkTimeout blockPtr = do
             grow =
                 Duration . ceiling $
                     toRational (timeoutParams ^. tpTimeoutDecrease) * toRational cur
-    currentTimeout %=! updateTimeout
+    roundStatus . rsCurrentTimeout %=! updateTimeout

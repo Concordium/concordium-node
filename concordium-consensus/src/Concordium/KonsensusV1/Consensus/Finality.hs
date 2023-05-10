@@ -199,13 +199,13 @@ checkedAdvanceEpoch ::
     BlockPointer (MPV m) ->
     m ()
 checkedAdvanceEpoch finEntry newFinalizedBlock = do
-    oldEpoch <- use currentEpoch
+    oldEpoch <- use (roundStatus . rsCurrentEpoch)
     assert (oldEpoch >= blockEpoch newFinalizedBlock) $
         when (oldEpoch == blockEpoch newFinalizedBlock) $ do
             seedState <- getSeedState finState
             when (seedState ^. epochTransitionTriggered) $ do
-                currentEpoch .=! oldEpoch + 1
-                lastEpochFinalizationEntry .= Present finEntry
+                (roundStatus . rsCurrentEpoch) .=! oldEpoch + 1
+                (roundStatus . rsLastEpochFinalizationEntry) .= Present finEntry
   where
     finState = bpState newFinalizedBlock
 

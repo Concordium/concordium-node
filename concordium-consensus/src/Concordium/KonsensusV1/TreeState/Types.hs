@@ -328,15 +328,32 @@ data RoundStatus (pv :: ProtocolVersion) = RoundStatus
       -- |Flag that is 'True' if we should attempt to bake for the current round.
       -- This is set to 'True' when the round is advanced, and set to 'False' when we have attempted
       -- to bake for the round.
-      _rsRoundEligibleToBake :: !Bool
+      _rsRoundEligibleToBake :: !Bool,
+      -- |The current epoch.
+      _rsCurrentEpoch :: !Epoch,
+      -- |If present, an epoch finalization entry for @_currentEpoch - 1@. An entry MUST be
+      -- present if @_currentEpoch > blockEpoch _lastFinalized@. Otherwise, an entry MAY be present,
+      -- but is not required.
+      --
+      -- The purpose of this field is to support the creation of a block that is the first in a new
+      -- epoch. It should
+      _rsLastEpochFinalizationEntry :: !(Option FinalizationEntry),
+      -- |The current duration to wait before a round times out.
+      _rsCurrentTimeout :: !Duration
     }
     deriving (Eq, Show)
 
 makeLenses ''RoundStatus
 
 -- |The 'RoundStatus' for consensus at genesis.
-initialRoundStatus :: BlockPointer pv -> RoundStatus pv
-initialRoundStatus genesisBlock =
+initialRoundStatus ::
+    -- |The base timeout.
+    Duration ->
+    -- |The 'BlockPointer' of the genesis block.
+    BlockPointer pv ->
+    -- |The initial 'RoundStatus'.
+    RoundStatus pv
+initialRoundStatus currentTimeout genesisBlock =
     RoundStatus
         { _rsCurrentRound = 1,
           _rsHighestCertifiedBlock =
@@ -345,7 +362,10 @@ initialRoundStatus genesisBlock =
                   cbQuorumBlock = genesisBlock
                 },
           _rsPreviousRoundTimeout = Absent,
-          _rsRoundEligibleToBake = True
+          _rsRoundEligibleToBake = True,
+          _rsCurrentEpoch = 0,
+          _rsLastEpochFinalizationEntry = Absent,
+          _rsCurrentTimeout = currentTimeout
         }
 
 -- |The sets of bakers and finalizers for an epoch/payday.
