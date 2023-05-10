@@ -160,9 +160,9 @@ processFinalization newFinalizedBlock newFinalizationEntry = do
     -- transaction table accordingly.
     forM_ prRemoved markLiveBlockDead
     -- Update the branches to reflect the pruning.
-    branches .= prNewBranches
+    branches .=! prNewBranches
     -- Update the last finalized block.
-    lastFinalized .= newFinalizedBlock
+    lastFinalized .=! newFinalizedBlock
     -- Update the epoch bakers to reflect the new last finalized block.
     checkedAdvanceEpochBakers oldLastFinalized newFinalizedBlock
     -- Purge the 'roundExistingBlocks' up to the last finalized block.
@@ -262,23 +262,32 @@ checkedAdvanceEpochBakers oldFinalizedBlock newFinalizedBlock
     newEpoch = blockEpoch newFinalizedBlock
     finState = bpState newFinalizedBlock
 
-data PruneResult a = PruneResult
-    { prRemoved :: [a],
-      prFinalized :: [a],
-      prNewBranches :: Seq.Seq [a]
+-- |A result of 'pruneBranches'.
+-- Note that the order does not matter for the lists below as we're simply
+-- folding over them at the call sites.
+data PruneResult bp = PruneResult
+    { -- |Blocks that should be removed as a result of pruning.
+      prRemoved :: [bp],
+      -- |Blocks that should be marked as finalized as a result of pruning.
+      prFinalized :: [bp],
+      -- |The updated branches as a result of pruning.
+      prNewBranches :: Seq.Seq [bp]
     }
 
+-- |Construct a 'PruneResult' given the existing branches, finalization target and height.
+-- This function is written rather abstract as it only relies on the 'Eq' constraint and this makes it easier for testing.
 pruneBranches ::
-    (Eq a) =>
-    -- |Parent function
-    (a -> a) ->
+    (Eq blockPointer) =>
+    -- |Function for obtaining the parent of a live block.
+    -- In practice this is 'parentOfLive' with the correct 'SkovData pv' applied partially.
+    (blockPointer -> blockPointer) ->
     -- |Finalization target
-    a ->
+    blockPointer ->
     -- |Height of the target after the last finalized block
     Int ->
     -- |Existing branches
-    Seq.Seq [a] ->
-    PruneResult a
+    Seq.Seq [blockPointer] ->
+    PruneResult blockPointer
 pruneBranches parent newFin deltaHeight oldBranches = PruneResult{..}
   where
     (trunk, limbs) = Seq.splitAt deltaHeight oldBranches

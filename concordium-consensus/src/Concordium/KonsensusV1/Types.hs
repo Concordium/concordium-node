@@ -209,9 +209,6 @@ data FinalizerInfo = FinalizerInfo
     }
     deriving (Eq, Ord, Show)
 
--- instance Show FinalizerInfo where
---     show = show . finalizerIndex
-
 -- |The finalization committee.
 data FinalizationCommittee = FinalizationCommittee
     { -- |All eligible finalizers, in ascending order of baker ID

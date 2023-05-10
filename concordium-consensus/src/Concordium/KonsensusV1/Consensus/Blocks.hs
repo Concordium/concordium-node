@@ -472,7 +472,7 @@ receiveBlockKnownParent parent pendingBlock = do
 --     - the baker is not a valid baker for the epoch; or
 --     - the baker is valid but the signature on the block is not valid.
 --
--- TODO: if any of the transactions in the block is invalid. Issue #699
+-- TODO: if any of the transactions in the block are invalid. Issue #699
 receiveBlockUnknownParent ::
     ( LowLevel.MonadTreeStateStore m,
       MonadState (SkovData (MPV m)) m,
