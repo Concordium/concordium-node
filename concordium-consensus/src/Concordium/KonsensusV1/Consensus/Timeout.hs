@@ -209,7 +209,7 @@ receiveTimeoutMessage tm@TimeoutMessage{tmBody = TimeoutMessageBody{..}} skovDat
                               pvtmBlock = mBlock
                             }
     -- Get an existing message if present otherwise return nothing.
-    getExistingMessage = case skovData ^. receivedTimeoutMessages of
+    getExistingMessage = case skovData ^. currentTimeoutMessages of
         Absent -> Nothing
         Present messages -> messages ^? to tmFirstEpochTimeouts . ix tmFinalizerIndex
     -- The genesis block hash.
@@ -456,14 +456,14 @@ processTimeout ::
     TimeoutMessage ->
     m ()
 processTimeout tm = do
-    currentTimeoutMessages <- use receivedTimeoutMessages
+    timeoutMessages <- use currentTimeoutMessages
     currentRoundStatus <- use roundStatus
     let highestCB = _rsHighestCertifiedBlock currentRoundStatus
     -- Add the new timeout message to the current messages.
     -- If the result is 'Nothing', then there was no change as a result, so nothing left to do.
-    let maybeNewTimeoutMessages = updateTimeoutMessages currentTimeoutMessages tm
+    let maybeNewTimeoutMessages = updateTimeoutMessages timeoutMessages tm
     forM_ maybeNewTimeoutMessages $ \newTimeoutMessages@TimeoutMessages{..} -> do
-        receivedTimeoutMessages .=! Present newTimeoutMessages
+        currentTimeoutMessages .=! Present newTimeoutMessages
         skovData <- get
         let getFinalizersForEpoch epoch = (^. bfFinalizers) <$> getBakersForEpoch epoch skovData
         -- We should not fail to get the finalizers for the epoch of the highest QC, because it

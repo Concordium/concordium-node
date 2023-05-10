@@ -235,7 +235,7 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       -- |The current consensus statistics.
       _statistics :: !Stats.ConsensusStatistics,
       -- | Received timeouts messages in the current round.
-      _receivedTimeoutMessages :: !(Option TimeoutMessages),
+      _currentTimeoutMessages :: !(Option TimeoutMessages),
       -- |The 'QuorumMessage's for the current 'Round'.
       -- This should be cleared whenever the consensus runner advances to a new round.
       _currentQuorumMessages :: !QuorumMessages
@@ -334,7 +334,7 @@ mkInitialSkovData rp genMeta genState _currentTimeout _skovEpochBakers =
         _skovPendingBlocks = emptyPendingBlocks
         _lastFinalized = genesisBlockPointer
         _statistics = Stats.initialConsensusStatistics
-        _receivedTimeoutMessages = Absent
+        _currentTimeoutMessages = Absent
         _currentQuorumMessages = emptyQuorumMessages
     in  SkovData{..}
 

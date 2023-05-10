@@ -85,7 +85,7 @@ onNewRound = do
     -- Clear the quorum messages collected.
     currentQuorumMessages .= emptyQuorumMessages
     -- Clear the timeout messages collected.
-    receivedTimeoutMessages .= Absent
+    currentTimeoutMessages .= Absent
 
 -- |Advance the round as the result of a timeout. This will also set the highest certified block
 -- if the round timeout contains a higher one.

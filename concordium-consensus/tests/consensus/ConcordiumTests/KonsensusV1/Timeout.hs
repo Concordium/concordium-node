@@ -140,7 +140,7 @@ testUponTimeoutEvent = do
                 "events should be SendTimeoutMessage"
                 [SendTimeoutMessage expectedMessage]
                 events
-        receivedMessages <- use receivedTimeoutMessages
+        receivedMessages <- use currentTimeoutMessages
 
         liftIO $
             assertEqual
@@ -175,7 +175,7 @@ testProcessTimeout = do
         let message3 = dummyTimeoutMessage 4 0
         processTimeout message1
 
-        actualMessages <- use receivedTimeoutMessages
+        actualMessages <- use currentTimeoutMessages
         let expectedMessage oldMessages newMessage =
                 maybe oldMessages Present (updateTimeoutMessages oldMessages newMessage)
 
@@ -191,7 +191,7 @@ testProcessTimeout = do
                 currentRound1
 
         processTimeout message2
-        actualMessages2 <- use receivedTimeoutMessages
+        actualMessages2 <- use currentTimeoutMessages
 
         let expectedMessages2 = expectedMessage actualMessages message2
 
@@ -212,7 +212,7 @@ testProcessTimeout = do
                 previousRoundTC
 
         processTimeout message3
-        actualMessages3 <- use receivedTimeoutMessages
+        actualMessages3 <- use currentTimeoutMessages
 
         let expectedMessages3 = Absent
 
@@ -494,7 +494,7 @@ testReceiveTimeoutMessage = describe "Receive timeout message" $ do
                 %~ HM.insert pendingBlockHash pendingBlock
                 . HM.insert liveBlockHash liveBlock
                 . HM.insert anotherLiveBlock liveBlock
-            & receivedTimeoutMessages .~ Present (TimeoutMessages 0 (Map.singleton (FinalizerIndex 1) duplicateMessage) Map.empty)
+            & currentTimeoutMessages .~ Present (TimeoutMessages 0 (Map.singleton (FinalizerIndex 1) duplicateMessage) Map.empty)
     -- A low level database which consists of a finalized block for height 0 otherwise empty.
     lldb =
         let myLLDB = lldbWithGenesis @'P6
