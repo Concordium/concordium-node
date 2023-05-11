@@ -276,7 +276,7 @@ processQuorumMessage vqm@(VerifiedQuorumMessage quorumMessage _ quorumBlock) = d
     when (currentRound == qmRound quorumMessage) $ do
         currentQuorumMessages %=! addQuorumMessage vqm
         skovData <- get
-        let maybeQuorumCertificate = makeQuorumCertificate (qmBlock quorumMessage) skovData
+        let maybeQuorumCertificate = makeQuorumCertificate quorumBlock skovData
         forM_ maybeQuorumCertificate $ \newQC -> do
             checkFinality newQC
             advanceRoundWithQuorum
