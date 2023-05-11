@@ -178,6 +178,9 @@ data TransactionStatus
     deriving (Eq, Show)
 
 -- |The status of a block.
+-- Note as we use a COMPLETE pragma below for aggregating the 'BlockAlive' and 'BlockFinalized'
+-- in a pattern match, then if 'BlockStatus pv' is to be modified the complete pragma MUST also be
+-- checked whether it is still sufficient.
 data BlockStatus pv
     = -- |The block is awaiting its parent to become part of chain.
       BlockPending !PendingBlock
@@ -193,6 +196,9 @@ data BlockStatus pv
 
 -- |Get the 'BlockPointer' from a 'BlockStatus' for a live or finalized block.
 -- Returns 'Nothing' if the block is pending, dead or unknown.
+-- Note as we use a COMPLETE pragma for the 'BlockStatus pv' variants (see below)
+-- then it MUST be considered if this function has to change if the type ('BlockStatus pv')
+-- is to be modified.
 blockStatusBlock :: BlockStatus pv -> Maybe (BlockPointer pv)
 blockStatusBlock (BlockAlive b) = Just b
 blockStatusBlock (BlockFinalized b) = Just b
