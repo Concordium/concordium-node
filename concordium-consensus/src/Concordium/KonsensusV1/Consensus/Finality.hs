@@ -173,7 +173,7 @@ processFinalization newFinalizedBlock newFinalizationEntry = do
     purgePending
     -- Advance the epoch if the new finalized block triggers the epoch transition.
     checkedAdvanceEpoch newFinalizationEntry newFinalizedBlock
-    onFinalize newFinalizationEntry newFinalizedBlock
+    onFinalize newFinalizationEntry prFinalized newFinalizedBlock
 
 -- |Advance the current epoch if the new finalized block indicates that it is necessary.
 -- This is deemed to be the case if the following hold:
@@ -263,19 +263,19 @@ checkedAdvanceEpochBakers oldFinalizedBlock newFinalizedBlock
     finState = bpState newFinalizedBlock
 
 -- |A result of 'pruneBranches'.
--- Note that the order does not matter for the lists below as we're simply
--- folding over them at the call sites.
 data PruneResult bp = PruneResult
     { -- |Blocks that should be removed as a result of pruning.
       prRemoved :: [bp],
       -- |Blocks that should be marked as finalized as a result of pruning.
+      -- Note that the finalized blocks are ordered in ascending order of block height.
       prFinalized :: [bp],
       -- |The updated branches as a result of pruning.
       prNewBranches :: Seq.Seq [bp]
     }
 
 -- |Construct a 'PruneResult' given the existing branches, finalization target and height.
--- This function is written rather abstract as it only relies on the 'Eq' constraint and this makes it easier for testing.
+-- This function is written rather abstract as it only relies on the 'Eq' constraint
+-- (for the block height) and this makes it easier for testing.
 pruneBranches ::
     (Eq blockPointer) =>
     -- |Function for obtaining the parent of a live block.

@@ -45,7 +45,15 @@ class MonadConsensusEvent m where
     onBlock :: BlockPointer (MPV m) -> m ()
 
     -- |Called when a block becomes finalized. This is only called with explicitly finalized blocks.
-    onFinalize :: FinalizationEntry -> BlockPointer (MPV m) -> m ()
+    onFinalize ::
+        -- |The 'FinalizationEntry' that witnesses that the 'BlockPointer pv' is finalized.
+        FinalizationEntry ->
+        -- |The implicitly finalized blocks, that is ancestors that was live before
+        -- a block was finalized.
+        [BlockPointer (MPV m)] ->
+        -- |The explicityly finalized block.
+        BlockPointer (MPV m) ->
+        m ()
 
     -- |Called when a previously pending block becomes live. This should be used to trigger sending
     -- a catch-up status message to all (non-pending) peers, since they may not be aware of the

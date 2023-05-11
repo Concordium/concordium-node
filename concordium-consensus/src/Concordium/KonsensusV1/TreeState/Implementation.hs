@@ -215,7 +215,7 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       _runtimeParameters :: !RuntimeParameters,
       -- |Blocks which have been included in the tree or marked as dead.
       _blockTable :: !(BlockTable pv),
-      -- |Branches of the tree by height above the last finalized block
+      -- |Branches of the tree ordered by height above the last finalized block
       _branches :: !(Seq.Seq [BlockPointer pv]),
       -- |For non-finalized rounds, tracks which bakers we have seen legally-signed blocks with
       -- live parent blocks from. This is used for duplicate detection.

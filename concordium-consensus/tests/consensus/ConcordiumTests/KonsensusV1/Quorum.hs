@@ -86,17 +86,17 @@ testMakeQuorumCertificate = describe "Quorum Certificate creation" $ do
         assertEqual
             "No quorum certificate should be created"
             Nothing
-            (makeQuorumCertificate bh sd)
+            (makeQuorumCertificate qcBlockPointer sd)
     it "should create a certificate when there is enough weight" $ do
         assertEqual
             "A quorum certificate should have been generated"
-            (Just (QuorumCertificate bh 1 0 (emptyQuorumSignature <> emptyQuorumSignature) (finalizerSet $ FinalizerIndex <$> [1, 2])))
-            (makeQuorumCertificate bh sd')
+            (Just (QuorumCertificate qcBlockHash 1 0 (emptyQuorumSignature <> emptyQuorumSignature) (finalizerSet $ FinalizerIndex <$> [1, 2])))
+            (makeQuorumCertificate qcBlockPointer sd')
     it "should not create a qc as there are no signatures present" $ do
         assertEqual
             "No quorum certificate should be created"
             Nothing
-            (makeQuorumCertificate bh sdNoMessages)
+            (makeQuorumCertificate qcBlockPointer sdNoMessages)
   where
     fi fIdx = FinalizerInfo (FinalizerIndex fIdx) 1 sigPublicKey vrfPublicKey blsPublicKey (BakerId $ AccountIndex (fromIntegral fIdx))
     blsPublicKey = Bls.derivePublicKey someBlsSecretKey
@@ -120,9 +120,10 @@ testMakeQuorumCertificate = describe "Quorum Certificate creation" $ do
     sdNoMessages =
         dummyInitialSkovData
             & skovEpochBakers .~ EpochBakers bfs bfs bfs 1
-    bh = BlockHash minBound
+    qcBlockHash = BlockHash minBound
+    qcBlockPointer = someBlockPointer qcBlockHash 1 0
     verifiedQuorumMessage finalizerIndex weight = VerifiedQuorumMessage (quorumMessage finalizerIndex) weight $ myBlockPointer 0 0
-    quorumMessage finalizerIndex = QuorumMessage emptyQuorumSignature bh (FinalizerIndex finalizerIndex) 0 0
+    quorumMessage finalizerIndex = QuorumMessage emptyQuorumSignature qcBlockHash (FinalizerIndex finalizerIndex) 0 0
     emptyQuorumSignature = QuorumSignature Bls.emptySignature
 
 -- |Tests for receiving a quorum message.
