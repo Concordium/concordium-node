@@ -486,7 +486,6 @@ processTimeout tm = do
             let voterPowerSum =
                     sum . mapMaybe getBakerVoterPower $
                         Set.toList (firstBakerIds `Set.union` secondBakerIds)
-            -- TODO: Factor out finalizer weight check.
             let totalWeightRational = toRational $ committeeTotalWeight finCommQC
             genesisSigThreshold <- toRational . genesisSignatureThreshold . gmParameters <$> use genesisMetadata
             let voterPowerSumRational = toRational voterPowerSum

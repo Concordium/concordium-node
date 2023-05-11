@@ -276,14 +276,14 @@ roundExistingQuorumCertificate rnd = roundExistingQCs . at' rnd
 -- The certificate should be for a round that is later than the last finalized round.
 recordCheckedQuorumCertificate :: (MonadState (SkovData pv) m) => QuorumCertificate -> m ()
 recordCheckedQuorumCertificate qc =
-    roundExistingQuorumCertificate (qcRound qc) ?= witness
+    roundExistingQuorumCertificate (qcRound qc) ?=! witness
   where
     !witness = toQuorumCertificateWitness qc
 
 -- |Remove all entries from 'roundExistingQCs' with a 'Round' less than or equal to the
 -- supplied 'Round'.
 purgeRoundExistingQCs :: (MonadState (SkovData pv) m) => Round -> m ()
-purgeRoundExistingQCs rnd = roundExistingQCs %= snd . Map.split rnd
+purgeRoundExistingQCs rnd = roundExistingQCs %=! snd . Map.split rnd
 
 -- |Create an initial 'SkovData pv'
 -- This constructs a 'SkovData pv' from a genesis block
@@ -474,11 +474,21 @@ markPending pb = blockTable . liveMap . at' (getHash pb) ?=! MemBlockPending pb
 -- |Update the transaction table to reflect that a list of blocks are finalized.
 -- This removes them the in-memory transaction table.
 -- The caller is expected to ensure that they are written to the low-level storage.
-markLiveBlocksFinal :: (MonadState (SkovData pv) m) => [BlockPointer pv] -> m ()
-markLiveBlocksFinal blocks = blockTable . liveMap %=! flip (foldr' (HM.delete . getHash)) blocks
+markLiveBlocksFinal ::
+    (MonadState (SkovData pv) m) =>
+    -- |Blocks to mark final i.e. removing them from the live block map.
+    -- Note that the order of the blocks does not matter for this operation.
+    [BlockPointer pv] ->
+    m ()
+markLiveBlocksFinal blockPointers =
+    blockTable
+        . liveMap
+        %=! \liveBlocks -> foldl' (\blocks bp -> HM.delete (getHash bp) blocks) liveBlocks blockPointers
 
 -- |Get the parent block of a live or finalized block. (For the genesis block, this will return
 -- the block itself.)
+-- Note that it is assumed that the parent is either live or finalized as otherwise this
+-- function will raise an error.
 parentOf ::
     (LowLevel.MonadTreeStateStore m, MonadIO m, MonadState (SkovData (MPV m)) m) =>
     BlockPointer (MPV m) ->
@@ -518,14 +528,16 @@ parentOfLive sd block
 -- A block is considered to be an ancestor of itself.
 isAncestorOf ::
     (LowLevel.MonadTreeStateStore m, MonadIO m, MonadState (SkovData (MPV m)) m) =>
+    -- |The block to check whether it's an ancesor of the other or not.
     BlockPointer (MPV m) ->
+    -- |The block to carry out the ancestor check with respect to.
     BlockPointer (MPV m) ->
     m Bool
-isAncestorOf b1 b2 = case compare (blockHeight b1) (blockHeight b2) of
+isAncestorOf b1 maybeAncestor = case compare (blockHeight b1) (blockHeight maybeAncestor) of
     GT -> return False
-    EQ -> return $ (getHash b1 :: BlockHash) == getHash b2
+    EQ -> return $ (getHash b1 :: BlockHash) == getHash maybeAncestor
     LT -> do
-        parent <- parentOf b2
+        parent <- parentOf maybeAncestor
         b1 `isAncestorOf` parent
 
 -- * Operations on the branches
@@ -535,7 +547,14 @@ isAncestorOf b1 b2 = case compare (blockHeight b1) (blockHeight b2) of
 -- non-finalized branches.
 -- The block should not already be present in the branches; if it is, a duplicate entry may be
 -- added.
-addToBranches :: (MonadState (SkovData pv) m) => BlockPointer pv -> m ()
+-- Also note that the block heights must be consecutive otherwise this function will raise an error.
+-- The latter note is enforced by the way we add pending blocks, i.e. pending blocks are awaiting
+-- their parent before becoming live.
+addToBranches ::
+    (MonadState (SkovData pv) m) =>
+    -- |The block to add to the current branches.
+    BlockPointer pv ->
+    m ()
 addToBranches block = do
     lfbHeight <- use $ lastFinalized . to blockHeight
     let insertIndex = fromIntegral $ blockHeight block - lfbHeight - 1
