@@ -49,7 +49,9 @@ data BlockMetadata = BlockMetadata
     { -- |The height of the block.
       bmHeight :: !BlockHeight,
       -- |The time that the block is received by the
-      -- consensus layer i.e. it has been deserialized.
+      -- consensus layer.
+      -- Hence this timestamp indicates a point in time just before
+      -- the block is being deserialized and further processed.
       bmReceiveTime :: !UTCTime,
       -- |The time that the block has become live,
       -- i.e. it has been processed and current head of the chain.
@@ -82,7 +84,7 @@ class HasBlockMetadata bm where
     blockHeight = bmHeight . blockMetadata
     {-# INLINE blockHeight #-}
 
-    -- |The time that the block is received by the consensus layer (i.e. when it is deserialized).
+    -- |The time that the block is received by the consensus layer (i.e. just before it is deserialized and processed).
     blockReceiveTime :: bm -> UTCTime
     blockReceiveTime = bmReceiveTime . blockMetadata
     {-# INLINE blockReceiveTime #-}
