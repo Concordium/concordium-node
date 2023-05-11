@@ -207,8 +207,8 @@ addQuorumMessage
 --
 -- If a 'QuorumCertificate' could not be formed then this function returns @Nothing@.
 makeQuorumCertificate ::
-    -- |The block we want to check whether we can
-    -- create a 'QuorumCertificate' for or not.
+    -- |The block we want to check whether a
+    -- can 'QuorumCertificate' can be formed or not.
     BlockPointer pv ->
     -- | The state to use for making the
     -- 'QuorumCertificate'.
