@@ -540,3 +540,16 @@ instance
                             roll $! ctr + 1
         getLast = asReadTransaction $ \dbh txn ->
             withCursor txn (dbh ^. blockStore) (getCursor CursorLast)
+
+-- |Initialise the low-level database by writing out the genesis block and initial round status.
+initialiseLowLevelDB ::
+    (MonadIO m, MonadReader r m, HasDatabaseHandlers r pv, MonadLogger m, IsProtocolVersion pv) =>
+    -- |Genesis block.
+    StoredBlock pv ->
+    -- |Initial round status.
+    PersistentRoundStatus ->
+    DiskLLDBM pv m ()
+initialiseLowLevelDB genesisBlock roundStatus = asWriteTransaction $ \dbh txn -> do
+    storeReplaceRecord txn (dbh ^. blockStore) 0 genesisBlock
+    storeReplaceRecord txn (dbh ^. blockHashIndex) (getHash genesisBlock) 0
+    storeReplaceRecord txn (dbh ^. roundStatusStore) CSKRoundStatus roundStatus
