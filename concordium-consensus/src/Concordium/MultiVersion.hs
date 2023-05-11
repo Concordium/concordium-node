@@ -165,7 +165,7 @@ newtype DiskStateConfig = DiskStateConfig
 -- 'FinalizationConfig'.
 data MultiVersionConfiguration finconf = MultiVersionConfiguration
     { -- |Configuration for the global state.
-      mvc0StateConfig :: !DiskStateConfig,
+      mvcStateConfig :: !DiskStateConfig,
       -- |Configuration for finalization.
       mvcFinalizationConfig :: !finconf,
       -- |Runtime parameters.
@@ -517,7 +517,7 @@ newGenesis (PVGenesisData (gd :: GenesisData pv)) vc0GenesisHeight = case consen
                                 gd
                                 ( Skov.SkovConfig @pv @finconf
                                     ( globalStateConfig
-                                        mvc0StateConfig
+                                        mvcStateConfig
                                         mvcRuntimeParameters
                                         vc0Index
                                         vc0GenesisHeight
@@ -576,7 +576,7 @@ checkForProtocolUpdate = liftSkov body
                         let newGSConfig =
                                 Skov.SkovConfig @newpv @fc
                                     ( globalStateConfig
-                                        (mvc0StateConfig mvConfiguration)
+                                        (mvcStateConfig mvConfiguration)
                                         (mvcRuntimeParameters mvConfiguration)
                                         vc0Index
                                         vc0GenesisHeight
@@ -772,7 +772,7 @@ startupSkov genesis = do
                                             ( Skov.initialiseExistingSkov
                                                 ( Skov.SkovConfig @pv @finconf
                                                     ( globalStateConfig
-                                                        mvc0StateConfig
+                                                        mvcStateConfig
                                                         mvcRuntimeParameters
                                                         vc0Index
                                                         vc0GenesisHeight

@@ -398,7 +398,7 @@ getMemoryBlockStatus blockHash sd
     | otherwise = Nothing
 
 -- |Create a block pointer from a stored block.
-mkBlockPointer :: (LowLevel.MonadTreeStateStore m, MonadIO m) => LowLevel.StoredBlock (MPV m) -> m (BlockPointer (MPV m))
+mkBlockPointer :: (MonadIO m) => LowLevel.StoredBlock (MPV m) -> m (BlockPointer (MPV m))
 mkBlockPointer sb@LowLevel.StoredBlock{..} = do
     bpState <- liftIO mkHashedPersistentBlockState
     return BlockPointer{bpInfo = stbInfo, bpBlock = stbBlock, ..}
