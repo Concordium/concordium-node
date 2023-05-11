@@ -15,6 +15,7 @@ import Concordium.Genesis.Data.BaseV1
 import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.Types
+import Concordium.Types.HashableTo
 import Concordium.Types.Parameters
 import Concordium.Utils
 
@@ -207,8 +208,8 @@ addQuorumMessage
 -- If a 'QuorumCertificate' could not be formed then this function returns @Nothing@.
 makeQuorumCertificate ::
     -- |The block we want to check whether we can
-    -- create a 'QuorumCertificate' or not.
-    BlockHash ->
+    -- create a 'QuorumCertificate' for or not.
+    BlockPointer pv ->
     -- | The state to use for making the
     -- 'QuorumCertificate'.
     SkovData pv ->
@@ -216,8 +217,8 @@ makeQuorumCertificate ::
     -- for the provided block.
     -- Otherwise return @Nothing@.
     Maybe QuorumCertificate
-makeQuorumCertificate blockHash sd@SkovData{..} = do
-    case _currentQuorumMessages ^? smBlockToWeightsAndSignatures . ix blockHash of
+makeQuorumCertificate qcBlockPointer sd@SkovData{..} = do
+    case _currentQuorumMessages ^? smBlockToWeightsAndSignatures . ix qcBlockHash of
         -- There wasn't any signature(s) for the supplied block.
         Nothing -> Nothing
         -- Check whether the accumulated weight is more or equal to the configured signature threshold.
@@ -234,12 +235,15 @@ makeQuorumCertificate blockHash sd@SkovData{..} = do
             enoughWeight = toRational accummulatedWeight / toRational totalWeight >= toRational signatureThreshold
             createQuorumCertificate =
                 QuorumCertificate
-                    { qcBlock = blockHash,
+                    { qcBlock = qcBlockHash,
                       qcRound = _roundStatus ^. rsCurrentRound,
-                      qcEpoch = _roundStatus ^. rsCurrentEpoch,
+                      qcEpoch = blockEpoch . bpBlock $ qcBlockPointer,
                       qcAggregateSignature = aggregatedSignature,
                       qcSignatories = finalizerSet $ Set.toList finalizers
                     }
+  where
+    -- The hash of the block that the QC points to.
+    qcBlockHash = getHash qcBlockPointer
 
 -- |Process a 'QuorumMessage'
 -- Check whether a 'QuorumCertificate' can be created.
