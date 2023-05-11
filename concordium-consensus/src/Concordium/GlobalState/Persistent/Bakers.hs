@@ -181,8 +181,12 @@ instance (IsProtocolVersion pv, MonadBlobStore m) => MHashableTo m H.Hash (Persi
         hbkrInfos :: H.Hash <- getHashM _bakerInfos
         hbkrStakes :: H.Hash <- getHashM _bakerStakes
         case _bakerFinalizationCommitteeParameters of
-            NoParam -> return $ H.hashOfHashes hbkrInfos hbkrStakes
+            NoParam -> return $ H.hash $ runPut $ do
+                putWord8 0 -- NoParam tag
+                put hbkrInfos
+                put hbkrStakes
             SomeParam params -> return $ H.hash $ runPut $ do
+                putWord8 1 -- SomeParam tag
                 put hbkrInfos
                 put hbkrStakes
                 put params
