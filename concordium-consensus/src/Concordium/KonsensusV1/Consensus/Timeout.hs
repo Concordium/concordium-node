@@ -333,6 +333,7 @@ executeTimeoutMessage (PartiallyVerifiedTimeoutMessage{..})
 -- |This is 'uponTimeoutEvent' from the bluepaper. If a timeout occurs, a finalizers should call
 -- this function to generate a timeout message, send it out, and process it.
 -- NB: If the caller is not a finalizer, this function does nothing.
+-- Precondition: This function MUST have exclusive write permission to the tree state.
 uponTimeoutEvent ::
     ( MonadTimeout m,
       MonadBroadcast m,

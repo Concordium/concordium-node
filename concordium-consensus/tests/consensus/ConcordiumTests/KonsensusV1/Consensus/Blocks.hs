@@ -1,6 +1,10 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE NumericUnderscores #-}
 
+-- |This module tests block verification, processing, advancing round and baking.
+-- The below tests are intended to test the functionality exposed by the 'Concordium.KonsensusV1.Consensus.Blocks' module.
+--
+-- In particular block processing and hence round/epoch progression are being tested.
 module ConcordiumTests.KonsensusV1.Consensus.Blocks (tests) where
 
 import Control.Monad.IO.Class
@@ -193,7 +197,7 @@ testBB1 =
           bbNonce = computeBlockNonce genesisLEN 1 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbTransactionOutcomesHash = emptyTransactionOutcomesHashV1,
-          bbStateHash = read "9cf574de72b20432d53bcab8301206a8d064afb9ce1784d3a17f0cf034b407b5"
+          bbStateHash = read "542a212811338244db35fa3aec466340556cac89d0e66fabc82a834156b95d66"
         }
   where
     bakerId = 2
@@ -212,7 +216,7 @@ testBB2 =
           bbNonce = computeBlockNonce genesisLEN 2 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbTransactionOutcomesHash = emptyTransactionOutcomesHashV1,
-          bbStateHash = read "d538b9a0ef2d2ac9b348c0e33cf32660f4c686c1fe79a31a9a34c02058f77f54"
+          bbStateHash = read "63957910621f8db8c909dcd41be7e87f3d001016881e390e8f411a7643a1d8bd"
         }
   where
     bakerId = 4
@@ -231,7 +235,7 @@ testBB3 =
           bbNonce = computeBlockNonce genesisLEN 3 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbTransactionOutcomesHash = emptyTransactionOutcomesHashV1,
-          bbStateHash = read "57d5dda98ba7db3415ac2ba31ac0f324d6c77bbf85d4d99c30e989d3ca135742"
+          bbStateHash = read "1745bfc938837d0229f9556654a6c9cc55e6081b06697ab190099723c0a142c8"
         }
   where
     bakerId = 4
@@ -242,7 +246,7 @@ testBB2' =
     testBB2
         { bbQuorumCertificate = genQC,
           bbTimeoutCertificate = Present (validTimeoutFor genQC 1),
-          bbStateHash = read "ecbc02e97ca6e334310696ca8e122bbfea49603204ef6f3db93b582601d7f311"
+          bbStateHash = read "c4bc315f9eca90dad2ce5334df4d7b058a162b3a3c266429051403e02b84ff49"
         }
   where
     genQC = genesisQuorumCertificate genesisHash
@@ -252,7 +256,7 @@ testBB3' :: BakedBlock
 testBB3' =
     testBB3
         { bbQuorumCertificate = validQCFor testBB2',
-          bbStateHash = read "45b27e0182a6f864ca4bd2efa535bdd554b98d59bafb5026d2e7a1a048103209"
+          bbStateHash = read "c217c7303d79a9ccb0ef3c1c7bfd11b5470505019e9c4fbfa24383b30be01747"
         }
 
 -- |A valid block for round 4 descended from 'testBB3''.
@@ -269,7 +273,7 @@ testBB4' =
           bbNonce = computeBlockNonce genesisLEN 4 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbTransactionOutcomesHash = emptyTransactionOutcomesHashV1,
-          bbStateHash = read "a15e44b200fdc2d5aadb4fd9f179058c9b2461bbbdd71883e2c268cdc34d4c7f"
+          bbStateHash = read "0603dacd7e6cce263c5e4f8fe1ead5d8d64f79a08aa41a87d88ecc7e3f4749bc"
         }
   where
     bakerId = 3
@@ -300,7 +304,7 @@ testBB1E =
           bbNonce = computeBlockNonce genesisLEN 1 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbTransactionOutcomesHash = emptyTransactionOutcomesHashV1,
-          bbStateHash = read "4bb2298984949ed44083183028e115b851590ae55b839a0aa5f62ced31cba1ef"
+          bbStateHash = read "11b1401c155d6d2cd63e84b9be60d685d8223f6cd8b6d055c6e7265f0b1c88a4"
         }
   where
     bakerId = 2
@@ -319,7 +323,7 @@ testBB2E =
           bbNonce = computeBlockNonce genesisLEN 2 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbTransactionOutcomesHash = emptyTransactionOutcomesHashV1,
-          bbStateHash = read "4bb2298984949ed44083183028e115b851590ae55b839a0aa5f62ced31cba1ef"
+          bbStateHash = read "11b1401c155d6d2cd63e84b9be60d685d8223f6cd8b6d055c6e7265f0b1c88a4"
         }
   where
     bakerId = 4
@@ -340,7 +344,7 @@ testBB3EX =
           bbNonce = computeBlockNonce genesisLEN 3 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbTransactionOutcomesHash = emptyTransactionOutcomesHashV1,
-          bbStateHash = read "4bb2298984949ed44083183028e115b851590ae55b839a0aa5f62ced31cba1ef"
+          bbStateHash = read "11b1401c155d6d2cd63e84b9be60d685d8223f6cd8b6d055c6e7265f0b1c88a4"
         }
   where
     bakerId = 4
@@ -375,7 +379,7 @@ testBB3E =
           bbNonce = computeBlockNonce testEpochLEN 3 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbTransactionOutcomesHash = emptyTransactionOutcomesHashV1,
-          bbStateHash = read "10353e99cd8b7db4b4cf849774c2b8350b678f6eca0581eb56d8c15d452f673d"
+          bbStateHash = read "4c5a23a37147d4cbe048cd6de72e1ac17b4ea04445875a22c352cdf61c052638"
         }
   where
     bakerId = 5
@@ -405,7 +409,7 @@ testBB4E =
           bbNonce = computeBlockNonce testEpochLEN 4 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbTransactionOutcomesHash = emptyTransactionOutcomesHashV1,
-          bbStateHash = read "2a0e23c4b5a753d7ce2162069e9aca8a568a8a67eb7086241b625a3094e85a8c"
+          bbStateHash = read "1b0f643c7724537aab64d38816e0e413ea8eb1170d4e9263449c9aa4ee5afabd"
         }
   where
     bakerId = 1
@@ -418,7 +422,7 @@ testBB4E' =
         { bbQuorumCertificate = validQCFor testBB2E,
           bbTimeoutCertificate = Present (validTimeoutFor (validQCFor testBB1E) 3),
           bbEpochFinalizationEntry = Present testEpochFinEntry,
-          bbStateHash = read "a1620a570b6753095de3730fe201b7e554ace7e277b53baef6c02a39ff932844"
+          bbStateHash = read "900f5baf4b667c0a02433a21df1f4c253053b2c1f9b58bc498a3851f857b3e7f"
         }
 
 -- |Valid block for round 5, epoch 1. Descends from 'testBB3E'. The timeout certificate for round
@@ -436,7 +440,7 @@ testBB5E' =
           bbNonce = computeBlockNonce testEpochLEN rnd (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbTransactionOutcomesHash = emptyTransactionOutcomesHashV1,
-          bbStateHash = read "fe1230008ffd2524e501adeefab908eb3b7d44fd55375bfcfccceaf2a6d210ea"
+          bbStateHash = read "f02f759c6694b210372060d4644b972bb29cf1bfce7b24091c20a3043146b370"
         }
   where
     bakerId = 2
@@ -469,7 +473,7 @@ testBB2Ex =
     testBB2E
         { bbQuorumCertificate = genQC,
           bbTimeoutCertificate = Present (validTimeoutFor genQC 1),
-          bbStateHash = read "27e84ee4a9a688606e3ced72700751f0e809ed1c0425ba75f3b566a6284b04f5"
+          bbStateHash = read "af6778c48e456a50fd034a607a5c1b9de148328f6982c31a840a28db21a0ba06"
         }
   where
     genQC = genesisQuorumCertificate genesisHash
@@ -493,7 +497,7 @@ testBB3Ex =
           bbNonce = computeBlockNonce testEpochLENx 3 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbTransactionOutcomesHash = emptyTransactionOutcomesHashV1,
-          bbStateHash = read "10353e99cd8b7db4b4cf849774c2b8350b678f6eca0581eb56d8c15d452f673d"
+          bbStateHash = read "4c5a23a37147d4cbe048cd6de72e1ac17b4ea04445875a22c352cdf61c052638"
         }
   where
     bakerId = 2
