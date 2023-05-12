@@ -1109,6 +1109,17 @@ prepareBakeBlockInputs ::
     ) =>
     m (Maybe (BakeBlockInputs (MPV m)))
 prepareBakeBlockInputs = runMaybeT $ do
+    -- We directly set the @rsRoundEligibleToBake@ to 'False' here as
+    -- even if the function returns early without producing the inputs required
+    -- for baking a block then such a reason is not recoverable.
+    -- This function can fail in the following ways:
+    -- - The baker is configured with wrong keys and hence the
+    --   node has to be restarted and configured with the correct keys,
+    --   but it would not really be possible anyhow to bake in this round for the baker
+    --   as the chain would most likely have advanced the round in the time it took to reboot the node.
+    -- - The baker is not leader for the current round or the baker is trying to bake for an old rould.
+    --   The only way to progress from such a failure is to advance the round anyhow
+    --   (which makes it eligible for baking again).
     canBake <- roundStatus . rsRoundEligibleToBake <<.= False
     -- Terminate if we've already tried to bake for this round.
     guard canBake
