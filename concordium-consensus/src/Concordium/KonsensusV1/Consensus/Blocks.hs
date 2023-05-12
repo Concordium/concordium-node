@@ -813,8 +813,6 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
 -- * Round number
 -- * Epoch number
 -- * Descending timestamp
--- * Descending receive time
--- * Descending arrival time
 -- * Block hash
 --
 -- This ordering is used to determine the "best block" to sign when a block arrives.
@@ -827,7 +825,7 @@ instance Ord (OrderedBlock pv) where
         toTuple (OrderedBlock blk) =
             ( blockRound blk,
               blockEpoch blk,
-              Down (blockTimestamp blk, blockReceiveTime blk, blockArriveTime blk),
+              Down (blockTimestamp blk),
               getHash @BlockHash blk
             )
 
