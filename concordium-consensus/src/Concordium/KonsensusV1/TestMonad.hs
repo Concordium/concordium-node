@@ -105,12 +105,18 @@ data TestEvent (pv :: ProtocolVersion)
 -- |Write event monoid. This is simply a list of events.
 type TestWrite pv = [TestEvent pv]
 
+-- |The internals of the test monad.
+-- Hence the 'PersistentBlockStateMonadHelper' transformer is using this monad
+-- as is the 'TestMonad'
+-- This makes it possible to easily derive the required instances via the 'PersistentBlockStateMonad'.
+type InnerTestMonad (pv :: ProtocolVersion) = RWST (TestContext pv) (TestWrite pv) (TestState pv) IO
+
 -- |This type is used to derive instances of various block state classes for 'TestMonad'.
 type PersistentBlockStateMonadHelper pv =
     PersistentBlockStateMonad
         pv
         (TestContext pv)
-        (RWST (TestContext pv) (TestWrite pv) (TestState pv) IO)
+        (InnerTestMonad pv)
 
 -- |The 'TestMonad' type itself wraps 'RWST' over 'IO'.
 -- The reader context is 'TestContext'.
@@ -118,7 +124,7 @@ type PersistentBlockStateMonadHelper pv =
 -- callback from the consensus to an operation of 'MonadTimeout', 'MonadBroadcast', or
 -- 'MonadConsensusEvent'.
 -- The state is 'TestState', which includes the 'SkovData' and a map of the pending timer events.
-newtype TestMonad (pv :: ProtocolVersion) a = TestMonad {runTestMonad' :: RWST (TestContext pv) (TestWrite pv) (TestState pv) IO a}
+newtype TestMonad (pv :: ProtocolVersion) a = TestMonad {runTestMonad' :: (InnerTestMonad pv) a}
     deriving newtype (Functor, Applicative, Monad, MonadReader (TestContext pv), MonadIO, MonadThrow, MonadWriter (TestWrite pv))
     deriving
         (BlockStateTypes, ContractStateOperations, ModuleQuery)
@@ -194,6 +200,7 @@ runTestMonad _tcBakerContext _tcCurrentTime genData (TestMonad a) =
         let st = TestState{..}
         fst <$> liftIO (evalRWST a ctx st)
 
+-- Instances that are required for the 'TestMonad'.
 deriving via
     (PersistentBlockStateMonadHelper pv)
     instance
@@ -220,7 +227,7 @@ deriving via
         IsProtocolVersion pv => BlockStateStorage (TestMonad pv)
 
 deriving via
-    (MemoryLLDBM pv (RWST (TestContext pv) (TestWrite pv) (TestState pv) IO))
+    (MemoryLLDBM pv (InnerTestMonad pv))
     instance
         IsProtocolVersion pv => LowLevel.MonadTreeStateStore (TestMonad pv)
 
