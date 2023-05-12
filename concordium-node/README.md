@@ -127,7 +127,7 @@ extra-include-dirs:
 - /opt/homebrew/include/
 ```
 
-### Apple silicon + MacOS specific
+### M1 and M2 MacOS specific
 
 You may need to add the following entry to your `~/.stack/config.yaml` for the `libffi` include:
 
