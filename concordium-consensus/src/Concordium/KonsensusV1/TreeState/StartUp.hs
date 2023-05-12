@@ -4,18 +4,45 @@ module Concordium.KonsensusV1.TreeState.StartUp where
 
 import Control.Monad.Catch
 import Control.Monad.IO.Class
+import Lens.Micro.Platform
 
 import Concordium.Types
-import Concordium.Types.Parameters
+import Concordium.Types.HashableTo
+import Concordium.Types.Parameters hiding (getChainParameters)
 
 import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.Parameters hiding (getChainParameters)
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
+import qualified Concordium.GlobalState.Statistics as Stats
+import qualified Concordium.GlobalState.TransactionTable as TT
 import qualified Concordium.GlobalState.Types as GSTypes
 import Concordium.KonsensusV1.Consensus
 import Concordium.KonsensusV1.TreeState.Implementation
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
+import qualified Data.Map.Strict as Map
+import qualified Data.Sequence as Seq
+
+-- |Generate the 'EpochBakers' for a genesis block.
+genesisEpochBakers ::
+    ( BlockStateQuery m,
+      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState pv,
+      IsConsensusV1 pv,
+      MPV m ~ pv
+    ) =>
+    PBS.HashedPersistentBlockState pv ->
+    m EpochBakers
+genesisEpochBakers genState = do
+    curFullBakers <- getCurrentEpochBakers genState
+    curFinParams <- getCurrentEpochFinalizationCommitteeParameters genState
+    let _currentEpochBakers = computeBakersAndFinalizers curFullBakers curFinParams
+    let _previousEpochBakers = _currentEpochBakers
+    nextFullBakers <- getNextEpochBakers genState
+    nextFinParams <- getNextEpochFinalizationCommitteeParameters genState
+    let _nextEpochBakers = computeBakersAndFinalizers nextFullBakers nextFinParams
+    _nextPayday <- getPaydayEpoch genState
+    return $! EpochBakers{..}
 
 -- |Construct the epoch bakers for a given last finalized block based on the low level tree state
 -- store.
@@ -79,3 +106,98 @@ makeEpochBakers lastFinBlock = do
                     backTo targetEpoch (blockEpoch stb, curHeight) (highEpoch, highHeight)
                 GT -> do
                     backTo targetEpoch (lowEpoch, lowHeight) (blockEpoch stb, curHeight)
+
+loadSkovData ::
+    ( MonadThrow m,
+      LowLevel.MonadTreeStateStore m,
+      MonadIO m,
+      BlockStateQuery m,
+      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState pv,
+      MPV m ~ pv,
+      IsConsensusV1 pv
+    ) =>
+    RuntimeParameters ->
+    m (SkovData pv)
+loadSkovData _runtimeParameters = do
+    _persistentRoundStatus <- LowLevel.lookupCurrentRoundStatus
+    mLatestFinEntry <- LowLevel.lookupLatestFinalizationEntry
+    genesisBlock <-
+        LowLevel.lookupFirstBlock >>= \case
+            Nothing -> throwM . TreeStateInvariantViolation $ "Missing genesis block in database"
+            Just gb -> mkBlockPointer gb
+    lastFinBlock <-
+        LowLevel.lookupLastBlock >>= \case
+            Nothing -> throwM . TreeStateInvariantViolation $ "Missing last block in database"
+            Just b -> mkBlockPointer b
+    _rsHighestCertifiedBlock <- do
+        case mLatestFinEntry of
+            Nothing ->
+                return
+                    CertifiedBlock
+                        { cbQuorumCertificate = genesisQuorumCertificate (getHash genesisBlock),
+                          cbQuorumBlock = genesisBlock
+                        }
+            Just finEntry
+                | let qc = feFinalizedQuorumCertificate finEntry,
+                  qcBlock qc == getHash lastFinBlock -> do
+                    return
+                        CertifiedBlock
+                            { cbQuorumCertificate = qc,
+                              cbQuorumBlock = lastFinBlock
+                            }
+                | otherwise -> throwM . TreeStateInvariantViolation $ "Database last finalized entry does not match the last finalized block"
+
+    let lastSignedQMRound =
+            ofOption 0 qmRound $ _prsLastSignedQuorumMessage _persistentRoundStatus
+    let lastSignedTMRound =
+            ofOption 0 (tmRound . tmBody) $ _prsLastSignedTimeoutMessage _persistentRoundStatus
+    let currentRound =
+            maximum
+                [ maybe 1 ((1 +) . qcRound . feSuccessorQuorumCertificate) mLatestFinEntry,
+                  lastSignedQMRound,
+                  lastSignedTMRound
+                ]
+    let _roundStatus =
+            RoundStatus
+                { _rsCurrentRound = currentRound,
+                  _rsHighestCertifiedBlock = _rsHighestCertifiedBlock,
+                  _rsPreviousRoundTimeout = Absent,
+                  _rsRoundEligibleToBake = True
+                }
+    let _currentEpoch = blockEpoch lastFinBlock
+    let _lastEpochFinalizationEntry = Absent
+    chainParams <- getChainParameters $ bpState lastFinBlock
+    let _currentTimeout = chainParams ^. cpConsensusParameters . cpTimeoutParameters . tpTimeoutBase
+    let _blockTable = emptyBlockTable
+    let _branches = Seq.empty
+    let _roundExistingBlocks = Map.empty
+    let _roundExistingQCs = Map.empty -- we could include the qc from the last finalization entry
+    _genesisMetadata <- case bpBlock genesisBlock of
+        GenesisBlock gm -> return gm
+        _ -> throwM . TreeStateInvariantViolation $ "First block is not a genesis block"
+    let _skovPendingBlocks = emptyPendingBlocks
+    let _lastFinalized = lastFinBlock
+    _skovEpochBakers <- makeEpochBakers lastFinBlock
+
+    let _receivedTimeoutMessages = case _prsLastSignedTimeoutMessage _persistentRoundStatus of
+            Absent -> Absent
+            Present tm ->
+                if tmRound (tmBody tm) == currentRound
+                    then
+                        Present $
+                            TimeoutMessages
+                                { tmFirstEpoch = _currentEpoch,
+                                  tmFirstEpochTimeouts = Map.singleton (tmFinalizerIndex $ tmBody tm) tm,
+                                  tmSecondEpochTimeouts = Map.empty
+                                }
+                    else Absent
+    let _currentQuorumMessages = emptyQuorumMessages
+    let _transactionTable = TT.emptyTransactionTable
+    let _transactionTablePurgeCounter = 0
+    let _skovPendingTransactions =
+            PendingTransactions
+                { _pendingTransactionTable = TT.emptyPendingTransactionTable,
+                  _focusBlock = genesisBlock
+                }
+    let _statistics = Stats.initialConsensusStatistics
+    return SkovData{..}

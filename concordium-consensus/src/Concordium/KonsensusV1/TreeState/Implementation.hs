@@ -45,7 +45,6 @@ import qualified Concordium.Genesis.Data.BaseV1 as Base
 import Concordium.Types
 import Concordium.Types.Execution
 import Concordium.Types.HashableTo
-import Concordium.Types.Parameters hiding (getChainParameters)
 import Concordium.Types.Transactions
 import Concordium.Types.Updates
 import Concordium.Utils
@@ -64,7 +63,6 @@ import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.TransactionVerification
 import qualified Concordium.TransactionVerification as TVer
-import Concordium.Types.SeedState (epochTransitionTriggered)
 
 -- |Exception occurring from a violation of tree state invariants.
 newtype TreeStateInvariantViolation = TreeStateInvariantViolation String
@@ -354,96 +352,6 @@ mkInitialSkovData rp genMeta genState _currentTimeout _skovEpochBakers =
         _receivedTimeoutMessages = Absent
         _currentQuorumMessages = emptyQuorumMessages
     in  SkovData{..}
-
-loadSkovData ::
-    ( MonadThrow m,
-      LowLevel.MonadTreeStateStore m,
-      MonadIO m,
-      BlockStateQuery m,
-      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState pv,
-      MPV m ~ pv,
-      IsConsensusV1 pv
-    ) =>
-    RuntimeParameters ->
-    m (SkovData pv)
-loadSkovData rtp = do
-    _persistentRoundStatus <- LowLevel.lookupCurrentRoundStatus
-    mLatestFinEntry <- LowLevel.lookupLatestFinalizationEntry
-    genesisBlock <-
-        LowLevel.lookupFirstBlock >>= \case
-            Nothing -> throwM . TreeStateInvariantViolation $ "Missing genesis block in database"
-            Just gb -> mkBlockPointer gb
-    lastFinBlock <-
-        LowLevel.lookupLastBlock >>= \case
-            Nothing -> throwM . TreeStateInvariantViolation $ "Missing last block in database"
-            Just b -> mkBlockPointer b
-    _rsHighestCertifiedBlock <- do
-        case mLatestFinEntry of
-            Nothing ->
-                return
-                    CertifiedBlock
-                        { cbQuorumCertificate = genesisQuorumCertificate (getHash genesisBlock),
-                          cbQuorumBlock = genesisBlock
-                        }
-            Just finEntry
-                | let qc = feFinalizedQuorumCertificate finEntry,
-                  qcBlock qc == getHash lastFinBlock -> do
-                    return
-                        CertifiedBlock
-                            { cbQuorumCertificate = qc,
-                              cbQuorumBlock = lastFinBlock
-                            }
-                | otherwise -> throwM . TreeStateInvariantViolation $ "Database last finalized entry does not match the last finalized block"
-
-    let lastSignedQMRound = case _prsLastSignedQuorumMessage _persistentRoundStatus of
-            Absent -> 0
-            Present qm -> qmRound qm
-    let lastSignedTMRound = case _prsLastSignedTimeoutMessage _persistentRoundStatus of
-            Absent -> 0
-            Present tm -> tmRound $ tmBody tm
-
-    let currentRound =
-            maximum
-                [ maybe 1 ((1 +) . qcRound . feSuccessorQuorumCertificate) mLatestFinEntry,
-                  lastSignedQMRound,
-                  lastSignedTMRound
-                ]
-    let _roundStatus =
-            RoundStatus
-                { _rsCurrentRound = currentRound,
-                  _rsHighestCertifiedBlock = _rsHighestCertifiedBlock,
-                  _rsPreviousRoundTimeout = Absent,
-                  _rsRoundEligibleToBake = True
-                }
-    let _currentEpoch = blockEpoch lastFinBlock
-    let _lastEpochFinalizationEntry = Absent
-    chainParams <- getChainParameters $ bpState lastFinBlock
-    let _currentTimeout = chainParams ^. cpConsensusParameters . cpTimeoutParameters . tpTimeoutBase
-    let _blockTable = emptyBlockTable
-    let _branches = Seq.empty
-    let _roundExistingBlocks = Map.empty
-    let _roundExistingQCs = Map.empty -- we could include the qc from the last finalization entry
-    _genesisMetadata <- case bpBlock genesisBlock of
-        GenesisBlock gm -> return gm
-        _ -> throwM . TreeStateInvariantViolation $ "First block is not a genesis block"
-    let _skovPendingBlocks = emptyPendingBlocks
-    let _lastFinalized = lastFinBlock
-    let _skovEpochBakers = undefined
-
-    let _receivedTimeoutMessages = case _prsLastSignedTimeoutMessage _persistentRoundStatus of
-            Absent -> Absent
-            Present tm ->
-                if tmRound (tmBody tm) == currentRound
-                    then
-                        Present $
-                            TimeoutMessages
-                                { tmFirstEpoch = _currentEpoch,
-                                  tmFirstEpochTimeouts = Map.singleton (tmFinalizerIndex $ tmBody tm) tm,
-                                  tmSecondEpochTimeouts = Map.empty
-                                }
-                    else Absent
-    let _currentQuorumMessages = emptyQuorumMessages
-    return undefined -- SkovData{..}
 
 -- * Operations on the block table
 

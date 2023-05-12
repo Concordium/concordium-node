@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE RankNTypes #-}
@@ -12,6 +13,7 @@ import Control.Monad.Catch
 import Control.Monad.RWS.Strict
 import Lens.Micro.Platform
 
+import Concordium.GlobalState (GlobalStateInitException (..))
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Persistent.Account
@@ -19,6 +21,7 @@ import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.BlockState
 import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
 import qualified Concordium.GlobalState.Persistent.Cache as Cache
+import Concordium.GlobalState.Persistent.Genesis (genesisState)
 import Concordium.GlobalState.Persistent.TreeState (checkExistingDatabase)
 import Concordium.GlobalState.Types
 import Concordium.KonsensusV1.Consensus
@@ -26,12 +29,15 @@ import Concordium.KonsensusV1.Consensus.Timeout
 import Concordium.KonsensusV1.TreeState.Implementation
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.LowLevel.LMDB
+import Concordium.KonsensusV1.TreeState.StartUp
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.Logger
-import Concordium.Scheduler.Types
+import Concordium.Scheduler.Types hiding (getChainParameters)
 import Concordium.TimeMonad
 import Concordium.TimerMonad
+import Concordium.Types.HashableTo
+import Control.Monad.Trans.Reader
 
 type PersistentBlockStateMonadHelper pv m =
     PersistentBlockStateMonad
@@ -82,7 +88,7 @@ data SkovV1Context (pv :: ProtocolVersion) m = SkovV1Context
     { -- |The baker context (i.e. baker keys if any).
       _vcBakerContext :: !BakerContext,
       -- |Blob store and caches used by the block state storage.
-      _vcPersistentBlockStateContext :: PersistentBlockStateContext pv,
+      _vcPersistentBlockStateContext :: !(PersistentBlockStateContext pv),
       -- |In-memory low-level tree state database.
       _vcDisk :: !(DatabaseHandlers pv),
       _vcHandlers :: !(HandlerContext pv m),
@@ -211,74 +217,186 @@ instance (IsProtocolVersion pv, MonadIO m, MonadCatch m, MonadLogger m) => Block
     bpParent = parentOf
     bpLastFinalized = lastFinalizedOf
 
--- data SkovConfig (pv :: ProtocolVersion) finconfig handlerconfig = SkovConfig !GlobalStateConfig !finconfig !handlerconfig
-
 data GlobalStateConfig = GlobalStateConfig
-    { dtdbRuntimeParameters :: !RuntimeParameters,
-      dtdbTreeStateDirectory :: !FilePath,
-      dtdbBlockStateFile :: !FilePath
+    { gscRuntimeParameters :: !RuntimeParameters,
+      gscTreeStateDirectory :: !FilePath,
+      gscBlockStateFile :: !FilePath
     }
 
--- initialiseExistingGlobalStateV1 :: forall pv. IsProtocolVersion pv => SProtocolVersion pv -> GlobalStateConfig -> LogIO (Maybe (GSContext pv, GSState pv))
--- initialiseExistingGlobalStateV1 _ GlobalStateConfig{..} = do
---     -- check if all the necessary database files exist
---     existingDB <- checkExistingDatabase dtdbTreeStateDirectory dtdbBlockStateFile
---     if existingDB
---         then do
---             logm <- ask
---             liftIO $ do
---                 pbscAccountCache <- newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
---                 pbscModuleCache <- Modules.newModuleCache (rpModulesCacheSize dtdbRuntimeParameters)
---                 pbscBlobStore <- loadBlobStore dtdbBlockStateFile
---                 let pbsc = PersistentBlockStateContext{..}
---                 skovData <-
---                     runLoggerT (loadSkovPersistentData dtdbRuntimeParameters dtdbTreeStateDirectory pbsc) logm
---                         `onException` closeBlobStore pbscBlobStore
---                 return (Just (pbsc, skovData))
---         else return Nothing
+data InitContext pv = InitContext
+    { -- |Blob store and caches used by the block state storage.
+      _icPersistentBlockStateContext :: !(PersistentBlockStateContext pv),
+      -- |In-memory low-level tree state database.
+      _icDatabaseHandlers :: !(DatabaseHandlers pv)
+    }
+
+makeLenses ''InitContext
+
+instance HasBlobStore (InitContext pv) where
+    blobStore = blobStore . _icPersistentBlockStateContext
+    blobLoadCallback = blobLoadCallback . _icPersistentBlockStateContext
+    blobStoreCallback = blobStoreCallback . _icPersistentBlockStateContext
+
+instance AccountVersionFor pv ~ av => Cache.HasCache (AccountCache av) (InitContext pv) where
+    projectCache = Cache.projectCache . _icPersistentBlockStateContext
+
+instance Cache.HasCache Modules.ModuleCache (InitContext pv) where
+    projectCache = Cache.projectCache . _icPersistentBlockStateContext
+
+instance HasDatabaseHandlers (InitContext pv) pv where
+    databaseHandlers = icDatabaseHandlers
+
+type InnerInitMonad pv = ReaderT (InitContext pv) LogIO
+
+newtype InitMonad pv a = InitMonad {runInitMonad' :: InnerInitMonad pv a}
+    deriving
+        ( Functor,
+          Applicative,
+          Monad,
+          MonadIO,
+          MonadLogger,
+          TimeMonad,
+          MonadReader (InitContext pv),
+          MonadThrow,
+          MonadCatch
+        )
+    deriving
+        (BlockStateTypes, ContractStateOperations, ModuleQuery, MonadBlobStore, Cache.MonadCache Modules.ModuleCache)
+        via (PersistentBlockStateMonad pv (InitContext pv) (InnerInitMonad pv))
+
+deriving via (PersistentBlockStateMonad pv (InitContext pv) (InnerInitMonad pv)) instance (av ~ AccountVersionFor pv) => Cache.MonadCache (AccountCache av) (InitMonad pv)
+deriving via (PersistentBlockStateMonad pv (InitContext pv) (InnerInitMonad pv)) instance (IsProtocolVersion pv) => MonadProtocolVersion (InitMonad pv)
+deriving via (PersistentBlockStateMonad pv (InitContext pv) (InnerInitMonad pv)) instance (IsProtocolVersion pv) => AccountOperations (InitMonad pv)
+deriving via (PersistentBlockStateMonad pv (InitContext pv) (InnerInitMonad pv)) instance (IsProtocolVersion pv) => BlockStateQuery (InitMonad pv)
+deriving via (PersistentBlockStateMonad pv (InitContext pv) (InnerInitMonad pv)) instance (IsProtocolVersion pv) => BlockStateOperations (InitMonad pv)
+deriving via (PersistentBlockStateMonad pv (InitContext pv) (InnerInitMonad pv)) instance (IsProtocolVersion pv) => BlockStateStorage (InitMonad pv)
+deriving via
+    (DiskLLDBM pv (InitMonad pv))
+    instance
+        ( IsProtocolVersion pv
+        ) =>
+        LowLevel.MonadTreeStateStore (InitMonad pv)
+
+runInitMonad :: InitMonad pv a -> InitContext pv -> LogIO a
+runInitMonad = runReaderT . runInitMonad'
 
 initialiseExistingSkovV1 ::
     forall pv m.
-    (IsProtocolVersion pv, IsConsensusV1 pv, Monad m) =>
+    (IsProtocolVersion pv, IsConsensusV1 pv) =>
     BakerContext ->
     HandlerContext pv m ->
+    (forall a. SkovV1T pv m a -> IO a) ->
     GlobalStateConfig ->
-    LogIO
-        (Maybe (SkovV1Context pv m, SkovV1State pv))
-initialiseExistingSkovV1 bakerContext handlerContext GlobalStateConfig{..} = do
+    LogIO (Maybe (SkovV1Context pv m, SkovV1State pv))
+initialiseExistingSkovV1 bakerCtx handlerCtx unliftSkov GlobalStateConfig{..} = do
     logEvent Skov LLDebug "Attempting to use existing global state."
-    existingDB <- checkExistingDatabase dtdbTreeStateDirectory dtdbBlockStateFile
+    existingDB <- checkExistingDatabase gscTreeStateDirectory gscBlockStateFile
     if existingDB
         then do
-            logm <- ask
-            liftIO $ do
-                pbscAccountCache <- newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
-                pbscModuleCache <- Modules.newModuleCache (rpModulesCacheSize dtdbRuntimeParameters)
-                pbscBlobStore <- loadBlobStore dtdbBlockStateFile
-                let pbsc = PersistentBlockStateContext{..}
-                skovData <-
-                    runLoggerT (loadSkovPersistentData dtdbRuntimeParameters dtdbTreeStateDirectory pbsc) logm
-                        `onException` closeBlobStore pbscBlobStore
-                return (Just (pbsc, skovData))
+            pbscAccountCache <- liftIO $ newAccountCache (rpAccountsCacheSize gscRuntimeParameters)
+            pbscModuleCache <- liftIO $ Modules.newModuleCache (rpModulesCacheSize gscRuntimeParameters)
+            pbscBlobStore <- liftIO $ loadBlobStore gscBlockStateFile
+            let pbsc = PersistentBlockStateContext{..}
+            let initWithLLDB lldb = do
+                    let initContext = InitContext pbsc lldb
+                    initialSkovData <- runInitMonad (loadSkovData gscRuntimeParameters) initContext
+                    let !ctx =
+                            SkovV1Context
+                                { _vcBakerContext = bakerCtx,
+                                  _vcPersistentBlockStateContext = pbsc,
+                                  _vcDisk = lldb,
+                                  _vcHandlers = handlerCtx,
+                                  _skovV1TUnliftIO = unliftSkov
+                                }
+                    let !st = SkovV1State{_v1sSkovData = initialSkovData, _v1sTimer = Nothing}
+                    return $ Just (ctx, st)
+            let initWithBlockState = do
+                    (lldb :: DatabaseHandlers pv) <- liftIO $ openDatabase gscTreeStateDirectory
+                    initWithLLDB lldb `onException` liftIO (closeDatabase lldb)
+            initWithBlockState `onException` liftIO (closeBlobStore pbscBlobStore)
         else do
             logEvent Skov LLDebug "No existing global state."
             return Nothing
-
--- initialiseExistingGlobalState (protocolVersion @pv) gsc >>= \case
---     Nothing -> do
---         logEvent Skov LLDebug "No existing global state."
---         return Nothing
---     Just (c, s) -> do
---         (finctx, finst) <- evalGlobalStateM @pv (initialiseFinalization finconf) c s
---         logEvent Skov LLDebug $ "Initializing finalization with context = " ++ show finctx
---         logEvent Skov LLDebug $ "Initializing finalization with initial state = " ++ show finst
---         let (hctx, hst) = initialiseHandler hconf
---         return (Just (SkovV1Context c finctx hctx, SkovV1State s finst hst))
 
 initialiseNewSkovV1 ::
     forall pv m.
     (IsProtocolVersion pv, IsConsensusV1 pv) =>
     GenesisData pv ->
-    -- SkovConfig pv finconfig handlerconfig ->
+    BakerContext ->
+    HandlerContext pv m ->
+    (forall a. SkovV1T pv m a -> IO a) ->
+    GlobalStateConfig ->
     LogIO (SkovV1Context pv m, SkovV1State pv)
-initialiseNewSkovV1 genData = undefined
+initialiseNewSkovV1 genData bakerCtx handlerCtx unliftSkov GlobalStateConfig{..} = do
+    logEvent Skov LLDebug "Creating new global state."
+    pbscAccountCache <- liftIO $ newAccountCache (rpAccountsCacheSize gscRuntimeParameters)
+    pbscModuleCache <- liftIO $ Modules.newModuleCache (rpModulesCacheSize gscRuntimeParameters)
+    pbscBlobStore <- liftIO $ createBlobStore gscBlockStateFile
+    let pbsc = PersistentBlockStateContext{..}
+    let
+        initGS :: InitMonad pv (SkovData pv)
+        initGS = do
+            logEvent GlobalState LLTrace "Creating persistent global state"
+            result <- genesisState genData
+            (pbs, genTT) <- case result of
+                Left err -> throwM (InvalidGenesisData err)
+                Right genState -> return genState
+            logEvent GlobalState LLTrace "Writing persistent global state"
+            stateRef <- saveBlockState pbs
+            logEvent GlobalState LLTrace "Creating persistent global state context"
+            let genHash = genesisBlockHash genData
+            let genMeta =
+                    GenesisMetadata
+                        { gmStateHash = getHash pbs,
+                          gmParameters = genesisCoreParametersV1 genData,
+                          gmFirstGenesisHash = genHash,
+                          gmCurrentGenesisHash = genHash
+                        }
+            chainParams <- getChainParameters pbs
+            let genTimeoutDuration = chainParams ^. cpConsensusParameters . cpTimeoutParameters . tpTimeoutBase
+            genEpochBakers <- genesisEpochBakers pbs
+            let !initSkovData =
+                    mkInitialSkovData gscRuntimeParameters genMeta pbs genTimeoutDuration genEpochBakers
+                        & transactionTable .~ genTT
+            let storedGenesis =
+                    LowLevel.StoredBlock
+                        { stbStatePointer = stateRef,
+                          stbInfo = blockMetadata (initSkovData ^. lastFinalized),
+                          stbBlock = GenesisBlock genMeta
+                        }
+            runDiskLLDBM $ initialiseLowLevelDB storedGenesis (initSkovData ^. persistentRoundStatus)
+            return initSkovData
+    let initWithBlockState = do
+            (lldb :: DatabaseHandlers pv) <- liftIO $ openDatabase gscTreeStateDirectory
+            let context = InitContext pbsc lldb
+            !initSkovData <- runInitMonad initGS context `onException` liftIO (closeDatabase lldb)
+            return
+                ( SkovV1Context
+                    { _vcBakerContext = bakerCtx,
+                      _vcPersistentBlockStateContext = pbsc,
+                      _vcDisk = lldb,
+                      _vcHandlers = handlerCtx,
+                      _skovV1TUnliftIO = unliftSkov
+                    },
+                  SkovV1State
+                    { _v1sSkovData = initSkovData,
+                      _v1sTimer = Nothing
+                    }
+                )
+    initWithBlockState `onException` liftIO (closeBlobStore pbscBlobStore)
+
+activateSkovV1State :: (IsProtocolVersion pv) => SkovV1Context pv m -> SkovV1State pv -> LogIO (SkovV1State pv)
+activateSkovV1State ctx uninitState =
+    runBlockState $ do
+        logEvent GlobalState LLTrace "Caching last finalized block and initializing transaction table"
+        let bps = bpState $ _lastFinalized $ _v1sSkovData uninitState
+        !tt <- cacheStateAndGetTransactionTable bps
+        logEvent GlobalState LLTrace "Done caching last finalized block"
+        return $! uninitState & v1sSkovData . transactionTable .~ tt
+  where
+    runBlockState a = runReaderT (runPersistentBlockStateMonad a) (_vcPersistentBlockStateContext ctx)
+
+shutdownSkovV1 :: SkovV1Context pv m -> LogIO ()
+shutdownSkovV1 SkovV1Context{..} = liftIO $ do
+    closeBlobStore (pbscBlobStore _vcPersistentBlockStateContext)
+    closeDatabase _vcDisk
