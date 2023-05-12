@@ -17,8 +17,9 @@ import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Persistent.Account
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.BlockState
-import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Module
+import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
 import qualified Concordium.GlobalState.Persistent.Cache as Cache
+import Concordium.GlobalState.Persistent.TreeState (checkExistingDatabase)
 import Concordium.GlobalState.Types
 import Concordium.KonsensusV1.Consensus
 import Concordium.KonsensusV1.Consensus.Timeout
@@ -68,6 +69,15 @@ data SkovV1State pv = SkovV1State
       _v1sTimer :: Maybe ThreadTimer
     }
 
+data HandlerContext (pv :: ProtocolVersion) m = HandlerContext
+    { _sendTimeoutHandler :: TimeoutMessage -> m (),
+      _sendQuorumHandler :: QuorumMessage -> m (),
+      _sendBlockHandler :: SignedBlock -> m (),
+      _onBlockHandler :: BlockPointer pv -> m (),
+      _onFinalizeHandler :: FinalizationEntry -> BlockPointer pv -> m (),
+      _onPendingLiveHandler :: m ()
+    }
+
 data SkovV1Context (pv :: ProtocolVersion) m = SkovV1Context
     { -- |The baker context (i.e. baker keys if any).
       _vcBakerContext :: !BakerContext,
@@ -75,12 +85,7 @@ data SkovV1Context (pv :: ProtocolVersion) m = SkovV1Context
       _vcPersistentBlockStateContext :: PersistentBlockStateContext pv,
       -- |In-memory low-level tree state database.
       _vcDisk :: !(DatabaseHandlers pv),
-      _sendTimeoutHandler :: TimeoutMessage -> m (),
-      _sendQuorumHandler :: QuorumMessage -> m (),
-      _sendBlockHandler :: SignedBlock -> m (),
-      _onBlockHandler :: BlockPointer pv -> m (),
-      _onFinalizeHandler :: FinalizationEntry -> BlockPointer pv -> m (),
-      _onPendingLiveHandler :: m (),
+      _vcHandlers :: !(HandlerContext pv m),
       _skovV1TUnliftIO :: forall a. SkovV1T pv m a -> IO a
     }
 
@@ -92,11 +97,15 @@ instance HasBlobStore (SkovV1Context pv m) where
 instance AccountVersionFor pv ~ av => Cache.HasCache (AccountCache av) (SkovV1Context pv m) where
     projectCache = Cache.projectCache . _vcPersistentBlockStateContext
 
-instance Cache.HasCache Module.ModuleCache (SkovV1Context pv m) where
+instance Cache.HasCache Modules.ModuleCache (SkovV1Context pv m) where
     projectCache = Cache.projectCache . _vcPersistentBlockStateContext
 
 makeLenses ''SkovV1Context
 makeLenses ''SkovV1State
+makeClassy ''HandlerContext
+
+instance HasHandlerContext (SkovV1Context pv m) pv m where
+    handlerContext = vcHandlers
 
 instance HasBakerContext (SkovV1Context pv m) where
     bakerContext = vcBakerContext
@@ -201,3 +210,75 @@ instance (IsProtocolVersion pv, MonadIO m, MonadCatch m, MonadLogger m) => Block
     blockState = return . bpState
     bpParent = parentOf
     bpLastFinalized = lastFinalizedOf
+
+-- data SkovConfig (pv :: ProtocolVersion) finconfig handlerconfig = SkovConfig !GlobalStateConfig !finconfig !handlerconfig
+
+data GlobalStateConfig = GlobalStateConfig
+    { dtdbRuntimeParameters :: !RuntimeParameters,
+      dtdbTreeStateDirectory :: !FilePath,
+      dtdbBlockStateFile :: !FilePath
+    }
+
+-- initialiseExistingGlobalStateV1 :: forall pv. IsProtocolVersion pv => SProtocolVersion pv -> GlobalStateConfig -> LogIO (Maybe (GSContext pv, GSState pv))
+-- initialiseExistingGlobalStateV1 _ GlobalStateConfig{..} = do
+--     -- check if all the necessary database files exist
+--     existingDB <- checkExistingDatabase dtdbTreeStateDirectory dtdbBlockStateFile
+--     if existingDB
+--         then do
+--             logm <- ask
+--             liftIO $ do
+--                 pbscAccountCache <- newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
+--                 pbscModuleCache <- Modules.newModuleCache (rpModulesCacheSize dtdbRuntimeParameters)
+--                 pbscBlobStore <- loadBlobStore dtdbBlockStateFile
+--                 let pbsc = PersistentBlockStateContext{..}
+--                 skovData <-
+--                     runLoggerT (loadSkovPersistentData dtdbRuntimeParameters dtdbTreeStateDirectory pbsc) logm
+--                         `onException` closeBlobStore pbscBlobStore
+--                 return (Just (pbsc, skovData))
+--         else return Nothing
+
+initialiseExistingSkovV1 ::
+    forall pv m.
+    (IsProtocolVersion pv, IsConsensusV1 pv, Monad m) =>
+    BakerContext ->
+    HandlerContext pv m ->
+    GlobalStateConfig ->
+    LogIO
+        (Maybe (SkovV1Context pv m, SkovV1State pv))
+initialiseExistingSkovV1 bakerContext handlerContext GlobalStateConfig{..} = do
+    logEvent Skov LLDebug "Attempting to use existing global state."
+    existingDB <- checkExistingDatabase dtdbTreeStateDirectory dtdbBlockStateFile
+    if existingDB
+        then do
+            logm <- ask
+            liftIO $ do
+                pbscAccountCache <- newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
+                pbscModuleCache <- Modules.newModuleCache (rpModulesCacheSize dtdbRuntimeParameters)
+                pbscBlobStore <- loadBlobStore dtdbBlockStateFile
+                let pbsc = PersistentBlockStateContext{..}
+                skovData <-
+                    runLoggerT (loadSkovPersistentData dtdbRuntimeParameters dtdbTreeStateDirectory pbsc) logm
+                        `onException` closeBlobStore pbscBlobStore
+                return (Just (pbsc, skovData))
+        else do
+            logEvent Skov LLDebug "No existing global state."
+            return Nothing
+
+-- initialiseExistingGlobalState (protocolVersion @pv) gsc >>= \case
+--     Nothing -> do
+--         logEvent Skov LLDebug "No existing global state."
+--         return Nothing
+--     Just (c, s) -> do
+--         (finctx, finst) <- evalGlobalStateM @pv (initialiseFinalization finconf) c s
+--         logEvent Skov LLDebug $ "Initializing finalization with context = " ++ show finctx
+--         logEvent Skov LLDebug $ "Initializing finalization with initial state = " ++ show finst
+--         let (hctx, hst) = initialiseHandler hconf
+--         return (Just (SkovV1Context c finctx hctx, SkovV1State s finst hst))
+
+initialiseNewSkovV1 ::
+    forall pv m.
+    (IsProtocolVersion pv, IsConsensusV1 pv) =>
+    GenesisData pv ->
+    -- SkovConfig pv finconfig handlerconfig ->
+    LogIO (SkovV1Context pv m, SkovV1State pv)
+initialiseNewSkovV1 genData = undefined
