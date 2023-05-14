@@ -1083,10 +1083,11 @@ getBlocksAtHeight ::
     IO CString
 getBlocksAtHeight cptr height genIndex restrict =
     jsonQuery cptr $
-        Q.getBlocksAtHeight
-            (BlockHeight height)
-            (GenesisIndex genIndex)
-            (restrict /= 0)
+        fmap fst
+            <$> Q.getBlocksAtHeight
+                (BlockHeight height)
+                (GenesisIndex genIndex)
+                (restrict /= 0)
 
 -- | Retrieve the last finalized block height relative to the most recent genesis index. Used for
 -- resuming out-of-band catchup.

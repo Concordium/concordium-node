@@ -59,21 +59,48 @@ pub mod types {
             _ => None,
         }
     }
+    pub(crate) enum BlockHashInputFFI<'a> {
+        Best,
+        LastFinal,
+        Given(&'a [u8]),
+        Absolute([u8; 8]),
+        Relative([u8; 13]),
+    }
 
-    /// Convert the [BlockHashInput] to a pair of a tag and pointer to the
-    /// content. The tag is 0 for "Best" block, 1 for "LastFinal" block, and
-    /// 2 for a specific block given by a hash. If the tag is 0 or 1 then
-    /// there is no additional data, and the content pointer is `null`.
-    ///
-    /// # Safety
-    /// The caller **must** ensure that the pointer is not used after the
-    /// reference to the supplied `bhi` is no longer retained.
-    pub(crate) fn block_hash_input_to_ffi(bhi: &BlockHashInput) -> Option<(u8, *const u8)> {
+    impl<'a> BlockHashInputFFI<'a> {
+        pub fn to_ptr(&'a self) -> (u8, &'a [u8]) {
+            match self {
+                BlockHashInputFFI::Best => (0u8, &[]),
+                BlockHashInputFFI::LastFinal => (1u8, &[]),
+                BlockHashInputFFI::Given(ptr) => (2u8, *ptr),
+                BlockHashInputFFI::Absolute(data) => (3u8, &data[..]),
+                BlockHashInputFFI::Relative(data) => (4u8, &data[..]),
+            }
+        }
+    }
+
+    /// Convert the [`BlockHashInput`] to a pair of a tag and pointer to the
+    /// content. The tag is 0 for "Best" block, 1 for "LastFinal" block,
+    /// 2 for a specific block given by a hash, 3 for block given by absolute height, and 4 for
+    /// block given by relative height.
+    pub(crate) fn block_hash_input_to_ffi(bhi: &BlockHashInput) -> Option<BlockHashInputFFI> {
         use block_hash_input::BlockHashInput::*;
         match bhi.block_hash_input.as_ref()? {
-            Best(_) => Some((0, std::ptr::null())),
-            LastFinal(_) => Some((1, std::ptr::null())),
-            Given(bh) if bh.value.len() == 32 => Some((2, bh.value.as_ptr())),
+            Best(_) => Some(BlockHashInputFFI::Best),
+            LastFinal(_) => Some(BlockHashInputFFI::LastFinal),
+            Given(bh) if bh.value.len() == 32 => Some(BlockHashInputFFI::Given(&bh.value[..])),
+            AbsoluteHeight(abh) => Some(BlockHashInputFFI::Absolute(abh.value.to_be_bytes())),
+            RelativeHeight(rel) => {
+                let mut bytes = [0u8; 13];
+                bytes[0..8].copy_from_slice(&rel.height.as_ref()?.value.to_be_bytes());
+                bytes[8..12].copy_from_slice(&rel.genesis_index.as_ref()?.value.to_be_bytes());
+                bytes[12] = if rel.restrict {
+                    1
+                } else {
+                    0
+                };
+                Some(BlockHashInputFFI::Relative(bytes))
+            }
             _ => None,
         }
     }

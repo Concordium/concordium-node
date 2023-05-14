@@ -48,6 +48,7 @@ import Concordium.GlobalState.Parameters (CryptographicParameters)
 import Concordium.ID.Parameters (withGlobalContext)
 import qualified Concordium.Types.InvokeContract as InvokeContract
 import qualified Concordium.Wasm as Wasm
+import Data.Either (fromRight)
 import Data.Text (Text)
 import qualified Data.Text.Encoding as Text
 
@@ -94,7 +95,18 @@ foreign import ccall "dynamic" callCopyCryptographicParametersCallback :: FunPtr
 decodeBlockHashInput :: Word8 -> Ptr Word8 -> IO Queries.BlockHashInput
 decodeBlockHashInput 0 _ = return Queries.Best
 decodeBlockHashInput 1 _ = return Queries.LastFinal
-decodeBlockHashInput _ hsh = Queries.Given . coerce <$> FBS.create @DigestSize (\p -> copyBytes p hsh 32)
+decodeBlockHashInput 2 hsh = Queries.Given . coerce <$> FBS.create @DigestSize (\p -> copyBytes p hsh 32)
+decodeBlockHashInput n dt =
+    Queries.AtHeight
+        <$> case n of
+            3 -> do
+                inputData <- BS.unsafePackCStringLen (castPtr dt, 8)
+                let aBlockHeight = fromRight (error "Should not happen.") (S.decode inputData)
+                return Queries.Absolute{..}
+            _ -> do
+                inputData <- BS.unsafePackCStringLen (castPtr dt, 13)
+                let (rBlockHeight, rGenesisIndex, rRestrict) = fromRight (error "Should not happen.") (S.decode inputData)
+                return Queries.Relative{..}
 
 -- | Decode an account address from a foreign ptr. Assumes 32 bytes are available.
 decodeAccountAddress :: Ptr Word8 -> IO AccountAddress
@@ -170,8 +182,9 @@ getAccountInfoV2 cptr blockType blockHashPtr accIdType accIdBytesPtr outHash out
     res <- runMVR (Q.getAccountInfo bhi ai) mvr
     returnMessageWithBlock (copier outVec) outHash res
 
-copyHashTo :: Ptr Word8 -> BlockHash -> IO ()
-copyHashTo dest (BlockHash (Hash h)) = FBS.withPtrReadOnly h $ \p -> copyBytes dest p 32
+copyHashTo :: Ptr Word8 -> Maybe BlockHash -> IO ()
+copyHashTo _ Nothing = return ()
+copyHashTo dest (Just (BlockHash (Hash h))) = FBS.withPtrReadOnly h $ \p -> copyBytes dest p 32
 
 getAccountListV2 ::
     StablePtr Ext.ConsensusRunner ->
@@ -615,8 +628,8 @@ getBlocksAtHeightV2 ::
 getBlocksAtHeightV2 cptr height genIndex restrict outVec copierCbk = do
     Ext.ConsensusRunner mvr <- deRefStablePtr cptr
     let copier = callCopyToVecCallback copierCbk
-    blocks <- runMVR (Q.getBlocksAtHeight (BlockHeight height) (GenesisIndex genIndex) (restrict /= 0)) mvr
-    let proto :: Proto.BlocksAtHeightResponse = Proto.make $ ProtoFields.blocks .= fmap toProto blocks
+    blocks <- runMVR (fmap fst <$> Q.getBlocksAtHeight (BlockHeight height) (GenesisIndex genIndex) (restrict /= 0)) mvr
+    let proto :: Proto.BlocksAtHeightResponse = Proto.make $ ProtoFields.blocks .= maybe [] (fmap toProto) blocks
     let encoded = Proto.encodeMessage proto
     BS.unsafeUseAsCStringLen encoded (\(ptr, len) -> copier outVec (castPtr ptr) (fromIntegral len))
     return $ queryResultCode QRSuccess
@@ -1015,7 +1028,7 @@ returnMessageWithBlock ::
     Ptr Word8 ->
     -- |The hash of the block to which the message belongs, and potentially a
     -- message.
-    (BlockHash, Maybe a) ->
+    (Maybe BlockHash, Maybe a) ->
     IO Int64
 returnMessageWithBlock copier outHash (bh, out) = do
     copyHashTo outHash bh
