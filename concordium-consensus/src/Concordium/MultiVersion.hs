@@ -1084,11 +1084,15 @@ startBaker mvr@MultiVersionRunner{mvBaker = Just Baker{..}, ..} = do
     bakerLoop lastGenIndex slot = do
         (genIndex, res) <-
             withWriteLockIO mvr $ do
-                EVersionedConfigurationV0 vc <- Vec.last <$> readIORef mvVersions
-                -- If the genesis index has changed, we reset the slot counter to 0, since this
-                -- is a different chain.
-                let nextSlot = if vc0Index vc == lastGenIndex then slot else 0
-                (vc0Index vc,) <$> runMVR (liftSkovUpdate vc (tryBake bakerIdentity nextSlot)) mvr
+                (Vec.last <$> readIORef mvVersions) >>= \case
+                    EVersionedConfigurationV0 vc -> do
+                        -- If the genesis index has changed, we reset the slot counter to 0, since this
+                        -- is a different chain.
+                        let nextSlot = if vc0Index vc == lastGenIndex then slot else 0
+                        (vc0Index vc,) <$> runMVR (liftSkovUpdate vc (tryBake bakerIdentity nextSlot)) mvr
+                    EVersionedConfigurationV1 vc -> do
+                        runMVR (liftSkovV1Update vc SkovV1.makeBlock) mvr
+                        return (vc1Index vc, BakeShutdown)
         case res of
             BakeSuccess slot' block -> do
                 broadcastBlock mvCallbacks genIndex block

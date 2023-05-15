@@ -26,6 +26,7 @@ import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import Concordium.GlobalState.Types
 import qualified Concordium.GlobalState.Types as GSTypes
 import Concordium.KonsensusV1.Consensus
+import Concordium.KonsensusV1.Consensus.Blocks
 import Concordium.KonsensusV1.Consensus.Finality (checkFinality)
 import Concordium.KonsensusV1.Consensus.Timeout.Internal
 import Concordium.KonsensusV1.Flag
@@ -33,6 +34,7 @@ import Concordium.KonsensusV1.TreeState.Implementation
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
+import Concordium.TimerMonad
 
 -- |Reasons that a 'TimeoutMessage' can be rejected.
 data ReceiveTimeoutMessageRejectReason
@@ -250,7 +252,11 @@ executeTimeoutMessage ::
       MonadConsensusEvent m,
       MonadLogger m,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
-      LowLevel.MonadTreeStateStore m
+      LowLevel.MonadTreeStateStore m,
+      TimerMonad m,
+      MonadMulticast m,
+      MonadReader r m,
+      HasBakerContext r
     ) =>
     -- |The partially verified 'TimeoutMessage' to execute.
     PartiallyVerifiedTimeoutMessage (MPV m) ->
@@ -338,12 +344,17 @@ uponTimeoutEvent ::
       MonadMulticast m,
       MonadReader r m,
       HasBakerContext r,
-      BlockStateQuery m,
       BlockState m ~ HashedPersistentBlockState (MPV m),
       IsConsensusV1 (MPV m),
       MonadState (SkovData (MPV m)) m,
       LowLevel.MonadTreeStateStore m,
-      MonadLogger m
+      MonadLogger m,
+      BlockStateStorage m,
+      TimeMonad m,
+      TimerMonad m,
+      MonadThrow m,
+      MonadIO m,
+      MonadConsensusEvent m
     ) =>
     m ()
 uponTimeoutEvent = do
@@ -451,7 +462,19 @@ updateTimeoutMessages tms tm =
 processTimeout ::
     ( MonadTimeout m,
       LowLevel.MonadTreeStateStore m,
-      MonadState (SkovData (MPV m)) m
+      MonadState (SkovData (MPV m)) m,
+      MonadReader r m,
+      HasBakerContext r,
+      BlockStateStorage m,
+      BlockState m ~ HashedPersistentBlockState (MPV m),
+      IsConsensusV1 (MPV m),
+      TimeMonad m,
+      TimerMonad m,
+      MonadMulticast m,
+      MonadThrow m,
+      MonadIO m,
+      MonadConsensusEvent m,
+      MonadLogger m
     ) =>
     TimeoutMessage ->
     m ()
@@ -498,6 +521,7 @@ processTimeout tm = do
                         { rtCertifiedBlock = highestCB,
                           rtTimeoutCertificate = tc
                         }
+                makeBlock
   where
     bakerIdsFor finComm timeouts =
         Set.fromList $

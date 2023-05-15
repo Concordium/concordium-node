@@ -260,8 +260,10 @@ processQuorumMessage ::
     ) =>
     -- |The 'VerifiedQuorumMessage' to process.
     VerifiedQuorumMessage (MPV m) ->
+    -- |Continuation to make a block
+    m () ->
     m ()
-processQuorumMessage vqm@(VerifiedQuorumMessage quorumMessage _ quorumBlock) = do
+processQuorumMessage vqm@(VerifiedQuorumMessage quorumMessage _ quorumBlock) makeBlock = do
     currentRound <- use (roundStatus . rsCurrentRound)
     -- Check that the round of the 'QuorumMessage' corresponds to
     -- the current round of the tree state.
@@ -281,3 +283,4 @@ processQuorumMessage vqm@(VerifiedQuorumMessage quorumMessage _ quorumBlock) = d
                       cbQuorumBlock = quorumBlock
                     }
             recordCheckedQuorumCertificate newQC
+            makeBlock

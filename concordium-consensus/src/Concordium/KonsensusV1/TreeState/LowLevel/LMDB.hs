@@ -27,6 +27,7 @@ import Data.Data
 import qualified Data.Serialize as S
 import Database.LMDB.Raw
 import Lens.Micro.Platform
+import System.Directory
 
 import Concordium.Common.Version
 import qualified Concordium.Crypto.SHA256 as Hash
@@ -330,7 +331,9 @@ makeDatabaseHandlers treeStateDir readOnly initSize = do
 -- This simply loads the references and does not initialize the databases.
 -- The initial size is set to 64MB.
 openDatabase :: FilePath -> IO (DatabaseHandlers pv)
-openDatabase treeStateDir = makeDatabaseHandlers treeStateDir False dbInitSize
+openDatabase treeStateDir = do
+    createDirectoryIfMissing False treeStateDir
+    makeDatabaseHandlers treeStateDir False dbInitSize
 
 -- |Close the database. The database should not be used after it is closed.
 closeDatabase :: DatabaseHandlers pv -> IO ()

@@ -12,6 +12,7 @@ import Concordium.GlobalState.Persistent.BlockState
 import qualified Concordium.GlobalState.Transactions as Transactions
 import Concordium.GlobalState.Types
 import Concordium.KonsensusV1.Consensus
+import Concordium.KonsensusV1.Consensus.Blocks
 import qualified Concordium.KonsensusV1.Consensus.Quorum as Quorum
 import qualified Concordium.KonsensusV1.Consensus.Timeout as Timeout
 import Concordium.KonsensusV1.TreeState.Implementation
@@ -20,8 +21,10 @@ import Concordium.KonsensusV1.Types
 import Concordium.Logger
 import Concordium.Skov.Monad (UpdateResult (..), transactionVerificationResultToUpdateResult)
 import Concordium.TimeMonad
+import Concordium.TimerMonad
 import Concordium.Types
 import Concordium.Types.Parameters
+import Control.Monad.Reader.Class
 
 -- |Handle receiving a finalization message (either a quorum message or a timeout message).
 -- Returns @Left res@ in the event of a failure, with the appropriate failure code.
@@ -35,17 +38,21 @@ receiveFinalizationMessage ::
       TimeMonad m,
       MonadTimeout m,
       MonadState (SkovData (MPV m)) m,
+      MonadReader r m,
+      HasBakerContext r,
       MonadConsensusEvent m,
       MonadLogger m,
       BlockState m ~ HashedPersistentBlockState (MPV m),
-      MonadTreeStateStore m
+      MonadTreeStateStore m,
+      MonadMulticast m,
+      TimerMonad m
     ) =>
     FinalizationMessage ->
     m (Either UpdateResult (m ()))
 receiveFinalizationMessage (FMQuorumMessage qm) = do
     res <- Quorum.receiveQuorumMessage qm =<< get
     case res of
-        Quorum.Received vqm -> return $ Right $ Quorum.processQuorumMessage vqm
+        Quorum.Received vqm -> return $ Right $ Quorum.processQuorumMessage vqm makeBlock
         Quorum.Rejected _ -> return $ Left ResultInvalid
         Quorum.CatchupRequired -> return $ Left ResultUnverifiable
         Quorum.Duplicate -> return $ Left ResultDuplicate

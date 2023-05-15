@@ -1046,7 +1046,10 @@ validateBlock ::
       MonadIO m,
       BlockStateStorage m,
       BlockState m ~ HashedPersistentBlockState (MPV m),
+      MonadReader r m,
+      HasBakerContext r,
       TimeMonad m,
+      TimerMonad m,
       MonadTimeout m,
       MonadConsensusEvent m,
       MonadLogger m
@@ -1059,8 +1062,10 @@ validateBlock ::
     FinalizerInfo ->
     m ()
 validateBlock blockHash BakerIdentity{..} finInfo = do
+    logEvent Baker LLTrace "validateBlock called"
     maybeBlock <- gets $ getLiveBlock blockHash
     forM_ maybeBlock $ \block -> do
+        logEvent Baker LLTrace $ "validateBlock: block " ++ show block ++ " is live"
         persistentRS <- use persistentRoundStatus
         curRound <- use $ roundStatus . rsCurrentRound
         curEpoch <- use currentEpoch
@@ -1087,12 +1092,13 @@ validateBlock blockHash BakerIdentity{..} finInfo = do
                         { _prsLastSignedQuorumMessage = Present quorumMessage
                         }
                 sendQuorumMessage quorumMessage
-                processQuorumMessage $
+                processQuorumMessage
                     VerifiedQuorumMessage
                         { vqmMessage = quorumMessage,
                           vqmFinalizerWeight = finalizerWeight finInfo,
                           vqmBlock = block
                         }
+                    makeBlock
 
 -- |Produce a quorum signature on a block if the block is eligible and we are a finalizer for the
 -- block's epoch. This will delay until the timestamp of the block has elapsed so that we do not
@@ -1120,8 +1126,10 @@ checkedValidateBlock ::
     b ->
     m ()
 checkedValidateBlock validBlock = do
+    logEvent Baker LLTrace "checkedValidateBlock called"
     withFinalizerForEpoch (blockEpoch validBlock) $ \bakerIdent finInfo -> do
         let !blockHash = getHash validBlock
+        logEvent Baker LLTrace $ "checkedValidateBlock delaying until" ++ show (timestampToUTCTime $ blockTimestamp validBlock)
         _ <-
             onTimeout (DelayUntil (timestampToUTCTime $ blockTimestamp validBlock)) $!
                 validateBlock blockHash bakerIdent finInfo

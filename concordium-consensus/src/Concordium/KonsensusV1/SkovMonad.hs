@@ -203,7 +203,8 @@ instance
       MonadLogger m,
       MonadCatch m,
       IsProtocolVersion pv,
-      IsConsensusV1 pv
+      IsConsensusV1 pv,
+      TimeMonad m
     ) =>
     MonadTimeout (SkovV1T pv m)
     where
@@ -397,7 +398,9 @@ initialiseNewSkovV1 genData bakerCtx handlerCtx unliftSkov GlobalStateConfig{..}
             runDiskLLDBM $ initialiseLowLevelDB storedGenesis (initSkovData ^. persistentRoundStatus)
             return initSkovData
     let initWithBlockState = do
+            logEvent Skov LLTrace $ "Opening tree state: " ++ gscTreeStateDirectory
             (lldb :: DatabaseHandlers pv) <- liftIO $ openDatabase gscTreeStateDirectory
+            logEvent Skov LLTrace "Opened tree state."
             let context = InitContext pbsc lldb
             !initSkovData <- runInitMonad initGS context `onException` liftIO (closeDatabase lldb)
             return
