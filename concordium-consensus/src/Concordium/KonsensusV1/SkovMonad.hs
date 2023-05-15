@@ -2,6 +2,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -80,7 +81,10 @@ data HandlerContext (pv :: ProtocolVersion) m = HandlerContext
       _sendQuorumHandler :: QuorumMessage -> m (),
       _sendBlockHandler :: SignedBlock -> m (),
       _onBlockHandler :: BlockPointer pv -> m (),
-      _onFinalizeHandler :: FinalizationEntry -> BlockPointer pv -> m (),
+      -- |An event handler called per finalization. It is called with the
+      -- finalization entry, and the list of all blocks finalized by the entry
+      -- in increasing order of block height.
+      _onFinalizeHandler :: FinalizationEntry -> [BlockPointer pv] -> m (),
       _onPendingLiveHandler :: m ()
     }
 
@@ -280,6 +284,20 @@ deriving via
 runInitMonad :: InitMonad pv a -> InitContext pv -> LogIO a
 runInitMonad = runReaderT . runInitMonad'
 
+-- |The result of successfully loading an existing SkovV1 state.
+data ExistingSkov pv m = ExistingSkov
+    { -- |The context.
+      esContext :: !(SkovV1Context pv m),
+      -- |The state.
+      esState :: !(SkovV1State pv),
+      -- |The hash of the current genesis block.
+      esGenesisHash :: !BlockHash,
+      -- |The (relative) height of the last finalized block.
+      esLastFinalizedHeight :: !BlockHeight,
+      -- |The next protocol version if a protocol update has occurred.
+      esNextProtocolVersion :: !(Maybe SomeProtocolVersion)
+    }
+
 initialiseExistingSkovV1 ::
     forall pv m.
     (IsProtocolVersion pv, IsConsensusV1 pv) =>
@@ -287,7 +305,7 @@ initialiseExistingSkovV1 ::
     HandlerContext pv m ->
     (forall a. SkovV1T pv m a -> IO a) ->
     GlobalStateConfig ->
-    LogIO (Maybe (SkovV1Context pv m, SkovV1State pv))
+    LogIO (Maybe (ExistingSkov pv m))
 initialiseExistingSkovV1 bakerCtx handlerCtx unliftSkov GlobalStateConfig{..} = do
     logEvent Skov LLDebug "Attempting to use existing global state."
     existingDB <- checkExistingDatabase gscTreeStateDirectory gscBlockStateFile
@@ -300,16 +318,28 @@ initialiseExistingSkovV1 bakerCtx handlerCtx unliftSkov GlobalStateConfig{..} = 
             let initWithLLDB lldb = do
                     let initContext = InitContext pbsc lldb
                     initialSkovData <- runInitMonad (loadSkovData gscRuntimeParameters) initContext
-                    let !ctx =
-                            SkovV1Context
-                                { _vcBakerContext = bakerCtx,
-                                  _vcPersistentBlockStateContext = pbsc,
-                                  _vcDisk = lldb,
-                                  _vcHandlers = handlerCtx,
-                                  _skovV1TUnliftIO = unliftSkov
+                    let !es =
+                            ExistingSkov
+                                { esContext =
+                                    SkovV1Context
+                                        { _vcBakerContext = bakerCtx,
+                                          _vcPersistentBlockStateContext = pbsc,
+                                          _vcDisk = lldb,
+                                          _vcHandlers = handlerCtx,
+                                          _skovV1TUnliftIO = unliftSkov
+                                        },
+                                  esState =
+                                    SkovV1State
+                                        { _v1sSkovData = initialSkovData,
+                                          _v1sTimer = Nothing
+                                        },
+                                  esGenesisHash = initialSkovData ^. currentGenesisHash,
+                                  esLastFinalizedHeight =
+                                    blockHeight (initialSkovData ^. lastFinalized),
+                                  -- FIXME: Support protocol updates. Issue #825
+                                  esNextProtocolVersion = Nothing
                                 }
-                    let !st = SkovV1State{_v1sSkovData = initialSkovData, _v1sTimer = Nothing}
-                    return $ Just (ctx, st)
+                    return $ Just es
             let initWithBlockState = do
                     (lldb :: DatabaseHandlers pv) <- liftIO $ openDatabase gscTreeStateDirectory
                     initWithLLDB lldb `onException` liftIO (closeDatabase lldb)

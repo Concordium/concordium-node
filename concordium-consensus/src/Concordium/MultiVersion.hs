@@ -38,6 +38,7 @@ import System.FilePath
 import Concordium.Logger hiding (Baker)
 import Concordium.Types
 import Concordium.Types.Block
+import Concordium.Types.HashableTo
 import Concordium.Types.Parameters
 import Concordium.Types.Transactions
 import Concordium.Types.UpdateQueues (ProtocolUpdateStatus (..))
@@ -59,6 +60,7 @@ import qualified Concordium.KonsensusV1.Consensus.Blocks as SkovV1
 import qualified Concordium.KonsensusV1.SkovMonad as SkovV1
 import qualified Concordium.KonsensusV1.Transactions as SkovV1
 import qualified Concordium.KonsensusV1.TreeState.Types as SkovV1
+import qualified Concordium.KonsensusV1.Types as KonsensusV1
 import Concordium.ProtocolUpdate
 import qualified Concordium.Skov as Skov
 import Concordium.TimeMonad
@@ -229,6 +231,70 @@ data Callbacks = Callbacks
       -- Takes the effective time of the update as argument.
       notifyUnsupportedProtocolUpdate :: Maybe (Timestamp -> IO ())
     }
+
+skovV1Handlers :: forall pv finconf. GenesisIndex -> AbsoluteBlockHeight -> SkovV1.HandlerContext pv (MVR finconf)
+skovV1Handlers gi genHeight = SkovV1.HandlerContext{..}
+  where
+    _sendTimeoutHandler timeoutMsg = MVR $ \mvr -> do
+        broadcastFinalizationMessage
+            (mvCallbacks mvr)
+            gi
+            (encode (KonsensusV1.FMTimeoutMessage timeoutMsg))
+    _sendQuorumHandler quorumMsg = MVR $ \mvr -> do
+        broadcastFinalizationMessage
+            (mvCallbacks mvr)
+            gi
+            (encode (KonsensusV1.FMQuorumMessage quorumMsg))
+    _sendBlockHandler block = MVR $ \mvr -> do
+        broadcastBlock
+            (mvCallbacks mvr)
+            gi
+            (runPut (KonsensusV1.putSignedBlock block))
+
+    _onBlockHandler :: SkovV1.BlockPointer pv -> MVR finconf ()
+    _onBlockHandler block = do
+        -- Notice that isHomeBaked (in the code below) represents whether this block is baked by the
+        -- baker ID of this node and it could be the case that the block was not baked by this node,
+        -- if another node using the same baker ID.
+        -- The information is used to count the number of baked blocks exposed by a prometheus metric.
+        -- An alternative implementation would be to extend the @onBlock@ handler (part of @OnSkov@)
+        -- to take an extra argument indicating whether the block was just baked or processed as part of a received
+        -- block. This would mean that only blocks baked since start by this node would be counted,
+        -- not blocks received as part of catchup. However the same cannot be done for finalized blocks as easily
+        -- and so for consistency between these two methods we chose to also count blocks received as part of catchup
+        -- in both.
+        asks (notifyBlockArrived . mvCallbacks) >>= \case
+            Nothing -> return ()
+            Just notifyCallback -> do
+                let height = localToAbsoluteBlockHeight genHeight (SkovV1.blockHeight block)
+                nodeBakerIdMaybe <- asks (fmap (bakerId . bakerIdentity) . mvBaker)
+                let isHomeBaked = case nodeBakerIdMaybe of
+                        Nothing -> False
+                        Just nodeBakerId ->
+                            KonsensusV1.Present nodeBakerId
+                                == (KonsensusV1.blockBaker <$> KonsensusV1.blockBakedData block)
+                liftIO (notifyCallback (getHash block) height isHomeBaked)
+
+    _onFinalizeHandler :: w -> [SkovV1.BlockPointer pv] -> MVR finconf ()
+    _onFinalizeHandler _ finalizedBlocks = do
+        asks (notifyBlockFinalized . mvCallbacks) >>= \case
+            Nothing -> return ()
+            Just notifyCallback -> do
+                nodeBakerIdMaybe <- asks (fmap (bakerId . bakerIdentity) . mvBaker)
+                forM_ finalizedBlocks $ \bp -> do
+                    let height = localToAbsoluteBlockHeight genHeight (SkovV1.blockHeight bp)
+                    let isHomeBaked = case nodeBakerIdMaybe of
+                            Nothing -> False
+                            Just nodeBakerId ->
+                                KonsensusV1.Present nodeBakerId
+                                    == (KonsensusV1.blockBaker <$> KonsensusV1.blockBakedData bp)
+                    liftIO (notifyCallback (getHash bp) height isHomeBaked)
+        -- FIXME: Run protocol update check. Issue #825
+        return ()
+
+    _onPendingLiveHandler = do
+        -- FIXME: Send out catch-up notification. Issue #826
+        return ()
 
 -- |Baker identity and baking thread 'MVar'.
 data Baker = Baker
@@ -580,7 +646,7 @@ newGenesis (PVGenesisData (gd :: GenesisData pv)) genesisHeight = case consensus
                         unliftSkov a = do
                             config <- readMVar configRef
                             runMVR (runSkovV1Transaction config a) mvr
-                    let handlers = SkovV1.HandlerContext{_sendTimeoutHandler = __sendTimeoutHandler, _sendQuorumHandler = __sendQuorumHandler, _sendBlockHandler = __sendBlockHandler, _onPendingLiveHandler = __onPendingLiveHandler, _onFinalizeHandler = __onFinalizeHandler, _onBlockHandler = __onBlockHandler}
+                    let !handlers = skovV1Handlers vc1Index genesisHeight
                     (vc1Context, st) <-
                         runLoggerT
                             ( SkovV1.initialiseNewSkovV1
@@ -813,109 +879,159 @@ startupSkov genesis = do
         Left genBS -> case runGet getPVGenesisDataPV genBS of
             Left err -> throwM (InvalidGenesisData err)
             Right spv -> return spv
-        Right (PVGenesisData (_ :: GenesisData pvOrig)) -> return (SomeProtocolVersion (protocolVersion @pvOrig))
-    let loop ::
-            SomeProtocolVersion ->
-            -- \^Protocol version at which to attempt to load the state.
-            Maybe (EVersionedConfiguration finconf) ->
-            -- \^If this is the first iteration of the loop then this will be 'Nothing'. Otherwise it is the
-            -- versioned configuration produced in the previous iteration of the loop.
-            GenesisIndex ->
-            -- \^Genesis index at which to attempt to load the state.
-            AbsoluteBlockHeight ->
-            -- \^Absolute block height of the genesis block of the new chain.
-            MVR finconf ()
-        loop (SomeProtocolVersion (_ :: SProtocolVersion pv)) first vc0Index vc0GenesisHeight = case consensusVersionFor (protocolVersion @pv) of
+        Right (PVGenesisData (_ :: GenesisData pvOrig)) ->
+            return (SomeProtocolVersion (protocolVersion @pvOrig))
+    loadLoop initProtocolVersion activateGenesis 0 0
+  where
+    loadLoop ::
+        SomeProtocolVersion ->
+        -- Continuation to activate the last configuration.
+        -- For the first iteration of the loop, this should initialise the configuration from the
+        -- genesis data.
+        MVR finconf () ->
+        -- Genesis index at which to attempt to load the state.
+        GenesisIndex ->
+        -- Absolute block height of the genesis block of the new chain.
+        AbsoluteBlockHeight ->
+        MVR finconf ()
+    loadLoop (SomeProtocolVersion (spv :: SProtocolVersion pv)) activateLast genIndex genHeight = do
+        mvr <- ask
+        let Callbacks{..} = mvCallbacks mvr
+        let MultiVersionConfiguration{..} = mvConfiguration mvr
+        case consensusVersionFor spv of
             ConsensusV0 -> do
-                let comp =
-                        MVR $
-                            \mvr@MultiVersionRunner
-                                { mvCallbacks = Callbacks{..},
-                                  mvConfiguration = MultiVersionConfiguration{..},
-                                  ..
-                                } -> do
-                                    r <-
-                                        runLoggerT
-                                            ( Skov.initialiseExistingSkov
-                                                ( Skov.SkovConfig @pv @finconf
-                                                    ( globalStateConfig
-                                                        mvcStateConfig
-                                                        mvcRuntimeParameters
-                                                        vc0Index
-                                                        vc0GenesisHeight
-                                                    )
-                                                    mvcFinalizationConfig
-                                                    UpdateHandler
-                                                )
-                                            )
-                                            mvLog
-                                    case r of
-                                        Just (vc0Context, st) -> do
-                                            mvLog Runner LLTrace "Loaded configuration"
-                                            vc0State <- newIORef st
-                                            let vc0Shutdown = Skov.shutdownSkov vc0Context =<< liftIO (readIORef vc0State)
-                                            let newEConfig :: VersionedConfigurationV0 finconf pv
-                                                newEConfig = VersionedConfigurationV0{..}
-                                            oldVersions <- readIORef mvVersions
-                                            writeIORef mvVersions (oldVersions `Vec.snoc` newVersionV0 newEConfig)
-                                            let getCurrentGenesisAndHeight :: VersionedSkovM finconf pv (BlockHash, AbsoluteBlockHeight, Maybe SomeProtocolVersion)
-                                                getCurrentGenesisAndHeight = liftSkov $ do
-                                                    currentGenesis <- Skov.getGenesisData
-                                                    lfHeight <- getLastFinalizedHeight
-                                                    nextPV <- getNextProtocolVersion
-                                                    return (_gcCurrentHash currentGenesis, localToAbsoluteBlockHeight vc0GenesisHeight lfHeight, nextPV)
-                                            ((genesisHash, lastFinalizedHeight, nextPV), _) <- runMVR (Skov.runSkovT getCurrentGenesisAndHeight (mvrSkovHandlers newEConfig mvr) vc0Context st) mvr
-                                            notifyRegenesis (Just genesisHash)
-                                            mvLog Runner LLTrace "Load configuration done"
-                                            return (Left (newVersionV0 newEConfig, lastFinalizedHeight, nextPV))
-                                        Nothing ->
-                                            case first of
-                                                Nothing -> return (Right Nothing)
-                                                Just newEConfig -> return (Right (Just newEConfig))
-                comp >>= \case
-                    -- We successfully loaded a configuration.
-                    Left (newEConfig@(EVersionedConfigurationV0 newEConfig'), lastFinalizedHeight, nextPV) ->
-                        -- If there is a next protocol then we attempt another loop.
-                        -- If there isn't we attempt to start with the last loaded
-                        -- state as the active state.
+                r <-
+                    mvrLogIO $
+                        Skov.initialiseExistingSkov
+                            ( Skov.SkovConfig @pv @finconf
+                                ( globalStateConfig
+                                    mvcStateConfig
+                                    mvcRuntimeParameters
+                                    genIndex
+                                    genHeight
+                                )
+                                mvcFinalizationConfig
+                                UpdateHandler
+                            )
+                case r of
+                    Just (vc0Context, st) -> do
+                        logEvent Runner LLTrace "Loaded configuration"
+                        vc0State <- liftIO $ newIORef st
+                        let vc0Shutdown = Skov.shutdownSkov vc0Context =<< liftIO (readIORef vc0State)
+                        let newEConfig :: VersionedConfigurationV0 finconf pv
+                            newEConfig =
+                                VersionedConfigurationV0
+                                    { vc0Index = genIndex,
+                                      vc0GenesisHeight = genHeight,
+                                      ..
+                                    }
+                        liftIO $ do
+                            oldVersions <- readIORef (mvVersions mvr)
+                            writeIORef (mvVersions mvr) (oldVersions `Vec.snoc` newVersionV0 newEConfig)
+                        let getCurrentGenesisAndHeight ::
+                                VersionedSkovM
+                                    finconf
+                                    pv
+                                    (BlockHash, AbsoluteBlockHeight, Maybe SomeProtocolVersion)
+                            getCurrentGenesisAndHeight = liftSkov $ do
+                                currentGenesis <- Skov.getGenesisData
+                                lfHeight <- getLastFinalizedHeight
+                                nextPV <- getNextProtocolVersion
+                                return
+                                    ( _gcCurrentHash currentGenesis,
+                                      localToAbsoluteBlockHeight genHeight lfHeight,
+                                      nextPV
+                                    )
+                        (genesisHash, lastFinalizedHeight, nextPV) <-
+                            Skov.evalSkovT getCurrentGenesisAndHeight (mvrSkovHandlers newEConfig mvr) vc0Context st
+                        liftIO $ notifyRegenesis (Just genesisHash)
+                        logEvent Runner LLTrace "Load configuration done"
+                        let activateThis = do
+                                mvrLogIO $ activateConfiguration (newVersionV0 newEConfig)
+                                liftSkovUpdate newEConfig checkForProtocolUpdate
                         case nextPV of
                             Nothing -> do
-                                mvrLogIO $ activateConfiguration newEConfig
-                                liftSkovUpdate newEConfig' checkForProtocolUpdate
-                            Just nextSPV -> loop nextSPV (Just newEConfig) (vc0Index + 1) (fromIntegral lastFinalizedHeight + 1)
-                    Left (newEConfig@(EVersionedConfigurationV1 newEConfig'), lastFinalizedHeight, nextPV) ->
-                        -- If there is a next protocol then we attempt another loop.
-                        -- If there isn't we attempt to start with the last loaded
-                        -- state as the active state.
-                        case nextPV of
-                            Nothing -> do
-                                mvrLogIO $ activateConfiguration newEConfig
-                                -- TODO: check if need to do a protocol update
+                                -- This is still the current configuration (i.e. no protocol update
+                                -- has occurred), so activate it.
+                                activateThis
+                            Just nextSPV -> do
+                                -- A protocol update has occurred for this configuration, so
+                                -- continue to the next iteration. If the state for the next
+                                -- configuration is missing, 'activateThis' is called which will
+                                -- activate the configuration and trigger the protocol update.
+                                loadLoop nextSPV activateThis (genIndex + 1) (fromIntegral lastFinalizedHeight + 1)
+                    Nothing -> activateLast
+            ConsensusV1 -> do
+                let !handlers = skovV1Handlers genIndex genHeight
+                -- We need an "unlift" operation to run a SkovV1 transaction in an IO context.
+                -- This is used for implementing timer handlers.
+                -- The "unlift" is implemented by using an 'MVar' to store the configuration in,
+                -- that will be set after initialization.
+                configRef <- liftIO newEmptyMVar
+                let unliftSkov :: forall b. VersionedSkovV1M finconf pv b -> IO b
+                    unliftSkov a = do
+                        config <- readMVar configRef
+                        runMVR (runSkovV1Transaction config a) mvr
+                r <-
+                    mvrLogIO $
+                        SkovV1.initialiseExistingSkovV1
+                            (SkovV1.BakerContext (bakerIdentity <$> mvBaker mvr))
+                            -- Handler context
+                            handlers
+                            -- lift SkovV1T
+                            unliftSkov
+                            -- Global state config
+                            (globalStateConfigV1 mvcStateConfig mvcRuntimeParameters genIndex)
+                case r of
+                    Just SkovV1.ExistingSkov{..} -> do
+                        logEvent Runner LLTrace "Loaded configuration"
+                        vc1State <- liftIO $ newIORef esState
+                        let vc1Shutdown = SkovV1.shutdownSkovV1 esContext
+                        let newEConfig :: VersionedConfigurationV1 finconf pv
+                            newEConfig =
+                                VersionedConfigurationV1
+                                    { vc1Index = genIndex,
+                                      vc1GenesisHeight = genHeight,
+                                      vc1Context = esContext,
+                                      ..
+                                    }
+                        liftIO $ do
+                            putMVar configRef newEConfig
+                            oldVersions <- readIORef (mvVersions mvr)
+                            writeIORef (mvVersions mvr) (oldVersions `Vec.snoc` newVersionV1 newEConfig)
+                        liftIO $ notifyRegenesis (Just esGenesisHash)
+                        logEvent Runner LLTrace "Load configuration done"
+                        let activateThis = do
+                                mvrLogIO $ activateConfiguration (newVersionV1 newEConfig)
+                                -- FIXME: Support protocol updates. Issue #825
                                 return ()
-                            Just nextSPV -> loop nextSPV (Just newEConfig) (vc0Index + 1) (fromIntegral lastFinalizedHeight + 1)
-                    -- We failed to load anything in the first iteration of the
-                    -- loop. Decode the provided genesis and attempt to start the
-                    -- chain.
-                    Right Nothing -> do
-                        logEvent Runner LLTrace "Attempting to decode genesis"
-                        case genesis of
-                            Left genBS -> case runGet getPVGenesisData genBS of
-                                Left err -> do
-                                    logEvent Runner LLError $ "Failed to decode genesis data: " ++ err
-                                    throwM (InvalidGenesisData err)
-                                Right gd -> newGenesis gd 0
-                            Right gd -> newGenesis gd 0
-                    -- We loaded some protocol versions. Attempt to start in the
-                    -- last one we loaded.
-                    Right (Just config@(EVersionedConfigurationV0 newEConfig')) -> do
-                        mvrLogIO $ activateConfiguration config
-                        liftSkovUpdate newEConfig' checkForProtocolUpdate
-                    Right (Just config@(EVersionedConfigurationV1 newEConfig')) -> do
-                        mvrLogIO $ activateConfiguration config
-                        -- TODO: check if we need to do a protocol update
-                        return ()
-            ConsensusV1 -> error "New consensus not implemented yet." -- TODO: implement
-    loop initProtocolVersion Nothing 0 0
+                        case esNextProtocolVersion of
+                            Nothing -> do
+                                -- This is still the current configuration (i.e. no protocol update
+                                -- has occurred), so activate it.
+                                activateThis
+                            Just nextSPV -> do
+                                -- A protocol update has occurred for this configuration, so
+                                -- continue to the next iteration. If the state for the next
+                                -- configuration is missing, 'activateThis' is called which will
+                                -- activate the configuration and trigger the protocol update.
+                                loadLoop
+                                    nextSPV
+                                    activateThis
+                                    (genIndex + 1)
+                                    (fromIntegral esLastFinalizedHeight + 1)
+                    Nothing -> activateLast
+
+    activateGenesis :: MVR finconf ()
+    activateGenesis = do
+        logEvent Runner LLTrace "Attempting to decode genesis"
+        case genesis of
+            Left genBS -> case runGet getPVGenesisData genBS of
+                Left err -> do
+                    logEvent Runner LLError $ "Failed to decode genesis data: " ++ err
+                    throwM (InvalidGenesisData err)
+                Right gd -> newGenesis gd 0
+            Right gd -> newGenesis gd 0
 
 -- |Start a thread to periodically purge uncommitted transactions.
 -- This is only intended to be called once, during 'makeMultiVersionRunner'.
@@ -1254,7 +1370,7 @@ receiveBlock gi blockBS = withLatestExpectedVersion gi $ \case
                             return (Skov.ResultSuccess, Just cont)
                         SkovV1.BlockResultDoubleSign vb -> do
                             runMVR (runSkovV1Transaction vc (SkovV1.executeBlock vb)) mvr
-                            return (Skov.ResultDuplicate, Nothing) -- TODO: check if ResultDuplicate is appropiate here
+                            return (Skov.ResultDuplicate, Nothing) -- TODO: check if ResultDuplicate is appropriate here
                         SkovV1.BlockResultInvalid -> return (Skov.ResultInvalid, Nothing)
                         SkovV1.BlockResultStale -> return (Skov.ResultStale, Nothing)
                         SkovV1.BlockResultPending -> return (Skov.ResultPendingBlock, Nothing)

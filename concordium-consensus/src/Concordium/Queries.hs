@@ -369,9 +369,7 @@ getConsensusStatus = MVR $ \mvr -> do
   where
     statusV0 ::
         forall (pv :: ProtocolVersion).
-        ( SkovMonad (VersionedSkovM finconf pv),
-          FinalizationMonad (VersionedSkovM finconf pv)
-        ) =>
+        (SkovMonad (VersionedSkovM finconf pv)) =>
         (BlockHash, UTCTime) ->
         EVersionedConfiguration finconf ->
         VersionedSkovM finconf pv ConsensusStatus

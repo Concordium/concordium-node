@@ -173,7 +173,7 @@ processFinalization newFinalizedBlock newFinalizationEntry = do
     purgePending
     -- Advance the epoch if the new finalized block triggers the epoch transition.
     checkedAdvanceEpoch newFinalizationEntry newFinalizedBlock
-    onFinalize newFinalizationEntry newFinalizedBlock
+    onFinalize newFinalizationEntry prFinalized
 
 -- |Advance the current epoch if the new finalized block indicates that it is necessary.
 -- This is deemed to be the case if the following hold:
