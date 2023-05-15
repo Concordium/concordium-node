@@ -80,7 +80,7 @@ instance BlockData VerifiedBlock where
 data BlockResult
     = -- |The block was successfully received, but not yet executed.
       BlockResultSuccess !VerifiedBlock
-    | -- |The baker also signed another block in the same slot, but the block was otherwise
+    | -- |The baker also signed another block in the same round, but the block was otherwise
       -- successfully received, but not yet executed.
       BlockResultDoubleSign !VerifiedBlock
     | -- |The block contains data that is not valid with respect to the chain.
@@ -254,7 +254,8 @@ receiveBlockKnownParent parent pendingBlock = do
                     <> show pbHash
                     <> " is for an invalid epoch ("
                     <> show (blockEpoch pendingBlock)
-                    <> ")." -- LogBlockInvalidEpoch pbHash (blockEpoch pendingBlock)
+                    <> ")."
+            flag $ BlockEpochInconsistent $ pbBlock pendingBlock
             return BlockResultInvalid
     checkLeader bakersAndFinalizers leNonce
         | blockBaker pendingBlock == roundBaker ^. bakerIdentity = do
@@ -586,8 +587,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                         flag $ BlockTCRoundInconsistent sBlock
                         rejectBlock
                     | blockRound parent < tcMaxRound tc
-                        || blockEpoch parent < tcMaxEpoch tc
-                        || blockEpoch parent - tcMinEpoch tc > 2 -> do
+                        || blockEpoch parent < tcMaxEpoch tc -> do
                         logEvent Konsensus LLTrace $ "Block " <> show pbHash <> " timeout certificate is inconsistent with the quorum certificate."
                         flag $ BlockQCInconsistentWithTC sBlock
                         rejectBlock
@@ -801,7 +801,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                     qc
         if qcOK
             then do
-                roundExistingQuorumCertificate (qcRound qc) ?= toQuorumCertificateWitness qc
+                recordCheckedQuorumCertificate qc
                 continue
             else do
                 logEvent Konsensus LLTrace $ "Block " <> show pbHash <> " contains an invalid QC."
