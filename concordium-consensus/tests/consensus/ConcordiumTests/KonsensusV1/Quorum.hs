@@ -134,7 +134,7 @@ testReceiveQuorumMessage = describe "Receive quorum message" $ do
     it "future epoch triggers catchup" $ receiveAndCheck sd messageFromFuture CatchupRequired
     it "obsolete round rejects" $ receiveAndCheck sd obsoleteMessage $ Rejected ObsoleteRound
     it "invalid finalizer rejects" $ receiveAndCheck sd invalidFinalizerMessage $ Rejected NotAFinalizer
-    it "duplicate message" $ receiveAndCheck sd duplicateMessage Duplicate
+    it "duplicate message" $ receiveAndCheck sd duplicateMessage $ Rejected Duplicate
     it "invalid signature" $ receiveAndCheck sd invalidSignatureMessage $ Rejected InvalidSignature
     it "double signing" $ receiveAndCheck sd doubleSigningMessage $ Rejected AlreadySigned
     it "unknown block" $ receiveAndCheck sd unknownBlockMessage CatchupRequired

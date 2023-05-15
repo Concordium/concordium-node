@@ -50,6 +50,8 @@ data ReceiveQuorumMessageRejectReason
     | -- |The 'Epoch' of the 'QuorumMessage' and the 'Epoch' of the
       -- block that it points to are not consistent.
       InconsistentEpochs
+    | -- |The 'QuorumMessage' is a duplicate.
+      Duplicate
     deriving (Eq, Show)
 
 -- |Result codes for receiving a 'QuorumMessage'.
@@ -60,8 +62,6 @@ data ReceiveQuorumMessageResult (pv :: ProtocolVersion)
       Rejected !ReceiveQuorumMessageRejectReason
     | -- |The 'QuorumMessage' points to a round which indicates a catch up is required.
       CatchupRequired
-    | -- |The 'QuorumMessage' is a duplicate.
-      Duplicate
     deriving (Eq, Show)
 
 -- |A _received_ and verified 'QuorumMessage' together with
@@ -85,7 +85,6 @@ data VerifiedQuorumMessage (pv :: ProtocolVersion) = VerifiedQuorumMessage
 -- * 'Received' The 'QuorumMessage' was received, relayed and processed.
 -- * 'Rejected' The 'QuorumMessage' failed validation and possible it has been flagged.
 -- * 'CatchupRequired' The 'QuorumMessage' cannot be processed before it is caught up.
--- * 'Duplicate' The 'QuorumMessage' was a duplicate.
 receiveQuorumMessage ::
     LowLevel.MonadTreeStateStore m =>
     -- |The 'QuorumMessage' to receive.
@@ -110,7 +109,7 @@ receiveQuorumMessage qm@QuorumMessage{..} skovData = receive
                 -- Check if the quorum message is a duplicate.
                 | Just existingMessage <- getExistingMessage,
                   existingMessage == qm ->
-                    return Duplicate
+                    return $ Rejected Duplicate
                 -- Check whether the signature is ok or not.
                 | not (checkQuorumSignatureSingle getQuorumSignatureMessage finalizerBlsKey qmSignature) ->
                     return $ Rejected InvalidSignature
