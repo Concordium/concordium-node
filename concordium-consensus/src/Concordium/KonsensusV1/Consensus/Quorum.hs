@@ -272,7 +272,7 @@ processQuorumMessage vqm@(VerifiedQuorumMessage quorumMessage _ quorumBlock) = d
     -- Note that due to the invariants of `uponReceivingBlock` and `receiveQuorumSiganture`
     -- then the rounds (quorum message round and current round) should be equal when this function is
     -- called immediately after 'receiveQuorumMessage'
-    -- and so the 'not equal' case below should happen in normal operation.
+    -- and so the 'not equal' case below shouldn't happen in normal operation.
     when (currentRound == qmRound quorumMessage) $ do
         currentQuorumMessages %=! addQuorumMessage vqm
         skovData <- get

@@ -661,7 +661,7 @@ checkTimeoutCertificate tsmGenesis sigThreshold finCom1 finCom2 finComQC Timeout
                           )
                             : msgKeys
                         )
-                        ( Set.fromList (finalizerBakerId <$> fins)
+                        ( Set.fromAscList (finalizerBakerId <$> fins)
                             `Set.union` finBakerIds
                         )
                         rounds

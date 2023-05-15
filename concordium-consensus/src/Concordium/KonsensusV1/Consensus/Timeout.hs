@@ -279,12 +279,16 @@ executeTimeoutMessage (PartiallyVerifiedTimeoutMessage{..})
                 checkFinality tmQuorumCertificate
                 -- Advance the round if we can advance by the quorum certificate.
                 currentRound <- use $ roundStatus . rsCurrentRound
-                when (currentRound <= qcRound tmQuorumCertificate) $
-                    advanceRoundWithQuorum
+                let newCertifiedBlock =
                         CertifiedBlock
                             { cbQuorumCertificate = tmQuorumCertificate,
                               cbQuorumBlock = block
                             }
+                if currentRound <= qcRound tmQuorumCertificate
+                    then -- Advance the round with the new certified block.
+                        advanceRoundWithQuorum newCertifiedBlock
+                    else -- Otherwise we just update the highest certified block.
+                        roundStatus . rsHighestCertifiedBlock .= newCertifiedBlock
                 -- Record the witness of the quorum certificate in the existing QCs on the treestate.
                 recordCheckedQuorumCertificate tmQuorumCertificate
                 -- Process the timeout
@@ -298,6 +302,8 @@ executeTimeoutMessage (PartiallyVerifiedTimeoutMessage{..})
                     -- We only check the QC if we haven't done so for the round already.
                     Nothing ->
                         checkQC $ do
+                            -- Record that we've checked the QC.
+                            recordCheckedQuorumCertificate tmQuorumCertificate
                             -- The quorum certificate is valid so check whether it finalises any blocks.
                             checkFinality tmQuorumCertificate
                             processTimeout pvtmTimeoutMessage
