@@ -268,7 +268,7 @@ processQuorumMessage vqm@(VerifiedQuorumMessage quorumMessage _ quorumBlock) = d
     currentRound <- use (roundStatus . rsCurrentRound)
     -- Check that the round of the 'QuorumMessage' corresponds to
     -- the current round of the tree state.
-    -- Note that due to the invariants of `uponReceivingBlock` and `receiveQuorumSiganture`
+    -- Note that due to the invariants of `uponReceivingBlock` and `receiveQuorumMessage`
     -- then the rounds (quorum message round and current round) should be equal when this function is
     -- called immediately after 'receiveQuorumMessage'
     -- and so the 'not equal' case below shouldn't happen in normal operation.
