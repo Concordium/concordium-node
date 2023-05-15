@@ -81,8 +81,8 @@ pub mod types {
 
     /// Convert the [`BlockHashInput`] to a pair of a tag and pointer to the
     /// content. The tag is 0 for "Best" block, 1 for "LastFinal" block,
-    /// 2 for a specific block given by a hash, 3 for block given by absolute height, and 4 for
-    /// block given by relative height.
+    /// 2 for a specific block given by a hash, 3 for block given by absolute
+    /// height, and 4 for block given by relative height.
     pub(crate) fn block_hash_input_to_ffi(bhi: &BlockHashInput) -> Option<BlockHashInputFFI> {
         use block_hash_input::BlockHashInput::*;
         match bhi.block_hash_input.as_ref()? {
