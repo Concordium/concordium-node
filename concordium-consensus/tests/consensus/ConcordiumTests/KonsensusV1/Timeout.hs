@@ -362,7 +362,7 @@ testReceiveTimeoutMessage = describe "Receive timeout message" $ do
     it "rejects obsolete qc" $ receiveAndCheck sd obsoleteQCMessage $ Rejected ObsoleteQC
     it "initializes catch-up upon future epoch" $ receiveAndCheck sd futureEpochTM CatchupRequired --
     it "rejects from a non finalizer" $ receiveAndCheck sd notAFinalizerQCMessage $ Rejected NotAFinalizer
-    it "initializes catchup on unknown finalization committee" $ receiveAndCheck sd unknownFinalizationCommittee CatchupRequired
+    it "rejects on unknown finalization committee" $ receiveAndCheck sd unknownFinalizationCommittee $ Rejected ObsoleteQC
     it "rejects on an invalid signature" $ receiveAndCheck sd invalidSignatureMessage $ Rejected InvalidSignature
     it "initializes catch-up upon a future round" $ receiveAndCheck sd futureRoundTM CatchupRequired
     it "rejects when the qc points to an old finalized block" $ receiveAndCheck sd obsoleteQCPointer $ Rejected ObsoleteQCPointer
