@@ -723,6 +723,13 @@ instance Serialize TimeoutMessageBody where
                     ++ ") < round being timed out ("
                     ++ show tmRound
                     ++ ")"
+        when (qcEpoch tmQuorumCertificate > tmEpoch) $
+            fail $
+                "failed check: quorum certificate epoch ("
+                    <> show (qcEpoch tmQuorumCertificate)
+                    <> ") > epoch of timeout certificate ("
+                    <> show tmEpoch
+                    <> ")"
         tmAggregateSignature <- get
         return TimeoutMessageBody{..}
 
@@ -1287,8 +1294,8 @@ toBlockSignatureWitness _ = BlockSignatureWitness
 
 -- |A proof that contains the 'Epoch' for a 'QuorumCertificate'
 -- has been checked for a particular 'Round'.
-newtype QuorumCertificateWitness = QuorumCertificateWitness Epoch
+newtype QuorumCertificateCheckedWitness = QuorumCertificateCheckedWitness Epoch
 
 -- |Get the associated 'QuorumCertificateWitness' for a 'QuorumCertificate'.
-toQuorumCertificateWitness :: QuorumCertificate -> QuorumCertificateWitness
-toQuorumCertificateWitness qc = QuorumCertificateWitness (qcEpoch qc)
+toQuorumCertificateWitness :: QuorumCertificate -> QuorumCertificateCheckedWitness
+toQuorumCertificateWitness qc = QuorumCertificateCheckedWitness (qcEpoch qc)

@@ -222,7 +222,7 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       _roundExistingBlocks :: !(Map.Map Round (Map.Map BakerId BlockSignatureWitness)),
       -- |For non finalized rounds, keep track of which rounds where we have successfully
       -- checked a 'QuorumCertificate'.
-      _roundExistingQCs :: !(Map.Map Round QuorumCertificateWitness),
+      _roundExistingQCs :: !(Map.Map Round QuorumCertificateCheckedWitness),
       -- |Genesis metadata
       _genesisMetadata :: !GenesisMetadata,
       -- |Pending blocks
@@ -269,7 +269,7 @@ purgeRoundExistingBlocks :: (MonadState (SkovData pv) m) => Round -> m ()
 purgeRoundExistingBlocks rnd = roundExistingBlocks %=! snd . Map.split rnd
 
 -- |Lens for accessing the witness that we have checked a 'QuorumCertificate' for a particular 'Round'.
-roundExistingQuorumCertificate :: Round -> Lens' (SkovData pv) (Maybe QuorumCertificateWitness)
+roundExistingQuorumCertificate :: Round -> Lens' (SkovData pv) (Maybe QuorumCertificateCheckedWitness)
 roundExistingQuorumCertificate rnd = roundExistingQCs . at' rnd
 
 -- |Record that we have checked a 'QuorumCertificate' in the 'roundExistingQCs'.

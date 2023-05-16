@@ -114,11 +114,11 @@ receiveTimeoutMessage tm@TimeoutMessage{tmBody = TimeoutMessageBody{..}} skovDat
     | tmRound < currentRound =
         return $ Rejected ObsoleteRound
     -- If the round or epoch of the qc associated with the timeout message
-    -- is behind the last finalized block then reject the timeout message,
-    -- then it means that the sender of the timeout message was lacking behind for some reason.
-    -- This can for instance happen if the sender of the timeout message
-    -- did not receive the quorum message before sending out the time out message
-    -- due to e.g. network issues.
+    -- is behind the last finalized block then reject the timeout message.
+    -- This happens in case of dishonest behavior as it is checked above that the round of
+    -- the timeout message is greater or equal to the current round, hence an honest
+    -- sender of the timeout message must have progressed their QC to at least the
+    -- last finalized block.
     | let lastFin = skovData ^. lastFinalized,
       qcRound tmQuorumCertificate < blockRound lastFin
         || qcEpoch tmQuorumCertificate < blockEpoch lastFin =
@@ -153,7 +153,7 @@ receiveTimeoutMessage tm@TimeoutMessage{tmBody = TimeoutMessageBody{..}} skovDat
                         RecentBlock BlockUnknown
                             | qcRound tmQuorumCertificate
                                 < skovData ^. roundStatus . rsHighestCertifiedBlock . to cbRound,
-                              Just (QuorumCertificateWitness certEpoch) <-
+                              Just (QuorumCertificateCheckedWitness certEpoch) <-
                                 skovData ^. roundExistingQuorumCertificate (qcRound tmQuorumCertificate) ->
                                 if qcEpoch tmQuorumCertificate == certEpoch
                                     then checkForDuplicate finInfo finalizationCommittee Absent
@@ -175,7 +175,10 @@ receiveTimeoutMessage tm@TimeoutMessage{tmBody = TimeoutMessageBody{..}} skovDat
     -- Get the bakers and finalizers for the epoch of the timeout message's QC.
     -- If they are not available, trigger catch-up.
     withFinalizers cont = case getBakersForEpoch (qcEpoch tmQuorumCertificate) skovData of
-        Nothing -> return CatchupRequired
+        -- Since we have checked that @tmEpoch <= theCurrentEpoch@ and by definition
+        -- we have @tmEpoch >= qcEpoch@ then if the finalizers cannot be retrieved
+        -- it must mean that the timeout message is from the past.
+        Nothing -> return $ Rejected ObsoleteQC
         Just bakers -> cont (bakers ^. bfFinalizers)
     -- Look up the finalizer in the finalization committee.
     -- Reject with 'NotAFinalizer' if the finalizer index is not valid in the committee.
@@ -310,7 +313,7 @@ executeTimeoutMessage (PartiallyVerifiedTimeoutMessage{..})
                             return ExecutionSuccess
                     -- A QC for the QC round is already checked, we just check that the
                     -- epochs are consistent now.
-                    Just (QuorumCertificateWitness qcEpoch')
+                    Just (QuorumCertificateCheckedWitness qcEpoch')
                         | qcEpoch' /= qcEpoch tmQuorumCertificate -> do
                             -- the qc is invalid since it was for another epoch.
                             flag $ TimeoutMessageInvalidQC pvtmTimeoutMessage
@@ -455,6 +458,7 @@ updateTimeoutMessages tms tm =
 --
 -- Precondition:
 -- * The given 'TimeoutMessage' is valid and has already been checked.
+-- * The finalizer must not already have sent out a 'TimeoutMessage' for the current round.
 processTimeout ::
     ( MonadTimeout m,
       LowLevel.MonadTreeStateStore m,
