@@ -626,8 +626,11 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                                     checkTCValid
                                         (eBkrs ^. currentEpochBakers)
                                         (eBkrs ^. nextEpochBakers)
-                                | tcMinEpoch tc == lastFinEpoch + 1,
-                                  tcIsSingleEpoch tc =
+                                -- Note that we do not check that @tcIsSingleEpoch tc@ here,
+                                -- since @tcMinEpoch tc == lastFinEpoch + 1@ implies that
+                                -- @tcMaxEpoch tc == lastFinEpoch + 2@ which would be
+                                -- rejected by the test above @blockEpoch parent <= tcMaxEpoch tc@.
+                                | tcMinEpoch tc == lastFinEpoch + 1 =
                                     checkTCValid
                                         (eBkrs ^. nextEpochBakers)
                                         -- Because the TC is for a single epoch, the second set of
