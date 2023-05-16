@@ -700,19 +700,14 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                                     -- in the successor QC. (Also, we may not have the block
                                     -- pointed to by the successor QC.)
                                     --
-                                    -- We check if the block is descended from the NEW last
-                                    -- finalized block, since that should have changed.
-                                    gets (getLiveOrLastFinalizedBlock (getHash parent)) >>= \case
-                                        Just _ -> continue
-                                        _ -> do
-                                            logEvent Konsensus LLTrace $
-                                                "Block "
-                                                    ++ show pbHash
-                                                    ++ " contains epoch finalization entry for a block ("
-                                                    ++ show finBlockHash
-                                                    ++ ") it does not descend from."
-                                            -- Possibly we should flag in this case.
-                                            rejectBlock
+                                    -- Note that we have checked that @qcRound (feSuccessorQuorumCertificate finEntry) <= blockRound parent@
+                                    -- so either the @parent@ is the block that finalized @finBlock@ or @finBlock@ was already finalized
+                                    -- when @parent@ was baked.
+                                    -- Hence, at this point we MUST know the @parent@ so there is no need to look it up,
+                                    -- so we just @continue@.
+                                    -- If this is not the case, then there must've been more than 1/3 dishonest finalizers
+                                    -- and as a result conflicting blocks were finalized.
+                                    continue
                             _ -> do
                                 logEvent Konsensus LLTrace $
                                     "Block "
