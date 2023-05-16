@@ -101,6 +101,7 @@ impl Buckets {
     pub fn is_empty(&self) -> bool { self.len() == 0 }
 
     /// Returns the desired number of nodes from the buckets.
+    /// This is only used if the node is running as a bootstrapper.
     pub fn get_random_nodes(
         &self,
         sender: RemotePeerId,
