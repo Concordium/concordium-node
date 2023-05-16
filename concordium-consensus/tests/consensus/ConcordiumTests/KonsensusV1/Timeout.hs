@@ -536,7 +536,7 @@ testExecuteTimeoutMessages = describe "execute timeout messages" $ do
         -- Set the current round to round 2.
         roundStatus . rsCurrentRound .= Round 2
         -- Insert the witness for an already received qc for round 2 with epoch 0
-        roundExistingQCs %= Map.insert (Round 1) (QuorumCertificateWitness 0)
+        roundExistingQCs %= Map.insert (Round 1) (QuorumCertificateCheckedWitness 0)
         -- Execute the timeout message
         resultCode <- executeTimeoutMessage timeoutMessage
         -- Check that the result matches the expected one.
