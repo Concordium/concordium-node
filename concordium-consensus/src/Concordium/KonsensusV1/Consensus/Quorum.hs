@@ -130,7 +130,10 @@ receiveQuorumMessage qm@QuorumMessage{..} skovData = receive
                             return $ Rejected InvalidBlock
                         -- The signer signed a dead block. We flag and stop.
                         RecentBlock BlockDead -> do
-                            flag $! SignedInvalidBlock qm
+                            -- Note that we do not flag here as the block
+                            -- could've been pruned in the mean time of when
+                            -- the block was received by the consensus runner and
+                            -- when receiving this quorum message.
                             return $ Rejected InvalidBlock
                         -- The block is unknown so catch up.
                         RecentBlock BlockUnknown ->

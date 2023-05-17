@@ -411,7 +411,7 @@ data QuorumMessages = QuorumMessages
     { -- |Map of finalizer indices to signature messages.
       _smFinalizerToQuorumMessage :: !(Map.Map FinalizerIndex QuorumMessage),
       -- |Accumulated weights and the aggregated signature for the blocks signed off by quorum signature message.
-      -- The 'VoterPower' here is in relation to the running 'Epoch'.
+      -- The 'VoterPower' here is in relation to the 'Epoch' of the block being finalized.
       _smBlockToWeightsAndSignatures :: !(Map.Map BlockHash (VoterPower, QuorumSignature, Set.Set FinalizerIndex))
     }
     deriving (Eq, Show)

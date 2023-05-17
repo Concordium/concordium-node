@@ -814,6 +814,12 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
 -- * Block hash
 --
 -- This ordering is used to determine the "best block" to sign when a block arrives.
+--
+-- Note that the ordering above could also first have been on 'Epoch' and then 'Round'
+-- since if we had two blocks: one with a higher 'Round' and one with
+-- a higher 'Epoch' then neither of those will be signed.
+-- In the lower 'Round' case then the 'Round' would've timed out (hence the higher 'Epoch')
+-- and in the lower 'Epoch' case the consensus runner will already be an 'Epoch' ahead.
 newtype OrderedBlock pv = OrderedBlock {theOrderedBlock :: BlockPointer pv}
 
 instance Ord (OrderedBlock pv) where
