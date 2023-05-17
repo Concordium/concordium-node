@@ -682,8 +682,8 @@ checkTimeoutCertificate tsmGenesis sigThreshold finCom1 finCom2 finComQC Timeout
         -- Adds the weight to the sum if the finalizer indices matches otherwise
         -- continue to the next finalizer info.
         maybeAdd :: ([BakerId], VoterPower) -> FinalizerInfo -> ([BakerId], VoterPower)
-        maybeAdd ([], total) _ = ([], total)
-        maybeAdd (noMatch@(bid : rest), total) finInfo =
+        maybeAdd ([], !total) _ = ([], total)
+        maybeAdd (noMatch@(bid : rest), !total) finInfo =
             if bid == finalizerBakerId finInfo
                 then (rest, total + finalizerWeight finInfo)
                 else (noMatch, total)
