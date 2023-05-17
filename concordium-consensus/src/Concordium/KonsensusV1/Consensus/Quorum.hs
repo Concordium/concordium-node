@@ -276,6 +276,14 @@ processQuorumMessage vqm@(VerifiedQuorumMessage quorumMessage _ quorumBlock) mak
         skovData <- get
         let maybeQuorumCertificate = makeQuorumCertificate (qmBlock quorumMessage) skovData
         forM_ maybeQuorumCertificate $ \newQC -> do
+            logEvent Konsensus LLDebug $
+                "Quorum certificate generated for block "
+                    ++ show (qcBlock newQC)
+                    ++ " in round "
+                    ++ show (theRound $ qcRound newQC)
+            logEvent Konsensus LLTrace $
+                "QC signed by finalizer indexes: "
+                    ++ show (theFinalizerIndex <$> finalizerList (qcSignatories newQC))
             checkFinality newQC
             advanceRoundWithQuorum
                 CertifiedBlock

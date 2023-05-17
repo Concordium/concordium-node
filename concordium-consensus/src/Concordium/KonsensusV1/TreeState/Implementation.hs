@@ -543,7 +543,9 @@ parentOf block
                 error $
                     "parentOf: Parent block ("
                         ++ show (blockParent blockData)
-                        ++ ") is not live or finalized."
+                        ++ ") of "
+                        ++ show (getHash @BlockHash block)
+                        ++ " is not live or finalized."
     | otherwise = return block
 
 -- |Get the parent block of a live (non-finalized) block.
@@ -560,7 +562,9 @@ parentOfLive sd block
         error $
             "parentOfLive: parent block ("
                 ++ show parentHash
-                ++ ") is neither live nor last-finalized"
+                ++ ") of "
+                ++ show (getHash @BlockHash block)
+                ++ " is neither live nor last-finalized"
   where
     parentHash
         | Present blockData <- blockBakedData block = blockParent blockData
@@ -972,6 +976,7 @@ purgeTransactionTable force currentTime = do
 --
 -- PRECONDITION: The new focus block must be a live block, or the last finalized block.
 updateFocusBlockTo ::
+    forall m.
     (MonadState (SkovData (MPV m)) m) =>
     -- |New focus block
     BlockPointer (MPV m) ->

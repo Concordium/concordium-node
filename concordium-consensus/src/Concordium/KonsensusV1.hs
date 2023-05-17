@@ -5,7 +5,9 @@ module Concordium.KonsensusV1 where
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
+import Control.Monad.Reader.Class
 import Control.Monad.State.Class
+import Lens.Micro.Platform
 
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Persistent.BlockState
@@ -17,6 +19,7 @@ import qualified Concordium.KonsensusV1.Consensus.Quorum as Quorum
 import qualified Concordium.KonsensusV1.Consensus.Timeout as Timeout
 import Concordium.KonsensusV1.TreeState.Implementation
 import Concordium.KonsensusV1.TreeState.LowLevel
+import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.Types
 import Concordium.Logger
 import Concordium.Skov.Monad (UpdateResult (..), transactionVerificationResultToUpdateResult)
@@ -24,7 +27,6 @@ import Concordium.TimeMonad
 import Concordium.TimerMonad
 import Concordium.Types
 import Concordium.Types.Parameters
-import Control.Monad.Reader.Class
 
 -- |Handle receiving a finalization message (either a quorum message or a timeout message).
 -- Returns @Left res@ in the event of a failure, with the appropriate failure code.
@@ -71,3 +73,30 @@ addTransactionResult Transactions.Added{} = ResultSuccess
 addTransactionResult Transactions.ObsoleteNonce{} = ResultStale
 addTransactionResult (Transactions.NotAdded verRes) =
     transactionVerificationResultToUpdateResult verRes
+
+-- |Force a purge of the transaction table.
+purgeTransactions :: (TimeMonad m, MonadState (SkovData pv) m) => m ()
+purgeTransactions = purgeTransactionTable True =<< currentTime
+
+-- |Start the timeout timer and trigger baking (if possible).
+startEvents ::
+    ( MonadReader r m,
+      HasBakerContext r,
+      MonadState (SkovData (MPV m)) m,
+      BlockStateStorage m,
+      BlockState m ~ HashedPersistentBlockState (MPV m),
+      IsConsensusV1 (MPV m),
+      LowLevel.MonadTreeStateStore m,
+      TimeMonad m,
+      TimerMonad m,
+      MonadMulticast m,
+      MonadThrow m,
+      MonadIO m,
+      MonadTimeout m,
+      MonadConsensusEvent m,
+      MonadLogger m
+    ) =>
+    m ()
+startEvents = do
+    resetTimer =<< use currentTimeout
+    makeBlock

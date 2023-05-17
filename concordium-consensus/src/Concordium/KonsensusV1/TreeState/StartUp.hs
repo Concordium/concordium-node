@@ -197,7 +197,7 @@ loadSkovData _runtimeParameters = do
     let _skovPendingTransactions =
             PendingTransactions
                 { _pendingTransactionTable = TT.emptyPendingTransactionTable,
-                  _focusBlock = genesisBlock
+                  _focusBlock = lastFinBlock
                 }
     let _statistics = Stats.initialConsensusStatistics
     return SkovData{..}

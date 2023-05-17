@@ -12,6 +12,7 @@ module Concordium.KonsensusV1.SkovMonad where
 
 import Control.Monad.Catch
 import Control.Monad.RWS.Strict
+import Control.Monad.Trans.Reader hiding (ask)
 import Lens.Micro.Platform
 
 import Concordium.GlobalState (GlobalStateInitException (..))
@@ -38,7 +39,6 @@ import Concordium.Scheduler.Types hiding (getChainParameters)
 import Concordium.TimeMonad
 import Concordium.TimerMonad
 import Concordium.Types.HashableTo
-import Control.Monad.Trans.Reader
 
 type PersistentBlockStateMonadHelper pv m =
     PersistentBlockStateMonad
@@ -177,14 +177,18 @@ instance Monad m => MonadMulticast (SkovV1T pv m) where
         handler <- view sendBlockHandler
         lift $ handler sb
 
-instance MonadIO m => TimerMonad (SkovV1T pv m) where
+instance (MonadIO m, MonadLogger m) => TimerMonad (SkovV1T pv m) where
     type Timer (SkovV1T pv m) = ThreadTimer
     onTimeout timeout a = do
-        unlifter <- view skovV1TUnliftIO
+        ctx <- ask
         liftIO $
-            makeThreadTimer timeout $
-                void $
-                    unlifter a
+            makeThreadTimer timeout $ do
+                let handler (SomeException e) =
+                        _skovV1TUnliftIO ctx $
+                            logEvent Konsensus LLError $
+                                "Error in timer thread: " ++ show e
+                void (_skovV1TUnliftIO ctx a) `catchAll` handler
+                return ()
     cancelTimer = liftIO . cancelThreadTimer
 
 instance Monad m => MonadConsensusEvent (SkovV1T pv m) where
@@ -213,6 +217,7 @@ instance
         mapM_ cancelTimer mTimer
         newTimer <- onTimeout (DelayFor $ durationToNominalDiffTime dur) uponTimeoutEvent
         SkovV1T $ v1sTimer ?= newTimer
+        logEvent Runner LLTrace $ "Timeout reset for " ++ show (durationToNominalDiffTime dur)
 
 instance GlobalStateTypes (SkovV1T pv m) where
     type BlockPointerType (SkovV1T pv m) = BlockPointer pv

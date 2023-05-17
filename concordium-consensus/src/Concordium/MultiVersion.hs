@@ -385,13 +385,14 @@ evcIndex (EVersionedConfigurationV1 vc) = vc1Index vc
 -- |Activate an 'EVersionedConfiguration'. This means caching the state and
 -- establishing state invariants so that the configuration can be used as the
 -- currently active one for processing blocks, transactions, etc.
-activateConfiguration :: Skov.SkovConfiguration finconf UpdateHandler => EVersionedConfiguration finconf -> LogIO ()
+activateConfiguration :: Skov.SkovConfiguration finconf UpdateHandler => EVersionedConfiguration finconf -> MVR finconf ()
 activateConfiguration (EVersionedConfigurationV0 vc) = do
-    activeState <- Skov.activateSkovState (vc0Context vc) =<< liftIO (readIORef (vc0State vc))
+    activeState <- mvrLogIO . Skov.activateSkovState (vc0Context vc) =<< liftIO (readIORef (vc0State vc))
     liftIO (writeIORef (vc0State vc) activeState)
 activateConfiguration (EVersionedConfigurationV1 vc) = do
-    activeState <- SkovV1.activateSkovV1State (vc1Context vc) =<< liftIO (readIORef (vc1State vc))
-    liftIO (writeIORef (vc1State vc) activeState)
+    activeState <- mvrLogIO . SkovV1.activateSkovV1State (vc1Context vc) =<< liftIO (readIORef (vc1State vc))
+    newState <- snd <$> SkovV1.runSkovT KonsensusV1.startEvents (vc1Context vc) activeState
+    liftIO (writeIORef (vc1State vc) newState)
 
 -- |This class makes it possible to use a multi-version configuration at a specific version.
 -- Essentially, this class provides instances of 'SkovMonad', 'FinalizationMonad' and
@@ -513,13 +514,19 @@ withWriteLock a = MVR $ \mvr -> withWriteLockIO mvr (runMVR a mvr)
 withWriteLockIO :: MultiVersionRunner finconf -> IO a -> IO a
 {-# INLINE withWriteLockIO #-}
 withWriteLockIO MultiVersionRunner{..} a =
-    bracketOnError (takeMVar mvWriteLock) (tryPutMVar mvWriteLock) $ \_ -> do
-        tid <- myThreadId
-        mvLog Runner LLTrace $ "Acquired global state lock on thread " ++ show tid
-        res <- a
-        putMVar mvWriteLock ()
-        mvLog Runner LLTrace $ "Released global state lock on thread " ++ show tid
-        return res
+    bracketOnError
+        (takeMVar mvWriteLock)
+        ( \() ->
+            tryPutMVar mvWriteLock ()
+                >> mvLog Runner LLError "Released global state lock following error."
+        )
+        $ \_ -> do
+            tid <- myThreadId
+            mvLog Runner LLTrace $ "Acquired global state lock on thread " ++ show tid
+            res <- a
+            putMVar mvWriteLock ()
+            mvLog Runner LLTrace $ "Released global state lock on thread " ++ show tid
+            return res
 
 -- |Perform an action while holding the global state write lock. Optionally, when the action
 -- completes, a thread is forked to perform a follow-up action before realeasing the lock.
@@ -947,7 +954,7 @@ startupSkov genesis = do
                         liftIO $ notifyRegenesis (Just genesisHash)
                         logEvent Runner LLTrace "Load configuration done"
                         let activateThis = do
-                                mvrLogIO $ activateConfiguration (newVersionV0 newEConfig)
+                                activateConfiguration (newVersionV0 newEConfig)
                                 liftSkovUpdate newEConfig checkForProtocolUpdate
                         case nextPV of
                             Nothing -> do
@@ -1002,7 +1009,7 @@ startupSkov genesis = do
                         liftIO $ notifyRegenesis (Just esGenesisHash)
                         logEvent Runner LLTrace "Load configuration done"
                         let activateThis = do
-                                mvrLogIO $ activateConfiguration (newVersionV1 newEConfig)
+                                activateConfiguration (newVersionV1 newEConfig)
                                 -- FIXME: Support protocol updates. Issue #825
                                 return ()
                         case esNextProtocolVersion of
@@ -1049,8 +1056,12 @@ startTransactionPurgingThread mvr@MultiVersionRunner{..} =
                     threadDelay delay
                     mvLog Runner LLTrace "Purging transactions."
                     (withWriteLockIO mvr :: IO () -> IO ()) $ do
-                        EVersionedConfigurationV0 vc <- Vec.last <$> readIORef mvVersions
-                        runMVR (liftSkovUpdate vc Skov.purgeTransactions) mvr
+                        versions <- readIORef mvVersions
+                        case Vec.last versions of
+                            EVersionedConfigurationV0 vc ->
+                                runMVR (liftSkovUpdate vc Skov.purgeTransactions) mvr
+                            EVersionedConfigurationV1 vc ->
+                                runMVR (liftSkovV1Update vc KonsensusV1.purgeTransactions) mvr
             )
                 `finally` mvLog Runner LLInfo "Transaction purging thread stopped."
   where
@@ -1084,24 +1095,25 @@ startBaker mvr@MultiVersionRunner{mvBaker = Just Baker{..}, ..} = do
     bakerLoop lastGenIndex slot = do
         (genIndex, res) <-
             withWriteLockIO mvr $ do
-                (Vec.last <$> readIORef mvVersions) >>= \case
+                versions <- readIORef mvVersions
+                case Vec.last versions of
                     EVersionedConfigurationV0 vc -> do
                         -- If the genesis index has changed, we reset the slot counter to 0, since this
                         -- is a different chain.
                         let nextSlot = if vc0Index vc == lastGenIndex then slot else 0
-                        (vc0Index vc,) <$> runMVR (liftSkovUpdate vc (tryBake bakerIdentity nextSlot)) mvr
+                        (vc0Index vc,) . Just
+                            <$> runMVR (liftSkovUpdate vc (tryBake bakerIdentity nextSlot)) mvr
                     EVersionedConfigurationV1 vc -> do
-                        runMVR (liftSkovV1Update vc SkovV1.makeBlock) mvr
-                        return (vc1Index vc, BakeShutdown)
+                        return (vc1Index vc, Nothing)
         case res of
-            BakeSuccess slot' block -> do
+            Just (BakeSuccess slot' block) -> do
                 broadcastBlock mvCallbacks genIndex block
                 bakerLoop genIndex slot'
-            BakeWaitUntil slot' ts -> do
+            Just (BakeWaitUntil slot' ts) -> do
                 now <- utcTimeToTimestamp <$> currentTime
                 when (now < ts) $ threadDelay $ fromIntegral (tsMillis (ts - now)) * 1_000
                 bakerLoop genIndex slot'
-            BakeShutdown -> do
+            Just BakeShutdown -> do
                 -- Note that on a successful protocol update this should not occur because a new
                 -- genesis should be started up when the old one is shut down within the same
                 -- critical region. i.e. while the write lock is held.
@@ -1111,6 +1123,9 @@ startBaker mvr@MultiVersionRunner{mvBaker = Just Baker{..}, ..} = do
                 -- Since we are exiting the baker thread without being killed, we drain the MVar.
                 -- This may not be necessary, but should ensure that the thread can be garbage
                 -- collected.
+                void $ takeMVar bakerThread
+            Nothing -> do
+                mvLog Runner LLInfo "Baking thread is not required and will shut down."
                 void $ takeMVar bakerThread
 
 -- |Stop the baker thread associated with a 'MultiVersionRunner'.
@@ -1283,7 +1298,9 @@ sendCatchUpStatus genIndex = MVR $ \mvr@MultiVersionRunner{..} -> do
                         st
                     )
                     mvr
-            notifyCatchUpStatus mvCallbacks (vc0Index vc) $ runPut $ Skov.putVersionedCatchUpStatus cus
+            notifyCatchUpStatus mvCallbacks (vc0Index vc) $
+                encode $
+                    Skov.VersionedCatchUpStatusV0 cus
         EVersionedConfigurationV1 _ -> return () -- FIXME: implement, cf. issue #826
 
 -- |Perform an operation with the latest chain version, as long as
@@ -1449,58 +1466,75 @@ receiveCatchUpStatus gi catchUpBS CatchUpConfiguration{..} =
         Left err -> do
             logEvent Runner LLDebug $ "Could not deserialize catch-up status message: " ++ err
             return Skov.ResultSerializationFail
-        Right catchUp -> do
-            logEvent Runner LLDebug $ "Catch-up status message deserialized: " ++ show catchUp
+        Right vcatchUp -> do
+            logEvent Runner LLDebug $ "Catch-up status message deserialized: " ++ show vcatchUp
             vvec <- liftIO . readIORef =<< asks mvVersions
             case vvec Vec.!? fromIntegral gi of
                 -- If we have a (re)genesis as the given index then...
                 Just (EVersionedConfigurationV0 (vc :: VersionedConfigurationV0 finconf pv)) ->
-                    MVR $ \mvr -> do
-                        st <- readIORef (vc0State vc)
-                        -- Evaluate handleCatchUpStatus to determine the response.
-                        -- Note that this should not perform a state update, so there is no need to
-                        -- acquire the write lock, or to store the resulting state.
-                        (mmsgs, res) <-
-                            runMVR
-                                ( Skov.evalSkovT @_ @pv
-                                    ( Skov.handleCatchUpStatus @(VersionedSkovM finconf pv)
-                                        catchUp
-                                        catchUpMessageLimit
+                    case vcatchUp of
+                        Skov.VersionedCatchUpStatusV0 catchUp -> MVR $ \mvr -> do
+                            st <- readIORef (vc0State vc)
+                            -- Evaluate handleCatchUpStatus to determine the response.
+                            -- Note that this should not perform a state update, so there is no need to
+                            -- acquire the write lock, or to store the resulting state.
+                            (mmsgs, res) <-
+                                runMVR
+                                    ( Skov.evalSkovT @_ @pv
+                                        ( Skov.handleCatchUpStatus @(VersionedSkovM finconf pv)
+                                            catchUp
+                                            catchUpMessageLimit
+                                        )
+                                        (mvrSkovHandlers vc mvr)
+                                        (vc0Context vc)
+                                        st
                                     )
-                                    (mvrSkovHandlers vc mvr)
-                                    (vc0Context vc)
-                                    st
-                                )
-                                mvr
-                        -- Send out the messages, where necessary.
-                        forM_ mmsgs $ \(blocksFins, cusResp) -> do
-                            mvLog mvr Runner LLTrace $
-                                "Sending " ++ show (length blocksFins) ++ " blocks/finalization records"
-                            forM_ blocksFins $ uncurry catchUpCallback
-                            mvLog mvr Runner LLDebug $
-                                "Catch-up response status message: " ++ show cusResp
-                            catchUpCallback Skov.MessageCatchUpStatus $
-                                runPut $
-                                    Skov.putVersionedCatchUpStatus cusResp
-                        return res
-                Just (EVersionedConfigurationV1 _) -> do
-                    logEvent Runner LLDebug $ "Unsupported catch-up status message at consensus v1:" ++ show catchUp
-                    return Skov.ResultInvalid
+                                    mvr
+                            -- Send out the messages, where necessary.
+                            forM_ mmsgs $ \(blocksFins, cusResp) -> do
+                                mvLog mvr Runner LLTrace $
+                                    "Sending " ++ show (length blocksFins) ++ " blocks/finalization records"
+                                forM_ blocksFins $ uncurry catchUpCallback
+                                mvLog mvr Runner LLDebug $
+                                    "Catch-up response status message: " ++ show cusResp
+                                catchUpCallback Skov.MessageCatchUpStatus $
+                                    runPut $
+                                        Skov.putVersionedCatchUpStatus $
+                                            Skov.VersionedCatchUpStatusV0 cusResp
+                            return res
+                        _ -> do
+                            logEvent Runner LLDebug $
+                                "Unsupported catch-up status message at consensus v0:" ++ show vcatchUp
+                            return Skov.ResultInvalid
+                Just (EVersionedConfigurationV1 _) -> case vcatchUp of
+                    Skov.VersionedCatchUpStatusV0 Skov.NoGenesisCatchUpStatus ->
+                        return Skov.ResultSuccess
+                    Skov.VersionedCatchUpStatusV1 Skov.CatchUpStatusV1 ->
+                        return Skov.ResultSuccess
+                    _ -> do
+                        logEvent Runner LLDebug $
+                            "Unsupported catch-up status message at consensus v1:" ++ show vcatchUp
+                        return Skov.ResultInvalid
                 -- If we have no regenesis at the given index then...
-                Nothing -> case catchUp of
+                Nothing -> case vcatchUp of
                     -- if it is a request, inform the peer we have no genesis and queue to catch up
-                    Skov.CatchUpStatus{cusIsRequest = True} -> do
+                    Skov.VersionedCatchUpStatusV0 Skov.CatchUpStatus{cusIsRequest = True} -> do
                         liftIO $
                             catchUpCallback Skov.MessageCatchUpStatus $
                                 runPut $
-                                    Skov.putVersionedCatchUpStatus Skov.NoGenesisCatchUpStatus
+                                    Skov.putVersionedCatchUpStatus $
+                                        Skov.VersionedCatchUpStatusV0 Skov.NoGenesisCatchUpStatus
                         return Skov.ResultPendingBlock
                     -- if it not a request, no response is necessary, but we should mark the
                     -- peer as pending
-                    Skov.CatchUpStatus{} -> return Skov.ResultPendingBlock
+                    Skov.VersionedCatchUpStatusV0 Skov.CatchUpStatus{} ->
+                        return Skov.ResultPendingBlock
                     -- if the peer (also!) has no genesis at this index, we do not reply
                     -- or initiate catch-up
-                    Skov.NoGenesisCatchUpStatus -> return Skov.ResultSuccess
+                    Skov.VersionedCatchUpStatusV0 Skov.NoGenesisCatchUpStatus ->
+                        return Skov.ResultSuccess
+                    Skov.VersionedCatchUpStatusV1 Skov.CatchUpStatusV1 ->
+                        return Skov.ResultSuccess
 
 -- |Get the catch-up status for the current version of the chain.  This returns the current
 -- genesis index, as well as the catch-up request message serialized with its version.
@@ -1512,10 +1546,10 @@ getCatchUpRequest = do
         (EVersionedConfigurationV0 (vc :: VersionedConfigurationV0 finconf pv)) -> do
             st <- liftIO $ readIORef $ vc0State vc
             cus <- Skov.evalSkovT (Skov.getCatchUpStatus @(VersionedSkovM _ pv) True) (mvrSkovHandlers vc mvr) (vc0Context vc) st
-            return (vc0Index vc, runPutLazy $ Skov.putVersionedCatchUpStatus cus)
+            return (vc0Index vc, encodeLazy $ Skov.VersionedCatchUpStatusV0 cus)
         (EVersionedConfigurationV1 vc) -> do
             -- FIXME: Dummy implementation
-            return (vc1Index vc, "\x01")
+            return (vc1Index vc, encodeLazy $ Skov.VersionedCatchUpStatusV1 Skov.CatchUpStatusV1)
 
 -- |Deserialize and receive a transaction.  The transaction is passed to
 -- the current version of the chain.

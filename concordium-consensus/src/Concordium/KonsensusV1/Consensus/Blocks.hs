@@ -1065,7 +1065,10 @@ validateBlock blockHash BakerIdentity{..} finInfo = do
     logEvent Baker LLTrace "validateBlock called"
     maybeBlock <- gets $ getLiveBlock blockHash
     forM_ maybeBlock $ \block -> do
-        logEvent Baker LLTrace $ "validateBlock: block " ++ show block ++ " is live"
+        logEvent Baker LLTrace $
+            "validateBlock: block "
+                ++ show (getHash @BlockHash block)
+                ++ " is live"
         persistentRS <- use persistentRoundStatus
         curRound <- use $ roundStatus . rsCurrentRound
         curEpoch <- use currentEpoch
@@ -1129,7 +1132,9 @@ checkedValidateBlock validBlock = do
     logEvent Baker LLTrace "checkedValidateBlock called"
     withFinalizerForEpoch (blockEpoch validBlock) $ \bakerIdent finInfo -> do
         let !blockHash = getHash validBlock
-        logEvent Baker LLTrace $ "checkedValidateBlock delaying until" ++ show (timestampToUTCTime $ blockTimestamp validBlock)
+        logEvent Baker LLTrace $
+            "checkedValidateBlock delaying until "
+                ++ show (timestampToUTCTime $ blockTimestamp validBlock)
         _ <-
             onTimeout (DelayUntil (timestampToUTCTime $ blockTimestamp validBlock)) $!
                 validateBlock blockHash bakerIdent finInfo
@@ -1380,6 +1385,9 @@ makeBlock = do
     mInputs <- prepareBakeBlockInputs
     forM_ mInputs $ \inputs -> do
         block <- bakeBlock inputs
+        logEvent Baker LLTrace $
+            "Going to bake block at "
+                ++ show (timestampToUTCTime $ blockTimestamp block)
         void $ onTimeout (DelayUntil (timestampToUTCTime $ blockTimestamp block)) $ do
             sendBlock block
             checkedValidateBlock block
