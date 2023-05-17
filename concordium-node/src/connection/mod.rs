@@ -586,7 +586,11 @@ impl Connection {
     pub fn populate_remote_end_networks(&mut self, peer: RemotePeer, networks: &Networks) {
         self.remote_end_networks.extend(networks.iter());
 
-        if self.remote_peer.peer_type != PeerType::Bootstrapper {
+        // Since buckets are only used if the node itself is running as a bootstrapper
+        // we don't want to add anything to buckets otherwise.
+        if self.handler.peer_type() == PeerType::Bootstrapper
+            && self.remote_peer.peer_type != PeerType::Bootstrapper
+        {
             write_or_die!(self.handler.buckets()).insert_into_bucket(
                 peer,
                 networks.to_owned(),
