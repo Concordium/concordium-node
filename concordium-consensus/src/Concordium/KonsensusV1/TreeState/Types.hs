@@ -12,7 +12,6 @@ module Concordium.KonsensusV1.TreeState.Types where
 import Data.Function
 import qualified Data.Map.Strict as Map
 import Data.Serialize
-import qualified Data.Set as Set
 import Data.Time
 import Data.Time.Clock.POSIX
 import Lens.Micro.Platform
@@ -424,7 +423,7 @@ data QuorumMessages = QuorumMessages
       _smFinalizerToQuorumMessage :: !(Map.Map FinalizerIndex QuorumMessage),
       -- |Accumulated weights and the aggregated signature for the blocks signed off by quorum signature message.
       -- The 'VoterPower' here is in relation to the 'Epoch' of the block being finalized.
-      _smBlockToWeightsAndSignatures :: !(Map.Map BlockHash (VoterPower, QuorumSignature, Set.Set FinalizerIndex))
+      _smBlockToWeightsAndSignatures :: !(Map.Map BlockHash (VoterPower, QuorumSignature, FinalizerSet))
     }
     deriving (Eq, Show)
 

@@ -8,7 +8,6 @@ module Concordium.KonsensusV1.Consensus.Quorum where
 import Control.Monad.Catch
 import Control.Monad.State
 import qualified Data.Map.Strict as Map
-import qualified Data.Set as Set
 import Lens.Micro.Platform
 
 import Concordium.Genesis.Data.BaseV1
@@ -196,12 +195,12 @@ addQuorumMessage
         newSignatureMessages = Map.insert finalizerIndex quorumMessage currentMessages
         justOrIncrement =
             maybe
-                (Just (weight, qmSignature, Set.singleton finalizerIndex))
+                (Just (weight, qmSignature, finalizerSet [finalizerIndex]))
                 ( \(aggWeight, aggSig, aggFinalizers) ->
                     Just
                         ( aggWeight + weight,
                           aggSig <> qmSignature,
-                          Set.insert finalizerIndex aggFinalizers
+                          addFinalizer aggFinalizers finalizerIndex
                         )
                 )
         updatedWeightAndSignature = Map.alter justOrIncrement qmBlock currentWeights
@@ -243,7 +242,7 @@ makeQuorumCertificate qcBlockPointer sd@SkovData{..} = do
                       qcRound = _roundStatus ^. rsCurrentRound,
                       qcEpoch = blockEpoch . bpBlock $ qcBlockPointer,
                       qcAggregateSignature = aggregatedSignature,
-                      qcSignatories = finalizerSet $ Set.toList finalizers
+                      qcSignatories = finalizers
                     }
   where
     -- The hash of the block that the QC points to.

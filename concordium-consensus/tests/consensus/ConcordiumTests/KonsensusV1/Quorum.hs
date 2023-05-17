@@ -7,7 +7,6 @@
 module ConcordiumTests.KonsensusV1.Quorum where
 
 import Data.Maybe (fromJust, isJust)
-import qualified Data.Set as Set
 import qualified Data.Vector as Vec
 import Lens.Micro.Platform
 import Test.HUnit hiding (State)
@@ -62,7 +61,7 @@ propAddQuorumMessage =
                         (isJust (qsm' ^? smBlockToWeightsAndSignatures . ix (qmBlock qm0)))
                     assertEqual
                         "The finalizer weight, signature and finalizer index should be present"
-                        (weight, qmSignature qm0, Set.singleton $ qmFinalizerIndex qm0)
+                        (weight, qmSignature qm0, finalizerSet [qmFinalizerIndex qm0])
                         (fromJust $! qsm' ^? smBlockToWeightsAndSignatures . ix (qmBlock qm0))
                     let verifiedQuorumMessage1 = VerifiedQuorumMessage qm1 weight $! myBlockPointer 0 0
                         qsm'' = addQuorumMessage verifiedQuorumMessage1 qsm'
@@ -75,7 +74,7 @@ propAddQuorumMessage =
                         (isJust (qsm'' ^? smBlockToWeightsAndSignatures . ix (qmBlock qm1)))
                     assertEqual
                         "The finalizer weight, aggregated signature and finalizer indecies should be present"
-                        (2 * weight, qmSignature qm1 <> qmSignature qm0, Set.insert (qmFinalizerIndex qm1) (Set.singleton $ qmFinalizerIndex qm0))
+                        (2 * weight, qmSignature qm1 <> qmSignature qm0, finalizerSet [qmFinalizerIndex qm1, qmFinalizerIndex qm0])
                         (fromJust $! qsm'' ^? smBlockToWeightsAndSignatures . ix (qmBlock qm1))
 
 -- |Test that checks that a 'QuorumCertificate' can be formed when
