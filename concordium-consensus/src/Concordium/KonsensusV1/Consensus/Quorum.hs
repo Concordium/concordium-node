@@ -58,6 +58,8 @@ data ReceiveQuorumMessageRejectReason
 data ReceiveQuorumMessageResult (pv :: ProtocolVersion)
     = -- |The 'QuorumMessage' was received i.e. it passed verification.
       Received !(VerifiedQuorumMessage pv)
+    | -- |The 'QuorumMessage' was received but is a result of double signing.
+      ReceivedNoRelay !(VerifiedQuorumMessage pv)
     | -- |The 'QuorumMessage' was rejected.
       Rejected !ReceiveQuorumMessageRejectReason
     | -- |The 'QuorumMessage' points to a round which indicates a catch up is required.
@@ -86,7 +88,7 @@ data VerifiedQuorumMessage (pv :: ProtocolVersion) = VerifiedQuorumMessage
 -- * 'Rejected' The 'QuorumMessage' failed validation and possible it has been flagged.
 -- * 'CatchupRequired' The 'QuorumMessage' cannot be processed before it is caught up.
 receiveQuorumMessage ::
-    LowLevel.MonadTreeStateStore m =>
+    (MonadIO m, LowLevel.MonadTreeStateStore m) =>
     -- |The 'QuorumMessage' to receive.
     QuorumMessage ->
     -- |The tree state to verify the 'QuorumMessage' within.
@@ -113,37 +115,35 @@ receiveQuorumMessage qm@QuorumMessage{..} skovData = receive
                 -- Check whether the signature is ok or not.
                 | not (checkQuorumSignatureSingle getQuorumSignatureMessage finalizerBlsKey qmSignature) ->
                     return $ Rejected InvalidSignature
-                -- Check whether the finalizer is double signing.
-                | Just existingMessage <- getExistingMessage -> do
-                    flag $! QuorumDoubleSigning qm existingMessage
-                    return $ Rejected AlreadySigned
-                -- Continue verifying by looking up the block.
                 | otherwise -> do
-                    getRecentBlockStatus qmBlock skovData >>= \case
-                        -- The signatory signed an already signed block. We flag and stop.
-                        OldFinalized -> do
-                            flag $! SignedInvalidBlock qm
-                            return $ Rejected InvalidBlock
-                        -- The signatory signed an already signed block. We flag and stop.
-                        RecentBlock (BlockFinalized _) -> do
-                            flag $! SignedInvalidBlock qm
-                            return $ Rejected InvalidBlock
+                    -- Check for double signing. Later, we will not relay the message if it is
+                    -- a case of double signing.
+                    forM_ getExistingMessage $ \existingMessage ->
+                        flag $! QuorumDoubleSigning qm existingMessage
+                    -- Continue verifying by looking up the block.
+                    getBlockStatus qmBlock skovData >>= \case
+                        -- The signatory signed an already-finalized block. We flag and stop.
+                        BlockFinalized fb -> do
+                            -- Since the block is finalized, the round is less than the current
+                            -- round, so we flag as an inconsistent round.
+                            flag $! RoundInconsistency qm (bpBlock fb)
+                            return $ Rejected InconsistentRounds
                         -- The signer signed a dead block. We flag and stop.
-                        RecentBlock BlockDead -> do
+                        BlockDead -> do
                             -- Note that we do not flag here as the block
                             -- could've been pruned in the mean time of when
                             -- the block was received by the consensus runner and
                             -- when receiving this quorum message.
                             return $ Rejected InvalidBlock
                         -- The block is unknown so catch up.
-                        RecentBlock BlockUnknown ->
+                        BlockUnknown ->
                             return CatchupRequired
                         -- The block is already pending so wait for it to be executed.
-                        RecentBlock (BlockPending _) ->
+                        BlockPending _ ->
                             return CatchupRequired
                         -- The block is executed but not finalized.
                         -- Perform the remaining checks before processing the 'QuorumMessage'.
-                        RecentBlock (BlockAlive targetBlock)
+                        BlockAlive targetBlock
                             -- Inconsistent rounds of the quorum signature message and the block it points to.
                             -- Note. We do these checks here, but if we want to punish the finalizer then the
                             -- checks should be deferred until after relaying the message otherwise the
@@ -156,9 +156,11 @@ receiveQuorumMessage qm@QuorumMessage{..} skovData = receive
                                 flag $! EpochInconsistency qm (bpBlock targetBlock)
                                 return $ Rejected InconsistentEpochs
                             -- Return the verified quorum message.
-                            | otherwise ->
-                                return $
-                                    Received (VerifiedQuorumMessage qm finalizerWeight targetBlock)
+                            | otherwise -> do
+                                let vqm = VerifiedQuorumMessage qm finalizerWeight targetBlock
+                                return $! case getExistingMessage of
+                                    Just _ -> ReceivedNoRelay vqm
+                                    Nothing -> Received vqm
     -- Try get an existing 'QuorumMessage' if present otherwise return 'Nothing'.
     getExistingMessage = skovData ^? currentQuorumMessages . smFinalizerToQuorumMessage . ix qmFinalizerIndex
     -- Extract the quorum signature message

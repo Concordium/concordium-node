@@ -76,22 +76,10 @@ data FlaggableOffense (pv :: ProtocolVersion)
     | -- |The finalizer signed two distinct quorum messages for the same round.
       QuorumDoubleSigning {qdsReceived :: !QuorumMessage, qdsExisting :: !QuorumMessage}
     | -- |The 'Round' of the 'QuorumMessage' and the block it points to are
-      -- inconsistent.
-      -- Witnessed by the 'QuorumMessage' and the block it points to.
-      -- Note. This flag is currently triggered before the
-      -- message is relayed and as such the message might not end up
-      -- at a baker and so the bad behaviour won't become part a block.
-      -- If this is to be punished in future, then we should relay the message
-      -- before flagging.
+      -- inconsistent. Witnessed by the 'QuorumMessage' and the block it points to.
       RoundInconsistency !QuorumMessage !(Block pv)
     | -- |The 'Epoch' of the 'QuorumMessage' and the block it points to are
-      -- inconsistent.
-      -- Witnessed by the 'QuorumMessage' and the block it points to.
-      -- Note. This flag is currently triggered before the
-      -- message is relayed and as such the message might not end up
-      -- at a baker and so the bad behaviour won't become part a block.
-      -- If this is to be punished in future, then we should relay the message
-      -- before flagging.
+      -- inconsistent. Witnessed by the 'QuorumMessage' and the block it points to.
       EpochInconsistency !QuorumMessage !(Block pv)
     | -- |The finalizer signed two distinct timeout messages for the same round.
       TimeoutDoubleSigning {tdsReceived :: !TimeoutMessage, tdsExisting :: !TimeoutMessage}
