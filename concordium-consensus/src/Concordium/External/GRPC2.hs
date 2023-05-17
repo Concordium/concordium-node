@@ -48,7 +48,6 @@ import Concordium.GlobalState.Parameters (CryptographicParameters)
 import Concordium.ID.Parameters (withGlobalContext)
 import qualified Concordium.Types.InvokeContract as InvokeContract
 import qualified Concordium.Wasm as Wasm
-import Data.Either (fromRight)
 import Data.Text (Text)
 import qualified Data.Text.Encoding as Text
 
@@ -100,13 +99,16 @@ decodeBlockHashInput n dt =
     Queries.AtHeight
         <$> case n of
             3 -> do
-                inputData <- BS.unsafePackCStringLen (castPtr dt, 8)
-                let aBlockHeight = fromRight (error "Should not happen.") (S.decode inputData)
-                return Queries.Absolute{..}
-            _ -> do
-                inputData <- BS.unsafePackCStringLen (castPtr dt, 13)
-                let (rBlockHeight, rGenesisIndex, rRestrict) = fromRight (error "Should not happen.") (S.decode inputData)
-                return Queries.Relative{..}
+                inputData <- BS.unsafePackCStringLen (castPtr dt, 8) -- 8 bytes for the block height.
+                case S.decode inputData of
+                    Left err -> error $ "Precondition violation in FFI call: " ++ err
+                    Right aBlockHeight -> return $ Queries.Absolute{..}
+            4 -> do
+                inputData <- BS.unsafePackCStringLen (castPtr dt, 13) -- 8 bytes for the block height, 4 bytes for the genesis index and 1 byte for encoding 'restrict'.
+                case S.decode inputData of
+                    Left err -> error $ "Precondition violation in FFI call: " ++ err
+                    Right (rBlockHeight, rGenesisIndex, rRestrict) -> return $ Queries.Relative{..}
+            _ -> error "Precondition violation in FFI call: Unknown block hash input type"
 
 -- | Decode an account address from a foreign ptr. Assumes 32 bytes are available.
 decodeAccountAddress :: Ptr Word8 -> IO AccountAddress
@@ -180,11 +182,13 @@ getAccountInfoV2 cptr blockType blockHashPtr accIdType accIdBytesPtr outHash out
     bhi <- decodeBlockHashInput blockType blockHashPtr
     ai <- decodeAccountIdentifierInput accIdType accIdBytesPtr
     res <- runMVR (Q.getAccountInfo bhi ai) mvr
-    returnMessageWithBlock (copier outVec) outHash res
+    returnMaybeMessageWithBlock (copier outVec) outHash res
 
-copyHashTo :: Ptr Word8 -> Maybe BlockHash -> IO ()
-copyHashTo _ Nothing = return ()
-copyHashTo dest (Just (BlockHash (Hash h))) = FBS.withPtrReadOnly h $ \p -> copyBytes dest p 32
+-- | Optionally copy a block hash (32 bytes) to a pointer.
+-- Used to provide back the block hash used in a given query, via the FFI.
+copyHashTo :: Ptr Word8 -> Q.BHIQueryResponse a -> IO ()
+copyHashTo _ Q.BQRNoBlock = return ()
+copyHashTo dest (Q.BQRBlock (BlockHash (Hash h)) _) = FBS.withPtrReadOnly h $ \p -> copyBytes dest p 32
 
 getAccountListV2 ::
     StablePtr Ext.ConsensusRunner ->
@@ -201,13 +205,8 @@ getAccountListV2 cptr channel blockType blockHashPtr outHash cbk = do
     Ext.ConsensusRunner mvr <- deRefStablePtr cptr
     let sender = callChannelSendCallback cbk
     bhi <- decodeBlockHashInput blockType blockHashPtr
-    (bh, mAddresses) <- runMVR (Q.getAccountList bhi) mvr
-    case mAddresses of
-        Nothing -> return (queryResultCode QRNotFound)
-        Just addresses -> do
-            copyHashTo outHash bh
-            _ <- enqueueMessages (sender channel) addresses
-            return (queryResultCode QRSuccess)
+    response <- runMVR (Q.getAccountList bhi) mvr
+    returnStreamWithBlock (sender channel) outHash response
 
 getModuleListV2 ::
     StablePtr Ext.ConsensusRunner ->
@@ -224,13 +223,8 @@ getModuleListV2 cptr channel blockType blockHashPtr outHash cbk = do
     Ext.ConsensusRunner mvr <- deRefStablePtr cptr
     let sender = callChannelSendCallback cbk
     bhi <- decodeBlockHashInput blockType blockHashPtr
-    (bh, mModules) <- runMVR (Q.getModuleList bhi) mvr
-    case mModules of
-        Nothing -> return (queryResultCode QRNotFound)
-        Just modules -> do
-            copyHashTo outHash bh
-            _ <- enqueueMessages (sender channel) modules
-            return (queryResultCode QRSuccess)
+    response <- runMVR (Q.getModuleList bhi) mvr
+    returnStreamWithBlock (sender channel) outHash response
 
 getModuleSourceV2 ::
     StablePtr Ext.ConsensusRunner ->
@@ -252,7 +246,7 @@ getModuleSourceV2 cptr blockType blockHashPtr moduleRefPtr outHash outVec copier
     bhi <- decodeBlockHashInput blockType blockHashPtr
     modRef <- decodeModuleRefInput moduleRefPtr
     res <- runMVR (Q.getModuleSource bhi modRef) mvr
-    returnMessageWithBlock (copier outVec) outHash res
+    returnMaybeMessageWithBlock (copier outVec) outHash res
 
 getInstanceListV2 ::
     StablePtr Ext.ConsensusRunner ->
@@ -269,13 +263,8 @@ getInstanceListV2 cptr channel blockType blockHashPtr outHash cbk = do
     Ext.ConsensusRunner mvr <- deRefStablePtr cptr
     let sender = callChannelSendCallback cbk
     bhi <- decodeBlockHashInput blockType blockHashPtr
-    (bh, mInstances) <- runMVR (Q.getInstanceList bhi) mvr
-    case mInstances of
-        Nothing -> return (queryResultCode QRNotFound)
-        Just instances -> do
-            copyHashTo outHash bh
-            _ <- enqueueMessages (sender channel) instances
-            return (queryResultCode QRSuccess)
+    response <- runMVR (Q.getInstanceList bhi) mvr
+    returnStreamWithBlock (sender channel) outHash response
 
 getInstanceInfoV2 ::
     StablePtr Ext.ConsensusRunner ->
@@ -299,7 +288,7 @@ getInstanceInfoV2 cptr blockType blockHashPtr addrIndex addrSubindex outHash out
     bhi <- decodeBlockHashInput blockType blockHashPtr
     let caddr = ContractAddress (ContractIndex addrIndex) (ContractSubindex addrSubindex)
     res <- runMVR (Q.getInstanceInfo bhi caddr) mvr
-    returnMessageWithBlock (copier outVec) outHash res
+    returnMaybeMessageWithBlock (copier outVec) outHash res
 
 -- |An opaque representation of the place where we write the mutable state in the 'getInstanceStateV2' query.
 data PersistentStateReceiver
@@ -339,11 +328,10 @@ getInstanceStateV2 cptr blockType blockHashPtr addrIndex addrSubindex outHash ou
     Ext.ConsensusRunner mvr <- deRefStablePtr cptr
     bhi <- decodeBlockHashInput blockType blockHashPtr
     let caddr = ContractAddress (ContractIndex addrIndex) (ContractSubindex addrSubindex)
-    (bh, res) <- runMVR (Q.getInstanceState bhi caddr) mvr
-    case res of
-        Nothing -> return (queryResultCode QRNotFound)
-        Just iState -> do
-            copyHashTo outHash bh
+    response <- runMVR (Q.getInstanceState bhi caddr) mvr
+    copyHashTo outHash response
+    case response of
+        Q.BQRBlock _ (Just iState) ->
             case iState of
                 Left v0State -> do
                     let copier = callCopyToVecCallback vecCopierCbk
@@ -354,6 +342,7 @@ getInstanceStateV2 cptr blockType blockHashPtr addrIndex addrSubindex outHash ou
                     StateV1.withPersistentState ps $ \psPtr -> do
                         copier outMS psPtr sContext
                     return (queryResultCode QRSuccess)
+        _ -> return (queryResultCode QRNotFound)
 
 getNextAccountSequenceNumberV2 ::
     StablePtr Ext.ConsensusRunner ->
@@ -367,7 +356,7 @@ getNextAccountSequenceNumberV2 cptr accPtr outVec copierCbk = do
     let copier = callCopyToVecCallback copierCbk
     accountAddress <- decodeAccountAddress accPtr
     res <- runMVR (Q.getNextAccountNonce accountAddress) mvr
-    returnMessage (copier outVec) (Just res)
+    returnMessage (copier outVec) res
 
 getConsensusInfoV2 ::
     StablePtr Ext.ConsensusRunner ->
@@ -378,7 +367,7 @@ getConsensusInfoV2 cptr outVec copierCbk = do
     Ext.ConsensusRunner mvr <- deRefStablePtr cptr
     let copier = callCopyToVecCallback copierCbk
     consensusInfo <- runMVR Q.getConsensusStatus mvr
-    returnMessage (copier outVec) (Just consensusInfo)
+    returnMessage (copier outVec) consensusInfo
 
 getCryptographicParametersV2 ::
     StablePtr Ext.ConsensusRunner ->
@@ -395,13 +384,13 @@ getCryptographicParametersV2 cptr blockType blockHashPtr outHash outPtr copierCb
     Ext.ConsensusRunner mvr <- deRefStablePtr cptr
     let copier = callCopyCryptographicParametersCallback copierCbk
     bhi <- decodeBlockHashInput blockType blockHashPtr
-    (bh, maybeCryptographicParameters) <- runMVR (Q.getCryptographicParameters bhi) mvr
-    copyHashTo outHash bh
-    case maybeCryptographicParameters of
-        Nothing -> return $ queryResultCode QRNotFound
-        Just cryptographicParameters -> do
+    response <- runMVR (Q.getCryptographicParameters bhi) mvr
+    copyHashTo outHash response
+    case response of
+        Q.BQRBlock _ cryptographicParameters -> do
             withGlobalContext cryptographicParameters (copier outPtr)
             return $ queryResultCode QRSuccess
+        Q.BQRNoBlock -> return $ queryResultCode QRNotFound
 
 getAncestorsV2 ::
     StablePtr Ext.ConsensusRunner ->
@@ -420,13 +409,8 @@ getAncestorsV2 cptr channel blockType blockHashPtr depth outHash cbk = do
     Ext.ConsensusRunner mvr <- deRefStablePtr cptr
     let sender = callChannelSendCallback cbk
     bhi <- decodeBlockHashInput blockType blockHashPtr
-    (bh, mModules) <- runMVR (Q.getAncestors bhi (BlockHeight depth)) mvr
-    case mModules of
-        Nothing -> return (queryResultCode QRNotFound)
-        Just modules -> do
-            copyHashTo outHash bh
-            _ <- enqueueMessages (sender channel) modules
-            return (queryResultCode QRSuccess)
+    response <- runMVR (Q.getAncestors bhi (BlockHeight depth)) mvr
+    returnStreamWithBlock (sender channel) outHash response
 
 getBlockItemStatusV2 ::
     StablePtr Ext.ConsensusRunner ->
@@ -507,15 +491,15 @@ invokeInstanceV2 cptr blockIdType blockIdPtr contractIndex contractSubindex invo
                   ccParameter = parameter,
                   ccEnergy = Energy energy
                 }
-    (bh, result) <- runMVR (Q.invokeContract block context) mvr
-    copyHashTo outHash bh
-    case toProto <$> result of
-        Nothing -> return $ queryResultCode QRNotFound
-        Just (Left _) -> return $ queryResultCode QRInternalError
-        Just (Right proto) -> do
+    response <- runMVR (Q.invokeContract block context) mvr
+    copyHashTo outHash response
+    case toProto <$> response of
+        Q.BQRBlock _ (Left _) -> return $ queryResultCode QRInternalError
+        Q.BQRBlock _ (Right proto) -> do
             let encoded = Proto.encodeMessage proto
             BS.unsafeUseAsCStringLen encoded (\(ptr, len) -> copier outVec (castPtr ptr) (fromIntegral len))
             return $ queryResultCode QRSuccess
+        Q.BQRNoBlock -> return $ queryResultCode QRNotFound
 
 getBlockInfoV2 ::
     StablePtr Ext.ConsensusRunner ->
@@ -551,13 +535,8 @@ getBakerListV2 cptr channel blockType blockHashPtr outHash cbk = do
     Ext.ConsensusRunner mvr <- deRefStablePtr cptr
     let sender = callChannelSendCallback cbk
     bhi <- decodeBlockHashInput blockType blockHashPtr
-    (bh, mBakers) <- runMVR (Q.getRegisteredBakers bhi) mvr
-    case mBakers of
-        Nothing -> return (queryResultCode QRNotFound)
-        Just instances -> do
-            copyHashTo outHash bh
-            _ <- enqueueMessages (sender channel) instances
-            return (queryResultCode QRSuccess)
+    response <- runMVR (Q.getRegisteredBakers bhi) mvr
+    returnStreamWithBlock (sender channel) outHash response
 
 getPoolInfoV2 ::
     StablePtr Ext.ConsensusRunner ->
@@ -577,10 +556,10 @@ getPoolInfoV2 cptr blockType blockHashPtr bakerId outHash outVec copierCbk = do
     Ext.ConsensusRunner mvr <- deRefStablePtr cptr
     let copier = callCopyToVecCallback copierCbk
     bhi <- decodeBlockHashInput blockType blockHashPtr
-    (bh, status) <- runMVR (Q.getPoolStatus bhi (Just $ fromIntegral bakerId)) mvr
-    copyHashTo outHash bh
-    case toProto <$> status of
-        Just (Left proto) -> do
+    response <- runMVR (Q.getPoolStatus bhi (Just $ fromIntegral bakerId)) mvr
+    copyHashTo outHash response
+    case fmap toProto <$> response of
+        Q.BQRBlock _ (Just (Left proto)) -> do
             let encoded = Proto.encodeMessage proto
             BS.unsafeUseAsCStringLen encoded (\(ptr, len) -> copier outVec (castPtr ptr) (fromIntegral len))
             return $ queryResultCode QRSuccess
@@ -602,10 +581,10 @@ getPassiveDelegationInfoV2 cptr blockType blockHashPtr outHash outVec copierCbk 
     Ext.ConsensusRunner mvr <- deRefStablePtr cptr
     let copier = callCopyToVecCallback copierCbk
     bhi <- decodeBlockHashInput blockType blockHashPtr
-    (bh, status) <- runMVR (Q.getPoolStatus bhi Nothing) mvr
-    copyHashTo outHash bh
-    case toProto <$> status of
-        Just (Right proto) -> do
+    response <- runMVR (Q.getPoolStatus bhi Nothing) mvr
+    copyHashTo outHash response
+    case fmap toProto <$> response of
+        Q.BQRBlock _ (Just (Right proto)) -> do
             let encoded = Proto.encodeMessage proto
             BS.unsafeUseAsCStringLen encoded (\(ptr, len) -> copier outVec (castPtr ptr) (fromIntegral len))
             return $ queryResultCode QRSuccess
@@ -670,15 +649,17 @@ getPoolDelegatorsV2 cptr channel blockType blockHashPtr bakerId outHash cbk = do
     Ext.ConsensusRunner mvr <- deRefStablePtr cptr
     let sender = callChannelSendCallback cbk
     bhi <- decodeBlockHashInput blockType blockHashPtr
-    (bh, eitherDelegators) <- runMVR (Q.getDelegators bhi (Just $ fromIntegral bakerId)) mvr
-    case eitherDelegators of
-        Left Q.GDEUnsupportedProtocolVersion -> return $ queryResultCode QRInvalidArgument
-        Left Q.GDEPoolNotFound -> return $ queryResultCode QRNotFound
-        Left Q.GDEBlockNotFound -> return $ queryResultCode QRNotFound
-        Right delegators -> do
-            copyHashTo outHash bh
-            _ <- enqueueMessages (sender channel) delegators
-            return (queryResultCode QRSuccess)
+    response <- runMVR (Q.getDelegators bhi (Just $ fromIntegral bakerId)) mvr
+    copyHashTo outHash response
+    case response of
+        Q.BQRBlock _ eitherDelegators ->
+            case eitherDelegators of
+                Left Q.GDEUnsupportedProtocolVersion -> return $ queryResultCode QRInvalidArgument
+                Left Q.GDEPoolNotFound -> return $ queryResultCode QRNotFound
+                Right delegators -> do
+                    _ <- enqueueMessages (sender channel) delegators
+                    return (queryResultCode QRSuccess)
+        _ -> return $ queryResultCode QRNotFound
 
 getPoolDelegatorsRewardPeriodV2 ::
     StablePtr Ext.ConsensusRunner ->
@@ -697,15 +678,17 @@ getPoolDelegatorsRewardPeriodV2 cptr channel blockType blockHashPtr bakerId outH
     Ext.ConsensusRunner mvr <- deRefStablePtr cptr
     let sender = callChannelSendCallback cbk
     bhi <- decodeBlockHashInput blockType blockHashPtr
-    (bh, eitherDelegators) <- runMVR (Q.getDelegatorsRewardPeriod bhi (Just $ fromIntegral bakerId)) mvr
-    case eitherDelegators of
-        Left Q.GDEUnsupportedProtocolVersion -> return $ queryResultCode QRInvalidArgument
-        Left Q.GDEPoolNotFound -> return $ queryResultCode QRNotFound
-        Left Q.GDEBlockNotFound -> return $ queryResultCode QRNotFound
-        Right delegators -> do
-            copyHashTo outHash bh
-            _ <- enqueueMessages (sender channel) delegators
-            return (queryResultCode QRSuccess)
+    response <- runMVR (Q.getDelegatorsRewardPeriod bhi (Just $ fromIntegral bakerId)) mvr
+    copyHashTo outHash response
+    case response of
+        Q.BQRBlock _ eitherDelegators ->
+            case eitherDelegators of
+                Left Q.GDEUnsupportedProtocolVersion -> return $ queryResultCode QRInvalidArgument
+                Left Q.GDEPoolNotFound -> return $ queryResultCode QRNotFound
+                Right delegators -> do
+                    _ <- enqueueMessages (sender channel) delegators
+                    return (queryResultCode QRSuccess)
+        _ -> return $ queryResultCode QRNotFound
 
 getPassiveDelegatorsV2 ::
     StablePtr Ext.ConsensusRunner ->
@@ -722,15 +705,17 @@ getPassiveDelegatorsV2 cptr channel blockType blockHashPtr outHash cbk = do
     Ext.ConsensusRunner mvr <- deRefStablePtr cptr
     let sender = callChannelSendCallback cbk
     bhi <- decodeBlockHashInput blockType blockHashPtr
-    (bh, eitherDelegators) <- runMVR (Q.getDelegators bhi Nothing) mvr
-    case eitherDelegators of
-        Left Q.GDEUnsupportedProtocolVersion -> return $ queryResultCode QRInvalidArgument
-        Left Q.GDEPoolNotFound -> return $ queryResultCode QRNotFound
-        Left Q.GDEBlockNotFound -> return $ queryResultCode QRNotFound
-        Right delegators -> do
-            copyHashTo outHash bh
-            _ <- enqueueMessages (sender channel) delegators
-            return (queryResultCode QRSuccess)
+    response <- runMVR (Q.getDelegators bhi Nothing) mvr
+    copyHashTo outHash response
+    case response of
+        Q.BQRBlock _ eitherDelegators ->
+            case eitherDelegators of
+                Left Q.GDEUnsupportedProtocolVersion -> return $ queryResultCode QRInvalidArgument
+                Left Q.GDEPoolNotFound -> return $ queryResultCode QRNotFound
+                Right delegators -> do
+                    _ <- enqueueMessages (sender channel) delegators
+                    return (queryResultCode QRSuccess)
+        _ -> return $ queryResultCode QRNotFound
 
 getPassiveDelegatorsRewardPeriodV2 ::
     StablePtr Ext.ConsensusRunner ->
@@ -747,15 +732,17 @@ getPassiveDelegatorsRewardPeriodV2 cptr channel blockType blockHashPtr outHash c
     Ext.ConsensusRunner mvr <- deRefStablePtr cptr
     let sender = callChannelSendCallback cbk
     bhi <- decodeBlockHashInput blockType blockHashPtr
-    (bh, eitherDelegators) <- runMVR (Q.getDelegatorsRewardPeriod bhi Nothing) mvr
-    case eitherDelegators of
-        Left Q.GDEUnsupportedProtocolVersion -> return $ queryResultCode QRInvalidArgument
-        Left Q.GDEPoolNotFound -> return $ queryResultCode QRNotFound
-        Left Q.GDEBlockNotFound -> return $ queryResultCode QRNotFound
-        Right delegators -> do
-            copyHashTo outHash bh
-            _ <- enqueueMessages (sender channel) delegators
-            return (queryResultCode QRSuccess)
+    response <- runMVR (Q.getDelegatorsRewardPeriod bhi Nothing) mvr
+    copyHashTo outHash response
+    case response of
+        Q.BQRBlock _ eitherDelegators ->
+            case eitherDelegators of
+                Left Q.GDEUnsupportedProtocolVersion -> return $ queryResultCode QRInvalidArgument
+                Left Q.GDEPoolNotFound -> return $ queryResultCode QRNotFound
+                Right delegators -> do
+                    _ <- enqueueMessages (sender channel) delegators
+                    return (queryResultCode QRSuccess)
+        _ -> return $ queryResultCode QRNotFound
 
 getBranchesV2 ::
     StablePtr Ext.ConsensusRunner ->
@@ -767,7 +754,7 @@ getBranchesV2 cptr outVec copierCbk = do
     Ext.ConsensusRunner mvr <- deRefStablePtr cptr
     let copier = callCopyToVecCallback copierCbk
     result <- runMVR Q.getBranches mvr
-    returnMessage (copier outVec) $ Just result
+    returnMessage (copier outVec) result
 
 getElectionInfoV2 ::
     StablePtr Ext.ConsensusRunner ->
@@ -785,16 +772,15 @@ getElectionInfoV2 cptr blockType blockHashPtr outHash outVec copierCbk = do
     Ext.ConsensusRunner mvr <- deRefStablePtr cptr
     let copier = callCopyToVecCallback copierCbk
     bhi <- decodeBlockHashInput blockType blockHashPtr
-    (bh, maybeInfo) <- runMVR (Q.getBlockBirkParameters bhi) mvr
-    copyHashTo outHash bh
-    case maybeInfo of
-        Nothing -> return $ queryResultCode QRNotFound
-        Just info -> case toProto info of
-            Nothing -> return $ queryResultCode QRInternalError
-            Just proto -> do
-                let encoded = Proto.encodeMessage proto
-                BS.unsafeUseAsCStringLen encoded (\(ptr, len) -> copier outVec (castPtr ptr) (fromIntegral len))
-                return $ queryResultCode QRSuccess
+    response <- runMVR (Q.getBlockBirkParameters bhi) mvr
+    copyHashTo outHash response
+    case toProto <$> response of
+        Q.BQRBlock _ Nothing -> return $ queryResultCode QRInternalError
+        Q.BQRBlock _ (Just proto) -> do
+            let encoded = Proto.encodeMessage proto
+            BS.unsafeUseAsCStringLen encoded (\(ptr, len) -> copier outVec (castPtr ptr) (fromIntegral len))
+            return $ queryResultCode QRSuccess
+        Q.BQRNoBlock -> return $ queryResultCode QRNotFound
 
 getIdentityProvidersV2 ::
     StablePtr Ext.ConsensusRunner ->
@@ -811,13 +797,8 @@ getIdentityProvidersV2 cptr channel blockType blockHashPtr outHash cbk = do
     Ext.ConsensusRunner mvr <- deRefStablePtr cptr
     let sender = callChannelSendCallback cbk
     bhi <- decodeBlockHashInput blockType blockHashPtr
-    (bh, maybeIdentityProviders) <- runMVR (Q.getAllIdentityProviders bhi) mvr
-    copyHashTo outHash bh
-    case maybeIdentityProviders of
-        Nothing -> return (queryResultCode QRNotFound)
-        Just ipInfos -> do
-            _ <- enqueueMessages (sender channel) ipInfos
-            return (queryResultCode QRSuccess)
+    response <- runMVR (Q.getAllIdentityProviders bhi) mvr
+    returnStreamWithBlock (sender channel) outHash response
 
 getAnonymityRevokersV2 ::
     StablePtr Ext.ConsensusRunner ->
@@ -834,13 +815,8 @@ getAnonymityRevokersV2 cptr channel blockType blockHashPtr outHash cbk = do
     Ext.ConsensusRunner mvr <- deRefStablePtr cptr
     let sender = callChannelSendCallback cbk
     bhi <- decodeBlockHashInput blockType blockHashPtr
-    (bh, maybeAnonymityRevokers) <- runMVR (Q.getAllAnonymityRevokers bhi) mvr
-    copyHashTo outHash bh
-    case maybeAnonymityRevokers of
-        Nothing -> return (queryResultCode QRNotFound)
-        Just arInfos -> do
-            _ <- enqueueMessages (sender channel) arInfos
-            return (queryResultCode QRSuccess)
+    response <- runMVR (Q.getAllAnonymityRevokers bhi) mvr
+    returnStreamWithBlock (sender channel) outHash response
 
 getAccountNonFinalizedTransactionsV2 ::
     StablePtr Ext.ConsensusRunner ->
@@ -873,13 +849,8 @@ getBlockItemsV2 cptr channel blockType blockHashPtr outHash cbk = do
     Ext.ConsensusRunner mvr <- deRefStablePtr cptr
     let sender = callChannelSendCallback cbk
     bhi <- decodeBlockHashInput blockType blockHashPtr
-    (bh, mBis) <- runMVR (Q.getBlockItems bhi) mvr
-    case mBis of
-        Nothing -> return (queryResultCode QRNotFound)
-        Just items -> do
-            copyHashTo outHash bh
-            _ <- enqueueMessages (sender channel) items
-            return (queryResultCode QRSuccess)
+    response <- runMVR (Q.getBlockItems bhi) mvr
+    returnStreamWithBlock (sender channel) outHash response
 
 getBlockTransactionEventsV2 ::
     StablePtr Ext.ConsensusRunner ->
@@ -896,11 +867,11 @@ getBlockTransactionEventsV2 cptr channel blockType blockHashPtr outHash cbk = do
     Ext.ConsensusRunner mvr <- deRefStablePtr cptr
     let sender = callChannelSendCallback cbk
     bhi <- decodeBlockHashInput blockType blockHashPtr
-    (bh, maybeEvents) <- runMVR (Q.getBlockTransactionSummaries bhi) mvr
-    copyHashTo outHash bh
-    case maybeEvents of
-        Nothing -> return (queryResultCode QRNotFound)
-        Just events -> case traverse toProto events of
+    response <- runMVR (Q.getBlockTransactionSummaries bhi) mvr
+    copyHashTo outHash response
+    case response of
+        Q.BQRNoBlock -> return (queryResultCode QRNotFound)
+        Q.BQRBlock bh events -> case traverse toProto events of
             Left e -> do
                 mvLog mvr Logger.External Logger.LLError $ "Internal conversion error occured for block '" ++ show bh ++ "': " ++ show e
                 return $ queryResultCode QRInternalError
@@ -923,13 +894,8 @@ getBlockSpecialEventsV2 cptr channel blockType blockHashPtr outHash cbk = do
     Ext.ConsensusRunner mvr <- deRefStablePtr cptr
     let sender = callChannelSendCallback cbk
     bhi <- decodeBlockHashInput blockType blockHashPtr
-    (bh, maybeEvents) <- runMVR (Q.getBlockSpecialEvents bhi) mvr
-    copyHashTo outHash bh
-    case maybeEvents of
-        Nothing -> return (queryResultCode QRNotFound)
-        Just events -> do
-            _ <- enqueueMessages (sender channel) $ toList events
-            return (queryResultCode QRSuccess)
+    response <- runMVR (Q.getBlockSpecialEvents bhi) mvr
+    returnStreamWithBlock (sender channel) outHash (toList <$> response)
 
 getBlockPendingUpdatesV2 ::
     StablePtr Ext.ConsensusRunner ->
@@ -946,13 +912,8 @@ getBlockPendingUpdatesV2 cptr channel blockType blockHashPtr outHash cbk = do
     Ext.ConsensusRunner mvr <- deRefStablePtr cptr
     let sender = callChannelSendCallback cbk
     bhi <- decodeBlockHashInput blockType blockHashPtr
-    (bh, maybeUpdates) <- runMVR (Q.getBlockPendingUpdates bhi) mvr
-    copyHashTo outHash bh
-    case maybeUpdates of
-        Nothing -> return (queryResultCode QRNotFound)
-        Just pendingUpdates -> do
-            _ <- enqueueMessages (sender channel) pendingUpdates
-            return (queryResultCode QRSuccess)
+    response <- runMVR (Q.getBlockPendingUpdates bhi) mvr
+    returnStreamWithBlock (sender channel) outHash response
 
 getNextUpdateSequenceNumbersV2 ::
     StablePtr Ext.ConsensusRunner ->
@@ -1019,34 +980,69 @@ getLastFinalizedBlockSlotTimeV2 cptr = do
     Ext.ConsensusRunner mvr <- deRefStablePtr cptr
     runMVR Q.getLastFinalizedSlotTime mvr
 
--- |Write the hash to the provided pointer, and if the message is given encode and
--- write it using the provided callback.
+-- |Write the hash to the provided pointer, encode the message given and write it using the provided callback.
 returnMessageWithBlock ::
     (Proto.Message (Output a), ToProto a) =>
     (Ptr Word8 -> Int64 -> IO ()) ->
     -- |Out pointer where the hash is written.
     Ptr Word8 ->
-    -- |The hash of the block to which the message belongs, and potentially a
+    -- |The optionally the hash of the block to which the message belongs, and potentially a
     -- message.
-    (Maybe BlockHash, Maybe a) ->
+    Q.BHIQueryResponse a ->
     IO Int64
-returnMessageWithBlock copier outHash (bh, out) = do
-    copyHashTo outHash bh
-    returnMessage copier out
+returnMessageWithBlock copier outHash response = do
+    copyHashTo outHash response
+    case response of
+        Q.BQRNoBlock ->
+            return $ queryResultCode QRNotFound
+        Q.BQRBlock _ out ->
+            returnMessage copier out
+
+-- |Write the hash to the provided pointer, and if the message is given encode and
+-- write it using the provided callback.
+returnMaybeMessageWithBlock ::
+    (Proto.Message (Output a), ToProto a) =>
+    (Ptr Word8 -> Int64 -> IO ()) ->
+    -- |Out pointer where the hash is written.
+    Ptr Word8 ->
+    -- |The optionally the hash of the block to which the message belongs, and potentially a
+    -- message.
+    Q.BHIQueryResponse (Maybe a) ->
+    IO Int64
+returnMaybeMessageWithBlock copier outHash response = do
+    copyHashTo outHash response
+    case response of
+        Q.BQRBlock _ (Just out) ->
+            returnMessage copier out
+        _ ->
+            return $ queryResultCode QRNotFound
 
 -- |If the message is given encode and write it using the provided callback.
 returnMessage ::
     (Proto.Message (Output a), ToProto a) =>
     (Ptr Word8 -> Int64 -> IO ()) ->
-    -- | The potential message.
-    Maybe a ->
+    -- | The message.
+    a ->
     IO Int64
-returnMessage copier res = case res of
-    Nothing -> return $ queryResultCode QRNotFound
-    Just v -> do
-        let encoded = Proto.encodeMessage (toProto v)
-        BS.unsafeUseAsCStringLen encoded (\(ptr, len) -> copier (castPtr ptr) (fromIntegral len))
-        return $ queryResultCode QRSuccess
+returnMessage copier v = do
+    let encoded = Proto.encodeMessage (toProto v)
+    BS.unsafeUseAsCStringLen encoded (\(ptr, len) -> copier (castPtr ptr) (fromIntegral len))
+    return $ queryResultCode QRSuccess
+
+returnStreamWithBlock ::
+    (Proto.Message (Output a), ToProto a) =>
+    (Ptr Word8 -> Int64 -> IO Int32) ->
+    -- |Out pointer where the hash is written.
+    Ptr Word8 ->
+    Q.BHIQueryResponse [a] ->
+    IO Int64
+returnStreamWithBlock callback outHash response = do
+    copyHashTo outHash response
+    case response of
+        Q.BQRBlock _ messages -> do
+            _ <- enqueueMessages callback messages
+            return (queryResultCode QRSuccess)
+        Q.BQRNoBlock -> return (queryResultCode QRNotFound)
 
 enqueueMessages :: (Proto.Message (Output a), ToProto a) => (Ptr Word8 -> Int64 -> IO Int32) -> [a] -> IO ThreadId
 enqueueMessages callback = enqueueProtoMessages callback . fmap toProto
