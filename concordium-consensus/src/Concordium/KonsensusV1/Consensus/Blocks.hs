@@ -887,9 +887,9 @@ processPendingChild block = do
             Just parent -> do
                 receiveBlockKnownParent parent block >>= \case
                     BlockResultSuccess vb -> do
-                        processReceiveOK parent vb
+                        processReceiveOK True parent vb
                     BlockResultDoubleSign vb -> do
-                        processReceiveOK parent vb
+                        processReceiveOK False parent vb
                     _ -> do
                         processAsDead
             Nothing -> do
@@ -902,10 +902,13 @@ processPendingChild block = do
     processAsDead = do
         blockArriveDead blockHash
         return Nothing
-    processReceiveOK parent vb = do
+    processReceiveOK advertise parent vb = do
         processBlock parent vb >>= \case
             Just newBlock -> do
-                onPendingLive
+                -- We only advertise the block to our peers
+                -- if it was received succesfully. Hence if peers are catching up with us
+                -- they are getting the blocks in the same order as we are.
+                when advertise onPendingLive
                 Just <$> processPendingChildren newBlock
             Nothing -> processAsDead
 
