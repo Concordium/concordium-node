@@ -206,12 +206,24 @@ blockStatusBlock (BlockAlive b) = Just b
 blockStatusBlock (BlockFinalized b) = Just b
 blockStatusBlock _ = Nothing
 
+-- |Returns 'True' just when the 'BlockStatus' is either 'BlockPending' or 'BlockUnknown'.
+isPendingOrUnknown :: BlockStatus pv -> Bool
+isPendingOrUnknown BlockPending{} = True
+isPendingOrUnknown BlockUnknown = True
+isPendingOrUnknown _ = False
+
 -- |A (unidirectional) pattern for matching a block status that is either alive or finalized.
 pattern BlockAliveOrFinalized :: BlockPointer pv -> BlockStatus pv
 pattern BlockAliveOrFinalized b <- (blockStatusBlock -> Just b)
 
+-- |A (unidirectional) pattern for matching a block status that is either pending or unknown.
+pattern BlockPendingOrUnknown :: BlockStatus pv
+pattern BlockPendingOrUnknown <- (isPendingOrUnknown -> True)
+
 -- This tells GHC that these patterns are complete for 'BlockStatus'.
 {-# COMPLETE BlockPending, BlockAliveOrFinalized, BlockDead, BlockUnknown #-}
+{-# COMPLETE BlockPendingOrUnknown, BlockAlive, BlockFinalized, BlockDead #-}
+{-# COMPLETE BlockPendingOrUnknown, BlockAliveOrFinalized, BlockDead #-}
 
 -- |The status of a block as obtained without loading the block from disk.
 data RecentBlockStatus pv

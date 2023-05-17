@@ -147,10 +147,16 @@ receiveTimeoutMessage tm@TimeoutMessage{tmBody = TimeoutMessageBody{..}} skovDat
                         -- it would already have been rejected for an obsolete QC.
                         OldFinalized ->
                             return $ Rejected ObsoleteQCPointer
-                        -- If the block is unknown, we can still proceed provided that we won't
-                        -- need to check the QC. This is the case if we have already checked a QC
-                        -- for the round, and the highest certified block is for a later round.
-                        RecentBlock BlockUnknown
+                        -- If the block is pending or unknown, we can still proceed provided that we
+                        -- won't need to check the QC. This is the case if we have already checked a
+                        -- QC for the round, and the highest certified block is for a later round.
+                        -- We require the latter check because it is not necessarily guaranteed by
+                        -- the former, and if we are to use the timeout message to produce a
+                        -- timeout certificate and subsequently a block, then we must necessarily
+                        -- catch-up in order to do so. This is because the produced block must
+                        -- descend from a block in at least round @qcRound tmQuorumCertificate@,
+                        -- but the highest certified block is currently the best candidate.
+                        RecentBlock BlockPendingOrUnknown
                             | qcRound tmQuorumCertificate
                                 < skovData ^. roundStatus . rsHighestCertifiedBlock . to cbRound,
                               Just (QuorumCertificateCheckedWitness certEpoch) <-
@@ -165,10 +171,6 @@ receiveTimeoutMessage tm@TimeoutMessage{tmBody = TimeoutMessageBody{..}} skovDat
                         -- Here also the QC cannot be valid.
                         RecentBlock BlockDead ->
                             return $ Rejected DeadQCPointer
-                        -- The QC pointer in the timeout message is pending so catch up
-                        -- is required
-                        RecentBlock (BlockPending _) ->
-                            return CatchupRequired
                         RecentBlock (BlockAliveOrFinalized qcBlock) ->
                             checkForDuplicate finInfo finalizationCommittee (Present qcBlock)
   where
@@ -213,8 +215,12 @@ receiveTimeoutMessage tm@TimeoutMessage{tmBody = TimeoutMessageBody{..}} skovDat
                             }
     -- Get an existing message if present otherwise return nothing.
     getExistingMessage = case skovData ^. currentTimeoutMessages of
-        Absent -> Nothing
-        Present messages -> messages ^? to tmFirstEpochTimeouts . ix tmFinalizerIndex
+        Present messages
+            | tmFirstEpoch messages == qcEpoch tmQuorumCertificate ->
+                tmFirstEpochTimeouts messages ^? ix tmFinalizerIndex
+            | tmFirstEpoch messages + 1 == qcEpoch tmQuorumCertificate ->
+                tmSecondEpochTimeouts messages ^? ix tmFinalizerIndex
+        _ -> Nothing
     -- The genesis block hash.
     genesisBlockHash = skovData ^. genesisMetadata . to gmCurrentGenesisHash
     -- The current round with respect to the tree state supplied.
