@@ -271,8 +271,9 @@ executeTimeoutMessage (PartiallyVerifiedTimeoutMessage{..})
     | not pvtmAggregateSignatureValid = do
         flag $ InvalidTimeoutSignature pvtmTimeoutMessage
         return InvalidAggregateSignature
-    -- Note: deserialization of the 'TimeoutMessageBody' checks that the timeout round and
-    -- QC round are coherent, so we do not need to check that here.
+    -- Note: deserialization of the 'TimeoutMessageBody' checks the following
+    -- - that the timeout round and QC round are coherent, so we do not need to check that here.
+    -- - that @tmEpoch >= qcEpoch tmQuorumCertificate@, so we do not need to check that here.
     | Absent <- pvtmBlock = do
         -- In this case, we have already checked a valid QC for the round and epoch of the timeout
         -- message, so we just need to process the timeout.
