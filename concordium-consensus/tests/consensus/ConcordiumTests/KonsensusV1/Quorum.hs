@@ -135,7 +135,7 @@ testReceiveQuorumMessage = describe "Receive quorum message" $ do
     it "invalid finalizer rejects" $ receiveAndCheck sd invalidFinalizerMessage $ Rejected NotAFinalizer
     it "duplicate message" $ receiveAndCheck sd duplicateMessage $ Rejected Duplicate
     it "invalid signature" $ receiveAndCheck sd invalidSignatureMessage $ Rejected InvalidSignature
-    it "double signing" $ receiveAndCheck sd doubleSigningMessage $ Rejected AlreadySigned
+    it "double signing" $ receiveAndCheck sd doubleSigningMessage CatchupRequired
     it "unknown block" $ receiveAndCheck sd unknownBlockMessage CatchupRequired
     it "invalid block | dead" $ receiveAndCheck sd deadBlockMessage $ Rejected InvalidBlock
     it "round inconsistency" $ receiveAndCheck (sd' 0 1) inconsistentRoundsMessage $ Rejected InconsistentRounds
