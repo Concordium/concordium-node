@@ -369,7 +369,7 @@ testReceiveTimeoutMessage = describe "Receive timeout message" $ do
     it "initializes catch-up when the qc pointer is unknown" $ receiveAndCheck sd unknownQCPointer CatchupRequired
     it "rejects when the qc points to a dead block" $ receiveAndCheck sd qcPointerIsDead $ Rejected DeadQCPointer
     it "initializes catch-up when qc pointer is pending" $ receiveAndCheck sd qcPointerIsPending CatchupRequired
-    it "returns duplicate upon a duplicate timeout message" $ receiveAndCheck sd duplicateMessage Duplicate
+    it "returns duplicate upon a duplicate timeout message" $ receiveAndCheck sd duplicateMessage $ Rejected Duplicate
     it "rejects double signing" $ receiveAndCheck sd doubleSignMessage $ Rejected DoubleSigning
     it "received a valid timeout message" $
         receiveAndCheck sd validTimeoutMessage $

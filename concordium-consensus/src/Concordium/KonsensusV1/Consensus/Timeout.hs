@@ -57,6 +57,8 @@ data ReceiveTimeoutMessageRejectReason
     | -- |The epoch of the 'QuorumCertificate' does not agree with the epoch of an existing
       -- certificate for that round.
       BadQCEpoch
+    | -- |The 'TimeoutMessage' is a duplicate.
+      Duplicate
     deriving (Eq, Show)
 
 -- |Possibly return codes for when receiving
@@ -71,8 +73,6 @@ data ReceiveTimeoutMessageResult pv
     | -- |The consensus runner needs to catch up before processing the
       -- 'TimeoutMessage'.
       CatchupRequired
-    | -- |The 'TimeoutMessage' is a duplicate.
-      Duplicate
     deriving (Eq, Show)
 
 -- |A partially verified 'TimeoutMessage' with its associated finalization committees.
@@ -193,7 +193,7 @@ receiveTimeoutMessage tm@TimeoutMessage{tmBody = TimeoutMessageBody{..}} skovDat
         case getExistingMessage of
             -- The message is a duplicate. Check for double signing.
             Just existingMessage
-                | existingMessage == tm -> return Duplicate
+                | existingMessage == tm -> return $ Rejected Duplicate
                 | otherwise -> do
                     -- The finalizer has already sent a timeout message for this round, this is not
                     -- allowed so the behaviour is flagged and timeout message is rejected.
