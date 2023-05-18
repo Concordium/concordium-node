@@ -280,10 +280,10 @@ recordCheckedQuorumCertificate qc =
   where
     !witness = toQuorumCertificateWitness qc
 
--- |Remove all entries from 'roundExistingQCs' with a 'Round' less than or equal to the
+-- |Remove all entries from 'roundExistingQCs' with a 'Round' less than to the
 -- supplied 'Round'.
 purgeRoundExistingQCs :: (MonadState (SkovData pv) m) => Round -> m ()
-purgeRoundExistingQCs rnd = roundExistingQCs %=! snd . Map.split rnd
+purgeRoundExistingQCs rnd = roundExistingQCs %=! snd . Map.split (rnd - 1)
 
 -- |Create an initial 'SkovData pv'
 -- This constructs a 'SkovData pv' from a genesis block
