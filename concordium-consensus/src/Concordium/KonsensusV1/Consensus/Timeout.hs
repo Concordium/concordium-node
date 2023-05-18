@@ -7,9 +7,9 @@ import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State
 import Data.Foldable
+import Data.List (union)
 import qualified Data.Map.Strict as Map
 import Data.Maybe
-import qualified Data.Set as Set
 import Lens.Micro.Platform
 
 import Concordium.Genesis.Data.BaseV1
@@ -287,6 +287,11 @@ executeTimeoutMessage (PartiallyVerifiedTimeoutMessage{..})
                 -- Check if the quorum certificate of the timeout message finalizes any blocks.
                 checkFinality tmQuorumCertificate
                 -- Advance the round if we can advance by the quorum certificate.
+                -- Note that we have either @currentRound == tmRound@ or
+                -- @currentRound < tmRound && tmRound - 1 == qcRound tmQuorumCertificate@
+                -- In the latter case we advance by the quorum certificate associated
+                -- with the timeout message and the @currentRound@ becomes
+                -- @1 + qcRound tmQuorumCertificate@, hence @currentRound@ becomes @tmRound@.
                 currentRound <- use $ roundStatus . rsCurrentRound
                 let newCertifiedBlock =
                         CertifiedBlock
@@ -491,18 +496,36 @@ processTimeout tm = do
             let firstBakerIds
                     | Just firstFinComm <- getFinalizersForEpoch tmFirstEpoch =
                         bakerIdsFor firstFinComm tmFirstEpochTimeouts
-                    | otherwise = Set.empty
+                    | otherwise = []
             -- The baker IDs of the finalizers who have signed in the second epoch.
             let secondBakerIds
                     | not (null tmSecondEpochTimeouts),
                       Just secondFinComm <- getFinalizersForEpoch (tmFirstEpoch + 1) =
                         bakerIdsFor secondFinComm tmSecondEpochTimeouts
-                    | otherwise = Set.empty
-            -- Compute the voter power in the epoch of the highest QC for a baker by the baker ID.
-            let getBakerVoterPower = fmap finalizerWeight . finalizerByBakerId finCommQC
+                    | otherwise = []
+            -- Compute the accummulated voting power by folding over the finalization committee.
+            -- We are here making use of the fact that the finalization committee is ordered
+            -- by ascending baker ids and that the list of bakerids are also ordered by ascending baker id.
+            -- Moreover there MUST be no duplicates in either @firstBakerIds@ or @secondBakerIds@.
             let voterPowerSum =
-                    sum . mapMaybe getBakerVoterPower $
-                        Set.toList (firstBakerIds `Set.union` secondBakerIds)
+                    fst $
+                        foldl'
+                            ( \(accum, bids) finalizer ->
+                                -- We are done accummulating.
+                                if null bids
+                                    then (accum, [])
+                                    else
+                                        if head bids == finalizerBakerId finalizer
+                                            then -- If we have a match we add the weight to the
+                                            -- accummulator and proceed to the next baker id
+                                            -- and finalizer.
+                                                (accum + finalizerWeight finalizer, tail bids)
+                                            else -- If we did not have a match we continue
+                                            -- checking with a new finalizer.
+                                                (accum, bids)
+                            )
+                            (0, firstBakerIds `union` secondBakerIds)
+                            (committeeFinalizers finCommQC)
             let totalWeightRational = toRational $ committeeTotalWeight finCommQC
             genesisSigThreshold <- toRational . genesisSignatureThreshold . gmParameters <$> use genesisMetadata
             let voterPowerSumRational = toRational voterPowerSum
@@ -515,11 +538,13 @@ processTimeout tm = do
                           rtTimeoutCertificate = tc
                         }
   where
+    -- baker ids for the finalizers who have signed off the message.
+    -- Note that the finalization committee is sorted by ascending baker ids.
     bakerIdsFor finComm timeouts =
-        Set.fromList $
-            mapMaybe
-                (fmap finalizerBakerId . finalizerByIndex finComm)
-                (Map.keys timeouts)
+        mapMaybe
+            (fmap finalizerBakerId . finalizerByIndex finComm)
+            -- Note that @Map.keys@ returns the keys in ascending order.
+            (Map.keys timeouts)
 
 -- |Make a 'TimeoutCertificate' from a 'TimeoutMessages'.
 --
