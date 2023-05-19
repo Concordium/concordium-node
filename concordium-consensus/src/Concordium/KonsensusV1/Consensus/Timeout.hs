@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -87,10 +88,8 @@ data PartiallyVerifiedTimeoutMessage pv = PartiallyVerifiedTimeoutMessage
       -- |Whether the aggregate signature is valid.
       -- This is intentionally lazy, as forcing this will perform the signature check.
       pvtmAggregateSignatureValid :: Bool,
-      -- |Block pointer for the block referenced by the 'QuorumCertificate'.
-      -- If this is absent, then the quorum certificate is for a round less than that of the highest
-      -- certified block, and we have already checked a 'QuorumCertificate' for the same round
-      -- and epoch.
+      -- |Block pointer for the block referenced by the 'QuorumCertificate' of the 'TimeoutMessage'.
+      -- This is @Absent@ when the block that the 'QuorumCertificate' refers to is either 'BlockPending' or 'BlockUnknown'.
       pvtmBlock :: !(Option (BlockPointer pv))
     }
     deriving (Eq, Show)
@@ -511,7 +510,7 @@ processTimeout tm = do
             let voterPowerSum =
                     fst $
                         foldl'
-                            ( \(accum, bids) finalizer ->
+                            ( \(!accum, bids) finalizer ->
                                 -- We are done accummulating.
                                 if null bids
                                     then (accum, [])
