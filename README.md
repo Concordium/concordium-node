@@ -79,7 +79,7 @@ Code should be formatted using [`fourmolu`](https://github.com/fourmolu/fourmolu
 version `0.9.0.0` and using the config `fourmolu.yaml` found in the project root.
 The CI is setup to ensure the code follows this style.
 
-To check the formatting locally run the following commnad from the project root:
+To check the formatting locally run the following command from the project root:
 
 **On unix-like systems**:
 
@@ -117,5 +117,5 @@ The CI is configured to check two things
   formatting. Unfortunately the stable version of the tool is quite outdated, so
   we use a nightly version, which is updated a few times a year. Thus in order
   for the CI to pass you will need to install the relevant nightly version, see
-  see the `rustfmt` job in the file [.github/workflows/build-test.yaml](.github/workflows/build-test.yaml),
+  the `rustfmt` job in the file [.github/workflows/build-test.yaml](.github/workflows/build-test.yaml),
   look for `nightly-...`).

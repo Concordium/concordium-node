@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -7,9 +8,9 @@ import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State
 import Data.Foldable
+import Data.List (union)
 import qualified Data.Map.Strict as Map
 import Data.Maybe
-import qualified Data.Set as Set
 import Lens.Micro.Platform
 
 import Concordium.Genesis.Data.BaseV1
@@ -54,11 +55,13 @@ data ReceiveTimeoutMessageRejectReason
     | -- |The 'QuorumCertificate' is pointing to a block prior
       -- to the last finalized block.
       ObsoleteQCPointer
-    | -- |The 'QuorumCertificate' is ponting to a dead block.
+    | -- |The 'QuorumCertificate' is pointing to a dead block.
       DeadQCPointer
     | -- |The epoch of the 'QuorumCertificate' does not agree with the epoch of an existing
       -- certificate for that round.
       BadQCEpoch
+    | -- |The 'TimeoutMessage' is a duplicate.
+      Duplicate
     deriving (Eq, Show)
 
 -- |Possibly return codes for when receiving
@@ -73,8 +76,6 @@ data ReceiveTimeoutMessageResult pv
     | -- |The consensus runner needs to catch up before processing the
       -- 'TimeoutMessage'.
       CatchupRequired
-    | -- |The 'TimeoutMessage' is a duplicate.
-      Duplicate
     deriving (Eq, Show)
 
 -- |A partially verified 'TimeoutMessage' with its associated finalization committees.
@@ -89,10 +90,8 @@ data PartiallyVerifiedTimeoutMessage pv = PartiallyVerifiedTimeoutMessage
       -- |Whether the aggregate signature is valid.
       -- This is intentionally lazy, as forcing this will perform the signature check.
       pvtmAggregateSignatureValid :: Bool,
-      -- |Block pointer for the block referenced by the 'QuorumCertificate'.
-      -- If this is absent, then the quorum certificate is for a round less than that of the highest
-      -- certified block, and we have already checked a 'QuorumCertificate' for the same round
-      -- and epoch.
+      -- |Block pointer for the block referenced by the 'QuorumCertificate' of the 'TimeoutMessage'.
+      -- This is @Absent@ when the block that the 'QuorumCertificate' refers to is either 'BlockPending' or 'BlockUnknown'.
       pvtmBlock :: !(Option (BlockPointer pv))
     }
     deriving (Eq, Show)
@@ -116,11 +115,11 @@ receiveTimeoutMessage tm@TimeoutMessage{tmBody = TimeoutMessageBody{..}} skovDat
     | tmRound < currentRound =
         return $ Rejected ObsoleteRound
     -- If the round or epoch of the qc associated with the timeout message
-    -- is behind the last finalized block then reject the timeout message,
-    -- then it means that the sender of the timeout message was lacking behind for some reason.
-    -- This can for instance happen if the sender of the timeout message
-    -- did not receive the quorum message before sending out the time out message
-    -- due to e.g. network issues.
+    -- is behind the last finalized block then reject the timeout message.
+    -- This happens in case of dishonest behavior as it is checked above that the round of
+    -- the timeout message is greater or equal to the current round, hence an honest
+    -- sender of the timeout message must have progressed their QC to at least the
+    -- last finalized block.
     | let lastFin = skovData ^. lastFinalized,
       qcRound tmQuorumCertificate < blockRound lastFin
         || qcEpoch tmQuorumCertificate < blockEpoch lastFin =
@@ -144,82 +143,100 @@ receiveTimeoutMessage tm@TimeoutMessage{tmBody = TimeoutMessageBody{..}} skovDat
                   qcRound tmQuorumCertificate < tmRound - 1 ->
                     return CatchupRequired
                 | otherwise ->
-                    getRecentBlockStatus (qcBlock tmQuorumCertificate) skovData >>= \case
-                        -- In this case, the quorum certificate cannot be valid, because otherwise
-                        -- it would already have been rejected for an obsolete QC.
-                        OldFinalized ->
-                            return $ Rejected ObsoleteQCPointer
-                        -- If the block is unknown, we can still proceed provided that we won't
-                        -- need to check the QC. This is the case if we have already checked a QC
-                        -- for the round, and the highest certified block is for a later round.
-                        RecentBlock BlockUnknown
-                            | qcRound tmQuorumCertificate
-                                < skovData ^. roundStatus . rsHighestCertifiedBlock . to cbRound,
-                              Just (QuorumCertificateWitness certEpoch) <-
-                                skovData ^. roundExistingQuorumCertificate (qcRound tmQuorumCertificate) ->
-                                if qcEpoch tmQuorumCertificate == certEpoch
-                                    then checkForDuplicate finInfo finalizationCommittee Absent
-                                    else return $ Rejected BadQCEpoch
-                            | otherwise ->
-                                return CatchupRequired
-                        -- The QC pointer points to a block that has been marked dead.
-                        -- (Dead blocks are either invalid or branch from a pruned block.)
-                        -- Here also the QC cannot be valid.
-                        RecentBlock BlockDead ->
-                            return $ Rejected DeadQCPointer
-                        -- The QC pointer in the timeout message is pending so catch up
-                        -- is required
-                        RecentBlock (BlockPending _) ->
-                            return CatchupRequired
-                        RecentBlock (BlockAliveOrFinalized qcBlock) ->
-                            checkForDuplicate finInfo finalizationCommittee (Present qcBlock)
+                    checkForDuplicate $
+                        getRecentBlockStatus (qcBlock tmQuorumCertificate) skovData >>= \case
+                            -- In this case, the quorum certificate cannot be valid, because otherwise
+                            -- it would already have been rejected for an obsolete QC.
+                            OldFinalized ->
+                                return $ Rejected ObsoleteQCPointer
+                            -- The QC pointer points to a block that has been marked dead.
+                            -- (Dead blocks are either invalid or branch from a pruned block.)
+                            -- Here also the QC cannot be valid.
+                            RecentBlock BlockDead ->
+                                return $ Rejected DeadQCPointer
+                            -- The timeout message is now verified and ready for being retransmitted.
+                            RecentBlock (BlockAliveOrFinalized qcBlock) ->
+                                received finInfo finalizationCommittee (Present qcBlock)
+                            -- If the block is pending or unknown, we can still proceed provided that we
+                            -- won't need to check the QC. This is the case if we have already checked a
+                            -- QC for the round, and the highest certified block is for a later round.
+                            -- We require the latter check because it is not necessarily guaranteed by
+                            -- the former, and if we are to use the timeout message to produce a
+                            -- timeout certificate and subsequently a block, then we must necessarily
+                            -- catch-up in order to do so. This is because the produced block must
+                            -- descend from a block in at least round @qcRound tmQuorumCertificate@,
+                            -- but the highest certified block is currently the best candidate.
+                            RecentBlock BlockPendingOrUnknown
+                                | qcRound tmQuorumCertificate
+                                    < skovData ^. roundStatus . rsHighestCertifiedBlock . to cbRound,
+                                  Just (QuorumCertificateCheckedWitness certEpoch) <-
+                                    skovData ^. roundExistingQuorumCertificate (qcRound tmQuorumCertificate) ->
+                                    -- Check whether we have already checked a QC for the @Round@
+                                    -- and @Epoch@ of the @tmQuorumCertificate@.
+                                    if qcEpoch tmQuorumCertificate == certEpoch
+                                        then received finInfo finalizationCommittee Absent
+                                        else return $ Rejected BadQCEpoch
+                                | otherwise ->
+                                    return CatchupRequired
   where
     -- Get the bakers and finalizers for the epoch of the timeout message's QC.
     -- If they are not available, trigger catch-up.
     withFinalizers cont = case getBakersForEpoch (qcEpoch tmQuorumCertificate) skovData of
-        Nothing -> return CatchupRequired
+        -- Since we have checked that @tmEpoch <= theCurrentEpoch@ and by definition
+        -- we have @tmEpoch >= qcEpoch@ then if the finalizers cannot be retrieved
+        -- it must mean that the timeout message is from the past.
+        Nothing -> return $ Rejected ObsoleteQC
         Just bakers -> cont (bakers ^. bfFinalizers)
     -- Look up the finalizer in the finalization committee.
     -- Reject with 'NotAFinalizer' if the finalizer index is not valid in the committee.
     withFinalizer finalizers cont = case finalizerByIndex finalizers tmFinalizerIndex of
         Nothing -> return $ Rejected NotAFinalizer
         Just finalizer -> cont finalizer
-    -- Check the timeout message when the QC pointer is alive or finalized, or is unknown but a QC
-    -- for the given round has already been verified.
-    checkForDuplicate finalizerInfo qcFinalizationCommittee mBlock =
+    -- Check whether this 'TimeoutMessage' is a duplicate or an instance
+    -- of double signing.
+    -- If neither of these are the cases we continue verifying the
+    -- timeout message.
+    checkForDuplicate cont =
         case getExistingMessage of
             -- The message is a duplicate. Check for double signing.
             Just existingMessage
-                | existingMessage == tm -> return Duplicate
+                | existingMessage == tm -> return $ Rejected Duplicate
                 | otherwise -> do
                     -- The finalizer has already sent a timeout message for this round, this is not
                     -- allowed so the behaviour is flagged and timeout message is rejected.
                     flag $! TimeoutDoubleSigning tm existingMessage
                     return $ Rejected DoubleSigning
-            -- Return a 'PartiallyVerifiedTimeoutMessage'
-            Nothing ->
-                return $
-                    Received $
-                        PartiallyVerifiedTimeoutMessage
-                            { pvtmTimeoutMessage = tm,
-                              pvtmQuorumFinalizers = qcFinalizationCommittee,
-                              pvtmAggregateSignatureValid =
-                                checkTimeoutSignatureSingle
-                                    (tmSignatureMessage genesisBlockHash (tmBody tm))
-                                    (finalizerBlsKey finalizerInfo)
-                                    tmAggregateSignature,
-                              pvtmBlock = mBlock
-                            }
+            -- Call the continuation
+            Nothing -> cont
+    -- The timeout message is received and ready for
+    -- retransmission.
+    received finalizerInfo qcFinalizationCommittee mBlock =
+        return $
+            Received $
+                PartiallyVerifiedTimeoutMessage
+                    { pvtmTimeoutMessage = tm,
+                      pvtmQuorumFinalizers = qcFinalizationCommittee,
+                      pvtmAggregateSignatureValid =
+                        checkTimeoutSignatureSingle
+                            (tmSignatureMessage genesisBlockHash (tmBody tm))
+                            (finalizerBlsKey finalizerInfo)
+                            tmAggregateSignature,
+                      pvtmBlock = mBlock
+                    }
     -- Get an existing message if present otherwise return nothing.
-    getExistingMessage = case skovData ^. receivedTimeoutMessages of
-        Absent -> Nothing
-        Present messages -> messages ^? to tmFirstEpochTimeouts . ix tmFinalizerIndex
+    getExistingMessage = case skovData ^. currentTimeoutMessages of
+        Present messages
+            | tmFirstEpoch messages == qcEpoch tmQuorumCertificate ->
+                tmFirstEpochTimeouts messages ^? ix tmFinalizerIndex
+            | tmFirstEpoch messages + 1 == qcEpoch tmQuorumCertificate ->
+                tmSecondEpochTimeouts messages ^? ix tmFinalizerIndex
+        _ -> Nothing
     -- The genesis block hash.
     genesisBlockHash = skovData ^. genesisMetadata . to gmCurrentGenesisHash
     -- The current round with respect to the tree state supplied.
     currentRound = skovData ^. roundStatus . rsCurrentRound
     -- The current epoch with respect to the tree state supplied.
-    theCurrentEpoch = skovData ^. currentEpoch
+    theCurrentEpoch = skovData ^. roundStatus . rsCurrentEpoch
 
 -- |The result of executing a 'TimeoutMessage'.
 data ExecuteTimeoutMessageResult
@@ -230,9 +247,6 @@ data ExecuteTimeoutMessageResult
     | -- |The 'QuorumCertificate' for the 'TimeoutMessage'
       -- is invalid.
       InvalidQC !QuorumCertificate
-    | -- |The 'QuorumCertificate' for the 'TimeoutMessage'
-      -- is for a wrong 'Epoch'.
-      InvalidQCEpoch !Epoch !QuorumCertificate
     deriving (Eq, Show)
 
 -- |Execute a 'PartiallyVerifiedTimeoutMessage' that has been _received_ ('receiveTimeoutMessage') prior to
@@ -254,7 +268,7 @@ executeTimeoutMessage ::
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
       LowLevel.MonadTreeStateStore m,
       TimerMonad m,
-      MonadMulticast m,
+      MonadBroadcast m,
       MonadReader r m,
       HasBakerContext r
     ) =>
@@ -268,56 +282,46 @@ executeTimeoutMessage (PartiallyVerifiedTimeoutMessage{..})
     | not pvtmAggregateSignatureValid = do
         flag $ InvalidTimeoutSignature pvtmTimeoutMessage
         return InvalidAggregateSignature
-    -- Note: deserialization of the 'TimeoutMessageBody' checks that the timeout round and
-    -- QC round are coherent, so we do not need to check that here.
+    -- Note that we now know that the epoch of the qc is valid as
+    -- otherwise it would've been rejected in 'receiveTimeoutMessage'.
+
+    -- Note: deserialization of the 'TimeoutMessageBody' checks the following
+    -- - that the timeout round and QC round are coherent, so we do not need to check that here.
+    -- - that @tmEpoch >= qcEpoch tmQuorumCertificate@, so we do not need to check that here.
     | Absent <- pvtmBlock = do
         -- In this case, we have already checked a valid QC for the round and epoch of the timeout
-        -- message, so we just need to process the timeout.
+        -- message, but the message is on either a 'BlockPending' or 'BlockUnknown' block.
+        -- We just need to process the timeout.
         processTimeout pvtmTimeoutMessage
         return ExecutionSuccess
     | Present block <- pvtmBlock = do
-        highestQCRound <- use $ roundStatus . rsHighestCertifiedBlock . to cbRound
-        -- Check the quorum certificate if it's from a round we have not checked before.
-        if qcRound tmQuorumCertificate > highestQCRound
-            then checkQC $ do
-                -- The quorum certificate is valid and we check whether we can advance by it.
-                -- Check if the quorum certificate of the timeout message finalizes any blocks.
-                checkFinality tmQuorumCertificate
-                -- Advance the round if we can advance by the quorum certificate.
-                currentRound <- use $ roundStatus . rsCurrentRound
-                when (currentRound <= qcRound tmQuorumCertificate) $
-                    advanceRoundWithQuorum
-                        CertifiedBlock
-                            { cbQuorumCertificate = tmQuorumCertificate,
-                              cbQuorumBlock = block
-                            }
-                -- Record the witness of the quorum certificate in the existing QCs on the treestate.
-                recordCheckedQuorumCertificate tmQuorumCertificate
-                -- Process the timeout
-                processTimeout pvtmTimeoutMessage
-                return ExecutionSuccess
-            else do
-                -- Check whether we have already checked a QC for the round
-                -- As the timeout message has been successfully received before this we know that
-                -- the QC is for a round greater than the last finalized block.
-                use (roundExistingQuorumCertificate (qcRound tmQuorumCertificate)) >>= \case
-                    -- We only check the QC if we haven't done so for the round already.
-                    Nothing ->
-                        checkQC $ do
-                            -- The quorum certificate is valid so check whether it finalises any blocks.
-                            checkFinality tmQuorumCertificate
-                            processTimeout pvtmTimeoutMessage
-                            return ExecutionSuccess
-                    -- A QC for the QC round is already checked, we just check that the
-                    -- epochs are consistent now.
-                    Just (QuorumCertificateWitness qcEpoch')
-                        | qcEpoch' /= qcEpoch tmQuorumCertificate -> do
-                            -- the qc is invalid since it was for another epoch.
-                            flag $ TimeoutMessageInvalidQC pvtmTimeoutMessage
-                            return $ InvalidQCEpoch qcEpoch' tmQuorumCertificate
-                        | otherwise -> do
-                            processTimeout pvtmTimeoutMessage
-                            return ExecutionSuccess
+        -- In this case we have not checked a QC for the 'Round' and 'Epoch' so we need to
+        -- check it now.
+        checkQC $ do
+            -- Record that we've checked the QC.
+            recordCheckedQuorumCertificate tmQuorumCertificate
+            -- The quorum certificate is valid so check whether it finalises any blocks.
+            checkFinality tmQuorumCertificate
+            -- Advance the round if we can advance by the quorum certificate.
+            -- Note that we have either @currentRound == tmRound@ or
+            -- @currentRound < tmRound && tmRound - 1 == qcRound tmQuorumCertificate@
+            -- In the latter case we advance by the quorum certificate associated
+            -- with the timeout message and the @currentRound@ becomes
+            -- @1 + qcRound tmQuorumCertificate@, hence @currentRound@ becomes @tmRound@.
+            currentRound <- use $ roundStatus . rsCurrentRound
+            let newCertifiedBlock =
+                    CertifiedBlock
+                        { cbQuorumCertificate = tmQuorumCertificate,
+                          cbQuorumBlock = block
+                        }
+            if currentRound <= qcRound tmQuorumCertificate
+                then -- Advance the round with the new certified block.
+                    advanceRoundWithQuorum newCertifiedBlock
+                else -- Otherwise we just update the highest certified block.
+                    roundStatus . rsHighestCertifiedBlock .= newCertifiedBlock
+            -- Process the timeout message
+            processTimeout pvtmTimeoutMessage
+            return ExecutionSuccess
   where
     TimeoutMessageBody{..} = tmBody pvtmTimeoutMessage
     -- Check the quorum certificate of the timeout message.
@@ -339,9 +343,10 @@ executeTimeoutMessage (PartiallyVerifiedTimeoutMessage{..})
 -- |This is 'uponTimeoutEvent' from the bluepaper. If a timeout occurs, a finalizers should call
 -- this function to generate a timeout message, send it out, and process it.
 -- NB: If the caller is not a finalizer, this function does nothing.
+-- Precondition: This function MUST have exclusive write permission to the tree state.
 uponTimeoutEvent ::
     ( MonadTimeout m,
-      MonadMulticast m,
+      MonadBroadcast m,
       MonadReader r m,
       HasBakerContext r,
       BlockState m ~ HashedPersistentBlockState (MPV m),
@@ -379,7 +384,7 @@ uponTimeoutEvent = do
                       tsmQCEpoch = qcEpoch highestQC
                     }
         let timeoutSig = signTimeoutSignatureMessage timeoutSigMessage bakerAggregationKey
-        curEpoch <- use currentEpoch
+        curEpoch <- use $ roundStatus . rsCurrentEpoch
         let timeoutMessageBody =
                 TimeoutMessageBody
                     { tmFinalizerIndex = finalizerIndex finInfo,
@@ -459,6 +464,7 @@ updateTimeoutMessages tms tm =
 --
 -- Precondition:
 -- * The given 'TimeoutMessage' is valid and has already been checked.
+-- * The finalizer must not already have sent out a 'TimeoutMessage' for the current round.
 processTimeout ::
     ( MonadTimeout m,
       LowLevel.MonadTreeStateStore m,
@@ -470,7 +476,7 @@ processTimeout ::
       IsConsensusV1 (MPV m),
       TimeMonad m,
       TimerMonad m,
-      MonadMulticast m,
+      MonadBroadcast m,
       MonadThrow m,
       MonadIO m,
       MonadConsensusEvent m,
@@ -479,14 +485,14 @@ processTimeout ::
     TimeoutMessage ->
     m ()
 processTimeout tm = do
-    currentTimeoutMessages <- use receivedTimeoutMessages
+    timeoutMessages <- use currentTimeoutMessages
     currentRoundStatus <- use roundStatus
     let highestCB = _rsHighestCertifiedBlock currentRoundStatus
     -- Add the new timeout message to the current messages.
     -- If the result is 'Nothing', then there was no change as a result, so nothing left to do.
-    let maybeNewTimeoutMessages = updateTimeoutMessages currentTimeoutMessages tm
+    let maybeNewTimeoutMessages = updateTimeoutMessages timeoutMessages tm
     forM_ maybeNewTimeoutMessages $ \newTimeoutMessages@TimeoutMessages{..} -> do
-        receivedTimeoutMessages .=! Present newTimeoutMessages
+        currentTimeoutMessages .=! Present newTimeoutMessages
         skovData <- get
         let getFinalizersForEpoch epoch = (^. bfFinalizers) <$> getBakersForEpoch epoch skovData
         -- We should not fail to get the finalizers for the epoch of the highest QC, because it
@@ -497,19 +503,36 @@ processTimeout tm = do
             let firstBakerIds
                     | Just firstFinComm <- getFinalizersForEpoch tmFirstEpoch =
                         bakerIdsFor firstFinComm tmFirstEpochTimeouts
-                    | otherwise = Set.empty
+                    | otherwise = []
             -- The baker IDs of the finalizers who have signed in the second epoch.
             let secondBakerIds
                     | not (null tmSecondEpochTimeouts),
                       Just secondFinComm <- getFinalizersForEpoch (tmFirstEpoch + 1) =
                         bakerIdsFor secondFinComm tmSecondEpochTimeouts
-                    | otherwise = Set.empty
-            -- Compute the voter power in the epoch of the highest QC for a baker by the baker ID.
-            let getBakerVoterPower = fmap finalizerWeight . finalizerByBakerId finCommQC
+                    | otherwise = []
+            -- Compute the accummulated voting power by folding over the finalization committee.
+            -- We are here making use of the fact that the finalization committee is ordered
+            -- by ascending baker ids and that the list of bakerids are also ordered by ascending baker id.
+            -- Moreover there MUST be no duplicates in either @firstBakerIds@ or @secondBakerIds@.
             let voterPowerSum =
-                    sum . mapMaybe getBakerVoterPower $
-                        Set.toList (firstBakerIds `Set.union` secondBakerIds)
-            -- TODO: Factor out finalizer weight check.
+                    fst $
+                        foldl'
+                            ( \(!accum, bids) finalizer ->
+                                -- We are done accummulating.
+                                if null bids
+                                    then (accum, [])
+                                    else
+                                        if head bids == finalizerBakerId finalizer
+                                            then -- If we have a match we add the weight to the
+                                            -- accummulator and proceed to the next baker id
+                                            -- and finalizer.
+                                                (accum + finalizerWeight finalizer, tail bids)
+                                            else -- If we did not have a match we continue
+                                            -- checking with a new finalizer.
+                                                (accum, bids)
+                            )
+                            (0, firstBakerIds `union` secondBakerIds)
+                            (committeeFinalizers finCommQC)
             let totalWeightRational = toRational $ committeeTotalWeight finCommQC
             genesisSigThreshold <- toRational . genesisSignatureThreshold . gmParameters <$> use genesisMetadata
             let voterPowerSumRational = toRational voterPowerSum
@@ -523,11 +546,13 @@ processTimeout tm = do
                         }
                 makeBlock
   where
+    -- baker ids for the finalizers who have signed off the message.
+    -- Note that the finalization committee is sorted by ascending baker ids.
     bakerIdsFor finComm timeouts =
-        Set.fromList $
-            mapMaybe
-                (fmap finalizerBakerId . finalizerByIndex finComm)
-                (Map.keys timeouts)
+        mapMaybe
+            (fmap finalizerBakerId . finalizerByIndex finComm)
+            -- Note that @Map.keys@ returns the keys in ascending order.
+            (Map.keys timeouts)
 
 -- |Make a 'TimeoutCertificate' from a 'TimeoutMessages'.
 --

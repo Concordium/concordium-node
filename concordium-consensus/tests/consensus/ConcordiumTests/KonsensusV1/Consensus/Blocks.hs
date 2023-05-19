@@ -1,6 +1,10 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE NumericUnderscores #-}
 
+-- |This module tests block verification, processing, advancing round and baking.
+-- The below tests are intended to test the functionality exposed by the 'Concordium.KonsensusV1.Consensus.Blocks' module.
+--
+-- In particular block processing and hence round/epoch progression are being tested.
 module ConcordiumTests.KonsensusV1.Consensus.Blocks (tests) where
 
 import Control.Monad.IO.Class
@@ -193,7 +197,7 @@ testBB1 =
           bbNonce = computeBlockNonce genesisLEN 1 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbTransactionOutcomesHash = emptyTransactionOutcomesHashV1,
-          bbStateHash = read "a8c8ba5539e9f257a23b1f9457de32330e2957f9d6e6b5f8abdee1ce8f5d173d"
+          bbStateHash = read "542a212811338244db35fa3aec466340556cac89d0e66fabc82a834156b95d66"
         }
   where
     bakerId = 2
@@ -212,7 +216,7 @@ testBB2 =
           bbNonce = computeBlockNonce genesisLEN 2 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbTransactionOutcomesHash = emptyTransactionOutcomesHashV1,
-          bbStateHash = read "0410e11225a07abbb8d543f4a90c3e70f2a9d9a38b0f6493ab9353848b00ed7a"
+          bbStateHash = read "63957910621f8db8c909dcd41be7e87f3d001016881e390e8f411a7643a1d8bd"
         }
   where
     bakerId = 4
@@ -231,7 +235,7 @@ testBB3 =
           bbNonce = computeBlockNonce genesisLEN 3 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbTransactionOutcomesHash = emptyTransactionOutcomesHashV1,
-          bbStateHash = read "81b3eb5d59df684f29887ec7cb6d75ebcd77bfe61aa9c519157912dd777ca366"
+          bbStateHash = read "1745bfc938837d0229f9556654a6c9cc55e6081b06697ab190099723c0a142c8"
         }
   where
     bakerId = 4
@@ -242,7 +246,7 @@ testBB2' =
     testBB2
         { bbQuorumCertificate = genQC,
           bbTimeoutCertificate = Present (validTimeoutFor genQC 1),
-          bbStateHash = read "0f6abbc518b1052319601591a805d815f410a5da63d49030259678436c93339c"
+          bbStateHash = read "c4bc315f9eca90dad2ce5334df4d7b058a162b3a3c266429051403e02b84ff49"
         }
   where
     genQC = genesisQuorumCertificate genesisHash
@@ -252,7 +256,7 @@ testBB3' :: BakedBlock
 testBB3' =
     testBB3
         { bbQuorumCertificate = validQCFor testBB2',
-          bbStateHash = read "eebc524ccbabe3001f5e64bce9af4a9da044c64c1cead31f9aabfcd6a39833da"
+          bbStateHash = read "c217c7303d79a9ccb0ef3c1c7bfd11b5470505019e9c4fbfa24383b30be01747"
         }
 
 -- |A valid block for round 4 descended from 'testBB3''.
@@ -269,7 +273,7 @@ testBB4' =
           bbNonce = computeBlockNonce genesisLEN 4 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbTransactionOutcomesHash = emptyTransactionOutcomesHashV1,
-          bbStateHash = read "f1e0b621419dc113a5223d49e24a67bfecc9e5f7369ba412b54b961b31a48459"
+          bbStateHash = read "0603dacd7e6cce263c5e4f8fe1ead5d8d64f79a08aa41a87d88ecc7e3f4749bc"
         }
   where
     bakerId = 3
@@ -300,7 +304,7 @@ testBB1E =
           bbNonce = computeBlockNonce genesisLEN 1 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbTransactionOutcomesHash = emptyTransactionOutcomesHashV1,
-          bbStateHash = read "ac8e0ac03625706bc350b65557aaae1774d687810c9029d85db0e4ffcd229f56"
+          bbStateHash = read "11b1401c155d6d2cd63e84b9be60d685d8223f6cd8b6d055c6e7265f0b1c88a4"
         }
   where
     bakerId = 2
@@ -319,7 +323,7 @@ testBB2E =
           bbNonce = computeBlockNonce genesisLEN 2 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbTransactionOutcomesHash = emptyTransactionOutcomesHashV1,
-          bbStateHash = read "ac8e0ac03625706bc350b65557aaae1774d687810c9029d85db0e4ffcd229f56"
+          bbStateHash = read "11b1401c155d6d2cd63e84b9be60d685d8223f6cd8b6d055c6e7265f0b1c88a4"
         }
   where
     bakerId = 4
@@ -340,7 +344,7 @@ testBB3EX =
           bbNonce = computeBlockNonce genesisLEN 3 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbTransactionOutcomesHash = emptyTransactionOutcomesHashV1,
-          bbStateHash = read "ac8e0ac03625706bc350b65557aaae1774d687810c9029d85db0e4ffcd229f56"
+          bbStateHash = read "11b1401c155d6d2cd63e84b9be60d685d8223f6cd8b6d055c6e7265f0b1c88a4"
         }
   where
     bakerId = 4
@@ -375,7 +379,7 @@ testBB3E =
           bbNonce = computeBlockNonce testEpochLEN 3 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbTransactionOutcomesHash = emptyTransactionOutcomesHashV1,
-          bbStateHash = read "15ea86764d286c8712be0eb581849cd030014fbf702b943afcff7d7636c97745"
+          bbStateHash = read "4c5a23a37147d4cbe048cd6de72e1ac17b4ea04445875a22c352cdf61c052638"
         }
   where
     bakerId = 5
@@ -405,7 +409,7 @@ testBB4E =
           bbNonce = computeBlockNonce testEpochLEN 4 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbTransactionOutcomesHash = emptyTransactionOutcomesHashV1,
-          bbStateHash = read "16bf4b495a3db3801ec60f5983818f68a2ec2763f6799f3a6b8da4aa5e81b64e"
+          bbStateHash = read "1b0f643c7724537aab64d38816e0e413ea8eb1170d4e9263449c9aa4ee5afabd"
         }
   where
     bakerId = 1
@@ -418,7 +422,7 @@ testBB4E' =
         { bbQuorumCertificate = validQCFor testBB2E,
           bbTimeoutCertificate = Present (validTimeoutFor (validQCFor testBB1E) 3),
           bbEpochFinalizationEntry = Present testEpochFinEntry,
-          bbStateHash = read "a07d7f1bafe0f8faf23e8a79c24d6964c59682808ea2c738d56a6e082b140b74"
+          bbStateHash = read "900f5baf4b667c0a02433a21df1f4c253053b2c1f9b58bc498a3851f857b3e7f"
         }
 
 -- |Valid block for round 5, epoch 1. Descends from 'testBB3E'. The timeout certificate for round
@@ -436,7 +440,7 @@ testBB5E' =
           bbNonce = computeBlockNonce testEpochLEN rnd (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbTransactionOutcomesHash = emptyTransactionOutcomesHashV1,
-          bbStateHash = read "e2eb8a6bfed0aa4185bdde80dd0db086da6ea9630c2114d17b4923a7d1f90be0"
+          bbStateHash = read "f02f759c6694b210372060d4644b972bb29cf1bfce7b24091c20a3043146b370"
         }
   where
     bakerId = 2
@@ -469,7 +473,7 @@ testBB2Ex =
     testBB2E
         { bbQuorumCertificate = genQC,
           bbTimeoutCertificate = Present (validTimeoutFor genQC 1),
-          bbStateHash = read "4821535805ebb2cbb0a17440be27ea85992fa508e829ccb5aeee124f5968095a"
+          bbStateHash = read "af6778c48e456a50fd034a607a5c1b9de148328f6982c31a840a28db21a0ba06"
         }
   where
     genQC = genesisQuorumCertificate genesisHash
@@ -493,7 +497,7 @@ testBB3Ex =
           bbNonce = computeBlockNonce testEpochLENx 3 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbTransactionOutcomesHash = emptyTransactionOutcomesHashV1,
-          bbStateHash = read "15ea86764d286c8712be0eb581849cd030014fbf702b943afcff7d7636c97745"
+          bbStateHash = read "4c5a23a37147d4cbe048cd6de72e1ac17b4ea04445875a22c352cdf61c052638"
         }
   where
     bakerId = 2
@@ -947,30 +951,58 @@ testMakeFirstBlock = runTestMonad (baker bakerId) testTime genesisData $ do
                 }
     let qsig = signQuorumSignatureMessage qsm (bakerAggregationKey . fst $ bakers !! bakerId)
     let expectQM = buildQuorumMessage qsm qsig (FinalizerIndex $ fromIntegral bakerId)
+    liftIO $
+        assertEqual
+            "Produced events (makeBlock)"
+            [OnBlock (NormalBlock expectBlock), SendBlock expectBlock, SendQuorumMessage expectQM]
+            r
+    timers <- getPendingTimers
+    liftIO $ assertBool "Timers should not be pending" (null timers)
+  where
+    bakerId = 2
+
+-- |Test calling 'makeBlock' in the first round for a baker that should produce a block.
+-- We try to make the block earlier than it should be, which should succeed, but delay sending
+-- the block.
+testMakeFirstBlockEarly :: Assertion
+testMakeFirstBlockEarly = runTestMonad (baker bakerId) curTime genesisData $ do
+    ((), r) <- listen makeBlock
+    let expectBlock = validSignBlock testBB1{bbTimestamp = utcTimeToTimestamp blkTime}
+    let qsm =
+            QuorumSignatureMessage
+                { qsmGenesis = genesisHash,
+                  qsmBlock = getHash expectBlock,
+                  qsmRound = blockRound expectBlock,
+                  qsmEpoch = blockEpoch expectBlock
+                }
+    let qsig = signQuorumSignatureMessage qsm (bakerAggregationKey . fst $ bakers !! bakerId)
+    let expectQM = buildQuorumMessage qsm qsig (FinalizerIndex $ fromIntegral bakerId)
     liftIO $ assertEqual "Produced events (makeBlock)" [OnBlock (NormalBlock expectBlock)] r
     timers <- getPendingTimers
     case Map.toAscList timers of
         [(0, (DelayUntil t, a))]
-            | t == testTime -> do
+            | t == blkTime -> do
                 clearPendingTimers
                 ((), r2) <- listen a
                 liftIO $ assertEqual "Produced events (after first timer)" [SendBlock expectBlock] r2
                 timers2 <- getPendingTimers
                 case Map.toAscList timers2 of
                     [(0, (DelayUntil t2, a2))]
-                        | t2 == testTime -> do
+                        | t2 == blkTime -> do
                             ((), r3) <- listen a2
                             liftIO $ assertEqual "Produced events (after second timer)" [SendQuorumMessage expectQM] r3
                     _ -> timerFail timers2
                 return ()
         _ -> timerFail timers
   where
+    curTime = timestampToUTCTime 250
+    blkTime = timestampToUTCTime 1_000
     bakerId = 2
     timerFail timers =
         liftIO $
             assertFailure $
                 "Expected a single timer event at "
-                    ++ show testTime
+                    ++ show blkTime
                     ++ " but got: "
                     ++ show (fst <$> timers)
 
@@ -985,7 +1017,7 @@ testNoMakeFirstBlock = runTestMonad (baker 0) testTime genesisData $ do
 -- |Test calling 'makeBlock' in the second round, after sending timeout messages to time out the
 -- first round, where the baker should win the second round.
 testTimeoutMakeBlock :: Assertion
-testTimeoutMakeBlock = runTestMonad (baker 4) testTime genesisData $ do
+testTimeoutMakeBlock = runTestMonad (baker bakerId) testTime genesisData $ do
     let genQC = genesisQuorumCertificate genesisHash
     mapM_ processTimeout $ timeoutMessagesFor genQC 1 0
     ((), r) <- listen makeBlock
@@ -995,7 +1027,22 @@ testTimeoutMakeBlock = runTestMonad (baker 4) testTime genesisData $ do
                     { bbTimestamp = utcTimeToTimestamp testTime,
                       bbTimeoutCertificate = Present $ validTimeoutForFinalizers [0 .. 3] genQC 1
                     }
-    liftIO $ assertEqual "Produced events (makeBlock)" [OnBlock (NormalBlock expectBlock)] r
+    let qsm =
+            QuorumSignatureMessage
+                { qsmGenesis = genesisHash,
+                  qsmBlock = getHash expectBlock,
+                  qsmRound = blockRound expectBlock,
+                  qsmEpoch = blockEpoch expectBlock
+                }
+    let qsig = signQuorumSignatureMessage qsm (bakerAggregationKey . fst $ bakers !! bakerId)
+    let expectQM = buildQuorumMessage qsm qsig (FinalizerIndex $ fromIntegral bakerId)
+    liftIO $
+        assertEqual
+            "Produced events (makeBlock)"
+            [OnBlock (NormalBlock expectBlock), SendBlock expectBlock, SendQuorumMessage expectQM]
+            r
+  where
+    bakerId = 4
 
 -- |Test that if we receive three blocks such that the QC contained in the last one justifies
 -- transitioning to a new epoch, we do not sign the third block, since it is in an old epoch.
@@ -1204,6 +1251,7 @@ tests = describe "KonsensusV1.Consensus.Blocks" $ do
         it "receive a block with an incorrect state hash" testReceiveIncorrectStateHash
         it "receive a block with an invalid QC signature" testReceiveInvalidQC
         it "make a block as baker 2" testMakeFirstBlock
+        it "make a block as baker 2 early" testMakeFirstBlockEarly
         it "fail to make a block as baker 0" testNoMakeFirstBlock
         it "make a block after first round timeout" testTimeoutMakeBlock
         it "refuse to sign a block in old epoch after epoch transition" testNoSignIncorrectEpoch

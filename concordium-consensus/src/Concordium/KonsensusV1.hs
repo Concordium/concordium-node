@@ -7,7 +7,6 @@ import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.Reader.Class
 import Control.Monad.State.Class
-import Lens.Micro.Platform
 
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Persistent.BlockState
@@ -46,7 +45,7 @@ receiveFinalizationMessage ::
       MonadLogger m,
       BlockState m ~ HashedPersistentBlockState (MPV m),
       MonadTreeStateStore m,
-      MonadMulticast m,
+      MonadBroadcast m,
       TimerMonad m
     ) =>
     FinalizationMessage ->
@@ -55,16 +54,19 @@ receiveFinalizationMessage (FMQuorumMessage qm) = do
     res <- Quorum.receiveQuorumMessage qm =<< get
     case res of
         Quorum.Received vqm -> return $ Right $ Quorum.processQuorumMessage vqm makeBlock
+        Quorum.ReceivedNoRelay vqm -> do
+            Quorum.processQuorumMessage vqm makeBlock
+            return $ Left ResultDuplicate
+        Quorum.Rejected Quorum.Duplicate -> return $ Left ResultDuplicate
         Quorum.Rejected _ -> return $ Left ResultInvalid
         Quorum.CatchupRequired -> return $ Left ResultUnverifiable
-        Quorum.Duplicate -> return $ Left ResultDuplicate
 receiveFinalizationMessage (FMTimeoutMessage tm) = do
     res <- Timeout.receiveTimeoutMessage tm =<< get
     case res of
         Timeout.Received vtm -> return $ Right $ void $ Timeout.executeTimeoutMessage vtm
+        Timeout.Rejected Timeout.Duplicate -> return $ Left ResultDuplicate
         Timeout.Rejected _ -> return $ Left ResultInvalid
         Timeout.CatchupRequired -> return $ Left ResultUnverifiable
-        Timeout.Duplicate -> return $ Left ResultDuplicate
 
 -- |Convert an 'Transactions.AddTransactionResult' to the corresponding 'UpdateResult'.
 addTransactionResult :: Transactions.AddTransactionResult -> UpdateResult
@@ -89,7 +91,7 @@ startEvents ::
       LowLevel.MonadTreeStateStore m,
       TimeMonad m,
       TimerMonad m,
-      MonadMulticast m,
+      MonadBroadcast m,
       MonadThrow m,
       MonadIO m,
       MonadTimeout m,
@@ -98,5 +100,5 @@ startEvents ::
     ) =>
     m ()
 startEvents = do
-    resetTimer =<< use currentTimeout
+    resetTimerWithCurrentTimeout
     makeBlock

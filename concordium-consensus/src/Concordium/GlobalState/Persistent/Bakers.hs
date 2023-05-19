@@ -181,11 +181,14 @@ instance (IsProtocolVersion pv, MonadBlobStore m) => MHashableTo m H.Hash (Persi
         hbkrInfos :: H.Hash <- getHashM _bakerInfos
         hbkrStakes :: H.Hash <- getHashM _bakerStakes
         case _bakerFinalizationCommitteeParameters of
-            NoParam -> return $ H.hashOfHashes hbkrInfos hbkrStakes
-            SomeParam params -> return $ H.hash $ runPut $ do
+            NoParam -> return $ H.hash $ runPut $ do
                 put hbkrInfos
                 put hbkrStakes
-                put params
+            SomeParam params ->
+                return $
+                    H.hashOfHashes
+                        (H.hashOfHashes hbkrInfos hbkrStakes)
+                        (getHash params)
 
 instance (IsProtocolVersion pv, MonadBlobStore m) => BlobStorable m (PersistentEpochBakers pv) where
     storeUpdate PersistentEpochBakers{..} = do

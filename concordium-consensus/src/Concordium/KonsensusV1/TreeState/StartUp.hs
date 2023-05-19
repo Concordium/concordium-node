@@ -107,6 +107,7 @@ makeEpochBakers lastFinBlock = do
                 GT -> do
                     backTo targetEpoch (lowEpoch, lowHeight) (blockEpoch stb, curHeight)
 
+-- |Construct a 'SkovData' by initialising it with data loaded from disk.
 loadSkovData ::
     ( MonadThrow m,
       LowLevel.MonadTreeStateStore m,
@@ -158,17 +159,20 @@ loadSkovData _runtimeParameters = do
                   lastSignedQMRound,
                   lastSignedTMRound
                 ]
+    let currentEpoch = blockEpoch lastFinBlock
+    chainParams <- getChainParameters $ bpState lastFinBlock
     let _roundStatus =
             RoundStatus
                 { _rsCurrentRound = currentRound,
                   _rsHighestCertifiedBlock = _rsHighestCertifiedBlock,
                   _rsPreviousRoundTimeout = Absent,
-                  _rsRoundEligibleToBake = True
+                  _rsRoundEligibleToBake = True,
+                  _rsCurrentEpoch = currentEpoch,
+                  _rsLastEpochFinalizationEntry = Absent,
+                  _rsCurrentTimeout =
+                    chainParams
+                        ^. cpConsensusParameters . cpTimeoutParameters . tpTimeoutBase
                 }
-    let _currentEpoch = blockEpoch lastFinBlock
-    let _lastEpochFinalizationEntry = Absent
-    chainParams <- getChainParameters $ bpState lastFinBlock
-    let _currentTimeout = chainParams ^. cpConsensusParameters . cpTimeoutParameters . tpTimeoutBase
     let _blockTable = emptyBlockTable
     let _branches = Seq.empty
     let _roundExistingBlocks = Map.empty
@@ -180,14 +184,14 @@ loadSkovData _runtimeParameters = do
     let _lastFinalized = lastFinBlock
     _skovEpochBakers <- makeEpochBakers lastFinBlock
 
-    let _receivedTimeoutMessages = case _prsLastSignedTimeoutMessage _persistentRoundStatus of
+    let _currentTimeoutMessages = case _prsLastSignedTimeoutMessage _persistentRoundStatus of
             Absent -> Absent
             Present tm ->
                 if tmRound (tmBody tm) == currentRound
                     then
                         Present $
                             TimeoutMessages
-                                { tmFirstEpoch = _currentEpoch,
+                                { tmFirstEpoch = currentEpoch,
                                   tmFirstEpochTimeouts = Map.singleton (tmFinalizerIndex $ tmBody tm) tm,
                                   tmSecondEpochTimeouts = Map.empty
                                 }

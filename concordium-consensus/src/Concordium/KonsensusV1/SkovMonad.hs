@@ -75,7 +75,7 @@ type PersistentBlockStateMonadHelper pv m =
 --
 --   * LMDB-backed persistent tree state storage: 'LowLevel.MonadTreeStateStore'.
 --
---   * Handlers for broadcasting messages ('MonadMulticast') and handlers for consensus events
+--   * Handlers for broadcasting messages ('MonadBroadcast') and handlers for consensus events
 --     'MonadConsensusEvent'. These are implemented by callbacks provided by the 'SkovV1Context'.
 --
 --   * Timer events ('TimerMonad') implemented by 'ThreadTimer's.
@@ -229,7 +229,7 @@ deriving via
         ) =>
         LowLevel.MonadTreeStateStore (SkovV1T pv m)
 
-instance Monad m => MonadMulticast (SkovV1T pv m) where
+instance Monad m => MonadBroadcast (SkovV1T pv m) where
     sendTimeoutMessage tm = do
         handler <- view sendTimeoutHandler
         lift $ handler tm

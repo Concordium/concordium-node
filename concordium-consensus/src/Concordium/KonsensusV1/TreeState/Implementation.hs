@@ -198,17 +198,6 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       -- associated with the current round of the
       -- consensus protocol.
       _roundStatus :: !(RoundStatus pv),
-      -- |The current epoch.
-      _currentEpoch :: !Epoch,
-      -- |If present, an epoch finalization entry for @_currentEpoch - 1@. An entry MUST be
-      -- present if @_currentEpoch > blockEpoch _lastFinalized@. Otherwise, an entry MAY be present,
-      -- but is not required.
-      --
-      -- The purpose of this field is to support the creation of a block that is the first in a new
-      -- epoch. It should
-      _lastEpochFinalizationEntry :: !(Option FinalizationEntry),
-      -- |The current duration to wait before a round times out.
-      _currentTimeout :: !Duration,
       -- |Transactions.
       -- The transaction table tracks the following:
       -- * Live transactions: mapping from a 'TransactionHash' to the status of the transaction,
@@ -226,14 +215,14 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       _runtimeParameters :: !RuntimeParameters,
       -- |Blocks which have been included in the tree or marked as dead.
       _blockTable :: !(BlockTable pv),
-      -- |Branches of the tree by height above the last finalized block
+      -- |Branches of the tree ordered by height above the last finalized block
       _branches :: !(Seq.Seq [BlockPointer pv]),
       -- |For non-finalized rounds, tracks which bakers we have seen legally-signed blocks with
       -- live parent blocks from. This is used for duplicate detection.
       _roundExistingBlocks :: !(Map.Map Round (Map.Map BakerId BlockSignatureWitness)),
       -- |For non finalized rounds, keep track of which rounds where we have successfully
       -- checked a 'QuorumCertificate'.
-      _roundExistingQCs :: !(Map.Map Round QuorumCertificateWitness),
+      _roundExistingQCs :: !(Map.Map Round QuorumCertificateCheckedWitness),
       -- |Genesis metadata
       _genesisMetadata :: !GenesisMetadata,
       -- |Pending blocks
@@ -246,7 +235,7 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       -- |The current consensus statistics.
       _statistics :: !Stats.ConsensusStatistics,
       -- | Received timeouts messages in the current round.
-      _receivedTimeoutMessages :: !(Option TimeoutMessages),
+      _currentTimeoutMessages :: !(Option TimeoutMessages),
       -- |The 'QuorumMessage's for the current 'Round'.
       -- This should be cleared whenever the consensus runner advances to a new round.
       _currentQuorumMessages :: !QuorumMessages
@@ -280,21 +269,21 @@ purgeRoundExistingBlocks :: (MonadState (SkovData pv) m) => Round -> m ()
 purgeRoundExistingBlocks rnd = roundExistingBlocks %=! snd . Map.split rnd
 
 -- |Lens for accessing the witness that we have checked a 'QuorumCertificate' for a particular 'Round'.
-roundExistingQuorumCertificate :: Round -> Lens' (SkovData pv) (Maybe QuorumCertificateWitness)
+roundExistingQuorumCertificate :: Round -> Lens' (SkovData pv) (Maybe QuorumCertificateCheckedWitness)
 roundExistingQuorumCertificate rnd = roundExistingQCs . at' rnd
 
 -- |Record that we have checked a 'QuorumCertificate' in the 'roundExistingQCs'.
 -- The certificate should be for a round that is later than the last finalized round.
 recordCheckedQuorumCertificate :: (MonadState (SkovData pv) m) => QuorumCertificate -> m ()
 recordCheckedQuorumCertificate qc =
-    roundExistingQuorumCertificate (qcRound qc) ?= witness
+    roundExistingQuorumCertificate (qcRound qc) ?=! witness
   where
     !witness = toQuorumCertificateWitness qc
 
--- |Remove all entries from 'roundExistingQCs' with a 'Round' less than or equal to the
+-- |Remove all entries from 'roundExistingQCs' with a 'Round' less than to the
 -- supplied 'Round'.
 purgeRoundExistingQCs :: (MonadState (SkovData pv) m) => Round -> m ()
-purgeRoundExistingQCs rnd = roundExistingQCs %= snd . Map.split rnd
+purgeRoundExistingQCs rnd = roundExistingQCs %=! snd . Map.split (rnd - 1)
 
 -- |Create an initial 'SkovData pv'
 -- This constructs a 'SkovData pv' from a genesis block
@@ -330,9 +319,7 @@ mkInitialSkovData rp genMeta genState _currentTimeout _skovEpochBakers =
                   bpState = genState
                 }
         _persistentRoundStatus = initialPersistentRoundStatus
-        _roundStatus = initialRoundStatus genesisBlockPointer
-        _currentEpoch = 0
-        _lastEpochFinalizationEntry = Absent
+        _roundStatus = initialRoundStatus _currentTimeout genesisBlockPointer
         _transactionTable = TT.emptyTransactionTable
         _transactionTablePurgeCounter = 0
         _skovPendingTransactions =
@@ -349,7 +336,7 @@ mkInitialSkovData rp genMeta genState _currentTimeout _skovEpochBakers =
         _skovPendingBlocks = emptyPendingBlocks
         _lastFinalized = genesisBlockPointer
         _statistics = Stats.initialConsensusStatistics
-        _receivedTimeoutMessages = Absent
+        _currentTimeoutMessages = Absent
         _currentQuorumMessages = emptyQuorumMessages
     in  SkovData{..}
 
@@ -519,18 +506,24 @@ markLiveBlockDead bp = do
 markPending :: (MonadState (SkovData pv) m) => PendingBlock -> m ()
 markPending pb = blockTable . liveMap . at' (getHash pb) ?=! MemBlockPending pb
 
--- |Remove a (presumably) pending block from the block table.
-unmarkPending :: (MonadState (SkovData pv) m) => PendingBlock -> m ()
-unmarkPending pb = blockTable . liveMap . at' (getHash pb) .=! Nothing
-
 -- |Update the transaction table to reflect that a list of blocks are finalized.
 -- This removes them the in-memory transaction table.
 -- The caller is expected to ensure that they are written to the low-level storage.
-markLiveBlocksFinal :: (MonadState (SkovData pv) m) => [BlockPointer pv] -> m ()
-markLiveBlocksFinal blocks = blockTable . liveMap %=! flip (foldr' (HM.delete . getHash)) blocks
+markLiveBlocksFinal ::
+    (MonadState (SkovData pv) m) =>
+    -- |Blocks to mark final i.e. removing them from the live block map.
+    -- Note that the order of the blocks does not matter for this operation.
+    [BlockPointer pv] ->
+    m ()
+markLiveBlocksFinal blockPointers =
+    blockTable
+        . liveMap
+        %=! \liveBlocks -> foldl' (\blocks bp -> HM.delete (getHash bp) blocks) liveBlocks blockPointers
 
 -- |Get the parent block of a live or finalized block. (For the genesis block, this will return
 -- the block itself.)
+-- Note that it is assumed that the parent is either live or finalized as otherwise this
+-- function will raise an error.
 parentOf ::
     (LowLevel.MonadTreeStateStore m, MonadIO m, MonadState (SkovData (MPV m)) m) =>
     BlockPointer (MPV m) ->
@@ -591,14 +584,16 @@ lastFinalizedOf = go <=< parentOf
 -- A block is considered to be an ancestor of itself.
 isAncestorOf ::
     (LowLevel.MonadTreeStateStore m, MonadIO m, MonadState (SkovData (MPV m)) m) =>
+    -- |The block to check whether it's an ancesor of the other or not.
     BlockPointer (MPV m) ->
+    -- |The block to carry out the ancestor check with respect to.
     BlockPointer (MPV m) ->
     m Bool
-isAncestorOf b1 b2 = case compare (blockHeight b1) (blockHeight b2) of
+isAncestorOf b1 maybeAncestor = case compare (blockHeight b1) (blockHeight maybeAncestor) of
     GT -> return False
-    EQ -> return $ (getHash b1 :: BlockHash) == getHash b2
+    EQ -> return $ (getHash b1 :: BlockHash) == getHash maybeAncestor
     LT -> do
-        parent <- parentOf b2
+        parent <- parentOf maybeAncestor
         b1 `isAncestorOf` parent
 
 -- * Operations on the branches
@@ -608,7 +603,14 @@ isAncestorOf b1 b2 = case compare (blockHeight b1) (blockHeight b2) of
 -- non-finalized branches.
 -- The block should not already be present in the branches; if it is, a duplicate entry may be
 -- added.
-addToBranches :: (MonadState (SkovData pv) m) => BlockPointer pv -> m ()
+-- Also note that the block heights must be consecutive otherwise this function will raise an error.
+-- The latter note is enforced by the way we add pending blocks, i.e. pending blocks are awaiting
+-- their parent before becoming live.
+addToBranches ::
+    (MonadState (SkovData pv) m) =>
+    -- |The block to add to the current branches.
+    BlockPointer pv ->
+    m ()
 addToBranches block = do
     lfbHeight <- use $ lastFinalized . to blockHeight
     let insertIndex = fromIntegral $ blockHeight block - lfbHeight - 1
@@ -1050,10 +1052,10 @@ getBakersForEpoch e s
 -- finalized block, or the next epoch.
 bakersForCurrentEpoch :: SkovData pv -> BakersAndFinalizers
 bakersForCurrentEpoch sd
-    | sd ^. currentEpoch == sd ^. lastFinalized . to blockEpoch =
+    | sd ^. roundStatus . rsCurrentEpoch == sd ^. lastFinalized . to blockEpoch =
         sd ^. currentEpochBakers
     | otherwise =
-        assert (sd ^. currentEpoch == (sd ^. lastFinalized . to blockEpoch) + 1) $
+        assert (sd ^. roundStatus . rsCurrentEpoch == (sd ^. lastFinalized . to blockEpoch) + 1) $
             sd ^. nextEpochBakers
 
 -- * Protocol update

@@ -26,7 +26,6 @@ import Concordium.Types.Accounts
 import Concordium.Types.HashableTo
 import Concordium.Types.Parameters hiding (getChainParameters)
 import Concordium.Types.SeedState
-import Concordium.Types.Transactions
 import Concordium.Utils
 
 import Concordium.Genesis.Data.BaseV1
@@ -50,187 +49,6 @@ import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.TimerMonad
 import Concordium.Types.BakerIdentity
-
--- * Logging events
-
--- |Trace-level log events for block operations.
-data BlockTraceLogEvent
-    = LogBlockOld BlockHash
-    | LogBlockDuplicate BlockHash
-    | LogBlockInvalidParent BlockHash BlockHash
-    | LogBlockInvalidEpoch BlockHash Epoch
-    | LogBlockInvalidSignature BlockHash
-    | LogBlockIncorrectBaker BlockHash BakerId BakerId
-    | LogBlockQCRoundInconsistent BlockHash
-    | LogBlockQCEpochInconsistent BlockHash
-    | LogBlockInvalidQC BlockHash
-    | LogBlockRoundInconsistent BlockHash
-    | LogBlockEpochInconsistent BlockHash
-    | LogBlockNonceIncorrect BlockHash
-    | LogBlockTooFast BlockHash Timestamp Duration Timestamp
-    | LogBlockTCMissing BlockHash
-    | LogBlockTCRoundInconsistent BlockHash
-    | LogBlockQCInconsistentWithTC BlockHash
-    | LogBlockInvalidTC BlockHash
-    | LogBlockUnexpectedTC BlockHash
-    | LogBlockEpochFinalizationMissing BlockHash
-    | LogBlockUnrelatedEpochFinalization BlockHash BlockHash
-    | LogBlockInvalidEpochFinalizationTarget BlockHash BlockHash
-    | LogBlockInvalidEpochFinalization BlockHash
-    | LogBlockUnexpectedEpochFinalization BlockHash
-    | LogBlockExecutionFailure BlockHash FailureReason
-    | LogBlockInvalidTransactionOutcomesHash BlockHash TransactionOutcomesHash TransactionOutcomesHash
-    | LogBlockInvalidStateHash BlockHash StateHash StateHash
-
-instance Loggable BlockTraceLogEvent where
-    loggableSource _ = Konsensus
-    loggableLevel _ = LLTrace
-    loggableMessage (LogBlockOld bh) = "Block " ++ show bh ++ " is from an old round or epoch."
-    loggableMessage (LogBlockDuplicate bh) = "Block " ++ show bh ++ " is a duplicate."
-    loggableMessage (LogBlockInvalidParent bh parent) =
-        "Block "
-            ++ show bh
-            ++ " has an invalid (dead or old finalized) parent ("
-            ++ show parent
-            ++ ")."
-    loggableMessage (LogBlockInvalidEpoch bh ep) =
-        "Block "
-            ++ show bh
-            ++ " is for an invalid epoch ("
-            ++ show ep
-            ++ ")."
-    loggableMessage (LogBlockInvalidSignature bh) =
-        "Block " ++ show bh ++ " has an invalid signature."
-    loggableMessage (LogBlockIncorrectBaker bh actual expected) =
-        "Block "
-            ++ show bh
-            ++ " is from baker "
-            ++ show actual
-            ++ " but the round winner is baker "
-            ++ show expected
-            ++ "."
-    loggableMessage (LogBlockQCRoundInconsistent bh) =
-        "Block " ++ show bh ++ " QC round does not match parent block's round."
-    loggableMessage (LogBlockQCEpochInconsistent bh) =
-        "Block " ++ show bh ++ " QC epoch does not match parent block's epoch."
-    loggableMessage (LogBlockInvalidQC bh) =
-        "Block " ++ show bh ++ " contains an invalid QC."
-    loggableMessage (LogBlockRoundInconsistent bh) =
-        "Block " ++ show bh ++ " round is not higher than parent block's round."
-    loggableMessage (LogBlockEpochInconsistent bh) =
-        "Block " ++ show bh ++ " epoch is not the same or next epoch relative to parent."
-    loggableMessage (LogBlockNonceIncorrect bh) =
-        "Block " ++ show bh ++ " nonce is incorrect."
-    loggableMessage (LogBlockTooFast bh bTimestamp minBlockTime pTimestamp) =
-        "Block "
-            ++ show bh
-            ++ " timestamp ("
-            ++ show bTimestamp
-            ++ ") is less than minBlockTime ("
-            ++ show minBlockTime
-            ++ ") after parent timestamp ("
-            ++ show pTimestamp
-            ++ ")."
-    loggableMessage (LogBlockTCMissing bh) =
-        "Block "
-            ++ show bh
-            ++ " is missing a timeout certificate, but is not in the next round from its parent."
-    loggableMessage (LogBlockTCRoundInconsistent bh) =
-        "Block " ++ show bh ++ " timeout certificate is not for the correct round."
-    loggableMessage (LogBlockQCInconsistentWithTC bh) =
-        "Block " ++ show bh ++ " timeout certificate is inconsistent with the quorum certificate."
-    loggableMessage (LogBlockInvalidTC bh) =
-        "Block " ++ show bh ++ " timeout certificate is invalid."
-    loggableMessage (LogBlockUnexpectedTC bh) =
-        "Block " ++ show bh ++ " has unexpected timeout certificate."
-    loggableMessage (LogBlockEpochFinalizationMissing bh) =
-        "Block " ++ show bh ++ " missing an epoch finalization entry."
-    loggableMessage (LogBlockUnrelatedEpochFinalization bh target) =
-        "Block "
-            ++ show bh
-            ++ " contains epoch finalization entry for a block ("
-            ++ show target
-            ++ ") it does not descend from."
-    loggableMessage (LogBlockInvalidEpochFinalizationTarget bh target) =
-        "Block "
-            ++ show bh
-            ++ " contains epoch finalization entry for a block ("
-            ++ show target
-            ++ ") that is not part of the chain."
-    loggableMessage (LogBlockInvalidEpochFinalization bh) =
-        "Block "
-            ++ show bh
-            ++ " contains an invalid epoch finalization entry."
-    loggableMessage (LogBlockUnexpectedEpochFinalization bh) =
-        "Block "
-            ++ show bh
-            ++ " contains an epoch finalization entry when it should not."
-    loggableMessage (LogBlockExecutionFailure bh failureReason) =
-        "Block "
-            ++ show bh
-            ++ " failed execution: "
-            ++ show failureReason
-    loggableMessage (LogBlockInvalidTransactionOutcomesHash bh stated computed) =
-        "Block "
-            ++ show bh
-            ++ " stated transaction outcome hash ("
-            ++ show stated
-            ++ ") does not match computed value ("
-            ++ show computed
-            ++ ")."
-    loggableMessage (LogBlockInvalidStateHash bh stated computed) =
-        "Block "
-            ++ show bh
-            ++ " stated state hash ("
-            ++ show stated
-            ++ ") does not match computed value ("
-            ++ show computed
-            ++ ")."
-
--- |Debug-level log events for block operations.
-data BlockDebugLogEvent
-    = LogBlockMultipleSigned BakerId Round
-
-instance Loggable BlockDebugLogEvent where
-    loggableSource _ = Konsensus
-    loggableLevel _ = LLDebug
-    loggableMessage (LogBlockMultipleSigned baker rnd) =
-        "Baker " ++ show baker ++ " signed multiple blocks in round " ++ show rnd ++ "."
-
--- |Info-level log events for block operations.
-data BlockInfoLogEvent
-    = LogBlockPending BlockHash BlockHash
-    | LogBlockReceive BlockHash
-    | LogBlockArrive BlockHash UTCTime UTCTime
-
-instance Loggable BlockInfoLogEvent where
-    loggableSource _ = Konsensus
-    loggableLevel _ = LLInfo
-    loggableMessage (LogBlockPending block parent) =
-        "Block " ++ show block ++ " is pending its parent " ++ show parent ++ "."
-    loggableMessage (LogBlockReceive block) =
-        "Block " ++ show block ++ " received."
-    loggableMessage (LogBlockArrive block received arrived) =
-        "Block "
-            ++ show block
-            ++ " arrived at "
-            ++ show arrived
-            ++ ". Processed in "
-            ++ show (diffUTCTime arrived received)
-            ++ "."
-
--- |Warn-level log events for block operations.
-data BakerWarnLogEvent
-    = LogBakerIncorrectSignKey
-    | LogBakerIncorrectElectionKey
-
-instance Loggable BakerWarnLogEvent where
-    loggableSource _ = Baker
-    loggableLevel _ = LLWarning
-    loggableMessage LogBakerIncorrectSignKey =
-        "Baker signing key does not match the key in the current committee."
-    loggableMessage LogBakerIncorrectElectionKey =
-        "Baker election key does not match the key in the current committee."
 
 -- |A block that has passed initial verification, but must still be executed, added to the state,
 -- and (potentially) signed as a finalizer.
@@ -262,7 +80,7 @@ instance BlockData VerifiedBlock where
 data BlockResult
     = -- |The block was successfully received, but not yet executed.
       BlockResultSuccess !VerifiedBlock
-    | -- |The baker also signed another block in the same slot, but the block was otherwise
+    | -- |The baker also signed another block in the same round, but the block was otherwise
       -- successfully received, but not yet executed.
       BlockResultDoubleSign !VerifiedBlock
     | -- |The block contains data that is not valid with respect to the chain.
@@ -302,7 +120,7 @@ uponReceivingBlock pendingBlock = do
     if blockEpoch pendingBlock < blockEpoch lfb || blockRound pendingBlock <= blockRound lfb
         then do
             -- The block is from an old epoch, or already finalized round
-            logLoggable $ LogBlockOld pbHash
+            logEvent Konsensus LLTrace $ "Block " <> show pbHash <> " is from an old round or epoch."
             return BlockResultStale
         else do
             sd <- get
@@ -311,7 +129,7 @@ uponReceivingBlock pendingBlock = do
             -- we can rely on the fact.
             case getMemoryBlockStatus pbHash sd of
                 Just _ -> do
-                    logLoggable $ LogBlockDuplicate pbHash
+                    logEvent Konsensus LLTrace $ "Block " <> show pbHash <> " is a duplicate."
                     return BlockResultDuplicate
                 Nothing -> do
                     getRecentBlockStatus (blockParent pendingBlock) sd >>= \case
@@ -325,7 +143,12 @@ uponReceivingBlock pendingBlock = do
     pbHash :: BlockHash
     pbHash = getHash pendingBlock
     rejectBadParent = do
-        logLoggable $ LogBlockInvalidParent pbHash (blockParent pendingBlock)
+        logEvent Konsensus LLTrace $
+            "Block "
+                <> show pbHash
+                <> " has an invalid (dead or old finalized) parent ("
+                <> show (blockParent pendingBlock)
+                <> ")."
         return BlockResultStale
 
 -- |Process receiving a block where the parent is live (i.e. descended from the last finalized
@@ -360,13 +183,18 @@ receiveBlockKnownParent ::
     PendingBlock ->
     m BlockResult
 receiveBlockKnownParent parent pendingBlock = do
-    logLoggable $ LogBlockReceive pbHash
+    logEvent Konsensus LLInfo $ "Block " <> show pbHash <> " received."
     let nominalTime = timestampToUTCTime $ blockTimestamp pendingBlock
     statistics %=! updateStatsOnReceive nominalTime (pbReceiveTime pendingBlock)
     genesisHash <- use currentGenesisHash
     getBakers >>= \case
         Nothing -> do
-            logLoggable $ LogBlockInvalidEpoch pbHash (blockEpoch pendingBlock)
+            logEvent Konsensus LLTrace $
+                "Block "
+                    <> show pbHash
+                    <> " is for an invalid epoch ("
+                    <> show (blockEpoch pendingBlock)
+                    <> ")."
             return BlockResultInvalid
         Just bakersAndFinalizers
             -- We know the bakers
@@ -376,7 +204,7 @@ receiveBlockKnownParent parent pendingBlock = do
                 receiveSigned bakersAndFinalizers
             | otherwise -> do
                 -- The signature is invalid
-                logLoggable $ LogBlockInvalidSignature pbHash
+                logEvent Konsensus LLTrace $ "Block " <> show pbHash <> " has an invalid signature."
                 return BlockResultInvalid
   where
     pbHash :: BlockHash
@@ -412,11 +240,22 @@ receiveBlockKnownParent parent pendingBlock = do
                 else do
                     -- If the transition is not triggered, then the child block should not be
                     -- in the new epoch.
-                    logLoggable $ LogBlockInvalidEpoch pbHash (blockEpoch pendingBlock)
+                    logEvent Konsensus LLTrace $
+                        "Block "
+                            <> show pbHash
+                            <> " contains epoch finalization entry for a block ("
+                            <> show (blockEpoch pendingBlock)
+                            <> ") that is not part of the chain."
                     return BlockResultInvalid
         | otherwise = do
             -- The block's epoch is not valid.
-            logLoggable $ LogBlockInvalidEpoch pbHash (blockEpoch pendingBlock)
+            logEvent Konsensus LLTrace $
+                "Block "
+                    <> show pbHash
+                    <> " is for an invalid epoch ("
+                    <> show (blockEpoch pendingBlock)
+                    <> ")."
+            flag $ BlockEpochInconsistent $ pbBlock pendingBlock
             return BlockResultInvalid
     checkLeader bakersAndFinalizers leNonce
         | blockBaker pendingBlock == roundBaker ^. bakerIdentity = do
@@ -433,8 +272,12 @@ receiveBlockKnownParent parent pendingBlock = do
             use (roundBakerExistingBlock (blockRound pendingBlock) (blockBaker pendingBlock)) >>= \case
                 Just w -> do
                     -- If the baker has already signed a block in this round then we flag it.
-                    logLoggable $
-                        LogBlockMultipleSigned (blockBaker pendingBlock) (blockRound pendingBlock)
+                    logEvent Konsensus LLDebug $
+                        "Baker "
+                            <> show (blockBaker pendingBlock)
+                            <> " signed multiple blocks in round "
+                            <> show (blockRound pendingBlock)
+                            <> "."
                     flag (DuplicateBlock w blockWitness)
                     return $ BlockResultDoubleSign verifiedBlock
                 Nothing -> do
@@ -446,11 +289,14 @@ receiveBlockKnownParent parent pendingBlock = do
                     return $ BlockResultSuccess verifiedBlock
         | otherwise = do
             -- The baker is not the leader.
-            logLoggable $
-                LogBlockIncorrectBaker
-                    pbHash
-                    (blockBaker pendingBlock)
-                    (roundBaker ^. bakerIdentity)
+            logEvent Konsensus LLTrace $
+                "Block "
+                    <> show pbHash
+                    <> " is from baker "
+                    <> show (blockBaker pendingBlock)
+                    <> " but the round winner is baker "
+                    <> show (roundBaker ^. bakerIdentity)
+                    <> "."
             flag (NotLeader (toBlockSignatureWitness (pbBlock pendingBlock)))
             return BlockResultInvalid
       where
@@ -472,7 +318,7 @@ receiveBlockKnownParent parent pendingBlock = do
 --     - the baker is not a valid baker for the epoch; or
 --     - the baker is valid but the signature on the block is not valid.
 --
--- TODO: if any of the transactions in the block is invalid. Issue #699
+-- TODO: if any of the transactions in the block are invalid. Issue #699
 receiveBlockUnknownParent ::
     ( LowLevel.MonadTreeStateStore m,
       MonadState (SkovData (MPV m)) m,
@@ -499,19 +345,22 @@ receiveBlockUnknownParent pendingBlock = do
                         -- The signature is invalid.
                         -- Note: we do not mark the block dead, because potentially a valid block
                         -- with the same hash exists.
-                        logLoggable $ LogBlockInvalidSignature pbHash
+                        logEvent Konsensus LLTrace $ "Block " <> show pbHash <> " has an invalid signature."
                         return BlockResultInvalid
         else return BlockResultEarly
   where
+    pbHash :: BlockHash
     pbHash = getHash pendingBlock
     continuePending = do
         -- TODO: Check the transactions in the block. Issue #699
         addPendingBlock pendingBlock
         markPending pendingBlock
-        logLoggable $ LogBlockPending pbHash (blockParent pendingBlock)
+        logEvent Konsensus LLInfo $ "Block " <> show pbHash <> " is pending its parent " <> show (blockParent pendingBlock) <> "."
         return BlockResultPending
 
 -- |Get the minimum time between consecutive blocks, as of the specified block.
+-- This is the value of the minimum block time chain parameter, and determines the minimum interval
+-- between the block and a child block.
 getMinBlockTime ::
     ( IsConsensusV1 (MPV m),
       BlockStateQuery m,
@@ -554,12 +403,22 @@ addBlock pendingBlock blockState parent energyUsed = do
     now <- currentTime
     newBlock <- makeLiveBlock pendingBlock blockState height now energyUsed
     addToBranches newBlock
-    logLoggable $ LogBlockArrive (getHash pendingBlock) (pbReceiveTime pendingBlock) now
+    logEvent Konsensus LLInfo $
+        "Block "
+            <> show pbHash
+            <> " arrived at "
+            <> show now
+            <> ". Processed in "
+            <> show (diffUTCTime now (pbReceiveTime pendingBlock))
+            <> "."
     let nominalTime = timestampToUTCTime $ blockTimestamp newBlock
-    let numTransactions = blockTransactionCount newBlock
+        numTransactions = blockTransactionCount newBlock
     statistics %=! updateStatsOnArrive nominalTime now numTransactions
     onBlock newBlock
     return newBlock
+  where
+    pbHash :: BlockHash
+    pbHash = getHash pendingBlock
 
 -- |Process a received block. This handles the processing after the initial checks and after the
 -- block has been relayed (or not). This DOES NOT include processing pending children of the block
@@ -603,17 +462,17 @@ processBlock ::
 processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
     -- Check that the QC is consistent with the parent block round.
     | qcRound (blockQuorumCertificate pendingBlock) /= blockRound parent = do
-        logLoggable $ LogBlockQCRoundInconsistent pbHash
+        logEvent Konsensus LLTrace $ "Block " <> show pbHash <> " QC round does not match parent block's round."
         flag $ BlockQCRoundInconsistent sBlock
         rejectBlock
     -- Check that the QC is consistent with the parent block epoch.
     | qcEpoch (blockQuorumCertificate pendingBlock) /= blockEpoch parent = do
-        logLoggable $ LogBlockQCEpochInconsistent pbHash
+        logEvent Konsensus LLTrace $ "Block " <> show pbHash <> " QC epoch does not match parent block's epoch."
         flag $ BlockQCEpochInconsistent sBlock
         rejectBlock
     -- Check that the block round is greater than the round of the parent block.
     | blockRound parent >= blockRound pendingBlock = do
-        logLoggable $ LogBlockRoundInconsistent pbHash
+        logEvent Konsensus LLTrace $ "Block " <> show pbHash <> " round is not higher than parent block's round."
         flag $ BlockRoundInconsistent sBlock
         rejectBlock
     -- Check that the block epoch is either the same as the epoch of the parent block or the next
@@ -626,7 +485,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
     -- fail, because it is already checked there.
     | blockEpoch parent /= blockEpoch pendingBlock,
       blockEpoch parent + 1 /= blockEpoch pendingBlock = do
-        logLoggable $ LogBlockEpochInconsistent pbHash
+        logEvent Konsensus LLTrace $ "Block " <> show pbHash <> " epoch is not the same or next epoch relative to parent."
         flag $ BlockEpochInconsistent sBlock
         rejectBlock
     -- [Note: the timestamp check is deferred in the implementation compared to the bluepaper.]
@@ -638,7 +497,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
             (vbBakerInfo ^. bakerElectionVerifyKey)
             (blockNonce pendingBlock) =
         do
-            logLoggable $ LogBlockNonceIncorrect pbHash
+            logEvent Konsensus LLTrace $ "Block " <> show pbHash <> " nonce is incorrect."
             flag $ BlockNonceIncorrect sBlock
             rejectBlock
     | otherwise = do
@@ -696,12 +555,16 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
         minBlockTime <- getMinBlockTime parent
         if blockTimestamp pendingBlock < blockTimestamp parent `addDuration` minBlockTime
             then do
-                logLoggable $
-                    LogBlockTooFast
-                        pbHash
-                        (blockTimestamp pendingBlock)
-                        minBlockTime
-                        (blockTimestamp parent)
+                logEvent Konsensus LLTrace $
+                    "Block "
+                        ++ show pbHash
+                        ++ " timestamp ("
+                        ++ show (blockTimestamp pendingBlock)
+                        ++ ") is less than minBlockTime ("
+                        ++ show minBlockTime
+                        ++ ") after parent timestamp ("
+                        ++ show (blockTimestamp parent)
+                        ++ ")."
                 flag $ BlockTooFast sBlock (bpBlock parent)
                 rejectBlock
             else continue
@@ -713,19 +576,21 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                 -- Check that a timeout certificate is present if the block round is not the
                 -- sequentially next round.
                 Absent -> do
-                    logLoggable $ LogBlockTCMissing pbHash
+                    logEvent Konsensus LLTrace $
+                        "Block "
+                            <> show pbHash
+                            <> " is missing a timeout certificate, but is not in the next round from its parent."
                     flag $ BlockTCMissing sBlock
                     rejectBlock
                 Present tc
                     -- Check that the TC round is correct.
                     | tcRound tc /= blockRound pendingBlock - 1 -> do
-                        logLoggable $ LogBlockTCRoundInconsistent pbHash
+                        logEvent Konsensus LLTrace $ "Block " <> show pbHash <> " timeout certificate is not for the correct round."
                         flag $ BlockTCRoundInconsistent sBlock
                         rejectBlock
                     | blockRound parent < tcMaxRound tc
-                        || blockEpoch parent < tcMaxEpoch tc
-                        || blockEpoch parent - tcMinEpoch tc > 2 -> do
-                        logLoggable $ LogBlockQCInconsistentWithTC pbHash
+                        || blockEpoch parent < tcMaxEpoch tc -> do
+                        logEvent Konsensus LLTrace $ "Block " <> show pbHash <> " timeout certificate is inconsistent with the quorum certificate."
                         flag $ BlockQCInconsistentWithTC sBlock
                         rejectBlock
                     | otherwise -> do
@@ -763,8 +628,11 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                                     checkTCValid
                                         (eBkrs ^. currentEpochBakers)
                                         (eBkrs ^. nextEpochBakers)
-                                | tcMinEpoch tc == lastFinEpoch + 1,
-                                  tcIsSingleEpoch tc =
+                                -- Note that we do not check that @tcIsSingleEpoch tc@ here,
+                                -- since @tcMinEpoch tc == lastFinEpoch + 1@ implies that
+                                -- @tcMaxEpoch tc == lastFinEpoch + 2@ which would be
+                                -- rejected by the test above @blockEpoch parent <= tcMaxEpoch tc@.
+                                | tcMinEpoch tc == lastFinEpoch + 1 =
                                     checkTCValid
                                         (eBkrs ^. nextEpochBakers)
                                         -- Because the TC is for a single epoch, the second set of
@@ -774,12 +642,12 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                         if tcOK
                             then continue
                             else do
-                                logLoggable $ LogBlockInvalidTC pbHash
+                                logEvent Konsensus LLTrace $ "Block " <> show pbHash <> " timeout certificate is invalid."
                                 flag $ BlockInvalidTC sBlock
                                 rejectBlock
         -- If the previous round didn't timeout, check we have no timeout certificate
         | Present _ <- blockTimeoutCertificate pendingBlock = do
-            logLoggable $ LogBlockUnexpectedTC pbHash
+            logEvent Konsensus LLTrace $ "Block " <> show pbHash <> " has unexpected timeout certificate."
             flag $ BlockUnexpectedTC sBlock
             rejectBlock
         | otherwise = continue
@@ -791,7 +659,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
         | blockEpoch pendingBlock == blockEpoch parent + 1 =
             case blockEpochFinalizationEntry pendingBlock of
                 Absent -> do
-                    logLoggable $ LogBlockEpochFinalizationMissing pbHash
+                    logEvent Konsensus LLTrace $ "Block " <> show pbHash <> " missing an epoch finalization entry."
                     flag $ BlockEpochFinalizationMissing sBlock
                     rejectBlock
                 Present finEntry
@@ -834,32 +702,37 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                                     -- in the successor QC. (Also, we may not have the block
                                     -- pointed to by the successor QC.)
                                     --
-                                    -- We check if the block is descended from the NEW last
-                                    -- finalized block, since that should have changed.
-                                    gets (getLiveOrLastFinalizedBlock (getHash parent)) >>= \case
-                                        Just _ -> continue
-                                        _ -> do
-                                            logLoggable $
-                                                LogBlockUnrelatedEpochFinalization
-                                                    pbHash
-                                                    finBlockHash
-                                            -- Possibly we should flag in this case.
-                                            rejectBlock
+                                    -- Note that we have checked that @qcRound (feSuccessorQuorumCertificate finEntry) <= blockRound parent@
+                                    -- so either the @parent@ is the block that finalized @finBlock@ or @finBlock@ was already finalized
+                                    -- when @parent@ was baked.
+                                    -- Hence, at this point we MUST know the @parent@ so there is no need to look it up,
+                                    -- so we just @continue@.
+                                    -- If this is not the case, then there must've been more than 1/3 dishonest finalizers
+                                    -- and as a result conflicting blocks were finalized.
+                                    continue
                             _ -> do
-                                logLoggable $
-                                    LogBlockInvalidEpochFinalizationTarget
-                                        pbHash
-                                        finBlockHash
+                                logEvent Konsensus LLTrace $
+                                    "Block "
+                                        <> show pbHash
+                                        <> " contains epoch finalization entry for a block ("
+                                        <> show finBlockHash
+                                        <> ") that is not part of the chain."
                                 flag $ BlockInvalidEpochFinalization sBlock
                                 rejectBlock
                     | otherwise -> do
-                        logLoggable $ LogBlockInvalidEpochFinalization pbHash
+                        logEvent Konsensus LLTrace $
+                            "Block "
+                                <> show pbHash
+                                <> " contains an invalid epoch finalization entry."
                         flag $ BlockInvalidEpochFinalization sBlock
                         rejectBlock
         -- Here, the epoch must be the same as the parent epoch by the earlier epoch consistency
         -- check, and so we require the epoch finalization entry to be absent.
         | Present _ <- blockEpochFinalizationEntry pendingBlock = do
-            logLoggable $ LogBlockUnexpectedEpochFinalization pbHash
+            logEvent Konsensus LLTrace $
+                "Block "
+                    <> show pbHash
+                    <> " contains an epoch finalization entry when it should not."
             flag $ BlockUnexpectedEpochFinalization sBlock
             rejectBlock
         | otherwise = continue
@@ -874,7 +747,11 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                     }
         executeBlockStateUpdate execData >>= \case
             Left failureReason -> do
-                logLoggable $ LogBlockExecutionFailure pbHash failureReason
+                logEvent Konsensus LLTrace $
+                    "Block "
+                        <> show pbHash
+                        <> " failed execution: "
+                        <> show failureReason
                 flag (BlockExecutionFailure sBlock)
                 rejectBlock
             Right (newState, energyUsed) -> do
@@ -882,20 +759,26 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                 if
                         | outcomesHash /= blockTransactionOutcomesHash pendingBlock -> do
                             -- Incorrect transaction outcomes
-                            logLoggable $
-                                LogBlockInvalidTransactionOutcomesHash
-                                    pbHash
-                                    (blockTransactionOutcomesHash pendingBlock)
-                                    outcomesHash
+                            logEvent Konsensus LLTrace $
+                                "Block "
+                                    <> show pbHash
+                                    <> " stated transaction outcome hash ("
+                                    <> show (blockTransactionOutcomesHash pendingBlock)
+                                    <> ") does not match computed value ("
+                                    <> show outcomesHash
+                                    <> ")."
                             flag $ BlockInvalidTransactionOutcomesHash sBlock (bpBlock parent)
                             rejectBlock
                         | getHash newState /= blockStateHash pendingBlock -> do
                             -- Incorrect state hash
-                            logLoggable $
-                                LogBlockInvalidStateHash
-                                    pbHash
-                                    (blockStateHash pendingBlock)
-                                    (getHash newState)
+                            logEvent Konsensus LLTrace $
+                                "Block "
+                                    <> show pbHash
+                                    <> " stated state hash ("
+                                    <> show (blockStateHash pendingBlock)
+                                    <> ") does not match computed value ("
+                                    <> show (getHash newState :: StateHash)
+                                    <> ")."
                             flag $ BlockInvalidStateHash sBlock (bpBlock parent)
                             rejectBlock
                         | otherwise ->
@@ -918,10 +801,10 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                     qc
         if qcOK
             then do
-                roundExistingQuorumCertificate (qcRound qc) ?= toQuorumCertificateWitness qc
+                recordCheckedQuorumCertificate qc
                 continue
             else do
-                logLoggable $ LogBlockInvalidQC pbHash
+                logEvent Konsensus LLTrace $ "Block " <> show pbHash <> " contains an invalid QC."
                 flag $ BlockInvalidQC sBlock
                 rejectBlock
 
@@ -930,11 +813,15 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
 -- * Round number
 -- * Epoch number
 -- * Descending timestamp
--- * Descending receive time
--- * Descending arrival time
 -- * Block hash
 --
 -- This ordering is used to determine the "best block" to sign when a block arrives.
+--
+-- Note that the ordering above could also first have been on 'Epoch' and then 'Round'
+-- since if we had two blocks: one with a higher 'Round' and one with
+-- a higher 'Epoch' then neither of those will be signed.
+-- In the lower 'Round' case then the 'Round' would've timed out (hence the higher 'Epoch')
+-- and in the lower 'Epoch' case the consensus runner will already be an 'Epoch' ahead.
 newtype OrderedBlock pv = OrderedBlock {theOrderedBlock :: BlockPointer pv}
 
 instance Ord (OrderedBlock pv) where
@@ -944,7 +831,7 @@ instance Ord (OrderedBlock pv) where
         toTuple (OrderedBlock blk) =
             ( blockRound blk,
               blockEpoch blk,
-              Down (blockTimestamp blk, blockReceiveTime blk, blockArriveTime blk),
+              Down (blockTimestamp blk),
               getHash @BlockHash blk
             )
 
@@ -1008,9 +895,9 @@ processPendingChild block = do
             Just parent -> do
                 receiveBlockKnownParent parent block >>= \case
                     BlockResultSuccess vb -> do
-                        processReceiveOK parent vb
+                        processReceiveOK True parent vb
                     BlockResultDoubleSign vb -> do
-                        processReceiveOK parent vb
+                        processReceiveOK False parent vb
                     _ -> do
                         processAsDead
             Nothing -> do
@@ -1023,10 +910,13 @@ processPendingChild block = do
     processAsDead = do
         blockArriveDead blockHash
         return Nothing
-    processReceiveOK parent vb = do
+    processReceiveOK advertise parent vb = do
         processBlock parent vb >>= \case
             Just newBlock -> do
-                onPendingLive
+                -- We only advertise the block to our peers
+                -- if it was received succesfully. Hence if peers are catching up with us
+                -- they are getting the blocks in the same order as we are.
+                when advertise onPendingLive
                 Just <$> processPendingChildren newBlock
             Nothing -> processAsDead
 
@@ -1039,7 +929,7 @@ processPendingChild block = do
 -- are correct).
 validateBlock ::
     ( MonadState (SkovData (MPV m)) m,
-      MonadMulticast m,
+      MonadBroadcast m,
       LowLevel.MonadTreeStateStore m,
       IsConsensusV1 (MPV m),
       MonadThrow m,
@@ -1071,7 +961,7 @@ validateBlock blockHash BakerIdentity{..} finInfo = do
                 ++ " is live"
         persistentRS <- use persistentRoundStatus
         curRound <- use $ roundStatus . rsCurrentRound
-        curEpoch <- use currentEpoch
+        curEpoch <- use $ roundStatus . rsCurrentEpoch
         when
             ( blockRound block == curRound
                 && prsNextSignableRound persistentRS <= blockRound block
@@ -1103,6 +993,15 @@ validateBlock blockHash BakerIdentity{..} finInfo = do
                         }
                     makeBlock
 
+-- |If the given time has elapsed, perform the supplied action. Otherwise, start a timer to
+-- asynchronously perform the action at the given time.
+doAfter :: (TimeMonad m, TimerMonad m) => UTCTime -> m () -> m ()
+doAfter time action = do
+    now <- currentTime
+    if time <= now
+        then action
+        else void $ onTimeout (DelayUntil time) action
+
 -- |Produce a quorum signature on a block if the block is eligible and we are a finalizer for the
 -- block's epoch. This will delay until the timestamp of the block has elapsed so that we do not
 -- sign blocks prematurely.
@@ -1113,7 +1012,7 @@ checkedValidateBlock ::
       HashableTo BlockHash b,
       TimerMonad m,
       MonadState (SkovData (MPV m)) m,
-      MonadMulticast m,
+      MonadBroadcast m,
       LowLevel.MonadTreeStateStore m,
       MonadThrow m,
       MonadIO m,
@@ -1135,9 +1034,8 @@ checkedValidateBlock validBlock = do
         logEvent Baker LLTrace $
             "checkedValidateBlock delaying until "
                 ++ show (timestampToUTCTime $ blockTimestamp validBlock)
-        _ <-
-            onTimeout (DelayUntil (timestampToUTCTime $ blockTimestamp validBlock)) $!
-                validateBlock blockHash bakerIdent finInfo
+        doAfter (timestampToUTCTime $ blockTimestamp validBlock) $!
+            validateBlock blockHash bakerIdent finInfo
         return ()
 
 -- |Execute a block that has previously been verified by 'uponReceivingBlock'.
@@ -1159,7 +1057,7 @@ executeBlock ::
       MonadReader r m,
       HasBakerContext r,
       TimerMonad m,
-      MonadMulticast m,
+      MonadBroadcast m,
       MonadConsensusEvent m,
       MonadLogger m
     ) =>
@@ -1216,6 +1114,11 @@ data BakeBlockInputs (pv :: ProtocolVersion) = BakeBlockInputs
 --   * We are the winner of the round in the current epoch.
 --
 --   * The baker's public keys match those in the baking committee.
+--
+-- Note, if any of the tests fails, it is expected to fail on subsequent calls in the same round.
+-- (In particular, we do not expect the baker keys to change.) Thus, when 'prepareBakeBlockInputs'
+-- is called, it marks that we have attempted to bake for the round, so subsequent calls will fail
+-- until the round is advanced (and so the flag is reset).
 prepareBakeBlockInputs ::
     ( MonadReader r m,
       HasBakerContext r,
@@ -1227,6 +1130,17 @@ prepareBakeBlockInputs ::
     ) =>
     m (Maybe (BakeBlockInputs (MPV m)))
 prepareBakeBlockInputs = runMaybeT $ do
+    -- We directly set the @rsRoundEligibleToBake@ to 'False' here as
+    -- even if the function returns early without producing the inputs required
+    -- for baking a block then such a reason is not recoverable.
+    -- This function can fail in the following ways:
+    -- - The baker is configured with wrong keys and hence the
+    --   node has to be restarted and configured with the correct keys,
+    --   but it would not really be possible anyhow to bake in this round for the baker
+    --   as the chain would most likely have advanced the round in the time it took to reboot the node.
+    -- - The baker is not leader for the current round or the baker is trying to bake for an old rould.
+    --   The only way to progress from such a failure is to advance the round anyhow
+    --   (which makes it eligible for baking again).
     canBake <- roundStatus . rsRoundEligibleToBake <<.= False
     -- Terminate if we've already tried to bake for this round.
     guard canBake
@@ -1259,7 +1173,7 @@ prepareBakeBlockInputs = runMaybeT $ do
                     )
               where
                 highestCB = rs ^. rsHighestCertifiedBlock
-    let bbiEpoch = sd ^. currentEpoch
+    let bbiEpoch = sd ^. roundStatus . rsCurrentEpoch
     let bbiEpochFinalizationEntry
             | bbiEpoch > qcEpoch bbiQuorumCertificate =
                 -- This assertion should not fail because the invariant on
@@ -1269,7 +1183,7 @@ prepareBakeBlockInputs = runMaybeT $ do
                 assert (isPresent finEntry) finEntry
             | otherwise = Absent
           where
-            finEntry = sd ^. lastEpochFinalizationEntry
+            finEntry = sd ^. roundStatus . rsLastEpochFinalizationEntry
     bbiEpochBakers <-
         if isAbsent bbiEpochFinalizationEntry
             then getCurrentEpochBakers (bpState bbiParent)
@@ -1282,10 +1196,10 @@ prepareBakeBlockInputs = runMaybeT $ do
     let leader = getLeaderFullBakers bbiEpochBakers bbiLeadershipElectionNonce bbiRound
     guard (leader ^. bakerIdentity == bakerId)
     unless (bakerSignPublicKey bbiBakerIdentity == leader ^. bakerSignatureVerifyKey) $ do
-        logLoggable LogBakerIncorrectSignKey
+        logEvent Konsensus LLWarning "Baker signing key does not match the key in the current committee."
         empty
     unless (bakerElectionPublicKey bbiBakerIdentity == leader ^. bakerElectionVerifyKey) $ do
-        logLoggable LogBakerIncorrectElectionKey
+        logEvent Konsensus LLWarning "Baker election key does not match the key in the current committee."
         empty
     return BakeBlockInputs{..}
 
@@ -1373,7 +1287,7 @@ makeBlock ::
       LowLevel.MonadTreeStateStore m,
       TimeMonad m,
       TimerMonad m,
-      MonadMulticast m,
+      MonadBroadcast m,
       MonadThrow m,
       MonadIO m,
       MonadTimeout m,
@@ -1388,6 +1302,6 @@ makeBlock = do
         logEvent Baker LLTrace $
             "Going to bake block at "
                 ++ show (timestampToUTCTime $ blockTimestamp block)
-        void $ onTimeout (DelayUntil (timestampToUTCTime $ blockTimestamp block)) $ do
+        doAfter (timestampToUTCTime $ blockTimestamp block) $ do
             sendBlock block
             checkedValidateBlock block
