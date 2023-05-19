@@ -1014,13 +1014,13 @@ testNoMakeFirstBlock = runTestMonad (baker 0) testTime genesisData $ do
     timers <- getPendingTimers
     liftIO $ assertBool "Pending timers should be empty" (null timers)
 
--- |Test calling 'makeBlock' in the second round, after sending timeout messages to time out the
+-- |Test making a block in the second round, after sending timeout messages to time out the
 -- first round, where the baker should win the second round.
 testTimeoutMakeBlock :: Assertion
 testTimeoutMakeBlock = runTestMonad (baker bakerId) testTime genesisData $ do
     let genQC = genesisQuorumCertificate genesisHash
-    mapM_ processTimeout $ timeoutMessagesFor genQC 1 0
-    ((), r) <- listen makeBlock
+    -- Once the timeout certificate is generated, 'processTimeout' calls 'makeBlock'.
+    ((), r) <- listen $ mapM_ processTimeout $ timeoutMessagesFor genQC 1 0
     let expectBlock =
             validSignBlock
                 testBB2'
@@ -1038,8 +1038,12 @@ testTimeoutMakeBlock = runTestMonad (baker bakerId) testTime genesisData $ do
     let expectQM = buildQuorumMessage qsm qsig (FinalizerIndex $ fromIntegral bakerId)
     liftIO $
         assertEqual
-            "Produced events (makeBlock)"
-            [OnBlock (NormalBlock expectBlock), SendBlock expectBlock, SendQuorumMessage expectQM]
+            "Produced events (processTimeout)"
+            [ ResetTimer 10000,
+              OnBlock (NormalBlock expectBlock),
+              SendBlock expectBlock,
+              SendQuorumMessage expectQM
+            ]
             r
   where
     bakerId = 4

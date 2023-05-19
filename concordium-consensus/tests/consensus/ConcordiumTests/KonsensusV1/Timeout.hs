@@ -170,9 +170,9 @@ testProcessTimeout = do
     runTestMonad noBaker testTime genesisData $ do
         currentRound <- use $ roundStatus . rsCurrentRound
         liftIO $ assertEqual "Round should be 1" 1 currentRound
-        let message1 = dummyTimeoutMessage 0 1
-        let message2 = dummyTimeoutMessage 2 1
-        let message3 = dummyTimeoutMessage 4 1
+        let message1 = dummyTimeoutMessage 0 0
+        let message2 = dummyTimeoutMessage 2 0
+        let message3 = dummyTimeoutMessage 4 0
         processTimeout message1
 
         actualMessages <- use currentTimeoutMessages
@@ -353,32 +353,6 @@ testUpdateTimeoutMessages =
               tmFirstEpoch = 0
             }
     messages1 = TimeoutMessages 0 (Map.singleton (FinalizerIndex 0) $ dummyTimeoutMessage 0 0) Map.empty
-
--- |Test 'updateTimeoutMessages'.
-testMakeTimeoutCertificate :: Spec
-testMakeTimeoutCertificate =
-    describe "Test makeTimeoutCertificate" $ do
-        it "Correct finalizer rounds" $
-            assertEqual "Should be equal" map1 rh1
-  where
-    messages3 =
-        TimeoutMessages
-            { tmSecondEpochTimeouts = Map.fromList [(FinalizerIndex 1, dummyTimeoutMessage 1 1)],
-              tmFirstEpochTimeouts = Map.fromList [(FinalizerIndex 0, dummyTimeoutMessage 0 0)],
-              tmFirstEpoch = 0
-            }
-    messages2 =
-        TimeoutMessages
-            { tmSecondEpochTimeouts = Map.empty,
-              tmFirstEpochTimeouts = Map.fromList [(FinalizerIndex 0, dummyTimeoutMessage 0 0), (FinalizerIndex 1, dummyTimeoutMessage 1 0)],
-              tmFirstEpoch = 0
-            }
-    messages1 = TimeoutMessages 0 (Map.singleton (FinalizerIndex 0) $ dummyTimeoutMessage 0 0) Map.empty
-    tc1 = makeTimeoutCertificate 1 messages1
-    map1 = FinalizerRounds $ Map.singleton (Round 0) $ finalizerSet [FinalizerIndex 0]
-    rh1 = tcFinalizerQCRoundsFirstEpoch tc1
-
--- toFinalizerInfo :: BakerIdentity -> FinalizerInfo
 
 -- |Test the 'receiveTimeoutMessage' function which partially verifies
 -- a 'TimeoutMessage'.
@@ -663,4 +637,3 @@ tests = describe "KonsensusV1.Timeout" $ do
     it "Test processTimeout" testProcessTimeout
     it "Test uponTimeoutEvent" testUponTimeoutEvent
     testUpdateTimeoutMessages
-    testMakeTimeoutCertificate
