@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 -- |This module tests block verification, processing, advancing round and baking.
 -- The below tests are intended to test the functionality exposed by the 'Concordium.KonsensusV1.Consensus.Blocks' module.
@@ -20,15 +21,20 @@ import Test.HUnit
 import Test.Hspec
 
 import qualified Concordium.Crypto.DummyData as Dummy
+import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Genesis.Data
 import Concordium.Types
+import Concordium.Types.BakerIdentity
 import qualified Concordium.Types.DummyData as Dummy
 import Concordium.Types.HashableTo
 import Concordium.Types.SeedState
 import Concordium.Types.Transactions
+import qualified Concordium.Types.Transactions as Transactions
 
 import qualified Concordium.Genesis.Data.P6 as P6
 import Concordium.GlobalState.BakerInfo
+import Concordium.GlobalState.Basic.BlockState.LFMBTree (hashAsLFMBT)
+import Concordium.GlobalState.BlockState (TransactionSummaryV1)
 import qualified Concordium.GlobalState.DummyData as Dummy
 import Concordium.KonsensusV1.Consensus
 import Concordium.KonsensusV1.Consensus.Blocks
@@ -40,7 +46,6 @@ import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.Startup
 import Concordium.TimerMonad
-import Concordium.Types.BakerIdentity
 
 maxBaker :: Integral a => a
 maxBaker = 5
@@ -183,6 +188,28 @@ timeoutMessagesFor qc curRound curEpoch = mkTm <$> bakers
               tsmQCEpoch = qcEpoch qc
             }
 
+-- |Helper to compute the transaction outcomes hash for a given set of transaction outcomes and
+-- special transaction outcomes.
+transactionOutcomesHash ::
+    [TransactionSummaryV1] ->
+    [Transactions.SpecialTransactionOutcome] ->
+    Transactions.TransactionOutcomesHash
+transactionOutcomesHash outcomes specialOutcomes =
+    Transactions.TransactionOutcomesHash $
+        H.hashShort $
+            "TransactionOutcomesHashV1"
+                <> H.hashToShortByteString out
+                <> H.hashToShortByteString special
+  where
+    lfmbHash :: HashableTo H.Hash a => [a] -> H.Hash
+    lfmbHash = hashAsLFMBT (H.hash "EmptyLFMBTree") . fmap getHash
+    out = lfmbHash outcomes
+    special = lfmbHash specialOutcomes
+
+-- |Compute the transaction outcomes hash for a block with no transactions.
+emptyBlockTOH :: BakerId -> Transactions.TransactionOutcomesHash
+emptyBlockTOH bid = transactionOutcomesHash [] [BlockAccrueReward 0 0 0 0 0 0 bid]
+
 -- |Valid block for round 1.
 testBB1 :: BakedBlock
 testBB1 =
@@ -196,8 +223,8 @@ testBB1 =
           bbEpochFinalizationEntry = Absent,
           bbNonce = computeBlockNonce genesisLEN 1 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
-          bbTransactionOutcomesHash = emptyTransactionOutcomesHashV1,
-          bbStateHash = read "542a212811338244db35fa3aec466340556cac89d0e66fabc82a834156b95d66"
+          bbTransactionOutcomesHash = emptyBlockTOH bakerId,
+          bbStateHash = read "9beb5328c8119857fe07add6e6c34db8d0df11c34acd174ba93cd43b619bf9ee"
         }
   where
     bakerId = 2
@@ -215,8 +242,8 @@ testBB2 =
           bbEpochFinalizationEntry = Absent,
           bbNonce = computeBlockNonce genesisLEN 2 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
-          bbTransactionOutcomesHash = emptyTransactionOutcomesHashV1,
-          bbStateHash = read "63957910621f8db8c909dcd41be7e87f3d001016881e390e8f411a7643a1d8bd"
+          bbTransactionOutcomesHash = emptyBlockTOH bakerId,
+          bbStateHash = read "f0b88ef30df127d9d00f6581e745ce99d64884c72e8d429f76e9c7d6daf64a11"
         }
   where
     bakerId = 4
@@ -234,8 +261,8 @@ testBB3 =
           bbEpochFinalizationEntry = Absent,
           bbNonce = computeBlockNonce genesisLEN 3 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
-          bbTransactionOutcomesHash = emptyTransactionOutcomesHashV1,
-          bbStateHash = read "1745bfc938837d0229f9556654a6c9cc55e6081b06697ab190099723c0a142c8"
+          bbTransactionOutcomesHash = emptyBlockTOH bakerId,
+          bbStateHash = read "afd718e6f1ae8534655651ce3dfe11d0e84bfa071b49d6d1343b31c0d7a66761"
         }
   where
     bakerId = 4
@@ -246,7 +273,7 @@ testBB2' =
     testBB2
         { bbQuorumCertificate = genQC,
           bbTimeoutCertificate = Present (validTimeoutFor genQC 1),
-          bbStateHash = read "c4bc315f9eca90dad2ce5334df4d7b058a162b3a3c266429051403e02b84ff49"
+          bbStateHash = read "a312352eb6248afbd31394d83dda195fe8b04669d92bac27a5cbdbc356068e5c"
         }
   where
     genQC = genesisQuorumCertificate genesisHash
@@ -256,7 +283,7 @@ testBB3' :: BakedBlock
 testBB3' =
     testBB3
         { bbQuorumCertificate = validQCFor testBB2',
-          bbStateHash = read "c217c7303d79a9ccb0ef3c1c7bfd11b5470505019e9c4fbfa24383b30be01747"
+          bbStateHash = read "096d6f4e39cf29389399c3f272822baba5cdb454a90ae298cfaad929fd8f4e39"
         }
 
 -- |A valid block for round 4 descended from 'testBB3''.
@@ -272,8 +299,8 @@ testBB4' =
           bbEpochFinalizationEntry = Absent,
           bbNonce = computeBlockNonce genesisLEN 4 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
-          bbTransactionOutcomesHash = emptyTransactionOutcomesHashV1,
-          bbStateHash = read "0603dacd7e6cce263c5e4f8fe1ead5d8d64f79a08aa41a87d88ecc7e3f4749bc"
+          bbTransactionOutcomesHash = emptyBlockTOH bakerId,
+          bbStateHash = read "4814482cdfff80c5e3385125d9b1e3e12dcb0c38695fe6182bf3f8c70681471c"
         }
   where
     bakerId = 3
@@ -303,8 +330,8 @@ testBB1E =
           bbEpochFinalizationEntry = Absent,
           bbNonce = computeBlockNonce genesisLEN 1 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
-          bbTransactionOutcomesHash = emptyTransactionOutcomesHashV1,
-          bbStateHash = read "11b1401c155d6d2cd63e84b9be60d685d8223f6cd8b6d055c6e7265f0b1c88a4"
+          bbTransactionOutcomesHash = emptyBlockTOH bakerId,
+          bbStateHash = read "0c6bc5f7a8c3961c8e2913e9bf742cd72e354e0b0c04fc0cd3257166f1cb1975"
         }
   where
     bakerId = 2
@@ -322,8 +349,8 @@ testBB2E =
           bbEpochFinalizationEntry = Absent,
           bbNonce = computeBlockNonce genesisLEN 2 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
-          bbTransactionOutcomesHash = emptyTransactionOutcomesHashV1,
-          bbStateHash = read "11b1401c155d6d2cd63e84b9be60d685d8223f6cd8b6d055c6e7265f0b1c88a4"
+          bbTransactionOutcomesHash = emptyBlockTOH bakerId,
+          bbStateHash = read "c18d56b2723fbd0ce09fcd8b211982744b3b91eecac31fff4bcf486b07c18e06"
         }
   where
     bakerId = 4
@@ -343,8 +370,8 @@ testBB3EX =
           bbEpochFinalizationEntry = Absent,
           bbNonce = computeBlockNonce genesisLEN 3 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
-          bbTransactionOutcomesHash = emptyTransactionOutcomesHashV1,
-          bbStateHash = read "11b1401c155d6d2cd63e84b9be60d685d8223f6cd8b6d055c6e7265f0b1c88a4"
+          bbTransactionOutcomesHash = emptyBlockTOH bakerId,
+          bbStateHash = read "4f91701802654c0fd10f0a3101b142d2b07461b7695b0e03695e4f8eebf81974"
         }
   where
     bakerId = 4
@@ -378,8 +405,8 @@ testBB3E =
           bbEpochFinalizationEntry = Present testEpochFinEntry,
           bbNonce = computeBlockNonce testEpochLEN 3 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
-          bbTransactionOutcomesHash = emptyTransactionOutcomesHashV1,
-          bbStateHash = read "4c5a23a37147d4cbe048cd6de72e1ac17b4ea04445875a22c352cdf61c052638"
+          bbTransactionOutcomesHash = emptyBlockTOH bakerId,
+          bbStateHash = read "5e0ef4e48d726d65bddb344a405c8b707fdd6d774921340343b368a1c7223488"
         }
   where
     bakerId = 5
@@ -408,8 +435,8 @@ testBB4E =
           bbEpochFinalizationEntry = Absent,
           bbNonce = computeBlockNonce testEpochLEN 4 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
-          bbTransactionOutcomesHash = emptyTransactionOutcomesHashV1,
-          bbStateHash = read "1b0f643c7724537aab64d38816e0e413ea8eb1170d4e9263449c9aa4ee5afabd"
+          bbTransactionOutcomesHash = emptyBlockTOH bakerId,
+          bbStateHash = read "75a69cf8606a411afd06657fcc79b16c47e52fddb2a03b7093c8cda1f36fbb9a"
         }
   where
     bakerId = 1
@@ -422,7 +449,7 @@ testBB4E' =
         { bbQuorumCertificate = validQCFor testBB2E,
           bbTimeoutCertificate = Present (validTimeoutFor (validQCFor testBB1E) 3),
           bbEpochFinalizationEntry = Present testEpochFinEntry,
-          bbStateHash = read "900f5baf4b667c0a02433a21df1f4c253053b2c1f9b58bc498a3851f857b3e7f"
+          bbStateHash = read "d79d3c822f4355f534f27c551534bb3a7dc6b587b27d789ede8a829b87b89ef4"
         }
 
 -- |Valid block for round 5, epoch 1. Descends from 'testBB3E'. The timeout certificate for round
@@ -439,8 +466,8 @@ testBB5E' =
           bbEpochFinalizationEntry = Absent,
           bbNonce = computeBlockNonce testEpochLEN rnd (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
-          bbTransactionOutcomesHash = emptyTransactionOutcomesHashV1,
-          bbStateHash = read "f02f759c6694b210372060d4644b972bb29cf1bfce7b24091c20a3043146b370"
+          bbTransactionOutcomesHash = emptyBlockTOH bakerId,
+          bbStateHash = read "52a235195b16a6801a774b4e787e02c3f67982d3014adfcb03701ebdaa40d0f9"
         }
   where
     bakerId = 2
@@ -473,7 +500,7 @@ testBB2Ex =
     testBB2E
         { bbQuorumCertificate = genQC,
           bbTimeoutCertificate = Present (validTimeoutFor genQC 1),
-          bbStateHash = read "af6778c48e456a50fd034a607a5c1b9de148328f6982c31a840a28db21a0ba06"
+          bbStateHash = read "914df723a8dce4a9ed499f30887177510408e34e9d8eba58d4b6394348055d1a"
         }
   where
     genQC = genesisQuorumCertificate genesisHash
@@ -496,8 +523,8 @@ testBB3Ex =
           bbEpochFinalizationEntry = Present testEpochFinEntry,
           bbNonce = computeBlockNonce testEpochLENx 3 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
-          bbTransactionOutcomesHash = emptyTransactionOutcomesHashV1,
-          bbStateHash = read "4c5a23a37147d4cbe048cd6de72e1ac17b4ea04445875a22c352cdf61c052638"
+          bbTransactionOutcomesHash = emptyBlockTOH bakerId,
+          bbStateHash = read "5e0ef4e48d726d65bddb344a405c8b707fdd6d774921340343b368a1c7223488"
         }
   where
     bakerId = 2
