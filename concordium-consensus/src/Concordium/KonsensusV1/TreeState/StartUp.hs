@@ -145,8 +145,9 @@ loadSkovData _runtimeParameters = do
                             { cbQuorumCertificate = qc,
                               cbQuorumBlock = lastFinBlock
                             }
-                | otherwise -> throwM . TreeStateInvariantViolation $ "Database last finalized entry does not match the last finalized block"
-
+                | otherwise ->
+                    throwM . TreeStateInvariantViolation $
+                        "Database last finalized entry does not match the last finalized block"
     let lastSignedQMRound =
             ofOption 0 qmRound $ _prsLastSignedQuorumMessage _persistentRoundStatus
     let lastSignedTMRound =
