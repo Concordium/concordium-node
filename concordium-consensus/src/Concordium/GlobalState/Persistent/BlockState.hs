@@ -1046,7 +1046,7 @@ doGetCurrentEpochFinalizationCommitteeParameters ::
     m FinalizationCommitteeParameters
 doGetCurrentEpochFinalizationCommitteeParameters pbs = do
     eb <- refLoad . _birkCurrentEpochBakers . bspBirkParameters =<< loadPBS pbs
-    return $ eb ^. bakerFinalizationCommitteeParameters . supportedOParam
+    return $! eb ^. bakerFinalizationCommitteeParameters . supportedOParam
 
 doGetCurrentEpochBakers :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m FullBakers
 doGetCurrentEpochBakers pbs = epochToFullBakers =<< refLoad . _birkCurrentEpochBakers . bspBirkParameters =<< loadPBS pbs
@@ -1069,7 +1069,7 @@ doGetNextEpochFinalizationCommitteeParameters ::
     m FinalizationCommitteeParameters
 doGetNextEpochFinalizationCommitteeParameters pbs = do
     eb <- refLoad . _birkNextEpochBakers . bspBirkParameters =<< loadPBS pbs
-    return $ eb ^. bakerFinalizationCommitteeParameters . supportedOParam
+    return $! eb ^. bakerFinalizationCommitteeParameters . supportedOParam
 
 doGetNextEpochBakers :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m FullBakers
 doGetNextEpochBakers pbs = do

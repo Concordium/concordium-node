@@ -26,15 +26,16 @@ import Concordium.KonsensusV1.Types
 import Concordium.Logger
 import Control.Monad.Reader.Class
 
--- |A Monad for multicasting timeout messages.
-class MonadMulticast m where
-    -- |Multicast a timeout message.
+-- |A Monad for broadcasting either a 'TimeoutMessage',
+-- 'QuorumMessage' or a 'SignedBlock'.
+class MonadBroadcast m where
+    -- |Broadcast a 'TimeoutMessage'.
     sendTimeoutMessage :: TimeoutMessage -> m ()
 
-    -- |Multicast a quorum message.
+    -- |Broadcast a 'QuorumMessage'.
     sendQuorumMessage :: QuorumMessage -> m ()
 
-    -- |Multicast a block.
+    -- |Broadcast a 'SignedBlock'.
     sendBlock :: SignedBlock -> m ()
 
 -- |This class provides event handlers for consensus events. A runner should implement this to
@@ -44,7 +45,15 @@ class MonadConsensusEvent m where
     onBlock :: BlockPointer (MPV m) -> m ()
 
     -- |Called when a block becomes finalized. This is only called with explicitly finalized blocks.
-    onFinalize :: FinalizationEntry -> BlockPointer (MPV m) -> m ()
+    onFinalize ::
+        -- |The 'FinalizationEntry' that witnesses that the 'BlockPointer pv' is finalized.
+        FinalizationEntry ->
+        -- |The implicitly finalized blocks, that is ancestors that was live before
+        -- a block was finalized.
+        [BlockPointer (MPV m)] ->
+        -- |The explicityly finalized block.
+        BlockPointer (MPV m) ->
+        m ()
 
     -- |Called when a previously pending block becomes live. This should be used to trigger sending
     -- a catch-up status message to all (non-pending) peers, since they may not be aware of the
@@ -80,11 +89,11 @@ onNewRound = do
     -- the consensus runner is either part of the current epoch (i.e. the new one) OR
     -- the prior epoch, as it could be the case that the consensus runner left the finalization committee
     -- coming into this new (current) epoch - but we still want to ensure that a timeout is thrown either way.
-    resetTimer =<< use currentTimeout
+    resetTimer =<< use (roundStatus . rsCurrentTimeout)
     -- Clear the quorum messages collected.
     currentQuorumMessages .= emptyQuorumMessages
     -- Clear the timeout messages collected.
-    receivedTimeoutMessages .= Absent
+    currentTimeoutMessages .= Absent
 
 -- |Advance the round as the result of a timeout. This will also set the highest certified block
 -- if the round timeout contains a higher one.
@@ -147,8 +156,8 @@ computeFinalizationCommittee :: FullBakers -> FinalizationCommitteeParameters ->
 computeFinalizationCommittee FullBakers{..} FinalizationCommitteeParameters{..} =
     FinalizationCommittee{..}
   where
-    -- We use an insertion sort to construct the '_fcpMaxFinalizers' top bakers.
-    -- Order them by descending stake and ascending baker ID.
+    -- We construct a map with the top bakers ordered by descending stake and ascending baker ID.
+    -- The size of the map is limited to '_fcpMaxFinalizers'.
     insert ::
         Map.Map (Down Amount, BakerId) FullBakerInfo ->
         FullBakerInfo ->

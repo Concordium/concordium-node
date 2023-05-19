@@ -7,7 +7,6 @@
 module ConcordiumTests.KonsensusV1.Quorum where
 
 import Data.Maybe (fromJust, isJust)
-import qualified Data.Set as Set
 import qualified Data.Vector as Vec
 import Lens.Micro.Platform
 import Test.HUnit hiding (State)
@@ -62,7 +61,7 @@ propAddQuorumMessage =
                         (isJust (qsm' ^? smBlockToWeightsAndSignatures . ix (qmBlock qm0)))
                     assertEqual
                         "The finalizer weight, signature and finalizer index should be present"
-                        (weight, qmSignature qm0, Set.singleton $ qmFinalizerIndex qm0)
+                        (weight, qmSignature qm0, finalizerSet [qmFinalizerIndex qm0])
                         (fromJust $! qsm' ^? smBlockToWeightsAndSignatures . ix (qmBlock qm0))
                     let verifiedQuorumMessage1 = VerifiedQuorumMessage qm1 weight $! myBlockPointer 0 0
                         qsm'' = addQuorumMessage verifiedQuorumMessage1 qsm'
@@ -75,7 +74,7 @@ propAddQuorumMessage =
                         (isJust (qsm'' ^? smBlockToWeightsAndSignatures . ix (qmBlock qm1)))
                     assertEqual
                         "The finalizer weight, aggregated signature and finalizer indecies should be present"
-                        (2 * weight, qmSignature qm1 <> qmSignature qm0, Set.insert (qmFinalizerIndex qm1) (Set.singleton $ qmFinalizerIndex qm0))
+                        (2 * weight, qmSignature qm1 <> qmSignature qm0, finalizerSet [qmFinalizerIndex qm1, qmFinalizerIndex qm0])
                         (fromJust $! qsm'' ^? smBlockToWeightsAndSignatures . ix (qmBlock qm1))
 
 -- |Test that checks that a 'QuorumCertificate' can be formed when
@@ -86,17 +85,17 @@ testMakeQuorumCertificate = describe "Quorum Certificate creation" $ do
         assertEqual
             "No quorum certificate should be created"
             Nothing
-            (makeQuorumCertificate bh sd)
+            (makeQuorumCertificate qcBlockPointer sd)
     it "should create a certificate when there is enough weight" $ do
         assertEqual
             "A quorum certificate should have been generated"
-            (Just (QuorumCertificate bh 1 0 (emptyQuorumSignature <> emptyQuorumSignature) (finalizerSet $ FinalizerIndex <$> [1, 2])))
-            (makeQuorumCertificate bh sd')
+            (Just (QuorumCertificate qcBlockHash 1 0 (emptyQuorumSignature <> emptyQuorumSignature) (finalizerSet $ FinalizerIndex <$> [1, 2])))
+            (makeQuorumCertificate qcBlockPointer sd')
     it "should not create a qc as there are no signatures present" $ do
         assertEqual
             "No quorum certificate should be created"
             Nothing
-            (makeQuorumCertificate bh sdNoMessages)
+            (makeQuorumCertificate qcBlockPointer sdNoMessages)
   where
     fi fIdx = FinalizerInfo (FinalizerIndex fIdx) 1 sigPublicKey vrfPublicKey blsPublicKey (BakerId $ AccountIndex (fromIntegral fIdx))
     blsPublicKey = Bls.derivePublicKey someBlsSecretKey
@@ -120,9 +119,10 @@ testMakeQuorumCertificate = describe "Quorum Certificate creation" $ do
     sdNoMessages =
         dummyInitialSkovData
             & skovEpochBakers .~ EpochBakers bfs bfs bfs 1
-    bh = BlockHash minBound
+    qcBlockHash = BlockHash minBound
+    qcBlockPointer = someBlockPointer qcBlockHash 1 0
     verifiedQuorumMessage finalizerIndex weight = VerifiedQuorumMessage (quorumMessage finalizerIndex) weight $ myBlockPointer 0 0
-    quorumMessage finalizerIndex = QuorumMessage emptyQuorumSignature bh (FinalizerIndex finalizerIndex) 0 0
+    quorumMessage finalizerIndex = QuorumMessage emptyQuorumSignature qcBlockHash (FinalizerIndex finalizerIndex) 0 0
     emptyQuorumSignature = QuorumSignature Bls.emptySignature
 
 -- |Tests for receiving a quorum message.
@@ -133,9 +133,9 @@ testReceiveQuorumMessage = describe "Receive quorum message" $ do
     it "future epoch triggers catchup" $ receiveAndCheck sd messageFromFuture CatchupRequired
     it "obsolete round rejects" $ receiveAndCheck sd obsoleteMessage $ Rejected ObsoleteRound
     it "invalid finalizer rejects" $ receiveAndCheck sd invalidFinalizerMessage $ Rejected NotAFinalizer
-    it "duplicate message" $ receiveAndCheck sd duplicateMessage Duplicate
+    it "duplicate message" $ receiveAndCheck sd duplicateMessage $ Rejected Duplicate
     it "invalid signature" $ receiveAndCheck sd invalidSignatureMessage $ Rejected InvalidSignature
-    it "double signing" $ receiveAndCheck sd doubleSigningMessage $ Rejected AlreadySigned
+    it "double signing" $ receiveAndCheck sd doubleSigningMessage CatchupRequired
     it "unknown block" $ receiveAndCheck sd unknownBlockMessage CatchupRequired
     it "invalid block | dead" $ receiveAndCheck sd deadBlockMessage $ Rejected InvalidBlock
     it "round inconsistency" $ receiveAndCheck (sd' 0 1) inconsistentRoundsMessage $ Rejected InconsistentRounds
@@ -178,7 +178,7 @@ testReceiveQuorumMessage = describe "Receive quorum message" $ do
     bakersAndFinalizers = BakersAndFinalizers (FullBakers Vec.empty 0) (FinalizationCommittee (Vec.fromList [fi 1, fi 2, fi 3]) 3)
     -- A skov data where
     -- - the current round and epoch is set to 1 (next payday is at epoch 2).
-    -- - there is 3 finalizers 1, 2 and 3 each with a weight of 1 (total weight is 3).
+    -- - there are 3 finalizers 1, 2 and 3 each with a weight of 1 (total weight is 3).
     -- - one collected quorum message from the present finalizer index for round 1 and epoch 1.
     deadBlock = BlockHash $ Hash.hash "dead block"
     liveBlock = BlockHash $ Hash.hash "live block"
@@ -193,7 +193,7 @@ testReceiveQuorumMessage = describe "Receive quorum message" $ do
     sd' r e =
         dummyInitialSkovData
             & roundStatus . rsCurrentRound .~ Round r
-            & currentEpoch .~ e
+            & roundStatus . rsCurrentEpoch .~ e
             & skovEpochBakers . currentEpochBakers .~ bakersAndFinalizers
             & skovEpochBakers . previousEpochBakers .~ bakersAndFinalizers
             & skovEpochBakers . nextPayday .~ 2

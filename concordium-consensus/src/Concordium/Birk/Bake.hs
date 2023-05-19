@@ -17,7 +17,6 @@ import Control.Monad
 import Control.Monad.Trans
 import Control.Monad.Trans.Maybe
 import Data.ByteString (ByteString)
-import Data.List (foldl')
 import Data.Serialize
 
 import Concordium.GlobalState.BakerInfo
@@ -27,15 +26,12 @@ import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.TreeState as TS
 import Concordium.Types
 import Concordium.Types.Accounts
 import Concordium.Types.BakerIdentity
 import Concordium.Types.HashableTo
 import Concordium.Types.SeedState
-import Concordium.Types.Transactions
-import Concordium.Types.Updates
 
 import Concordium.Afgjort.Finalize
 import Concordium.Birk.LeaderElection

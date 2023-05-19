@@ -32,6 +32,7 @@ data FinalizationCommitteeTestCase = FinalizationCommitteeTestCase
     deriving (Show)
 
 -- |Test 'computeFinalizationCommittee' with a given test case.
+-- This creates finalizers with indices 0,1.. based on the length of the 'bakerStakes'.
 testFinalizationCommitteeTestCase :: FinalizationCommitteeTestCase -> Spec
 testFinalizationCommitteeTestCase tc@FinalizationCommitteeTestCase{..} =
     it description $ assertEqual ("Finalizers for " ++ show tc) expect actual
@@ -60,7 +61,7 @@ tests = describe "KonsensusV1.FinalizationCommittee" $ do
         mapM_
             testFinalizationCommitteeTestCase
             [ FinalizationCommitteeTestCase
-                { description = "limit max",
+                { description = "Only one (with highest stake) finalizer in committee (limit max)",
                   bakerStakes = [100, 200],
                   parameters =
                     FinalizationCommitteeParameters
@@ -71,7 +72,7 @@ tests = describe "KonsensusV1.FinalizationCommittee" $ do
                   expectedFinalizers = [1]
                 },
               FinalizationCommitteeTestCase
-                { description = "both pass",
+                { description = "Both finalizers are in committee (both pass)",
                   bakerStakes = [100, 200],
                   parameters =
                     FinalizationCommitteeParameters
@@ -82,7 +83,7 @@ tests = describe "KonsensusV1.FinalizationCommittee" $ do
                   expectedFinalizers = [0, 1]
                 },
               FinalizationCommitteeTestCase
-                { description = "limit max - baker ID tiebreak",
+                { description = "Only two finalizers in committee (limit max) - baker ID tiebreak",
                   bakerStakes = [100, 200, 100],
                   parameters =
                     FinalizationCommitteeParameters
@@ -93,7 +94,7 @@ tests = describe "KonsensusV1.FinalizationCommittee" $ do
                   expectedFinalizers = [0, 1]
                 },
               FinalizationCommitteeTestCase
-                { description = "limit max - baker ID tiebreak (2)",
+                { description = "Only two finalizers in committee (limit max) - baker ID tiebreak (2)",
                   bakerStakes = [100, 100, 100, 100],
                   parameters =
                     FinalizationCommitteeParameters
@@ -104,7 +105,7 @@ tests = describe "KonsensusV1.FinalizationCommittee" $ do
                   expectedFinalizers = [0, 1]
                 },
               FinalizationCommitteeTestCase
-                { description = "threshold - just over",
+                { description = "Only one finalizers in comitte due to the threshold - just over",
                   bakerStakes = [100, 100, 100, 101],
                   parameters =
                     FinalizationCommitteeParameters
@@ -115,7 +116,7 @@ tests = describe "KonsensusV1.FinalizationCommittee" $ do
                   expectedFinalizers = [3]
                 },
               FinalizationCommitteeTestCase
-                { description = "limit min",
+                { description = "Two finalizers in comittee due to the lower bound of finalizers.",
                   bakerStakes = [100, 100, 100, 101],
                   parameters =
                     FinalizationCommitteeParameters
@@ -126,7 +127,7 @@ tests = describe "KonsensusV1.FinalizationCommittee" $ do
                   expectedFinalizers = [3, 0]
                 },
               FinalizationCommitteeTestCase
-                { description = "all pass",
+                { description = "All finalizers are in the committee",
                   bakerStakes = [100, 100, 100, 101],
                   parameters =
                     FinalizationCommitteeParameters

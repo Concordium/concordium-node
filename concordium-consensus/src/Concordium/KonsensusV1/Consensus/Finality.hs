@@ -160,9 +160,9 @@ processFinalization newFinalizedBlock newFinalizationEntry = do
     -- transaction table accordingly.
     forM_ prRemoved markLiveBlockDead
     -- Update the branches to reflect the pruning.
-    branches .= prNewBranches
+    branches .=! prNewBranches
     -- Update the last finalized block.
-    lastFinalized .= newFinalizedBlock
+    lastFinalized .=! newFinalizedBlock
     -- Update the epoch bakers to reflect the new last finalized block.
     checkedAdvanceEpochBakers oldLastFinalized newFinalizedBlock
     -- Purge the 'roundExistingBlocks' up to the last finalized block.
@@ -173,7 +173,7 @@ processFinalization newFinalizedBlock newFinalizationEntry = do
     purgePending
     -- Advance the epoch if the new finalized block triggers the epoch transition.
     checkedAdvanceEpoch newFinalizationEntry newFinalizedBlock
-    onFinalize newFinalizationEntry newFinalizedBlock
+    onFinalize newFinalizationEntry prFinalized newFinalizedBlock
 
 -- |Advance the current epoch if the new finalized block indicates that it is necessary.
 -- This is deemed to be the case if the following hold:
@@ -199,13 +199,13 @@ checkedAdvanceEpoch ::
     BlockPointer (MPV m) ->
     m ()
 checkedAdvanceEpoch finEntry newFinalizedBlock = do
-    oldEpoch <- use currentEpoch
+    oldEpoch <- use (roundStatus . rsCurrentEpoch)
     assert (oldEpoch >= blockEpoch newFinalizedBlock) $
         when (oldEpoch == blockEpoch newFinalizedBlock) $ do
             seedState <- getSeedState finState
             when (seedState ^. epochTransitionTriggered) $ do
-                currentEpoch .=! oldEpoch + 1
-                lastEpochFinalizationEntry .= Present finEntry
+                (roundStatus . rsCurrentEpoch) .=! oldEpoch + 1
+                (roundStatus . rsLastEpochFinalizationEntry) .= Present finEntry
   where
     finState = bpState newFinalizedBlock
 
@@ -262,23 +262,32 @@ checkedAdvanceEpochBakers oldFinalizedBlock newFinalizedBlock
     newEpoch = blockEpoch newFinalizedBlock
     finState = bpState newFinalizedBlock
 
-data PruneResult a = PruneResult
-    { prRemoved :: [a],
-      prFinalized :: [a],
-      prNewBranches :: Seq.Seq [a]
+-- |A result of 'pruneBranches'.
+data PruneResult bp = PruneResult
+    { -- |Blocks that should be removed as a result of pruning.
+      prRemoved :: [bp],
+      -- |Blocks that should be marked as finalized as a result of pruning.
+      -- Note that the finalized blocks are ordered in ascending order of block height.
+      prFinalized :: [bp],
+      -- |The updated branches as a result of pruning.
+      prNewBranches :: Seq.Seq [bp]
     }
 
+-- |Construct a 'PruneResult' given the existing branches, finalization target and height.
+-- This function is written rather abstract as it only relies on the 'Eq' constraint
+-- (for the block height) and this makes it easier for testing.
 pruneBranches ::
-    (Eq a) =>
-    -- |Parent function
-    (a -> a) ->
+    (Eq blockPointer) =>
+    -- |Function for obtaining the parent of a live block.
+    -- In practice this is 'parentOfLive' with the correct 'SkovData pv' applied partially.
+    (blockPointer -> blockPointer) ->
     -- |Finalization target
-    a ->
+    blockPointer ->
     -- |Height of the target after the last finalized block
     Int ->
     -- |Existing branches
-    Seq.Seq [a] ->
-    PruneResult a
+    Seq.Seq [blockPointer] ->
+    PruneResult blockPointer
 pruneBranches parent newFin deltaHeight oldBranches = PruneResult{..}
   where
     (trunk, limbs) = Seq.splitAt deltaHeight oldBranches

@@ -1,5 +1,9 @@
 {-# LANGUAGE TypeFamilies #-}
 
+-- |This module is to be considered internal for the consensus implementation.
+-- Hence this module should only be used from within the 'Concordium.KonsensusV1.Consensus.*' modules.
+-- In particular this module yields functions for growing and shrinking the timeout.
+-- Timeout spans are growing when a round times out and upon finalization then the timeout timer shrinks.
 module Concordium.KonsensusV1.Consensus.Timeout.Internal where
 
 import Control.Monad.State
@@ -48,7 +52,7 @@ growTimeout blockPtr = do
     let timeoutIncrease =
             chainParams
                 ^. cpConsensusParameters . cpTimeoutParameters . tpTimeoutIncrease
-    currentTimeout %=! updateCurrentTimeout timeoutIncrease
+    roundStatus . rsCurrentTimeout %=! updateCurrentTimeout timeoutIncrease
 
 -- |Shrink the current timeout duration in response to a successful QC for a round.
 -- This updates the current timeout to @max timeoutBase (timeoutDecrease * oldTimeout)@, where
@@ -70,4 +74,4 @@ shrinkTimeout blockPtr = do
             grow =
                 Duration . ceiling $
                     toRational (timeoutParams ^. tpTimeoutDecrease) * toRational cur
-    currentTimeout %=! updateTimeout
+    roundStatus . rsCurrentTimeout %=! updateTimeout

@@ -12,7 +12,6 @@ module Concordium.KonsensusV1.TreeState.Types where
 import Data.Function
 import qualified Data.Map.Strict as Map
 import Data.Serialize
-import qualified Data.Set as Set
 import Data.Time
 import Data.Time.Clock.POSIX
 import Lens.Micro.Platform
@@ -49,7 +48,9 @@ data BlockMetadata = BlockMetadata
     { -- |The height of the block.
       bmHeight :: !BlockHeight,
       -- |The time that the block is received by the
-      -- consensus layer i.e. it has been deserialized.
+      -- consensus layer.
+      -- Hence this timestamp indicates a point in time just before
+      -- the block is being deserialized and further processed.
       bmReceiveTime :: !UTCTime,
       -- |The time that the block has become live,
       -- i.e. it has been processed and current head of the chain.
@@ -82,7 +83,7 @@ class HasBlockMetadata bm where
     blockHeight = bmHeight . blockMetadata
     {-# INLINE blockHeight #-}
 
-    -- |The time that the block is received by the consensus layer (i.e. when it is deserialized).
+    -- |The time that the block is received by the consensus layer (i.e. just before it is deserialized and processed).
     blockReceiveTime :: bm -> UTCTime
     blockReceiveTime = bmReceiveTime . blockMetadata
     {-# INLINE blockReceiveTime #-}
@@ -178,6 +179,9 @@ data TransactionStatus
     deriving (Eq, Show)
 
 -- |The status of a block.
+-- Note as we use a COMPLETE pragma below for aggregating the 'BlockAlive' and 'BlockFinalized'
+-- in a pattern match, then if 'BlockStatus pv' is to be modified the complete pragma MUST also be
+-- checked whether it is still sufficient.
 data BlockStatus pv
     = -- |The block is awaiting its parent to become part of chain.
       BlockPending !PendingBlock
@@ -193,17 +197,32 @@ data BlockStatus pv
 
 -- |Get the 'BlockPointer' from a 'BlockStatus' for a live or finalized block.
 -- Returns 'Nothing' if the block is pending, dead or unknown.
+-- Note as we use a COMPLETE pragma for the 'BlockStatus pv' variants (see below)
+-- then it MUST be considered if this function has to change if the type ('BlockStatus pv')
+-- is to be modified.
 blockStatusBlock :: BlockStatus pv -> Maybe (BlockPointer pv)
 blockStatusBlock (BlockAlive b) = Just b
 blockStatusBlock (BlockFinalized b) = Just b
 blockStatusBlock _ = Nothing
 
+-- |Returns 'True' just when the 'BlockStatus' is either 'BlockPending' or 'BlockUnknown'.
+isPendingOrUnknown :: BlockStatus pv -> Bool
+isPendingOrUnknown BlockPending{} = True
+isPendingOrUnknown BlockUnknown = True
+isPendingOrUnknown _ = False
+
 -- |A (unidirectional) pattern for matching a block status that is either alive or finalized.
 pattern BlockAliveOrFinalized :: BlockPointer pv -> BlockStatus pv
 pattern BlockAliveOrFinalized b <- (blockStatusBlock -> Just b)
 
+-- |A (unidirectional) pattern for matching a block status that is either pending or unknown.
+pattern BlockPendingOrUnknown :: BlockStatus pv
+pattern BlockPendingOrUnknown <- (isPendingOrUnknown -> True)
+
 -- This tells GHC that these patterns are complete for 'BlockStatus'.
 {-# COMPLETE BlockPending, BlockAliveOrFinalized, BlockDead, BlockUnknown #-}
+{-# COMPLETE BlockPendingOrUnknown, BlockAlive, BlockFinalized, BlockDead #-}
+{-# COMPLETE BlockPendingOrUnknown, BlockAliveOrFinalized, BlockDead #-}
 
 -- |The status of a block as obtained without loading the block from disk.
 data RecentBlockStatus pv
@@ -328,15 +347,32 @@ data RoundStatus (pv :: ProtocolVersion) = RoundStatus
       -- |Flag that is 'True' if we should attempt to bake for the current round.
       -- This is set to 'True' when the round is advanced, and set to 'False' when we have attempted
       -- to bake for the round.
-      _rsRoundEligibleToBake :: !Bool
+      _rsRoundEligibleToBake :: !Bool,
+      -- |The current epoch.
+      _rsCurrentEpoch :: !Epoch,
+      -- |If present, an epoch finalization entry for @_currentEpoch - 1@. An entry MUST be
+      -- present if @_currentEpoch > blockEpoch _lastFinalized@. Otherwise, an entry MAY be present,
+      -- but is not required.
+      --
+      -- The purpose of this field is to support the creation of a block that is the first in a new
+      -- epoch. It should
+      _rsLastEpochFinalizationEntry :: !(Option FinalizationEntry),
+      -- |The current duration to wait before a round times out.
+      _rsCurrentTimeout :: !Duration
     }
     deriving (Eq, Show)
 
 makeLenses ''RoundStatus
 
 -- |The 'RoundStatus' for consensus at genesis.
-initialRoundStatus :: BlockPointer pv -> RoundStatus pv
-initialRoundStatus genesisBlock =
+initialRoundStatus ::
+    -- |The base timeout.
+    Duration ->
+    -- |The 'BlockPointer' of the genesis block.
+    BlockPointer pv ->
+    -- |The initial 'RoundStatus'.
+    RoundStatus pv
+initialRoundStatus currentTimeout genesisBlock =
     RoundStatus
         { _rsCurrentRound = 1,
           _rsHighestCertifiedBlock =
@@ -345,7 +381,10 @@ initialRoundStatus genesisBlock =
                   cbQuorumBlock = genesisBlock
                 },
           _rsPreviousRoundTimeout = Absent,
-          _rsRoundEligibleToBake = True
+          _rsRoundEligibleToBake = True,
+          _rsCurrentEpoch = 0,
+          _rsLastEpochFinalizationEntry = Absent,
+          _rsCurrentTimeout = currentTimeout
         }
 
 -- |The sets of bakers and finalizers for an epoch/payday.
@@ -383,8 +422,8 @@ data QuorumMessages = QuorumMessages
     { -- |Map of finalizer indices to signature messages.
       _smFinalizerToQuorumMessage :: !(Map.Map FinalizerIndex QuorumMessage),
       -- |Accumulated weights and the aggregated signature for the blocks signed off by quorum signature message.
-      -- The 'VoterPower' here is in relation to the running 'Epoch'.
-      _smBlockToWeightsAndSignatures :: !(Map.Map BlockHash (VoterPower, QuorumSignature, Set.Set FinalizerIndex))
+      -- The 'VoterPower' here is in relation to the 'Epoch' of the block being finalized.
+      _smBlockToWeightsAndSignatures :: !(Map.Map BlockHash (VoterPower, QuorumSignature, FinalizerSet))
     }
     deriving (Eq, Show)
 
