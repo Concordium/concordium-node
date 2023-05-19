@@ -360,7 +360,7 @@ testReceiveTimeoutMessage :: Spec
 testReceiveTimeoutMessage = describe "Receive timeout message" $ do
     it "rejects obsolete round" $ receiveAndCheck sd obsoleteRoundMessage $ Rejected ObsoleteRound
     it "rejects obsolete qc" $ receiveAndCheck sd obsoleteQCMessage $ Rejected ObsoleteQC
-    it "initializes catch-up upon future epoch" $ receiveAndCheck sd futureEpochTM CatchupRequired --
+    it "initializes catch-up upon future epoch" $ receiveAndCheck sd futureEpochTM CatchupRequired
     it "rejects from a non finalizer" $ receiveAndCheck sd notAFinalizerQCMessage $ Rejected NotAFinalizer
     it "rejects on unknown finalization committee" $ receiveAndCheck sd unknownFinalizationCommittee $ Rejected ObsoleteQC
     it "rejects on an invalid signature" $ receiveAndCheck sd invalidSignatureMessage $ Rejected InvalidSignature
@@ -386,13 +386,13 @@ testReceiveTimeoutMessage = describe "Receive timeout message" $ do
     -- tree state before running the test.
     duplicateMessage = mkTimeoutMessage $! mkTimeoutMessageBody 1 2 0 $ aQC liveBlockHash (Round 1) 0
     -- A message where the qc pointer is pending
-    qcPointerIsPending = mkTimeoutMessage $! mkTimeoutMessageBody 1 2 0 qcWithPendingPointer
+    qcPointerIsPending = mkTimeoutMessage $! mkTimeoutMessageBody 2 2 0 qcWithPendingPointer
     -- A message where the qc pointer is pointing to a dead block
-    qcPointerIsDead = mkTimeoutMessage $! mkTimeoutMessageBody 1 2 0 qcWithDeadPointer
+    qcPointerIsDead = mkTimeoutMessage $! mkTimeoutMessageBody 2 2 0 qcWithDeadPointer
     -- A message where the qc pointer is unknown
-    unknownQCPointer = mkTimeoutMessage $! mkTimeoutMessageBody 1 2 0 qcWithUnknownPointer
+    unknownQCPointer = mkTimeoutMessage $! mkTimeoutMessageBody 2 2 0 qcWithUnknownPointer
     -- A message where the qc pointer is to a block prior to the last finalized block.
-    obsoleteQCPointer = mkTimeoutMessage $! mkTimeoutMessageBody 1 2 0 someQCPointingToAndOldFinalizedBlock
+    obsoleteQCPointer = mkTimeoutMessage $! mkTimeoutMessageBody 2 2 0 someQCPointingToAndOldFinalizedBlock
     -- A message where the epoch is in the future.
     futureEpochTM = mkTimeoutMessage $! mkTimeoutMessageBody 1 11 1 $ someQC (Round 10) 1
     -- A message where the round is in the future but the finalizer is present in the epoch.
@@ -516,7 +516,6 @@ testExecuteTimeoutMessages = describe "execute timeout messages" $ do
     it "accepts message where qc is ok (qc round is better than recorded highest qc)" $ execute newValidQCTimeoutMessage ExecutionSuccess
     it "rejects message with qc round no greater than highest qc and invalic qc" $ execute wrongEpochMessage $ InvalidQC $ someInvalidQC 0 0
     it "accepts message with qc round no greather than highest qc and valid qc" $ execute oldValidQCTimeoutMessage ExecutionSuccess
-    it "rejects with invalid epoch if qc already checked for round and epochs does not match (qc round <= higest qc)" $ execute oldRoundDifferentEpoch $ InvalidQCEpoch 0 $ someQC (Round 1) 1
     it "accepts message with qc already checked for that round and qc checks out (qc round <= higest qc)" $ execute oldRoundValidTimeoutMessage ExecutionSuccess
   where
     -- action that runs @executeTimeoutMessage@ on the provided
@@ -551,14 +550,6 @@ testExecuteTimeoutMessages = describe "execute timeout messages" $ do
     invalidAggregateSignature = PartiallyVerifiedTimeoutMessage (validTimeoutMessage 1 1 0) finalizers False Absent
     -- round is already checked
     oldRoundValidTimeoutMessage = PartiallyVerifiedTimeoutMessage (validTimeoutMessage 1 1 0) finalizers True Absent
-    -- qc for an old round but different epoch.
-    oldRoundDifferentEpoch =
-        PartiallyVerifiedTimeoutMessage
-            { pvtmTimeoutMessage = validTimeoutMessage 2 1 1,
-              pvtmQuorumFinalizers = finalizers,
-              pvtmAggregateSignatureValid = True,
-              pvtmBlock = Present $ myBlockPointer 1 0
-            }
     -- a valid timeout message pointing to an "old qc" (round 1 epoch 0).
     oldValidQCTimeoutMessage = PartiallyVerifiedTimeoutMessage (validTimeoutMessage 3 0 0) finalizers True Absent
     -- a new valid timeout message for round 3 with a valid qc for round 2 (epoch 0).
