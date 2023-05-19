@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+## 5.4.0
+
 - Support using block height as block identifiers in gRPC v2 API.
 - Extend gRPC v2 API call `GetBlockInfo` with the protocol version of the block.
 - Do not use peer buckets when running as a normal node (not as a bootstrapper).
