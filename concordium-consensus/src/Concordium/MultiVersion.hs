@@ -391,8 +391,7 @@ activateConfiguration (EVersionedConfigurationV0 vc) = do
     liftIO (writeIORef (vc0State vc) activeState)
 activateConfiguration (EVersionedConfigurationV1 vc) = do
     activeState <- mvrLogIO . SkovV1.activateSkovV1State (vc1Context vc) =<< liftIO (readIORef (vc1State vc))
-    newState <- snd <$> SkovV1.runSkovT KonsensusV1.startEvents (vc1Context vc) activeState
-    liftIO (writeIORef (vc1State vc) newState)
+    liftIO (writeIORef (vc1State vc) activeState)
 
 -- |This class makes it possible to use a multi-version configuration at a specific version.
 -- Essentially, this class provides instances of 'SkovMonad', 'FinalizationMonad' and
@@ -675,6 +674,8 @@ newGenesis (PVGenesisData (gd :: GenesisData pv)) genesisHeight = case consensus
                     writeIORef mvVersions (oldVersions `Vec.snoc` newVersionV1 newEConfig)
                     -- Notify the network layer we have a new genesis.
                     notifyRegenesis (Just (genesisBlockHash gd))
+                    -- Start the consensus
+                    runMVR (liftSkovV1Update newEConfig KonsensusV1.startEvents) mvr
 
 -- |Determine if a protocol update has occurred, and handle it.
 -- When a protocol update first becomes pending, this logs the update that will occur (if it is
@@ -1017,6 +1018,8 @@ startupSkov genesis = do
                                 -- This is still the current configuration (i.e. no protocol update
                                 -- has occurred), so activate it.
                                 activateThis
+                                -- Start the consensus
+                                liftSkovV1Update newEConfig KonsensusV1.startEvents
                             Just nextSPV -> do
                                 -- A protocol update has occurred for this configuration, so
                                 -- continue to the next iteration. If the state for the next
