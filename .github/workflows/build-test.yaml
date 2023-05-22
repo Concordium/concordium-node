@@ -25,6 +25,7 @@ on:
     paths:
     - '.github/workflows/build-test.yaml'
     - '**/Cargo.toml'
+    - '**/Cargo.lock'
     - '**.rs'
     - '**.yaml'
     - '**.hs'
@@ -39,6 +40,7 @@ on:
     paths:
     - '.github/workflows/build-test.yaml'
     - '**/Cargo.toml'
+    - '**/Cargo.lock'
     - '**.rs'
     - '**.yaml'
     - '**.hs'
