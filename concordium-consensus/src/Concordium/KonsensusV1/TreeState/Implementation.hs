@@ -2,6 +2,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -23,12 +24,15 @@
 -- the caller persists data upon finalization via the said module above.
 module Concordium.KonsensusV1.TreeState.Implementation where
 
+import Control.Exception
 import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State
+import Data.Foldable
 import Data.IORef
 import Data.Time
 import Data.Typeable
+import GHC.Stack
 import Lens.Micro.Platform
 
 import qualified Data.HashMap.Strict as HM
@@ -153,11 +157,11 @@ data PendingBlocks = PendingBlocks
       -- The entries of the pending blocks are keyed by the 'BlockHash' of their parent block.
       _pendingBlocksTable :: !(HM.HashMap BlockHash [PendingBlock]),
       -- |A priority queue on the (pending block hash, parent of pending block hash) tuple,
-      -- prioritised by the round of the pending block. The queue in particular supports extracting
-      -- the pending block with minimal 'Round'. Note that the queue can contain blocks that are
-      -- not actually pending, hence it does not have an entry in the '_pendingBlocksTable'.
-      -- This will be the case if the block has either become live or marked for dead.
-      _pendingBlocksQueue :: !(MPQ.MinPQueue Round (BlockHash, BlockHash))
+      -- prioritised by the timestamp of the pending block. The queue in particular supports extracting
+      -- the pending block with minimal 'Timestamp'. Note that the queue can contain spurious pending
+      -- blocks, and a block is only actually in the pending blocks if it has an entry in the
+      -- '_pendingBlocksTable'.
+      _pendingBlocksQueue :: !(MPQ.MinPQueue Timestamp (BlockHash, BlockHash))
     }
     deriving (Eq, Show)
 
@@ -172,15 +176,32 @@ emptyPendingBlocks =
         }
 
 -- |Data required to support 'TreeState'.
+--
+-- INVARIANTS:
+--
+-- * The current epoch (as recorded by '_currentEpoch') is either:
+--
+--      * the epoch of the last finalized block (as recorded by '_lastFinalized'); or
+--
+--      * 1 + the epoch of the last finalized block. (This is the case exactly when the last
+--        finalized block's timestamp is past the epoch transition trigger time for the epoch.)
+--
+-- * The current epoch is at least the epoch of every live or finalized block.
+--
+-- * The current round is at least the round of every live or finalized block.
 data SkovData (pv :: ProtocolVersion) = SkovData
-    { -- |The round status which holds data
+    { -- |Status for the current round that is persisted to the low-level database.
+      -- This is used to record when we have signed messages to ensure that we avoid double
+      -- signing across node restarts.
+      _persistentRoundStatus :: !PersistentRoundStatus,
+      -- |The round status which holds data
       -- associated with the current round of the
       -- consensus protocol.
-      _roundStatus :: !RoundStatus,
+      _roundStatus :: !(RoundStatus pv),
       -- |Transactions.
       -- The transaction table tracks the following:
-      -- * Live tranactions: mapping from a 'TransactionHash' to the status of the transaction,
-      --   which is either received (not associated with a block) or comitted (associated with a block).
+      -- * Live transactions: mapping from a 'TransactionHash' to the status of the transaction,
+      --   which is either received (not associated with a block) or committed (associated with a block).
       -- * Non finalized account transactions
       -- * Non finalized chain updates
       -- See the documentation of 'TransactionTable' for more elaborate explanation of the three
@@ -194,8 +215,14 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       _runtimeParameters :: !RuntimeParameters,
       -- |Blocks which have been included in the tree or marked as dead.
       _blockTable :: !(BlockTable pv),
-      -- |Branches of the tree by height above the last finalized block
+      -- |Branches of the tree ordered by height above the last finalized block
       _branches :: !(Seq.Seq [BlockPointer pv]),
+      -- |For non-finalized rounds, tracks which bakers we have seen legally-signed blocks with
+      -- live parent blocks from. This is used for duplicate detection.
+      _roundExistingBlocks :: !(Map.Map Round (Map.Map BakerId BlockSignatureWitness)),
+      -- |For non finalized rounds, keep track of which rounds where we have successfully
+      -- checked a 'QuorumCertificate'.
+      _roundExistingQCs :: !(Map.Map Round QuorumCertificateCheckedWitness),
       -- |Genesis metadata
       _genesisMetadata :: !GenesisMetadata,
       -- |Pending blocks
@@ -203,9 +230,15 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       -- |Pointer to the last finalized block.
       _lastFinalized :: !(BlockPointer pv),
       -- |Baker and finalizer information with respect to the epoch of the last finalized block.
+      -- Note: this is distinct from the current epoch.
       _skovEpochBakers :: !EpochBakers,
       -- |The current consensus statistics.
-      _statistics :: !Stats.ConsensusStatistics
+      _statistics :: !Stats.ConsensusStatistics,
+      -- | Received timeouts messages in the current round.
+      _currentTimeoutMessages :: !(Option TimeoutMessages),
+      -- |The 'QuorumMessage's for the current 'Round'.
+      -- This should be cleared whenever the consensus runner advances to a new round.
+      _currentQuorumMessages :: !QuorumMessages
     }
 
 makeLenses ''SkovData
@@ -222,6 +255,36 @@ instance HasEpochBakers (SkovData pv) where
     epochBakers = skovEpochBakers
     {-# INLINE epochBakers #-}
 
+-- |Getter for accessing the genesis hash for the current genesis.
+currentGenesisHash :: SimpleGetter (SkovData pv) BlockHash
+currentGenesisHash = genesisMetadata . to gmCurrentGenesisHash
+
+-- |Lens for accessing the witness that a baker signed a block in a particular round.
+roundBakerExistingBlock :: Round -> BakerId -> Lens' (SkovData pv) (Maybe BlockSignatureWitness)
+roundBakerExistingBlock rnd bakerId = roundExistingBlocks . at' rnd . nonEmpty . at' bakerId
+
+-- |Remove all entries from 'roundExistingBlocks' with round less than or equal to the supplied
+-- round.
+purgeRoundExistingBlocks :: (MonadState (SkovData pv) m) => Round -> m ()
+purgeRoundExistingBlocks rnd = roundExistingBlocks %=! snd . Map.split rnd
+
+-- |Lens for accessing the witness that we have checked a 'QuorumCertificate' for a particular 'Round'.
+roundExistingQuorumCertificate :: Round -> Lens' (SkovData pv) (Maybe QuorumCertificateCheckedWitness)
+roundExistingQuorumCertificate rnd = roundExistingQCs . at' rnd
+
+-- |Record that we have checked a 'QuorumCertificate' in the 'roundExistingQCs'.
+-- The certificate should be for a round that is later than the last finalized round.
+recordCheckedQuorumCertificate :: (MonadState (SkovData pv) m) => QuorumCertificate -> m ()
+recordCheckedQuorumCertificate qc =
+    roundExistingQuorumCertificate (qcRound qc) ?=! witness
+  where
+    !witness = toQuorumCertificateWitness qc
+
+-- |Remove all entries from 'roundExistingQCs' with a 'Round' less than to the
+-- supplied 'Round'.
+purgeRoundExistingQCs :: (MonadState (SkovData pv) m) => Round -> m ()
+purgeRoundExistingQCs rnd = roundExistingQCs %=! snd . Map.split (rnd - 1)
+
 -- |Create an initial 'SkovData pv'
 -- This constructs a 'SkovData pv' from a genesis block
 -- which is suitable to grow the tree from.
@@ -234,13 +297,11 @@ mkInitialSkovData ::
     PBS.HashedPersistentBlockState pv ->
     -- |The base timeout
     Duration ->
-    -- |The 'LeadershipElectionNonce'
-    LeadershipElectionNonce ->
     -- |Bakers at the genesis block
     EpochBakers ->
     -- |The initial 'SkovData'
     SkovData pv
-mkInitialSkovData rp genMeta genState baseTimeout len _skovEpochBakers =
+mkInitialSkovData rp genMeta genState _currentTimeout _skovEpochBakers =
     let genesisBlock = GenesisBlock genMeta
         genesisTime = timestampToUTCTime $ Base.genesisTime (gmParameters genMeta)
         genesisBlockMetadata =
@@ -255,7 +316,8 @@ mkInitialSkovData rp genMeta genState baseTimeout len _skovEpochBakers =
                   bpBlock = genesisBlock,
                   bpState = genState
                 }
-        _roundStatus = initialRoundStatus baseTimeout len
+        _persistentRoundStatus = initialPersistentRoundStatus
+        _roundStatus = initialRoundStatus _currentTimeout genesisBlockPointer
         _transactionTable = TT.emptyTransactionTable
         _transactionTablePurgeCounter = 0
         _skovPendingTransactions =
@@ -266,13 +328,37 @@ mkInitialSkovData rp genMeta genState baseTimeout len _skovEpochBakers =
         _runtimeParameters = rp
         _blockTable = emptyBlockTable
         _branches = Seq.empty
+        _roundExistingBlocks = Map.empty
+        _roundExistingQCs = Map.empty
         _genesisMetadata = genMeta
         _skovPendingBlocks = emptyPendingBlocks
         _lastFinalized = genesisBlockPointer
         _statistics = Stats.initialConsensusStatistics
+        _currentTimeoutMessages = Absent
+        _currentQuorumMessages = emptyQuorumMessages
     in  SkovData{..}
 
 -- * Operations on the block table
+
+-- |Look up whether the given block hash is a currently-pending block in the block table.
+isPending :: BlockHash -> SkovData pv -> Bool
+isPending bh sd = case sd ^? blockTable . liveMap . ix bh of
+    Just (MemBlockPending _) -> True
+    _ -> False
+
+-- |Get the 'BlockPointer' for a block hash that is live (not finalized).
+-- Returns 'Nothing' if the block is not in the live (non-finalized) blocks.
+getLiveBlock :: BlockHash -> SkovData pv -> Maybe (BlockPointer pv)
+getLiveBlock blockHash sd = case sd ^? blockTable . liveMap . ix blockHash of
+    Just (MemBlockAlive bp) -> Just bp
+    _ -> Nothing
+
+-- |Get the 'BlockPointer' for a block hash that is live or the last finalized block.
+-- Returns 'Nothing' if the block is neither live nor the last finalized block.
+getLiveOrLastFinalizedBlock :: BlockHash -> SkovData pv -> Maybe (BlockPointer pv)
+getLiveOrLastFinalizedBlock blockHash sd
+    | blockHash == getHash (sd ^. lastFinalized) = Just $! sd ^. lastFinalized
+    | otherwise = getLiveBlock blockHash sd
 
 -- |Get the 'BlockStatus' of a block that is available in memory based on the 'BlockHash'.
 -- (This includes live and pending blocks, but not finalized blocks, except for the last finalized
@@ -329,7 +415,7 @@ getRecentBlockStatus blockHash sd = case getMemoryBlockStatus blockHash sd of
     Nothing -> do
         LowLevel.memberBlock blockHash >>= \case
             True -> return OldFinalized
-            False -> return Unknown
+            False -> return $ RecentBlock BlockUnknown
 
 -- |Get a finalized block by height.
 -- This will return 'Nothing' for a block that is either not finalized or unknown.
@@ -385,17 +471,112 @@ markLiveBlockDead bp = do
 markPending :: (MonadState (SkovData pv) m) => PendingBlock -> m ()
 markPending pb = blockTable . liveMap . at' (getHash pb) ?=! MemBlockPending pb
 
+-- |Update the transaction table to reflect that a list of blocks are finalized.
+-- This removes them the in-memory transaction table.
+-- The caller is expected to ensure that they are written to the low-level storage.
+markLiveBlocksFinal ::
+    (MonadState (SkovData pv) m) =>
+    -- |Blocks to mark final i.e. removing them from the live block map.
+    -- Note that the order of the blocks does not matter for this operation.
+    [BlockPointer pv] ->
+    m ()
+markLiveBlocksFinal blockPointers =
+    blockTable
+        . liveMap
+        %=! \liveBlocks -> foldl' (\blocks bp -> HM.delete (getHash bp) blocks) liveBlocks blockPointers
+
+-- |Get the parent block of a live or finalized block. (For the genesis block, this will return
+-- the block itself.)
+-- Note that it is assumed that the parent is either live or finalized as otherwise this
+-- function will raise an error.
+parentOf ::
+    (LowLevel.MonadTreeStateStore m, MonadIO m, MonadState (SkovData (MPV m)) m) =>
+    BlockPointer (MPV m) ->
+    m (BlockPointer (MPV m))
+parentOf block
+    | Present blockData <- blockBakedData block = do
+        get >>= getBlockStatus (blockParent blockData) <&> \case
+            BlockAliveOrFinalized bp -> bp
+            _ ->
+                error $
+                    "parentOf: Parent block ("
+                        ++ show (blockParent blockData)
+                        ++ ") is not live or finalized."
+    | otherwise = return block
+
+-- |Get the parent block of a live (non-finalized) block.
+-- By definition, the parent block must either also be live or be the last finalized block.
+--
+-- If the block is not live, this function may fail with an error.
+parentOfLive :: HasCallStack => SkovData pv -> BlockPointer pv -> BlockPointer pv
+parentOfLive sd block
+    | let lastFin = sd ^. lastFinalized,
+      parentHash == getHash lastFin =
+        lastFin
+    | Just (MemBlockAlive parent) <- sd ^. blockTable . liveMap . at' parentHash = parent
+    | otherwise =
+        error $
+            "parentOfLive: parent block ("
+                ++ show parentHash
+                ++ ") is neither live nor last-finalized"
+  where
+    parentHash
+        | Present blockData <- blockBakedData block = blockParent blockData
+        | otherwise = error "parentOfLive: unexpected genesis block"
+
+-- |Determine if one block is an ancestor of another.
+-- A block is considered to be an ancestor of itself.
+isAncestorOf ::
+    (LowLevel.MonadTreeStateStore m, MonadIO m, MonadState (SkovData (MPV m)) m) =>
+    -- |The block to check whether it's an ancesor of the other or not.
+    BlockPointer (MPV m) ->
+    -- |The block to carry out the ancestor check with respect to.
+    BlockPointer (MPV m) ->
+    m Bool
+isAncestorOf b1 maybeAncestor = case compare (blockHeight b1) (blockHeight maybeAncestor) of
+    GT -> return False
+    EQ -> return $ (getHash b1 :: BlockHash) == getHash maybeAncestor
+    LT -> do
+        parent <- parentOf maybeAncestor
+        b1 `isAncestorOf` parent
+
+-- * Operations on the branches
+
+-- |Add a newly-live block to the non-finalized branches.
+-- This assumes that the parent block is either the last finalized block or already among the
+-- non-finalized branches.
+-- The block should not already be present in the branches; if it is, a duplicate entry may be
+-- added.
+-- Also note that the block heights must be consecutive otherwise this function will raise an error.
+-- The latter note is enforced by the way we add pending blocks, i.e. pending blocks are awaiting
+-- their parent before becoming live.
+addToBranches ::
+    (MonadState (SkovData pv) m) =>
+    -- |The block to add to the current branches.
+    BlockPointer pv ->
+    m ()
+addToBranches block = do
+    lfbHeight <- use $ lastFinalized . to blockHeight
+    let insertIndex = fromIntegral $ blockHeight block - lfbHeight - 1
+    brs <- use branches
+    case compare insertIndex (Seq.length brs) of
+        LT -> branches . ix insertIndex %=! (block :)
+        EQ -> branches %=! (Seq.|> [block])
+        GT ->
+            error $
+                "Attempted to add a block at invalid height (" ++ show (blockHeight block) ++ ")"
+
 -- * Operations on pending blocks
 
 -- $pendingBlocks
 -- Pending blocks are conceptually stored in a min priority queue,
 -- where multiple blocks may have the same key, which is their parent,
--- and the priority is the block's round number.
+-- and the priority is the block's timestamp.
 -- When a block arrives (possibly dead), its pending children are removed
 -- from the queue and handled.  This uses 'takePendingChildren'.
--- When a block is finalized, all pending blocks with a lower or equal round
--- number can be handled (they will become dead, since they can no longer
--- join the tree).  This uses 'takeNextPendingUntil'.
+-- When a block is finalized, all pending blocks with a lower or equal timestamp
+-- can be handled (they will become dead, since they can no longer join the tree).
+-- This uses 'takeNextPendingUntil'.
 
 -- |Add a block to the pending block table and queue.
 -- [Note: this does not affect the '_branches' of the 'SkovData'.]
@@ -409,28 +590,28 @@ addPendingBlock ::
     PendingBlock ->
     m ()
 addPendingBlock !pb = do
-    pendingBlocksQueue %= MPQ.insert theRound (blockHash, parentHash)
+    pendingBlocksQueue %= MPQ.insert theTimestamp (blockHash, parentHash)
     pendingBlocksTable . at' parentHash . non [] %= (pb :)
   where
     blockHash = getHash pb
-    theRound = blockRound pb
+    theTimestamp = blockTimestamp pb
     parentHash = blockParent pb
 
 -- |Take the set of blocks that are pending a particular parent from the pending block table.
 -- Note: this does not remove them from the pending blocks queue; blocks should be removed from
--- the queue as the finalized round progresses.
+-- the queue as the finalized timestamp progresses.
 takePendingChildren :: (MonadState s m, HasPendingBlocks s) => BlockHash -> m [PendingBlock]
 takePendingChildren parent = pendingBlocksTable . at' parent . non [] <<.= []
 
--- |Return the next block that is pending its parent with round number
+-- |Return the next block that is pending its parent with timestamp
 -- less than or equal to the given value, removing it from the pending
 -- table.  Returns 'Nothing' if there is no such pending block.
-takeNextPendingUntil :: (MonadState s m, HasPendingBlocks s) => Round -> m (Maybe PendingBlock)
-takeNextPendingUntil targetRound = takeNextUntil =<< use pendingBlocksQueue
+takeNextPendingUntil :: (MonadState s m, HasPendingBlocks s) => Timestamp -> m (Maybe PendingBlock)
+takeNextPendingUntil targetTimestamp = takeNextUntil =<< use pendingBlocksQueue
   where
     takeNextUntil pbq = case MPQ.minViewWithKey pbq of
         Just ((r, (pending, parent)), pbq')
-            | r <= targetRound -> do
+            | r <= targetTimestamp -> do
                 (myPB, otherPBs) <-
                     List.partition ((== pending) . getHash)
                         <$> use (pendingBlocksTable . at' parent . non [])
@@ -541,17 +722,19 @@ getNextAccountNonce addr sd = case sd ^. transactionTable . TT.ttNonFinalizedTra
             Nothing -> (anfts ^. TT.anftNextNonce, True)
             Just (nonce, _) -> (nonce + 1, False)
 
--- |Removes a list of transactions from memory.
+-- |Finalizes a list of transactions in the in-memory transaction table.
+-- This removes the transactions (and any others with the same account and nonce, or update type
+-- and sequence number) and updates the next account nonce/update type sequence number.
 -- Per account, the transactions must be in
 -- continuous sequence by nonce, starting from the next available non-finalized
 -- nonce. This does not write the transactions to the low-level tree state database, but just
 -- updates the in-memory transaction table accordingly.
-removeTransactions ::
+finalizeTransactions ::
     (MonadState (SkovData pv) m, MonadThrow m) =>
     -- |The transactions to remove from the state.
     [BlockItem] ->
     m ()
-removeTransactions = mapM_ removeTrans
+finalizeTransactions = mapM_ removeTrans
   where
     removeTrans WithMetadata{wmdData = NormalTransaction tr, ..} = do
         let nonce = transactionNonce tr
@@ -724,18 +907,90 @@ purgeTransactionTable force currentTime = do
         transactionTable .=! newTT
         pendingTransactionTable .=! newPT
 
+-- ** Operations on the pending transaction table
+
+-- |Update the focus block and the pending transaction table.
+--
+-- PRECONDITION: The new focus block must be a live block, or the last finalized block.
+updateFocusBlockTo ::
+    (MonadState (SkovData (MPV m)) m) =>
+    -- |New focus block
+    BlockPointer (MPV m) ->
+    m ()
+updateFocusBlockTo newFocusBlock = do
+    -- 'parent' will be a function that gets the parent of live blocks in the present state.
+    parent <- gets parentOfLive
+    -- 'updatePTs' rolls back the branch to the old pending block from the nearest common ancestor
+    -- with the new pending block, then rolls forward the branch to the new pending block.
+    let updatePTs oldBranchBlock newBranchBlock forwardBlocks pendingTable =
+            case compare (blockHeight oldBranchBlock) (blockHeight newBranchBlock) of
+                LT ->
+                    -- If the new branch height is greater than the old branch height, then go to
+                    -- the parent of the new branch, and add the new branch block to the stack of
+                    -- blocks to roll forward the the transactions of.
+                    updatePTs
+                        oldBranchBlock
+                        (parent newBranchBlock)
+                        (newBranchBlock : forwardBlocks)
+                        pendingTable
+                EQ
+                    | oldBranchBlock == newBranchBlock ->
+                        -- We've reached the common ancestor, so forward the transactions of the
+                        -- blocks in the stack.
+                        foldl'
+                            (\p f -> TT.forwardPTT (blockTransactions f) p)
+                            pendingTable
+                            forwardBlocks
+                    | otherwise -> do
+                        -- The branches are at the same height, but we've not yet hit the common
+                        -- ancestor, so roll back the transactions of the old block, add the new
+                        -- block to the stack of blocks to roll forward, and proceed with the
+                        -- parents of both blocks.
+                        updatePTs
+                            (parent oldBranchBlock)
+                            (parent newBranchBlock)
+                            (newBranchBlock : forwardBlocks)
+                            (TT.reversePTT (blockTransactions oldBranchBlock) pendingTable)
+                GT ->
+                    -- If the new branch height is lower than the old branch height, roll back the
+                    -- transactions from the old block and continue with the parent of the old
+                    -- branch.
+                    updatePTs
+                        (parent oldBranchBlock)
+                        newBranchBlock
+                        forwardBlocks
+                        (TT.reversePTT (blockTransactions oldBranchBlock) pendingTable)
+    oldFocusBlock <- use focusBlock
+    pendingTransactions . pendingTransactionTable %=! updatePTs oldFocusBlock newFocusBlock []
+    focusBlock .=! newFocusBlock
+
 -- * Bakers
 
--- |Get the set of bakers and finalizers for an epoch no later than the epoch of the last finalized
+-- |Get the bakers and finalizers for a given epoch if they are available.
+-- They are always available for an epoch within 1 of the epoch of the last finalized block.
+-- Additionally, they may be available for future epochs in the same payday as the last finalized
 -- block.
-getBakersForLiveEpoch :: (HasEpochBakers s) => Epoch -> s -> Maybe BakersAndFinalizers
-getBakersForLiveEpoch e s
+-- Returns 'Nothing' if the bakers and finalizers are not available.
+getBakersForEpoch :: Epoch -> SkovData pv -> Maybe BakersAndFinalizers
+getBakersForEpoch e s
     | e == curEpoch = Just (s ^. currentEpochBakers)
     | e == curEpoch + 1 = Just (s ^. nextEpochBakers)
+    | e == curEpoch - 1 = Just (s ^. previousEpochBakers)
     | curEpoch <= e && e < s ^. nextPayday = Just (s ^. currentEpochBakers)
     | otherwise = Nothing
   where
-    curEpoch = s ^. epochBakersEpoch
+    curEpoch = s ^. lastFinalized . to blockEpoch
+
+-- |Get the bakers at the current epoch.
+-- This relies on the fact that the current epoch is either the same as the epoch of the last
+-- finalized block, or the next epoch.
+bakersForCurrentEpoch :: SkovData pv -> BakersAndFinalizers
+bakersForCurrentEpoch sd
+    | sd ^. roundStatus . rsCurrentEpoch == sd ^. lastFinalized . to blockEpoch =
+        sd ^. currentEpochBakers
+    | otherwise =
+        assert (sd ^. roundStatus . rsCurrentEpoch == (sd ^. lastFinalized . to blockEpoch) + 1) $
+            sd ^. nextEpochBakers
 
 -- * Protocol update
 
@@ -774,3 +1029,16 @@ clearAfterProtocolUpdate = do
     -- Archive the last finalized block state.
     archiveBlockState $ bpState lastFinBlock
     collapseCaches
+
+-- |Sets and persists the 'PersistentRoundStatus' of the 'SkovData'.
+setPersistentRoundStatus :: (LowLevel.MonadTreeStateStore m, MonadState (SkovData (MPV m)) m) => PersistentRoundStatus -> m ()
+setPersistentRoundStatus = updatePersistentRoundStatus . const
+
+-- |Updates and persists the 'PersistentRoundStatus' of the 'SkovData'.
+updatePersistentRoundStatus ::
+    (LowLevel.MonadTreeStateStore m, MonadState (SkovData (MPV m)) m) =>
+    (PersistentRoundStatus -> PersistentRoundStatus) ->
+    m ()
+updatePersistentRoundStatus change = do
+    newRoundStatus <- persistentRoundStatus <%=! change
+    LowLevel.writeCurrentRoundStatus newRoundStatus

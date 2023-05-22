@@ -32,7 +32,7 @@
 -- * 'takePendingChildrenUntil'
 --
 -- TransactionTable
--- A structure that recoreds transactions in the tree state.
+-- A structure that records transactions in the tree state.
 -- From a consensus perspective, then transactions can be added to
 -- the tree state either individually (i.e. a single transaction sent to the
 -- the consensus layer) or via a block.
@@ -43,7 +43,7 @@
 -- * 'getNonFinalizedChainUpdates'
 -- * 'getNonFinalizedCredential'
 -- * 'getNextAccountNonce'
--- * 'removeTransactions'
+-- * 'finalizeTransactions'
 -- * 'addTransaction'
 -- * 'commitTransaction'
 -- * 'markTransactionDead'
@@ -67,8 +67,10 @@ import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import qualified Data.Map.Strict as Map
 import qualified Data.PQueue.Prio.Min as MPQ
+import Data.Ratio
 import qualified Data.Sequence as Seq
 import qualified Data.Vector as Vec
+import Data.Word ()
 import Lens.Micro.Platform
 import System.IO.Unsafe
 import System.Random
@@ -103,18 +105,12 @@ import Concordium.KonsensusV1.Types
 import qualified Concordium.TransactionVerification as TVer
 import Concordium.Types.Updates
 
--- We derive these instances here so we don't accidently end up using them in production.
+-- We derive these instances here so we don't accidentally end up using them in production.
 -- We have them because they are very convenient for testing purposes.
 deriving instance Eq (InMemoryBlockStatus pv)
 deriving instance Eq (BlockStatus pv)
 deriving instance Eq (BlockTable pv)
 deriving instance Eq (RecentBlockStatus pv)
-
-instance Eq (BlockPointer pv) where
-    bp1 == bp2 =
-        bpInfo bp1 == bpInfo bp2
-            && bpBlock bp1 == bpBlock bp2
-            && hpbsHash (bpState bp1) == hpbsHash (bpState bp2)
 
 -- |A dummy block state that is just a @BlobRef 0@.
 dummyPersistentBlockState :: PersistentBlockState pv
@@ -132,8 +128,8 @@ dummyBlockState = HashedPersistentBlockState{..}
     hpbsHash = dummyStateHash
 
 -- |A 'QuorumCertificate' pointing to the block provided.
--- The certificate itself is inherenly invalid as it is for round and epoch 0.
--- Further noone signed it and it has an empty signature.
+-- The certificate itself is inherently invalid as it is for round and epoch 0.
+-- Further no one signed it and it has an empty signature.
 -- However for the tests exposed here it is sufficient.
 dummyQuorumCertificate :: BlockHash -> QuorumCertificate
 dummyQuorumCertificate blockHash =
@@ -146,7 +142,7 @@ dummyQuorumCertificate blockHash =
         }
 
 -- |An arbitrary chosen 'VRF.KeyPair'.
--- This is requried to create the 'dummyBlockNonce'.
+-- This is required to create the 'dummyBlockNonce'.
 dummyVRFKeys :: VRF.KeyPair
 dummyVRFKeys = fst $ VRF.randomKeyPair (mkStdGen 0)
 
@@ -166,12 +162,13 @@ dummyBakedBlock ::
     BlockHash ->
     -- |The round of the block
     Round ->
+    -- |The timestamp of the block
+    Timestamp ->
     -- |The empty baked block
     BakedBlock
-dummyBakedBlock parentHash bbRound = BakedBlock{..}
+dummyBakedBlock parentHash bbRound bbTimestamp = BakedBlock{..}
   where
     bbEpoch = 0
-    bbTimestamp = 0
     bbBaker = 0
     bbQuorumCertificate = dummyQuorumCertificate parentHash
     bbTimeoutCertificate = Absent
@@ -188,22 +185,24 @@ dummySignedBlock ::
     BlockHash ->
     -- |'Round' of the block
     Round ->
+    -- |Timestamp of the block
+    Timestamp ->
     -- |The signed block
     SignedBlock
-dummySignedBlock parentHash = signBlock dummySignKeys dummyGenesisBlockHash . dummyBakedBlock parentHash
+dummySignedBlock parentHash rnd = signBlock dummySignKeys dummyGenesisBlockHash . dummyBakedBlock parentHash rnd
 
 -- |Construct a 'PendingBlock' for the provided 'Round' where the
 -- parent is indicated by the provided 'BlockHash'.
 dummyPendingBlock ::
     -- |Parent 'BlockHash'
     BlockHash ->
-    -- |The 'Round' of the block
-    Round ->
+    -- |The 'Timestamp' of the block
+    Timestamp ->
     -- |The resulting 'PendingBlock'
     PendingBlock
-dummyPendingBlock parentHash r =
+dummyPendingBlock parentHash ts =
     PendingBlock
-        { pbBlock = dummySignedBlock parentHash r,
+        { pbBlock = dummySignedBlock parentHash 1 ts,
           pbReceiveTime = timestampToUTCTime 0
         }
 
@@ -221,7 +220,7 @@ dummyBlock rnd = BlockPointer{..}
               bmReceiveTime = timestampToUTCTime 0,
               bmArriveTime = timestampToUTCTime 0
             }
-    bpBlock = NormalBlock $ dummySignedBlock (BlockHash minBound) rnd
+    bpBlock = NormalBlock $ dummySignedBlock (BlockHash minBound) rnd 0
     bpState = dummyBlockState
 
 -- |A 'BlockHash' suitable for configuring
@@ -243,7 +242,8 @@ dummyGenesisMetadata =
         { gmParameters =
             CoreGenesisParametersV1
                 { genesisTime = 0,
-                  genesisEpochDuration = 3_600_000
+                  genesisEpochDuration = 3_600_000,
+                  genesisSignatureThreshold = 2 % 3
                 },
           gmCurrentGenesisHash = dummyGenesisBlockHash,
           gmFirstGenesisHash = dummyGenesisBlockHash,
@@ -267,7 +267,7 @@ dummyBakersAndFinalizers =
 
 -- |Dummy epoch bakers. This is only suitable for when the actual value is not meaningfully used.
 dummyEpochBakers :: EpochBakers
-dummyEpochBakers = EpochBakers 0 bf bf bf 1
+dummyEpochBakers = EpochBakers bf bf bf 1
   where
     bf = dummyBakersAndFinalizers
 
@@ -280,10 +280,9 @@ dummyEpochBakers = EpochBakers 0 bf bf bf 1
 -- tests we are carrying out in this module it could be any genesis metadata
 --
 -- The initial 'RoundStatus' for the 'SkovData pv' is configured with
--- 'rsCurrentTimeout' set to 10 seconds and the 'rsLeadershipElectionNonce' is
--- the 'dummyLeadershipElectionNonce'.
--- However these are just dummy values and can be replaced with other values,
--- i.e. they have no effect on the tests being run with the 'dummyInitialSkovData'.
+-- the initial timeout duration set to 10 seconds.
+-- However this is just a dummy value and can be replaced with other values,
+-- i.e. it has no effect on the tests being run with the 'dummyInitialSkovData'.
 --
 -- Note that as the 'SkovData pv' returned here is constructed by simple dummy values,
 -- then is not suitable for carrying out block state queries or operations.
@@ -295,7 +294,6 @@ dummyInitialSkovData =
         dummyGenesisMetadata
         dummyBlockState
         10_000
-        dummyLeadershipElectionNonce
         dummyEpochBakers
 
 -- |A 'LowLevelDB' for testing purposes.
@@ -372,8 +370,10 @@ skovDataWithTestBlocks =
 lldbWithGenesis :: LowLevelDB pv
 lldbWithGenesis =
     initialLowLevelDB
-        (toStoredBlock genB)
-        (initialRoundStatus 10_000 dummyLeadershipElectionNonce)
+        sb
+        initialPersistentRoundStatus
+  where
+    sb = toStoredBlock genB
 
 -- |Testing 'getMemoryBlockStatus' functionality.
 -- In particular this test ensures that a (known) block in memory can
@@ -419,7 +419,7 @@ testGetRecentBlockStatus = describe "getRecentBlockStatus" $ do
     it "pending block" $ getStatus (getHash pendingB) $ RecentBlock $ BlockPending pendingB
     it "dead block" $ getStatus deadH $ RecentBlock BlockDead
     it "genesis block" $ getStatus (getHash genB) OldFinalized
-    it "unknown block" $ getStatus unknownH Unknown
+    it "unknown block" $ getStatus unknownH $ RecentBlock BlockUnknown
   where
     getStatus bh expect = do
         s <- runTestLLDB (lldbWithGenesis @'P6) $ getRecentBlockStatus bh sd
@@ -897,7 +897,7 @@ testGetNextAccountNonce = describe "getNextAccountNonce" $ do
                         ?~ TT.emptyANFTWithNonce 7
                   )
 
--- |Testing 'removeTransactions'.
+-- |Testing 'finalizeTransactions'.
 -- This test ensures that the provided list of
 -- transactions are removed from the the transaction table,
 -- and if the transaction is either a normal transaction or
@@ -906,9 +906,9 @@ testGetNextAccountNonce = describe "getNextAccountNonce" $ do
 -- map and that the next available nonce for the sender of the transaction is set to
 -- be 1 + the nonce of the removed transaction.
 testRemoveTransactions :: Spec
-testRemoveTransactions = describe "removeTransactions" $ do
+testRemoveTransactions = describe "finalizeTransactions" $ do
     it "normal transactions" $ do
-        sd' <- execStateT (removeTransactions [normalTransaction tr0]) sd
+        sd' <- execStateT (finalizeTransactions [normalTransaction tr0]) sd
         assertEqual
             "Account non-finalized transactions"
             (Just TT.AccountNonFinalizedTransactions{_anftNextNonce = 2, _anftMap = Map.singleton 2 (Map.singleton tr1 (dummySuccessTransactionResult 2))})
@@ -918,7 +918,7 @@ testRemoveTransactions = describe "removeTransactions" $ do
             (HM.fromList [(getHash tr1, (normalTransaction tr1, TT.Received 0 (dummySuccessTransactionResult 2)))])
             (sd' ^. transactionTable . TT.ttHashMap)
     it "chain updates" $ do
-        sd' <- execStateT (removeTransactions [chainUpdate cu0]) sd1
+        sd' <- execStateT (finalizeTransactions [chainUpdate cu0]) sd1
         assertEqual
             "Chain update non-finalized transactions"
             (Just TT.NonFinalizedChainUpdates{_nfcuNextSequenceNumber = 2, _nfcuMap = Map.singleton 2 (Map.singleton cu1 (dummySuccessTransactionResult 2))})
@@ -932,7 +932,7 @@ testRemoveTransactions = describe "removeTransactions" $ do
             )
             (sd' ^. transactionTable . TT.ttHashMap)
     it "credential deployments" $ do
-        sd' <- execStateT (removeTransactions [credentialDeployment cred0]) sd2
+        sd' <- execStateT (finalizeTransactions [credentialDeployment cred0]) sd2
         assertEqual
             "Non-finalized credential deployments"
             (sd' ^. transactionTable . TT.ttHashMap . at credDeploymentHash)
@@ -992,7 +992,7 @@ testAddTransaction = describe "addTransaction" $ do
             "transaction table purge counter is incremented"
             (1 + dummyInitialSkovData ^. transactionTablePurgeCounter)
             (sd' ^. transactionTablePurgeCounter)
-        sd'' <- execStateT (removeTransactions [normalTransaction tr0]) sd'
+        sd'' <- execStateT (finalizeTransactions [normalTransaction tr0]) sd'
         added <- evalStateT (addTransaction tr0Round (normalTransaction tr0) (dummySuccessTransactionResult 1)) sd''
         assertEqual "tx should not be added" False added
   where

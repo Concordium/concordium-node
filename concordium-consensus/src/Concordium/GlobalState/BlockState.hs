@@ -523,8 +523,22 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
     -- |Get the bakers for the epoch in which the block was baked.
     getCurrentEpochBakers :: BlockState m -> m FullBakers
 
+    -- |Get the finalization committee parameters for the epoch in which the block was baked.
+    -- Together with the bakers, this is used to compute the finalization committee for the epoch.
+    getCurrentEpochFinalizationCommitteeParameters ::
+        (IsSupported 'PTFinalizationCommitteeParameters (ChainParametersVersionFor (MPV m)) ~ 'True) =>
+        BlockState m ->
+        m FinalizationCommitteeParameters
+
     -- |Get the bakers for the next epoch. (See $ActiveCurrentNext.)
     getNextEpochBakers :: BlockState m -> m FullBakers
+
+    -- |Get the finalization committee parameters for next epoch than in which the block was baked.
+    -- Together with the bakers, this is used to compute the finalization committee for the epoch.
+    getNextEpochFinalizationCommitteeParameters ::
+        (IsSupported 'PTFinalizationCommitteeParameters (ChainParametersVersionFor (MPV m)) ~ 'True) =>
+        BlockState m ->
+        m FinalizationCommitteeParameters
 
     -- |Get the bakers for a particular (future) slot, provided genesis timestamp and slot duration.
     -- This is used for protocol version 'P1' to 'P3'.
@@ -831,6 +845,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
         (PVSupportsDelegation (MPV m)) =>
         UpdatableBlockState m ->
         [(BakerInfoRef m, Amount)] ->
+        OFinalizationCommitteeParameters (MPV m) ->
         m (UpdatableBlockState m)
 
     -- |Update the bakers for the next epoch.
@@ -1391,7 +1406,9 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
     getContractInstanceList = lift . getContractInstanceList
     getSeedState = lift . getSeedState
     getCurrentEpochBakers = lift . getCurrentEpochBakers
+    getCurrentEpochFinalizationCommitteeParameters = lift . getCurrentEpochFinalizationCommitteeParameters
     getNextEpochBakers = lift . getNextEpochBakers
+    getNextEpochFinalizationCommitteeParameters = lift . getNextEpochFinalizationCommitteeParameters
     getSlotBakersP1 d = lift . getSlotBakersP1 d
     getRewardStatus = lift . getRewardStatus
     getTransactionOutcome s = lift . getTransactionOutcome s
@@ -1428,6 +1445,9 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
     {-# INLINE getContractInstanceList #-}
     {-# INLINE getSeedState #-}
     {-# INLINE getCurrentEpochBakers #-}
+    {-# INLINE getCurrentEpochFinalizationCommitteeParameters #-}
+    {-# INLINE getNextEpochBakers #-}
+    {-# INLINE getNextEpochFinalizationCommitteeParameters #-}
     {-# INLINE getSlotBakersP1 #-}
     {-# INLINE getRewardStatus #-}
     {-# INLINE getOutcomes #-}
@@ -1562,7 +1582,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     bsoClearEpochBlocksBaked = lift . bsoClearEpochBlocksBaked
     bsoSetNextCapitalDistribution s cd = lift $ bsoSetNextCapitalDistribution s cd
     bsoRotateCurrentCapitalDistribution = lift . bsoRotateCurrentCapitalDistribution
-    bsoSetNextEpochBakers s = lift . bsoSetNextEpochBakers s
+    bsoSetNextEpochBakers s bkrs = lift . bsoSetNextEpochBakers s bkrs
     bsoGetBankStatus = lift . bsoGetBankStatus
     bsoSetRewardAccounts s = lift . bsoSetRewardAccounts s
     {-# INLINE bsoGetModule #-}

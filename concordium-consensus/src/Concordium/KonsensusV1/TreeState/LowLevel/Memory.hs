@@ -38,13 +38,13 @@ data LowLevelDB pv = LowLevelDB
       -- |The last finalization entry (if any).
       lldbLatestFinalizationEntry :: !(Maybe FinalizationEntry),
       -- |The current round status.
-      lldbRoundStatus :: !RoundStatus
+      lldbRoundStatus :: !PersistentRoundStatus
     }
 
 -- |An initial 'LowLevelDB' with the supplied genesis block and round status, but otherwise with
 -- no blocks, no transactions and no finalization entry.
 -- The genesis block should have height 0; this is not checked.
-initialLowLevelDB :: StoredBlock pv -> RoundStatus -> LowLevelDB pv
+initialLowLevelDB :: StoredBlock pv -> PersistentRoundStatus -> LowLevelDB pv
 initialLowLevelDB genBlock roundStatus =
     LowLevelDB
         { lldbBlockHashes = HM.singleton (getHash genBlock) 0,
@@ -107,7 +107,7 @@ instance (IsProtocolVersion pv, MonadReader r m, HasMemoryLLDB pv r, MonadIO m) 
                   lldbTransactions = foldl' insertTx lldbTransactions (zip (blockTransactions sb) [0 ..])
                 }
           where
-            height = bmHeight (stbInfo sb)
+            height = blockHeight sb
             insertTx txs (tx, ti) = HM.insert (getHash tx) (FinalizedTransactionStatus height ti) txs
     lookupLatestFinalizationEntry =
         readLLDB <&> lldbLatestFinalizationEntry
@@ -131,7 +131,7 @@ instance (IsProtocolVersion pv, MonadReader r m, HasMemoryLLDB pv r, MonadIO m) 
             -- its associated transactions.
             withLLDB $ \db@LowLevelDB{..} ->
                 ( db
-                    { lldbBlocks = Map.delete (bmHeight (stbInfo sb)) lldbBlocks,
+                    { lldbBlocks = Map.delete (blockHeight sb) lldbBlocks,
                       lldbBlockHashes = HM.delete (getHash sb) lldbBlockHashes,
                       lldbTransactions = foldl' deleteTx lldbTransactions (blockTransactions sb)
                     },

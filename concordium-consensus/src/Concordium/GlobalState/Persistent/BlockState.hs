@@ -108,9 +108,9 @@ data PersistentBirkParameters (pv :: ProtocolVersion) = PersistentBirkParameters
     { -- |The currently-registered bakers.
       _birkActiveBakers :: !(BufferedRef (PersistentActiveBakers (AccountVersionFor pv))),
       -- |The bakers that will be used for the next epoch.
-      _birkNextEpochBakers :: !(HashedBufferedRef (PersistentEpochBakers (AccountVersionFor pv))),
+      _birkNextEpochBakers :: !(HashedBufferedRef (PersistentEpochBakers pv)),
       -- |The bakers for the current epoch.
-      _birkCurrentEpochBakers :: !(HashedBufferedRef (PersistentEpochBakers (AccountVersionFor pv))),
+      _birkCurrentEpochBakers :: !(HashedBufferedRef (PersistentEpochBakers pv)),
       -- |The seed state used to derive the leadership election nonce.
       _birkSeedState :: !(SeedState (SeedStateVersionFor pv))
     }
@@ -210,8 +210,10 @@ initialBirkParameters ::
     [PersistentAccount av] ->
     -- |The seed state
     SeedState (SeedStateVersionFor pv) ->
+    -- |The finalization committee parameters (if relevant)
+    OFinalizationCommitteeParameters pv ->
     m (PersistentBirkParameters pv)
-initialBirkParameters accounts seedState = do
+initialBirkParameters accounts seedState _bakerFinalizationCommitteeParameters = do
     -- Iterate accounts and collect delegators.
     IBPCollectedDelegators{..} <- case delegationSupport @av of
         SAVDelegationNotSupported -> return emptyIBPCollectedDelegators
@@ -819,7 +821,7 @@ initialPersistentState ::
     ChainParameters pv ->
     m (HashedPersistentBlockState pv)
 initialPersistentState seedState cryptoParams accounts ips ars keysCollection chainParams = do
-    persistentBirkParameters <- initialBirkParameters accounts seedState
+    persistentBirkParameters <- initialBirkParameters accounts seedState (chainParams ^. cpFinalizationCommitteeParameters)
     modules <- refMake Modules.emptyModules
     identityProviders <- bufferHashed $ makeHashed ips
     anonymityRevokers <- bufferHashed $ makeHashed ars
@@ -1036,6 +1038,16 @@ doSetSeedState pbs ss = do
     bsp <- loadPBS pbs
     storePBS pbs bsp{bspBirkParameters = (bspBirkParameters bsp){_birkSeedState = ss}}
 
+doGetCurrentEpochFinalizationCommitteeParameters ::
+    ( SupportsPersistentState pv m,
+      IsSupported 'PTFinalizationCommitteeParameters (ChainParametersVersionFor pv) ~ 'True
+    ) =>
+    PersistentBlockState pv ->
+    m FinalizationCommitteeParameters
+doGetCurrentEpochFinalizationCommitteeParameters pbs = do
+    eb <- refLoad . _birkCurrentEpochBakers . bspBirkParameters =<< loadPBS pbs
+    return $! eb ^. bakerFinalizationCommitteeParameters . supportedOParam
+
 doGetCurrentEpochBakers :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m FullBakers
 doGetCurrentEpochBakers pbs = epochToFullBakers =<< refLoad . _birkCurrentEpochBakers . bspBirkParameters =<< loadPBS pbs
 
@@ -1048,6 +1060,16 @@ doGetCurrentCapitalDistribution pbs = do
     let hpr = case bspRewardDetails bsp of BlockRewardDetailsV1 hp -> hp
     poolRewards <- refLoad hpr
     refLoad $ currentCapital poolRewards
+
+doGetNextEpochFinalizationCommitteeParameters ::
+    ( SupportsPersistentState pv m,
+      IsSupported 'PTFinalizationCommitteeParameters (ChainParametersVersionFor pv) ~ 'True
+    ) =>
+    PersistentBlockState pv ->
+    m FinalizationCommitteeParameters
+doGetNextEpochFinalizationCommitteeParameters pbs = do
+    eb <- refLoad . _birkNextEpochBakers . bspBirkParameters =<< loadPBS pbs
+    return $! eb ^. bakerFinalizationCommitteeParameters . supportedOParam
 
 doGetNextEpochBakers :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m FullBakers
 doGetNextEpochBakers pbs = do
@@ -1161,6 +1183,10 @@ doTransitionEpochBakers pbs newEpoch = do
     -- so why not?
     _bakerStakes <- secondIfEqual newBakerStakes (_bakerStakes neb)
     let _bakerTotalStake = sum stakesVec
+        _bakerFinalizationCommitteeParameters = case protocolVersion @pv of
+            SP1 -> NoParam
+            SP2 -> NoParam
+            SP3 -> NoParam
     newNextBakers <- refMake PersistentEpochBakers{..}
     storePBS
         pbs
@@ -2966,8 +2992,9 @@ doSetNextEpochBakers ::
     (SupportsPersistentState pv m) =>
     PersistentBlockState pv ->
     [(PersistentBakerInfoRef (AccountVersionFor pv), Amount)] ->
+    OFinalizationCommitteeParameters pv ->
     m (PersistentBlockState pv)
-doSetNextEpochBakers pbs bakers = do
+doSetNextEpochBakers pbs bakers _bakerFinalizationCommitteeParameters = do
     bsp <- loadPBS pbs
     _bakerInfos <- refMake (BakerInfos preBakerInfos)
     _bakerStakes <- refMake (BakerStakes preBakerStakes)
@@ -3285,8 +3312,10 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateQuery (P
     getAccountList = doAccountList . hpbsPointers
     getContractInstanceList = doContractInstanceList . hpbsPointers
     getSeedState = doGetSeedState . hpbsPointers
+    getCurrentEpochFinalizationCommitteeParameters = doGetCurrentEpochFinalizationCommitteeParameters . hpbsPointers
     getCurrentEpochBakers = doGetCurrentEpochBakers . hpbsPointers
     getNextEpochBakers = doGetNextEpochBakers . hpbsPointers
+    getNextEpochFinalizationCommitteeParameters = doGetNextEpochFinalizationCommitteeParameters . hpbsPointers
     getSlotBakersP1 = doGetSlotBakersP1 . hpbsPointers
     getBakerAccount = doGetBakerAccount . hpbsPointers
     getRewardStatus = doGetRewardStatus . hpbsPointers
