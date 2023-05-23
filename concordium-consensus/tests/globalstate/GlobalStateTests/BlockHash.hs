@@ -104,7 +104,8 @@ defaultHash = Block.generateBlockHash slot parent bakerid bakerSVK blockP nonce 
 --
 -- In order to do this we need to have some dummy instances (defined below)
 -- as computing the transaction outcomes hash might be looking up on disk etc.
--- (Note that test does not that and hence it's ok to simply have the instance functions be
+-- (Note that this test does not perform any of such actions,
+-- hence it's ok to simply have the instance functions be
 -- defined as undefined.)
 newtype DummyHashMonad a = DummyHashMonad {runDummyHashMonad :: a}
     deriving (Functor, Applicative, Monad) via Identity

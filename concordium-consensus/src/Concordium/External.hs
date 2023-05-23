@@ -1083,10 +1083,11 @@ getBlocksAtHeight ::
     IO CString
 getBlocksAtHeight cptr height genIndex restrict =
     jsonQuery cptr $
-        Q.getBlocksAtHeight
-            (BlockHeight height)
-            (GenesisIndex genIndex)
-            (restrict /= 0)
+        fmap fst
+            <$> Q.getBlocksAtHeight
+                (BlockHeight height)
+                (GenesisIndex genIndex)
+                (restrict /= 0)
 
 -- | Retrieve the last finalized block height relative to the most recent genesis index. Used for
 -- resuming out-of-band catchup.
@@ -1112,7 +1113,7 @@ getBlockInfo :: StablePtr ConsensusRunner -> CString -> IO CString
 getBlockInfo cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (snd <$> Q.getBlockInfo (Queries.Given bh))
+        Just bh -> jsonQuery cptr (Q.responseToMaybe <$> Q.getBlockInfo (Queries.Given bh))
 
 -- |Get the list of transactions in a block with short summaries of their effects.
 -- Returns a null-terminated string encoding a JSON value.
@@ -1132,7 +1133,7 @@ getRewardStatus :: StablePtr ConsensusRunner -> CString -> IO CString
 getRewardStatus cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (snd <$> Q.getRewardStatus (Queries.Given bh))
+        Just bh -> jsonQuery cptr (Q.responseToMaybe <$> Q.getRewardStatus (Queries.Given bh))
 
 -- |Get birk parameters for the given block. The block must be given as a
 -- null-terminated base16 encoding of the block hash.
@@ -1142,7 +1143,7 @@ getBirkParameters :: StablePtr ConsensusRunner -> CString -> IO CString
 getBirkParameters cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (snd <$> Q.getBlockBirkParameters (Queries.Given bh))
+        Just bh -> jsonQuery cptr (Q.responseToMaybe <$> Q.getBlockBirkParameters (Queries.Given bh))
 
 -- |Get the cryptographic parameters in a given block. The block must be given as a
 -- null-terminated base16 encoding of the block hash.
@@ -1152,7 +1153,7 @@ getCryptographicParameters :: StablePtr ConsensusRunner -> CString -> IO CString
 getCryptographicParameters cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr $ Versioned 0 . snd <$> Q.getCryptographicParameters (Queries.Given bh)
+        Just bh -> jsonQuery cptr $ Versioned 0 . Q.responseToMaybe <$> Q.getCryptographicParameters (Queries.Given bh)
 
 -- |Get all of the identity providers registered in the system as of a given block.
 -- The block must be given as a null-terminated base16 encoding of the block hash.
@@ -1162,7 +1163,7 @@ getAllIdentityProviders :: StablePtr ConsensusRunner -> CString -> IO CString
 getAllIdentityProviders cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (snd <$> Q.getAllIdentityProviders (Queries.Given bh))
+        Just bh -> jsonQuery cptr (Q.responseToMaybe <$> Q.getAllIdentityProviders (Queries.Given bh))
 
 -- |Get all of the identity providers registered in the system as of a given block.
 -- The block must be given as a null-terminated base16 encoding of the block hash.
@@ -1172,7 +1173,7 @@ getAllAnonymityRevokers :: StablePtr ConsensusRunner -> CString -> IO CString
 getAllAnonymityRevokers cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (snd <$> Q.getAllAnonymityRevokers (Queries.Given bh))
+        Just bh -> jsonQuery cptr (Q.responseToMaybe <$> Q.getAllAnonymityRevokers (Queries.Given bh))
 
 -- |Given a null-terminated string that represents a block hash (base 16), and a number of blocks,
 -- returns a null-terminated string containing a JSON list of the ancestors of the node (up to the
@@ -1182,7 +1183,7 @@ getAncestors :: StablePtr ConsensusRunner -> CString -> Word64 -> IO CString
 getAncestors cptr blockcstr depth =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (snd <$> Q.getAncestors (Queries.Given bh) (BlockHeight depth))
+        Just bh -> jsonQuery cptr (Q.responseToMaybe <$> Q.getAncestors (Queries.Given bh) (BlockHeight depth))
 
 -- |Get the list of account addresses in the given block. The block must be
 -- given as a null-terminated base16 encoding of the block hash. The return
@@ -1192,7 +1193,7 @@ getAccountList :: StablePtr ConsensusRunner -> CString -> IO CString
 getAccountList cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (snd <$> Q.getAccountList (Queries.Given bh))
+        Just bh -> jsonQuery cptr (Q.responseToMaybe <$> Q.getAccountList (Queries.Given bh))
 
 -- |Get the list of contract instances (their addresses) in the given block. The
 -- block must be given as a null-terminated base16 encoding of the block hash.
@@ -1202,7 +1203,7 @@ getInstances :: StablePtr ConsensusRunner -> CString -> IO CString
 getInstances cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (snd <$> Q.getInstanceList (Queries.Given bh))
+        Just bh -> jsonQuery cptr (Q.responseToMaybe <$> Q.getInstanceList (Queries.Given bh))
 
 -- |Get the list of modules in the given block. The block must be given as a
 -- null-terminated base16 encoding of the block hash.
@@ -1212,7 +1213,7 @@ getModuleList :: StablePtr ConsensusRunner -> CString -> IO CString
 getModuleList cptr blockcstr = do
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (snd <$> Q.getModuleList (Queries.Given bh))
+        Just bh -> jsonQuery cptr (Q.responseToMaybe <$> Q.getModuleList (Queries.Given bh))
 
 -- |Get account information for the given block and identifier. The block must be
 -- given as a null-terminated base16 encoding of the block hash and the account
@@ -1227,7 +1228,7 @@ getAccountInfo cptr blockcstr acctcstr = do
     acctbs <- BS.packCString acctcstr
     let account = decodeAccountIdentifier acctbs
     case (mblock, account) of
-        (Just bh, Just acct) -> jsonQuery cptr (snd <$> Q.getAccountInfo (Queries.Given bh) acct)
+        (Just bh, Just acct) -> jsonQuery cptr (Q.responseToMaybe <$> Q.getAccountInfo (Queries.Given bh) acct)
         _ -> jsonCString AE.Null
 
 -- |Get instance information the given block and instance. The block must be
@@ -1241,7 +1242,7 @@ getInstanceInfo cptr blockcstr instcstr = do
     mblock <- decodeBlockHash blockcstr
     minst <- decodeInstanceAddress instcstr
     case (mblock, minst) of
-        (Just bh, Just inst) -> jsonQuery cptr (snd <$> Q.getInstanceInfo (Queries.Given bh) inst)
+        (Just bh, Just inst) -> jsonQuery cptr (Q.responseToMaybe <$> Q.getInstanceInfo (Queries.Given bh) inst)
         _ -> jsonCString AE.Null
 
 -- |Run the smart contract entrypoint in a given context and in the state at the
@@ -1261,7 +1262,7 @@ invokeContract cptr blockcstr ctxcstr maxInvokeEnergy = do
         (Just bh, Just ctx) -> do
             -- Make sure the max allowed energy is respected.
             let effectiveCtx = ctx{InvokeContract.ccEnergy = min (InvokeContract.ccEnergy ctx) (fromIntegral maxInvokeEnergy)}
-            jsonQuery cptr (snd <$> Q.invokeContract (Queries.Given bh) effectiveCtx)
+            jsonQuery cptr (Q.responseToMaybe <$> Q.invokeContract (Queries.Given bh) effectiveCtx)
         _ -> jsonCString AE.Null
 
 -- |Get the source code of a module as deployed on the chain at a particular block.
@@ -1279,7 +1280,7 @@ getModuleSource cptr blockcstr modcstr = do
     mmod <- decodeModuleRef modcstr
     case (mblock, mmod) of
         (Just bh, Just modref) -> do
-            msrc <- runMVR (snd <$> Q.getModuleSource (Queries.Given bh) modref) mvr
+            msrc <- runMVR (Q.responseToMaybe <$> Q.getModuleSource (Queries.Given bh) modref) mvr
             byteStringToCString $ maybe BS.empty S.encode msrc
         _ -> byteStringToCString BS.empty
 
@@ -1292,7 +1293,7 @@ getBakerList :: StablePtr ConsensusRunner -> CString -> IO CString
 getBakerList cptr blockcstr = do
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (snd <$> Q.getRegisteredBakers (Queries.Given bh))
+        Just bh -> jsonQuery cptr (Q.responseToMaybe <$> Q.getRegisteredBakers (Queries.Given bh))
 
 -- |Get the status of a baker pool or the passive delegators with respect to a particular block.
 -- The block must be given as a null-terminated base16 encoding of the block hash.
@@ -1315,7 +1316,7 @@ getPoolStatus ::
 getPoolStatus cptr blockcstr passive bid = do
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (snd <$> Q.getPoolStatus (Queries.Given bh) mbid)
+        Just bh -> jsonQuery cptr (Q.responseToMaybe <$> Q.getPoolStatus (Queries.Given bh) mbid)
   where
     mbid = if passive /= 0 then Nothing else Just (BakerId (AccountIndex bid))
 

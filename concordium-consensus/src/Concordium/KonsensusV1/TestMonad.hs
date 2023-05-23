@@ -102,7 +102,7 @@ data TestEvent (pv :: ProtocolVersion)
       OnPendingLive
     deriving (Eq, Show)
 
--- |Write event monoid. This is simply a list of events.
+-- |List of events generated during a test run.
 type TestWrite pv = [TestEvent pv]
 
 -- |The internals of the test monad.
