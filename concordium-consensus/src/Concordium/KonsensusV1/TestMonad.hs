@@ -81,6 +81,8 @@ data TestState pv = TestState
     { -- |The 'SkovData'.
       _tsSkovData :: !(SkovData pv),
       -- |The pending timers.
+      -- The 'Integer' key is a handle for the 'Timer' associated
+      -- with the 'TimerMonad'.
       _tsPendingTimers :: !(Map.Map Integer (Timeout, TestMonad pv ()))
     }
 
