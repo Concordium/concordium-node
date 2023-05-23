@@ -255,6 +255,6 @@ isCurrentFinalizer =
 
 -- |Determine if consensus is shut down.
 -- FIXME: Currently this always returns 'False'. Once protocol update/shutdown is supported, this
--- should be updated to reflect the state.
+-- should be updated to reflect the state. Issue #825
 isShutDown :: (Monad m) => m Bool
 isShutDown = return False

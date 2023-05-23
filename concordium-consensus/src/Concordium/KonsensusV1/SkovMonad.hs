@@ -262,7 +262,6 @@ instance (MonadIO m, MonadLogger m) => TimerMonad (SkovV1T pv m) where
                             logEvent Konsensus LLError $
                                 "Error in timer thread: " ++ show e
                 void (_skovV1TUnliftIO ctx a) `catchAll` handler
-                return ()
     cancelTimer = liftIO . cancelThreadTimer
 
 instance

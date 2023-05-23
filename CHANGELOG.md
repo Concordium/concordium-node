@@ -2,6 +2,7 @@
 
 ## Unreleased changes
 
+- Support the new ConcordiumBFT consensus.
 - Enable CORS support in grpc-web. This only applies when grpc-web is enabled.
 
 ## 5.3.2

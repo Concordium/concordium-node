@@ -1036,7 +1036,6 @@ checkedValidateBlock validBlock = do
                 ++ show (timestampToUTCTime $ blockTimestamp validBlock)
         doAfter (timestampToUTCTime $ blockTimestamp validBlock) $!
             validateBlock blockHash bakerIdent finInfo
-        return ()
 
 -- |Execute a block that has previously been verified by 'uponReceivingBlock'.
 --
