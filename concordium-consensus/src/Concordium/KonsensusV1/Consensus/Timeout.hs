@@ -510,7 +510,7 @@ processTimeout tm = do
                       Just secondFinComm <- getFinalizersForEpoch (tmFirstEpoch + 1) =
                         bakerIdsFor secondFinComm tmSecondEpochTimeouts
                     | otherwise = []
-            -- Compute the accummulated voting power by folding over the finalization committee.
+            -- Compute the accumulated voting power by folding over the finalization committee.
             -- We are here making use of the fact that the finalization committee is ordered
             -- by ascending baker ids and that the list of bakerids are also ordered by ascending baker id.
             -- Moreover there MUST be no duplicates in either @firstBakerIds@ or @secondBakerIds@.
@@ -518,13 +518,13 @@ processTimeout tm = do
                     fst $
                         foldl'
                             ( \(!accum, bids) finalizer ->
-                                -- We are done accummulating.
+                                -- We are done accumulating.
                                 if null bids
                                     then (accum, [])
                                     else
                                         if head bids == finalizerBakerId finalizer
                                             then -- If we have a match we add the weight to the
-                                            -- accummulator and proceed to the next baker id
+                                            -- accumulator and proceed to the next baker id
                                             -- and finalizer.
                                                 (accum + finalizerWeight finalizer, tail bids)
                                             else -- If we did not have a match we continue

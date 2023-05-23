@@ -78,10 +78,10 @@ import Data.Time
 -- |Type of a query that can be run against consensus version 0.
 type QueryV0M finconf a =
     forall (pv :: ProtocolVersion).
-    ( SkovMonad (VersionedSkovM finconf pv),
-      FinalizationMonad (VersionedSkovM finconf pv)
+    ( SkovMonad (VersionedSkovV0M finconf pv),
+      FinalizationMonad (VersionedSkovV0M finconf pv)
     ) =>
-    VersionedSkovM finconf pv a
+    VersionedSkovV0M finconf pv a
 
 -- |Type of a query that can be run against consensus version 1.
 type QueryV1M finconf a =
@@ -163,11 +163,11 @@ liftSkovQueryBlock ::
     forall finconf a.
     -- |Query to run at consensus version 0.
     ( forall (pv :: ProtocolVersion).
-      ( SkovMonad (VersionedSkovM finconf pv),
-        FinalizationMonad (VersionedSkovM finconf pv)
+      ( SkovMonad (VersionedSkovV0M finconf pv),
+        FinalizationMonad (VersionedSkovV0M finconf pv)
       ) =>
-      BlockPointerType (VersionedSkovM finconf pv) ->
-      VersionedSkovM finconf pv a
+      BlockPointerType (VersionedSkovV0M finconf pv) ->
+      VersionedSkovV0M finconf pv a
     ) ->
     -- |Query to run at consensus version 1.
     ( forall (pv :: ProtocolVersion).
@@ -200,12 +200,12 @@ liftSkovQueryBHI ::
     forall finconf a.
     -- |Query to run at consensus version 0.
     ( forall (pv :: ProtocolVersion).
-      ( SkovMonad (VersionedSkovM finconf pv),
-        FinalizationMonad (VersionedSkovM finconf pv),
+      ( SkovMonad (VersionedSkovV0M finconf pv),
+        FinalizationMonad (VersionedSkovV0M finconf pv),
         IsProtocolVersion pv
       ) =>
-      BlockPointerType (VersionedSkovM finconf pv) ->
-      VersionedSkovM finconf pv a
+      BlockPointerType (VersionedSkovV0M finconf pv) ->
+      VersionedSkovV0M finconf pv a
     ) ->
     -- |Query to run at consensus version 1.
     ( forall (pv :: ProtocolVersion).
@@ -279,13 +279,13 @@ liftSkovQueryBHIAndVersion ::
     forall finconf a.
     -- |Query to run at consensus version 0.
     ( forall (pv :: ProtocolVersion).
-      ( SkovMonad (VersionedSkovM finconf pv),
-        FinalizationMonad (VersionedSkovM finconf pv),
+      ( SkovMonad (VersionedSkovV0M finconf pv),
+        FinalizationMonad (VersionedSkovV0M finconf pv),
         IsProtocolVersion pv
       ) =>
       EVersionedConfiguration finconf ->
-      BlockPointerType (VersionedSkovM finconf pv) ->
-      VersionedSkovM finconf pv a
+      BlockPointerType (VersionedSkovV0M finconf pv) ->
+      VersionedSkovV0M finconf pv a
     ) ->
     -- |Query to run at consensus version 1.
     -- As well as the versioned configuration and block pointer, this takes a 'Bool' indicating
@@ -369,10 +369,10 @@ getConsensusStatus = MVR $ \mvr -> do
   where
     statusV0 ::
         forall (pv :: ProtocolVersion).
-        (SkovMonad (VersionedSkovM finconf pv)) =>
+        (SkovMonad (VersionedSkovV0M finconf pv)) =>
         (BlockHash, UTCTime) ->
         EVersionedConfiguration finconf ->
-        VersionedSkovM finconf pv ConsensusStatus
+        VersionedSkovV0M finconf pv ConsensusStatus
     statusV0 (csGenesisBlock, csGenesisTime) evc = do
         let absoluteHeight = localToAbsoluteBlockHeight (evcGenesisHeight evc) . bpHeight
         bb <- bestBlock
@@ -687,9 +687,9 @@ getBlockSummary = liftSkovQueryBlock getBlockSummarySkovV0M getBlockSummarySkovV
   where
     getBlockSummarySkovV0M ::
         forall pv.
-        SkovMonad (VersionedSkovM finconf pv) =>
-        BlockPointerType (VersionedSkovM finconf pv) ->
-        VersionedSkovM finconf pv BlockSummary
+        SkovMonad (VersionedSkovV0M finconf pv) =>
+        BlockPointerType (VersionedSkovV0M finconf pv) ->
+        VersionedSkovV0M finconf pv BlockSummary
     getBlockSummarySkovV0M bp = do
         bs <- blockState bp
         bsTransactionSummaries <- BS.getOutcomes bs
@@ -859,9 +859,9 @@ getBlockFinalizationSummary = liftSkovQueryBHI getFinSummarySkovM (\_ -> return 
   where
     getFinSummarySkovM ::
         forall pv.
-        SkovMonad (VersionedSkovM finconf pv) =>
-        BlockPointerType (VersionedSkovM finconf pv) ->
-        VersionedSkovM finconf pv BlockFinalizationSummary
+        SkovMonad (VersionedSkovV0M finconf pv) =>
+        BlockPointerType (VersionedSkovV0M finconf pv) ->
+        VersionedSkovV0M finconf pv BlockFinalizationSummary
     getFinSummarySkovM bp = do
         case blockFinalizationData <$> blockFields bp of
             Just (BlockFinalizationData FinalizationRecord{..}) -> do

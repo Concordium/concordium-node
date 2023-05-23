@@ -818,7 +818,14 @@ checkTimeoutMessageSignature ::
 checkTimeoutMessageSignature pubKey genesisHash TimeoutMessage{..} =
     BlockSig.verify pubKey (timeoutMessageBodySignatureBytes tmBody genesisHash) tmSignature
 
-data FinalizationMessage = FMQuorumMessage !QuorumMessage | FMTimeoutMessage !TimeoutMessage
+-- |A finalization message is either a 'QuorumMessage' or a 'TimeoutMessage'.
+-- The peer-to-peer layer deals with finalization messages as a common abstraction independent of
+-- the consensus version.
+data FinalizationMessage
+    = -- |A quorum message
+      FMQuorumMessage !QuorumMessage
+    | -- |A timeout message
+      FMTimeoutMessage !TimeoutMessage
 
 instance Serialize FinalizationMessage where
     put (FMQuorumMessage qm) = putWord8 0 >> put qm
