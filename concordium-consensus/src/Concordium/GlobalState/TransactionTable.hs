@@ -492,7 +492,7 @@ data TransactionGroup
 groupPendingTransactions :: TransactionTable -> PendingTransactionTable -> [TransactionGroup]
 groupPendingTransactions transTable pendingTable = transactionGroups
   where
-    -- lookupCredential shouldn't return Nothing based on the transaction table invariants
+    -- lookupCredential shouldn't return Nothing based on the transaction table invariants.
     credentials =
         flip lookupCredential transTable
             <$> HS.toList (pendingTable ^. pttDeployCredential)
@@ -517,6 +517,8 @@ groupPendingTransactions transTable pendingTable = transactionGroups
                 let udsList = concatMap (Map.toList . snd) uds
                     minTime = minimum $ wmdArrivalTime <$> Map.keys firstSNUs
                 in  MinPQ.insert minTime (TGUpdateInstructions $ map (_2 %~ Just) udsList) groups
+            -- As above, this should not occur since updates in the pending table should be present
+            -- in the transaction table.
             [] -> groups
     transactionGroups =
         MinPQ.elems $

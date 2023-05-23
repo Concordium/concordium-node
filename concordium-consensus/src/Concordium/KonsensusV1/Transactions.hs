@@ -13,6 +13,7 @@ module Concordium.KonsensusV1.Transactions where
 
 import Control.Monad.Reader
 import Control.Monad.State.Strict
+import Control.Monad.Trans.Cont
 import Control.Monad.Trans.Identity
 import Data.Kind (Type)
 import Data.Maybe (fromMaybe)
@@ -38,8 +39,6 @@ import Concordium.KonsensusV1.Types
 import Concordium.Scheduler.Types (updateSeqNumber)
 import Concordium.TimeMonad
 import qualified Concordium.TransactionVerification as TVer
-import Control.Applicative
-import Control.Monad.Trans.Maybe
 
 -- |Monad transformer for acquiring the next available account nonce from the
 -- underlying tree state.
@@ -204,7 +203,9 @@ processBlockItems ::
     m (Maybe [(BlockItem, TVer.VerificationResult)])
 processBlockItems bb parentPointer = do
     verificationContext <- getCtx
-    runMaybeT $ mapM (process verificationContext) $ Vector.toList $ bbTransactions bb
+    runContT
+        (mapM (process verificationContext) $ Vector.toList $ bbTransactions bb)
+        (return . Just)
   where
     -- Create a context suitable for verifying a transaction within a 'Block' context.
     getCtx = do
@@ -222,8 +223,8 @@ processBlockItems bb parentPointer = do
     process ::
         Context (PBS.HashedPersistentBlockState pv) ->
         BlockItem ->
-        MaybeT m (BlockItem, TVer.VerificationResult)
-    process verificationContext bi = do
+        ContT (Maybe r) m (BlockItem, TVer.VerificationResult)
+    process verificationContext bi = ContT $ \continue -> do
         let txHash = getHash bi
         tt' <- gets' _transactionTable
         -- Check whether we already have the transaction.
@@ -233,7 +234,7 @@ processBlockItems bb parentPointer = do
                 -- if the new round is higher.
                 when (TT.commitPoint theRound > results ^. TT.tsCommitPoint) $
                     transactionTable . TT.ttHashMap . at' txHash . mapped . _2 %=! TT.updateCommitPoint theRound
-                return (bi', results ^. TT.tsVerRes)
+                continue (bi', results ^. TT.tsVerRes)
             Nothing -> do
                 -- We verify the transaction and check whether it's acceptable i.e. Ok or MaybeOk.
                 -- If that is the case then we add it to the transaction table and pending transactions.
@@ -242,16 +243,19 @@ processBlockItems bb parentPointer = do
                 case verRes of
                     -- The transaction was deemed non verifiable i.e., it can never be
                     -- valid. We short circuit the recursion here and return 'Nothing'.
-                    (TVer.NotOk _) -> empty
+                    (TVer.NotOk _) -> return Nothing
                     -- The transaction is either 'Ok' or 'MaybeOk' and that is acceptable
                     -- when processing transactions which originate from a block.
                     -- We add it to the transaction table and continue with the next transaction.
                     acceptedRes -> do
                         addOK <- addTransaction theRound bi acceptedRes
                         -- If the transaction was obsolete, we stop processing transactions.
-                        guard addOK
-                        -- The transaction was added to the tree state,
-                        -- so add it to the pending table if it's eligible (see documentation for
-                        -- 'addPendingTransaction') and continue processing the remaining ones.
-                        addPendingTransaction bi
-                        return (bi, acceptedRes)
+                        if addOK
+                            then do
+                                -- The transaction was added to the tree state, so add it to the
+                                -- pending table if it's eligible (see documentation for
+                                -- 'addPendingTransaction') and continue processing the remaining
+                                -- ones.
+                                addPendingTransaction bi
+                                continue (bi, acceptedRes)
+                            else return Nothing

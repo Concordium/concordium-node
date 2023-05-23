@@ -221,13 +221,15 @@ filterTables lastFinCommit commitAt commitBlock FilteredTransactions{..} tt0 ptt
     addedTransactions = fst . fst <$> ftAdded
     -- Mark added transactions as committed
     commitAdded = commitAdded' 0 addedTransactions
+    -- commitAdded' takes the next transaction index as the first argument.
     commitAdded' _ [] tt = tt
     commitAdded' i (bi : bis) tt =
         commitAdded' (i + 1) bis $!
             tt & ttHashMap . ix (getHash bi) . _2 %~ addResult commitBlock commitAt i
     -- Update the pending transaction table
     forwarded = forwardPTT addedTransactions ptt0
-    -- Determine if a block item is committed to a potentially-live block.
+    -- Determine if a block item is committed to a potentially-live block. That is, if its commit
+    -- point is later than the that finalized commit point.
     isCommitted :: TransactionTable -> WithMetadata a -> Bool
     isCommitted tt t = case tt ^? ttHashMap . ix (wmdHash t) . _2 . tsCommitPoint of
         Just transactionCP -> commitPoint lastFinCommit < commitPoint transactionCP

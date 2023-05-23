@@ -263,7 +263,7 @@ instance Serialize FinalizerSet where
             b <- getWord8
             roll (bc - 1) (shiftL n 8 .|. fromIntegral b)
 
--- |Convert a 'FinalizerSet' to a list of 'FinalizerIndex'.
+-- |Convert a 'FinalizerSet' to a list of 'FinalizerIndex', in ascending order.
 finalizerList :: FinalizerSet -> [FinalizerIndex]
 finalizerList = unroll 0 . theFinalizerSet
   where
@@ -369,7 +369,7 @@ checkQuorumCertificate qsmGenesis sigThreshold FinalizationCommittee{..} QuorumC
 -- |Determine the 'BakerId's of the finalizers that signed a 'QuorumCertificate'.
 -- This assumes that all of the signatories are valid indexes into the finalization committee
 -- (which is checked by 'checkQuorumCertificate'). Any invalid finalization indexes will be
--- omitted.
+-- omitted. The returned list is in ascending order.
 quorumCertificateSigningBakers :: FinalizationCommittee -> QuorumCertificate -> [BakerId]
 quorumCertificateSigningBakers finalizers qc =
     mapMaybe finBakerId $ finalizerList (qcSignatories qc)

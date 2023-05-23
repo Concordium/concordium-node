@@ -1292,10 +1292,10 @@ bakeBlock BakeBlockInputs{..} = do
             PendingBlock{pbBlock = signedBlock, pbReceiveTime = now}
             newState
             bbiParent
-    focusBlock .= newBlockPointer
+    focusBlock .=! newBlockPointer
     -- Update the transaction table and pending transaction table.
     lfb <- use lastFinalized
-    let (!newTT, !newPTT) =
+    let (newTT, newPTT) =
             filterTables
                 (blockRound lfb)
                 (blockRound signedBlock)
@@ -1303,8 +1303,8 @@ bakeBlock BakeBlockInputs{..} = do
                 filteredTransactions
                 tt
                 ptt
-    transactionTable .= newTT
-    pendingTransactionTable .= newPTT
+    transactionTable .=! newTT
+    pendingTransactionTable .=! newPTT
     return signedBlock
 
 -- |Try to make a block, distribute it on the network and sign it as a finalizer.
