@@ -131,7 +131,7 @@ data PrologueResult m = PrologueResult
 --
 --  * The seed state is updated to reflect the epoch transition.
 --
---  * Of the new epoch is the epoch before the next payday, take a snapshot of bakers and
+--  * If the new epoch is the epoch before the next payday, take a snapshot of bakers and
 --    delegators, allowing for cooldowns that are set to elapse at by the trigger block time for
 --    this epoch.
 --
