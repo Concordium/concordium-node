@@ -401,6 +401,13 @@ evcIndex :: EVersionedConfiguration finconf -> GenesisIndex
 evcIndex (EVersionedConfigurationV0 vc) = vc0Index vc
 evcIndex (EVersionedConfigurationV1 vc) = vc1Index vc
 
+-- |Get the protocol version associated with an 'EVersionedConfiguration'.
+evcProtocolVersion :: EVersionedConfiguration finconf -> ProtocolVersion
+evcProtocolVersion (EVersionedConfigurationV0 (_ :: VersionedConfigurationV0 finconf pv)) =
+    demoteProtocolVersion (protocolVersion @pv)
+evcProtocolVersion (EVersionedConfigurationV1 (_ :: VersionedConfigurationV1 finconf pv)) =
+    demoteProtocolVersion (protocolVersion @pv)
+
 -- |Activate an 'EVersionedConfiguration'. This means caching the state and
 -- establishing state invariants so that the configuration can be used as the
 -- currently active one for processing blocks, transactions, etc.

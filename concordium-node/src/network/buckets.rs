@@ -16,7 +16,7 @@ const BUCKET_COUNT: usize = 1;
 
 /// A representation of a node in a bucket.
 #[derive(Eq, Clone)]
-pub struct Node {
+struct Node {
     pub peer:      RemotePeer,
     pub networks:  Networks,
     /// The timestamp pointing to when the node was seen last.
@@ -24,19 +24,19 @@ pub struct Node {
 }
 
 impl PartialEq for Node {
-    fn eq(&self, other: &Node) -> bool { self.peer == other.peer }
+    fn eq(&self, other: &Node) -> bool { self.peer.external_addr() == other.peer.external_addr() }
 }
 
 impl Hash for Node {
-    fn hash<H: Hasher>(&self, state: &mut H) { self.peer.hash(state) }
+    fn hash<H: Hasher>(&self, state: &mut H) { self.peer.external_addr().hash(state) }
 }
 
 /// A bucket of nodes.
-pub type Bucket = HashSet<Node>;
+type Bucket = HashSet<Node>;
 
 /// The set of buckets.
 pub struct Buckets {
-    pub buckets: Vec<Bucket>,
+    buckets: Vec<Bucket>,
 }
 
 impl Default for Buckets {
@@ -101,6 +101,7 @@ impl Buckets {
     pub fn is_empty(&self) -> bool { self.len() == 0 }
 
     /// Returns the desired number of nodes from the buckets.
+    /// This is only used if the node is running as a bootstrapper.
     pub fn get_random_nodes(
         &self,
         sender: RemotePeerId,

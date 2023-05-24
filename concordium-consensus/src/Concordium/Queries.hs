@@ -138,9 +138,10 @@ atLatestSuccessfulVersion a mvr = do
     let tryAt (i :: Int)
             | i < 0 = return Nothing
             | otherwise = do
-                r <- a (versions Vec.! i)
+                let version = versions Vec.! i
+                r <- a version
                 case r of
-                    Just _ -> return r
+                    Just x -> return (Just x)
                     Nothing -> tryAt (i - 1)
     tryAt (Vec.length versions - 1)
 
@@ -192,10 +193,34 @@ liftSkovQueryBlock av0 av1 bh =
             SkovV1.BlockAliveOrFinalized bp -> Just <$> av1 bp
             _ -> return Nothing
 
+-- | Response for queries needing to resolve a BlockHashInput first.
+data BHIQueryResponse a
+    = -- | No block found for the provided identifier.
+      BQRNoBlock
+    | -- | Block and value found for the provided identifier.
+      BQRBlock
+        { -- | Hash of the block which the identifier was resolved to.
+          bhiqrHash :: BlockHash,
+          -- | Resulting value computed from the given block.
+          bhiqrValue :: a
+        }
+    deriving (Show)
+
+instance Functor BHIQueryResponse where
+    fmap fn response = case response of
+        BQRNoBlock -> BQRNoBlock
+        BQRBlock bh a -> BQRBlock bh (fn a)
+
+-- | Convert BHIQueryResponse to a Maybe.
+responseToMaybe :: BHIQueryResponse a -> Maybe a
+responseToMaybe response = case response of
+    BQRNoBlock -> Nothing
+    BQRBlock _ v -> Just v
+
 -- |Try a 'BlockHashInput' based query on the latest skov version. If a specific
 -- block hash is given we work backwards through consensus versions until we
 -- find the specified block or run out of versions.
--- The return value is the hash used for the query, and a result if it was found.
+-- The return value contains the block hash used for the query and result, if it was able to resolve the BlockHashInput.
 liftSkovQueryBHI ::
     forall finconf a.
     -- |Query to run at consensus version 0.
@@ -214,44 +239,8 @@ liftSkovQueryBHI ::
       VersionedSkovV1M finconf pv a
     ) ->
     BlockHashInput ->
-    MVR finconf (BlockHash, Maybe a)
-liftSkovQueryBHI av0 av1 bhi = do
-    case bhi of
-        Given bh ->
-            MVR $ \mvr ->
-                (bh,)
-                    <$> atLatestSuccessfulVersion
-                        ( \vc ->
-                            liftSkovQuery
-                                mvr
-                                vc
-                                -- consensus version 0
-                                (mapM av0 =<< resolveBlock bh)
-                                -- consensus version 1
-                                ( do
-                                    status <- SkovV1.getBlockStatus bh =<< get
-                                    case status of
-                                        SkovV1.BlockAliveOrFinalized bp -> Just <$> av1 bp
-                                        _ -> return Nothing
-                                )
-                        )
-                        mvr
-        other ->
-            liftSkovQueryLatest
-                ( do
-                    -- consensus version 0
-                    bp <- case other of
-                        Best -> bestBlock
-                        LastFinal -> lastFinalizedBlock
-                    (bpHash bp,) . Just <$> av0 bp
-                )
-                ( do
-                    -- consensus version 1
-                    bp <- case other of
-                        Best -> use SkovV1.lastFinalized -- FIXME: Use "best" block
-                        LastFinal -> use SkovV1.lastFinalized
-                    (getHash bp,) . Just <$> av1 bp
-                )
+    MVR finconf (BHIQueryResponse a)
+liftSkovQueryBHI av1 av2 = liftSkovQueryBHIAndVersion (const av1) (\_ bp _ -> av2 bp)
 
 -- |Try a 'BlockHashInput' based state query on the latest skov version. If a specific
 -- block hash is given we work backwards through consensus versions until we
@@ -265,16 +254,16 @@ liftSkovQueryStateBHI ::
       m a
     ) ->
     BlockHashInput ->
-    MVR finconf (BlockHash, Maybe a)
+    MVR finconf (BHIQueryResponse a)
 liftSkovQueryStateBHI stateQuery =
     liftSkovQueryBHI
         (stateQuery <=< blockState)
         (stateQuery <=< blockState)
 
--- |Try a 'BlockHashInput' based query on the latest skov version. If a specific
--- block hash is given we work backwards through consensus versions until we
+-- |Try a 'BlockHashInput' based query on the latest skov version, provided with the configuration.
+-- If a specific block hash is given we work backwards through consensus versions until we
 -- find the specified block or run out of versions.
--- The return value is the hash used for the query, and a result if it was found.
+-- The return value contains the block hash used for the query and result, if it was able to resolve the BlockHashInput.
 liftSkovQueryBHIAndVersion ::
     forall finconf a.
     -- |Query to run at consensus version 0.
@@ -298,13 +287,13 @@ liftSkovQueryBHIAndVersion ::
       VersionedSkovV1M finconf pv a
     ) ->
     BlockHashInput ->
-    MVR finconf (BlockHash, Maybe a)
+    MVR finconf (BHIQueryResponse a)
 liftSkovQueryBHIAndVersion av0 av1 bhi = do
     case bhi of
         Given bh ->
-            MVR $ \mvr ->
-                (bh,)
-                    <$> atLatestSuccessfulVersion
+            MVR $ \mvr -> do
+                maybeValue <-
+                    atLatestSuccessfulVersion
                         ( \vc ->
                             liftSkovQuery
                                 mvr
@@ -321,24 +310,56 @@ liftSkovQueryBHIAndVersion av0 av1 bhi = do
                                 )
                         )
                         mvr
+                return $ case maybeValue of
+                    Just v -> BQRBlock bh v
+                    Nothing -> BQRNoBlock
+        AtHeight heightInput -> do
+            blocks <- case heightInput of
+                Absolute abh -> Concordium.Queries.getBlocksAtHeight (fromIntegral abh) 0 False
+                Relative{..} -> Concordium.Queries.getBlocksAtHeight rBlockHeight rGenesisIndex rRestrict
+            case blocks of
+                (Just ([bh], evc)) ->
+                    MVR $ \mvr -> do
+                        maybeValue <-
+                            liftSkovQuery
+                                mvr
+                                evc
+                                -- consensus version 0
+                                (mapM (av0 evc) =<< resolveBlock bh)
+                                -- consensus version 1
+                                ( do
+                                    status <- SkovV1.getBlockStatus bh =<< get
+                                    case status of
+                                        SkovV1.BlockAlive bp -> Just <$> av1 evc bp False
+                                        SkovV1.BlockFinalized bp -> Just <$> av1 evc bp True
+                                        _ -> return Nothing
+                                )
+                        return $ case maybeValue of
+                            Just v -> BQRBlock bh v
+                            Nothing -> BQRNoBlock
+                _ -> return BQRNoBlock
         other -> do
             versions <- liftIO . readIORef =<< asks mvVersions
             let evc = Vec.last versions
-            liftSkovQueryLatest
-                ( do
-                    -- consensus version 0
-                    bp <- case other of
-                        Best -> bestBlock
-                        LastFinal -> lastFinalizedBlock
-                    (bpHash bp,) . Just <$> av0 evc bp
-                )
-                ( do
-                    -- consensus version 1
-                    bp <- case other of
-                        Best -> use SkovV1.lastFinalized -- FIXME: Use "best" block
-                        LastFinal -> use SkovV1.lastFinalized
-                    (getHash bp,) . Just <$> av1 evc bp True -- FIXME: For best block, this is wrong
-                )
+            (bh, maybeValue) <-
+                liftSkovQueryLatest
+                    ( do
+                        -- consensus version 0
+                        bp <- case other of
+                            Best -> bestBlock
+                            LastFinal -> lastFinalizedBlock
+                        (bpHash bp,) . Just <$> av0 evc bp
+                    )
+                    ( do
+                        -- consensus version 1
+                        bp <- case other of
+                            Best -> use SkovV1.lastFinalized -- FIXME: Use "best" block
+                            LastFinal -> use SkovV1.lastFinalized
+                        (getHash bp,) . Just <$> av1 evc bp True -- FIXME: For best block, this is wrong
+                    )
+            return $ case maybeValue of
+                Just v -> BQRBlock bh v
+                Nothing -> BQRNoBlock
 
 -- |Retrieve the consensus status.
 getConsensusStatus :: forall finconf. MVR finconf ConsensusStatus
@@ -511,7 +532,7 @@ getBranches =
             )
             Map.empty
 
--- |Get a list of block hashes at a particular absolute height.
+-- |Get a list of block hashes and configuration at a particular absolute height.
 -- This traverses versions from the latest to the earliest, which is probably
 -- fine for most practical cases.
 getBlocksAtHeight ::
@@ -521,7 +542,7 @@ getBlocksAtHeight ::
     GenesisIndex ->
     -- |Whether to restrict to the specified genesis index
     Bool ->
-    MVR finconf [BlockHash]
+    MVR finconf (Maybe ([BlockHash], EVersionedConfiguration finconf))
 getBlocksAtHeight basedHeight baseGI False = MVR $ \mvr -> do
     baseGenHeight <-
         if baseGI == 0
@@ -532,28 +553,27 @@ getBlocksAtHeight basedHeight baseGI False = MVR $ \mvr -> do
                     evcGenesisHeight
                         <$> (versions Vec.!? fromIntegral baseGI)
     case baseGenHeight of
-        Nothing -> return [] -- This occurs if the genesis index is invalid
+        Nothing -> return Nothing -- This occurs if the genesis index is invalid
         Just genHeight -> do
             let height = localToAbsoluteBlockHeight genHeight basedHeight
             -- The default case should never be needed, since 'absoluteToLocalBlockHeight' won't fail
             -- at a genesis block height of 0, which should be the case for the initial genesis.
-            fromMaybe []
-                <$> atLatestSuccessfulVersion
-                    ( \evc ->
-                        forM (absoluteToLocalBlockHeight (evcGenesisHeight evc) height) $ \localHeight ->
-                            liftSkovQuery
+            atLatestSuccessfulVersion
+                ( \evc ->
+                    forM (absoluteToLocalBlockHeight (evcGenesisHeight evc) height) $ \localHeight ->
+                        (,evc)
+                            <$> liftSkovQuery
                                 mvr
                                 evc
                                 (map getHash <$> Skov.getBlocksAtHeight localHeight)
                                 (map getHash <$> (SkovV1.getBlocksAtHeight localHeight =<< get))
-                    )
-                    mvr
+                )
+                mvr
 getBlocksAtHeight height baseGI True = MVR $ \mvr -> do
     versions <- readIORef (mvVersions mvr)
-    case versions Vec.!? fromIntegral baseGI of
-        Nothing -> return []
-        Just evc ->
-            liftSkovQuery
+    forM (versions Vec.!? fromIntegral baseGI) $ \evc ->
+        (,evc)
+            <$> liftSkovQuery
                 mvr
                 evc
                 (map getHash <$> Skov.getBlocksAtHeight height)
@@ -610,7 +630,7 @@ getNextAccountNonce accountAddress =
 -- ** Block indexed
 
 -- |Get the basic info about a particular block.
-getBlockInfo :: BlockHashInput -> MVR finconf (BlockHash, Maybe BlockInfo)
+getBlockInfo :: BlockHashInput -> MVR finconf (BHIQueryResponse BlockInfo)
 getBlockInfo =
     liftSkovQueryBHIAndVersion
         ( \evc bp -> do
@@ -643,6 +663,7 @@ getBlockInfo =
             let biTransactionEnergyCost = bpTransactionsEnergyCost bp
             let biTransactionsSize = bpTransactionsSize bp
             let biBlockStateHash = blockStateHash bp
+            let biProtocolVersion = evcProtocolVersion evc
             return BlockInfo{..}
         )
         ( \evc bp biFinalized -> do
@@ -675,6 +696,7 @@ getBlockInfo =
             let biTransactionEnergyCost = SkovV1.blockEnergyCost bp
             let biTransactionsSize = fromIntegral $ SkovV1.blockTransactionsSize bp
             let biBlockStateHash = SkovV1.blockStateHash bp
+            let biProtocolVersion = evcProtocolVersion evc
             return BlockInfo{..}
         )
 
@@ -733,19 +755,19 @@ getBlockSummary = liftSkovQueryBlock getBlockSummarySkovV0M getBlockSummarySkovV
         return BlockSummary{..}
 
 -- |Get the block items of a block.
-getBlockItems :: forall finconf. BlockHashInput -> MVR finconf (BlockHash, Maybe [BlockItem])
+getBlockItems :: forall finconf. BlockHashInput -> MVR finconf (BHIQueryResponse [BlockItem])
 getBlockItems = liftSkovQueryBHI (return . blockTransactions) (return . SkovV1.blockTransactions)
 
 -- |Get the transaction outcomes in the block.
-getBlockTransactionSummaries :: forall finconf. BlockHashInput -> MVR finconf (BlockHash, Maybe (Vec.Vector TransactionSummary))
+getBlockTransactionSummaries :: forall finconf. BlockHashInput -> MVR finconf (BHIQueryResponse (Vec.Vector TransactionSummary))
 getBlockTransactionSummaries = liftSkovQueryStateBHI BS.getOutcomes
 
 -- |Get the transaction outcomes in the block.
-getBlockSpecialEvents :: forall finconf. BlockHashInput -> MVR finconf (BlockHash, Maybe (Seq.Seq SpecialTransactionOutcome))
+getBlockSpecialEvents :: forall finconf. BlockHashInput -> MVR finconf (BHIQueryResponse (Seq.Seq SpecialTransactionOutcome))
 getBlockSpecialEvents = liftSkovQueryStateBHI BS.getSpecialOutcomes
 
 -- |Get the pending updates at the end of a given block.
-getBlockPendingUpdates :: forall finconf. BlockHashInput -> MVR finconf (BlockHash, Maybe [(TransactionTime, PendingUpdateEffect)])
+getBlockPendingUpdates :: forall finconf. BlockHashInput -> MVR finconf (BHIQueryResponse [(TransactionTime, PendingUpdateEffect)])
 getBlockPendingUpdates = liftSkovQueryStateBHI query
   where
     query ::
@@ -841,7 +863,7 @@ getBlockPendingUpdates = liftSkovQueryStateBHI query
 
 -- |Get the chain parameters valid at the end of a given block, as well as the address of the foundation account.
 -- The chain parameters contain only the account index of the foundation account.
-getBlockChainParameters :: forall finconf. BlockHashInput -> MVR finconf (BlockHash, Maybe (AccountAddress, EChainParametersAndKeys))
+getBlockChainParameters :: forall finconf. BlockHashInput -> MVR finconf (BHIQueryResponse (AccountAddress, EChainParametersAndKeys))
 getBlockChainParameters = liftSkovQueryStateBHI query
   where
     query bs = do
@@ -854,7 +876,7 @@ getBlockChainParameters = liftSkovQueryStateBHI query
                 return (foundationAddr, EChainParametersAndKeys params (_unhashed (UQ._currentKeyCollection updates)))
 
 -- |Get the finalization record contained in the given block, if any.
-getBlockFinalizationSummary :: forall finconf. BlockHashInput -> MVR finconf (BlockHash, Maybe BlockFinalizationSummary)
+getBlockFinalizationSummary :: forall finconf. BlockHashInput -> MVR finconf (BHIQueryResponse BlockFinalizationSummary)
 getBlockFinalizationSummary = liftSkovQueryBHI getFinSummarySkovM (\_ -> return NoSummary)
   where
     getFinSummarySkovM ::
@@ -886,7 +908,7 @@ getBlockFinalizationSummary = liftSkovQueryBHI getFinSummarySkovM (\_ -> return 
             _ -> return NoSummary
 
 -- |Get next update sequences numbers at the end of a given block.
-getNextUpdateSequenceNumbers :: forall finconf. BlockHashInput -> MVR finconf (BlockHash, Maybe NextUpdateSequenceNumbers)
+getNextUpdateSequenceNumbers :: forall finconf. BlockHashInput -> MVR finconf (BHIQueryResponse NextUpdateSequenceNumbers)
 getNextUpdateSequenceNumbers = liftSkovQueryStateBHI query
   where
     query bs = do
@@ -894,7 +916,7 @@ getNextUpdateSequenceNumbers = liftSkovQueryStateBHI query
         return $ updateQueuesNextSequenceNumbers $ UQ._pendingUpdates updates
 
 -- |Get the total amount of GTU in existence and status of the reward accounts.
-getRewardStatus :: BlockHashInput -> MVR finconf (BlockHash, Maybe RewardStatus)
+getRewardStatus :: BlockHashInput -> MVR finconf (BHIQueryResponse RewardStatus)
 getRewardStatus =
     liftSkovQueryBHI
         ( \bp -> do
@@ -915,7 +937,7 @@ getRewardStatus =
         )
 
 -- |Get the birk parameters that applied when a given block was baked.
-getBlockBirkParameters :: BlockHashInput -> MVR finconf (BlockHash, Maybe BlockBirkParameters)
+getBlockBirkParameters :: BlockHashInput -> MVR finconf (BHIQueryResponse BlockBirkParameters)
 getBlockBirkParameters =
     liftSkovQueryStateBHI
         ( \bs -> do
@@ -940,20 +962,20 @@ getBlockBirkParameters =
         SConsensusParametersVersion1 -> return 1
 
 -- |Get the cryptographic parameters of the chain at a given block.
-getCryptographicParameters :: BlockHashInput -> MVR finconf (BlockHash, Maybe CryptographicParameters)
+getCryptographicParameters :: BlockHashInput -> MVR finconf (BHIQueryResponse CryptographicParameters)
 getCryptographicParameters = liftSkovQueryStateBHI BS.getCryptographicParameters
 
 -- |Get all of the identity providers registered in the system as of a given block.
-getAllIdentityProviders :: BlockHashInput -> MVR finconf (BlockHash, Maybe [IpInfo])
+getAllIdentityProviders :: BlockHashInput -> MVR finconf (BHIQueryResponse [IpInfo])
 getAllIdentityProviders = liftSkovQueryStateBHI BS.getAllIdentityProviders
 
 -- |Get all of the anonymity revokers registered in the system as of a given block.
-getAllAnonymityRevokers :: BlockHashInput -> MVR finconf (BlockHash, Maybe [ArInfo])
+getAllAnonymityRevokers :: BlockHashInput -> MVR finconf (BHIQueryResponse [ArInfo])
 getAllAnonymityRevokers = liftSkovQueryStateBHI BS.getAllAnonymityRevokers
 
 -- |Get the ancestors of a block (including itself) up to a maximum
 -- length.
-getAncestors :: BlockHashInput -> BlockHeight -> MVR finconf (BlockHash, Maybe [BlockHash])
+getAncestors :: BlockHashInput -> BlockHeight -> MVR finconf (BHIQueryResponse [BlockHash])
 getAncestors bhi count =
     liftSkovQueryBHI
         ( \bp -> do
@@ -974,15 +996,15 @@ getAncestors bhi count =
                 go (a : acc) (n - 1) a'
 
 -- |Get a list of all accounts in the block state.
-getAccountList :: BlockHashInput -> MVR finconf (BlockHash, Maybe [AccountAddress])
+getAccountList :: BlockHashInput -> MVR finconf (BHIQueryResponse [AccountAddress])
 getAccountList = liftSkovQueryStateBHI BS.getAccountList
 
 -- |Get a list of all smart contract instances in the block state.
-getInstanceList :: BlockHashInput -> MVR finconf (BlockHash, Maybe [ContractAddress])
+getInstanceList :: BlockHashInput -> MVR finconf (BHIQueryResponse [ContractAddress])
 getInstanceList = liftSkovQueryStateBHI BS.getContractInstanceList
 
 -- |Get the list of modules present as of a given block.
-getModuleList :: BlockHashInput -> MVR finconf (BlockHash, Maybe [ModuleRef])
+getModuleList :: BlockHashInput -> MVR finconf (BHIQueryResponse [ModuleRef])
 getModuleList = liftSkovQueryStateBHI BS.getModuleList
 
 -- |Get the details of an account in the block state.
@@ -992,14 +1014,12 @@ getModuleList = liftSkovQueryStateBHI BS.getModuleList
 getAccountInfo ::
     BlockHashInput ->
     AccountIdentifier ->
-    MVR finconf (BlockHash, Maybe AccountInfo)
+    MVR finconf (BHIQueryResponse (Maybe AccountInfo))
 getAccountInfo blockHashInput acct = do
-    (bh, mmai) <-
-        liftSkovQueryBHI
-            (getAI getASIv0 <=< blockState)
-            (getAI getASIv1 <=< blockState)
-            blockHashInput
-    return (bh, join mmai)
+    liftSkovQueryBHI
+        (getAI getASIv0 <=< blockState)
+        (getAI getASIv1 <=< blockState)
+        blockHashInput
   where
     getAI ::
         forall m.
@@ -1034,13 +1054,11 @@ getAccountInfo blockHashInput acct = do
     getASIv1 acc = toAccountStakingInfoP4 <$> BS.getAccountStake acc
 
 -- |Get the details of a smart contract instance in the block state.
-getInstanceInfo :: BlockHashInput -> ContractAddress -> MVR finconf (BlockHash, Maybe Wasm.InstanceInfo)
+getInstanceInfo :: BlockHashInput -> ContractAddress -> MVR finconf (BHIQueryResponse (Maybe Wasm.InstanceInfo))
 getInstanceInfo bhi caddr = do
-    (bh, ii) <-
-        liftSkovQueryStateBHI
-            (\bs -> mkII =<< BS.getContractInstance bs caddr)
-            bhi
-    return (bh, join ii)
+    liftSkovQueryStateBHI
+        (\bs -> mkII =<< BS.getContractInstance bs caddr)
+        bhi
   where
     mkII Nothing = return Nothing
     mkII (Just (BS.InstanceInfoV0 BS.InstanceInfoV{..})) = do
@@ -1075,13 +1093,11 @@ getInstanceInfo bhi caddr = do
 -- requested block does not exist, or the instance does not exist in that
 -- block), @Just . Left@ if the instance is a V0 instance, and @Just . Right@ if
 -- the instance is a V1 instance.
-getInstanceState :: BlockHashInput -> ContractAddress -> MVR finconf (BlockHash, Maybe (Either Wasm.ContractState (StateV1.PersistentState, StateV1.LoadCallback)))
+getInstanceState :: BlockHashInput -> ContractAddress -> MVR finconf (BHIQueryResponse (Maybe (Either Wasm.ContractState (StateV1.PersistentState, StateV1.LoadCallback))))
 getInstanceState bhi caddr = do
-    (bh, ii) <-
-        liftSkovQueryStateBHI
-            (\bs -> mkII =<< BS.getContractInstance bs caddr)
-            bhi
-    return (bh, join ii)
+    liftSkovQueryStateBHI
+        (\bs -> mkII =<< BS.getContractInstance bs caddr)
+        bhi
   where
     mkII Nothing = return Nothing
     mkII (Just (BS.InstanceInfoV0 BS.InstanceInfoV{..})) =
@@ -1092,19 +1108,16 @@ getInstanceState bhi caddr = do
         return . Just . Right $ (cstate, callback)
 
 -- |Get the source of a module as it was deployed to the chain.
-getModuleSource :: BlockHashInput -> ModuleRef -> MVR finconf (BlockHash, Maybe Wasm.WasmModule)
+getModuleSource :: BlockHashInput -> ModuleRef -> MVR finconf (BHIQueryResponse (Maybe Wasm.WasmModule))
 getModuleSource bhi modRef = do
-    (bh, res) <-
-        liftSkovQueryStateBHI
-            (\bs -> BS.getModule bs modRef)
-            bhi
-    return (bh, join res)
+    liftSkovQueryStateBHI
+        (\bs -> BS.getModule bs modRef)
+        bhi
 
 -- |Get the status of a particular delegation pool.
-getPoolStatus :: forall finconf. BlockHashInput -> Maybe BakerId -> MVR finconf (BlockHash, Maybe PoolStatus)
+getPoolStatus :: forall finconf. BlockHashInput -> Maybe BakerId -> MVR finconf (BHIQueryResponse (Maybe PoolStatus))
 getPoolStatus blockHashInput mbid = do
-    (bh, res) <- liftSkovQueryStateBHI poolStatus blockHashInput
-    return (bh, join res)
+    liftSkovQueryStateBHI poolStatus blockHashInput
   where
     poolStatus ::
         forall m.
@@ -1116,7 +1129,7 @@ getPoolStatus blockHashInput mbid = do
         SAVDelegationSupported -> BS.getPoolStatus bs mbid
 
 -- |Get a list of all registered baker IDs in the specified block.
-getRegisteredBakers :: forall finconf. BlockHashInput -> MVR finconf (BlockHash, Maybe [BakerId])
+getRegisteredBakers :: forall finconf. BlockHashInput -> MVR finconf (BHIQueryResponse [BakerId])
 getRegisteredBakers = liftSkovQueryStateBHI BS.getActiveBakers
 
 -- | Error type for querying delegators for some block.
@@ -1125,16 +1138,17 @@ data GetDelegatorsError
       GDEUnsupportedProtocolVersion
     | -- | No pool found for the provided baker ID.
       GDEPoolNotFound
-    | -- | No block found for the provided block input.
-      GDEBlockNotFound
 
 -- |Get the list of registered delegators for a given block.
 -- Changes to delegation is reflected immediately in this list.
 -- If a BakerId is provided it will return the delegators for the corresponding pool otherwise it returns the passive delegators.
-getDelegators :: forall finconf. BlockHashInput -> Maybe BakerId -> MVR finconf (BlockHash, Either GetDelegatorsError [DelegatorInfo])
+getDelegators ::
+    forall finconf.
+    BlockHashInput ->
+    Maybe BakerId ->
+    MVR finconf (BHIQueryResponse (Either GetDelegatorsError [DelegatorInfo]))
 getDelegators bhi maybeBakerId = do
-    (bh, res) <- liftSkovQueryStateBHI getter bhi
-    return (bh, fromMaybe (Left GDEBlockNotFound) res)
+    liftSkovQueryStateBHI getter bhi
   where
     getter ::
         forall m.
@@ -1156,10 +1170,9 @@ getDelegators bhi maybeBakerId = do
 
 -- |Get the fixed list of delegators contributing stake in the reward period for a given block.
 -- If a BakerId is provided it will return the delegators for the corresponding pool otherwise it returns the passive delegators.
-getDelegatorsRewardPeriod :: forall finconf. BlockHashInput -> Maybe BakerId -> MVR finconf (BlockHash, Either GetDelegatorsError [DelegatorRewardPeriodInfo])
+getDelegatorsRewardPeriod :: forall finconf. BlockHashInput -> Maybe BakerId -> MVR finconf (BHIQueryResponse (Either GetDelegatorsError [DelegatorRewardPeriodInfo]))
 getDelegatorsRewardPeriod bhi maybeBakerId = do
-    (bh, res) <- liftSkovQueryStateBHI getter bhi
-    return (bh, fromMaybe (Left GDEBlockNotFound) res)
+    liftSkovQueryStateBHI getter bhi
   where
     getter ::
         forall m.
@@ -1294,7 +1307,7 @@ getTransactionStatusInBlock trHash blockHash =
             )
 
 -- * Smart contract invocations
-invokeContract :: BlockHashInput -> InvokeContract.ContractContext -> MVR finconf (BlockHash, Maybe InvokeContract.InvokeContractResult)
+invokeContract :: BlockHashInput -> InvokeContract.ContractContext -> MVR finconf (BHIQueryResponse InvokeContract.InvokeContractResult)
 invokeContract bhi cctx =
     liftSkovQueryBHI
         ( \bp -> do

@@ -3,6 +3,12 @@
 ## Unreleased changes
 
 - Support the new ConcordiumBFT consensus.
+
+## 5.4.0
+
+- Support using block height as block identifiers in gRPC v2 API.
+- Extend gRPC v2 API call `GetBlockInfo` with the protocol version of the block.
+- Do not use peer buckets when running as a normal node (not as a bootstrapper).
 - Enable CORS support in grpc-web. This only applies when grpc-web is enabled.
 
 ## 5.3.2

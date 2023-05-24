@@ -83,7 +83,7 @@ instance Serialize BlockMetadata where
       where
         getUTCPOSIXMicros = posixSecondsToUTCTime . (/ 1_000_000) . realToFrac <$> getWord64be
 
--- |A class for structures that canonincally include 'BlockMetadata'.
+-- |A class for structures that include 'BlockMetadata'.
 class HasBlockMetadata bm where
     -- |Get the block metadata.
     blockMetadata :: bm -> BlockMetadata

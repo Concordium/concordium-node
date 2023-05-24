@@ -97,18 +97,20 @@ Environment variables only apply to the default build. This links with shared Ha
   Once the node is built it can be run as
 
   ```console
-  cargo run --
+  cargo run -- --config-dir <CONCORDIUM_NODE_CONFIG_DIR> --data-dir <CONCORDIUM_NODE_DATA_DIR>
   ```
 
   or
 
   ```console
-  cargo run --release --
+  cargo run --release -- --config-dir <CONCORDIUM_NODE_CONFIG_DIR> --data-dir <CONCORDIUM_NODE_DATA_DIR>
   ```
 
   to be run in release mode for improved performance. Note that the
   [concordium-consensus](../concordium-consensus/) dependency is the same regardless of how the
-  node itself is built, the `--release` only applies to the optimization of the Rust node xcomponents.
+  node itself is built, the `--release` only applies to the optimization of the rust node components.
+  
+Documentation about what <CONCORDIUM_NODE_CONFIG_DIR> and <CONCORDIUM_NODE_DATA_DIR> is seen at https://github.com/Concordium/concordium-node/blob/main/VARIABLES.md#common
 
 - The node built with Haskell library auto-discovery is not suitable for distribution to other
   machines. It is a dynamically linked binary with a large number of shared library dependencies.
@@ -125,7 +127,7 @@ extra-include-dirs:
 - /opt/homebrew/include/
 ```
 
-### M1 MacOS Specific
+### M1 and M2 MacOS specific
 
 You may need to add the following entry to your `~/.stack/config.yaml` for the `libffi` include:
 
