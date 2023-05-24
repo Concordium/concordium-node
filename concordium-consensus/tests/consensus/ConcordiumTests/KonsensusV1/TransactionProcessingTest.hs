@@ -387,7 +387,7 @@ testProcessBlockItems = describe "processBlockItems" $ do
                 processBlockItems (blockToProcess [dummyCredentialDeployment, dummyTransactionBI]) =<< _lastFinalized <$> get
         assertBool
             "Block should not have been successfully processed"
-            (not processed)
+            (null processed)
         assertEqual
             "transaction table purge counter is 0 as the processing stopped because of the first transaction"
             0
@@ -398,7 +398,7 @@ testProcessBlockItems = describe "processBlockItems" $ do
                 processBlockItems (blockToProcess [dummyTransactionBI, dummyCredentialDeployment]) =<< _lastFinalized <$> get
         assertBool
             "Block should not have been successfully processed"
-            (not processed)
+            (null processed)
         assertEqual
             "transaction table purge counter is 1 because of the first transaction was successfully processed"
             1
@@ -409,7 +409,7 @@ testProcessBlockItems = describe "processBlockItems" $ do
                 processBlockItems (blockToProcess [dummyTransactionBI, dummyCredentialDeployment]) =<< _lastFinalized <$> get
         assertBool
             "Block should have been successfully processed"
-            processed
+            (isJust processed)
         assertEqual
             "transaction table purge counter should have been bumped twice"
             2
@@ -423,7 +423,7 @@ testProcessBlockItems = describe "processBlockItems" $ do
                        )
         assertBool
             "Block should have been successfully processed"
-            processed
+            (isJust processed)
         assertEqual
             "transaction table purge counter should have been incremented once as the latter insertion was a duplicate"
             1

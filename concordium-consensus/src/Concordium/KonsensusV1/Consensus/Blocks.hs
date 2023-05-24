@@ -1,6 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -17,6 +16,7 @@ import Control.Monad.Trans.Maybe
 import Data.Function
 import Data.Ord
 import Data.Time
+import qualified Data.Vector as Vector
 import Lens.Micro.Platform
 
 import Concordium.Logger
@@ -33,6 +33,7 @@ import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Parameters hiding (getChainParameters)
 import Concordium.GlobalState.Persistent.BlockState
+import Concordium.GlobalState.PurgeTransactions
 import Concordium.GlobalState.Statistics
 import Concordium.GlobalState.Types
 import Concordium.KonsensusV1.Consensus hiding (bakerIdentity)
@@ -43,10 +44,12 @@ import Concordium.KonsensusV1.Consensus.Timeout.Internal
 import Concordium.KonsensusV1.Flag
 import Concordium.KonsensusV1.LeaderElection
 import Concordium.KonsensusV1.Scheduler
+import Concordium.KonsensusV1.Transactions
 import Concordium.KonsensusV1.TreeState.Implementation
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
+import Concordium.Scheduler (FilteredTransactions (..))
 import Concordium.TimerMonad
 import Concordium.Types.BakerIdentity
 
@@ -318,7 +321,18 @@ receiveBlockKnownParent parent pendingBlock = do
 --     - the baker is not a valid baker for the epoch; or
 --     - the baker is valid but the signature on the block is not valid.
 --
--- TODO: if any of the transactions in the block are invalid. Issue #699
+-- We do not process any of the transactions in pending blocks. The transactions will be processed
+-- as part of 'processPendingChild', if and when the parent block becomes live. Some reasons for
+-- this choice include:
+--
+-- * When we encounter (honest) pending blocks, we are or should be catching up with the network.
+--   Processing pending blocks' transactions prematurely will likely divert resources from that.
+--
+-- * Under normal circumstances, we would expect to receive any transactions in the block separately
+--   from the block itself, so they likely will be processed in any event.
+--
+-- * Having a single point at which transactions are processed (i.e. in 'processBlock') simplifies
+--   the block processing flow and avoids duplicating effort.
 receiveBlockUnknownParent ::
     ( LowLevel.MonadTreeStateStore m,
       MonadState (SkovData (MPV m)) m,
@@ -352,7 +366,6 @@ receiveBlockUnknownParent pendingBlock = do
     pbHash :: BlockHash
     pbHash = getHash pendingBlock
     continuePending = do
-        -- TODO: Check the transactions in the block. Issue #699
         addPendingBlock pendingBlock
         markPending pendingBlock
         logEvent Konsensus LLInfo $ "Block " <> show pbHash <> " is pending its parent " <> show (blockParent pendingBlock) <> "."
@@ -437,14 +450,13 @@ addBlock pendingBlock blockState parent = do
 -- * The parent block is correct: @getHash parent == blockParent pendingBlock@.
 -- * The block is signed by a valid baker for its epoch.
 -- * The baker is the leader for the round according to the parent block.
---
--- TODO: Transaction processing. Issue #699.
 processBlock ::
     ( IsConsensusV1 (MPV m),
       BlockStateStorage m,
       BlockState m ~ HashedPersistentBlockState (MPV m),
       LowLevel.MonadTreeStateStore m,
       MonadState (SkovData (MPV m)) m,
+      MonadProtocolVersion m,
       MonadIO m,
       TimeMonad m,
       MonadThrow m,
@@ -505,7 +517,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                 checkQC genMeta parentBF $
                     checkTC genMeta parentBF $
                         checkEpochFinalizationEntry genMeta parentBF $
-                            checkBlockExecution genMeta $ \blockState -> do
+                            checkBlockExecution genMeta parentBF $ \blockState -> do
                                 -- When adding a block, we guarantee that the new block is at most
                                 -- one epoch after the last finalized block. If the block is in the
                                 -- same epoch as its parent, then the guarantee is upheld by the
@@ -734,53 +746,70 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
             flag $ BlockUnexpectedEpochFinalization sBlock
             rejectBlock
         | otherwise = continue
-    checkBlockExecution GenesisMetadata{..} continue = do
+    checkBlockExecution GenesisMetadata{..} parentBF continue = do
         let execData =
                 BlockExecutionData
                     { bedIsNewEpoch = blockEpoch pendingBlock == blockEpoch parent + 1,
                       bedEpochDuration = genesisEpochDuration gmParameters,
                       bedTimestamp = blockTimestamp pendingBlock,
                       bedBlockNonce = blockNonce pendingBlock,
-                      bedParentState = bpState parent
+                      bedParentState = bpState parent,
+                      bedParticipatingBakers =
+                        ParticipatingBakers
+                            { pbBlockBaker = blockBaker pendingBlock,
+                              pbQCSignatories =
+                                quorumCertificateSigningBakers
+                                    (_bfFinalizers parentBF)
+                                    (blockQuorumCertificate pendingBlock)
+                            }
                     }
-        executeBlockStateUpdate execData >>= \case
-            Left failureReason -> do
+        processBlockItems (sbBlock (pbBlock pendingBlock)) parent >>= \case
+            Nothing -> do
                 logEvent Konsensus LLTrace $
                     "Block "
                         <> show pbHash
-                        <> " failed execution: "
-                        <> show failureReason
+                        <> " failed transaction verification."
                 flag (BlockExecutionFailure sBlock)
                 rejectBlock
-            Right newState -> do
-                outcomesHash <- getTransactionOutcomesHash newState
-                if
-                        | outcomesHash /= blockTransactionOutcomesHash pendingBlock -> do
-                            -- Incorrect transaction outcomes
-                            logEvent Konsensus LLTrace $
-                                "Block "
-                                    <> show pbHash
-                                    <> " stated transaction outcome hash ("
-                                    <> show (blockTransactionOutcomesHash pendingBlock)
-                                    <> ") does not match computed value ("
-                                    <> show outcomesHash
-                                    <> ")."
-                            flag $ BlockInvalidTransactionOutcomesHash sBlock (bpBlock parent)
-                            rejectBlock
-                        | getHash newState /= blockStateHash pendingBlock -> do
-                            -- Incorrect state hash
-                            logEvent Konsensus LLTrace $
-                                "Block "
-                                    <> show pbHash
-                                    <> " stated state hash ("
-                                    <> show (blockStateHash pendingBlock)
-                                    <> ") does not match computed value ("
-                                    <> show (getHash newState :: StateHash)
-                                    <> ")."
-                            flag $ BlockInvalidStateHash sBlock (bpBlock parent)
-                            rejectBlock
-                        | otherwise ->
-                            continue newState
+            Just transactions -> do
+                executeBlockState execData transactions >>= \case
+                    Left failureReason -> do
+                        logEvent Konsensus LLTrace $
+                            "Block "
+                                <> show pbHash
+                                <> " failed execution: "
+                                <> show failureReason
+                        flag (BlockExecutionFailure sBlock)
+                        rejectBlock
+                    Right newState -> do
+                        outcomesHash <- getTransactionOutcomesHash newState
+                        if
+                                | outcomesHash /= blockTransactionOutcomesHash pendingBlock -> do
+                                    -- Incorrect transaction outcomes
+                                    logEvent Konsensus LLTrace $
+                                        "Block "
+                                            <> show pbHash
+                                            <> " stated transaction outcome hash ("
+                                            <> show (blockTransactionOutcomesHash pendingBlock)
+                                            <> ") does not match computed value ("
+                                            <> show outcomesHash
+                                            <> ")."
+                                    flag $ BlockInvalidTransactionOutcomesHash sBlock (bpBlock parent)
+                                    rejectBlock
+                                | getHash newState /= blockStateHash pendingBlock -> do
+                                    -- Incorrect state hash
+                                    logEvent Konsensus LLTrace $
+                                        "Block "
+                                            <> show pbHash
+                                            <> " stated state hash ("
+                                            <> show (blockStateHash pendingBlock)
+                                            <> ") does not match computed value ("
+                                            <> show (getHash newState :: StateHash)
+                                            <> ")."
+                                    flag $ BlockInvalidStateHash sBlock (bpBlock parent)
+                                    rejectBlock
+                                | otherwise ->
+                                    continue newState
     getParentBakersAndFinalizers continue
         | blockEpoch parent == blockEpoch pendingBlock = continue vbBakersAndFinalizers
         | otherwise =
@@ -802,7 +831,10 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                 recordCheckedQuorumCertificate qc
                 continue
             else do
-                logEvent Konsensus LLTrace $ "Block " <> show pbHash <> " contains an invalid QC."
+                logEvent Konsensus LLTrace $
+                    "Block "
+                        <> show pbHash
+                        <> " contains an invalid QC."
                 flag $ BlockInvalidQC sBlock
                 rejectBlock
 
@@ -847,6 +879,7 @@ processPendingChildren ::
     ( IsConsensusV1 (MPV m),
       BlockState m ~ HashedPersistentBlockState (MPV m),
       MonadState (SkovData (MPV m)) m,
+      MonadProtocolVersion m,
       LowLevel.MonadTreeStateStore m,
       BlockStateStorage m,
       MonadIO m,
@@ -877,6 +910,7 @@ processPendingChild ::
       BlockState m ~ HashedPersistentBlockState (MPV m),
       LowLevel.MonadTreeStateStore m,
       MonadState (SkovData (MPV m)) m,
+      MonadProtocolVersion m,
       MonadIO m,
       TimeMonad m,
       MonadThrow m,
@@ -1034,6 +1068,7 @@ executeBlock ::
       BlockState m ~ HashedPersistentBlockState (MPV m),
       LowLevel.MonadTreeStateStore m,
       MonadState (SkovData (MPV m)) m,
+      MonadProtocolVersion m,
       MonadIO m,
       TimeMonad m,
       MonadThrow m,
@@ -1193,6 +1228,7 @@ bakeBlock ::
       BlockStateStorage m,
       BlockState m ~ HashedPersistentBlockState (MPV m),
       TimeMonad m,
+      MonadProtocolVersion m,
       IsConsensusV1 (MPV m),
       LowLevel.MonadTreeStateStore m,
       MonadConsensusEvent m,
@@ -1210,43 +1246,66 @@ bakeBlock BakeBlockInputs{..} = do
                 bbiLeadershipElectionNonce
                 bbiRound
                 (bakerElectionKey bbiBakerIdentity)
+    !signatories <-
+        gets (getBakersForEpoch (qcEpoch bbiQuorumCertificate)) <&> \case
+            Nothing -> error "Invariant violation: could not determine bakers for QC epoch."
+            Just bakers -> quorumCertificateSigningBakers (bakers ^. bfFinalizers) bbiQuorumCertificate
     let executionData =
             BlockExecutionData
                 { bedIsNewEpoch = isPresent bbiEpochFinalizationEntry,
                   bedEpochDuration = epochDuration,
                   bedTimestamp = bbTimestamp,
                   bedBlockNonce = bbNonce,
-                  bedParentState = bpState bbiParent
-                }
-    -- TODO: When the scheduler is integrated, this will be changed. Issue #699
-    executeBlockStateUpdate executionData >>= \case
-        Left err -> case err of {}
-        Right newState -> do
-            bbTransactionOutcomesHash <- getTransactionOutcomesHash newState
-            bbStateHash <- getStateHash newState
-            let bakedBlock =
-                    BakedBlock
-                        { bbRound = bbiRound,
-                          bbEpoch = bbiEpoch,
-                          bbBaker = bakerId bbiBakerIdentity,
-                          bbQuorumCertificate = bbiQuorumCertificate,
-                          bbTimeoutCertificate = bbiTimeoutCertificate,
-                          bbEpochFinalizationEntry = bbiEpochFinalizationEntry,
-                          bbTransactions = mempty,
-                          ..
+                  bedParentState = bpState bbiParent,
+                  bedParticipatingBakers =
+                    ParticipatingBakers
+                        { pbBlockBaker = bakerId bbiBakerIdentity,
+                          pbQCSignatories = signatories
                         }
-            genesisHash <- use currentGenesisHash
-            let signedBlock = signBlock (bakerSignKey bbiBakerIdentity) genesisHash bakedBlock
-            updatePersistentRoundStatus $ prsLastBakedRound .~ bbiRound
-            now <- currentTime
-            let nominalTime = timestampToUTCTime bbTimestamp
-            statistics %=! updateStatsOnReceive nominalTime now
-            _ <-
-                addBlock
-                    PendingBlock{pbBlock = signedBlock, pbReceiveTime = now}
-                    newState
-                    bbiParent
-            return signedBlock
+                }
+    runtime <- use runtimeParameters
+    tt <- use transactionTable
+    updateFocusBlockTo bbiParent
+    ptt <- use pendingTransactionTable
+    (filteredTransactions, newState) <- constructBlockState runtime tt ptt executionData
+    bbTransactionOutcomesHash <- getTransactionOutcomesHash newState
+    bbStateHash <- getStateHash newState
+    let bakedBlock =
+            BakedBlock
+                { bbRound = bbiRound,
+                  bbEpoch = bbiEpoch,
+                  bbBaker = bakerId bbiBakerIdentity,
+                  bbQuorumCertificate = bbiQuorumCertificate,
+                  bbTimeoutCertificate = bbiTimeoutCertificate,
+                  bbEpochFinalizationEntry = bbiEpochFinalizationEntry,
+                  bbTransactions = Vector.fromList (fst . fst <$> ftAdded filteredTransactions),
+                  ..
+                }
+    genesisHash <- use currentGenesisHash
+    let signedBlock = signBlock (bakerSignKey bbiBakerIdentity) genesisHash bakedBlock
+    updatePersistentRoundStatus $ prsLastBakedRound .~ bbiRound
+    now <- currentTime
+    let nominalTime = timestampToUTCTime bbTimestamp
+    statistics %=! updateStatsOnReceive nominalTime now
+    newBlockPointer <-
+        addBlock
+            PendingBlock{pbBlock = signedBlock, pbReceiveTime = now}
+            newState
+            bbiParent
+    focusBlock .=! newBlockPointer
+    -- Update the transaction table and pending transaction table.
+    lfb <- use lastFinalized
+    let (newTT, newPTT) =
+            filterTables
+                (blockRound lfb)
+                (blockRound signedBlock)
+                (getHash signedBlock)
+                filteredTransactions
+                tt
+                ptt
+    transactionTable .=! newTT
+    pendingTransactionTable .=! newPTT
+    return signedBlock
 
 -- |Try to make a block, distribute it on the network and sign it as a finalizer.
 -- This function should be called after any operation that can advance the current round to
@@ -1270,6 +1329,7 @@ makeBlock ::
       LowLevel.MonadTreeStateStore m,
       TimeMonad m,
       TimerMonad m,
+      MonadProtocolVersion m,
       MonadBroadcast m,
       MonadThrow m,
       MonadIO m,

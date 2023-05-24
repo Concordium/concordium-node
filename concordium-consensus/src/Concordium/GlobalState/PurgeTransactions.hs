@@ -18,7 +18,9 @@ import Concordium.Types.Updates
 import Concordium.Utils
 
 import Concordium.GlobalState.TransactionTable
+import Concordium.Scheduler (FilteredTransactions (..))
 import qualified Concordium.TransactionVerification as TVer
+import Concordium.Types.HashableTo
 
 -- |Transaction hash table. One component of the 'TransactionTable'.
 type TransactionHashTable = HM.HashMap TransactionHash (BlockItem, LiveTransactionStatus)
@@ -71,7 +73,7 @@ purgeTables lastFinCommitPoint oldestArrivalTime currentTime TransactionTable{..
     tooOld tx = biArrivalTime tx < oldestArrivalTime || transactionExpired (msgExpiry tx) currentTime
     -- Determine if an entry in the transaction hash table indicates that a
     -- transaction is eligible for removal.  This is the case if the recorded
-    -- slot preceeds the last finalized slot.
+    -- slot precedes the last finalized slot.
     removable (Just (_, Received{..})) = _tsCommitPoint <= lastFinCommitPoint
     removable (Just (_, Committed{..})) = _tsCommitPoint <= lastFinCommitPoint
     -- This case should not occur, since it would mean that a transaction we
@@ -188,3 +190,114 @@ purgeTables lastFinCommitPoint oldestArrivalTime currentTime TransactionTable{..
               _ttNonFinalizedTransactions = newNFT,
               _ttNonFinalizedChainUpdates = newNFCU
             }
+
+-- |Update the transaction table and pending transaction table as a result of constructing a block.
+-- The transactions added to the block are marked as committed.
+-- Failed transactions are purged from the transaction table if they are not committed since the
+-- last finalized block. The pending transaction table is updated to reflect the executed
+-- transactions and the purged transactions.
+--
+-- PRECONDITION: All of the filtered transactions are present in the transaction table and pending
+-- transaction table.
+filterTables ::
+    (IsCommitPoint cp) =>
+    -- |'CommitPoint' of the last finalized block
+    cp ->
+    -- |'CommitPoint' of block that transactions were added in
+    cp ->
+    -- |'BlockHash' of block that transactions were added in
+    BlockHash ->
+    -- |Filtered transactions as a result of constructing the block.
+    FilteredTransactions ->
+    -- |Transaction table to update
+    TransactionTable ->
+    -- |Pending transaction table to update
+    PendingTransactionTable ->
+    (TransactionTable, PendingTransactionTable)
+filterTables lastFinCommit commitAt commitBlock FilteredTransactions{..} tt0 ptt0 =
+    purgeUpdates . purgeCredentials . purgeTransactions $
+        (commitAdded tt0, forwarded)
+  where
+    addedTransactions = fst . fst <$> ftAdded
+    -- Mark added transactions as committed
+    commitAdded = commitAdded' 0 addedTransactions
+    -- commitAdded' takes the next transaction index as the first argument.
+    commitAdded' _ [] tt = tt
+    commitAdded' i (bi : bis) tt =
+        commitAdded' (i + 1) bis $!
+            tt & ttHashMap . ix (getHash bi) . _2 %~ addResult commitBlock commitAt i
+    -- Update the pending transaction table
+    forwarded = forwardPTT addedTransactions ptt0
+    -- Determine if a block item is committed to a potentially-live block. That is, if its commit
+    -- point is later than the that finalized commit point.
+    isCommitted :: TransactionTable -> WithMetadata a -> Bool
+    isCommitted tt t = case tt ^? ttHashMap . ix (wmdHash t) . _2 . tsCommitPoint of
+        Just transactionCP -> commitPoint lastFinCommit < commitPoint transactionCP
+        Nothing -> False
+    -- Purge a transaction from the transaction table if it is not committed.
+    purgeTransaction tt ((t, _), _)
+        | isCommitted tt t = tt
+        | otherwise =
+            tt
+                & ( ttHashMap . at' (wmdHash t)
+                        .~ Nothing
+                  )
+                    . ( ttNonFinalizedTransactions
+                            . at' sender
+                            . non emptyANFT
+                            . anftMap
+                            . at' nonce
+                            . non Map.empty
+                            %~ Map.delete t
+                      )
+      where
+        sender = accountAddressEmbed (transactionSender t)
+        nonce = transactionNonce t
+    -- Purge all non-committed failed transactions. This updates the pending transaction table to
+    -- record the max nonce derived from the updated transaction table for each account where there
+    -- are pending transactions.
+    purgeTransactions (tt, ptt) = (tt', ptt')
+      where
+        !tt' = foldl' purgeTransaction tt ftFailed
+        !ptt' = ptt & pttWithSender %~ HM.mapMaybeWithKey updPTT
+        updPTT k (nxtNonce, _) =
+            case tt' ^? ttNonFinalizedTransactions . ix k . anftMap . to Map.lookupMax . each of
+                Just (maxNonce, _) | nxtNonce <= maxNonce -> Just (nxtNonce, maxNonce)
+                _ -> Nothing
+    -- Purge all non-committed failed credential deployments. Purged credential deployments are
+    -- removed from both the transaction table and pending transaction table.
+    purgeCredentials tables = foldl' purgeCred tables ftFailedCredentials
+      where
+        purgeCred ts@(!tt, !ptt) ((cred, _), _)
+            | isCommitted tt cred = ts
+            | otherwise =
+                ( tt & ttHashMap . at' (wmdHash cred) .~ Nothing,
+                  ptt & pttDeployCredential %~ HS.delete (getHash cred)
+                )
+    -- Purge a chain update from the transaction table where it is not already committed to a block.
+    purgeUpdate tt ((upd, _), _)
+        | isCommitted tt upd = tt
+        | otherwise =
+            tt
+                & (ttHashMap . at' (wmdHash upd) .~ Nothing)
+                    . ( ttNonFinalizedChainUpdates
+                            . at' updType
+                            . non emptyNFCU
+                            . nfcuMap
+                            . at' seqNum
+                            . non Map.empty
+                            %~ Map.delete upd
+                      )
+      where
+        updType = updateType (uiPayload (wmdData upd))
+        seqNum = updateSeqNumber (uiHeader (wmdData upd))
+    -- Purge all non-committed failed chain updates. This updates the pending transaction table to
+    -- record the max sequence number derived from the updated transaction table for each chain
+    -- update type where there are pending transactions.
+    purgeUpdates (tt, ptt) = (tt', ptt')
+      where
+        !tt' = foldl' purgeUpdate tt ftFailedUpdates
+        !ptt' = ptt & pttUpdates %~ Map.mapMaybeWithKey updPTT
+        updPTT k (nxtSN, _) = case tt' ^? ttNonFinalizedChainUpdates . ix k . nfcuMap . to Map.lookupMax . each of
+            Just (maxSN, _) | nxtSN <= maxSN -> Just (nxtSN, maxSN)
+            _ -> Nothing

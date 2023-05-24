@@ -777,36 +777,23 @@ instance
     getPendingTransactions = use (skovPersistentData . pendingTransactions)
     putPendingTransactions pts = skovPersistentData . pendingTransactions .= pts
 
-    getAccountNonFinalized addr nnce = do
-        use (skovPersistentData . transactionTable . ttNonFinalizedTransactions . at' addr) >>= \case
-            Nothing -> return []
-            Just anfts ->
-                let (_, atnnce, beyond) = Map.splitLookup nnce (anfts ^. anftMap)
-                in  return $ case atnnce of
-                        Nothing -> Map.toAscList beyond
-                        Just s -> (nnce, s) : Map.toAscList beyond
+    getAccountNonFinalized addr nnce =
+        use $
+            skovPersistentData
+                . transactionTable
+                . to (lookupAccountTransactions addr nnce)
 
     -- only looking up the cached part is OK because the precondition of this method is that the
     -- transaction is not yet finalized
-    getCredential txHash = do
-        preuse (skovPersistentData . transactionTable . ttHashMap . ix txHash) >>= \case
-            Just (WithMetadata{wmdData = CredentialDeployment{..}, ..}, status) ->
-                case status of
-                    Received _ verRes -> return $ Just (WithMetadata{wmdData = biCred, ..}, verRes)
-                    Committed _ verRes _ -> return $ Just (WithMetadata{wmdData = biCred, ..}, verRes)
-            _ -> return Nothing
+    getCredential txHash =
+        use (skovPersistentData . transactionTable . to (lookupCredential txHash))
 
-    getNonFinalizedChainUpdates uty sn = do
-        use (skovPersistentData . transactionTable . ttNonFinalizedChainUpdates . at' uty) >>= \case
-            Nothing -> return []
-            Just nfcus ->
-                let (_, atsn, beyond) = Map.splitLookup sn (nfcus ^. nfcuMap)
-                in  return $ case atsn of
-                        Nothing -> Map.toAscList beyond
-                        Just s ->
-                            let first = (sn, s)
-                                rest = Map.toAscList beyond
-                            in  first : rest
+    getNonFinalizedChainUpdates uty sn =
+        use (skovPersistentData . transactionTable . to (lookupChainUpdates uty sn))
+
+    getGroupedPendingTransactions = do
+        spd <- use skovPersistentData
+        return $ groupPendingTransactions (spd ^. transactionTable) (spd ^. pendingTransactions)
 
     addCommitTransaction bi@WithMetadata{..} verResCtx ts slot = do
         let trHash = wmdHash
@@ -962,34 +949,6 @@ instance
         -- statuses are no longer updated.
         skovPersistentData . transactionTable . ttHashMap . at' (getHash tr) %= fmap (_2 %~ addResult bh slot idx)
 
-    purgeTransaction WithMetadata{..} =
-        use (skovPersistentData . transactionTable . ttHashMap . at' wmdHash) >>= \case
-            Nothing -> return True
-            Just (_, results) -> do
-                lastFinSlot <- blockSlot . _bpBlock . fst <$> TS.getLastFinalized
-                if commitPoint lastFinSlot >= results ^. tsCommitPoint
-                    then do
-                        -- remove from the table
-                        skovPersistentData . transactionTable . ttHashMap . at' wmdHash .= Nothing
-                        -- if the transaction is from a sender also delete the relevant
-                        -- entry in the account non finalized table
-                        case wmdData of
-                            NormalTransaction tr -> do
-                                let nonce = transactionNonce tr
-                                    sender = accountAddressEmbed (transactionSender tr)
-                                skovPersistentData
-                                    . transactionTable
-                                    . ttNonFinalizedTransactions
-                                    . at' sender
-                                    . non emptyANFT
-                                    . anftMap
-                                    . at' nonce
-                                    . non Map.empty
-                                    %= Map.delete WithMetadata{wmdData = tr, ..}
-                            _ -> return () -- do nothing.
-                        return True
-                    else return False
-
     markDeadTransaction bh tr =
         -- We only need to update the outcomes. The anf table nor the pending table need be updated
         -- here since a transaction should not be marked dead in a finalized block.
@@ -1031,6 +990,14 @@ instance
                 (newTT, newPT) = purgeTables (commitPoint lastFinalizedSlot) oldestArrivalTime currentTimestamp transactionTable' pendingTransactions'
             skovPersistentData . transactionTable .= newTT
             skovPersistentData . pendingTransactions .= newPT
+
+    filterTransactionTables slot bh filteredTrs = do
+        oldTT <- use $ skovPersistentData . transactionTable
+        oldPTT <- use $ skovPersistentData . pendingTransactions
+        lfCommit <- use $ skovPersistentData . lastFinalized . to blockSlot
+        let (!newTT, !newPTT) = filterTables lfCommit slot bh filteredTrs oldTT oldPTT
+        skovPersistentData . transactionTable .=! newTT
+        skovPersistentData . pendingTransactions .=! newPTT
 
     clearOnProtocolUpdate = do
         -- clear the pending blocks
