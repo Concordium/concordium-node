@@ -17,11 +17,8 @@ module Concordium.Scheduler.TreeStateEnvironment where
 
 import Control.Monad
 import Data.Foldable
-import qualified Data.HashMap.Strict as HM
-import qualified Data.HashSet as HashSet
 import qualified Data.Map as Map
 import Data.Maybe
-import qualified Data.PQueue.Prio.Min as MinPQ
 import Data.Ratio
 import qualified Data.Sequence as Seq
 import Data.Time
@@ -37,7 +34,6 @@ import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.CapitalDistribution
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Rewards
-import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.TreeState
 import Concordium.Kontrol.Bakers
 import Concordium.Logger
@@ -372,11 +368,8 @@ doBlockReward transFees FreeTransactionCounts{..} (BakerId aid) foundationAddr b
 doBlockRewardP4 ::
     forall m.
     ( BlockStateOperations m,
-      MonadProtocolVersion m,
-      ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
-      PVSupportsDelegation (MPV m),
-      SupportsTransactionOutcomes (MPV m),
-      SeedStateVersionFor (MPV m) ~ 'SeedStateVersion0
+      PoolParametersVersionFor (ChainParametersVersionFor (MPV m)) ~ 'PoolParametersVersion1,
+      PVSupportsDelegation (MPV m)
     ) =>
     -- |Transaction fees paid
     Amount ->
@@ -431,7 +424,14 @@ doBlockRewardP4 transFees FreeTransactionCounts{..} bid bs0 = do
         --     = T - R_T
         --     = T - (R_T * (1 - \sigma_{G,in}) + R_T * \sigma_{G,in})
         platformFees = transFees - (poolsAndPassiveFees + gasFees)
-        -- The share of the old GAS account that goes tot he new GAS account:
+        -- Fraction of the GAS that is left after taking the payment for finalization records:
+        -- (1 - f_fin)^f
+        -- If GAS payments for finalization are not supported, this is just 1.
+        fracAfterFinRecs = case rewardParams ^. gasFinalizationProof of
+            CFalse -> 1
+            CTrue finProofFrac ->
+                fractionToRational (complementAmountFraction finProofFrac) ^ countFinRecs
+        -- The share of the old GAS account that goes to the new GAS account:
         -- gasIn * (1 - \sigma{G,out}) * (1 - f_acc)^a * (1 - f_gov)^u * (1 - f_fin)^f
         -- = GAS^(j-1) * (1 - \sigma{G,out}) * (1 - NGT(f,a,u))
         gasGAS =
@@ -440,7 +440,7 @@ doBlockRewardP4 transFees FreeTransactionCounts{..} bid bs0 = do
                     * (fractionToRational . complementAmountFraction $ rewardParams ^. gasBaker)
                     * (fractionToRational . complementAmountFraction $ rewardParams ^. gasAccountCreation) ^ countAccountCreation
                     * (fractionToRational . complementAmountFraction $ rewardParams ^. gasChainUpdate) ^ countUpdate
-                    * (fractionToRational . complementAmountFraction $ rewardParams ^. gasFinalizationProof . unconditionally) ^ countFinRecs
+                    * fracAfterFinRecs
         -- Share of the old GAS account that is paid to the baker pool:
         -- gasIn * (1 - (1 - \sigma{G,out}) * (1 - NGT(f,a,u)))
         -- = GAS^(j-1) * (\sigma{G,out} + NGT(f,a,u) - \sigma{G,out} * NGT(f,a,u))
@@ -504,7 +504,6 @@ makeLenses ''DelegatorRewardOutcomes
 rewardDelegators ::
     forall m.
     ( PVSupportsDelegation (MPV m),
-      ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
       BlockStateOperations m
     ) =>
     UpdatableBlockState m ->
@@ -572,7 +571,6 @@ makeLenses ''BakerRewardOutcomes
 rewardBakers ::
     forall m.
     ( PVSupportsDelegation (MPV m),
-      ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
       BlockStateOperations m
     ) =>
     UpdatableBlockState m ->
@@ -707,9 +705,8 @@ rewardBakers bs bakers bakerTotalBakingRewards bakerTotalFinalizationRewards bcs
 distributeRewards ::
     forall m.
     ( PVSupportsDelegation (MPV m),
-      ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
-      BlockStateOperations m,
-      TreeStateMonad m
+      PoolParametersVersionFor (ChainParametersVersionFor (MPV m)) ~ 'PoolParametersVersion1,
+      BlockStateOperations m
     ) =>
     -- |Foundation account address
     AccountAddress ->
@@ -1357,38 +1354,8 @@ constructBlock slotNumber slotTime blockParent blockBaker mfinInfo newSeedState 
             let accountCreationLim = oldChainParameters ^. cpAccountCreationLimit
             -- Execute the block prologue
             PrologueResult{..} <- executeBlockPrologue slotTime newSeedState oldChainParameters bshandle0
-            pt <- getPendingTransactions
 
-            -- Prioritise the block items for inclusion in a block.
-            -- We do this by building a priority queue, keyed by arrival time,
-            -- consisting of:
-            -- - each credential, keyed by its arrival time
-            -- - the pending transactions for each account with pending transactions,
-            --   keyed by the lowest arrival time of a transaction with the lowest nonce.
-            -- - the pending update instructions for each update type, keyed by the lowest
-            --   arrival time of an update with the lowest sequence number.
-
-            -- getCredential shouldn't return Nothing based on the transaction table invariants
-            credentials <- mapM getCredential (HashSet.toList (pt ^. pttDeployCredential))
-            let grouped0 = MinPQ.fromList [(wmdArrivalTime c, TGCredentialDeployment (c, Just verRes)) | Just (c, verRes) <- credentials]
-            let groupAcctTxs groups (acc, (l, _)) =
-                    getAccountNonFinalized acc l <&> \case
-                        accTxs@((_, firstNonceTxs) : _) ->
-                            let txsList = concatMap (Map.toList . snd) accTxs
-                                minTime = minimum $ wmdArrivalTime <$> Map.keys firstNonceTxs
-                            in  MinPQ.insert minTime (TGAccountTransactions $ map (_2 %~ Just) txsList) groups
-                        -- This should not happen since the pending transaction table should
-                        -- only have entries where there are actually transactions.
-                        [] -> groups
-            grouped1 <- foldM groupAcctTxs grouped0 (HM.toList (pt ^. pttWithSender))
-            let groupUpdates groups (uty, (l, _)) =
-                    getNonFinalizedChainUpdates uty l <&> \case
-                        uds@((_, firstSNUs) : _) ->
-                            let udsList = concatMap (Map.toList . snd) uds
-                                minTime = minimum $ wmdArrivalTime <$> Map.keys firstSNUs
-                            in  MinPQ.insert minTime (TGUpdateInstructions $ map (_2 %~ Just) udsList) groups
-                        [] -> groups
-            transactionGroups <- MinPQ.elems <$> foldM groupUpdates grouped1 (Map.toList (pt ^. pttUpdates))
+            transactionGroups <- getGroupedPendingTransactions
 
             -- lookup the maximum block size as mandated by the runtime parameters
             maxSize <- rpBlockSize <$> getRuntimeParameters

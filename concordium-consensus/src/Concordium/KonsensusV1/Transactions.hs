@@ -13,6 +13,7 @@ module Concordium.KonsensusV1.Transactions where
 
 import Control.Monad.Reader
 import Control.Monad.State.Strict
+import Control.Monad.Trans.Cont
 import Control.Monad.Trans.Identity
 import Data.Kind (Type)
 import Data.Maybe (fromMaybe)
@@ -168,7 +169,6 @@ processBlockItem bi = do
                 return ObsoleteNonce
     -- Create a context suitable for verifying a transaction within a 'Individual' context.
     getCtx = do
-        _ctxSkovData <- get
         _ctxBs <- bpState <$> gets' _lastFinalized
         chainParams <- Concordium.GlobalState.BlockState.getChainParameters _ctxBs
         let _ctxMaxBlockEnergy = chainParams ^. cpConsensusParameters . cpBlockEnergyLimit
@@ -233,12 +233,14 @@ addPreverifiedTransaction bi okRes = do
         else -- If the transaction was not added it means it contained an old nonce.
             return ObsoleteNonce
 
--- |Attempt to put the 'BlockItem's of a 'BakedBlock' into the tree state.
--- Return 'True' if all of the transactions were added otherwise 'False'.
+-- |Process the 'BlockItem's of a 'BakedBlock', verifying them and adding them to the transaction
+-- table and pending transactions, marking them as committed for the block. If any of the
+-- transactions does not pass the transaction verifier, this returns 'Nothing' as the block is
+-- invalid. Otherwise, the list of the transactions and their verification results is returned.
 --
--- Post-condition: Only transactions that are deemed verifiable
--- (i.e. the verification yields a 'TVer.OkResult' or a 'TVer.MaybeOkResult') up to the point where
--- a transaction processing might fail are added to the tree state.
+-- If the transaction is already in the transaction table, then the returned 'BlockItem' will be
+-- the copy from the transaction table. It is intended that this copy should replace the copy from
+-- the block to avoid duplication.
 processBlockItems ::
     forall m pv.
     ( MonadProtocolVersion m,
@@ -255,50 +257,62 @@ processBlockItems ::
     BlockPointer pv ->
     -- |Return 'True' only if all transactions were
     -- successfully processed otherwise 'False'.
-    m Bool
-processBlockItems bb parentPointer = process $! Vector.toList $ bbTransactions bb
+    m (Maybe [(BlockItem, TVer.VerificationResult)])
+processBlockItems bb parentPointer = do
+    verificationContext <- getCtx
+    runContT
+        (mapM (process verificationContext) $ Vector.toList $ bbTransactions bb)
+        (return . Just)
   where
     -- Create a context suitable for verifying a transaction within a 'Block' context.
     getCtx = do
-        _ctxSkovData <- get
         let _ctxBs = bpState parentPointer
+        -- We base the block energy limit on the chain parameters for the parent block.
+        -- This might not be accurate, because the parameter can change, but exceeding the limit
+        -- is treated as 'MaybeOK', so we will not fail even if the check is incorrect.
+        -- When the block is actually executed, the actual energy limit will be enforced.
         chainParams <- Concordium.GlobalState.BlockState.getChainParameters _ctxBs
         let _ctxMaxBlockEnergy = chainParams ^. cpConsensusParameters . cpBlockEnergyLimit
-        return $! Context{_ctxTransactionOrigin = TVer.Block, ..}
+        return Context{_ctxTransactionOrigin = TVer.Block, ..}
     theRound = bbRound bb
     theTime = bbTimestamp bb
-    -- Process the list of transactions recursively.
-    process :: [BlockItem] -> m Bool
-    process [] = return True
-    process (bi : bis) = do
+    -- Process a transaction
+    process ::
+        Context (PBS.HashedPersistentBlockState pv) ->
+        BlockItem ->
+        ContT (Maybe r) m (BlockItem, TVer.VerificationResult)
+    process verificationContext bi = ContT $ \continue -> do
         let txHash = getHash bi
         tt' <- gets' _transactionTable
         -- Check whether we already have the transaction.
         case tt' ^. TT.ttHashMap . at' txHash of
-            Just (_, results) -> do
+            Just (bi', results) -> do
                 -- If we have received the transaction before we update the maximum committed round
                 -- if the new round is higher.
                 when (TT.commitPoint theRound > results ^. TT.tsCommitPoint) $
                     transactionTable . TT.ttHashMap . at' txHash . mapped . _2 %=! TT.updateCommitPoint theRound
-                -- And we continue processing the remaining transactions.
-                process bis
+                continue (bi', results ^. TT.tsVerRes)
             Nothing -> do
                 -- We verify the transaction and check whether it's acceptable i.e. Ok or MaybeOk.
                 -- If that is the case then we add it to the transaction table and pending transactions.
                 -- If it is NotOk then we stop verifying the transactions as the block can never be valid now.
-                !verRes <- verifyBlockItem theTime bi =<< getCtx
+                !verRes <- verifyBlockItem theTime bi verificationContext
                 case verRes of
                     -- The transaction was deemed non verifiable i.e., it can never be
-                    -- valid. We short circuit the recursion here and return 'False'.
-                    (TVer.NotOk _) -> return False
+                    -- valid. We short circuit the recursion here and return 'Nothing'.
+                    (TVer.NotOk _) -> return Nothing
                     -- The transaction is either 'Ok' or 'MaybeOk' and that is acceptable
-                    -- when processing transactions which originates from a block.
+                    -- when processing transactions which originate from a block.
                     -- We add it to the transaction table and continue with the next transaction.
-                    acceptedRes ->
-                        addTransaction theRound bi acceptedRes >>= \case
-                            -- The transaction was obsolete so we stop processing the remaining transactions.
-                            False -> return False
-                            -- The transaction was added to the tree state,
-                            -- so add it to the pending table if it's eligible (see documentation for
-                            -- 'addPendingTransaction') and continue processing the remaining ones.
-                            True -> addPendingTransaction bi >> process bis
+                    acceptedRes -> do
+                        addOK <- addTransaction theRound bi acceptedRes
+                        -- If the transaction was obsolete, we stop processing transactions.
+                        if addOK
+                            then do
+                                -- The transaction was added to the tree state, so add it to the
+                                -- pending table if it's eligible (see documentation for
+                                -- 'addPendingTransaction') and continue processing the remaining
+                                -- ones.
+                                addPendingTransaction bi
+                                continue (bi, acceptedRes)
+                            else return Nothing

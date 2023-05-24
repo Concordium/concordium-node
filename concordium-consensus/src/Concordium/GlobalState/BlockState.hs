@@ -837,10 +837,14 @@ class (BlockStateQuery m) => BlockStateOperations m where
     bsoSetSeedState :: UpdatableBlockState m -> SeedState (SeedStateVersionFor (MPV m)) -> m (UpdatableBlockState m)
 
     -- |Replace the current epoch bakers with the next epoch bakers.
+    -- This includes the finalization committee parameters snapshot (where supported by the
+    -- protocol version).
     -- This does not change the next epoch bakers.
     bsoRotateCurrentEpochBakers :: UpdatableBlockState m -> m (UpdatableBlockState m)
 
     -- |Update the set containing the next epoch bakers, to use for next epoch.
+    -- Where supported by the protocol version, this also updates the snapshot of the finalization
+    -- committee parameters that is used for determining which of the bakers are finalizers.
     bsoSetNextEpochBakers ::
         (PVSupportsDelegation (MPV m)) =>
         UpdatableBlockState m ->

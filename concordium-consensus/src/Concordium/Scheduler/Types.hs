@@ -10,6 +10,7 @@ module Concordium.Scheduler.Types (
     module Concordium.Types.IdentityProviders,
     module Concordium.Types.AnonymityRevokers,
     IdentityProviderIdentity,
+    TransactionGroup (..),
 ) where
 
 import Concordium.GlobalState.Instance
@@ -22,6 +23,7 @@ import Concordium.Types.IdentityProviders
 import Concordium.Types.Transactions
 import Concordium.Types.Updates
 
+import Concordium.GlobalState.TransactionTable (TransactionGroup (..))
 import Concordium.ID.Types (IdentityProviderIdentity)
 import qualified Concordium.TransactionVerification as TVer
 
@@ -46,15 +48,6 @@ data FilteredTransactions = FilteredTransactions
 
 emptyFilteredTransactions :: FilteredTransactions
 emptyFilteredTransactions = FilteredTransactions [] [] [] [] [] [] []
-
--- |A group of one or more block items with sequential dependencies.
-data TransactionGroup
-    = -- |A collection of transactions for a single account, ordered with non-decreasing nonce.
-      TGAccountTransactions [TVer.TransactionWithStatus]
-    | -- |A single credential deployment.
-      TGCredentialDeployment TVer.CredentialDeploymentWithStatus
-    | -- |A collection of update instructions of a single type, ordered with non-decreasing sequence number.
-      TGUpdateInstructions [TVer.ChainUpdateWithStatus]
 
 type GroupedTransactions = [TransactionGroup]
 

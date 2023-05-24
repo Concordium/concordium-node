@@ -810,7 +810,7 @@ receiveBlock ::
     CString ->
     -- |The length of the message.
     Word64 ->
-    -- |If the block was received succesfully i.e. 'receiveBlock' yields a
+    -- |If the block was received successfully i.e. 'receiveBlock' yields a
     -- 'ResultSuccess' then a continuation for executing the block is written to this ptr.
     -- IMPORTANT! If the continuation is present then it must also be called in order
     -- to avoid a memory leak.
