@@ -176,7 +176,7 @@ loadSkovData _runtimeParameters = do
     let _blockTable = emptyBlockTable
     let _branches = Seq.empty
     let _roundExistingBlocks = Map.empty
-    let _roundExistingQCs = Map.empty -- we could include the qc from the last finalization entry
+    let _roundExistingQCs = Map.empty
     _genesisMetadata <- case bpBlock genesisBlock of
         GenesisBlock gm -> return gm
         _ -> throwM . TreeStateInvariantViolation $ "First block is not a genesis block"

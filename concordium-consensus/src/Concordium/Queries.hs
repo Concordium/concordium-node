@@ -353,9 +353,9 @@ liftSkovQueryBHIAndVersion av0 av1 bhi = do
                     ( do
                         -- consensus version 1
                         bp <- case other of
-                            Best -> use SkovV1.lastFinalized -- FIXME: Use "best" block
+                            Best -> use SkovV1.lastFinalized -- FIXME: Use "best" block. Issue #857
                             LastFinal -> use SkovV1.lastFinalized
-                        (getHash bp,) . Just <$> av1 evc bp True -- FIXME: For best block, this is wrong
+                        (getHash bp,) . Just <$> av1 evc bp True -- FIXME: For best block, this is wrong. Issue #857
                     )
             return $ case maybeValue of
                 Just v -> BQRBlock bh v
@@ -437,7 +437,7 @@ getConsensusStatus = MVR $ \mvr -> do
         VersionedSkovV1M finconf pv ConsensusStatus
     statusV1 (csGenesisBlock, csGenesisTime) evc = do
         let absoluteHeight = localToAbsoluteBlockHeight (evcGenesisHeight evc) . SkovV1.blockHeight
-        bb <- use SkovV1.lastFinalized -- FIXME: Use best block.
+        bb <- use SkovV1.lastFinalized -- FIXME: Use best block. Issue #857
         let csBestBlock = getHash bb
         let csBestBlockHeight = absoluteHeight bb
 
@@ -447,7 +447,7 @@ getConsensusStatus = MVR $ \mvr -> do
                 timestampToUTCTime $
                     BaseV1.genesisTime $
                         SkovV1.gmParameters genMetadata
-        let csSlotDuration = 0 -- FIXME: What to do here?
+        let csSlotDuration = 0 -- FIXME: What to do here? Issue #857
         let csEpochDuration = BaseV1.genesisEpochDuration $ SkovV1.gmParameters genMetadata
         lfb <- use SkovV1.lastFinalized
         let csLastFinalizedBlock = getHash lfb
@@ -688,7 +688,7 @@ getBlockInfo =
             let biEraBlockHeight = SkovV1.blockHeight bp
             let biBlockReceiveTime = SkovV1.blockReceiveTime bp
             let biBlockArriveTime = SkovV1.blockArriveTime bp
-            -- FIXME: For now, we report the block round as the block slot.
+            -- FIXME: For now, we report the block round as the block slot. Issue #857
             let biBlockSlot = fromIntegral $ SkovV1.blockRound bp
             let biBlockSlotTime = timestampToUTCTime $ SkovV1.blockTimestamp bp
             let biBlockBaker = SkovV1.ofOption Nothing (Just . SkovV1.blockBaker) $ SkovV1.blockBakedData bp
@@ -955,7 +955,7 @@ getBlockBirkParameters =
             return BlockBirkParameters{..}
         )
   where
-    -- FIXME: We treat the election difficulty as 1 for consensus version 1.
+    -- FIXME: We treat the election difficulty as 1 for consensus version 1. Issue #857
     getED :: forall m. (BS.BlockStateQuery m, MonadProtocolVersion m) => BlockState m -> m ElectionDifficulty
     getED bs = case sConsensusParametersVersionFor (sChainParametersVersionFor (protocolVersion @(MPV m))) of
         SConsensusParametersVersion0 -> BS.getCurrentElectionDifficulty bs
@@ -1370,7 +1370,7 @@ getBakerStatusBestBlock =
                         Just fbinfo -> return $! currentBakerStatus bakerIdent bakers fbinfo
                         Nothing -> do
                             -- Not a current baker.
-                            -- FIXME: change to "best block"
+                            -- FIXME: change to "best block". Issue #857
                             lfb <- use SkovV1.lastFinalized
                             bs <- blockState lfb
                             status <- bakerAccountStatus bakerIdent bs

@@ -1461,6 +1461,9 @@ receiveFinalizationMessage gi finMsgBS = withLatestExpectedVersion_ gi $ \case
                             Left leftRes -> (leftRes, Nothing)
                             Right cont -> (Skov.ResultSuccess, Just cont)
                     followup = liftSkovV1Update vc
+                -- We spawn a thread to perform the follow-up so that the P2P layer can immediately
+                -- relay the message, since the follow-up action can be time consuming (including
+                -- finalizing blocks and baking a new block).
                 withWriteLockMaybeFork receive followup
 
 -- |Deserialize and receive a finalization record at a given genesis index.

@@ -476,9 +476,9 @@ executeBlockTransactions blockTimestamp transactions theState0 = do
 -- * Blocks
 
 -- |Execute a block, computing the new block state. If successful, the return value is the
--- resulting block state. If unsuccessful, a result of @Left Nothing@ indicates that the block
--- energy limit was succeeded, and otherwise a result of @Left (Just fk)@ indicates the failure kind
--- of the first failed transaction.
+-- resulting block state and used energy. If unsuccessful, a result of @Left Nothing@ indicates that
+-- the block energy limit was succeeded, and otherwise a result of @Left (Just fk)@ indicates the
+-- failure kind of the first failed transaction.
 executeBlockState ::
     ( pv ~ MPV m,
       BlockStateStorage m,
@@ -507,7 +507,7 @@ executeBlockState execData@BlockExecutionData{..} transactions = do
 -- only valid transactions for inclusion.  The runtime parameters limit the block size and time to
 -- spend on constructing the block.  This returns a 'FilteredTransactions' that indicates which
 -- transactions were included in the block, as well as any that were found to be invalid. It also
--- returns the new block state.
+-- returns the new block state and the energy used by the transactions.
 --
 -- Note that this does not update the transaction table.
 constructBlockState ::
