@@ -2,6 +2,11 @@
 
 ## Unreleased changes
 
+- Fix a bug that causes bakers in genesis to restake their earnings when they should not. This
+  affects genesis data at protocol version P5; P1-P4 genesis data are not affected. This breaks
+  compatibility with chains started with P5 genesis data, where some genesis bakers are not set to
+  restake earnings. Other chains (including mainnet and testnet) are not affected.
+
 ## 5.4.0
 
 - Support using block height as block identifiers in gRPC v2 API.
