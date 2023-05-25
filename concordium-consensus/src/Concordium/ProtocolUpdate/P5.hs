@@ -12,6 +12,7 @@ import qualified Data.HashMap.Strict as HM
 import Data.Serialize
 
 import qualified Concordium.Crypto.SHA256 as SHA256
+import qualified Concordium.Genesis.Data.P6 as P6
 import Concordium.Types
 import Concordium.Types.Updates
 
@@ -21,12 +22,12 @@ import Concordium.Kontrol
 import qualified Concordium.ProtocolUpdate.P5.ProtocolP6 as ProtocolP6
 
 -- |Updates that are supported from protocol version P5.
-data Update = ProtocolP6
+data Update = ProtocolP6 P6.ProtocolUpdateData
     deriving (Show)
 
 -- |Hash map for resolving updates from their specification hash.
 updates :: HM.HashMap SHA256.Hash (Get Update)
-updates = HM.fromList [(ProtocolP6.updateHash, return ProtocolP6)]
+updates = HM.fromList [(ProtocolP6.updateHash, ProtocolP6 <$> get)]
 
 -- |Determine if a 'ProtocolUpdate' corresponds to a supported update type.
 checkUpdate :: ProtocolUpdate -> Either String Update
@@ -41,10 +42,10 @@ checkUpdate ProtocolUpdate{..} = case HM.lookup puSpecificationHash updates of
 -- i.e. it is the first (and only) explicitly-finalized block with timestamp after the
 -- update takes effect.
 updateRegenesis :: (MPV m ~ 'P5, BlockStateStorage m, SkovMonad m) => Update -> m (PVInit m)
-updateRegenesis ProtocolP6 = ProtocolP6.updateRegenesis
+updateRegenesis (ProtocolP6 protocolUpdateData) = ProtocolP6.updateRegenesis protocolUpdateData
 
 -- |Determine the protocol version the update will update to.
 updateNextProtocolVersion ::
     Update ->
     SomeProtocolVersion
-updateNextProtocolVersion ProtocolP6 = SomeProtocolVersion SP6
+updateNextProtocolVersion ProtocolP6{} = SomeProtocolVersion SP6

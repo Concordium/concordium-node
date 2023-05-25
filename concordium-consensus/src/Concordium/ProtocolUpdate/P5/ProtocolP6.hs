@@ -83,8 +83,9 @@ updateHash = SHA256.hash "dummy p6 protocol hash"
 -- update takes effect.
 updateRegenesis ::
     (MPV m ~ 'P5, BlockStateStorage m, SkovMonad m) =>
+    P6.ProtocolUpdateData ->
     m (PVInit m)
-updateRegenesis = do
+updateRegenesis protocolUpdateData = do
     lfb <- lastFinalizedBlock
     -- Genesis time is the timestamp of the terminal block
     regenesisTime <- getSlotTimestamp (blockSlot lfb)
@@ -118,5 +119,6 @@ updateRegenesis = do
     regenesisState <- freezeBlockState s3
     rememberFinalState regenesisState
     genesisStateHash <- getStateHash regenesisState
-    let newGenesis = GenesisData.RGDP6 $ P6.GDP6Regenesis{genesisRegenesis = BaseV1.RegenesisDataV1{genesisCore = core, ..}}
-    return (PVInit newGenesis GenesisData.StateMigrationParametersP5ToP6 (bpHeight lfb))
+    let genesisMigration = P6.StateMigrationData protocolUpdateData
+    let newGenesis = GenesisData.RGDP6 $ P6.GDP6RegenesisFromP5{genesisRegenesis = BaseV1.RegenesisDataV1{genesisCore = core, ..}, ..}
+    return (PVInit newGenesis (GenesisData.StateMigrationParametersP5ToP6 genesisMigration) (bpHeight lfb))
