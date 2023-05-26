@@ -252,6 +252,9 @@ makeQuorumCertificate qcBlockPointer sd@SkovData{..} = do
 -- Check whether a 'QuorumCertificate' can be created.
 -- If that is the case the this function checks for finality and
 -- advance the round via the constructed 'QuorumCertificate'.
+-- If the round is advanced, we attempt to make a block by calling the provided @makeBlock@
+-- continuation. (Note, providing the continuation is to avoid a cyclic module dependency with
+-- 'Concordium.KonsensusV1.Consensus.Blocks'.)
 processQuorumMessage ::
     ( IsConsensusV1 (MPV m),
       MonadThrow m,
@@ -267,8 +270,10 @@ processQuorumMessage ::
     ) =>
     -- |The 'VerifiedQuorumMessage' to process.
     VerifiedQuorumMessage (MPV m) ->
+    -- |Continuation to make a block
+    m () ->
     m ()
-processQuorumMessage vqm@(VerifiedQuorumMessage quorumMessage _ quorumBlock) = do
+processQuorumMessage vqm@(VerifiedQuorumMessage quorumMessage _ quorumBlock) makeBlock = do
     currentRound <- use (roundStatus . rsCurrentRound)
     -- Check that the round of the 'QuorumMessage' corresponds to
     -- the current round of the tree state.
@@ -281,6 +286,14 @@ processQuorumMessage vqm@(VerifiedQuorumMessage quorumMessage _ quorumBlock) = d
         skovData <- get
         let maybeQuorumCertificate = makeQuorumCertificate quorumBlock skovData
         forM_ maybeQuorumCertificate $ \newQC -> do
+            logEvent Konsensus LLDebug $
+                "Quorum certificate generated for block "
+                    ++ show (qcBlock newQC)
+                    ++ " in round "
+                    ++ show (theRound $ qcRound newQC)
+            logEvent Konsensus LLTrace $
+                "QC signed by finalizer indexes: "
+                    ++ show (theFinalizerIndex <$> finalizerList (qcSignatories newQC))
             checkFinality newQC
             advanceRoundWithQuorum
                 CertifiedBlock
@@ -288,3 +301,4 @@ processQuorumMessage vqm@(VerifiedQuorumMessage quorumMessage _ quorumBlock) = d
                       cbQuorumBlock = quorumBlock
                     }
             recordCheckedQuorumCertificate newQC
+            makeBlock

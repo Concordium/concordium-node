@@ -6,6 +6,7 @@
   affects genesis data at protocol version P5; P1-P4 genesis data are not affected. This breaks
   compatibility with chains started with P5 genesis data, where some genesis bakers are not set to
   restake earnings. Other chains (including mainnet and testnet) are not affected.
+- Support the new ConcordiumBFT consensus.
 
 ## 5.4.0
 

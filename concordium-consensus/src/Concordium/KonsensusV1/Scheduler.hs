@@ -476,9 +476,9 @@ executeBlockTransactions blockTimestamp transactions theState0 = do
 -- * Blocks
 
 -- |Execute a block, computing the new block state. If successful, the return value is the
--- resulting block state. If unsuccessful, a result of @Left Nothing@ indicates that the block
--- energy limit was succeeded, and otherwise a result of @Left (Just fk)@ indicates the failure kind
--- of the first failed transaction.
+-- resulting block state and used energy. If unsuccessful, a result of @Left Nothing@ indicates that
+-- the block energy limit was succeeded, and otherwise a result of @Left (Just fk)@ indicates the
+-- failure kind of the first failed transaction.
 executeBlockState ::
     ( pv ~ MPV m,
       BlockStateStorage m,
@@ -489,23 +489,25 @@ executeBlockState ::
     ) =>
     BlockExecutionData pv ->
     [(BlockItem, TVer.VerificationResult)] ->
-    m (Either (Maybe FailureKind) (PBS.HashedPersistentBlockState pv))
+    m (Either (Maybe FailureKind) (PBS.HashedPersistentBlockState pv, Energy))
 executeBlockState execData@BlockExecutionData{..} transactions = do
     PrologueResult{..} <- executeBlockPrologue execData
     tRes <- executeBlockTransactions bedTimestamp transactions prologueBlockState
     forM tRes $ \TransactionExecutionResult{..} -> do
-        executeBlockEpilogue
-            bedParticipatingBakers
-            prologuePaydayParameters
-            terTransactionRewardParameters
-            terBlockState
+        endState <-
+            executeBlockEpilogue
+                bedParticipatingBakers
+                prologuePaydayParameters
+                terTransactionRewardParameters
+                terBlockState
+        return (endState, terEnergyUsed)
 
 -- |Construct a block, computing the new block state. This draws transactions from the transaction
 -- table (that are pending according to the pending transaction table) and executes them, selecting
 -- only valid transactions for inclusion.  The runtime parameters limit the block size and time to
 -- spend on constructing the block.  This returns a 'FilteredTransactions' that indicates which
 -- transactions were included in the block, as well as any that were found to be invalid. It also
--- returns the new block state.
+-- returns the new block state and the energy used by the transactions.
 --
 -- Note that this does not update the transaction table.
 constructBlockState ::
@@ -521,7 +523,7 @@ constructBlockState ::
     TransactionTable ->
     PendingTransactionTable ->
     BlockExecutionData pv ->
-    m (FilteredTransactions, PBS.HashedPersistentBlockState pv)
+    m (FilteredTransactions, PBS.HashedPersistentBlockState pv, Energy)
 constructBlockState runtimeParams transactionTable pendingTable execData@BlockExecutionData{..} = do
     startTime <- currentTime
     PrologueResult{..} <- executeBlockPrologue execData
@@ -541,4 +543,4 @@ constructBlockState runtimeParams transactionTable pendingTable execData@BlockEx
             terBlockState
     endTime <- currentTime
     logEvent Scheduler LLInfo $ "Constructed a block in " ++ show (diffUTCTime endTime startTime)
-    return (filteredTrs, finalState)
+    return (filteredTrs, finalState, terEnergyUsed)

@@ -29,6 +29,7 @@ import Lens.Micro.Platform
 import qualified Concordium.GlobalState.BakerInfo as BI
 import Concordium.GlobalState.Basic.BlockState.PoolRewards
 import Concordium.GlobalState.BlockMonads
+import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.CapitalDistribution
 import Concordium.GlobalState.Parameters
@@ -173,7 +174,12 @@ calculatePaydayMintAmounts md mr ps updates amt =
 -- |Mint for all slots since the last block, recording a
 -- special transaction outcome for the minting.
 doMinting ::
-    (ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0, BlockStateOperations m, BlockPointerMonad m, SupportsTransactionOutcomes (MPV m)) =>
+    ( ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0,
+      BlockStateOperations m,
+      BlockPointerData (BlockPointerType m),
+      BlockPointerMonad m,
+      SupportsTransactionOutcomes (MPV m)
+    ) =>
     -- |Parent block
     BlockPointerType m ->
     -- |New slot

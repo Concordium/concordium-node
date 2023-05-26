@@ -831,6 +831,25 @@ checkTimeoutMessageSignature ::
 checkTimeoutMessageSignature pubKey genesisHash TimeoutMessage{..} =
     BlockSig.verify pubKey (timeoutMessageBodySignatureBytes tmBody genesisHash) tmSignature
 
+-- |A finalization message is either a 'QuorumMessage' or a 'TimeoutMessage'.
+-- The peer-to-peer layer deals with finalization messages as a common abstraction independent of
+-- the consensus version.
+data FinalizationMessage
+    = -- |A quorum message
+      FMQuorumMessage !QuorumMessage
+    | -- |A timeout message
+      FMTimeoutMessage !TimeoutMessage
+
+instance Serialize FinalizationMessage where
+    put (FMQuorumMessage qm) = putWord8 0 >> put qm
+    put (FMTimeoutMessage tm) = putWord8 1 >> put tm
+
+    get =
+        getWord8 >>= \case
+            0 -> FMQuorumMessage <$> get
+            1 -> FMTimeoutMessage <$> get
+            _ -> fail "Invalid finalization message type."
+
 -- |Projections for the data associated with a baked (i.e. non-genesis) block.
 class BakedBlockData d where
     -- |Quorum certificate on the parent block.
@@ -1028,6 +1047,7 @@ instance BlockData SignedBlock where
     blockTimestamp = bbTimestamp . sbBlock
     blockBakedData = Present
     blockTransactions = Vector.toList . bbTransactions . sbBlock
+    {-# INLINE blockTransactions #-}
     blockTransactionCount = Vector.length . bbTransactions . sbBlock
     blockStateHash = bbStateHash . sbBlock
 
@@ -1257,6 +1277,7 @@ instance BlockData (Block pv) where
     blockBakedData (NormalBlock b) = blockBakedData b
     blockTransactions GenesisBlock{} = []
     blockTransactions (NormalBlock b) = blockTransactions b
+    {-# INLINE blockTransactions #-}
     blockTransactionCount GenesisBlock{} = 0
     blockTransactionCount (NormalBlock b) = blockTransactionCount b
     blockStateHash (GenesisBlock gc) = gmStateHash gc

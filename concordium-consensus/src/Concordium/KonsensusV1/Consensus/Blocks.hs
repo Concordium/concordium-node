@@ -408,11 +408,13 @@ addBlock ::
     HashedPersistentBlockState (MPV m) ->
     -- |Parent pointer
     BlockPointer (MPV m) ->
+    -- |Energy used in executing the block
+    Energy ->
     m (BlockPointer (MPV m))
-addBlock pendingBlock blockState parent = do
+addBlock pendingBlock blockState parent energyUsed = do
     let height = blockHeight parent + 1
     now <- currentTime
-    newBlock <- makeLiveBlock pendingBlock blockState height now
+    newBlock <- makeLiveBlock pendingBlock blockState height now energyUsed
     addToBranches newBlock
     logEvent Konsensus LLInfo $
         "Block "
@@ -517,7 +519,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                 checkQC genMeta parentBF $
                     checkTC genMeta parentBF $
                         checkEpochFinalizationEntry genMeta parentBF $
-                            checkBlockExecution genMeta parentBF $ \blockState -> do
+                            checkBlockExecution genMeta parentBF $ \blockState energyUsed -> do
                                 -- When adding a block, we guarantee that the new block is at most
                                 -- one epoch after the last finalized block. If the block is in the
                                 -- same epoch as its parent, then the guarantee is upheld by the
@@ -533,7 +535,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                                 --    block.
                                 -- This implies that the block is in the epoch after the last
                                 -- finalized block.
-                                newBlock <- addBlock pendingBlock blockState parent
+                                newBlock <- addBlock pendingBlock blockState parent energyUsed
                                 checkFinality (blockQuorumCertificate pendingBlock)
                                 curRound <- use $ roundStatus . rsCurrentRound
                                 let certifiedParent =
@@ -781,7 +783,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                                 <> show failureReason
                         flag (BlockExecutionFailure sBlock)
                         rejectBlock
-                    Right newState -> do
+                    Right (newState, energyUsed) -> do
                         outcomesHash <- getTransactionOutcomesHash newState
                         if
                                 | outcomesHash /= blockTransactionOutcomesHash pendingBlock -> do
@@ -809,7 +811,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                                     flag $ BlockInvalidStateHash sBlock (bpBlock parent)
                                     rejectBlock
                                 | otherwise ->
-                                    continue newState
+                                    continue newState energyUsed
     getParentBakersAndFinalizers continue
         | blockEpoch parent == blockEpoch pendingBlock = continue vbBakersAndFinalizers
         | otherwise =
@@ -966,9 +968,13 @@ validateBlock ::
       IsConsensusV1 (MPV m),
       MonadThrow m,
       MonadIO m,
+      MonadProtocolVersion m,
       BlockStateStorage m,
       BlockState m ~ HashedPersistentBlockState (MPV m),
+      MonadReader r m,
+      HasBakerContext r,
       TimeMonad m,
+      TimerMonad m,
       MonadTimeout m,
       MonadConsensusEvent m,
       MonadLogger m
@@ -981,8 +987,13 @@ validateBlock ::
     FinalizerInfo ->
     m ()
 validateBlock blockHash BakerIdentity{..} finInfo = do
+    logEvent Baker LLTrace "validateBlock called"
     maybeBlock <- gets $ getLiveBlock blockHash
     forM_ maybeBlock $ \block -> do
+        logEvent Baker LLTrace $
+            "validateBlock: block "
+                ++ show (getHash @BlockHash block)
+                ++ " is live"
         persistentRS <- use persistentRoundStatus
         curRound <- use $ roundStatus . rsCurrentRound
         curEpoch <- use $ roundStatus . rsCurrentEpoch
@@ -1009,12 +1020,13 @@ validateBlock blockHash BakerIdentity{..} finInfo = do
                         { _prsLastSignedQuorumMessage = Present quorumMessage
                         }
                 sendQuorumMessage quorumMessage
-                processQuorumMessage $
+                processQuorumMessage
                     VerifiedQuorumMessage
                         { vqmMessage = quorumMessage,
                           vqmFinalizerWeight = finalizerWeight finInfo,
                           vqmBlock = block
                         }
+                    makeBlock
 
 -- |If the given time has elapsed, perform the supplied action. Otherwise, start a timer to
 -- asynchronously perform the action at the given time.
@@ -1039,6 +1051,7 @@ checkedValidateBlock ::
       LowLevel.MonadTreeStateStore m,
       MonadThrow m,
       MonadIO m,
+      MonadProtocolVersion m,
       BlockStateStorage m,
       BlockState m ~ HashedPersistentBlockState (MPV m),
       TimeMonad m,
@@ -1051,8 +1064,12 @@ checkedValidateBlock ::
     b ->
     m ()
 checkedValidateBlock validBlock = do
+    logEvent Baker LLTrace "checkedValidateBlock called"
     withFinalizerForEpoch (blockEpoch validBlock) $ \bakerIdent finInfo -> do
         let !blockHash = getHash validBlock
+        logEvent Baker LLTrace $
+            "checkedValidateBlock delaying until "
+                ++ show (timestampToUTCTime $ blockTimestamp validBlock)
         doAfter (timestampToUTCTime $ blockTimestamp validBlock) $!
             validateBlock blockHash bakerIdent finInfo
 
@@ -1267,7 +1284,7 @@ bakeBlock BakeBlockInputs{..} = do
     tt <- use transactionTable
     updateFocusBlockTo bbiParent
     ptt <- use pendingTransactionTable
-    (filteredTransactions, newState) <- constructBlockState runtime tt ptt executionData
+    (filteredTransactions, newState, energyUsed) <- constructBlockState runtime tt ptt executionData
     bbTransactionOutcomesHash <- getTransactionOutcomesHash newState
     bbStateHash <- getStateHash newState
     let bakedBlock =
@@ -1292,6 +1309,7 @@ bakeBlock BakeBlockInputs{..} = do
             PendingBlock{pbBlock = signedBlock, pbReceiveTime = now}
             newState
             bbiParent
+            energyUsed
     focusBlock .=! newBlockPointer
     -- Update the transaction table and pending transaction table.
     lfb <- use lastFinalized
@@ -1342,6 +1360,9 @@ makeBlock = do
     mInputs <- prepareBakeBlockInputs
     forM_ mInputs $ \inputs -> do
         block <- bakeBlock inputs
+        logEvent Baker LLTrace $
+            "Baking block at "
+                ++ show (timestampToUTCTime $ blockTimestamp block)
         doAfter (timestampToUTCTime $ blockTimestamp block) $ do
             sendBlock block
             checkedValidateBlock block

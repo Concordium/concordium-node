@@ -4,10 +4,12 @@
 
 module Concordium.KonsensusV1.Consensus where
 
+import Control.Monad.Reader.Class
 import Control.Monad.State
 import Data.Foldable
 import Data.List (sortOn)
 import qualified Data.Map.Strict as Map
+import Data.Maybe
 import Data.Ord
 import qualified Data.Vector as Vec
 import Lens.Micro.Platform
@@ -24,7 +26,6 @@ import Concordium.KonsensusV1.TreeState.Implementation
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.Logger
-import Control.Monad.Reader.Class
 
 -- |A Monad for broadcasting either a 'TimeoutMessage',
 -- 'QuorumMessage' or a 'SignedBlock'.
@@ -44,15 +45,13 @@ class MonadConsensusEvent m where
     -- |Called when a block becomes live.
     onBlock :: BlockPointer (MPV m) -> m ()
 
-    -- |Called when a block becomes finalized. This is only called with explicitly finalized blocks.
+    -- |Called when a block becomes finalized. This is called once per finalization with a list
+    -- of all the blocks that are newly finalized.
     onFinalize ::
-        -- |The 'FinalizationEntry' that witnesses that the 'BlockPointer pv' is finalized.
+        -- |Finalization entry that establishes finalization.
         FinalizationEntry ->
-        -- |The implicitly finalized blocks, that is ancestors that was live before
-        -- a block was finalized.
+        -- |List of the newly-finalized blocks by increasing height.
         [BlockPointer (MPV m)] ->
-        -- |The explicityly finalized block.
-        BlockPointer (MPV m) ->
         m ()
 
     -- |Called when a previously pending block becomes live. This should be used to trigger sending
@@ -72,6 +71,10 @@ class MonadTimeout m where
     -- |Reset the timeout from the supplied 'Duration'.
     resetTimer :: Duration -> m ()
 
+-- |Call 'resetTimer' with the current timeout.
+resetTimerWithCurrentTimeout :: (MonadTimeout m, MonadState (SkovData (MPV m)) m) => m ()
+resetTimerWithCurrentTimeout = resetTimer =<< use (roundStatus . rsCurrentTimeout)
+
 -- |Reset the timeout timer, and clear the collected quorum and timeout messages for the current
 -- round. This should not be called directly, except by 'advanceRoundWithTimeout' and
 -- 'advanceRoundWithQuorum'.
@@ -89,7 +92,7 @@ onNewRound = do
     -- the consensus runner is either part of the current epoch (i.e. the new one) OR
     -- the prior epoch, as it could be the case that the consensus runner left the finalization committee
     -- coming into this new (current) epoch - but we still want to ensure that a timeout is thrown either way.
-    resetTimer =<< use (roundStatus . rsCurrentTimeout)
+    resetTimerWithCurrentTimeout
     -- Clear the quorum messages collected.
     currentQuorumMessages .= emptyQuorumMessages
     -- Clear the timeout messages collected.
@@ -235,3 +238,23 @@ withFinalizerForEpoch epoch cont = do
                             LLWarning
                             "Finalizer keys do not match the keys in the current committee."
                     else cont bakerIdent finInfo
+
+-- |Determine if we are a finalizer in the current epoch.
+isCurrentFinalizer ::
+    ( MonadReader r m,
+      HasBakerContext r,
+      MonadState (SkovData (MPV m)) m
+    ) =>
+    m Bool
+isCurrentFinalizer =
+    view bakerIdentity >>= \case
+        Nothing -> return False
+        Just BakerIdentity{..} -> do
+            BakersAndFinalizers{..} <- gets bakersForCurrentEpoch
+            return $ isJust $ finalizerByBakerId _bfFinalizers bakerId
+
+-- |Determine if consensus is shut down.
+-- FIXME: Currently this always returns 'False'. Once protocol update/shutdown is supported, this
+-- should be updated to reflect the state. Issue #825
+isShutDown :: (Monad m) => m Bool
+isShutDown = return False
