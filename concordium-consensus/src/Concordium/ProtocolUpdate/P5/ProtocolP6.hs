@@ -119,6 +119,10 @@ updateRegenesis protocolUpdateData = do
     regenesisState <- freezeBlockState s3
     rememberFinalState regenesisState
     genesisStateHash <- getStateHash regenesisState
-    let genesisMigration = P6.StateMigrationData protocolUpdateData
+    let genesisMigration =
+            P6.StateMigrationData
+                { migrationProtocolUpdateData = protocolUpdateData,
+                  migrationTriggerBlockTime = regenesisTime
+                }
     let newGenesis = GenesisData.RGDP6 $ P6.GDP6RegenesisFromP5{genesisRegenesis = BaseV1.RegenesisDataV1{genesisCore = core, ..}, ..}
     return (PVInit newGenesis (GenesisData.StateMigrationParametersP5ToP6 genesisMigration) (bpHeight lfb))
