@@ -719,12 +719,8 @@ checkForProtocolUpdate = liftSkov body
                     ConsensusV0 -> do
                         MultiVersionRunner{..} <- lift ask
                         existingVersions <- liftIO (readIORef mvVersions)
-                        latestEraGenesisHeight <- liftIO $ do
-                            cfgs <- readIORef mvVersions
-                            return $ evcGenesisHeight $ Vec.last cfgs
-                        let vc0Index = fromIntegral (length existingVersions)
+                        (vcIndex, vcGenesisHeight) <- getNewGenesisIndexAndAbsBlockHeight existingVersions pvInitFinalHeight
                         -- construct the the new skov instance
-                        let vc0GenesisHeight = 1 + localToAbsoluteBlockHeight latestEraGenesisHeight pvInitFinalHeight
                         let newGSConfig =
                                 Skov.SkovConfig @newpv @fc
                                     ( globalStateConfig
@@ -762,7 +758,24 @@ checkForProtocolUpdate = liftSkov body
                             let Callbacks{..} = mvCallbacks
                             liftIO $ notifyRegenesis (Just (regenesisBlockHash nextGenesis))
                             return ()
-                    ConsensusV1 -> error "New consensus version not implemented yet." -- TODO: implement
+                    ConsensusV1 -> do
+                        MultiVersionRunner{..} <- lift ask
+                        existingVersions <- liftIO (readIORef mvVersions)
+                        (vcIndex, vcGenesisHeight) <- getNewGenesisIndexAndAbsBlockHeight existingVersions pvInitFinalHeight
+                        -- construct the the new skov instance
+                        let newGSConfig = undefined -- todo: fix after merge with multiversion runner branch.
+                        -- If the protocol update happens from 'P5' then the old consensus
+                        -- skov instance must also be cleared.
+                        when (demoteProtocolVersion (protocolVersion @lastpv) == P5) $ do
+                            Skov.clearSkovOnProtocolUpdate
+                        return ()
+    getNewGenesisIndexAndAbsBlockHeight existingVersions finalBlockHeight = do
+        latestEraGenesisHeight <- liftIO $ do
+            case Vec.last existingVersions of
+                EVersionedConfiguration vc -> return (vcGenesisHeight vc)
+        let vcIndex = fromIntegral (length existingVersions)
+            vcGenesisHeight = 1 + localToAbsoluteBlockHeight latestEraGenesisHeight finalBlockHeight
+        return (vcIndex, vcGenesisHeight)
     showPU ProtocolUpdate{..} =
         Text.unpack puMessage
             ++ "\n["
@@ -792,7 +805,7 @@ checkForProtocolUpdate = liftSkov body
                         liftIO (notifyRegenesis callbacks Nothing)
                         return Nothing
                 Right upd -> do
-                    logEvent Kontrol LLInfo $ "Starting protocol update."
+                    logEvent Kontrol LLInfo "Starting protocol update."
                     initData <- updateRegenesis upd
                     return (Just initData)
             PendingProtocolUpdates [] -> return Nothing
