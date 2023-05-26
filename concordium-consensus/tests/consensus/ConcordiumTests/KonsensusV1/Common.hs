@@ -28,7 +28,9 @@ someBlockPointer bh r e =
             BlockMetadata
                 { bmHeight = 0,
                   bmReceiveTime = timestampToUTCTime 0,
-                  bmArriveTime = timestampToUTCTime 0
+                  bmArriveTime = timestampToUTCTime 0,
+                  bmEnergyCost = 0,
+                  bmTransactionsSize = 0
                 },
           bpBlock = NormalBlock $ SignedBlock bakedBlock bh (Sig.sign sigKeyPair "foo"),
           bpState = dummyBlockState

@@ -48,7 +48,11 @@ import Concordium.Types.Updates (uiHeader, uiPayload, updateType)
 
 -- |Determine if one block is an ancestor of another.
 -- A block is considered to be an ancestor of itself.
-isAncestorOf :: BlockPointerMonad m => BlockPointerType m -> BlockPointerType m -> m Bool
+isAncestorOf ::
+    (BlockPointerData (BlockPointerType m), BlockPointerMonad m) =>
+    BlockPointerType m ->
+    BlockPointerType m ->
+    m Bool
 isAncestorOf b1 b2 = case compare (bpHeight b1) (bpHeight b2) of
     GT -> return False
     EQ -> return (b1 == b2)
@@ -65,7 +69,13 @@ updateFocusBlockTo newBB = do
     putPendingTransactions upts
     putFocusBlock newBB
   where
-    updatePTs :: (BlockPointerMonad m) => BlockPointerType m -> BlockPointerType m -> [BlockPointerType m] -> PendingTransactionTable -> m PendingTransactionTable
+    updatePTs ::
+        (BlockPointerData (BlockPointerType m), BlockPointerMonad m) =>
+        BlockPointerType m ->
+        BlockPointerType m ->
+        [BlockPointerType m] ->
+        PendingTransactionTable ->
+        m PendingTransactionTable
     updatePTs oBB nBB forw pts = case compare (bpHeight oBB) (bpHeight nBB) of
         LT -> do
             parent <- bpParent nBB

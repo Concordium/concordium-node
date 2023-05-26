@@ -105,7 +105,20 @@ doIsShutDown = do
         ProtocolUpdated _ -> True
         PendingProtocolUpdates _ -> False
 
-makeCatchUpStatus :: (BlockPointerMonad m) => Bool -> Bool -> (BlockPointerType m) -> [BlockPointerType m] -> [BlockPointerType m] -> m CatchUpStatus
+-- |Construct a 'CatchUpStatus' message.
+makeCatchUpStatus ::
+    (BlockPointerData (BlockPointerType m), BlockPointerMonad m) =>
+    -- |'True' if the message is a request
+    Bool ->
+    -- |'True' if the message is a response
+    Bool ->
+    -- |Last finalized block pointer
+    BlockPointerType m ->
+    -- |Leaves
+    [BlockPointerType m] ->
+    -- |Branches
+    [BlockPointerType m] ->
+    m CatchUpStatus
 makeCatchUpStatus cusIsRequest cusIsResponse lfb leaves branches = return CatchUpStatus{..}
   where
     cusLastFinalizedBlock = bpHash lfb
@@ -117,7 +130,13 @@ makeCatchUpStatus cusIsRequest cusIsResponse lfb leaves branches = return CatchU
 -- produce a pair of lists @(leaves, branches)@, which partions
 -- those blocks that are leaves (@leaves@) from those that are not
 -- (@branches@).
-leavesBranches :: forall m. (BlockPointerMonad m) => [[BlockPointerType m]] -> m ([BlockPointerType m], [BlockPointerType m])
+leavesBranches ::
+    forall m.
+    ( BlockPointerData (BlockPointerType m),
+      BlockPointerMonad m
+    ) =>
+    [[BlockPointerType m]] ->
+    m ([BlockPointerType m], [BlockPointerType m])
 leavesBranches = lb ([], [])
   where
     lb :: ([BlockPointerType m], [BlockPointerType m]) -> [[BlockPointerType m]] -> m ([BlockPointerType m], [BlockPointerType m])

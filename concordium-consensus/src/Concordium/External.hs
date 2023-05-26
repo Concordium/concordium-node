@@ -758,6 +758,8 @@ stopBaker cptr = mask_ $ do
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 -- |    30 | ResultInsufficientFunds                     | The sender did not have enough funds to cover the costs.                                      | No       |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+-- |    31 | ResultDoubleSign                            | The consensus message is a result of malignant double signing.                                | No       |
+-- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 type ReceiveResult = Int64
 
 -- |Convert an 'UpdateResult' to the corresponding 'ReceiveResult' value.
@@ -793,11 +795,13 @@ toReceiveResult ResultChainUpdateSequenceNumberTooOld = 27
 toReceiveResult ResultChainUpdateInvalidSignatures = 28
 toReceiveResult ResultEnergyExceeded = 29
 toReceiveResult ResultInsufficientFunds = 30
+toReceiveResult ResultDoubleSign = 31
 
 -- |Handle receipt of a block.
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@,
 -- @ResultInvalid@, @ResultPendingBlock@, @ResultDuplicate@, @ResultStale@,
--- @ResultConsensusShutDown@, @ResultEarlyBlock@, and @ResultInvalidGenesisIndex@.
+-- @ResultConsensusShutDown@, @ResultEarlyBlock@, @ResultInvalidGenesisIndex@, and
+-- @ResultDoubleSign@.
 -- 'receiveBlock' may invoke the callbacks for new finalization messages.
 -- If the block was successfully verified i.e. baker signature, finalization proofs etc. then
 -- the continuation for executing the block will be written to the 'Ptr' provided.
@@ -846,7 +850,7 @@ executeBlock ptrConsensus ptrCont = do
 -- |Handle receipt of a finalization message.
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,
 -- @ResultPendingFinalization@, @ResultDuplicate@, @ResultStale@, @ResultIncorrectFinalizationSession@,
--- @ResultUnverifiable@, @ResultConsensusShutDown@, and @ResultInvalidGenesisIndex@.
+-- @ResultUnverifiable@, @ResultConsensusShutDown@, @ResultInvalidGenesisIndex@, and @ResultDoubleSign@.
 -- 'receiveFinalization' may invoke the callbacks for new finalization messages.
 receiveFinalizationMessage ::
     StablePtr ConsensusRunner ->

@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+- Support the new ConcordiumBFT consensus.
+
 ## 5.4.0
 
 - Support using block height as block identifiers in gRPC v2 API.
