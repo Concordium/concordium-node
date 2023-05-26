@@ -258,7 +258,13 @@ migratePendingUpdates migration PendingUpdates{..} = withCPVConstraints (chainPa
     newRootKeys <- migrateHashedBufferedRef (migrateUpdateQueue id) pRootKeysUpdateQueue
     newLevel1Keys <- migrateHashedBufferedRef (migrateUpdateQueue id) pLevel1KeysUpdateQueue
     newLevel2Keys <- migrateHashedBufferedRef (migrateUpdateQueue (migrateAuthorizations migration)) pLevel2KeysUpdateQueue
-    newProtocol <- migrateHashedBufferedRef (migrateUpdateQueue id) pProtocolQueue
+    newProtocol <- case migration of
+        -- For P5->P6 update we clear the queue as part of the migration
+        -- as opposed to do it when creating a regenesis.
+        StateMigrationParametersP5ToP6{} -> do
+            (!hbr, _) <- refFlush =<< refMake emptyUpdateQueue
+            return hbr
+        _ -> migrateHashedBufferedRef (migrateUpdateQueue id) pProtocolQueue
     newEuroPerEnergy <- migrateHashedBufferedRef (migrateUpdateQueue id) pEuroPerEnergyQueue
     newMicroGTUPerEuro <- migrateHashedBufferedRef (migrateUpdateQueue id) pMicroGTUPerEuroQueue
     newFoundationAccount <- migrateHashedBufferedRef (migrateUpdateQueue id) pFoundationAccountQueue

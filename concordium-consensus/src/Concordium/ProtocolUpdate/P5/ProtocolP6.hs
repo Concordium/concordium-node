@@ -55,14 +55,11 @@
 module Concordium.ProtocolUpdate.P5.ProtocolP6 where
 
 import Data.Ratio
-import Data.Serialize
-import Lens.Micro
 
 import qualified Concordium.Crypto.SHA256 as SHA256
 import qualified Concordium.Genesis.Data as GenesisData
 import qualified Concordium.Genesis.Data.BaseV1 as BaseV1
 import qualified Concordium.Genesis.Data.P6 as P6
-import Concordium.Types.SeedState
 
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockMonads
@@ -105,20 +102,7 @@ updateRegenesis protocolUpdateData = do
     let genesisFirstGenesis = GenesisData._gcFirstGenesis gd
     let genesisPreviousGenesis = GenesisData._gcCurrentHash gd
     let genesisTerminalBlock = bpHash lfb
-    -- Determine the new state by updating the terminal state.
-    s0 <- thawBlockState =<< blockState lfb
-    -- Update the seed state
-    oldSeedState <- bsoGetSeedState s0
-    s1 <-
-        bsoSetSeedState s0
-            $ initialSeedStateV0
-                (SHA256.hash $ "Regenesis" <> encode (oldSeedState ^. updatedNonce))
-            $ GenesisData.gdEpochLength gd
-    -- Clear the protocol update.
-    s3 <- bsoClearProtocolUpdate s1
-    regenesisState <- freezeBlockState s3
-    rememberFinalState regenesisState
-    genesisStateHash <- getStateHash regenesisState
+    genesisStateHash <- getStateHash =<< blockState lfb
     let genesisMigration =
             P6.StateMigrationData
                 { migrationProtocolUpdateData = protocolUpdateData,
