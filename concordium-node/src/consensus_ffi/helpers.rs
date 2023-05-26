@@ -188,6 +188,8 @@ pub enum ConsensusFfiResponse {
     MaxBlockEnergyExceeded,
     #[error("The sender did not have enough funds to cover the costs")]
     InsufficientFunds,
+    #[error("The consensus message is a result of double signing")]
+    DoubleSign,
 }
 
 impl ConsensusFfiResponse {
@@ -256,7 +258,8 @@ impl ConsensusFfiResponse {
             | InsufficientFunds
             | BakerNotFound
             | MissingImportFile
-            | ContinueCatchUp => false,
+            | ContinueCatchUp
+            | DoubleSign => false,
             PendingBlock => packet_type != PacketType::Block,
             Success | PendingFinalization | Asynchronous => true,
         }
@@ -327,6 +330,7 @@ impl TryFrom<i64> for ConsensusFfiResponse {
             28 => Ok(ChainUpdateInvalidSignatures),
             29 => Ok(MaxBlockEnergyExceeded),
             30 => Ok(InsufficientFunds),
+            31 => Ok(DoubleSign),
             _ => Err(ConsensusFfiResponseConversionError {
                 unknown_code: value,
             }),

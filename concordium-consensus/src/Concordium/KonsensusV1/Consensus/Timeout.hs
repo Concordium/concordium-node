@@ -462,7 +462,7 @@ updateTimeoutMessages tms tm =
 
 -- |Process a timeout message. This stores the timeout, and makes sure the stored timeout messages
 -- do not span more than 2 epochs. If enough timeout messages are stored, we form a timeout certificate and
--- advance round.
+-- advance round, and bake a block in the new round if possible.
 --
 -- Precondition:
 -- * The given 'TimeoutMessage' is valid and has already been checked.

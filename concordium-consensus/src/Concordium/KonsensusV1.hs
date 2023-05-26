@@ -58,7 +58,7 @@ receiveFinalizationMessage (FMQuorumMessage qm) = do
         Quorum.Received vqm -> return $ Right $ Quorum.processQuorumMessage vqm makeBlock
         Quorum.ReceivedNoRelay vqm -> do
             Quorum.processQuorumMessage vqm makeBlock
-            return $ Left ResultDuplicate
+            return $ Left ResultDoubleSign
         Quorum.Rejected Quorum.Duplicate -> return $ Left ResultDuplicate
         Quorum.Rejected Quorum.ObsoleteRound -> return $ Left ResultStale
         Quorum.Rejected _ -> return $ Left ResultInvalid
@@ -69,6 +69,7 @@ receiveFinalizationMessage (FMTimeoutMessage tm) = do
         Timeout.Received vtm -> return $ Right $ void $ Timeout.executeTimeoutMessage vtm
         Timeout.Rejected Timeout.Duplicate -> return $ Left ResultDuplicate
         Timeout.Rejected Timeout.ObsoleteRound -> return $ Left ResultStale
+        Timeout.Rejected Timeout.DoubleSigning -> return $ Left ResultDoubleSign
         Timeout.Rejected _ -> return $ Left ResultInvalid
         Timeout.CatchupRequired -> return $ Left ResultUnverifiable
 

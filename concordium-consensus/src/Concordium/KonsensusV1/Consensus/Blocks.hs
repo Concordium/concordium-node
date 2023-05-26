@@ -1361,7 +1361,7 @@ makeBlock = do
     forM_ mInputs $ \inputs -> do
         block <- bakeBlock inputs
         logEvent Baker LLTrace $
-            "Going to bake block at "
+            "Baking block at "
                 ++ show (timestampToUTCTime $ blockTimestamp block)
         doAfter (timestampToUTCTime $ blockTimestamp block) $ do
             sendBlock block
