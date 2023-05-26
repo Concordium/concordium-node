@@ -5,6 +5,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
@@ -44,6 +45,7 @@ import Concordium.KonsensusV1.TreeState.StartUp
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.Logger
+import qualified Concordium.Skov.MonadImplementations as SkovV0
 import Concordium.TimeMonad
 import Concordium.TimerMonad
 
@@ -568,3 +570,31 @@ shutdownSkovV1 :: SkovV1Context pv m -> LogIO ()
 shutdownSkovV1 SkovV1Context{..} = liftIO $ do
     closeBlobStore (pbscBlobStore _vcPersistentBlockStateContext)
     closeDatabase _vcDisk
+
+-- |Migrate a 'ConsensusV0' skov instance to a 'ConsensusV1' skov instance.
+migrateSkovFromV0 ::
+    forall lastpv pv oldskovcfg m.
+    ( IsProtocolVersion lastpv,
+      IsConsensusV0 lastpv,
+      IsConsensusV1 pv
+    ) =>
+    -- |The genesis for the protocol after the protocol update.
+    Regenesis pv ->
+    -- |The migration.
+    StateMigrationParameters lastpv pv ->
+    -- |The old skov state
+    SkovV0.SkovState oldskovcfg ->
+    -- |The 'BakerContext'.
+    BakerContext ->
+    -- |Callbacks for the new protocol.
+    HandlerContext pv m ->
+    -- |unlifting an action from SkovV1T to IO.
+    (forall a. SkovV1T pv m a -> IO a) ->
+    -- |The configuration for the new consensus instance.
+    GlobalStateConfig ->
+    -- |Return back the 'SkovV1Context' and the migrated 'SkovV1State'
+    LogIO (SkovV1Context pv m, SkovV1State pv)
+migrateSkovFromV0 regenesis migration oldState bkrContext handlers unlift cfg =
+    case consensusVersionFor (protocolVersion @lastpv) of
+        ConsensusV0 -> undefined
+        ConsensusV1 -> undefined -- FIXME: Support for protocol updates P6-> Issue #825
