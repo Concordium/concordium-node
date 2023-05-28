@@ -35,6 +35,7 @@ import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
 import qualified Concordium.GlobalState.Persistent.Cache as Cache
 import Concordium.GlobalState.Persistent.Genesis (genesisState)
 import Concordium.GlobalState.Persistent.TreeState (checkExistingDatabase)
+import qualified Concordium.GlobalState.TransactionTable as TT
 import Concordium.GlobalState.Types
 import Concordium.KonsensusV1.Consensus
 import Concordium.KonsensusV1.Consensus.Timeout
@@ -45,7 +46,6 @@ import Concordium.KonsensusV1.TreeState.StartUp
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.Logger
-import qualified Concordium.Skov.MonadImplementations as SkovV0
 import Concordium.TimeMonad
 import Concordium.TimerMonad
 
@@ -571,30 +571,41 @@ shutdownSkovV1 SkovV1Context{..} = liftIO $ do
     closeBlobStore (pbscBlobStore _vcPersistentBlockStateContext)
     closeDatabase _vcDisk
 
--- |Migrate a 'ConsensusV0' skov instance to a 'ConsensusV1' skov instance.
-migrateSkovFromV0 ::
-    forall lastpv pv oldskovcfg m.
-    ( IsProtocolVersion lastpv,
-      IsConsensusV0 lastpv,
-      IsConsensusV1 pv
+-- |Perform a migration of a skov state.
+-- This function should be used when a protocol update occurs.
+--
+-- Besides performing the proivded migration i.e. 'StateMigrationParameters' this function copies
+-- the 'TransactionTable' and 'PendingTransactions' from the old Skov instance
+-- to the new Skov instance.
+--
+-- If this function is used in an update from a 'ConsensusV0' -> 'ConsensusV1' then
+-- only non committed/finalized transactions are carried over to the new tree state.
+-- Otherwise if this migration is of type 'ConsensusV1' -> 'ConsensusV1' then the whole
+-- 'TransactionTable' and 'PendingTransactionTable' is carried over.
+migrateSkov ::
+    forall lastpv pv m.
+    ( IsConsensusV1 pv,
+      IsProtocolVersion lastpv
     ) =>
     -- |The genesis for the protocol after the protocol update.
     Regenesis pv ->
     -- |The migration.
     StateMigrationParameters lastpv pv ->
-    -- |The old skov state
-    SkovV0.SkovState oldskovcfg ->
-    -- |The 'BakerContext'.
-    BakerContext ->
-    -- |Callbacks for the new protocol.
-    HandlerContext pv m ->
-    -- |unlifting an action from SkovV1T to IO.
-    (forall a. SkovV1T pv m a -> IO a) ->
     -- |The configuration for the new consensus instance.
     GlobalStateConfig ->
+    -- |The 'TransactionTable' that should be carried over to
+    -- the new consensus instance.
+    TT.TransactionTable ->
+    -- |The 'PendingTransactionTable' that should be carried over to
+    -- the new consensus instance.
+    TT.PendingTransactionTable ->
     -- |Return back the 'SkovV1Context' and the migrated 'SkovV1State'
     LogIO (SkovV1Context pv m, SkovV1State pv)
-migrateSkovFromV0 regenesis migration oldState bkrContext handlers unlift cfg =
+migrateSkov regenesis migration cfg tt ptt =
     case consensusVersionFor (protocolVersion @lastpv) of
+        -- Migrate from a 'ConsensusV0' skov instance.
+        -- In this case we only carry over non-committed transactions and pending transactions.
         ConsensusV0 -> undefined
+        -- Migrate from a 'ConsensusV1' skov instance.
+        -- In this case we carry over all transactions and pending transactions.
         ConsensusV1 -> undefined -- FIXME: Support for protocol updates P6-> Issue #825
