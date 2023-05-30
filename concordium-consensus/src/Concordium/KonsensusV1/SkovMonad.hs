@@ -593,6 +593,8 @@ migrateSkov ::
     StateMigrationParameters lastpv pv ->
     -- |The configuration for the new consensus instance.
     GlobalStateConfig ->
+    -- |The old block state context.
+    PersistentBlockStateContext lastpv ->
     -- |The 'TransactionTable' that should be carried over to
     -- the new consensus instance.
     TT.TransactionTable ->
@@ -601,11 +603,19 @@ migrateSkov ::
     TT.PendingTransactionTable ->
     -- |Return back the 'SkovV1Context' and the migrated 'SkovV1State'
     LogIO (SkovV1Context pv m, SkovV1State pv)
-migrateSkov regenesis migration cfg tt ptt =
+migrateSkov regenesis migration GlobalStateConfig{..} oldPbsc tt ptt =
     case consensusVersionFor (protocolVersion @lastpv) of
         -- Migrate from a 'ConsensusV0' skov instance.
         -- In this case we only carry over non-committed transactions and pending transactions.
-        ConsensusV0 -> undefined
+        ConsensusV0 -> do
+            pbscBlobStore <- liftIO $ createBlobStore gscBlockStateFile
+            pbscAccountCache <- liftIO $ newAccountCache $ rpAccountsCacheSize gscRuntimeParameters
+            pbscModuleCache <- liftIO $ Modules.newModuleCache $ rpModulesCacheSize gscRuntimeParameters
+            let pbsc = PersistentBlockStateContext{..}
+            --            newInitialBlockState <- flip runBlobStoreT oldPbsc . flip runBlobStoreT pbsc $ do
+            --                newState <- migratePersistentBlockState migration undefined (hpbsPointers initState)
+            --                hashBlockState newState
+            return undefined
         -- Migrate from a 'ConsensusV1' skov instance.
         -- In this case we carry over all transactions and pending transactions.
         ConsensusV1 -> undefined -- FIXME: Support for protocol updates P6-> Issue #825

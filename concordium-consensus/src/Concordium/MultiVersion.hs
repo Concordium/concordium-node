@@ -774,6 +774,8 @@ checkForProtocolUpdate = liftSkov body
                                 -- old skov instance.
                                 let !tt = SkovV0._transactionTable currentState
                                     !ptt = SkovV0._pendingTransactions currentState
+                                -- The former block state context.
+                                oldpbsc <- Skov.scGSContext <$> asks Skov.srContext
                                 -- callback for clearing the old skov instance in case
                                 -- the migration is from a 'ConsensusV0' skov.
                                 let freeOldSkov = do
@@ -782,9 +784,9 @@ checkForProtocolUpdate = liftSkov body
                                         -- Shutdown the old skov instance as it is
                                         -- no longer required after the migration.
                                         Skov.terminateSkov
-                                migrateConsensusV1 tt ptt freeOldSkov
+                                migrateConsensusV1 oldpbsc tt ptt freeOldSkov
                             ConsensusV1 -> undefined -- FIXME: Support for protocol updates P6-> Issue #825
-                        migrateConsensusV1 ttToMigrate pttToMigrate cleanup = do
+                        migrateConsensusV1 existingPbsc ttToMigrate pttToMigrate cleanup = do
                             mvr@MultiVersionRunner
                                 { mvConfiguration = MultiVersionConfiguration{..},
                                   mvCallbacks = Callbacks{..},
@@ -809,6 +811,8 @@ checkForProtocolUpdate = liftSkov body
                                             pvInitMigration
                                             -- Global state config
                                             (globalStateConfigV1 mvcStateConfig mvcRuntimeParameters vc1Index)
+                                            -- The existing persistent block state context
+                                            existingPbsc
                                             -- old transaction table
                                             ttToMigrate
                                             -- old pending transaction table
