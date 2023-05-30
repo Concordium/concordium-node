@@ -585,6 +585,7 @@ shutdownSkovV1 SkovV1Context{..} = liftIO $ do
 migrateSkov ::
     forall lastpv pv m.
     ( IsConsensusV1 pv,
+      IsProtocolVersion pv,
       IsProtocolVersion lastpv
     ) =>
     -- |The genesis for the protocol after the protocol update.
@@ -595,6 +596,8 @@ migrateSkov ::
     GlobalStateConfig ->
     -- |The old block state context.
     PersistentBlockStateContext lastpv ->
+    -- |The old block state
+    HashedPersistentBlockState lastpv ->
     -- |The 'TransactionTable' that should be carried over to
     -- the new consensus instance.
     TT.TransactionTable ->
@@ -603,7 +606,7 @@ migrateSkov ::
     TT.PendingTransactionTable ->
     -- |Return back the 'SkovV1Context' and the migrated 'SkovV1State'
     LogIO (SkovV1Context pv m, SkovV1State pv)
-migrateSkov regenesis migration GlobalStateConfig{..} oldPbsc tt ptt =
+migrateSkov regenesis migration GlobalStateConfig{..} oldPbsc oldBlockState tt ptt =
     case consensusVersionFor (protocolVersion @lastpv) of
         -- Migrate from a 'ConsensusV0' skov instance.
         -- In this case we only carry over non-committed transactions and pending transactions.
@@ -612,9 +615,11 @@ migrateSkov regenesis migration GlobalStateConfig{..} oldPbsc tt ptt =
             pbscAccountCache <- liftIO $ newAccountCache $ rpAccountsCacheSize gscRuntimeParameters
             pbscModuleCache <- liftIO $ Modules.newModuleCache $ rpModulesCacheSize gscRuntimeParameters
             let pbsc = PersistentBlockStateContext{..}
-            --            newInitialBlockState <- flip runBlobStoreT oldPbsc . flip runBlobStoreT pbsc $ do
-            --                newState <- migratePersistentBlockState migration undefined (hpbsPointers initState)
-            --                hashBlockState newState
+            newInitialBlockState <- flip runBlobStoreT oldPbsc . flip runBlobStoreT pbsc $ do
+                newState <- migratePersistentBlockState migration $ hpbsPointers oldBlockState
+                hashBlockState newState
+            -- FIXME: Implement the creation of the new @(SkovV1Context, SkovV1State)
+            -- with the migrated state.
             return undefined
         -- Migrate from a 'ConsensusV1' skov instance.
         -- In this case we carry over all transactions and pending transactions.

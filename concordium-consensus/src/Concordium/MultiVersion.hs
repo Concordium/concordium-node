@@ -49,7 +49,7 @@ import Concordium.Afgjort.Finalize.Types
 import Concordium.Birk.Bake
 import Concordium.GlobalState
 import Concordium.GlobalState.Block
-import Concordium.GlobalState.BlockPointer (BlockPointer (..), BlockPointerData (..))
+import Concordium.GlobalState.BlockPointer (BlockPointer (..), BlockPointerData (..), _bpState)
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import qualified Concordium.GlobalState.Persistent.TreeState as SkovV0
@@ -774,8 +774,10 @@ checkForProtocolUpdate = liftSkov body
                                 -- old skov instance.
                                 let !tt = SkovV0._transactionTable currentState
                                     !ptt = SkovV0._pendingTransactions currentState
+                                    -- The last finalized block state of the protocol we're upgrading from.
+                                    !lastFinalizedState = _bpState $ SkovV0._lastFinalized currentState
                                 -- The former block state context.
-                                oldpbsc <- Skov.scGSContext <$> asks Skov.srContext
+                                oldpbsc <- asks (Skov.scGSContext . Skov.srContext)
                                 -- callback for clearing the old skov instance in case
                                 -- the migration is from a 'ConsensusV0' skov.
                                 let freeOldSkov = do
@@ -784,9 +786,9 @@ checkForProtocolUpdate = liftSkov body
                                         -- Shutdown the old skov instance as it is
                                         -- no longer required after the migration.
                                         Skov.terminateSkov
-                                migrateConsensusV1 oldpbsc tt ptt freeOldSkov
+                                migrateConsensusV1 oldpbsc lastFinalizedState tt ptt freeOldSkov
                             ConsensusV1 -> undefined -- FIXME: Support for protocol updates P6-> Issue #825
-                        migrateConsensusV1 existingPbsc ttToMigrate pttToMigrate cleanup = do
+                        migrateConsensusV1 existingPbsc oldState ttToMigrate pttToMigrate cleanup = do
                             mvr@MultiVersionRunner
                                 { mvConfiguration = MultiVersionConfiguration{..},
                                   mvCallbacks = Callbacks{..},
@@ -813,6 +815,8 @@ checkForProtocolUpdate = liftSkov body
                                             (globalStateConfigV1 mvcStateConfig mvcRuntimeParameters vc1Index)
                                             -- The existing persistent block state context
                                             existingPbsc
+                                            -- The old block state
+                                            oldState
                                             -- old transaction table
                                             ttToMigrate
                                             -- old pending transaction table

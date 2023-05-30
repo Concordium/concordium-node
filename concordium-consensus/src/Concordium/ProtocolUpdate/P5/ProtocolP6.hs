@@ -100,9 +100,10 @@ updateRegenesis protocolUpdateData = do
     -- genesisFirstGenesis is the block hash of the previous genesis, if it is initial,
     -- or the genesisFirstGenesis of the previous genesis otherwise.
     let genesisFirstGenesis = GenesisData._gcFirstGenesis gd
-    let genesisPreviousGenesis = GenesisData._gcCurrentHash gd
-    let genesisTerminalBlock = bpHash lfb
-    genesisStateHash <- getStateHash =<< blockState lfb
+        genesisPreviousGenesis = GenesisData._gcCurrentHash gd
+        genesisTerminalBlock = bpHash lfb
+    regenesisBlockState <- blockState lfb
+    genesisStateHash <- getStateHash regenesisBlockState
     let genesisMigration =
             P6.StateMigrationData
                 { migrationProtocolUpdateData = protocolUpdateData,
