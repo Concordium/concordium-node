@@ -87,7 +87,7 @@ data VerifiedQuorumMessage (pv :: ProtocolVersion) = VerifiedQuorumMessage
 -- * 'Rejected' The 'QuorumMessage' failed validation and possible it has been flagged.
 -- * 'CatchupRequired' The 'QuorumMessage' cannot be processed before it is caught up.
 receiveQuorumMessage ::
-    (MonadIO m, LowLevel.MonadTreeStateStore m) =>
+    (MonadIO m, LowLevel.MonadTreeStateStore m, MonadLogger m) =>
     -- |The 'QuorumMessage' to receive.
     QuorumMessage ->
     -- |The tree state to verify the 'QuorumMessage' within.
@@ -117,8 +117,16 @@ receiveQuorumMessage qm@QuorumMessage{..} skovData = receive
                 | otherwise -> do
                     -- Check for double signing. Later, we will not relay the message if it is
                     -- a case of double signing.
-                    forM_ getExistingMessage $ \existingMessage ->
+                    forM_ getExistingMessage $ \existingMessage -> do
                         flag $! QuorumDoubleSigning qm existingMessage
+                        logEvent Konsensus LLWarning $
+                            "Quorum message in round "
+                                <> show qmRound
+                                <> ", epoch "
+                                <> show qmEpoch
+                                <> " from finalizer "
+                                <> show qmFinalizerIndex
+                                <> " is flagged due to double signing."
                     -- Continue verifying by looking up the block.
                     getBlockStatus qmBlock skovData >>= \case
                         -- The signatory signed an already-finalized block. We flag and stop.
@@ -126,6 +134,16 @@ receiveQuorumMessage qm@QuorumMessage{..} skovData = receive
                             -- Since the block is finalized, the round is less than the current
                             -- round, so we flag as an inconsistent round.
                             flag $! RoundInconsistency qm (bpBlock fb)
+                            logEvent Konsensus LLWarning $
+                                "Quorum message in round "
+                                    <> show qmRound
+                                    <> ", epoch "
+                                    <> show qmEpoch
+                                    <> " from finalizer "
+                                    <> show qmFinalizerIndex
+                                    <> " for finalized block "
+                                    <> show (getHash fb :: BlockHash)
+                                    <> " is rejected due to inconsistent rounds."
                             return $ Rejected InconsistentRounds
                         -- The signer signed a dead block. We flag and stop.
                         BlockDead -> do
@@ -149,10 +167,30 @@ receiveQuorumMessage qm@QuorumMessage{..} skovData = receive
                             -- next baker might not see the bad behaviour.
                             | blockRound targetBlock /= qmRound -> do
                                 flag $! RoundInconsistency qm (bpBlock targetBlock)
+                                logEvent Konsensus LLWarning $
+                                    "Quorum message in round "
+                                        <> show qmRound
+                                        <> ", epoch "
+                                        <> show qmEpoch
+                                        <> " from finalizer "
+                                        <> show qmFinalizerIndex
+                                        <> " for alive block "
+                                        <> show (getHash targetBlock :: BlockHash)
+                                        <> " is rejected due to inconsistent rounds."
                                 return $ Rejected InconsistentRounds
                             -- Inconsistent epochs of the quorum signature message and the block it points to.
                             | blockEpoch targetBlock /= qmEpoch -> do
                                 flag $! EpochInconsistency qm (bpBlock targetBlock)
+                                logEvent Konsensus LLWarning $
+                                    "Quorum message in round "
+                                        <> show qmRound
+                                        <> ", epoch "
+                                        <> show qmEpoch
+                                        <> " from finalizer "
+                                        <> show qmFinalizerIndex
+                                        <> " for alive block "
+                                        <> show (getHash targetBlock :: BlockHash)
+                                        <> " is rejected due to inconsistent epochs."
                                 return $ Rejected InconsistentEpochs
                             -- Return the verified quorum message.
                             | otherwise -> do

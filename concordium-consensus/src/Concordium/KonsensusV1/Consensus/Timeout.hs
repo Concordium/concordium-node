@@ -103,7 +103,9 @@ makeLenses ''PartiallyVerifiedTimeoutMessage
 -- If this function returns @Received PartiallyVerifiedTimeoutMessage@ then 'executeTimeoutMessage' MUST
 -- be invoked immediately after relaying the message. Hence there must be no changes to the tree state in the mean time.
 receiveTimeoutMessage ::
-    LowLevel.MonadTreeStateStore m =>
+    ( LowLevel.MonadTreeStateStore m,
+      MonadLogger m
+    ) =>
     -- |The 'TimeoutMessage' to receive.
     TimeoutMessage ->
     -- |The tree state to verify the 'TimeoutMessage' within.
@@ -202,6 +204,14 @@ receiveTimeoutMessage tm@TimeoutMessage{tmBody = TimeoutMessageBody{..}} skovDat
                     -- The finalizer has already sent a timeout message for this round, this is not
                     -- allowed so the behaviour is flagged and timeout message is rejected.
                     flag $! TimeoutDoubleSigning tm existingMessage
+                    logEvent Konsensus LLWarning $
+                        "Timeout message in round "
+                            <> show tmRound
+                            <> ", epoch "
+                            <> show tmEpoch
+                            <> " from finalizer "
+                            <> show tmFinalizerIndex
+                            <> " is rejected due to double signing."
                     return $ Rejected DoubleSigning
             -- Call the continuation
             Nothing -> cont
@@ -279,6 +289,14 @@ executeTimeoutMessage (PartiallyVerifiedTimeoutMessage{..})
     -- Check the aggregate signature of the timeout message.
     | not pvtmAggregateSignatureValid = do
         flag $ InvalidTimeoutSignature pvtmTimeoutMessage
+        logEvent Konsensus LLWarning $
+            "Timeout message in round "
+                <> show tmRound
+                <> ", epoch "
+                <> show tmEpoch
+                <> " from finalizer "
+                <> show tmFinalizerIndex
+                <> " is rejected due to invalid aggregate signature."
         return InvalidAggregateSignature
     -- Note that we now know that the epoch of the qc is valid as
     -- otherwise it would've been rejected in 'receiveTimeoutMessage'.
@@ -336,6 +354,14 @@ executeTimeoutMessage (PartiallyVerifiedTimeoutMessage{..})
             then cont
             else do
                 flag $! TimeoutMessageInvalidQC pvtmTimeoutMessage
+                logEvent Konsensus LLWarning $
+                    "Timeout message in round "
+                        <> show tmRound
+                        <> ", epoch "
+                        <> show tmEpoch
+                        <> " from finalizer "
+                        <> show tmFinalizerIndex
+                        <> " is rejected due to invalid qc."
                 return $! InvalidQC tmQuorumCertificate
 
 -- |This is 'uponTimeoutEvent' from the bluepaper. If a timeout occurs, a finalizers should call

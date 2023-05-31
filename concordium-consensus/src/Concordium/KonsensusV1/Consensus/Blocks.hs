@@ -252,7 +252,7 @@ receiveBlockKnownParent parent pendingBlock = do
                     return BlockResultInvalid
         | otherwise = do
             -- The block's epoch is not valid.
-            logEvent Konsensus LLTrace $
+            logEvent Konsensus LLWarning $
                 "Block "
                     <> show pbHash
                     <> " is for an invalid epoch ("
@@ -275,7 +275,7 @@ receiveBlockKnownParent parent pendingBlock = do
             use (roundBakerExistingBlock (blockRound pendingBlock) (blockBaker pendingBlock)) >>= \case
                 Just w -> do
                     -- If the baker has already signed a block in this round then we flag it.
-                    logEvent Konsensus LLDebug $
+                    logEvent Konsensus LLWarning $
                         "Baker "
                             <> show (blockBaker pendingBlock)
                             <> " signed multiple blocks in round "
@@ -292,7 +292,7 @@ receiveBlockKnownParent parent pendingBlock = do
                     return $ BlockResultSuccess verifiedBlock
         | otherwise = do
             -- The baker is not the leader.
-            logEvent Konsensus LLTrace $
+            logEvent Konsensus LLWarning $
                 "Block "
                     <> show pbHash
                     <> " is from baker "
@@ -474,17 +474,17 @@ processBlock ::
 processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
     -- Check that the QC is consistent with the parent block round.
     | qcRound (blockQuorumCertificate pendingBlock) /= blockRound parent = do
-        logEvent Konsensus LLTrace $ "Block " <> show pbHash <> " QC round does not match parent block's round."
+        logEvent Konsensus LLWarning $ "Block " <> show pbHash <> " QC round does not match parent block's round."
         flag $ BlockQCRoundInconsistent sBlock
         rejectBlock
     -- Check that the QC is consistent with the parent block epoch.
     | qcEpoch (blockQuorumCertificate pendingBlock) /= blockEpoch parent = do
-        logEvent Konsensus LLTrace $ "Block " <> show pbHash <> " QC epoch does not match parent block's epoch."
+        logEvent Konsensus LLWarning $ "Block " <> show pbHash <> " QC epoch does not match parent block's epoch."
         flag $ BlockQCEpochInconsistent sBlock
         rejectBlock
     -- Check that the block round is greater than the round of the parent block.
     | blockRound parent >= blockRound pendingBlock = do
-        logEvent Konsensus LLTrace $ "Block " <> show pbHash <> " round is not higher than parent block's round."
+        logEvent Konsensus LLWarning $ "Block " <> show pbHash <> " round is not higher than parent block's round."
         flag $ BlockRoundInconsistent sBlock
         rejectBlock
     -- Check that the block epoch is either the same as the epoch of the parent block or the next
@@ -497,7 +497,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
     -- fail, because it is already checked there.
     | blockEpoch parent /= blockEpoch pendingBlock,
       blockEpoch parent + 1 /= blockEpoch pendingBlock = do
-        logEvent Konsensus LLTrace $ "Block " <> show pbHash <> " epoch is not the same or next epoch relative to parent."
+        logEvent Konsensus LLWarning $ "Block " <> show pbHash <> " epoch is not the same or next epoch relative to parent."
         flag $ BlockEpochInconsistent sBlock
         rejectBlock
     -- [Note: the timestamp check is deferred in the implementation compared to the bluepaper.]
@@ -509,7 +509,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
             (vbBakerInfo ^. bakerElectionVerifyKey)
             (blockNonce pendingBlock) =
         do
-            logEvent Konsensus LLTrace $ "Block " <> show pbHash <> " nonce is incorrect."
+            logEvent Konsensus LLWarning $ "Block " <> show pbHash <> " nonce is incorrect."
             flag $ BlockNonceIncorrect sBlock
             rejectBlock
     | otherwise = do
@@ -567,7 +567,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
         minBlockTime <- getMinBlockTime parent
         if blockTimestamp pendingBlock < blockTimestamp parent `addDuration` minBlockTime
             then do
-                logEvent Konsensus LLTrace $
+                logEvent Konsensus LLWarning $
                     "Block "
                         ++ show pbHash
                         ++ " timestamp ("
@@ -588,7 +588,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                 -- Check that a timeout certificate is present if the block round is not the
                 -- sequentially next round.
                 Absent -> do
-                    logEvent Konsensus LLTrace $
+                    logEvent Konsensus LLWarning $
                         "Block "
                             <> show pbHash
                             <> " is missing a timeout certificate, but is not in the next round from its parent."
@@ -597,12 +597,12 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                 Present tc
                     -- Check that the TC round is correct.
                     | tcRound tc /= blockRound pendingBlock - 1 -> do
-                        logEvent Konsensus LLTrace $ "Block " <> show pbHash <> " timeout certificate is not for the correct round."
+                        logEvent Konsensus LLWarning $ "Block " <> show pbHash <> " timeout certificate is not for the correct round."
                         flag $ BlockTCRoundInconsistent sBlock
                         rejectBlock
                     | blockRound parent < tcMaxRound tc
                         || blockEpoch parent < tcMaxEpoch tc -> do
-                        logEvent Konsensus LLTrace $ "Block " <> show pbHash <> " timeout certificate is inconsistent with the quorum certificate."
+                        logEvent Konsensus LLWarning $ "Block " <> show pbHash <> " timeout certificate is inconsistent with the quorum certificate."
                         flag $ BlockQCInconsistentWithTC sBlock
                         rejectBlock
                     | otherwise -> do
@@ -654,12 +654,12 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                         if tcOK
                             then continue
                             else do
-                                logEvent Konsensus LLTrace $ "Block " <> show pbHash <> " timeout certificate is invalid."
+                                logEvent Konsensus LLWarning $ "Block " <> show pbHash <> " timeout certificate is invalid."
                                 flag $ BlockInvalidTC sBlock
                                 rejectBlock
         -- If the previous round didn't timeout, check we have no timeout certificate
         | Present _ <- blockTimeoutCertificate pendingBlock = do
-            logEvent Konsensus LLTrace $ "Block " <> show pbHash <> " has unexpected timeout certificate."
+            logEvent Konsensus LLWarning $ "Block " <> show pbHash <> " has unexpected timeout certificate."
             flag $ BlockUnexpectedTC sBlock
             rejectBlock
         | otherwise = continue
@@ -671,7 +671,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
         | blockEpoch pendingBlock == blockEpoch parent + 1 =
             case blockEpochFinalizationEntry pendingBlock of
                 Absent -> do
-                    logEvent Konsensus LLTrace $ "Block " <> show pbHash <> " missing an epoch finalization entry."
+                    logEvent Konsensus LLWarning $ "Block " <> show pbHash <> " missing an epoch finalization entry."
                     flag $ BlockEpochFinalizationMissing sBlock
                     rejectBlock
                 Present finEntry
@@ -724,7 +724,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                                     -- and as a result conflicting blocks were finalized.
                                     continue
                             _ -> do
-                                logEvent Konsensus LLTrace $
+                                logEvent Konsensus LLWarning $
                                     "Block "
                                         <> show pbHash
                                         <> " contains epoch finalization entry for a block ("
@@ -733,7 +733,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                                 flag $ BlockInvalidEpochFinalization sBlock
                                 rejectBlock
                     | otherwise -> do
-                        logEvent Konsensus LLTrace $
+                        logEvent Konsensus LLWarning $
                             "Block "
                                 <> show pbHash
                                 <> " contains an invalid epoch finalization entry."
@@ -742,7 +742,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
         -- Here, the epoch must be the same as the parent epoch by the earlier epoch consistency
         -- check, and so we require the epoch finalization entry to be absent.
         | Present _ <- blockEpochFinalizationEntry pendingBlock = do
-            logEvent Konsensus LLTrace $
+            logEvent Konsensus LLWarning $
                 "Block "
                     <> show pbHash
                     <> " contains an epoch finalization entry when it should not."
@@ -768,7 +768,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                     }
         processBlockItems (sbBlock (pbBlock pendingBlock)) parent >>= \case
             Nothing -> do
-                logEvent Konsensus LLTrace $
+                logEvent Konsensus LLWarning $
                     "Block "
                         <> show pbHash
                         <> " failed transaction verification."
@@ -777,7 +777,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
             Just transactions -> do
                 executeBlockState execData transactions >>= \case
                     Left failureReason -> do
-                        logEvent Konsensus LLTrace $
+                        logEvent Konsensus LLWarning $
                             "Block "
                                 <> show pbHash
                                 <> " failed execution: "
@@ -789,7 +789,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                         if
                                 | outcomesHash /= blockTransactionOutcomesHash pendingBlock -> do
                                     -- Incorrect transaction outcomes
-                                    logEvent Konsensus LLTrace $
+                                    logEvent Konsensus LLWarning $
                                         "Block "
                                             <> show pbHash
                                             <> " stated transaction outcome hash ("
@@ -801,7 +801,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                                     rejectBlock
                                 | getHash newState /= blockStateHash pendingBlock -> do
                                     -- Incorrect state hash
-                                    logEvent Konsensus LLTrace $
+                                    logEvent Konsensus LLWarning $
                                         "Block "
                                             <> show pbHash
                                             <> " stated state hash ("
@@ -834,7 +834,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                 recordCheckedQuorumCertificate qc
                 continue
             else do
-                logEvent Konsensus LLTrace $
+                logEvent Konsensus LLWarning $
                     "Block "
                         <> show pbHash
                         <> " contains an invalid QC."
