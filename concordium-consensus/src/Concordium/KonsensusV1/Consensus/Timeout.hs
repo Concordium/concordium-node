@@ -314,7 +314,8 @@ executeTimeoutMessage (PartiallyVerifiedTimeoutMessage{..})
             if currentRound <= qcRound tmQuorumCertificate
                 then -- Advance the round with the new certified block.
                     advanceRoundWithQuorum newCertifiedBlock
-                else -- Otherwise we just update the highest certified block.
+                else -- Otherwise if the round of the @newCertifiedBlock@ is greater
+                -- than our current highest certified block, then we update it.
                     checkedUpdateHighestCertifiedBlock newCertifiedBlock
             -- Process the timeout message
             processTimeout pvtmTimeoutMessage
