@@ -688,7 +688,8 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                         -- We record that we have checked a valid QC for the successor round.
                         -- We do not record the finalized round, because we expect it to be
                         -- finalized, and we only keep entries for non-finalized rounds.
-                        recordCheckedQuorumCertificate (feSuccessorQuorumCertificate finEntry)
+                        recordCheckedQuorumCertificate $ feSuccessorQuorumCertificate finEntry
+                        recordCheckedQuorumCertificate $ feFinalizedQuorumCertificate finEntry
                         -- Check that the finalized block has timestamp past the trigger time for
                         -- the epoch. We use the seed state for the parent block to get the trigger
                         -- time, because that is in the same epoch.
