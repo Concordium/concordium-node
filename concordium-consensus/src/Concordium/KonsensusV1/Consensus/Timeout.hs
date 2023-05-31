@@ -155,7 +155,7 @@ receiveTimeoutMessage tm@TimeoutMessage{tmBody = TimeoutMessageBody{..}} skovDat
                                 if qcEpoch tmQuorumCertificate == certEpoch
                                     then received finInfo finalizationCommittee Absent
                                     else return $ Rejected BadQCEpoch
-                            -- If we have not already checked a QC for the round of the quorum certificate assoicated
+                            -- If we have not already checked a QC for the round of the quorum certificate associated
                             -- with the timeout message.
                             _ -> do
                                 getRecentBlockStatus (qcBlock tmQuorumCertificate) skovData >>= \case
