@@ -288,8 +288,7 @@ executeTimeoutMessage (PartiallyVerifiedTimeoutMessage{..})
     -- - that @tmEpoch >= qcEpoch tmQuorumCertificate@, so we do not need to check that here.
     | Absent <- pvtmBlock = do
         -- In this case, we have already checked a valid QC for the round and epoch of the timeout
-        -- message, but the message is on either a 'BlockPending' or 'BlockUnknown' block.
-        -- We just need to process the timeout.
+        -- message. We just need to process the timeout.
         processTimeout pvtmTimeoutMessage
         return ExecutionSuccess
     | Present block <- pvtmBlock = do
