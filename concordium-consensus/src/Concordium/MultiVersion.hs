@@ -768,6 +768,8 @@ checkForProtocolUpdate = liftSkov body
                       where
                         migrateToSkovV1 = case consensusVersionFor (protocolVersion @lastpv) of
                             ConsensusV0 -> do
+                                -- Clear the old skov instance.
+                                Skov.clearSkovOnProtocolUpdate
                                 mvr@MultiVersionRunner
                                     { mvConfiguration = MultiVersionConfiguration{..},
                                       mvCallbacks = Callbacks{..},
@@ -822,7 +824,6 @@ checkForProtocolUpdate = liftSkov body
                                             mvLog
                                 -- Shutdown the old skov instance as it is
                                 -- no longer required after the migration.
-                                Skov.clearSkovOnProtocolUpdate
                                 Skov.terminateSkov
                                 -- Create a reference for the new state.
                                 vc1State <- liftIO $ newIORef newState

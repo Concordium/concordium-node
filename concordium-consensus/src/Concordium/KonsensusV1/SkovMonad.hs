@@ -573,17 +573,20 @@ shutdownSkovV1 SkovV1Context{..} = liftIO $ do
     closeBlobStore (pbscBlobStore _vcPersistentBlockStateContext)
     closeDatabase _vcDisk
 
--- |Perform a migration of a skov state.
+-- |Migrate a 'ConsensusV0' state to a 'ConsensusV1' state.
 -- This function should be used when a protocol update occurs.
 --
--- Besides performing the proivded migration i.e. 'StateMigrationParameters' this function copies
--- the 'TransactionTable' and 'PendingTransactions' from the old Skov instance
--- to the new Skov instance.
+-- This function performs the migration from the provided @HashedPersistentBlockState lastpv@ and
+-- creates a new @HashedPersistentBlockState pv@.
 --
--- If this function is used in an update from a 'ConsensusV0' -> 'ConsensusV1' then
--- only non committed/finalized transactions are carried over to the new tree state.
--- Otherwise if this migration is of type 'ConsensusV1' -> 'ConsensusV1' then the whole
--- 'TransactionTable' and 'PendingTransactionTable' is carried over.
+-- After the migration is carried out then the new block state is flushed to disk
+-- and the new @SkovData pv@ is created.
+--
+-- The function returns a pair of ('SkovV1Context', 'SkovV1State') suitable for starting the
+-- protocol.
+--
+-- Note that this function does not free any resources with respect to the
+-- skov for the @lastpv@, this is the responsibility of the caller.
 migrateSkovFromConsensusV0 ::
     forall lastpv pv m.
     ( IsConsensusV0 lastpv,
