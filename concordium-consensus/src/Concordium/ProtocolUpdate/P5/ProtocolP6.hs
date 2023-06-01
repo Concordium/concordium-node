@@ -72,7 +72,7 @@ import Concordium.Types.ProtocolVersion
 -- |The hash that identifies a update from P5 to P6 protocol.
 -- This is the hash of the published specification document.
 updateHash :: SHA256.Hash
-updateHash = SHA256.hash "dummy p6 protocol hash"
+updateHash = read "fb9736eab691bff18607750660020a5cac48a0dce962708e1e0b01e1794d4cb5"
 
 -- |Construct the genesis data for a P5.ProtocolP6 update.
 -- It is assumed that the last finalized block is the terminal block of the old chain:

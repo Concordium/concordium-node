@@ -847,6 +847,9 @@ checkForProtocolUpdate = liftSkov body
                                 writeIORef mvVersions (existingVersions `Vec.snoc` newVersionV1 newECConfig)
                                 -- Notify the network layer about the new genesis.
                                 notifyRegenesis (Just (regenesisBlockHash nextGenesis))
+                                -- startup the new consensus
+                                runMVR (liftSkovV1Update newECConfig KonsensusV1.startEvents) mvr
+
     showPU ProtocolUpdate{..} =
         Text.unpack puMessage
             ++ "\n["
