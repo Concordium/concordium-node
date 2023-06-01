@@ -772,8 +772,7 @@ checkForProtocolUpdate = liftSkov body
                                 currentState <- ssGSState <$> State.get
                                 -- The 'TransactionTable' and 'PendingTransactionTable' from the
                                 -- old skov instance.
-                                let !tt = SkovV0._transactionTable currentState
-                                    !ptt = SkovV0._pendingTransactions currentState
+                                let
                                     -- The last finalized block state of the protocol we're upgrading from.
                                     !lastFinalizedState = _bpState $ SkovV0._lastFinalized currentState
                                 -- The former block state context.
@@ -786,9 +785,8 @@ checkForProtocolUpdate = liftSkov body
                                         -- Shutdown the old skov instance as it is
                                         -- no longer required after the migration.
                                         Skov.terminateSkov
-                                migrateConsensusV1 oldpbsc lastFinalizedState tt ptt freeOldSkov
-                            ConsensusV1 -> undefined -- FIXME: Support for protocol updates P6-> Issue #825
-                        migrateConsensusV1 existingPbsc oldState ttToMigrate pttToMigrate cleanup = do
+                                migrateConsensusV1 oldpbsc lastFinalizedState freeOldSkov
+                        migrateConsensusV1 existingPbsc oldState cleanup = do
                             mvr@MultiVersionRunner
                                 { mvConfiguration = MultiVersionConfiguration{..},
                                   mvCallbacks = Callbacks{..},
@@ -803,6 +801,17 @@ checkForProtocolUpdate = liftSkov body
                                 vc1GenesisHeight = 1 + localToAbsoluteBlockHeight latestEraGenesisHeight pvInitFinalHeight
                             -- Create the new skov instance.
                             configRef <- liftIO newEmptyMVar
+                            -- We need an "unlift" operation to run a SkovV1 transaction in an IO context.
+                            -- This is used for implementing timer handlers.
+                            -- The "unlift" is implemented by using an 'MVar' to store the configuration in,
+                            -- that will be set after initialization.
+                            -- configRef <- newEmptyMVar
+                            let
+                                unliftSkov :: forall b. VersionedSkovV1M fc newpv b -> IO b
+                                unliftSkov a = do
+                                    config <- readMVar configRef
+                                    runMVR (runSkovV1Transaction config a) mvr
+                            let !handlers = skovV1Handlers vc1Index vc1GenesisHeight
                             (vc1Context, newState) <-
                                 liftIO $
                                     runLoggerT
@@ -817,10 +826,11 @@ checkForProtocolUpdate = liftSkov body
                                             existingPbsc
                                             -- The old block state
                                             oldState
-                                            -- old transaction table
-                                            ttToMigrate
-                                            -- old pending transaction table
-                                            pttToMigrate
+                                            (SkovV1.BakerContext (bakerIdentity <$> mvBaker))
+                                            -- Handler context
+                                            handlers
+                                            -- lift SkovV1T
+                                            unliftSkov
                                         )
                                         mvLog
                             -- Clear and shutdown the old skov instance.
