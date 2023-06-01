@@ -25,7 +25,7 @@ import qualified Concordium.Crypto.BlockSignature as BlockSig
 import qualified Concordium.Crypto.BlsSignature as Bls
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.VRF as VRF
-import Concordium.Genesis.Data (Regenesis, coreGenesisParameters, firstGenesisBlockHash, regenesisBlockHash, regenesisCoreParametersV1)
+import Concordium.Genesis.Data (Regenesis, firstGenesisBlockHash, regenesisBlockHash, regenesisCoreParametersV1)
 import Concordium.Genesis.Data.BaseV1
 import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as LFMBT
 import Concordium.Types

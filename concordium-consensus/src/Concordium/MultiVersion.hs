@@ -768,88 +768,76 @@ checkForProtocolUpdate = liftSkov body
                       where
                         migrateToSkovV1 = case consensusVersionFor (protocolVersion @lastpv) of
                             ConsensusV0 -> do
-                                -- get the current v0 tree state.
-                                currentState <- ssGSState <$> State.get
-                                -- The 'TransactionTable' and 'PendingTransactionTable' from the
-                                -- old skov instance.
+                                mvr@MultiVersionRunner
+                                    { mvConfiguration = MultiVersionConfiguration{..},
+                                      mvCallbacks = Callbacks{..},
+                                      ..
+                                    } <-
+                                    lift ask
+                                existingVersions <- liftIO (readIORef mvVersions)
+                                latestEraGenesisHeight <- liftIO $ do
+                                    cfgs <- readIORef mvVersions
+                                    return $ evcGenesisHeight $ Vec.last cfgs
+                                let vc1Index = fromIntegral (length existingVersions)
+                                    vc1GenesisHeight = 1 + localToAbsoluteBlockHeight latestEraGenesisHeight pvInitFinalHeight
+                                -- Create the new skov instance.
+                                configRef <- liftIO newEmptyMVar
+                                -- We need an "unlift" operation to run a SkovV1 transaction in an IO context.
+                                -- This is used for implementing timer handlers.
+                                -- The "unlift" is implemented by using an 'MVar' to store the configuration in,
+                                -- that will be set after initialization.
+                                -- configRef <- newEmptyMVar
                                 let
-                                    -- The last finalized block state of the protocol we're upgrading from.
-                                    !lastFinalizedState = _bpState $ SkovV0._lastFinalized currentState
-                                -- The former block state context.
-                                oldpbsc <- asks (Skov.scGSContext . Skov.srContext)
-                                -- callback for clearing the old skov instance in case
-                                -- the migration is from a 'ConsensusV0' skov.
-                                let freeOldSkov = do
-                                        -- Clear the old skov instance
-                                        Skov.clearSkovOnProtocolUpdate
-                                        -- Shutdown the old skov instance as it is
-                                        -- no longer required after the migration.
-                                        Skov.terminateSkov
-                                migrateConsensusV1 oldpbsc lastFinalizedState freeOldSkov
-                        migrateConsensusV1 existingPbsc oldState cleanup = do
-                            mvr@MultiVersionRunner
-                                { mvConfiguration = MultiVersionConfiguration{..},
-                                  mvCallbacks = Callbacks{..},
-                                  ..
-                                } <-
-                                lift ask
-                            existingVersions <- liftIO (readIORef mvVersions)
-                            latestEraGenesisHeight <- liftIO $ do
-                                cfgs <- readIORef mvVersions
-                                return $ evcGenesisHeight $ Vec.last cfgs
-                            let vc1Index = fromIntegral (length existingVersions)
-                                vc1GenesisHeight = 1 + localToAbsoluteBlockHeight latestEraGenesisHeight pvInitFinalHeight
-                            -- Create the new skov instance.
-                            configRef <- liftIO newEmptyMVar
-                            -- We need an "unlift" operation to run a SkovV1 transaction in an IO context.
-                            -- This is used for implementing timer handlers.
-                            -- The "unlift" is implemented by using an 'MVar' to store the configuration in,
-                            -- that will be set after initialization.
-                            -- configRef <- newEmptyMVar
-                            let
-                                unliftSkov :: forall b. VersionedSkovV1M fc newpv b -> IO b
-                                unliftSkov a = do
-                                    config <- readMVar configRef
-                                    runMVR (runSkovV1Transaction config a) mvr
-                            let !handlers = skovV1Handlers vc1Index vc1GenesisHeight
-                            (vc1Context, newState) <-
-                                liftIO $
-                                    runLoggerT
-                                        ( SkovV1.migrateSkov
-                                            -- regenesis
-                                            nextGenesis
-                                            -- migration
-                                            pvInitMigration
-                                            -- Global state config
-                                            (globalStateConfigV1 mvcStateConfig mvcRuntimeParameters vc1Index)
-                                            -- The existing persistent block state context
-                                            existingPbsc
-                                            -- The old block state
-                                            oldState
-                                            (SkovV1.BakerContext (bakerIdentity <$> mvBaker))
-                                            -- Handler context
-                                            handlers
-                                            -- lift SkovV1T
-                                            unliftSkov
-                                        )
-                                        mvLog
-                            -- Clear and shutdown the old skov instance.
-                            cleanup
-                            -- Create a reference for the new state.
-                            vc1State <- liftIO $ newIORef newState
-                            let vc1Shutdown = SkovV1.shutdownSkovV1 vc1Context
-                                newECConfig :: VersionedConfigurationV1 fc newpv
-                                newECConfig = VersionedConfigurationV1{..}
-                            liftIO $ do
-                                -- Write the new configuration reference.
-                                putMVar configRef newECConfig
-                                -- Write out the new versions with the appended new protocol version.
-                                writeIORef mvVersions (existingVersions `Vec.snoc` newVersionV1 newECConfig)
-                                -- Notify the network layer about the new genesis.
-                                notifyRegenesis (Just (regenesisBlockHash nextGenesis))
-                                -- startup the new consensus
-                                runMVR (liftSkovV1Update newECConfig KonsensusV1.startEvents) mvr
-
+                                    unliftSkov :: forall b. VersionedSkovV1M fc newpv b -> IO b
+                                    unliftSkov a = do
+                                        config <- readMVar configRef
+                                        runMVR (runSkovV1Transaction config a) mvr
+                                let !handlers = skovV1Handlers vc1Index vc1GenesisHeight
+                                -- get the current tree state.
+                                currentState <- ssGSState <$> State.get
+                                -- the existing persistent block state context.
+                                existingPbsc <- asks $ Skov.scGSContext . Skov.srContext
+                                -- Migrate the old state to the new protocol.
+                                (vc1Context, newState) <-
+                                    liftIO $
+                                        runLoggerT
+                                            ( SkovV1.migrateSkovFromConsensusV0
+                                                -- regenesis
+                                                nextGenesis
+                                                -- migration
+                                                pvInitMigration
+                                                -- Global state config
+                                                (globalStateConfigV1 mvcStateConfig mvcRuntimeParameters vc1Index)
+                                                -- The existing persistent block state context
+                                                existingPbsc
+                                                -- The last finalized state of the chain we're migrating from.
+                                                (_bpState $ SkovV0._lastFinalized currentState)
+                                                -- The baker context
+                                                (SkovV1.BakerContext (bakerIdentity <$> mvBaker))
+                                                -- Handler context
+                                                handlers
+                                                -- lift SkovV1T
+                                                unliftSkov
+                                            )
+                                            mvLog
+                                -- Shutdown the old skov instance as it is
+                                -- no longer required after the migration.
+                                Skov.clearSkovOnProtocolUpdate
+                                Skov.terminateSkov
+                                -- Create a reference for the new state.
+                                vc1State <- liftIO $ newIORef newState
+                                let vc1Shutdown = SkovV1.shutdownSkovV1 vc1Context
+                                    newECConfig :: VersionedConfigurationV1 fc newpv
+                                    newECConfig = VersionedConfigurationV1{..}
+                                liftIO $ do
+                                    -- Write the new configuration reference.
+                                    putMVar configRef newECConfig
+                                    -- Write out the new versions with the appended new protocol version.
+                                    writeIORef mvVersions (existingVersions `Vec.snoc` newVersionV1 newECConfig)
+                                    -- Notify the network layer about the new genesis.
+                                    notifyRegenesis (Just (regenesisBlockHash nextGenesis))
+                                    -- startup the new consensus
+                                    runMVR (liftSkovV1Update newECConfig KonsensusV1.startEvents) mvr
     showPU ProtocolUpdate{..} =
         Text.unpack puMessage
             ++ "\n["
