@@ -726,7 +726,7 @@ checkForProtocolUpdate = liftSkov body
                             return $ evcGenesisHeight $ Vec.last cfgs
                         let vc0Index = fromIntegral (length existingVersions)
                         let vc0GenesisHeight = 1 + localToAbsoluteBlockHeight latestEraGenesisHeight pvInitFinalHeight
-                        -- construct the the new skov instance
+                        -- construct the new skov instance
                         let newGSConfig =
                                 Skov.SkovConfig @newpv @fc
                                     ( globalStateConfig
