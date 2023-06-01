@@ -1,7 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module ConcordiumTests.KonsensusV1.LMDB (tests) where
+module ConcordiumTests.KonsensusV1.LMDB where
 
 import Control.Exception
 import Control.Monad.IO.Class (liftIO)
@@ -132,6 +132,13 @@ dummyBlockItem =
                   atrSignHash = TransactionSignHashV0 dummyHash
                 }
 
+-- |A helper function for creating a block with the provided 'BlockHash'.
+-- The block is empty.
+dummyBlockWithHash :: BlockHash -> Round -> Vector.Vector BlockItem -> Block 'P6
+dummyBlockWithHash h n ts = NormalBlock $ SignedBlock b h dummyBlockSig
+  where
+    b = dummyBakedBlock n ts
+
 -- |A helper function for creating a block with the given round and block items.
 -- Blocks with different hashes can then be constructed by calling this function with different rounds.
 -- The blocks are derived from 'dummyBakedBlock' with the supplied round and block items.
@@ -140,6 +147,10 @@ dummyBlock n ts = NormalBlock $ SignedBlock b h dummyBlockSig
   where
     b = dummyBakedBlock n ts
     h = getHash b
+
+-- |A helper function for creating a 'StoredBlock' with the provided 'BlockHeight' and 'Block'.
+dummyStoredBlockWithProvidedBlock :: BlockHeight -> Block 'P6 -> StoredBlock 'P6
+dummyStoredBlockWithProvidedBlock h b = StoredBlock (BlockMetadata h dummyTime dummyTime 0 0) b (BlobRef 0)
 
 -- |A helper function for creating a StoredBlock with the given block height and round, and with no transactions.
 -- Empty 'StoredBlock's with different hashes can then be constructed by calling this function with different rounds.

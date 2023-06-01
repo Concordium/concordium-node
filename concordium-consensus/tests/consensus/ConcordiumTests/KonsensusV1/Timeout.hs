@@ -33,7 +33,7 @@ import Concordium.KonsensusV1.Consensus.Timeout
 import Concordium.KonsensusV1.Consensus.Timeout.Internal
 import Concordium.KonsensusV1.TestMonad
 import Concordium.KonsensusV1.TreeState.Implementation
-import Concordium.KonsensusV1.TreeState.LowLevel.Memory
+import Concordium.KonsensusV1.TreeState.LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.Startup
@@ -42,6 +42,7 @@ import Concordium.Types.BakerIdentity
 import qualified Concordium.Types.DummyData as Dummy
 import Concordium.Types.Transactions
 import ConcordiumTests.KonsensusV1.Common
+import qualified ConcordiumTests.KonsensusV1.LMDB as DummyLMDB
 import ConcordiumTests.KonsensusV1.TreeStateTest hiding (tests)
 import ConcordiumTests.KonsensusV1.Types hiding (tests)
 
@@ -495,15 +496,14 @@ testReceiveTimeoutMessage = describe "Receive timeout message" $ do
                 . HM.insert liveBlockHash liveBlock
                 . HM.insert anotherLiveBlock liveBlock
             & currentTimeoutMessages .~ Present (TimeoutMessages 0 (Map.singleton (FinalizerIndex 1) duplicateMessage) Map.empty)
-    -- A low level database which consists of a finalized block for height 0 otherwise empty.
-    lldb =
-        let myLLDB = lldbWithGenesis @'P6
-        in  myLLDB{lldbBlockHashes = HM.singleton someOldFinalizedBlockHash $ BlockHeight 0}
-    -- receive the timeout message in the provided tree state context and
+    myDummyFinalizedBlock = DummyLMDB.dummyStoredBlockWithProvidedBlock 0 $ DummyLMDB.dummyBlockWithHash someOldFinalizedBlockHash 0 Vec.empty
+    -- receive the timeout message in the provided tree state context and with
+    -- a finalized block in the lmdb database.
     -- check that the result is as expected.
-    receiveAndCheck skovData tm expect = do
-        resultCode <- runTestLLDB lldb $ receiveTimeoutMessage tm skovData
-        resultCode `shouldBe` expect
+    receiveAndCheck skovData tm expect = runTestMonad @'P6 (BakerContext Nothing) (timestampToUTCTime 1) genesisData $ do
+        writeBlocks [myDummyFinalizedBlock] DummyLMDB.dummyFinalizationEntry
+        resultCode <- receiveTimeoutMessage tm skovData
+        liftIO $ expect @=? resultCode
 
 -- |Tests for executing timeout messages.
 -- The @executeTimeoutMessage@ executes a 'TimeoutMessage' which is partially verified

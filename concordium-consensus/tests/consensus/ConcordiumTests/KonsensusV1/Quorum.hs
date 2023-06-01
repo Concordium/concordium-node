@@ -1,11 +1,13 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- |Module testing functions from the 'Concordium.KonsensusV1.Quorum' module.
 module ConcordiumTests.KonsensusV1.Quorum where
 
+import Control.Monad.IO.Class
 import Data.Maybe (fromJust, isJust)
 import qualified Data.Vector as Vec
 import Lens.Micro.Platform
@@ -14,16 +16,23 @@ import Test.Hspec
 import Test.QuickCheck
 
 import qualified Concordium.Crypto.BlsSignature as Bls
+import qualified Concordium.Crypto.DummyData as Dummy
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.VRF as VRF
+import Concordium.Genesis.Data
 import Concordium.GlobalState.BakerInfo
+import qualified Concordium.GlobalState.DummyData as Dummy
 import Concordium.GlobalState.Persistent.TreeState (insertDeadCache)
+import Concordium.KonsensusV1.Consensus
 import Concordium.KonsensusV1.Consensus.Quorum
+import Concordium.KonsensusV1.TestMonad
+import Concordium.KonsensusV1.TreeState.Implementation
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
+import Concordium.Startup
 import Concordium.Types
-
-import Concordium.KonsensusV1.TreeState.Implementation
+import Concordium.Types.BakerIdentity
+import qualified Concordium.Types.DummyData as Dummy
 import ConcordiumTests.KonsensusV1.Common
 import ConcordiumTests.KonsensusV1.TreeStateTest
 import ConcordiumTests.KonsensusV1.Types
@@ -40,6 +49,29 @@ genQuorumMessageFor bh = do
     qmRound <- genRound
     qmEpoch <- genEpoch
     return QuorumMessage{qmBlock = bh, ..}
+
+-- |Genesis data used for the context
+-- that the computations are runnng within.
+genesisData :: GenesisData 'P6
+bakers :: [(BakerIdentity, FullBakerInfo)]
+(genesisData, bakers, _) =
+    makeGenesisDataV1
+        0
+        5
+        3_600_000
+        Dummy.dummyCryptographicParameters
+        Dummy.dummyIdentityProviders
+        Dummy.dummyArs
+        [ foundationAcct
+        ]
+        Dummy.dummyKeyCollection
+        Dummy.dummyChainParameters
+  where
+    foundationAcct =
+        Dummy.createCustomAccount
+            1_000_000_000_000
+            (Dummy.deterministicKP 0)
+            (Dummy.accountAddressFrom 0)
 
 -- |Test for ensuring that when a
 -- new 'QuorumMessage' is added to the 'QuorumMessages' type,
@@ -202,9 +234,9 @@ testReceiveQuorumMessage = describe "Receive quorum message" $ do
             & skovPendingTransactions . focusBlock .~ liveBlockPointer (Round r) e
             & lastFinalized .~ finalizedBlockPointer (Round 0) 1
     -- Run the 'receiveQuorumMessage' action.
-    receiveAndCheck skovData qm expect = do
-        resultCode <- runTestLLDB (lldbWithGenesis @'P6) $ receiveQuorumMessage qm skovData
-        resultCode `shouldBe` expect
+    receiveAndCheck skovData qm expect = runTestMonad @'P6 (BakerContext Nothing) (timestampToUTCTime 1) genesisData $ do
+        resultCode <- receiveQuorumMessage qm skovData
+        liftIO $ expect @=? resultCode
 
 tests :: Spec
 tests = describe "KonsensusV1.Quorum" $ do
