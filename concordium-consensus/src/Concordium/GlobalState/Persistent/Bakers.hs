@@ -295,7 +295,9 @@ migratePersistentActiveDelegators StateMigrationParametersP4ToP5{} =
         newDelegators <- Trie.migrateTrieN True return adDelegators
         return PersistentActiveDelegatorsV1{adDelegators = newDelegators, ..}
 migratePersistentActiveDelegators StateMigrationParametersP5ToP6{} = \case
-    PersistentActiveDelegatorsV1{..} -> return PersistentActiveDelegatorsV1{..}
+    PersistentActiveDelegatorsV1{..} -> do
+        newDelegators <- Trie.migrateTrieN True return adDelegators
+        return PersistentActiveDelegatorsV1{adDelegators = newDelegators, ..}
 
 emptyPersistentActiveDelegators :: forall av. IsAccountVersion av => PersistentActiveDelegators av
 emptyPersistentActiveDelegators =
