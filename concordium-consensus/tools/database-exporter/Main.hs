@@ -46,7 +46,7 @@ checkDatabase filepath = do
             ConsensusV1 -> case SkovV1.deserializeExactVersionedPendingBlock spv bs t of
                 Left _ -> return $ Left ImportSerializationFail
                 Right pb -> do
-                    logEvent External LLInfo $ "GenesisIndex: " ++ show gi ++ " block: " ++ show (getHash pb :: BlockHash) ++ " round: " ++ show (KonsensusV1.blockRound pb)
+                    logEvent External LLInfo $ "GenesisIndex: " ++ show gi ++ " block: " ++ show ((blockHash . getHash) pb) ++ " round: " ++ show (KonsensusV1.blockRound pb)
                     return $ Right ()
     handleImport _ (ImportFinalizationRecord _ gi bs) =
         case runGet getExactVersionedFinalizationRecord bs of
