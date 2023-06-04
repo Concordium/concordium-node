@@ -1,7 +1,7 @@
-{-# LANGUAGE MonoLocalBinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE GADTs #-}
 
 -- |Functionality for importing and exporting the block database.
 --
@@ -39,6 +39,7 @@
 -- genesis block, and all finalization records that are not already included in blocks.
 module Concordium.ImportExport where
 
+import Control.Monad.Trans.Reader
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
@@ -70,6 +71,9 @@ import Concordium.Logger
 import Concordium.Types
 import Concordium.Utils.Serialization.Put
 import Lens.Micro.Platform
+import qualified Concordium.KonsensusV1.TreeState.LowLevel.LMDB as KonsensusV1
+import qualified Concordium.KonsensusV1.TreeState.LowLevel as KonsensusV1
+import Concordium.KonsensusV1.TreeState.LowLevel (MonadTreeStateStore(lookupLastBlock))
 
 -- |State used for exporting the database.
 data DBState pv = DBState
@@ -367,6 +371,17 @@ exportDatabaseV3 dbDir outDir chunkSize = do
             return exportError
         Nothing -> return exportError
 
+exportConsensusV1Blocks ::
+  (
+    MonadLogger m,
+    KonsensusV1.MonadTreeStateStore m
+  ) =>
+  m (Bool, BlockIndex)
+exportConsensusV1Blocks = do
+    lookupLastBlock >>= \case
+        Nothing -> return (True, Empty)
+        Just sb -> undefined
+
 -- |Export database sections corresponding to blocks with genesis indices >= genIndex
 -- and of height >= startHeight.
 -- Returns a @Bool@ and a @BlockIndex@ where the former indicates whether an error occurred,
@@ -397,8 +412,15 @@ exportSections dbDir outDir chunkSize genIndex startHeight blockIndex lastWritte
         then
             openReadOnlyDatabase treeStateDir >>= \case
                 Nothing -> do
-                    putStrLn "Tree state database could not be opened"
-                    return (True, Empty)
+                    -- If we cannot open the database as a 'ConsensusV0', then
+                    -- we try open up the 'ConsensusV1' database.
+                    KonsensusV1.openReadOnlyDatabase treeStateDir >>= \case
+                        -- If the database is unrecognized we stop here.
+                        Nothing -> do
+                            putStrLn "Tree state database could not be opened"
+                            return (True, Empty)
+                        Just (KonsensusV1.VersionDatabaseHandlers (dbh :: KonsensusV1.DatabaseHandlers pv)) -> 
+                            runSilentLogger $ runReaderT (KonsensusV1.runDiskLLDBM @pv exportConsensusV1Blocks) dbh
                 Just (VersionDatabaseHandlers (dbh :: DatabaseHandlers pv ())) -> do
                     (exportError, sectionData) <-
                         liftIO $
@@ -420,17 +442,7 @@ exportSections dbDir outDir chunkSize genIndex startHeight blockIndex lastWritte
                                                     -- database so we do not accidentally export one chain on top of
                                                     -- another.
                                                     let genHash = finalizationBlockPointer genFinRec
-                                                    let exportedGenHash = case blockIndex of
-                                                            -- nothing was previously exported for the
-                                                            -- section corresponding to the current
-                                                            -- genesis index.
-                                                            Empty -> genHash
-                                                            -- blocks were previously exported for the
-                                                            -- current genesis index, so use the genesis
-                                                            -- block hash that was previously exported
-                                                            -- for that section and compare it with that
-                                                            -- of the database.
-                                                            _ :|> (gh, _) -> gh
+                                                    let exportedGenHash = exportedGenHashOr genHash
                                                     if genHash /= exportedGenHash
                                                         then do
                                                             liftIO . putStrLn $
@@ -481,6 +493,19 @@ exportSections dbDir outDir chunkSize genIndex startHeight blockIndex lastWritte
             -- the condition for terminating the export.
             putStrLn $ "The tree state database does not exist at " ++ treeStateDir
             return (False, Empty)
+  where
+    -- Return the last exported genesis hash or the provided one.
+    exportedGenHashOr bh = case blockIndex of
+        -- nothing was previously exported for the
+        -- section corresponding to the current
+        -- genesis index.
+        Empty -> bh
+        -- blocks were previously exported for the
+        -- current genesis index, so use the genesis
+        -- block hash that was previously exported
+        -- for that section and compare it with that
+        -- of the database.
+        _ :|> (gh, _) -> gh
 
 -- |Write a database section as a collection of chunks in the specified directory. The last exported
 -- chunk (i.e. the one containing the block with the greatest height in the section) also contains
