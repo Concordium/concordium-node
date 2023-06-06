@@ -1285,7 +1285,7 @@ getModuleSource cptr blockcstr modcstr = do
     case (mblock, mmod) of
         (Just bh, Just modref) -> do
             msrc <- runMVR (Q.responseToMaybe <$> Q.getModuleSource (Queries.Given bh) modref) mvr
-            byteStringToCString $ maybe BS.empty S.encode msrc
+            byteStringToCString $ maybe BS.empty S.encode (join msrc)
         _ -> byteStringToCString BS.empty
 
 -- |Get the list of bakers registered at the given block. The block must be given as a

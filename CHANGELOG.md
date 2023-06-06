@@ -8,6 +8,10 @@
   restake earnings. Other chains (including mainnet and testnet) are not affected.
 - Support the new ConcordiumBFT consensus.
 
+## 5.4.2
+
+- Revert a change in getModuleSource of the V1 GRPC API.
+
 ## 5.4.0
 
 - Support using block height as block identifiers in gRPC v2 API.
