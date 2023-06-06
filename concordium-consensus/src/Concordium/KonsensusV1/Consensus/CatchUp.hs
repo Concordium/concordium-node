@@ -4,8 +4,8 @@ module Concordium.KonsensusV1.Consensus.CatchUp where
 
 import Control.Monad.State
 import Data.Foldable (toList)
-import Data.Maybe
-import Data.Serialize
+import Data.Maybe (mapMaybe)
+import Data.Serialize (runPut)
 import Data.Word
 import Lens.Micro.Platform
 
@@ -88,7 +88,8 @@ getCatchupRequest = do
 --
 -- Note that this function does not modify the state.
 handleCatchupMessage ::
-    ( MonadState (SkovData pv) m,
+    ( MonadIO m,
+      MonadState (SkovData (MPV m)) m,
       LowLevel.MonadTreeStateStore m
     ) =>
     -- |The message to respond to.
@@ -139,16 +140,18 @@ handleCatchupMessage peerStatus limit = do
                     -- Now we take up to @limit@ blocks and send it back
                     -- to its peer.
                     Just LowLevel.StoredBlock{..} -> do
-                        blocks <- catMaybes <$> mapM (LowLevel.lookupBlockByHeight >=> filterOutGenesisAndNothing) [startHeight .. endHeight]
-                        -- FIXME: add quorum/timeout certificates and messages plus branches.
-                        return $ fromMaybe (Just (CatchupResponse $ last $ map fst blocks, map snd blocks)) Nothing
+                        sd <- get
+                        blocks <- normalBlocksSerialized . take (fromIntegral limit) . concat <$> mapM (flip getBlocksAtHeight sd) [startHeight .. endHeight]
+                        -- FIXME: add quorum/timeout certificates extending the tip of any of the branches.
+                        return $ Just (CatchupResponse ourCurrentRound, blocks)
                       where
                         startHeight = 1 + bmHeight stbInfo
                         endHeight = startHeight + BlockHeight limit
-                        -- Get the signed block of a stored block if possible,
-                        -- otherwise return Nothing.
-                        filterOutGenesisAndNothing maybeSb = case maybeSb of
-                            Nothing -> return Nothing
-                            Just sb -> case LowLevel.stbBlock sb of
-                                (GenesisBlock _) -> return Nothing
-                                NormalBlock signedBlock -> return $ Just (blockRound signedBlock, (runPut . putSignedBlock) signedBlock)
+                        -- serialize the blocks excluding if the block pointer is pointing to a genesis block.
+                        normalBlocksSerialized :: [BlockPointer pv] -> [ByteString]
+                        normalBlocksSerialized =
+                            mapMaybe
+                                ( \bp -> case bpBlock bp of
+                                    (GenesisBlock _) -> Nothing
+                                    NormalBlock sb -> Just $ (runPut . putSignedBlock) sb
+                                )
