@@ -644,7 +644,7 @@ dependencies = [
 
 [[package]]
 name = "concordium_node"
-version = "5.4.1"
+version = "5.4.2"
 dependencies = [
  "anyhow",
  "app_dirs2",
