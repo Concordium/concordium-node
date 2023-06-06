@@ -1248,12 +1248,13 @@ data GenesisMetadata = GenesisMetadata
 regenesisMetadata :: (IsProtocolVersion pv, IsConsensusV1 pv) => StateHash -> Regenesis pv -> GenesisMetadata
 regenesisMetadata sh regenData =
     GenesisMetadata
-        { gmParameters = regenesisCoreParametersV1 regenData,
-          -- \|Hash of the genesis block.
+        { -- |The 'CoreGenesisParametersV1' from the 'Regenesis'.
+          gmParameters = regenesisCoreParametersV1 regenData,
+          -- |Hash of the genesis block.
           gmCurrentGenesisHash = regenesisBlockHash regenData,
-          -- \|Hash of the first genesis block.
+          -- |Hash of the first genesis block.
           gmFirstGenesisHash = firstGenesisBlockHash regenData,
-          -- \|Hash of the genesis block state (after migration).
+          -- |Hash of the genesis block state (after migration).
           gmStateHash = sh
         }
 

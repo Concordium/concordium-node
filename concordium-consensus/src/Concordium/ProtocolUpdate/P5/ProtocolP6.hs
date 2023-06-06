@@ -4,12 +4,22 @@
 {-# LANGUAGE TypeFamilies #-}
 
 -- FIXME: This is currently a dummy update, and the details, including the update hash, need to be resolved before release.
--- TODO: Consider moving the state changes that are made here into the state migration. [This cannot be done after release.]
+-- https://github.com/Concordium/concordium-update-proposals/issues/47
 
 -- |This module implements the P5.ProtocolP6 protocol update.
 -- This protocol update is valid at protocol version P6, and updates
 -- to protocol version P6.
--- The block state is preserved across the update.
+-- The block state is changed during the update.
+--
+-- In particular the following things are updated as part of the migration
+-- from protocol P5 to protocol P6.
+--
+-- * The seed state is being updated as part of the migration and hence the
+--   'P6.StateMigrationData' keeps the time of the trigger block so it can be used
+--   to construct the new 'SeedStateV1' via that 'Timestamp' and the 'LeadershipElectionNonce'
+--   that was recorded in the last finalized block of the P5 protocol.
+--
+-- * The protocol update queue is emptied during the migration.
 --
 -- This produces a new 'RegenesisDataP6' using the 'GDP6Regenesis' constructor,
 -- as follows:
@@ -30,23 +40,9 @@
 --
 -- * 'genesisTerminalBlock' is the hash of the last finalized block of the previous chain.
 --
--- * 'genesisStateHash' and 'genesisNewState' are the hash and (V0) serialized state of the
---   new genesis block, which are derived from the block state of the last finalized block of
---   the previous chain by applying the following changes:
+-- * 'genesisStateHash' is the state hash of the last finalized block of the previous chain.
 --
---     * The 'SeedState' is updated with:
---
---         * 'epochLength' is unchanged;
---         * 'epoch' is @0@;
---         * 'currentLeadershipElectionNonce' is the SHA256 hash of (@"Regenesis" <> encode (updatedNonce oldSeedState)@); and
---         * 'updatedNonce' is the same as 'currentLeadershipElectionNonce'.
---
---     * The 'Updates' are updated with:
---
---         * the current protocol update is set to 'Nothing'; and
---         * the protocol update queue is emptied.
---
--- Note that, while the seed state is revised, the initial epoch of the new chain is not considered
+-- Note that, the initial epoch of the new chain is not considered
 -- a new epoch for the purposes of block rewards and baker/finalization committee determination.
 -- This means that block rewards at the end of this epoch are paid for all blocks baked in this epoch
 -- and in the final epoch of the previous chain.
@@ -71,8 +67,9 @@ import Concordium.Types.ProtocolVersion
 
 -- |The hash that identifies a update from P5 to P6 protocol.
 -- This is the hash of the published specification document.
+-- FIXME: Update the hash https://github.com/Concordium/concordium-update-proposals/issues/47
 updateHash :: SHA256.Hash
-updateHash = read "fb9736eab691bff18607750660020a5cac48a0dce962708e1e0b01e1794d4cb5"
+updateHash = read "0000000000000000000000000000000000000000000000000000000000000000"
 
 -- |Construct the genesis data for a P5.ProtocolP6 update.
 -- It is assumed that the last finalized block is the terminal block of the old chain:

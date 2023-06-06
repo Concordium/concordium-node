@@ -609,6 +609,7 @@ migrateSkovFromConsensusV0 ::
     -- |The handler context
     HandlerContext pv m ->
     -- |The function for unlifting a 'SkovV1T' into 'IO'.
+    -- See documentation for 'SkovV1Context'.
     (forall a. SkovV1T pv m a -> IO a) ->
     -- |Return back the 'SkovV1Context' and the migrated 'SkovV1State'
     LogIO (SkovV1Context pv m, SkovV1State pv)

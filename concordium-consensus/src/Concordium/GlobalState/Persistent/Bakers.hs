@@ -146,7 +146,7 @@ migratePersistentEpochBakers migration PersistentEpochBakers{..} = do
             StateMigrationParametersP2P3 -> NoParam
             StateMigrationParametersP3ToP4{} -> NoParam
             StateMigrationParametersP4ToP5 -> NoParam
-            (StateMigrationParametersP5ToP6 P6.StateMigrationData{..}) -> SomeParam $! P6.updateFinalizationCommitteeParameters migrationProtocolUpdateData
+            (StateMigrationParametersP5ToP6 P6.StateMigrationData{..}) -> SomeParam $ P6.updateFinalizationCommitteeParameters migrationProtocolUpdateData
     return
         PersistentEpochBakers
             { _bakerInfos = newBakerInfos,

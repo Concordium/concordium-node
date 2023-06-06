@@ -740,7 +740,12 @@ migrateUpdates migration Updates{..} = do
     newParameters <- migrateHashedBufferedRef (return . StoreSerialized . migrateChainParameters migration . unStoreSerialized) currentParameters
     newCurrentProtocolUpdate <- case currentProtocolUpdate of
         Null -> return Null
-        Some c -> Some <$!> migrateHashedBufferedRefKeepHash c
+        -- For P5->P6 we clear the currentProtocolUpdate as part of the migration.
+        -- For older versions the @currentProtocolUpdate@ is cleared before i.e. as
+        -- part of 'updateRegenesis'.
+        Some c -> case (protocolVersion @pv) of
+            SP6 -> return Null
+            _ -> Some <$!> migrateHashedBufferedRefKeepHash c
     return
         Updates
             { currentKeyCollection = newKeyCollection,
