@@ -4,14 +4,17 @@ module Concordium.KonsensusV1.Consensus.CatchUp where
 
 import Control.Monad.State
 import Data.Foldable (toList)
+import Data.Maybe
+import Data.Serialize
+import Data.Word
 import Lens.Micro.Platform
 
 import Concordium.Types.HashableTo
 
 import Concordium.KonsensusV1.TreeState.Implementation
+import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
-import Concordium.Skov.Monad
 import Concordium.Types
 import Data.ByteString (ByteString)
 
@@ -29,7 +32,7 @@ import Data.ByteString (ByteString)
 -- hence if we are catching up from a peer then their responses should
 -- not be deduplicated.
 
-data CatchupStatus'
+data CatchupMessage
     = -- |The 'CatchupStatus' is send when a peer
       -- joins the network and wants to get caught up
       -- or after a pending block has become alive in order
@@ -65,7 +68,7 @@ data CatchupStatus'
 --   allowing for a peer to catch up.
 --
 -- Note that this function does not modify the state.
-getCatchupRequest :: (MonadState (SkovData pv) m) => m CatchupStatus'
+getCatchupRequest :: (MonadState (SkovData pv) m) => m CatchupMessage
 getCatchupRequest = do
     csCurrentRound <- use $ roundStatus . rsCurrentRound
     csCurrentEpoch <- use $ roundStatus . rsCurrentEpoch
@@ -85,11 +88,13 @@ getCatchupRequest = do
 --
 -- Note that this function does not modify the state.
 handleCatchupMessage ::
-    (MonadState (SkovData pv) m) =>
+    ( MonadState (SkovData pv) m,
+      LowLevel.MonadTreeStateStore m
+    ) =>
     -- |The message to respond to.
-    CatchupStatus' ->
+    CatchupMessage ->
     -- |The maximum number of items to send.
-    Int ->
+    Word64 ->
     -- |The resulting 'CatchupResponse' and
     -- the items that should be sent back to the sender
     -- of the 'CatchupMessage'.
@@ -99,15 +104,15 @@ handleCatchupMessage ::
     --
     -- This function returns 'Nothing' if there's nothing to do
     -- i.e. we and the peer are caught up.
-    m (Maybe (CatchupStatus', [ByteString]))
+    m (Maybe (CatchupMessage, [ByteString]))
 handleCatchupMessage peerStatus limit = do
     ourCurrentRound <- use $ roundStatus . rsCurrentRound
     case peerStatus of
         -- The response is as a result of us catching up
-        -- with the sender peer.
+        -- with the sender of this message.
         CatchupResponse peerEndRound
             -- We're caught up with the peer.
-            | peerEndRound >= ourCurrentRound -> undefined -- we're caught up with the peer.
+            | ourCurrentRound >= peerEndRound -> return Nothing
             -- We need to continue catchup, so we create
             -- a new catch-up request.
             | otherwise -> do
@@ -119,10 +124,31 @@ handleCatchupMessage peerStatus limit = do
         -- catch up with that peer.
         CatchupStatus{..}
             -- We're behind the peer sending us this status.
-            -- So we initiate catch up with it.
-            | ourCurrentRound < csCurrentRound -> undefined
-            -- We're in the same round, so we cannot help the peer
-            -- and the peer cannot help us.
+            -- So we initiate catch up.
+            | ourCurrentRound < csCurrentRound -> fmap Just (,[]) <$> getCatchupRequest
+            -- We're in the same round, so we cannot help the peer advance,
+            -- and the peer cannot help us advance.
             | ourCurrentRound == csCurrentRound -> return Nothing
-            -- We can help the peer catching up.
-            | otherwise -> undefined
+            -- We can help the peer get caught up.
+            | otherwise -> do
+                LowLevel.lookupBlock csLastFinalizedBlock >>= \case
+                    -- The peer sent us an invalid finalized block,
+                    -- and there is nothing to do about it.
+                    Nothing -> return Nothing
+                    -- We have the peers last finalized block.
+                    -- Now we take up to @limit@ blocks and send it back
+                    -- to its peer.
+                    Just LowLevel.StoredBlock{..} -> do
+                        blocks <- catMaybes <$> mapM (LowLevel.lookupBlockByHeight >=> filterOutGenesisAndNothing) [startHeight .. endHeight]
+                        -- FIXME: add quorum/timeout certificates and messages plus branches.
+                        return $ fromMaybe (Just (CatchupResponse $ last $ map fst blocks, map snd blocks)) Nothing
+                      where
+                        startHeight = 1 + bmHeight stbInfo
+                        endHeight = startHeight + BlockHeight limit
+                        -- Get the signed block of a stored block if possible,
+                        -- otherwise return Nothing.
+                        filterOutGenesisAndNothing maybeSb = case maybeSb of
+                            Nothing -> return Nothing
+                            Just sb -> case LowLevel.stbBlock sb of
+                                (GenesisBlock _) -> return Nothing
+                                NormalBlock signedBlock -> return $ Just (blockRound signedBlock, (runPut . putSignedBlock) signedBlock)
