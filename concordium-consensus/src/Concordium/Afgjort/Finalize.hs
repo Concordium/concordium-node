@@ -117,7 +117,7 @@ newtype PassiveFinalizationRound = PassiveFinalizationRound
 initialPassiveFinalizationRound :: PassiveFinalizationRound
 initialPassiveFinalizationRound = PassiveFinalizationRound Map.empty
 
-ancestorAtHeight :: (GlobalStateTypes m, BlockPointerMonad m) => BlockHeight -> BlockPointerType m -> m (BlockPointerType m)
+ancestorAtHeight :: (BlockPointerData (BlockPointerType m), BlockPointerMonad m) => BlockHeight -> BlockPointerType m -> m (BlockPointerType m)
 ancestorAtHeight h bp
     | h == bpHeight bp = return bp
     | h < bpHeight bp = do
@@ -183,7 +183,7 @@ makeLenses ''FinalizationState
 -- |Recover finalization state from the tree state.
 -- This method looks up the last finalized block in the tree state
 -- and the surrounding context and constructs the finalization state the
--- finaler should use to continue from this point onward.
+-- finalizer should use to continue from this point onward.
 --
 -- If a finalization instance is provided this function will try to construct an
 -- active finalization round, provided the keys of the instance are in the
@@ -404,7 +404,7 @@ type FinalizationStateMonad r s m = (MonadState s m, FinalizationStateLenses s (
 -- Note that access to the global state is limited to via the 'BlockPointerMonad'
 -- and 'SkovMonad' abstractions.  This is intentional, to guarantee that the
 -- finalization code makes no direct changes to the Skov state.
-type FinalizationBaseMonad (pv :: ProtocolVersion) r s m = (BlockPointerMonad m, SkovMonad m, FinalizationStateMonad r s m, MonadIO m, TimerMonad m, FinalizationOutputMonad m)
+type FinalizationBaseMonad (pv :: ProtocolVersion) r s m = (GlobalStateTypes m, BlockPointerMonad m, SkovMonad m, FinalizationStateMonad r s m, MonadIO m, TimerMonad m, FinalizationOutputMonad m)
 
 -- |Reset the finalization catch-up timer.  This is called when progress is
 -- made in finalization (i.e. we produce a message).
@@ -995,7 +995,7 @@ nextFinalizationDelay FinalizationParameters{..} FinalizationRecord{..} =
     shrunk = truncate (finalizationDelayShrinkFactor * fromIntegral finalizationDelay)
 
 nextFinalizationGap ::
-    (BlockPointerMonad m) =>
+    (BlockPointerData (BlockPointerType m), BlockPointerMonad m) =>
     -- |Last finalized block
     BlockPointerType m ->
     -- |Finalization parameters
@@ -1162,7 +1162,7 @@ newtype ActiveFinalizationM (pv :: ProtocolVersion) (r :: Type) (s :: Type) (m :
         )
 
 deriving instance (MonadProtocolVersion m) => MonadProtocolVersion (ActiveFinalizationM pv r s m)
-deriving instance (BlockPointerData (BlockPointerType m)) => GlobalStateTypes (ActiveFinalizationM pv r s m)
+deriving instance GlobalStateTypes (ActiveFinalizationM pv r s m)
 
 instance (FinalizationBaseMonad pv r s m) => FinalizationMonad (ActiveFinalizationM pv r s m) where
     finalizationBlockArrival = notifyBlockArrival

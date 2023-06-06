@@ -262,7 +262,7 @@ instance TimerMonad (TestMonad pv) where
 
 instance MonadConsensusEvent (TestMonad pv) where
     onBlock = tell . (: []) . OnBlock . bpBlock
-    onFinalize fe _ _ = tell [OnFinalize fe]
+    onFinalize fe _ = tell [OnFinalize fe]
     onPendingLive = tell [OnPendingLive]
 
 instance MonadLogger (TestMonad pv) where

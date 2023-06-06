@@ -55,14 +55,11 @@
 module Concordium.ProtocolUpdate.P5.ProtocolP6 where
 
 import Data.Ratio
-import Data.Serialize
-import Lens.Micro
 
 import qualified Concordium.Crypto.SHA256 as SHA256
 import qualified Concordium.Genesis.Data as GenesisData
 import qualified Concordium.Genesis.Data.BaseV1 as BaseV1
 import qualified Concordium.Genesis.Data.P6 as P6
-import Concordium.Types.SeedState
 
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockMonads
@@ -75,7 +72,7 @@ import Concordium.Types.ProtocolVersion
 -- |The hash that identifies a update from P5 to P6 protocol.
 -- This is the hash of the published specification document.
 updateHash :: SHA256.Hash
-updateHash = SHA256.hash "dummy p6 protocol hash"
+updateHash = read "fb9736eab691bff18607750660020a5cac48a0dce962708e1e0b01e1794d4cb5"
 
 -- |Construct the genesis data for a P5.ProtocolP6 update.
 -- It is assumed that the last finalized block is the terminal block of the old chain:
@@ -103,22 +100,14 @@ updateRegenesis protocolUpdateData = do
     -- genesisFirstGenesis is the block hash of the previous genesis, if it is initial,
     -- or the genesisFirstGenesis of the previous genesis otherwise.
     let genesisFirstGenesis = GenesisData._gcFirstGenesis gd
-    let genesisPreviousGenesis = GenesisData._gcCurrentHash gd
-    let genesisTerminalBlock = bpHash lfb
-    -- Determine the new state by updating the terminal state.
-    s0 <- thawBlockState =<< blockState lfb
-    -- Update the seed state
-    oldSeedState <- bsoGetSeedState s0
-    s1 <-
-        bsoSetSeedState s0
-            $ initialSeedStateV0
-                (SHA256.hash $ "Regenesis" <> encode (oldSeedState ^. updatedNonce))
-            $ GenesisData.gdEpochLength gd
-    -- Clear the protocol update.
-    s3 <- bsoClearProtocolUpdate s1
-    regenesisState <- freezeBlockState s3
-    rememberFinalState regenesisState
-    genesisStateHash <- getStateHash regenesisState
-    let genesisMigration = P6.StateMigrationData protocolUpdateData
+        genesisPreviousGenesis = GenesisData._gcCurrentHash gd
+        genesisTerminalBlock = bpHash lfb
+    regenesisBlockState <- blockState lfb
+    genesisStateHash <- getStateHash regenesisBlockState
+    let genesisMigration =
+            P6.StateMigrationData
+                { migrationProtocolUpdateData = protocolUpdateData,
+                  migrationTriggerBlockTime = regenesisTime
+                }
     let newGenesis = GenesisData.RGDP6 $ P6.GDP6RegenesisFromP5{genesisRegenesis = BaseV1.RegenesisDataV1{genesisCore = core, ..}, ..}
     return (PVInit newGenesis (GenesisData.StateMigrationParametersP5ToP6 genesisMigration) (bpHeight lfb))

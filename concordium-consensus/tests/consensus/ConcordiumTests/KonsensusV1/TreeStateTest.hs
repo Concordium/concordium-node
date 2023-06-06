@@ -218,7 +218,9 @@ dummyBlock rnd = BlockPointer{..}
         BlockMetadata
             { bmHeight = fromIntegral rnd,
               bmReceiveTime = timestampToUTCTime 0,
-              bmArriveTime = timestampToUTCTime 0
+              bmArriveTime = timestampToUTCTime 0,
+              bmEnergyCost = 0,
+              bmTransactionsSize = 0
             }
     bpBlock = NormalBlock $ dummySignedBlock (BlockHash minBound) rnd 0
     bpState = dummyBlockState
@@ -434,7 +436,7 @@ testMakeLiveBlock :: Spec
 testMakeLiveBlock = it "makeLiveBlock" $ do
     let arrTime = timestampToUTCTime 5
         hgt = 23
-    let (res, sd) = runState (makeLiveBlock pendingB dummyBlockState hgt arrTime) skovDataWithTestBlocks
+    let (res, sd) = runState (makeLiveBlock pendingB dummyBlockState hgt arrTime 0) skovDataWithTestBlocks
     res
         `shouldBe` BlockPointer
             { bpState = dummyBlockState,
@@ -442,7 +444,9 @@ testMakeLiveBlock = it "makeLiveBlock" $ do
                 BlockMetadata
                     { bmReceiveTime = pbReceiveTime pendingB,
                       bmHeight = 23,
-                      bmArriveTime = arrTime
+                      bmArriveTime = arrTime,
+                      bmEnergyCost = 0,
+                      bmTransactionsSize = 0
                     },
               bpBlock = NormalBlock (pbBlock pendingB)
             }

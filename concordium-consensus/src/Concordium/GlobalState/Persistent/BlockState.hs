@@ -38,6 +38,7 @@ module Concordium.GlobalState.Persistent.BlockState (
 
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.Crypto.SHA256 as SHA256
+import qualified Concordium.Genesis.Data.P6 as P6
 import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount)
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.BlockState
@@ -127,6 +128,7 @@ migrateSeedState StateMigrationParametersP1P2{} ss = ss
 migrateSeedState StateMigrationParametersP2P3{} ss = ss
 migrateSeedState StateMigrationParametersP3ToP4{} ss = ss
 migrateSeedState StateMigrationParametersP4ToP5{} ss = ss
+migrateSeedState (StateMigrationParametersP5ToP6 (P6.StateMigrationData _ time)) SeedStateV0{..} = initialSeedStateV1 ss0CurrentLeadershipElectionNonce time
 
 -- |See documentation of @migratePersistentBlockState@.
 --
@@ -540,6 +542,10 @@ migrateBlockRewardDetails (StateMigrationParametersP3ToP4 _) curBakers nextBaker
         (!newRef, _) <- refFlush =<< refMake =<< migratePoolRewardsP1 curBakers nextBakers blockCounts (rewardPeriodEpochs _tpRewardPeriodLength) _tpMintPerPayday
         return (BlockRewardDetailsV1 newRef)
 migrateBlockRewardDetails StateMigrationParametersP4ToP5{} _ _ (SomeParam TimeParametersV1{..}) = \case
+    (BlockRewardDetailsV1 hbr) ->
+        BlockRewardDetailsV1
+            <$> migrateHashedBufferedRef (migratePoolRewards (rewardPeriodEpochs _tpRewardPeriodLength)) hbr
+migrateBlockRewardDetails StateMigrationParametersP5ToP6{} _ _ (SomeParam TimeParametersV1{..}) = \case
     (BlockRewardDetailsV1 hbr) ->
         BlockRewardDetailsV1
             <$> migrateHashedBufferedRef (migratePoolRewards (rewardPeriodEpochs _tpRewardPeriodLength)) hbr
@@ -3566,6 +3572,7 @@ migrateBlockPointers migration BlockStatePointers{..} = do
                 Accounts.getAccountIndex addr bspAccounts <&> \case
                     Nothing -> error "Account with release schedule does not exist"
                     Just ai -> ai
+            StateMigrationParametersP5ToP6{} -> RSMNewToNew
     newReleaseSchedule <- migrateReleaseSchedule rsMigration bspReleaseSchedule
     newAccounts <- Accounts.migrateAccounts migration bspAccounts
     newModules <- migrateHashedBufferedRef Modules.migrateModules bspModules

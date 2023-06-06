@@ -105,6 +105,7 @@ migratePersistentBakerInfoEx ::
     PersistentBakerInfoEx (AccountVersionFor oldpv) ->
     t m (PersistentBakerInfoEx (AccountVersionFor pv))
 migratePersistentBakerInfoEx StateMigrationParametersTrivial = migrateReference return
+migratePersistentBakerInfoEx StateMigrationParametersP5ToP6{} = migrateReference return
 
 -- |Migrate a 'V0.PersistentBakerInfoEx' to a 'PersistentBakerInfoEx'.
 -- See documentation of @migratePersistentBlockState@.
@@ -1286,7 +1287,7 @@ makeFromGenesisAccount spv cryptoParams chainParameters GenesisAccount{..} = do
             paseBakerInfo <- refMakeFlushed $ genesisBakerInfoEx spv chainParameters baker
             let enduringBaker =
                     PersistentAccountStakeEnduringBaker
-                        { paseBakerRestakeEarnings = True,
+                        { paseBakerRestakeEarnings = gbRestakeEarnings baker,
                           paseBakerPendingChange = NoChange,
                           ..
                         }
@@ -1322,15 +1323,18 @@ migrateEnduringData ed = do
               ..
             }
 
--- |Migration for 'PersistentAccount'. Only supports 'AccountV2'.
-migratePersistentAccount ::
-    ( SupportMigration m t,
-      AccountVersionFor oldpv ~ 'AccountV2
+-- |A trivial migration from account version 2 to
+-- account version 2.
+-- In particular this function only migrates the underlying reference to
+-- the 'PersistentAccountEnduringData'.
+migrateV2ToV2 ::
+    ( MonadBlobStore m,
+      MonadBlobStore (t m),
+      MonadTrans t
     ) =>
-    StateMigrationParameters oldpv pv ->
-    PersistentAccount (AccountVersionFor oldpv) ->
-    t m (PersistentAccount (AccountVersionFor pv))
-migratePersistentAccount StateMigrationParametersTrivial acc = do
+    PersistentAccount 'AccountV2 ->
+    t m (PersistentAccount 'AccountV2)
+migrateV2ToV2 acc = do
     accountEnduringData <- migrateEagerBufferedRef migrateEnduringData (accountEnduringData acc)
     return $!
         PersistentAccount
@@ -1339,6 +1343,17 @@ migratePersistentAccount StateMigrationParametersTrivial acc = do
               accountStakedAmount = accountStakedAmount acc,
               ..
             }
+
+-- |Migration for 'PersistentAccount'. Only supports 'AccountV2'.
+migratePersistentAccount ::
+    ( SupportMigration m t,
+      AccountVersionFor oldpv ~ 'AccountV2
+    ) =>
+    StateMigrationParameters oldpv pv ->
+    PersistentAccount (AccountVersionFor oldpv) ->
+    t m (PersistentAccount (AccountVersionFor pv))
+migratePersistentAccount StateMigrationParametersTrivial acc = migrateV2ToV2 acc
+migratePersistentAccount StateMigrationParametersP5ToP6{} acc = migrateV2ToV2 acc
 
 -- |Migration for 'PersistentAccount' from 'V0.PersistentAccount'. This supports migration from
 -- 'P4' to 'P5'.

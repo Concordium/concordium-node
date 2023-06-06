@@ -14,6 +14,7 @@ import Data.Bits
 import qualified Data.ByteString as BS
 import Data.List (foldl')
 import qualified Data.Map.Strict as Map
+import Data.Maybe
 import Data.Serialize
 import qualified Data.Set as Set
 import qualified Data.Vector as Vector
@@ -24,10 +25,12 @@ import qualified Concordium.Crypto.BlockSignature as BlockSig
 import qualified Concordium.Crypto.BlsSignature as Bls
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.VRF as VRF
+import Concordium.Genesis.Data (Regenesis, firstGenesisBlockHash, regenesisBlockHash, regenesisCoreParametersV1)
 import Concordium.Genesis.Data.BaseV1
 import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as LFMBT
 import Concordium.Types
 import Concordium.Types.HashableTo
+import Concordium.Types.Parameters (IsConsensusV1)
 import Concordium.Types.Transactions
 import Concordium.Utils.BinarySearch
 import Concordium.Utils.Serialization
@@ -262,7 +265,7 @@ instance Serialize FinalizerSet where
             b <- getWord8
             roll (bc - 1) (shiftL n 8 .|. fromIntegral b)
 
--- |Convert a 'FinalizerSet' to a list of 'FinalizerIndex'.
+-- |Convert a 'FinalizerSet' to a list of 'FinalizerIndex', in ascending order.
 finalizerList :: FinalizerSet -> [FinalizerIndex]
 finalizerList = unroll 0 . theFinalizerSet
   where
@@ -364,6 +367,18 @@ checkQuorumCertificate qsmGenesis sigThreshold FinalizationCommittee{..} QuorumC
         case committeeFinalizers Vector.!? fromIntegral (theFinalizerIndex i) of
             Nothing -> False
             Just FinalizerInfo{..} -> check (finalizerWeight + accumWeight) (finalizerBlsKey : keys) is
+
+-- |Determine the 'BakerId's of the finalizers that signed a 'QuorumCertificate'.
+-- This assumes that all of the signatories are valid indexes into the finalization committee
+-- (which is checked by 'checkQuorumCertificate'). Any invalid finalization indexes will be
+-- omitted. The returned list is in ascending order.
+quorumCertificateSigningBakers :: FinalizationCommittee -> QuorumCertificate -> [BakerId]
+quorumCertificateSigningBakers finalizers qc =
+    mapMaybe finBakerId $ finalizerList (qcSignatories qc)
+  where
+    finBakerId finIndex =
+        finalizerBakerId
+            <$> committeeFinalizers finalizers Vector.!? fromIntegral (theFinalizerIndex finIndex)
 
 -- |A Merkle proof that one block is the successor of another.
 type SuccessorProof = BlockQuasiHash
@@ -818,6 +833,25 @@ checkTimeoutMessageSignature ::
 checkTimeoutMessageSignature pubKey genesisHash TimeoutMessage{..} =
     BlockSig.verify pubKey (timeoutMessageBodySignatureBytes tmBody genesisHash) tmSignature
 
+-- |A finalization message is either a 'QuorumMessage' or a 'TimeoutMessage'.
+-- The peer-to-peer layer deals with finalization messages as a common abstraction independent of
+-- the consensus version.
+data FinalizationMessage
+    = -- |A quorum message
+      FMQuorumMessage !QuorumMessage
+    | -- |A timeout message
+      FMTimeoutMessage !TimeoutMessage
+
+instance Serialize FinalizationMessage where
+    put (FMQuorumMessage qm) = putWord8 0 >> put qm
+    put (FMTimeoutMessage tm) = putWord8 1 >> put tm
+
+    get =
+        getWord8 >>= \case
+            0 -> FMQuorumMessage <$> get
+            1 -> FMTimeoutMessage <$> get
+            _ -> fail "Invalid finalization message type."
+
 -- |Projections for the data associated with a baked (i.e. non-genesis) block.
 class BakedBlockData d where
     -- |Quorum certificate on the parent block.
@@ -1015,6 +1049,7 @@ instance BlockData SignedBlock where
     blockTimestamp = bbTimestamp . sbBlock
     blockBakedData = Present
     blockTransactions = Vector.toList . bbTransactions . sbBlock
+    {-# INLINE blockTransactions #-}
     blockTransactionCount = Vector.length . bbTransactions . sbBlock
     blockStateHash = bbStateHash . sbBlock
 
@@ -1209,6 +1244,19 @@ data GenesisMetadata = GenesisMetadata
     }
     deriving (Eq, Show)
 
+-- |Extract the genesis configuration from the regenesis data.
+regenesisMetadata :: (IsProtocolVersion pv, IsConsensusV1 pv) => StateHash -> Regenesis pv -> GenesisMetadata
+regenesisMetadata sh regenData =
+    GenesisMetadata
+        { gmParameters = regenesisCoreParametersV1 regenData,
+          -- \|Hash of the genesis block.
+          gmCurrentGenesisHash = regenesisBlockHash regenData,
+          -- \|Hash of the first genesis block.
+          gmFirstGenesisHash = firstGenesisBlockHash regenData,
+          -- \|Hash of the genesis block state (after migration).
+          gmStateHash = sh
+        }
+
 instance Serialize GenesisMetadata where
     put GenesisMetadata{..} = do
         put gmParameters
@@ -1244,6 +1292,7 @@ instance BlockData (Block pv) where
     blockBakedData (NormalBlock b) = blockBakedData b
     blockTransactions GenesisBlock{} = []
     blockTransactions (NormalBlock b) = blockTransactions b
+    {-# INLINE blockTransactions #-}
     blockTransactionCount GenesisBlock{} = 0
     blockTransactionCount (NormalBlock b) = blockTransactionCount b
     blockStateHash (GenesisBlock gc) = gmStateHash gc

@@ -22,6 +22,7 @@ import Data.Serialize
 import qualified Data.Vector as Vec
 import Lens.Micro.Platform
 
+import qualified Concordium.Genesis.Data.P6 as P6
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.Account
@@ -145,7 +146,7 @@ migratePersistentEpochBakers migration PersistentEpochBakers{..} = do
             StateMigrationParametersP2P3 -> NoParam
             StateMigrationParametersP3ToP4{} -> NoParam
             StateMigrationParametersP4ToP5 -> NoParam
-
+            (StateMigrationParametersP5ToP6 P6.StateMigrationData{..}) -> SomeParam $! P6.updateFinalizationCommitteeParameters migrationProtocolUpdateData
     return
         PersistentEpochBakers
             { _bakerInfos = newBakerInfos,
@@ -293,6 +294,10 @@ migratePersistentActiveDelegators StateMigrationParametersP4ToP5{} =
     \PersistentActiveDelegatorsV1{..} -> do
         newDelegators <- Trie.migrateTrieN True return adDelegators
         return PersistentActiveDelegatorsV1{adDelegators = newDelegators, ..}
+migratePersistentActiveDelegators StateMigrationParametersP5ToP6{} = \case
+    PersistentActiveDelegatorsV1{..} -> do
+        newDelegators <- Trie.migrateTrieN True return adDelegators
+        return PersistentActiveDelegatorsV1{adDelegators = newDelegators, ..}
 
 emptyPersistentActiveDelegators :: forall av. IsAccountVersion av => PersistentActiveDelegators av
 emptyPersistentActiveDelegators =
@@ -340,6 +345,7 @@ migrateTotalActiveCapital StateMigrationParametersP1P2 _ x = x
 migrateTotalActiveCapital StateMigrationParametersP2P3 _ x = x
 migrateTotalActiveCapital (StateMigrationParametersP3ToP4 _) bts TotalActiveCapitalV0 = TotalActiveCapitalV1 bts
 migrateTotalActiveCapital StateMigrationParametersP4ToP5 _ (TotalActiveCapitalV1 bts) = TotalActiveCapitalV1 bts
+migrateTotalActiveCapital StateMigrationParametersP5ToP6{} _ (TotalActiveCapitalV1 bts) = TotalActiveCapitalV1 bts
 
 instance IsAccountVersion av => Serialize (TotalActiveCapital av) where
     put TotalActiveCapitalV0 = return ()

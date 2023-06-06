@@ -1,3 +1,6 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs #-}
+
 module Concordium.Skov.CatchUp.Types where
 
 import Control.Monad
@@ -61,16 +64,34 @@ instance Serialize CatchUpStatusV0 where
             cusBranches <- if cusIsRequest then get else return []
             return CatchUpStatus{..}
 
+-- |Catch up status for consensus version 1.
+data CatchUpStatusV1 = CatchUpStatusV1
+    deriving (Show)
+
+data VersionedCatchUpStatus where
+    VersionedCatchUpStatusV0 :: !CatchUpStatusV0 -> VersionedCatchUpStatus
+    VersionedCatchUpStatusV1 :: !CatchUpStatusV1 -> VersionedCatchUpStatus
+    deriving (Show)
+
 -- |Deserialize a 'CatchUpStatus' message with a version header.
-getExactVersionedCatchUpStatus :: Get CatchUpStatus
+getExactVersionedCatchUpStatus :: Get VersionedCatchUpStatus
 getExactVersionedCatchUpStatus = do
     version <- getVersion
     case version of
-        0 -> get
+        0 -> VersionedCatchUpStatusV0 <$> get
+        1 -> return $ VersionedCatchUpStatusV1 CatchUpStatusV1
         _ -> fail $ "Unsupported catch-up status message version " ++ show version ++ "."
 
 -- |Serialize a 'CatchUpStatus' message with a version header.
-putVersionedCatchUpStatus :: Putter CatchUpStatus
-putVersionedCatchUpStatus cus = do
+putVersionedCatchUpStatus :: Putter VersionedCatchUpStatus
+putVersionedCatchUpStatus (VersionedCatchUpStatusV0 cus) = do
     putVersion 0
     put cus
+putVersionedCatchUpStatus (VersionedCatchUpStatusV1 _) = do
+    putVersion 1
+    -- TODO: Implement catch-up for consensus version 1. Issue #826
+    return ()
+
+instance Serialize VersionedCatchUpStatus where
+    put = putVersionedCatchUpStatus
+    get = getExactVersionedCatchUpStatus

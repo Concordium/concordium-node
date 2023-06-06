@@ -27,6 +27,7 @@ import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import Concordium.GlobalState.Types
 import qualified Concordium.GlobalState.Types as GSTypes
 import Concordium.KonsensusV1.Consensus
+import Concordium.KonsensusV1.Consensus.Blocks
 import Concordium.KonsensusV1.Consensus.Finality (checkFinality)
 import Concordium.KonsensusV1.Consensus.Timeout.Internal
 import Concordium.KonsensusV1.Flag
@@ -34,6 +35,7 @@ import Concordium.KonsensusV1.TreeState.Implementation
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
+import Concordium.TimerMonad
 
 -- |Reasons that a 'TimeoutMessage' can be rejected.
 data ReceiveTimeoutMessageRejectReason
@@ -257,6 +259,7 @@ executeTimeoutMessage ::
     ( IsConsensusV1 (MPV m),
       MonadThrow m,
       MonadIO m,
+      MonadProtocolVersion m,
       BlockStateStorage m,
       TimeMonad m,
       MonadTimeout m,
@@ -264,7 +267,11 @@ executeTimeoutMessage ::
       MonadConsensusEvent m,
       MonadLogger m,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
-      LowLevel.MonadTreeStateStore m
+      LowLevel.MonadTreeStateStore m,
+      TimerMonad m,
+      MonadBroadcast m,
+      MonadReader r m,
+      HasBakerContext r
     ) =>
     -- |The partially verified 'TimeoutMessage' to execute.
     PartiallyVerifiedTimeoutMessage (MPV m) ->
@@ -343,12 +350,18 @@ uponTimeoutEvent ::
       MonadBroadcast m,
       MonadReader r m,
       HasBakerContext r,
-      BlockStateQuery m,
+      MonadProtocolVersion m,
       BlockState m ~ HashedPersistentBlockState (MPV m),
       IsConsensusV1 (MPV m),
       MonadState (SkovData (MPV m)) m,
       LowLevel.MonadTreeStateStore m,
-      MonadLogger m
+      MonadLogger m,
+      BlockStateStorage m,
+      TimeMonad m,
+      TimerMonad m,
+      MonadThrow m,
+      MonadIO m,
+      MonadConsensusEvent m
     ) =>
     m ()
 uponTimeoutEvent = do
@@ -449,7 +462,7 @@ updateTimeoutMessages tms tm =
 
 -- |Process a timeout message. This stores the timeout, and makes sure the stored timeout messages
 -- do not span more than 2 epochs. If enough timeout messages are stored, we form a timeout certificate and
--- advance round.
+-- advance round, and bake a block in the new round if possible.
 --
 -- Precondition:
 -- * The given 'TimeoutMessage' is valid and has already been checked.
@@ -457,7 +470,20 @@ updateTimeoutMessages tms tm =
 processTimeout ::
     ( MonadTimeout m,
       LowLevel.MonadTreeStateStore m,
-      MonadState (SkovData (MPV m)) m
+      MonadState (SkovData (MPV m)) m,
+      MonadReader r m,
+      HasBakerContext r,
+      MonadProtocolVersion m,
+      BlockStateStorage m,
+      BlockState m ~ HashedPersistentBlockState (MPV m),
+      IsConsensusV1 (MPV m),
+      TimeMonad m,
+      TimerMonad m,
+      MonadBroadcast m,
+      MonadThrow m,
+      MonadIO m,
+      MonadConsensusEvent m,
+      MonadLogger m
     ) =>
     TimeoutMessage ->
     m ()
@@ -487,7 +513,7 @@ processTimeout tm = do
                       Just secondFinComm <- getFinalizersForEpoch (tmFirstEpoch + 1) =
                         bakerIdsFor secondFinComm tmSecondEpochTimeouts
                     | otherwise = []
-            -- Compute the accummulated voting power by folding over the finalization committee.
+            -- Compute the accumulated voting power by folding over the finalization committee.
             -- We are here making use of the fact that the finalization committee is ordered
             -- by ascending baker ids and that the list of bakerids are also ordered by ascending baker id.
             -- Moreover there MUST be no duplicates in either @firstBakerIds@ or @secondBakerIds@.
@@ -495,13 +521,13 @@ processTimeout tm = do
                     fst $
                         foldl'
                             ( \(!accum, bids) finalizer ->
-                                -- We are done accummulating.
+                                -- We are done accumulating.
                                 if null bids
                                     then (accum, [])
                                     else
                                         if head bids == finalizerBakerId finalizer
                                             then -- If we have a match we add the weight to the
-                                            -- accummulator and proceed to the next baker id
+                                            -- accumulator and proceed to the next baker id
                                             -- and finalizer.
                                                 (accum + finalizerWeight finalizer, tail bids)
                                             else -- If we did not have a match we continue
@@ -521,6 +547,7 @@ processTimeout tm = do
                         { rtCertifiedBlock = highestCB,
                           rtTimeoutCertificate = tc
                         }
+                makeBlock
   where
     -- baker ids for the finalizers who have signed off the message.
     -- Note that the finalization committee is sorted by ascending baker ids.

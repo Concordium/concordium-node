@@ -50,7 +50,7 @@ import Concordium.Types.Updates
 import Concordium.Utils
 
 import Concordium.GlobalState.BlockState
-import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.Parameters (RuntimeParameters (..))
 import qualified Concordium.GlobalState.Persistent.BlobStore as BlobStore
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import Concordium.GlobalState.Persistent.TreeState (DeadCache, emptyDeadCache, insertDeadCache, memberDeadCache)
@@ -308,7 +308,9 @@ mkInitialSkovData rp genMeta genState _currentTimeout _skovEpochBakers =
             BlockMetadata
                 { bmHeight = 0,
                   bmReceiveTime = genesisTime,
-                  bmArriveTime = genesisTime
+                  bmArriveTime = genesisTime,
+                  bmEnergyCost = 0,
+                  bmTransactionsSize = 0
                 }
         genesisBlockPointer =
             BlockPointer
@@ -383,7 +385,7 @@ getMemoryBlockStatus blockHash sd
     | otherwise = Nothing
 
 -- |Create a block pointer from a stored block.
-mkBlockPointer :: (LowLevel.MonadTreeStateStore m, MonadIO m) => LowLevel.StoredBlock (MPV m) -> m (BlockPointer (MPV m))
+mkBlockPointer :: (MonadIO m) => LowLevel.StoredBlock (MPV m) -> m (BlockPointer (MPV m))
 mkBlockPointer sb@LowLevel.StoredBlock{..} = do
     bpState <- liftIO mkHashedPersistentBlockState
     return BlockPointer{bpInfo = stbInfo, bpBlock = stbBlock, ..}
@@ -425,16 +427,49 @@ getFinalizedBlockAtHeight height = do
         Nothing -> return Nothing
         Just sb -> return <$> Just =<< mkBlockPointer sb
 
+-- |Get a list of the live or finalized blocks at a particular height. The order of the blocks in
+-- the resulting list is unspecified. If there are no blocks at the given height, this will return
+-- the empty list.
+getBlocksAtHeight ::
+    (LowLevel.MonadTreeStateStore m, MonadIO m) =>
+    BlockHeight ->
+    SkovData (MPV m) ->
+    m [BlockPointer (MPV m)]
+getBlocksAtHeight height sd = case compare height lastFinHeight of
+    LT -> toList <$> getFinalizedBlockAtHeight height
+    EQ -> return [sd ^. lastFinalized]
+    GT -> return $ sd ^. branches . ix (fromIntegral $ height - lastFinHeight - 1)
+  where
+    lastFin = sd ^. lastFinalized
+    lastFinHeight = bmHeight (blockMetadata lastFin)
+
 -- |Turn a 'PendingBlock' into a live block.
 -- This marks the block as 'MemBlockAlive' in the block table, records the arrive time of the block,
 -- and returns the resulting 'BlockPointer'.
 -- The hash of the block state MUST match the block state hash of the block; this is not checked.
 -- [Note: this does not affect the '_branches' of the 'SkovData'.]
-makeLiveBlock :: (MonadState (SkovData pv) m) => PendingBlock -> PBS.HashedPersistentBlockState pv -> BlockHeight -> UTCTime -> m (BlockPointer pv)
-makeLiveBlock pb st height arriveTime = do
+makeLiveBlock ::
+    (MonadState (SkovData pv) m) =>
+    -- |Pending block to make live
+    PendingBlock ->
+    -- |Block state associated with the block
+    PBS.HashedPersistentBlockState pv ->
+    BlockHeight ->
+    UTCTime ->
+    -- |Energy used in executing the block
+    Energy ->
+    m (BlockPointer pv)
+makeLiveBlock pb st height arriveTime energyCost = do
     let bp =
             BlockPointer
-                { bpInfo = BlockMetadata{bmReceiveTime = pbReceiveTime pb, bmArriveTime = arriveTime, bmHeight = height},
+                { bpInfo =
+                    BlockMetadata
+                        { bmReceiveTime = pbReceiveTime pb,
+                          bmArriveTime = arriveTime,
+                          bmHeight = height,
+                          bmEnergyCost = energyCost,
+                          bmTransactionsSize = fromIntegral $ sum (biSize <$> blockTransactions pb)
+                        },
                   bpBlock = NormalBlock (pbBlock pb),
                   bpState = st
                 }
@@ -501,7 +536,9 @@ parentOf block
                 error $
                     "parentOf: Parent block ("
                         ++ show (blockParent blockData)
-                        ++ ") is not live or finalized."
+                        ++ ") of "
+                        ++ show (getHash @BlockHash block)
+                        ++ " is not live or finalized."
     | otherwise = return block
 
 -- |Get the parent block of a live (non-finalized) block.
@@ -518,17 +555,35 @@ parentOfLive sd block
         error $
             "parentOfLive: parent block ("
                 ++ show parentHash
-                ++ ") is neither live nor last-finalized"
+                ++ ") of "
+                ++ show (getHash @BlockHash block)
+                ++ " is neither live nor last-finalized"
   where
     parentHash
         | Present blockData <- blockBakedData block = blockParent blockData
         | otherwise = error "parentOfLive: unexpected genesis block"
 
+-- |Get the last finalized block from the perspective of a block. That is, follow the QC chain
+-- back until we reach two blocks in consecutive rounds.
+lastFinalizedOf ::
+    (LowLevel.MonadTreeStateStore m, MonadIO m, MonadState (SkovData (MPV m)) m) =>
+    BlockPointer (MPV m) ->
+    m (BlockPointer (MPV m))
+lastFinalizedOf = go <=< parentOf
+  where
+    go block
+        | blockRound block == 0 = return block
+        | otherwise = do
+            parent <- parentOf block
+            if blockRound block == blockRound parent + 1
+                then return parent
+                else go parent
+
 -- |Determine if one block is an ancestor of another.
 -- A block is considered to be an ancestor of itself.
 isAncestorOf ::
     (LowLevel.MonadTreeStateStore m, MonadIO m, MonadState (SkovData (MPV m)) m) =>
-    -- |The block to check whether it's an ancesor of the other or not.
+    -- |The block to check whether it's an ancestor of the other or not.
     BlockPointer (MPV m) ->
     -- |The block to carry out the ancestor check with respect to.
     BlockPointer (MPV m) ->
@@ -565,6 +620,15 @@ addToBranches block = do
         GT ->
             error $
                 "Attempted to add a block at invalid height (" ++ show (blockHeight block) ++ ")"
+
+-- |Get the blocks in the branches of the tree grouped by descending height.
+-- That is the first element of the list is all of the blocks at 'getCurrentHeight',
+-- the next is those at @getCurrentHeight - 1@, etc.
+branchesFromTop :: SkovData pv -> [[BlockPointer pv]]
+branchesFromTop = revSeqToList . _branches
+  where
+    revSeqToList Seq.Empty = []
+    revSeqToList (r Seq.:|> t) = t : revSeqToList r
 
 -- * Operations on pending blocks
 
@@ -913,6 +977,7 @@ purgeTransactionTable force currentTime = do
 --
 -- PRECONDITION: The new focus block must be a live block, or the last finalized block.
 updateFocusBlockTo ::
+    forall m.
     (MonadState (SkovData (MPV m)) m) =>
     -- |New focus block
     BlockPointer (MPV m) ->

@@ -100,7 +100,7 @@ makeBakerAccountKeys bid amount =
                           gbSignatureVerifyKey = Sig.verifyKey (bakerSignKey bkr),
                           gbAggregationVerifyKey = bakerAggregationPublicKey bkr,
                           gbStake = amount - (amount `div` 100),
-                          gbRestakeEarnings = False,
+                          gbRestakeEarnings = True,
                           gbBakerId = bid
                         }
             }
