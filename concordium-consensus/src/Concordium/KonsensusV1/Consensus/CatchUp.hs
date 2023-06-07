@@ -3,8 +3,12 @@
 module Concordium.KonsensusV1.Consensus.CatchUp where
 
 import Control.Monad.State
+import Data.ByteString (ByteString)
 import Data.Foldable (toList)
+import qualified Data.HashSet as HashSet
+import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe)
+import qualified Data.Sequence as Seq
 import Data.Serialize (runPut)
 import Data.Word
 import Lens.Micro.Platform
@@ -16,7 +20,6 @@ import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.Types
-import Data.ByteString (ByteString)
 
 -- notes
 
@@ -66,6 +69,149 @@ data CatchUpTerminalData = CatchUpTerminalData
       cutdCurrentRoundTimeoutMessages :: ![TimeoutMessage]
     }
 
+data CatchUpPartialResponse m
+    = CatchUpPartialResponseBlock
+        { cuprNextBlock :: SignedBlock,
+          cuprContinue :: m (CatchUpPartialResponse m),
+          cuprFinish :: m (Maybe CatchUpTerminalData)
+        }
+    | CatchUpPartialResponseDone
+        { cuprFinished :: Maybe CatchUpTerminalData
+        }
+
+data CatchUpStatus = CatchUpStatus
+    { cusLastFinalizedBlock :: BlockHash,
+      cusLastFinalizedRound :: Round,
+      cusLeaves :: [BlockHash],
+      cusBranches :: [BlockHash],
+      cusCurrentRound :: Round,
+      cusCurrentRoundQuorum :: Map.Map BlockHash FinalizerSet
+    }
+
+handleCatchUpRequest :: (MonadState (SkovData (MPV m)) m, MonadIO m, LowLevel.MonadTreeStateStore m) => CatchUpStatus -> m (CatchUpPartialResponse m)
+handleCatchUpRequest CatchUpStatus{..} = do
+    peerLFBStatus <- getBlockStatus cusLastFinalizedBlock =<< get
+    case peerLFBStatus of
+        BlockFinalized peerLFBlock -> catchUpLastFinalized peerLFBlock
+        BlockAlive _ -> catchUpAfterLastFinalized True
+        _ -> do
+            -- We do not consider the peer's last finalized block live or finalized, so we cannot
+            -- do anything to catch them up.
+            return $ CatchUpPartialResponseDone Nothing
+  where
+    -- Hash set of the blocks known to the peer (from the peer's last finalized block)
+    peerKnownBlocks =
+        HashSet.insert
+            cusLastFinalizedBlock
+            (HashSet.fromList (cusLeaves ++ cusBranches))
+    isPeerKnown blk = blk `HashSet.member` peerKnownBlocks
+    toSignedBlock (NormalBlock sb) = sb
+    toSignedBlock GenesisBlock{} = error "handleCatchUpRequest: unexpected genesis block"
+    -- INVARIANT: we consider peerLFBlock to be finalized.
+    catchUpLastFinalized peerLFBlock = do
+        lfBlock <- use lastFinalized
+        if blockHeight lfBlock == blockHeight peerLFBlock
+            then do
+                -- We have the same last finalized block, so no need to catch up finalized blocks.
+                catchUpAfterLastFinalized True
+            else do
+                -- Send the finalized blocks from 1 after the peer's last finalized block,
+                -- skipping while the peer claims to have seen them. Note that, since peerLFBlock
+                -- is finalized, but is not the last finalized block, then we have:
+                -- 0 < blockHeight peerLFBlock + 1 <= blockHeight lfBlock
+                sendBlocksFromHeight True lfBlock (blockHeight peerLFBlock + 1)
+    -- Send our finalized blocks from the given height up to the last finalized block, if they
+    -- are not in 'peerKnownBlocks'.  The boolean flag 'checkKnown' indicates whether we should
+    -- check if the peer already knows the block.  We assume that if the peer does not know a
+    -- block, then it does not know any children of the block.
+    -- INVARIANT: 0 < hgt <= blockHeight lfBlock
+    sendBlocksFromHeight checkKnown lfBlock hgt
+        | hgt == blockHeight lfBlock =
+            if checkKnown && isPeerKnown (getHash lfBlock)
+                then catchUpAfterLastFinalized True
+                else do
+                    -- By the invariant, it is not possible for 'lfBlock' to be a genesis block.
+                    return
+                        CatchUpPartialResponseBlock
+                            { cuprNextBlock = toSignedBlock (bpBlock lfBlock),
+                              cuprContinue = catchUpAfterLastFinalized False,
+                              cuprFinish = return Nothing
+                            }
+        | otherwise =
+            LowLevel.lookupBlockByHeight hgt >>= \case
+                Nothing -> do
+                    -- This should not fail, since the height is below the height of the last
+                    -- finalized block.
+                    error $ "handleCatchUpRequest: missing finalized block at height " ++ show hgt
+                Just fb
+                    | checkKnown && isPeerKnown (getHash fb) -> do
+                        -- If the peer already knows this block, skip it.
+                        sendBlocksFromHeight checkKnown lfBlock (hgt + 1)
+                    | otherwise -> do
+                        -- Since 0 < hgt, we can be sure that 'fb' is not a genesis block.
+                        return
+                            CatchUpPartialResponseBlock
+                                { cuprNextBlock = toSignedBlock (LowLevel.stbBlock fb),
+                                  cuprContinue = sendBlocksFromHeight False lfBlock (hgt + 1),
+                                  cuprFinish = return Nothing
+                                }
+    catchUpAfterLastFinalized checkKnown = do
+        catchUpBranches checkKnown checkKnown [] =<< use branches
+    catchUpBranches _ _ [] Seq.Empty = CatchUpPartialResponseDone <$> endCatchUp
+    catchUpBranches _ knownAtCurrentHeight [] (nxt Seq.:<| rest) =
+        catchUpBranches knownAtCurrentHeight False nxt rest
+    catchUpBranches checkKnown knownAtCurrentHeight (b : bs) rest
+        | checkKnown && isPeerKnown (getHash b) = catchUpBranches True True bs rest
+        | otherwise =
+            return $
+                CatchUpPartialResponseBlock
+                    { cuprNextBlock = toSignedBlock (bpBlock b),
+                      cuprContinue = catchUpBranches checkKnown knownAtCurrentHeight bs rest,
+                      cuprFinish = if null bs && null rest then endCatchUp else return Nothing
+                    }
+    endCatchUp = do
+        cutdQuorumCertificates <- getQCs
+        rs <- use roundStatus
+        -- We include the timeout certificate if we have one and our current round is higher than
+        -- the peer's current round.
+        let cutdTimeoutCertificate
+                | cusCurrentRound < _rsCurrentRound rs =
+                    rtTimeoutCertificate <$> _rsPreviousRoundTimeout rs
+                | otherwise = Absent
+        cutdCurrentRoundQuorumMessages <- getQuorumMessages
+        cutdCurrentRoundTimeoutMessages <- getTimeoutMessages
+        return $
+            Just $
+                CatchUpTerminalData{..}
+    getQCs = do
+        highQC <- use (roundStatus . rsHighestCertifiedBlock . to cbQuorumCertificate)
+        if qcRound highQC < cusLastFinalizedRound
+            then do
+                return []
+            else do
+                lfBlock <- use lastFinalized
+                if qcRound highQC == blockRound lfBlock || blockRound lfBlock <= cusLastFinalizedRound
+                    then do
+                        -- The high QC and the QC finalizing the LFB are the same, or the peer
+                        -- already considers our last finalized block to be finalized.
+                        return [highQC]
+                    else do
+                        LowLevel.lookupLatestFinalizationEntry <&> \case
+                            Nothing -> [highQC]
+                            Just finEntry -> [feSuccessorQuorumCertificate finEntry, highQC]
+    getQuorumMessages = do
+        -- TODO: Filter these.
+        gets $ toListOf $ currentQuorumMessages . smFinalizerToQuorumMessage . traversed
+    getTimeoutMessages = do
+        -- TODO: Filter these.
+        use currentTimeoutMessages >>= \case
+            Absent -> return []
+            Present tms -> do
+                return $
+                    Map.elems (tmFirstEpochTimeouts tms)
+                        <> Map.elems (tmSecondEpochTimeouts tms)
+
+{-
 data CatchupMessage
     = -- |The 'CatchupStatus' is send when a peer
       -- joins the network and wants to get caught up
@@ -191,3 +337,4 @@ handleCatchupMessage peerStatus limit = do
                                     (GenesisBlock _) -> Nothing
                                     NormalBlock sb -> Just $ (runPut . putSignedBlock) sb
                                 )
+-}
