@@ -177,6 +177,8 @@ handleCatchupMessage peerStatus limit = do
                         sd <- get
                         blocks <- normalBlocksSerialized . take (fromIntegral limit) . concat <$> mapM (flip getBlocksAtHeight sd) [startHeight .. endHeight]
                         -- FIXME: add quorum/timeout certificates extending the tip of any of the branches.
+                        -- FIXME: Use branches/live blocks if peer can make use of them
+                        -- FIXME: Use CatchUpTerminalData if peer can make use of it.
                         return $ Just (CatchupResponse ourCurrentRound, blocks)
                       where
                         startHeight = 1 + bmHeight stbInfo
