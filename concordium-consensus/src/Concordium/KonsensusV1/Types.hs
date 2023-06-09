@@ -282,6 +282,11 @@ emptyFinalizerSet = FinalizerSet 0
 addFinalizer :: FinalizerSet -> FinalizerIndex -> FinalizerSet
 addFinalizer (FinalizerSet setOfFinalizers) (FinalizerIndex i) = FinalizerSet $ setBit setOfFinalizers (fromIntegral i)
 
+-- |Test whether a given finalizer index is present in a finalizer set.
+memberFinalizerSet :: FinalizerIndex -> FinalizerSet -> Bool
+memberFinalizerSet (FinalizerIndex fi) (FinalizerSet setOfFinalizers) =
+    testBit setOfFinalizers (fromIntegral fi)
+
 -- |Convert a list of [FinalizerIndex] to a 'FinalizerSet'.
 finalizerSet :: [FinalizerIndex] -> FinalizerSet
 finalizerSet = foldl' addFinalizer (FinalizerSet 0)

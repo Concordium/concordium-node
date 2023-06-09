@@ -79,13 +79,28 @@ data CatchUpPartialResponse m
         { cuprFinished :: Maybe CatchUpTerminalData
         }
 
+data TimeoutSet = TimeoutSet
+    { tsFirstEpoch :: !Epoch,
+      tsFirstEpochTimeouts :: !FinalizerSet,
+      tsSecondEpochTimeouts :: !FinalizerSet
+    }
+
+makeTimeoutSet :: TimeoutMessages -> TimeoutSet
+makeTimeoutSet TimeoutMessages{..} =
+    TimeoutSet
+        { tsFirstEpoch = tmFirstEpoch,
+          tsFirstEpochTimeouts = finalizerSet (Map.keys tmFirstEpochTimeouts),
+          tsSecondEpochTimeouts = finalizerSet (Map.keys tmSecondEpochTimeouts)
+        }
+
 data CatchUpStatus = CatchUpStatus
     { cusLastFinalizedBlock :: BlockHash,
       cusLastFinalizedRound :: Round,
       cusLeaves :: [BlockHash],
       cusBranches :: [BlockHash],
       cusCurrentRound :: Round,
-      cusCurrentRoundQuorum :: Map.Map BlockHash FinalizerSet
+      cusCurrentRoundQuorum :: Map.Map BlockHash FinalizerSet,
+      cusCurrentRoundTimeouts :: Option TimeoutSet
     }
 
 handleCatchUpRequest :: (MonadState (SkovData (MPV m)) m, MonadIO m, LowLevel.MonadTreeStateStore m) => CatchUpStatus -> m (CatchUpPartialResponse m)
@@ -200,16 +215,39 @@ handleCatchUpRequest CatchUpStatus{..} = do
                             Nothing -> [highQC]
                             Just finEntry -> [feSuccessorQuorumCertificate finEntry, highQC]
     getQuorumMessages = do
-        -- TODO: Filter these.
-        gets $ toListOf $ currentQuorumMessages . smFinalizerToQuorumMessage . traversed
+        ourCurrentRound <- use $ roundStatus . rsCurrentRound
+        if cusCurrentRound == ourCurrentRound
+            then do
+                qms <- gets $ toListOf $ currentQuorumMessages . smFinalizerToQuorumMessage . traversed
+                return $! filter newToPeer qms
+            else do
+                return []
+      where
+        newToPeer qm = case Map.lookup (qmBlock qm) cusCurrentRoundQuorum of
+            Nothing -> True
+            Just s -> not (memberFinalizerSet (qmFinalizerIndex qm) s)
     getTimeoutMessages = do
-        -- TODO: Filter these.
-        use currentTimeoutMessages >>= \case
-            Absent -> return []
-            Present tms -> do
-                return $
-                    Map.elems (tmFirstEpochTimeouts tms)
-                        <> Map.elems (tmSecondEpochTimeouts tms)
+        ourCurrentRound <- use $ roundStatus . rsCurrentRound
+        if cusCurrentRound == ourCurrentRound
+            then do
+                use currentTimeoutMessages >>= \case
+                    Absent -> return []
+                    Present TimeoutMessages{..} -> do
+                        let (filterFirst, filterSecond) = case cusCurrentRoundTimeouts of
+                                Present TimeoutSet{..}
+                                    | tsFirstEpoch + 1 == tmFirstEpoch -> (filter2, id)
+                                    | tsFirstEpoch == tmFirstEpoch -> (filter1, filter2)
+                                    | tsFirstEpoch == tmFirstEpoch + 1 -> (id, filter1)
+                                  where
+                                    filterFun ts tm =
+                                        not $ memberFinalizerSet (tmFinalizerIndex $ tmBody tm) ts
+                                    filter1 = filter (filterFun tsFirstEpochTimeouts)
+                                    filter2 = filter (filterFun tsSecondEpochTimeouts)
+                                _ -> (id, id)
+                        return $
+                            filterFirst (Map.elems tmFirstEpochTimeouts)
+                                <> filterSecond (Map.elems tmSecondEpochTimeouts)
+            else return []
 
 {-
 data CatchupMessage
