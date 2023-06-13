@@ -67,7 +67,7 @@ data CatchUpTerminalData = CatchUpTerminalData
       -- |Valid timeout messages for the current round.
       -- TODO: Repackage timeout messages together.
       cutdCurrentRoundTimeoutMessages :: ![TimeoutMessage]
-    }
+    } deriving (Eq, Show)
 
 data CatchUpPartialResponse m
     = CatchUpPartialResponseBlock

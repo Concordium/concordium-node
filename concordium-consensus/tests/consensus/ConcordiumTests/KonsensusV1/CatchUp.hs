@@ -2,6 +2,7 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE BlockArguments #-}
 
 -- |A module that tests the in-band catch-up mechanism of KonsensusV1.
 module ConcordiumTests.KonsensusV1.CatchUp where
@@ -204,13 +205,37 @@ catchupNoBranches = runTest $ do
                   cusCurrentRound = Round 1,
                   cusCurrentRoundQuorum = Map.empty
                 }
-
+    -- todo: check that the terminal data is as expected.
     handleCatchUpRequest request >>= \case
-        CatchUpPartialResponseBlock{..} -> liftIO $ do
-            case stbBlock storedBlockRound1 of
-                GenesisBlock _ -> liftIO $ assertFailure "First block served should not be the genesis block."
-                NormalBlock sb -> assertEqual "First block served should be block1" sb cuprNextBlock
-        _ -> liftIO $ assertFailure "Should not be terminal data just yet as we need a block first."
+        CatchUpPartialResponseBlock nextBlock cont terminal -> do
+            -- Check that the storedBlockRound 1 matches the first block we receive.
+          case stbBlock storedBlockRound1 of
+              GenesisBlock _ -> liftIO $ assertFailure "First block served should not be the genesis block."
+              NormalBlock sb -> liftIO $ assertEqual "First block served should be block1" sb nextBlock
+          -- Check the continuation, this should match block2.
+          cont >>= \case
+                CatchUpPartialResponseBlock nextBlock' cont' terminal' -> do
+                  -- Check that the storedBlockRound 2 matches the first block we receive.
+                  case stbBlock storedBlockRound2 of
+                        GenesisBlock _ -> liftIO $ assertFailure "Second block served should not be the genesis block."
+                        NormalBlock sb -> liftIO $ assertEqual "Second block served should be block2" sb nextBlock'
+                  -- Check the continuation, this should match block2.
+                  cont' >>= \case
+                      CatchUpPartialResponseBlock nextBlock'' cont'' terminal'' -> do
+                          -- Check that the storedBlockRound 2 matches the first block we receive.
+                          case bpBlock block3 of
+                              GenesisBlock _ -> liftIO $ assertFailure "Third block served should not be the genesis block."
+                              NormalBlock sb -> liftIO $ assertEqual "Third block served should be block2" sb nextBlock''
+                          cont'' >>= \case
+                              CatchUpPartialResponseBlock nextBlock''' cont''' terminal''' -> do
+                                  -- Check that the storedBlockRound 2 matches the first block we receive.
+                                  case bpBlock block4 of
+                                      GenesisBlock _ -> liftIO $ assertFailure "Fourth block served should not be the genesis block."
+                                      NormalBlock sb -> liftIO $ assertEqual "Fourth block served should be block4" sb nextBlock'''
+                              CatchUpPartialResponseDone _ -> liftIO $ assertFailure "Should not be terminal data just yet, should be block3."
+                      CatchUpPartialResponseDone _ -> liftIO $ assertFailure "Should not be terminal data just yet, should be block3."
+                CatchUpPartialResponseDone _ -> liftIO $ assertFailure "Should not be terminal data just yet, should be block2."
+        CatchUpPartialResponseDone _ -> liftIO $ assertFailure "Should not be terminal data yet, should be block1"
   where
     storedBlockRound0 = dummyStoredBlockEmpty 0 0
     storedBlockRound1 = dummyStoredBlockEmpty 1 1
