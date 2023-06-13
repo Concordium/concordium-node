@@ -1,7 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module ConcordiumTests.KonsensusV1.LMDB (tests) where
+module ConcordiumTests.KonsensusV1.LMDB where
 
 import Control.Exception
 import Control.Monad.IO.Class (liftIO)
