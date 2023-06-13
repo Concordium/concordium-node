@@ -76,10 +76,10 @@ checkFinalityWithBlock ::
       IsConsensusV1 (MPV m),
       HasCallStack
     ) =>
-    -- |An already verified 'QuorumCertificate' that points
+    -- |An already verified quorum certificate that points
     -- to the provided @BlockPointer (MPV m)@
     QuorumCertificate ->
-    -- |A pointer to the block that is checked whether it can be finalized or not.
+    -- |A pointer to the block referenced by the quorum certificate
     BlockPointer (MPV m) ->
     m ()
 checkFinalityWithBlock qc blockPtr
