@@ -183,6 +183,8 @@ catchupNoBranches = runTest $ do
     roundStatus . rsCurrentRound .= Round 5
     -- Blocks 0,1 and 2 are finalized
     writeBlocks [storedBlockRound0, storedBlockRound1, storedBlockRound2] dummyFinalizationEntry
+    lfb <- mkBlockPointer storedBlockRound2
+    lastFinalized .=! lfb
     -- block in round 3 is the highest certified block.
     block3 <- block3'
     addToBranches block3
@@ -205,8 +207,9 @@ catchupNoBranches = runTest $ do
 
     handleCatchUpRequest request >>= \case
         CatchUpPartialResponseBlock{..} -> liftIO $ do
-            -- todo insert asserts
-            return ()
+            case stbBlock storedBlockRound1 of
+                GenesisBlock _ -> liftIO $ assertFailure "First block served should not be the genesis block."
+                NormalBlock sb -> assertEqual "First block served should be block1" sb cuprNextBlock
         _ -> liftIO $ assertFailure "Should not be terminal data just yet as we need a block first."
   where
     storedBlockRound0 = dummyStoredBlockEmpty 0 0
@@ -235,6 +238,8 @@ catchupTwoBranches = runTest $ do
     roundStatus . rsCurrentRound .= Round 6
     -- Blocks 0,1 and 2 are finalized
     writeBlocks [storedBlockRound0, storedBlockRound1, storedBlockRound2] dummyFinalizationEntry
+    lfb <- mkBlockPointer storedBlockRound2
+    lastFinalized .=! lfb
     -- block in round 3 is the highest certified block.
     block3 <- block3'
     addToBranches block3
@@ -292,6 +297,8 @@ catchupThreeBranches = runTest $ do
     roundStatus . rsCurrentRound .= Round 6
     -- Blocks 0,1 and 2 are finalized
     writeBlocks [storedBlockRound0, storedBlockRound1, storedBlockRound2] dummyFinalizationEntry
+    lfb <- mkBlockPointer storedBlockRound2
+    lastFinalized .=! lfb
     block3 <- block3'
     -- blocks used in this test.
     let block4 = makeDummyBlockPointer $ Quorum block3
