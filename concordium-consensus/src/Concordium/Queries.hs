@@ -260,6 +260,10 @@ liftSkovQueryStateBHI stateQuery =
         (stateQuery <=< blockState)
         (stateQuery <=< blockState)
 
+-- A helper function for getting the best block in consensus version 1. It is the block with the highest QC.
+bestBlockConsensusV1 :: MonadState (SkovV1.SkovData pv) m => m (SkovV1.BlockPointer pv)
+bestBlockConsensusV1 = SkovV1.cbQuorumBlock <$> use (SkovV1.roundStatus . SkovV1.rsHighestCertifiedBlock)
+
 -- |Try a 'BlockHashInput' based query on the latest skov version, provided with the configuration.
 -- If a specific block hash is given we work backwards through consensus versions until we
 -- find the specified block or run out of versions.
@@ -352,10 +356,10 @@ liftSkovQueryBHIAndVersion av0 av1 bhi = do
                     )
                     ( do
                         -- consensus version 1
-                        bp <- case other of
-                            Best -> use SkovV1.lastFinalized -- FIXME: Use "best" block. Issue #857
-                            LastFinal -> use SkovV1.lastFinalized
-                        (getHash bp,) . Just <$> av1 evc bp True -- FIXME: For best block, this is wrong. Issue #857
+                        (bp, finalized) <- case other of
+                            Best -> (,False) <$> bestBlockConsensusV1
+                            LastFinal -> (,True) <$> use SkovV1.lastFinalized
+                        (getHash bp,) . Just <$> av1 evc bp finalized
                     )
             return $ case maybeValue of
                 Just v -> BQRBlock bh v
@@ -402,8 +406,9 @@ getConsensusStatus = MVR $ \mvr -> do
         csCurrentEraGenesisBlock <- getHash <$> genesisBlock
         csCurrentEraGenesisTime <- timestampToUTCTime <$> getGenesisTime
         genData <- getGenesisData
-        let csSlotDuration = gdSlotDuration genData
-        let csEpochDuration = fromIntegral (gdEpochLength genData) * csSlotDuration
+        let slotDur = gdSlotDuration genData
+        let csSlotDuration = Just slotDur
+        let csEpochDuration = fromIntegral (gdEpochLength genData) * slotDur
         lfb <- lastFinalizedBlock
         let csLastFinalizedBlock = getHash lfb
         let csLastFinalizedBlockHeight = absoluteHeight lfb
@@ -428,16 +433,20 @@ getConsensusStatus = MVR $ \mvr -> do
             csLastFinalizedTime = stats ^. lastFinalizedTime
             csFinalizationPeriodEMA = stats ^. finalizationPeriodEMA
             csFinalizationPeriodEMSD = sqrt <$> stats ^. finalizationPeriodEMVar
+            csCurrentTimeoutDuration = Nothing
+            csCurrentRound = Nothing
+            csCurrentEpoch = Nothing
+            csTriggerBlockTime = Nothing
         return ConsensusStatus{..}
     statusV1 ::
         forall (pv :: ProtocolVersion).
-        (IsProtocolVersion pv) =>
+        (IsProtocolVersion pv, IsConsensusV1 pv) =>
         (BlockHash, UTCTime) ->
         EVersionedConfiguration finconf ->
         VersionedSkovV1M finconf pv ConsensusStatus
     statusV1 (csGenesisBlock, csGenesisTime) evc = do
         let absoluteHeight = localToAbsoluteBlockHeight (evcGenesisHeight evc) . SkovV1.blockHeight
-        bb <- use SkovV1.lastFinalized -- FIXME: Use best block. Issue #857
+        bb <- bestBlockConsensusV1
         let csBestBlock = getHash bb
         let csBestBlockHeight = absoluteHeight bb
 
@@ -447,7 +456,7 @@ getConsensusStatus = MVR $ \mvr -> do
                 timestampToUTCTime $
                     BaseV1.genesisTime $
                         SkovV1.gmParameters genMetadata
-        let csSlotDuration = 0 -- FIXME: What to do here? Issue #857
+        let csSlotDuration = Nothing -- no slots in consensus version 1
         let csEpochDuration = BaseV1.genesisEpochDuration $ SkovV1.gmParameters genMetadata
         lfb <- use SkovV1.lastFinalized
         let csLastFinalizedBlock = getHash lfb
@@ -473,6 +482,11 @@ getConsensusStatus = MVR $ \mvr -> do
             csLastFinalizedTime = stats ^. lastFinalizedTime
             csFinalizationPeriodEMA = stats ^. finalizationPeriodEMA
             csFinalizationPeriodEMSD = sqrt <$> stats ^. finalizationPeriodEMVar
+        csCurrentTimeoutDuration <- Just <$> use (SkovV1.roundStatus . SkovV1.rsCurrentTimeout)
+        csCurrentRound <- Just . SkovV1.theRound <$> use (SkovV1.roundStatus . SkovV1.rsCurrentRound)
+        csCurrentEpoch <- Just <$> use (SkovV1.roundStatus . SkovV1.rsCurrentEpoch)
+        ss <- BS.getSeedState (SkovV1.bpState lfb)
+        let csTriggerBlockTime = Just $ ss ^. triggerBlockTime
         return ConsensusStatus{..}
 
 -- |Retrieve the slot time of the last finalized block.
@@ -655,8 +669,8 @@ getBlockInfo =
             let biEraBlockHeight = bpHeight bp
             let biBlockReceiveTime = bpReceiveTime bp
             let biBlockArriveTime = bpArriveTime bp
-            let biBlockSlot = blockSlot bp
-            biBlockSlotTime <- getSlotTime biBlockSlot
+            let biBlockSlot = Just $ blockSlot bp
+            biBlockSlotTime <- getSlotTime $ blockSlot bp
             let biBlockBaker = blockBaker <$> blockFields bp
             biFinalized <- isFinalized (bpHash bp)
             let biTransactionCount = bpTransactionCount bp
@@ -664,6 +678,8 @@ getBlockInfo =
             let biTransactionsSize = bpTransactionsSize bp
             let biBlockStateHash = blockStateHash bp
             let biProtocolVersion = evcProtocolVersion evc
+            let biRound = Nothing
+            let biEpoch = Nothing
             return BlockInfo{..}
         )
         ( \evc bp biFinalized -> do
@@ -683,13 +699,15 @@ getBlockInfo =
                                 (getHash <$> lastFinalizedBlock)
                                 (use (SkovV1.lastFinalized . to getHash))
                     else getHash <$> bpParent bp
-            biBlockLastFinalized <- getHash <$> bpLastFinalized bp
+            biBlockLastFinalized <-
+                if biFinalized
+                    then return $ getHash bp
+                    else getHash <$> bpLastFinalized bp
             let biBlockHeight = localToAbsoluteBlockHeight (evcGenesisHeight evc) (SkovV1.blockHeight bp)
             let biEraBlockHeight = SkovV1.blockHeight bp
             let biBlockReceiveTime = SkovV1.blockReceiveTime bp
             let biBlockArriveTime = SkovV1.blockArriveTime bp
-            -- FIXME: For now, we report the block round as the block slot. Issue #857
-            let biBlockSlot = fromIntegral $ SkovV1.blockRound bp
+            let biBlockSlot = Nothing -- no slots in consensus version 1
             let biBlockSlotTime = timestampToUTCTime $ SkovV1.blockTimestamp bp
             let biBlockBaker = SkovV1.ofOption Nothing (Just . SkovV1.blockBaker) $ SkovV1.blockBakedData bp
             let biTransactionCount = SkovV1.blockTransactionCount bp
@@ -697,6 +715,8 @@ getBlockInfo =
             let biTransactionsSize = fromIntegral $ SkovV1.blockTransactionsSize bp
             let biBlockStateHash = SkovV1.blockStateHash bp
             let biProtocolVersion = evcProtocolVersion evc
+            let biRound = Just . SkovV1.theRound $ SkovV1.blockRound bp
+            let biEpoch = Just $ SkovV1.blockEpoch bp
             return BlockInfo{..}
         )
 
@@ -955,11 +975,10 @@ getBlockBirkParameters =
             return BlockBirkParameters{..}
         )
   where
-    -- FIXME: We treat the election difficulty as 1 for consensus version 1. Issue #857
-    getED :: forall m. (BS.BlockStateQuery m, MonadProtocolVersion m) => BlockState m -> m ElectionDifficulty
+    getED :: forall m. (BS.BlockStateQuery m, MonadProtocolVersion m) => BlockState m -> m (Maybe ElectionDifficulty)
     getED bs = case sConsensusParametersVersionFor (sChainParametersVersionFor (protocolVersion @(MPV m))) of
-        SConsensusParametersVersion0 -> BS.getCurrentElectionDifficulty bs
-        SConsensusParametersVersion1 -> return 1
+        SConsensusParametersVersion0 -> Just <$> BS.getCurrentElectionDifficulty bs
+        SConsensusParametersVersion1 -> return Nothing -- There is no election difficulty in consensus version 1
 
 -- |Get the cryptographic parameters of the chain at a given block.
 getCryptographicParameters :: BlockHashInput -> MVR finconf (BHIQueryResponse CryptographicParameters)
@@ -1370,8 +1389,7 @@ getBakerStatusBestBlock =
                         Just fbinfo -> return $! currentBakerStatus bakerIdent bakers fbinfo
                         Nothing -> do
                             -- Not a current baker.
-                            -- FIXME: change to "best block". Issue #857
-                            lfb <- use SkovV1.lastFinalized
+                            lfb <- bestBlockConsensusV1
                             bs <- blockState lfb
                             status <- bakerAccountStatus bakerIdent bs
                             return (status, Nothing)
