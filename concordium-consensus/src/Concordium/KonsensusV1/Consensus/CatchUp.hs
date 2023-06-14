@@ -85,22 +85,40 @@ data CatchUpTerminalData = CatchUpTerminalData
     }
     deriving (Eq, Show)
 
+-- |'CatchUpPartialResponse' represents a stream of blocks to send as a response to a catch-up
+-- request. The catch up response message should include the catch-up terminal data if all required
+-- blocks are sent. As the stream of blocks may be cut off early (e.g. to send max 100 blocks),
+-- if the last result is 'CatchUpPartialResponseBlock' then 'cuprFinish' should be called to
+-- determine if the terminal data should be included.
 data CatchUpPartialResponse m
-    = CatchUpPartialResponseBlock
-        { cuprNextBlock :: SignedBlock,
+    = -- |The next block in the stream.
+      CatchUpPartialResponseBlock
+        { -- |Next block.
+          cuprNextBlock :: SignedBlock,
+          -- |Continuation for getting any further blocks.
           cuprContinue :: m (CatchUpPartialResponse m),
+          -- |Continuation that gets the terminal data in the case where there are no further
+          -- blocks.
           cuprFinish :: m (Maybe CatchUpTerminalData)
         }
-    | CatchUpPartialResponseDone
-        { cuprFinished :: CatchUpTerminalData
+    | -- |There are no further blocks, just the terminal data.
+      CatchUpPartialResponseDone
+        { -- |Terminal data.
+          cuprFinished :: CatchUpTerminalData
         }
 
+-- |A summary of timeout messages received for a particular round.
 data TimeoutSet = TimeoutSet
-    { tsFirstEpoch :: !Epoch,
+    { -- |The first epoch for which we have timeout signatures for the round.
+      tsFirstEpoch :: !Epoch,
+      -- |The set of finalizers for which we have timeout signatures in epoch 'tsFirstEpoch'.
+      -- This must be non-empty.
       tsFirstEpochTimeouts :: !FinalizerSet,
+      -- |The set of finalizers for which we have timeout signatures in epoch @tsFirstEpoch + 1@.
       tsSecondEpochTimeouts :: !FinalizerSet
     }
 
+-- |Construct a 'TimeoutSet' summary from 'TimeoutMessages'.
 makeTimeoutSet :: TimeoutMessages -> TimeoutSet
 makeTimeoutSet TimeoutMessages{..} =
     TimeoutSet
@@ -146,6 +164,85 @@ makeCatchUpStatus sd = CatchUpStatus{..}
                 Present bd -> Set.insert (blockParent bd) p
                 Absent -> p
     (cusLeaves, cusBranches) = getLeavesBranches Set.empty [] [] (sd ^. branches)
+
+-- |Determine if we should catch-up with a peer based on the catch-up status message we have
+-- received. We should catch up if the peer's current round or current finalized round is greater
+-- than ours. We do not need to catch up if the peer's current round is no later than our last
+-- finalized round, since in that case it does not have anything useful for us. Otherwise, we
+-- should catch up if any of the following hold:
+--
+--   * Any of the peer's leaf blocks is pending or unknown. (These blocks could trigger spurious
+--     catch-up if they are behind our last finalized block. However, we assume that the peer
+--     will mutually catch-up with us, at which point it will no longer report those blocks in
+--     its leaves.)
+--
+--   * The peer's current round is the same as ours, and we are missing any of its quorum
+--     messages.
+--
+--   * The peer's current round is the same as ours, and we are missing any of its timeout messages,
+--     except where the timeout messages are for an irrelevant epoch.
+--
+-- As noted above, it can be the case that catch-up is triggered even when it is not necessary.
+-- However, catch-up should always be triggered when it is necessary.
+isCatchUpRequired ::
+    (LowLevel.MonadTreeStateStore m) =>
+    CatchUpStatus ->
+    SkovData (MPV m) ->
+    m Bool
+isCatchUpRequired CatchUpStatus{..} sd
+    | cusCurrentRound > myCurrentRound || cusLastFinalizedRound > myLastFinalizedRound =
+        return True
+    | cusCurrentRound <= myLastFinalizedRound =
+        return False
+    | otherwise = flip runContT return $ do
+        -- Check if we are missing any of the leaf blocks
+        forM_ cusLeaves $ \leaf -> do
+            leafStatus <- lift $ getRecentBlockStatus leaf sd
+            -- If the block is pending or unknown, we should attempt catch-up.
+            case leafStatus of
+                RecentBlock BlockPendingOrUnknown -> exitRequired
+                _ -> return ()
+        when (cusCurrentRound == myCurrentRound) $ do
+            let myCurrentRoundQuorum = sd ^. currentQuorumMessages . smBlockToWeightsAndSignatures
+            -- If they have any quorum messages we don't, we should catch-up.
+            forM_ (Map.toList cusCurrentRoundQuorum) $ \(bh, theirFinalizers) ->
+                case Map.lookup bh myCurrentRoundQuorum of
+                    Just (_, _, myFinalizers)
+                        | subsetFinalizerSet theirFinalizers myFinalizers -> return ()
+                    _ -> exitRequired
+            -- If they have any timeout messages we don't, we should catch-up.
+            forM_ cusCurrentRoundTimeouts $ \theirTimeouts -> do
+                case sd ^. currentTimeoutMessages of
+                    Absent -> exitRequired
+                    Present myTimeouts
+                        | null (tmSecondEpochTimeouts myTimeouts),
+                          tmFirstEpoch myTimeouts == tsFirstEpoch theirTimeouts + 1 -> do
+                            exitRequired
+                        | tmFirstEpoch myTimeouts == tsFirstEpoch theirTimeouts -> do
+                            checkTimeoutSubset
+                                (tsFirstEpochTimeouts theirTimeouts)
+                                (tmFirstEpochTimeouts myTimeouts)
+                            checkTimeoutSubset
+                                (tsSecondEpochTimeouts theirTimeouts)
+                                (tmSecondEpochTimeouts myTimeouts)
+                        | tmFirstEpoch myTimeouts + 1 == tsFirstEpoch theirTimeouts -> do
+                            unless
+                                (tsSecondEpochTimeouts theirTimeouts == emptyFinalizerSet)
+                                exitRequired
+                            checkTimeoutSubset
+                                (tsFirstEpochTimeouts theirTimeouts)
+                                (tmSecondEpochTimeouts myTimeouts)
+                        | otherwise -> return ()
+                      where
+                        checkTimeoutSubset theirs mine =
+                            forM_ (finalizerList theirs) $ \fin ->
+                                unless (Map.member fin mine) exitRequired
+        return False
+  where
+    myCurrentRound = sd ^. roundStatus . rsCurrentRound
+    myLastFinalizedRound = blockRound $ sd ^. lastFinalized
+    -- Escape continuation for the case where catch-up is required.
+    exitRequired = ContT $ \_ -> return True
 
 -- |Handle a catch-up request.
 -- This can safely be called without holding the global state lock and will not update the state.
