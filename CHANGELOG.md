@@ -7,6 +7,15 @@
   compatibility with chains started with P5 genesis data, where some genesis bakers are not set to
   restake earnings. Other chains (including mainnet and testnet) are not affected.
 - Support the new ConcordiumBFT consensus.
+- Changes to the `GetConsensusStatus` endpoint:
+  * Slot duration only returned in consensus version 1.
+  * Endpoint extended to return current timeout duration, current round, current epoch and trigger
+    block time in consensus version 1.
+- Changes to the `GetBlockInfo` endpoint:
+  * Block slot only returned in consensus version 0.
+  * Endpoint extended to return block round and epoch.
+- Changes to the `ElectionInfo` endpoint:
+  * Election difficulty only returned in consensus version 0.
 
 ## 5.4.2
 
