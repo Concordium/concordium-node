@@ -7,17 +7,15 @@
 -- |A module that tests the in-band catch-up mechanism of KonsensusV1.
 module ConcordiumTests.KonsensusV1.CatchUp where
 
-import Control.Monad.IO.Class (liftIO)
 import qualified Data.Vector as Vec
 import Lens.Micro.Platform
 import Test.HUnit
 import Test.Hspec
+import Control.Monad.State.Strict
 
 import qualified Concordium.Crypto.DummyData as Dummy
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Genesis.Data
-import qualified Concordium.Genesis.Data.BaseV1 as BaseV1
-import qualified Concordium.Genesis.Data.P6 as P6
 import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.DummyData as Dummy
 import Concordium.Startup
@@ -38,7 +36,7 @@ import Concordium.KonsensusV1.Types
 import Concordium.Types.Transactions
 
 import ConcordiumTests.KonsensusV1.LMDB
-import ConcordiumTests.KonsensusV1.TreeStateTest
+import ConcordiumTests.KonsensusV1.TreeStateTest hiding (dummyBakedBlock)
 
 -- |Create genesis for running the tests in this module.
 -- There are 3 bakers/finalizers and one additional foundation account.
@@ -110,18 +108,10 @@ makeDummyBlockPointer bMake = makeBp
               bpBlock = theBlock,
               bpState = dummyBlockState
             }
-    makeQC bp =
-        QuorumCertificate
-            { qcBlock = getHash bp,
-              qcRound = 1 + blockRound bp,
-              qcEpoch = blockEpoch bp,
-              qcAggregateSignature = mempty,
-              qcSignatories = FinalizerSet 0
-            }
-    makeTC bp r =
+    makeTC parentBp r =
         TimeoutCertificate
             { tcRound = r,
-              tcMinEpoch = blockEpoch bp,
+              tcMinEpoch = blockEpoch parentBp,
               tcFinalizerQCRoundsFirstEpoch = FinalizerRounds Map.empty,
               tcFinalizerQCRoundsSecondEpoch = FinalizerRounds Map.empty,
               tcAggregateSignature = mempty
@@ -135,10 +125,22 @@ makeDummyBlockPointer bMake = makeBp
               bmTransactionsSize = 0
             }
     theBlock = case bMake of
-        (Timeout r bp) -> NormalBlock $ signedBlock theRound (makeQC bp) (Present $ makeTC bp r)
-        (Quorum bp) -> NormalBlock $ signedBlock theRound (makeQC bp) Absent
+        (Timeout r bp) -> NormalBlock $ signedBlock theRound (makeQCForBlockPointer bp) (Present $ makeTC bp r)
+        (Quorum bp) -> NormalBlock $ signedBlock theRound (makeQCForBlockPointer bp) Absent
       where
         theRound = Round 1 + blockMakeRound bMake
+
+-- |Generate a dummy quorum certificate for the provided block pointer.
+-- The round is incremented otherwise the qc contains dummy values.
+makeQCForBlockPointer :: BlockPointer pv -> QuorumCertificate
+makeQCForBlockPointer parentBp =
+  QuorumCertificate
+  { qcBlock = getHash parentBp,
+    qcRound = 1 + blockRound parentBp,
+    qcEpoch = blockEpoch parentBp,
+    qcAggregateSignature = mempty,
+    qcSignatories = FinalizerSet 0
+  }
 
 -- |Create a 'CertifiedBlock' with the provided 'BlockPointer' and a dummy
 -- 'QuorumCertificate'.
@@ -190,7 +192,8 @@ catchupNoBranches = runTest $ do
     block3 <- block3'
     addToBranches block3
     blockTable . liveMap . at' (getHash block3) ?=! MemBlockAlive block3
-    roundStatus . rsHighestCertifiedBlock .= certifyBlock block3
+    let block3Certified = certifyBlock block3
+    roundStatus . rsHighestCertifiedBlock .= block3Certified
     let block4 = makeDummyBlockPointer $ Quorum block3
     -- block in round 4 with a TC pointing to block2.
     addToBranches block4
@@ -203,11 +206,15 @@ catchupNoBranches = runTest $ do
                   cusLeaves = [],
                   cusBranches = [],
                   cusCurrentRound = Round 1,
-                  cusCurrentRoundQuorum = Map.empty
+                  cusCurrentRoundQuorum = Map.empty,
+                  cusCurrentRoundTimeouts = Absent
                 }
-    -- todo: check that the terminal data is as expected.
-    handleCatchUpRequest request >>= \case
-        CatchUpPartialResponseBlock nextBlock cont terminal -> do
+    skovData <- get
+    handleCatchUpRequest request skovData >>= \case
+        Nothing -> liftIO $ assertFailure "There should be a response."
+        Just (CatchUpPartialResponseBlock nextBlock cont terminal) -> do
+          terminalData <- terminal
+          liftIO $ assertEqual "Terminal data should be Nothing for the first block received." Nothing terminalData              
             -- Check that the storedBlockRound 1 matches the first block we receive.
           case stbBlock storedBlockRound1 of
               GenesisBlock _ -> liftIO $ assertFailure "First block served should not be the genesis block."
@@ -215,6 +222,8 @@ catchupNoBranches = runTest $ do
           -- Check the continuation, this should match block2.
           cont >>= \case
                 CatchUpPartialResponseBlock nextBlock' cont' terminal' -> do
+                  terminalData' <- terminal'
+                  liftIO $ assertEqual "Terminal data should be Nothing for the first block received" Nothing terminalData'
                   -- Check that the storedBlockRound 2 matches the first block we receive.
                   case stbBlock storedBlockRound2 of
                         GenesisBlock _ -> liftIO $ assertFailure "Second block served should not be the genesis block."
@@ -222,12 +231,29 @@ catchupNoBranches = runTest $ do
                   -- Check the continuation, this should match block2.
                   cont' >>= \case
                       CatchUpPartialResponseBlock nextBlock'' cont'' terminal'' -> do
+                          terminalData'' <- terminal''
+                          liftIO $ assertEqual "Terminal data should be Nothing for the first block received" Nothing terminalData''
                           -- Check that the storedBlockRound 2 matches the first block we receive.
                           case bpBlock block3 of
                               GenesisBlock _ -> liftIO $ assertFailure "Third block served should not be the genesis block."
                               NormalBlock sb -> liftIO $ assertEqual "Third block served should be block2" sb nextBlock''
                           cont'' >>= \case
                               CatchUpPartialResponseBlock nextBlock''' cont''' terminal''' -> do
+                                  cont''' >>= \case
+                                      CatchUpPartialResponseBlock{} -> liftIO $ assertFailure "There should be no more block responses"
+                                      CatchUpPartialResponseDone mTerminalData -> do
+                                          liftIO $ assertEqual "TerminalData did not match expected"
+                                              CatchUpTerminalData
+                                                  { cutdQuorumCertificates =
+                                                      [],
+                                                    cutdTimeoutCertificate = Absent,
+                                                    cutdCurrentRoundQuorumMessages = [],
+                                                    cutdCurrentRoundTimeoutMessages = []
+                                                  }
+                                              mTerminalData
+                                  terminal''' >>= \case
+                                      Nothing -> liftIO $ assertFailure "As we concluded catch-up, then there must be terminal data."
+                                      Just jTerminalData -> return ()
                                   -- Check that the storedBlockRound 2 matches the first block we receive.
                                   case bpBlock block4 of
                                       GenesisBlock _ -> liftIO $ assertFailure "Fourth block served should not be the genesis block."
@@ -235,7 +261,7 @@ catchupNoBranches = runTest $ do
                               CatchUpPartialResponseDone _ -> liftIO $ assertFailure "Should not be terminal data just yet, should be block3."
                       CatchUpPartialResponseDone _ -> liftIO $ assertFailure "Should not be terminal data just yet, should be block3."
                 CatchUpPartialResponseDone _ -> liftIO $ assertFailure "Should not be terminal data just yet, should be block2."
-        CatchUpPartialResponseDone _ -> liftIO $ assertFailure "Should not be terminal data yet, should be block1"
+        Just (CatchUpPartialResponseDone _) -> liftIO $ assertFailure "Should not be terminal data yet, should be block1"
   where
     storedBlockRound0 = dummyStoredBlockEmpty 0 0
     storedBlockRound1 = dummyStoredBlockEmpty 1 1
@@ -290,8 +316,9 @@ catchupTwoBranches = runTest $ do
                   cusCurrentRoundQuorum = Map.empty
                 }
 
-    handleCatchUpRequest request >>= \case
-        CatchUpPartialResponseBlock{..} -> liftIO $ do
+    skovData <- get
+    handleCatchUpRequest request skovData >>= \case
+        Just CatchUpPartialResponseBlock{..} -> liftIO $ do
             -- todo insert asserts
             return ()
         _ -> liftIO $ assertFailure "Should not be terminal data just yet as we need a block first."
@@ -357,8 +384,9 @@ catchupThreeBranches = runTest $ do
                   cusCurrentRoundQuorum = Map.empty
                 }
 
-    handleCatchUpRequest request >>= \case
-        CatchUpPartialResponseBlock{..} -> liftIO $ do
+    skovData <- get
+    handleCatchUpRequest request skovData >>= \case
+        Just CatchUpPartialResponseBlock{..} -> liftIO $ do
             -- todo insert asserts
             return ()
         _ -> liftIO $ assertFailure "Should not be terminal data just yet as we need a block first."
