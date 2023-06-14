@@ -291,6 +291,10 @@ memberFinalizerSet (FinalizerIndex fi) (FinalizerSet setOfFinalizers) =
 finalizerSet :: [FinalizerIndex] -> FinalizerSet
 finalizerSet = foldl' addFinalizer (FinalizerSet 0)
 
+-- |Test if the first finalizer set is a subset of the second.
+subsetFinalizerSet :: FinalizerSet -> FinalizerSet -> Bool
+subsetFinalizerSet (FinalizerSet s1) (FinalizerSet s2) = s1 .&. s2 == s1
+
 instance Show FinalizerSet where
     show = show . finalizerList
 
