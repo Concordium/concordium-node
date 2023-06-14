@@ -234,7 +234,7 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       _skovEpochBakers :: !EpochBakers,
       -- |The current consensus statistics.
       _statistics :: !Stats.ConsensusStatistics,
-      -- | Received timeouts messages in the current round.
+      -- |Received timeouts messages in the current round.
       _currentTimeoutMessages :: !(Option TimeoutMessages),
       -- |The 'QuorumMessage's for the current 'Round'.
       -- This should be cleared whenever the consensus runner advances to a new round.

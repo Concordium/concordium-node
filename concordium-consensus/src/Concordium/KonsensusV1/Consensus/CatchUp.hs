@@ -33,6 +33,8 @@ import Concordium.TimerMonad
 import Concordium.Types.Parameters
 import Control.Monad.Catch
 import Control.Monad.Reader
+import Data.Foldable
+import qualified Data.Set as Set
 
 -- notes
 
@@ -80,7 +82,8 @@ data CatchUpTerminalData = CatchUpTerminalData
       -- |Valid timeout messages for the current round.
       -- TODO: Repackage timeout messages together.
       cutdCurrentRoundTimeoutMessages :: ![TimeoutMessage]
-    } deriving (Eq, Show)
+    }
+    deriving (Eq, Show)
 
 data CatchUpPartialResponse m
     = CatchUpPartialResponseBlock
@@ -116,18 +119,45 @@ data CatchUpStatus = CatchUpStatus
       cusCurrentRoundTimeouts :: Option TimeoutSet
     }
 
+-- |Generate a catch up status for the current state of the consensus.
+makeCatchUpStatus :: SkovData pv -> CatchUpStatus
+makeCatchUpStatus sd = CatchUpStatus{..}
+  where
+    lfBlock = sd ^. lastFinalized
+    cusLastFinalizedBlock = getHash lfBlock
+    cusLastFinalizedRound = blockRound lfBlock
+    cusCurrentRound = sd ^. roundStatus . rsCurrentRound
+    cusCurrentRoundQuorum =
+        view _3
+            <$> sd ^. currentQuorumMessages . smBlockToWeightsAndSignatures
+    cusCurrentRoundTimeouts = makeTimeoutSet <$> sd ^. currentTimeoutMessages
+    getLeavesBranches _ curLeaves curBranches Seq.Empty = (curLeaves, curBranches)
+    getLeavesBranches parentBranches curLeaves curBranches (rest Seq.:|> cur) =
+        getLeavesBranches newParentBranches newLeaves newBranches rest
+      where
+        (newLeaves, newBranches, newParentBranches) = foldl' up (curLeaves, curBranches, Set.empty) cur
+        up (l, b, p) blk
+            | Set.member hsh parentBranches = (l, hsh : b, p')
+            | otherwise = (hsh : l, b, p')
+          where
+            hsh :: BlockHash
+            hsh = getHash blk
+            p' = case blockBakedData blk of
+                Present bd -> Set.insert (blockParent bd) p
+                Absent -> p
+    (cusLeaves, cusBranches) = getLeavesBranches Set.empty [] [] (sd ^. branches)
+
 -- |Handle a catch-up request.
 -- This can safely be called without holding the global state lock and will not update the state.
--- TODO: change to take the state as an argument, rather than using 'MonadState'.
 handleCatchUpRequest ::
-    ( MonadState (SkovData (MPV m)) m,
-      MonadIO m,
+    ( MonadIO m,
       LowLevel.MonadTreeStateStore m
     ) =>
     CatchUpStatus ->
+    SkovData (MPV m) ->
     m (Maybe (CatchUpPartialResponse m))
-handleCatchUpRequest CatchUpStatus{..} = do
-    peerLFBStatus <- getBlockStatus cusLastFinalizedBlock =<< get
+handleCatchUpRequest CatchUpStatus{..} skovData = do
+    peerLFBStatus <- getBlockStatus cusLastFinalizedBlock skovData
     case peerLFBStatus of
         BlockFinalized peerLFBlock -> Just <$> catchUpLastFinalized peerLFBlock
         BlockAlive _ -> Just <$> catchUpAfterLastFinalized True
@@ -136,6 +166,8 @@ handleCatchUpRequest CatchUpStatus{..} = do
             -- do anything to catch them up.
             return Nothing
   where
+    -- Last finalized block
+    lfBlock = skovData ^. lastFinalized
     -- Hash set of the blocks known to the peer (from the peer's last finalized block)
     peerKnownBlocks =
         HashSet.insert
@@ -146,7 +178,6 @@ handleCatchUpRequest CatchUpStatus{..} = do
     toSignedBlock GenesisBlock{} = error "handleCatchUpRequest: unexpected genesis block"
     -- INVARIANT: we consider peerLFBlock to be finalized.
     catchUpLastFinalized peerLFBlock = do
-        lfBlock <- use lastFinalized
         if blockHeight lfBlock == blockHeight peerLFBlock
             then do
                 -- We have the same last finalized block, so no need to catch up finalized blocks.
@@ -156,13 +187,13 @@ handleCatchUpRequest CatchUpStatus{..} = do
                 -- skipping while the peer claims to have seen them. Note that, since peerLFBlock
                 -- is finalized, but is not the last finalized block, then we have:
                 -- 0 < blockHeight peerLFBlock + 1 <= blockHeight lfBlock
-                sendBlocksFromHeight True lfBlock (blockHeight peerLFBlock + 1)
+                sendBlocksFromHeight True (blockHeight peerLFBlock + 1)
     -- Send our finalized blocks from the given height up to the last finalized block, if they
     -- are not in 'peerKnownBlocks'.  The boolean flag 'checkKnown' indicates whether we should
     -- check if the peer already knows the block.  We assume that if the peer does not know a
     -- block, then it does not know any children of the block.
     -- INVARIANT: 0 < hgt <= blockHeight lfBlock
-    sendBlocksFromHeight checkKnown lfBlock hgt
+    sendBlocksFromHeight checkKnown hgt
         | hgt == blockHeight lfBlock =
             if checkKnown && isPeerKnown (getHash lfBlock)
                 then catchUpAfterLastFinalized True
@@ -183,17 +214,17 @@ handleCatchUpRequest CatchUpStatus{..} = do
                 Just fb
                     | checkKnown && isPeerKnown (getHash fb) -> do
                         -- If the peer already knows this block, skip it.
-                        sendBlocksFromHeight checkKnown lfBlock (hgt + 1)
+                        sendBlocksFromHeight checkKnown (hgt + 1)
                     | otherwise -> do
                         -- Since 0 < hgt, we can be sure that 'fb' is not a genesis block.
                         return
                             CatchUpPartialResponseBlock
                                 { cuprNextBlock = toSignedBlock (LowLevel.stbBlock fb),
-                                  cuprContinue = sendBlocksFromHeight False lfBlock (hgt + 1),
+                                  cuprContinue = sendBlocksFromHeight False (hgt + 1),
                                   cuprFinish = return Nothing
                                 }
     catchUpAfterLastFinalized checkKnown = do
-        catchUpBranches checkKnown checkKnown [] =<< use branches
+        catchUpBranches checkKnown checkKnown [] (skovData ^. branches)
     catchUpBranches _ _ [] Seq.Empty = CatchUpPartialResponseDone <$> endCatchUp
     catchUpBranches _ knownAtCurrentHeight [] (nxt Seq.:<| rest) =
         catchUpBranches knownAtCurrentHeight False nxt rest
@@ -211,7 +242,7 @@ handleCatchUpRequest CatchUpStatus{..} = do
                     }
     endCatchUp = do
         cutdQuorumCertificates <- getQCs
-        rs <- use roundStatus
+        let rs = skovData ^. roundStatus
         -- We include the timeout certificate if we have one and our current round is higher than
         -- the peer's current round.
         let cutdTimeoutCertificate
@@ -221,61 +252,51 @@ handleCatchUpRequest CatchUpStatus{..} = do
         cutdCurrentRoundQuorumMessages <- getQuorumMessages
         cutdCurrentRoundTimeoutMessages <- getTimeoutMessages
         return $ CatchUpTerminalData{..}
-    getQCs = do
-        highQC <- use (roundStatus . rsHighestCertifiedBlock . to cbQuorumCertificate)
-        if qcRound highQC < cusLastFinalizedRound
-            then do
-                return []
-            else do
-                lfBlock <- use lastFinalized
-                if qcRound highQC == blockRound lfBlock || blockRound lfBlock <= cusLastFinalizedRound
-                    then do
-                        -- The high QC and the QC finalizing the LFB are the same, or the peer
-                        -- already considers our last finalized block to be finalized.
-                        return [highQC]
-                    else do
-                        LowLevel.lookupLatestFinalizationEntry <&> \case
-                            Nothing -> [highQC]
-                            Just finEntry -> [feSuccessorQuorumCertificate finEntry, highQC]
-    getQuorumMessages = do
-        ourCurrentRound <- use $ roundStatus . rsCurrentRound
-        if cusCurrentRound == ourCurrentRound
-            then do
-                qms <- gets $ toListOf $ currentQuorumMessages . smFinalizerToQuorumMessage . traversed
-                return $! filter newToPeer qms
-            else do
-                return []
+    highQC = skovData ^. roundStatus . rsHighestCertifiedBlock . to cbQuorumCertificate
+    getQCs
+        | qcRound highQC < cusLastFinalizedRound = return []
+        | qcRound highQC == blockRound lfBlock || blockRound lfBlock <= cusLastFinalizedRound =
+            return [highQC]
+        | otherwise = do
+            LowLevel.lookupLatestFinalizationEntry <&> \case
+                Nothing -> [highQC]
+                Just finEntry -> [feSuccessorQuorumCertificate finEntry, highQC]
+    ourCurrentRound = skovData ^. roundStatus . rsCurrentRound
+    getQuorumMessages
+        | cusCurrentRound == ourCurrentRound = do
+            let qms = skovData ^.. currentQuorumMessages . smFinalizerToQuorumMessage . traversed
+            return $! filter newToPeer qms
+        | otherwise = do
+            return []
       where
         newToPeer qm = case Map.lookup (qmBlock qm) cusCurrentRoundQuorum of
             Nothing -> True
             Just s -> not (memberFinalizerSet (qmFinalizerIndex qm) s)
-    getTimeoutMessages = do
-        ourCurrentRound <- use $ roundStatus . rsCurrentRound
-        if cusCurrentRound == ourCurrentRound
-            then do
-                use currentTimeoutMessages >>= \case
-                    Absent -> return []
-                    Present TimeoutMessages{..} -> do
-                        let (filterFirst, filterSecond) = case cusCurrentRoundTimeouts of
-                                Present TimeoutSet{..}
-                                    | tsFirstEpoch + 1 == tmFirstEpoch -> (filter2, id)
-                                    | tsFirstEpoch == tmFirstEpoch -> (filter1, filter2)
-                                    | tsFirstEpoch == tmFirstEpoch + 1 -> (id, filter1)
-                                  where
-                                    filterFun ts tm =
-                                        not $ memberFinalizerSet (tmFinalizerIndex $ tmBody tm) ts
-                                    filter1 = filter (filterFun tsFirstEpochTimeouts)
-                                    filter2 = filter (filterFun tsSecondEpochTimeouts)
-                                _ -> (id, id)
-                        return $
-                            filterFirst (Map.elems tmFirstEpochTimeouts)
-                                <> filterSecond (Map.elems tmSecondEpochTimeouts)
-            else return []
+    getTimeoutMessages
+        | cusCurrentRound == ourCurrentRound =
+            case skovData ^. currentTimeoutMessages of
+                Absent -> return []
+                Present TimeoutMessages{..} -> do
+                    let (filterFirst, filterSecond) = case cusCurrentRoundTimeouts of
+                            Present TimeoutSet{..}
+                                | tsFirstEpoch + 1 == tmFirstEpoch -> (filter2, id)
+                                | tsFirstEpoch == tmFirstEpoch -> (filter1, filter2)
+                                | tsFirstEpoch == tmFirstEpoch + 1 -> (id, filter1)
+                              where
+                                filterFun ts tm =
+                                    not $ memberFinalizerSet (tmFinalizerIndex $ tmBody tm) ts
+                                filter1 = filter (filterFun tsFirstEpochTimeouts)
+                                filter2 = filter (filterFun tsSecondEpochTimeouts)
+                            _ -> (id, id)
+                    return $
+                        filterFirst (Map.elems tmFirstEpochTimeouts)
+                            <> filterSecond (Map.elems tmSecondEpochTimeouts)
+        | otherwise =
+            return []
 
 data TerminalDataResult
-    = TerminalDataResultProgress
-    | TerminalDataResultNoProgress
-    | TerminalDataResultInvalid
+    = TerminalDataResultValid {tdrProgress :: Bool}
+    | TerminalDataResultInvalid {tdrProgress :: Bool}
 
 -- |Process the contents of a 'CatchUpTerminalData' record. This updates the state and so should
 -- be used with the global state lock.
@@ -303,14 +324,10 @@ data TerminalDataResult
 -- will never get a QC, and so the effort would be wasted.
 --
 -- If any of the data is invalid or would trigger a catch-up, this returns
--- 'TerminalDataResultInvalid'. If the data is fine (in as much as we inspect it), but does not
--- progress the state of the consensus, this returns 'TerminalDataResultNoProgress'. If the data
--- results in an update to the consensus state, this returns 'TerminalDataResultProgress'.
--- If there is progress, then we may have information that is useful to peers, and thus should
--- (queue) sending catch-up status messages to peers.
---
--- FIXME: possibly these should be orthogonal. We should note if we make progress, even if the data
--- is invalid.
+-- 'TerminalDataResultInvalid'. If the data is fine (in as much as we inspect it), this returns
+-- 'TerminalDataResultValid'. In either case, 'tdrProgress' indicates if processing the data
+-- results in an update to the consensus state. If there is progress, then we may have information
+-- that is useful to peers, and thus should (queue) sending catch-up status messages to peers.
 processCatchUpTerminalData ::
     ( MonadReader r m,
       HasBakerContext r,
@@ -332,19 +349,21 @@ processCatchUpTerminalData ::
     CatchUpTerminalData ->
     m TerminalDataResult
 processCatchUpTerminalData CatchUpTerminalData{..} = flip runContT return $ do
-    progress1 <- foldM processQC TerminalDataResultNoProgress cutdQuorumCertificates
+    progress1 <- foldM processQC False cutdQuorumCertificates
     progress2 <- processTC progress1 cutdTimeoutCertificate
     progress3 <- foldM processQM progress2 cutdCurrentRoundQuorumMessages
     progress4 <- foldM processTM progress3 cutdCurrentRoundTimeoutMessages
     lift makeBlock
-    return progress4
+    return $ TerminalDataResultValid progress4
   where
-    escape = ContT $ \_ -> return TerminalDataResultInvalid
+    escape progress = ContT $ \_ -> return (TerminalDataResultInvalid progress)
     processQC currentProgress qc = do
         -- The QC is only relevant if it is for a live block.
         gets (getLiveBlock (qcBlock qc)) >>= \case
             Just block -> do
-                unless (blockRound block == qcRound qc && blockEpoch block == qcEpoch qc) escape
+                unless
+                    (blockRound block == qcRound qc && blockEpoch block == qcEpoch qc)
+                    (escape currentProgress)
                 use (roundExistingQuorumCertificate (qcRound qc)) >>= \case
                     Just _ -> return currentProgress
                     Nothing -> do
@@ -358,7 +377,7 @@ processCatchUpTerminalData CatchUpTerminalData{..} = flip runContT return $ do
                                             (toRational $ genesisSignatureThreshold gmParameters)
                                             _bfFinalizers
                                             qc
-                                unless qcOK escape
+                                unless qcOK (escape currentProgress)
                                 lift $ do
                                     recordCheckedQuorumCertificate qc
                                     checkFinalityWithBlock qc block
@@ -369,7 +388,7 @@ processCatchUpTerminalData CatchUpTerminalData{..} = flip runContT return $ do
                                                 { cbQuorumCertificate = qc,
                                                   cbQuorumBlock = block
                                                 }
-                                    return TerminalDataResultProgress
+                                    return True
             Nothing -> return currentProgress
     processTC currentProgress Absent = return currentProgress
     processTC currentProgress (Present tc) = do
@@ -383,7 +402,7 @@ processCatchUpTerminalData CatchUpTerminalData{..} = flip runContT return $ do
                 -- block, then the peer has failed to catch us up with the relevant block and/or QC.
                 when
                     (blockRound highBlock < tcMaxRound tc || blockEpoch highBlock < tcMaxEpoch tc)
-                    escape
+                    (escape currentProgress)
                 -- The SkovData invariants imply that we can always get the bakers for the epoch
                 -- of the highest certified block.
                 ebQC <-
@@ -427,29 +446,29 @@ processCatchUpTerminalData CatchUpTerminalData{..} = flip runContT return $ do
                                     { rtTimeoutCertificate = tc,
                                       rtCertifiedBlock = highestCB
                                     }
-                        return TerminalDataResultProgress
+                        return True
                     else do
-                        escape
+                        escape currentProgress
             else do
                 return currentProgress
     processQM currentProgress qm = do
         verRes <- lift $ Quorum.receiveQuorumMessage qm =<< get
         let process vqm = do
                 lift $ Quorum.processQuorumMessage vqm (return ())
-                return TerminalDataResultProgress
+                return True
         case verRes of
             Quorum.Received vqm -> process vqm
             Quorum.ReceivedNoRelay vqm -> process vqm
             Quorum.Rejected Quorum.Duplicate -> return currentProgress
             Quorum.Rejected Quorum.ObsoleteRound -> return currentProgress
-            _ -> escape
+            _ -> escape currentProgress
     processTM currentProgress tm = do
         verRes <- lift $ Timeout.receiveTimeoutMessage tm =<< get
         case verRes of
             Timeout.Received vtm -> do
                 lift (Timeout.executeTimeoutMessage vtm) >>= \case
-                    Timeout.ExecutionSuccess -> return TerminalDataResultProgress
-                    _ -> escape
+                    Timeout.ExecutionSuccess -> return True
+                    _ -> escape currentProgress
             Timeout.Rejected Timeout.Duplicate -> return currentProgress
             Timeout.Rejected Timeout.ObsoleteRound -> return currentProgress
-            _ -> escape
+            _ -> escape currentProgress
