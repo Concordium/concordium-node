@@ -820,12 +820,14 @@ receiveBlock ::
     -- to avoid a memory leak.
     -- The 'StablePtr' is freed in 'executeBlock'.
     Ptr (StablePtr MV.ExecuteBlock) ->
+    -- |Flag indicating if the block was received as a direct message.
+    CBool ->
     IO ReceiveResult
-receiveBlock bptr genIndex msg msgLen ptrPtrExecuteBlock = do
+receiveBlock bptr genIndex msg msgLen ptrPtrExecuteBlock isDirect = do
     (ConsensusRunner mvr) <- deRefStablePtr bptr
     mvLog mvr External LLTrace $ "Received block data, size = " ++ show msgLen ++ "."
     blockBS <- BS.packCStringLen (msg, fromIntegral msgLen)
-    (receiveResult, mExecuteBlock) <- runMVR (MV.receiveBlock genIndex blockBS) mvr
+    (receiveResult, mExecuteBlock) <- runMVR (MV.receiveBlock genIndex blockBS (isDirect /= 0)) mvr
     case mExecuteBlock of
         Nothing -> return $ toReceiveResult receiveResult
         Just eb -> do
@@ -1524,7 +1526,7 @@ foreign export ccall
 foreign export ccall stopConsensus :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall startBaker :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall stopBaker :: StablePtr ConsensusRunner -> IO ()
-foreign export ccall receiveBlock :: StablePtr ConsensusRunner -> GenesisIndex -> CString -> Word64 -> Ptr (StablePtr MV.ExecuteBlock) -> IO Int64
+foreign export ccall receiveBlock :: StablePtr ConsensusRunner -> GenesisIndex -> CString -> Word64 -> Ptr (StablePtr MV.ExecuteBlock) -> CBool -> IO Int64
 foreign export ccall executeBlock :: StablePtr ConsensusRunner -> StablePtr MV.ExecuteBlock -> IO Int64
 foreign export ccall receiveFinalizationMessage :: StablePtr ConsensusRunner -> GenesisIndex -> CString -> Int64 -> IO Int64
 foreign export ccall receiveFinalizationRecord :: StablePtr ConsensusRunner -> GenesisIndex -> CString -> Int64 -> IO Int64

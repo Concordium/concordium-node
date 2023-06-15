@@ -1375,8 +1375,13 @@ newtype ExecuteBlock = ExecuteBlock {runBlock :: IO Skov.UpdateResult}
 -- and releasing it again when it is finished.
 --
 -- The continuation is expected to be invoked via 'executeBlock'.
-receiveBlock :: GenesisIndex -> ByteString -> MVR finconf (Skov.UpdateResult, Maybe ExecuteBlock)
-receiveBlock gi blockBS = withLatestExpectedVersion gi $ \case
+receiveBlock ::
+    GenesisIndex ->
+    ByteString ->
+    -- |'True' if the message was received as a direct (non-brodcast) message.
+    Bool ->
+    MVR finconf (Skov.UpdateResult, Maybe ExecuteBlock)
+receiveBlock gi blockBS isDirect = withLatestExpectedVersion gi $ \case
     (EVersionedConfigurationV0 (vc :: VersionedConfigurationV0 finconf pv)) -> do
         MVR $ \mvr -> do
             now <- currentTime
@@ -1389,7 +1394,15 @@ receiveBlock gi blockBS = withLatestExpectedVersion gi $ \case
                     case mVerifiedPendingBlock of
                         Nothing -> return (updateResult, Nothing)
                         Just verifiedPendingBlock -> do
-                            let cont = ExecuteBlock $ runMVR (runSkovV0Transaction vc (Skov.executeBlock verifiedPendingBlock)) mvr
+                            let exec = do
+                                    res <- runSkovV0Transaction vc (Skov.executeBlock verifiedPendingBlock)
+                                    -- For direct message blocks, we notify peers so they can catch
+                                    -- up if necessary.
+                                    when
+                                        (isDirect && res == Skov.ResultSuccess)
+                                        bufferedSendCatchUpStatus
+                                    return res
+                            let cont = ExecuteBlock $ runMVR exec mvr
                             return (updateResult, Just cont)
     (EVersionedConfigurationV1 (vc :: VersionedConfigurationV1 finconf pv)) -> do
         MVR $ \mvr -> do
@@ -1402,7 +1415,13 @@ receiveBlock gi blockBS = withLatestExpectedVersion gi $ \case
                     blockResult <- runMVR (runSkovV1Transaction vc (SkovV1.uponReceivingBlock block)) mvr
                     case blockResult of
                         SkovV1.BlockResultSuccess vb -> do
-                            let cont = ExecuteBlock $ runMVR (runSkovV1Transaction vc (Skov.ResultSuccess <$ SkovV1.executeBlock vb)) mvr
+                            let exec = do
+                                    runSkovV1Transaction vc (SkovV1.executeBlock vb)
+                                    -- For direct message blocks, we notify peers so they can catch
+                                    -- up if necessary.
+                                    when isDirect bufferedSendCatchUpStatus
+                                    return Skov.ResultSuccess
+                            let cont = ExecuteBlock $ runMVR exec mvr
                             return (Skov.ResultSuccess, Just cont)
                         SkovV1.BlockResultDoubleSign vb -> do
                             runMVR (runSkovV1Transaction vc (SkovV1.executeBlock vb)) mvr
@@ -1536,7 +1555,7 @@ receiveCatchUpStatus gi catchUpBS cuConfig@CatchUpConfiguration{..} =
                         liftIO $
                             catchUpCallback Skov.MessageCatchUpStatus $
                                 encode VersionedCatchUpStatusNoGenesis
-                        return Skov.ResultPendingBlock
+                        return Skov.ResultContinueCatchUp
                     | VersionedCatchUpStatusNoGenesis <- vcatchUp -> do
                         -- if the peer (also!) has no genesis at this index, we do not reply
                         -- or initiate catch-up
@@ -1556,7 +1575,7 @@ handleCatchUpStatusV1 CatchUpConfiguration{..} vc = handleMsg
   where
     handleMsg KonsensusV1.CatchUpStatusMessage{..} = do
         st <- liftIO $ readIORef $ vc1State vc
-        checkShouldCatchUp cumStatus st
+        checkShouldCatchUp cumStatus st False
     handleMsg KonsensusV1.CatchUpRequestMessage{..} = do
         startState <- liftIO $ readIORef $ vc1State vc
         x <- runLowLevel $ KonsensusV1.handleCatchUpRequest cumStatus (SkovV1._v1sSkovData startState)
@@ -1591,7 +1610,7 @@ handleCatchUpStatusV1 CatchUpConfiguration{..} vc = handleMsg
                             { cumStatus = status,
                               cumTerminalData = terminal
                             }
-        checkShouldCatchUp cumStatus endState
+        checkShouldCatchUp cumStatus endState False
     handleMsg KonsensusV1.CatchUpResponseMessage{cumTerminalData = Present terminal, ..} = do
         res <- runSkovV1Transaction vc $ do
             KonsensusV1.processCatchUpTerminalData terminal
@@ -1601,23 +1620,23 @@ handleCatchUpStatusV1 CatchUpConfiguration{..} vc = handleMsg
         case res of
             KonsensusV1.TerminalDataResultValid{} -> do
                 st <- liftIO $ readIORef $ vc1State vc
-                checkShouldCatchUp cumStatus st
+                checkShouldCatchUp cumStatus st True
             KonsensusV1.TerminalDataResultInvalid{} -> do
                 return Skov.ResultInvalid
     handleMsg KonsensusV1.CatchUpResponseMessage{cumTerminalData = Absent, ..} = do
         st <- liftIO $ readIORef $ vc1State vc
-        checkShouldCatchUp cumStatus st
+        checkShouldCatchUp cumStatus st True
     runLowLevel ::
         LowLevelDB.DiskLLDBM pv (ReaderT (SkovV1.SkovV1Context pv (MVR finconf)) (MVR finconf)) a ->
         MVR finconf a
     runLowLevel a = runReaderT (LowLevelDB.runDiskLLDBM a) (vc1Context vc)
-    checkShouldCatchUp status st = do
+    checkShouldCatchUp status st isResponse = do
         shouldCatchUp <-
             runLowLevel $
                 KonsensusV1.isCatchUpRequired status (SkovV1._v1sSkovData st)
         return $!
             if shouldCatchUp
-                then Skov.ResultPendingBlock
+                then if isResponse then Skov.ResultPendingBlock else Skov.ResultContinueCatchUp
                 else Skov.ResultSuccess
 
 -- |Get the catch-up status for the current version of the chain.  This returns the current
