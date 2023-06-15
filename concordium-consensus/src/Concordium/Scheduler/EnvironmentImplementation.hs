@@ -239,8 +239,8 @@ instance
         s1 <-
             lift
                 ( foldM
-                    ( \s' (addr, (_, amnt, val)) ->
-                        BS.bsoModifyInstance s' addr amnt val Nothing
+                    ( \s' (addr, (modIdx, amnt, val)) ->
+                        if modIdx /= 0 then BS.bsoModifyInstance s' addr amnt val Nothing else return s'
                     )
                     s
                     (Map.toList (cs ^. instanceV0Updates))

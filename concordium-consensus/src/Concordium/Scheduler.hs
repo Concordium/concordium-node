@@ -1149,13 +1149,9 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                                   euEvents = rrdLogs
                                                 }
                                     in  Right (rrdReturnValue, event : events)
-                            -- execution terminated, commit the new state if it changed
-                            if rrdStateChanged
-                                then do
-                                    -- charge for storing the new state of the contract
-                                    withInstanceStateV1 istance rrdNewState $ \_modifiedIndex -> return result
-                                else do
-                                    return result
+                            if WasmV1.rcFixRollbacks rcConfig || rrdStateChanged then
+                              withInstanceStateV1 istance rrdNewState rrdStateChanged $ \_modifiedIndex -> return result
+                            else return result
                         WasmV1.ReceiveInterrupt{..} -> do
                             -- execution invoked an operation. Dispatch and continue.
                             let interruptEvent =
@@ -1170,12 +1166,11 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                         }
                             -- Helper for commiting the state of the contract if necessary.
                             let maybeCommitState :: (ModificationIndex -> LocalT r m a) -> LocalT r m a
-                                maybeCommitState f =
-                                    if rrdStateChanged
-                                        then withInstanceStateV1 istance rrdCurrentState f
-                                        else do
-                                            mi <- getCurrentModificationIndex istance
-                                            f mi
+                                maybeCommitState f = if WasmV1.rcFixRollbacks rcConfig || rrdStateChanged then
+                                    withInstanceStateV1 istance rrdCurrentState rrdStateChanged f
+                                   else do
+                                     mi <- getCurrentModificationIndex istance
+                                     f mi
                             maybeCommitState $ \modificationIndex -> do
                                 case rrdMethod of
                                     -- the operation is an account transfer, so we handle it.
@@ -1187,7 +1182,6 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                                 newBalance <- getCurrentContractAmount Wasm.SV1 istance
                                                 go (resumeEvent True : transferEvents ++ interruptEvent : events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False newBalance WasmV1.Success Nothing)
                                     WasmV1.Call{..} -> do
-                                        -- TODO:
                                         -- the operation is a call to another contract. There is a bit of complication because the contract could be a V0
                                         -- or V1 one, and the behaviour is different depending on which one it is.
                                         -- lookup the instance to invoke
@@ -1226,7 +1220,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                                         -- This is not correct since then the calling contract continues in an incorrect state generation, meaning
                                                         -- that all the iterators are invalidated.
                                                         -- So if the state has not changed we just resume in the state that we stopped in.
-                                                        resumeState <- if demoteProtocolVersion (protocolVersion @(MPV m)) <= P5 || stateChanged then getRuntimeReprV1 newState else return rrdCurrentState
+                                                        resumeState <- if not (WasmV1.rcFixRollbacks rcConfig) || stateChanged then getRuntimeReprV1 newState else return rrdCurrentState
                                                         newBalance <- getCurrentContractAmount Wasm.SV1 istance
                                                         go (resumeEvent True : evs ++ interruptEvent : events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig resumeState stateChanged newBalance WasmV1.Success Nothing)
                                             Just (InstanceInfoV1 targetInstance) -> do
@@ -1244,7 +1238,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                                         -- This is not correct since then the calling contract continues in an incorrect state generation, meaning
                                                         -- that all the iterators are invalidated.
                                                         -- So if the state has not changed we just resume in the state that we stopped in.
-                                                        resumeState <- if demoteProtocolVersion (protocolVersion @(MPV m)) <= P5 || stateChanged then getRuntimeReprV1 newState else return rrdCurrentState
+                                                        resumeState <- if not (WasmV1.rcFixRollbacks rcConfig) || stateChanged then getRuntimeReprV1 newState else return rrdCurrentState
                                                         newBalance <- getCurrentContractAmount Wasm.SV1 istance
                                                         go (resumeEvent True : callEvents ++ interruptEvent : events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig resumeState stateChanged newBalance WasmV1.Success (Just rVal))
                                     WasmV1.Upgrade{..} -> do
@@ -1398,18 +1392,16 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
             withToContractAmountV1 sender istance transferAmount $ do
                 foreignModel <- getRuntimeReprV1 model
                 artifact <- liftLocal $ getModuleArtifact (GSWasm.miModule moduleInterface)
-                let rcSupportChainQueries = supportsChainQueryContracts $ protocolVersion @(MPV m)
-                let rcMaxParameterLen = Wasm.maxParameterLen $ protocolVersion @(MPV m)
-                -- Check whether the number of logs and the size of return values are limited in the current protocol version.
-                let rcLimitLogsAndRvs = Wasm.limitLogsAndReturnValues $ protocolVersion @(MPV m)
-                -- FIXME: Add helper for this instead like the above. Consolidate them into one.
-                let rcFixRollbacks = demoteProtocolVersion (protocolVersion @(MPV m)) >= P6
-                let rcConfig =
-                        WasmV1.RuntimeConfig
-                            { ..
-                            }
                 go [] =<< runInterpreter (return . WasmV1.applyReceiveFun artifact cm receiveCtx receiveName useFallback parameter transferAmount foreignModel rcConfig)
   where
+    rcConfig = WasmV1.RuntimeConfig {
+      rcSupportChainQueries = supportsChainQueryContracts $ protocolVersion @(MPV m),
+      rcMaxParameterLen = Wasm.maxParameterLen $ protocolVersion @(MPV m),
+      -- Check whether the number of logs and the size of return values are limited in the current protocol version.
+      rcLimitLogsAndRvs = Wasm.limitLogsAndReturnValues $ protocolVersion @(MPV m),
+      -- FIXME: Add helper for this instead like the above. Consolidate them into one.
+      rcFixRollbacks = demoteProtocolVersion (protocolVersion @(MPV m)) >= P6
+    }
     transferAccountSync ::
         AccountAddress -> -- \^The target account address.
         UInstanceInfoV m GSWasm.V1 -> -- \^The sender of this transfer.

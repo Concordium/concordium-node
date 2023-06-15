@@ -348,7 +348,9 @@ class (StaticInformation m, ContractStateOperations m, MonadProtocolVersion m) =
     -- keep track of changes locally first, and only commit them at the end.
     -- Instance keeps track of its own address hence we need not provide it
     -- separately.
-    withInstanceStateV1 :: UInstanceInfoV m GSWasm.V1 -> UpdatableContractState GSWasm.V1 -> (ModificationIndex -> m a) -> m a
+    -- The boolean flag indicates whether the state has been semantically modified.
+    -- If it has, then the modification index is increased to keep track of changes.
+    withInstanceStateV1 :: UInstanceInfoV m GSWasm.V1 -> UpdatableContractState GSWasm.V1 -> Bool -> (ModificationIndex -> m a) -> m a
 
     -- |Transfer amount from the first address to the second and run the
     -- computation in the modified environment.
@@ -992,11 +994,16 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
         cont
 
     {-# INLINE withInstanceStateV1 #-}
-    withInstanceStateV1 istance val cont = do
-        nextModificationIndex <- use nextContractModificationIndex
-        nextContractModificationIndex += 1
-        changeSet %= addContractStatesToCSV1 (Proxy @m) istance nextModificationIndex val
-        cont nextModificationIndex
+    withInstanceStateV1 istance val stateModified cont = do
+        if stateModified then do
+            nextModificationIndex <- use nextContractModificationIndex
+            nextContractModificationIndex += 1
+            changeSet %= addContractStatesToCSV1 (Proxy @m) istance nextModificationIndex val
+            cont nextModificationIndex
+        else do
+           idx <- getCurrentModificationIndex istance
+           changeSet %= addContractStatesToCSV1 (Proxy @m) istance idx val
+           cont idx
 
     {-# INLINE withAccountToAccountAmount #-}
     withAccountToAccountAmount fromAcc toAcc amount cont = do

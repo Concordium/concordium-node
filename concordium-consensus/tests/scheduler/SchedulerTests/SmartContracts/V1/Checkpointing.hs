@@ -953,7 +953,7 @@ checkpointingTest9 spv pvString =
             }
         ]
     -- Tell the contract to call entrypoint 'd' (the "succeed" entrypoint)
-    callArgs = BSS.toShort $ runPut $ putByteString "d"
+    callArgs = BSS.toShort $ runPut $ putByteString "f" -- TODO: Revise test in wat, fix comment.
 
 
 tests :: Spec
