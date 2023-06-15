@@ -53,7 +53,8 @@ getOptionOf :: Get a -> Get (Option a)
 getOptionOf ma = do
     getWord8 >>= \case
         0 -> return Absent
-        _ -> Present <$> ma
+        1 -> Present <$> ma
+        _ -> fail "invalid tag for Option"
 
 -- |'Serialize' instance for an @Option a@.
 instance (Serialize a) => Serialize (Option a) where

@@ -1,14 +1,22 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 
-module Concordium.KonsensusV1.Consensus.CatchUp where
+module Concordium.KonsensusV1.Consensus.CatchUp (
+    module Concordium.KonsensusV1.Consensus.CatchUp.Types,
+    module Concordium.KonsensusV1.Consensus.CatchUp,
+)
+where
 
+import Control.Monad.Catch
+import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Trans.Cont
+import Data.Foldable
 import qualified Data.HashSet as HashSet
 import qualified Data.Map.Strict as Map
 import Data.Maybe
 import qualified Data.Sequence as Seq
+import qualified Data.Set as Set
 import Lens.Micro.Platform
 
 import Concordium.Genesis.Data.BaseV1
@@ -21,6 +29,7 @@ import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import qualified Concordium.GlobalState.Types as GSTypes
 import Concordium.KonsensusV1.Consensus
 import Concordium.KonsensusV1.Consensus.Blocks
+import Concordium.KonsensusV1.Consensus.CatchUp.Types
 import Concordium.KonsensusV1.Consensus.Finality
 import qualified Concordium.KonsensusV1.Consensus.Quorum as Quorum
 import qualified Concordium.KonsensusV1.Consensus.Timeout as Timeout
@@ -31,10 +40,6 @@ import Concordium.KonsensusV1.Types
 import Concordium.TimeMonad
 import Concordium.TimerMonad
 import Concordium.Types.Parameters
-import Control.Monad.Catch
-import Control.Monad.Reader
-import Data.Foldable
-import qualified Data.Set as Set
 
 -- notes
 
@@ -63,28 +68,6 @@ A node N is up to date with a peer P if:
 If P is honest and considers a timeout signature on round(N) valid, then
 -}
 
--- |The 'CatchUpTerminalData' is sent as part of a catch-up response that concludes catch-up with
--- the peer (i.e. the peer has sent all relevant information).
---
--- If the peer is not otherwise aware of them, 'cutdQuorumCertificates' should include QCs on:
---    * The block in the round after the last finalized block (if the peer does not consider it
---      finalized already).
---    * The highest certified block (if for a later round than the peer's highest certified block).
-data CatchUpTerminalData = CatchUpTerminalData
-    { -- |Quorum certificates to ensure agreement on the last finalized block and highest certified
-      -- block.
-      cutdQuorumCertificates :: ![QuorumCertificate],
-      -- |A timeout certificate for the last round, if available.
-      cutdTimeoutCertificate :: !(Option TimeoutCertificate),
-      -- |Valid quorum messages for the current round.
-      -- TODO: Repackage all quorum messages for the same block together.
-      cutdCurrentRoundQuorumMessages :: ![QuorumMessage],
-      -- |Valid timeout messages for the current round.
-      -- TODO: Repackage timeout messages together.
-      cutdCurrentRoundTimeoutMessages :: ![TimeoutMessage]
-    }
-    deriving (Eq, Show)
-
 -- |'CatchUpPartialResponse' represents a stream of blocks to send as a response to a catch-up
 -- request. The catch up response message should include the catch-up terminal data if all required
 -- blocks are sent. As the stream of blocks may be cut off early (e.g. to send max 100 blocks),
@@ -99,24 +82,13 @@ data CatchUpPartialResponse m
           cuprContinue :: m (CatchUpPartialResponse m),
           -- |Continuation that gets the terminal data in the case where there are no further
           -- blocks.
-          cuprFinish :: m (Maybe CatchUpTerminalData)
+          cuprFinish :: m (Option CatchUpTerminalData)
         }
     | -- |There are no further blocks, just the terminal data.
       CatchUpPartialResponseDone
         { -- |Terminal data.
           cuprFinished :: CatchUpTerminalData
         }
-
--- |A summary of timeout messages received for a particular round.
-data TimeoutSet = TimeoutSet
-    { -- |The first epoch for which we have timeout signatures for the round.
-      tsFirstEpoch :: !Epoch,
-      -- |The set of finalizers for which we have timeout signatures in epoch 'tsFirstEpoch'.
-      -- This must be non-empty.
-      tsFirstEpochTimeouts :: !FinalizerSet,
-      -- |The set of finalizers for which we have timeout signatures in epoch @tsFirstEpoch + 1@.
-      tsSecondEpochTimeouts :: !FinalizerSet
-    }
 
 -- |Construct a 'TimeoutSet' summary from 'TimeoutMessages'.
 makeTimeoutSet :: TimeoutMessages -> TimeoutSet
@@ -126,16 +98,6 @@ makeTimeoutSet TimeoutMessages{..} =
           tsFirstEpochTimeouts = finalizerSet (Map.keys tmFirstEpochTimeouts),
           tsSecondEpochTimeouts = finalizerSet (Map.keys tmSecondEpochTimeouts)
         }
-
-data CatchUpStatus = CatchUpStatus
-    { cusLastFinalizedBlock :: BlockHash,
-      cusLastFinalizedRound :: Round,
-      cusLeaves :: [BlockHash],
-      cusBranches :: [BlockHash],
-      cusCurrentRound :: Round,
-      cusCurrentRoundQuorum :: Map.Map BlockHash FinalizerSet,
-      cusCurrentRoundTimeouts :: Option TimeoutSet
-    }
 
 -- |Generate a catch up status for the current state of the consensus.
 makeCatchUpStatus :: SkovData pv -> CatchUpStatus
@@ -252,16 +214,16 @@ handleCatchUpRequest ::
     ) =>
     CatchUpStatus ->
     SkovData (MPV m) ->
-    m (Maybe (CatchUpPartialResponse m))
+    m (CatchUpPartialResponse m)
 handleCatchUpRequest CatchUpStatus{..} skovData = do
     peerLFBStatus <- getBlockStatus cusLastFinalizedBlock skovData
     case peerLFBStatus of
-        BlockFinalized peerLFBlock -> Just <$> catchUpLastFinalized peerLFBlock
-        BlockAlive _ -> Just <$> catchUpAfterLastFinalized True
+        BlockFinalized peerLFBlock -> catchUpLastFinalized peerLFBlock
+        BlockAlive _ -> catchUpAfterLastFinalized True
         _ -> do
             -- We do not consider the peer's last finalized block live or finalized, so we cannot
             -- do anything to catch them up.
-            return Nothing
+            return $ CatchUpPartialResponseDone emptyCatchUpTerminalData
   where
     -- Last finalized block
     lfBlock = skovData ^. lastFinalized
@@ -300,7 +262,7 @@ handleCatchUpRequest CatchUpStatus{..} skovData = do
                         CatchUpPartialResponseBlock
                             { cuprNextBlock = toSignedBlock (bpBlock lfBlock),
                               cuprContinue = catchUpAfterLastFinalized False,
-                              cuprFinish = return Nothing
+                              cuprFinish = return Absent
                             }
         | otherwise =
             LowLevel.lookupBlockByHeight hgt >>= \case
@@ -318,7 +280,7 @@ handleCatchUpRequest CatchUpStatus{..} skovData = do
                             CatchUpPartialResponseBlock
                                 { cuprNextBlock = toSignedBlock (LowLevel.stbBlock fb),
                                   cuprContinue = sendBlocksFromHeight False (hgt + 1),
-                                  cuprFinish = return Nothing
+                                  cuprFinish = return Absent
                                 }
     catchUpAfterLastFinalized checkKnown = do
         catchUpBranches checkKnown checkKnown [] (skovData ^. branches)
@@ -334,8 +296,8 @@ handleCatchUpRequest CatchUpStatus{..} skovData = do
                       cuprContinue = catchUpBranches checkKnown knownAtCurrentHeight bs rest,
                       cuprFinish =
                         if null bs && null rest
-                            then Just <$> endCatchUp
-                            else return Nothing
+                            then Present <$> endCatchUp
+                            else return Absent
                     }
     endCatchUp = do
         cutdQuorumCertificates <- getQCs
@@ -573,3 +535,9 @@ processCatchUpTerminalData CatchUpTerminalData{..} = flip runContT return $ do
             Timeout.Rejected Timeout.Duplicate -> return currentProgress
             Timeout.Rejected Timeout.ObsoleteRound -> return currentProgress
             _ -> escape currentProgress
+
+makeCatchUpStatusMessage :: SkovData pv -> CatchUpMessage
+makeCatchUpStatusMessage = CatchUpStatusMessage . (\s -> s{cusBranches = []}) . makeCatchUpStatus
+
+makeCatchUpRequestMessage :: SkovData pv -> CatchUpMessage
+makeCatchUpRequestMessage = CatchUpRequestMessage . makeCatchUpStatus

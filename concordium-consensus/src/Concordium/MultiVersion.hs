@@ -57,15 +57,19 @@ import Concordium.ImportExport
 import qualified Concordium.KonsensusV1 as KonsensusV1
 import qualified Concordium.KonsensusV1.Consensus as SkovV1
 import qualified Concordium.KonsensusV1.Consensus.Blocks as SkovV1
+import qualified Concordium.KonsensusV1.Consensus.CatchUp as KonsensusV1
 import qualified Concordium.KonsensusV1.SkovMonad as SkovV1
 import qualified Concordium.KonsensusV1.Transactions as SkovV1
+import qualified Concordium.KonsensusV1.TreeState.LowLevel.LMDB as LowLevelDB
 import qualified Concordium.KonsensusV1.TreeState.Types as SkovV1
+import Concordium.KonsensusV1.Types (Option (..))
 import qualified Concordium.KonsensusV1.Types as KonsensusV1
 import Concordium.ProtocolUpdate
 import qualified Concordium.Skov as Skov
 import Concordium.TimeMonad
 import Concordium.TimerMonad
 import qualified Concordium.TransactionVerification as TVer
+import Concordium.Types.CatchUp
 
 -- |Handler configuration for supporting protocol updates.
 -- This handler defines an instance of 'HandlerConfigHandlers' that responds to finalization events
@@ -299,8 +303,9 @@ skovV1Handlers gi genHeight = SkovV1.HandlerContext{..}
         return ()
 
     _onPendingLiveHandler = do
-        -- FIXME: Send out catch-up notification. Issue #826
-        return ()
+        -- Notify peers of our catch-up status, since they may not be aware of the now-live pending
+        -- blocks.
+        bufferedSendCatchUpStatus
 
 -- |Baker identity and baking thread 'MVar'.
 data Baker = Baker
@@ -463,16 +468,15 @@ instance
     liftSkov a = a
 
 -- |State of catch-up buffering.  This is used for buffering the sending of catch-up status messages
--- that need to be sent as a result of pending blocks becoming live.  See
--- 'bufferedHandlePendingLive' for details.
+-- that need to be sent as a result of pending blocks becoming live, or as a result of making
+-- progress due to catch-up.  See
+-- 'bufferedSendCatchUpStatus' for details.
 data CatchUpStatusBufferState
     = -- |We are not currently waiting to send a catch-up status message.
       BufferEmpty
     | -- |We are currently waiting to send a catch-up status message.
       BufferPending
-        { -- |The genesis index for which the status message is buffered.
-          cusbsGenesisIndex :: !GenesisIndex,
-          -- |The soonest the status message should be sent.
+        { -- |The soonest the status message should be sent.
           cusbsSoonest :: !UTCTime,
           -- |The latest the status message should be sent.
           cusbsLatest :: !UTCTime
@@ -1250,54 +1254,39 @@ mvrSkovHandlers vc mvr@MultiVersionRunner{mvCallbacks = Callbacks{..}} =
                         void $
                             runMVR (runSkovV0Transaction vc a) mvr,
           shCancelTimer = liftIO . cancelThreadTimer,
-          shPendingLive = bufferedHandlePendingLive vc
+          shPendingLive = bufferedSendCatchUpStatus
         }
 
--- |Handle a pending block becoming live by sending out a catch-up status message
--- within at most 30 seconds (subject to scheduling). This uses the following principles:
+-- |Send out a catch-up status message within at most 30 seconds (subject to scheduling).
+-- This uses the following principles:
 --
 --   * If we are not already waiting to send a catch-up status message, start
 --     waiting for at least 5 seconds and at most 30 seconds.
---   * If we are already waiting to send a catch-up status message for the same
---     genesis index, update the soonest time to send that to be 5 seconds from
---     now, or the latest possible time, whichever is sooner.
---   * If we are waiting to send a catch-up for an earlier genesis index, send
---     the catch up status for that index immediately and update the wait to be
---     for at least 5 seconds and at most 30 seconds (but now for the new index).
+--   * If we are already waiting to send a catch-up status message, update the
+--     soonest time to send that to be 5 seconds from now, or the latest possible
+--     time, whichever is sooner.
 --   * If the buffer has been shut down (i.e. the entire consensus is being torn
 --     down) then do nothing.
-bufferedHandlePendingLive ::
-    VersionedConfigurationV0 finconf pv ->
+bufferedSendCatchUpStatus ::
     MVR finconf ()
-bufferedHandlePendingLive vc = MVR $ \mvr@MultiVersionRunner{..} -> do
+bufferedSendCatchUpStatus = MVR $ \mvr@MultiVersionRunner{..} -> do
     now <- currentTime
     let soonest = addUTCTime 5 now
-    mask $ \restore ->
+    mask_ $
         takeMVar mvCatchUpStatusBuffer >>= \case
             BufferEmpty -> do
                 putMVar mvCatchUpStatusBuffer $
                     BufferPending
-                        { cusbsGenesisIndex = vc0Index vc,
-                          cusbsSoonest = soonest,
+                        { cusbsSoonest = soonest,
                           cusbsLatest = addUTCTime 30 now
                         }
                 void $ forkIO $ waitLoop mvr soonest
-            BufferPending{..}
-                | cusbsGenesisIndex == vc0Index vc ->
-                    putMVar mvCatchUpStatusBuffer $
-                        BufferPending
-                            { cusbsSoonest = min soonest cusbsLatest,
-                              ..
-                            }
-                | cusbsGenesisIndex < vc0Index vc -> do
-                    putMVar mvCatchUpStatusBuffer $
-                        BufferPending
-                            { cusbsGenesisIndex = vc0Index vc,
-                              cusbsSoonest = soonest,
-                              cusbsLatest = addUTCTime 30 now
-                            }
-                    restore $ runMVR (sendCatchUpStatus cusbsGenesisIndex) mvr
-                | otherwise -> restore $ runMVR (sendCatchUpStatus (vc0Index vc)) mvr
+            BufferPending{..} ->
+                putMVar mvCatchUpStatusBuffer $
+                    BufferPending
+                        { cusbsSoonest = min soonest cusbsLatest,
+                          ..
+                        }
             BufferShutdown -> putMVar mvCatchUpStatusBuffer BufferShutdown
   where
     waitLoop mvr@MultiVersionRunner{..} till = do
@@ -1312,17 +1301,17 @@ bufferedHandlePendingLive vc = MVR $ \mvr@MultiVersionRunner{..} -> do
                     if now' >= cusbsSoonest
                         then do
                             putMVar mvCatchUpStatusBuffer BufferEmpty
-                            restore $ runMVR (sendCatchUpStatus cusbsGenesisIndex) mvr
+                            restore $ runMVR sendCatchUpStatus mvr
                         else do
                             putMVar mvCatchUpStatusBuffer v
                             restore $ waitLoop mvr cusbsSoonest
                 BufferShutdown -> return ()
 
--- |Send a catch-up status message for a particular genesis index.
-sendCatchUpStatus :: GenesisIndex -> MVR finconf ()
-sendCatchUpStatus genIndex = MVR $ \mvr@MultiVersionRunner{..} -> do
+-- |Send a catch-up status message for the latest genesis index.
+sendCatchUpStatus :: MVR finconf ()
+sendCatchUpStatus = MVR $ \mvr@MultiVersionRunner{..} -> do
     vvec <- readIORef mvVersions
-    case vvec Vec.! fromIntegral genIndex of
+    case Vec.last vvec of
         EVersionedConfigurationV0 (vc :: VersionedConfigurationV0 finconf pv) -> do
             st <- readIORef (vc0State vc)
             cus <-
@@ -1336,8 +1325,13 @@ sendCatchUpStatus genIndex = MVR $ \mvr@MultiVersionRunner{..} -> do
                     mvr
             notifyCatchUpStatus mvCallbacks (vc0Index vc) $
                 encode $
-                    Skov.VersionedCatchUpStatusV0 cus
-        EVersionedConfigurationV1 _ -> return () -- FIXME: implement, cf. issue #826
+                    VersionedCatchUpStatusV0 cus
+        EVersionedConfigurationV1 (vc :: VersionedConfigurationV1 finconf pv) -> do
+            st <- readIORef (vc1State vc)
+            let cus = KonsensusV1.makeCatchUpStatusMessage $ SkovV1._v1sSkovData st
+            notifyCatchUpStatus mvCallbacks (vc1Index vc) $
+                encode $
+                    VersionedCatchUpStatusV1 cus
 
 -- |Perform an operation with the latest chain version, as long as
 -- it is at the expected genesis index. The function returns a tuple consisting
@@ -1492,8 +1486,8 @@ receiveCatchUpStatus ::
     ByteString ->
     CatchUpConfiguration ->
     MVR finconf Skov.UpdateResult
-receiveCatchUpStatus gi catchUpBS CatchUpConfiguration{..} =
-    case runGet Skov.getExactVersionedCatchUpStatus catchUpBS of
+receiveCatchUpStatus gi catchUpBS cuConfig@CatchUpConfiguration{..} =
+    case runGet getVersionedCatchUpStatus catchUpBS of
         Left err -> do
             logEvent Runner LLDebug $ "Could not deserialize catch-up status message: " ++ err
             return Skov.ResultSerializationFail
@@ -1504,7 +1498,8 @@ receiveCatchUpStatus gi catchUpBS CatchUpConfiguration{..} =
                 -- If we have a (re)genesis as the given index then...
                 Just (EVersionedConfigurationV0 (vc :: VersionedConfigurationV0 finconf pv)) ->
                     case vcatchUp of
-                        Skov.VersionedCatchUpStatusV0 catchUp -> MVR $ \mvr -> do
+                        VersionedCatchUpStatusNoGenesis -> return Skov.ResultSuccess
+                        VersionedCatchUpStatusV0 catchUp -> MVR $ \mvr -> do
                             st <- readIORef (vc0State vc)
                             -- Evaluate handleCatchUpStatus to determine the response.
                             -- Note that this should not perform a state update, so there is no need to
@@ -1530,42 +1525,112 @@ receiveCatchUpStatus gi catchUpBS CatchUpConfiguration{..} =
                                     "Catch-up response status message: " ++ show cusResp
                                 catchUpCallback Skov.MessageCatchUpStatus $
                                     runPut $
-                                        Skov.putVersionedCatchUpStatus $
-                                            Skov.VersionedCatchUpStatusV0 cusResp
+                                        putVersionedCatchUpStatus $
+                                            VersionedCatchUpStatusV0 cusResp
                             return res
                         _ -> do
                             logEvent Runner LLDebug $
                                 "Unsupported catch-up status message at consensus v0:" ++ show vcatchUp
                             return Skov.ResultInvalid
-                Just (EVersionedConfigurationV1 _) -> case vcatchUp of
-                    Skov.VersionedCatchUpStatusV0 Skov.NoGenesisCatchUpStatus ->
+                Just (EVersionedConfigurationV1 vc) -> case vcatchUp of
+                    VersionedCatchUpStatusNoGenesis ->
                         return Skov.ResultSuccess
-                    Skov.VersionedCatchUpStatusV1 Skov.CatchUpStatusV1 ->
-                        return Skov.ResultSuccess
+                    VersionedCatchUpStatusV1 catchUpMsg ->
+                        handleCatchUpStatusV1 cuConfig vc catchUpMsg
                     _ -> do
                         logEvent Runner LLDebug $
                             "Unsupported catch-up status message at consensus v1:" ++ show vcatchUp
                         return Skov.ResultInvalid
                 -- If we have no regenesis at the given index then...
-                Nothing -> case vcatchUp of
-                    -- if it is a request, inform the peer we have no genesis and queue to catch up
-                    Skov.VersionedCatchUpStatusV0 Skov.CatchUpStatus{cusIsRequest = True} -> do
+                Nothing
+                    | isCatchUpRequest vcatchUp -> do
+                        -- if it is a request, inform the peer we have no genesis and queue to catch up
                         liftIO $
                             catchUpCallback Skov.MessageCatchUpStatus $
-                                runPut $
-                                    Skov.putVersionedCatchUpStatus $
-                                        Skov.VersionedCatchUpStatusV0 Skov.NoGenesisCatchUpStatus
+                                encode VersionedCatchUpStatusNoGenesis
                         return Skov.ResultPendingBlock
-                    -- if it not a request, no response is necessary, but we should mark the
-                    -- peer as pending
-                    Skov.VersionedCatchUpStatusV0 Skov.CatchUpStatus{} ->
+                    | VersionedCatchUpStatusNoGenesis <- vcatchUp -> do
+                        -- if the peer (also!) has no genesis at this index, we do not reply
+                        -- or initiate catch-up
+                        return Skov.ResultSuccess
+                    | otherwise -> do
+                        -- otherwise, the peer is ahead so we should initiate catch-up
                         return Skov.ResultPendingBlock
-                    -- if the peer (also!) has no genesis at this index, we do not reply
-                    -- or initiate catch-up
-                    Skov.VersionedCatchUpStatusV0 Skov.NoGenesisCatchUpStatus ->
-                        return Skov.ResultSuccess
-                    Skov.VersionedCatchUpStatusV1 Skov.CatchUpStatusV1 ->
-                        return Skov.ResultSuccess
+
+handleCatchUpStatusV1 ::
+    forall finconf pv.
+    (IsProtocolVersion pv, IsConsensusV1 pv) =>
+    CatchUpConfiguration ->
+    VersionedConfigurationV1 finconf pv ->
+    KonsensusV1.CatchUpMessage ->
+    MVR finconf Skov.UpdateResult
+handleCatchUpStatusV1 CatchUpConfiguration{..} vc = handleMsg
+  where
+    handleMsg KonsensusV1.CatchUpStatusMessage{..} = do
+        st <- liftIO $ readIORef $ vc1State vc
+        checkShouldCatchUp cumStatus st
+    handleMsg KonsensusV1.CatchUpRequestMessage{..} = do
+        startState <- liftIO $ readIORef $ vc1State vc
+        x <- runLowLevel $ KonsensusV1.handleCatchUpRequest cumStatus (SkovV1._v1sSkovData startState)
+        let blockLoop !count (KonsensusV1.CatchUpPartialResponseDone terminal) = do
+                return (count, Present terminal)
+            blockLoop !count KonsensusV1.CatchUpPartialResponseBlock{..} = do
+                liftIO $
+                    catchUpCallback Skov.MessageBlock $
+                        runPut $
+                            KonsensusV1.putSignedBlock cuprNextBlock
+                if count >= catchUpMessageLimit
+                    then do
+                        (count,) <$> runLowLevel cuprFinish
+                    else do
+                        next <- runLowLevel cuprContinue
+                        blockLoop (count + 1) next
+        (count, terminal) <- blockLoop 0 x
+        logEvent Runner LLTrace $
+            "Sent " ++ show count ++ " blocks in response to a finalization request."
+        -- We compute the catch-up status with respect to the state now (after sending the blocks)
+        -- because we could have new information since startState that might have been sent to the
+        -- peer while it was receiving our catch-up blocks. In that event, the peer might discard
+        -- the information. By using the more recent state, we allow the peer to determine if
+        -- any such blocks now need to be caught up.
+        endState <- liftIO $ readIORef $ vc1State vc
+        let status = KonsensusV1.makeCatchUpStatus (SkovV1._v1sSkovData endState)
+        liftIO $
+            catchUpCallback Skov.MessageCatchUpStatus $
+                encode $
+                    VersionedCatchUpStatusV1 $
+                        KonsensusV1.CatchUpResponseMessage
+                            { cumStatus = status,
+                              cumTerminalData = terminal
+                            }
+        checkShouldCatchUp cumStatus endState
+    handleMsg KonsensusV1.CatchUpResponseMessage{cumTerminalData = Present terminal, ..} = do
+        res <- runSkovV1Transaction vc $ do
+            KonsensusV1.processCatchUpTerminalData terminal
+        -- If we made progress as a result of processing the terminal data, then we should send a
+        -- catch-up status to our non-pending peers in case they need to catch up.
+        when (KonsensusV1.tdrProgress res) bufferedSendCatchUpStatus
+        case res of
+            KonsensusV1.TerminalDataResultValid{} -> do
+                st <- liftIO $ readIORef $ vc1State vc
+                checkShouldCatchUp cumStatus st
+            KonsensusV1.TerminalDataResultInvalid{} -> do
+                return Skov.ResultInvalid
+    handleMsg KonsensusV1.CatchUpResponseMessage{cumTerminalData = Absent, ..} = do
+        st <- liftIO $ readIORef $ vc1State vc
+        checkShouldCatchUp cumStatus st
+    runLowLevel ::
+        LowLevelDB.DiskLLDBM pv (ReaderT (SkovV1.SkovV1Context pv (MVR finconf)) (MVR finconf)) a ->
+        MVR finconf a
+    runLowLevel a = runReaderT (LowLevelDB.runDiskLLDBM a) (vc1Context vc)
+    checkShouldCatchUp status st = do
+        shouldCatchUp <-
+            runLowLevel $
+                KonsensusV1.isCatchUpRequired status (SkovV1._v1sSkovData st)
+        return $!
+            if shouldCatchUp
+                then Skov.ResultPendingBlock
+                else Skov.ResultSuccess
 
 -- |Get the catch-up status for the current version of the chain.  This returns the current
 -- genesis index, as well as the catch-up request message serialized with its version.
@@ -1577,10 +1642,11 @@ getCatchUpRequest = do
         (EVersionedConfigurationV0 (vc :: VersionedConfigurationV0 finconf pv)) -> do
             st <- liftIO $ readIORef $ vc0State vc
             cus <- Skov.evalSkovT (Skov.getCatchUpStatus @(VersionedSkovV0M _ pv) True) (mvrSkovHandlers vc mvr) (vc0Context vc) st
-            return (vc0Index vc, encodeLazy $ Skov.VersionedCatchUpStatusV0 cus)
+            return (vc0Index vc, encodeLazy $ VersionedCatchUpStatusV0 cus)
         (EVersionedConfigurationV1 vc) -> do
-            -- FIXME: Dummy implementation
-            return (vc1Index vc, encodeLazy $ Skov.VersionedCatchUpStatusV1 Skov.CatchUpStatusV1)
+            st <- liftIO $ readIORef $ vc1State vc
+            let cus = KonsensusV1.makeCatchUpRequestMessage $ SkovV1._v1sSkovData st
+            return (vc1Index vc, encodeLazy $ VersionedCatchUpStatusV1 cus)
 
 -- |Deserialize and receive a transaction.  The transaction is passed to
 -- the current version of the chain.
