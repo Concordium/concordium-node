@@ -373,12 +373,13 @@ handleCatchUpRequest CatchUpStatus{..} skovData = do
             Nothing -> True
             Just s -> not (memberFinalizerSet (qmFinalizerIndex qm) s)
     getTimeoutMessages
-        | cusCurrentRound == ourCurrentRound =
+        | cusCurrentRound <= ourCurrentRound =
             case skovData ^. currentTimeoutMessages of
                 Absent -> return []
                 Present TimeoutMessages{..} -> do
                     let (filterFirst, filterSecond) = case cusCurrentRoundTimeouts of
                             Present TimeoutSet{..}
+                                | cusCurrentRound < ourCurrentRound -> (id, id)
                                 | tsFirstEpoch + 1 == tmFirstEpoch -> (filter2, id)
                                 | tsFirstEpoch == tmFirstEpoch -> (filter1, filter2)
                                 | tsFirstEpoch == tmFirstEpoch + 1 -> (id, filter1)
