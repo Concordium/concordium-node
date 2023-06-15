@@ -73,8 +73,8 @@ bakerKey :: Integral a => a -> BakerSignPrivateKey
 bakerKey i = bakerSignKey $ fst (bakers !! fromIntegral i)
 
 -- |Signs a baked block
-validSignBlock :: BakedBlock -> SignedBlock
-validSignBlock bb = signBlock (bakerKey (bbBaker bb)) genesisHash bb
+signMyBlock :: BakedBlock -> SignedBlock
+signMyBlock bb = signBlock (bakerKey (bbBaker bb)) genesisHash bb
 
 -- |Hash of the genesis block.
 genesisHash :: BlockHash
@@ -185,7 +185,7 @@ dummyBakedBlock parentHash n oTC =
         }
 
 dummySignedBlock :: BlockPointer pv -> Round -> Option TimeoutCertificate -> SignedBlock
-dummySignedBlock parent n oTC = validSignBlock $ dummyBakedBlock parentHash n oTC
+dummySignedBlock parent n oTC = signMyBlock $ dummyBakedBlock parentHash n oTC
   where
     parentHash = getHash parent
 
@@ -258,6 +258,7 @@ runTest = runTestMonad @'P6 noBaker time genesisData
 -- * Highest certified block is block 3.
 -- * P also has a block 4.
 -- * P is in round 4 and has received 1 quorum message pointing to block 4.
+-- * P has also received a timeout message in round 4.
 catchupNoBranches :: Assertion
 catchupNoBranches = runTest $ do
     -- set current round to 5
@@ -270,7 +271,6 @@ catchupNoBranches = runTest $ do
     writeBlocks [storedBlockRound0, storedBlockRound1, storedBlockRound2] $ dummyFinalizationEntry finQC sucQC
     lfb <- mkBlockPointer storedBlockRound2
     lastFinalized .=! lfb
-
     -- block in round 3 is the highest certified block.
     block3 <- makeBlock3
     addToBranches block3
@@ -281,7 +281,7 @@ catchupNoBranches = runTest $ do
     let block4 = advanceRound $ Quorum block3
     addToBranches block4
     blockTable . liveMap . at' (getHash block4) ?=! MemBlockAlive block4
-    let finToMsgMap = Map.insert (FinalizerIndex 0) quorumMessageBlock4 Map.empty
+    let finToQMsgMap = Map.insert (FinalizerIndex 0) quorumMessageBlock4 Map.empty
         quorumMessageBlock4 =
             QuorumMessage
                 { qmSignature = QuorumSignature $ Bls.sign "quorum message" $ fst $ randomBlsSecretKey (mkStdGen 42),
@@ -290,7 +290,18 @@ catchupNoBranches = runTest $ do
                   qmRound = Round 4,
                   qmEpoch = 1
                 }
-    currentQuorumMessages .= QuorumMessages finToMsgMap Map.empty
+        finToTMMap = Map.insert (FinalizerIndex 1) timeoutMessageRound4 Map.empty
+        timeoutMessageRound4 = signTimeoutMessage timeoutRound4Message genesisHash (bakerKey (1 :: Int))
+        timeoutRound4Message =
+            TimeoutMessageBody
+                { tmFinalizerIndex = FinalizerIndex 2,
+                  tmRound = Round 4,
+                  tmEpoch = 1,
+                  tmQuorumCertificate = dummyQC (Round 3) $ getHash block3,
+                  tmAggregateSignature = TimeoutSignature $ Bls.sign "quorum certificate" $ fst $ randomBlsSecretKey (mkStdGen 42)
+                }
+    currentQuorumMessages .= QuorumMessages finToQMsgMap Map.empty
+    currentTimeoutMessages .= Present (TimeoutMessages 1 finToTMMap Map.empty)
     -- The request to handle.
     let request =
             CatchUpStatus
@@ -307,7 +318,7 @@ catchupNoBranches = runTest $ do
                 { cutdQuorumCertificates = [sucQC, dummyQC (Round 4) (getHash block3)],
                   cutdTimeoutCertificate = Absent,
                   cutdCurrentRoundQuorumMessages = [quorumMessageBlock4],
-                  cutdCurrentRoundTimeoutMessages = []
+                  cutdCurrentRoundTimeoutMessages = [timeoutMessageRound4]
                 }
 
     b0Bp <- mkBlockPointer storedBlockRound0
