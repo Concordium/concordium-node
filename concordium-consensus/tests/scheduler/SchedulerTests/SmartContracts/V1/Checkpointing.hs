@@ -739,6 +739,223 @@ checkpointingTest6 spv pvString =
         putByteString "a_modify" -- entrypoint name
         putWord64le 0 -- amount
 
+checkpointing2SourceFile :: FilePath
+checkpointing2SourceFile = "../concordium-base/smart-contracts/testdata/contracts/v1/checkpointing-2.wasm"
+
+-- | Tests the following flow within a single contract instance.
+--
+--  - Invoke entrypoint 'a'
+--    - Set state = 112
+--    - Invoke entrypoint 'b'
+--      - Query own balance
+--      - Set state = 113
+--      - Fail with error -1
+--    - Assert state == 112 (rollback occurred)
+checkpointingTest7 ::
+    forall pv.
+    Types.IsProtocolVersion pv =>
+    Types.SProtocolVersion pv ->
+    String ->
+    Spec
+checkpointingTest7 spv pvString =
+    when (Types.supportsV1Contracts spv && Types.supportsChainQueryContracts spv) $
+        specify (pvString ++ ": Checkpointing 7") $
+            Helpers.runSchedulerTestAssertIntermediateStates
+                @pv
+                Helpers.defaultTestConfig
+                initialBlockState
+                transactionsAndAssertions
+  where
+    transactionsAndAssertions :: [Helpers.TransactionAndAssertion pv]
+    transactionsAndAssertions =
+        [ Helpers.TransactionAndAssertion
+            { taaTransaction =
+                TJSON
+                    { payload = DeployModule V1 checkpointing2SourceFile,
+                      metadata = makeDummyHeader accountAddress0 1 100_000,
+                      keys = [(0, [(0, keyPair0)])]
+                    },
+              taaAssertion = \result _ ->
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV1 checkpointing2SourceFile result
+            },
+          Helpers.TransactionAndAssertion
+            { taaTransaction =
+                TJSON
+                    { payload = InitContract 0 V1 checkpointing2SourceFile "init_test" "",
+                      metadata = makeDummyHeader accountAddress0 2 100_000,
+                      keys = [(0, [(0, keyPair0)])]
+                    },
+              taaAssertion = \result _ -> do
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyInitialization
+                        checkpointing2SourceFile
+                        (InitName "init_test")
+                        (Parameter "")
+                        Nothing
+                        result
+            },
+          Helpers.TransactionAndAssertion
+            { taaTransaction =
+                TJSON
+                    { payload = Update 0 (Types.ContractAddress 0 0) "test.a" callArgs,
+                      metadata = makeDummyHeader accountAddress0 3 700_000,
+                      keys = [(0, [(0, keyPair0)])]
+                    },
+              taaAssertion = \result _ -> do
+                return $ do
+                    Helpers.assertSuccess result
+            }
+        ]
+
+    -- Tell the contract to call entrypoint 'c'.
+    callArgs = BSS.toShort $ runPut $ putByteString "b"
+
+-- | Tests the following flow within a single contract instance.
+--
+--   - Invoke entrypoint 'a'
+--     - Set state = 112
+--     - Invoke entrypoint 'c'
+--       - Invoke entrypoint 'd'
+--         - Return success
+--       - Set state = 113
+--       - Fail with error -1
+--     - Assert state == 112 (rollback occurred)
+checkpointingTest8 ::
+    forall pv.
+    Types.IsProtocolVersion pv =>
+    Types.SProtocolVersion pv ->
+    String ->
+    Spec
+checkpointingTest8 spv pvString =
+    when (Types.supportsV1Contracts spv && Types.supportsChainQueryContracts spv) $
+        specify (pvString ++ ": Checkpointing 8") $
+            Helpers.runSchedulerTestAssertIntermediateStates
+                @pv
+                Helpers.defaultTestConfig
+                initialBlockState
+                transactionsAndAssertions
+  where
+    transactionsAndAssertions :: [Helpers.TransactionAndAssertion pv]
+    transactionsAndAssertions =
+        [ Helpers.TransactionAndAssertion
+            { taaTransaction =
+                TJSON
+                    { payload = DeployModule V1 checkpointing2SourceFile,
+                      metadata = makeDummyHeader accountAddress0 1 100_000,
+                      keys = [(0, [(0, keyPair0)])]
+                    },
+              taaAssertion = \result _ ->
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV1 checkpointing2SourceFile result
+            },
+          Helpers.TransactionAndAssertion
+            { taaTransaction =
+                TJSON
+                    { payload = InitContract 0 V1 checkpointing2SourceFile "init_test" "",
+                      metadata = makeDummyHeader accountAddress0 2 100_000,
+                      keys = [(0, [(0, keyPair0)])]
+                    },
+              taaAssertion = \result _ -> do
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyInitialization
+                        checkpointing2SourceFile
+                        (InitName "init_test")
+                        (Parameter "")
+                        Nothing
+                        result
+            },
+          Helpers.TransactionAndAssertion
+            { taaTransaction =
+                TJSON
+                    { payload = Update 0 (Types.ContractAddress 0 0) "test.a" callArgs,
+                      metadata = makeDummyHeader accountAddress0 3 700_000,
+                      keys = [(0, [(0, keyPair0)])]
+                    },
+              taaAssertion = \result _ -> do
+                return $ do
+                    Helpers.assertSuccess result
+            }
+        ]
+    -- Tell the contract to call entrypoint 'c'.
+    callArgs = BSS.toShort $ runPut $ putByteString "c"
+
+-- | Tests the following flow within a single contract instance.
+--
+--   - Invoke entrypoint 'a'
+--     - Set state = 112
+--     - Invoke entrypoint 'c'
+--       - Invoke entrypoint 'd'
+--         - Return success
+--       - Set state = 113
+--       - Fail with error -1
+--     - Assert state == 112 (rollback occurred)
+checkpointingTest9 ::
+    forall pv.
+    Types.IsProtocolVersion pv =>
+    Types.SProtocolVersion pv ->
+    String ->
+    Spec
+checkpointingTest9 spv pvString =
+    when (Types.supportsV1Contracts spv && Types.supportsChainQueryContracts spv) $
+        specify (pvString ++ ": Checkpointing 9") $
+            Helpers.runSchedulerTestAssertIntermediateStates
+                @pv
+                Helpers.defaultTestConfig
+                initialBlockState
+                transactionsAndAssertions
+  where
+    transactionsAndAssertions :: [Helpers.TransactionAndAssertion pv]
+    transactionsAndAssertions =
+        [ Helpers.TransactionAndAssertion
+            { taaTransaction =
+                TJSON
+                    { payload = DeployModule V1 checkpointing2SourceFile,
+                      metadata = makeDummyHeader accountAddress0 1 100_000,
+                      keys = [(0, [(0, keyPair0)])]
+                    },
+              taaAssertion = \result _ ->
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV1 checkpointing2SourceFile result
+            },
+          Helpers.TransactionAndAssertion
+            { taaTransaction =
+                TJSON
+                    { payload = InitContract 0 V1 checkpointing2SourceFile "init_test" "",
+                      metadata = makeDummyHeader accountAddress0 2 100_000,
+                      keys = [(0, [(0, keyPair0)])]
+                    },
+              taaAssertion = \result _ -> do
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyInitialization
+                        checkpointing2SourceFile
+                        (InitName "init_test")
+                        (Parameter "")
+                        Nothing
+                        result
+            },
+          Helpers.TransactionAndAssertion
+            { taaTransaction =
+                TJSON
+                    { payload = Update 0 (Types.ContractAddress 0 0) "test.e" callArgs,
+                      metadata = makeDummyHeader accountAddress0 3 700_000,
+                      keys = [(0, [(0, keyPair0)])]
+                    },
+              taaAssertion = \result _ -> do
+                return $ do
+                    Helpers.assertSuccess result
+            }
+        ]
+    -- Tell the contract to call entrypoint 'd' (the "succeed" entrypoint)
+    callArgs = BSS.toShort $ runPut $ putByteString "d"
+
+
 tests :: Spec
 tests =
     describe "V1: Checkpointing." $
@@ -750,3 +967,7 @@ tests =
                 checkpointingTest4 spv pvString
                 checkpointingTest5 spv pvString
                 checkpointingTest6 spv pvString
+                when (Types.demoteProtocolVersion spv >= Types.P6) $ do
+                    checkpointingTest7 spv pvString
+                    checkpointingTest8 spv pvString
+                    checkpointingTest9 spv pvString

@@ -25,6 +25,7 @@ module Concordium.Scheduler.WasmIntegration.V1 (
     ccfToReturnValue,
     returnValueToByteString,
     byteStringToReturnValue,
+    RuntimeConfig (..),
 ) where
 
 import Control.Monad
@@ -267,6 +268,9 @@ foreign import ccall "call_receive_v1"
         Ptr (Ptr ReceiveInterruptedState) ->
         -- |Length of the output byte array, if non-null.
         Ptr CSize ->
+        -- |In case the state was changed by the call this value will be set to 1.
+        -- This is needed to support legacy (incorrect) behaviour for protocols 4-5.
+        Ptr Word8 ->
         -- |Non-zero to enable support of chain queries.
         Word8 ->
         -- |New state, logs, and actions, if applicable, or null, signalling out-of-energy.
@@ -530,10 +534,15 @@ cerToRejectReasonReceive _ _ _ (EnvFailure e) = case e of
 -- documentation of the above mentioned imported functions for the specification
 -- of the return value.
 processReceiveResult ::
+    -- |Whether to use the correct logic for rollbacks, or the
+    -- legacy one that is incorrect in some cases. The latter applies to P5 and earlier.
+    Bool ->
     -- |State context.
     LoadCallback ->
     -- |State execution started in.
     StateV1.MutableState ->
+    -- |Whether the state was written to.
+    Bool ->
     -- |Serialized output.
     BS.ByteString ->
     -- |Location where the pointer to the return value is (potentially) stored.
@@ -545,9 +554,10 @@ processReceiveResult ::
     -- execution ran out of energy.
     Either ReceiveInterruptedState (Ptr (Ptr ReceiveInterruptedState)) ->
     IO (Maybe (Either ContractExecutionReject ReceiveResultData, InterpreterEnergy))
-processReceiveResult callbacks initialState result returnValuePtr statePtr eitherInterruptedStatePtr = case BS.uncons result of
+processReceiveResult fixRollbacks callbacks initialState stateWrittenTo result returnValuePtr statePtr eitherInterruptedStatePtr = case BS.uncons result of
     Nothing -> error "Internal error: Could not parse the result from the interpreter."
-    Just (tag, payload) ->
+    Just (tag, payload) -> do
+        newState <- if statePtr /= nullPtr then StateV1.newMutableState callbacks statePtr else return initialState
         case tag of
             0 -> return Nothing
             1 ->
@@ -578,15 +588,14 @@ processReceiveResult callbacks initialState result returnValuePtr statePtr eithe
                             rrdInterruptedConfig <- case eitherInterruptedStatePtr of
                                 Left rrid -> return rrid
                                 Right interruptedStatePtr -> newReceiveInterruptedState interruptedStatePtr
-                            if statePtr == nullPtr
-                                then
-                                    let rrdCurrentState = initialState
+                            if stateWrittenTo
+                                then do
+                                    let rrdStateChanged = True
+                                    return (Just (Right ReceiveInterrupt{rrdCurrentState = newState, ..}, fromIntegral remainingEnergy))
+                                else
+                                    let rrdCurrentState = if fixRollbacks then newState else initialState
                                         rrdStateChanged = False
                                     in  return (Just (Right ReceiveInterrupt{..}, fromIntegral remainingEnergy))
-                                else do
-                                    let rrdStateChanged = True
-                                    rrdCurrentState <- StateV1.newMutableState callbacks statePtr
-                                    return (Just (Right ReceiveInterrupt{..}, fromIntegral remainingEnergy))
             3 ->
                 -- done
                 let parser = do
@@ -596,21 +605,24 @@ processReceiveResult callbacks initialState result returnValuePtr statePtr eithe
                 in  let (rrdLogs, remainingEnergy) = parseResult parser
                     in  do
                             rrdReturnValue <- ReturnValue <$> newForeignPtr freeReturnValue returnValuePtr
-                            if statePtr == nullPtr
-                                then
-                                    let rrdNewState = initialState
-                                        rrdStateChanged = False
-                                    in  return (Just (Right ReceiveSuccess{..}, fromIntegral remainingEnergy))
-                                else do
-                                    let rrdStateChanged = True
-                                    rrdNewState <- StateV1.newMutableState callbacks statePtr
-                                    return (Just (Right ReceiveSuccess{..}, fromIntegral remainingEnergy))
+                            let rrdStateChanged = stateWrittenTo
+                                rrdNewState = newState
+                            return (Just (Right ReceiveSuccess{..}, fromIntegral remainingEnergy))
             _ -> fail $ "Invalid tag: " ++ show tag
       where
         parseResult parser =
             case runGet parser payload of
                 Right x -> x
                 Left err -> error $ "Internal error: Could not interpret output from interpreter: " ++ err
+
+-- |Runtime configuration for smart contract execution. This determines various
+-- limits and limitations that depend on the protocol update.
+data RuntimeConfig = RuntimeConfig
+    { rcSupportChainQueries :: Bool,
+      rcFixRollbacks :: Bool,
+      rcMaxParameterLen :: Word16,
+      rcLimitLogsAndRvs :: Bool
+    }
 
 -- |Apply a receive function which is assumed to be part of the given module.
 {-# NOINLINE applyReceiveFun #-}
@@ -627,29 +639,24 @@ applyReceiveFun ::
     Bool ->
     -- |Parameters available to the method.
     Parameter ->
-    -- |Max parameter size.
-    Word16 ->
-    -- |Limit number of logs and size of return value.
-    Bool ->
     -- |Amount the contract is initialized with.
     Amount ->
     -- |State of the contract to start in, and a way to use it.
     StateV1.MutableState ->
-    -- | Enable support of chain queries.
-    Bool ->
+    RuntimeConfig ->
     -- |Amount of energy available for execution.
     InterpreterEnergy ->
     -- |Nothing if execution used up all the energy, and otherwise the result
     -- of execution with the amount of energy remaining.
     Maybe (Either ContractExecutionReject ReceiveResultData, InterpreterEnergy)
-applyReceiveFun miface cm receiveCtx rName useFallback param maxParamLen limitLogsAndRvs amnt initialState supportChainQueries initialEnergy = unsafePerformIO $ do
+applyReceiveFun miface cm receiveCtx rName useFallback param amnt initialState RuntimeConfig{..} initialEnergy = unsafePerformIO $ do
     BSU.unsafeUseAsCStringLen wasmArtifact $ \(wasmArtifactPtr, wasmArtifactLen) ->
         BSU.unsafeUseAsCStringLen initCtxBytes $ \(initCtxBytesPtr, initCtxBytesLen) ->
             BSU.unsafeUseAsCStringLen nameBytes $ \(nameBytesPtr, nameBytesLen) ->
                 StateV1.withMutableState initialState $ \curStatePtr -> alloca $ \statePtrPtr -> do
                     poke statePtrPtr curStatePtr
                     BSU.unsafeUseAsCStringLen paramBytes $ \(paramBytesPtr, paramBytesLen) ->
-                        alloca $ \outputLenPtr -> alloca $ \outputReturnValuePtrPtr -> alloca $ \outputInterruptedConfigPtrPtr -> do
+                        alloca $ \outputLenPtr -> alloca $ \outputReturnValuePtrPtr -> alloca $ \outputInterruptedConfigPtrPtr -> alloca $ \stateWrittenToPtr -> do
                             outPtr <-
                                 call_receive
                                     callbacks
@@ -664,13 +671,14 @@ applyReceiveFun miface cm receiveCtx rName useFallback param maxParamLen limitLo
                                     statePtrPtr
                                     (castPtr paramBytesPtr)
                                     (fromIntegral paramBytesLen)
-                                    (fromIntegral maxParamLen)
-                                    (if limitLogsAndRvs then 1 else 0)
+                                    (fromIntegral rcMaxParameterLen)
+                                    (if rcLimitLogsAndRvs then 1 else 0)
                                     energy
                                     outputReturnValuePtrPtr
                                     outputInterruptedConfigPtrPtr
                                     outputLenPtr
-                                    (if supportChainQueries then 1 else 0)
+                                    stateWrittenToPtr
+                                    (if rcSupportChainQueries then 1 else 0)
                             if outPtr == nullPtr
                                 then return (Just (Left Trap, 0)) -- this case should not happen
                                 else do
@@ -678,7 +686,8 @@ applyReceiveFun miface cm receiveCtx rName useFallback param maxParamLen limitLo
                                     bs <- BSU.unsafePackCStringFinalizer outPtr (fromIntegral len) (rs_free_array_len outPtr (fromIntegral len))
                                     returnValuePtr <- peek outputReturnValuePtrPtr
                                     statePtr <- peek statePtrPtr
-                                    processReceiveResult callbacks initialState bs returnValuePtr statePtr (Right outputInterruptedConfigPtrPtr)
+                                    stateWrittenTo <- peek stateWrittenToPtr
+                                    processReceiveResult rcFixRollbacks callbacks initialState (stateWrittenTo /= 0) bs returnValuePtr statePtr (Right outputInterruptedConfigPtrPtr)
   where
     wasmArtifact = imWasmArtifactBytes miface
     initCtxBytes = encodeChainMeta cm <> encodeReceiveContext receiveCtx
@@ -730,7 +739,7 @@ resumeReceiveFun is currentState stateChanged amnt statusCode rVal remainingEner
                             bs <- BSU.unsafePackCStringFinalizer outPtr (fromIntegral len) (rs_free_array_len outPtr (fromIntegral len))
                             returnValuePtr <- peek outputReturnValuePtrPtr
                             statePtr <- peek statePtrPtr
-                            processReceiveResult callbacks currentState bs returnValuePtr statePtr (Left is)
+                            processReceiveResult True callbacks currentState (statePtr /= nullPtr) bs returnValuePtr statePtr (Left is)
   where
     newStateTag = if stateChanged then 1 else 0
     energy = fromIntegral remainingEnergy
