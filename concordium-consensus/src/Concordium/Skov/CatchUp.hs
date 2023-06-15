@@ -37,7 +37,6 @@ doHandleCatchUp ::
     -- |How many blocks + finalization records should be sent.
     Int ->
     m (Maybe ([(MessageType, ByteString)], CatchUpStatus), UpdateResult)
-doHandleCatchUp NoGenesisCatchUpStatus _ = return (Nothing, ResultSuccess)
 doHandleCatchUp peerCUS@CatchUpStatus{} limit = do
     let resultDoCatchUp = if cusIsResponse peerCUS then ResultPendingBlock else ResultContinueCatchUp
     lfb <- fst <$> getLastFinalized
@@ -48,9 +47,7 @@ doHandleCatchUp peerCUS@CatchUpStatus{} limit = do
                 if cusIsRequest peerCUS
                     then do
                         myCUS <- getCatchUpStatus False
-                        return $ case myCUS of
-                            CatchUpStatus{} -> Just ([], myCUS{cusIsResponse = True})
-                            status -> Just ([], status)
+                        return $ Just ([], myCUS{cusIsResponse = True})
                     else return Nothing
             -- We are behind, so we mark the peer as pending, unless it is in progress
             -- and the message is not a response.
