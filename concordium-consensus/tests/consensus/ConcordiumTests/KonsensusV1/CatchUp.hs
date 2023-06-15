@@ -1,25 +1,30 @@
+{-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE BlockArguments #-}
 
 -- |A module that tests the in-band catch-up mechanism of KonsensusV1.
 module ConcordiumTests.KonsensusV1.CatchUp where
 
-import Control.Monad.IO.Class (liftIO)
+import Control.Monad.State.Strict
+import Data.Time
+import Data.Time.Clock.POSIX
 import qualified Data.Vector as Vec
 import Lens.Micro.Platform
+import System.Random
 import Test.HUnit
 import Test.Hspec
 
+import qualified Concordium.Crypto.BlsSignature as Bls
+import Concordium.Crypto.DummyData (randomBlsSecretKey)
 import qualified Concordium.Crypto.DummyData as Dummy
 import qualified Concordium.Crypto.SHA256 as Hash
+import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Genesis.Data
-import qualified Concordium.Genesis.Data.BaseV1 as BaseV1
-import qualified Concordium.Genesis.Data.P6 as P6
 import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.DummyData as Dummy
+import Concordium.GlobalState.Persistent.BlobStore (BlobRef (..))
 import Concordium.Startup
 import Concordium.Types
 import Concordium.Types.BakerIdentity
@@ -37,8 +42,7 @@ import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.Types.Transactions
 
-import ConcordiumTests.KonsensusV1.LMDB
-import ConcordiumTests.KonsensusV1.TreeStateTest
+import ConcordiumTests.KonsensusV1.TreeStateTest (dummyBlockState)
 
 -- |Create genesis for running the tests in this module.
 -- There are 3 bakers/finalizers and one additional foundation account.
@@ -76,14 +80,9 @@ validSignBlock bb = signBlock (bakerKey (bbBaker bb)) genesisHash bb
 genesisHash :: BlockHash
 genesisHash = BlockHash $ Hash.hash "My dummy genesis hash"
 
--- |A signed block.
--- The block has no meaningful state.
-signedBlock :: Round -> QuorumCertificate -> Option TimeoutCertificate -> SignedBlock
-signedBlock r qc oTC = validSignBlock (BakedBlock r 0 0 0 qc oTC Absent dummyBlockNonce Vec.empty emptyTransactionOutcomesHashV1 (StateHashV0 $ Hash.hash "empty state hash"))
-
--- |A type that informs 'makeDummyBlockPointer' of how it should
+-- |A type that informs 'advanceRound' of how it should
 -- create the new block pointer.
-data BlockMake pv
+data AdvanceRound pv
     = -- Make a block pointer for the provided 'Round' with the last certified block
       -- being the block pointer.
       Timeout !Round !(BlockPointer pv)
@@ -91,54 +90,58 @@ data BlockMake pv
       -- contains a QC for it.
       Quorum !(BlockPointer pv)
 
-blockMakeRound :: BlockMake pv -> Round
+blockMakeRound :: AdvanceRound pv -> Round
 blockMakeRound (Timeout r _) = r
 blockMakeRound (Quorum bp) = blockRound bp
 
-blockMakeBp :: BlockMake pv -> BlockPointer pv
+blockMakeBp :: AdvanceRound pv -> BlockPointer pv
 blockMakeBp (Timeout _ bp) = bp
 blockMakeBp (Quorum bp) = bp
 
 -- |Make a dummy 'BlockPointer' that is a continuation of either a timeout
 -- or a block.
-makeDummyBlockPointer :: BlockMake pv -> BlockPointer pv
-makeDummyBlockPointer bMake = makeBp
+advanceRound :: AdvanceRound pv -> BlockPointer pv
+advanceRound adv = makeBlockPointer
   where
-    makeBp =
+    makeBlockPointer =
         BlockPointer
             { bpInfo = metadata,
               bpBlock = theBlock,
               bpState = dummyBlockState
             }
-    makeQC bp =
-        QuorumCertificate
-            { qcBlock = getHash bp,
-              qcRound = 1 + blockRound bp,
-              qcEpoch = blockEpoch bp,
-              qcAggregateSignature = mempty,
-              qcSignatories = FinalizerSet 0
-            }
-    makeTC bp r =
+    makeTC parentBp r =
         TimeoutCertificate
             { tcRound = r,
-              tcMinEpoch = blockEpoch bp,
+              tcMinEpoch = blockEpoch parentBp,
               tcFinalizerQCRoundsFirstEpoch = FinalizerRounds Map.empty,
               tcFinalizerQCRoundsSecondEpoch = FinalizerRounds Map.empty,
               tcAggregateSignature = mempty
             }
     metadata =
         BlockMetadata
-            { bmHeight = (BlockHeight 1) + (blockHeight $ blockMakeBp bMake),
+            { bmHeight = (BlockHeight 1) + (blockHeight $ blockMakeBp adv),
               bmReceiveTime = timestampToUTCTime 0,
               bmArriveTime = timestampToUTCTime 0,
               bmEnergyCost = 0,
               bmTransactionsSize = 0
             }
-    theBlock = case bMake of
-        (Timeout r bp) -> NormalBlock $ signedBlock theRound (makeQC bp) (Present $ makeTC bp r)
-        (Quorum bp) -> NormalBlock $ signedBlock theRound (makeQC bp) Absent
+    theBlock = case adv of
+        (Timeout r bp) -> NormalBlock $ dummySignedBlock bp theRound (Present $ makeTC bp r)
+        (Quorum bp) -> NormalBlock $ dummySignedBlock bp theRound Absent
       where
-        theRound = Round 1 + blockMakeRound bMake
+        theRound = Round 1 + blockMakeRound adv
+
+-- |Generate a dummy quorum certificate for the provided block pointer.
+-- The round is incremented otherwise the qc contains dummy values.
+makeQCForBlockPointer :: BlockPointer pv -> QuorumCertificate
+makeQCForBlockPointer parentBp =
+    QuorumCertificate
+        { qcBlock = getHash parentBp,
+          qcRound = 1 + blockRound parentBp,
+          qcEpoch = blockEpoch parentBp,
+          qcAggregateSignature = mempty,
+          qcSignatories = FinalizerSet 0
+        }
 
 -- |Create a 'CertifiedBlock' with the provided 'BlockPointer' and a dummy
 -- 'QuorumCertificate'.
@@ -146,17 +149,94 @@ certifyBlock :: BlockPointer pv -> CertifiedBlock pv
 certifyBlock bp =
     CertifiedBlock
         { cbQuorumBlock = bp,
-          cbQuorumCertificate = makeDummyQC
+          cbQuorumCertificate = dummyQC roundForQC parentHash
         }
   where
-    makeDummyQC =
-        QuorumCertificate
-            { qcBlock = getHash bp,
-              qcRound = 1 + blockRound bp,
-              qcEpoch = blockEpoch bp,
-              qcAggregateSignature = mempty,
-              qcSignatories = FinalizerSet 0
-            }
+    roundForQC = 1 + blockRound bp
+    parentHash = getHash bp
+
+dummyNormalBlock :: BlockPointer pv -> Round -> Option TimeoutCertificate -> Block pv
+dummyNormalBlock parent n oTC = NormalBlock $ dummySignedBlock parent n oTC
+
+dummyQC :: Round -> BlockHash -> QuorumCertificate
+dummyQC n parentHash =
+    QuorumCertificate
+        { qcBlock = parentHash,
+          qcRound = n,
+          qcEpoch = 1,
+          qcAggregateSignature = QuorumSignature $ Bls.sign "quorum certificate" $ fst $ randomBlsSecretKey (mkStdGen 42),
+          qcSignatories = FinalizerSet 0
+        }
+
+dummyBakedBlock :: BlockHash -> Round -> Option TimeoutCertificate -> BakedBlock
+dummyBakedBlock parentHash n oTC =
+    BakedBlock
+        { bbRound = n,
+          bbEpoch = 1,
+          bbTimestamp = 1_000,
+          bbBaker = 1,
+          bbQuorumCertificate = dummyQC n parentHash,
+          bbTimeoutCertificate = oTC,
+          bbEpochFinalizationEntry = Absent,
+          bbNonce = VRF.prove (fst $ VRF.randomKeyPair (mkStdGen 42)) "foo",
+          bbTransactions = Vec.empty,
+          bbTransactionOutcomesHash = TransactionOutcomesHash $ Hash.hash "outcomes hash",
+          bbStateHash = StateHashV0 $ Hash.hash "state hash"
+        }
+
+dummySignedBlock :: BlockPointer pv -> Round -> Option TimeoutCertificate -> SignedBlock
+dummySignedBlock parent n oTC = validSignBlock $ dummyBakedBlock parentHash n oTC
+  where
+    parentHash = getHash parent
+
+genesisBlockPointer :: BlockPointer pv
+genesisBlockPointer =
+    let bpInfo =
+            BlockMetadata
+                { bmHeight = 0,
+                  bmReceiveTime = timestampToUTCTime 0,
+                  bmArriveTime = timestampToUTCTime 0,
+                  bmEnergyCost = 0,
+                  bmTransactionsSize = 0
+                }
+        bpBlock =
+            GenesisBlock
+                GenesisMetadata
+                    { gmStateHash = getHash bpState,
+                      gmParameters = genesisCoreParametersV1 genesisData,
+                      gmFirstGenesisHash = genesisBlockHash genesisData,
+                      gmCurrentGenesisHash = genesisBlockHash genesisData
+                    }
+        bpState = dummyBlockState
+    in  BlockPointer{..}
+
+dummyStoredBlock :: Maybe (BlockPointer pv) -> BlockHeight -> Round -> Option TimeoutCertificate -> StoredBlock pv
+dummyStoredBlock Nothing h n oTC = StoredBlock (BlockMetadata h dummyTime dummyTime 0 0) (dummyNormalBlock genesisBlockPointer n oTC) (BlobRef 0)
+dummyStoredBlock (Just bp) h n oTC = StoredBlock (BlockMetadata h dummyTime dummyTime 0 0) (dummyNormalBlock bp n oTC) (BlobRef 0)
+
+dummyTime :: UTCTime
+dummyTime = posixSecondsToUTCTime 0
+
+dummyFinalizationEntry :: QuorumCertificate -> QuorumCertificate -> FinalizationEntry
+dummyFinalizationEntry finQC sucQC =
+    FinalizationEntry
+        { feFinalizedQuorumCertificate = finQC,
+          feSuccessorQuorumCertificate = sucQC,
+          feSuccessorProof = BlockQuasiHash $ Hash.hash "quasi hash"
+        }
+
+assertCatchupResponse :: MonadIO m => CatchUpTerminalData -> [SignedBlock] -> CatchUpPartialResponse m -> m ()
+assertCatchupResponse term [] resp = case resp of
+    CatchUpPartialResponseDone actualTerm -> liftIO $ assertEqual "Unexpected terminal data" term actualTerm
+    CatchUpPartialResponseBlock{..} ->
+        cuprFinish >>= \case
+            Nothing -> liftIO $ assertFailure "Expected a terminal data as all expected blocks has been served." -- todo modify this a bit so we carry an accummulator and can check limit.
+            Just actualTerm -> liftIO $ assertEqual "Unexpected terminal data" term actualTerm
+assertCatchupResponse term (x : xs) resp = case resp of
+    CatchUpPartialResponseDone{} -> liftIO $ assertFailure "Unexpected done result. There is still expected blocks to be served."
+    CatchUpPartialResponseBlock{..} -> do
+        liftIO $ assertEqual "Unexpected block served" x cuprNextBlock
+        assertCatchupResponse term xs =<< cuprContinue
 
 -- |Run a TestMonad pv a action with a no-baker context,
 -- fixed 'genesisData' and fixed time.
@@ -177,24 +257,40 @@ runTest = runTestMonad @'P6 noBaker time genesisData
 -- * Blocks 0,1,2 are finalized
 -- * Highest certified block is block 3.
 -- * P also has a block 4.
--- * P is in round 5.
+-- * P is in round 4 and has received 1 quorum message pointing to block 4.
 catchupNoBranches :: Assertion
 catchupNoBranches = runTest $ do
     -- set current round to 5
     roundStatus . rsCurrentRound .= Round 5
     -- Blocks 0,1 and 2 are finalized
-    writeBlocks [storedBlockRound0, storedBlockRound1, storedBlockRound2] dummyFinalizationEntry
+    storedBlockRound1 <- getStoredBlockRound1
+    storedBlockRound2 <- getStoredBlockRound2
+    let finQC = dummyQC (Round 2) $ getHash storedBlockRound2
+        sucQC = dummyQC (Round 1) $ getHash storedBlockRound1
+    writeBlocks [storedBlockRound0, storedBlockRound1, storedBlockRound2] $ dummyFinalizationEntry finQC sucQC
     lfb <- mkBlockPointer storedBlockRound2
     lastFinalized .=! lfb
+
     -- block in round 3 is the highest certified block.
-    block3 <- block3'
+    block3 <- makeBlock3
     addToBranches block3
     blockTable . liveMap . at' (getHash block3) ?=! MemBlockAlive block3
-    roundStatus . rsHighestCertifiedBlock .= certifyBlock block3
-    let block4 = makeDummyBlockPointer $ Quorum block3
-    -- block in round 4 with a TC pointing to block2.
+    let block3Certified = certifyBlock block3
+    roundStatus . rsHighestCertifiedBlock .= block3Certified
+    -- the highest block
+    let block4 = advanceRound $ Quorum block3
     addToBranches block4
     blockTable . liveMap . at' (getHash block4) ?=! MemBlockAlive block4
+    let finToMsgMap = Map.insert (FinalizerIndex 0) quorumMessageBlock4 Map.empty
+        quorumMessageBlock4 =
+            QuorumMessage
+                { qmSignature = QuorumSignature $ Bls.sign "quorum message" $ fst $ randomBlsSecretKey (mkStdGen 42),
+                  qmBlock = getHash block4,
+                  qmFinalizerIndex = FinalizerIndex 0,
+                  qmRound = Round 4,
+                  qmEpoch = 1
+                }
+    currentQuorumMessages .= QuorumMessages finToMsgMap Map.empty
     -- The request to handle.
     let request =
             CatchUpStatus
@@ -203,175 +299,42 @@ catchupNoBranches = runTest $ do
                   cusLeaves = [],
                   cusBranches = [],
                   cusCurrentRound = Round 1,
-                  cusCurrentRoundQuorum = Map.empty
+                  cusCurrentRoundQuorum = Map.empty,
+                  cusCurrentRoundTimeouts = Absent
                 }
-    -- todo: check that the terminal data is as expected.
-    handleCatchUpRequest request >>= \case
-        CatchUpPartialResponseBlock nextBlock cont terminal -> do
-            -- Check that the storedBlockRound 1 matches the first block we receive.
-          case stbBlock storedBlockRound1 of
-              GenesisBlock _ -> liftIO $ assertFailure "First block served should not be the genesis block."
-              NormalBlock sb -> liftIO $ assertEqual "First block served should be block1" sb nextBlock
-          -- Check the continuation, this should match block2.
-          cont >>= \case
-                CatchUpPartialResponseBlock nextBlock' cont' terminal' -> do
-                  -- Check that the storedBlockRound 2 matches the first block we receive.
-                  case stbBlock storedBlockRound2 of
-                        GenesisBlock _ -> liftIO $ assertFailure "Second block served should not be the genesis block."
-                        NormalBlock sb -> liftIO $ assertEqual "Second block served should be block2" sb nextBlock'
-                  -- Check the continuation, this should match block2.
-                  cont' >>= \case
-                      CatchUpPartialResponseBlock nextBlock'' cont'' terminal'' -> do
-                          -- Check that the storedBlockRound 2 matches the first block we receive.
-                          case bpBlock block3 of
-                              GenesisBlock _ -> liftIO $ assertFailure "Third block served should not be the genesis block."
-                              NormalBlock sb -> liftIO $ assertEqual "Third block served should be block2" sb nextBlock''
-                          cont'' >>= \case
-                              CatchUpPartialResponseBlock nextBlock''' cont''' terminal''' -> do
-                                  -- Check that the storedBlockRound 2 matches the first block we receive.
-                                  case bpBlock block4 of
-                                      GenesisBlock _ -> liftIO $ assertFailure "Fourth block served should not be the genesis block."
-                                      NormalBlock sb -> liftIO $ assertEqual "Fourth block served should be block4" sb nextBlock'''
-                              CatchUpPartialResponseDone _ -> liftIO $ assertFailure "Should not be terminal data just yet, should be block3."
-                      CatchUpPartialResponseDone _ -> liftIO $ assertFailure "Should not be terminal data just yet, should be block3."
-                CatchUpPartialResponseDone _ -> liftIO $ assertFailure "Should not be terminal data just yet, should be block2."
-        CatchUpPartialResponseDone _ -> liftIO $ assertFailure "Should not be terminal data yet, should be block1"
-  where
-    storedBlockRound0 = dummyStoredBlockEmpty 0 0
-    storedBlockRound1 = dummyStoredBlockEmpty 1 1
-    storedBlockRound2 = dummyStoredBlockEmpty 2 2
-    block3' = do
-        bp <- mkBlockPointer storedBlockRound2
-        return $ makeDummyBlockPointer $ Quorum bp
-
--- |A test where node N tries to catch up with peer P.
---
--- The state of N is as follows:
--- * Block 1 is the highest certified block.
--- * N is in round 2
---
--- The state of P is as follows:
--- * Blocks 0,1,2 are finalized
--- * Block 3 is on one branch
--- * Block 4 contains a TC for round 3, and QC for block 2.
--- * Block 4 is the highest certified block.
--- * Block 5 is extending block 4 in round 5.
--- * P is in round 6.
-catchupTwoBranches :: Assertion
-catchupTwoBranches = runTest $ do
-    -- set current round to 6
-    roundStatus . rsCurrentRound .= Round 6
-    -- Blocks 0,1 and 2 are finalized
-    writeBlocks [storedBlockRound0, storedBlockRound1, storedBlockRound2] dummyFinalizationEntry
-    lfb <- mkBlockPointer storedBlockRound2
-    lastFinalized .=! lfb
-    -- block in round 3 is the highest certified block.
-    block3 <- block3'
-    addToBranches block3
-    blockTable . liveMap . at' (getHash block3) ?=! MemBlockAlive block3
-    roundStatus . rsHighestCertifiedBlock .= certifyBlock block3
-    -- blocks used in this test.
-    let block4 = makeDummyBlockPointer $ Quorum block3
-        block5 = makeDummyBlockPointer $ Quorum block4
-    -- block for round 4.
-    addToBranches block4
-    blockTable . liveMap . at' (getHash block4) ?=! MemBlockAlive block4
-    -- block for round 5
-    addToBranches block5
-    blockTable . liveMap . at' (getHash block5) ?=! MemBlockAlive block5
-    -- Handle catchup status from a peer that is in round 2 and knows about the two first blocks.
-    let request =
-            CatchUpStatus
-                { cusLastFinalizedBlock = (getHash . stbBlock) storedBlockRound0,
-                  cusLastFinalizedRound = Round 0,
-                  cusLeaves = [],
-                  cusBranches = [],
-                  cusCurrentRound = Round 1,
-                  cusCurrentRoundQuorum = Map.empty
+    let expectedTerminalData =
+            CatchUpTerminalData
+                { cutdQuorumCertificates = [sucQC, dummyQC (Round 4) (getHash block3)],
+                  cutdTimeoutCertificate = Absent,
+                  cutdCurrentRoundQuorumMessages = [quorumMessageBlock4],
+                  cutdCurrentRoundTimeoutMessages = []
                 }
 
-    handleCatchUpRequest request >>= \case
-        CatchUpPartialResponseBlock{..} -> liftIO $ do
-            -- todo insert asserts
-            return ()
-        _ -> liftIO $ assertFailure "Should not be terminal data just yet as we need a block first."
+    b0Bp <- mkBlockPointer storedBlockRound0
+    b1Bp <- mkBlockPointer storedBlockRound1
+    b2Bp <- mkBlockPointer storedBlockRound2
+    let expectedBlock0 = dummySignedBlock b0Bp 1 Absent
+        expectedBlock1 = dummySignedBlock b1Bp 2 Absent
+        expectedBlock2 = dummySignedBlock b2Bp 3 Absent
+    let expectedBlocksServed = [expectedBlock0, expectedBlock1, expectedBlock2]
+    skovData <- get
+    handleCatchUpRequest request skovData >>= \case
+        Just resp -> assertCatchupResponse expectedTerminalData expectedBlocksServed resp
+        Nothing -> liftIO $ assertFailure "Response is Nothing."
   where
-    storedBlockRound0 = dummyStoredBlockEmpty 0 0
-    storedBlockRound1 = dummyStoredBlockEmpty 1 1
-    storedBlockRound2 = dummyStoredBlockEmpty 2 2
-    block3' = do
+    storedBlockRound0 = dummyStoredBlock Nothing 0 0 Absent
+    getStoredBlockRound1 = do
+        bp <- mkBlockPointer storedBlockRound0
+        return $ dummyStoredBlock (Just bp) 1 1 Absent
+    getStoredBlockRound2 = do
+        storedBlockRound1 <- getStoredBlockRound1
+        bp <- mkBlockPointer storedBlockRound1
+        return $ dummyStoredBlock (Just bp) 2 2 Absent
+    makeBlock3 = do
+        storedBlockRound2 <- getStoredBlockRound2
         bp <- mkBlockPointer storedBlockRound2
-        return $ makeDummyBlockPointer $ Quorum bp
-
--- |A test where node N tries to catch up with peer P.
---
--- The state of N is as follows:
--- * Block 1 is the highest certified block.
--- * N is in round 2
---
--- The state of P is as follows:
--- * Blocks 0,1,2 are finalized
--- * Block 3 is on one branch
--- * Block5TC contains a TC for round 3, and QC for block 2.
--- * Block 4 is the highest certified block.
--- * Block 6 is extending block 4 in round 5.
--- * P is in round 6.
-catchupThreeBranches :: Assertion
-catchupThreeBranches = runTest $ do
-    -- set current round to 6
-    roundStatus . rsCurrentRound .= Round 6
-    -- Blocks 0,1 and 2 are finalized
-    writeBlocks [storedBlockRound0, storedBlockRound1, storedBlockRound2] dummyFinalizationEntry
-    lfb <- mkBlockPointer storedBlockRound2
-    lastFinalized .=! lfb
-    block3 <- block3'
-    -- blocks used in this test.
-    let block4 = makeDummyBlockPointer $ Quorum block3
-        block5TC = makeDummyBlockPointer $ Timeout (Round 4) block3
-        block6 = makeDummyBlockPointer $ Quorum block5TC
-        block7TC = makeDummyBlockPointer $ Timeout (Round 5) block5TC
-
-    addToBranches block3
-    blockTable . liveMap . at' (getHash block3) ?=! MemBlockAlive block3
-    roundStatus . rsHighestCertifiedBlock .= certifyBlock block3
-    -- block for round 4.
-    addToBranches block4
-    blockTable . liveMap . at' (getHash block4) ?=! MemBlockAlive block4
-    -- block for round 5
-    addToBranches block5TC
-    blockTable . liveMap . at' (getHash block5TC) ?=! MemBlockAlive block5TC
-    -- block for round 5
-    addToBranches block6
-    blockTable . liveMap . at' (getHash block6) ?=! MemBlockAlive block6
-    -- block for round 5
-    addToBranches block7TC
-    blockTable . liveMap . at' (getHash block7TC) ?=! MemBlockAlive block7TC
-    -- Handle catchup status from a peer that is in round 2 and knows about the two first blocks.
-    let request =
-            CatchUpStatus
-                { cusLastFinalizedBlock = (getHash . stbBlock) storedBlockRound0,
-                  cusLastFinalizedRound = Round 0,
-                  cusLeaves = [],
-                  cusBranches = [],
-                  cusCurrentRound = Round 1,
-                  cusCurrentRoundQuorum = Map.empty
-                }
-
-    handleCatchUpRequest request >>= \case
-        CatchUpPartialResponseBlock{..} -> liftIO $ do
-            -- todo insert asserts
-            return ()
-        _ -> liftIO $ assertFailure "Should not be terminal data just yet as we need a block first."
-  where
-    storedBlockRound0 = dummyStoredBlockEmpty 0 0
-    storedBlockRound1 = dummyStoredBlockEmpty 1 1
-    storedBlockRound2 = dummyStoredBlockEmpty 2 2
-    block3' = do
-        bp <- mkBlockPointer storedBlockRound2
-        return $ makeDummyBlockPointer $ Quorum bp
+        return $ advanceRound $ Quorum bp
 
 tests :: Spec
 tests = describe "KonsensusV1.CatchUp" $ do
     it "Catch up no branches" catchupNoBranches
-    it "Catch up with two branches" catchupTwoBranches
-    it "Catch up with 3 branches - requester knows some of one of the branches." catchupThreeBranches
