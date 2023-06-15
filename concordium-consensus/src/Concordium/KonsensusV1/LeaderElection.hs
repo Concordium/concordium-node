@@ -23,7 +23,6 @@ import Concordium.Types.SeedState
 
 import Concordium.Crypto.VRF (proofToHash)
 import Concordium.GlobalState.BakerInfo
-import Concordium.KonsensusV1.Types
 
 -- |Compute the leader for a given round, given the set of bakers and leadership election nonce
 -- for the epoch. The leader is computed as follows:
