@@ -230,8 +230,8 @@ assertCatchupResponse term [] resp = case resp of
     CatchUpPartialResponseDone actualTerm -> liftIO $ assertEqual "Unexpected terminal data" term actualTerm
     CatchUpPartialResponseBlock{..} ->
         cuprFinish >>= \case
-            Nothing -> liftIO $ assertFailure "Expected a terminal data as all expected blocks has been served." -- todo modify this a bit so we carry an accummulator and can check limit.
-            Just actualTerm -> liftIO $ assertEqual "Unexpected terminal data" term actualTerm
+            Absent -> liftIO $ assertFailure "Expected a terminal data as all expected blocks has been served." -- todo modify this a bit so we carry an accummulator and can check limit.
+            Present actualTerm -> liftIO $ assertEqual "Unexpected terminal data" term actualTerm
 assertCatchupResponse term (x : xs) resp = case resp of
     CatchUpPartialResponseDone{} -> liftIO $ assertFailure "Unexpected done result. There is still expected blocks to be served."
     CatchUpPartialResponseBlock{..} -> do
@@ -329,9 +329,8 @@ catchupNoBranches = runTest $ do
         expectedBlock2 = dummySignedBlock b2Bp 3 Absent
     let expectedBlocksServed = [expectedBlock0, expectedBlock1, expectedBlock2]
     skovData <- get
-    handleCatchUpRequest request skovData >>= \case
-        Just resp -> assertCatchupResponse expectedTerminalData expectedBlocksServed resp
-        Nothing -> liftIO $ assertFailure "Response is Nothing."
+    resp <- handleCatchUpRequest request skovData
+    assertCatchupResponse expectedTerminalData expectedBlocksServed resp
   where
     storedBlockRound0 = dummyStoredBlock Nothing 0 0 Absent
     getStoredBlockRound1 = do
