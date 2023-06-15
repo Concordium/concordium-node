@@ -164,7 +164,7 @@ dummyQC n parentHash =
         { qcBlock = parentHash,
           qcRound = n,
           qcEpoch = 1,
-          qcAggregateSignature = QuorumSignature $ Bls.sign "someMessage" $ fst $ randomBlsSecretKey (mkStdGen 42),
+          qcAggregateSignature = QuorumSignature $ Bls.sign "quorum certificate" $ fst $ randomBlsSecretKey (mkStdGen 42),
           qcSignatories = FinalizerSet 0
         }
 
@@ -181,7 +181,7 @@ dummyBakedBlock parentHash n oTC =
           bbNonce = VRF.prove (fst $ VRF.randomKeyPair (mkStdGen 42)) "foo",
           bbTransactions = Vec.empty,
           bbTransactionOutcomesHash = TransactionOutcomesHash $ Hash.hash "outcomes hash",
-          bbStateHash = StateHashV0 $ Hash.hash "statehash"
+          bbStateHash = StateHashV0 $ Hash.hash "state hash"
         }
 
 dummySignedBlock :: BlockPointer pv -> Round -> Option TimeoutCertificate -> SignedBlock
@@ -230,10 +230,10 @@ assertCatchupResponse term [] resp = case resp of
     CatchUpPartialResponseDone actualTerm -> liftIO $ assertEqual "Unexpected terminal data" term actualTerm
     CatchUpPartialResponseBlock{..} ->
         cuprFinish >>= \case
-            Nothing -> liftIO $ assertFailure "Unexpected continuation in response" -- todo modify this a bit so we carry an accummulator and can check limit.
-            Just actualTerminalData -> liftIO $ assertEqual "Unexpected terminal data" term actualTerminalData
+            Nothing -> liftIO $ assertFailure "Expected a terminal data as all expected blocks has been served." -- todo modify this a bit so we carry an accummulator and can check limit.
+            Just actualTerm -> liftIO $ assertEqual "Unexpected terminal data" term actualTerm
 assertCatchupResponse term (x : xs) resp = case resp of
-    CatchUpPartialResponseDone{} -> liftIO $ assertFailure "Unexpected CatchUpPartialResponseDone"
+    CatchUpPartialResponseDone{} -> liftIO $ assertFailure "Unexpected done result. There is still expected blocks to be served."
     CatchUpPartialResponseBlock{..} -> do
         liftIO $ assertEqual "Unexpected block served" x cuprNextBlock
         assertCatchupResponse term xs =<< cuprContinue
@@ -257,7 +257,7 @@ runTest = runTestMonad @'P6 noBaker time genesisData
 -- * Blocks 0,1,2 are finalized
 -- * Highest certified block is block 3.
 -- * P also has a block 4.
--- * P is in round 5.
+-- * P is in round 4 and has received 1 quorum message pointing to block 4.
 catchupNoBranches :: Assertion
 catchupNoBranches = runTest $ do
     -- set current round to 5
@@ -270,15 +270,27 @@ catchupNoBranches = runTest $ do
     writeBlocks [storedBlockRound0, storedBlockRound1, storedBlockRound2] $ dummyFinalizationEntry finQC sucQC
     lfb <- mkBlockPointer storedBlockRound2
     lastFinalized .=! lfb
+
     -- block in round 3 is the highest certified block.
-    block3 <- block3'
+    block3 <- makeBlock3
     addToBranches block3
     blockTable . liveMap . at' (getHash block3) ?=! MemBlockAlive block3
     let block3Certified = certifyBlock block3
     roundStatus . rsHighestCertifiedBlock .= block3Certified
+    -- the highest block
     let block4 = advanceRound $ Quorum block3
     addToBranches block4
     blockTable . liveMap . at' (getHash block4) ?=! MemBlockAlive block4
+    let finToMsgMap = Map.insert (FinalizerIndex 0) quorumMessageBlock4 Map.empty
+        quorumMessageBlock4 =
+            QuorumMessage
+                { qmSignature = QuorumSignature $ Bls.sign "quorum message" $ fst $ randomBlsSecretKey (mkStdGen 42),
+                  qmBlock = getHash block4,
+                  qmFinalizerIndex = FinalizerIndex 0,
+                  qmRound = Round 4,
+                  qmEpoch = 1
+                }
+    currentQuorumMessages .= QuorumMessages finToMsgMap Map.empty
     -- The request to handle.
     let request =
             CatchUpStatus
@@ -294,7 +306,7 @@ catchupNoBranches = runTest $ do
             CatchUpTerminalData
                 { cutdQuorumCertificates = [sucQC, dummyQC (Round 4) (getHash block3)],
                   cutdTimeoutCertificate = Absent,
-                  cutdCurrentRoundQuorumMessages = [],
+                  cutdCurrentRoundQuorumMessages = [quorumMessageBlock4],
                   cutdCurrentRoundTimeoutMessages = []
                 }
 
@@ -318,7 +330,7 @@ catchupNoBranches = runTest $ do
         storedBlockRound1 <- getStoredBlockRound1
         bp <- mkBlockPointer storedBlockRound1
         return $ dummyStoredBlock (Just bp) 2 2 Absent
-    block3' = do
+    makeBlock3 = do
         storedBlockRound2 <- getStoredBlockRound2
         bp <- mkBlockPointer storedBlockRound2
         return $ advanceRound $ Quorum bp

@@ -363,6 +363,9 @@ handleCatchUpRequest CatchUpStatus{..} skovData = do
         | cusCurrentRound == ourCurrentRound = do
             let qms = skovData ^.. currentQuorumMessages . smFinalizerToQuorumMessage . traversed
             return $! filter newToPeer qms
+        | cusCurrentRound < ourCurrentRound = do
+            let qms = skovData ^.. currentQuorumMessages . smFinalizerToQuorumMessage . traversed
+            return qms
         | otherwise = do
             return []
       where
