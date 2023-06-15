@@ -483,7 +483,7 @@ getConsensusStatus = MVR $ \mvr -> do
             csFinalizationPeriodEMA = stats ^. finalizationPeriodEMA
             csFinalizationPeriodEMSD = sqrt <$> stats ^. finalizationPeriodEMVar
         csCurrentTimeoutDuration <- Just <$> use (SkovV1.roundStatus . SkovV1.rsCurrentTimeout)
-        csCurrentRound <- Just . SkovV1.theRound <$> use (SkovV1.roundStatus . SkovV1.rsCurrentRound)
+        csCurrentRound <- Just <$> use (SkovV1.roundStatus . SkovV1.rsCurrentRound)
         csCurrentEpoch <- Just <$> use (SkovV1.roundStatus . SkovV1.rsCurrentEpoch)
         ss <- BS.getSeedState (SkovV1.bpState lfb)
         let csTriggerBlockTime = Just $ ss ^. triggerBlockTime
@@ -715,7 +715,7 @@ getBlockInfo =
             let biTransactionsSize = fromIntegral $ SkovV1.blockTransactionsSize bp
             let biBlockStateHash = SkovV1.blockStateHash bp
             let biProtocolVersion = evcProtocolVersion evc
-            let biRound = Just . SkovV1.theRound $ SkovV1.blockRound bp
+            let biRound = Just $ SkovV1.blockRound bp
             let biEpoch = Just $ SkovV1.blockEpoch bp
             return BlockInfo{..}
         )
