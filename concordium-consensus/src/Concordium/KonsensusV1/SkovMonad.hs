@@ -20,6 +20,7 @@ import Lens.Micro.Platform
 
 import Concordium.Types
 import Concordium.Types.HashableTo
+import Concordium.Utils
 
 import Concordium.GlobalState (GlobalStateInitException (..))
 import Concordium.GlobalState.BlockMonads
@@ -278,7 +279,7 @@ instance
         mTimer <- SkovV1T $ use v1sTimer
         mapM_ cancelTimer mTimer
         newTimer <- onTimeout (DelayFor $ durationToNominalDiffTime dur) uponTimeoutEvent
-        SkovV1T $ v1sTimer ?= newTimer
+        SkovV1T $ v1sTimer ?=! newTimer
         logEvent Runner LLTrace $ "Timeout reset for " ++ show (durationToNominalDiffTime dur)
 
 instance GlobalStateTypes (SkovV1T pv m) where
@@ -329,7 +330,8 @@ instance HasDatabaseHandlers (InitContext pv) pv where
 type InnerInitMonad pv = ReaderT (InitContext pv) LogIO
 
 -- |A monad for initialising the consensus state. Unlike 'SkovV1T', it is not a monad transformer
--- and it does not have a state component. It implements a number of the same interfaces:
+-- and it does not have a state component. This is necessary to avoid the bootstrapping problem
+-- when we initialise the state. It implements a number of the same interfaces:
 --
 --   * Monadic behaviour: 'Functor', 'Applicative', 'Monad', 'MonadIO', 'MonadLogger', 'TimeMonad',
 --     'MonadThrow', 'MonadCatch'.
@@ -416,7 +418,7 @@ data ExistingSkov pv m = ExistingSkov
     }
 
 -- |Load an existing SkovV1 state.
--- Returns 'Nothing' if there is not database to load.
+-- Returns 'Nothing' if there is no database to load.
 -- May throw a 'TreeStateInvariantViolation' if a database invariant violation occurs when
 -- attempting to load the state.
 initialiseExistingSkovV1 ::

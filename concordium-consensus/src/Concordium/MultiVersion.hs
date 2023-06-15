@@ -547,14 +547,11 @@ withWriteLockIO MultiVersionRunner{..} a =
         (takeMVar mvWriteLock)
         ( \() ->
             tryPutMVar mvWriteLock ()
-                >> mvLog Runner LLError "Released global state lock following error."
+                >> mvLog Runner LLWarning "Released global state lock following error."
         )
         $ \_ -> do
-            tid <- myThreadId
-            mvLog Runner LLTrace $ "Acquired global state lock on thread " ++ show tid
             res <- a
             putMVar mvWriteLock ()
-            mvLog Runner LLTrace $ "Released global state lock on thread " ++ show tid
             return res
 
 -- |Perform an action while holding the global state write lock. Optionally, when the action
@@ -573,28 +570,16 @@ withWriteLockMaybeForkIO :: MultiVersionRunner finconf -> IO (a, Maybe b) -> (b 
 {-# INLINE withWriteLockMaybeForkIO #-}
 withWriteLockMaybeForkIO MultiVersionRunner{..} action followup = mask $ \unmask -> do
     () <- takeMVar mvWriteLock
-    tid <- myThreadId
-    mvLog Runner LLTrace $ "Acquired global state lock on thread " ++ show tid
     (res, mContinue) <- unmask action `onException` tryPutMVar mvWriteLock ()
     case mContinue of
         Just continueArg -> do
-            let release = do
-                    putMVar mvWriteLock ()
-                    tid' <- myThreadId
-                    mvLog Runner LLTrace $ "Released global state lock on thread " ++ show tid'
+            let release = putMVar mvWriteLock ()
             -- forkIO is guaranteed to be uninterruptible, so we can be sure that an async exception
             -- won't prevent the lock being released. Also note that the masking state of the thread
             -- is inherited, so we unmask when running the follow-up.
-            followupThread <-
-                forkIO (unmask (try @SomeException (followup continueArg)) >> release)
-            mvLog Runner LLTrace $
-                "Transferred global state lock from thread "
-                    ++ show tid
-                    ++ " to thread "
-                    ++ show followupThread
+            void $ forkIO (unmask (try @SomeException (followup continueArg)) >> release)
         Nothing -> do
             putMVar mvWriteLock ()
-            mvLog Runner LLTrace $ "Released global state lock on thread " ++ show tid
     return res
 
 -- |Lift a 'LogIO' action into the 'MVR' monad.
@@ -1421,7 +1406,7 @@ receiveBlock gi blockBS = withLatestExpectedVersion gi $ \case
                             return (Skov.ResultSuccess, Just cont)
                         SkovV1.BlockResultDoubleSign vb -> do
                             runMVR (runSkovV1Transaction vc (SkovV1.executeBlock vb)) mvr
-                            return (Skov.ResultDuplicate, Nothing) -- TODO: check if ResultDuplicate is appropriate here
+                            return (Skov.ResultDoubleSign, Nothing)
                         SkovV1.BlockResultInvalid -> return (Skov.ResultInvalid, Nothing)
                         SkovV1.BlockResultStale -> return (Skov.ResultStale, Nothing)
                         SkovV1.BlockResultPending -> return (Skov.ResultPendingBlock, Nothing)
@@ -1455,6 +1440,9 @@ receiveFinalizationMessage gi finMsgBS = withLatestExpectedVersion_ gi $ \case
                             Left leftRes -> (leftRes, Nothing)
                             Right cont -> (Skov.ResultSuccess, Just cont)
                     followup = liftSkovV1Update vc
+                -- We spawn a thread to perform the follow-up so that the P2P layer can immediately
+                -- relay the message, since the follow-up action can be time consuming (including
+                -- finalizing blocks and baking a new block).
                 withWriteLockMaybeFork receive followup
 
 -- |Deserialize and receive a finalization record at a given genesis index.

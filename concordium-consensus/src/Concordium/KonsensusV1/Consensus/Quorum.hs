@@ -252,6 +252,9 @@ makeQuorumCertificate qcBlockPointer sd@SkovData{..} = do
 -- Check whether a 'QuorumCertificate' can be created.
 -- If that is the case the this function checks for finality and
 -- advance the round via the constructed 'QuorumCertificate'.
+-- If the round is advanced, we attempt to make a block by calling the provided @makeBlock@
+-- continuation. (Note, providing the continuation is to avoid a cyclic module dependency with
+-- 'Concordium.KonsensusV1.Consensus.Blocks'.)
 processQuorumMessage ::
     ( IsConsensusV1 (MPV m),
       MonadThrow m,

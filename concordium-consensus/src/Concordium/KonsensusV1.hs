@@ -1,5 +1,6 @@
 {-# LANGUAGE TypeFamilies #-}
 
+-- |This module provides high-level entrypoints for the version 1 consensus.
 module Concordium.KonsensusV1 where
 
 import Control.Monad
@@ -27,10 +28,10 @@ import Concordium.TimerMonad
 import Concordium.Types
 import Concordium.Types.Parameters
 
--- |Handle receiving a finalization message (either a quorum message or a timeout message).
+-- |Handle receiving a finalization message (either a 'QuorumMessage' or a 'TimeoutMessage').
 -- Returns @Left res@ in the event of a failure, with the appropriate failure code.
--- Otherwise, returns @Right followup@, where @followup@ is an action that should be performed
--- after or concurrently with relaying the message.
+-- Otherwise, returns @Right followup@, in which case the message should be relayed to peers
+-- and the @followup@ action invoked (while retaining the global state lock).
 receiveFinalizationMessage ::
     ( IsConsensusV1 (MPV m),
       MonadThrow m,
@@ -57,7 +58,7 @@ receiveFinalizationMessage (FMQuorumMessage qm) = do
         Quorum.Received vqm -> return $ Right $ Quorum.processQuorumMessage vqm makeBlock
         Quorum.ReceivedNoRelay vqm -> do
             Quorum.processQuorumMessage vqm makeBlock
-            return $ Left ResultDuplicate
+            return $ Left ResultDoubleSign
         Quorum.Rejected Quorum.Duplicate -> return $ Left ResultDuplicate
         Quorum.Rejected Quorum.ObsoleteRound -> return $ Left ResultStale
         Quorum.Rejected _ -> return $ Left ResultInvalid
@@ -68,6 +69,7 @@ receiveFinalizationMessage (FMTimeoutMessage tm) = do
         Timeout.Received vtm -> return $ Right $ void $ Timeout.executeTimeoutMessage vtm
         Timeout.Rejected Timeout.Duplicate -> return $ Left ResultDuplicate
         Timeout.Rejected Timeout.ObsoleteRound -> return $ Left ResultStale
+        Timeout.Rejected Timeout.DoubleSigning -> return $ Left ResultDoubleSign
         Timeout.Rejected _ -> return $ Left ResultInvalid
         Timeout.CatchupRequired -> return $ Left ResultUnverifiable
 

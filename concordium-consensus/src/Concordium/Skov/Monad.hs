@@ -108,6 +108,8 @@ data UpdateResult
       ResultEnergyExceeded
     | -- |The sender did not have enough funds to cover the costs.
       ResultInsufficientFunds
+    | -- |The consensus message is a result of double signing, indicating malicious behaviour.
+      ResultDoubleSign
     deriving (Eq, Show)
 
 -- |Maps a 'TV.VerificationResult' to the corresponding 'UpdateResult' type.

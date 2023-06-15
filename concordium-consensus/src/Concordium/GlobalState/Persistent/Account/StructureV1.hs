@@ -1286,7 +1286,7 @@ makeFromGenesisAccount spv cryptoParams chainParameters GenesisAccount{..} = do
             paseBakerInfo <- refMakeFlushed $ genesisBakerInfoEx spv chainParameters baker
             let enduringBaker =
                     PersistentAccountStakeEnduringBaker
-                        { paseBakerRestakeEarnings = True,
+                        { paseBakerRestakeEarnings = gbRestakeEarnings baker,
                           paseBakerPendingChange = NoChange,
                           ..
                         }

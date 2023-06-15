@@ -105,12 +105,18 @@ doIsShutDown = do
         ProtocolUpdated _ -> True
         PendingProtocolUpdates _ -> False
 
+-- |Construct a 'CatchUpStatus' message.
 makeCatchUpStatus ::
     (BlockPointerData (BlockPointerType m), BlockPointerMonad m) =>
+    -- |'True' if the message is a request
     Bool ->
+    -- |'True' if the message is a response
     Bool ->
+    -- |Last finalized block pointer
     BlockPointerType m ->
+    -- |Leaves
     [BlockPointerType m] ->
+    -- |Branches
     [BlockPointerType m] ->
     m CatchUpStatus
 makeCatchUpStatus cusIsRequest cusIsResponse lfb leaves branches = return CatchUpStatus{..}

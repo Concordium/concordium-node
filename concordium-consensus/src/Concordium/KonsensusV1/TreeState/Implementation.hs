@@ -565,7 +565,6 @@ parentOfLive sd block
 
 -- |Get the last finalized block from the perspective of a block. That is, follow the QC chain
 -- back until we reach two blocks in consecutive rounds.
--- FIXME: Possibly consider epoch finalization entries too.
 lastFinalizedOf ::
     (LowLevel.MonadTreeStateStore m, MonadIO m, MonadState (SkovData (MPV m)) m) =>
     BlockPointer (MPV m) ->
@@ -584,7 +583,7 @@ lastFinalizedOf = go <=< parentOf
 -- A block is considered to be an ancestor of itself.
 isAncestorOf ::
     (LowLevel.MonadTreeStateStore m, MonadIO m, MonadState (SkovData (MPV m)) m) =>
-    -- |The block to check whether it's an ancesor of the other or not.
+    -- |The block to check whether it's an ancestor of the other or not.
     BlockPointer (MPV m) ->
     -- |The block to carry out the ancestor check with respect to.
     BlockPointer (MPV m) ->
