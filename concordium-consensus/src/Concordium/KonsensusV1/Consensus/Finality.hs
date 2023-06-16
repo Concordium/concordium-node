@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Concordium.KonsensusV1.Consensus.Finality where
@@ -173,6 +174,13 @@ processFinalization newFinalizedBlock newFinalizationEntry = do
     purgePending
     -- Advance the epoch if the new finalized block triggers the epoch transition.
     checkedAdvanceEpoch newFinalizationEntry newFinalizedBlock
+    -- Log that the blocks are finalized.
+    forM_ prFinalized $ \block ->
+        logEvent Konsensus LLTrace $
+            "Block "
+                ++ show (getHash @BlockHash block)
+                ++ " finalized at height "
+                ++ show (blockHeight block)
     onFinalize newFinalizationEntry prFinalized
 
 -- |Advance the current epoch if the new finalized block indicates that it is necessary.

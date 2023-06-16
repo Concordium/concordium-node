@@ -425,6 +425,8 @@ extern "C" {
         // by the consensus layer with continuation required for
         // executing the just received block.
         execute_block_ptr_ptr: *mut *mut execute_block,
+        // Flag indicating if the block was received as a direct message.
+        is_direct: bool,
     ) -> i64;
     pub fn executeBlock(
         consensus: *mut consensus_runner,
@@ -1554,6 +1556,7 @@ impl ConsensusContainer {
         &self,
         genesis_index: u32,
         block: &[u8],
+        is_direct: bool,
     ) -> (ConsensusFfiResponse, Option<ExecuteBlockCallback>) {
         let consensus = self.consensus.load(Ordering::SeqCst);
 
@@ -1566,6 +1569,7 @@ impl ConsensusContainer {
                 block.as_ptr(),
                 block.len() as u64,
                 ptr_ptr_block_to_execute,
+                is_direct,
             )
         };
         let callback = if ptr_block_to_execute.is_null() {

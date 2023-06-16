@@ -293,7 +293,8 @@ fn send_msg_to_consensus(
     let consensus_response = match message.variant {
         Block => {
             let genesis_index = u32::deserial(&mut Cursor::new(&payload[..4]))?;
-            consensus.receive_block(genesis_index, &payload[4..])
+            let is_direct = message.distribution_mode() == DistributionMode::Direct;
+            consensus.receive_block(genesis_index, &payload[4..], is_direct)
         }
         FinalizationMessage => {
             let genesis_index = u32::deserial(&mut Cursor::new(&payload[..4]))?;
@@ -513,7 +514,7 @@ fn update_peer_states(
             }
             e => error!("Unexpected return from `receiveCatchUpStatus`: {:?}", e),
         }
-    } else if [Block, FinalizationRecord].contains(&request.variant) {
+    } else if [Block, FinalizationRecord, FinalizationMessage].contains(&request.variant) {
         match request.distribution_mode() {
             DistributionMode::Direct if consensus_result.is_successful() => {
                 // Directly sent blocks and finalization records that are

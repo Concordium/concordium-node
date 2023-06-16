@@ -1499,7 +1499,7 @@ receiveCatchUpStatus gi catchUpBS cuConfig@CatchUpConfiguration{..} =
             logEvent Runner LLDebug $ "Could not deserialize catch-up status message: " ++ err
             return Skov.ResultSerializationFail
         Right vcatchUp -> do
-            logEvent Runner LLDebug $ "Catch-up status message deserialized: " ++ show vcatchUp
+            logEvent Runner LLDebug $ "Catch-up status message deserialized."
             vvec <- liftIO . readIORef =<< asks mvVersions
             case vvec Vec.!? fromIntegral gi of
                 -- If we have a (re)genesis as the given index then...
