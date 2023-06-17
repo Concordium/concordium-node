@@ -1149,7 +1149,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                                   euEvents = rrdLogs
                                                 }
                                     in  Right (rrdReturnValue, event : events)
-                            if WasmV1.rcFixRollbacks rcConfig || rrdStateChanged then
+                            if rrdStateChanged then
                               withInstanceStateV1 istance rrdNewState rrdStateChanged $ \_modifiedIndex -> return result
                             else return result
                         WasmV1.ReceiveInterrupt{..} -> do
@@ -1166,7 +1166,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                         }
                             -- Helper for commiting the state of the contract if necessary.
                             let maybeCommitState :: (ModificationIndex -> LocalT r m a) -> LocalT r m a
-                                maybeCommitState f = if WasmV1.rcFixRollbacks rcConfig || rrdStateChanged then
+                                maybeCommitState f = if rrdStateChanged then
                                     withInstanceStateV1 istance rrdCurrentState rrdStateChanged f
                                    else do
                                      mi <- getCurrentModificationIndex istance

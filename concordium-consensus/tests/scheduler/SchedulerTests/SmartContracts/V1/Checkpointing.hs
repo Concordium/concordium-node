@@ -758,7 +758,7 @@ checkpointingTest7 ::
     String ->
     Spec
 checkpointingTest7 spv pvString =
-    when (Types.supportsV1Contracts spv && Types.supportsChainQueryContracts spv) $
+    when (Types.demoteProtocolVersion spv >= Types.P6) $
         specify (pvString ++ ": Checkpointing 7") $
             Helpers.runSchedulerTestAssertIntermediateStates
                 @pv
@@ -830,7 +830,7 @@ checkpointingTest8 ::
     String ->
     Spec
 checkpointingTest8 spv pvString =
-    when (Types.supportsV1Contracts spv && Types.supportsChainQueryContracts spv) $
+    when (Types.demoteProtocolVersion spv >= Types.P6) $
         specify (pvString ++ ": Checkpointing 8") $
             Helpers.runSchedulerTestAssertIntermediateStates
                 @pv
@@ -886,14 +886,12 @@ checkpointingTest8 spv pvString =
 
 -- | Tests the following flow within a single contract instance.
 --
---   - Invoke entrypoint 'a'
---     - Set state = 112
---     - Invoke entrypoint 'c'
---       - Invoke entrypoint 'd'
---         - Return success
---       - Set state = 113
---       - Fail with error -1
---     - Assert state == 112 (rollback occurred)
+--   - Invoke entrypoint 'e'
+--     - Set state at []
+--     - Invoke entrypoint 'f'
+--       - look up an iterator and entry
+--       - invoke entrypoint d which does nothing and returns
+--       - try to read from the previously created iterator and entry, make sure it succeeds.
 checkpointingTest9 ::
     forall pv.
     Types.IsProtocolVersion pv =>
@@ -901,7 +899,7 @@ checkpointingTest9 ::
     String ->
     Spec
 checkpointingTest9 spv pvString =
-    when (Types.supportsV1Contracts spv && Types.supportsChainQueryContracts spv) $
+    when (Types.demoteProtocolVersion spv >= Types.P6) $
         specify (pvString ++ ": Checkpointing 9") $
             Helpers.runSchedulerTestAssertIntermediateStates
                 @pv
@@ -953,7 +951,7 @@ checkpointingTest9 spv pvString =
             }
         ]
     -- Tell the contract to call entrypoint 'd' (the "succeed" entrypoint)
-    callArgs = BSS.toShort $ runPut $ putByteString "f" -- TODO: Revise test in wat, fix comment.
+    callArgs = BSS.toShort $ runPut $ putByteString "f"
 
 
 tests :: Spec
@@ -967,7 +965,6 @@ tests =
                 checkpointingTest4 spv pvString
                 checkpointingTest5 spv pvString
                 checkpointingTest6 spv pvString
-                when (Types.demoteProtocolVersion spv >= Types.P6) $ do
-                    checkpointingTest7 spv pvString
-                    checkpointingTest8 spv pvString
-                    checkpointingTest9 spv pvString
+                checkpointingTest7 spv pvString
+                checkpointingTest8 spv pvString
+                checkpointingTest9 spv pvString
