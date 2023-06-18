@@ -433,10 +433,7 @@ getConsensusStatus = MVR $ \mvr -> do
             csLastFinalizedTime = stats ^. lastFinalizedTime
             csFinalizationPeriodEMA = stats ^. finalizationPeriodEMA
             csFinalizationPeriodEMSD = sqrt <$> stats ^. finalizationPeriodEMVar
-            csCurrentTimeoutDuration = Nothing
-            csCurrentRound = Nothing
-            csCurrentEpoch = Nothing
-            csTriggerBlockTime = Nothing
+            csConcordiumBFTStatus = Nothing
         return ConsensusStatus{..}
     statusV1 ::
         forall (pv :: ProtocolVersion).
@@ -482,12 +479,12 @@ getConsensusStatus = MVR $ \mvr -> do
             csLastFinalizedTime = stats ^. lastFinalizedTime
             csFinalizationPeriodEMA = stats ^. finalizationPeriodEMA
             csFinalizationPeriodEMSD = sqrt <$> stats ^. finalizationPeriodEMVar
-        csCurrentTimeoutDuration <- Just <$> use (SkovV1.roundStatus . SkovV1.rsCurrentTimeout)
-        csCurrentRound <- Just <$> use (SkovV1.roundStatus . SkovV1.rsCurrentRound)
-        csCurrentEpoch <- Just <$> use (SkovV1.roundStatus . SkovV1.rsCurrentEpoch)
+        cbftsCurrentTimeoutDuration <- use (SkovV1.roundStatus . SkovV1.rsCurrentTimeout)
+        cbftsCurrentRound <- use (SkovV1.roundStatus . SkovV1.rsCurrentRound)
+        cbftsCurrentEpoch <- use (SkovV1.roundStatus . SkovV1.rsCurrentEpoch)
         ss <- BS.getSeedState (SkovV1.bpState lfb)
-        let csTriggerBlockTime = Just $ ss ^. triggerBlockTime
-        return ConsensusStatus{..}
+        let cbftsTriggerBlockTime = timestampToUTCTime (ss ^. triggerBlockTime)
+        return ConsensusStatus{csConcordiumBFTStatus = Just ConcordiumBFTStatus{..}, ..}
 
 -- |Retrieve the slot time of the last finalized block.
 getLastFinalizedSlotTime :: MVR finconf Timestamp
