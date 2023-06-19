@@ -6,6 +6,8 @@
   affects genesis data at protocol version P5; P1-P4 genesis data are not affected. This breaks
   compatibility with chains started with P5 genesis data, where some genesis bakers are not set to
   restake earnings. Other chains (including mainnet and testnet) are not affected.
+- Fix a bug that caused an incorrect reporting of total stake in the first
+  payday just after genesis when the node started from genesis at protocols 4 or 5.
 - Support the new ConcordiumBFT consensus.
 - Changes to the `GetConsensusStatus` endpoint:
   * Slot duration only returned in protocol versions 0-5.
