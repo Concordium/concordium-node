@@ -49,10 +49,9 @@ import Concordium.Afgjort.Finalize.Types
 import Concordium.Birk.Bake
 import Concordium.GlobalState
 import Concordium.GlobalState.Block
-import Concordium.GlobalState.BlockPointer (BlockPointer (..), BlockPointerData (..), _bpState)
+import Concordium.GlobalState.BlockPointer (BlockPointer (..), BlockPointerData (..))
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
-import qualified Concordium.GlobalState.Persistent.TreeState as SkovV0
 import Concordium.GlobalState.TreeState (PVInit (..), TreeStateMonad (getLastFinalizedHeight))
 import Concordium.ImportExport
 import qualified Concordium.KonsensusV1 as KonsensusV1
@@ -64,7 +63,6 @@ import qualified Concordium.KonsensusV1.TreeState.Types as SkovV1
 import qualified Concordium.KonsensusV1.Types as KonsensusV1
 import Concordium.ProtocolUpdate
 import qualified Concordium.Skov as Skov
-import Concordium.Skov.MonadImplementations (ssGSState)
 import Concordium.TimeMonad
 import Concordium.TimerMonad
 import qualified Concordium.TransactionVerification as TVer
@@ -721,9 +719,7 @@ checkForProtocolUpdate = liftSkov body
                     ConsensusV0 -> do
                         MultiVersionRunner{..} <- lift ask
                         existingVersions <- liftIO (readIORef mvVersions)
-                        latestEraGenesisHeight <- liftIO $ do
-                            cfgs <- readIORef mvVersions
-                            return $ evcGenesisHeight $ Vec.last cfgs
+                        let latestEraGenesisHeight = evcGenesisHeight $ Vec.last existingVersions
                         let vc0Index = fromIntegral (length existingVersions)
                         let vc0GenesisHeight = 1 + localToAbsoluteBlockHeight latestEraGenesisHeight pvInitFinalHeight
                         -- construct the new skov instance
@@ -763,7 +759,6 @@ checkForProtocolUpdate = liftSkov body
                             -- Notify the network layer we have a new genesis.
                             let Callbacks{..} = mvCallbacks
                             liftIO $ notifyRegenesis (Just (regenesisBlockHash nextGenesis))
-                            return ()
                     ConsensusV1 -> do
                         -- Clear the old skov instance.
                         Skov.clearSkovOnProtocolUpdate
@@ -774,9 +769,7 @@ checkForProtocolUpdate = liftSkov body
                             } <-
                             lift ask
                         existingVersions <- liftIO (readIORef mvVersions)
-                        latestEraGenesisHeight <- liftIO $ do
-                            cfgs <- readIORef mvVersions
-                            return $ evcGenesisHeight $ Vec.last cfgs
+                        let latestEraGenesisHeight = evcGenesisHeight $ Vec.last existingVersions
                         let vc1Index = fromIntegral (length existingVersions)
                             vc1GenesisHeight = 1 + localToAbsoluteBlockHeight latestEraGenesisHeight pvInitFinalHeight
                         configRef <- liftIO newEmptyMVar
@@ -790,8 +783,8 @@ checkForProtocolUpdate = liftSkov body
                                 config <- readMVar configRef
                                 runMVR (runSkovV1Transaction config a) mvr
                         let !handlers = skovV1Handlers vc1Index vc1GenesisHeight
-                        -- get the current tree state.
-                        currentState <- ssGSState <$> State.get
+                        -- get the last finalized block state
+                        lastFinBlockState <- Skov.queryBlockState =<< Skov.lastFinalizedBlock
                         -- the existing persistent block state context.
                         existingPbsc <- asks $ Skov.scGSContext . Skov.srContext
                         -- Migrate the old state to the new protocol and
@@ -809,7 +802,7 @@ checkForProtocolUpdate = liftSkov body
                                         -- The existing persistent block state context
                                         existingPbsc
                                         -- The last finalized state of the chain we're migrating from.
-                                        (_bpState $ SkovV0._lastFinalized currentState)
+                                        lastFinBlockState
                                         -- The baker context
                                         (SkovV1.BakerContext (bakerIdentity <$> mvBaker))
                                         -- Handler context
