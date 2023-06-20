@@ -37,7 +37,6 @@ module Concordium.GlobalState.Persistent.BlockState (
 ) where
 
 import qualified Concordium.Crypto.SHA256 as H
-import qualified Concordium.Crypto.SHA256 as SHA256
 import qualified Concordium.Genesis.Data.P6 as P6
 import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount)
 import Concordium.GlobalState.BakerInfo
@@ -128,7 +127,9 @@ migrateSeedState StateMigrationParametersP1P2{} ss = ss
 migrateSeedState StateMigrationParametersP2P3{} ss = ss
 migrateSeedState StateMigrationParametersP3ToP4{} ss = ss
 migrateSeedState StateMigrationParametersP4ToP5{} ss = ss
-migrateSeedState (StateMigrationParametersP5ToP6 (P6.StateMigrationData _ time)) SeedStateV0{..} = initialSeedStateV1 ss0CurrentLeadershipElectionNonce time
+migrateSeedState (StateMigrationParametersP5ToP6 (P6.StateMigrationData _ time)) SeedStateV0{..} =
+    let seed = H.hash $ "Regenesis" <> encode ss0CurrentLeadershipElectionNonce
+    in  initialSeedStateV1 seed time
 
 -- |See documentation of @migratePersistentBlockState@.
 --
@@ -310,7 +311,7 @@ initialBirkParameters accounts seedState _bakerFinalizationCommitteeParameters =
                         }
             Nothing -> return updatedAccum
 
-freezeContractState :: forall v m. (Wasm.IsWasmVersion v, MonadBlobStore m) => UpdatableContractState v -> m (SHA256.Hash, Instances.InstanceStateV v)
+freezeContractState :: forall v m. (Wasm.IsWasmVersion v, MonadBlobStore m) => UpdatableContractState v -> m (H.Hash, Instances.InstanceStateV v)
 freezeContractState cs = case Wasm.getWasmVersion @v of
     Wasm.SV0 -> return (getHash cs, Instances.InstanceStateV0 cs)
     Wasm.SV1 -> do

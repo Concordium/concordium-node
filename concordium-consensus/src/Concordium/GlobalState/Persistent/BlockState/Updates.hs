@@ -259,10 +259,17 @@ migratePendingUpdates migration PendingUpdates{..} = withCPVConstraints (chainPa
     newLevel1Keys <- migrateHashedBufferedRef (migrateUpdateQueue id) pLevel1KeysUpdateQueue
     newLevel2Keys <- migrateHashedBufferedRef (migrateUpdateQueue (migrateAuthorizations migration)) pLevel2KeysUpdateQueue
     newProtocol <- case migration of
-        -- For P5->P6 update we clear the queue as part of the migration
+        StateMigrationParametersTrivial{} -> case protocolVersion @pv of
+            SP1 -> migrateHashedBufferedRef (migrateUpdateQueue id) pProtocolQueue
+            SP2 -> migrateHashedBufferedRef (migrateUpdateQueue id) pProtocolQueue
+            SP3 -> migrateHashedBufferedRef (migrateUpdateQueue id) pProtocolQueue
+            SP4 -> migrateHashedBufferedRef (migrateUpdateQueue id) pProtocolQueue
+            SP5 -> migrateHashedBufferedRef (migrateUpdateQueue id) pProtocolQueue
+            SP6 -> migrateHashedBufferedRef (\q -> return q{uqQueue = Seq.empty}) pProtocolQueue
+        -- For P5->P6 migration we clear the queue as part of the migration
         -- as opposed to do it when creating a regenesis.
         StateMigrationParametersP5ToP6{} ->
-            migrateHashedBufferedRef (\q -> return q {uqQueue = Seq.empty }) pProtocolQueue
+            migrateHashedBufferedRef (\q -> return q{uqQueue = Seq.empty}) pProtocolQueue
         _ -> migrateHashedBufferedRef (migrateUpdateQueue id) pProtocolQueue
     newEuroPerEnergy <- migrateHashedBufferedRef (migrateUpdateQueue id) pEuroPerEnergyQueue
     newMicroGTUPerEuro <- migrateHashedBufferedRef (migrateUpdateQueue id) pMicroGTUPerEuroQueue
@@ -737,20 +744,13 @@ migrateUpdates migration Updates{..} = do
                     (return . StoreSerialized . migrateKeysCollection . unStoreSerialized)
                     currentKeyCollection
     newParameters <- migrateHashedBufferedRef (return . StoreSerialized . migrateChainParameters migration . unStoreSerialized) currentParameters
-    newCurrentProtocolUpdate <- case currentProtocolUpdate of
-        Null -> return Null
-        -- For P5->P6 we clear the currentProtocolUpdate as part of the migration.
-        -- For older versions the @currentProtocolUpdate@ is cleared before i.e. as
-        -- part of 'updateRegenesis'.
-        Some c -> case (protocolVersion @pv) of
-            SP6 -> return Null
-            _ -> Some <$!> migrateHashedBufferedRefKeepHash c
     return
         Updates
             { currentKeyCollection = newKeyCollection,
               currentParameters = newParameters,
               pendingUpdates = newPendingUpdates,
-              currentProtocolUpdate = newCurrentProtocolUpdate
+              -- We always clear the current protocol update upon migration.
+              currentProtocolUpdate = Null
             }
 
 type Updates (pv :: ProtocolVersion) = Updates' (ChainParametersVersionFor pv)

@@ -485,12 +485,9 @@ initialiseNewSkovV1 ::
     (forall a. SkovV1T pv m a -> IO a) ->
     GlobalStateConfig ->
     LogIO (SkovV1Context pv m, SkovV1State pv)
-initialiseNewSkovV1 genData bakerCtx handlerCtx unliftSkov GlobalStateConfig{..} = do
+initialiseNewSkovV1 genData bakerCtx handlerCtx unliftSkov gsConfig@GlobalStateConfig{..} = do
     logEvent Skov LLDebug "Creating new global state."
-    pbscAccountCache <- liftIO $ newAccountCache (rpAccountsCacheSize gscRuntimeParameters)
-    pbscModuleCache <- liftIO $ Modules.newModuleCache (rpModulesCacheSize gscRuntimeParameters)
-    pbscBlobStore <- liftIO $ createBlobStore gscBlockStateFile
-    let pbsc = PersistentBlockStateContext{..}
+    pbsc@PersistentBlockStateContext{..} <- newPersistentBlockStateContext gsConfig
     let
         initGS :: InitMonad pv (SkovData pv)
         initGS = do
@@ -586,7 +583,7 @@ shutdownSkovV1 SkovV1Context{..} = liftIO $ do
 -- protocol.
 --
 -- Note that this function does not free any resources with respect to the
--- skov for the @lastpv@, this is the responsibility of the caller.
+-- skov for the @lastpv@. This is the responsibility of the caller.
 migrateSkovFromConsensusV0 ::
     forall lastpv pv m.
     ( IsConsensusV0 lastpv,
@@ -613,8 +610,8 @@ migrateSkovFromConsensusV0 ::
     (forall a. SkovV1T pv m a -> IO a) ->
     -- |Return back the 'SkovV1Context' and the migrated 'SkovV1State'
     LogIO (SkovV1Context pv m, SkovV1State pv)
-migrateSkovFromConsensusV0 regenesis migration GlobalStateConfig{..} oldPbsc oldBlockState bakerCtx handlerCtx unliftSkov = do
-    pbsc@PersistentBlockStateContext{..} <- newContext
+migrateSkovFromConsensusV0 regenesis migration gsConfig@GlobalStateConfig{..} oldPbsc oldBlockState bakerCtx handlerCtx unliftSkov = do
+    pbsc@PersistentBlockStateContext{..} <- newPersistentBlockStateContext gsConfig
     logEvent GlobalState LLDebug "Migrating existing global state."
     newInitialBlockState <- flip runBlobStoreT oldPbsc . flip runBlobStoreT pbsc $ do
         newState <- migratePersistentBlockState migration $ hpbsPointers oldBlockState
@@ -657,9 +654,20 @@ migrateSkovFromConsensusV0 regenesis migration GlobalStateConfig{..} oldPbsc old
                     }
                 )
     initWithBlockState `onException` liftIO (closeBlobStore pbscBlobStore)
-  where
-    newContext = liftIO $ do
-        pbscBlobStore <- createBlobStore gscBlockStateFile
-        pbscAccountCache <- newAccountCache $ rpAccountsCacheSize gscRuntimeParameters
-        pbscModuleCache <- Modules.newModuleCache $ rpModulesCacheSize gscRuntimeParameters
-        return PersistentBlockStateContext{..}
+
+-- |Make a new 'PersistentBlockStateContext' based on the
+-- 'GlobalStateConfig' passed into this function.
+-- This function creates the block state file i.e. the blob store,
+-- the account cache and the module cache.
+newPersistentBlockStateContext ::
+    (IsProtocolVersion pv, MonadIO m) =>
+    -- |The global state config to use
+    -- for constructing the persistent block state context.
+    GlobalStateConfig ->
+    -- |The the persistent block state context.
+    m (PersistentBlockStateContext pv)
+newPersistentBlockStateContext GlobalStateConfig{..} = liftIO $ do
+    pbscBlobStore <- createBlobStore gscBlockStateFile
+    pbscAccountCache <- newAccountCache $ rpAccountsCacheSize gscRuntimeParameters
+    pbscModuleCache <- Modules.newModuleCache $ rpModulesCacheSize gscRuntimeParameters
+    return PersistentBlockStateContext{..}
