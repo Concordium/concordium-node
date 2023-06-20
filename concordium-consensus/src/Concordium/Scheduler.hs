@@ -1399,7 +1399,6 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
       rcMaxParameterLen = Wasm.maxParameterLen $ protocolVersion @(MPV m),
       -- Check whether the number of logs and the size of return values are limited in the current protocol version.
       rcLimitLogsAndRvs = Wasm.limitLogsAndReturnValues $ protocolVersion @(MPV m),
-      -- FIXME: Add helper for this instead like the above. Consolidate them into one.
       rcFixRollbacks = demoteProtocolVersion (protocolVersion @(MPV m)) >= P6
     }
     transferAccountSync ::
