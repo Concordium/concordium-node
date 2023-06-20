@@ -326,7 +326,7 @@ handleCatchUpRequest CatchUpStatus{..} skovData = do
     highQC = skovData ^. roundStatus . rsHighestCertifiedBlock . to cbQuorumCertificate
     getQCs
         | qcRound highQC < cusLastFinalizedRound = return []
-        | qcRound highQC == blockRound lfBlock || blockRound lfBlock <= cusLastFinalizedRound =
+        | qcRound highQC == blockRound lfBlock + 1 || blockRound lfBlock <= cusLastFinalizedRound =
             return [highQC]
         | otherwise =
             return $! case skovData ^. finalizingCertifiedBlock of

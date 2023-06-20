@@ -152,7 +152,7 @@ certifyBlock bp =
           cbQuorumCertificate = dummyQC roundForQC parentHash
         }
   where
-    roundForQC = 1 + blockRound bp
+    roundForQC = blockRound bp
     parentHash = getHash bp
 
 dummyNormalBlock :: BlockPointer pv -> Round -> Option TimeoutCertificate -> Block pv
@@ -266,13 +266,15 @@ catchupNoBranches = runTest $ do
     -- Blocks 0,1 and 2 are finalized
     storedBlockRound1 <- getStoredBlockRound1
     storedBlockRound2 <- getStoredBlockRound2
+    block3 <- makeBlock3
     let finQC = dummyQC (Round 2) $ getHash storedBlockRound2
-        sucQC = dummyQC (Round 1) $ getHash storedBlockRound1
+        sucQC = dummyQC (Round 3) $ getHash block3
     writeBlocks [storedBlockRound0, storedBlockRound1, storedBlockRound2] $ dummyFinalizationEntry finQC sucQC
+    finalizingBlock <- mkBlockPointer storedBlockRound2
+    finalizingCertifiedBlock .= Present (CertifiedBlock sucQC finalizingBlock)
     lfb <- mkBlockPointer storedBlockRound2
     lastFinalized .=! lfb
     -- block in round 3 is the highest certified block.
-    block3 <- makeBlock3
     addToBranches block3
     blockTable . liveMap . at' (getHash block3) ?=! MemBlockAlive block3
     let block3Certified = certifyBlock block3
@@ -315,7 +317,7 @@ catchupNoBranches = runTest $ do
                 }
     let expectedTerminalData =
             CatchUpTerminalData
-                { cutdQuorumCertificates = [sucQC, dummyQC (Round 4) (getHash block3)],
+                { cutdQuorumCertificates = [sucQC],
                   cutdTimeoutCertificate = Absent,
                   cutdCurrentRoundQuorumMessages = [quorumMessageBlock4],
                   cutdCurrentRoundTimeoutMessages = [timeoutMessageRound4]
