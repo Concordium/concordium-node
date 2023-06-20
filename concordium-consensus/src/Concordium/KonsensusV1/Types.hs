@@ -25,17 +25,15 @@ import qualified Concordium.Crypto.BlockSignature as BlockSig
 import qualified Concordium.Crypto.BlsSignature as Bls
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.VRF as VRF
+import Concordium.Genesis.Data (Regenesis, firstGenesisBlockHash, regenesisBlockHash, regenesisCoreParametersV1)
 import Concordium.Genesis.Data.BaseV1
 import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as LFMBT
 import Concordium.Types
 import Concordium.Types.HashableTo
+import Concordium.Types.Parameters (IsConsensusV1)
 import Concordium.Types.Transactions
 import Concordium.Utils.BinarySearch
 import Concordium.Utils.Serialization
-
--- |A round number for consensus.
-newtype Round = Round {theRound :: Word64}
-    deriving (Eq, Ord, Show, Serialize, Num, Integral, Real, Enum, Bounded)
 
 -- |A strict version of 'Maybe'.
 data Option a
@@ -1251,6 +1249,20 @@ data GenesisMetadata = GenesisMetadata
       gmStateHash :: !StateHash
     }
     deriving (Eq, Show)
+
+-- |Extract the genesis configuration from the regenesis data.
+regenesisMetadata :: (IsProtocolVersion pv, IsConsensusV1 pv) => StateHash -> Regenesis pv -> GenesisMetadata
+regenesisMetadata sh regenData =
+    GenesisMetadata
+        { -- The 'CoreGenesisParametersV1' from the 'Regenesis'.
+          gmParameters = regenesisCoreParametersV1 regenData,
+          -- Hash of the genesis block.
+          gmCurrentGenesisHash = regenesisBlockHash regenData,
+          -- Hash of the first genesis block.
+          gmFirstGenesisHash = firstGenesisBlockHash regenData,
+          -- Hash of the genesis block state (after migration).
+          gmStateHash = sh
+        }
 
 instance Serialize GenesisMetadata where
     put GenesisMetadata{..} = do

@@ -8,7 +8,9 @@ import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.Reader.Class
 import Control.Monad.State.Class
+import Lens.Micro.Platform
 
+import qualified Concordium.Genesis.Data.BaseV1 as BaseV1
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Persistent.BlockState
 import qualified Concordium.GlobalState.Transactions as Transactions
@@ -106,5 +108,7 @@ startEvents ::
     ) =>
     m ()
 startEvents = do
-    resetTimerWithCurrentTimeout
-    makeBlock
+    genesisTime <- timestampToUTCTime . BaseV1.genesisTime . gmParameters <$> use genesisMetadata
+    doAfter genesisTime $ do
+        resetTimerWithCurrentTimeout
+        makeBlock
