@@ -889,9 +889,9 @@ checkpointingTest8 spv pvString =
 --   - Invoke entrypoint 'e'
 --     - Set state at []
 --     - Invoke entrypoint 'f'
---       - look up an iterator and entry
+--       - look up an and entry at [0,0,0,0]
 --       - invoke entrypoint d which does nothing and returns
---       - try to read from the previously created iterator and entry, make sure it succeeds.
+--       - try to read from the previously created entry, make sure it succeeds and returns the correct value.
 checkpointingTest9 ::
     forall pv.
     Types.IsProtocolVersion pv =>
@@ -950,9 +950,9 @@ checkpointingTest9 spv pvString =
                     Helpers.assertSuccess result
             }
         ]
-    -- Tell the contract to call entrypoint 'd' (the "succeed" entrypoint)
+    -- Tell the contract to call entrypoint 'f' that looks up an entry and then
+    -- calls the success entrypoint.
     callArgs = BSS.toShort $ runPut $ putByteString "f"
-
 
 tests :: Spec
 tests =

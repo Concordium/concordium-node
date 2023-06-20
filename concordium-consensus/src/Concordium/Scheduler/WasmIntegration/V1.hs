@@ -618,9 +618,14 @@ processReceiveResult fixRollbacks callbacks initialState stateWrittenTo result r
 -- |Runtime configuration for smart contract execution. This determines various
 -- limits and limitations that depend on the protocol update.
 data RuntimeConfig = RuntimeConfig
-    { rcSupportChainQueries :: Bool,
+    { -- |Support chain queries, available from P5 onward.
+      rcSupportChainQueries :: Bool,
+      -- |Fix rollback behaviour, available from P6 onward.
       rcFixRollbacks :: Bool,
+      -- |Maximum parameter size, changed in P5.
       rcMaxParameterLen :: Word16,
+      -- |Whether to limit the number logs and size of return values, updated in
+      -- P5.
       rcLimitLogsAndRvs :: Bool
     }
 
