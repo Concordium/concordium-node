@@ -261,9 +261,8 @@ migratePendingUpdates migration PendingUpdates{..} = withCPVConstraints (chainPa
     newProtocol <- case migration of
         -- For P5->P6 update we clear the queue as part of the migration
         -- as opposed to do it when creating a regenesis.
-        StateMigrationParametersP5ToP6{} -> do
-            (!hbr, _) <- refFlush =<< refMake emptyUpdateQueue
-            return hbr
+        StateMigrationParametersP5ToP6{} ->
+            migrateHashedBufferedRef (\q -> return q {uqQueue = Seq.empty }) pProtocolQueue
         _ -> migrateHashedBufferedRef (migrateUpdateQueue id) pProtocolQueue
     newEuroPerEnergy <- migrateHashedBufferedRef (migrateUpdateQueue id) pEuroPerEnergyQueue
     newMicroGTUPerEuro <- migrateHashedBufferedRef (migrateUpdateQueue id) pMicroGTUPerEuroQueue

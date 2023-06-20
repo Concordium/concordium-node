@@ -91,7 +91,7 @@ updateRegenesis protocolUpdateData = do
     let core =
             BaseV1.CoreGenesisParametersV1
                 { BaseV1.genesisTime = regenesisTime,
-                  BaseV1.genesisEpochDuration = 3_600_000,
+                  BaseV1.genesisEpochDuration = P6.updateGenesisEpochDuration protocolUpdateData,
                   BaseV1.genesisSignatureThreshold = 2 % 3
                 }
     -- genesisFirstGenesis is the block hash of the previous genesis, if it is initial,
