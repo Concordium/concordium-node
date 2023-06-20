@@ -86,12 +86,12 @@ updateRegenesis protocolUpdateData = do
     -- Core parameters are derived from the old genesis, apart from genesis time which is set for
     -- the time of the last finalized block.
     gd <- getGenesisData
-    -- Epoch duration is 1 hour.
+    -- Epoch duration is moved over from old protocol.
     -- Signature threshold is 2/3.
     let core =
             BaseV1.CoreGenesisParametersV1
                 { BaseV1.genesisTime = regenesisTime,
-                  BaseV1.genesisEpochDuration = P6.updateGenesisEpochDuration protocolUpdateData,
+                  BaseV1.genesisEpochDuration = GenesisData.gdSlotDuration gd * fromIntegral (GenesisData.gdEpochLength gd),
                   BaseV1.genesisSignatureThreshold = 2 % 3
                 }
     -- genesisFirstGenesis is the block hash of the previous genesis, if it is initial,
