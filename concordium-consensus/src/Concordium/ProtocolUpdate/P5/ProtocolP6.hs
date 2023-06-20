@@ -27,7 +27,8 @@
 -- * 'genesisCore':
 --
 --     * 'genesisTime' is the timestamp of the last finalized block of the previous chain.
---     * 'genesisEpochDuration' is 1 hour.
+--     * 'genesisEpochDuration' is calculated from the previous epoch duration (in slots) times
+--       the slot duration.
 --     * 'genesisSignatureThreshold' is 2/3.
 --
 -- * 'genesisFirstGenesis' is either:
