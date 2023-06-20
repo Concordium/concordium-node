@@ -37,7 +37,7 @@ fn main() -> std::io::Result<()> {
         // Traverse the directory to link all of the libs in ghc.
         #[cfg(windows)]
         {
-            let extra_library_dirs = command_output(Command::new("stack").args(&[
+            let extra_library_dirs = command_output(Command::new("stack").args([
                 "--stack-yaml",
                 "../concordium-consensus/stack.yaml",
                 "path",

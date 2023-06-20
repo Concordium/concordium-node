@@ -51,7 +51,8 @@ getOptionOf :: Get a -> Get (Option a)
 getOptionOf ma = do
     getWord8 >>= \case
         0 -> return Absent
-        _ -> Present <$> ma
+        1 -> Present <$> ma
+        _ -> fail "invalid tag for Option"
 
 -- |'Serialize' instance for an @Option a@.
 instance (Serialize a) => Serialize (Option a) where
@@ -280,9 +281,18 @@ emptyFinalizerSet = FinalizerSet 0
 addFinalizer :: FinalizerSet -> FinalizerIndex -> FinalizerSet
 addFinalizer (FinalizerSet setOfFinalizers) (FinalizerIndex i) = FinalizerSet $ setBit setOfFinalizers (fromIntegral i)
 
+-- |Test whether a given finalizer index is present in a finalizer set.
+memberFinalizerSet :: FinalizerIndex -> FinalizerSet -> Bool
+memberFinalizerSet (FinalizerIndex fi) (FinalizerSet setOfFinalizers) =
+    testBit setOfFinalizers (fromIntegral fi)
+
 -- |Convert a list of [FinalizerIndex] to a 'FinalizerSet'.
 finalizerSet :: [FinalizerIndex] -> FinalizerSet
 finalizerSet = foldl' addFinalizer (FinalizerSet 0)
+
+-- |Test if the first finalizer set is a subset of the second.
+subsetFinalizerSet :: FinalizerSet -> FinalizerSet -> Bool
+subsetFinalizerSet (FinalizerSet s1) (FinalizerSet s2) = s1 .&. s2 == s1
 
 instance Show FinalizerSet where
     show = show . finalizerList
