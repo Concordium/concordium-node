@@ -258,19 +258,18 @@ migratePendingUpdates migration PendingUpdates{..} = withCPVConstraints (chainPa
     newRootKeys <- migrateHashedBufferedRef (migrateUpdateQueue id) pRootKeysUpdateQueue
     newLevel1Keys <- migrateHashedBufferedRef (migrateUpdateQueue id) pLevel1KeysUpdateQueue
     newLevel2Keys <- migrateHashedBufferedRef (migrateUpdateQueue (migrateAuthorizations migration)) pLevel2KeysUpdateQueue
-    newProtocol <- case migration of
-        StateMigrationParametersTrivial{} -> case protocolVersion @pv of
-            SP1 -> migrateHashedBufferedRef (migrateUpdateQueue id) pProtocolQueue
-            SP2 -> migrateHashedBufferedRef (migrateUpdateQueue id) pProtocolQueue
-            SP3 -> migrateHashedBufferedRef (migrateUpdateQueue id) pProtocolQueue
-            SP4 -> migrateHashedBufferedRef (migrateUpdateQueue id) pProtocolQueue
-            SP5 -> migrateHashedBufferedRef (migrateUpdateQueue id) pProtocolQueue
-            SP6 -> migrateHashedBufferedRef (\q -> return q{uqQueue = Seq.empty}) pProtocolQueue
-        -- For P5->P6 migration we clear the queue as part of the migration
-        -- as opposed to do it when creating a regenesis.
-        StateMigrationParametersP5ToP6{} ->
-            migrateHashedBufferedRef (\q -> return q{uqQueue = Seq.empty}) pProtocolQueue
-        _ -> migrateHashedBufferedRef (migrateUpdateQueue id) pProtocolQueue
+    -- We clear the protocol update queue (preserving the next sequence number).
+    -- This was already done before migration prior to P5->P6.
+    newProtocol <-
+        migrateHashedBufferedRef
+            ( \q ->
+                return
+                    UpdateQueue
+                        { uqNextSequenceNumber = uqNextSequenceNumber q,
+                          uqQueue = Seq.empty
+                        }
+            )
+            pProtocolQueue
     newEuroPerEnergy <- migrateHashedBufferedRef (migrateUpdateQueue id) pEuroPerEnergyQueue
     newMicroGTUPerEuro <- migrateHashedBufferedRef (migrateUpdateQueue id) pMicroGTUPerEuroQueue
     newFoundationAccount <- migrateHashedBufferedRef (migrateUpdateQueue id) pFoundationAccountQueue
@@ -750,6 +749,8 @@ migrateUpdates migration Updates{..} = do
               currentParameters = newParameters,
               pendingUpdates = newPendingUpdates,
               -- We always clear the current protocol update upon migration.
+              -- Prior to the P5->P6 migration, this was already done before migration, but from
+              -- P5->P6 and future updates, we require it to be done as part of the state migration.
               currentProtocolUpdate = Null
             }
 
