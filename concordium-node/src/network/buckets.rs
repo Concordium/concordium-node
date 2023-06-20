@@ -56,11 +56,14 @@ impl Buckets {
         bucket_size_gauge: &IntGaugeVec,
     ) {
         let bucket = &mut self.buckets[0];
-        if bucket.insert(Node {
-            peer,
-            networks,
-            last_seen: get_current_stamp(),
-        }) {
+        if bucket
+            .replace(Node {
+                peer,
+                networks,
+                last_seen: get_current_stamp(),
+            })
+            .is_some()
+        {
             bucket_size_gauge.with_label_values(&["0"]).inc();
         }
     }
