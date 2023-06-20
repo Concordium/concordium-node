@@ -425,8 +425,6 @@ extern "C" {
         // by the consensus layer with continuation required for
         // executing the just received block.
         execute_block_ptr_ptr: *mut *mut execute_block,
-        // Flag indicating if the block was received as a direct message.
-        is_direct: bool,
     ) -> i64;
     pub fn executeBlock(
         consensus: *mut consensus_runner,
@@ -517,7 +515,7 @@ extern "C" {
     pub fn getPoolStatus(
         consensus: *mut consensus_runner,
         block_hash: *const u8,
-        passive_delegation: bool,
+        passive_delegation: u8,
         baker_id: u64,
     ) -> *const c_char;
     pub fn freeCStr(hstring: *const c_char);
@@ -1556,7 +1554,6 @@ impl ConsensusContainer {
         &self,
         genesis_index: u32,
         block: &[u8],
-        is_direct: bool,
     ) -> (ConsensusFfiResponse, Option<ExecuteBlockCallback>) {
         let consensus = self.consensus.load(Ordering::SeqCst);
 
@@ -1569,7 +1566,6 @@ impl ConsensusContainer {
                 block.as_ptr(),
                 block.len() as u64,
                 ptr_ptr_block_to_execute,
-                is_direct,
             )
         };
         let callback = if ptr_block_to_execute.is_null() {
@@ -1785,7 +1781,7 @@ impl ConsensusContainer {
         Ok(wrap_c_call_string!(self, consensus, |consensus| getPoolStatus(
             consensus,
             block_hash.as_ptr() as *const u8,
-            passive_delegation,
+            passive_delegation as u8,
             baker_id,
         )))
     }

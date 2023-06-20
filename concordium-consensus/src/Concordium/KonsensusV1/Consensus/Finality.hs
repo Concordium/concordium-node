@@ -164,6 +164,12 @@ processFinalization newFinalizedBlock newFinalizationEntry = do
     branches .=! prNewBranches
     -- Update the last finalized block.
     lastFinalized .=! newFinalizedBlock
+    let finalizingQC = feSuccessorQuorumCertificate newFinalizationEntry
+    gets (getLiveBlock (qcBlock finalizingQC)) >>= \case
+        Nothing -> do
+            finalizingCertifiedBlock .= Absent
+        Just finalizingBlock -> do
+            finalizingCertifiedBlock .= Present (CertifiedBlock finalizingQC finalizingBlock)
     -- Update the epoch bakers to reflect the new last finalized block.
     checkedAdvanceEpochBakers oldLastFinalized newFinalizedBlock
     -- Purge the 'roundExistingBlocks' up to the last finalized block.
@@ -176,10 +182,12 @@ processFinalization newFinalizedBlock newFinalizationEntry = do
     checkedAdvanceEpoch newFinalizationEntry newFinalizedBlock
     -- Log that the blocks are finalized.
     forM_ prFinalized $ \block ->
-        logEvent Konsensus LLTrace $
+        logEvent Konsensus LLInfo $
             "Block "
                 ++ show (getHash @BlockHash block)
-                ++ " finalized at height "
+                ++ " (round "
+                ++ show (theRound $ blockRound block)
+                ++ ") finalized at height "
                 ++ show (blockHeight block)
     onFinalize newFinalizationEntry prFinalized
 

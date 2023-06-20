@@ -16,6 +16,7 @@ data TimeoutSet = TimeoutSet
       -- This must be non-empty.
       tsFirstEpochTimeouts :: !FinalizerSet,
       -- |The set of finalizers for which we have timeout signatures in epoch @tsFirstEpoch + 1@.
+      -- This may be empty.
       tsSecondEpochTimeouts :: !FinalizerSet
     }
     deriving (Eq, Show)
@@ -28,6 +29,8 @@ instance Serialize TimeoutSet where
     get = do
         tsFirstEpoch <- get
         tsFirstEpochTimeouts <- get
+        when (tsFirstEpochTimeouts == emptyFinalizerSet) $
+            fail "Empty set of timeouts for first epoch."
         tsSecondEpochTimeouts <- get
         return TimeoutSet{..}
 
@@ -97,10 +100,8 @@ data CatchUpTerminalData = CatchUpTerminalData
       -- |A timeout certificate for the last round, if available.
       cutdTimeoutCertificate :: !(Option TimeoutCertificate),
       -- |Valid quorum messages for the current round.
-      -- TODO: Repackage all quorum messages for the same block together.
       cutdCurrentRoundQuorumMessages :: ![QuorumMessage],
       -- |Valid timeout messages for the current round.
-      -- TODO: Repackage timeout messages together.
       cutdCurrentRoundTimeoutMessages :: ![TimeoutMessage]
     }
     deriving (Eq, Show)

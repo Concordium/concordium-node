@@ -23,9 +23,11 @@ data VersionedCatchUpStatus where
 -- |Serialize a 'VersionedCatchUpStatus' message.
 putVersionedCatchUpStatus :: Putter VersionedCatchUpStatus
 putVersionedCatchUpStatus VersionedCatchUpStatusNoGenesis = do
-    putVersion 0
     -- This is serialized as a version 0 catch-up status message with the tag byte 6.
     -- Regular version 0 catch-up status messages have tag bytes from 0 to 3.
+    -- This representation is used for backwards compatibility. (Bit 1 is set to
+    -- indicate that the message is a response.)
+    putVersion 0
     putWord8 6
 putVersionedCatchUpStatus (VersionedCatchUpStatusV0 cus) = do
     putVersion 0

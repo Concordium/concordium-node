@@ -1,6 +1,31 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 
+-- |This module implements the catch-up mechanism for consensus version 1.
+--
+-- The catch-up mechanism defines three types of catch-up messages, represented by 'CatchUpMessage':
+--    * A catch-up status message ('CatchUpStatusMessage') is used to inform a peer that this node
+--      may have relevant data that it has not sent to the peer. The message includes a summary of
+--      the node's state allowing the peer to determine if catch-up is necessary.
+--    * A catch-up request message ('CatchUpRequestMessage') is used to request catch-up from a
+--      peer. The message also includes a summary of the node's state (but with a bit more detail
+--      on the branches of the block tree than for the status message), which is used by the peer
+--      to determine what data should be sent in order to update the node. The peer should respond
+--      by sending a number of blocks (possibly 0, if no catch-up is required) followed by a
+--      catch-up response message.
+--    * A catch-up response message ('CatchUpResponseMessage') is used to signal the end of a
+--      response to a catch-up request. This should be sent after any blocks that are sent to the
+--      peer as part of the catch-up. If all relevant blocks were sent, the response also includes
+--      terminal data ('CatchUpTerminalData') that may include quorum certificates, timeout
+--      certificates, quorum messages and timeout messages that are responsive to the catch-up
+--      request.
+--
+-- The catch-up mechanism first catches up nodes with the finalized chain, followed by the
+-- non-finalized blocks ordered by height. QCs for the highest certified block and (if different)
+-- the certified block that causes the last finalized block to be finalized are included in the
+-- terminal data. If the last round timed-out, then a TC for that round is also included.
+-- Finally, quorum and timeout messages for the current round that the peer does not already have
+-- are also included in the terminal data.
 module Concordium.KonsensusV1.Consensus.CatchUp (
     module Concordium.KonsensusV1.Consensus.CatchUp.Types,
     module Concordium.KonsensusV1.Consensus.CatchUp,
@@ -40,33 +65,6 @@ import Concordium.KonsensusV1.Types
 import Concordium.TimeMonad
 import Concordium.TimerMonad
 import Concordium.Types.Parameters
-
--- notes
-
--- We need to catch up blocks,
--- quorum certificates/messages and timeout certificates/messages
---
--- In particular if receiving a quorum/timeout message triggers catch up then
--- these messages will need to be part of the catch up.
---
--- (In an aggregated fashion qcs, tcs, qms, tms)
---
--- Catchup responses must bypass the deduplication layer,
--- hence if we are catching up from a peer then their responses should
--- not be deduplicated.
-
-{-
-A node N is up to date with a peer P if:
-    * N considers P's last finalized block to be finalized.
-    * The round of N's highest certified block is at least the round of P's highest certified block.
-    * N's current round (round(N)) is at least P's current round.
-    * N's current epoch is at least P's current epoch.
-    * N has all timeout signatures on round(N) that P has, and considers them valid if they are.
-    * N has all quorum signatures on round(N) that P has, and considers them valid if they are.
-    * If P has only one block in round(N), then N also has that block.
-
-If P is honest and considers a timeout signature on round(N) valid, then
--}
 
 -- |'CatchUpPartialResponse' represents a stream of blocks to send as a response to a catch-up
 -- request. The catch up response message should include the catch-up terminal data if all required
@@ -111,6 +109,14 @@ makeCatchUpStatus sd = CatchUpStatus{..}
         view _3
             <$> sd ^. currentQuorumMessages . smBlockToWeightsAndSignatures
     cusCurrentRoundTimeouts = makeTimeoutSet <$> sd ^. currentTimeoutMessages
+    getLeavesBranches ::
+        Set.Set BlockHash -> -- Hashes of blocks with known children
+        [BlockHash] -> -- Accumulated leaf blocks
+        [BlockHash] -> -- Accumulated branch blocks
+        Seq.Seq [BlockPointer pv] -> -- Unprocessed non-finalized blocks by height
+        ( [BlockHash], -- Leaves
+          [BlockHash] -- Branches
+        )
     getLeavesBranches _ curLeaves curBranches Seq.Empty = (curLeaves, curBranches)
     getLeavesBranches parentBranches curLeaves curBranches (rest Seq.:|> cur) =
         getLeavesBranches newParentBranches newLeaves newBranches rest
@@ -208,6 +214,12 @@ isCatchUpRequired CatchUpStatus{..} sd
 
 -- |Handle a catch-up request.
 -- This can safely be called without holding the global state lock and will not update the state.
+-- This uses the provided snapshot of the state. The low-level store is only used to read finalized
+-- blocks, and once a block is finalized it will remain so in the store. Note that the response
+-- will not reflect changes to the state that happen after the state snapshot in the provided
+-- 'SkovData'. It is expected that 'makeCatchUpStatus' should be called on the latest state after
+-- the blocks provided by 'handleCatchUpRequest' are sent, to ensure that the peer receives the most
+-- up-to-date view of the peer's state.
 handleCatchUpRequest ::
     ( MonadIO m,
       LowLevel.MonadTreeStateStore m
@@ -316,10 +328,10 @@ handleCatchUpRequest CatchUpStatus{..} skovData = do
         | qcRound highQC < cusLastFinalizedRound = return []
         | qcRound highQC == blockRound lfBlock || blockRound lfBlock <= cusLastFinalizedRound =
             return [highQC]
-        | otherwise = do
-            LowLevel.lookupLatestFinalizationEntry <&> \case
-                Nothing -> [highQC]
-                Just finEntry -> [feSuccessorQuorumCertificate finEntry, highQC]
+        | otherwise =
+            return $! case skovData ^. finalizingCertifiedBlock of
+                Absent -> [highQC]
+                Present cb -> [cbQuorumCertificate cb, highQC]
     ourCurrentRound = skovData ^. roundStatus . rsCurrentRound
     getQuorumMessages
         | cusCurrentRound == ourCurrentRound = do
@@ -357,9 +369,22 @@ handleCatchUpRequest CatchUpStatus{..} skovData = do
         | otherwise =
             return []
 
+-- |The result of processing 'CatchUpTerminalData' from a peer.
+-- The field 'tdrProgress' indicates if a meaningful update to the state was made as a result of
+-- processing the data. This is used to notify peers (by sending a catch-up status message) that
+-- we have progressed as a result of information that we have not previously sent them, giving
+-- them an opportunity to catch-up.
 data TerminalDataResult
-    = TerminalDataResultValid {tdrProgress :: Bool}
-    | TerminalDataResultInvalid {tdrProgress :: Bool}
+    = -- |The data was valid and as expected.
+      TerminalDataResultValid
+        { -- |'True' if the state was updated.
+          tdrProgress :: Bool
+        }
+    | -- |The data was not valid or would trigger a catch-up.
+      TerminalDataResultInvalid
+        { -- |'True' if the state was updated.
+          tdrProgress :: Bool
+        }
 
 -- |Process the contents of a 'CatchUpTerminalData' record. This updates the state and so should
 -- be used with the global state lock.

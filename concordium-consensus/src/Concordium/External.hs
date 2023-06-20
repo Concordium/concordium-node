@@ -820,14 +820,12 @@ receiveBlock ::
     -- to avoid a memory leak.
     -- The 'StablePtr' is freed in 'executeBlock'.
     Ptr (StablePtr MV.ExecuteBlock) ->
-    -- |Flag indicating if the block was received as a direct message.
-    CBool ->
     IO ReceiveResult
-receiveBlock bptr genIndex msg msgLen ptrPtrExecuteBlock isDirect = do
+receiveBlock bptr genIndex msg msgLen ptrPtrExecuteBlock = do
     (ConsensusRunner mvr) <- deRefStablePtr bptr
     mvLog mvr External LLTrace $ "Received block data, size = " ++ show msgLen ++ "."
     blockBS <- BS.packCStringLen (msg, fromIntegral msgLen)
-    (receiveResult, mExecuteBlock) <- runMVR (MV.receiveBlock genIndex blockBS (isDirect /= 0)) mvr
+    (receiveResult, mExecuteBlock) <- runMVR (MV.receiveBlock genIndex blockBS) mvr
     case mExecuteBlock of
         Nothing -> return $ toReceiveResult receiveResult
         Just eb -> do
@@ -1315,7 +1313,7 @@ getPoolStatus ::
     -- |Block hash (null-terminated base16)
     CString ->
     -- |Whether to get the passive delegator status
-    CBool ->
+    Word8 ->
     -- |Baker ID to get status for (if not passive delegators)
     Word64 ->
     IO CString
@@ -1526,7 +1524,7 @@ foreign export ccall
 foreign export ccall stopConsensus :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall startBaker :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall stopBaker :: StablePtr ConsensusRunner -> IO ()
-foreign export ccall receiveBlock :: StablePtr ConsensusRunner -> GenesisIndex -> CString -> Word64 -> Ptr (StablePtr MV.ExecuteBlock) -> CBool -> IO Int64
+foreign export ccall receiveBlock :: StablePtr ConsensusRunner -> GenesisIndex -> CString -> Word64 -> Ptr (StablePtr MV.ExecuteBlock) -> IO Int64
 foreign export ccall executeBlock :: StablePtr ConsensusRunner -> StablePtr MV.ExecuteBlock -> IO Int64
 foreign export ccall receiveFinalizationMessage :: StablePtr ConsensusRunner -> GenesisIndex -> CString -> Int64 -> IO Int64
 foreign export ccall receiveFinalizationRecord :: StablePtr ConsensusRunner -> GenesisIndex -> CString -> Int64 -> IO Int64
@@ -1565,7 +1563,7 @@ foreign export ccall getBirkParameters :: StablePtr ConsensusRunner -> CString -
 foreign export ccall getModuleList :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getModuleSource :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
 foreign export ccall getBakerList :: StablePtr ConsensusRunner -> CString -> IO CString
-foreign export ccall getPoolStatus :: StablePtr ConsensusRunner -> CString -> CBool -> Word64 -> IO CString
+foreign export ccall getPoolStatus :: StablePtr ConsensusRunner -> CString -> Word8 -> Word64 -> IO CString
 foreign export ccall getTransactionStatus :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getTransactionStatusInBlock :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
 foreign export ccall getAccountNonFinalizedTransactions :: StablePtr ConsensusRunner -> CString -> IO CString

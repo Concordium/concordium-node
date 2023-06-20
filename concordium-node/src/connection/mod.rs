@@ -536,12 +536,7 @@ impl Connection {
             }
             // deduplicate the incoming packet payload
             if self.is_packet_duplicate(packet)? {
-                // we ignore the fact that the packet is a duplicate if we are catching up with
-                // the peer
-                if read_or_die!(self.handler.peers).catch_up_peer != Some(self.remote_peer.local_id)
-                {
-                    return Ok(());
-                }
+                return Ok(());
             }
         }
 

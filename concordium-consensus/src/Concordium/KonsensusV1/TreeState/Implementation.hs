@@ -229,6 +229,8 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       _skovPendingBlocks :: !PendingBlocks,
       -- |Pointer to the last finalized block.
       _lastFinalized :: !(BlockPointer pv),
+      -- |Certified block that justifies the last finalized block being finalized.
+      _finalizingCertifiedBlock :: !(Option (CertifiedBlock pv)),
       -- |Baker and finalizer information with respect to the epoch of the last finalized block.
       -- Note: this is distinct from the current epoch.
       _skovEpochBakers :: !EpochBakers,
@@ -335,6 +337,7 @@ mkInitialSkovData rp genMeta genState _currentTimeout _skovEpochBakers =
         _genesisMetadata = genMeta
         _skovPendingBlocks = emptyPendingBlocks
         _lastFinalized = genesisBlockPointer
+        _finalizingCertifiedBlock = Absent
         _statistics = Stats.initialConsensusStatistics
         _currentTimeoutMessages = Absent
         _currentQuorumMessages = emptyQuorumMessages

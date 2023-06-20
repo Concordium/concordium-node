@@ -1378,10 +1378,8 @@ newtype ExecuteBlock = ExecuteBlock {runBlock :: IO Skov.UpdateResult}
 receiveBlock ::
     GenesisIndex ->
     ByteString ->
-    -- |'True' if the message was received as a direct (non-brodcast) message.
-    Bool ->
     MVR finconf (Skov.UpdateResult, Maybe ExecuteBlock)
-receiveBlock gi blockBS isDirect = withLatestExpectedVersion gi $ \case
+receiveBlock gi blockBS = withLatestExpectedVersion gi $ \case
     (EVersionedConfigurationV0 (vc :: VersionedConfigurationV0 finconf pv)) -> do
         MVR $ \mvr -> do
             now <- currentTime
@@ -1395,13 +1393,7 @@ receiveBlock gi blockBS isDirect = withLatestExpectedVersion gi $ \case
                         Nothing -> return (updateResult, Nothing)
                         Just verifiedPendingBlock -> do
                             let exec = do
-                                    res <- runSkovV0Transaction vc (Skov.executeBlock verifiedPendingBlock)
-                                    -- For direct message blocks, we notify peers so they can catch
-                                    -- up if necessary.
-                                    when
-                                        (isDirect && res == Skov.ResultSuccess)
-                                        bufferedSendCatchUpStatus
-                                    return res
+                                    runSkovV0Transaction vc (Skov.executeBlock verifiedPendingBlock)
                             let cont = ExecuteBlock $ runMVR exec mvr
                             return (updateResult, Just cont)
     (EVersionedConfigurationV1 (vc :: VersionedConfigurationV1 finconf pv)) -> do
@@ -1417,9 +1409,6 @@ receiveBlock gi blockBS isDirect = withLatestExpectedVersion gi $ \case
                         SkovV1.BlockResultSuccess vb -> do
                             let exec = do
                                     runSkovV1Transaction vc (SkovV1.executeBlock vb)
-                                    -- For direct message blocks, we notify peers so they can catch
-                                    -- up if necessary.
-                                    when isDirect bufferedSendCatchUpStatus
                                     return Skov.ResultSuccess
                             let cont = ExecuteBlock $ runMVR exec mvr
                             return (Skov.ResultSuccess, Just cont)
