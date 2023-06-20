@@ -258,7 +258,18 @@ migratePendingUpdates migration PendingUpdates{..} = withCPVConstraints (chainPa
     newRootKeys <- migrateHashedBufferedRef (migrateUpdateQueue id) pRootKeysUpdateQueue
     newLevel1Keys <- migrateHashedBufferedRef (migrateUpdateQueue id) pLevel1KeysUpdateQueue
     newLevel2Keys <- migrateHashedBufferedRef (migrateUpdateQueue (migrateAuthorizations migration)) pLevel2KeysUpdateQueue
-    newProtocol <- migrateHashedBufferedRef (migrateUpdateQueue id) pProtocolQueue
+    -- We clear the protocol update queue (preserving the next sequence number).
+    -- This was already done before migration prior to P5->P6.
+    newProtocol <-
+        migrateHashedBufferedRef
+            ( \q ->
+                return
+                    UpdateQueue
+                        { uqNextSequenceNumber = uqNextSequenceNumber q,
+                          uqQueue = Seq.empty
+                        }
+            )
+            pProtocolQueue
     newEuroPerEnergy <- migrateHashedBufferedRef (migrateUpdateQueue id) pEuroPerEnergyQueue
     newMicroGTUPerEuro <- migrateHashedBufferedRef (migrateUpdateQueue id) pMicroGTUPerEuroQueue
     newFoundationAccount <- migrateHashedBufferedRef (migrateUpdateQueue id) pFoundationAccountQueue
@@ -289,6 +300,8 @@ migratePendingUpdates migration PendingUpdates{..} = withCPVConstraints (chainPa
             SomeParam hbr -> SomeParam <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
         StateMigrationParametersP4ToP5{} -> case pElectionDifficultyQueue of
             SomeParam hbr -> SomeParam <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
+        StateMigrationParametersP5ToP6{} -> case pElectionDifficultyQueue of
+            SomeParam _ -> return NoParam
     newTimeParameters <- case migration of
         StateMigrationParametersTrivial -> case pTimeParametersQueue of
             NoParam -> return NoParam
@@ -301,6 +314,8 @@ migratePendingUpdates migration PendingUpdates{..} = withCPVConstraints (chainPa
             (!hbr, _) <- refFlush =<< refMake emptyUpdateQueue
             return (SomeParam hbr)
         StateMigrationParametersP4ToP5{} -> case pTimeParametersQueue of
+            SomeParam hbr -> SomeParam <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
+        StateMigrationParametersP5ToP6{} -> case pTimeParametersQueue of
             SomeParam hbr -> SomeParam <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
     newCooldownParameters <- case migration of
         StateMigrationParametersTrivial -> case pCooldownParametersQueue of
@@ -316,6 +331,8 @@ migratePendingUpdates migration PendingUpdates{..} = withCPVConstraints (chainPa
             return (SomeParam hbr)
         StateMigrationParametersP4ToP5{} -> case pCooldownParametersQueue of
             SomeParam hbr -> SomeParam <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
+        StateMigrationParametersP5ToP6{} -> case pCooldownParametersQueue of
+            SomeParam hbr -> SomeParam <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
     newTimeoutParameters <- case migration of
         StateMigrationParametersTrivial -> case pTimeoutParametersQueue of
             NoParam -> return NoParam
@@ -328,6 +345,9 @@ migratePendingUpdates migration PendingUpdates{..} = withCPVConstraints (chainPa
             NoParam -> return NoParam
         StateMigrationParametersP4ToP5{} -> case pTimeoutParametersQueue of
             NoParam -> return NoParam
+        StateMigrationParametersP5ToP6{} -> do
+            (!hbr, _) <- refFlush =<< refMake emptyUpdateQueue
+            return (SomeParam hbr)
     newMinBlockTimeQueue <- case migration of
         StateMigrationParametersTrivial -> case pMinBlockTimeQueue of
             NoParam -> return NoParam
@@ -340,6 +360,9 @@ migratePendingUpdates migration PendingUpdates{..} = withCPVConstraints (chainPa
             NoParam -> return NoParam
         StateMigrationParametersP4ToP5{} -> case pMinBlockTimeQueue of
             NoParam -> return NoParam
+        StateMigrationParametersP5ToP6{} -> do
+            (!hbr, _) <- refFlush =<< refMake emptyUpdateQueue
+            return (SomeParam hbr)
     newBlockEnergyLimitQueue <- case migration of
         StateMigrationParametersTrivial -> case pBlockEnergyLimitQueue of
             NoParam -> return NoParam
@@ -352,6 +375,9 @@ migratePendingUpdates migration PendingUpdates{..} = withCPVConstraints (chainPa
             NoParam -> return NoParam
         StateMigrationParametersP4ToP5{} -> case pBlockEnergyLimitQueue of
             NoParam -> return NoParam
+        StateMigrationParametersP5ToP6{} -> do
+            (!hbr, _) <- refFlush =<< refMake emptyUpdateQueue
+            return (SomeParam hbr)
     newFinalizationCommitteeParametersQueue <- case migration of
         StateMigrationParametersTrivial -> case pFinalizationCommitteeParametersQueue of
             NoParam -> return NoParam
@@ -364,6 +390,9 @@ migratePendingUpdates migration PendingUpdates{..} = withCPVConstraints (chainPa
             NoParam -> return NoParam
         StateMigrationParametersP4ToP5{} -> case pFinalizationCommitteeParametersQueue of
             NoParam -> return NoParam
+        StateMigrationParametersP5ToP6{} -> do
+            (!hbr, _) <- refFlush =<< refMake emptyUpdateQueue
+            return (SomeParam hbr)
     return $!
         PendingUpdates
             { pRootKeysUpdateQueue = newRootKeys,
@@ -714,15 +743,15 @@ migrateUpdates migration Updates{..} = do
                     (return . StoreSerialized . migrateKeysCollection . unStoreSerialized)
                     currentKeyCollection
     newParameters <- migrateHashedBufferedRef (return . StoreSerialized . migrateChainParameters migration . unStoreSerialized) currentParameters
-    newCurrentProtocolUpdate <- case currentProtocolUpdate of
-        Null -> return Null
-        Some c -> Some <$!> migrateHashedBufferedRefKeepHash c
     return
         Updates
             { currentKeyCollection = newKeyCollection,
               currentParameters = newParameters,
               pendingUpdates = newPendingUpdates,
-              currentProtocolUpdate = newCurrentProtocolUpdate
+              -- We always clear the current protocol update upon migration.
+              -- Prior to the P5->P6 migration, this was already done before migration, but from
+              -- P5->P6 and future updates, we require it to be done as part of the state migration.
+              currentProtocolUpdate = Null
             }
 
 type Updates (pv :: ProtocolVersion) = Updates' (ChainParametersVersionFor pv)

@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Concordium.KonsensusV1.Consensus.Finality where
@@ -76,10 +77,10 @@ checkFinalityWithBlock ::
       IsConsensusV1 (MPV m),
       HasCallStack
     ) =>
-    -- |An already verified 'QuorumCertificate' that points
+    -- |An already verified quorum certificate that points
     -- to the provided @BlockPointer (MPV m)@
     QuorumCertificate ->
-    -- |A pointer to the block that is checked whether it can be finalized or not.
+    -- |A pointer to the block referenced by the quorum certificate
     BlockPointer (MPV m) ->
     m ()
 checkFinalityWithBlock qc blockPtr
@@ -163,6 +164,12 @@ processFinalization newFinalizedBlock newFinalizationEntry = do
     branches .=! prNewBranches
     -- Update the last finalized block.
     lastFinalized .=! newFinalizedBlock
+    let finalizingQC = feSuccessorQuorumCertificate newFinalizationEntry
+    gets (getLiveBlock (qcBlock finalizingQC)) >>= \case
+        Nothing -> do
+            finalizingCertifiedBlock .= Absent
+        Just finalizingBlock -> do
+            finalizingCertifiedBlock .= Present (CertifiedBlock finalizingQC finalizingBlock)
     -- Update the epoch bakers to reflect the new last finalized block.
     checkedAdvanceEpochBakers oldLastFinalized newFinalizedBlock
     -- Purge the 'roundExistingBlocks' up to the last finalized block.
@@ -173,6 +180,15 @@ processFinalization newFinalizedBlock newFinalizationEntry = do
     purgePending
     -- Advance the epoch if the new finalized block triggers the epoch transition.
     checkedAdvanceEpoch newFinalizationEntry newFinalizedBlock
+    -- Log that the blocks are finalized.
+    forM_ prFinalized $ \block ->
+        logEvent Konsensus LLInfo $
+            "Block "
+                ++ show (getHash @BlockHash block)
+                ++ " (round "
+                ++ show (theRound $ blockRound block)
+                ++ ") finalized at height "
+                ++ show (blockHeight block)
     onFinalize newFinalizationEntry prFinalized
 
 -- |Advance the current epoch if the new finalized block indicates that it is necessary.
