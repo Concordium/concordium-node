@@ -35,10 +35,6 @@ import Concordium.Types.Transactions
 import Concordium.Utils.BinarySearch
 import Concordium.Utils.Serialization
 
--- |A round number for consensus.
-newtype Round = Round {theRound :: Word64}
-    deriving (Eq, Ord, Show, Serialize, Num, Integral, Real, Enum, Bounded)
-
 -- |A strict version of 'Maybe'.
 data Option a
     = Absent
