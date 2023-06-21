@@ -55,14 +55,14 @@ succeedReceiveExecuteTimeoutMessage tm = do
         recvStatus -> liftIO . assertFailure $ "Expected timeout message was received, but was " <> show recvStatus
 
 -- |Create a valid timeout message with the provided data.
-testTimeoutMessage :: Int -> Round -> Epoch -> QuorumCertificate -> TimeoutMessage
-testTimeoutMessage finIndex rnd epoch qc = signTimeoutMessage body TestBlocks.genesisHash (bakerSignKey . fst $ TestBlocks.bakers !! finIndex)
+testTimeoutMessage :: Int -> Round -> QuorumCertificate -> TimeoutMessage
+testTimeoutMessage finIndex rnd qc = signTimeoutMessage body TestBlocks.genesisHash (bakerSignKey . fst $ TestBlocks.bakers !! finIndex)
   where
     body =
         TimeoutMessageBody
             { tmFinalizerIndex = FinalizerIndex $ fromIntegral finIndex,
               tmRound = rnd,
-              tmEpoch = epoch,
+              tmEpoch = qcEpoch qc,
               tmQuorumCertificate = qc,
               tmAggregateSignature = timeoutSig
             }
@@ -98,10 +98,10 @@ basicCatchup = runTest $ do
         request =
             CatchUpStatus
                 { cusLastFinalizedBlock = getHash b1,
-                  cusLastFinalizedRound = Round 0,
+                  cusLastFinalizedRound = Round 1,
                   cusLeaves = [],
                   cusBranches = [],
-                  cusCurrentRound = Round 1,
+                  cusCurrentRound = Round 2,
                   cusCurrentRoundQuorum = Map.empty,
                   cusCurrentRoundTimeouts = Absent
                 }
@@ -137,10 +137,10 @@ catchupWithEpochTransition = runTest $ do
         request =
             CatchUpStatus
                 { cusLastFinalizedBlock = getHash b1,
-                  cusLastFinalizedRound = Round 0,
+                  cusLastFinalizedRound = Round 1,
                   cusLeaves = [],
                   cusBranches = [],
-                  cusCurrentRound = Round 1,
+                  cusCurrentRound = Round 2,
                   cusCurrentRoundQuorum = Map.empty,
                   cusCurrentRoundTimeouts = Absent
                 }
@@ -179,16 +179,16 @@ catchupWithTimeouts = runTest $ do
         request =
             CatchUpStatus
                 { cusLastFinalizedBlock = getHash b1,
-                  cusLastFinalizedRound = Round 0,
+                  cusLastFinalizedRound = Round 1,
                   cusLeaves = [],
                   cusBranches = [],
-                  cusCurrentRound = Round 1,
+                  cusCurrentRound = Round 2,
                   cusCurrentRoundQuorum = Map.empty,
                   cusCurrentRoundTimeouts = Absent
                 }
         expectedTerminalData =
             CatchUpTerminalData
-                { cutdQuorumCertificates = [b3QC, blockQuorumCertificate $ pbBlock b5],
+                { cutdQuorumCertificates = [blockQuorumCertificate $ pbBlock b5],
                   cutdTimeoutCertificate = blockTimeoutCertificate $ pbBlock b5,
                   cutdCurrentRoundQuorumMessages = [qmR5],
                   cutdCurrentRoundTimeoutMessages = [tmR5]
@@ -210,10 +210,10 @@ catchupWithOneTimeoutAtEnd = runTest $ do
     let b3 = TestBlocks.signedPB TestBlocks.testBB3
     TestBlocks.succeedReceiveBlock b3
     -- Generate a TC for round 3.
-    let tm0_3 = testTimeoutMessage 0 (Round 3) 0 $ blockQuorumCertificate $ pbBlock b3
-        tm1_3 = testTimeoutMessage 1 (Round 3) 0 $ blockQuorumCertificate $ pbBlock b3
-        tm2_3 = testTimeoutMessage 2 (Round 3) 0 $ blockQuorumCertificate $ pbBlock b3
-        tm3_3 = testTimeoutMessage 3 (Round 3) 0 $ blockQuorumCertificate $ pbBlock b3
+    let tm0_3 = testTimeoutMessage 0 (Round 3) $ blockQuorumCertificate $ pbBlock b3
+        tm1_3 = testTimeoutMessage 1 (Round 3) $ blockQuorumCertificate $ pbBlock b3
+        tm2_3 = testTimeoutMessage 2 (Round 3) $ blockQuorumCertificate $ pbBlock b3
+        tm3_3 = testTimeoutMessage 3 (Round 3) $ blockQuorumCertificate $ pbBlock b3
     succeedReceiveExecuteTimeoutMessage tm0_3
     succeedReceiveExecuteTimeoutMessage tm1_3
     succeedReceiveExecuteTimeoutMessage tm2_3
@@ -223,10 +223,10 @@ catchupWithOneTimeoutAtEnd = runTest $ do
     let request =
             CatchUpStatus
                 { cusLastFinalizedBlock = getHash b1,
-                  cusLastFinalizedRound = Round 0,
+                  cusLastFinalizedRound = Round 1,
                   cusLeaves = [],
                   cusBranches = [],
-                  cusCurrentRound = Round 1,
+                  cusCurrentRound = Round 2,
                   cusCurrentRoundQuorum = Map.empty,
                   cusCurrentRoundTimeouts = Absent
                 }
@@ -251,33 +251,42 @@ catchupWithTwoTimeoutsAtEnd = runTest $ do
     TestBlocks.succeedReceiveBlock b1
     let b2 = TestBlocks.signedPB TestBlocks.testBB2
     TestBlocks.succeedReceiveBlock b2
+    -- b3 does not get a qc as the round times out.
     let b3 = TestBlocks.signedPB TestBlocks.testBB3
     TestBlocks.succeedReceiveBlock b3
+    -- b2 has a qc for b1, b3 has a qc for b2 and
+    -- b1 and b2 is in consecutive rounds so b1 is finalized.
     -- Generate a TC for round 3.
-    let tm0_3 = testTimeoutMessage 0 (Round 3) 0 $ blockQuorumCertificate $ pbBlock b3
-        tm1_3 = testTimeoutMessage 1 (Round 3) 0 $ blockQuorumCertificate $ pbBlock b3
-        tm2_3 = testTimeoutMessage 2 (Round 3) 0 $ blockQuorumCertificate $ pbBlock b3
-        tm3_3 = testTimeoutMessage 3 (Round 3) 0 $ blockQuorumCertificate $ pbBlock b3
+    let b2QC = blockQuorumCertificate $ pbBlock b3 -- qc for b2
+        tm0_3 = testTimeoutMessage 0 (Round 3) b2QC
+        tm1_3 = testTimeoutMessage 1 (Round 3) b2QC
+        tm2_3 = testTimeoutMessage 2 (Round 3) b2QC
+        tm3_3 = testTimeoutMessage 3 (Round 3) b2QC
     succeedReceiveExecuteTimeoutMessage tm0_3
     succeedReceiveExecuteTimeoutMessage tm1_3
     succeedReceiveExecuteTimeoutMessage tm2_3
     succeedReceiveExecuteTimeoutMessage tm3_3
+    rs <- use roundStatus
+    currentMessages <- use currentTimeoutMessages
+    liftIO . assertFailure $ "rs: " <> show rs <> "\n Current timeout messages " <>  show currentMessages
     -- Generate a TC for round 4.
-    let tm0_4 = testTimeoutMessage 0 (Round 4) 0 $ blockQuorumCertificate $ pbBlock b3
-        tm1_4 = testTimeoutMessage 1 (Round 4) 0 $ blockQuorumCertificate $ pbBlock b3
-        tm2_4 = testTimeoutMessage 2 (Round 4) 0 $ blockQuorumCertificate $ pbBlock b3
+    let tm0_4 = testTimeoutMessage 0 (Round 4) b2QC
+        tm1_4 = testTimeoutMessage 1 (Round 4) b2QC
+        tm2_4 = testTimeoutMessage 2 (Round 4) b2QC
+        tm3_4 = testTimeoutMessage 3 (Round 4) b2QC
     succeedReceiveExecuteTimeoutMessage tm0_4
     succeedReceiveExecuteTimeoutMessage tm1_4
     succeedReceiveExecuteTimeoutMessage tm2_4
+    succeedReceiveExecuteTimeoutMessage tm3_4
     -- b2 has a qc for b1, b3 has a qc for b2 and
     -- b1 and b2 is in consecutive rounds so b1 is finalized.
     let request =
             CatchUpStatus
                 { cusLastFinalizedBlock = getHash b1,
-                  cusLastFinalizedRound = Round 0,
+                  cusLastFinalizedRound = Round 1,
                   cusLeaves = [],
                   cusBranches = [],
-                  cusCurrentRound = Round 1,
+                  cusCurrentRound = Round 2,
                   cusCurrentRoundQuorum = Map.empty,
                   cusCurrentRoundTimeouts = Absent
                 }
@@ -286,13 +295,14 @@ catchupWithTwoTimeoutsAtEnd = runTest $ do
         sd <- get
         case sd ^. roundStatus . rsPreviousRoundTimeout of
             Absent -> liftIO . assertFailure $ "Expected timeout messages, but they were absent."
+            -- todo: perhaps spell this tc out.
             Present (RoundTimeout tc _) ->
                 return $
                     CatchUpTerminalData
                         { cutdQuorumCertificates = [blockQuorumCertificate $ pbBlock b3],
                           cutdTimeoutCertificate = Present tc,
                           cutdCurrentRoundQuorumMessages = [],
-                          cutdCurrentRoundTimeoutMessages = [tm2_4]
+                          cutdCurrentRoundTimeoutMessages = []
                         }
     assertCatchupResponse expectedTerminalData expectedBlocksServed =<< handleCatchUpRequest request =<< get
 
