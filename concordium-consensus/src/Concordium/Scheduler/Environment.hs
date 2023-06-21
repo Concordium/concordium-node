@@ -997,15 +997,16 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
 
     {-# INLINE withInstanceStateV1 #-}
     withInstanceStateV1 istance val stateModified cont = do
-        if stateModified then do
-            nextModificationIndex <- use nextContractModificationIndex
-            nextContractModificationIndex += 1
-            changeSet %= addContractStatesToCSV1 (Proxy @m) istance nextModificationIndex val
-            cont nextModificationIndex
-        else do
-           idx <- getCurrentModificationIndex istance
-           changeSet %= addContractStatesToCSV1 (Proxy @m) istance idx val
-           cont idx
+        if stateModified
+            then do
+                nextModificationIndex <- use nextContractModificationIndex
+                nextContractModificationIndex += 1
+                changeSet %= addContractStatesToCSV1 (Proxy @m) istance nextModificationIndex val
+                cont nextModificationIndex
+            else do
+                idx <- getCurrentModificationIndex istance
+                changeSet %= addContractStatesToCSV1 (Proxy @m) istance idx val
+                cont idx
 
     {-# INLINE withAccountToAccountAmount #-}
     withAccountToAccountAmount fromAcc toAcc amount cont = do

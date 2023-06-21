@@ -1149,9 +1149,9 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                                   euEvents = rrdLogs
                                                 }
                                     in  Right (rrdReturnValue, event : events)
-                            if WasmV1.rcFixRollbacks rcConfig || rrdStateChanged then
-                              withInstanceStateV1 istance rrdNewState rrdStateChanged $ \_modifiedIndex -> return result
-                            else return result
+                            if WasmV1.rcFixRollbacks rcConfig || rrdStateChanged
+                                then withInstanceStateV1 istance rrdNewState rrdStateChanged $ \_modifiedIndex -> return result
+                                else return result
                         WasmV1.ReceiveInterrupt{..} -> do
                             -- execution invoked an operation. Dispatch and continue.
                             let interruptEvent =
@@ -1166,11 +1166,12 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                         }
                             -- Helper for commiting the state of the contract if necessary.
                             let maybeCommitState :: (ModificationIndex -> LocalT r m a) -> LocalT r m a
-                                maybeCommitState f = if WasmV1.rcFixRollbacks rcConfig || rrdStateChanged then
-                                    withInstanceStateV1 istance rrdCurrentState rrdStateChanged f
-                                   else do
-                                     mi <- getCurrentModificationIndex istance
-                                     f mi
+                                maybeCommitState f =
+                                    if WasmV1.rcFixRollbacks rcConfig || rrdStateChanged
+                                        then withInstanceStateV1 istance rrdCurrentState rrdStateChanged f
+                                        else do
+                                            mi <- getCurrentModificationIndex istance
+                                            f mi
                             maybeCommitState $ \modificationIndex -> do
                                 case rrdMethod of
                                     -- the operation is an account transfer, so we handle it.
@@ -1394,13 +1395,14 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                 artifact <- liftLocal $ getModuleArtifact (GSWasm.miModule moduleInterface)
                 go [] =<< runInterpreter (return . WasmV1.applyReceiveFun artifact cm receiveCtx receiveName useFallback parameter transferAmount foreignModel rcConfig)
   where
-    rcConfig = WasmV1.RuntimeConfig {
-      rcSupportChainQueries = supportsChainQueryContracts $ protocolVersion @(MPV m),
-      rcMaxParameterLen = Wasm.maxParameterLen $ protocolVersion @(MPV m),
-      -- Check whether the number of logs and the size of return values are limited in the current protocol version.
-      rcLimitLogsAndRvs = Wasm.limitLogsAndReturnValues $ protocolVersion @(MPV m),
-      rcFixRollbacks = demoteProtocolVersion (protocolVersion @(MPV m)) >= P6
-    }
+    rcConfig =
+        WasmV1.RuntimeConfig
+            { rcSupportChainQueries = supportsChainQueryContracts $ protocolVersion @(MPV m),
+              rcMaxParameterLen = Wasm.maxParameterLen $ protocolVersion @(MPV m),
+              -- Check whether the number of logs and the size of return values are limited in the current protocol version.
+              rcLimitLogsAndRvs = Wasm.limitLogsAndReturnValues $ protocolVersion @(MPV m),
+              rcFixRollbacks = demoteProtocolVersion (protocolVersion @(MPV m)) >= P6
+            }
     transferAccountSync ::
         AccountAddress -> -- The target account address.
         UInstanceInfoV m GSWasm.V1 -> -- The sender of this transfer.
