@@ -348,8 +348,10 @@ class (StaticInformation m, ContractStateOperations m, MonadProtocolVersion m) =
     -- keep track of changes locally first, and only commit them at the end.
     -- Instance keeps track of its own address hence we need not provide it
     -- separately.
-    -- The boolean flag indicates whether the state has been semantically modified.
-    -- If it has, then the modification index is increased to keep track of changes.
+    -- The boolean flag indicates whether the state has been semantically
+    -- modified. If it has, then the modification index is increased to keep
+    -- track of changes so that when resuming execution a contract is told
+    -- whether its state has changed or not.
     withInstanceStateV1 :: UInstanceInfoV m GSWasm.V1 -> UpdatableContractState GSWasm.V1 -> Bool -> (ModificationIndex -> m a) -> m a
 
     -- |Transfer amount from the first address to the second and run the

@@ -592,7 +592,11 @@ processReceiveResult fixRollbacks callbacks initialState stateWrittenTo result r
                                 then do
                                     let rrdStateChanged = True
                                     return (Just (Right ReceiveInterrupt{rrdCurrentState = newState, ..}, fromIntegral remainingEnergy))
-                                else
+                                else -- in the implementation in protocol <= P5 we did not correctly record the state
+                                -- after the initial call_receive. Instead we reset it to the initial state, before
+                                -- `make_fresh_generation` was called (see ffi.rs mentioned in the module header).
+                                -- We need to keep this old behaviour for backwards compatibility.
+
                                     let rrdCurrentState = if fixRollbacks then newState else initialState
                                         rrdStateChanged = False
                                     in  return (Just (Right ReceiveInterrupt{..}, fromIntegral remainingEnergy))
