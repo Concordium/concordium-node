@@ -182,6 +182,9 @@ loadSkovData _runtimeParameters = do
         _ -> throwM . TreeStateInvariantViolation $ "First block is not a genesis block"
     let _skovPendingBlocks = emptyPendingBlocks
     let _lastFinalized = lastFinBlock
+    -- When loading, we currently do not have the finalizing certified block.
+    -- TODO: When the database storage is modified to allow this, load the block. Issue #843
+    let _finalizingCertifiedBlock = Absent
     _skovEpochBakers <- makeEpochBakers lastFinBlock
 
     let _currentTimeoutMessages = case _prsLastSignedTimeoutMessage _persistentRoundStatus of

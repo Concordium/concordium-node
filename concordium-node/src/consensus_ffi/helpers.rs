@@ -202,7 +202,7 @@ impl ConsensusFfiResponse {
     pub fn is_pending(self) -> bool {
         use ConsensusFfiResponse::*;
 
-        matches!(self, PendingBlock | PendingFinalization | InvalidGenesisIndex)
+        matches!(self, PendingBlock | PendingFinalization | InvalidGenesisIndex | Unverifiable)
     }
 
     pub fn is_acceptable(self) -> bool {
