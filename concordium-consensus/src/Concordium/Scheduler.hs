@@ -1402,11 +1402,11 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
       rcFixRollbacks = demoteProtocolVersion (protocolVersion @(MPV m)) >= P6
     }
     transferAccountSync ::
-        AccountAddress -> -- \^The target account address.
-        UInstanceInfoV m GSWasm.V1 -> -- \^The sender of this transfer.
-        Amount -> -- \^The amount to transfer.
+        AccountAddress -> -- The target account address.
+        UInstanceInfoV m GSWasm.V1 -> -- The sender of this transfer.
+        Amount -> -- The amount to transfer.
         ExceptT WasmV1.EnvFailure (LocalT r m) [Event]
-    -- \^The events resulting from the transfer.
+    -- The events resulting from the transfer.
     transferAccountSync accAddr senderInstance tAmount = do
         -- charge at the beginning, successful and failed transfers will have the same cost.
         -- Check whether the sender has the amount to be transferred and reject the transaction if not.

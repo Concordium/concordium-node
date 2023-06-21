@@ -662,6 +662,7 @@ applyReceiveFun miface cm receiveCtx rName useFallback param amnt initialState R
                     poke statePtrPtr curStatePtr
                     BSU.unsafeUseAsCStringLen paramBytes $ \(paramBytesPtr, paramBytesLen) ->
                         alloca $ \outputLenPtr -> alloca $ \outputReturnValuePtrPtr -> alloca $ \outputInterruptedConfigPtrPtr -> alloca $ \stateWrittenToPtr -> do
+                            poke stateWrittenToPtr 0
                             outPtr <-
                                 call_receive
                                     callbacks
