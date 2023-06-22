@@ -30,6 +30,7 @@ import Control.Monad.Reader
 import Control.Monad.State
 import Data.Foldable
 import Data.IORef
+import Data.Maybe (fromMaybe)
 import Data.Time
 import Data.Typeable
 import GHC.Stack
@@ -56,6 +57,7 @@ import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import Concordium.GlobalState.Persistent.TreeState (DeadCache, emptyDeadCache, insertDeadCache, memberDeadCache)
 import qualified Concordium.GlobalState.PurgeTransactions as Purge
 import qualified Concordium.GlobalState.Statistics as Stats
+import Concordium.GlobalState.TransactionTable
 import qualified Concordium.GlobalState.TransactionTable as TT
 import qualified Concordium.GlobalState.Types as GSTypes
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
@@ -290,7 +292,13 @@ purgeRoundExistingQCs rnd = roundExistingQCs %=! snd . Map.split (rnd - 1)
 -- |Create an initial 'SkovData pv'
 -- This constructs a 'SkovData pv' from a genesis block
 -- which is suitable to grow the tree from.
-mkInitialSkovData ::
+-- Further this function takes a @Maybe TransactionTable@ which if
+-- present will be used for populating the account nonces and sequence numbers for
+-- the new transaction table.
+--
+-- This function should not be called directly, instead either use
+-- 'mkInitialSkovData' or 'mkInitialSkovDataWithTT'
+mkInitialSkovData' ::
     -- |The 'RuntimeParameters'
     RuntimeParameters ->
     -- |Genesis metadata. State hash should match the hash of the state.
@@ -301,9 +309,14 @@ mkInitialSkovData ::
     Duration ->
     -- |Bakers at the genesis block
     EpochBakers ->
+    -- |If present the initial skov data created
+    -- will carry over the account nonces and sequence numbers
+    -- from the provided transaction table.
+    -- This is used for migration.
+    Maybe TransactionTable ->
     -- |The initial 'SkovData'
     SkovData pv
-mkInitialSkovData rp genMeta genState _currentTimeout _skovEpochBakers =
+mkInitialSkovData' rp genMeta genState _currentTimeout _skovEpochBakers maybeTT =
     let genesisBlock = GenesisBlock genMeta
         genesisTime = timestampToUTCTime $ Base.genesisTime (gmParameters genMeta)
         genesisBlockMetadata =
@@ -322,7 +335,7 @@ mkInitialSkovData rp genMeta genState _currentTimeout _skovEpochBakers =
                 }
         _persistentRoundStatus = initialPersistentRoundStatus
         _roundStatus = initialRoundStatus _currentTimeout genesisBlockPointer
-        _transactionTable = TT.emptyTransactionTable
+        _transactionTable = fromMaybe TT.emptyTransactionTable maybeTT
         _transactionTablePurgeCounter = 0
         _skovPendingTransactions =
             PendingTransactions
@@ -342,6 +355,51 @@ mkInitialSkovData rp genMeta genState _currentTimeout _skovEpochBakers =
         _currentTimeoutMessages = Absent
         _currentQuorumMessages = emptyQuorumMessages
     in  SkovData{..}
+
+-- |Create an initial 'SkovData pv'
+-- This constructs a 'SkovData pv' from a genesis block
+-- which is suitable to grow the tree from.
+mkInitialSkovData ::
+    -- |The 'RuntimeParameters'
+    RuntimeParameters ->
+    -- |Genesis metadata. State hash should match the hash of the state.
+    GenesisMetadata ->
+    -- |Genesis statep
+    PBS.HashedPersistentBlockState pv ->
+    -- |The base timeout
+    Duration ->
+    -- |Bakers at the genesis block
+    EpochBakers ->
+    -- |The initial 'SkovData'
+    SkovData pv
+mkInitialSkovData rp genMeta genState _currentTimeout _skovEpochBakers = mkInitialSkovData' rp genMeta genState _currentTimeout _skovEpochBakers Nothing
+
+-- |Create an initial 'SkovData pv'.
+-- This constructs a 'SkovData pv' from a genesis block and
+-- carries over the account nonces and sequence numbers from the supplied
+-- transaction table.
+mkInitialSkovDataWithTT ::
+    -- |The 'RuntimeParameters'
+    RuntimeParameters ->
+    -- |Genesis metadata. State hash should match the hash of the state.
+    GenesisMetadata ->
+    -- |Genesis statep
+    PBS.HashedPersistentBlockState pv ->
+    -- |The base timeout
+    Duration ->
+    -- |Bakers at the genesis block
+    EpochBakers ->
+    -- |The transaction table to migrate from.
+    -- This carries over the account nonces and sequence numbers to the
+    -- new transaction table.
+    TransactionTable ->
+    -- |The initial 'SkovData'
+    SkovData pv
+mkInitialSkovDataWithTT rp genMeta genState _currentTimeout _skovEpochBakers tt =
+    let migratedTT = emptyTransactionTableWithSequenceNumbers migratedAccountNonces migratedUpdateSequenceNumbers
+        migratedAccountNonces = map (\(addr, anft) -> (aaeAddress addr, anft ^. anftNextNonce)) (HM.toList $ tt ^. ttNonFinalizedTransactions)
+        migratedUpdateSequenceNumbers = Map.fromList $ map (\(utype, nfcu) -> (utype, nfcu ^. nfcuNextSequenceNumber)) (Map.toList $ tt ^. ttNonFinalizedChainUpdates)
+    in  mkInitialSkovData' rp genMeta genState _currentTimeout _skovEpochBakers $ Just migratedTT
 
 -- * Operations on the block table
 

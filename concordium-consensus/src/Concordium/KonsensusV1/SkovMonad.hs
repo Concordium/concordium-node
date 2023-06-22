@@ -38,6 +38,7 @@ import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
 import qualified Concordium.GlobalState.Persistent.Cache as Cache
 import Concordium.GlobalState.Persistent.Genesis (genesisState)
 import Concordium.GlobalState.Persistent.TreeState (checkExistingDatabase)
+import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.Types
 import Concordium.KonsensusV1.Consensus
 import Concordium.KonsensusV1.Consensus.Timeout
@@ -608,9 +609,11 @@ migrateSkovFromConsensusV0 ::
     -- |The function for unlifting a 'SkovV1T' into 'IO'.
     -- See documentation for 'SkovV1Context'.
     (forall a. SkovV1T pv m a -> IO a) ->
+    -- |Transaction table to migrate
+    TransactionTable ->
     -- |Return back the 'SkovV1Context' and the migrated 'SkovV1State'
     LogIO (SkovV1Context pv m, SkovV1State pv)
-migrateSkovFromConsensusV0 regenesis migration gsConfig@GlobalStateConfig{..} oldPbsc oldBlockState bakerCtx handlerCtx unliftSkov = do
+migrateSkovFromConsensusV0 regenesis migration gsConfig@GlobalStateConfig{..} oldPbsc oldBlockState bakerCtx handlerCtx unliftSkov migrateTT = do
     pbsc@PersistentBlockStateContext{..} <- newPersistentBlockStateContext gsConfig
     logEvent GlobalState LLDebug "Migrating existing global state."
     newInitialBlockState <- flip runBlobStoreT oldPbsc . flip runBlobStoreT pbsc $ do
@@ -626,7 +629,7 @@ migrateSkovFromConsensusV0 regenesis migration gsConfig@GlobalStateConfig{..} ol
             let genTimeoutDuration =
                     chainParams ^. cpConsensusParameters . cpTimeoutParameters . tpTimeoutBase
             let !initSkovData =
-                    mkInitialSkovData gscRuntimeParameters genMeta newInitialBlockState genTimeoutDuration genEpochBakers
+                    mkInitialSkovDataWithTT gscRuntimeParameters genMeta newInitialBlockState genTimeoutDuration genEpochBakers migrateTT
             let storedGenesis =
                     LowLevel.StoredBlock
                         { stbStatePointer = stateRef,
