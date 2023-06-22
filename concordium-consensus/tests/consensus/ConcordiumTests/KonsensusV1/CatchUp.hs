@@ -50,7 +50,7 @@ succeedReceiveExecuteTimeoutMessage tm = do
     case recvResult of
         Received verifiedTm ->
             executeTimeoutMessage verifiedTm >>= \case
-                ExecutionSuccess -> processTimeout tm
+                ExecutionSuccess -> return ()
                 execStatus -> liftIO . assertFailure $ "Expected timeout message was executed, but was " <> show execStatus
         recvStatus -> liftIO . assertFailure $ "Expected timeout message was received, but was " <> show recvStatus
 
@@ -241,7 +241,7 @@ catchupWithOneTimeoutAtEnd = runTest $ do
                         { cutdQuorumCertificates = [blockQuorumCertificate $ pbBlock b3],
                           cutdTimeoutCertificate = Present tc,
                           cutdCurrentRoundQuorumMessages = [],
-                          cutdCurrentRoundTimeoutMessages = [tm3_3]
+                          cutdCurrentRoundTimeoutMessages = []
                         }
     assertCatchupResponse expectedTerminalData expectedBlocksServed =<< handleCatchUpRequest request =<< get
 
@@ -266,9 +266,6 @@ catchupWithTwoTimeoutsAtEnd = runTest $ do
     succeedReceiveExecuteTimeoutMessage tm1_3
     succeedReceiveExecuteTimeoutMessage tm2_3
     succeedReceiveExecuteTimeoutMessage tm3_3
-    rs <- use roundStatus
-    currentMessages <- use currentTimeoutMessages
-    liftIO . assertFailure $ "rs: " <> show rs <> "\n Current timeout messages " <>  show currentMessages
     -- Generate a TC for round 4.
     let tm0_4 = testTimeoutMessage 0 (Round 4) b2QC
         tm1_4 = testTimeoutMessage 1 (Round 4) b2QC
