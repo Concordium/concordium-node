@@ -751,6 +751,9 @@ checkpointing2SourceFile = "../concordium-base/smart-contracts/testdata/contract
 --      - Set state = 113
 --      - Fail with error -1
 --    - Assert state == 112 (rollback occurred)
+--
+-- In protocols 4 & 5 the behaviour of rollbacks is incorrect which leads to an
+-- assertion violation. In P6 the behaviour is fixed.
 checkpointingTest7 ::
     forall pv.
     Types.IsProtocolVersion pv =>
@@ -758,7 +761,7 @@ checkpointingTest7 ::
     String ->
     Spec
 checkpointingTest7 spv pvString =
-    when (Types.demoteProtocolVersion spv >= Types.P6) $
+    when (Types.demoteProtocolVersion spv >= Types.P4) $
         specify (pvString ++ ": Checkpointing 7") $
             Helpers.runSchedulerTestAssertIntermediateStates
                 @pv
@@ -806,7 +809,9 @@ checkpointingTest7 spv pvString =
                     },
               taaAssertion = \result _ -> do
                 return $ do
-                    Helpers.assertSuccess result
+                    if Types.demoteProtocolVersion spv >= Types.P6
+                        then Helpers.assertSuccess result
+                        else Helpers.assertRejectWithReason Types.RuntimeFailure result
             }
         ]
 
@@ -823,6 +828,9 @@ checkpointingTest7 spv pvString =
 --       - Set state = 113
 --       - Fail with error -1
 --     - Assert state == 112 (rollback occurred)
+--
+-- In protocols 4 & 5 the behaviour of rollbacks is incorrect which leads to an
+-- assertion violation. In P6 the behaviour is fixed.
 checkpointingTest8 ::
     forall pv.
     Types.IsProtocolVersion pv =>
@@ -830,7 +838,7 @@ checkpointingTest8 ::
     String ->
     Spec
 checkpointingTest8 spv pvString =
-    when (Types.demoteProtocolVersion spv >= Types.P6) $
+    when (Types.demoteProtocolVersion spv >= Types.P4) $
         specify (pvString ++ ": Checkpointing 8") $
             Helpers.runSchedulerTestAssertIntermediateStates
                 @pv
@@ -878,7 +886,9 @@ checkpointingTest8 spv pvString =
                     },
               taaAssertion = \result _ -> do
                 return $ do
-                    Helpers.assertSuccess result
+                    if Types.demoteProtocolVersion spv >= Types.P6
+                        then Helpers.assertSuccess result
+                        else Helpers.assertRejectWithReason Types.RuntimeFailure result
             }
         ]
     -- Tell the contract to call entrypoint 'c'.
@@ -892,6 +902,9 @@ checkpointingTest8 spv pvString =
 --       - look up an and entry at [0,0,0,0]
 --       - invoke entrypoint d which does nothing and returns
 --       - try to read from the previously created entry, make sure it succeeds and returns the correct value.
+--
+-- In protocols 4 & 5 the behaviour of rollbacks is incorrect which leads to an
+-- assertion violation. In P6 the behaviour is fixed.
 checkpointingTest9 ::
     forall pv.
     Types.IsProtocolVersion pv =>
@@ -899,7 +912,7 @@ checkpointingTest9 ::
     String ->
     Spec
 checkpointingTest9 spv pvString =
-    when (Types.demoteProtocolVersion spv >= Types.P6) $
+    when (Types.demoteProtocolVersion spv >= Types.P4) $
         specify (pvString ++ ": Checkpointing 9") $
             Helpers.runSchedulerTestAssertIntermediateStates
                 @pv
@@ -947,7 +960,9 @@ checkpointingTest9 spv pvString =
                     },
               taaAssertion = \result _ -> do
                 return $ do
-                    Helpers.assertSuccess result
+                    if Types.demoteProtocolVersion spv >= Types.P6
+                        then Helpers.assertSuccess result
+                        else Helpers.assertRejectWithReason Types.RuntimeFailure result
             }
         ]
     -- Tell the contract to call entrypoint 'f' that looks up an entry and then

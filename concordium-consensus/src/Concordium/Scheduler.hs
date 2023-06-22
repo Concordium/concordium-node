@@ -1149,7 +1149,14 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                                   euEvents = rrdLogs
                                                 }
                                     in  Right (rrdReturnValue, event : events)
-                            if WasmV1.rcFixRollbacks rcConfig || rrdStateChanged
+                            -- execution terminated, now add the state to the changeset.
+                            -- In contrast to maybeCommitState below, we don't have to (but could)
+                            -- add the state also when it is not modified. However this is not needed
+                            -- since if the state has not been modified it will not be looked up from the
+                            -- changeset on resume. It might be looked up on another call later, but that
+                            -- will start a fresh instance of the state, without the need for rollback
+                            -- past this point.
+                            if rrdStateChanged
                                 then withInstanceStateV1 istance rrdNewState rrdStateChanged $ \_modifiedIndex -> return result
                                 else return result
                         WasmV1.ReceiveInterrupt{..} -> do
@@ -1167,6 +1174,10 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                             -- Helper for commiting the state of the contract if necessary.
                             let maybeCommitState :: (ModificationIndex -> LocalT r m a) -> LocalT r m a
                                 maybeCommitState f =
+                                    -- execution terminated, now add the state to the changeset.
+                                    -- In protocols 4 and 5 we did not add the updated state to the changeset
+                                    -- This was incorrect since some administrative state changes might still be there,
+                                    -- such as adding a new generation. In P6 we fix this hence the odd-looking conditional.
                                     if WasmV1.rcFixRollbacks rcConfig || rrdStateChanged
                                         then withInstanceStateV1 istance rrdCurrentState rrdStateChanged f
                                         else do

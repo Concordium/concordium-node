@@ -534,8 +534,8 @@ cerToRejectReasonReceive _ _ _ (EnvFailure e) = case e of
 -- documentation of the above mentioned imported functions for the specification
 -- of the return value.
 processReceiveResult ::
-    -- |Whether to use the correct logic for rollbacks, or the
-    -- legacy one that is incorrect in some cases. The latter applies to P5 and earlier.
+    -- |Whether to use the correct logic for rollbacks, or the legacy one that
+    -- is incorrect in some cases. The latter applies to protocols 4 and 5.
     Bool ->
     -- |State context.
     LoadCallback ->
