@@ -2,6 +2,9 @@
 
 ## Unreleased changes
 
+- Fix a bug that caused an incorrect reporting of total stake in the first
+  payday just after genesis when the node started from genesis at protocols 4 or 5.
+
 ## 6.0.0
 
 - Support the new ConcordiumBFT consensus (protocol version 6).

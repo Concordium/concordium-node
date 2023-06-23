@@ -143,7 +143,7 @@ buildGenesisBlockState vcgp GenesisData.GenesisState{..} = do
                       _passiveDelegators = Bakers.emptyPersistentActiveDelegators,
                       _totalActiveCapital = case Types.delegationSupport @av of
                         Types.SAVDelegationNotSupported -> Bakers.TotalActiveCapitalV0
-                        Types.SAVDelegationSupported -> Bakers.TotalActiveCapitalV1 agsTotal
+                        Types.SAVDelegationSupported -> Bakers.TotalActiveCapitalV1 agsStakedTotal
                     }
 
         _birkNextEpochBakers <-
