@@ -37,6 +37,7 @@ import qualified SchedulerTests.SmartContracts.V1.CrossMessaging (tests)
 import qualified SchedulerTests.SmartContracts.V1.ErrorCodes (tests)
 import qualified SchedulerTests.SmartContracts.V1.Fallback (tests)
 import qualified SchedulerTests.SmartContracts.V1.Iterator (tests)
+import qualified SchedulerTests.SmartContracts.V1.P6WasmFeatures (tests)
 import qualified SchedulerTests.SmartContracts.V1.Queries (tests)
 import qualified SchedulerTests.SmartContracts.V1.QueriesPersistent (tests)
 import qualified SchedulerTests.SmartContracts.V1.Recorder (tests)
@@ -47,7 +48,6 @@ import qualified SchedulerTests.SmartContracts.V1.TransfersPersistent (tests)
 import qualified SchedulerTests.SmartContracts.V1.Upgrading (tests)
 import qualified SchedulerTests.SmartContracts.V1.UpgradingPersistent (tests)
 import qualified SchedulerTests.SmartContracts.V1.ValidInvalidModules (tests)
-import qualified SchedulerTests.SmartContracts.V1.P6WasmFeatures (tests)
 
 import Test.Hspec
 

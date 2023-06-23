@@ -1,6 +1,6 @@
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE GADTs #-}
 {-# LANGUAGE RankNTypes #-}
 
 -- |This module provides most of the functionality that deals with calling V1 smart contracts, processing responses,
@@ -506,7 +506,7 @@ processInitResult callbacks result returnValuePtr newStatePtr = case BS.uncons r
                             return (Just (Right InitSuccess{..}, fromIntegral remainingEnergy))
             _ -> fail $ "Invalid tag: " ++ show tag
       where
-        parseResult :: forall a . Get a -> a
+        parseResult :: forall a. Get a -> a
         parseResult parser =
             case runGet parser payload of
                 Right x -> x
@@ -619,7 +619,7 @@ processReceiveResult fixRollbacks callbacks initialState stateWrittenTo result r
                             return (Just (Right ReceiveSuccess{..}, fromIntegral remainingEnergy))
             _ -> fail $ "Invalid tag: " ++ show tag
       where
-        parseResult :: forall a . Get a -> a
+        parseResult :: forall a. Get a -> a
         parseResult parser =
             case runGet parser payload of
                 Right x -> x
@@ -764,32 +764,37 @@ resumeReceiveFun is currentState stateChanged amnt statusCode rVal remainingEner
 
 -- |Configuration for module validation dependent on which features are allowed
 -- in a specific protocol version.
-data ValidationConfig = ValidationConfig {
-  -- |Support upgrades.
-  vcSupportUpgrade :: Bool,
-  -- |Allow globals in data and element segments.
-  vcAllowGlobals :: Bool
-  }
+data ValidationConfig = ValidationConfig
+    { -- |Support upgrades.
+      vcSupportUpgrade :: Bool,
+      -- |Allow globals in data and element segments.
+      vcAllowGlobals :: Bool
+    }
 
 validationConfig :: SProtocolVersion spv -> ValidationConfig
-validationConfig = \case SP1 -> v0
-                         SP2 -> v0
-                         SP3 -> v0
-                         SP4 -> v0
-                         SP5 -> v1
-                         SP6 -> v2
-  where v0 = ValidationConfig {
-          vcSupportUpgrade = False,
-          vcAllowGlobals = True
-          }
-        v1 = ValidationConfig {
-          vcSupportUpgrade = True,
-          vcAllowGlobals = True
-          }
-        v2 = ValidationConfig {
-          vcSupportUpgrade = True,
-          vcAllowGlobals = False
-          }
+validationConfig = \case
+    SP1 -> v0
+    SP2 -> v0
+    SP3 -> v0
+    SP4 -> v0
+    SP5 -> v1
+    SP6 -> v2
+  where
+    v0 =
+        ValidationConfig
+            { vcSupportUpgrade = False,
+              vcAllowGlobals = True
+            }
+    v1 =
+        ValidationConfig
+            { vcSupportUpgrade = True,
+              vcAllowGlobals = True
+            }
+    v2 =
+        ValidationConfig
+            { vcSupportUpgrade = True,
+              vcAllowGlobals = False
+            }
 
 -- |Process a module as received and make a module interface.
 -- This
