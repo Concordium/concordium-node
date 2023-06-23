@@ -7,6 +7,7 @@
 -- | This module tests that new P6 additions are correctly allowed in P6 and
 -- later, and not allowed in earlier protocol versions.
 module SchedulerTests.SmartContracts.V1.P6WasmFeatures (tests) where
+
 import Test.Hspec
 
 import Control.Monad
@@ -74,10 +75,9 @@ testCase spv pvString sourceFile =
                     },
               taaAssertion = \result _ ->
                 return $
-                    if Types.demoteProtocolVersion spv <= Types.P5 then
-                       Helpers.assertSuccess result
-                    else 
-                       Helpers.assertRejectWithReason Types.ModuleNotWF result
+                    if Types.demoteProtocolVersion spv <= Types.P5
+                        then Helpers.assertSuccess result
+                        else Helpers.assertRejectWithReason Types.ModuleNotWF result
             }
         ]
 
