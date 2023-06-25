@@ -771,26 +771,31 @@ data ValidationConfig = ValidationConfig
       vcAllowGlobals :: Bool
     }
 
+-- |Construct a 'ValidationConfig' valid for the given protocol version.
 validationConfig :: SProtocolVersion spv -> ValidationConfig
 validationConfig = \case
-    SP1 -> v0
-    SP2 -> v0
-    SP3 -> v0
-    SP4 -> v0
-    SP5 -> v1
-    SP6 -> v2
+    SP1 -> v1
+    SP2 -> v1
+    SP3 -> v1
+    SP4 -> v1
+    SP5 -> v5
+    SP6 -> v6
   where
-    v0 =
+    -- Protocols 1-4 do not support upgrades, and support globals.
+    v1 =
         ValidationConfig
             { vcSupportUpgrade = False,
               vcAllowGlobals = True
             }
-    v1 =
+    -- In protocol 5 we enabled support for smart contract upgrades.
+    v5 =
         ValidationConfig
             { vcSupportUpgrade = True,
               vcAllowGlobals = True
             }
-    v2 =
+    -- In protocol 6 we disallow globals in initializers to conform to the
+    -- updates to the published Wasm standard.
+    v6 =
         ValidationConfig
             { vcSupportUpgrade = True,
               vcAllowGlobals = False
