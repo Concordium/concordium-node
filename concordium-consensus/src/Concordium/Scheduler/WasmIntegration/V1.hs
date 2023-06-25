@@ -75,6 +75,8 @@ foreign import ccall "validate_and_process_v1"
         Word8 ->
         -- |Whether the current protocol allows for globals in initialization expressions.
         Word8 ->
+        -- |Whether the current protocol allows for sign extension instructions.
+        Word8 ->
         -- |Pointer to the Wasm module source.
         Ptr Word8 ->
         -- |Length of the module source.
@@ -768,7 +770,9 @@ data ValidationConfig = ValidationConfig
     { -- |Support upgrades.
       vcSupportUpgrade :: Bool,
       -- |Allow globals in data and element segments.
-      vcAllowGlobals :: Bool
+      vcAllowGlobals :: Bool,
+      -- |Allow sign extension instructions.
+      vcAllowSignExtensionInstr :: Bool
     }
 
 -- |Construct a 'ValidationConfig' valid for the given protocol version.
@@ -785,20 +789,23 @@ validationConfig = \case
     v1 =
         ValidationConfig
             { vcSupportUpgrade = False,
-              vcAllowGlobals = True
+              vcAllowGlobals = True,
+              vcAllowSignExtensionInstr = False
             }
     -- In protocol 5 we enabled support for smart contract upgrades.
     v5 =
         ValidationConfig
             { vcSupportUpgrade = True,
-              vcAllowGlobals = True
+              vcAllowGlobals = True,
+              vcAllowSignExtensionInstr = False
             }
     -- In protocol 6 we disallow globals in initializers to conform to the
     -- updates to the published Wasm standard.
     v6 =
         ValidationConfig
             { vcSupportUpgrade = True,
-              vcAllowGlobals = False
+              vcAllowGlobals = False,
+              vcAllowSignExtensionInstr = True
             }
 
 -- |Process a module as received and make a module interface.
@@ -821,7 +828,7 @@ processModule spv modl = do
             alloca $ \outputLenPtr ->
                 alloca $ \artifactLenPtr ->
                     alloca $ \outputModuleArtifactPtr -> do
-                        outPtr <- validate_and_process (if vcSupportUpgrade then 1 else 0) (if vcAllowGlobals then 1 else 0) (castPtr wasmBytesPtr) (fromIntegral wasmBytesLen) outputLenPtr artifactLenPtr outputModuleArtifactPtr
+                        outPtr <- validate_and_process (if vcSupportUpgrade then 1 else 0) (if vcAllowGlobals then 1 else 0) (if vcAllowSignExtensionInstr then 1 else 0) (castPtr wasmBytesPtr) (fromIntegral wasmBytesLen) outputLenPtr artifactLenPtr outputModuleArtifactPtr
                         if outPtr == nullPtr
                             then return Nothing
                             else do
