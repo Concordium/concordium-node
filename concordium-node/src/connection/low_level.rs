@@ -307,7 +307,7 @@ impl ConnectionLowLevel {
         recv_xx_msg!(self, len, "C");
         let payload = self.socket_buffer.slice(len)[DHLEN + MAC_LENGTH..]
             [..len - DHLEN - MAC_LENGTH * 2]
-            .try_into()?;
+            .to_vec();
         self.socket.set_nodelay(false)?;
         Ok(payload)
     }
@@ -441,7 +441,9 @@ impl ConnectionLowLevel {
                     }
                 }
 
-                self.socket_buffer.reset();
+                // If we reach this point we have read the entire noise message.
+                // So consume it from the socket buffer.
+                self.socket_buffer.shift(to_read);
                 Ok(ReadResult::Complete(payload))
             } else {
                 Ok(ReadResult::Complete(self.decrypt()?))
