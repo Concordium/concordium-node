@@ -45,6 +45,7 @@ modElemGlobals = "../concordium-base/smart-contracts/testdata/contracts/global-e
 -- |Modules testing whether sign extension instructions are allowed or not.
 modi32extend8s :: FilePath
 modi32extend8s = "../concordium-base/smart-contracts/testdata/contracts/v1/i32.extend8_s.wasm"
+
 modi32extend16s :: FilePath
 modi32extend16s = "../concordium-base/smart-contracts/testdata/contracts/v1/i32.extend16_s.wasm"
 modi64extend8s :: FilePath
@@ -53,7 +54,6 @@ modi64extend16s :: FilePath
 modi64extend16s = "../concordium-base/smart-contracts/testdata/contracts/v1/i64.extend16_s.wasm"
 modi64extend32s :: FilePath
 modi64extend32s = "../concordium-base/smart-contracts/testdata/contracts/v1/i64.extend32_s.wasm"
-
 
 -- Tests in this module use version 1, creating V1 instances.
 wasmModVersion1 :: WasmVersion
@@ -95,20 +95,20 @@ testCase spv taaAssertion pvString sourceFile =
         ]
 
 -- |Ensure that the outcome is success before P6, and ModuleNotWF after P6.
-validBeforeP6 :: forall pv . Types.IsProtocolVersion pv => Helpers.TransactionAssertion pv
+validBeforeP6 :: forall pv. Types.IsProtocolVersion pv => Helpers.TransactionAssertion pv
 validBeforeP6 result _ =
     return $
-    if Types.demoteProtocolVersion (Types.protocolVersion @pv) <= Types.P5
-    then Helpers.assertSuccess result
-    else Helpers.assertRejectWithReason Types.ModuleNotWF result
+        if Types.supportsGlobalsInInitSections (Types.protocolVersion @pv)
+            then Helpers.assertSuccess result
+            else Helpers.assertRejectWithReason Types.ModuleNotWF result
 
 -- |Ensure that the outcome is success after P6, and ModuleNotWF before P6.
-validAfterP6 :: forall pv . Types.IsProtocolVersion pv => Helpers.TransactionAssertion pv
+validAfterP6 :: forall pv. Types.IsProtocolVersion pv => Helpers.TransactionAssertion pv
 validAfterP6 result _ =
     return $
-    if Types.demoteProtocolVersion (Types.protocolVersion @pv) >= Types.P6
-    then Helpers.assertSuccess result
-    else Helpers.assertRejectWithReason Types.ModuleNotWF result
+        if Types.supportsSignExtensionInstructions (Types.protocolVersion @pv)
+            then Helpers.assertSuccess result
+            else Helpers.assertRejectWithReason Types.ModuleNotWF result
 
 tests :: Spec
 tests =
