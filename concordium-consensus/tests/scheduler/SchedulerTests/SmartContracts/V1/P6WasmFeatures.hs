@@ -42,6 +42,19 @@ modDataGlobals = "../concordium-base/smart-contracts/testdata/contracts/global-d
 modElemGlobals :: FilePath
 modElemGlobals = "../concordium-base/smart-contracts/testdata/contracts/global-element-section-test.wasm"
 
+-- |Modules testing whether sign extension instructions are allowed or not.
+modi32extend8s :: FilePath
+modi32extend8s = "../concordium-base/smart-contracts/testdata/contracts/v1/i32.extend8_s.wasm"
+
+modi32extend16s :: FilePath
+modi32extend16s = "../concordium-base/smart-contracts/testdata/contracts/v1/i32.extend16_s.wasm"
+modi64extend8s :: FilePath
+modi64extend8s = "../concordium-base/smart-contracts/testdata/contracts/v1/i64.extend8_s.wasm"
+modi64extend16s :: FilePath
+modi64extend16s = "../concordium-base/smart-contracts/testdata/contracts/v1/i64.extend16_s.wasm"
+modi64extend32s :: FilePath
+modi64extend32s = "../concordium-base/smart-contracts/testdata/contracts/v1/i64.extend32_s.wasm"
+
 -- Tests in this module use version 1, creating V1 instances.
 wasmModVersion1 :: WasmVersion
 wasmModVersion1 = V1
@@ -51,10 +64,14 @@ testCase ::
     forall pv.
     Types.IsProtocolVersion pv =>
     Types.SProtocolVersion pv ->
+    -- |Assertion that will be used to check the transaction outcome.
+    Helpers.TransactionAssertion pv ->
+    -- |Description of the test.
     String ->
+    -- |Path to the module to attempt to deploy.
     FilePath ->
     Spec
-testCase spv pvString sourceFile =
+testCase spv taaAssertion pvString sourceFile =
     -- we only check V1 contracts, which do not exist before P4.
     when (Types.demoteProtocolVersion spv >= Types.P4) $
         specify (pvString ++ ": Wasm features") $
@@ -73,18 +90,35 @@ testCase spv pvString sourceFile =
                       metadata = makeDummyHeader accountAddress0 1 100_000,
                       keys = [(0, [(0, keyPair0)])]
                     },
-              taaAssertion = \result _ ->
-                return $
-                    if Types.demoteProtocolVersion spv <= Types.P5
-                        then Helpers.assertSuccess result
-                        else Helpers.assertRejectWithReason Types.ModuleNotWF result
+              ..
             }
         ]
+
+-- |Ensure that the outcome is success before P6, and ModuleNotWF after P6.
+validBeforeP6 :: forall pv. Types.IsProtocolVersion pv => Helpers.TransactionAssertion pv
+validBeforeP6 result _ =
+    return $
+        if Types.supportsGlobalsInInitSections (Types.protocolVersion @pv)
+            then Helpers.assertSuccess result
+            else Helpers.assertRejectWithReason Types.ModuleNotWF result
+
+-- |Ensure that the outcome is success after P6, and ModuleNotWF before P6.
+validAfterP6 :: forall pv. Types.IsProtocolVersion pv => Helpers.TransactionAssertion pv
+validAfterP6 result _ =
+    return $
+        if Types.supportsSignExtensionInstructions (Types.protocolVersion @pv)
+            then Helpers.assertSuccess result
+            else Helpers.assertRejectWithReason Types.ModuleNotWF result
 
 tests :: Spec
 tests =
     describe "V1: P6 features" $
         sequence_ $
             Helpers.forEveryProtocolVersion $ \spv pvString -> do
-                testCase spv (pvString ++ ": Globals in data sections") modDataGlobals
-                testCase spv (pvString ++ ": Globals in element sections") modElemGlobals
+                testCase spv validBeforeP6 (pvString ++ ": Globals in data sections") modDataGlobals
+                testCase spv validBeforeP6 (pvString ++ ": Globals in element sections") modElemGlobals
+                testCase spv validAfterP6 (pvString ++ ": i32.extend8_s") modi32extend8s
+                testCase spv validAfterP6 (pvString ++ ": i32.extend16_s") modi32extend16s
+                testCase spv validAfterP6 (pvString ++ ": i64.extend8_s") modi64extend8s
+                testCase spv validAfterP6 (pvString ++ ": i64.extend16_s") modi64extend16s
+                testCase spv validAfterP6 (pvString ++ ": i64.extend32_s") modi64extend32s
