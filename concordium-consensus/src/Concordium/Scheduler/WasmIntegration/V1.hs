@@ -1,5 +1,7 @@
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 
 -- |This module provides most of the functionality that deals with calling V1 smart contracts, processing responses,
 -- and resuming computations. It is used directly by the Scheduler to run smart contracts.
@@ -70,6 +72,8 @@ foreign import ccall "copy_to_vec_ffi" createReturnValue :: Ptr Word8 -> CSize -
 foreign import ccall "validate_and_process_v1"
     validate_and_process ::
         -- |Whether the current protocol version supports smart contract upgrades.
+        Word8 ->
+        -- |Whether the current protocol allows for globals in initialization expressions.
         Word8 ->
         -- |Pointer to the Wasm module source.
         Ptr Word8 ->
@@ -502,6 +506,7 @@ processInitResult callbacks result returnValuePtr newStatePtr = case BS.uncons r
                             return (Just (Right InitSuccess{..}, fromIntegral remainingEnergy))
             _ -> fail $ "Invalid tag: " ++ show tag
       where
+        parseResult :: forall a. Get a -> a
         parseResult parser =
             case runGet parser payload of
                 Right x -> x
@@ -614,6 +619,7 @@ processReceiveResult fixRollbacks callbacks initialState stateWrittenTo result r
                             return (Just (Right ReceiveSuccess{..}, fromIntegral remainingEnergy))
             _ -> fail $ "Invalid tag: " ++ show tag
       where
+        parseResult :: forall a. Get a -> a
         parseResult parser =
             case runGet parser payload of
                 Right x -> x
@@ -756,13 +762,52 @@ resumeReceiveFun is currentState stateChanged amnt statusCode rVal remainingEner
     amountWord = _amount amnt
     callbacks = StateV1.msContext currentState
 
+-- |Configuration for module validation dependent on which features are allowed
+-- in a specific protocol version.
+data ValidationConfig = ValidationConfig
+    { -- |Support upgrades.
+      vcSupportUpgrade :: Bool,
+      -- |Allow globals in data and element segments.
+      vcAllowGlobals :: Bool
+    }
+
+-- |Construct a 'ValidationConfig' valid for the given protocol version.
+validationConfig :: SProtocolVersion spv -> ValidationConfig
+validationConfig = \case
+    SP1 -> v1
+    SP2 -> v1
+    SP3 -> v1
+    SP4 -> v1
+    SP5 -> v5
+    SP6 -> v6
+  where
+    -- Protocols 1-4 do not support upgrades, and support globals.
+    v1 =
+        ValidationConfig
+            { vcSupportUpgrade = False,
+              vcAllowGlobals = True
+            }
+    -- In protocol 5 we enabled support for smart contract upgrades.
+    v5 =
+        ValidationConfig
+            { vcSupportUpgrade = True,
+              vcAllowGlobals = True
+            }
+    -- In protocol 6 we disallow globals in initializers to conform to the
+    -- updates to the published Wasm standard.
+    v6 =
+        ValidationConfig
+            { vcSupportUpgrade = True,
+              vcAllowGlobals = False
+            }
+
 -- |Process a module as received and make a module interface.
 -- This
 -- - checks the module is well-formed, and has the right imports and exports for a V1 module.
 -- - makes a module artifact and allocates it on the Rust side, returning a pointer and a finalizer.
 {-# NOINLINE processModule #-}
-processModule :: Bool -> WasmModuleV V1 -> Maybe (ModuleInterfaceV V1)
-processModule supportUpgrade modl = do
+processModule :: SProtocolVersion spv -> WasmModuleV V1 -> Maybe (ModuleInterfaceV V1)
+processModule spv modl = do
     (bs, miModule) <- ffiResult
     case getExports bs of
         Left _ -> Nothing
@@ -770,12 +815,13 @@ processModule supportUpgrade modl = do
             let miModuleRef = getModuleRef modl
             in  Just ModuleInterface{miModuleSize = moduleSourceLength (wmvSource modl), ..}
   where
+    ValidationConfig{..} = validationConfig spv
     ffiResult = unsafePerformIO $ do
         unsafeUseModuleSourceAsCStringLen (wmvSource modl) $ \(wasmBytesPtr, wasmBytesLen) ->
             alloca $ \outputLenPtr ->
                 alloca $ \artifactLenPtr ->
                     alloca $ \outputModuleArtifactPtr -> do
-                        outPtr <- validate_and_process (if supportUpgrade then 1 else 0) (castPtr wasmBytesPtr) (fromIntegral wasmBytesLen) outputLenPtr artifactLenPtr outputModuleArtifactPtr
+                        outPtr <- validate_and_process (if vcSupportUpgrade then 1 else 0) (if vcAllowGlobals then 1 else 0) (castPtr wasmBytesPtr) (fromIntegral wasmBytesLen) outputLenPtr artifactLenPtr outputModuleArtifactPtr
                         if outPtr == nullPtr
                             then return Nothing
                             else do

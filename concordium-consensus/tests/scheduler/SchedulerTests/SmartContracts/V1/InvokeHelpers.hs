@@ -36,15 +36,16 @@ emptyContractSourceFile = "../concordium-base/smart-contracts/testdata/contracts
 -- |Deploy a V1 module in the given state. The source file should be a raw Wasm file.
 -- If the module is invalid this will raise an exception.
 deployModuleV1 ::
+    Types.SProtocolVersion spv ->
     -- |Source file.
     FilePath ->
     -- |State to add the module to.
     BS.PersistentBlockState PV4 ->
     Helpers.PersistentBSM PV4 ((PersistentModuleInterfaceV V1, WasmModuleV V1), BS.PersistentBlockState PV4)
-deployModuleV1 sourceFile bs = do
+deployModuleV1 spv sourceFile bs = do
     ws <- liftIO $ BS.readFile sourceFile
     let wm = WasmModuleV (ModuleSource ws)
-    case WasmV1.processModule True wm of
+    case WasmV1.processModule spv wm of
         Nothing -> liftIO $ assertFailure "Invalid module."
         Just miv -> do
             (_, modState) <- BS.bsoPutNewModule bs (miv, wm)

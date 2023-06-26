@@ -37,6 +37,7 @@ import qualified SchedulerTests.SmartContracts.V1.CrossMessaging (tests)
 import qualified SchedulerTests.SmartContracts.V1.ErrorCodes (tests)
 import qualified SchedulerTests.SmartContracts.V1.Fallback (tests)
 import qualified SchedulerTests.SmartContracts.V1.Iterator (tests)
+import qualified SchedulerTests.SmartContracts.V1.P6WasmFeatures (tests)
 import qualified SchedulerTests.SmartContracts.V1.Queries (tests)
 import qualified SchedulerTests.SmartContracts.V1.QueriesPersistent (tests)
 import qualified SchedulerTests.SmartContracts.V1.Recorder (tests)
@@ -97,3 +98,4 @@ main = hspec $ do
     SchedulerTests.SmartContracts.V1.QueriesPersistent.tests
     SchedulerTests.Payday.tests
     SchedulerTests.Delegation.tests
+    SchedulerTests.SmartContracts.V1.P6WasmFeatures.tests

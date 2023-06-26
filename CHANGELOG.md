@@ -5,6 +5,7 @@
 - Fix a bug that caused an incorrect reporting of total stake in the first
   payday just after genesis when the node started from genesis at protocols 4 or 5.
 - Revise the behaviour of rollbacks in P6.
+- Disallow globals in Wasm initialization sections for V1 contracts in P6.
 
 ## 6.0.0
 
