@@ -2,6 +2,8 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 -- |Functionality for importing and exporting the block database.
 --
@@ -39,11 +41,16 @@
 -- genesis block, and all finalization records that are not already included in blocks.
 module Concordium.ImportExport where
 
+import Control.Monad.Reader
+import Control.Monad.Trans.Identity
+import Data.Kind (Type)
 import Control.Monad.Trans.Reader
 import Control.Monad
+import Control.Monad.Trans (lift)
 import Control.Monad.Catch
 import Control.Monad.IO.Class
-import Control.Monad.State (MonadState, evalStateT)
+import Control.Monad.State.Strict (MonadState, evalStateT)
+import qualified Control.Monad.State.Strict as State
 import Control.Monad.Trans.Except
 import qualified Data.Attoparsec.Text as AP
 import Data.Bits
@@ -62,6 +69,7 @@ import System.Directory
 import System.FilePath
 import System.IO
 
+import Concordium.Types.HashableTo
 import Concordium.Common.Version
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockPointer
@@ -73,18 +81,105 @@ import Concordium.Utils.Serialization.Put
 import Lens.Micro.Platform
 import qualified Concordium.KonsensusV1.TreeState.LowLevel.LMDB as KonsensusV1
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as KonsensusV1
-import Concordium.KonsensusV1.TreeState.LowLevel (MonadTreeStateStore(lookupLastBlock))
+import qualified Concordium.KonsensusV1.Types as KonsensusV1
 
--- |State used for exporting the database.
-data DBState pv = DBState
-    { _dbsHandlers :: DatabaseHandlers pv (),
-      _dbsLastFinIndex :: FinalizationIndex
-    }
-
+-- |FIXME: document this
+data DBState pv
+    = DBStateV0
+        { _dbsV0FinIndex :: !FinalizationIndex,
+          _dbsV0Handlers :: !(DatabaseHandlers pv ())
+        }
+   | DBStateV1
+       { _dbsV1Handlers :: !(KonsensusV1.DatabaseHandlers pv)}
 makeLenses ''DBState
 
-instance HasDatabaseHandlers pv () (DBState pv) where
-    dbHandlers = dbsHandlers
+-- |FIXME: document this
+class (MonadIO m, MonadState s m) => MonadExporter s m where
+    -- |Read a block from the database at the provided 'BlockHeight'.
+    -- Returns something if a block could be retrieved, and otherwise
+    -- nothing is returned.
+    readBlockAt :: BlockHeight -> m (Maybe (BS.ByteString, FinalizationIndex))
+    -- |Read a finalization record from the databae at the provided 'FinalizationIndex'
+    -- Returns something if one exists, otherwise returns nothing.
+    readFinalizationRecordAt :: FinalizationIndex -> m (Maybe BS.ByteString)
+    -- |Read the genesis hash of the database.
+    -- Returns nothing if it was not possible to read from the database.
+    -- TODO: make Either
+    readGenesisHash :: m (Maybe BlockHash)
+    -- |Check whether it is possible to read the "last" block of the database.
+    -- If this fails rerturns @False@ otherwise @True@.
+    -- TODO: Make Either
+    canRead :: m Bool
+
+instance forall pv m. (MonadCatch m, MonadIO m, IsProtocolVersion pv, MonadState (DBState pv) m) => MonadExporter (DBState pv) m where
+    readBlockAt height = case demoteProtocolVersion (protocolVersion @pv) of
+        -- Protocols [p1;p5] uses v0 lmdb while p6 uses v1.
+        P6 -> readV1Block
+        _ -> readV0Block        
+      where
+        readV0Block = do
+            handles <- use dbsV0Handlers
+            liftIO $ resizeOnResized $ getFinalizedBlockAtHeight handles height >>= \case
+                Nothing -> return Nothing
+                Just sb | NormalBlock normalBlock <- sbBlock sb -> do
+                    let serializedBlock = runPut $ putVersionedBlock (protocolVersion @pv) normalBlock
+                        finIndex = sbFinalizationIndex sb
+                    return $ Just (serializedBlock, finIndex)
+                _ -> return Nothing -- Do not export genesis blocks.
+        readV1Block = do
+            KonsensusV1.resizeOnResized $ KonsensusV1.lookupBlockByHeight height >>= \case
+                Nothing -> return Nothing
+                Just storedB | KonsensusV1.NormalBlock signedB <- KonsensusV1.stbBlock storedB -> do
+                    let serializedBlock = runPut $ KonsensusV1.putSignedBlock signedB
+                    return $ Just (serializedBlock, 0) -- The finalization index is never used here, so just return 0.
+                _ -> return Nothing -- Do not export genesis blocks.
+                
+    readFinalizationRecordAt finRecIndex = case demoteProtocolVersion (protocolVersion @pv) of
+        P6 -> readV1FinalizationRecord
+        _ -> readV0FinalizationRecord
+      where
+        readV0FinalizationRecord = resizeOnResized $ readFinalizationRecord finRecIndex >>= \case
+            Nothing -> return Nothing
+            Just fr -> do
+                return $ Just $ runPut $ putVersionedFinalizationRecordV0 fr
+        readV1FinalizationRecord = return Nothing
+
+    readGenesisHash = case demoteProtocolVersion (protocolVersion @pv) of
+        P6 -> readV1GenesisHash
+        _ -> readV0GenesisHash
+      where
+        readV0GenesisHash = do
+            resizeOnResized $ readFinalizationRecord 0 >>= \case
+                Nothing -> return Nothing
+                Just genFinRec -> return $ Just $! finalizationBlockPointer genFinRec
+        readV1GenesisHash = do
+            dbh <- use dbsV1Handlers
+            runSilentLogger $ runReaderT (KonsensusV1.runDiskLLDBM $ do
+                KonsensusV1.resizeOnResized $ KonsensusV1.lookupFirstBlock >>= \case
+                    Nothing -> return Nothing
+                    Just sb -> return $ Just $ getHash sb
+                ) dbh
+    canRead = case demoteProtocolVersion (protocolVersion @pv) of
+        P6 -> canReadV1
+        _ -> liftIO canReadV0
+      where
+        canReadV0 = do
+            dbh <- use dbsV0Handlers
+            getLastBlock dbh >>= \case
+                Left _ -> return False
+                Right _ -> return True
+        canReadV1 = do
+            dbh <- use dbsV1Handlers
+            runSilentLogger $ runReaderT (KonsensusV1.runDiskLLDBM $ do
+                KonsensusV1.lookupLastBlock >>= \case
+                    Nothing -> return False
+                    Just _ -> return True
+                ) dbh
+
+-- |FIXME: document this
+newtype ExporterMonad (m :: Type -> Type) (a :: Type) = ExporterMonad {runExporterMonad :: m a}
+    deriving (Functor, Applicative, Monad, MonadIO, MonadState s)
+    deriving MonadTrans via IdentityT
 
 -- |A section header of an exported block database
 data SectionHeader = SectionHeader
@@ -371,24 +466,13 @@ exportDatabaseV3 dbDir outDir chunkSize = do
             return exportError
         Nothing -> return exportError
 
-exportConsensusV1Blocks ::
-  (
-    MonadLogger m,
-    KonsensusV1.MonadTreeStateStore m
-  ) =>
-  m (Bool, BlockIndex)
-exportConsensusV1Blocks = do
-    lookupLastBlock >>= \case
-        Nothing -> return (True, Empty)
-        Just sb -> undefined
-
 -- |Export database sections corresponding to blocks with genesis indices >= genIndex
 -- and of height >= startHeight.
 -- Returns a @Bool@ and a @BlockIndex@ where the former indicates whether an error occurred,
 -- and the latter contains information about the sections that were succesfully written to the
 -- file-system. If a section could not be exported or if any errors occurred this will be logged
 -- to `stdout` in this function.
-exportSections ::
+exportSections :: (MonadState (DBState pv) m, MonadIO m) =>
     -- |Database directory
     FilePath ->
     -- |Export directory
@@ -403,14 +487,14 @@ exportSections ::
     BlockIndex ->
     -- |Filename of last chunk in previous export
     Maybe String ->
-    IO (Bool, BlockIndex)
+    m (Bool, BlockIndex)
 exportSections dbDir outDir chunkSize genIndex startHeight blockIndex lastWrittenChunkM = do
     let treeStateDir = dbDir </> "treestate-" ++ show genIndex
     -- Check if the database exists for this genesis index.
-    dbEx <- doesPathExist $ treeStateDir </> "data.mdb"
+    dbEx <- liftIO $ doesPathExist $ treeStateDir </> "data.mdb"
     if dbEx
         then
-            openReadOnlyDatabase treeStateDir >>= \case
+            liftIO $ openReadOnlyDatabase treeStateDir >>= \case
                 Nothing -> do
                     -- If we cannot open the database as a 'ConsensusV0', then
                     -- we try open up the 'ConsensusV1' database.
@@ -420,7 +504,11 @@ exportSections dbDir outDir chunkSize genIndex startHeight blockIndex lastWritte
                             putStrLn "Tree state database could not be opened"
                             return (True, Empty)
                         Just (KonsensusV1.VersionDatabaseHandlers (dbh :: KonsensusV1.DatabaseHandlers pv)) -> 
-                            runSilentLogger $ runReaderT (KonsensusV1.runDiskLLDBM @pv exportConsensusV1Blocks) dbh
+                            runSilentLogger $ runReaderT (KonsensusV1.runDiskLLDBM $ do
+                                                             KonsensusV1.lookupLastBlock >>= \case
+                                                                 Nothing -> return (True, Empty)
+                                                                 Just sb -> return (True, Empty)
+                                                         ) dbh
                 Just (VersionDatabaseHandlers (dbh :: DatabaseHandlers pv ())) -> do
                     (exportError, sectionData) <-
                         liftIO $
@@ -431,7 +519,7 @@ exportSections dbDir outDir chunkSize genIndex startHeight blockIndex lastWritte
                                 Right (_, sb) -> do
                                     evalStateT
                                         ( do
-                                            mgenFinRec <- resizeOnResized $ readFinalizationRecord 0
+                                            mgenFinRec <- readFinalizationRecord 0
                                             case mgenFinRec of
                                                 Nothing -> liftIO $ do
                                                     putStrLn "No finalization record found in database for finalization index 0."
@@ -468,7 +556,7 @@ exportSections dbDir outDir chunkSize genIndex startHeight blockIndex lastWritte
                                                                     lastWrittenChunkM
                                                             return (False, singleton (genHash, chunks))
                                         )
-                                        (DBState dbh 0)
+                                        (DBStateV0 0)
                     closeDatabase dbh
                     -- if an error occurred, return sections
                     -- that were succesfully written to the
@@ -491,7 +579,7 @@ exportSections dbDir outDir chunkSize genIndex startHeight blockIndex lastWritte
         else do
             -- this is not an error condition, but rather
             -- the condition for terminating the export.
-            putStrLn $ "The tree state database does not exist at " ++ treeStateDir
+            liftIO . putStrLn $ "The tree state database does not exist at " ++ treeStateDir
             return (False, Empty)
   where
     -- Return the last exported genesis hash or the provided one.
@@ -515,7 +603,7 @@ exportSections dbDir outDir chunkSize genIndex startHeight blockIndex lastWritte
 -- The @Maybe @ parameter contains the filename to be used for the first chunk to be written, if so
 -- provided, and if the file already exists, a version number is added and used instead.
 writeChunks ::
-    (IsProtocolVersion pv, MonadIO m, MonadState (DBState pv) m, MonadCatch m) =>
+    (MonadCatch m, MonadState (DBState pv) m, MonadIO m) =>
     -- |Genesis index
     GenesisIndex ->
     -- |Protocol version
@@ -618,8 +706,7 @@ writeChunks
 -- finalization record, the 'dbsLastFinIndex' field of the state is updated with its finalization
 -- index.
 exportBlocksToChunk ::
-    forall pv m.
-    (IsProtocolVersion pv, MonadIO m, MonadState (DBState pv) m, MonadCatch m) =>
+    (MonadIO m, IsProtocolVersion pv, MonadState (DBState pv) m, MonadCatch m) =>
     -- |Handle to export to
     Handle ->
     -- |Height of next block to export
@@ -631,43 +718,41 @@ exportBlocksToChunk ::
 exportBlocksToChunk hdl firstHeight chunkSize = ebtc firstHeight 0
   where
     ebtc height count =
-        resizeOnResized (readFinalizedBlockAtHeight height) >>= \case
+        readBlockAt height >>= \case
             Nothing -> return count
-            Just sb | NormalBlock normalBlock <- sbBlock sb -> do
-                let serializedBlock =
-                        runPut $ putVersionedBlock (protocolVersion @pv) normalBlock
-                    len = fromIntegral $ BS.length serializedBlock
+            Just (serializedBlock, finIndex) -> do
+                let len = fromIntegral $ BS.length serializedBlock
                 liftIO $ do
                     BS.hPut hdl $ runPut $ putWord64be len
                     BS.hPut hdl serializedBlock
-                forM_ (blockFields (sbBlock sb)) $ \bf ->
-                    case blockFinalizationData bf of
-                        BlockFinalizationData fr ->
-                            dbsLastFinIndex .= finalizationIndex fr
-                        NoFinalizationData -> return ()
+                s <- State.get
+                case s of
+                    DBStateV0{} -> dbsV0FinIndex .= finIndex
+                    DBStateV1{} -> return ()
                 if count < chunkSize
                     then ebtc (height + 1) (count + 1)
                     else return count
-            Just _ -> return count -- this branch should never be reachable, genesis blocks are not exported.
 
 -- |Export all finalization records with indices above `dbsLastFinIndex` to a chunk
 exportFinRecsToChunk ::
-    forall pv m.
-    (MonadIO m, MonadState (DBState pv) m, MonadCatch m) =>
+    (IsProtocolVersion pv, MonadIO m, MonadState (DBState pv) m, MonadCatch m) =>
     -- |Handle to export to
     Handle ->
     -- |Number of exported finalization records
     m Word64
-exportFinRecsToChunk hdl = exportFinRecsFrom 0 . (+ 1) =<< use dbsLastFinIndex
+exportFinRecsToChunk hdl = do
+      s <- State.get
+      case s of
+        DBStateV0{..} -> exportFinRecsFrom 0 $ _dbsV0FinIndex + 1
+        DBStateV1{} -> return 0
   where
     exportFinRecsFrom count finRecIndex =
-        resizeOnResized (readFinalizationRecord finRecIndex) >>= \case
+        readFinalizationRecordAt finRecIndex >>= \case
             -- if there's no finalization record with an index after the last exported one,
             -- there are no more finalization records to export
             Nothing -> return count
-            Just fr -> do
-                let serializedFr = runPut $ putVersionedFinalizationRecordV0 fr
-                    len = fromIntegral $ BS.length serializedFr
+            Just serializedFr -> do
+                let len = fromIntegral $ BS.length serializedFr
                 liftIO $ do
                     BS.hPut hdl $ runPut $ putWord64be len
                     BS.hPut hdl serializedFr
