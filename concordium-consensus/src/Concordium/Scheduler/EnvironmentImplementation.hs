@@ -239,8 +239,12 @@ instance
         s1 <-
             lift
                 ( foldM
-                    ( \s' (addr, (_, amnt, val)) ->
-                        BS.bsoModifyInstance s' addr amnt val Nothing
+                    ( \s' (addr, (modIdx, amnt, val)) ->
+                        -- If the modification index is 0, this means that we have only recorded the
+                        -- state in the changeset because we needed to due to calls to other contracts,
+                        -- but the state of the instance did not change. So we don't have to modify the
+                        -- instance.
+                        if modIdx /= 0 then BS.bsoModifyInstance s' addr amnt val Nothing else return s'
                     )
                     s
                     (Map.toList (cs ^. instanceV0Updates))

@@ -14,7 +14,6 @@ import qualified Data.PQueue.Prio.Min as MinPQ
 import Data.Word
 import Lens.Micro.Platform
 
-import Concordium.KonsensusV1.Types
 import qualified Concordium.TransactionVerification as TVer
 import Concordium.Types
 import Concordium.Types.Execution

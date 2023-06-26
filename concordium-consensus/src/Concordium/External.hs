@@ -1285,7 +1285,7 @@ getModuleSource cptr blockcstr modcstr = do
     case (mblock, mmod) of
         (Just bh, Just modref) -> do
             msrc <- runMVR (Q.responseToMaybe <$> Q.getModuleSource (Queries.Given bh) modref) mvr
-            byteStringToCString $ maybe BS.empty S.encode msrc
+            byteStringToCString $ maybe BS.empty S.encode (join msrc)
         _ -> byteStringToCString BS.empty
 
 -- |Get the list of bakers registered at the given block. The block must be given as a
@@ -1313,7 +1313,7 @@ getPoolStatus ::
     -- |Block hash (null-terminated base16)
     CString ->
     -- |Whether to get the passive delegator status
-    CBool ->
+    Word8 ->
     -- |Baker ID to get status for (if not passive delegators)
     Word64 ->
     IO CString
@@ -1563,7 +1563,7 @@ foreign export ccall getBirkParameters :: StablePtr ConsensusRunner -> CString -
 foreign export ccall getModuleList :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getModuleSource :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
 foreign export ccall getBakerList :: StablePtr ConsensusRunner -> CString -> IO CString
-foreign export ccall getPoolStatus :: StablePtr ConsensusRunner -> CString -> CBool -> Word64 -> IO CString
+foreign export ccall getPoolStatus :: StablePtr ConsensusRunner -> CString -> Word8 -> Word64 -> IO CString
 foreign export ccall getTransactionStatus :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getTransactionStatusInBlock :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
 foreign export ccall getAccountNonFinalizedTransactions :: StablePtr ConsensusRunner -> CString -> IO CString

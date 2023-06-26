@@ -513,10 +513,10 @@ fn update_peer_states(
             }
             e => error!("Unexpected return from `receiveCatchUpStatus`: {:?}", e),
         }
-    } else if [Block, FinalizationRecord].contains(&request.variant) {
+    } else if [Block, FinalizationRecord, FinalizationMessage].contains(&request.variant) {
         match request.distribution_mode() {
             DistributionMode::Direct if consensus_result.is_successful() => {
-                // Directly sent blocks and finalization records that are
+                // Directly sent blocks, finalization records and finalization messages that are
                 // successful (i.e. new and not pending) have special
                 // handling for the purposes of catch-up.
 
