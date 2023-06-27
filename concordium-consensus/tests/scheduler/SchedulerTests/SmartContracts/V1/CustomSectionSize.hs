@@ -33,6 +33,10 @@ initialBlockState =
 sourceFile :: FilePath
 sourceFile = "../concordium-base/smart-contracts/testdata/contracts/v1/upgrading_1.wasm"
 
+-- |This module is the same as upgrading_1.wasm, but has a number of custom
+-- sections added at the end to make the Wasm file 100B bigger. This leads to
+-- different costs when executing contracts based on it (specificallly 2NRG more
+-- when invoking an instance).
 sourceFileWithCustomSections :: FilePath
 sourceFileWithCustomSections = "../concordium-base/smart-contracts/testdata/contracts/v1/upgrading_1_with_custom_section.wasm"
 
@@ -90,25 +94,37 @@ invokeContract ccContract bs = do
                 }
     InvokeContract.invokeContract ctx (Types.ChainMetadata 123) bs
 
--- Self balance test in case of nested calls.
--- This tests that the balance is correctly reported in case of re-entrancy.
+-- |Deploy and initialize two contracts, then invoke entrypoing newfun in them,
+-- and return how much it cost. In the first instance the module is without
+-- custom sections, in the second it is with custom sections.
 runTests :: forall pv. Types.IsProtocolVersion pv => Types.SProtocolVersion pv -> String -> Assertion
 runTests spv pvString = when (Types.demoteProtocolVersion spv >= Types.P4) $ do
-    cost1 <- Helpers.runTestBlockState @pv $ do
+    (size1, cost1) <- Helpers.runTestBlockState @pv $ do
         initState <- thawBlockState =<< initialBlockState
         (mod1, bsWithMod) <- deployModule1 initState
-        (addr2, mutStateWithBothContracts) <- initContract bsWithMod mod1
+        let size1 = GSWasm.miModuleSize (fst mod1)
+        (addr1, mutStateWithBothContracts) <- initContract bsWithMod mod1
         stateWithBothContracts <- freezeBlockState mutStateWithBothContracts
-        InvokeContract.rcrUsedEnergy <$> invokeContract addr2 stateWithBothContracts
-    cost2 <- Helpers.runTestBlockState @pv $ do
+        energy1 <- InvokeContract.rcrUsedEnergy <$> invokeContract addr1 stateWithBothContracts
+        return (size1, energy1)
+    (size2, cost2) <- Helpers.runTestBlockState @pv $ do
         initState <- thawBlockState =<< initialBlockState
-        (mod1, bsWithMod) <- deployModule2 initState
-        (addr2, mutStateWithBothContracts) <- initContract bsWithMod mod1
+        (mod2, bsWithMod) <- deployModule2 initState
+        let size2 = GSWasm.miModuleSize (fst mod2)
+        (addr2, mutStateWithBothContracts) <- initContract bsWithMod mod2
         stateWithBothContracts <- freezeBlockState mutStateWithBothContracts
-        InvokeContract.rcrUsedEnergy <$> invokeContract addr2 stateWithBothContracts
+        energy2 <- InvokeContract.rcrUsedEnergy <$> invokeContract addr2 stateWithBothContracts
+        return (size2, energy2)
+    -- In P4 and P5 the custom section is counted towards the size, so the cost
+    -- of execution in the second case is higher. In P6 and later the costs must
+    -- be the same since the custom section is ignored.
     if Types.omitCustomSectionFromSize (Types.protocolVersion @pv)
-        then assertEqual (pvString ++ ": The costs of execution should be the same.") cost1 cost2
-        else assertBool (pvString ++ ": The cost with custom section should be higher: " ++ show cost2 ++ " > " ++ show cost1) (cost2 > cost1)
+        then do
+            assertEqual (pvString ++ ": The costs of execution should be the same.") cost1 cost2
+            assertEqual (pvString ++ ": The sizes of modules must be the same.") size1 size2
+        else do
+            assertBool (pvString ++ ": The cost with custom section should be higher: " ++ show cost2 ++ " > " ++ show cost1) (cost2 > cost1)
+            assertBool (pvString ++ ": The size with custom section should be higher: " ++ show size2 ++ " > " ++ show size1) (size2 > size1)
 
 tests :: Spec
 tests = describe "V1: Custom section counts or not" $ do
