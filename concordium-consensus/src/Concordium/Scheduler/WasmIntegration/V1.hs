@@ -794,9 +794,13 @@ processModule spv modl = do
     (bs, miModule) <- ffiResult
     case getExports bs of
         Left _ -> Nothing
-        Right (miExposedInit, miExposedReceive) ->
+        Right ((miExposedInit, miExposedReceive), customSectionsSize) ->
             let miModuleRef = getModuleRef modl
-            in  Just ModuleInterface{miModuleSize = moduleSourceLength (wmvSource modl), ..}
+                miModuleSize =
+                    if omitCustomSectionFromSize spv
+                        then moduleSourceLength (wmvSource modl) - customSectionsSize
+                        else moduleSourceLength (wmvSource modl)
+            in  Just ModuleInterface{..}
   where
     ValidationConfig{..} = validationConfig spv
     ffiResult = unsafePerformIO $ do
@@ -823,6 +827,7 @@ processModule spv modl = do
         flip runGet bs $ do
             len <- fromIntegral <$> getWord16be
             namesByteStrings <- replicateM len getByteStringWord16
+            customSectionsSize <- getWord64be
             let names =
                     foldM
                         ( \(inits, receives) name -> do
@@ -842,4 +847,4 @@ processModule spv modl = do
             case names of
                 Nothing -> fail "Incorrect response from FFI call."
                 Just x@(exposedInits, exposedReceives) ->
-                    if Map.keysSet exposedReceives `Set.isSubsetOf` exposedInits then return x else fail "Receive functions that do not correspond to any contract."
+                    if Map.keysSet exposedReceives `Set.isSubsetOf` exposedInits then return (x, customSectionsSize) else fail "Receive functions that do not correspond to any contract."
