@@ -40,6 +40,7 @@
 -- genesis block, and all finalization records that are not already included in blocks.
 module Concordium.ImportExport where
 
+import Data.Maybe (fromMaybe)
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
@@ -98,7 +99,7 @@ data SectionHeader = SectionHeader
       sectionBlockCount :: !Word64,
       sectionBlocksLength :: !Word64,
       sectionFinalizationCount :: !Word64
-    }
+    } deriving (Eq, Show)
 
 instance Serialize SectionHeader where
     put SectionHeader{..} = do
@@ -743,7 +744,7 @@ exportBlocksToChunk hdl firstHeight chunkSize lastFinalizationRecordIndex getBlo
                 liftIO $ do
                     BS.hPut hdl $ runPut $ putWord64be len
                     BS.hPut hdl serializedBlock
-                let lastFinRecIdx' = maybe 0 (+ 1) finalizationRecordIndexM
+                let lastFinRecIdx' = fromMaybe lastFinRecIdx finalizationRecordIndexM
                 if count < chunkSize
                     then ebtc (height + 1) (count + 1) lastFinRecIdx'
                     else return (count, lastFinRecIdx')
