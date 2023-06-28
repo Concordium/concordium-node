@@ -76,10 +76,14 @@ updateWithBlockNonce ::
     Hash.Hash
 updateWithBlockNonce bn un = Hash.hash $ runPut $ put un <> put (proofToHash bn)
 
--- |Update the running 'updatedNonce' in seed state.  Blocks after the trigger block do not
--- contribute.  If the timestamp is at least the epoch transition time, then the
+-- |Update the running 'updatedNonce' in seed state. Blocks after the trigger block do not
+-- contribute. If the timestamp is at least the epoch transition time, then the
 -- 'epochTransitionTriggered' flag is set in the seed state, indicating that a new epoch should
 -- begin once the block is finalized.
+--
+-- If the 'shutdownTriggered' flag is set in the seed state, then this indicates that
+-- a protocol update has become effective. Note however, that the protocol update itself
+-- will not take place before following the epoch transition.
 updateSeedStateForBlock ::
     -- |Timestamp of the block
     Timestamp ->
@@ -92,17 +96,21 @@ updateSeedStateForBlock ::
     -- |Updated seed state
     SeedState 'SeedStateVersion1
 updateSeedStateForBlock ts bn isEffective ss
+    -- Epoch tranisition is already in progress.
     | ss ^. epochTransitionTriggered = ss
-    | ss ^. triggerBlockTime <= ts,
-      not isEffective =
-        ss' & epochTransitionTriggered .~ True
-    | ss ^. triggerBlockTime <= ts,
+    -- The block timestamp is beyond the trigger time of the epoch
+    -- and there is also a protocol update effective.
+    | isBlockAfterTriggerTime,
       isEffective =
         ss'
             & epochTransitionTriggered .~ True
             & shutdownTriggered .~ True
+    -- The block timestamp is after the epoch trigger time,
+    -- so flag it.
+    | isBlockAfterTriggerTime = ss' & epochTransitionTriggered .~ True
     | otherwise = ss'
   where
+    isBlockAfterTriggerTime = ss ^. triggerBlockTime <= ts
     ss' = ss & updatedNonce %~ updateWithBlockNonce bn
 
 -- |Compute the leadership election nonce for the new epoch.

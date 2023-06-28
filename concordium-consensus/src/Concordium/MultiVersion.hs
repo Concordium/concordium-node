@@ -240,7 +240,7 @@ data Callbacks = Callbacks
 -- they use to resolve the appropriate callbacks.
 --
 -- NOTE: This function may only be called with a valid genesis index. This means that the MVR MUST
--- be populated with a configuration for the genesis index.
+-- be populated with a configuration for the genesis index prior to calling this function.
 skovV1Handlers ::
     forall pv finconf.
     GenesisIndex ->
@@ -867,7 +867,7 @@ checkForProtocolUpdate = liftSkov body
                         liftIO (notifyRegenesis callbacks Nothing)
                         return Nothing
                 Right upd -> do
-                    logEvent Kontrol LLInfo $ "Starting protocol update."
+                    logEvent Kontrol LLInfo "Starting protocol update."
                     initData <- updateRegenesis upd
                     return (Just initData)
             PendingProtocolUpdates [] -> return Nothing
@@ -914,7 +914,6 @@ checkForProtocolUpdateV1 = body
   where
     body :: VersionedSkovV1M fc lastpv ()
     body = do
-        logEvent Kontrol LLDebug "Check for protocol updates"
         check >>= \case
             Nothing -> return ()
             Just _ -> return () -- FIXME: support new (post P6) protocols. Issue #932.
@@ -943,9 +942,7 @@ checkForProtocolUpdateV1 = body
                     callbacks <- asks mvCallbacks
                     liftIO (notifyRegenesis callbacks Nothing)
                     return Nothing
-            PendingProtocolUpdates [] -> do
-                logEvent Kontrol LLDebug "FOOOOOOOOOOOOOOOOOOOOOOO"
-                return Nothing
+            PendingProtocolUpdates [] -> return Nothing
             PendingProtocolUpdates ((ts, pu) : _) -> do
                 let alreadyNotified = False -- FIXME: introduce flag in the state for this
                 unless alreadyNotified $ case checkUpdate @lastpv pu of
@@ -953,7 +950,7 @@ checkForProtocolUpdateV1 = body
                         logEvent Kontrol LLError $
                             "An unsupported protocol update ("
                                 ++ err
-                                ++ ") will take effect at "
+                                ++ ") will take effect in the epoch transition after "
                                 ++ show (timestampToUTCTime $ transactionTimeToTimestamp ts)
                                 ++ ": "
                                 ++ showPU pu
@@ -963,7 +960,7 @@ checkForProtocolUpdateV1 = body
                             Nothing -> return ()
                     Right upd -> do
                         logEvent Kontrol LLInfo $
-                            "A protocol update will take effect at "
+                            "A protocol update will take effect in the epoch transition after "
                                 ++ show (timestampToUTCTime $ transactionTimeToTimestamp ts)
                                 ++ ": "
                                 ++ showPU pu
