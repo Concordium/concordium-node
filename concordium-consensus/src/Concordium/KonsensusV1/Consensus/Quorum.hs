@@ -63,6 +63,8 @@ data ReceiveQuorumMessageResult (pv :: ProtocolVersion)
       Rejected !ReceiveQuorumMessageRejectReason
     | -- |The 'QuorumMessage' points to a round which indicates a catch up is required.
       CatchupRequired
+    | -- |Consensus has been shutdown.
+      ConsensusShutdown
     deriving (Eq, Show)
 
 -- |A _received_ and verified 'QuorumMessage' together with
@@ -97,6 +99,8 @@ receiveQuorumMessage ::
 receiveQuorumMessage qm@QuorumMessage{..} skovData = receive
   where
     receive
+        -- Consenus has been shutdown.
+        | skovData ^. isConsensusShutdown = return ConsensusShutdown
         -- The consensus runner is not caught up.
         | qmEpoch > skovData ^. roundStatus . rsCurrentEpoch =
             return CatchupRequired

@@ -21,6 +21,7 @@ import Concordium.KonsensusV1.TreeState.Implementation
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
+import Concordium.Types.SeedState (shutdownTriggered)
 import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
 
@@ -186,7 +187,7 @@ loadSkovData _runtimeParameters = do
     -- TODO: When the database storage is modified to allow this, load the block. Issue #843
     let _finalizingCertifiedBlock = Absent
     _skovEpochBakers <- makeEpochBakers lastFinBlock
-
+    finBlockSeedstate <- getSeedState $ bpState lastFinBlock
     let _currentTimeoutMessages = case _prsLastSignedTimeoutMessage _persistentRoundStatus of
             Absent -> Absent
             Present tm ->
@@ -208,4 +209,5 @@ loadSkovData _runtimeParameters = do
                   _focusBlock = lastFinBlock
                 }
     let _statistics = Stats.initialConsensusStatistics
+        _isConsensusShutdown = finBlockSeedstate ^. shutdownTriggered
     return SkovData{..}

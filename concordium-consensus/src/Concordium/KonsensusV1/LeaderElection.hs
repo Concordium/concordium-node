@@ -85,13 +85,22 @@ updateSeedStateForBlock ::
     Timestamp ->
     -- |Block nonce of the block
     BlockNonce ->
+    -- |Protocol update effective
+    Bool ->
     -- |Prior seed state
     SeedState 'SeedStateVersion1 ->
     -- |Updated seed state
     SeedState 'SeedStateVersion1
-updateSeedStateForBlock ts bn ss
+updateSeedStateForBlock ts bn isEffective ss
     | ss ^. epochTransitionTriggered = ss
-    | ss ^. triggerBlockTime <= ts = ss' & epochTransitionTriggered .~ True
+    | ss ^. triggerBlockTime <= ts,
+      not isEffective =
+        ss' & epochTransitionTriggered .~ True
+    | ss ^. triggerBlockTime <= ts,
+      isEffective =
+        ss'
+            & epochTransitionTriggered .~ True
+            & shutdownTriggered .~ True
     | otherwise = ss'
   where
     ss' = ss & updatedNonce %~ updateWithBlockNonce bn
@@ -121,6 +130,7 @@ updateSeedStateForEpoch newBakers epochDuration ss =
     SeedStateV1
         { ss1Epoch = ss ^. epoch + 1,
           ss1EpochTransitionTriggered = False,
+          ss1ShutdownTriggered = False,
           ss1TriggerBlockTime = (ss ^. triggerBlockTime) `addDuration` epochDuration,
           ss1UpdatedNonce = newNonce,
           ss1CurrentLeadershipElectionNonce = newNonce

@@ -238,6 +238,9 @@ data Callbacks = Callbacks
 
 -- |Handler context used by the version-1 consensus. The handlers run on the 'MVR' monad, which
 -- they use to resolve the appropriate callbacks.
+--
+-- NOTE: This function may only be called with a valid genesis index. This means that the MVR MUST
+-- be populated with a configuration for the genesis index.
 skovV1Handlers ::
     forall pv finconf.
     GenesisIndex ->
@@ -299,8 +302,11 @@ skovV1Handlers gi genHeight = SkovV1.HandlerContext{..}
                                 KonsensusV1.Present nodeBakerId
                                     == (KonsensusV1.blockBaker <$> KonsensusV1.blockBakedData bp)
                     liftIO (notifyCallback (getHash bp) height isHomeBaked)
-        -- FIXME: Run protocol update check. Issue #825
-        return ()
+        void $ MVR $ \mvr -> do
+            versions <- readIORef (mvVersions mvr)
+            case versions Vec.! fromIntegral gi of
+                (EVersionedConfigurationV1 vc) -> runMVR (liftSkovV1Update vc checkForProtocolUpdateV1) mvr
+                _ -> return ()
 
     _onPendingLiveHandler = do
         -- Notify peers of our catch-up status, since they may not be aware of the now-live pending
@@ -898,6 +904,73 @@ checkForProtocolUpdate = liftSkov body
                                 ++ show upd
                 return Nothing
 
+checkForProtocolUpdateV1 ::
+    forall lastpv fc.
+    ( IsProtocolVersion lastpv,
+      IsConsensusV1 lastpv
+    ) =>
+    VersionedSkovV1M fc lastpv ()
+checkForProtocolUpdateV1 = body
+  where
+    body :: VersionedSkovV1M fc lastpv ()
+    body = do
+        logEvent Kontrol LLDebug "Check for protocol updates"
+        check >>= \case
+            Nothing -> return ()
+            Just _ -> return () -- FIXME: support new (post P6) protocols. Issue #932.
+    showPU ProtocolUpdate{..} =
+        Text.unpack puMessage
+            ++ "\n["
+            ++ Text.unpack puSpecificationURL
+            ++ " (hash "
+            ++ show puSpecificationHash
+            ++ ")]"
+
+    -- Check whether a protocol update has taken effect. If it did return
+    -- information needed to initialize a new skov instance.
+    check ::
+        VersionedSkovV1M fc lastpv (Maybe (PVInit (VersionedSkovV1M fc lastpv)))
+    check = do
+        SkovV1.getPUStatus >>= \case
+            ProtocolUpdated pu -> do
+                -- FIXME: Check if we recognize the protocol update. Issue #932.
+                logEvent Kontrol LLError $
+                    "An unsupported protocol update ("
+                        -- ++ err
+                        ++ ") has taken effect:"
+                        ++ showPU pu
+                lift $ do
+                    callbacks <- asks mvCallbacks
+                    liftIO (notifyRegenesis callbacks Nothing)
+                    return Nothing
+            PendingProtocolUpdates [] -> do
+                logEvent Kontrol LLDebug "FOOOOOOOOOOOOOOOOOOOOOOO"
+                return Nothing
+            PendingProtocolUpdates ((ts, pu) : _) -> do
+                let alreadyNotified = False -- FIXME: introduce flag in the state for this
+                unless alreadyNotified $ case checkUpdate @lastpv pu of
+                    Left err -> do
+                        logEvent Kontrol LLError $
+                            "An unsupported protocol update ("
+                                ++ err
+                                ++ ") will take effect at "
+                                ++ show (timestampToUTCTime $ transactionTimeToTimestamp ts)
+                                ++ ": "
+                                ++ showPU pu
+                        callbacks <- lift $ asks mvCallbacks
+                        case notifyUnsupportedProtocolUpdate callbacks of
+                            Just notifyCallback -> liftIO $ notifyCallback $ transactionTimeToTimestamp ts
+                            Nothing -> return ()
+                    Right upd -> do
+                        logEvent Kontrol LLInfo $
+                            "A protocol update will take effect at "
+                                ++ show (timestampToUTCTime $ transactionTimeToTimestamp ts)
+                                ++ ": "
+                                ++ showPU pu
+                                ++ "\n"
+                                ++ show upd
+                return Nothing
+
 -- |Make a 'MultiVersionRunner' for a given configuration.
 makeMultiVersionRunner ::
     ( MultiVersion finconf,
@@ -1091,8 +1164,7 @@ startupSkov genesis = do
                         logEvent Runner LLTrace "Load configuration done"
                         let activateThis = do
                                 activateConfiguration (newVersionV1 newEConfig)
-                                -- FIXME: Support protocol updates. Issue #825
-                                return ()
+                                liftSkovV1Update newEConfig checkForProtocolUpdateV1
                         case esNextProtocolVersion of
                             Nothing -> do
                                 -- This is still the current configuration (i.e. no protocol update
@@ -1485,6 +1557,7 @@ receiveBlock gi blockBS = withLatestExpectedVersion gi $ \case
                         SkovV1.BlockResultPending -> return (Skov.ResultPendingBlock, Nothing)
                         SkovV1.BlockResultEarly -> return (Skov.ResultEarlyBlock, Nothing)
                         SkovV1.BlockResultDuplicate -> return (Skov.ResultDuplicate, Nothing)
+                        SkovV1.BlockResultConsensusShutdown -> return (Skov.ResultConsensusShutDown, Nothing)
 
 -- |Invoke the continuation yielded by 'receiveBlock'.
 -- The continuation performs a transaction which will acquire the write lock
@@ -1837,6 +1910,7 @@ receiveExecuteBlock gi blockBS = withLatestExpectedVersion_ gi $ \case
                         SkovV1.BlockResultPending -> return Skov.ResultPendingBlock
                         SkovV1.BlockResultEarly -> return Skov.ResultEarlyBlock
                         SkovV1.BlockResultDuplicate -> return Skov.ResultDuplicate
+                        SkovV1.BlockResultConsensusShutdown -> return Skov.ResultConsensusShutDown
 
 -- |Import a block file for out-of-band catch-up.
 importBlocks :: FilePath -> MVR finconf Skov.UpdateResult

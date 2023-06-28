@@ -96,6 +96,8 @@ data BlockResult
       BlockResultEarly
     | -- |We have already seen this block.
       BlockResultDuplicate
+    | -- |Consensus has been shutdown.
+      BlockResultConsensusShutdown
     deriving (Eq, Show)
 
 -- |Handle initial verification of a block before it is relayed to peers.
@@ -118,30 +120,33 @@ uponReceivingBlock ::
     PendingBlock ->
     m BlockResult
 uponReceivingBlock pendingBlock = do
-    -- TODO: Check for consensus shutdown. Issue #825
-    lfb <- use lastFinalized
-    if blockEpoch pendingBlock < blockEpoch lfb || blockRound pendingBlock <= blockRound lfb
-        then do
-            -- The block is from an old epoch, or already finalized round
-            logEvent Konsensus LLTrace $ "Block " <> show pbHash <> " is from an old round or epoch."
-            return BlockResultStale
+    isShutdown <- use isConsensusShutdown
+    if isShutdown
+        then return BlockResultConsensusShutdown
         else do
-            sd <- get
-            -- Check that the block is not already live or pending. The network-layer deduplication
-            -- should generally prevent such blocks from getting here, but having this check means
-            -- we can rely on the fact.
-            case getMemoryBlockStatus pbHash sd of
-                Just _ -> do
-                    logEvent Konsensus LLTrace $ "Block " <> show pbHash <> " is a duplicate."
-                    return BlockResultDuplicate
-                Nothing -> do
-                    getRecentBlockStatus (blockParent pendingBlock) sd >>= \case
-                        RecentBlock (BlockAlive parent) -> receiveBlockKnownParent parent pendingBlock
-                        RecentBlock (BlockFinalized parent) -> receiveBlockKnownParent parent pendingBlock
-                        RecentBlock BlockPending{} -> receiveBlockUnknownParent pendingBlock
-                        RecentBlock BlockDead -> rejectBadParent
-                        RecentBlock BlockUnknown -> receiveBlockUnknownParent pendingBlock
-                        OldFinalized -> rejectBadParent
+            lfb <- use lastFinalized
+            if blockEpoch pendingBlock < blockEpoch lfb || blockRound pendingBlock <= blockRound lfb
+                then do
+                    -- The block is from an old epoch, or already finalized round
+                    logEvent Konsensus LLTrace $ "Block " <> show pbHash <> " is from an old round or epoch."
+                    return BlockResultStale
+                else do
+                    sd <- get
+                    -- Check that the block is not already live or pending. The network-layer deduplication
+                    -- should generally prevent such blocks from getting here, but having this check means
+                    -- we can rely on the fact.
+                    case getMemoryBlockStatus pbHash sd of
+                        Just _ -> do
+                            logEvent Konsensus LLTrace $ "Block " <> show pbHash <> " is a duplicate."
+                            return BlockResultDuplicate
+                        Nothing -> do
+                            getRecentBlockStatus (blockParent pendingBlock) sd >>= \case
+                                RecentBlock (BlockAlive parent) -> receiveBlockKnownParent parent pendingBlock
+                                RecentBlock (BlockFinalized parent) -> receiveBlockKnownParent parent pendingBlock
+                                RecentBlock BlockPending{} -> receiveBlockUnknownParent pendingBlock
+                                RecentBlock BlockDead -> rejectBadParent
+                                RecentBlock BlockUnknown -> receiveBlockUnknownParent pendingBlock
+                                OldFinalized -> rejectBadParent
   where
     pbHash :: BlockHash
     pbHash = getHash pendingBlock
@@ -1101,14 +1106,15 @@ executeBlock ::
     VerifiedBlock ->
     m ()
 executeBlock verifiedBlock = do
-    -- TODO: check for consensus shutdown. Issue #825
-    gets (getLiveOrLastFinalizedBlock (blockParent (vbBlock verifiedBlock))) >>= \case
-        Just parent -> do
-            res <- processBlock parent verifiedBlock
-            forM_ res $ \newBlock -> do
-                OrderedBlock best <- processPendingChildren newBlock
-                checkedValidateBlock best
-        Nothing -> return ()
+    isShutdown <- use isConsensusShutdown
+    unless isShutdown $ do
+        gets (getLiveOrLastFinalizedBlock (blockParent (vbBlock verifiedBlock))) >>= \case
+            Just parent -> do
+                res <- processBlock parent verifiedBlock
+                forM_ res $ \newBlock -> do
+                    OrderedBlock best <- processPendingChildren newBlock
+                    checkedValidateBlock best
+            Nothing -> return ()
 
 -- * Block production
 
@@ -1358,12 +1364,14 @@ makeBlock ::
     ) =>
     m ()
 makeBlock = do
-    mInputs <- prepareBakeBlockInputs
-    forM_ mInputs $ \inputs -> do
-        block <- bakeBlock inputs
-        logEvent Baker LLTrace $
-            "Baking block at "
-                ++ show (timestampToUTCTime $ blockTimestamp block)
-        doAfter (timestampToUTCTime $ blockTimestamp block) $ do
-            sendBlock block
-            checkedValidateBlock block
+    isShutdown <- use isConsensusShutdown
+    unless isShutdown $ do
+        mInputs <- prepareBakeBlockInputs
+        forM_ mInputs $ \inputs -> do
+            block <- bakeBlock inputs
+            logEvent Baker LLTrace $
+                "Baking block at "
+                    ++ show (timestampToUTCTime $ blockTimestamp block)
+            doAfter (timestampToUTCTime $ blockTimestamp block) $ do
+                sendBlock block
+                checkedValidateBlock block

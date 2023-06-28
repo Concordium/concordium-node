@@ -22,10 +22,15 @@ import Concordium.Utils
 
 import qualified Concordium.Crypto.BlockSignature as Sig
 import Concordium.GlobalState.BakerInfo
+import Concordium.GlobalState.BlockState
+import qualified Concordium.GlobalState.Persistent.BlockState as PBS
+import qualified Concordium.GlobalState.TreeState as GSTypes
 import Concordium.KonsensusV1.TreeState.Implementation
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.Logger
+import Concordium.Types.SeedState (triggerBlockTime)
+import Concordium.Types.UpdateQueues
 
 -- |A Monad for broadcasting either a 'TimeoutMessage',
 -- 'QuorumMessage' or a 'SignedBlock'.
@@ -254,7 +259,29 @@ isCurrentFinalizer =
             return $ isJust $ finalizerByBakerId _bfFinalizers bakerId
 
 -- |Determine if consensus is shut down.
--- FIXME: Currently this always returns 'False'. Once protocol update/shutdown is supported, this
--- should be updated to reflect the state. Issue #825
-isShutDown :: (Monad m) => m Bool
-isShutDown = return False
+isShutDown :: MonadState (SkovData (MPV m)) m => m Bool
+isShutDown = use isConsensusShutdown
+
+-- |Get the protocol update status. If a protocol update is effective, but consensus is not yet
+-- in shutdown, a `PendingProtocolUpdates` is returned with the protocol update and the trigger time.
+-- This happens between the effective time of the protocol update and when the trigger block is
+-- finalized (usually close to the nominal epoch transaction time).
+getPUStatus ::
+    ( GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
+      BlockStateQuery m,
+      MonadState (SkovData (MPV m)) m,
+      IsConsensusV1 (MPV m)
+    ) =>
+    m ProtocolUpdateStatus
+getPUStatus = do
+    lf <- use lastFinalized
+    let st = bpState lf
+    ss <- getSeedState st
+    getProtocolUpdateStatus st >>= \case
+        ProtocolUpdated pu ->
+            use isConsensusShutdown >>= \case
+                True -> return $ ProtocolUpdated pu
+                False -> do
+                    let ts = TransactionTime $ timestampToSeconds $ ss ^. triggerBlockTime
+                    return $ PendingProtocolUpdates [(ts, pu)]
+        other -> return other

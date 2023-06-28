@@ -655,6 +655,77 @@ migrateSkovFromConsensusV0 regenesis migration gsConfig@GlobalStateConfig{..} ol
                 )
     initWithBlockState `onException` liftIO (closeBlobStore pbscBlobStore)
 
+migrateSkovFromConsensusV1 ::
+    forall lastpv pv m.
+    ( IsConsensusV1 lastpv,
+      IsConsensusV1 pv,
+      IsProtocolVersion pv,
+      IsProtocolVersion lastpv
+    ) =>
+    -- |The genesis for the protocol after the protocol update.
+    Regenesis pv ->
+    -- |The migration.
+    StateMigrationParameters lastpv pv ->
+    -- |The configuration for the new consensus instance.
+    GlobalStateConfig ->
+    -- |The old block state context.
+    PersistentBlockStateContext lastpv ->
+    -- |The old block state
+    HashedPersistentBlockState lastpv ->
+    -- |The baker context
+    BakerContext ->
+    -- |The handler context
+    HandlerContext pv m ->
+    -- |The function for unlifting a 'SkovV1T' into 'IO'.
+    -- See documentation for 'SkovV1Context'.
+    (forall a. SkovV1T pv m a -> IO a) ->
+    -- |Return back the 'SkovV1Context' and the migrated 'SkovV1State'
+    LogIO (SkovV1Context pv m, SkovV1State pv)
+migrateSkovFromConsensusV1 regenesis migration gsConfig@GlobalStateConfig{..} oldPbsc oldBlockState bakerCtx handlerCtx unliftSkov = do
+    pbsc@PersistentBlockStateContext{..} <- newPersistentBlockStateContext gsConfig
+    logEvent GlobalState LLDebug "Migrating existing global state."
+    newInitialBlockState <- flip runBlobStoreT oldPbsc . flip runBlobStoreT pbsc $ do
+        newState <- migratePersistentBlockState migration $ hpbsPointers oldBlockState
+        hashBlockState newState
+    let
+        initGS :: InitMonad pv (SkovData pv)
+        initGS = do
+            stateRef <- saveBlockState newInitialBlockState
+            chainParams <- getChainParameters newInitialBlockState
+            genEpochBakers <- genesisEpochBakers newInitialBlockState
+            let genMeta = regenesisMetadata (getHash newInitialBlockState) regenesis
+            let genTimeoutDuration =
+                    chainParams ^. cpConsensusParameters . cpTimeoutParameters . tpTimeoutBase
+            let !initSkovData =
+                    mkInitialSkovData gscRuntimeParameters genMeta newInitialBlockState genTimeoutDuration genEpochBakers
+            let storedGenesis =
+                    LowLevel.StoredBlock
+                        { stbStatePointer = stateRef,
+                          stbInfo = blockMetadata (initSkovData ^. lastFinalized),
+                          stbBlock = GenesisBlock genMeta
+                        }
+            runDiskLLDBM $ initialiseLowLevelDB storedGenesis (initSkovData ^. persistentRoundStatus)
+            return initSkovData
+    let initWithBlockState = do
+            (lldb :: DatabaseHandlers pv) <- liftIO $ openDatabase gscTreeStateDirectory
+            let context = InitContext pbsc lldb
+            logEvent GlobalState LLDebug "Initializing new tree state."
+            !initSkovData <- runInitMonad initGS context `onException` liftIO (closeDatabase lldb)
+            return
+                ( SkovV1Context
+                    { _vcBakerContext = bakerCtx,
+                      _vcPersistentBlockStateContext = pbsc,
+                      _vcDisk = lldb,
+                      _vcHandlers = handlerCtx,
+                      _skovV1TUnliftIO = unliftSkov
+                    },
+                  SkovV1State
+                    { _v1sSkovData = initSkovData,
+                      _v1sTimer = Nothing
+                    }
+                )
+    initWithBlockState `onException` liftIO (closeBlobStore pbscBlobStore)
+
 -- |Make a new 'PersistentBlockStateContext' based on the
 -- 'GlobalStateConfig' passed into this function.
 -- This function creates the block state file i.e. the blob store,
