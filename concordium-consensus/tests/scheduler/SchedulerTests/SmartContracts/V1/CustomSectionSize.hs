@@ -94,7 +94,7 @@ invokeContract ccContract bs = do
                 }
     InvokeContract.invokeContract ctx (Types.ChainMetadata 123) bs
 
--- |Deploy and initialize two contracts, then invoke entrypoing newfun in them,
+-- |Deploy and initialize two contracts, then invoke entrypoint newfun in them,
 -- and return how much it cost. In the first instance the module is without
 -- custom sections, in the second it is with custom sections.
 runTests :: forall pv. Types.IsProtocolVersion pv => Types.SProtocolVersion pv -> String -> Assertion
