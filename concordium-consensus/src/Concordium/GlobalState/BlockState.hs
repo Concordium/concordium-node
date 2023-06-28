@@ -614,8 +614,8 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
     getPendingPoolParameters :: BlockState m -> m [(TransactionTime, PoolParameters (ChainParametersVersionFor (MPV m)))]
 
     -- |Get the protocol update status. If a protocol update has taken effect,
-    -- returns @Left protocolUpdate@. Otherwise, returns @Right pendingProtocolUpdates@.
-    -- The @pendingProtocolUpdates@ is a (possibly-empty) list of timestamps and protocol
+    -- returns @ProtocolUpdated@. Otherwise returns @PendingProtocolUpdates@,
+    -- which is a (possibly-empty) list of timestamps and protocol
     -- updates that have not yet taken effect.
     getProtocolUpdateStatus :: BlockState m -> m UQ.ProtocolUpdateStatus
 

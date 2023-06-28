@@ -22,7 +22,7 @@ import Concordium.Utils
 
 import qualified Concordium.Crypto.BlockSignature as Sig
 import Concordium.GlobalState.BakerInfo
-import Concordium.GlobalState.BlockState
+import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import qualified Concordium.GlobalState.TreeState as GSTypes
 import Concordium.KonsensusV1.TreeState.Implementation
@@ -266,22 +266,25 @@ isShutDown = use isConsensusShutdown
 -- in shutdown, a `PendingProtocolUpdates` is returned with the protocol update and the trigger time.
 -- This happens between the effective time of the protocol update and when the trigger block is
 -- finalized (usually close to the nominal epoch transaction time).
-getPUStatus ::
+getProtocolUpdateStatus ::
     ( GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
-      BlockStateQuery m,
+      BS.BlockStateQuery m,
       MonadState (SkovData (MPV m)) m,
       IsConsensusV1 (MPV m)
     ) =>
     m ProtocolUpdateStatus
-getPUStatus = do
-    lf <- use lastFinalized
-    let st = bpState lf
-    ss <- getSeedState st
-    getProtocolUpdateStatus st >>= \case
+getProtocolUpdateStatus = do
+    st <- bpState <$> use lastFinalized
+    BS.getProtocolUpdateStatus st >>= \case
         ProtocolUpdated pu ->
             use isConsensusShutdown >>= \case
+                -- The protocol update is now in effect.
                 True -> return $ ProtocolUpdated pu
+                -- The protocol update is awaiting the terminal block of the epoch to be finalized.
+                -- We show this by returning the "pending effective" protocol update as a pending
+                -- protocol update.
                 False -> do
+                    ss <- BS.getSeedState st
                     let ts = TransactionTime $ timestampToSeconds $ ss ^. triggerBlockTime
                     return $ PendingProtocolUpdates [(ts, pu)]
-        other -> return other
+        pendingProtocolUpdates -> return pendingProtocolUpdates

@@ -928,14 +928,11 @@ checkForProtocolUpdateV1 = body
     check ::
         VersionedSkovV1M fc lastpv (Maybe (PVInit (VersionedSkovV1M fc lastpv)))
     check = do
-        SkovV1.getPUStatus >>= \case
+        SkovV1.getProtocolUpdateStatus >>= \case
             ProtocolUpdated pu -> do
                 -- FIXME: Check if we recognize the protocol update. Issue #932.
                 logEvent Kontrol LLError $
-                    "An unsupported protocol update ("
-                        -- ++ err
-                        ++ ") has taken effect:"
-                        ++ showPU pu
+                    "An unsupported protocol update has taken effect: " ++ showPU pu
                 lift $ do
                     callbacks <- asks mvCallbacks
                     liftIO (notifyRegenesis callbacks Nothing)
@@ -948,7 +945,7 @@ checkForProtocolUpdateV1 = body
                         logEvent Kontrol LLError $
                             "An unsupported protocol update ("
                                 ++ err
-                                ++ ") will take effect in the epoch transition after "
+                                ++ ") will take effect at "
                                 ++ show (timestampToUTCTime $ transactionTimeToTimestamp ts)
                                 ++ ": "
                                 ++ showPU pu
@@ -958,7 +955,7 @@ checkForProtocolUpdateV1 = body
                             Nothing -> return ()
                     Right upd -> do
                         logEvent Kontrol LLInfo $
-                            "A protocol update will take effect in the epoch transition after "
+                            "A protocol update will take effect at "
                                 ++ show (timestampToUTCTime $ transactionTimeToTimestamp ts)
                                 ++ ": "
                                 ++ showPU pu
