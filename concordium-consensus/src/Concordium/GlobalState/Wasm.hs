@@ -114,7 +114,9 @@ data ModuleInterfaceA instrumentedModule = ModuleInterface
       -- |Module source processed into an efficiently executable format.
       -- For details see "Artifact" in smart-contracts/wasm-chain-integration
       miModule :: !instrumentedModule,
-      -- |Size of the module as deployed in the transaction.
+      -- |Size of the module. In protocols 1-5 this is the size of the module as
+      -- deployed in the transaction. In P6 and later custom sections inside the
+      -- module no longer count towards it for V1 modules.
       miModuleSize :: !Word64
     }
     deriving (Eq, Show, Functor, Foldable, Traversable)
