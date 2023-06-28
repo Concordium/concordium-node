@@ -389,7 +389,7 @@ testEpochFinEntry =
 testEpochLEN :: LeadershipElectionNonce
 testEpochLEN = nonceForNewEpoch genesisFullBakers $ upd testBB1E genesisSeedState
   where
-    upd b = updateSeedStateForBlock (bbTimestamp b) (bbNonce b)
+    upd b = updateSeedStateForBlock (bbTimestamp b) (bbNonce b) False
 
 -- |Valid block for round 3, epoch 1. Descends from 'testBB2E'. The finalization entry is
 -- 'testEpochFinEntry'.
@@ -509,7 +509,7 @@ testBB2Ex =
 testEpochLENx :: LeadershipElectionNonce
 testEpochLENx = nonceForNewEpoch genesisFullBakers $ upd testBB2Ex genesisSeedState
   where
-    upd b = updateSeedStateForBlock (bbTimestamp b) (bbNonce b)
+    upd b = updateSeedStateForBlock (bbTimestamp b) (bbNonce b) False
 
 testBB3Ex :: BakedBlock
 testBB3Ex =

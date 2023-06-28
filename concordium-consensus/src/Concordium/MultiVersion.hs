@@ -925,8 +925,6 @@ checkForProtocolUpdateV1 = body
             ++ show puSpecificationHash
             ++ ")]"
 
-    -- Check whether a protocol update has taken effect. If it did return
-    -- information needed to initialize a new skov instance.
     check ::
         VersionedSkovV1M fc lastpv (Maybe (PVInit (VersionedSkovV1M fc lastpv)))
     check = do
@@ -944,7 +942,7 @@ checkForProtocolUpdateV1 = body
                     return Nothing
             PendingProtocolUpdates [] -> return Nothing
             PendingProtocolUpdates ((ts, pu) : _) -> do
-                let alreadyNotified = False -- FIXME: introduce flag in the state for this
+                alreadyNotified <- SkovV1.alreadyNotified
                 unless alreadyNotified $ case checkUpdate @lastpv pu of
                     Left err -> do
                         logEvent Kontrol LLError $
