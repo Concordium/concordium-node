@@ -40,7 +40,6 @@
 -- genesis block, and all finalization records that are not already included in blocks.
 module Concordium.ImportExport where
 
-import Data.Maybe (fromMaybe)
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
@@ -51,6 +50,7 @@ import qualified Data.Attoparsec.Text as AP
 import Data.Bits
 import qualified Data.ByteString as BS
 import Data.Char (isHexDigit)
+import Data.Maybe (fromMaybe)
 import Data.Sequence (
     Seq (..),
     fromList,
@@ -68,6 +68,7 @@ import Concordium.Common.Version
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.Finalization
+
 import Concordium.GlobalState.Persistent.LMDB
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as KonsensusV1
 import qualified Concordium.KonsensusV1.TreeState.LowLevel.LMDB as KonsensusV1
@@ -79,7 +80,12 @@ import Concordium.Types.HashableTo
 import Concordium.Utils.Serialization.Put
 import Lens.Micro.Platform
 
--- |State used for exporting the database.
+-- |State used for exporting the database of a 'ConsensusV0' database.
+-- This type exists because we run the exporting in a context that contains
+-- a State over the DBState.
+--
+-- But for the 'ConsensusV1' database we export it via a @Reader@ context,
+-- so this type is only used for 'ConsensusV0'.
 newtype DBState pv = DBState
     { _dbsHandlers :: DatabaseHandlers pv ()
     }
@@ -99,7 +105,8 @@ data SectionHeader = SectionHeader
       sectionBlockCount :: !Word64,
       sectionBlocksLength :: !Word64,
       sectionFinalizationCount :: !Word64
-    } deriving (Eq, Show)
+    }
+    deriving (Eq, Show)
 
 instance Serialize SectionHeader where
     put SectionHeader{..} = do
@@ -388,7 +395,7 @@ exportedGenHashOr bh blockIndex = case blockIndex of
     -- of the database.
     _ :|> (gh, _) -> gh
 
--- |todo doc
+-- |Export blocks from a 'ConsensusV1' database.
 exportConsensusV1Blocks ::
     forall pv m.
     ( IsProtocolVersion pv,
@@ -407,6 +414,9 @@ exportConsensusV1Blocks ::
     BlockIndex ->
     -- |Last written chunk in previous export
     Maybe String ->
+    -- |Returns a @Bool@ which indicates whether anything went wrong,
+    -- i.e. it is 'True' if an error occured and otherwise 'False,
+    -- and the resulting 'BlockIndex'.
     m (Bool, BlockIndex)
 exportConsensusV1Blocks outDir chunkSize genIndex startHeight blockIndex lastWrittenChunkM = do
     KonsensusV1.lookupFirstBlock >>= \case
@@ -477,9 +487,7 @@ exportSections dbDir outDir chunkSize genIndex startHeight blockIndex lastWritte
     -- Check if the database exists for this genesis index.
     dbEx <- doesPathExist $ treeStateDir </> "data.mdb"
     if dbEx
-        then -- TODO: Clean up the way of accessing the types of databases.
-        -- Query by the version instead of this trial and error approach.
-
+        then
             openReadOnlyDatabase treeStateDir >>= \case
                 Nothing -> do
                     KonsensusV1.openReadOnlyDatabase treeStateDir >>= \case
