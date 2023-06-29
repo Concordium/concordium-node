@@ -163,6 +163,10 @@ data InvokeResponseCode
       UpgradeInvalidContractName !ModuleRef !InitName
     | -- |Attempt to upgrade to a non-supported module version.
       UpgradeInvalidVersion !ModuleRef !WasmVersion
+    | -- |Invalid data to check signature for.
+      SignatureDataMalformed
+    | -- |Invalid signature.
+      SignatureCheckFailed
 
 -- |Possible reasons why invocation failed that are not directly logic failure of a V1 call.
 data EnvFailure
@@ -193,6 +197,8 @@ invokeResponseToWord64 MessageSendFailed = 0xffff_ff05_0000_0000
 invokeResponseToWord64 (UpgradeInvalidModuleRef _) = 0xffff_ff07_0000_0000
 invokeResponseToWord64 (UpgradeInvalidContractName _ _) = 0xffff_ff08_0000_0000
 invokeResponseToWord64 (UpgradeInvalidVersion _ _) = 0xffff_ff09_0000_0000
+invokeResponseToWord64 SignatureDataMalformed = 0xffff_ff0a_0000_0000
+invokeResponseToWord64 SignatureCheckFailed = 0xffff_ff0b_0000_0000
 invokeResponseToWord64 (Error (ExecutionReject Trap)) = 0xffff_ff06_0000_0000
 invokeResponseToWord64 (Error (ExecutionReject LogicReject{..})) =
     -- make the last 32 bits the value of the rejection reason
@@ -278,6 +284,8 @@ foreign import ccall "call_receive_v1"
         -- This is needed to support legacy (incorrect) behaviour for protocols 4-5.
         Ptr Word8 ->
         -- |Non-zero to enable support of chain queries.
+        Word8 ->
+        -- |Non-zero to enable support for account keys query and signature checks.
         Word8 ->
         -- |New state, logs, and actions, if applicable, or null, signalling out-of-energy.
         IO (Ptr Word8)
@@ -399,6 +407,15 @@ data InvokeMethod
         }
     | -- |Query the CCD/EUR and EUR/NRG exchange rates.
       QueryExchangeRates
+    | -- |Check the signature using account keys
+      CheckAccountSignature
+        { imcasAddress :: !AccountAddress,
+          imcasPayload :: !BS.ByteString
+        }
+    | -- |Query the account keys
+      QueryAccountKeys
+        { imqakAddress :: !AccountAddress
+        }
 
 getInvokeMethod :: Get InvokeMethod
 getInvokeMethod =
@@ -409,6 +426,8 @@ getInvokeMethod =
         3 -> QueryAccountBalance <$> get
         4 -> QueryContractBalance <$> get
         5 -> return QueryExchangeRates
+        6 -> CheckAccountSignature <$> get <*> getByteStringLen
+        7 -> QueryAccountKeys <$> get
         n -> fail $ "Unsupported invoke method tag: " ++ show n
 
 -- |Data return from the contract in case of successful initialization.
@@ -638,7 +657,10 @@ data RuntimeConfig = RuntimeConfig
       rcMaxParameterLen :: Word16,
       -- |Whether to limit the number logs and size of return values, updated in
       -- P5.
-      rcLimitLogsAndRvs :: Bool
+      rcLimitLogsAndRvs :: Bool,
+      -- |Whether to support account key queries and account signature checks.
+      -- Supported in P6 onward.
+      rcSupportAccountSignatureChecks :: Bool
     }
 
 -- |Apply a receive function which is assumed to be part of the given module.
@@ -697,6 +719,7 @@ applyReceiveFun miface cm receiveCtx rName useFallback param amnt initialState R
                                     outputLenPtr
                                     stateWrittenToPtr
                                     (if rcSupportChainQueries then 1 else 0)
+                                    (if rcSupportAccountSignatureChecks then 1 else 0)
                             if outPtr == nullPtr
                                 then return (Just (Left Trap, 0)) -- this case should not happen
                                 else do
