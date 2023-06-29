@@ -11,12 +11,14 @@ module SchedulerTests.SmartContracts.V1.AccountSignatureChecks (tests) where
 import Control.Monad (when)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Short as BSS
+import qualified Data.Map.Strict as Map
 import qualified Data.Serialize as S
 import Data.Word
 import Test.HUnit (Assertion, assertEqual, assertFailure)
 import Test.Hspec
 
 import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.Persistent.Account
 import Concordium.GlobalState.Persistent.BlockState
 import qualified Concordium.GlobalState.Wasm as GSWasm
 import qualified Concordium.Scheduler.InvokeContract as InvokeContract
@@ -33,11 +35,14 @@ import qualified SchedulerTests.SmartContracts.V1.InvokeHelpers as InvokeHelpers
 seed :: Int
 seed = 17
 
--- empty state, no accounts, no modules, no instances
+-- Set up a state with a single account with 4 credentials, and account threshold 3.
 initialBlockState :: Types.IsProtocolVersion pv => Helpers.PersistentBSM pv (HashedPersistentBlockState pv)
-initialBlockState =
-    Helpers.createTestBlockStateWithAccountsM
-        [Helpers.makeTestAccountFromSeed 1_000 seed]
+initialBlockState = do
+    let cred1 = Helpers.makeTestCredentialFromSeed (seed + 100)
+    let cred2 = Helpers.makeTestCredentialFromSeed (seed + 200)
+    let cred4 = Helpers.makeTestCredentialFromSeed (seed + 300)
+    let acc = updateAccountCredentials [] (Map.fromList [(1, cred1), (2, cred2), (4, cred4)]) 3 =<< Helpers.makeTestAccountFromSeed 1_000 seed
+    Helpers.createTestBlockStateWithAccountsM [acc]
 
 sourceFile :: FilePath
 sourceFile = "../concordium-base/smart-contracts/testdata/contracts/v1/account-signature-checks.wasm"
@@ -120,14 +125,32 @@ runGetKeysTests spv pvString = when (Types.demoteProtocolVersion spv >= Types.P4
                 liftIO $ assertFailure "Call succeded with no return value."
             InvokeContract.Success{rcrReturnValue = Just rv} -> do
                 let expected = S.runPut $ do
-                        S.putWord8 1 -- length of the outer map
+                        S.putWord8 4 -- length of the outer map
                         S.putWord8 0 -- credential index
                         S.putWord8 1 -- length of the inner map
                         S.putWord8 0 -- key index
                         S.put Ed25519 -- scheme id
                         S.put (verifyKey (Helpers.keyPairFromSeed seed)) -- the public key
                         S.putWord8 1 -- threshold for the credential
-                        S.putWord8 1 -- threshold for the account
+                        S.putWord8 1 -- credential index
+                        S.putWord8 1 -- length of the inner map
+                        S.putWord8 0 -- key index
+                        S.put Ed25519 -- scheme id
+                        S.put (verifyKey (Helpers.keyPairFromSeed (seed + 100))) -- the public key
+                        S.putWord8 1 -- threshold for the credential
+                        S.putWord8 2 -- credential index
+                        S.putWord8 1 -- length of the inner map
+                        S.putWord8 0 -- key index
+                        S.put Ed25519 -- scheme id
+                        S.put (verifyKey (Helpers.keyPairFromSeed (seed + 200))) -- the public key
+                        S.putWord8 1 -- threshold for the credential
+                        S.putWord8 4 -- credential index
+                        S.putWord8 1 -- length of the inner map
+                        S.putWord8 0 -- key index
+                        S.put Ed25519 -- scheme id
+                        S.put (verifyKey (Helpers.keyPairFromSeed (seed + 300))) -- the public key
+                        S.putWord8 1 -- threshold for the credential
+                        S.putWord8 3 -- threshold for the account
                 liftIO (assertEqual (pvString ++ ": Retrieved key is correct: ") expected rv)
 
 runCheckSignatureTests ::
@@ -163,18 +186,32 @@ runCheckSignatureTests spv pvString paramBS expectedCode = when (Types.demotePro
 runCheckSignatureTest1 :: forall pv. Types.IsProtocolVersion pv => Types.SProtocolVersion pv -> String -> Assertion
 runCheckSignatureTest1 spv pvString = do
     let message = BS.replicate 123 17
-    let kp = Helpers.keyPairFromSeed seed
-    let Signature sig = sign kp message
+    let kp0 = Helpers.keyPairFromSeed seed
+    let kp1 = Helpers.keyPairFromSeed (seed + 100)
+    let kp4 = Helpers.keyPairFromSeed (seed + 300)
+    let Signature sig0 = sign kp0 message
+    let Signature sig1 = sign kp1 message
+    let Signature sig4 = sign kp4 message
     let paramBS = S.runPut $ do
             S.put $ Helpers.accountAddressFromSeed seed
             S.putWord32le (fromIntegral (BS.length message))
             S.putByteString message
-            S.putWord8 1 -- number of outer signatures
+            S.putWord8 3 -- number of outer signatures
             S.putWord8 0 -- credential index
             S.putWord8 1 -- number of inner signatures
             S.putWord8 0 -- key index
             S.put Ed25519 -- signature scheme ID
-            S.putShortByteString sig
+            S.putShortByteString sig0
+            S.putWord8 1 -- credential index
+            S.putWord8 1 -- number of inner signatures
+            S.putWord8 0 -- key index
+            S.put Ed25519 -- signature scheme ID
+            S.putShortByteString sig1
+            S.putWord8 4 -- credential index
+            S.putWord8 1 -- number of inner signatures
+            S.putWord8 0 -- key index
+            S.put Ed25519 -- signature scheme ID
+            S.putShortByteString sig4
     runCheckSignatureTests spv pvString paramBS 0
 
 -- |Test missing account.
