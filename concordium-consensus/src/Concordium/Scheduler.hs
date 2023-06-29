@@ -1450,7 +1450,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                                         case schemeId of
                                                             SigScheme.Ed25519 -> SigScheme.Signature <$> S.getShortByteString Ed25519.signatureSize
                                             getData = do
-                                                dataLen <- S.getWord32be
+                                                dataLen <- S.getWord32le
                                                 dataPayload <- S.getByteString (fromIntegral dataLen)
                                                 sigs <- getSignatures
                                                 return (dataPayload, sigs)
