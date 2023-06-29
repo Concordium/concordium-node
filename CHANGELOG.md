@@ -9,6 +9,7 @@
   - Disallow globals in initialization sections for V1 contracts in P6.
   - Support sign extension instructions in Wasm in P6.
   - Do not count custom sections towards module size when executing contracts.
+- Shut down consensus upon a protocol update updating from protocol version 6.
 
 ## 6.0.0
 
