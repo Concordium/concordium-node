@@ -926,7 +926,7 @@ checkForProtocolUpdateV1 = body
         VersionedSkovV1M fc lastpv (Maybe (PVInit (VersionedSkovV1M fc lastpv)))
     check = do
         SkovV1.getProtocolUpdateStatus >>= \case
-            (ProtocolUpdated pu, _) -> do
+            ProtocolUpdated pu -> do
                 -- FIXME: Check if we recognize the protocol update. Issue #932.
                 logEvent Kontrol LLError $
                     "An unsupported protocol update has taken effect: " ++ showPU pu
@@ -934,8 +934,8 @@ checkForProtocolUpdateV1 = body
                     callbacks <- asks mvCallbacks
                     liftIO (notifyRegenesis callbacks Nothing)
                     return Nothing
-            (PendingProtocolUpdates [], _) -> return Nothing
-            (PendingProtocolUpdates ((ts, pu) : _), isEpochTransistionTime) -> do
+            PendingProtocolUpdates [] -> return Nothing
+            PendingProtocolUpdates ((ts, pu) : _) -> do
                 alreadyNotified <- SkovV1.alreadyNotified
                 unless alreadyNotified $ case checkUpdate @lastpv pu of
                     Left err -> do
