@@ -150,7 +150,7 @@ data HandlerContext (pv :: ProtocolVersion) m = HandlerContext
       -- |An event handler called per finalization. It is called with the
       -- finalization entry, and the list of all blocks finalized by the entry
       -- in increasing order of block height.
-      _onFinalizeHandler :: FinalizationEntry -> [BlockPointer pv] -> m (),
+      _onFinalizeHandler :: FinalizationEntry -> [BlockPointer pv] -> SkovV1T pv m (),
       -- |An event handler called when a pending block becomes live. This is intended to trigger
       -- sending a catch-up status message to peers, as pending blocks are not relayed when they
       -- are first received.
@@ -274,7 +274,7 @@ instance Monad m => MonadConsensusEvent (SkovV1T pv m) where
         lift $ handler bp
     onFinalize fe bp = do
         handler <- view onFinalizeHandler
-        lift $ handler fe bp
+        handler fe bp
     onPendingLive = do
         handler <- view onPendingLiveHandler
         lift handler
