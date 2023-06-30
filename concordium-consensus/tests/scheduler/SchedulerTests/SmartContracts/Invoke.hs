@@ -44,7 +44,7 @@ deployModule ::
           WasmModuleV GSWasm.V1
         )
 deployModule = do
-    ((x, y), z) <- InvokeHelpers.deployModuleV1 counterSourceFile . hpbsPointers =<< initialBlockState
+    ((x, y), z) <- InvokeHelpers.deployModuleV1 Types.SP4 counterSourceFile . hpbsPointers =<< initialBlockState
     return (z, x, y)
 
 initContract ::

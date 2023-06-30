@@ -57,7 +57,7 @@ validContractArtifactsV1 = mapMaybe packModule contractSourcesV1
   where
     packModule (_, sourceBytes) =
         let source = Wasm.ModuleSource sourceBytes
-        in  (source,) <$> WasmV1.processModule True (Wasm.WasmModuleV source)
+        in  (source,) <$> WasmV1.processModule SP5 (Wasm.WasmModuleV source)
 
 checkBinary :: Show a => (a -> a -> Bool) -> a -> a -> String -> String -> String -> Either String ()
 checkBinary bop x y sbop sx sy = unless (bop x y) $ Left $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"

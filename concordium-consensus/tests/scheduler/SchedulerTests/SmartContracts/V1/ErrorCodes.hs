@@ -46,7 +46,7 @@ deployModule1 ::
         ( (InvokeHelpers.PersistentModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1),
           PersistentBlockState PV4
         )
-deployModule1 = InvokeHelpers.deployModuleV1 callerSourceFile
+deployModule1 = InvokeHelpers.deployModuleV1 Types.SP4 callerSourceFile
 
 initContract1 ::
     PersistentBlockState PV4 ->

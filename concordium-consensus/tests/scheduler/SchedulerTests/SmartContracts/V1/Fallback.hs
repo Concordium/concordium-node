@@ -43,7 +43,7 @@ deployModule ::
         )
 deployModule = do
     ((x, y), z) <-
-        InvokeHelpers.deployModuleV1 fallbackSourceFile . hpbsPointers =<< initialBlockState
+        InvokeHelpers.deployModuleV1 Types.SP4 fallbackSourceFile . hpbsPointers =<< initialBlockState
     return (z, x, y)
 
 initContracts ::

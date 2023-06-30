@@ -676,7 +676,7 @@ handleDeployModule wtc mod =
                         return (Left (iface, moduleV0), mhash)
             Wasm.WasmModuleV1 moduleV1 | currentProtocolVersion >= P4 -> do
                 tickEnergy (Cost.deployModuleCost (Wasm.moduleSourceLength (Wasm.wmvSource moduleV1)))
-                case WasmV1.processModule (supportsUpgradableContracts $ protocolVersion @(MPV m)) moduleV1 of
+                case WasmV1.processModule (protocolVersion @(MPV m)) moduleV1 of
                     Nothing -> rejectTransaction ModuleNotWF
                     Just iface -> do
                         let mhash = GSWasm.moduleReference iface
@@ -1151,13 +1151,16 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                                   euEvents = rrdLogs
                                                 }
                                     in  Right (rrdReturnValue, event : events)
-                            -- execution terminated, commit the new state if it changed
+                            -- execution terminated, now add the state to the changeset.
+                            -- In contrast to maybeCommitState below, we don't have to (but could)
+                            -- add the state also when it is not modified. However this is not needed
+                            -- since if the state has not been modified it will not be looked up from the
+                            -- changeset on resume. It might be looked up on another call later, but that
+                            -- will start a fresh instance of the state, without the need for rollback
+                            -- past this point.
                             if rrdStateChanged
-                                then do
-                                    -- charge for storing the new state of the contract
-                                    withInstanceStateV1 istance rrdNewState $ \_modifiedIndex -> return result
-                                else do
-                                    return result
+                                then withInstanceStateV1 istance rrdNewState rrdStateChanged $ \_modifiedIndex -> return result
+                                else return result
                         WasmV1.ReceiveInterrupt{..} -> do
                             -- execution invoked an operation. Dispatch and continue.
                             let interruptEvent =
@@ -1173,8 +1176,12 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                             -- Helper for commiting the state of the contract if necessary.
                             let maybeCommitState :: (ModificationIndex -> LocalT r m a) -> LocalT r m a
                                 maybeCommitState f =
-                                    if rrdStateChanged
-                                        then withInstanceStateV1 istance rrdCurrentState f
+                                    -- execution terminated, now add the state to the changeset.
+                                    -- In protocols 4 and 5 we did not add the updated state to the changeset
+                                    -- This was incorrect since some administrative state changes might still be there,
+                                    -- such as adding a new generation. In P6 we fix this hence the odd-looking conditional.
+                                    if WasmV1.rcFixRollbacks rcConfig || rrdStateChanged
+                                        then withInstanceStateV1 istance rrdCurrentState rrdStateChanged f
                                         else do
                                             mi <- getCurrentModificationIndex istance
                                             f mi
@@ -1223,7 +1230,11 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                                         -- we can keep the old one.
                                                         (lastModifiedIndex, newState) <- getCurrentContractInstanceState istance
                                                         let stateChanged = lastModifiedIndex /= modificationIndex
-                                                        resumeState <- getRuntimeReprV1 newState
+                                                        -- In protocol versions 5 and lower the handling of resume here was incorrect and we always looked up the state.
+                                                        -- This is not correct since then the calling contract continues in an incorrect state generation, meaning
+                                                        -- that all the iterators are invalidated.
+                                                        -- So if the state has not changed we just resume in the state that we stopped in.
+                                                        resumeState <- if not (WasmV1.rcFixRollbacks rcConfig) || stateChanged then getRuntimeReprV1 newState else return rrdCurrentState
                                                         newBalance <- getCurrentContractAmount Wasm.SV1 istance
                                                         go (resumeEvent True : evs ++ interruptEvent : events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig resumeState stateChanged newBalance WasmV1.Success Nothing)
                                             Just (InstanceInfoV1 targetInstance) -> do
@@ -1237,7 +1248,11 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                                     Right (rVal, callEvents) -> do
                                                         (lastModifiedIndex, newState) <- getCurrentContractInstanceState istance
                                                         let stateChanged = lastModifiedIndex /= modificationIndex
-                                                        resumeState <- getRuntimeReprV1 newState
+                                                        -- In protocol versions 5 and lower the handling of resume here was incorrect and we always looked up the state.
+                                                        -- This is not correct since then the calling contract continues in an incorrect state generation, meaning
+                                                        -- that all the iterators are invalidated.
+                                                        -- So if the state has not changed we just resume in the state that we stopped in.
+                                                        resumeState <- if not (WasmV1.rcFixRollbacks rcConfig) || stateChanged then getRuntimeReprV1 newState else return rrdCurrentState
                                                         newBalance <- getCurrentContractAmount Wasm.SV1 istance
                                                         go (resumeEvent True : callEvents ++ interruptEvent : events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig resumeState stateChanged newBalance WasmV1.Success (Just rVal))
                                     WasmV1.Upgrade{..} -> do
@@ -1391,18 +1406,22 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
             withToContractAmountV1 sender istance transferAmount $ do
                 foreignModel <- getRuntimeReprV1 model
                 artifact <- liftLocal $ getModuleArtifact (GSWasm.miModule moduleInterface)
-                let supportsChainQueries = supportsChainQueryContracts $ protocolVersion @(MPV m)
-                let maxParameterLen = Wasm.maxParameterLen $ protocolVersion @(MPV m)
-                -- Check whether the number of logs and the size of return values are limited in the current protocol version.
-                let limitLogsAndRvs = Wasm.limitLogsAndReturnValues $ protocolVersion @(MPV m)
-                go [] =<< runInterpreter (return . WasmV1.applyReceiveFun artifact cm receiveCtx receiveName useFallback parameter maxParameterLen limitLogsAndRvs transferAmount foreignModel supportsChainQueries)
+                go [] =<< runInterpreter (return . WasmV1.applyReceiveFun artifact cm receiveCtx receiveName useFallback parameter transferAmount foreignModel rcConfig)
   where
+    rcConfig =
+        WasmV1.RuntimeConfig
+            { rcSupportChainQueries = supportsChainQueryContracts $ protocolVersion @(MPV m),
+              rcMaxParameterLen = Wasm.maxParameterLen $ protocolVersion @(MPV m),
+              -- Check whether the number of logs and the size of return values are limited in the current protocol version.
+              rcLimitLogsAndRvs = Wasm.limitLogsAndReturnValues $ protocolVersion @(MPV m),
+              rcFixRollbacks = demoteProtocolVersion (protocolVersion @(MPV m)) >= P6
+            }
     transferAccountSync ::
-        AccountAddress -> -- \^The target account address.
-        UInstanceInfoV m GSWasm.V1 -> -- \^The sender of this transfer.
-        Amount -> -- \^The amount to transfer.
+        AccountAddress -> -- The target account address.
+        UInstanceInfoV m GSWasm.V1 -> -- The sender of this transfer.
+        Amount -> -- The amount to transfer.
         ExceptT WasmV1.EnvFailure (LocalT r m) [Event]
-    -- \^The events resulting from the transfer.
+    -- The events resulting from the transfer.
     transferAccountSync accAddr senderInstance tAmount = do
         -- charge at the beginning, successful and failed transfers will have the same cost.
         -- Check whether the sender has the amount to be transferred and reject the transaction if not.
