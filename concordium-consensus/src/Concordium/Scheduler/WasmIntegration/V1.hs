@@ -410,6 +410,14 @@ data InvokeMethod
     | -- |Check the signature using account keys
       CheckAccountSignature
         { imcasAddress :: !AccountAddress,
+          -- |The payload is a serialization of the message and signatures.
+          -- The message is serialized as
+          -- - u32 in little endian for length
+          -- - the message of the above length
+          -- signatures which are serialized as a nested map as transaction signatures
+          -- using u8 for lengths. The only difference from a transaction signature is
+          -- that the inner Signature is serialized as "SchemeId" followed by the signature
+          -- bytes which are assumed to be 64 bytes.
           imcasPayload :: !BS.ByteString
         }
     | -- |Query the account keys

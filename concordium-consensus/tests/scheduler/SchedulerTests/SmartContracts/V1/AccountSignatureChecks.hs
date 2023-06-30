@@ -4,8 +4,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
--- | This module tests that tests account signature checks
--- and retrieving account keys.
+-- | This module tests account signature checks and retrieving account keys in P6.
 module SchedulerTests.SmartContracts.V1.AccountSignatureChecks (tests) where
 
 import Control.Monad (when)
@@ -14,7 +13,7 @@ import qualified Data.ByteString.Short as BSS
 import qualified Data.Map.Strict as Map
 import qualified Data.Serialize as S
 import Data.Word
-import Test.HUnit (Assertion, assertEqual, assertFailure)
+import Test.HUnit (Assertion, assertBool, assertEqual, assertFailure)
 import Test.Hspec
 
 import Concordium.GlobalState.BlockState
@@ -71,7 +70,7 @@ initContract =
         emptyParameter
         0
 
--- |Invoke the entrypoint @@ on contract @a@.
+-- |Invoke the entrypoint @get_keys@ on contract @contract@.
 getKeys ::
     Types.IsProtocolVersion pv =>
     Types.ContractAddress ->
@@ -89,7 +88,7 @@ getKeys ccContract ccParameter bs = do
                 }
     InvokeContract.invokeContract ctx (Types.ChainMetadata 123) bs
 
--- |Invoke the entrypoint @@ on contract @a@.
+-- |Invoke the entrypoint @check_signature@ on contract @contract@.
 checkSignature ::
     Types.IsProtocolVersion pv =>
     Types.ContractAddress ->
@@ -179,6 +178,7 @@ runCheckSignatureTests spv pvString paramBS expectedCode = when (Types.demotePro
             InvokeContract.Success{rcrReturnValue = Nothing} -> do
                 liftIO $ assertFailure "Call succeded with no return value."
             InvokeContract.Success{rcrReturnValue = Just rv} -> do
+                liftIO (assertBool "Success means the protocol version must support signature checks." (Types.supportsAccountSignatureChecks (Types.protocolVersion @pv)))
                 let expected = S.runPut $ S.putWord64le expectedCode
                 liftIO (assertEqual (pvString ++ ": Correct response code: ") (BS.unpack expected) (BS.unpack rv))
 

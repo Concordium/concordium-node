@@ -1491,7 +1491,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                                                         Nothing
                                                                 )
                                                     Right (dataPayload, sigs) -> do
-                                                        -- Numbef of signatures to check.
+                                                        -- Number of signatures to check.
                                                         let numSigs = foldl' (\l m -> l + length m) 0 sigs
                                                         -- Lookup account keys
                                                         keys <- getAccountVerificationKeys account
