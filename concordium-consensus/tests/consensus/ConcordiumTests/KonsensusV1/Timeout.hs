@@ -459,7 +459,7 @@ testReceiveTimeoutMessage = describe "Receive timeout message" $ do
     -- present in the @receivedTimeoutMessages@.
     liveBlockHash = BlockHash $ Hash.hash "live block"
     -- Another live block. This is just present in the live block table,
-    -- but noone has already sent a timeout message for it.
+    -- but no one has already sent a timeout message for it.
     -- It is used for triggering the double signing case together with the
     -- @liveBlockHash@.
     anotherLiveBlock = BlockHash $ Hash.hash "another live block"
@@ -473,12 +473,12 @@ testReceiveTimeoutMessage = describe "Receive timeout message" $ do
     fi fIdx = FinalizerInfo (FinalizerIndex fIdx) 1 (sigPublicKey' (fromIntegral fIdx)) vrfPublicKey (blsPublicKey fIdx) (BakerId $ AccountIndex $ fromIntegral fIdx)
     -- COnstruct the finalization committee
     finalizers = FinalizationCommittee (Vec.fromList [fi 0, fi 1, fi 2]) 3
-    -- Construct a set of 0 bakers and 3 finalisers with indecies 0,1,2.
+    -- Construct a set of 0 bakers and 3 finalisers with indices 0,1,2.
     bakersAndFinalizers = BakersAndFinalizers (FullBakers Vec.empty 0) finalizers
     -- A tree state where the following applies:
     -- - Current round is 2
     -- - Current epoch is 0
-    -- - There is a finalization committee consisting of the finalizers with indecies [0,1,2]
+    -- - There is a finalization committee consisting of the finalizers with indices [0,1,2]
     -- - There is a last finalized block for round 1, epoch 0.
     sd =
         dummyInitialSkovData
@@ -498,7 +498,7 @@ testReceiveTimeoutMessage = describe "Receive timeout message" $ do
     -- A low level database which consists of a finalized block for height 0 otherwise empty.
     lldb =
         let myLLDB = lldbWithGenesis @'P6
-        in  myLLDB{lldbBlockHashes = HM.singleton someOldFinalizedBlockHash $ BlockHeight 0}
+        in  myLLDB{lldbBlocks = HM.singleton someOldFinalizedBlockHash $ toStoredBlock (dummyBlock 20)}
     -- receive the timeout message in the provided tree state context and
     -- check that the result is as expected.
     receiveAndCheck skovData tm expect = do

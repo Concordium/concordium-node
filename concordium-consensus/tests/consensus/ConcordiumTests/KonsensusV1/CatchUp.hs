@@ -269,9 +269,13 @@ catchupNoBranches = runTest $ do
     block3 <- makeBlock3
     let finQC = dummyQC (Round 2) $ getHash storedBlockRound2
         sucQC = dummyQC (Round 3) $ getHash block3
-    writeBlocks [storedBlockRound0, storedBlockRound1, storedBlockRound2] $ dummyFinalizationEntry finQC sucQC
-    finalizingBlock <- mkBlockPointer storedBlockRound2
-    finalizingCertifiedBlock .= Present (CertifiedBlock sucQC finalizingBlock)
+        finEntry = dummyFinalizationEntry finQC sucQC
+    let writeCert sb = writeCertifiedBlock sb (dummyQC (blockRound sb) (getHash sb))
+    writeCert storedBlockRound0
+    writeCert storedBlockRound1
+    writeCert storedBlockRound2
+    writeFinalizedBlocks [storedBlockRound0, storedBlockRound1, storedBlockRound2] finEntry
+    latestFinalizationEntry .= Present finEntry
     lfb <- mkBlockPointer storedBlockRound2
     lastFinalized .=! lfb
     -- block in round 3 is the highest certified block.
@@ -317,7 +321,8 @@ catchupNoBranches = runTest $ do
                 }
     let expectedTerminalData =
             CatchUpTerminalData
-                { cutdQuorumCertificates = [sucQC],
+                { cutdLatestFinalizationEntry = Present finEntry,
+                  cutdHighestQuorumCertificate = Present sucQC,
                   cutdTimeoutCertificate = Absent,
                   cutdCurrentRoundQuorumMessages = [quorumMessageBlock4],
                   cutdCurrentRoundTimeoutMessages = [timeoutMessageRound4]
