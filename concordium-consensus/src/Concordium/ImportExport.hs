@@ -615,6 +615,10 @@ exportSections dbDir outDir chunkSize genIndex startHeight blockIndex lastWritte
 -- |Action for getting a block (and possibly a finalization index) at a particular height.
 -- Note that for 'ConsensusV1' (>P5) the finalization index is simply @Nothing@ as they do not
 -- exist on this version.
+--
+-- Note. This is a slightly hacky abstraction for retrieving blocks, (and their associated @FinalizationIndex@
+-- for protocols <P5), but this is a way of abstracting over the two consensus versions and reusing
+-- as much functionality for the actual file writing as possible.
 type GetBlockAt m = BlockHeight -> m (Maybe (BS.ByteString, Maybe FinalizationIndex))
 
 -- |Action for getting a finalization record at a particular index.
