@@ -12,6 +12,7 @@ import Test.Hspec
 import qualified Data.ByteString as BS
 
 import qualified Concordium.GlobalState.Wasm as GSWasm
+import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.WasmIntegration.V1 as WasmV1
 import Concordium.Wasm
 
@@ -20,7 +21,7 @@ testModule1 :: Assertion
 testModule1 = do
     ws <- BS.readFile "../concordium-base/smart-contracts/testdata/contracts/v1/all-new-host-functions.wasm"
     let wm1 = WasmModuleV (ModuleSource ws)
-    case WasmV1.processModule True wm1 of
+    case WasmV1.processModule Types.SP5 wm1 of
         Nothing -> assertFailure "Invalid caller module."
         Just GSWasm.ModuleInterface{} -> return ()
 
@@ -32,7 +33,7 @@ testModule2 :: Assertion
 testModule2 = do
     ws <- BS.readFile "../concordium-base/smart-contracts/testdata/contracts/v1/all-new-host-functions.wasm"
     let wm1 = WasmModuleV (ModuleSource ws)
-    case WasmV1.processModule False wm1 of
+    case WasmV1.processModule Types.SP4 wm1 of
         Nothing -> return ()
         Just GSWasm.ModuleInterface{} -> assertFailure "Caller module contains 'upgrade' in unsupported PV."
 

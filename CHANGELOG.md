@@ -2,9 +2,14 @@
 
 ## Unreleased changes
 
+- Fix a bug which caused the first epoch of the new protocol to be shorter than expected.
 - Fix a bug that caused an incorrect reporting of total stake in the first
   payday just after genesis when the node started from genesis at protocols 4 or 5.
 - Revise the behaviour of rollbacks in P6.
+- Changes in Wasm validation and execution in P6
+  - Disallow globals in initialization sections for V1 contracts in P6.
+  - Support sign extension instructions in Wasm in P6.
+  - Do not count custom sections towards module size when executing contracts.
 
 ## 6.0.0
 

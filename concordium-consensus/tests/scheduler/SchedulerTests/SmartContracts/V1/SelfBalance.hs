@@ -45,7 +45,7 @@ deployModule1 ::
         ( (InvokeHelpers.PersistentModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1),
           PersistentBlockState PV4
         )
-deployModule1 = InvokeHelpers.deployModuleV1 selfBalanceSourceFile
+deployModule1 = InvokeHelpers.deployModuleV1 Types.SP4 selfBalanceSourceFile
 
 -- Initialize a contract with 0 CCD in its balance.
 initContract1 ::
@@ -170,7 +170,7 @@ deployModule2 ::
         ( (InvokeHelpers.PersistentModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1),
           PersistentBlockState PV4
         )
-deployModule2 = InvokeHelpers.deployModuleV1 nestedSelfBalanceSourceFile
+deployModule2 = InvokeHelpers.deployModuleV1 Types.SP4 nestedSelfBalanceSourceFile
 
 -- |Initialize the @test@ contract for testing nested self transfers.
 -- The initial balance of the contract is 456

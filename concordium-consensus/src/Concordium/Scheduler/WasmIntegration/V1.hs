@@ -1,5 +1,7 @@
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 
 -- |This module provides most of the functionality that deals with calling V1 smart contracts, processing responses,
 -- and resuming computations. It is used directly by the Scheduler to run smart contracts.
@@ -70,6 +72,10 @@ foreign import ccall "copy_to_vec_ffi" createReturnValue :: Ptr Word8 -> CSize -
 foreign import ccall "validate_and_process_v1"
     validate_and_process ::
         -- |Whether the current protocol version supports smart contract upgrades.
+        Word8 ->
+        -- |Whether the current protocol allows for globals in initialization expressions.
+        Word8 ->
+        -- |Whether the current protocol allows for sign extension instructions.
         Word8 ->
         -- |Pointer to the Wasm module source.
         Ptr Word8 ->
@@ -502,6 +508,7 @@ processInitResult callbacks result returnValuePtr newStatePtr = case BS.uncons r
                             return (Just (Right InitSuccess{..}, fromIntegral remainingEnergy))
             _ -> fail $ "Invalid tag: " ++ show tag
       where
+        parseResult :: forall a. Get a -> a
         parseResult parser =
             case runGet parser payload of
                 Right x -> x
@@ -614,6 +621,7 @@ processReceiveResult fixRollbacks callbacks initialState stateWrittenTo result r
                             return (Just (Right ReceiveSuccess{..}, fromIntegral remainingEnergy))
             _ -> fail $ "Invalid tag: " ++ show tag
       where
+        parseResult :: forall a. Get a -> a
         parseResult parser =
             case runGet parser payload of
                 Right x -> x
@@ -756,26 +764,51 @@ resumeReceiveFun is currentState stateChanged amnt statusCode rVal remainingEner
     amountWord = _amount amnt
     callbacks = StateV1.msContext currentState
 
+-- |Configuration for module validation dependent on which features are allowed
+-- in a specific protocol version.
+data ValidationConfig = ValidationConfig
+    { -- |Support upgrades.
+      vcSupportUpgrade :: Bool,
+      -- |Allow globals in data and element segments.
+      vcAllowGlobals :: Bool,
+      -- |Allow sign extension instructions.
+      vcAllowSignExtensionInstr :: Bool
+    }
+
+-- |Construct a 'ValidationConfig' valid for the given protocol version.
+validationConfig :: SProtocolVersion spv -> ValidationConfig
+validationConfig spv =
+    ValidationConfig
+        { vcSupportUpgrade = supportsUpgradableContracts spv,
+          vcAllowGlobals = supportsGlobalsInInitSections spv,
+          vcAllowSignExtensionInstr = supportsSignExtensionInstructions spv
+        }
+
 -- |Process a module as received and make a module interface.
 -- This
 -- - checks the module is well-formed, and has the right imports and exports for a V1 module.
 -- - makes a module artifact and allocates it on the Rust side, returning a pointer and a finalizer.
 {-# NOINLINE processModule #-}
-processModule :: Bool -> WasmModuleV V1 -> Maybe (ModuleInterfaceV V1)
-processModule supportUpgrade modl = do
+processModule :: SProtocolVersion spv -> WasmModuleV V1 -> Maybe (ModuleInterfaceV V1)
+processModule spv modl = do
     (bs, miModule) <- ffiResult
     case getExports bs of
         Left _ -> Nothing
-        Right (miExposedInit, miExposedReceive) ->
+        Right ((miExposedInit, miExposedReceive), customSectionsSize) ->
             let miModuleRef = getModuleRef modl
-            in  Just ModuleInterface{miModuleSize = moduleSourceLength (wmvSource modl), ..}
+                miModuleSize =
+                    if omitCustomSectionFromSize spv
+                        then moduleSourceLength (wmvSource modl) - customSectionsSize
+                        else moduleSourceLength (wmvSource modl)
+            in  Just ModuleInterface{..}
   where
+    ValidationConfig{..} = validationConfig spv
     ffiResult = unsafePerformIO $ do
         unsafeUseModuleSourceAsCStringLen (wmvSource modl) $ \(wasmBytesPtr, wasmBytesLen) ->
             alloca $ \outputLenPtr ->
                 alloca $ \artifactLenPtr ->
                     alloca $ \outputModuleArtifactPtr -> do
-                        outPtr <- validate_and_process (if supportUpgrade then 1 else 0) (castPtr wasmBytesPtr) (fromIntegral wasmBytesLen) outputLenPtr artifactLenPtr outputModuleArtifactPtr
+                        outPtr <- validate_and_process (if vcSupportUpgrade then 1 else 0) (if vcAllowGlobals then 1 else 0) (if vcAllowSignExtensionInstr then 1 else 0) (castPtr wasmBytesPtr) (fromIntegral wasmBytesLen) outputLenPtr artifactLenPtr outputModuleArtifactPtr
                         if outPtr == nullPtr
                             then return Nothing
                             else do
@@ -794,6 +827,7 @@ processModule supportUpgrade modl = do
         flip runGet bs $ do
             len <- fromIntegral <$> getWord16be
             namesByteStrings <- replicateM len getByteStringWord16
+            customSectionsSize <- getWord64be
             let names =
                     foldM
                         ( \(inits, receives) name -> do
@@ -813,4 +847,4 @@ processModule supportUpgrade modl = do
             case names of
                 Nothing -> fail "Incorrect response from FFI call."
                 Just x@(exposedInits, exposedReceives) ->
-                    if Map.keysSet exposedReceives `Set.isSubsetOf` exposedInits then return x else fail "Receive functions that do not correspond to any contract."
+                    if Map.keysSet exposedReceives `Set.isSubsetOf` exposedInits then return (x, customSectionsSize) else fail "Receive functions that do not correspond to any contract."
