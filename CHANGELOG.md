@@ -2,6 +2,7 @@
 
 ## Unreleased changes
 
+- Add support for out-of-band export files.
 - Fix a bug which caused the first epoch of the new protocol to be shorter than expected.
 - Fix a bug that caused an incorrect reporting of total stake in the first
   payday just after genesis when the node started from genesis at protocols 4 or 5.
