@@ -613,12 +613,12 @@ exportSections dbDir outDir chunkSize genIndex startHeight blockIndex lastWritte
             return (False, Empty)
 
 -- |Action for getting a block (and possibly a finalization index) at a particular height.
--- Note that for consensus v1 the finalization index is simply @Nothing@ as they do not
+-- Note that for 'ConsensusV1' (>P5) the finalization index is simply @Nothing@ as they do not
 -- exist on this version.
 type GetBlockAt m = BlockHeight -> m (Maybe (BS.ByteString, Maybe FinalizationIndex))
 
 -- |Action for getting a finalization record at a particular index.
--- Note that for ConsensusV1 this always returns @Nothing@.
+-- Note that for 'ConsensusV1' (>P5) this always returns @Nothing@.
 type GetFinalizationRecordAt m = FinalizationIndex -> m (Maybe BS.ByteString)
 
 -- |Write a database section as a collection of chunks in the specified directory. The last exported
