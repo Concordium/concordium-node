@@ -773,12 +773,16 @@ exportBlocksToChunk hdl firstHeight chunkSize lastFinalizationRecordIndex getBlo
                 liftIO $ do
                     BS.hPut hdl $ runPut $ putWord64be len
                     BS.hPut hdl serializedBlock
+                -- For 'ConsensusV0' this will yield a result (as we are looking up finalized blocks),
+                -- while for 'ConsensusV1' this will always return @Nothing@, and as such
+                -- the @lastFinRecIdx@ will remain zero throughout the export.
                 let lastFinRecIdx' = fromMaybe lastFinRecIdx finalizationRecordIndexM
                 if count < chunkSize
                     then ebtc (height + 1) (count + 1) lastFinRecIdx'
                     else return (count, lastFinRecIdx')
 
 -- |Export all finalization records with indices above `dbsLastFinIndex` to a chunk
+-- Note. For 'ConsensusV0' this function will not write anything to the file.
 exportFinRecsToChunk ::
     MonadIO m =>
     -- |Handle to export to
