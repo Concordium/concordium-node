@@ -10,6 +10,7 @@
   - Disallow globals in initialization sections for V1 contracts in P6.
   - Support sign extension instructions in Wasm in P6.
   - Do not count custom sections towards module size when executing contracts.
+  - Support new `invoke` operations for retrieving account keys and checking signatures.
 
 ## 6.0.0
 
