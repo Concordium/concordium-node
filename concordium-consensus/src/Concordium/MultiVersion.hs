@@ -420,9 +420,8 @@ activateConfiguration :: Skov.SkovConfiguration finconf UpdateHandler => EVersio
 activateConfiguration (EVersionedConfigurationV0 vc) = do
     activeState <- mvrLogIO . Skov.activateSkovState (vc0Context vc) =<< liftIO (readIORef (vc0State vc))
     liftIO (writeIORef (vc0State vc) activeState)
-activateConfiguration (EVersionedConfigurationV1 vc) = do
-    activeState <- mvrLogIO . SkovV1.activateSkovV1State (vc1Context vc) =<< liftIO (readIORef (vc1State vc))
-    liftIO (writeIORef (vc1State vc) activeState)
+activateConfiguration (EVersionedConfigurationV1 vc) =
+    liftSkovV1Update vc SkovV1.activateSkovV1State
 
 -- |This class makes it possible to use a multi-version configuration at a specific version.
 -- Essentially, this class provides instances of 'SkovMonad', 'FinalizationMonad' and

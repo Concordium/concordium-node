@@ -1,14 +1,20 @@
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Concordium.KonsensusV1.TreeState.StartUp where
 
 import Control.Monad.Catch
 import Control.Monad.IO.Class
+import Control.Monad.State.Strict
+import qualified Data.Map.Strict as Map
+import qualified Data.Sequence as Seq
 import Lens.Micro.Platform
 
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Parameters hiding (getChainParameters)
+import Concordium.Utils
 
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Parameters hiding (getChainParameters)
@@ -17,12 +23,13 @@ import qualified Concordium.GlobalState.Statistics as Stats
 import qualified Concordium.GlobalState.TransactionTable as TT
 import qualified Concordium.GlobalState.Types as GSTypes
 import Concordium.KonsensusV1.Consensus
+import Concordium.KonsensusV1.Transactions
 import Concordium.KonsensusV1.TreeState.Implementation
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
-import qualified Data.Map.Strict as Map
-import qualified Data.Sequence as Seq
+import Concordium.TimeMonad
+import Concordium.TransactionVerification as TVer
 
 -- |Generate the 'EpochBakers' for a genesis block.
 genesisEpochBakers ::
@@ -108,6 +115,9 @@ makeEpochBakers lastFinBlock = do
                     backTo targetEpoch (lowEpoch, lowHeight) (blockEpoch stb, curHeight)
 
 -- |Construct a 'SkovData' by initialising it with data loaded from disk.
+--
+-- Note: this does not fully initialise the transaction table, and does not load the certified
+-- blocks into the block table.
 loadSkovData ::
     ( MonadThrow m,
       LowLevel.MonadTreeStateStore m,
@@ -127,8 +137,8 @@ loadSkovData _runtimeParameters = do
             Nothing -> throwM . TreeStateInvariantViolation $ "Missing genesis block in database"
             Just gb -> mkBlockPointer gb
     lastFinBlock <-
-        LowLevel.lookupLastBlock >>= \case
-            Nothing -> throwM . TreeStateInvariantViolation $ "Missing last block in database"
+        LowLevel.lookupLastFinalizedBlock >>= \case
+            Nothing -> throwM . TreeStateInvariantViolation $ "Missing last finalized block in database"
             Just b -> mkBlockPointer b
     _rsHighestCertifiedBlock <- do
         case mLatestFinEntry of
@@ -176,15 +186,18 @@ loadSkovData _runtimeParameters = do
     let _blockTable = emptyBlockTable
     let _branches = Seq.empty
     let _roundExistingBlocks = Map.empty
-    let _roundExistingQCs = Map.empty
+    -- We record that we have checked the QC for the last finalized block.
+    let _roundExistingQCs = case mLatestFinEntry of
+            Nothing -> Map.empty
+            Just finEntry -> Map.singleton (qcRound qc) (toQuorumCertificateWitness qc)
+              where
+                qc = feFinalizedQuorumCertificate finEntry
     _genesisMetadata <- case bpBlock genesisBlock of
         GenesisBlock gm -> return gm
         _ -> throwM . TreeStateInvariantViolation $ "First block is not a genesis block"
     let _skovPendingBlocks = emptyPendingBlocks
     let _lastFinalized = lastFinBlock
-    -- When loading, we currently do not have the finalizing certified block.
-    -- TODO: When the database storage is modified to allow this, load the block. Issue #843
-    let _finalizingCertifiedBlock = Absent
+    _latestFinalizationEntry <- maybe Absent Present <$> LowLevel.lookupLatestFinalizationEntry
     _skovEpochBakers <- makeEpochBakers lastFinBlock
 
     let _currentTimeoutMessages = case _prsLastSignedTimeoutMessage _persistentRoundStatus of
@@ -209,3 +222,88 @@ loadSkovData _runtimeParameters = do
                 }
     let _statistics = Stats.initialConsensusStatistics
     return SkovData{..}
+
+-- |Load the certified blocks from the low-level database into the tree state.
+-- This caches their block states, adds them to the block table and branches,
+-- adds their transactions to the transaction table and pending transaction table,
+-- updates the highest certified block, and records block signature witnesses and
+-- checked quorum certificates for the blocks.
+--
+-- This also sets the previous round timeout if the low level state records that it timed out.
+--
+-- This should be called on the result of 'loadSkovData' after the transaction table has
+-- been initialised for the last finalized block.
+loadCertifiedBlocks ::
+    forall m.
+    ( MonadThrow m,
+      LowLevel.MonadTreeStateStore m,
+      MonadIO m,
+      BlockStateStorage m,
+      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
+      MonadState (SkovData (MPV m)) m,
+      TimeMonad m
+    ) =>
+    m ()
+loadCertifiedBlocks = do
+    certBlocks <- LowLevel.lookupCertifiedBlocks
+    mapM_ loadCertBlock certBlocks
+    oLastTimeout <- use $ persistentRoundStatus . prsLatestTimeout
+    forM_ oLastTimeout $ \lastTimeout -> do
+        curRound <- use $ roundStatus . rsCurrentRound
+        when (tcRound lastTimeout >= curRound) $ do
+            highCB <- use $ roundStatus . rsHighestCertifiedBlock
+            unless
+                ( cbRound highCB < tcRound lastTimeout
+                    && cbRound highCB >= tcMaxRound lastTimeout
+                    && cbEpoch highCB >= tcMaxEpoch lastTimeout
+                    && cbEpoch highCB <= 2 + tcMinEpoch lastTimeout
+                )
+                $ throwM . TreeStateInvariantViolation
+                $ "Missing certified block consistent with last timeout certificate"
+            roundStatus . rsPreviousRoundTimeout
+                .= Present
+                    RoundTimeout
+                        { rtTimeoutCertificate = lastTimeout,
+                          rtCertifiedBlock = highCB
+                        }
+            roundStatus . rsCurrentRound .= tcRound lastTimeout + 1
+    rs <- use roundStatus
+    let expectedCurrentRound
+            | Present prevTO <- rs ^. rsPreviousRoundTimeout = 1 + tcRound (rtTimeoutCertificate prevTO)
+            | otherwise = 1 + cbRound (rs ^. rsHighestCertifiedBlock)
+    unless (expectedCurrentRound == rs ^. rsCurrentRound) $
+        throwM . TreeStateInvariantViolation $
+            "The current round does not match the expected round."
+  where
+    loadCertBlock (storedBlock, qc) = do
+        blockPointer <- mkBlockPointer storedBlock
+        cacheBlockState (bpState blockPointer)
+        blockTable . liveMap . at' (getHash blockPointer) ?=! MemBlockAlive blockPointer
+        addToBranches blockPointer
+        forM_ (blockTransactions blockPointer) $ \tr -> do
+            -- Add transactions to the transaction table as 'TVer.TrustedSuccess', since they
+            -- occur in blocks that have already been checked.
+            let verRes = TVer.Ok TVer.TrustedSuccess
+            added <-
+                transactionTable
+                    %%=! TT.addTransaction tr (TT.commitPoint (blockRound blockPointer)) verRes
+            unless added $
+                throwM . TreeStateInvariantViolation $
+                    "Transaction in certified block cannot be added to transaction table"
+            addPendingTransaction tr
+        roundStatus . rsHighestCertifiedBlock
+            .= CertifiedBlock
+                { cbQuorumCertificate = qc,
+                  cbQuorumBlock = blockPointer
+                }
+
+        curRound <- use $ roundStatus . rsCurrentRound
+        when (blockRound blockPointer >= curRound) $ do
+            roundStatus
+                %=! (rsPreviousRoundTimeout .~ Absent)
+                . (rsCurrentRound .~ blockRound blockPointer + 1)
+
+        forM_ (blockBakedData blockPointer) $ \signedBlock ->
+            roundBakerExistingBlock (blockRound signedBlock) (blockBaker signedBlock)
+                ?= toBlockSignatureWitness signedBlock
+        recordCheckedQuorumCertificate qc

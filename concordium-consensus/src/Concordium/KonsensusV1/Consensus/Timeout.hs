@@ -28,7 +28,7 @@ import Concordium.GlobalState.Types
 import qualified Concordium.GlobalState.Types as GSTypes
 import Concordium.KonsensusV1.Consensus
 import Concordium.KonsensusV1.Consensus.Blocks
-import Concordium.KonsensusV1.Consensus.Finality (checkFinality)
+import Concordium.KonsensusV1.Consensus.Finality (processCertifiedBlock)
 import Concordium.KonsensusV1.Consensus.Timeout.Internal
 import Concordium.KonsensusV1.Flag
 import Concordium.KonsensusV1.TreeState.Implementation
@@ -298,7 +298,12 @@ executeTimeoutMessage (PartiallyVerifiedTimeoutMessage{..})
             -- Record that we've checked the QC.
             recordCheckedQuorumCertificate tmQuorumCertificate
             -- The quorum certificate is valid so check whether it finalises any blocks.
-            checkFinality tmQuorumCertificate
+            let newCertifiedBlock =
+                    CertifiedBlock
+                        { cbQuorumCertificate = tmQuorumCertificate,
+                          cbQuorumBlock = block
+                        }
+            processCertifiedBlock newCertifiedBlock
             -- Advance the round if we can advance by the quorum certificate.
             -- Note that we have either @currentRound == tmRound@ or
             -- @currentRound < tmRound && tmRound - 1 == qcRound tmQuorumCertificate@
@@ -306,11 +311,6 @@ executeTimeoutMessage (PartiallyVerifiedTimeoutMessage{..})
             -- with the timeout message and the @currentRound@ becomes
             -- @1 + qcRound tmQuorumCertificate@, hence @currentRound@ becomes @tmRound@.
             currentRound <- use $ roundStatus . rsCurrentRound
-            let newCertifiedBlock =
-                    CertifiedBlock
-                        { cbQuorumCertificate = tmQuorumCertificate,
-                          cbQuorumBlock = block
-                        }
             if currentRound <= qcRound tmQuorumCertificate
                 then -- Advance the round with the new certified block.
                     advanceRoundWithQuorum newCertifiedBlock

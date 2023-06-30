@@ -312,7 +312,13 @@ handleCatchUpRequest CatchUpStatus{..} skovData = do
                             else return Absent
                     }
     endCatchUp = do
-        cutdQuorumCertificates <- getQCs
+        let cutdLatestFinalizationEntry
+                | cusLastFinalizedRound < skovData ^. lastFinalized . to blockRound =
+                    skovData ^. latestFinalizationEntry
+                | otherwise = Absent
+        let cutdHighestQuorumCertificate
+                | cusCurrentRound < ourCurrentRound = Present highQC
+                | otherwise = Absent
         let rs = skovData ^. roundStatus
         -- We include the timeout certificate if we have one and our current round is higher than
         -- the peer's current round.
@@ -324,14 +330,6 @@ handleCatchUpRequest CatchUpStatus{..} skovData = do
         cutdCurrentRoundTimeoutMessages <- getTimeoutMessages
         return $ CatchUpTerminalData{..}
     highQC = skovData ^. roundStatus . rsHighestCertifiedBlock . to cbQuorumCertificate
-    getQCs
-        | qcRound highQC < cusLastFinalizedRound = return []
-        | qcRound highQC == blockRound lfBlock + 1 || blockRound lfBlock <= cusLastFinalizedRound =
-            return [highQC]
-        | otherwise =
-            return $! case skovData ^. finalizingCertifiedBlock of
-                Absent -> [highQC]
-                Present cb -> [cbQuorumCertificate cb, highQC]
     ourCurrentRound = skovData ^. roundStatus . rsCurrentRound
     getQuorumMessages
         | cusCurrentRound == ourCurrentRound = do
@@ -437,7 +435,8 @@ processCatchUpTerminalData ::
     CatchUpTerminalData ->
     m TerminalDataResult
 processCatchUpTerminalData CatchUpTerminalData{..} = flip runContT return $ do
-    progress1 <- foldM processQC False cutdQuorumCertificates
+    progress0 <- processFE False cutdLatestFinalizationEntry
+    progress1 <- foldM processQC progress0 cutdHighestQuorumCertificate
     progress2 <- processTC progress1 cutdTimeoutCertificate
     progress3 <- foldM processQM progress2 cutdCurrentRoundQuorumMessages
     progress4 <- foldM processTM progress3 cutdCurrentRoundTimeoutMessages
@@ -445,6 +444,37 @@ processCatchUpTerminalData CatchUpTerminalData{..} = flip runContT return $ do
     return $ TerminalDataResultValid progress4
   where
     escape progress = ContT $ \_ -> return (TerminalDataResultInvalid progress)
+    processFE currentProgress Absent = return currentProgress
+    processFE currentProgress (Present latestFinEntry) = do
+        let finQC = feFinalizedQuorumCertificate latestFinEntry
+        let finBlockHash = qcBlock finQC
+        gets (getLiveBlock finBlockHash) >>= \case
+            Just block -> do
+                unless
+                    (blockRound block == qcRound finQC && blockEpoch block == qcEpoch finQC)
+                    (escape currentProgress)
+                gets (getBakersForEpoch (qcEpoch finQC)) >>= \case
+                    Nothing -> return currentProgress
+                    Just BakersAndFinalizers{..} -> do
+                        GenesisMetadata{..} <- use genesisMetadata
+                        let finEntryOK =
+                                checkFinalizationEntry
+                                    gmCurrentGenesisHash
+                                    (toRational $ genesisSignatureThreshold gmParameters)
+                                    _bfFinalizers
+                                    latestFinEntry
+                        unless finEntryOK (escape currentProgress)
+                        lift $ do
+                            -- Record the checked quorum certificates
+                            recordCheckedQuorumCertificate $
+                                feFinalizedQuorumCertificate latestFinEntry
+                            recordCheckedQuorumCertificate $
+                                feSuccessorQuorumCertificate latestFinEntry
+                            -- Process the finalization
+                            processFinalizationEntry block latestFinEntry
+                            return True
+            Nothing -> return currentProgress
+
     processQC currentProgress qc = do
         -- The QC is only relevant if it is for a live block.
         gets (getLiveBlock (qcBlock qc)) >>= \case
@@ -468,14 +498,17 @@ processCatchUpTerminalData CatchUpTerminalData{..} = flip runContT return $ do
                                 unless qcOK (escape currentProgress)
                                 lift $ do
                                     recordCheckedQuorumCertificate qc
-                                    checkFinalityWithBlock qc block
-                                    curRound <- use (roundStatus . rsCurrentRound)
-                                    when (curRound <= qcRound qc) $
-                                        advanceRoundWithQuorum
+                                    let newCertifiedBlock =
                                             CertifiedBlock
                                                 { cbQuorumCertificate = qc,
                                                   cbQuorumBlock = block
                                                 }
+                                    -- Process the certified block, checking for finalization.
+                                    processCertifiedBlock newCertifiedBlock
+                                    curRound <- use (roundStatus . rsCurrentRound)
+                                    when (curRound <= qcRound qc) $
+                                        advanceRoundWithQuorum
+                                            newCertifiedBlock
                                     return True
             Nothing -> return currentProgress
     processTC currentProgress Absent = return currentProgress

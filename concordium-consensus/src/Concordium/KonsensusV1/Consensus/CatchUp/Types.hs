@@ -1,5 +1,6 @@
 module Concordium.KonsensusV1.Consensus.CatchUp.Types where
 
+import Data.Bits
 import qualified Data.Map.Strict as Map
 import Data.Serialize hiding (getListOf, putListOf)
 
@@ -45,7 +46,8 @@ data CatchUpStatus = CatchUpStatus
       -- |Hashes of the blocks on branches beyond the last finalized block.
       -- This should only be included in requests, and otherwise should be the empty list.
       cusBranches :: [BlockHash],
-      -- |The current round.
+      -- |The current round. For the purposes of catch-up, this should be the highest round such
+      -- that the node can provide a QC or TC for the previous round.
       cusCurrentRound :: Round,
       -- |The valid quorum signatures on blocks in the current round.
       cusCurrentRoundQuorum :: Map.Map BlockHash FinalizerSet,
@@ -86,17 +88,39 @@ getCatchUpStatus includeBranches = do
     cusCurrentRoundTimeouts <- getOptionOf get
     return CatchUpStatus{..}
 
+-- |Flags used for serializing 'CatchUpTerminalData'.
+data CatchUpTerminalDataFlags = CatchUpTerminalDataFlags
+    { hasLatestFinalizationEntry :: !Bool,
+      hasHighestQuorumCertificate :: !Bool,
+      hasTimeoutCertificate :: !Bool
+    }
+
+instance Serialize CatchUpTerminalDataFlags where
+    put CatchUpTerminalDataFlags{..} =
+        putWord8
+            $ oSetBit hasLatestFinalizationEntry 0
+                . oSetBit hasHighestQuorumCertificate 1
+                . oSetBit hasTimeoutCertificate 2
+            $ 0
+      where
+        oSetBit True i x = setBit x i
+        oSetBit False _ x = x
+    get = do
+        bits <- getWord8
+        return $!
+            CatchUpTerminalDataFlags
+                { hasLatestFinalizationEntry = testBit bits 0,
+                  hasHighestQuorumCertificate = testBit bits 1,
+                  hasTimeoutCertificate = testBit bits 2
+                }
+
 -- |The 'CatchUpTerminalData' is sent as part of a catch-up response that concludes catch-up with
 -- the peer (i.e. the peer has sent all relevant information).
---
--- If the peer is not otherwise aware of them, 'cutdQuorumCertificates' should include QCs on:
---    * The block in the round after the last finalized block (if the peer does not consider it
---      finalized already).
---    * The highest certified block (if for a later round than the peer's highest certified block).
 data CatchUpTerminalData = CatchUpTerminalData
-    { -- |Quorum certificates to ensure agreement on the last finalized block and highest certified
-      -- block.
-      cutdQuorumCertificates :: ![QuorumCertificate],
+    { -- |Finalization entry for the latest finalized block.
+      cutdLatestFinalizationEntry :: !(Option FinalizationEntry),
+      -- |Quorum certificate for the highest certified block.
+      cutdHighestQuorumCertificate :: !(Option QuorumCertificate),
       -- |A timeout certificate for the last round, if available.
       cutdTimeoutCertificate :: !(Option TimeoutCertificate),
       -- |Valid quorum messages for the current round.
@@ -106,15 +130,27 @@ data CatchUpTerminalData = CatchUpTerminalData
     }
     deriving (Eq, Show)
 
+toCatchUpTerminalDataFlags :: CatchUpTerminalData -> CatchUpTerminalDataFlags
+toCatchUpTerminalDataFlags CatchUpTerminalData{..} =
+    CatchUpTerminalDataFlags
+        { hasLatestFinalizationEntry = isPresent cutdLatestFinalizationEntry,
+          hasHighestQuorumCertificate = isPresent cutdHighestQuorumCertificate,
+          hasTimeoutCertificate = isPresent cutdTimeoutCertificate
+        }
+
 instance Serialize CatchUpTerminalData where
-    put CatchUpTerminalData{..} = do
-        putListOf put cutdQuorumCertificates
-        putOptionOf put cutdTimeoutCertificate
+    put cutd@CatchUpTerminalData{..} = do
+        put $ toCatchUpTerminalDataFlags cutd
+        mapM_ put cutdLatestFinalizationEntry
+        mapM_ put cutdHighestQuorumCertificate
+        mapM_ put cutdTimeoutCertificate
         putListOf put cutdCurrentRoundQuorumMessages
         putListOf put cutdCurrentRoundTimeoutMessages
     get = do
-        cutdQuorumCertificates <- getListOf get
-        cutdTimeoutCertificate <- getOptionOf get
+        CatchUpTerminalDataFlags{..} <- get
+        cutdLatestFinalizationEntry <- if hasLatestFinalizationEntry then Present <$> get else return Absent
+        cutdHighestQuorumCertificate <- if hasHighestQuorumCertificate then Present <$> get else return Absent
+        cutdTimeoutCertificate <- if hasTimeoutCertificate then Present <$> get else return Absent
         cutdCurrentRoundQuorumMessages <- getListOf get
         cutdCurrentRoundTimeoutMessages <- getListOf get
         return CatchUpTerminalData{..}
@@ -171,7 +207,8 @@ instance Serialize CatchUpMessage where
 emptyCatchUpTerminalData :: CatchUpTerminalData
 emptyCatchUpTerminalData =
     CatchUpTerminalData
-        { cutdQuorumCertificates = [],
+        { cutdLatestFinalizationEntry = Absent,
+          cutdHighestQuorumCertificate = Absent,
           cutdTimeoutCertificate = Absent,
           cutdCurrentRoundQuorumMessages = [],
           cutdCurrentRoundTimeoutMessages = []

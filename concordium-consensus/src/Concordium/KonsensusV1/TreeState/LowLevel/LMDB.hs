@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DerivingVia #-}
@@ -24,6 +25,7 @@ import Control.Monad.Trans.Class
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 import Data.Data
+import Data.List (intercalate)
 import qualified Data.Serialize as S
 import Database.LMDB.Raw
 import Lens.Micro.Platform
@@ -33,12 +35,12 @@ import Concordium.Common.Version
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Logger
 import Concordium.Types
+import Concordium.Types.HashableTo
 
 import Concordium.GlobalState.LMDB.Helpers
 import Concordium.KonsensusV1.TreeState.LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
-import Concordium.Types.HashableTo
 
 -- * Exceptions
 
@@ -51,26 +53,33 @@ instance Exception DatabaseInvariantViolation where
         "Database invariant violation: "
             ++ show reason
 
+newtype DatabaseRecoveryFailure = DatabaseRecoveryFailure String
+    deriving (Eq, Show, Typeable)
+
+instance Exception DatabaseRecoveryFailure where
+    displayException (DatabaseRecoveryFailure reason) =
+        "Database recovery failed: " ++ show reason
+
 -- * Database tables
 
 -- ** Block store
 
--- |Block store for finalized blocks by height.
+-- |Block store for certified blocks by hash.
 newtype BlockStore (pv :: ProtocolVersion) = BlockStore MDB_dbi'
 
 instance IsProtocolVersion pv => MDBDatabase (BlockStore pv) where
-    type DBKey (BlockStore pv) = BlockHeight
+    type DBKey (BlockStore pv) = BlockHash
     type DBValue (BlockStore pv) = StoredBlock pv
+    encodeKey _ = Hash.hashToByteString . blockHash
 
--- ** Blocks by hash index
+-- ** Finalized blocks by height index
 
 -- |Index mapping block hashes to block heights.
-newtype BlockHashIndex = BlockHashIndex MDB_dbi'
+newtype FinalizedBlockIndex = FinalizedBlockIndex MDB_dbi'
 
-instance MDBDatabase BlockHashIndex where
-    type DBKey BlockHashIndex = BlockHash
-    encodeKey _ = Hash.hashToByteString . blockHash
-    type DBValue BlockHashIndex = BlockHeight
+instance MDBDatabase FinalizedBlockIndex where
+    type DBKey FinalizedBlockIndex = BlockHeight
+    type DBValue FinalizedBlockIndex = BlockHash
 
 -- ** Transaction status
 
@@ -82,9 +91,18 @@ instance MDBDatabase TransactionStatusStore where
     type DBKey TransactionStatusStore = TransactionHash
     type DBValue TransactionStatusStore = FinalizedTransactionStatus
 
--- ** Consensus status
+-- ** Non-finalized quorum certificates
 
---
+-- |A table of quorum certificates for non-finalized blocks, indexed by round number.
+-- Except at genesis, this table should always have a minimal entry for the round after the round
+-- of the last finalized block.
+newtype NonFinalizedQuorumCertificateStore = NonFinalizedQuorumCertificateStore MDB_dbi'
+
+instance MDBDatabase NonFinalizedQuorumCertificateStore where
+    type DBKey NonFinalizedQuorumCertificateStore = Round
+    type DBValue NonFinalizedQuorumCertificateStore = QuorumCertificate
+
+-- ** Consensus status
 
 -- $consensusStatus
 -- The consensus status table stores the round status and latest finalization entry. To support
@@ -182,12 +200,14 @@ instance S.Serialize VersionMetadata where
 data DatabaseHandlers (pv :: ProtocolVersion) = DatabaseHandlers
     { -- |The LMDB environment.
       _storeEnv :: !StoreEnv,
-      -- |Blocks by height.
+      -- |Blocks by hash.
       _blockStore :: !(BlockStore pv),
-      -- |Index of blocks by hash.
-      _blockHashIndex :: !BlockHashIndex,
+      -- |Index of finalized blocks by block height.
+      _finalizedBlockIndex :: !FinalizedBlockIndex,
       -- |Index of finalized transactions by hash.
       _transactionStatusStore :: !TransactionStatusStore,
+      -- |Non-finalized quorum certificates index by round.
+      _nonFinalizedQuorumCertificateStore :: !NonFinalizedQuorumCertificateStore,
       -- |Storage for the 'RoundStatus'.
       _roundStatusStore :: !RoundStatusStore,
       -- |Storage for the latest 'FinalizationEntry'.
@@ -198,17 +218,21 @@ data DatabaseHandlers (pv :: ProtocolVersion) = DatabaseHandlers
 
 makeClassy ''DatabaseHandlers
 
--- |Name of the table used for storing blocks by height.
+-- |Name of the table used for storing blocks by block hash.
 blockStoreName :: String
-blockStoreName = "blocksByHeight"
+blockStoreName = "blocksByHash"
 
--- |Name of the table used for indexing blocks by hash.
-blockHashIndexName :: String
-blockHashIndexName = "blockHashIndex"
+-- |Name of the table used for indexing finalized blocks by height.
+finalizedBlockIndexName :: String
+finalizedBlockIndexName = "finalizedBlockIndex"
 
 -- |Name of the table used for indexing transactions by hash.
 transactionStatusStoreName :: String
 transactionStatusStoreName = "transactionStatus"
+
+-- |Name of the table used for storing quorum certificates for non-finalized blocks by round.
+nonFinalizedQuorumCertificateStoreName :: String
+nonFinalizedQuorumCertificateStoreName = "nonFinalizedQuorumCertificates"
 
 -- |Name of the table used for storing the round status and latest finalization entry.
 consensusStatusStoreName :: String
@@ -220,7 +244,7 @@ metadataStoreName = "metadata"
 
 -- |The number of databases in the LMDB environment for 'DatabaseHandlers'.
 databaseCount :: Int
-databaseCount = 5
+databaseCount = 6
 
 -- |Database growth size increment.
 -- This is currently set at 64MB, and must be a multiple of the page size.
@@ -300,17 +324,23 @@ makeDatabaseHandlers treeStateDir readOnly initSize = do
                     txn
                     (Just blockStoreName)
                     [MDB_CREATE | not readOnly]
-        _blockHashIndex <-
-            BlockHashIndex
+        _finalizedBlockIndex <-
+            FinalizedBlockIndex
                 <$> mdb_dbi_open'
                     txn
-                    (Just blockHashIndexName)
+                    (Just finalizedBlockIndexName)
                     [MDB_CREATE | not readOnly]
         _transactionStatusStore <-
             TransactionStatusStore
                 <$> mdb_dbi_open'
                     txn
                     (Just transactionStatusStoreName)
+                    [MDB_CREATE | not readOnly]
+        _nonFinalizedQuorumCertificateStore <-
+            NonFinalizedQuorumCertificateStore
+                <$> mdb_dbi_open'
+                    txn
+                    (Just nonFinalizedQuorumCertificateStoreName)
                     [MDB_CREATE | not readOnly]
         consensusStatusStore <-
             mdb_dbi_open'
@@ -384,17 +414,23 @@ openReadOnlyDatabase treeStateDir = do
                                         txn
                                         (Just blockStoreName)
                                         []
-                            _blockHashIndex <-
-                                BlockHashIndex
+                            _finalizedBlockIndex <-
+                                FinalizedBlockIndex
                                     <$> mdb_dbi_open'
                                         txn
-                                        (Just blockHashIndexName)
+                                        (Just finalizedBlockIndexName)
                                         []
                             _transactionStatusStore <-
                                 TransactionStatusStore
                                     <$> mdb_dbi_open'
                                         txn
                                         (Just transactionStatusStoreName)
+                                        []
+                            _nonFinalizedQuorumCertificateStore <-
+                                NonFinalizedQuorumCertificateStore
+                                    <$> mdb_dbi_open'
+                                        txn
+                                        (Just nonFinalizedQuorumCertificateStoreName)
                                         []
                             consensusStatusStore <-
                                 mdb_dbi_open'
@@ -448,6 +484,72 @@ asWriteTransaction t = do
         (LMDB_Error _ _ (Right MDB_MAP_FULL)) -> Just ()
         _ -> Nothing
 
+-- |Helper function for implementing 'writeFinalizedBlocks'.
+writeFinalizedBlocksHelper ::
+    (HasDatabaseHandlers dbh pv, IsProtocolVersion pv) =>
+    [StoredBlock pv] ->
+    FinalizationEntry ->
+    dbh ->
+    MDB_txn ->
+    IO ()
+writeFinalizedBlocksHelper finBlocks finEntry dbh txn = do
+    -- Delete the quorum certificates for rounds up to and including the round of the
+    -- new last finalized block. Where the QCs are for blocks that will not be finalized,
+    -- also remove the block from the block table.
+    withCursor txn (dbh ^. nonFinalizedQuorumCertificateStore) $ \cursor -> do
+        let loop _ Nothing = return ()
+            loop _ (Just (Left e)) = throwM (DatabaseInvariantViolation e)
+            loop fins@(nextFin : restFin) (Just (Right (rnd, qc))) = do
+                -- If the block is in a lesser round than the next block in the finalized list,
+                -- remove it from the block table (since it is now dead).
+                recFins <- case compare rnd (blockRound nextFin) of
+                    LT -> do
+                        _ <- deleteRecord txn (dbh ^. blockStore) (qcBlock qc)
+                        return fins
+                    EQ -> return restFin
+                    GT ->
+                        error
+                            "writeFinalizedBlocksHelper: newly-finalized blocks are not \
+                            \currently certified in the database."
+                -- Delete the QC entry.
+                deleteAtCursor cursor
+                unless (null recFins) $ loop recFins =<< getCursor CursorNext cursor
+            loop [] _ = return ()
+        loop finBlocks =<< getCursor CursorFirst cursor
+    -- Write the latest finalization entry
+    storeReplaceRecord
+        txn
+        (dbh ^. latestFinalizationEntryStore)
+        CSKLatestFinalizationEntry
+        finEntry
+    -- Index the newly-finalized blocks and their transactions
+    forM_ finBlocks $ \block -> do
+        let height = blockHeight block
+        -- Write the block to the finalized index
+        storeReplaceRecord txn (dbh ^. finalizedBlockIndex) height (getHash block)
+        -- Write the block's transactions to the transaction status index.
+        forM_ (zip (blockTransactions block) [0 ..]) $ \(tx, ti) ->
+            storeReplaceRecord
+                txn
+                (dbh ^. transactionStatusStore)
+                (getHash tx)
+                (FinalizedTransactionStatus height ti)
+
+writeCertifiedBlockHelper ::
+    ( HasDatabaseHandlers s pv,
+      IsProtocolVersion pv
+    ) =>
+    StoredBlock pv ->
+    QuorumCertificate ->
+    s ->
+    MDB_txn ->
+    IO ()
+writeCertifiedBlockHelper certBlock qc dbh txn = do
+    -- Add the certified block
+    storeReplaceRecord txn (dbh ^. blockStore) (getHash certBlock) certBlock
+    -- Add the new QC
+    storeReplaceRecord txn (dbh ^. nonFinalizedQuorumCertificateStore) (qcRound qc) qc
+
 instance
     ( IsProtocolVersion pv,
       MonadReader r m,
@@ -459,42 +561,52 @@ instance
     MonadTreeStateStore (DiskLLDBM pv m)
     where
     lookupBlock bh = asReadTransaction $ \dbh txn ->
-        loadRecord txn (dbh ^. blockHashIndex) bh >>= \case
-            Just height -> loadRecord txn (dbh ^. blockStore) height
-            Nothing -> return Nothing
+        loadRecord txn (dbh ^. blockStore) bh
     memberBlock bh = asReadTransaction $ \dbh txn ->
-        isRecordPresent txn (dbh ^. blockHashIndex) bh
+        isRecordPresent txn (dbh ^. blockStore) bh
     lookupFirstBlock = lookupBlockByHeight 0
-    lookupLastBlock = asReadTransaction $ \dbh txn ->
-        withCursor txn (dbh ^. blockStore) (getCursor CursorLast) <&> \case
-            Just (Right (_, v)) -> Just v
-            _ -> Nothing
+    lookupLastFinalizedBlock = asReadTransaction $ \dbh txn ->
+        withCursor txn (dbh ^. finalizedBlockIndex) (getCursor CursorLast) >>= \case
+            Just (Right (_, bh)) ->
+                loadRecord txn (dbh ^. blockStore) bh
+            _ -> return Nothing
     lookupBlockByHeight height = asReadTransaction $ \dbh txn ->
-        loadRecord txn (dbh ^. blockStore) height
+        loadRecord txn (dbh ^. finalizedBlockIndex) height >>= \case
+            Just bh -> loadRecord txn (dbh ^. blockStore) bh
+            _ -> return Nothing
     lookupTransaction txHash = asReadTransaction $ \dbh txn ->
         loadRecord txn (dbh ^. transactionStatusStore) txHash
     memberTransaction txHash = asReadTransaction $ \dbh txn ->
         isRecordPresent txn (dbh ^. transactionStatusStore) txHash
 
-    writeBlocks blocks fe = asWriteTransaction $ \dbh txn -> do
-        forM_ blocks $ \block -> do
-            let height = blockHeight block
-            storeReplaceRecord txn (dbh ^. blockStore) height block
-            storeReplaceRecord txn (dbh ^. blockHashIndex) (getHash block) height
-            forM_ (zip (blockTransactions block) [0 ..]) $ \(tx, ti) ->
-                storeReplaceRecord
-                    txn
-                    (dbh ^. transactionStatusStore)
-                    (getHash tx)
-                    (FinalizedTransactionStatus height ti)
-        storeReplaceRecord
-            txn
-            (dbh ^. latestFinalizationEntryStore)
-            CSKLatestFinalizationEntry
-            fe
+    writeFinalizedBlocks finBlocks finEntry =
+        asWriteTransaction $ writeFinalizedBlocksHelper finBlocks finEntry
+
+    writeCertifiedBlock certBlock qc = asWriteTransaction $ writeCertifiedBlockHelper certBlock qc
+
+    writeCertifiedBlockWithFinalization finBlocks certBlock finEntry =
+        asWriteTransaction $ \dbh txn -> do
+            writeFinalizedBlocksHelper finBlocks finEntry dbh txn
+            writeCertifiedBlockHelper certBlock (feSuccessorQuorumCertificate finEntry) dbh txn
 
     lookupLatestFinalizationEntry = asReadTransaction $ \dbh txn ->
         loadRecord txn (dbh ^. latestFinalizationEntryStore) CSKLatestFinalizationEntry
+
+    lookupCertifiedBlocks = asReadTransaction $ \dbh txn -> do
+        withCursor txn (dbh ^. nonFinalizedQuorumCertificateStore) $ \cursor -> do
+            let loop l Nothing = return l
+                loop _ (Just (Left e)) = throwM . DatabaseInvariantViolation $ e
+                loop l (Just (Right (_, qc))) = do
+                    loadRecord txn (dbh ^. blockStore) (qcBlock qc) >>= \case
+                        Nothing ->
+                            throwM . DatabaseInvariantViolation $
+                                "Missing block for QC "
+                                    <> show (qcBlock qc)
+                                    <> " in round "
+                                    <> show (qcRound qc)
+                        Just block ->
+                            loop ((block, qc) : l) =<< getCursor CursorPrevious cursor
+            loop [] =<< getCursor CursorLast cursor
 
     lookupCurrentRoundStatus = asReadTransaction $ \dbh txn ->
         loadRecord txn (dbh ^. roundStatusStore) CSKRoundStatus >>= \case
@@ -504,55 +616,250 @@ instance
     writeCurrentRoundStatus rs = asWriteTransaction $ \dbh txn ->
         storeReplaceRecord txn (dbh ^. roundStatusStore) CSKRoundStatus rs
 
-    rollBackBlocksUntil predicate = roll 0
-      where
-        -- The ctr indicates how many blocks that have been rolled back.
-        roll ctr = do
-            getLast >>= \case
-                Nothing -> return $ Right ctr
-                Just (Left e) -> return $ Left $ "Could not load last finalized block: " ++ e
-                Just (Right (h, sb)) -> do
-                    ok <- predicate sb
-                    if ok
-                        then return $ Right ctr
-                        else do
-                            unless (ctr == 0) $ do
-                                logEvent
-                                    TreeState
-                                    LLWarning
-                                    "Database corruption detected.\
-                                    \ Attempting to roll-back to a usable state."
-                            logEvent TreeState LLDebug $
-                                "Removing block "
-                                    ++ show (getHash sb :: BlockHash)
-                                    ++ " at height "
-                                    ++ show h
-                            asWriteTransaction $ \dbh txn -> do
-                                -- If we haven't already, remove the latest finalization entry
-                                unless (ctr == 0) . void $
-                                    deleteRecord
-                                        txn
-                                        (dbh ^. latestFinalizationEntryStore)
-                                        CSKLatestFinalizationEntry
-                                -- Remove the block
-                                _ <- deleteRecord txn (dbh ^. blockStore) h
-                                _ <- deleteRecord txn (dbh ^. blockHashIndex) (getHash sb)
-                                -- Remove the block transactions
-                                forM_ (blockTransactions sb) $ \tx ->
-                                    deleteRecord txn (dbh ^. transactionStatusStore) (getHash tx)
-                            roll $! ctr + 1
-        getLast = asReadTransaction $ \dbh txn ->
-            withCursor txn (dbh ^. blockStore) (getCursor CursorLast)
-
 -- |Initialise the low-level database by writing out the genesis block and initial round status.
 initialiseLowLevelDB ::
     (MonadIO m, MonadReader r m, HasDatabaseHandlers r pv, MonadLogger m, IsProtocolVersion pv) =>
     -- |Genesis block.
     StoredBlock pv ->
-    -- |Initial round status.
+    -- |Initial persistent round status.
     PersistentRoundStatus ->
     DiskLLDBM pv m ()
 initialiseLowLevelDB genesisBlock roundStatus = asWriteTransaction $ \dbh txn -> do
-    storeReplaceRecord txn (dbh ^. blockStore) 0 genesisBlock
-    storeReplaceRecord txn (dbh ^. blockHashIndex) (getHash genesisBlock) 0
+    storeReplaceRecord txn (dbh ^. blockStore) (getHash genesisBlock) genesisBlock
+    storeReplaceRecord txn (dbh ^. finalizedBlockIndex) 0 (getHash genesisBlock)
     storeReplaceRecord txn (dbh ^. roundStatusStore) CSKRoundStatus roundStatus
+
+-- |Remove certified and finalized blocks from the database whose states cannot be loaded.
+-- This can throw an exception if the database recovery was not possible.
+--
+-- This uses the following assumptions:
+--   * If a block's state can be loaded, then so can the state of its parent, or any block
+--     with a lesser 'BlockStateRef'.
+--   * The database invariants hold.
+--   * No other concurrent accesses are made to the database.
+--
+-- The updates to the database are performed in the following write transactions:
+--   * Removing a single certified block.
+--   * Removing all certified blocks.
+--   * Removing the last finalized block and implicitly finalized blocks, rolling back the
+--     latest finalization entry to the prior explicitly finalized block (or removing it if
+--     it would be for the genesis block).
+rollBackBlocksUntil ::
+    forall pv r m.
+    ( IsProtocolVersion pv,
+      MonadReader r m,
+      HasDatabaseHandlers r pv,
+      MonadIO m,
+      MonadCatch m,
+      MonadLogger m
+    ) =>
+    -- |Callback for checking if the state at a given reference is valid.
+    (BlockStateRef pv -> DiskLLDBM pv m Bool) ->
+    DiskLLDBM pv m (Int, BlockStateRef pv)
+rollBackBlocksUntil checkState = do
+    lookupLastFinalizedBlock >>= \case
+        Nothing -> throwM . DatabaseRecoveryFailure $ "No last finalized block."
+        Just lastFin -> do
+            stateOK <- checkState (stbStatePointer lastFin)
+            if stateOK
+                then do
+                    -- The last finalized block is intact, so check the certified blocks.
+                    checkCertified (blockRound lastFin) (stbStatePointer lastFin)
+                else do
+                    -- The last finalized block is not intact, so roll back all of the
+                    -- certified blocks, then roll back finalized blocks.
+                    count <- purgeCertified
+                    rollFinalized count lastFin
+  where
+    -- Check the non-finalized certified blocks, from the highest round backwards.
+    checkCertified ::
+        -- last finalized round
+        Round ->
+        -- highest surviving block state so far (from last finalized block)
+        BlockStateRef pv ->
+        -- returns the number of blocks rolled back and the highest surviving block state
+        DiskLLDBM pv m (Int, BlockStateRef pv)
+    checkCertified lastFinRound bestState = do
+        mHighestQC <- asReadTransaction $ \dbh txn ->
+            withCursor
+                txn
+                (dbh ^. nonFinalizedQuorumCertificateStore)
+                (getCursor CursorLast)
+        case mHighestQC of
+            Nothing -> return (0, bestState)
+            Just (Left e) -> throwM . DatabaseRecoveryFailure $ e
+            Just (Right (_, qc)) -> checkCertifiedWithQC lastFinRound bestState 0 qc
+    -- Given the round and QC for a certified block, check that the block's state can be
+    -- loaded, and then iterate for the previous round.
+    checkCertifiedWithQC ::
+        -- last finalized round
+        Round ->
+        -- highest surviving block state so far
+        BlockStateRef pv ->
+        -- number of blocks rolled back so far
+        Int ->
+        -- QC for certified block to check
+        QuorumCertificate ->
+        -- returns the number of blocks rolled back and the highest surviving block state
+        DiskLLDBM pv m (Int, BlockStateRef pv)
+    checkCertifiedWithQC lastFinRound bestState !count qc = do
+        mBlock <- asReadTransaction $ \dbh txn ->
+            loadRecord txn (dbh ^. blockStore) (qcBlock qc)
+        case mBlock of
+            Nothing ->
+                throwM . DatabaseRecoveryFailure $
+                    "Missing block entry for quorum certificate"
+            Just block -> do
+                stateOK <- checkState (stbStatePointer block)
+                if stateOK
+                    then do
+                        checkCertifiedPreviousRound
+                            lastFinRound
+                            (max bestState (stbStatePointer block))
+                            count
+                            (qcRound qc - 1)
+                    else do
+                        -- Delete the block and the QC
+                        asWriteTransaction $ \dbh txn -> do
+                            void $
+                                deleteRecord
+                                    txn
+                                    (dbh ^. nonFinalizedQuorumCertificateStore)
+                                    (qcRound qc)
+                            void $
+                                deleteRecord txn (dbh ^. blockStore) (qcBlock qc)
+                        logEvent LMDB LLDebug $
+                            "The block state for certified block "
+                                <> show (qcBlock qc)
+                                <> " is corrupted. The certified block was deleted."
+                        checkCertifiedPreviousRound
+                            lastFinRound
+                            bestState
+                            (count + 1)
+                            (qcRound qc - 1)
+    -- Step the non-finalized certified block check to the previous round.
+    checkCertifiedPreviousRound ::
+        -- last finalized round
+        Round ->
+        -- highest surviving block so far
+        BlockStateRef pv ->
+        -- number of blocks rolled back so far
+        Int ->
+        -- round to check for
+        Round ->
+        -- returns the number of blocks rolled back and the highest surviving block state
+        DiskLLDBM pv m (Int, BlockStateRef pv)
+    checkCertifiedPreviousRound lastFinRound bestState count currentRound
+        | currentRound <= lastFinRound = return (count, bestState)
+        | otherwise = do
+            mNextQC <- asReadTransaction $ \dbh txn ->
+                loadRecord txn (dbh ^. nonFinalizedQuorumCertificateStore) currentRound
+            case mNextQC of
+                Nothing ->
+                    checkCertifiedPreviousRound lastFinRound bestState count (currentRound - 1)
+                Just qc ->
+                    checkCertifiedWithQC lastFinRound bestState count qc
+    -- Purge all of the certified blocks. Returns the number of blocks rolled back.
+    purgeCertified = do
+        (count, hashes) <- asWriteTransaction $ \dbh txn -> do
+            withCursor txn (dbh ^. nonFinalizedQuorumCertificateStore) $ \cursor -> do
+                let loop !count hashes Nothing = return (count, hashes)
+                    loop _ _ (Just (Left e)) = throwM . DatabaseRecoveryFailure $ e
+                    loop !count hashes (Just (Right (_, qc))) = do
+                        _ <- deleteRecord txn (dbh ^. blockStore) (qcBlock qc)
+                        -- Delete the QC entry.
+                        deleteAtCursor cursor
+                        loop (count + 1) (qcBlock qc : hashes) =<< getCursor CursorNext cursor
+                loop 0 [] =<< getCursor CursorFirst cursor
+        logEvent LMDB LLDebug $
+            "The block state for the last finalized block was corrupted. \
+            \The following certified blocks were deleted: "
+                <> intercalate ", " (show <$> hashes)
+                <> "."
+        return count
+    -- Roll back finalized blocks until the last explicitly finalized block where the state
+    -- check passes.
+    rollFinalized count lastFin = do
+        when (blockRound lastFin == 0) $
+            throwM . DatabaseRecoveryFailure $
+                "Genesis block state could not be recovered."
+        (count', hashes, newLastFin) <- asWriteTransaction $ \dbh txn -> do
+            let loop !c hashes fin finQC = case stbBlock fin of
+                    GenesisBlock _ -> do
+                        -- As a special case, the genesis block is self-finalizing.
+                        -- We thus remove the latest finalization entry.
+                        _ <-
+                            deleteRecord
+                                txn
+                                (dbh ^. latestFinalizationEntryStore)
+                                CSKLatestFinalizationEntry
+                        return (c, hashes, fin)
+                    NormalBlock block -> do
+                        -- Remove the block and its transactions
+                        let finHash = getHash fin
+                        _ <- deleteRecord txn (dbh ^. blockStore) finHash
+                        _ <- deleteRecord txn (dbh ^. finalizedBlockIndex) (blockHeight fin)
+                        forM_ (blockTransactions fin) $
+                            deleteRecord txn (dbh ^. transactionStatusStore) . getHash
+                        mparent <- loadRecord txn (dbh ^. blockStore) (blockParent block)
+                        case mparent of
+                            Nothing ->
+                                throwM . DatabaseInvariantViolation $
+                                    "Missing parent of finalized block."
+                            Just parent ->
+                                if isPresent (blockTimeoutCertificate block)
+                                    || isPresent (blockEpochFinalizationEntry block)
+                                    then do
+                                        -- If the block has a timeout certificate or a finalization
+                                        -- entry, then the QC on this block does not explicitly
+                                        -- finalize the parent block, so we roll back.
+                                        -- (Note, the presence of a timeout certificate indicates the
+                                        -- block is not in the next round from its parent, and the
+                                        -- presence of an epoch finalization entry indicates that block
+                                        -- is not in the same epoch as its parent. Both of these are
+                                        -- necessary for the QC to imply finalization.)
+                                        loop
+                                            (c + 1)
+                                            (finHash : hashes)
+                                            parent
+                                            (blockQuorumCertificate block)
+                                    else do
+                                        -- The block does not have a timeout certificate or finalization
+                                        -- entry, so the parent block is explicitly finalized. We thus
+                                        -- set the latest finalization entry to finalize the
+                                        -- parent block so that the database invariant is
+                                        -- restored.
+                                        storeRecord
+                                            txn
+                                            (dbh ^. latestFinalizationEntryStore)
+                                            CSKLatestFinalizationEntry
+                                            FinalizationEntry
+                                                { feFinalizedQuorumCertificate =
+                                                    blockQuorumCertificate block,
+                                                  feSuccessorQuorumCertificate = finQC,
+                                                  feSuccessorProof = getHash (sbBlock block)
+                                                }
+                                        return (c, hashes, parent)
+            loadRecord txn (dbh ^. latestFinalizationEntryStore) CSKLatestFinalizationEntry
+                >>= \case
+                    Nothing ->
+                        throwM . DatabaseInvariantViolation $
+                            "Missing latest finalization entry."
+                    Just lfe
+                        | qcBlock (feFinalizedQuorumCertificate lfe) /= getHash lastFin ->
+                            throwM . DatabaseInvariantViolation $
+                                "Latest finalization entry does not match last finalized block."
+                        | otherwise ->
+                            loop count [] lastFin (feFinalizedQuorumCertificate lfe)
+        logEvent LMDB LLDebug $
+            "The state for finalized block "
+                <> show (getHash @BlockHash lastFin)
+                <> " was corrupted. The following finalized blocks were deleted: "
+                <> intercalate ", " (show <$> hashes)
+                <> ". The new last finalized block is "
+                <> show (getHash @BlockHash newLastFin)
+                <> "."
+        stateOK <- checkState (stbStatePointer newLastFin)
+        if stateOK
+            then return (count', stbStatePointer newLastFin)
+            else rollFinalized count' newLastFin

@@ -29,14 +29,16 @@ import Concordium.KonsensusV1.Types
 -- transactions, as well as recording persisted state of the consensus in the form of the latest
 -- finalization entry and current round status.
 data LowLevelDB pv = LowLevelDB
-    { -- |Index of blocks by hash.
-      lldbBlockHashes :: !(HM.HashMap BlockHash BlockHeight),
-      -- |Table of blocks by height.
-      lldbBlocks :: !(Map.Map BlockHeight (StoredBlock pv)),
-      -- |Table of transactions by hash.
+    { -- |Index of finalized blocks by height.
+      lldbFinalizedBlocks :: !(Map.Map BlockHeight BlockHash),
+      -- |Table of certified blocks by hash.
+      lldbBlocks :: !(HM.HashMap BlockHash (StoredBlock pv)),
+      -- |Table of finalized transactions by hash.
       lldbTransactions :: !(HM.HashMap TransactionHash FinalizedTransactionStatus),
       -- |The last finalization entry (if any).
       lldbLatestFinalizationEntry :: !(Maybe FinalizationEntry),
+      -- |Table of quorum certificates for non-finalized blocks.
+      lldbNonFinalizedQuorumCertificates :: !(Map.Map Round QuorumCertificate),
       -- |The current round status.
       lldbRoundStatus :: !PersistentRoundStatus
     }
@@ -47,11 +49,67 @@ data LowLevelDB pv = LowLevelDB
 initialLowLevelDB :: StoredBlock pv -> PersistentRoundStatus -> LowLevelDB pv
 initialLowLevelDB genBlock roundStatus =
     LowLevelDB
-        { lldbBlockHashes = HM.singleton (getHash genBlock) 0,
-          lldbBlocks = Map.singleton 0 genBlock,
+        { lldbFinalizedBlocks = Map.singleton 0 (getHash genBlock),
+          lldbBlocks = HM.singleton (getHash genBlock) genBlock,
           lldbTransactions = HM.empty,
           lldbLatestFinalizationEntry = Nothing,
+          lldbNonFinalizedQuorumCertificates = Map.empty,
           lldbRoundStatus = roundStatus
+        }
+
+-- |Update a 'LowLevelDB' by adding the given block to 'lldbFinalizedBlocks' and all of its
+-- transactions to 'lldbTransactions'. Note, this does not add the block to 'lldbBlocks'.
+finalizeBlock :: LowLevelDB pv -> StoredBlock pv -> LowLevelDB pv
+finalizeBlock db@LowLevelDB{..} sb =
+    db
+        { lldbFinalizedBlocks = Map.insert height (getHash sb) lldbFinalizedBlocks,
+          lldbTransactions = foldl' insertTx lldbTransactions (zip (blockTransactions sb) [0 ..])
+        }
+  where
+    height = blockHeight sb
+    insertTx txs (tx, ti) = HM.insert (getHash tx) (FinalizedTransactionStatus height ti) txs
+
+-- |Helper functions for implementing 'writeFinalizedBlocks'.
+doWriteFinalizedBlocks ::
+    -- |Newly-finalized blocks in order.
+    [StoredBlock pv] ->
+    -- |Finalization entry for the last of the finalized blocks.
+    FinalizationEntry ->
+    LowLevelDB pv ->
+    LowLevelDB pv
+doWriteFinalizedBlocks finBlocks finEntry =
+    flip (foldl' finalizeBlock) finBlocks . processFinEntry
+  where
+    processFinEntry db@LowLevelDB{..} =
+        db
+            { lldbLatestFinalizationEntry = Just finEntry,
+              lldbNonFinalizedQuorumCertificates = keepQCs,
+              lldbBlocks = remBlocks (blockRound <$> finBlocks) (Map.elems removeQCs) lldbBlocks
+            }
+      where
+        (removeQCs, keepQCs) =
+            Map.split
+                (qcRound (feFinalizedQuorumCertificate finEntry))
+                lldbNonFinalizedQuorumCertificates
+        remBlocks fins@(nextFin : restFin) (nextRem : restRem) blocks
+            | nextFin == qcRound nextRem = remBlocks restFin restRem blocks
+            | otherwise = remBlocks fins restRem (HM.delete (qcBlock nextRem) blocks)
+        remBlocks _ _ blocks = blocks
+
+-- |Helper function for implementing 'writeCertifiedBlock'.
+doWriteCertifiedBlock ::
+    -- |Newly-certified block.
+    StoredBlock pv ->
+    -- |QC on the certified block.
+    QuorumCertificate ->
+    LowLevelDB pv ->
+    LowLevelDB pv
+doWriteCertifiedBlock certBlock qc db@LowLevelDB{..} =
+    db
+        { lldbBlocks =
+            HM.insert (getHash certBlock) certBlock lldbBlocks,
+          lldbNonFinalizedQuorumCertificates =
+            Map.insert (qcRound qc) qc lldbNonFinalizedQuorumCertificates
         }
 
 -- |The class 'HasMemoryLLDB' is implemented by a context in which a 'LowLevelDB' state is
@@ -70,6 +128,10 @@ withLLDB f = do
     ref <- asks theMemoryLLDB
     liftIO $ atomicModifyIORef' ref f
 
+-- |Helper for updating the low level DB.
+withLLDB_ :: (MonadReader r m, HasMemoryLLDB pv r, MonadIO m) => (LowLevelDB pv -> LowLevelDB pv) -> m ()
+withLLDB_ f = withLLDB $ (,()) . f
+
 -- |A newtype wrapper that provides an instance of 'MonadTreeStateStore' where the underlying monad
 -- provides a context for accessing the low-level state. That is, it implements @MonadIO@ and
 -- @MonadReader r@ for @r@ with @HasMemoryLLDB pv r@.
@@ -83,69 +145,50 @@ instance IsProtocolVersion pv => MonadProtocolVersion (MemoryLLDBM pv m) where
 
 instance (IsProtocolVersion pv, MonadReader r m, HasMemoryLLDB pv r, MonadIO m) => MonadTreeStateStore (MemoryLLDBM pv m) where
     lookupBlock bh =
-        readLLDB <&> \db -> do
-            height <- HM.lookup bh $ lldbBlockHashes db
-            Map.lookup height $ lldbBlocks db
+        readLLDB <&> HM.lookup bh . lldbBlocks
     memberBlock = fmap isJust . lookupBlock
     lookupFirstBlock =
-        readLLDB <&> fmap snd . Map.lookupMin . lldbBlocks
-    lookupLastBlock =
-        readLLDB <&> fmap snd . Map.lookupMax . lldbBlocks
+        readLLDB <&> \db -> do
+            (_, firstHash) <- Map.lookupMin (lldbFinalizedBlocks db)
+            HM.lookup firstHash (lldbBlocks db)
+    lookupLastFinalizedBlock =
+        readLLDB <&> \db -> do
+            (_, lastHash) <- Map.lookupMax (lldbFinalizedBlocks db)
+            HM.lookup lastHash (lldbBlocks db)
     lookupBlockByHeight h =
-        readLLDB <&> Map.lookup h . lldbBlocks
+        readLLDB <&> \db -> do
+            hsh <- Map.lookup h (lldbFinalizedBlocks db)
+            HM.lookup hsh (lldbBlocks db)
     lookupTransaction th =
         readLLDB <&> HM.lookup th . lldbTransactions
     memberTransaction = fmap isJust . lookupTransaction
-    writeBlocks blocks fe =
-        withLLDB $ (,()) . updateFinEntry . flip (foldl' insertBlock) blocks
+
+    writeFinalizedBlocks finBlocks finEntry =
+        withLLDB_ $ doWriteFinalizedBlocks finBlocks finEntry
+
+    writeCertifiedBlock certBlock qc =
+        withLLDB_ $ doWriteCertifiedBlock certBlock qc
+
+    writeCertifiedBlockWithFinalization finBlocks certBlock finEntry =
+        withLLDB_ $
+            doWriteCertifiedBlock certBlock qc
+                . doWriteFinalizedBlocks finBlocks finEntry
       where
-        updateFinEntry db = db{lldbLatestFinalizationEntry = Just fe}
-        insertBlock db@LowLevelDB{..} sb =
-            db
-                { lldbBlocks = Map.insert height sb lldbBlocks,
-                  lldbBlockHashes = HM.insert (getHash sb) height lldbBlockHashes,
-                  lldbTransactions = foldl' insertTx lldbTransactions (zip (blockTransactions sb) [0 ..])
-                }
-          where
-            height = blockHeight sb
-            insertTx txs (tx, ti) = HM.insert (getHash tx) (FinalizedTransactionStatus height ti) txs
+        qc = feSuccessorQuorumCertificate finEntry
+
+    lookupCertifiedBlocks =
+        readLLDB <&> \LowLevelDB{..} ->
+            toBlock lldbBlocks <$> Map.elems lldbNonFinalizedQuorumCertificates
+      where
+        toBlock blocks qc = case HM.lookup (qcBlock qc) blocks of
+            Nothing -> error $ "Missing block for QC: " <> show (qcBlock qc)
+            Just b -> (b, qc)
+
     lookupLatestFinalizationEntry =
         readLLDB <&> lldbLatestFinalizationEntry
+
     lookupCurrentRoundStatus =
         readLLDB <&> lldbRoundStatus
+
     writeCurrentRoundStatus rs =
-        withLLDB $ \db -> (db{lldbRoundStatus = rs}, ())
-    rollBackBlocksUntil predicate =
-        lookupLastBlock >>= \case
-            Nothing -> return (Right 0)
-            Just sb -> do
-                ok <- predicate sb
-                if ok
-                    then return (Right 0)
-                    else do
-                        withLLDB $ \db -> (db{lldbLatestFinalizationEntry = Nothing}, ())
-                        Right <$> roll sb 0
-      where
-        roll !sb !ctr = do
-            -- Delete the block from the database and
-            -- its associated transactions.
-            withLLDB $ \db@LowLevelDB{..} ->
-                ( db
-                    { lldbBlocks = Map.delete (blockHeight sb) lldbBlocks,
-                      lldbBlockHashes = HM.delete (getHash sb) lldbBlockHashes,
-                      lldbTransactions = foldl' deleteTx lldbTransactions (blockTransactions sb)
-                    },
-                  ()
-                )
-            -- Get the new last block and continue rolling if
-            -- such one exist, otherwise return how many blocks
-            -- we have rolled back.
-            lookupLastBlock >>= \case
-                Nothing -> return ctr
-                Just !sb' -> do
-                    -- Stop if we're at the block we wish to roll
-                    -- roll back to otherwise continue.
-                    predicate sb' >>= \case
-                        True -> return ctr
-                        False -> roll sb' $! ctr + 1
-        deleteTx txs tx = HM.delete (getHash tx) txs
+        withLLDB_ $ \db -> db{lldbRoundStatus = rs}

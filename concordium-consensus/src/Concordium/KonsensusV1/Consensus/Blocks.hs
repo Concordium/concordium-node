@@ -536,13 +536,15 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                                 -- This implies that the block is in the epoch after the last
                                 -- finalized block.
                                 newBlock <- addBlock pendingBlock blockState parent energyUsed
-                                checkFinality (blockQuorumCertificate pendingBlock)
-                                curRound <- use $ roundStatus . rsCurrentRound
                                 let certifiedParent =
                                         CertifiedBlock
                                             { cbQuorumCertificate = blockQuorumCertificate pendingBlock,
                                               cbQuorumBlock = parent
                                             }
+                                -- Write out the parent if it is newly certified, and check if
+                                -- it finalizes other blocks also.
+                                processCertifiedBlock certifiedParent
+                                curRound <- use $ roundStatus . rsCurrentRound
                                 if curRound < blockRound pendingBlock
                                     then case blockTimeoutCertificate pendingBlock of
                                         Present tc ->
@@ -685,11 +687,11 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                         (toRational $ genesisSignatureThreshold gmParameters)
                         _bfFinalizers
                         finEntry -> do
-                        -- We record that we have checked a valid QC for the successor round.
-                        -- We do not record the finalized round, because we expect it to be
-                        -- finalized, and we only keep entries for non-finalized rounds.
-                        recordCheckedQuorumCertificate $ feSuccessorQuorumCertificate finEntry
+                        -- We record that we have checked a valid QC for both rounds, since we
+                        -- retain these for each certified block from the last finalized block
+                        -- onwards.
                         recordCheckedQuorumCertificate $ feFinalizedQuorumCertificate finEntry
+                        recordCheckedQuorumCertificate $ feSuccessorQuorumCertificate finEntry
                         -- Check that the finalized block has timestamp past the trigger time for
                         -- the epoch. We use the seed state for the parent block to get the trigger
                         -- time, because that is in the same epoch.
@@ -708,7 +710,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                                     -- process the finalization now. The block we are finalizing is
                                     -- a live (non-finalized) block, and therefore it is at most
                                     -- one epoch after the last finalized block.
-                                    processFinalization finBlock finEntry
+                                    processFinalizationEntry finBlock finEntry
                                     shrinkTimeout finBlock
                                     -- Note: we do not update the highest certified block here
                                     -- because the parent block will be at least as high as that

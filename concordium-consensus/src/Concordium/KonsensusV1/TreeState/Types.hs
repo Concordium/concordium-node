@@ -269,7 +269,10 @@ data PersistentRoundStatus = PersistentRoundStatus
       _prsLastSignedTimeoutMessage :: !(Option TimeoutMessage),
       -- |The round number of the last round for which we baked a block, or 0 if we have never
       -- baked a block.
-      _prsLastBakedRound :: !Round
+      _prsLastBakedRound :: !Round,
+      -- |The latest timeout certificate we have seen. This can be absent if we have a quorum
+      -- certificate for a more recent round.
+      _prsLatestTimeout :: !(Option TimeoutCertificate)
     }
     deriving (Eq, Show)
 
@@ -280,10 +283,12 @@ instance Serialize PersistentRoundStatus where
         put _prsLastSignedQuorumMessage
         put _prsLastSignedTimeoutMessage
         put _prsLastBakedRound
+        put _prsLatestTimeout
     get = do
         _prsLastSignedQuorumMessage <- get
         _prsLastSignedTimeoutMessage <- get
         _prsLastBakedRound <- get
+        _prsLatestTimeout <- get
         return PersistentRoundStatus{..}
 
 -- |The 'PersistentRoundStatus' at genesis.
@@ -292,7 +297,8 @@ initialPersistentRoundStatus =
     PersistentRoundStatus
         { _prsLastSignedQuorumMessage = Absent,
           _prsLastSignedTimeoutMessage = Absent,
-          _prsLastBakedRound = 0
+          _prsLastBakedRound = 0,
+          _prsLatestTimeout = Absent
         }
 
 -- |The last signed round (according to a given 'RoundStatus') for which we have produced a

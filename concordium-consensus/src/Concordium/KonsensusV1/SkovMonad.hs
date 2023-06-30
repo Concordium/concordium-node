@@ -548,21 +548,26 @@ initialiseNewSkovV1 genData bakerCtx handlerCtx unliftSkov gsConfig@GlobalStateC
 -- (i.e. a protocol update has taken effect to a new consensus).
 --
 -- This ensures that the last finalized block state is cached and that the transaction table
--- correctly reflects the state of accounts.
+-- correctly reflects the state of accounts. It also loads the certified blocks from disk.
 activateSkovV1State ::
-    (IsProtocolVersion pv) =>
-    SkovV1Context pv m ->
-    SkovV1State pv ->
-    LogIO (SkovV1State pv)
-activateSkovV1State ctx uninitState =
-    runBlockState $ do
-        logEvent GlobalState LLTrace "Caching last finalized block and initializing transaction table"
-        let bps = bpState $ _lastFinalized $ _v1sSkovData uninitState
-        !tt <- cacheStateAndGetTransactionTable bps
-        logEvent GlobalState LLTrace "Done caching last finalized block"
-        return $! uninitState & v1sSkovData . transactionTable .~ tt
-  where
-    runBlockState a = runReaderT (runPersistentBlockStateMonad a) (_vcPersistentBlockStateContext ctx)
+    ( MonadLogger m,
+      MonadState (SkovData (MPV m)) m,
+      MonadThrow m,
+      BlockState m ~ HashedPersistentBlockState (MPV m),
+      LowLevel.MonadTreeStateStore m,
+      BlockStateStorage m,
+      TimeMonad m,
+      MonadIO m
+    ) =>
+    m ()
+activateSkovV1State = do
+    logEvent GlobalState LLTrace "Caching last finalized block and initializing transaction table"
+    bps <- use $ lastFinalized . to bpState
+    !tt <- cacheBlockStateAndGetTransactionTable bps
+    transactionTable .= tt
+    logEvent GlobalState LLTrace "Loading certified blocks"
+    loadCertifiedBlocks
+    logEvent GlobalState LLTrace "Done activating global state"
 
 -- |Gracefully close the disk storage used by the skov.
 shutdownSkovV1 :: SkovV1Context pv m -> LogIO ()
