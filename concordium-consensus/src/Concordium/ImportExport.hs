@@ -68,7 +68,6 @@ import Concordium.Common.Version
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.Finalization
-
 import Concordium.GlobalState.Persistent.LMDB
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as KonsensusV1
 import qualified Concordium.KonsensusV1.TreeState.LowLevel.LMDB as KonsensusV1
@@ -294,19 +293,20 @@ normalizeBlockIndex l = l
 -- |Export a database in V3 format, as a collection of block file chunks, given the data directory
 -- root and the export directory root.
 exportDatabaseV3 ::
+    (MonadIO m, MonadLogger m, MonadMask m) =>
     -- |Data directory
     FilePath ->
     -- |Export directory
     FilePath ->
     -- |Chunk size
     Word64 ->
-    IO Bool
+    m Bool
 exportDatabaseV3 dbDir outDir chunkSize = do
     let indexFile = outDir </> "blocks.idx"
-    indexFileExists <- doesFileExist indexFile
+    indexFileExists <- liftIO $ doesFileExist indexFile
     -- ensure that the user-provided database directory exists
-    dbDirExists <- doesDirectoryExist dbDir
-    unless dbDirExists (fail $ "Database directory '" <> dbDir <> "' does not exist")
+    dbDirExists <- liftIO $ doesDirectoryExist dbDir
+    unless dbDirExists (liftIO . fail $ "Database directory '" <> dbDir <> "' does not exist")
     -- the following invariant is true: all blocks for which
     --  - its genesis index < genIndex, or
     --  - its genesis index = genindex and its height < startHeight
@@ -321,14 +321,15 @@ exportDatabaseV3 dbDir outDir chunkSize = do
     (genIndex, startHeight, blockIndex, lastChunkFilenameM) <-
         if indexFileExists
             then do
-                indexContents <- readFile indexFile
+                indexContents <- liftIO $ readFile indexFile
                 blockIndex <- case AP.parseOnly parseBlockIndexFile (T.pack indexContents) of
                     Left err ->
-                        fail $
-                            "An error occurred while parsing '"
-                                <> indexFile
-                                <> "': "
-                                <> err
+                        liftIO $
+                            fail $
+                                "An error occurred while parsing '"
+                                    <> indexFile
+                                    <> "': "
+                                    <> err
                     -- normalize the block index; see `normalizeBlockIndex`
                     -- for an explanation of why this is done.
                     Right bi -> do
@@ -339,10 +340,11 @@ exportDatabaseV3 dbDir outDir chunkSize = do
                     Empty -> return (0, 1, Empty, Nothing)
                     blockIndexInit :|> (gd, chunks) -> case chunks of
                         Empty ->
-                            fail $
-                                "A section for genesis hash '"
-                                    <> show gd
-                                    <> "' in block index file has no entries."
+                            liftIO $
+                                fail $
+                                    "A section for genesis hash '"
+                                        <> show gd
+                                        <> "' in block index file has no entries."
                         initChunks :|> BlockIndexChunkInfo{..} -> do
                             -- the filename of the most recently exported chunk.
                             let lastChunkFile = outDir </> T.unpack filename
@@ -353,7 +355,7 @@ exportDatabaseV3 dbDir outDir chunkSize = do
                                   Just lastChunkFile
                                 )
             else do
-                createDirectoryIfMissing True outDir
+                liftIO $ createDirectoryIfMissing True outDir
                 -- we export blocks starting from height 1
                 -- because genesis blocks need not be exported.
                 return (0, 1, Empty, Nothing)
@@ -371,13 +373,13 @@ exportDatabaseV3 dbDir outDir chunkSize = do
     -- write the block index if anything was exported and
     -- normalize the block index; see `normalizeBlockIndex`
     -- for an explanation of why this is done.
-    unless (null blockIndexTail) $ writeFile indexFile $ showBlockIndexFile $ normalizeBlockIndex $ blockIndex <> blockIndexTail
+    unless (null blockIndexTail) $ liftIO $ writeFile indexFile $ showBlockIndexFile $ normalizeBlockIndex $ blockIndex <> blockIndexTail
 
     -- in case something was exported, delete the replaced last chunk.
     case lastChunkFilenameM of
         Just lastChunkFilename -> do
-            lastChunkFileExists <- doesFileExist lastChunkFilename
-            when (lastChunkFileExists && not (null blockIndexTail)) $ removeFile lastChunkFilename
+            lastChunkFileExists <- liftIO $ doesFileExist lastChunkFilename
+            when (lastChunkFileExists && not (null blockIndexTail)) $ liftIO $ removeFile lastChunkFilename
             return exportError
         Nothing -> return exportError
 
@@ -400,7 +402,8 @@ exportConsensusV1Blocks ::
     forall pv m.
     ( IsProtocolVersion pv,
       MonadIO m,
-      KonsensusV1.MonadTreeStateStore m
+      KonsensusV1.MonadTreeStateStore m,
+      MonadLogger m
     ) =>
     -- |Export path.
     FilePath ->
@@ -421,19 +424,19 @@ exportConsensusV1Blocks ::
 exportConsensusV1Blocks outDir chunkSize genIndex startHeight blockIndex lastWrittenChunkM = do
     KonsensusV1.lookupFirstBlock >>= \case
         Nothing -> do
-            liftIO . putStrLn $ "Could not read from database."
+            logEvent External LLError "Could not read from database."
             return (True, Empty)
         Just genesisBlock -> do
             let exportedGenHash = exportedGenHashOr genHash blockIndex
                 genHash = getHash genesisBlock
             if genHash /= exportedGenHash
                 then do
-                    liftIO . putStrLn $ "Genesis hash does not match the recently exported block index."
+                    logEvent External LLError "Genesis hash does not match the recently exported block index."
                     return (True, Empty)
                 else do
                     KonsensusV1.lookupLastBlock >>= \case
                         Nothing -> do
-                            liftIO . putStrLn $ "Cannot read last block of the database."
+                            logEvent External LLError "Cannot read last block of the database."
                             return (True, Empty)
                         Just sb -> do
                             let getBlockAt height =
@@ -455,6 +458,11 @@ exportConsensusV1Blocks outDir chunkSize genIndex startHeight blockIndex lastWri
                                     outDir
                                     chunkSize
                                     lastWrittenChunkM
+                                    -- A dummy @FinalizationIndex@ that is not used when
+                                    -- exporting a consensusv1 database.
+                                    -- However it is required when exporting a consensusv0 database,
+                                    -- so in order to reuse the code that exports blocks, then this
+                                    -- dummy value is passed in.
                                     0
                                     getBlockAt
                                     getFinalizationRecordAt
@@ -467,6 +475,7 @@ exportConsensusV1Blocks outDir chunkSize genIndex startHeight blockIndex lastWri
 -- file-system. If a section could not be exported or if any errors occurred this will be logged
 -- to `stdout` in this function.
 exportSections ::
+    (MonadIO m, MonadLogger m, MonadMask m) =>
     -- |Database directory
     FilePath ->
     -- |Export directory
@@ -481,97 +490,104 @@ exportSections ::
     BlockIndex ->
     -- |Filename of last chunk in previous export
     Maybe String ->
-    IO (Bool, BlockIndex)
+    m (Bool, BlockIndex)
 exportSections dbDir outDir chunkSize genIndex startHeight blockIndex lastWrittenChunkM = do
     let treeStateDir = dbDir </> "treestate-" ++ show genIndex
     -- Check if the database exists for this genesis index.
-    dbEx <- doesPathExist $ treeStateDir </> "data.mdb"
+    dbEx <- liftIO $ doesPathExist $ treeStateDir </> "data.mdb"
     if dbEx
-        then
-            openReadOnlyDatabase treeStateDir >>= \case
+        then -- Open the databases by a trial and error approach since
+        -- the meta data store for each of the databases have different types,
+        -- and ultimately we would end up initializing the database connections the same
+        -- amount of times.
+
+            (liftIO . openReadOnlyDatabase) treeStateDir >>= \case
                 Nothing -> do
-                    KonsensusV1.openReadOnlyDatabase treeStateDir >>= \case
+                    (liftIO . KonsensusV1.openReadOnlyDatabase) treeStateDir >>= \case
                         -- If the database is unrecognized we stop here.
                         Nothing -> do
-                            putStrLn $ "Tree state database could not be opened: " <> show treeStateDir
+                            logEvent External LLError $ "Tree state database could not be opened: " <> show treeStateDir
                             return (True, Empty)
                         Just (KonsensusV1.VersionDatabaseHandlers (dbh :: KonsensusV1.DatabaseHandlers pv)) ->
-                            runSilentLogger $
-                                runReaderT
-                                    ( KonsensusV1.runDiskLLDBM $ do
-                                        res <- exportConsensusV1Blocks @pv outDir chunkSize genIndex startHeight blockIndex lastWrittenChunkM
-                                        liftIO $ KonsensusV1.closeDatabase dbh
-                                        return res
-                                    )
-                                    dbh
+                            runReaderT
+                                ( KonsensusV1.runDiskLLDBM $ do
+                                    res <- exportConsensusV1Blocks @pv outDir chunkSize genIndex startHeight blockIndex lastWrittenChunkM
+                                    liftIO $ KonsensusV1.closeDatabase dbh
+                                    return res
+                                )
+                                dbh
                 Just (VersionDatabaseHandlers (dbh :: DatabaseHandlers pv ())) -> do
-                    (exportError, sectionData) <-
-                        liftIO $
-                            getLastBlock dbh >>= \case
-                                Left err -> do
-                                    putStrLn $ "Database section " ++ show genIndex ++ " cannot be exported: " ++ err
-                                    return (True, Empty)
-                                Right (_, sb) -> do
-                                    evalStateT
-                                        ( do
-                                            mgenFinRec <- resizeOnResized $ readFinalizationRecord 0
-                                            case mgenFinRec of
-                                                Nothing -> liftIO $ do
-                                                    putStrLn "No finalization record found in database for finalization index 0."
-                                                    return (True, Empty)
-                                                Just genFinRec -> do
-                                                    -- if something was previously exported for the current genesis
-                                                    -- index, check that the genesis block hash matches that of the
-                                                    -- database so we do not accidentally export one chain on top of
-                                                    -- another.
-                                                    let genHash = finalizationBlockPointer genFinRec
-                                                        exportedGenHash = exportedGenHashOr genHash blockIndex
-                                                    if genHash /= exportedGenHash
-                                                        then do
-                                                            liftIO . putStrLn $
-                                                                "Genesis blockhash '"
-                                                                    <> show exportedGenHash
-                                                                    <> "' of most recently exported genesis index "
-                                                                    <> "does not match genesis blockhash '"
-                                                                    <> show genHash
-                                                                    <> "' found in node database for genesis index '"
-                                                                    <> show genIndex
-                                                                    <> "'"
-                                                            return (True, Empty)
-                                                        else do
-                                                            let getBlockAt height =
-                                                                    resizeOnResized (readFinalizedBlockAtHeight height) >>= \case
-                                                                        Nothing -> return Nothing
-                                                                        Just b | NormalBlock normalBlock <- sbBlock b -> do
-                                                                            let serializedBlock = runPut $ putVersionedBlock (protocolVersion @pv) normalBlock
-                                                                                finalizationIndexM = case blockFields normalBlock of
-                                                                                    Nothing -> Nothing
-                                                                                    Just fields -> case blockFinalizationData fields of
-                                                                                        BlockFinalizationData fr -> Just $ finalizationIndex fr
-                                                                                        NoFinalizationData -> Nothing
-                                                                            return $ Just (serializedBlock, finalizationIndexM)
-                                                                        _ -> return Nothing -- don't export genesis blocks.
-                                                                getFinalizationRecordAt finIndex =
-                                                                    resizeOnResized (readFinalizationRecord finIndex) >>= \case
-                                                                        Nothing -> return Nothing
-                                                                        Just fr -> return $ Just $ runPut $ putVersionedFinalizationRecordV0 fr
-                                                            chunks <-
-                                                                writeChunks
-                                                                    genIndex
-                                                                    (demoteProtocolVersion (protocolVersion @pv))
-                                                                    genHash
-                                                                    startHeight
-                                                                    (_bpHeight . sbInfo $ sb)
-                                                                    outDir
-                                                                    chunkSize
-                                                                    lastWrittenChunkM
-                                                                    0
-                                                                    getBlockAt
-                                                                    getFinalizationRecordAt
-                                                            return (False, singleton (genHash, chunks))
-                                        )
-                                        (DBState dbh)
-                    closeDatabase dbh
+                    (exportError, sectionData) <- do
+                        (liftIO . getLastBlock) dbh >>= \case
+                            Left err -> do
+                                logEvent External LLError $ "Database section " ++ show genIndex ++ " cannot be exported: " ++ err
+                                return (True, Empty)
+                            Right (_, sb) -> do
+                                evalStateT
+                                    ( do
+                                        mgenFinRec <- resizeOnResized $ readFinalizationRecord 0
+                                        case mgenFinRec of
+                                            Nothing -> do
+                                                logEvent External LLError "No finalization record found in database for finalization index 0."
+                                                return (True, Empty)
+                                            Just genFinRec -> do
+                                                -- if something was previously exported for the current genesis
+                                                -- index, check that the genesis block hash matches that of the
+                                                -- database so we do not accidentally export one chain on top of
+                                                -- another.
+                                                let genHash = finalizationBlockPointer genFinRec
+                                                    exportedGenHash = exportedGenHashOr genHash blockIndex
+                                                if genHash /= exportedGenHash
+                                                    then do
+                                                        logEvent External LLError $
+                                                            "Genesis blockhash '"
+                                                                <> show exportedGenHash
+                                                                <> "' of most recently exported genesis index "
+                                                                <> "does not match genesis blockhash '"
+                                                                <> show genHash
+                                                                <> "' found in node database for genesis index '"
+                                                                <> show genIndex
+                                                                <> "'"
+                                                        return (True, Empty)
+                                                    else do
+                                                        let getBlockAt height =
+                                                                resizeOnResized (readFinalizedBlockAtHeight height) >>= \case
+                                                                    Nothing -> return Nothing
+                                                                    Just b | NormalBlock normalBlock <- sbBlock b -> do
+                                                                        let serializedBlock = runPut $ putVersionedBlock (protocolVersion @pv) normalBlock
+                                                                            finalizationIndexM = case blockFields normalBlock of
+                                                                                Nothing -> Nothing
+                                                                                Just fields -> case blockFinalizationData fields of
+                                                                                    BlockFinalizationData fr -> Just $ finalizationIndex fr
+                                                                                    NoFinalizationData -> Nothing
+                                                                        return $ Just (serializedBlock, finalizationIndexM)
+                                                                    _ -> return Nothing -- don't export genesis blocks.
+                                                            getFinalizationRecordAt finIndex =
+                                                                resizeOnResized (readFinalizationRecord finIndex) >>= \case
+                                                                    Nothing -> return Nothing
+                                                                    Just fr -> return $ Just $ runPut $ putVersionedFinalizationRecordV0 fr
+                                                        chunks <-
+                                                            writeChunks
+                                                                genIndex
+                                                                (demoteProtocolVersion (protocolVersion @pv))
+                                                                genHash
+                                                                startHeight
+                                                                (_bpHeight . sbInfo $ sb)
+                                                                outDir
+                                                                chunkSize
+                                                                lastWrittenChunkM
+                                                                -- An initial value for the @FinalizationIndex@. This will be updated
+                                                                -- as we export blocks with a finalization index assoicated.
+                                                                -- The finalization record itself is only exported if the block it
+                                                                -- points to is the last block of the section, hence 0 is a reasonable
+                                                                -- value for starting the export.
+                                                                0
+                                                                getBlockAt
+                                                                getFinalizationRecordAt
+                                                        return (False, singleton (genHash, chunks))
+                                    )
+                                    (DBState dbh)
+                    liftIO $ closeDatabase dbh
                     -- if an error occurred, return sections
                     -- that were succesfully written to the
                     -- file system; otherwise export the section
@@ -593,7 +609,7 @@ exportSections dbDir outDir chunkSize genIndex startHeight blockIndex lastWritte
         else do
             -- this is not an error condition, but rather
             -- the condition for terminating the export.
-            putStrLn $ "The tree state database does not exist at " ++ treeStateDir
+            logEvent External LLError $ "The tree state database does not exist at " ++ treeStateDir
             return (False, Empty)
 
 -- |Action for getting a block (and possibly a finalization index) at a particular height.
@@ -602,6 +618,7 @@ exportSections dbDir outDir chunkSize genIndex startHeight blockIndex lastWritte
 type GetBlockAt m = BlockHeight -> m (Maybe (BS.ByteString, Maybe FinalizationIndex))
 
 -- |Action for getting a finalization record at a particular index.
+-- Note that for ConsensusV1 this always returns @Nothing@.
 type GetFinalizationRecordAt m = FinalizationIndex -> m (Maybe BS.ByteString)
 
 -- |Write a database section as a collection of chunks in the specified directory. The last exported
@@ -612,7 +629,7 @@ type GetFinalizationRecordAt m = FinalizationIndex -> m (Maybe BS.ByteString)
 -- The @Maybe @ parameter contains the filename to be used for the first chunk to be written, if so
 -- provided, and if the file already exists, a version number is added and used instead.
 writeChunks ::
-    MonadIO m =>
+    (MonadIO m, MonadLogger m) =>
     -- |Genesis index
     GenesisIndex ->
     -- |Protocol version
@@ -691,16 +708,16 @@ writeChunks
                         }
             runPutH (liftPut $ putWord64be sectionHeaderLength >> put sectionHeader) chunkHdl
             hClose chunkHdl
-            putStrLn $
-                "Exported chunk "
-                    ++ takeFileName chunkName
-                    ++ " containing blocks with heights from "
-                    ++ show sectionFirstBlockHeight
-                    ++ " to "
-                    ++ (show . theBlockHeight) lastExportedBlockHeight
-                    ++ " and "
-                    ++ show sectionFinalizationCount
-                    ++ " finalization record(s)"
+        logEvent External LLInfo $
+            "Exported chunk "
+                ++ takeFileName chunkName
+                ++ " containing blocks with heights from "
+                ++ show sectionFirstBlockHeight
+                ++ " to "
+                ++ (show . theBlockHeight) lastExportedBlockHeight
+                ++ " and "
+                ++ show sectionFinalizationCount
+                ++ " finalization record(s)"
         let chunkInfo =
                 BlockIndexChunkInfo
                     (T.pack $ takeFileName chunkName)
@@ -729,7 +746,7 @@ writeChunks
 -- finalization record, the 'dbsLastFinIndex' field of the state is updated with its finalization
 -- index.
 exportBlocksToChunk ::
-    (MonadIO m) =>
+    MonadIO m =>
     -- |Handle to export to
     Handle ->
     -- |Height of next block to export

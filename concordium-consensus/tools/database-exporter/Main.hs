@@ -62,7 +62,7 @@ main = do
     case conf of
         Check file -> checkDatabase file
         Export db filepath n | n > 0 -> do
-            exportError <- exportDatabaseV3 db filepath n
+            exportError <- runLoggerT (exportDatabaseV3 db filepath n) logm
             when exportError $ exitWith $ ExitFailure 1
         Export{} -> do
             putStrLn "Chunk size should be larger than 0"
@@ -74,3 +74,4 @@ main = do
             ( fullDesc
                 <> progDesc "Export the database of a consensus node"
             )
+    logm _ lvl s = putStrLn $ show lvl ++ ": " ++ s
