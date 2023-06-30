@@ -12,6 +12,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
 import qualified Concordium.GlobalState.Wasm as GSWasm
+import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.WasmIntegration as WasmV0
 import qualified Concordium.Scheduler.WasmIntegration.V1 as WasmV1
 import Concordium.Wasm
@@ -21,7 +22,7 @@ testModule1 :: Assertion
 testModule1 = do
     ws <- BS.readFile "../concordium-base/smart-contracts/testdata/contracts/v1/extra-exports.wasm"
     let wm1 = WasmModuleV (ModuleSource ws)
-    case WasmV1.processModule True wm1 of
+    case WasmV1.processModule Types.SP5 wm1 of
         Nothing -> assertFailure "Invalid caller module."
         Just GSWasm.ModuleInterface{..} -> do
             assertEqual "Only valid init functions should be exposed" (Set.singleton (InitName "init_contract")) miExposedInit

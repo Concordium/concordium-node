@@ -57,6 +57,7 @@ import qualified Concordium.Crypto.SHA256 as SHA256
 import qualified Concordium.Genesis.Data as GenesisData
 import qualified Concordium.Genesis.Data.BaseV1 as BaseV1
 import qualified Concordium.Genesis.Data.P6 as P6
+import Concordium.Types
 
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockMonads
@@ -64,7 +65,6 @@ import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Types
 import Concordium.Kontrol
-import Concordium.Types.ProtocolVersion
 
 -- |The hash that identifies a update from P5 to P6 protocol.
 -- This is the hash of the published specification document.
@@ -89,10 +89,11 @@ updateRegenesis protocolUpdateData = do
     gd <- getGenesisData
     -- Epoch duration is moved over from old protocol.
     -- Signature threshold is 2/3.
-    let core =
+    let epochDuration = GenesisData.gdSlotDuration gd * fromIntegral (GenesisData.gdEpochLength gd)
+        core =
             BaseV1.CoreGenesisParametersV1
                 { BaseV1.genesisTime = regenesisTime,
-                  BaseV1.genesisEpochDuration = GenesisData.gdSlotDuration gd * fromIntegral (GenesisData.gdEpochLength gd),
+                  BaseV1.genesisEpochDuration = epochDuration,
                   BaseV1.genesisSignatureThreshold = 2 % 3
                 }
     -- genesisFirstGenesis is the block hash of the previous genesis, if it is initial,
@@ -105,7 +106,9 @@ updateRegenesis protocolUpdateData = do
     let genesisMigration =
             P6.StateMigrationData
                 { migrationProtocolUpdateData = protocolUpdateData,
-                  migrationTriggerBlockTime = regenesisTime
+                  -- terminal block timestamp + the epoch duration determines the trigger block for
+                  -- the first epoch of the new protocol.
+                  migrationTriggerBlockTime = addDuration regenesisTime epochDuration
                 }
     let newGenesis = GenesisData.RGDP6 $ P6.GDP6RegenesisFromP5{genesisRegenesis = BaseV1.RegenesisDataV1{genesisCore = core, ..}, ..}
     return (PVInit newGenesis (GenesisData.StateMigrationParametersP5ToP6 genesisMigration) (bpHeight lfb))

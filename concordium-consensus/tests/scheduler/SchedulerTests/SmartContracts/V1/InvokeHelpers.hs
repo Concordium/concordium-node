@@ -1,5 +1,7 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- | A helper module that defines some scaffolding for running V1 contract tests via invoke.
 module SchedulerTests.SmartContracts.V1.InvokeHelpers where
@@ -27,24 +29,20 @@ import SchedulerTests.TestUtils
 
 type PersistentModuleInterfaceV v = GSWasm.ModuleInterfaceA (PersistentInstrumentedModuleV v)
 
-callerSourceFile :: FilePath
-callerSourceFile = "../concordium-base/smart-contracts/testdata/contracts/v1/caller.wasm"
-
-emptyContractSourceFile :: FilePath
-emptyContractSourceFile = "../concordium-base/smart-contracts/testdata/contracts/empty.wasm"
-
 -- |Deploy a V1 module in the given state. The source file should be a raw Wasm file.
 -- If the module is invalid this will raise an exception.
 deployModuleV1 ::
+    Types.IsProtocolVersion pv =>
+    Types.SProtocolVersion pv ->
     -- |Source file.
     FilePath ->
     -- |State to add the module to.
-    BS.PersistentBlockState PV4 ->
-    Helpers.PersistentBSM PV4 ((PersistentModuleInterfaceV V1, WasmModuleV V1), BS.PersistentBlockState PV4)
-deployModuleV1 sourceFile bs = do
+    BS.PersistentBlockState pv ->
+    Helpers.PersistentBSM pv ((PersistentModuleInterfaceV V1, WasmModuleV V1), BS.PersistentBlockState pv)
+deployModuleV1 spv sourceFile bs = do
     ws <- liftIO $ BS.readFile sourceFile
     let wm = WasmModuleV (ModuleSource ws)
-    case WasmV1.processModule True wm of
+    case WasmV1.processModule spv wm of
         Nothing -> liftIO $ assertFailure "Invalid module."
         Just miv -> do
             (_, modState) <- BS.bsoPutNewModule bs (miv, wm)
@@ -74,6 +72,8 @@ deployModuleV0 sourceFile bs = do
 -- |Initialize a contract from the supplied module in the given state, and return its address.
 -- The state is assumed to contain the module.
 initContractV1 ::
+    forall pv.
+    Types.IsProtocolVersion pv =>
     -- |Sender address
     Types.AccountAddress ->
     -- |Contract to initialize.
@@ -82,9 +82,9 @@ initContractV1 ::
     Parameter ->
     -- |Initial balance.
     Types.Amount ->
-    BS.PersistentBlockState PV4 ->
+    BS.PersistentBlockState pv ->
     (PersistentModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1) ->
-    Helpers.PersistentBSM PV4 (Types.ContractAddress, BS.PersistentBlockState PV4)
+    Helpers.PersistentBSM pv (Types.ContractAddress, BS.PersistentBlockState pv)
 initContractV1 senderAddress initName initParam initAmount bs (miv, _) = do
     let cm = Types.ChainMetadata 0
     let initContext =
