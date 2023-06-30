@@ -1,4 +1,3 @@
-{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -403,7 +402,8 @@ exportConsensusV1Blocks ::
     ( IsProtocolVersion pv,
       MonadIO m,
       KonsensusV1.MonadTreeStateStore m,
-      MonadLogger m
+      MonadLogger m,
+      MPV m ~ pv
     ) =>
     -- |Export path.
     FilePath ->
