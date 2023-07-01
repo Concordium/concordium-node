@@ -1369,7 +1369,7 @@ makeBlock = do
         mInputs <- prepareBakeBlockInputs
         forM_ mInputs $ \inputs -> do
             block <- bakeBlock inputs
-            logEvent Baker LLTrace $
+            logEvent Baker LLDebug $
                 "Baking block at "
                     ++ show (timestampToUTCTime $ blockTimestamp block)
             doAfter (timestampToUTCTime $ blockTimestamp block) $ do

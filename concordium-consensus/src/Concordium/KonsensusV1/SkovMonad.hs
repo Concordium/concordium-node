@@ -92,7 +92,7 @@ type PersistentBlockStateMonadHelper pv m =
 --
 --   * AlreadyNotified: Handle that must be called just before notifying the user of an
 --     unsupported protocol update.
---     The handle make sure we do not keep informing the user of the unsupported protocol
+--     The handle makes sure we do not keep informing the user of the unsupported protocol
 --     by returning 'False' the first time it's called and 'True' for subsequent invocations.
 newtype SkovV1T pv m a = SkovV1T
     { runSkovT' :: InnerSkovV1T pv m a

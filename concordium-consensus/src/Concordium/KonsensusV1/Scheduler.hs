@@ -500,8 +500,13 @@ executeBlockState execData@BlockExecutionData{..} transactions = do
     if seedState ^. shutdownTriggered
         then
             if null transactions
-                then return $ Right (bedParentState, minBound)
-                else return $ Left Nothing
+                then return $ Right (bedParentState, 0)
+                else do
+                    logEvent
+                        Scheduler
+                        LLDebug
+                        "Received bad block with transactions after shutdown is triggered."
+                    return $ Left Nothing
         else do
             PrologueResult{..} <- executeBlockPrologue execData
             tRes <- executeBlockTransactions bedTimestamp transactions prologueBlockState
@@ -547,7 +552,7 @@ constructBlockState runtimeParams transactionTable pendingTable execData@BlockEx
                 Scheduler
                 LLInfo
                 "Constructed block after protocol update trigger block, deriving state from parent."
-            return (emptyFilteredTransactions, bedParentState, minBound)
+            return (emptyFilteredTransactions, bedParentState, 0)
         else do
             startTime <- currentTime
             PrologueResult{..} <- executeBlockPrologue execData

@@ -209,5 +209,9 @@ loadSkovData _runtimeParameters = do
                   _focusBlock = lastFinBlock
                 }
     let _statistics = Stats.initialConsensusStatistics
-        _isConsensusShutdown = finBlockSeedstate ^. shutdownTriggered
+    -- If the last finalized block has the shutdown trigger flag set in its
+    -- seedstate, the last finalized was the protocol update (and epoch) trigger block,
+    -- and so consensus should shut down. If not, a protocol update has not been triggered, so
+    -- consensus should not shut down.
+    let _isConsensusShutdown = finBlockSeedstate ^. shutdownTriggered
     return SkovData{..}
