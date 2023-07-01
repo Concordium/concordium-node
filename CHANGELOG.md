@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+- Fix a network layer bug where initial messages after the handshake could be
+  dropped in some circumstances.
 - Fix a bug which caused the first epoch of the new protocol to be shorter than expected.
 - Fix a bug that caused an incorrect reporting of total stake in the first
   payday just after genesis when the node started from genesis at protocols 4 or 5.
