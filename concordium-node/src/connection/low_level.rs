@@ -285,7 +285,7 @@ impl ConnectionLowLevel {
     fn process_msg_a(&mut self, len: usize) -> anyhow::Result<Vec<u8>> {
         recv_xx_msg!(self, len, "A");
         let pad = 16;
-        let payload_in = self.socket_buffer.slice(len)[DHLEN..][..len - DHLEN - pad].try_into()?;
+        let payload_in = self.socket_buffer.slice(len)[DHLEN..][..len - DHLEN - pad].to_vec();
         let payload_out = self.handler.upgrade().unwrap().produce_handshake_request()?; // safe
         send_xx_msg!(self, DHLEN * 2 + MAC_LENGTH, &payload_out, MAC_LENGTH, "B");
 
@@ -296,7 +296,7 @@ impl ConnectionLowLevel {
         recv_xx_msg!(self, len, "B");
         let payload_in = self.socket_buffer.slice(len)[DHLEN * 2 + MAC_LENGTH..]
             [..len - DHLEN * 2 - MAC_LENGTH * 2]
-            .try_into()?;
+            .to_vec();
         let payload_out = self.handler.upgrade().unwrap().produce_handshake_request()?; // safe
         send_xx_msg!(self, DHLEN + MAC_LENGTH, &payload_out, MAC_LENGTH, "C");
         self.socket.set_nodelay(false)?;
@@ -416,6 +416,12 @@ impl ConnectionLowLevel {
         self.incoming_msg.message.write_all(self.socket_buffer.slice(to_read))?;
         self.incoming_msg.pending_bytes -= to_read;
 
+        // When we are post-handshake, i.e., the noise session has been established
+        // we consume the data that was read from the buffer.
+        // Before the handshake completes the messages are handled a bit differently
+        // using `process_msg_*` methods, which read directly from the socket buffer
+        // so we cannot modify it here. Instead we consume the input after successfully
+        // reading the noise messages below.
         if self.is_post_handshake() {
             self.socket_buffer.shift(to_read);
         }
@@ -441,8 +447,7 @@ impl ConnectionLowLevel {
                     }
                 }
 
-                // If we reach this point we have read the entire noise message.
-                // So consume it from the socket buffer.
+                // We have processed an entire noise message, consume it from the socket buffer.
                 self.socket_buffer.shift(to_read);
                 Ok(ReadResult::Complete(payload))
             } else {
