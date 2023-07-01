@@ -343,12 +343,20 @@ class (StaticInformation m, ContractStateOperations m, MonadProtocolVersion m) =
     -- separately.
     withInstanceStateV0 :: UInstanceInfoV m GSWasm.V0 -> UpdatableContractState GSWasm.V0 -> m a -> m a
 
-    -- |Execute the code in a temporarily modified environment. This is needed in
-    -- nested calls to transactions which might end up failing at the end. Thus we
-    -- keep track of changes locally first, and only commit them at the end.
-    -- Instance keeps track of its own address hence we need not provide it
-    -- separately.
-    withInstanceStateV1 :: UInstanceInfoV m GSWasm.V1 -> UpdatableContractState GSWasm.V1 -> (ModificationIndex -> m a) -> m a
+    -- |Execute the code in a temporarily modified environment. This is needed
+    -- in nested calls to transactions which might end up failing at the end.
+    -- Thus we keep track of changes locally first, and only commit them at the
+    -- end. Instance keeps track of its own address hence we need not provide it
+    -- separately. The boolean flag indicates whether the state has been
+    -- modified in the sense that new entries were created, entries were
+    -- deleted, or entries were written to. If this did not occur, but
+    -- "administrative" state changes still occurred, such as a fresh generation
+    -- being created, then we still need to remember this state but the
+    -- modification index must not change. If the state has changed, then the
+    -- modification index is increased to keep track of changes so that when
+    -- resuming execution a contract is told whether its state has changed or
+    -- not.
+    withInstanceStateV1 :: UInstanceInfoV m GSWasm.V1 -> UpdatableContractState GSWasm.V1 -> Bool -> (ModificationIndex -> m a) -> m a
 
     -- |Transfer amount from the first address to the second and run the
     -- computation in the modified environment.
@@ -992,11 +1000,17 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
         cont
 
     {-# INLINE withInstanceStateV1 #-}
-    withInstanceStateV1 istance val cont = do
-        nextModificationIndex <- use nextContractModificationIndex
-        nextContractModificationIndex += 1
-        changeSet %= addContractStatesToCSV1 (Proxy @m) istance nextModificationIndex val
-        cont nextModificationIndex
+    withInstanceStateV1 istance val stateModified cont = do
+        if stateModified
+            then do
+                nextModificationIndex <- use nextContractModificationIndex
+                nextContractModificationIndex += 1
+                changeSet %= addContractStatesToCSV1 (Proxy @m) istance nextModificationIndex val
+                cont nextModificationIndex
+            else do
+                idx <- getCurrentModificationIndex istance
+                changeSet %= addContractStatesToCSV1 (Proxy @m) istance idx val
+                cont idx
 
     {-# INLINE withAccountToAccountAmount #-}
     withAccountToAccountAmount fromAcc toAcc amount cont = do

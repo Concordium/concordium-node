@@ -25,17 +25,15 @@ import qualified Concordium.Crypto.BlockSignature as BlockSig
 import qualified Concordium.Crypto.BlsSignature as Bls
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.VRF as VRF
+import Concordium.Genesis.Data (Regenesis, firstGenesisBlockHash, regenesisBlockHash, regenesisCoreParametersV1)
 import Concordium.Genesis.Data.BaseV1
 import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as LFMBT
 import Concordium.Types
 import Concordium.Types.HashableTo
+import Concordium.Types.Parameters (IsConsensusV1)
 import Concordium.Types.Transactions
 import Concordium.Utils.BinarySearch
 import Concordium.Utils.Serialization
-
--- |A round number for consensus.
-newtype Round = Round {theRound :: Word64}
-    deriving (Eq, Ord, Show, Serialize, Num, Integral, Real, Enum, Bounded)
 
 -- |A strict version of 'Maybe'.
 data Option a
@@ -53,7 +51,8 @@ getOptionOf :: Get a -> Get (Option a)
 getOptionOf ma = do
     getWord8 >>= \case
         0 -> return Absent
-        _ -> Present <$> ma
+        1 -> Present <$> ma
+        _ -> fail "invalid tag for Option"
 
 -- |'Serialize' instance for an @Option a@.
 instance (Serialize a) => Serialize (Option a) where
@@ -282,9 +281,18 @@ emptyFinalizerSet = FinalizerSet 0
 addFinalizer :: FinalizerSet -> FinalizerIndex -> FinalizerSet
 addFinalizer (FinalizerSet setOfFinalizers) (FinalizerIndex i) = FinalizerSet $ setBit setOfFinalizers (fromIntegral i)
 
+-- |Test whether a given finalizer index is present in a finalizer set.
+memberFinalizerSet :: FinalizerIndex -> FinalizerSet -> Bool
+memberFinalizerSet (FinalizerIndex fi) (FinalizerSet setOfFinalizers) =
+    testBit setOfFinalizers (fromIntegral fi)
+
 -- |Convert a list of [FinalizerIndex] to a 'FinalizerSet'.
 finalizerSet :: [FinalizerIndex] -> FinalizerSet
 finalizerSet = foldl' addFinalizer (FinalizerSet 0)
+
+-- |Test if the first finalizer set is a subset of the second.
+subsetFinalizerSet :: FinalizerSet -> FinalizerSet -> Bool
+subsetFinalizerSet (FinalizerSet s1) (FinalizerSet s2) = s1 .&. s2 == s1
 
 instance Show FinalizerSet where
     show = show . finalizerList
@@ -1241,6 +1249,20 @@ data GenesisMetadata = GenesisMetadata
       gmStateHash :: !StateHash
     }
     deriving (Eq, Show)
+
+-- |Extract the genesis configuration from the regenesis data.
+regenesisMetadata :: (IsProtocolVersion pv, IsConsensusV1 pv) => StateHash -> Regenesis pv -> GenesisMetadata
+regenesisMetadata sh regenData =
+    GenesisMetadata
+        { -- The 'CoreGenesisParametersV1' from the 'Regenesis'.
+          gmParameters = regenesisCoreParametersV1 regenData,
+          -- Hash of the genesis block.
+          gmCurrentGenesisHash = regenesisBlockHash regenData,
+          -- Hash of the first genesis block.
+          gmFirstGenesisHash = firstGenesisBlockHash regenData,
+          -- Hash of the genesis block state (after migration).
+          gmStateHash = sh
+        }
 
 instance Serialize GenesisMetadata where
     put GenesisMetadata{..} = do

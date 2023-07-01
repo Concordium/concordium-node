@@ -30,13 +30,16 @@ import qualified SchedulerTests.SmartContracts.V0.RelaxedRestrictions (tests)
 import qualified SchedulerTests.SmartContracts.V0.SmartContractTests (tests)
 
 import qualified SchedulerTests.SmartContracts.Invoke (tests)
+import qualified SchedulerTests.SmartContracts.V1.AccountSignatureChecks (tests)
 import qualified SchedulerTests.SmartContracts.V1.AllNewHostFunctions (tests)
 import qualified SchedulerTests.SmartContracts.V1.Checkpointing (tests)
 import qualified SchedulerTests.SmartContracts.V1.Counter (tests)
 import qualified SchedulerTests.SmartContracts.V1.CrossMessaging (tests)
+import qualified SchedulerTests.SmartContracts.V1.CustomSectionSize (tests)
 import qualified SchedulerTests.SmartContracts.V1.ErrorCodes (tests)
 import qualified SchedulerTests.SmartContracts.V1.Fallback (tests)
 import qualified SchedulerTests.SmartContracts.V1.Iterator (tests)
+import qualified SchedulerTests.SmartContracts.V1.P6WasmFeatures (tests)
 import qualified SchedulerTests.SmartContracts.V1.Queries (tests)
 import qualified SchedulerTests.SmartContracts.V1.QueriesPersistent (tests)
 import qualified SchedulerTests.SmartContracts.V1.Recorder (tests)
@@ -97,3 +100,6 @@ main = hspec $ do
     SchedulerTests.SmartContracts.V1.QueriesPersistent.tests
     SchedulerTests.Payday.tests
     SchedulerTests.Delegation.tests
+    SchedulerTests.SmartContracts.V1.P6WasmFeatures.tests
+    SchedulerTests.SmartContracts.V1.CustomSectionSize.tests
+    SchedulerTests.SmartContracts.V1.AccountSignatureChecks.tests

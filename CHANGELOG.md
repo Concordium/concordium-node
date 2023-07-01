@@ -2,11 +2,34 @@
 
 ## Unreleased changes
 
+- Fix a bug which caused the first epoch of the new protocol to be shorter than expected.
+- Fix a bug that caused an incorrect reporting of total stake in the first
+  payday just after genesis when the node started from genesis at protocols 4 or 5.
+- Revise the behaviour of rollbacks in P6.
+- Changes in Wasm validation and execution in P6
+  - Disallow globals in initialization sections for V1 contracts in P6.
+  - Support sign extension instructions in Wasm in P6.
+  - Do not count custom sections towards module size when executing contracts.
+  - Support new `invoke` operations for retrieving account keys and checking signatures.
+
+## 6.0.0
+
+- Support the new ConcordiumBFT consensus (protocol version 6).
 - Fix a bug that causes bakers in genesis to restake their earnings when they should not. This
   affects genesis data at protocol version P5; P1-P4 genesis data are not affected. This breaks
   compatibility with chains started with P5 genesis data, where some genesis bakers are not set to
   restake earnings. Other chains (including mainnet and testnet) are not affected.
-- Support the new ConcordiumBFT consensus.
+- Changes to the `GetConsensusStatus` endpoint:
+  * Slot duration only returned in protocol versions 0-5.
+  * Endpoint extended to return current timeout duration, current round, current epoch and trigger
+    block time in protocol version 6.
+- Changes to the `GetBlockInfo` endpoint:
+  * Block slot only returned in protocol versions 0-5.
+  * In protocol version 6, the returned finalized block is the last finalized block until itself
+    is finalized. Then it is itself.
+  * Endpoint extended to return block round and epoch in protocol version 6.
+- Changes to the `ElectionInfo` endpoint:
+  * Election difficulty only returned in protocol versions 0-5.
 
 ## 5.4.2
 

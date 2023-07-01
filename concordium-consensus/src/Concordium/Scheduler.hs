@@ -60,6 +60,7 @@ import Data.Time
 
 import qualified Concordium.ID.Account as AH
 import qualified Concordium.ID.Types as ID
+import qualified Concordium.Utils.Serialization as S
 
 import qualified Concordium.Cost as Cost
 import Concordium.Crypto.EncryptedTransfers
@@ -86,7 +87,9 @@ import Data.Ord
 import qualified Data.Set as Set
 
 import qualified Concordium.Crypto.BlsSignature as Bls
+import qualified Concordium.Crypto.Ed25519Signature as Ed25519
 import qualified Concordium.Crypto.Proofs as Proofs
+import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.TransactionVerification as TVer
 
 import Lens.Micro.Platform
@@ -674,7 +677,7 @@ handleDeployModule wtc mod =
                         return (Left (iface, moduleV0), mhash)
             Wasm.WasmModuleV1 moduleV1 | currentProtocolVersion >= P4 -> do
                 tickEnergy (Cost.deployModuleCost (Wasm.moduleSourceLength (Wasm.wmvSource moduleV1)))
-                case WasmV1.processModule (supportsUpgradableContracts $ protocolVersion @(MPV m)) moduleV1 of
+                case WasmV1.processModule (protocolVersion @(MPV m)) moduleV1 of
                     Nothing -> rejectTransaction ModuleNotWF
                     Just iface -> do
                         let mhash = GSWasm.moduleReference iface
@@ -1149,13 +1152,16 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                                   euEvents = rrdLogs
                                                 }
                                     in  Right (rrdReturnValue, event : events)
-                            -- execution terminated, commit the new state if it changed
+                            -- execution terminated, now add the state to the changeset.
+                            -- In contrast to maybeCommitState below, we don't have to (but could)
+                            -- add the state also when it is not modified. However this is not needed
+                            -- since if the state has not been modified it will not be looked up from the
+                            -- changeset on resume. It might be looked up on another call later, but that
+                            -- will start a fresh instance of the state, without the need for rollback
+                            -- past this point.
                             if rrdStateChanged
-                                then do
-                                    -- charge for storing the new state of the contract
-                                    withInstanceStateV1 istance rrdNewState $ \_modifiedIndex -> return result
-                                else do
-                                    return result
+                                then withInstanceStateV1 istance rrdNewState rrdStateChanged $ \_modifiedIndex -> return result
+                                else return result
                         WasmV1.ReceiveInterrupt{..} -> do
                             -- execution invoked an operation. Dispatch and continue.
                             let interruptEvent =
@@ -1171,8 +1177,12 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                             -- Helper for commiting the state of the contract if necessary.
                             let maybeCommitState :: (ModificationIndex -> LocalT r m a) -> LocalT r m a
                                 maybeCommitState f =
-                                    if rrdStateChanged
-                                        then withInstanceStateV1 istance rrdCurrentState f
+                                    -- execution terminated, now add the state to the changeset.
+                                    -- In protocols 4 and 5 we did not add the updated state to the changeset
+                                    -- This was incorrect since some administrative state changes might still be there,
+                                    -- such as adding a new generation. In P6 we fix this hence the odd-looking conditional.
+                                    if WasmV1.rcFixRollbacks rcConfig || rrdStateChanged
+                                        then withInstanceStateV1 istance rrdCurrentState rrdStateChanged f
                                         else do
                                             mi <- getCurrentModificationIndex istance
                                             f mi
@@ -1221,7 +1231,11 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                                         -- we can keep the old one.
                                                         (lastModifiedIndex, newState) <- getCurrentContractInstanceState istance
                                                         let stateChanged = lastModifiedIndex /= modificationIndex
-                                                        resumeState <- getRuntimeReprV1 newState
+                                                        -- In protocol versions 5 and lower the handling of resume here was incorrect and we always looked up the state.
+                                                        -- This is not correct since then the calling contract continues in an incorrect state generation, meaning
+                                                        -- that all the iterators are invalidated.
+                                                        -- So if the state has not changed we just resume in the state that we stopped in.
+                                                        resumeState <- if not (WasmV1.rcFixRollbacks rcConfig) || stateChanged then getRuntimeReprV1 newState else return rrdCurrentState
                                                         newBalance <- getCurrentContractAmount Wasm.SV1 istance
                                                         go (resumeEvent True : evs ++ interruptEvent : events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig resumeState stateChanged newBalance WasmV1.Success Nothing)
                                             Just (InstanceInfoV1 targetInstance) -> do
@@ -1235,7 +1249,11 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                                     Right (rVal, callEvents) -> do
                                                         (lastModifiedIndex, newState) <- getCurrentContractInstanceState istance
                                                         let stateChanged = lastModifiedIndex /= modificationIndex
-                                                        resumeState <- getRuntimeReprV1 newState
+                                                        -- In protocol versions 5 and lower the handling of resume here was incorrect and we always looked up the state.
+                                                        -- This is not correct since then the calling contract continues in an incorrect state generation, meaning
+                                                        -- that all the iterators are invalidated.
+                                                        -- So if the state has not changed we just resume in the state that we stopped in.
+                                                        resumeState <- if not (WasmV1.rcFixRollbacks rcConfig) || stateChanged then getRuntimeReprV1 newState else return rrdCurrentState
                                                         newBalance <- getCurrentContractAmount Wasm.SV1 istance
                                                         go (resumeEvent True : callEvents ++ interruptEvent : events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig resumeState stateChanged newBalance WasmV1.Success (Just rVal))
                                     WasmV1.Upgrade{..} -> do
@@ -1382,25 +1400,152 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                                         WasmV1.Success
                                                         (Just returnValue)
                                                 )
+                                    WasmV1.QueryAccountKeys{..} -> do
+                                        -- Charge base cost for attempting to look up an account.
+                                        tickEnergy Cost.contractInstanceQueryAccountKeysBaseCost
+                                        -- Lookup account.
+                                        maybeAccount <- getStateAccount imqakAddress
+                                        case maybeAccount of
+                                            Nothing ->
+                                                -- The Wasm execution does not reset contract events for queries, hence we do not have to
+                                                -- add them here via an interrupt. They will be retained until the next interrupt.
+                                                go events
+                                                    =<< runInterpreter
+                                                        ( return
+                                                            . WasmV1.resumeReceiveFun
+                                                                rrdInterruptedConfig
+                                                                rrdCurrentState
+                                                                False
+                                                                entryBalance
+                                                                (WasmV1.Error $ WasmV1.EnvFailure $ WasmV1.MissingAccount imqakAddress)
+                                                                Nothing
+                                                        )
+                                            Just (_accountIndex, account) -> do
+                                                -- Lookup account keys
+                                                keys <- getAccountVerificationKeys account
+                                                -- Charge for the amount of data produced in the return value.
+                                                tickEnergy (Cost.contractInstanceQueryAccountKeysReturnCost (ID.getAccountInformationNumKeys keys))
+                                                -- Construct the return value.
+                                                let returnValue = WasmV1.byteStringToReturnValue $ S.encode keys
+                                                -- The Wasm execution does not reset contract events for queries, hence we do not have to
+                                                -- add them here via an interrupt. They will be retained until the next interrupt.
+                                                go events
+                                                    =<< runInterpreter
+                                                        ( return
+                                                            . WasmV1.resumeReceiveFun
+                                                                rrdInterruptedConfig
+                                                                rrdCurrentState
+                                                                False
+                                                                entryBalance
+                                                                WasmV1.Success
+                                                                (Just returnValue)
+                                                        )
+                                    WasmV1.CheckAccountSignature{..} -> do
+                                        let getSignatures = do
+                                                outerLen <- S.getWord8
+                                                S.getSafeSizedMapOf outerLen S.get $ do
+                                                    innerLen <- S.getWord8
+                                                    S.getSafeSizedMapOf innerLen S.get $ do
+                                                        schemeId <- S.get
+                                                        case schemeId of
+                                                            SigScheme.Ed25519 -> SigScheme.Signature <$> S.getShortByteString Ed25519.signatureSize
+                                            getData = do
+                                                dataLen <- S.getWord32le
+                                                dataPayload <- S.getByteString (fromIntegral dataLen)
+                                                sigs <- getSignatures
+                                                return (dataPayload, sigs)
+                                            r = S.runGet getData imcasPayload
+                                        tickEnergy Cost.contractInstanceQueryAccountKeysBaseCost
+                                        -- Lookup account.
+                                        maybeAccount <- getStateAccount imcasAddress
+                                        -- TODO: Maybe we need to charge more in failed cases as well.
+                                        case maybeAccount of
+                                            Nothing ->
+                                                -- The Wasm execution does not reset contract events for queries, hence we do not have to
+                                                -- add them here via an interrupt. They will be retained until the next interrupt.
+                                                go events
+                                                    =<< runInterpreter
+                                                        ( return
+                                                            . WasmV1.resumeReceiveFun
+                                                                rrdInterruptedConfig
+                                                                rrdCurrentState
+                                                                False
+                                                                entryBalance
+                                                                (WasmV1.Error $ WasmV1.EnvFailure $ WasmV1.MissingAccount imcasAddress)
+                                                                Nothing
+                                                        )
+                                            Just (_accountIndex, account) -> do
+                                                case r of
+                                                    Left _ ->
+                                                        -- The Wasm execution does not reset contract events for queries, hence we do not have to
+                                                        -- add them here via an interrupt. They will be retained until the next interrupt.
+                                                        go events
+                                                            =<< runInterpreter
+                                                                ( return
+                                                                    . WasmV1.resumeReceiveFun
+                                                                        rrdInterruptedConfig
+                                                                        rrdCurrentState
+                                                                        False
+                                                                        entryBalance
+                                                                        WasmV1.SignatureDataMalformed
+                                                                        Nothing
+                                                                )
+                                                    Right (dataPayload, sigs) -> do
+                                                        -- Number of signatures to check.
+                                                        let numSigs = foldl' (\l m -> l + length m) 0 sigs
+                                                        -- Lookup account keys
+                                                        keys <- getAccountVerificationKeys account
+                                                        tickEnergy (Cost.contractInstanceCheckAccountSignatureCost (fromIntegral (BS.length dataPayload)) numSigs)
+                                                        if verifyAccountSignature dataPayload sigs keys
+                                                            then -- The Wasm execution does not reset contract events for queries, hence we do not have to
+                                                            -- add them here via an interrupt. They will be retained until the next interrupt.
 
+                                                                go events
+                                                                    =<< runInterpreter
+                                                                        ( return
+                                                                            . WasmV1.resumeReceiveFun
+                                                                                rrdInterruptedConfig
+                                                                                rrdCurrentState
+                                                                                False
+                                                                                entryBalance
+                                                                                WasmV1.Success
+                                                                                Nothing
+                                                                        )
+                                                            else
+                                                                go events
+                                                                    =<< runInterpreter
+                                                                        ( return
+                                                                            . WasmV1.resumeReceiveFun
+                                                                                rrdInterruptedConfig
+                                                                                rrdCurrentState
+                                                                                False
+                                                                                entryBalance
+                                                                                WasmV1.SignatureCheckFailed
+                                                                                Nothing
+                                                                        )
             -- start contract execution.
             -- transfer the amount from the sender to the contract at the start. This is so that the contract may immediately use it
             -- for, e.g., forwarding.
             withToContractAmountV1 sender istance transferAmount $ do
                 foreignModel <- getRuntimeReprV1 model
                 artifact <- liftLocal $ getModuleArtifact (GSWasm.miModule moduleInterface)
-                let supportsChainQueries = supportsChainQueryContracts $ protocolVersion @(MPV m)
-                let maxParameterLen = Wasm.maxParameterLen $ protocolVersion @(MPV m)
-                -- Check whether the number of logs and the size of return values are limited in the current protocol version.
-                let limitLogsAndRvs = Wasm.limitLogsAndReturnValues $ protocolVersion @(MPV m)
-                go [] =<< runInterpreter (return . WasmV1.applyReceiveFun artifact cm receiveCtx receiveName useFallback parameter maxParameterLen limitLogsAndRvs transferAmount foreignModel supportsChainQueries)
+                go [] =<< runInterpreter (return . WasmV1.applyReceiveFun artifact cm receiveCtx receiveName useFallback parameter transferAmount foreignModel rcConfig)
   where
+    rcConfig =
+        WasmV1.RuntimeConfig
+            { rcSupportChainQueries = supportsChainQueryContracts $ protocolVersion @(MPV m),
+              rcMaxParameterLen = Wasm.maxParameterLen $ protocolVersion @(MPV m),
+              -- Check whether the number of logs and the size of return values are limited in the current protocol version.
+              rcLimitLogsAndRvs = Wasm.limitLogsAndReturnValues $ protocolVersion @(MPV m),
+              rcFixRollbacks = demoteProtocolVersion (protocolVersion @(MPV m)) >= P6,
+              rcSupportAccountSignatureChecks = supportsAccountSignatureChecks $ protocolVersion @(MPV m)
+            }
     transferAccountSync ::
-        AccountAddress -> -- \^The target account address.
-        UInstanceInfoV m GSWasm.V1 -> -- \^The sender of this transfer.
-        Amount -> -- \^The amount to transfer.
+        AccountAddress -> -- The target account address.
+        UInstanceInfoV m GSWasm.V1 -> -- The sender of this transfer.
+        Amount -> -- The amount to transfer.
         ExceptT WasmV1.EnvFailure (LocalT r m) [Event]
-    -- \^The events resulting from the transfer.
+    -- The events resulting from the transfer.
     transferAccountSync accAddr senderInstance tAmount = do
         -- charge at the beginning, successful and failed transfers will have the same cost.
         -- Check whether the sender has the amount to be transferred and reject the transaction if not.
