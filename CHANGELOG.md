@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+- Fix a network layer bug where initial messages after the handshake could be
+  dropped in some circumstances.
 - Fix a bug which caused the first epoch of the new protocol to be shorter than expected.
 - Fix a bug that caused an incorrect reporting of total stake in the first
   payday just after genesis when the node started from genesis at protocols 4 or 5.
@@ -10,6 +12,7 @@
   - Disallow globals in initialization sections for V1 contracts in P6.
   - Support sign extension instructions in Wasm in P6.
   - Do not count custom sections towards module size when executing contracts.
+  - Support new `invoke` operations for retrieving account keys and checking signatures.
 
 ## 6.0.0
 
