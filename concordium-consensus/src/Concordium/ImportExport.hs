@@ -3,7 +3,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
-{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
 -- |Functionality for importing and exporting the block database.
 --
@@ -420,7 +419,7 @@ exportConsensusV1Blocks ::
     -- |The block index of the previous export.
     BlockIndex ->
     -- |Last written chunk in previous export
-    Maybe String ->
+    Maybe FilePath ->
     -- |Returns a @Bool@ which indicates whether anything went wrong,
     -- i.e. it is 'True' if an error occured and otherwise 'False,
     -- and the resulting 'BlockIndex'.
@@ -443,7 +442,7 @@ exportConsensusV1Blocks outDir chunkSize genIndex startHeight blockIndex lastWri
                             logEvent External LLError "Cannot read last block of the database."
                             return (True, Empty)
                         Just sb -> do
-                            let getBlockAt' :: Monad m => BlockHeight -> m (Maybe BS.ByteString)
+                            let getBlockAt' :: BlockHeight -> m (Maybe BS.ByteString)
                                 getBlockAt' height =
                                     KonsensusV1.lookupBlockByHeight height >>= \case
                                         Nothing -> return Nothing
@@ -504,6 +503,9 @@ exportSections dbDir outDir chunkSize genIndex startHeight blockIndex lastWritte
         -- the meta data store for each of the databases have different types,
         -- and ultimately we would end up initializing the database connections the same
         -- amount of times.
+        -- This works since both databases has a "metadata" store where each
+        -- of them stores their version of the database. The version is checked
+        -- when opening the database.
 
             (liftIO . openReadOnlyDatabase) treeStateDir >>= \case
                 Nothing -> do
@@ -771,7 +773,7 @@ writeChunks
 -- index.
 exportBlocksToChunk ::
     forall cpv m.
-    (MonadIO m, IsConsensusParametersVersion cpv) =>
+    (MonadIO m) =>
     -- |Handle to export to
     Handle ->
     -- |Height of next block to export
@@ -786,7 +788,7 @@ exportBlocksToChunk ::
     m (Word64, FinalizationIndex)
 exportBlocksToChunk hdl firstHeight chunkSize lastFinalizationRecordIndex getBlockAt = ebtc firstHeight 0 lastFinalizationRecordIndex
   where
-    ebtc :: Monad m => BlockHeight -> Word64 -> FinalizationIndex -> m (Word64, FinalizationIndex)
+    ebtc :: BlockHeight -> Word64 -> FinalizationIndex -> m (Word64, FinalizationIndex)
     ebtc height count lastFinRecIdx = case getBlockAt of
         GetBlockAtV0 f ->
             f height >>= \case
@@ -804,7 +806,7 @@ exportBlocksToChunk hdl firstHeight chunkSize lastFinalizationRecordIndex getBlo
                     -- We simply set the last @FinalizationRecord@ index to 0,
                     -- as they are not a concept for 'ConsensusV1'.
                     continue count height 0
-    writeBlockOut :: MonadIO m => BS.ByteString -> m ()
+    writeBlockOut :: BS.ByteString -> m ()
     writeBlockOut serializedBlock = do
         let len = fromIntegral $ BS.length serializedBlock
         liftIO $ do
@@ -818,7 +820,7 @@ exportBlocksToChunk hdl firstHeight chunkSize lastFinalizationRecordIndex getBlo
 -- |Export all finalization records with indices above `dbsLastFinIndex` to a chunk
 -- Note. For 'ConsensusV1' this function will not write anything to the file.
 exportFinRecsToChunk ::
-    (MonadIO m, IsConsensusParametersVersion cpv) =>
+    MonadIO m =>
     -- |Handle to export to
     Handle ->
     -- |Last finalization record index
@@ -827,24 +829,22 @@ exportFinRecsToChunk ::
     GetFinalizationRecordAt cpv m ->
     -- |Number of exported finalization records
     m Word64
-exportFinRecsToChunk hdl finRecIdx getFinalizationRecordAt = exportFinRecsFrom (0 :: Word64) (1 + finRecIdx)
+exportFinRecsToChunk hdl finRecIdx (GetFinalizationRecordAtV0 f) = exportFinRecsFrom (0 :: Word64) (1 + finRecIdx)
   where
     exportFinRecsFrom count finRecIndex =
-        case getFinalizationRecordAt of
-            -- Write out the @FinalizationRecord@s above the last @FinalizationIndex@.
-            -- We terminate the loop when there is the 'GetFinalizationRecordAtV0' returns
-            -- 'Nothing'.
-            GetFinalizationRecordAtV0 f -> do
-                f finRecIndex >>= \case
-                    Just serializedFr -> do
-                        let len = fromIntegral $ BS.length serializedFr
-                        liftIO $ do
-                            BS.hPut hdl $ runPut $ putWord64be len
-                            BS.hPut hdl serializedFr
-                        exportFinRecsFrom (count + 1) (finRecIndex + 1)
-                    Nothing -> return count
-            -- @FinalizationRecord@s are not a thing in 'ConsensusV1'.
-            GetFinalizationRecordAtV1 -> return 0
+        -- Write out the @FinalizationRecord@s above the last @FinalizationIndex@.
+        -- We terminate the loop and return how many was written,
+        -- when a 'FinalizationRecord' cannot be looked up for the @FinalizationIndex@.
+        f finRecIndex >>= \case
+            Just serializedFr -> do
+                let len = fromIntegral $ BS.length serializedFr
+                liftIO $ do
+                    BS.hPut hdl $ runPut $ putWord64be len
+                    BS.hPut hdl serializedFr
+                exportFinRecsFrom (count + 1) (finRecIndex + 1)
+            Nothing -> return count
+-- @FinalizationRecord@s are not a thing in 'ConsensusV1'.
+exportFinRecsToChunk _ _ GetFinalizationRecordAtV1 = return 0
 
 -- |Imported data for processing.
 data ImportData
