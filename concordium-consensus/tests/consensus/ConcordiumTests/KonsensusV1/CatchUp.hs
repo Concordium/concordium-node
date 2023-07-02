@@ -123,12 +123,12 @@ testQuorumMessage finIndex rnd e ptr =
 
 -- |Create a finalization entry where the @QuorumCertificate@ denotes the block being finalized,
 -- and the @BakedBlock@ is the successor block (which has a QC for the finalized block) and thus finalizing it.
-testFinalizationEntry :: QuorumCertificate -> BakedBlock -> FinalizationEntry
-testFinalizationEntry finQC sucBlock =
+testFinalizationEntry :: BakedBlock -> BakedBlock -> FinalizationEntry
+testFinalizationEntry finalizedBlock sucBlock =
     FinalizationEntry
-        { feFinalizedQuorumCertificate = finQC,
+        { feFinalizedQuorumCertificate = bbQuorumCertificate finalizedBlock,
           feSuccessorQuorumCertificate = bbQuorumCertificate sucBlock,
-          feSuccessorProof = BlockQuasiHash $ (blockHash . getHash) sucBlock
+          feSuccessorProof = getHash finalizedBlock
         }
 
 -- |Timeout the provided round with a pointer to the proved block.
@@ -160,29 +160,29 @@ basicCatchupResponse = runTest $ do
         qmR4Sig = signQuorumSignatureMessage qsmR4 (bakerAggregationKey . fst $ TestBlocks.bakers !! 1)
         qmR4 = buildQuorumMessage qsmR4 qmR4Sig (FinalizerIndex 1)
         tmR4 = head $ timeoutMessagesFor b3QC (Round 3) 0
-        finEntry = testFinalizationEntry (bbQuorumCertificate TestBlocks.testBB1) TestBlocks.testBB2
+        finEntry = testFinalizationEntry TestBlocks.testBB2 TestBlocks.testBB3
         request =
             CatchUpStatus
-                { cusLastFinalizedBlock = getHash TestBlocks.testBB1,
-                  cusLastFinalizedRound = Round 1,
-                  cusLeaves = [getHash TestBlocks.testBB2],
+                { cusLastFinalizedBlock = genesisHash,
+                  cusLastFinalizedRound = Round 0,
+                  cusLeaves = [],
                   cusBranches = [],
-                  cusCurrentRound = Round 3,
+                  cusCurrentRound = Round 0,
                   cusCurrentRoundQuorum = Map.empty,
                   cusCurrentRoundTimeouts = Absent
                 }
         expectedTerminalData =
             CatchUpTerminalData
-                { cutdHighestQuorumCertificate = Present b3QC,
+                { cutdHighestQuorumCertificate = Present $ bbQuorumCertificate TestBlocks.testBB3,
                   cutdLatestFinalizationEntry = Present finEntry,
                   cutdTimeoutCertificate = Absent,
                   cutdCurrentRoundQuorumMessages = [qmR4],
                   cutdCurrentRoundTimeoutMessages = [tmR4]
                 }
-        expectedBlocksServed = pbBlock <$> [TestBlocks.signedPB TestBlocks.testBB3]
+        expectedBlocksServed = pbBlock . TestBlocks.signedPB <$> [TestBlocks.testBB1, TestBlocks.testBB2, TestBlocks.testBB3]
         finToQMsgMap = Map.insert (FinalizerIndex 1) qmR4 Map.empty
         finToTMMap = Map.insert (FinalizerIndex 0) tmR4 Map.empty
-    -- Setting the current quorum, timeout message and latest finalization entry.
+    -- Setting the current quorum, timeout message.
     currentQuorumMessages .= QuorumMessages finToQMsgMap Map.empty
     currentTimeoutMessages .= Present (TimeoutMessages 1 finToTMMap Map.empty)
     assertCatchupResponse expectedTerminalData expectedBlocksServed =<< handleCatchUpRequest request =<< get
@@ -199,21 +199,20 @@ catchupWithEpochTransitionResponse = runTest $ do
         qmR4Sig = signQuorumSignatureMessage qsmR4 (bakerAggregationKey . fst $ TestBlocks.bakers !! 1)
         qmR4 = buildQuorumMessage qsmR4 qmR4Sig (FinalizerIndex 1)
         tmR4 = head $ timeoutMessagesFor b3QC (Round 4) 0
-        finEntry = testFinalizationEntry (bbQuorumCertificate TestBlocks.testBB1E) TestBlocks.testBB2E
         request =
             CatchUpStatus
                 { cusLastFinalizedBlock = getHash TestBlocks.testBB1E,
                   cusLastFinalizedRound = Round 1,
                   cusLeaves = [],
                   cusBranches = [],
-                  cusCurrentRound = Round 3,
+                  cusCurrentRound = Round 1,
                   cusCurrentRoundQuorum = Map.empty,
                   cusCurrentRoundTimeouts = Absent
                 }
         expectedTerminalData =
             CatchUpTerminalData
                 { cutdHighestQuorumCertificate = Present b3QC,
-                  cutdLatestFinalizationEntry = Present finEntry,
+                  cutdLatestFinalizationEntry = Absent,
                   cutdTimeoutCertificate = Absent,
                   cutdCurrentRoundQuorumMessages = [qmR4],
                   cutdCurrentRoundTimeoutMessages = [tmR4]
@@ -239,14 +238,14 @@ catchupWithTimeoutsResponse = runTest $ do
         qmR5Sig = signQuorumSignatureMessage qsmR5 (bakerAggregationKey . fst $ TestBlocks.bakers !! 1)
         qmR5 = buildQuorumMessage qsmR5 qmR5Sig (FinalizerIndex 1)
         tmR5 = head $ timeoutMessagesFor b3QC (Round 4) 0
-        finEntry = testFinalizationEntry (bbQuorumCertificate TestBlocks.testBB2E) TestBlocks.testBB3E
+        finEntry = testFinalizationEntry TestBlocks.testBB2E TestBlocks.testBB3E
         request =
             CatchUpStatus
-                { cusLastFinalizedBlock = getHash TestBlocks.testBB1E,
-                  cusLastFinalizedRound = Round 1,
+                { cusLastFinalizedBlock = genesisHash,
+                  cusLastFinalizedRound = Round 0,
                   cusLeaves = [],
                   cusBranches = [],
-                  cusCurrentRound = Round 3,
+                  cusCurrentRound = Round 0,
                   cusCurrentRoundQuorum = Map.empty,
                   cusCurrentRoundTimeouts = Absent
                 }
@@ -258,7 +257,7 @@ catchupWithTimeoutsResponse = runTest $ do
                   cutdCurrentRoundQuorumMessages = [qmR5],
                   cutdCurrentRoundTimeoutMessages = [tmR5]
                 }
-        expectedBlocksServed = pbBlock . TestBlocks.signedPB <$> [TestBlocks.testBB2E, TestBlocks.testBB3E, TestBlocks.testBB5E']
+        expectedBlocksServed = pbBlock . TestBlocks.signedPB <$> [TestBlocks.testBB1E, TestBlocks.testBB2E, TestBlocks.testBB3E, TestBlocks.testBB5E']
         finToQMsgMap = Map.insert (FinalizerIndex 1) qmR5 Map.empty
         finToTMMap = Map.insert (FinalizerIndex 0) tmR5 Map.empty
     -- Setting the current quorum, timeout message and finalization entry.
@@ -278,16 +277,16 @@ catchupWithOneTimeoutAtEndResponse = runTest $ do
     -- b1 and b2 is in consecutive rounds so b1 is finalized.
     let request =
             CatchUpStatus
-                { cusLastFinalizedBlock = getHash TestBlocks.testBB1,
-                  cusLastFinalizedRound = Round 1,
+                { cusLastFinalizedBlock = genesisHash,
+                  cusLastFinalizedRound = Round 0,
                   cusLeaves = [],
                   cusBranches = [],
-                  cusCurrentRound = Round 3,
+                  cusCurrentRound = Round 1,
                   cusCurrentRoundQuorum = Map.empty,
                   cusCurrentRoundTimeouts = Absent
                 }
-        finEntry = testFinalizationEntry (bbQuorumCertificate TestBlocks.testBB1) TestBlocks.testBB2
-        expectedBlocksServed = pbBlock . TestBlocks.signedPB <$> [TestBlocks.testBB2, TestBlocks.testBB3]
+        finEntry = testFinalizationEntry TestBlocks.testBB2 TestBlocks.testBB3
+        expectedBlocksServed = pbBlock . TestBlocks.signedPB <$> [TestBlocks.testBB1, TestBlocks.testBB2, TestBlocks.testBB3]
     expectedTerminalData <- do
         sd <- get
         case sd ^. roundStatus . rsPreviousRoundTimeout of
