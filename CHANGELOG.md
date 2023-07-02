@@ -2,6 +2,12 @@
 
 ## Unreleased changes
 
+- Remove configuration option `no-rpc-server` and environment variable
+  `CONCORDIUM_NODE_DISABLE_RPC_SERVER`, as well as default values of
+  `rpc-server-port` (`CONCORDIUM_NODE_RPC_SERVER_PORT`) and `rpc-server-addr`
+  (`CONCORDIUM_NODE_RPC_SERVER_ADDR`). The V1 gRPC server is only started if
+  both of these options are supplied.
+
 - Fix a network layer bug where initial messages after the handshake could be
   dropped in some circumstances.
 - Fix a bug which caused the first epoch of the new protocol to be shorter than expected.

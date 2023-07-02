@@ -195,8 +195,6 @@ fn load_config_file(conf_str: &str, conf_root: &Path) -> anyhow::Result<Config> 
             } else {
                 None
             };
-            let rpc_enabled = toml_get_as!(as_bool, &node, "rpc", "enabled")
-                .or_else(|| toml_get_as!(as_bool, &common, "rpc", "enabled"));
             let rpc_token = toml_get_as!(as_str, &node, "rpc", "token")
                 .or_else(|| toml_get_as!(as_str, &common, "rpc", "token"))
                 .map(String::from);
@@ -273,7 +271,6 @@ fn load_config_file(conf_str: &str, conf_root: &Path) -> anyhow::Result<Config> 
                 baker_credentials,
                 rpc_address,
                 rpc_port,
-                rpc_enabled,
                 rpc_token,
                 grpc2_address,
                 grpc2_port,

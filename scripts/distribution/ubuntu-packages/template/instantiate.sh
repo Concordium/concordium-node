@@ -9,7 +9,6 @@
 # - build_env_name_lower (e.g., testnet)
 # - build_genesis_hash
 # - build_collector_backend_url (e.g. https://dashboard.testnet.concordium.com/nodes/post)
-# - build_rpc_server_port (e.g., 10001)
 # - build_grpc2_listen_port (e.g., 20001)
 # - build_listen_port (e.g., 8889)
 # - build_bootstrap (e.g., bootstrap.testnet.concordium.com:8888)
@@ -21,9 +20,9 @@ export build_version=$(./binaries/concordium-node --version | cut -d ' ' -f 2)
 
 if [[ -z "$build_env_name"  || -z "$build_env_name_lower" || -z "$build_version"
         || -z "$build_genesis_hash" || -z "$build_collector_backend_url"
-        || -z "$build_rpc_server_port" || -z "$build_grpc2_listen_port" || -z "$build_listen_port" || -z "$build_bootstrap" ]];
+        || -z "$build_grpc2_listen_port" || -z "$build_listen_port" || -z "$build_bootstrap" ]];
 then
-    echo 'All of $build_env_name $build_env_name_lower $build_version $build_genesis_hash $build_collector_backend_url $build_rpc_server_port $build_grpc2_listen_port $build_listen_port $build_bootstrap must be set.'
+    echo 'All of $build_env_name $build_env_name_lower $build_version $build_genesis_hash $build_collector_backend_url $build_grpc2_listen_port $build_listen_port $build_bootstrap must be set.'
     exit 1
 fi
 
@@ -43,7 +42,6 @@ do
               $build_version
               $build_genesis_hash
               $build_collector_backend_url
-              $build_rpc_server_port
               $build_grpc2_listen_port
               $build_listen_port
               $build_bootstrap' < "$file.tmp" > "$out_file"

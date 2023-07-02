@@ -50,7 +50,6 @@ pipeline {
         GENESIS_DAT_FILE = "genesis/${GENESIS_FULL_PATH}/genesis.dat"
         ENVIRONMENT_CAP = environment.capitalize()
         DATA_DIR = "./scripts/distribution/ubuntu-packages/template/data/"
-        RPC_PORT = "${rpc_port[environment]}"
         GRPC2_PORT = "${grpc2_port[environment]}"
         LISTEN_PORT = "${listen_port[environment]}"
         STATIC_BINARIES_IMAGE_TAG = "${BUILD_TAG}"
@@ -96,7 +95,6 @@ pipeline {
                         --build-arg build_env_name_lower=${ENVIRONMENT}\
                         --build-arg build_genesis_hash=$(cat ${GENESIS_HASH_PATH} | tr -cd "[:alnum:]")\
                         --build-arg build_collector_backend_url=https://dashboard.${DOMAIN}/nodes/post\
-                        --build-arg build_rpc_server_port=${RPC_PORT}\
                         --build-arg build_grpc2_listen_port=${GRPC2_PORT}\
                         --build-arg build_listen_port=${LISTEN_PORT}\
                         --build-arg build_bootstrap=bootstrap.${DOMAIN}:8888\

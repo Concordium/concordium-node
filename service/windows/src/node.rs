@@ -61,8 +61,6 @@ pub struct NodeConfig {
     pub grpc2_address:       Option<IpAddr>,
     // Port for GRPC V2 requests
     pub grpc2_port:          Option<u16>,
-    // Whether GRPC is enabled on the node
-    pub rpc_enabled:         Option<bool>,
     // GRPC authentication token
     pub rpc_token:           Option<String>,
     // Address to listen for peer-to-peer connections on

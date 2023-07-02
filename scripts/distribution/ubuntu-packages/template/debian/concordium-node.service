@@ -45,10 +45,6 @@ Environment=CONCORDIUM_NODE_CONNECTION_BOOTSTRAP_NODES=${build_bootstrap}
 Environment=CONCORDIUM_NODE_CONNECTION_DESIRED_NODES=5
 # maximum number of __nodes__ the node will be connected to.
 Environment=CONCORDIUM_NODE_CONNECTION_MAX_ALLOWED_NODES=10
-# address of the GRPC server
-Environment=CONCORDIUM_NODE_RPC_SERVER_ADDR=0.0.0.0
-# and its port
-Environment=CONCORDIUM_NODE_RPC_SERVER_PORT=${build_rpc_server_port}
 # Address of the GRPC V2 server.
 Environment=CONCORDIUM_NODE_GRPC2_LISTEN_ADDRESS=0.0.0.0
 # And its port of the GRPC V2 server.
