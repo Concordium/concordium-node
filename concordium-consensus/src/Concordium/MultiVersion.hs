@@ -793,7 +793,9 @@ checkForProtocolUpdate = liftSkov body
                         -- the existing persistent block state context.
                         existingPbsc <- asks $ Skov.scGSContext . Skov.srContext
                         -- the current transaction table.
-                        oldTT <- Skov.SkovT $ SkovV0._transactionTable . Skov.ssGSState <$> State.get
+                        oldGS <- Skov.SkovT $ Skov.ssGSState <$> State.get
+                        let oldTT = SkovV0._transactionTable oldGS
+                            oldPTT = SkovV0._pendingTransactions oldGS
                         -- Migrate the old state to the new protocol and
                         -- get the new skov context and state.
                         (vc1Context, newState) <-
@@ -818,6 +820,8 @@ checkForProtocolUpdate = liftSkov body
                                         unliftSkov
                                         -- the current transaction table
                                         oldTT
+                                        -- the current pending transactions
+                                        oldPTT
                                     )
                                     mvLog
                         -- Shutdown the old skov instance as it is

@@ -83,6 +83,7 @@ import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Genesis.Data.BaseV1
+import Concordium.GlobalState.TransactionTable (emptyPendingTransactionTable, emptyTransactionTable)
 import Concordium.Scheduler.DummyData
 import Concordium.Types
 import Concordium.Types.Execution
@@ -297,6 +298,8 @@ dummyInitialSkovData =
         dummyBlockState
         10_000
         dummyEpochBakers
+        emptyTransactionTable
+        emptyPendingTransactionTable
 
 -- |A 'LowLevelDB' for testing purposes.
 newtype TestLLDB pv = TestLLDB {theTestLLDB :: IORef (LowLevelDB pv)}

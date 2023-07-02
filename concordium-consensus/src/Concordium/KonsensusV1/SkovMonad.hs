@@ -513,8 +513,7 @@ initialiseNewSkovV1 genData bakerCtx handlerCtx unliftSkov gsConfig@GlobalStateC
                     chainParams ^. cpConsensusParameters . cpTimeoutParameters . tpTimeoutBase
             genEpochBakers <- genesisEpochBakers pbs
             let !initSkovData =
-                    mkInitialSkovData gscRuntimeParameters genMeta pbs genTimeoutDuration genEpochBakers
-                        & transactionTable .~ genTT
+                    mkInitialSkovData gscRuntimeParameters genMeta pbs genTimeoutDuration genEpochBakers genTT emptyPendingTransactionTable
             let storedGenesis =
                     LowLevel.StoredBlock
                         { stbStatePointer = stateRef,
@@ -611,9 +610,11 @@ migrateSkovFromConsensusV0 ::
     (forall a. SkovV1T pv m a -> IO a) ->
     -- |Transaction table to migrate
     TransactionTable ->
+    -- |Pending transaction table to migrate
+    PendingTransactionTable ->
     -- |Return back the 'SkovV1Context' and the migrated 'SkovV1State'
     LogIO (SkovV1Context pv m, SkovV1State pv)
-migrateSkovFromConsensusV0 regenesis migration gsConfig@GlobalStateConfig{..} oldPbsc oldBlockState bakerCtx handlerCtx unliftSkov migrateTT = do
+migrateSkovFromConsensusV0 regenesis migration gsConfig@GlobalStateConfig{..} oldPbsc oldBlockState bakerCtx handlerCtx unliftSkov migrateTT migratePTT = do
     pbsc@PersistentBlockStateContext{..} <- newPersistentBlockStateContext gsConfig
     logEvent GlobalState LLDebug "Migrating existing global state."
     newInitialBlockState <- flip runBlobStoreT oldPbsc . flip runBlobStoreT pbsc $ do
@@ -629,7 +630,7 @@ migrateSkovFromConsensusV0 regenesis migration gsConfig@GlobalStateConfig{..} ol
             let genTimeoutDuration =
                     chainParams ^. cpConsensusParameters . cpTimeoutParameters . tpTimeoutBase
             let !initSkovData =
-                    mkInitialSkovDataWithTT gscRuntimeParameters genMeta newInitialBlockState genTimeoutDuration genEpochBakers migrateTT
+                    mkInitialSkovData gscRuntimeParameters genMeta newInitialBlockState genTimeoutDuration genEpochBakers migrateTT migratePTT
             let storedGenesis =
                     LowLevel.StoredBlock
                         { stbStatePointer = stateRef,
