@@ -641,7 +641,7 @@ data GetFinalizationRecordAt (cv :: ConsensusParametersVersion) (m :: Type -> Ty
           gfaV0 :: FinalizationIndex -> m (Maybe BS.ByteString)
         } ->
         GetFinalizationRecordAt 'ConsensusParametersVersion0 m
-    -- |'ConsensusV1' does not use the concept of finalization indecies,
+    -- |'ConsensusV1' does not use the concept of finalization indices,
     -- so this is a noop.
     GetFinalizationRecordAtV1 :: GetFinalizationRecordAt 'ConsensusParametersVersion0 m
 
