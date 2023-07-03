@@ -6,7 +6,7 @@
 -- The below tests are intended to test the functionality exposed by the 'Concordium.KonsensusV1.Consensus.Blocks' module.
 --
 -- In particular block processing and hence round/epoch progression are being tested.
-module ConcordiumTests.KonsensusV1.Consensus.Blocks (tests) where
+module ConcordiumTests.KonsensusV1.Consensus.Blocks where
 
 import Control.Monad.IO.Class
 import Control.Monad.State
