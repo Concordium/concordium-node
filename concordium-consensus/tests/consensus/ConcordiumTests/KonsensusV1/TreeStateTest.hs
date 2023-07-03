@@ -1127,8 +1127,8 @@ testClearOnProtocolUpdate = describe "clearOnProtocolUpdate" $
             Seq.empty
             (sd'' ^. branches)
         assertEqual
-            "committed transactions should be received"
-            (HM.fromList [(getHash tr0, (normalTransaction tr0, TT.Received 1 (dummySuccessTransactionResult 1)))])
+            "committed transactions should be received with commit point 0"
+            (HM.fromList [(getHash tr0, (normalTransaction tr0, TT.Received 0 (dummySuccessTransactionResult 1)))])
             (sd'' ^. transactionTable . TT.ttHashMap)
   where
     tr0 = dummyTransaction 1
