@@ -294,6 +294,14 @@ purgeRoundExistingQCs rnd = roundExistingQCs %=! snd . Map.split (rnd - 1)
 --
 -- In the case that this is from a genesis, then an empty transaction table
 -- and empty pending transaction table must be provided.
+--
+-- Invariants:
+-- In case that a non-empty transaction table is supplied, then we're migrating
+-- from an existing state, thus the 'TransactionTable' and 'PendingTransactionTable'
+-- passed in must both be from the former state.
+--  * If there are any transactions in the 'TransactionTable' then the corresponding 'PendingTransactionsTable'
+--    must take these transactions into account. Refer to 'PendingTransactionTable' for more details.
+--  * The caller must make sure, that the supplied  'TransactionTable' does NOT contain any @Committed@ transactions.
 mkInitialSkovData ::
     -- |The 'RuntimeParameters'
     RuntimeParameters ->

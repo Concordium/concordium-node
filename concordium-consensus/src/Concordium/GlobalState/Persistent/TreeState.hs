@@ -1014,7 +1014,19 @@ instance
             . ttHashMap
             %=! HM.map
                 ( \(bi, s) -> case s of
-                    Committed{..} -> (bi, Received{..})
+                    -- Mark all @Committed@ transactions as @Received@.
+                    -- Note that we here set the @CommitPoint@ to "0", effectively
+                    -- treating the transaction as just received and it has never been
+                    -- part of a block.
+                    -- This ensures that the transaction gets purged after the protocol
+                    -- update if has expired.
+                    -- If we carried over the @CommitPoint@ then the transaction will
+                    -- not get purged, and the only way it could get evicted from the
+                    -- 'TransactionTable' is, if it becomes part of a new block that gets
+                    -- finalized.
+                    -- However this may never be the case if the transaction has become
+                    -- deprecated as part of the protocol update.
+                    Committed{..} -> (bi, Received{_tsCommitPoint = 0})
                     _ -> (bi, s)
                 )
 
