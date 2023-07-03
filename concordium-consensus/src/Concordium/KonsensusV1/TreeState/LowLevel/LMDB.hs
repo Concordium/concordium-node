@@ -546,6 +546,7 @@ instance
 
 -- |Initialise the low-level database by writing out the genesis block and initial round status.
 initialiseLowLevelDB ::
+    forall pv r m.
     (MonadIO m, MonadReader r m, HasDatabaseHandlers r pv, MonadLogger m, IsProtocolVersion pv) =>
     -- |Genesis block.
     StoredBlock pv ->
@@ -556,3 +557,9 @@ initialiseLowLevelDB genesisBlock roundStatus = asWriteTransaction $ \dbh txn ->
     storeReplaceRecord txn (dbh ^. blockStore) 0 genesisBlock
     storeReplaceRecord txn (dbh ^. blockHashIndex) (getHash genesisBlock) 0
     storeReplaceRecord txn (dbh ^. roundStatusStore) CSKRoundStatus roundStatus
+    let metadata =
+            VersionMetadata
+                { vmDatabaseVersion = 1,
+                  vmProtocolVersion = demoteProtocolVersion (protocolVersion @pv)
+                }
+    storeReplaceRecord txn (dbh ^. metadataStore) versionMetadata $ S.encode metadata
