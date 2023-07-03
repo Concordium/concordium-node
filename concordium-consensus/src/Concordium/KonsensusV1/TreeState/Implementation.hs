@@ -293,7 +293,7 @@ purgeRoundExistingQCs rnd = roundExistingQCs %=! snd . Map.split (rnd - 1)
 -- which is suitable to grow the tree from.
 --
 -- In the case that this is from a genesis, then an empty transaction table
--- and
+-- and empty pending transaction table must be provided.
 mkInitialSkovData ::
     -- |The 'RuntimeParameters'
     RuntimeParameters ->
