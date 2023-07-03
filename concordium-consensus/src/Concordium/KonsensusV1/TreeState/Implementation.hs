@@ -1079,8 +1079,9 @@ bakersForCurrentEpoch sd
 -- * Protocol update
 
 -- |Clear pending and non-finalized blocks from the tree state.
--- Transactions that were committed (to any non-finalized block) have their status changed to
--- received.
+-- 'Received' transactions have their 'CommitPoint' reset.
+-- Transactions that were 'Committed' (to any non-finalized block) have
+-- their status changed to 'Received' and their 'CommitPoint' is reset.
 clearOnProtocolUpdate :: (MonadState (SkovData pv) m) => m ()
 clearOnProtocolUpdate = do
     -- clear the pending block table
@@ -1096,20 +1097,8 @@ clearOnProtocolUpdate = do
         . TT.ttHashMap
         %=! HM.map
             ( \case
-                -- Mark all @Committed@ transactions as @Received@.
-                -- Note that we here set the @CommitPoint@ to "0", effectively
-                -- treating the transaction as just received and it has never been
-                -- part of a block.
-                -- This ensures that the transaction gets purged after the protocol
-                -- update if has expired.
-                -- If we carried over the @CommitPoint@ then the transaction will
-                -- not get purged, and the only way it could get evicted from the
-                -- 'TransactionTable' is, if it becomes part of a new block that gets
-                -- finalized.
-                -- However this may never be the case if the transaction has become
-                -- deprecated as part of the protocol update.
+                (bi, TT.Received{..}) -> (bi, TT.Received{TT._tsCommitPoint = 0, ..})
                 (bi, TT.Committed{..}) -> (bi, TT.Received{TT._tsCommitPoint = 0, ..})
-                s -> s
             )
 
 -- |Clear the transaction table and pending transactions, ensure that the block states are archived,
