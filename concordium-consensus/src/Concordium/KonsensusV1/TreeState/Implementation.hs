@@ -242,14 +242,9 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       -- This should be cleared whenever the consensus runner advances to a new round.
       _currentQuorumMessages :: !QuorumMessages,
       -- |Whether consensus is shutdown.
-      -- This is @True@ when the epoch where the protocol update "took effect"
-      -- (with respect to the effective time of the protocol update).
-      -- Note that the actual protocol update will occur at the end of the 'current' epoch, i.e.
-      -- when the trigger block of the epoch gets finalized.
-      --
-      -- Hence, it is the state of the trigger block that concludes the running chain.
-      -- The block(s) that finalizes the trigger block must not alter the state, hence
-      -- these are simply carrying over the state from the trigger block.
+      -- This is @True@ when:
+      -- * A protocol update was effective in the trigger block in this epoch.
+      -- * The trigger block is finalized.
       _isConsensusShutdown :: !Bool
     }
 

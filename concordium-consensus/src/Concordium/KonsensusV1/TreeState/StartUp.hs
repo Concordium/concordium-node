@@ -187,7 +187,7 @@ loadSkovData _runtimeParameters = do
     -- TODO: When the database storage is modified to allow this, load the block. Issue #843
     let _finalizingCertifiedBlock = Absent
     _skovEpochBakers <- makeEpochBakers lastFinBlock
-    finBlockSeedstate <- getSeedState $ bpState lastFinBlock
+    finBlockSeedState <- getSeedState $ bpState lastFinBlock
     let _currentTimeoutMessages = case _prsLastSignedTimeoutMessage _persistentRoundStatus of
             Absent -> Absent
             Present tm ->
@@ -213,5 +213,5 @@ loadSkovData _runtimeParameters = do
     -- seedstate, the last finalized was the protocol update (and epoch) trigger block,
     -- and so consensus should shut down. If not, a protocol update has not been triggered, so
     -- consensus should not shut down.
-    let _isConsensusShutdown = finBlockSeedstate ^. shutdownTriggered
+    let _isConsensusShutdown = finBlockSeedState ^. shutdownTriggered
     return SkovData{..}

@@ -149,7 +149,8 @@ data HandlerContext (pv :: ProtocolVersion) m = HandlerContext
       _onBlockHandler :: BlockPointer pv -> m (),
       -- |An event handler called per finalization. It is called with the
       -- finalization entry, and the list of all blocks finalized by the entry
-      -- in increasing order of block height.
+      -- in increasing order of block height. It returns a `SkovV1T pv m ()` in order to have
+      -- access to the state, in particular whether consensus has shutdown.
       _onFinalizeHandler :: FinalizationEntry -> [BlockPointer pv] -> SkovV1T pv m (),
       -- |An event handler called when a pending block becomes live. This is intended to trigger
       -- sending a catch-up status message to peers, as pending blocks are not relayed when they
@@ -211,6 +212,7 @@ instance (MonadTrans (SkovV1T pv)) where
 -- Note that the 'alreadyNotified' function must be called only just
 -- before notifying the user.
 class Monad m => AlreadyNotified m where
+    -- Set the flag that the user has already been notified, and return the old value.
     alreadyNotified :: m Bool
 
 instance (IsProtocolVersion pv, Monad m) => AlreadyNotified (SkovV1T pv m) where
