@@ -34,6 +34,7 @@ import Concordium.GlobalState.Parameters hiding (getChainParameters)
 import Concordium.GlobalState.Persistent.Account
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.BlockState
+import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
 import qualified Concordium.GlobalState.Persistent.Cache as Cache
 import Concordium.GlobalState.Persistent.Genesis (genesisState)
@@ -443,6 +444,17 @@ initialiseExistingSkovV1 bakerCtx handlerCtx unliftSkov GlobalStateConfig{..} = 
             pbscBlobStore <- liftIO $ loadBlobStore gscBlockStateFile
             let pbsc = PersistentBlockStateContext{..}
             let initWithLLDB lldb = do
+                    let checkBlockState bs = runBlobStoreT (isValidBlobRef bs) pbsc
+                    (rollCount, bestState) <-
+                        runReaderT
+                            (runDiskLLDBM $ rollBackBlocksUntil checkBlockState)
+                            lldb
+                    when (rollCount > 0) $ do
+                        logEvent Skov LLWarning $
+                            "Could not load state for "
+                                ++ show rollCount
+                                ++ " blocks. Truncating block state database."
+                        liftIO $ truncateBlobStore (bscBlobStore . PBS.pbscBlobStore $ pbsc) bestState
                     let initContext = InitContext pbsc lldb
                     initialSkovData <- runInitMonad (loadSkovData gscRuntimeParameters) initContext
                     let !es =

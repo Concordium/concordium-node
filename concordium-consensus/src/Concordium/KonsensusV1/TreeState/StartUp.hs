@@ -14,6 +14,7 @@ import Lens.Micro.Platform
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Parameters hiding (getChainParameters)
+import Concordium.Types.SeedState
 import Concordium.Utils
 
 import Concordium.GlobalState.BlockState
@@ -169,7 +170,15 @@ loadSkovData _runtimeParameters = do
                   lastSignedQMRound,
                   lastSignedTMRound
                 ]
-    let currentEpoch = blockEpoch lastFinBlock
+    lastFinSeedState <- getSeedState $ bpState lastFinBlock
+    (currentEpoch, lastEpochFinEntry) <-
+        if lastFinSeedState ^. epochTransitionTriggered -- FIXME: Also check that the consensus is not shut down
+            then case mLatestFinEntry of
+                Nothing ->
+                    throwM . TreeStateInvariantViolation $
+                        "Missing finalization entry for last finalized block"
+                Just finEntry -> return (blockEpoch lastFinBlock + 1, Present finEntry)
+            else return (blockEpoch lastFinBlock, Absent)
     chainParams <- getChainParameters $ bpState lastFinBlock
     let _roundStatus =
             RoundStatus
@@ -178,7 +187,7 @@ loadSkovData _runtimeParameters = do
                   _rsPreviousRoundTimeout = Absent,
                   _rsRoundEligibleToBake = True,
                   _rsCurrentEpoch = currentEpoch,
-                  _rsLastEpochFinalizationEntry = Absent,
+                  _rsLastEpochFinalizationEntry = lastEpochFinEntry,
                   _rsCurrentTimeout =
                     chainParams
                         ^. cpConsensusParameters . cpTimeoutParameters . tpTimeoutBase

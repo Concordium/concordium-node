@@ -491,31 +491,37 @@ writeFinalizedBlocksHelper ::
     FinalizationEntry ->
     dbh ->
     MDB_txn ->
-    IO ()
+    IO [BlockHash]
 writeFinalizedBlocksHelper finBlocks finEntry dbh txn = do
     -- Delete the quorum certificates for rounds up to and including the round of the
     -- new last finalized block. Where the QCs are for blocks that will not be finalized,
     -- also remove the block from the block table.
-    withCursor txn (dbh ^. nonFinalizedQuorumCertificateStore) $ \cursor -> do
-        let loop _ Nothing = return ()
-            loop _ (Just (Left e)) = throwM (DatabaseInvariantViolation e)
-            loop fins@(nextFin : restFin) (Just (Right (rnd, qc))) = do
+    delBlocks <- withCursor txn (dbh ^. nonFinalizedQuorumCertificateStore) $ \cursor -> do
+        let loop del fins Nothing = do
+                forM_ fins $ \fin ->
+                    storeReplaceRecord txn (dbh ^. blockStore) (getHash fin) fin
+                return del
+            loop _ _ (Just (Left e)) = throwM (DatabaseInvariantViolation e)
+            loop del fins@(nextFin : restFin) nextQC@(Just (Right (rnd, qc))) = do
                 -- If the block is in a lesser round than the next block in the finalized list,
                 -- remove it from the block table (since it is now dead).
-                recFins <- case compare rnd (blockRound nextFin) of
+                case compare rnd (blockRound nextFin) of
                     LT -> do
                         _ <- deleteRecord txn (dbh ^. blockStore) (qcBlock qc)
-                        return fins
-                    EQ -> return restFin
-                    GT ->
-                        error
-                            "writeFinalizedBlocksHelper: newly-finalized blocks are not \
-                            \currently certified in the database."
-                -- Delete the QC entry.
-                deleteAtCursor cursor
-                unless (null recFins) $ loop recFins =<< getCursor CursorNext cursor
-            loop [] _ = return ()
-        loop finBlocks =<< getCursor CursorFirst cursor
+                        -- Delete the QC entry.
+                        deleteAtCursor cursor
+                        loop (qcBlock qc : del) fins =<< getCursor CursorNext cursor
+                    EQ -> do
+                        -- Delete the QC entry.
+                        deleteAtCursor cursor
+                        if null restFin
+                            then return del
+                            else loop del restFin =<< getCursor CursorNext cursor
+                    GT -> do
+                        storeReplaceRecord txn (dbh ^. blockStore) (getHash nextFin) nextFin
+                        loop del restFin nextQC
+            loop del [] _ = return del
+        loop [] finBlocks =<< getCursor CursorFirst cursor
     -- Write the latest finalization entry
     storeReplaceRecord
         txn
@@ -534,6 +540,7 @@ writeFinalizedBlocksHelper finBlocks finEntry dbh txn = do
                 (dbh ^. transactionStatusStore)
                 (getHash tx)
                 (FinalizedTransactionStatus height ti)
+    return delBlocks
 
 writeCertifiedBlockHelper ::
     ( HasDatabaseHandlers s pv,
@@ -579,15 +586,40 @@ instance
     memberTransaction txHash = asReadTransaction $ \dbh txn ->
         isRecordPresent txn (dbh ^. transactionStatusStore) txHash
 
-    writeFinalizedBlocks finBlocks finEntry =
-        asWriteTransaction $ writeFinalizedBlocksHelper finBlocks finEntry
+    writeFinalizedBlocks finBlocks finEntry = do
+        delBlocks <- asWriteTransaction $ writeFinalizedBlocksHelper finBlocks finEntry
+        logEvent LMDB LLTrace $
+            "Finalized blocks: "
+                ++ show (getHash @BlockHash <$> finBlocks)
+                ++ ". Deleted blocks: "
+                ++ show delBlocks
+        return ()
 
-    writeCertifiedBlock certBlock qc = asWriteTransaction $ writeCertifiedBlockHelper certBlock qc
+    writeCertifiedBlock certBlock qc = do
+        asWriteTransaction $ writeCertifiedBlockHelper certBlock qc
+        logEvent LMDB LLTrace $
+            "Certified block: "
+                ++ show (qcBlock qc)
+                ++ " (height "
+                ++ show (blockHeight certBlock)
+                ++ ")"
 
-    writeCertifiedBlockWithFinalization finBlocks certBlock finEntry =
-        asWriteTransaction $ \dbh txn -> do
-            writeFinalizedBlocksHelper finBlocks finEntry dbh txn
+    writeCertifiedBlockWithFinalization finBlocks certBlock finEntry = do
+        delBlocks <- asWriteTransaction $ \dbh txn -> do
+            delBlocks <- writeFinalizedBlocksHelper finBlocks finEntry dbh txn
             writeCertifiedBlockHelper certBlock (feSuccessorQuorumCertificate finEntry) dbh txn
+            return delBlocks
+        logEvent LMDB LLTrace $
+            "Finalized blocks: "
+                ++ show (getHash @BlockHash <$> finBlocks)
+                ++ ". Deleted blocks: "
+                ++ show delBlocks
+        logEvent LMDB LLTrace $
+            "Certified block: "
+                ++ show (qcBlock (feSuccessorQuorumCertificate finEntry))
+                ++ " (height "
+                ++ show (blockHeight certBlock)
+                ++ ")"
 
     lookupLatestFinalizationEntry = asReadTransaction $ \dbh txn ->
         loadRecord txn (dbh ^. latestFinalizationEntryStore) CSKLatestFinalizationEntry

@@ -111,13 +111,14 @@ class (Monad m) => MonadTreeStateStore m where
     --    are removed.
     -- 2. Each block where the QC was removed is also removed from the block table, unless it is in
     --    the list of newly-finalized blocks.
-    -- 3. The finalization entry is updated to be the new finalization entry.
-    -- 4. Each newly-finalized block is added to the finalized blocks by height index.
-    -- 5. The transactions in the newly-finalized blocks are added to the finalized transactions.
+    -- 3. Each newly-finalized block that didn't have a QC is written to the block table.
+    -- 4. The finalization entry is updated to be the new finalization entry.
+    -- 5. Each newly-finalized block is added to the finalized blocks by height index.
+    -- 6. The transactions in the newly-finalized blocks are added to the finalized transactions.
     --
     -- The following preconditions are required to ensure the database invariants are maintained:
     --
-    --   * The list of blocks is non-empty, consists of consecutive certified (non-finalized) blocks
+    --   * The list of blocks is non-empty, consists of consecutive non-finalized blocks
     --     that form a chain.
     --   * The finalization entry is for the last of these blocks.
     writeFinalizedBlocks :: [StoredBlock (MPV m)] -> FinalizationEntry -> m ()
@@ -144,7 +145,7 @@ class (Monad m) => MonadTreeStateStore m where
     --
     -- The following preconditions are required to ensure the database invariants are maintained:
     --
-    --   * The list of blocks is non-empty, consists of consecutive certified (non-finalized) blocks
+    --   * The list of blocks is non-empty, consists of consecutive non-finalized blocks
     --     that form a chain.
     --   * The last of these blocks is the parent of the newly-certified block.
     --   * The finalization entry is for the parent block and the successor QC is for the
