@@ -241,7 +241,12 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       _currentTimeoutMessages :: !(Option TimeoutMessages),
       -- |The 'QuorumMessage's for the current 'Round'.
       -- This should be cleared whenever the consensus runner advances to a new round.
-      _currentQuorumMessages :: !QuorumMessages
+      _currentQuorumMessages :: !QuorumMessages,
+      -- |Whether consensus is shutdown.
+      -- This is @True@ when:
+      -- * A protocol update was effective in the trigger block in this epoch.
+      -- * The trigger block is finalized.
+      _isConsensusShutdown :: !Bool
     }
 
 makeLenses ''SkovData
@@ -358,6 +363,7 @@ mkInitialSkovData rp genMeta genState _currentTimeout _skovEpochBakers transacti
         _statistics = Stats.initialConsensusStatistics
         _currentTimeoutMessages = Absent
         _currentQuorumMessages = emptyQuorumMessages
+        _isConsensusShutdown = False
     in  SkovData{..}
 
 -- * Operations on the block table

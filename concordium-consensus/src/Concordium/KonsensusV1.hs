@@ -65,6 +65,7 @@ receiveFinalizationMessage (FMQuorumMessage qm) = do
         Quorum.Rejected Quorum.ObsoleteRound -> return $ Left ResultStale
         Quorum.Rejected _ -> return $ Left ResultInvalid
         Quorum.CatchupRequired -> return $ Left ResultUnverifiable
+        Quorum.ConsensusShutdown -> return $ Left ResultConsensusShutDown
 receiveFinalizationMessage (FMTimeoutMessage tm) = do
     res <- Timeout.receiveTimeoutMessage tm =<< get
     case res of
@@ -74,6 +75,7 @@ receiveFinalizationMessage (FMTimeoutMessage tm) = do
         Timeout.Rejected Timeout.DoubleSigning -> return $ Left ResultDoubleSign
         Timeout.Rejected _ -> return $ Left ResultInvalid
         Timeout.CatchupRequired -> return $ Left ResultUnverifiable
+        Timeout.ConsensusShutdown -> return $ Left ResultConsensusShutDown
 
 -- |Convert an 'Transactions.AddTransactionResult' to the corresponding 'UpdateResult'.
 addTransactionResult :: Transactions.AddTransactionResult -> UpdateResult
@@ -108,7 +110,9 @@ startEvents ::
     ) =>
     m ()
 startEvents = do
-    genesisTime <- timestampToUTCTime . BaseV1.genesisTime . gmParameters <$> use genesisMetadata
-    doAfter genesisTime $ do
-        resetTimerWithCurrentTimeout
-        makeBlock
+    isShutdown <- use isConsensusShutdown
+    unless isShutdown $ do
+        genesisTime <- timestampToUTCTime . BaseV1.genesisTime . gmParameters <$> use genesisMetadata
+        doAfter genesisTime $ do
+            resetTimerWithCurrentTimeout
+            makeBlock

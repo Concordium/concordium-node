@@ -224,7 +224,7 @@ testBB1 =
           bbNonce = computeBlockNonce genesisLEN 1 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbTransactionOutcomesHash = emptyBlockTOH bakerId,
-          bbStateHash = read "9beb5328c8119857fe07add6e6c34db8d0df11c34acd174ba93cd43b619bf9ee"
+          bbStateHash = read "dee89435dba1609a84fa62283d2f63ec50f85b9c22f8815daf348df5428ccb65"
         }
   where
     bakerId = 2
@@ -243,7 +243,7 @@ testBB2 =
           bbNonce = computeBlockNonce genesisLEN 2 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbTransactionOutcomesHash = emptyBlockTOH bakerId,
-          bbStateHash = read "f0b88ef30df127d9d00f6581e745ce99d64884c72e8d429f76e9c7d6daf64a11"
+          bbStateHash = read "d36974d10f1331559e396be5f8e31ecedc2042ebf941bc2fad6050e9e082f206"
         }
   where
     bakerId = 4
@@ -262,7 +262,7 @@ testBB3 =
           bbNonce = computeBlockNonce genesisLEN 3 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbTransactionOutcomesHash = emptyBlockTOH bakerId,
-          bbStateHash = read "afd718e6f1ae8534655651ce3dfe11d0e84bfa071b49d6d1343b31c0d7a66761"
+          bbStateHash = read "50998f735737ce13b35715a173efb7a3ad20cba597ba540985cd562a0b7bed74"
         }
   where
     bakerId = 4
@@ -273,7 +273,7 @@ testBB2' =
     testBB2
         { bbQuorumCertificate = genQC,
           bbTimeoutCertificate = Present (validTimeoutFor genQC 1),
-          bbStateHash = read "a312352eb6248afbd31394d83dda195fe8b04669d92bac27a5cbdbc356068e5c"
+          bbStateHash = read "20cd8fe8689b17850e73e8322b53398a49df5e4723eaa77acaf5474e94915c0b"
         }
   where
     genQC = genesisQuorumCertificate genesisHash
@@ -283,7 +283,7 @@ testBB3' :: BakedBlock
 testBB3' =
     testBB3
         { bbQuorumCertificate = validQCFor testBB2',
-          bbStateHash = read "096d6f4e39cf29389399c3f272822baba5cdb454a90ae298cfaad929fd8f4e39"
+          bbStateHash = read "784471f09f9678a2cf8208af45186f553406430b67e035ebf1b772e7c39fbd97"
         }
 
 -- |A valid block for round 4 descended from 'testBB3''.
@@ -300,7 +300,7 @@ testBB4' =
           bbNonce = computeBlockNonce genesisLEN 4 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbTransactionOutcomesHash = emptyBlockTOH bakerId,
-          bbStateHash = read "4814482cdfff80c5e3385125d9b1e3e12dcb0c38695fe6182bf3f8c70681471c"
+          bbStateHash = read "3bb5b307d7abc6fad2464455f604d63512fff93d7fdeb2aa08d5a8f2720340fe"
         }
   where
     bakerId = 3
@@ -331,7 +331,7 @@ testBB1E =
           bbNonce = computeBlockNonce genesisLEN 1 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbTransactionOutcomesHash = emptyBlockTOH bakerId,
-          bbStateHash = read "0c6bc5f7a8c3961c8e2913e9bf742cd72e354e0b0c04fc0cd3257166f1cb1975"
+          bbStateHash = read "3ce2fe0d538434fa7677549a4acbdecea606bd47a61fa39735de1dc144c95eab"
         }
   where
     bakerId = 2
@@ -350,7 +350,7 @@ testBB2E =
           bbNonce = computeBlockNonce genesisLEN 2 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbTransactionOutcomesHash = emptyBlockTOH bakerId,
-          bbStateHash = read "c18d56b2723fbd0ce09fcd8b211982744b3b91eecac31fff4bcf486b07c18e06"
+          bbStateHash = read "df5d25b8ffbad7be62be0ae2ce1a4730018062c3bda6d6caa02ea03545a263fd"
         }
   where
     bakerId = 4
@@ -371,7 +371,7 @@ testBB3EX =
           bbNonce = computeBlockNonce genesisLEN 3 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbTransactionOutcomesHash = emptyBlockTOH bakerId,
-          bbStateHash = read "4f91701802654c0fd10f0a3101b142d2b07461b7695b0e03695e4f8eebf81974"
+          bbStateHash = read "81e1b33e20088562fcb48c619ea16e800d7fba58995fa6487a6209cf448c7d08"
         }
   where
     bakerId = 4
@@ -389,7 +389,7 @@ testEpochFinEntry =
 testEpochLEN :: LeadershipElectionNonce
 testEpochLEN = nonceForNewEpoch genesisFullBakers $ upd testBB1E genesisSeedState
   where
-    upd b = updateSeedStateForBlock (bbTimestamp b) (bbNonce b)
+    upd b = updateSeedStateForBlock (bbTimestamp b) (bbNonce b) False
 
 -- |Valid block for round 3, epoch 1. Descends from 'testBB2E'. The finalization entry is
 -- 'testEpochFinEntry'.
@@ -406,7 +406,7 @@ testBB3E =
           bbNonce = computeBlockNonce testEpochLEN 3 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbTransactionOutcomesHash = emptyBlockTOH bakerId,
-          bbStateHash = read "5e0ef4e48d726d65bddb344a405c8b707fdd6d774921340343b368a1c7223488"
+          bbStateHash = read "dc31a663a0bd166507e21cc641759018651c716b3571531672956abf24b0f4bc"
         }
   where
     bakerId = 5
@@ -436,7 +436,7 @@ testBB4E =
           bbNonce = computeBlockNonce testEpochLEN 4 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbTransactionOutcomesHash = emptyBlockTOH bakerId,
-          bbStateHash = read "75a69cf8606a411afd06657fcc79b16c47e52fddb2a03b7093c8cda1f36fbb9a"
+          bbStateHash = read "daa799010a8b4acb47fa97b876abed73621db292029360734d9c8978b5859e7b"
         }
   where
     bakerId = 1
@@ -449,7 +449,7 @@ testBB4E' =
         { bbQuorumCertificate = validQCFor testBB2E,
           bbTimeoutCertificate = Present (validTimeoutFor (validQCFor testBB1E) 3),
           bbEpochFinalizationEntry = Present testEpochFinEntry,
-          bbStateHash = read "d79d3c822f4355f534f27c551534bb3a7dc6b587b27d789ede8a829b87b89ef4"
+          bbStateHash = read "41b44dd4db52dae4021a0d71fbec00a423ffc9892cf97bf6e506d722cdaaeb0d"
         }
 
 -- |Valid block for round 5, epoch 1. Descends from 'testBB3E'. The timeout certificate for round
@@ -467,7 +467,7 @@ testBB5E' =
           bbNonce = computeBlockNonce testEpochLEN rnd (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbTransactionOutcomesHash = emptyBlockTOH bakerId,
-          bbStateHash = read "52a235195b16a6801a774b4e787e02c3f67982d3014adfcb03701ebdaa40d0f9"
+          bbStateHash = read "ff8cd1198e3926f743e91a97484d75f1109534aaf9655e1c8c9507d4d0ebd8b3"
         }
   where
     bakerId = 2
@@ -500,7 +500,7 @@ testBB2Ex =
     testBB2E
         { bbQuorumCertificate = genQC,
           bbTimeoutCertificate = Present (validTimeoutFor genQC 1),
-          bbStateHash = read "914df723a8dce4a9ed499f30887177510408e34e9d8eba58d4b6394348055d1a"
+          bbStateHash = read "df76421871484a877532dc9b748fcf248bd186898def8bd40fee0a3cf9636b92"
         }
   where
     genQC = genesisQuorumCertificate genesisHash
@@ -509,7 +509,7 @@ testBB2Ex =
 testEpochLENx :: LeadershipElectionNonce
 testEpochLENx = nonceForNewEpoch genesisFullBakers $ upd testBB2Ex genesisSeedState
   where
-    upd b = updateSeedStateForBlock (bbTimestamp b) (bbNonce b)
+    upd b = updateSeedStateForBlock (bbTimestamp b) (bbNonce b) False
 
 testBB3Ex :: BakedBlock
 testBB3Ex =
@@ -524,7 +524,7 @@ testBB3Ex =
           bbNonce = computeBlockNonce testEpochLENx 3 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbTransactionOutcomesHash = emptyBlockTOH bakerId,
-          bbStateHash = read "5e0ef4e48d726d65bddb344a405c8b707fdd6d774921340343b368a1c7223488"
+          bbStateHash = read "dc31a663a0bd166507e21cc641759018651c716b3571531672956abf24b0f4bc"
         }
   where
     bakerId = 2

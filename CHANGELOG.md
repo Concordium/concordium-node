@@ -15,6 +15,7 @@
   - Support sign extension instructions in Wasm in P6.
   - Do not count custom sections towards module size when executing contracts.
   - Support new `invoke` operations for retrieving account keys and checking signatures.
+- Shut down consensus upon a protocol update updating from protocol version 6.
 
 ## 6.0.0
 

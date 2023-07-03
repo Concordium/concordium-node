@@ -217,7 +217,8 @@ doUpdateSeedStateForBlock ::
     m (UpdatableBlockState m)
 doUpdateSeedStateForBlock blkTimestamp blkNonce theState = do
     oldSeedState <- bsoGetSeedState theState
-    let newSeedState = updateSeedStateForBlock blkTimestamp blkNonce oldSeedState
+    isEffective <- bsoIsProtocolUpdateEffective theState
+    let newSeedState = updateSeedStateForBlock blkTimestamp blkNonce isEffective oldSeedState
     bsoSetSeedState theState newSeedState
 
 -- |Execute the block prologue. This does the following:
@@ -477,8 +478,12 @@ executeBlockTransactions blockTimestamp transactions theState0 = do
 
 -- |Execute a block, computing the new block state. If successful, the return value is the
 -- resulting block state and used energy. If unsuccessful, a result of @Left Nothing@ indicates that
--- the block energy limit was succeeded, and otherwise a result of @Left (Just fk)@ indicates the
--- failure kind of the first failed transaction.
+-- the block energy limit was exceeded or a protocol update has been triggered and there is no
+-- transactions, and otherwise a result of @Left (Just fk)@ indicates the failure kind of the first
+-- failed transaction.
+--
+-- Note that if consensus is in shutdown, then we return the parent state, hence all transactions
+-- and chain updates are discarded.
 executeBlockState ::
     ( pv ~ MPV m,
       BlockStateStorage m,
@@ -491,16 +496,28 @@ executeBlockState ::
     [(BlockItem, TVer.VerificationResult)] ->
     m (Either (Maybe FailureKind) (PBS.HashedPersistentBlockState pv, Energy))
 executeBlockState execData@BlockExecutionData{..} transactions = do
-    PrologueResult{..} <- executeBlockPrologue execData
-    tRes <- executeBlockTransactions bedTimestamp transactions prologueBlockState
-    forM tRes $ \TransactionExecutionResult{..} -> do
-        endState <-
-            executeBlockEpilogue
-                bedParticipatingBakers
-                prologuePaydayParameters
-                terTransactionRewardParameters
-                terBlockState
-        return (endState, terEnergyUsed)
+    seedState <- getSeedState bedParentState
+    if seedState ^. shutdownTriggered
+        then
+            if null transactions
+                then return $ Right (bedParentState, 0)
+                else do
+                    logEvent
+                        Scheduler
+                        LLDebug
+                        "Received bad block with transactions after shutdown is triggered."
+                    return $ Left Nothing
+        else do
+            PrologueResult{..} <- executeBlockPrologue execData
+            tRes <- executeBlockTransactions bedTimestamp transactions prologueBlockState
+            forM tRes $ \TransactionExecutionResult{..} -> do
+                endState <-
+                    executeBlockEpilogue
+                        bedParticipatingBakers
+                        prologuePaydayParameters
+                        terTransactionRewardParameters
+                        terBlockState
+                return (endState, terEnergyUsed)
 
 -- |Construct a block, computing the new block state. This draws transactions from the transaction
 -- table (that are pending according to the pending transaction table) and executes them, selecting
@@ -510,6 +527,9 @@ executeBlockState execData@BlockExecutionData{..} transactions = do
 -- returns the new block state and the energy used by the transactions.
 --
 -- Note that this does not update the transaction table.
+--
+-- Note that if consensus is in shutdown, then we return the parent state, hence all transactions
+-- and chain updates are discarded.
 constructBlockState ::
     ( pv ~ MPV m,
       BlockStateStorage m,
@@ -525,22 +545,31 @@ constructBlockState ::
     BlockExecutionData pv ->
     m (FilteredTransactions, PBS.HashedPersistentBlockState pv, Energy)
 constructBlockState runtimeParams transactionTable pendingTable execData@BlockExecutionData{..} = do
-    startTime <- currentTime
-    PrologueResult{..} <- executeBlockPrologue execData
-    (filteredTrs, TransactionExecutionResult{..}) <-
-        constructBlockTransactions
-            runtimeParams
-            startTime
-            transactionTable
-            pendingTable
-            bedTimestamp
-            prologueBlockState
-    finalState <-
-        executeBlockEpilogue
-            bedParticipatingBakers
-            prologuePaydayParameters
-            terTransactionRewardParameters
-            terBlockState
-    endTime <- currentTime
-    logEvent Scheduler LLInfo $ "Constructed a block in " ++ show (diffUTCTime endTime startTime)
-    return (filteredTrs, finalState, terEnergyUsed)
+    seedState <- getSeedState bedParentState
+    if seedState ^. shutdownTriggered
+        then do
+            logEvent
+                Scheduler
+                LLInfo
+                "Constructed block after protocol update trigger block, deriving state from parent."
+            return (emptyFilteredTransactions, bedParentState, 0)
+        else do
+            startTime <- currentTime
+            PrologueResult{..} <- executeBlockPrologue execData
+            (filteredTrs, TransactionExecutionResult{..}) <-
+                constructBlockTransactions
+                    runtimeParams
+                    startTime
+                    transactionTable
+                    pendingTable
+                    bedTimestamp
+                    prologueBlockState
+            finalState <-
+                executeBlockEpilogue
+                    bedParticipatingBakers
+                    prologuePaydayParameters
+                    terTransactionRewardParameters
+                    terBlockState
+            endTime <- currentTime
+            logEvent Scheduler LLInfo $ "Constructed a block in " ++ show (diffUTCTime endTime startTime)
+            return (filteredTrs, finalState, terEnergyUsed)
