@@ -302,7 +302,7 @@ purgeRoundExistingQCs rnd = roundExistingQCs %=! snd . Map.split (rnd - 1)
 --  * If there are any transactions in the 'TransactionTable' then the corresponding 'PendingTransactionsTable'
 --    must take these transactions into account. Refer to 'PendingTransactionTable' for more details.
 --  * The caller must make sure, that the supplied 'TransactionTable' does NOT contain any @Committed@ transactions
---    and all transactions either 'TT.Received' or 'TT.Committed' must have their 'TT.CommitPoint' set to 0.
+--    and all transactions have their commit point set to 0.
 mkInitialSkovData ::
     -- |The 'RuntimeParameters'
     RuntimeParameters ->
