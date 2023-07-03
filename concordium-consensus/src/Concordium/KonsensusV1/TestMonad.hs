@@ -37,6 +37,7 @@ import Concordium.GlobalState.Persistent.BlockState
 import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Module
 import qualified Concordium.GlobalState.Persistent.Cache as Cache
 import Concordium.GlobalState.Persistent.Genesis (genesisState)
+import Concordium.GlobalState.TransactionTable (emptyPendingTransactionTable)
 import Concordium.GlobalState.Types
 import Concordium.KonsensusV1.Consensus
 import Concordium.KonsensusV1.TreeState.Implementation
@@ -184,7 +185,8 @@ runTestMonad _tcBakerContext _tcCurrentTime genData (TestMonad a) =
                     genState
                     genTimeoutBase
                     genEpochBakers
-                    & transactionTable .~ initTT
+                    initTT
+                    emptyPendingTransactionTable
         let genBlockPtr = _tsSkovData ^. lastFinalized
         let genStoredBlock =
                 LowLevel.StoredBlock

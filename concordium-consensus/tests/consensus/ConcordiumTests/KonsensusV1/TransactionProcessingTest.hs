@@ -178,6 +178,8 @@ initialSkovData bs =
         bs
         10_000
         dummyEpochBakers
+        emptyTransactionTable
+        emptyPendingTransactionTable
 
 -- |A block hash for the genesis.
 dummyGenesisBlockHash :: BlockHash

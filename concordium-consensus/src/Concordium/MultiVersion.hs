@@ -52,6 +52,7 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockPointer (BlockPointer (..), BlockPointerData (..))
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
+import qualified Concordium.GlobalState.Persistent.TreeState as SkovV0
 import Concordium.GlobalState.TreeState (PVInit (..), TreeStateMonad (getLastFinalizedHeight))
 import Concordium.ImportExport
 import qualified Concordium.KonsensusV1 as KonsensusV1
@@ -791,6 +792,10 @@ checkForProtocolUpdate = liftSkov body
                         lastFinBlockState <- Skov.queryBlockState =<< Skov.lastFinalizedBlock
                         -- the existing persistent block state context.
                         existingPbsc <- asks $ Skov.scGSContext . Skov.srContext
+                        -- the current transaction table.
+                        oldGS <- Skov.SkovT $ Skov.ssGSState <$> State.get
+                        let oldTT = SkovV0._transactionTable oldGS
+                            oldPTT = SkovV0._pendingTransactions oldGS
                         -- Migrate the old state to the new protocol and
                         -- get the new skov context and state.
                         (vc1Context, newState) <-
@@ -813,6 +818,10 @@ checkForProtocolUpdate = liftSkov body
                                         handlers
                                         -- lift SkovV1T
                                         unliftSkov
+                                        -- the current transaction table
+                                        oldTT
+                                        -- the current pending transactions
+                                        oldPTT
                                     )
                                     mvLog
                         -- Shutdown the old skov instance as it is

@@ -1014,8 +1014,8 @@ instance
             . ttHashMap
             %=! HM.map
                 ( \(bi, s) -> case s of
-                    Committed{..} -> (bi, Received{..})
-                    _ -> (bi, s)
+                    Received{..} -> (bi, Received{_tsCommitPoint = 0, ..})
+                    Committed{..} -> (bi, Received{_tsCommitPoint = 0, ..})
                 )
 
     clearAfterProtocolUpdate = do

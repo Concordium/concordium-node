@@ -56,6 +56,7 @@ import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import Concordium.GlobalState.Persistent.TreeState (DeadCache, emptyDeadCache, insertDeadCache, memberDeadCache)
 import qualified Concordium.GlobalState.PurgeTransactions as Purge
 import qualified Concordium.GlobalState.Statistics as Stats
+import Concordium.GlobalState.TransactionTable
 import qualified Concordium.GlobalState.TransactionTable as TT
 import qualified Concordium.GlobalState.Types as GSTypes
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
@@ -290,6 +291,18 @@ purgeRoundExistingQCs rnd = roundExistingQCs %=! snd . Map.split (rnd - 1)
 -- |Create an initial 'SkovData pv'
 -- This constructs a 'SkovData pv' from a genesis block
 -- which is suitable to grow the tree from.
+--
+-- In the case that this is from a genesis, then an empty transaction table
+-- and empty pending transaction table must be provided.
+--
+-- Invariants:
+-- In case that a non-empty transaction table is supplied, then we're migrating
+-- from an existing state, thus the 'TransactionTable' and 'PendingTransactionTable'
+-- passed in must both be from the former state.
+--  * If there are any transactions in the 'TransactionTable' then the corresponding 'PendingTransactionsTable'
+--    must take these transactions into account. Refer to 'PendingTransactionTable' for more details.
+--  * The caller must make sure, that the supplied 'TransactionTable' does NOT contain any @Committed@ transactions
+--    and all transactions have their commit point set to 0.
 mkInitialSkovData ::
     -- |The 'RuntimeParameters'
     RuntimeParameters ->
@@ -301,9 +314,13 @@ mkInitialSkovData ::
     Duration ->
     -- |Bakers at the genesis block
     EpochBakers ->
+    -- |'TransactionTable' to initialize the 'SkovData' with.
+    TransactionTable ->
+    -- |'PendingTransactionTable' to initialize the 'SkovData' with.
+    PendingTransactionTable ->
     -- |The initial 'SkovData'
     SkovData pv
-mkInitialSkovData rp genMeta genState _currentTimeout _skovEpochBakers =
+mkInitialSkovData rp genMeta genState _currentTimeout _skovEpochBakers transactionTable' pendingTransactionTable' =
     let genesisBlock = GenesisBlock genMeta
         genesisTime = timestampToUTCTime $ Base.genesisTime (gmParameters genMeta)
         genesisBlockMetadata =
@@ -322,11 +339,11 @@ mkInitialSkovData rp genMeta genState _currentTimeout _skovEpochBakers =
                 }
         _persistentRoundStatus = initialPersistentRoundStatus
         _roundStatus = initialRoundStatus _currentTimeout genesisBlockPointer
-        _transactionTable = TT.emptyTransactionTable
+        _transactionTable = transactionTable'
         _transactionTablePurgeCounter = 0
         _skovPendingTransactions =
             PendingTransactions
-                { _pendingTransactionTable = TT.emptyPendingTransactionTable,
+                { _pendingTransactionTable = pendingTransactionTable',
                   _focusBlock = genesisBlockPointer
                 }
         _runtimeParameters = rp
@@ -1063,8 +1080,9 @@ bakersForCurrentEpoch sd
 -- * Protocol update
 
 -- |Clear pending and non-finalized blocks from the tree state.
--- Transactions that were committed (to any non-finalized block) have their status changed to
--- received.
+-- 'Received' transactions have their 'CommitPoint' reset.
+-- Transactions that were 'Committed' (to any non-finalized block) have
+-- their status changed to 'Received' and their 'CommitPoint' is reset.
 clearOnProtocolUpdate :: (MonadState (SkovData pv) m) => m ()
 clearOnProtocolUpdate = do
     -- clear the pending block table
@@ -1080,8 +1098,8 @@ clearOnProtocolUpdate = do
         . TT.ttHashMap
         %=! HM.map
             ( \case
-                (bi, TT.Committed{..}) -> (bi, TT.Received{..})
-                s -> s
+                (bi, TT.Received{..}) -> (bi, TT.Received{TT._tsCommitPoint = 0, ..})
+                (bi, TT.Committed{..}) -> (bi, TT.Received{TT._tsCommitPoint = 0, ..})
             )
 
 -- |Clear the transaction table and pending transactions, ensure that the block states are archived,
