@@ -142,16 +142,16 @@ sectionHeaderLength = fromIntegral $ BS.length $ encode placeholderSectionHeader
 -- |Open a file handle for writing a chunk. If the file with the specified name already exists, a
 -- new name is chosen by putting or incrementing a version number in its extension. It is expected
 -- that an unversioned filename only has a single extension.
-initialHandle :: FilePath -> IO (FilePath, Handle)
+initialHandle :: (MonadIO m, MonadThrow m) => FilePath -> m (FilePath, Handle)
 initialHandle p = do
-    createDirectoryIfMissing True (takeDirectory p)
-    chunkExists <- doesFileExist p
+    liftIO $ createDirectoryIfMissing True (takeDirectory p)
+    chunkExists <- liftIO $ doesFileExist p
     if chunkExists
         then do
-            newExt <- getNewExt
+            newExt <- liftIO getNewExt
             initialHandle (replaceExtensions p newExt)
         else do
-            hdl <- openBinaryFile p WriteMode
+            hdl <- liftIO $ openBinaryFile p WriteMode
             return (p, hdl)
   where
     -- The old, potentially unversioned, file extension.
@@ -172,11 +172,12 @@ initialHandle p = do
             then return $ ".2" ++ oldExt
             else case getVersionNumber (T.pack oldExt) of
                 Left err ->
-                    fail $
-                        "Unable to parse a version number from extension '"
-                            <> oldExt
-                            <> "': "
-                            <> err
+                    throwM $
+                        userError $
+                            "Unable to parse a version number from extension '"
+                                <> oldExt
+                                <> "': "
+                                <> err
                 Right v -> return $ "." <> show (v + 1) <> ".dat"
     -- Given a file extension, attempt to get its version number.
     -- Returns @Left@ if a version number is not present and @Right@
@@ -308,7 +309,7 @@ exportDatabaseV3 dbDir outDir chunkSize = do
     indexFileExists <- liftIO $ doesFileExist indexFile
     -- ensure that the user-provided database directory exists
     dbDirExists <- liftIO $ doesDirectoryExist dbDir
-    unless dbDirExists (liftIO . fail $ "Database directory '" <> dbDir <> "' does not exist")
+    unless dbDirExists $ throwM . userError $ "Database directory '" <> dbDir <> "' does not exist"
     -- the following invariant is true: all blocks for which
     --  - its genesis index < genIndex, or
     --  - its genesis index = genindex and its height < startHeight
@@ -326,12 +327,12 @@ exportDatabaseV3 dbDir outDir chunkSize = do
                 indexContents <- liftIO $ readFile indexFile
                 blockIndex <- case AP.parseOnly parseBlockIndexFile (T.pack indexContents) of
                     Left err ->
-                        liftIO $
-                            fail $
-                                "An error occurred while parsing '"
-                                    <> indexFile
-                                    <> "': "
-                                    <> err
+                        throwM
+                            . userError
+                            $ "An error occurred while parsing '"
+                                <> indexFile
+                                <> "': "
+                                <> err
                     -- normalize the block index; see `normalizeBlockIndex`
                     -- for an explanation of why this is done.
                     Right bi -> do
@@ -342,11 +343,11 @@ exportDatabaseV3 dbDir outDir chunkSize = do
                     Empty -> return (0, 1, Empty, Nothing)
                     blockIndexInit :|> (gd, chunks) -> case chunks of
                         Empty ->
-                            liftIO $
-                                fail $
-                                    "A section for genesis hash '"
-                                        <> show gd
-                                        <> "' in block index file has no entries."
+                            throwM
+                                . userError
+                                $ "A section for genesis hash '"
+                                    <> show gd
+                                    <> "' in block index file has no entries."
                         initChunks :|> BlockIndexChunkInfo{..} -> do
                             -- the filename of the most recently exported chunk.
                             let lastChunkFile = outDir </> T.unpack filename
@@ -379,25 +380,11 @@ exportDatabaseV3 dbDir outDir chunkSize = do
 
     -- in case something was exported, delete the replaced last chunk.
     case lastChunkFilenameM of
-        Just lastChunkFilename -> do
-            lastChunkFileExists <- liftIO $ doesFileExist lastChunkFilename
-            when (lastChunkFileExists && not (null blockIndexTail)) $ liftIO $ removeFile lastChunkFilename
+        Just lastChunkFilename -> liftIO $ do
+            lastChunkFileExists <- doesFileExist lastChunkFilename
+            when (lastChunkFileExists && not (null blockIndexTail)) $ removeFile lastChunkFilename
             return exportError
         Nothing -> return exportError
-
--- |Return the last exported genesis hash or the provided one.
-exportedGenHashOr :: BlockHash -> BlockIndex -> BlockHash
-exportedGenHashOr bh blockIndex = case blockIndex of
-    -- nothing was previously exported for the
-    -- section corresponding to the current
-    -- genesis index.
-    Empty -> bh
-    -- blocks were previously exported for the
-    -- current genesis index, so use the genesis
-    -- block hash that was previously exported
-    -- for that section and compare it with that
-    -- of the database.
-    _ :|> (gh, _) -> gh
 
 -- |Export blocks from a 'ConsensusV1' database.
 exportConsensusV1Blocks ::
@@ -406,7 +393,8 @@ exportConsensusV1Blocks ::
       MonadIO m,
       KonsensusV1.MonadTreeStateStore m,
       MonadLogger m,
-      MPV m ~ pv
+      MPV m ~ pv,
+      MonadThrow m
     ) =>
     -- |Export path.
     FilePath ->
@@ -422,7 +410,7 @@ exportConsensusV1Blocks ::
     Maybe FilePath ->
     -- |Returns a @Bool@ which indicates whether anything went wrong,
     -- i.e. it is 'True' if an error occured and otherwise 'False,
-    -- and the resulting 'BlockIndex'.
+    -- and the resulting 'BlockIndex' (the entries that have been added).
     m (Bool, BlockIndex)
 exportConsensusV1Blocks outDir chunkSize genIndex startHeight blockIndex lastWrittenChunkM = do
     KonsensusV1.lookupFirstBlock >>= \case
@@ -430,7 +418,7 @@ exportConsensusV1Blocks outDir chunkSize genIndex startHeight blockIndex lastWri
             logEvent External LLError "Could not read from database."
             return (True, Empty)
         Just genesisBlock -> do
-            let exportedGenHash = exportedGenHashOr genHash blockIndex
+            let exportedGenHash = exportedGenHashOr genHash
                 genHash = getHash genesisBlock
             if genHash /= exportedGenHash
                 then do
@@ -470,6 +458,19 @@ exportConsensusV1Blocks outDir chunkSize genIndex startHeight blockIndex lastWri
                                     getBlockAt
                                     GetFinalizationRecordAtV1
                             return (False, singleton (genHash, chunks))
+  where
+    -- Return the last exported genesis hash or the provided one.
+    exportedGenHashOr bh = case blockIndex of
+        -- nothing was previously exported for the
+        -- section corresponding to the current
+        -- genesis index.
+        Empty -> bh
+        -- blocks were previously exported for the
+        -- current genesis index, so use the genesis
+        -- block hash that was previously exported
+        -- for that section and compare it with that
+        -- of the database.
+        _ :|> (gh, _) -> gh
 
 -- |Export database sections corresponding to blocks with genesis indices >= genIndex
 -- and of height >= startHeight.
@@ -499,14 +500,14 @@ exportSections dbDir outDir chunkSize genIndex startHeight blockIndex lastWritte
     -- Check if the database exists for this genesis index.
     dbEx <- liftIO $ doesPathExist $ treeStateDir </> "data.mdb"
     if dbEx
-        then -- Open the databases by a trial and error approach since
-        -- the meta data store for each of the databases have different types,
-        -- and ultimately we would end up initializing the database connections the same
-        -- amount of times.
-        -- This works since both databases has a "metadata" store where each
-        -- of them stores their version of the database. The version is checked
-        -- when opening the database.
-
+        then do
+            -- Open the databases by a trial and error approach since
+            -- the meta data store for each of the databases have different types,
+            -- and ultimately we would end up initializing the database connections the same
+            -- amount of times.
+            -- This works since both databases has a "metadata" store where each
+            -- of them stores their version of the database. The version is checked
+            -- when opening the database.
             (liftIO . openReadOnlyDatabase) treeStateDir >>= \case
                 Nothing -> do
                     (liftIO . KonsensusV1.openReadOnlyDatabase) treeStateDir >>= \case
@@ -542,7 +543,7 @@ exportSections dbDir outDir chunkSize genIndex startHeight blockIndex lastWritte
                                                 -- database so we do not accidentally export one chain on top of
                                                 -- another.
                                                 let genHash = finalizationBlockPointer genFinRec
-                                                    exportedGenHash = exportedGenHashOr genHash blockIndex
+                                                    exportedGenHash = exportedGenHashOr genHash
                                                 if genHash /= exportedGenHash
                                                     then do
                                                         logEvent External LLError $
@@ -562,7 +563,7 @@ exportSections dbDir outDir chunkSize genIndex startHeight blockIndex lastWritte
                                                                     Just b | NormalBlock normalBlock <- sbBlock b -> do
                                                                         let serializedBlock = runPut $ putVersionedBlock (protocolVersion @pv) normalBlock
                                                                         case blockFields normalBlock of
-                                                                            Nothing -> liftIO $ fail "Error: Trying to export a genesis block."
+                                                                            Nothing -> throwM . userError $ "Error: Trying to export a genesis block."
                                                                             Just fields -> case blockFinalizationData fields of
                                                                                 NoFinalizationData -> return $ Just (serializedBlock, Nothing)
                                                                                 BlockFinalizationData FinalizationRecord{..} -> return $ Just (serializedBlock, Just finalizationIndex)
@@ -618,6 +619,19 @@ exportSections dbDir outDir chunkSize genIndex startHeight blockIndex lastWritte
             -- the condition for terminating the export.
             logEvent External LLError $ "The tree state database does not exist at " ++ treeStateDir
             return (False, Empty)
+  where
+    -- Return the last exported genesis hash or the provided one.
+    exportedGenHashOr bh = case blockIndex of
+        -- nothing was previously exported for the
+        -- section corresponding to the current
+        -- genesis index.
+        Empty -> bh
+        -- blocks were previously exported for the
+        -- current genesis index, so use the genesis
+        -- block hash that was previously exported
+        -- for that section and compare it with that
+        -- of the database.
+        _ :|> (gh, _) -> gh
 
 -- |Action for getting a block (and possibly a finalization index) at a particular height.
 data GetBlockAt (cv :: ConsensusParametersVersion) (m :: Type -> Type) where
@@ -647,15 +661,19 @@ data GetFinalizationRecordAt (cv :: ConsensusParametersVersion) (m :: Type -> Ty
     -- so this is a noop.
     GetFinalizationRecordAtV1 :: GetFinalizationRecordAt 'ConsensusParametersVersion0 m
 
--- |Write a database section as a collection of chunks in the specified directory. The last exported
--- chunk (i.e. the one containing the block with the greatest height in the section) also contains
+-- |Write a database section as a collection of chunks in the specified directory.
+-- For 'ConsensusV0' The last exported chunk
+-- (i.e. the one containing the block with the greatest height in the section) also contains
 -- finalization records finalizing all blocks after the last block containing a finalization
--- record. Returns a list containing chunk file information for exported chunk files, appearing in
+-- record.
+-- For 'ConsensusV1' only blocks are exported.
+-- Returns a list containing chunk file information for exported chunk files, appearing in
 -- the order in which they were exported. Cfr. `BlockIndexChunkInfo` for more information.
 -- The @Maybe @ parameter contains the filename to be used for the first chunk to be written, if so
 -- provided, and if the file already exists, a version number is added and used instead.
 writeChunks ::
-    (MonadIO m, MonadLogger m, IsConsensusParametersVersion cpv) =>
+    forall cpv m.
+    (MonadIO m, MonadLogger m, IsConsensusParametersVersion cpv, MonadThrow m) =>
     -- |Genesis index
     GenesisIndex ->
     -- |Protocol version
@@ -705,7 +723,7 @@ writeChunks
                             ++ (show . theBlockHeight) sectionFirstBlockHeight
                             ++ ".dat"
 
-        (chunkName, chunkHdl) <- liftIO $ initialHandle chunkNameCandidate
+        (chunkName, chunkHdl) <- initialHandle chunkNameCandidate
 
         (sectionStart, blocksStart) <- liftIO $ do
             BS.hPut chunkHdl $ encode (3 :: Version)
