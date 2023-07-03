@@ -1026,7 +1026,7 @@ instance
                     -- finalized.
                     -- However this may never be the case if the transaction has become
                     -- deprecated as part of the protocol update.
-                    Committed{..} -> (bi, Received{_tsCommitPoint = 0})
+                    Committed{..} -> (bi, Received{_tsCommitPoint = 0, ..})
                     _ -> (bi, s)
                 )
 
