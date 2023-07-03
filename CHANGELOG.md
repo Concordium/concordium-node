@@ -3,6 +3,7 @@
 ## Unreleased changes
 
 - Fix a bug which caused account nonces and sequence numbers to not be migrated to P6 correctly.
+- Add support for out-of-band export files for ConcordiumBFT (protocol version 6).
 - Fix a network layer bug where initial messages after the handshake could be
   dropped in some circumstances.
 - Fix a bug which caused the first epoch of the new protocol to be shorter than expected.

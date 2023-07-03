@@ -939,7 +939,7 @@ data MintRewardParams (cpv :: ChainParametersVersion) where
 --    including incentives for including the 'free' transaction types.
 mintAndReward ::
     forall m.
-    (BlockStateOperations m, TreeStateMonad m, MonadProtocolVersion m) =>
+    (IsConsensusV0 (MPV m), BlockStateOperations m, TreeStateMonad m, MonadProtocolVersion m) =>
     -- |Block state
     UpdatableBlockState m ->
     -- |Parent block
@@ -968,7 +968,6 @@ mintAndReward bshandle blockParent slotNumber bid newEpoch mintParams mfinInfo t
         SP3 -> mintAndRewardCPV0AccountV0
         SP4 -> mintAndRewardCPV1AccountV1
         SP5 -> mintAndRewardCPV1AccountV1
-        SP6 -> error "Minting undefined for P6" -- FIXME: implement
   where
     mintAndRewardCPV0AccountV0 ::
         ( AccountVersionFor (MPV m) ~ 'AccountV0,
@@ -1053,7 +1052,7 @@ mintAndReward bshandle blockParent slotNumber bid newEpoch mintParams mfinInfo t
 -- rewards.
 updateBirkParameters ::
     forall m.
-    (BlockStateOperations m, TreeStateMonad m, MonadProtocolVersion m) =>
+    (IsConsensusV0 (MPV m), BlockStateOperations m, TreeStateMonad m, MonadProtocolVersion m) =>
     -- |New seed state
     SeedState (SeedStateVersionFor (MPV m)) ->
     -- |Block state
@@ -1069,7 +1068,6 @@ updateBirkParameters newSeedState bs0 oldChainParameters updates = case protocol
     SP3 -> updateCPV0AccountV0
     SP4 -> updateCPV1AccountV1
     SP5 -> updateCPV1AccountV1
-    SP6 -> error "updateBirkParameters not implemented for P6" -- FIXME: implement
   where
     updateCPV0AccountV0 ::
         AccountVersionFor (MPV m) ~ 'AccountV0 =>
@@ -1212,7 +1210,7 @@ data PrologueResult m = PrologueResult
 -- and the updated block state.
 executeBlockPrologue ::
     forall m.
-    (BlockPointerMonad m, TreeStateMonad m, MonadLogger m) =>
+    (IsConsensusV0 (MPV m), BlockPointerMonad m, TreeStateMonad m, MonadLogger m) =>
     -- |Slot time of the new block
     Timestamp ->
     -- |New seed state
@@ -1253,7 +1251,7 @@ executeBlockPrologue slotTime newSeedState oldChainParameters bsStart = do
 -- must indicate the correct epoch of the block.
 executeFrom ::
     forall m.
-    (BlockPointerMonad m, TreeStateMonad m, MonadLogger m) =>
+    (IsConsensusV0 (MPV m), BlockPointerMonad m, TreeStateMonad m, MonadLogger m) =>
     -- |Hash of the block we are executing. Used only for committing transactions.
     BlockHash ->
     -- |Slot number of the block being executed.
@@ -1330,7 +1328,7 @@ executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSee
 -- and also returns a list of transactions which failed, and a list of those which were not processed.
 constructBlock ::
     forall m.
-    (BlockPointerMonad m, TreeStateMonad m, MonadLogger m, TimeMonad m) =>
+    (IsConsensusV0 (MPV m), BlockPointerMonad m, TreeStateMonad m, MonadLogger m, TimeMonad m) =>
     -- |Slot number of the block to bake
     Slot ->
     -- |Unix timestamp of the beginning of the slot.
