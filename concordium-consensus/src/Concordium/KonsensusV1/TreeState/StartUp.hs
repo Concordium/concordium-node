@@ -30,6 +30,7 @@ import Concordium.KonsensusV1.TreeState.Implementation
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
+import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.TransactionVerification as TVer
 
@@ -239,7 +240,8 @@ loadCertifiedBlocks ::
       BlockStateStorage m,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
       MonadState (SkovData (MPV m)) m,
-      TimeMonad m
+      TimeMonad m,
+      MonadLogger m
     ) =>
     m ()
 loadCertifiedBlocks = do
@@ -250,21 +252,24 @@ loadCertifiedBlocks = do
         curRound <- use $ roundStatus . rsCurrentRound
         when (tcRound lastTimeout >= curRound) $ do
             highCB <- use $ roundStatus . rsHighestCertifiedBlock
-            unless
-                ( cbRound highCB < tcRound lastTimeout
-                    && cbRound highCB >= tcMaxRound lastTimeout
-                    && cbEpoch highCB >= tcMaxEpoch lastTimeout
-                    && cbEpoch highCB <= 2 + tcMinEpoch lastTimeout
-                )
-                $ throwM . TreeStateInvariantViolation
-                $ "Missing certified block consistent with last timeout certificate"
-            roundStatus . rsPreviousRoundTimeout
-                .= Present
-                    RoundTimeout
-                        { rtTimeoutCertificate = lastTimeout,
-                          rtCertifiedBlock = highCB
-                        }
-            roundStatus . rsCurrentRound .= tcRound lastTimeout + 1
+            if cbRound highCB < tcRound lastTimeout
+                && cbRound highCB >= tcMaxRound lastTimeout
+                && cbEpoch highCB >= tcMaxEpoch lastTimeout
+                && cbEpoch highCB <= 2 + tcMinEpoch lastTimeout
+                then do
+                    roundStatus . rsPreviousRoundTimeout
+                        .= Present
+                            RoundTimeout
+                                { rtTimeoutCertificate = lastTimeout,
+                                  rtCertifiedBlock = highCB
+                                }
+                    roundStatus . rsCurrentRound .= tcRound lastTimeout + 1
+                else do
+                    logEvent
+                        Skov
+                        LLWarning
+                        "Missing certified block consistent with last timeout certificate"
+
     rs <- use roundStatus
     let expectedCurrentRound
             | Present prevTO <- rs ^. rsPreviousRoundTimeout = 1 + tcRound (rtTimeoutCertificate prevTO)
