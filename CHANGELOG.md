@@ -2,6 +2,11 @@
 
 ## Unreleased changes
 
+- Remove configuration option `no-rpc-server` and environment variable
+  `CONCORDIUM_NODE_DISABLE_RPC_SERVER`, as well as default values of
+  `rpc-server-port` (`CONCORDIUM_NODE_RPC_SERVER_PORT`) and `rpc-server-addr`
+  (`CONCORDIUM_NODE_RPC_SERVER_ADDR`). The V1 gRPC server is only started if
+  both of these options are supplied.
 - Fix a bug which caused account nonces and sequence numbers to not be migrated to P6 correctly.
 - Add support for out-of-band export files for ConcordiumBFT (protocol version 6).
 - Fix a network layer bug where initial messages after the handshake could be

@@ -25,7 +25,6 @@ docker build\
        --build-arg build_env_name_lower=mainnet\
        --build-arg build_genesis_hash=9dd9ca4d19e9393877d2c44b70f89acbfc0883c2243e5eeaecc0d1cd0503f478\
        --build-arg build_collector_backend_url=https://dashboard.mainnet.concordium.software/nodes/post\
-       --build-arg build_rpc_server_port=10000\
        --build-arg build_grpc2_listen_port=20000\
        --build-arg build_listen_port=8888\
        --build-arg build_bootstrap=bootstrap.mainnet.concordium.software:8888\

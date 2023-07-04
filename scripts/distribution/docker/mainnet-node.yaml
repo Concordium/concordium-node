@@ -29,10 +29,6 @@ services:
       - CONCORDIUM_NODE_CONNECTION_DESIRED_NODES=5
       # Maximum number of __nodes__ the node will be connected to.
       - CONCORDIUM_NODE_CONNECTION_MAX_ALLOWED_NODES=10
-      # Address of the GRPC server
-      - CONCORDIUM_NODE_RPC_SERVER_ADDR=0.0.0.0
-      # And its port
-      - CONCORDIUM_NODE_RPC_SERVER_PORT=10000
       # Address of the V2 GRPC server.
       - CONCORDIUM_NODE_GRPC2_LISTEN_ADDRESS=0.0.0.0
       # And its port which has to be the same as in `CONCORDIUM_NODE_COLLECTOR_GRPC_HOST`
@@ -55,18 +51,17 @@ services:
       - CONCORDIUM_NODE_RUNTIME_HASKELL_RTS_FLAGS=-N2,-I0
     entrypoint: ["/concordium-node"]
     # Exposed ports. The ports the node listens on inside the container (defined
-    # by `CONCORDIUM_NODE_LISTEN_PORT` and `CONCORDIUM_NODE_RPC_SERVER_PORT`)
+    # by `CONCORDIUM_NODE_GRPC2_LISTEN_PORT` and `CONCORDIUM_NODE_GRPC2_LISTEN_ADDRESS`)
     # should match what is defined here. When running multiple nodes the
     # external ports should be changed so as not to conflict.
     # In the mapping below, the first port is the `host` port, and the second
     # port is the `container` port. When the `container` port is changed the
     # relevant environment variable listed above must be changed as well. For
-    # example, changing `10000:10000` to `10000:13000` would mean that
-    # `CONCORDIUM_NODE_RPC_SERVER_PORT` should be set to `13000`. Otherwise
+    # example, changing `20000:20000` to `20000:23000` would mean that
+    # `CONCORDIUM_NODE_GRPC2_LISTEN_PORT` should be set to `23000`. Otherwise
     # the node's gRPC interface will not be available from the host.
     ports:
     - "8888:8888"
-    - "10000:10000"
     - "20000:20000"
     volumes:
     # The node's database should be stored in a persistent volume so that it

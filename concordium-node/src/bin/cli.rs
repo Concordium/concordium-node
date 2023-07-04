@@ -183,10 +183,9 @@ async fn main() -> anyhow::Result<()> {
 
     // Start the RPC server with a channel for shutting it down.
     let (shutdown_rpc_sender, shutdown_rpc_signal) = oneshot::channel();
-    let rpc_server_task = if !conf.cli.rpc.no_rpc_server {
+    let rpc_server_task = {
         let shutdown_sender = shutdown_sender.clone();
-        info!("Starting RPC server");
-        let mut serv = RpcServerImpl::new(
+        let serv = RpcServerImpl::new(
             node.clone(),
             Some(consensus.clone()),
             &conf.cli.rpc,
@@ -194,12 +193,14 @@ async fn main() -> anyhow::Result<()> {
         )
         .context("Cannot create RPC server.")?;
 
-        let task = tokio::spawn(async move {
-            serv.start_server(shutdown_rpc_signal.map(|_| ()), shutdown_sender).await
-        });
-        Some(task)
-    } else {
-        None
+        if let Some(mut serv) = serv {
+            let task = tokio::spawn(async move {
+                serv.start_server(shutdown_rpc_signal.map(|_| ()), shutdown_sender).await
+            });
+            Some(task)
+        } else {
+            None
+        }
     };
 
     // Start the grpc2 server, if so configured.
