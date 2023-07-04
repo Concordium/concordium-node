@@ -309,7 +309,8 @@ prsLastSignedRound PersistentRoundStatus{..} =
         (ofOption 0 qmRound _prsLastSignedQuorumMessage)
         (ofOption 0 (tmRound . tmBody) _prsLastSignedTimeoutMessage)
 
--- |The next signable round is the round after the latest round for which we have
+-- |The next signable round is the round after the latest round for which we have produced a
+-- quorum or timeout signature message.
 prsNextSignableRound :: PersistentRoundStatus -> Round
 prsNextSignableRound = (1 +) . prsLastSignedRound
 
@@ -358,18 +359,19 @@ data RoundTimeout (pv :: ProtocolVersion) = RoundTimeout
 --
 -- INVARIANTS:
 --
---  * @_rsCurrentRound > qcEpoch (cbQuorumCertificate _rsHighestCertifiedBlock)@.
+--  * @_rsCurrentEpoch > qcEpoch (cbQuorumCertificate _rsHighestCertifiedBlock)@.
 --
 --  * If @_rsPreviousRoundTimeout = Absent@ then
---    @_rsCurrentRound = 1 + qcEpoch (cbQuorumCertificate _rsHighestCertifiedBlock)@.
+--    @_rsCurrentEpoch = 1 + qcEpoch (cbQuorumCertificate _rsHighestCertifiedBlock)@.
 --
 --  * If @_rsPreviousRoundTimeout = Present timeout@ then
---    @_rsCurrentRound = 1 + qcEpoch (rtQuorumCertificate timeout)@.
+--    @_rsCurrentEpoch = 1 + qcEpoch (rtQuorumCertificate timeout)@.
 data RoundStatus (pv :: ProtocolVersion) = RoundStatus
-    { -- |The current 'Round'.
+    { -- |The current 'Round'. If the previous round did not time out, this should be
+      -- @1 + cbRound _rsHighestCertifiedBlock@. Otherwise, it should be
+      -- @1 + tcRound timeoutCertificate@.
       _rsCurrentRound :: !Round,
-      -- |The 'CertifiedBlock' with the highest 'QuorumCertificate' we have seen so far.
-      -- (At genesis, this contains the empty quorum certificate.)
+      -- |The highest round for which we have sent a finalization message.
       _rsHighestCertifiedBlock :: !(CertifiedBlock pv),
       -- |The previous round timeout certificate if the previous round timed out.
       -- This is @Present (timeoutCertificate, quorumCertificate)@ if the previous round timed out
@@ -472,6 +474,8 @@ emptyQuorumMessages = QuorumMessages Map.empty Map.empty
 --    matching the key in the map.
 --  * All timeout messages in 'tmSecondEpochTimeouts' have epoch @tmFirstEpoch + 1@ and finalizer
 --    index matching the key in the map.
+-- IMPORTANT NOTE: A timeout message "has epoch @e@" here if
+-- @qcEpoch (tmQuorumCertificate tmBody) == e@. That is, it is independent of @tmEpoch@.
 data TimeoutMessages
     = -- |Timeout messages for one epoch or two consecutive epochs.
       TimeoutMessages

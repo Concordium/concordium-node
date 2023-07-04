@@ -861,7 +861,7 @@ rollBackBlocksUntil checkState = do
                                         -- set the latest finalization entry to finalize the
                                         -- parent block so that the database invariant is
                                         -- restored.
-                                        storeRecord
+                                        storeReplaceRecord
                                             txn
                                             (dbh ^. latestFinalizationEntryStore)
                                             CSKLatestFinalizationEntry

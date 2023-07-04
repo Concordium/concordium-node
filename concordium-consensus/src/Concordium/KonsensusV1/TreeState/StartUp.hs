@@ -24,6 +24,7 @@ import qualified Concordium.GlobalState.Statistics as Stats
 import qualified Concordium.GlobalState.TransactionTable as TT
 import qualified Concordium.GlobalState.Types as GSTypes
 import Concordium.KonsensusV1.Consensus
+import Concordium.KonsensusV1.Consensus.Timeout
 import Concordium.KonsensusV1.Transactions
 import Concordium.KonsensusV1.TreeState.Implementation
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
@@ -160,16 +161,7 @@ loadSkovData _runtimeParameters = do
                 | otherwise ->
                     throwM . TreeStateInvariantViolation $
                         "Database last finalized entry does not match the last finalized block"
-    let lastSignedQMRound =
-            ofOption 0 qmRound $ _prsLastSignedQuorumMessage _persistentRoundStatus
-    let lastSignedTMRound =
-            ofOption 0 (tmRound . tmBody) $ _prsLastSignedTimeoutMessage _persistentRoundStatus
-    let currentRound =
-            maximum
-                [ maybe 1 ((1 +) . qcRound . feSuccessorQuorumCertificate) mLatestFinEntry,
-                  lastSignedQMRound,
-                  lastSignedTMRound
-                ]
+    let currentRound = 1 + cbRound _rsHighestCertifiedBlock
     lastFinSeedState <- getSeedState $ bpState lastFinBlock
     (currentEpoch, lastEpochFinEntry) <-
         if lastFinSeedState ^. epochTransitionTriggered -- FIXME: Also check that the consensus is not shut down
@@ -209,18 +201,8 @@ loadSkovData _runtimeParameters = do
     _latestFinalizationEntry <- maybe Absent Present <$> LowLevel.lookupLatestFinalizationEntry
     _skovEpochBakers <- makeEpochBakers lastFinBlock
 
-    let _currentTimeoutMessages = case _prsLastSignedTimeoutMessage _persistentRoundStatus of
-            Absent -> Absent
-            Present tm ->
-                if tmRound (tmBody tm) == currentRound
-                    then
-                        Present $
-                            TimeoutMessages
-                                { tmFirstEpoch = currentEpoch,
-                                  tmFirstEpochTimeouts = Map.singleton (tmFinalizerIndex $ tmBody tm) tm,
-                                  tmSecondEpochTimeouts = Map.empty
-                                }
-                    else Absent
+    -- We will load our last timeout message if appropriate in 'loadCertifiedBlocks'.
+    let _currentTimeoutMessages = Absent
     let _currentQuorumMessages = emptyQuorumMessages
     let _transactionTable = TT.emptyTransactionTable
     let _transactionTablePurgeCounter = 0
@@ -239,6 +221,8 @@ loadSkovData _runtimeParameters = do
 -- checked quorum certificates for the blocks.
 --
 -- This also sets the previous round timeout if the low level state records that it timed out.
+-- It also puts the latest timeout message in the set of timeout messages for the current round
+-- if the current round matches the round of the timeout message.
 --
 -- This should be called on the result of 'loadSkovData' after the transaction table has
 -- been initialised for the last finalized block.
@@ -283,6 +267,12 @@ loadCertifiedBlocks = do
     unless (expectedCurrentRound == rs ^. rsCurrentRound) $
         throwM . TreeStateInvariantViolation $
             "The current round does not match the expected round."
+    -- Add the latest timeout message to the timeout messages if it makes sense in the current
+    -- context.
+    prs <- use persistentRoundStatus
+    forM_ (_prsLastSignedTimeoutMessage prs) $ \tm -> do
+        when (tmRound (tmBody tm) == rs ^. rsCurrentRound) $ do
+            forM_ (updateTimeoutMessages Absent tm) $ \tms -> currentTimeoutMessages .= Present tms
   where
     loadCertBlock (storedBlock, qc) = do
         blockPointer <- mkBlockPointer storedBlock
