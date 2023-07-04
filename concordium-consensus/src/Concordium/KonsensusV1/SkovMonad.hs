@@ -38,6 +38,7 @@ import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
 import qualified Concordium.GlobalState.Persistent.Cache as Cache
 import Concordium.GlobalState.Persistent.Genesis (genesisState)
 import Concordium.GlobalState.Persistent.TreeState (checkExistingDatabase)
+import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.Types
 import Concordium.KonsensusV1.Consensus
 import Concordium.KonsensusV1.Consensus.Timeout
@@ -89,6 +90,11 @@ type PersistentBlockStateMonadHelper pv m =
 --     'uponTimeoutEvent' on a timeout.
 --
 --   * Block pointer type ('GlobalStateTypes') and operations ('BlockPointerMonad').
+--
+--   * AlreadyNotified: Handle that must be called just before notifying the user of an
+--     unsupported protocol update.
+--     The handle makes sure we do not keep informing the user of the unsupported protocol
+--     by returning 'False' the first time it's called and 'True' for subsequent invocations.
 newtype SkovV1T pv m a = SkovV1T
     { runSkovT' :: InnerSkovV1T pv m a
     }
@@ -126,7 +132,10 @@ data SkovV1State pv = SkovV1State
     { -- |The 'SkovData', which encapsulates the (in-memory) mutable state of the skov.
       _v1sSkovData :: SkovData pv,
       -- |The timer used for triggering timeout events.
-      _v1sTimer :: Maybe ThreadTimer
+      _v1sTimer :: Maybe ThreadTimer,
+      -- |A flag that indicates whether we have already
+      -- informed about an unsupported protocol update.
+      _notifiedUnsupportedProtocol :: !Bool
     }
 
 -- |Context of callback handlers for the consensus.
@@ -141,8 +150,9 @@ data HandlerContext (pv :: ProtocolVersion) m = HandlerContext
       _onBlockHandler :: BlockPointer pv -> m (),
       -- |An event handler called per finalization. It is called with the
       -- finalization entry, and the list of all blocks finalized by the entry
-      -- in increasing order of block height.
-      _onFinalizeHandler :: FinalizationEntry -> [BlockPointer pv] -> m (),
+      -- in increasing order of block height. It returns a `SkovV1T pv m ()` in order to have
+      -- access to the state, in particular whether consensus has shutdown.
+      _onFinalizeHandler :: FinalizationEntry -> [BlockPointer pv] -> SkovV1T pv m (),
       -- |An event handler called when a pending block becomes live. This is intended to trigger
       -- sending a catch-up status message to peers, as pending blocks are not relayed when they
       -- are first received.
@@ -193,6 +203,22 @@ instance HasDatabaseHandlers (SkovV1Context pv m) pv where
 
 instance (MonadTrans (SkovV1T pv)) where
     lift = SkovV1T . lift
+
+-- |A class used for implementing whether the user
+-- has already been informed about an unsupported protocol.
+--
+-- It is required since SkovV1State is considered an implementation detail
+-- of SkovV1T.
+--
+-- Note that the 'alreadyNotified' function must be called only just
+-- before notifying the user.
+class Monad m => AlreadyNotified m where
+    -- Set the flag that the user has already been notified, and return the old value.
+    alreadyNotified :: m Bool
+
+instance (IsProtocolVersion pv, Monad m) => AlreadyNotified (SkovV1T pv m) where
+    alreadyNotified = SkovV1T $ do
+        notifiedUnsupportedProtocol <<.= True
 
 instance Monad m => MonadState (SkovData pv) (SkovV1T pv m) where
     state = SkovV1T . state . v1sSkovData
@@ -251,7 +277,7 @@ instance Monad m => MonadConsensusEvent (SkovV1T pv m) where
         lift $ handler bp
     onFinalize fe bp = do
         handler <- view onFinalizeHandler
-        lift $ handler fe bp
+        handler fe bp
     onPendingLive = do
         handler <- view onPendingLiveHandler
         lift handler
@@ -458,7 +484,8 @@ initialiseExistingSkovV1 bakerCtx handlerCtx unliftSkov GlobalStateConfig{..} = 
                                   esState =
                                     SkovV1State
                                         { _v1sSkovData = initialSkovData,
-                                          _v1sTimer = Nothing
+                                          _v1sTimer = Nothing,
+                                          _notifiedUnsupportedProtocol = False
                                         },
                                   esGenesisHash = initialSkovData ^. currentGenesisHash,
                                   esLastFinalizedHeight =
@@ -512,8 +539,7 @@ initialiseNewSkovV1 genData bakerCtx handlerCtx unliftSkov gsConfig@GlobalStateC
                     chainParams ^. cpConsensusParameters . cpTimeoutParameters . tpTimeoutBase
             genEpochBakers <- genesisEpochBakers pbs
             let !initSkovData =
-                    mkInitialSkovData gscRuntimeParameters genMeta pbs genTimeoutDuration genEpochBakers
-                        & transactionTable .~ genTT
+                    mkInitialSkovData gscRuntimeParameters genMeta pbs genTimeoutDuration genEpochBakers genTT emptyPendingTransactionTable
             let storedGenesis =
                     LowLevel.StoredBlock
                         { stbStatePointer = stateRef,
@@ -538,7 +564,8 @@ initialiseNewSkovV1 genData bakerCtx handlerCtx unliftSkov gsConfig@GlobalStateC
                     },
                   SkovV1State
                     { _v1sSkovData = initSkovData,
-                      _v1sTimer = Nothing
+                      _v1sTimer = Nothing,
+                      _notifiedUnsupportedProtocol = False
                     }
                 )
     initWithBlockState `onException` liftIO (closeBlobStore pbscBlobStore)
@@ -608,9 +635,13 @@ migrateSkovFromConsensusV0 ::
     -- |The function for unlifting a 'SkovV1T' into 'IO'.
     -- See documentation for 'SkovV1Context'.
     (forall a. SkovV1T pv m a -> IO a) ->
+    -- |Transaction table to migrate
+    TransactionTable ->
+    -- |Pending transaction table to migrate
+    PendingTransactionTable ->
     -- |Return back the 'SkovV1Context' and the migrated 'SkovV1State'
     LogIO (SkovV1Context pv m, SkovV1State pv)
-migrateSkovFromConsensusV0 regenesis migration gsConfig@GlobalStateConfig{..} oldPbsc oldBlockState bakerCtx handlerCtx unliftSkov = do
+migrateSkovFromConsensusV0 regenesis migration gsConfig@GlobalStateConfig{..} oldPbsc oldBlockState bakerCtx handlerCtx unliftSkov migrateTT migratePTT = do
     pbsc@PersistentBlockStateContext{..} <- newPersistentBlockStateContext gsConfig
     logEvent GlobalState LLDebug "Migrating existing global state."
     newInitialBlockState <- flip runBlobStoreT oldPbsc . flip runBlobStoreT pbsc $ do
@@ -626,7 +657,7 @@ migrateSkovFromConsensusV0 regenesis migration gsConfig@GlobalStateConfig{..} ol
             let genTimeoutDuration =
                     chainParams ^. cpConsensusParameters . cpTimeoutParameters . tpTimeoutBase
             let !initSkovData =
-                    mkInitialSkovData gscRuntimeParameters genMeta newInitialBlockState genTimeoutDuration genEpochBakers
+                    mkInitialSkovData gscRuntimeParameters genMeta newInitialBlockState genTimeoutDuration genEpochBakers migrateTT migratePTT
             let storedGenesis =
                     LowLevel.StoredBlock
                         { stbStatePointer = stateRef,
@@ -650,7 +681,8 @@ migrateSkovFromConsensusV0 regenesis migration gsConfig@GlobalStateConfig{..} ol
                     },
                   SkovV1State
                     { _v1sSkovData = initSkovData,
-                      _v1sTimer = Nothing
+                      _v1sTimer = Nothing,
+                      _notifiedUnsupportedProtocol = False
                     }
                 )
     initWithBlockState `onException` liftIO (closeBlobStore pbscBlobStore)

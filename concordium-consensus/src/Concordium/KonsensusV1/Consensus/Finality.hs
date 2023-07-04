@@ -164,6 +164,16 @@ processFinalization newFinalizedBlock newFinalizationEntry = do
     branches .=! prNewBranches
     -- Update the last finalized block.
     lastFinalized .=! newFinalizedBlock
+    newFinBlockSeedstate <- getSeedState $ bpState newFinalizedBlock
+    when (newFinBlockSeedstate ^. shutdownTriggered) $ do
+        isConsensusShutdown .=! True
+        logEvent Konsensus LLInfo $
+            "Shutdown triggered in block "
+                ++ show (getHash @BlockHash newFinalizedBlock)
+                ++ " (round "
+                ++ show (theRound $ blockRound newFinalizedBlock)
+                ++ ") finalized at height "
+                ++ show (blockHeight newFinalizedBlock)
     let finalizingQC = feSuccessorQuorumCertificate newFinalizationEntry
     gets (getLiveBlock (qcBlock finalizingQC)) >>= \case
         Nothing -> do

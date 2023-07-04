@@ -87,19 +87,27 @@ testGetLeader = describe "getLeader" $ do
 testUpdateSeedStateForBlock :: Spec
 testUpdateSeedStateForBlock = describe "updateSeedStateForBlock" $ do
     it "normal" $
-        updateSeedStateForBlock 100 bn ss
+        updateSeedStateForBlock 100 bn False ss
             `shouldBe` ss
                 { ss1UpdatedNonce = read "0f392d28b4de2f783a927a78373acbc7238ecf1f288cf0796bb55c6d5f786d0b"
                 }
     it "trigger" $
-        updateSeedStateForBlock 600 bn ss
+        updateSeedStateForBlock 600 bn False ss
             `shouldBe` ss
                 { ss1UpdatedNonce = read "0f392d28b4de2f783a927a78373acbc7238ecf1f288cf0796bb55c6d5f786d0b",
                   ss1EpochTransitionTriggered = True
                 }
     it "already triggered" $
-        updateSeedStateForBlock 700 bn ss{ss1EpochTransitionTriggered = True}
+        updateSeedStateForBlock 700 bn False ss{ss1EpochTransitionTriggered = True}
             `shouldBe` ss{ss1EpochTransitionTriggered = True}
+
+    it "trigger PU" $
+        updateSeedStateForBlock 600 bn True ss
+            `shouldBe` ss
+                { ss1UpdatedNonce = read "0f392d28b4de2f783a927a78373acbc7238ecf1f288cf0796bb55c6d5f786d0b",
+                  ss1EpochTransitionTriggered = True,
+                  ss1ShutdownTriggered = True
+                }
   where
     ss = initialSeedStateV1 (Hash.hash "LEN1") 600
     bn = dummyBlockNonce
@@ -116,7 +124,8 @@ testUpdateSeedStateForEpoch =
               ss1EpochTransitionTriggered = True,
               ss1TriggerBlockTime = 91000,
               ss1UpdatedNonce = read "0f392d28b4de2f783a927a78373acbc7238ecf1f288cf0796bb55c6d5f786d0b",
-              ss1CurrentLeadershipElectionNonce = read "f1f288cf0796bb55c6d5f786d0b0f392d28b4de2f783a927a78373acbc7238ec"
+              ss1CurrentLeadershipElectionNonce = read "f1f288cf0796bb55c6d5f786d0b0f392d28b4de2f783a927a78373acbc7238ec",
+              ss1ShutdownTriggered = False
             }
     ss' =
         SeedStateV1
@@ -124,7 +133,8 @@ testUpdateSeedStateForEpoch =
               ss1EpochTransitionTriggered = False,
               ss1TriggerBlockTime = 92000,
               ss1UpdatedNonce = read "ba3aba3b6c31fb6b0251a19c83666cd90da9a0835a2b54dc4f01c6d451ab24e8",
-              ss1CurrentLeadershipElectionNonce = read "ba3aba3b6c31fb6b0251a19c83666cd90da9a0835a2b54dc4f01c6d451ab24e8"
+              ss1CurrentLeadershipElectionNonce = read "ba3aba3b6c31fb6b0251a19c83666cd90da9a0835a2b54dc4f01c6d451ab24e8",
+              ss1ShutdownTriggered = False
             }
 
 tests :: Spec
