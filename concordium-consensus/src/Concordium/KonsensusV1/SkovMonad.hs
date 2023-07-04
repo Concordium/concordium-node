@@ -483,7 +483,10 @@ initialiseExistingSkovV1 bakerCtx handlerCtx unliftSkov GlobalStateConfig{..} = 
                                 ++ " blocks. Truncating block state database."
                         liftIO $ truncateBlobStore (bscBlobStore . PBS.pbscBlobStore $ pbsc) bestState
                     let initContext = InitContext pbsc lldb
-                    initialSkovData <- runInitMonad (loadSkovData gscRuntimeParameters) initContext
+                    initialSkovData <-
+                        runInitMonad
+                            (loadSkovData gscRuntimeParameters (rollCount > 0))
+                            initContext
                     let !es =
                             ExistingSkov
                                 { esContext =

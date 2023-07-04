@@ -11,6 +11,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
 import Lens.Micro.Platform
 
+import Concordium.Genesis.Data.BaseV1
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Parameters hiding (getChainParameters)
@@ -130,30 +131,52 @@ loadSkovData ::
       MPV m ~ pv,
       IsConsensusV1 pv
     ) =>
+    -- |Runtime parameters to use
     RuntimeParameters ->
+    -- |Set to 'True' if a rollback occurred before loading the skov
+    Bool ->
     m (SkovData pv)
-loadSkovData _runtimeParameters = do
+loadSkovData _runtimeParameters didRollback = do
     _persistentRoundStatus <- LowLevel.lookupCurrentRoundStatus
     mLatestFinEntry <- LowLevel.lookupLatestFinalizationEntry
     genesisBlock <-
         LowLevel.lookupFirstBlock >>= \case
             Nothing -> throwM . TreeStateInvariantViolation $ "Missing genesis block in database"
             Just gb -> mkBlockPointer gb
+    _genesisMetadata <- case bpBlock genesisBlock of
+        GenesisBlock gm -> return gm
+        _ -> throwM . TreeStateInvariantViolation $ "First block is not a genesis block"
+    let sigThreshold = toRational $ genesisSignatureThreshold $ gmParameters _genesisMetadata
     lastFinBlock <-
         LowLevel.lookupLastFinalizedBlock >>= \case
             Nothing -> throwM . TreeStateInvariantViolation $ "Missing last finalized block in database"
             Just b -> mkBlockPointer b
+    _skovEpochBakers <- makeEpochBakers lastFinBlock
     _rsHighestCertifiedBlock <- do
         case mLatestFinEntry of
-            Nothing ->
-                return
-                    CertifiedBlock
-                        { cbQuorumCertificate = genesisQuorumCertificate (getHash genesisBlock),
-                          cbQuorumBlock = genesisBlock
-                        }
+            Nothing
+                | blockRound lastFinBlock == 0 ->
+                    return
+                        CertifiedBlock
+                            { cbQuorumCertificate = genesisQuorumCertificate (getHash genesisBlock),
+                              cbQuorumBlock = genesisBlock
+                            }
+                | otherwise ->
+                    throwM . TreeStateInvariantViolation $
+                        "Missing finalization entry for last finalized block"
             Just finEntry
                 | let qc = feFinalizedQuorumCertificate finEntry,
                   qcBlock qc == getHash lastFinBlock -> do
+                    -- Validate the finalization entry
+                    unless
+                        ( checkFinalizationEntry
+                            (getHash genesisBlock)
+                            sigThreshold
+                            (_skovEpochBakers ^. currentEpochBakers . bfFinalizers)
+                            finEntry
+                        )
+                        $ throwM . TreeStateInvariantViolation
+                        $ "Latest finalization entry is not valid: " ++ show finEntry
                     return
                         CertifiedBlock
                             { cbQuorumCertificate = qc,
@@ -184,7 +207,9 @@ loadSkovData _runtimeParameters = do
                 { _rsCurrentRound = currentRound,
                   _rsHighestCertifiedBlock = _rsHighestCertifiedBlock,
                   _rsPreviousRoundTimeout = Absent,
-                  _rsRoundEligibleToBake = True,
+                  -- If blocks were rolled back, we should not attempt to bake in the current round
+                  -- since it will be older than it would have been before the rollback.
+                  _rsRoundEligibleToBake = not didRollback,
                   _rsCurrentEpoch = currentEpoch,
                   _rsLastEpochFinalizationEntry = lastEpochFinEntry,
                   _rsCurrentTimeout =
@@ -200,13 +225,9 @@ loadSkovData _runtimeParameters = do
             Just finEntry -> Map.singleton (qcRound qc) (toQuorumCertificateWitness qc)
               where
                 qc = feFinalizedQuorumCertificate finEntry
-    _genesisMetadata <- case bpBlock genesisBlock of
-        GenesisBlock gm -> return gm
-        _ -> throwM . TreeStateInvariantViolation $ "First block is not a genesis block"
     let _skovPendingBlocks = emptyPendingBlocks
     let _lastFinalized = lastFinBlock
     _latestFinalizationEntry <- maybe Absent Present <$> LowLevel.lookupLatestFinalizationEntry
-    _skovEpochBakers <- makeEpochBakers lastFinBlock
     -- We will load our last timeout message if appropriate in 'loadCertifiedBlocks'.
     let _currentTimeoutMessages = Absent
     let _currentQuorumMessages = emptyQuorumMessages
@@ -265,6 +286,7 @@ loadCertifiedBlocks = do
                                 }
                     roundStatus . rsCurrentRound .= tcRound lastTimeout + 1
                 else do
+                    roundStatus . rsRoundEligibleToBake .= False
                     logEvent
                         Skov
                         LLWarning
