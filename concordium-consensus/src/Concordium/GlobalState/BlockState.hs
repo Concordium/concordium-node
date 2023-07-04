@@ -615,8 +615,8 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
     getPendingPoolParameters :: BlockState m -> m [(TransactionTime, PoolParameters (ChainParametersVersionFor (MPV m)))]
 
     -- |Get the protocol update status. If a protocol update has taken effect,
-    -- returns @Left protocolUpdate@. Otherwise, returns @Right pendingProtocolUpdates@.
-    -- The @pendingProtocolUpdates@ is a (possibly-empty) list of timestamps and protocol
+    -- returns @ProtocolUpdated@. Otherwise returns @PendingProtocolUpdates@,
+    -- which is a (possibly-empty) list of timestamps and protocol
     -- updates that have not yet taken effect.
     getProtocolUpdateStatus :: BlockState m -> m UQ.ProtocolUpdateStatus
 
@@ -1341,6 +1341,9 @@ class (BlockStateQuery m) => BlockStateOperations m where
     -- |Set the status of the special reward accounts.
     bsoSetRewardAccounts :: UpdatableBlockState m -> RewardAccounts -> m (UpdatableBlockState m)
 
+    -- |Get whether a protocol update is effective
+    bsoIsProtocolUpdateEffective :: UpdatableBlockState m -> m Bool
+
 -- | Block state storage operations
 class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => BlockStateStorage m where
     -- |Derive a mutable state instance from a block state instance. The mutable
@@ -1597,6 +1600,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     bsoSetNextEpochBakers s bkrs = lift . bsoSetNextEpochBakers s bkrs
     bsoGetBankStatus = lift . bsoGetBankStatus
     bsoSetRewardAccounts s = lift . bsoSetRewardAccounts s
+    bsoIsProtocolUpdateEffective = lift . bsoIsProtocolUpdateEffective
     {-# INLINE bsoGetModule #-}
     {-# INLINE bsoGetAccount #-}
     {-# INLINE bsoGetAccountIndex #-}
@@ -1645,6 +1649,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     {-# INLINE bsoGetBankStatus #-}
     {-# INLINE bsoSetRewardAccounts #-}
     {-# INLINE bsoGetCurrentEpochBakers #-}
+    {-# INLINE bsoIsProtocolUpdateEffective #-}
 
 instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (MGSTrans t m) where
     thawBlockState = lift . thawBlockState

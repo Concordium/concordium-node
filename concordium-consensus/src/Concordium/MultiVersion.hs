@@ -52,6 +52,7 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockPointer (BlockPointer (..), BlockPointerData (..))
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
+import qualified Concordium.GlobalState.Persistent.TreeState as SkovV0
 import Concordium.GlobalState.TreeState (PVInit (..), TreeStateMonad (getLastFinalizedHeight))
 import Concordium.ImportExport
 import qualified Concordium.KonsensusV1 as KonsensusV1
@@ -238,8 +239,12 @@ data Callbacks = Callbacks
 
 -- |Handler context used by the version-1 consensus. The handlers run on the 'MVR' monad, which
 -- they use to resolve the appropriate callbacks.
+--
+-- NOTE: This function may only be called with a valid genesis index. This means that the MVR MUST
+-- be populated with a configuration for the genesis index prior to calling this function.
 skovV1Handlers ::
     forall pv finconf.
+    (IsConsensusV1 pv, IsProtocolVersion pv) =>
     GenesisIndex ->
     AbsoluteBlockHeight ->
     SkovV1.HandlerContext pv (MVR finconf)
@@ -285,22 +290,21 @@ skovV1Handlers gi genHeight = SkovV1.HandlerContext{..}
                                 == (KonsensusV1.blockBaker <$> KonsensusV1.blockBakedData block)
                 liftIO (notifyCallback (getHash block) height isHomeBaked)
 
-    _onFinalizeHandler :: w -> [SkovV1.BlockPointer pv] -> MVR finconf ()
     _onFinalizeHandler _ finalizedBlocks = do
-        asks (notifyBlockFinalized . mvCallbacks) >>= \case
-            Nothing -> return ()
-            Just notifyCallback -> do
-                nodeBakerIdMaybe <- asks (fmap (bakerId . bakerIdentity) . mvBaker)
-                forM_ finalizedBlocks $ \bp -> do
-                    let height = localToAbsoluteBlockHeight genHeight (SkovV1.blockHeight bp)
-                    let isHomeBaked = case nodeBakerIdMaybe of
-                            Nothing -> False
-                            Just nodeBakerId ->
-                                KonsensusV1.Present nodeBakerId
-                                    == (KonsensusV1.blockBaker <$> KonsensusV1.blockBakedData bp)
-                    liftIO (notifyCallback (getHash bp) height isHomeBaked)
-        -- FIXME: Run protocol update check. Issue #825
-        return ()
+        lift $
+            asks (notifyBlockFinalized . mvCallbacks) >>= \case
+                Nothing -> return ()
+                Just notifyCallback -> do
+                    nodeBakerIdMaybe <- asks (fmap (bakerId . bakerIdentity) . mvBaker)
+                    forM_ finalizedBlocks $ \bp -> do
+                        let height = localToAbsoluteBlockHeight genHeight (SkovV1.blockHeight bp)
+                        let isHomeBaked = case nodeBakerIdMaybe of
+                                Nothing -> False
+                                Just nodeBakerId ->
+                                    KonsensusV1.Present nodeBakerId
+                                        == (KonsensusV1.blockBaker <$> KonsensusV1.blockBakedData bp)
+                        liftIO (notifyCallback (getHash bp) height isHomeBaked)
+        checkForProtocolUpdateV1
 
     _onPendingLiveHandler = do
         -- Notify peers of our catch-up status, since they may not be aware of the now-live pending
@@ -790,6 +794,10 @@ checkForProtocolUpdate = liftSkov body
                         lastFinBlockState <- Skov.queryBlockState =<< Skov.lastFinalizedBlock
                         -- the existing persistent block state context.
                         existingPbsc <- asks $ Skov.scGSContext . Skov.srContext
+                        -- the current transaction table.
+                        oldGS <- Skov.SkovT $ Skov.ssGSState <$> State.get
+                        let oldTT = SkovV0._transactionTable oldGS
+                            oldPTT = SkovV0._pendingTransactions oldGS
                         -- Migrate the old state to the new protocol and
                         -- get the new skov context and state.
                         (vc1Context, newState) <-
@@ -812,6 +820,10 @@ checkForProtocolUpdate = liftSkov body
                                         handlers
                                         -- lift SkovV1T
                                         unliftSkov
+                                        -- the current transaction table
+                                        oldTT
+                                        -- the current pending transactions
+                                        oldPTT
                                     )
                                     mvLog
                         -- Shutdown the old skov instance as it is
@@ -860,7 +872,7 @@ checkForProtocolUpdate = liftSkov body
                         liftIO (notifyRegenesis callbacks Nothing)
                         return Nothing
                 Right upd -> do
-                    logEvent Kontrol LLInfo $ "Starting protocol update."
+                    logEvent Kontrol LLInfo "Starting protocol update."
                     initData <- updateRegenesis upd
                     return (Just initData)
             PendingProtocolUpdates [] -> return Nothing
@@ -890,6 +902,66 @@ checkForProtocolUpdate = liftSkov body
                     Right upd -> do
                         logEvent Kontrol LLInfo $
                             "A protocol update will take effect at "
+                                ++ show (timestampToUTCTime $ transactionTimeToTimestamp ts)
+                                ++ ": "
+                                ++ showPU pu
+                                ++ "\n"
+                                ++ show upd
+                return Nothing
+
+checkForProtocolUpdateV1 ::
+    forall lastpv fc.
+    ( IsProtocolVersion lastpv,
+      IsConsensusV1 lastpv
+    ) =>
+    VersionedSkovV1M fc lastpv ()
+checkForProtocolUpdateV1 = body
+  where
+    body :: VersionedSkovV1M fc lastpv ()
+    body = do
+        check >>= \case
+            Nothing -> return ()
+            Just _ -> return () -- FIXME: support new (post P6) protocols. Issue #932.
+    showPU ProtocolUpdate{..} =
+        Text.unpack puMessage
+            ++ "\n["
+            ++ Text.unpack puSpecificationURL
+            ++ " (hash "
+            ++ show puSpecificationHash
+            ++ ")]"
+
+    check ::
+        VersionedSkovV1M fc lastpv (Maybe (PVInit (VersionedSkovV1M fc lastpv)))
+    check = do
+        SkovV1.getProtocolUpdateStatus >>= \case
+            ProtocolUpdated pu -> do
+                -- FIXME: Check if we recognize the protocol update. Issue #932.
+                logEvent Kontrol LLError $
+                    "An unsupported protocol update has taken effect: " ++ showPU pu
+                lift $ do
+                    callbacks <- asks mvCallbacks
+                    liftIO (notifyRegenesis callbacks Nothing)
+                    return Nothing
+            PendingProtocolUpdates [] -> return Nothing
+            PendingProtocolUpdates ((ts, pu) : _) -> do
+                alreadyNotified <- SkovV1.alreadyNotified
+                unless alreadyNotified $ case checkUpdate @lastpv pu of
+                    Left err -> do
+                        logEvent Kontrol LLError $
+                            "An unsupported protocol update ("
+                                ++ err
+                                ++ ") will take effect at "
+                                ++ show (timestampToUTCTime $ transactionTimeToTimestamp ts)
+                                ++ ": "
+                                ++ showPU pu
+                        callbacks <- lift $ asks mvCallbacks
+                        case notifyUnsupportedProtocolUpdate callbacks of
+                            Just notifyCallback -> liftIO $ notifyCallback $ transactionTimeToTimestamp ts
+                            Nothing -> return ()
+                    Right upd -> do
+                        logEvent Kontrol LLInfo $
+                            "A protocol update "
+                                ++ ") will take effect at "
                                 ++ show (timestampToUTCTime $ transactionTimeToTimestamp ts)
                                 ++ ": "
                                 ++ showPU pu
@@ -1090,8 +1162,7 @@ startupSkov genesis = do
                         logEvent Runner LLTrace "Load configuration done"
                         let activateThis = do
                                 activateConfiguration (newVersionV1 newEConfig)
-                                -- FIXME: Support protocol updates. Issue #825
-                                return ()
+                                liftSkovV1Update newEConfig checkForProtocolUpdateV1
                         case esNextProtocolVersion of
                             Nothing -> do
                                 -- This is still the current configuration (i.e. no protocol update
@@ -1484,6 +1555,7 @@ receiveBlock gi blockBS = withLatestExpectedVersion gi $ \case
                         SkovV1.BlockResultPending -> return (Skov.ResultPendingBlock, Nothing)
                         SkovV1.BlockResultEarly -> return (Skov.ResultEarlyBlock, Nothing)
                         SkovV1.BlockResultDuplicate -> return (Skov.ResultDuplicate, Nothing)
+                        SkovV1.BlockResultConsensusShutdown -> return (Skov.ResultConsensusShutDown, Nothing)
 
 -- |Invoke the continuation yielded by 'receiveBlock'.
 -- The continuation performs a transaction which will acquire the write lock
@@ -1836,6 +1908,7 @@ receiveExecuteBlock gi blockBS = withLatestExpectedVersion_ gi $ \case
                         SkovV1.BlockResultPending -> return Skov.ResultPendingBlock
                         SkovV1.BlockResultEarly -> return Skov.ResultEarlyBlock
                         SkovV1.BlockResultDuplicate -> return Skov.ResultDuplicate
+                        SkovV1.BlockResultConsensusShutdown -> return Skov.ResultConsensusShutDown
 
 -- |Import a block file for out-of-band catch-up.
 importBlocks :: FilePath -> MVR finconf Skov.UpdateResult

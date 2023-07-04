@@ -194,6 +194,16 @@ processFinalizationHelper newFinalizedBlock newFinalizationEntry mCertifiedBlock
     branches .=! prNewBranches
     -- Update the last finalized block.
     lastFinalized .=! newFinalizedBlock
+    newFinBlockSeedState <- getSeedState $ bpState newFinalizedBlock
+    when (newFinBlockSeedState ^. shutdownTriggered) $ do
+        isConsensusShutdown .=! True
+        logEvent Konsensus LLInfo $
+            "Shutdown triggered in block "
+                ++ show (getHash @BlockHash newFinalizedBlock)
+                ++ " (round "
+                ++ show (theRound $ blockRound newFinalizedBlock)
+                ++ ") finalized at height "
+                ++ show (blockHeight newFinalizedBlock)
     -- Update the latest finalization entry.
     latestFinalizationEntry .=! Present newFinalizationEntry
     -- Update the epoch bakers to reflect the new last finalized block.

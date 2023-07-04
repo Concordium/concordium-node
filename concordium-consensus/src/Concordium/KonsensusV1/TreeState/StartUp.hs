@@ -163,8 +163,14 @@ loadSkovData _runtimeParameters = do
                         "Database last finalized entry does not match the last finalized block"
     let currentRound = 1 + cbRound _rsHighestCertifiedBlock
     lastFinSeedState <- getSeedState $ bpState lastFinBlock
+    -- If the last finalized block has the shutdown trigger flag set in its
+    -- seedstate, the last finalized was the protocol update (and epoch) trigger block,
+    -- and so consensus should shut down. If not, a protocol update has not been triggered, so
+    -- consensus should not shut down.
+    let _isConsensusShutdown = lastFinSeedState ^. shutdownTriggered
     (currentEpoch, lastEpochFinEntry) <-
-        if lastFinSeedState ^. epochTransitionTriggered -- FIXME: Also check that the consensus is not shut down
+        if lastFinSeedState ^. epochTransitionTriggered
+            && not _isConsensusShutdown
             then case mLatestFinEntry of
                 Nothing ->
                     throwM . TreeStateInvariantViolation $
@@ -200,7 +206,6 @@ loadSkovData _runtimeParameters = do
     let _lastFinalized = lastFinBlock
     _latestFinalizationEntry <- maybe Absent Present <$> LowLevel.lookupLatestFinalizationEntry
     _skovEpochBakers <- makeEpochBakers lastFinBlock
-
     -- We will load our last timeout message if appropriate in 'loadCertifiedBlocks'.
     let _currentTimeoutMessages = Absent
     let _currentQuorumMessages = emptyQuorumMessages

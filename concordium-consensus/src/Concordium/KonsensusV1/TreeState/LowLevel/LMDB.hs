@@ -650,6 +650,7 @@ instance
 
 -- |Initialise the low-level database by writing out the genesis block and initial round status.
 initialiseLowLevelDB ::
+    forall pv r m.
     (MonadIO m, MonadReader r m, HasDatabaseHandlers r pv, MonadLogger m, IsProtocolVersion pv) =>
     -- |Genesis block.
     StoredBlock pv ->
@@ -660,6 +661,12 @@ initialiseLowLevelDB genesisBlock roundStatus = asWriteTransaction $ \dbh txn ->
     storeReplaceRecord txn (dbh ^. blockStore) (getHash genesisBlock) genesisBlock
     storeReplaceRecord txn (dbh ^. finalizedBlockIndex) 0 (getHash genesisBlock)
     storeReplaceRecord txn (dbh ^. roundStatusStore) CSKRoundStatus roundStatus
+    let metadata =
+            VersionMetadata
+                { vmDatabaseVersion = 1,
+                  vmProtocolVersion = demoteProtocolVersion (protocolVersion @pv)
+                }
+    storeReplaceRecord txn (dbh ^. metadataStore) versionMetadata $ S.encode metadata
 
 -- |Remove certified and finalized blocks from the database whose states cannot be loaded.
 -- This can throw an exception if the database recovery was not possible.

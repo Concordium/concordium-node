@@ -460,7 +460,8 @@ class
     --
     --   - Clear all non-finalized blocks from the block table.
     --   - Remove all blocks from the pending table.
-    --   - Mark all non-finalized but committed transactions
+    --   - Mark all 'Committed' transactions as 'Received'.
+    --   - Reset the 'CommitPoint' on all non finalized transactions.
     clearOnProtocolUpdate :: m ()
 
     -- |Do any cleanup of resources that are no longer needed after the protocol

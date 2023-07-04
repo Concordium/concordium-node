@@ -76,6 +76,8 @@ data ReceiveTimeoutMessageResult pv
     | -- |The consensus runner needs to catch up before processing the
       -- 'TimeoutMessage'.
       CatchupRequired
+    | -- |Consensus has been shutdown.
+      ConsensusShutdown
     deriving (Eq, Show)
 
 -- |A partially verified 'TimeoutMessage' with its associated finalization committees.
@@ -111,6 +113,8 @@ receiveTimeoutMessage ::
     -- |Result of receiving the 'TimeoutMessage'.
     m (ReceiveTimeoutMessageResult (MPV m))
 receiveTimeoutMessage tm@TimeoutMessage{tmBody = TimeoutMessageBody{..}} skovData
+    -- Consenus has been shutdown.
+    | skovData ^. isConsensusShutdown = return ConsensusShutdown
     --  The round of the 'TimeoutMessage' is obsolete.
     | tmRound < currentRound =
         return $ Rejected ObsoleteRound
@@ -362,45 +366,47 @@ uponTimeoutEvent ::
     ) =>
     m ()
 uponTimeoutEvent = do
-    currentRoundStatus <- use roundStatus
-    -- We need to timeout the round in the epoch of the highest QC, which may differ from our
-    -- current epoch.
-    let highestQC = currentRoundStatus ^. rsHighestCertifiedBlock . to cbQuorumCertificate
-    withFinalizerForEpoch (qcEpoch highestQC) $ \BakerIdentity{..} finInfo -> do
-        -- We do not directly update the next signable round, as that is implicitly updated by
-        -- setting 'prsLastSignedTimeoutMessage'.
-        let curRound = _rsCurrentRound currentRoundStatus
-        lastSignedRound <- use $ persistentRoundStatus . to prsLastSignedRound
-        -- If we have signed a quorum or timeout message for a higher round previously, then we
-        -- must not send one for the current round.
-        when (curRound >= lastSignedRound) $ do
-            lastFinBlockPtr <- use lastFinalized
-            growTimeout lastFinBlockPtr
+    isShutdown <- use isConsensusShutdown
+    unless isShutdown $ do
+        currentRoundStatus <- use roundStatus
+        -- We need to timeout the round in the epoch of the highest QC, which may differ from our
+        -- current epoch.
+        let highestQC = currentRoundStatus ^. rsHighestCertifiedBlock . to cbQuorumCertificate
+        withFinalizerForEpoch (qcEpoch highestQC) $ \BakerIdentity{..} finInfo -> do
+            -- We do not directly update the next signable round, as that is implicitly updated by
+            -- setting 'rsLastSignedTimeoutMessage'.
+            let curRound = _rsCurrentRound currentRoundStatus
 
-            genesisHash <- use currentGenesisHash
+            lastSignedRound <- use $ persistentRoundStatus . to prsLastSignedRound
+            -- If we have signed a quorum or timeout message for a higher round previously, then we
+            -- must not send one for the current round.
+            when (curRound >= lastSignedRound) $ do
+                lastFinBlockPtr <- use lastFinalized
+                growTimeout lastFinBlockPtr
 
-            let timeoutSigMessage =
-                    TimeoutSignatureMessage
-                        { tsmGenesis = genesisHash,
-                          tsmRound = curRound,
-                          tsmQCRound = qcRound highestQC,
-                          tsmQCEpoch = qcEpoch highestQC
-                        }
-            let timeoutSig = signTimeoutSignatureMessage timeoutSigMessage bakerAggregationKey
-            curEpoch <- use $ roundStatus . rsCurrentEpoch
-            let timeoutMessageBody =
-                    TimeoutMessageBody
-                        { tmFinalizerIndex = finalizerIndex finInfo,
-                          tmRound = curRound,
-                          tmEpoch = curEpoch,
-                          tmQuorumCertificate = highestQC,
-                          tmAggregateSignature = timeoutSig
-                        }
-            let timeoutMessage = signTimeoutMessage timeoutMessageBody genesisHash bakerSignKey
-            updatePersistentRoundStatus $
-                prsLastSignedTimeoutMessage .~ Present timeoutMessage
-            sendTimeoutMessage timeoutMessage
-            processTimeout timeoutMessage
+                genesisHash <- use currentGenesisHash
+                let timeoutSigMessage =
+                        TimeoutSignatureMessage
+                            { tsmGenesis = genesisHash,
+                              tsmRound = curRound,
+                              tsmQCRound = qcRound highestQC,
+                              tsmQCEpoch = qcEpoch highestQC
+                            }
+                let timeoutSig = signTimeoutSignatureMessage timeoutSigMessage bakerAggregationKey
+                curEpoch <- use $ roundStatus . rsCurrentEpoch
+                let timeoutMessageBody =
+                        TimeoutMessageBody
+                            { tmFinalizerIndex = finalizerIndex finInfo,
+                              tmRound = curRound,
+                              tmEpoch = curEpoch,
+                              tmQuorumCertificate = highestQC,
+                              tmAggregateSignature = timeoutSig
+                            }
+                let timeoutMessage = signTimeoutMessage timeoutMessageBody genesisHash bakerSignKey
+                updatePersistentRoundStatus $
+                    prsLastSignedTimeoutMessage .~ Present timeoutMessage
+                sendTimeoutMessage timeoutMessage
+                processTimeout timeoutMessage
 
 -- |Add a 'TimeoutMessage' to an existing set of timeout messages. Returns 'Nothing' if there is
 -- no change (i.e. the new message was from an epoch that is too early).

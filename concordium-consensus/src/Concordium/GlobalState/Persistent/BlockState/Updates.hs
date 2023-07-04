@@ -1483,6 +1483,17 @@ protocolUpdateStatus uref = do
             UQ.PendingProtocolUpdates . toList <$> forM (uqQueue pq) (\(t, e) -> (t,) . unStoreSerialized <$> refLoad e)
         Some puRef -> UQ.ProtocolUpdated . unStoreSerialized <$> refLoad puRef
 
+-- |Get whether a protocol update is effective
+isProtocolUpdateEffective ::
+    (MonadBlobStore m, IsChainParametersVersion cpv) =>
+    BufferedRef (Updates' cpv) ->
+    m Bool
+isProtocolUpdateEffective uref = do
+    Updates{..} <- refLoad uref
+    case currentProtocolUpdate of
+        Null -> return False
+        Some _ -> return True
+
 -- |Determine the next sequence number for a given update type.
 lookupNextUpdateSequenceNumber ::
     forall m cpv.

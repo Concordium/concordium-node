@@ -368,7 +368,7 @@ catchupWithTwoBranchesResponse = runTest $ do
                           bbNonce = computeBlockNonce genesisLEN 4 (TestBlocks.bakerVRFKey (3 :: Int)),
                           bbTransactions = Vec.empty,
                           bbTransactionOutcomesHash = emptyBlockTOH 3,
-                          bbStateHash = read "3c7aaf3f231da62001d6b6dc651da0af08d72eca5d7b3a8970ee1b33367874f6"
+                          bbStateHash = read "cdf730c1b3fdc6d07f404c6b95a4f3417c19653b1299b92f59fcaffcc9745910"
                         }
     TestBlocks.succeedReceiveBlock b4
     -- There is one current timeout message and one current quorum message
@@ -437,7 +437,7 @@ testMakeCatchupStatus = runTest $ do
                           bbNonce = computeBlockNonce genesisLEN 4 (TestBlocks.bakerVRFKey (3 :: Int)),
                           bbTransactions = Vec.empty,
                           bbTransactionOutcomesHash = emptyBlockTOH 3,
-                          bbStateHash = read "3c7aaf3f231da62001d6b6dc651da0af08d72eca5d7b3a8970ee1b33367874f6"
+                          bbStateHash = read "cdf730c1b3fdc6d07f404c6b95a4f3417c19653b1299b92f59fcaffcc9745910"
                         }
     TestBlocks.succeedReceiveBlock b4
     -- There is one current timeout message and one current quorum message

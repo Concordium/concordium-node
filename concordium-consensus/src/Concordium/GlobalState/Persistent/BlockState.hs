@@ -2715,6 +2715,9 @@ doGetUpdates = makeBasicUpdates <=< refLoad . bspUpdates <=< loadPBS
 doGetProtocolUpdateStatus :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m UQ.ProtocolUpdateStatus
 doGetProtocolUpdateStatus = protocolUpdateStatus . bspUpdates <=< loadPBS
 
+doIsProtocolUpdateEffective :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m Bool
+doIsProtocolUpdateEffective = isProtocolUpdateEffective . bspUpdates <=< loadPBS
+
 doProcessUpdateQueues ::
     (SupportsPersistentState pv m) =>
     PersistentBlockState pv ->
@@ -3474,6 +3477,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperatio
     bsoProcessPendingChanges = doProcessPendingChanges
     bsoGetBankStatus = doGetBankStatus
     bsoSetRewardAccounts = doSetRewardAccounts
+    bsoIsProtocolUpdateEffective = doIsProtocolUpdateEffective
 
 instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage (PersistentBlockStateMonad pv r m) where
     thawBlockState HashedPersistentBlockState{..} =

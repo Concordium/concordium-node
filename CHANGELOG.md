@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+- Fix a bug which caused account nonces and sequence numbers to not be migrated to P6 correctly.
+- Add support for out-of-band export files for ConcordiumBFT (protocol version 6).
 - Fix a network layer bug where initial messages after the handshake could be
   dropped in some circumstances.
 - Fix a bug which caused the first epoch of the new protocol to be shorter than expected.
@@ -13,6 +15,7 @@
   - Support sign extension instructions in Wasm in P6.
   - Do not count custom sections towards module size when executing contracts.
   - Support new `invoke` operations for retrieving account keys and checking signatures.
+- Shut down consensus upon a protocol update updating from protocol version 6.
 
 ## 6.0.0
 
