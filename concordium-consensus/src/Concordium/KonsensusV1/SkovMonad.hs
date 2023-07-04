@@ -470,6 +470,7 @@ initialiseExistingSkovV1 bakerCtx handlerCtx unliftSkov GlobalStateConfig{..} = 
             pbscBlobStore <- liftIO $ loadBlobStore gscBlockStateFile
             let pbsc = PersistentBlockStateContext{..}
             let initWithLLDB lldb = do
+                    checkDatabaseVersion lldb
                     let checkBlockState bs = runBlobStoreT (isValidBlobRef bs) pbsc
                     (rollCount, bestState) <-
                         runReaderT

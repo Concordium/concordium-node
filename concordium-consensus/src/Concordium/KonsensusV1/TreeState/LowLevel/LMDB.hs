@@ -369,6 +369,33 @@ openDatabase treeStateDir = do
 closeDatabase :: DatabaseHandlers pv -> IO ()
 closeDatabase dbHandlers = runInBoundThread $ mdb_env_close $ dbHandlers ^. storeEnv . seEnv
 
+-- |Check that the database version matches the expected version.
+-- If it does not, this throws a 'DatabaseInvariantViolation' exception.
+checkDatabaseVersion :: forall pv. IsProtocolVersion pv => DatabaseHandlers pv -> LogIO ()
+checkDatabaseVersion db = do
+    metadata <- liftIO . transaction (db ^. storeEnv) True $ \txn ->
+        loadRecord txn (db ^. metadataStore) versionMetadata
+    case metadata of
+        Nothing ->
+            throwM . DatabaseInvariantViolation $
+                "no version data was found, but expected " ++ show expectedVersion
+        Just vs -> case S.decode vs of
+            Right vm
+                | vm == expectedVersion -> do
+                    logEvent LMDB LLTrace $ "Database version: " ++ show vm
+                | otherwise ->
+                    throwM . DatabaseInvariantViolation $
+                        "database version is " ++ show vm ++ " but expected " ++ show expectedVersion
+            _ ->
+                throwM . DatabaseInvariantViolation $
+                    "version data could not be deserialized, but expected " ++ show expectedVersion
+  where
+    expectedVersion =
+        VersionMetadata
+            { vmDatabaseVersion = 1,
+              vmProtocolVersion = demoteProtocolVersion (protocolVersion @pv)
+            }
+
 -- |'DatabaseHandlers' existentially quantified over the protocol version and without block state.
 -- Note that we can treat the state type as '()' soundly when reading, since the state is the last
 -- part of the serialization: we just ignore the remaining bytes.
@@ -648,7 +675,8 @@ instance
     writeCurrentRoundStatus rs = asWriteTransaction $ \dbh txn ->
         storeReplaceRecord txn (dbh ^. roundStatusStore) CSKRoundStatus rs
 
--- |Initialise the low-level database by writing out the genesis block and initial round status.
+-- |Initialise the low-level database by writing out the genesis block, initial round status and
+-- version metadata.
 initialiseLowLevelDB ::
     forall pv r m.
     (MonadIO m, MonadReader r m, HasDatabaseHandlers r pv, MonadLogger m, IsProtocolVersion pv) =>
