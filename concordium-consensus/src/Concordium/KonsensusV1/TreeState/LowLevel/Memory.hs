@@ -84,17 +84,16 @@ doWriteFinalizedBlocks finBlocks finEntry =
         db
             { lldbLatestFinalizationEntry = Just finEntry,
               lldbNonFinalizedQuorumCertificates = keepQCs,
-              lldbBlocks = remBlocks (blockRound <$> finBlocks) (Map.elems removeQCs) lldbBlocks
+              lldbBlocks =
+                flip (foldl' (\m b -> HM.insert (getHash b) b m)) finBlocks
+                    . flip (foldl' (\m qc -> HM.delete (qcBlock qc) m)) (Map.elems removeQCs)
+                    $ lldbBlocks
             }
       where
         (removeQCs, keepQCs) =
             Map.split
                 (qcRound (feFinalizedQuorumCertificate finEntry))
                 lldbNonFinalizedQuorumCertificates
-        remBlocks fins@(nextFin : restFin) (nextRem : restRem) blocks
-            | nextFin == qcRound nextRem = remBlocks restFin restRem blocks
-            | otherwise = remBlocks fins restRem (HM.delete (qcBlock nextRem) blocks)
-        remBlocks _ _ blocks = blocks
 
 -- |Helper function for implementing 'writeCertifiedBlock'.
 doWriteCertifiedBlock ::
