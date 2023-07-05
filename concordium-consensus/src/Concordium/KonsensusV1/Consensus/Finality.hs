@@ -36,10 +36,10 @@ import Concordium.KonsensusV1.Types
 -- Check if the certified block causes its parent to become finalized.
 -- If so, the block and its ancestors are finalized, the tree is pruned to the decendants of the
 -- new last finalized block, and, if applicable, the epoch is advanced.
+-- If the block is already written, then it is assumed that it has already been processed in this
+-- manner, and so no further action is taken.
 --
 -- This function incorporates the functionality of @checkFinality@ from the bluepaper.
---
--- PRECONDITION: the certified block is valid and live (and not finalized).
 processCertifiedBlock ::
     ( MonadState (SkovData (MPV m)) m,
       TimeMonad m,
@@ -60,7 +60,7 @@ processCertifiedBlock cb@CertifiedBlock{..}
     | NormalBlock block <- bpBlock cbQuorumBlock,
       let parentQC = blockQuorumCertificate block,
       qcRound cbQuorumCertificate == qcRound parentQC + 1,
-      qcEpoch cbQuorumCertificate == qcEpoch parentQC = do
+      qcEpoch cbQuorumCertificate == qcEpoch parentQC = unlessStored $ do
         let finalizedBlockHash = qcBlock parentQC
         sd <- get
         unless (finalizedBlockHash == getHash (sd ^. lastFinalized)) $ do
@@ -73,11 +73,13 @@ processCertifiedBlock cb@CertifiedBlock{..}
                         }
             processFinalizationHelper newFinalizedPtr newFinalizationEntry (Just cb)
             shrinkTimeout cbQuorumBlock
-    | otherwise = do
+    | otherwise = unlessStored $ do
+        storedBlock <- makeStoredBlock cbQuorumBlock
+        LowLevel.writeCertifiedBlock storedBlock cbQuorumCertificate
+  where
+    unlessStored a = do
         alreadyStored <- LowLevel.memberBlock (getHash cbQuorumBlock)
-        unless alreadyStored $ do
-            storedBlock <- makeStoredBlock cbQuorumBlock
-            LowLevel.writeCertifiedBlock storedBlock cbQuorumCertificate
+        unless alreadyStored a
 
 -- |Process a finalization entry that finalizes a block that is not currently considered finalized.
 --
