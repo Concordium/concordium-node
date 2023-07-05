@@ -389,7 +389,7 @@ data RoundStatus (pv :: ProtocolVersion) = RoundStatus
       -- but is not required.
       --
       -- The purpose of this field is to support the creation of a block that is the first in a new
-      -- epoch. It should
+      -- epoch.
       _rsLastEpochFinalizationEntry :: !(Option FinalizationEntry),
       -- |The current duration to wait before a round times out.
       _rsCurrentTimeout :: !Duration

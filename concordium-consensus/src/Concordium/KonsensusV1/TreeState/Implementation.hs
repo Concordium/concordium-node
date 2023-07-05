@@ -102,14 +102,13 @@ data BlockTable pv = BlockTable
       -- if we simply expunged dead blocks.
       _deadBlocks :: !DeadCache,
       -- |Map of live blocks.
-      -- Blocks are removed from this map by two means;
+      -- Blocks are removed from this map by two means:
       --
-      -- * When a block becomes finalized it is
-      -- being persisted (and so are the live blocks which are predecessors to the block
-      -- being finalized.)
-      -- and removed from this cache.
+      -- * When a block becomes finalized it is removed from the table, as it is persisted on disk.
       --
       -- * When a block is being marked as dead.
+      --
+      -- Note that non-finalized certified blocks exist both in the live map and on the disk.
       _liveMap :: !(HM.HashMap BlockHash (InMemoryBlockStatus pv))
     }
     deriving (Show)

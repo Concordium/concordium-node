@@ -37,7 +37,9 @@ import Concordium.KonsensusV1.Types
 -- If so, the block and its ancestors are finalized, the tree is pruned to the decendants of the
 -- new last finalized block, and, if applicable, the epoch is advanced.
 -- If the block is already written, then it is assumed that it has already been processed in this
--- manner, and so no further action is taken.
+-- manner, and so no further action is taken. (Normally, `processCertifiedBlock` should not be
+-- called on a block that is already finalized, but it can happen if a roll-back occurred at
+-- start up.)
 --
 -- This function incorporates the functionality of @checkFinality@ from the bluepaper.
 processCertifiedBlock ::
