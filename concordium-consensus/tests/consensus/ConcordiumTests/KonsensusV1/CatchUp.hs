@@ -459,6 +459,22 @@ testMakeCatchupStatus = runTest $ do
     actualCatchupStatus <- makeCatchUpRequestMessage <$> get
     liftIO $ assertEqual "Unexpected catchup status" expectedCatchupStatus $ cumStatus actualCatchupStatus
 
+-- |Checks the expected 'RoundStatus' with the actual one.
+-- This checks the data of the round status that does not relate to
+-- a particular baker.
+checkRoundStatus ::
+    -- |Expected round status
+    RoundStatus pv ->
+    -- |Actual round status
+    RoundStatus pv ->
+    Assertion
+checkRoundStatus rs1 rs2 = do
+    assertEqual "Unexpected current round" (rs1 ^. rsCurrentRound) (rs2 ^. rsCurrentRound)
+    assertEqual "Unexpected current epoch" (rs1 ^. rsCurrentEpoch) (rs2 ^. rsCurrentEpoch)
+    assertEqual "Unexpected highest certified block" (rs1 ^. rsHighestCertifiedBlock) (rs2 ^. rsHighestCertifiedBlock)
+    assertEqual "Unexpected previous round timeout" (rs1 ^. rsPreviousRoundTimeout) (rs2 ^. rsPreviousRoundTimeout)
+    assertEqual "Unexpected last epoch finalization entry" (rs1 ^. rsLastEpochFinalizationEntry) (rs2 ^. rsLastEpochFinalizationEntry)
+
 -- |Test where one peer catches up fully with another.
 -- Hence this test serves as an integration test where
 -- catch-up status messages are generated and used to create responses,
@@ -494,9 +510,11 @@ testCatchup = do
         catchupRequired <- isCatchUpRequired (cumStatus rStatus) sd
         liftIO $ assertBool "Catch-up should be required." catchupRequired
         return (makeCatchUpRequestMessage sd, sd)
-    resp <- runTest $ do
+    (resp, respRs) <- runTest $ do
         put responderState
-        handleCatchUpRequest (cumStatus req) =<< get
+        resp <- handleCatchUpRequest (cumStatus req) =<< get
+        rs <- use roundStatus
+        return (resp, rs)
     -- Let the initiator catchup.
     runTest $ do
         -- Set the initiator state
@@ -505,6 +523,7 @@ testCatchup = do
         processCatchUpTerminalData termData >>= \case
             TerminalDataResultValid stateProgessed -> liftIO $ assertBool "State should have progessed" stateProgessed
             TerminalDataResultInvalid _ -> liftIO $ assertFailure "The terminal data should be valid."
+        liftIO . checkRoundStatus respRs =<< use roundStatus
 
 -- |Test catch-up through an epoch transition.
 testCatchupEpochTransition :: Assertion
@@ -519,15 +538,16 @@ testCatchupEpochTransition = do
         return (statusMessage, sd)
     -- Initiator of catchup
     (req, initatorState) <- runTest $ do
-        let b1 = TestBlocks.signedPB TestBlocks.testBB1E
-        TestBlocks.succeedReceiveBlock b1
+        TestBlocks.succeedReceiveBlock $ TestBlocks.signedPB TestBlocks.testBB1E
         sd <- get
         catchupRequired <- isCatchUpRequired (cumStatus rStatus) sd
         liftIO $ assertBool "Catch-up should be required." catchupRequired
         return (makeCatchUpRequestMessage sd, sd)
-    resp <- runTest $ do
+    (resp, respRs) <- runTest $ do
         put responderState
-        handleCatchUpRequest (cumStatus req) =<< get
+        response <- handleCatchUpRequest (cumStatus req) =<< get
+        respRs <- use roundStatus
+        return (response, respRs)
     -- Let the initiator catchup.
     runTest $ do
         -- Set the initiator state
@@ -536,6 +556,8 @@ testCatchupEpochTransition = do
         processCatchUpTerminalData termData >>= \case
             TerminalDataResultValid stateProgessed -> liftIO $ assertBool "State should not have progessed" (not stateProgessed)
             TerminalDataResultInvalid _ -> liftIO $ assertFailure "The terminal data should be valid."
+        -- Check that the round status is as expected.
+        liftIO . checkRoundStatus respRs =<< use roundStatus
 
 -- |Test catch up with a tc for last round.
 testCatchupTCAtEnd :: Assertion
@@ -557,9 +579,11 @@ testCatchupTCAtEnd = do
         catchupRequired <- isCatchUpRequired (cumStatus rStatus) sd
         liftIO $ assertBool "Catch-up should be required." catchupRequired
         return (makeCatchUpRequestMessage sd, sd)
-    resp <- runTest $ do
+    (resp, respRs) <- runTest $ do
         put responderState
-        handleCatchUpRequest (cumStatus req) =<< get
+        resp <- handleCatchUpRequest (cumStatus req) =<< get
+        rs <- use roundStatus
+        return (resp, rs)
     -- Let the initiator catchup.
     runTest $ do
         -- Set the initiator state
@@ -568,6 +592,7 @@ testCatchupTCAtEnd = do
         processCatchUpTerminalData termData >>= \case
             TerminalDataResultValid stateProgessed -> liftIO $ assertBool "State should have progessed" stateProgessed
             TerminalDataResultInvalid _ -> liftIO $ assertFailure "The terminal data should be valid."
+        liftIO . checkRoundStatus respRs =<< use roundStatus
 
 -- |Check that when receiving a catchup status message and
 -- "we" are behind their reported last finalized block then
