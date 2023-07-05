@@ -906,7 +906,7 @@ rollBackBlocksUntil checkState = do
                                                   feSuccessorQuorumCertificate = finQC,
                                                   feSuccessorProof = getHash (sbBlock block)
                                                 }
-                                        return (c, hashes, parent)
+                                        return (c + 1, finHash : hashes, parent)
             loadRecord txn (dbh ^. latestFinalizationEntryStore) CSKLatestFinalizationEntry
                 >>= \case
                     Nothing ->
