@@ -24,9 +24,9 @@ FROM static-node-binaries:${static_binaries_image_tag} as binaries
 FROM alpine/git:latest as genesis-data
 ARG genesis_ref
 ARG genesis_path
-RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
-RUN --mount=type=ssh git clone --depth 1 --branch "${genesis_ref}" git@gitlab.com:Concordium/genesis-data.git
-RUN mv "genesis-data/${genesis_path}" /data
+RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan github.com >> ~/.ssh/known_hosts
+RUN --mount=type=ssh git clone --depth 1 --branch "${genesis_ref}" git@github.com:Concordium/concordium-infra-genesis-data.git
+RUN mv "concordium-infra-genesis-data/${genesis_path}" /data
 
 FROM ubuntu:20.04
  
