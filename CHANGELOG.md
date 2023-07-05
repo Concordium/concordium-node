@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+## 6.0.1
+
 - Remove configuration option `no-rpc-server` and environment variable
   `CONCORDIUM_NODE_DISABLE_RPC_SERVER`, as well as default values of
   `rpc-server-port` (`CONCORDIUM_NODE_RPC_SERVER_PORT`) and `rpc-server-addr`
@@ -21,6 +23,7 @@
   - Do not count custom sections towards module size when executing contracts.
   - Support new `invoke` operations for retrieving account keys and checking signatures.
 - Shut down consensus upon a protocol update updating from protocol version 6.
+- Revised persistent state for P6 with changes to startup and catch-up handling.
 
 ## 6.0.0
 
