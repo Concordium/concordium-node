@@ -32,13 +32,65 @@ import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 
--- |Check if a valid quorum certificate finalizes a block. If so, the block and its ancestors
--- are finalized, the tree is pruned to the decendants of the new last finalized block, and,
--- if applicable, the epoch is advanced.
+-- |Ensure that the given certified block is written to the low-level database.
+-- Check if the certified block causes its parent to become finalized.
+-- If so, the block and its ancestors are finalized, the tree is pruned to the decendants of the
+-- new last finalized block, and, if applicable, the epoch is advanced.
+-- If the block is already written, then it is assumed that it has already been processed in this
+-- manner, and so no further action is taken. (Normally, `processCertifiedBlock` should not be
+-- called on a block that is already finalized, but it can happen if a roll-back occurred at
+-- start up.)
 --
--- PRECONDITION: the quorum certificate is valid. (If the target of the QC is not live, this
--- function will not make any change to the state, and will not error.)
-checkFinality ::
+-- This function incorporates the functionality of @checkFinality@ from the bluepaper.
+processCertifiedBlock ::
+    ( MonadState (SkovData (MPV m)) m,
+      TimeMonad m,
+      MonadIO m,
+      LowLevel.MonadTreeStateStore m,
+      BlockStateStorage m,
+      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
+      MonadThrow m,
+      MonadConsensusEvent m,
+      MonadLogger m,
+      IsConsensusV1 (MPV m),
+      HasCallStack
+    ) =>
+    -- |The newly-certified block.
+    CertifiedBlock (MPV m) ->
+    m ()
+processCertifiedBlock cb@CertifiedBlock{..}
+    | NormalBlock block <- bpBlock cbQuorumBlock,
+      let parentQC = blockQuorumCertificate block,
+      qcRound cbQuorumCertificate == qcRound parentQC + 1,
+      qcEpoch cbQuorumCertificate == qcEpoch parentQC = unlessStored $ do
+        let finalizedBlockHash = qcBlock parentQC
+        sd <- get
+        unless (finalizedBlockHash == getHash (sd ^. lastFinalized)) $ do
+            let !newFinalizedPtr = parentOfLive sd cbQuorumBlock
+            let newFinalizationEntry =
+                    FinalizationEntry
+                        { feFinalizedQuorumCertificate = parentQC,
+                          feSuccessorQuorumCertificate = cbQuorumCertificate,
+                          feSuccessorProof = getHash (sbBlock block)
+                        }
+            processFinalizationHelper newFinalizedPtr newFinalizationEntry (Just cb)
+            shrinkTimeout cbQuorumBlock
+    | otherwise = unlessStored $ do
+        storedBlock <- makeStoredBlock cbQuorumBlock
+        LowLevel.writeCertifiedBlock storedBlock cbQuorumCertificate
+  where
+    unlessStored a = do
+        alreadyStored <- LowLevel.memberBlock (getHash cbQuorumBlock)
+        unless alreadyStored a
+
+-- |Process a finalization entry that finalizes a block that is not currently considered finalized.
+--
+-- PRECONDITION:
+--  * The block is live and not already finalized.
+--  * The finalization entry is valid.
+--  * The block is at most one epoch later than the last finalized block. (This is implied by
+--    the block being live.)
+processFinalizationEntry ::
     ( MonadState (SkovData (MPV m)) m,
       TimeMonad m,
       MonadIO m,
@@ -50,63 +102,40 @@ checkFinality ::
       MonadLogger m,
       IsConsensusV1 (MPV m)
     ) =>
-    QuorumCertificate ->
-    m ()
-checkFinality qc = do
-    sd <- get
-    case getMemoryBlockStatus (qcBlock qc) sd of
-        Just (BlockAlive block) -> checkFinalityWithBlock qc block
-        _ -> return ()
-
--- |Check if a valid quorum certificate finalizes a block (the parent of the block in the QC).
--- If so, the block and its ancestors are finalized, the tree is pruned to the decendants of the
--- new last finalized block, and, if applicable, the epoch is advanced.
---
--- PRECONDITION: the quorum certificate is valid and for the supplied block, which is live
--- (and not finalized).
-checkFinalityWithBlock ::
-    ( MonadState (SkovData (MPV m)) m,
-      TimeMonad m,
-      MonadIO m,
-      LowLevel.MonadTreeStateStore m,
-      BlockStateStorage m,
-      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
-      MonadThrow m,
-      MonadConsensusEvent m,
-      MonadLogger m,
-      IsConsensusV1 (MPV m),
-      HasCallStack
-    ) =>
-    -- |An already verified quorum certificate that points
-    -- to the provided @BlockPointer (MPV m)@
-    QuorumCertificate ->
-    -- |A pointer to the block referenced by the quorum certificate
+    -- |Pointer to the block that is finalized.
     BlockPointer (MPV m) ->
+    -- |Finalization entry for the block.
+    FinalizationEntry ->
     m ()
-checkFinalityWithBlock qc blockPtr
-    | NormalBlock block <- bpBlock blockPtr,
-      let parentQC = blockQuorumCertificate block,
-      qcRound qc == qcRound parentQC + 1,
-      qcEpoch qc == qcEpoch parentQC = do
-        let finalizedBlockHash = qcBlock parentQC
-        sd <- get
-        unless (finalizedBlockHash == getHash (sd ^. lastFinalized)) $ do
-            let !newFinalizedPtr = parentOfLive sd blockPtr
-            let newFinalizationEntry =
-                    FinalizationEntry
-                        { feFinalizedQuorumCertificate = parentQC,
-                          feSuccessorQuorumCertificate = qc,
-                          feSuccessorProof = getHash (sbBlock block)
-                        }
-            processFinalization newFinalizedPtr newFinalizationEntry
-            shrinkTimeout blockPtr
-    | otherwise = return ()
+processFinalizationEntry newFinalizedPtr newFinalizationEntry =
+    processFinalizationHelper newFinalizedPtr newFinalizationEntry Nothing
+
+-- |Write a block's state out to the block state database and construct a 'LowLevel.StoredBlock'
+-- that can be written to the tree state database.
+makeStoredBlock ::
+    ( GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
+      BlockStateStorage m
+    ) =>
+    BlockPointer (MPV m) ->
+    m (LowLevel.StoredBlock (MPV m))
+makeStoredBlock blockPtr = do
+    statePointer <- saveBlockState (bpState blockPtr)
+    return
+        LowLevel.StoredBlock
+            { stbInfo = blockMetadata blockPtr,
+              stbBlock = bpBlock blockPtr,
+              stbStatePointer = statePointer
+            }
 
 -- |Process the finalization of a block. The block must be live (not finalized) and the finalization
 -- entry must be a valid finalization entry for the block.
 --
 -- The new finalized block MUST be at most one epoch later than the prior last finalized block.
-processFinalization ::
+--
+-- This optionally takes the certified block following the newly-finalized block as a parameter.
+-- If this is provided, the certified block and its QC are written to the tree state database
+-- together with updating the finalized block and transaction indexes.
+processFinalizationHelper ::
     ( MonadState (SkovData (MPV m)) m,
       TimeMonad m,
       MonadIO m,
@@ -119,10 +148,15 @@ processFinalization ::
       IsConsensusV1 (MPV m),
       HasCallStack
     ) =>
+    -- |The newly finalized block.
     BlockPointer (MPV m) ->
+    -- |Finalization entry for the block.
     FinalizationEntry ->
+    -- |Optional newly-certified block to write to the low-level store.
+    Maybe (CertifiedBlock (MPV m)) ->
     m ()
-processFinalization newFinalizedBlock newFinalizationEntry = do
+{-# INLINE processFinalizationHelper #-}
+processFinalizationHelper newFinalizedBlock newFinalizationEntry mCertifiedBlock = do
     -- Update the finalization statistics
     now <- currentTime
     statistics %=! updateStatsOnFinalize now
@@ -147,16 +181,16 @@ processFinalization newFinalizedBlock newFinalizationEntry = do
     mapM_ (finalizeTransactions . blockTransactions) prFinalized
     -- Store the blocks and finalization entry in the low-level tree state database, including
     -- indexing the finalized transactions.
-    let makeStoredBlock blockPtr = do
-            statePointer <- saveBlockState (bpState blockPtr)
-            return
-                LowLevel.StoredBlock
-                    { stbInfo = blockMetadata blockPtr,
-                      stbBlock = bpBlock blockPtr,
-                      stbStatePointer = statePointer
-                    }
-    storedBlocks <- mapM makeStoredBlock prFinalized
-    LowLevel.writeBlocks storedBlocks newFinalizationEntry
+    -- Store the finalized blocks in the low-level tree state database.
+    finalizedBlocks <- mapM makeStoredBlock prFinalized
+    case mCertifiedBlock of
+        Nothing -> LowLevel.writeFinalizedBlocks finalizedBlocks newFinalizationEntry
+        Just certifiedBlock -> do
+            storedCertifiedBlock <- makeStoredBlock (cbQuorumBlock certifiedBlock)
+            LowLevel.writeCertifiedBlockWithFinalization
+                finalizedBlocks
+                storedCertifiedBlock
+                newFinalizationEntry
     -- Mark the removed blocks as dead, including purging their block states and updating the
     -- transaction table accordingly.
     forM_ prRemoved markLiveBlockDead
@@ -164,8 +198,8 @@ processFinalization newFinalizedBlock newFinalizationEntry = do
     branches .=! prNewBranches
     -- Update the last finalized block.
     lastFinalized .=! newFinalizedBlock
-    newFinBlockSeedstate <- getSeedState $ bpState newFinalizedBlock
-    when (newFinBlockSeedstate ^. shutdownTriggered) $ do
+    newFinBlockSeedState <- getSeedState $ bpState newFinalizedBlock
+    when (newFinBlockSeedState ^. shutdownTriggered) $ do
         isConsensusShutdown .=! True
         logEvent Konsensus LLInfo $
             "Shutdown triggered in block "
@@ -174,17 +208,13 @@ processFinalization newFinalizedBlock newFinalizationEntry = do
                 ++ show (theRound $ blockRound newFinalizedBlock)
                 ++ ") finalized at height "
                 ++ show (blockHeight newFinalizedBlock)
-    let finalizingQC = feSuccessorQuorumCertificate newFinalizationEntry
-    gets (getLiveBlock (qcBlock finalizingQC)) >>= \case
-        Nothing -> do
-            finalizingCertifiedBlock .= Absent
-        Just finalizingBlock -> do
-            finalizingCertifiedBlock .= Present (CertifiedBlock finalizingQC finalizingBlock)
+    -- Update the latest finalization entry.
+    latestFinalizationEntry .=! Present newFinalizationEntry
     -- Update the epoch bakers to reflect the new last finalized block.
     checkedAdvanceEpochBakers oldLastFinalized newFinalizedBlock
     -- Purge the 'roundExistingBlocks' up to the last finalized block.
     purgeRoundExistingBlocks (blockRound newFinalizedBlock)
-    -- Purge the 'roundExistingQCs' up to the last finalized block.
+    -- Purge the 'roundExistingQCs' before the last finalized block.
     purgeRoundExistingQCs (blockRound newFinalizedBlock)
     -- Purge any pending blocks that are no longer viable.
     purgePending

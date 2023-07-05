@@ -298,11 +298,13 @@ processQuorumMessage vqm@(VerifiedQuorumMessage quorumMessage _ quorumBlock) mak
             logEvent Konsensus LLTrace $
                 "QC signed by finalizer indexes: "
                     ++ show (theFinalizerIndex <$> finalizerList (qcSignatories newQC))
-            checkFinality newQC
-            advanceRoundWithQuorum
-                CertifiedBlock
-                    { cbQuorumCertificate = newQC,
-                      cbQuorumBlock = quorumBlock
-                    }
+            let newCertifiedBlock =
+                    CertifiedBlock
+                        { cbQuorumCertificate = newQC,
+                          cbQuorumBlock = quorumBlock
+                        }
+            -- Process the certified block, including checking for finalization.
+            processCertifiedBlock newCertifiedBlock
+            advanceRoundWithQuorum newCertifiedBlock
             recordCheckedQuorumCertificate newQC
             makeBlock

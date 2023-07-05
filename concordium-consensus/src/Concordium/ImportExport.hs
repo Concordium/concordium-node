@@ -409,7 +409,7 @@ exportConsensusV1Blocks ::
     -- |Last written chunk in previous export
     Maybe FilePath ->
     -- |Returns a @Bool@ which indicates whether anything went wrong,
-    -- i.e. it is 'True' if an error occured and otherwise 'False,
+    -- i.e. it is 'True' if an error occurred and otherwise 'False,
     -- and the resulting 'BlockIndex' (the entries that have been added).
     m (Bool, BlockIndex)
 exportConsensusV1Blocks outDir chunkSize genIndex startHeight blockIndex lastWrittenChunkM = do
@@ -425,7 +425,7 @@ exportConsensusV1Blocks outDir chunkSize genIndex startHeight blockIndex lastWri
                     logEvent External LLError "Genesis hash does not match the recently exported block index."
                     return (True, Empty)
                 else do
-                    KonsensusV1.lookupLastBlock >>= \case
+                    KonsensusV1.lookupLastFinalizedBlock >>= \case
                         Nothing -> do
                             logEvent External LLError "Cannot read last block of the database."
                             return (True, Empty)

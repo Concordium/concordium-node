@@ -159,6 +159,8 @@ checkHeader meta mVerRes = do
                             return (iacc, cost)
                 -- An invalid verification result or `Nothing` was supplied to this function.
                 -- In either case we verify the transaction now.
+                -- Note: we do not have special handling for 'TVer.TrustedSuccess'.
+                -- Since the case is uncommon, it is reasonable to redo the verification.
                 _ -> do
                     newVerRes <- lift (TVer.verifyNormalTransaction meta)
                     case checkTransactionVerificationResult newVerRes of
@@ -2410,7 +2412,7 @@ handleDeployCredential (WithMetadata{wmdData = cred@AccountCreation{messageExpir
         remainingEnergy <- lift getRemainingEnergy
         when (remainingEnergy < theCost) $ throwError Nothing
         case mVerRes of
-            Just (TVer.Ok _) -> do
+            Just (TVer.Ok TVer.CredentialDeploymentSuccess) -> do
                 -- check that the credential deployment has not expired since we last verified it.
                 unless (isTimestampBefore ts (ID.validTo cdi)) $ throwError (Just AccountCredentialInvalid)
                 -- We always need to make sure that the account was not created in between
@@ -2422,6 +2424,8 @@ handleDeployCredential (WithMetadata{wmdData = cred@AccountCreation{messageExpir
                 newAccount
             -- An invalid verification result or `Nothing` was supplied to this function.
             -- In either case we verify the transaction now.
+            -- Note: we do not have special handling for 'TVer.TrustedSuccess'.
+            -- Since the case is uncommon, it is reasonable to redo the verification.
             _ -> do
                 newVerRes <- lift (TVer.verifyCredentialDeployment ts cred)
                 case checkTransactionVerificationResult newVerRes of
@@ -2609,6 +2613,8 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, mVerRes
                             else enqueue change
             -- An invalid verification result or `Nothing` was supplied to this function.
             -- In either case we verify the transaction now.
+            -- Note: we do not have special handling for 'TVer.TrustedSuccess'.
+            -- Since the case is uncommon, it is reasonable to redo the verification.
             _ -> do
                 newVerRes <- TVer.verifyChainUpdate ui
                 case checkTransactionVerificationResult newVerRes of

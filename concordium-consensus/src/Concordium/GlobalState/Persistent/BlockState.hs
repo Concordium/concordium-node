@@ -31,6 +31,7 @@ module Concordium.GlobalState.Persistent.BlockState (
     BlockRewardDetails (..),
     PersistentBlockStateMonad (..),
     withNewAccountCache,
+    cacheState,
     cacheStateAndGetTransactionTable,
     migratePersistentBlockState,
     SupportsPersistentState,
@@ -3516,6 +3517,10 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage 
         Cache.collapseCache (Proxy :: Proxy (AccountCache av))
         Cache.collapseCache (Proxy :: Proxy Modules.ModuleCache)
 
+    cacheBlockState = cacheState
+
+    cacheBlockStateAndGetTransactionTable = cacheStateAndGetTransactionTable
+
 -- |Migrate the block state from the representation used by protocol version
 -- @oldpv@ to the one used by protocol version @pv@. The migration is done gradually,
 -- and that is the reason for the monad @m@ and the transformer @t@. The inner monad @m@ is
@@ -3612,6 +3617,47 @@ migrateBlockPointers migration BlockStatePointers{..} = do
               bspTransactionOutcomes = newTransactionOutcomes,
               bspRewardDetails = newRewardDetails
             }
+
+-- |Cache the block state.
+cacheState ::
+    forall pv m.
+    (SupportsPersistentState pv m) =>
+    HashedPersistentBlockState pv ->
+    m ()
+cacheState hpbs = do
+    BlockStatePointers{..} <- loadPBS (hpbsPointers hpbs)
+    accts <- liftCache (return @_ @(PersistentAccount (AccountVersionFor pv))) bspAccounts
+    -- first cache the modules
+    mods <- cache bspModules
+    -- then cache the instances, but don't cache the modules again. Instead
+    -- share the references in memory we have already constructed by caching
+    -- modules above. Loading the modules here is cheap since we cached them.
+    insts <- runReaderT (cache bspInstances) =<< refLoad mods
+    ips <- cache bspIdentityProviders
+    ars <- cache bspAnonymityRevokers
+    birkParams <- cache bspBirkParameters
+    cryptoParams <- cache bspCryptographicParameters
+    upds <- cache bspUpdates
+    rels <- cache bspReleaseSchedule
+    red <- cache bspRewardDetails
+    _ <-
+        storePBS
+            (hpbsPointers hpbs)
+            BlockStatePointers
+                { bspAccounts = accts,
+                  bspInstances = insts,
+                  bspModules = mods,
+                  bspBank = bspBank,
+                  bspIdentityProviders = ips,
+                  bspAnonymityRevokers = ars,
+                  bspBirkParameters = birkParams,
+                  bspCryptographicParameters = cryptoParams,
+                  bspUpdates = upds,
+                  bspReleaseSchedule = rels,
+                  bspTransactionOutcomes = bspTransactionOutcomes,
+                  bspRewardDetails = red
+                }
+    return ()
 
 -- |Cache the block state and get the initial (empty) transaction table with the next account nonces
 -- and update sequence numbers populated.

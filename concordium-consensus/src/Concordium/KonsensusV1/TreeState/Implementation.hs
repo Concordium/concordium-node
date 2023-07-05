@@ -102,14 +102,13 @@ data BlockTable pv = BlockTable
       -- if we simply expunged dead blocks.
       _deadBlocks :: !DeadCache,
       -- |Map of live blocks.
-      -- Blocks are removed from this map by two means;
+      -- Blocks are removed from this map by two means:
       --
-      -- * When a block becomes finalized it is
-      -- being persisted (and so are the live blocks which are predecessors to the block
-      -- being finalized.)
-      -- and removed from this cache.
+      -- * When a block becomes finalized it is removed from the table, as it is persisted on disk.
       --
       -- * When a block is being marked as dead.
+      --
+      -- Note that non-finalized certified blocks exist both in the live map and on the disk.
       _liveMap :: !(HM.HashMap BlockHash (InMemoryBlockStatus pv))
     }
     deriving (Show)
@@ -230,8 +229,9 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       _skovPendingBlocks :: !PendingBlocks,
       -- |Pointer to the last finalized block.
       _lastFinalized :: !(BlockPointer pv),
-      -- |Certified block that justifies the last finalized block being finalized.
-      _finalizingCertifiedBlock :: !(Option (CertifiedBlock pv)),
+      -- |A finalization entry that finalizes the last finalized block, unless that is the
+      -- genesis block.
+      _latestFinalizationEntry :: !(Option FinalizationEntry),
       -- |Baker and finalizer information with respect to the epoch of the last finalized block.
       -- Note: this is distinct from the current epoch.
       _skovEpochBakers :: !EpochBakers,
@@ -359,7 +359,7 @@ mkInitialSkovData rp genMeta genState _currentTimeout _skovEpochBakers transacti
         _genesisMetadata = genMeta
         _skovPendingBlocks = emptyPendingBlocks
         _lastFinalized = genesisBlockPointer
-        _finalizingCertifiedBlock = Absent
+        _latestFinalizationEntry = Absent
         _statistics = Stats.initialConsensusStatistics
         _currentTimeoutMessages = Absent
         _currentQuorumMessages = emptyQuorumMessages
@@ -411,7 +411,7 @@ getMemoryBlockStatus blockHash sd
     | otherwise = Nothing
 
 -- |Create a block pointer from a stored block.
-mkBlockPointer :: (MonadIO m) => LowLevel.StoredBlock (MPV m) -> m (BlockPointer (MPV m))
+mkBlockPointer :: (MonadIO m) => LowLevel.StoredBlock pv -> m (BlockPointer pv)
 mkBlockPointer sb@LowLevel.StoredBlock{..} = do
     bpState <- liftIO mkHashedPersistentBlockState
     return BlockPointer{bpInfo = stbInfo, bpBlock = stbBlock, ..}
