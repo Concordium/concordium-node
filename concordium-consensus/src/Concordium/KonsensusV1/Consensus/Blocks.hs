@@ -1229,6 +1229,25 @@ prepareBakeBlockInputs = runMaybeT $ do
             | otherwise = Absent
           where
             finEntry = sd ^. roundStatus . rsLastEpochFinalizationEntry
+    -- We check that the finalization entry is consistent with the QC, since otherwise the block
+    -- would be rejected. Normally, this shouldn't be an issue because the highest QC will be
+    -- at least the successor QC in the finalization entry.
+    forM_ bbiEpochFinalizationEntry $ \finEntry -> do
+        unless (qcRound (feSuccessorQuorumCertificate finEntry) <= qcRound bbiQuorumCertificate) $
+            do
+                logEvent Konsensus LLDebug $
+                    "Unable to bake block in round "
+                        ++ show bbiRound
+                        ++ ", epoch "
+                        ++ show bbiEpoch
+                        ++ " since the parent block ("
+                        ++ show (getHash @BlockHash bbiParent)
+                        ++ ") is in round "
+                        ++ show (blockRound bbiParent)
+                        ++ " but the epoch finalization entry includes a QC for round "
+                        ++ show (qcRound (feSuccessorQuorumCertificate finEntry))
+                        ++ "."
+                empty
     bbiEpochBakers <-
         if isAbsent bbiEpochFinalizationEntry
             then getCurrentEpochBakers (bpState bbiParent)
