@@ -443,7 +443,9 @@ processCatchUpTerminalData CatchUpTerminalData{..} = flip runContT return $ do
     lift makeBlock
     return $ TerminalDataResultValid progress4
   where
-    escape progress = ContT $ \_ -> return (TerminalDataResultInvalid progress)
+    escape progress reason = ContT $ \_ -> do
+        logEvent Skov LLDebug $ "Rejecting catch-up response: " ++ reason
+        return (TerminalDataResultInvalid progress)
     processFE currentProgress Absent = return currentProgress
     processFE currentProgress (Present latestFinEntry) = do
         let finQC = feFinalizedQuorumCertificate latestFinEntry
@@ -452,7 +454,10 @@ processCatchUpTerminalData CatchUpTerminalData{..} = flip runContT return $ do
             Just block -> do
                 unless
                     (blockRound block == qcRound finQC && blockEpoch block == qcEpoch finQC)
-                    (escape currentProgress)
+                    ( escape
+                        currentProgress
+                        "finalization entry is inconsistent with the block it finalizes."
+                    )
                 gets (getBakersForEpoch (qcEpoch finQC)) >>= \case
                     Nothing -> return currentProgress
                     Just BakersAndFinalizers{..} -> do
@@ -463,7 +468,7 @@ processCatchUpTerminalData CatchUpTerminalData{..} = flip runContT return $ do
                                     (toRational $ genesisSignatureThreshold gmParameters)
                                     _bfFinalizers
                                     latestFinEntry
-                        unless finEntryOK (escape currentProgress)
+                        unless finEntryOK (escape currentProgress "finalization entry is invalid.")
                         lift $ do
                             -- Record the checked quorum certificates
                             recordCheckedQuorumCertificate $
@@ -481,7 +486,10 @@ processCatchUpTerminalData CatchUpTerminalData{..} = flip runContT return $ do
             Just block -> do
                 unless
                     (blockRound block == qcRound qc && blockEpoch block == qcEpoch qc)
-                    (escape currentProgress)
+                    ( escape
+                        currentProgress
+                        "quorum certificate is inconsistent with the block it certifies."
+                    )
                 use (roundExistingQuorumCertificate (qcRound qc)) >>= \case
                     Just _ -> return currentProgress
                     Nothing -> do
@@ -495,7 +503,9 @@ processCatchUpTerminalData CatchUpTerminalData{..} = flip runContT return $ do
                                             (toRational $ genesisSignatureThreshold gmParameters)
                                             _bfFinalizers
                                             qc
-                                unless qcOK (escape currentProgress)
+                                unless
+                                    qcOK
+                                    (escape currentProgress "quorum certificate is invalid.")
                                 lift $ do
                                     recordCheckedQuorumCertificate qc
                                     let newCertifiedBlock =
@@ -523,7 +533,10 @@ processCatchUpTerminalData CatchUpTerminalData{..} = flip runContT return $ do
                 -- block, then the peer has failed to catch us up with the relevant block and/or QC.
                 when
                     (blockRound highBlock < tcMaxRound tc || blockEpoch highBlock < tcMaxEpoch tc)
-                    (escape currentProgress)
+                    ( escape
+                        currentProgress
+                        "timeout certificate is not consistent with highest certified block"
+                    )
                 -- The SkovData invariants imply that we can always get the bakers for the epoch
                 -- of the highest certified block.
                 ebQC <-
@@ -569,7 +582,7 @@ processCatchUpTerminalData CatchUpTerminalData{..} = flip runContT return $ do
                                     }
                         return True
                     else do
-                        escape currentProgress
+                        escape currentProgress "timeout certificate is invalid"
             else do
                 return currentProgress
     processQM currentProgress qm = do
@@ -582,17 +595,32 @@ processCatchUpTerminalData CatchUpTerminalData{..} = flip runContT return $ do
             Quorum.ReceivedNoRelay vqm -> process vqm
             Quorum.Rejected Quorum.Duplicate -> return currentProgress
             Quorum.Rejected Quorum.ObsoleteRound -> return currentProgress
-            _ -> escape currentProgress
+            Quorum.Rejected reason ->
+                escape currentProgress $
+                    "quorum message was rejected with reason " ++ show reason
+            Quorum.CatchupRequired ->
+                escape currentProgress "quorum message would trigger catch up"
+            Quorum.ConsensusShutdown -> return currentProgress
     processTM currentProgress tm = do
         verRes <- lift $ Timeout.receiveTimeoutMessage tm =<< get
         case verRes of
             Timeout.Received vtm -> do
                 lift (Timeout.executeTimeoutMessage vtm) >>= \case
                     Timeout.ExecutionSuccess -> return True
-                    _ -> escape currentProgress
+                    reason ->
+                        escape currentProgress $
+                            "timeout message was invalid with reason " ++ show reason
             Timeout.Rejected Timeout.Duplicate -> return currentProgress
             Timeout.Rejected Timeout.ObsoleteRound -> return currentProgress
-            _ -> escape currentProgress
+            Timeout.Rejected Timeout.DoubleSigning -> return currentProgress
+            Timeout.Rejected reason ->
+                escape currentProgress $
+                    "timeout message was rejected with reason " ++ show reason
+            Timeout.CatchupRequired ->
+                escape
+                    currentProgress
+                    "timeout message would trigger catch up"
+            Timeout.ConsensusShutdown -> return currentProgress
 
 makeCatchUpStatusMessage :: SkovData pv -> CatchUpMessage
 makeCatchUpStatusMessage = CatchUpStatusMessage . (\s -> s{cusBranches = []}) . makeCatchUpStatus
