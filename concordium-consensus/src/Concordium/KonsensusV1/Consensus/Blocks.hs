@@ -1393,6 +1393,6 @@ makeBlock = do
             logEvent Baker LLDebug $
                 "Baking block at "
                     ++ show (timestampToUTCTime $ blockTimestamp block)
-            doAfter (timestampToUTCTime $ blockTimestamp block) $ do
+            void . onTimeout (DelayUntil . timestampToUTCTime $ blockTimestamp block) $ do
                 sendBlock block
                 checkedValidateBlock block
