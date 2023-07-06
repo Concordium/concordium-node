@@ -43,6 +43,7 @@ module Concordium.ImportExport where
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
+import Control.Monad.Reader
 import Control.Monad.State (evalStateT)
 import Control.Monad.Trans.Except
 import Control.Monad.Trans.Reader
@@ -388,13 +389,15 @@ exportDatabaseV3 dbDir outDir chunkSize = do
 
 -- |Export blocks from a 'ConsensusV1' database.
 exportConsensusV1Blocks ::
-    forall pv m.
+    forall pv m r.
     ( IsProtocolVersion pv,
       MonadIO m,
       KonsensusV1.MonadTreeStateStore m,
       MonadLogger m,
       MPV m ~ pv,
-      MonadThrow m
+      MonadReader r m,
+      KonsensusV1.HasDatabaseHandlers r pv,
+      MonadCatch m
     ) =>
     -- |Export path.
     FilePath ->
@@ -413,51 +416,54 @@ exportConsensusV1Blocks ::
     -- and the resulting 'BlockIndex' (the entries that have been added).
     m (Bool, BlockIndex)
 exportConsensusV1Blocks outDir chunkSize genIndex startHeight blockIndex lastWrittenChunkM = do
-    KonsensusV1.lookupFirstBlock >>= \case
-        Nothing -> do
-            logEvent External LLError "Could not read from database."
-            return (True, Empty)
-        Just genesisBlock -> do
-            let exportedGenHash = exportedGenHashOr genHash
-                genHash = getHash genesisBlock
-            if genHash /= exportedGenHash
-                then do
-                    logEvent External LLError "Genesis hash does not match the recently exported block index."
-                    return (True, Empty)
-                else do
-                    KonsensusV1.lookupLastFinalizedBlock >>= \case
-                        Nothing -> do
-                            logEvent External LLError "Cannot read last block of the database."
-                            return (True, Empty)
-                        Just sb -> do
-                            let getBlockAt' :: BlockHeight -> m (Maybe BS.ByteString)
-                                getBlockAt' height =
-                                    KonsensusV1.lookupBlockByHeight height >>= \case
-                                        Nothing -> return Nothing
-                                        Just b | KonsensusV1.NormalBlock signedBlock <- KonsensusV1.stbBlock b -> do
-                                            let serializedBlock = runPut $ KonsensusV1.putSignedBlock signedBlock
-                                            return $ Just serializedBlock
-                                        _ -> return Nothing -- Do not export genesis blocks.
-                                getBlockAt = GetBlockAtV1 getBlockAt'
-                            chunks <-
-                                writeChunks
-                                    genIndex
-                                    (demoteProtocolVersion (protocolVersion @pv))
-                                    genHash
-                                    startHeight
-                                    (KonsensusV1.bmHeight . KonsensusV1.stbInfo $ sb)
-                                    outDir
-                                    chunkSize
-                                    lastWrittenChunkM
-                                    -- A dummy @FinalizationIndex@ that is not used when
-                                    -- exporting a consensusv1 database.
-                                    -- However it is required when exporting a consensusv0 database,
-                                    -- so in order to reuse the code that exports blocks, then this
-                                    -- dummy value is passed in.
-                                    0
-                                    getBlockAt
-                                    GetFinalizationRecordAtV1
-                            return (False, singleton (genHash, chunks))
+    KonsensusV1.resizeOnResized $
+        KonsensusV1.lookupFirstBlock >>= \case
+            Nothing -> do
+                logEvent External LLError "Could not read from database."
+                return (True, Empty)
+            Just genesisBlock -> do
+                let exportedGenHash = exportedGenHashOr genHash
+                    genHash = getHash genesisBlock
+                if genHash /= exportedGenHash
+                    then do
+                        logEvent External LLError "Genesis hash does not match the recently exported block index."
+                        return (True, Empty)
+                    else do
+                        KonsensusV1.resizeOnResized $
+                            KonsensusV1.lookupLastFinalizedBlock >>= \case
+                                Nothing -> do
+                                    logEvent External LLError "Cannot read last block of the database."
+                                    return (True, Empty)
+                                Just sb -> do
+                                    let getBlockAt' :: BlockHeight -> m (Maybe BS.ByteString)
+                                        getBlockAt' height =
+                                            KonsensusV1.resizeOnResized $
+                                                KonsensusV1.lookupBlockByHeight height >>= \case
+                                                    Nothing -> return Nothing
+                                                    Just b | KonsensusV1.NormalBlock signedBlock <- KonsensusV1.stbBlock b -> do
+                                                        let serializedBlock = runPut $ KonsensusV1.putSignedBlock signedBlock
+                                                        return $ Just serializedBlock
+                                                    _ -> return Nothing -- Do not export genesis blocks.
+                                        getBlockAt = GetBlockAtV1 getBlockAt'
+                                    chunks <-
+                                        writeChunks
+                                            genIndex
+                                            (demoteProtocolVersion (protocolVersion @pv))
+                                            genHash
+                                            startHeight
+                                            (KonsensusV1.bmHeight . KonsensusV1.stbInfo $ sb)
+                                            outDir
+                                            chunkSize
+                                            lastWrittenChunkM
+                                            -- A dummy @FinalizationIndex@ that is not used when
+                                            -- exporting a consensusv1 database.
+                                            -- However it is required when exporting a consensusv0 database,
+                                            -- so in order to reuse the code that exports blocks, then this
+                                            -- dummy value is passed in.
+                                            0
+                                            getBlockAt
+                                            GetFinalizationRecordAtV1
+                                    return (False, singleton (genHash, chunks))
   where
     -- Return the last exported genesis hash or the provided one.
     exportedGenHashOr bh = case blockIndex of
