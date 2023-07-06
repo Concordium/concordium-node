@@ -2,6 +2,9 @@
 
 ## Unreleased changes
 
+- Fix a bug where receiving a duplicate of an invalid block could be spuriously reported as double
+  signing.
+
 ## 6.0.1
 
 - Remove configuration option `no-rpc-server` and environment variable
