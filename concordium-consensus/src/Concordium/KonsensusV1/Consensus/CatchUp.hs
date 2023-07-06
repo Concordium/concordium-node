@@ -490,9 +490,10 @@ processCatchUpTerminalData CatchUpTerminalData{..} = flip runContT return $ do
                         currentProgress
                         "quorum certificate is inconsistent with the block it certifies."
                     )
-                use (roundExistingQuorumCertificate (qcRound qc)) >>= \case
-                    Just _ -> return currentProgress
-                    Nothing -> do
+                -- We only care if the QC will advance our current round.
+                currentRound <- use $ roundStatus . rsCurrentRound
+                if currentRound == qcRound qc
+                    then do
                         gets (getBakersForEpoch (qcEpoch qc)) >>= \case
                             Nothing -> return currentProgress
                             Just BakersAndFinalizers{..} -> do
@@ -520,6 +521,7 @@ processCatchUpTerminalData CatchUpTerminalData{..} = flip runContT return $ do
                                         advanceRoundWithQuorum
                                             newCertifiedBlock
                                     return True
+                    else return currentProgress
             Nothing -> return currentProgress
     processTC currentProgress Absent = return currentProgress
     processTC currentProgress (Present tc) = do
