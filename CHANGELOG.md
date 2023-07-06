@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased changes
+- Fix a bug where the LMDB map was not resized when exporting the database. 
+  This could cause the exporing to fail when used on a running node.
 
 ## 6.0.1
 
