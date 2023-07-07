@@ -609,27 +609,6 @@ instance HashableTo Hash.Hash (Option TimeoutCertificate) where
         putWord8 1
         put tc
 
--- |Check the signature in a timeout certificate.
-checkTimeoutCertificateSignature ::
-    -- |Genesis block hash
-    BlockHash ->
-    -- |Get the public keys for a set of finalizers for a given 'Epoch'.
-    (FinalizerSet -> Epoch -> [BakerAggregationVerifyKey]) ->
-    TimeoutCertificate ->
-    Bool
-checkTimeoutCertificateSignature tsmGenesis toKeys TimeoutCertificate{..} =
-    Bls.verifyAggregateHybrid msgsKeys (theTimeoutSignature tcAggregateSignature)
-  where
-    msgsKeysForEpoch tsmQCEpoch finalizerRounds =
-        [ ( timeoutSignatureMessageBytes TimeoutSignatureMessage{tsmRound = tcRound, ..},
-            toKeys fs tsmQCEpoch
-          )
-          | (tsmQCRound, fs) <- finalizerRoundsList finalizerRounds
-        ]
-    msgsKeys =
-        msgsKeysForEpoch tcMinEpoch tcFinalizerQCRoundsFirstEpoch
-            ++ msgsKeysForEpoch (tcMinEpoch + 1) tcFinalizerQCRoundsSecondEpoch
-
 -- |Check that the signature on a timeout certificate is correct and that it contains a sufficient
 -- weight of signatures with respect to the finalization committee of a given epoch (the epoch of
 -- the quorum certificate that the timeout certificate should be valid with respect to).
@@ -691,14 +670,15 @@ checkTimeoutCertificate tsmGenesis sigThreshold finCom1 finCom2 finComQC Timeout
     check :: [(BS.ByteString, [Bls.PublicKey])] -> Set.Set BakerId -> Bool
     check msgKeys finBakerIds =
         Bls.verifyAggregateHybrid msgKeys (theTimeoutSignature tcAggregateSignature)
-            && toRational (computeWeight finComQC (Set.toAscList finBakerIds)) >= targetWeight
+            && toRational (computeWeight (Set.toAscList finBakerIds)) >= targetWeight
     -- The target weight of finalizers for the signature to be considered valid.
     targetWeight = sigThreshold * toRational (committeeTotalWeight finComQC)
-    -- Compute the weight of the provided list of baker ids using the 'FinalizationCommittee'.
+    -- Compute the weight of the provided list of baker ids using the 'FinalizationCommittee' from the QC
+    -- of the TC.
     -- Note that this function assumes that the list of baker ids and the finalization committee
     -- is sorted in ascending order of baker id.
-    computeWeight :: FinalizationCommittee -> [BakerId] -> VoterPower
-    computeWeight committee bids = snd $ foldl' maybeAdd (bids, 0) $ committeeFinalizers committee
+    computeWeight :: [BakerId] -> VoterPower
+    computeWeight bids = snd $ foldl' maybeAdd (bids, 0) $ committeeFinalizers finComQC
       where
         -- Adds the weight to the sum if the finalizer indices matches otherwise
         -- continue to the next finalizer info.
