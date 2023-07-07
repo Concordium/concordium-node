@@ -46,7 +46,6 @@ import Control.Monad.IO.Class
 import Control.Monad.Reader
 import Control.Monad.State (evalStateT)
 import Control.Monad.Trans.Except
-import Control.Monad.Trans.Reader
 import qualified Data.Attoparsec.Text as AP
 import Data.Bits
 import qualified Data.ByteString as BS
