@@ -121,8 +121,15 @@ makeLenses ''PersistentBirkParameters
 -- |Migrate a 'SeedState' between protocol versions.
 -- For migrations in consensus version 0, changes to the seed state are handled prior to state
 -- migration. For consensus version 1, they should be handled here.
-migrateSeedState :: StateMigrationParameters oldpv pv -> SeedState (SeedStateVersionFor oldpv) -> SeedState (SeedStateVersionFor pv)
-migrateSeedState StateMigrationParametersTrivial{} ss = ss
+migrateSeedState :: forall oldpv pv. IsProtocolVersion pv => StateMigrationParameters oldpv pv -> SeedState (SeedStateVersionFor oldpv) -> SeedState (SeedStateVersionFor pv)
+migrateSeedState StateMigrationParametersTrivial{} ss = case consensusVersionFor (protocolVersion @pv) of
+    ConsensusV0 -> ss
+    ConsensusV1 -> case ss of
+        SeedStateV1{..} ->
+            ss
+                { ss1ShutdownTriggered = False,
+                  ss1UpdatedNonce = H.hash $ "Regenesis" <> encode ss1CurrentLeadershipElectionNonce
+                }
 migrateSeedState StateMigrationParametersP1P2{} ss = ss
 migrateSeedState StateMigrationParametersP2P3{} ss = ss
 migrateSeedState StateMigrationParametersP3ToP4{} ss = ss

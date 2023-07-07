@@ -65,6 +65,7 @@ import qualified Concordium.KonsensusV1.TreeState.Types as SkovV1
 import Concordium.KonsensusV1.Types (Option (..))
 import qualified Concordium.KonsensusV1.Types as KonsensusV1
 import Concordium.ProtocolUpdate
+import qualified Concordium.ProtocolUpdateV1 as ProtocolUpdateV1
 import qualified Concordium.Skov as Skov
 import Concordium.TimeMonad
 import Concordium.TimerMonad
@@ -913,7 +914,78 @@ checkForProtocolUpdateV1 = body
     body = do
         check >>= \case
             Nothing -> return ()
-            Just _ -> return () -- FIXME: support new (post P6) protocols. Issue #932.
+            Just (PVInit{pvInitGenesis = nextGenesis :: Regenesis newpv, ..}) ->
+                case consensusVersionFor (protocolVersion @newpv) of
+                    ConsensusV0 -> undefined -- we should not support this
+                    ConsensusV1 -> do
+                        -- Clear the old skov instance.
+                        KonsensusV1.clearSkov
+                        mvr@MultiVersionRunner
+                            { mvConfiguration = MultiVersionConfiguration{..},
+                              mvCallbacks = Callbacks{..},
+                              ..
+                            } <-
+                            lift ask
+                        existingVersions <- liftIO (readIORef mvVersions)
+                        let latestEraGenesisHeight = evcGenesisHeight $ Vec.last existingVersions
+                        let vc1Index = fromIntegral (length existingVersions)
+                            vc1GenesisHeight = 1 + localToAbsoluteBlockHeight latestEraGenesisHeight pvInitFinalHeight
+                        configRef <- liftIO newEmptyMVar
+                        -- We need an "unlift" operation to run a SkovV1 transaction in an IO context.
+                        -- This is used for implementing timer handlers.
+                        -- The "unlift" is implemented by using an 'MVar' to store the configuration in,
+                        -- that will be set after initialization.
+                        let
+                            unliftSkov :: forall b. VersionedSkovV1M fc newpv b -> IO b
+                            unliftSkov a = do
+                                config <- readMVar configRef
+                                runMVR (runSkovV1Transaction config a) mvr
+                        let !handlers = skovV1Handlers vc1Index vc1GenesisHeight
+                        -- get the last finalized block state
+                        lastFinBlockState <- KonsensusV1.getLastFinalizedBlockState
+                        -- the existing persistent block state context.
+                        existingPbsc <- asks SkovV1._vcPersistentBlockStateContext
+                        -- Migrate the old state to the new protocol and
+                        -- get the new skov context and state.
+                        (vc1Context, newState) <-
+                            liftIO $
+                                runLoggerT
+                                    ( SkovV1.migrateSkovFromConsensusV1
+                                        -- regenesis
+                                        nextGenesis
+                                        -- migration
+                                        pvInitMigration
+                                        -- Global state config
+                                        (globalStateConfigV1 mvcStateConfig mvcRuntimeParameters vc1Index)
+                                        -- The existing persistent block state context
+                                        existingPbsc
+                                        -- The last finalized state of the chain we're migrating from.
+                                        lastFinBlockState
+                                        -- The baker context
+                                        (SkovV1.BakerContext (bakerIdentity <$> mvBaker))
+                                        -- Handler context
+                                        handlers
+                                        -- lift SkovV1T
+                                        unliftSkov
+                                    )
+                                    mvLog
+                        -- Shutdown the old skov instance as it is
+                        -- no longer required after the migration.
+                        KonsensusV1.terminateSkov
+                        -- Create a reference for the new state.
+                        vc1State <- liftIO $ newIORef newState
+                        let vc1Shutdown = SkovV1.shutdownSkovV1 vc1Context
+                            newECConfig :: VersionedConfigurationV1 fc newpv
+                            newECConfig = VersionedConfigurationV1{..}
+                        liftIO $ do
+                            -- Write the new configuration reference.
+                            putMVar configRef newECConfig
+                            -- Write out the new versions with the appended new protocol version.
+                            writeIORef mvVersions (existingVersions `Vec.snoc` EVersionedConfigurationV1 newECConfig)
+                            -- Notify the network layer about the new genesis.
+                            notifyRegenesis (Just (regenesisBlockHash nextGenesis))
+                            -- startup the new consensus
+                            runMVR (liftSkovV1Update newECConfig KonsensusV1.startEvents) mvr
     showPU ProtocolUpdate{..} =
         Text.unpack puMessage
             ++ "\n["
@@ -926,18 +998,25 @@ checkForProtocolUpdateV1 = body
         VersionedSkovV1M fc lastpv (Maybe (PVInit (VersionedSkovV1M fc lastpv)))
     check = do
         SkovV1.getProtocolUpdateStatus >>= \case
-            ProtocolUpdated pu -> do
-                -- FIXME: Check if we recognize the protocol update. Issue #932.
-                logEvent Kontrol LLError $
-                    "An unsupported protocol update has taken effect: " ++ showPU pu
-                lift $ do
-                    callbacks <- asks mvCallbacks
-                    liftIO (notifyRegenesis callbacks Nothing)
-                    return Nothing
+            ProtocolUpdated pu -> case ProtocolUpdateV1.checkUpdate @lastpv pu of
+                Left err -> do
+                    logEvent Kontrol LLError $
+                        "An unsupported protocol update ("
+                            ++ err
+                            ++ ") has taken effect:"
+                            ++ showPU pu
+                    lift $ do
+                        callbacks <- asks mvCallbacks
+                        liftIO (notifyRegenesis callbacks Nothing)
+                        return Nothing
+                Right upd -> do
+                    logEvent Kontrol LLInfo "Starting protocol update."
+                    initData <- ProtocolUpdateV1.updateRegenesis upd
+                    return (Just initData)
             PendingProtocolUpdates [] -> return Nothing
             PendingProtocolUpdates ((ts, pu) : _) -> do
                 alreadyNotified <- SkovV1.alreadyNotified
-                unless alreadyNotified $ case checkUpdate @lastpv pu of
+                unless alreadyNotified $ case ProtocolUpdateV1.checkUpdate @lastpv pu of
                     Left err -> do
                         logEvent Kontrol LLError $
                             "An unsupported protocol update ("

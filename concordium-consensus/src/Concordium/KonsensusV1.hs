@@ -13,6 +13,7 @@ import Lens.Micro.Platform
 import qualified Concordium.Genesis.Data.BaseV1 as BaseV1
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Persistent.BlockState
+import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import qualified Concordium.GlobalState.Transactions as Transactions
 import Concordium.GlobalState.Types
 import Concordium.KonsensusV1.Consensus
@@ -22,6 +23,7 @@ import qualified Concordium.KonsensusV1.Consensus.Timeout as Timeout
 import Concordium.KonsensusV1.TreeState.Implementation
 import Concordium.KonsensusV1.TreeState.LowLevel
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
+import Concordium.KonsensusV1.TreeState.Types (bpState)
 import Concordium.KonsensusV1.Types
 import Concordium.Logger
 import Concordium.Skov.Monad (UpdateResult (..), transactionVerificationResultToUpdateResult)
@@ -116,3 +118,35 @@ startEvents = do
         doAfter genesisTime $ do
             resetTimerWithCurrentTimeout
             makeBlock
+
+-- |Get the last finalized blockstate
+getLastFinalizedBlockState :: MonadState (SkovData (MPV m)) m => m (PBS.HashedPersistentBlockState (MPV m))
+getLastFinalizedBlockState = bpState <$> use lastFinalized
+
+-- |Archive blockstate, update the focus block and clear out non-finalized and pending blocks.
+clearSkov ::
+    ( MonadState (SkovData (MPV m)) m
+    ) =>
+    m ()
+clearSkov = do
+    isShutdown <- use isConsensusShutdown
+    -- we should only do these things if we are shutting down
+    when isShutdown $ do
+        lfb <- use lastFinalized
+        -- Make the last finalized block the focus block,
+        -- adjusting the pending transaction table.
+        updateFocusBlockTo lfb
+        -- Clear out all of the non-finalized and pending blocks.
+        clearOnProtocolUpdate
+        return ()
+
+terminateSkov ::
+    ( MonadState (SkovData (MPV m)) m,
+      BlockState m ~ HashedPersistentBlockState (MPV m),
+      BlockStateStorage m
+    ) =>
+    m ()
+terminateSkov = do
+    isShutdown <- use isConsensusShutdown
+    -- we should only do these things if we are shutting down
+    when isShutdown clearAfterProtocolUpdate
