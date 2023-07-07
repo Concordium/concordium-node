@@ -435,8 +435,8 @@ processCatchUpTerminalData ::
     CatchUpTerminalData ->
     m TerminalDataResult
 processCatchUpTerminalData CatchUpTerminalData{..} = flip runContT return $ do
-    progress0 <- processFE False cutdLatestFinalizationEntry
-    progress1 <- foldM processQC progress0 cutdHighestQuorumCertificate
+    progress0 <- foldM processQC False cutdHighestQuorumCertificate
+    progress1 <- processFE progress0 cutdLatestFinalizationEntry
     progress2 <- processTC progress1 cutdTimeoutCertificate
     progress3 <- foldM processQM progress2 cutdCurrentRoundQuorumMessages
     progress4 <- foldM processTM progress3 cutdCurrentRoundTimeoutMessages

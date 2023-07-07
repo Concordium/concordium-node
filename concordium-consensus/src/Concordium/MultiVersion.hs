@@ -1721,7 +1721,7 @@ handleCatchUpStatusV1 CatchUpConfiguration{..} vc msg = do
                         blockLoop (count + 1) next
         (count, terminal) <- blockLoop 0 x
         logEvent Runner LLTrace $
-            "Sent " ++ show count ++ " blocks in response to a finalization request."
+            "Sent " ++ show count ++ " blocks in response to a catch-up request."
         -- We compute the catch-up status with respect to the state now (after sending the blocks)
         -- because we could have new information since startState that might have been sent to the
         -- peer while it was receiving our catch-up blocks. In that event, the peer might discard
