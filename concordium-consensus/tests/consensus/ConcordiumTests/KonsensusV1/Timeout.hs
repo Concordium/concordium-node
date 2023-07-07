@@ -631,25 +631,34 @@ testCheckTimeoutCertificate = describe "check timeout certificate" $ do
     it "accepts timeout certificate" checkOkTC
     it "rejects with wrong genesis" wrongGenesis
     it "rejects when there is not enough weight" insufficientWeight
+    it "rejects when the signature is invalid" invalidSignature
   where
     checkOkTC = runTest $ do
         finComm <- use $ skovEpochBakers . currentEpochBakers . bfFinalizers
         qc <- use $ roundStatus . rsHighestCertifiedBlock . to cbQuorumCertificate
-        checkOk $ checkTimeoutCertificate okGenesisHash sigThreshold finComm finComm finComm $ TestBlocks.validTimeoutFor qc (Round 1)
+        checkOk $ checkTimeoutCertificate okGenesisHash sigThreshold finComm finComm finComm $ validTCFor qc
     wrongGenesis = runTest $ do
         finComm <- use $ skovEpochBakers . currentEpochBakers . bfFinalizers
         qc <- use $ roundStatus . rsHighestCertifiedBlock . to cbQuorumCertificate
-        checkNotOk $ checkTimeoutCertificate invalidGenesisHash sigThreshold finComm finComm finComm $ TestBlocks.validTimeoutFor qc (Round 1)
+        checkNotOk $ checkTimeoutCertificate invalidGenesisHash sigThreshold finComm finComm finComm $ validTCFor qc
     insufficientWeight = runTest $ do
         finComm <- use $ skovEpochBakers . currentEpochBakers . bfFinalizers
         qc <- use $ roundStatus . rsHighestCertifiedBlock . to cbQuorumCertificate
         let finComm' = finComm{committeeFinalizers = Vec.tail $ committeeFinalizers finComm}
-        checkNotOk $ checkTimeoutCertificate okGenesisHash sigThreshold finComm finComm finComm' $ TestBlocks.validTimeoutFor qc (Round 1)
+        checkNotOk $ checkTimeoutCertificate okGenesisHash sigThreshold finComm finComm finComm' $ validTCFor qc
+    invalidSignature = runTest $ do
+        finComm <- use $ skovEpochBakers . currentEpochBakers . bfFinalizers
+        qc <- use $ roundStatus . rsHighestCertifiedBlock . to cbQuorumCertificate
+        checkNotOk $ checkTimeoutCertificate okGenesisHash sigThreshold finComm finComm finComm $ invalidSignatureInTC qc
     checkOk = liftIO . assertBool "Check failed"
     checkNotOk b = liftIO . assertBool "Check failed" $ not b
     runTest = runTestMonad (BakerContext Nothing) (timestampToUTCTime 1_000) TestBlocks.genesisData
     okGenesisHash = TestBlocks.genesisHash
     invalidGenesisHash = genesisHash
+    validTCFor qc = TestBlocks.validTimeoutFor qc (Round 1)
+    invalidSignatureInTC qc =
+        let tc = validTCFor qc
+        in  tc{tcAggregateSignature = TimeoutSignature Bls.emptySignature}
 
 tests :: Spec
 tests = describe "KonsensusV1.Timeout" $ do
