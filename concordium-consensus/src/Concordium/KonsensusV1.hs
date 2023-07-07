@@ -113,6 +113,7 @@ startEvents = do
     isShutdown <- use isConsensusShutdown
     unless isShutdown $ do
         genesisTime <- timestampToUTCTime . BaseV1.genesisTime . gmParameters <$> use genesisMetadata
-        doAfter genesisTime $ do
+        void . onTimeout (DelayUntil genesisTime) $ do
+            logEvent Konsensus LLInfo "Starting consensus operations."
             resetTimerWithCurrentTimeout
             makeBlock

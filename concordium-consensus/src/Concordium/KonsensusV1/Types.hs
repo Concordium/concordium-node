@@ -1352,11 +1352,12 @@ unsafeGetBlockKnownHash ts sbHash = do
 -- |Nominally, a proof that a baker signed a block in a particular round and epoch.
 -- For now, though, we do not include any information in the witness since we do not provide it to
 -- any external parties.
-data BlockSignatureWitness = BlockSignatureWitness
+newtype BlockSignatureWitness = BlockSignatureWitness {bswBlockHash :: BlockHash}
+    deriving (Eq, Show)
 
 -- |Derive a 'BlockSignatureWitness' from a signed block.
 toBlockSignatureWitness :: SignedBlock -> BlockSignatureWitness
-toBlockSignatureWitness _ = BlockSignatureWitness
+toBlockSignatureWitness = BlockSignatureWitness . getHash
 
 -- |A proof that contains the 'Epoch' for a 'QuorumCertificate'
 -- has been checked for a particular 'Round'.

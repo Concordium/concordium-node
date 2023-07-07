@@ -2,6 +2,11 @@
 
 ## Unreleased changes
 
+- Fix a bug where a setup with a single baker and a minimum block time of 0s would result in an
+  unresponsive node in protocol version 6.
+- Fix a bug where receiving a duplicate of an invalid block could be spuriously reported as double
+  signing.
+
 ## 6.0.1
 
 - Remove configuration option `no-rpc-server` and environment variable

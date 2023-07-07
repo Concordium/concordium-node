@@ -724,6 +724,14 @@ testReceiveDuplicate = runTestMonad noBaker testTime genesisData $ do
     res <- uponReceivingBlock $ signedPB testBB1
     liftIO $ res `shouldBe` BlockResultDuplicate
 
+-- |Receive an invalid block twice.
+testReceiveInvalidDuplicate :: Assertion
+testReceiveInvalidDuplicate = runTestMonad noBaker testTime genesisData $ do
+    let badBlock = signedPB (testBB1{bbStateHash = StateHashV0 minBound})
+    succeedReceiveBlockFailExecute badBlock
+    res <- uponReceivingBlock $ badBlock
+    liftIO $ res `shouldBe` BlockResultDuplicate
+
 testReceiveStale :: Assertion
 testReceiveStale = runTestMonad noBaker testTime genesisData $ do
     mapM_ (succeedReceiveBlock . signedPB) [testBB2', testBB3', testBB4']
@@ -1253,6 +1261,7 @@ tests = describe "KonsensusV1.Consensus.Blocks" $ do
         it "receive 4 blocks reordered, multiple epochs" testReceive4Reordered
         it "skip round 1, receive rounds 2,3,4" testReceiveWithTimeout
         it "receive duplicate block" testReceiveDuplicate
+        it "receive invalid duplicate block" testReceiveInvalidDuplicate
         it "receive stale round" testReceiveStale
         it "epoch transition" testReceiveEpoch
         it "block dies on old branch" testReceiveBlockDies
