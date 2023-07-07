@@ -278,16 +278,25 @@ receiveBlockKnownParent parent pendingBlock = do
             let blockWitness = toBlockSignatureWitness (pbBlock pendingBlock)
             -- Check if we've already seen a signed block from this baker in this round.
             use (roundBakerExistingBlock (blockRound pendingBlock) (blockBaker pendingBlock)) >>= \case
-                Just w -> do
-                    -- If the baker has already signed a block in this round then we flag it.
-                    logEvent Konsensus LLDebug $
-                        "Baker "
-                            <> show (blockBaker pendingBlock)
-                            <> " signed multiple blocks in round "
-                            <> show (blockRound pendingBlock)
-                            <> "."
-                    flag (DuplicateBlock w blockWitness)
-                    return $ BlockResultDoubleSign verifiedBlock
+                Just w
+                    | bswBlockHash w == pbHash -> do
+                        -- This case is uncommon, as duplicates are typically detected earlier, but
+                        -- it can happen if:
+                        --   1. the block bypasses de-duplication (i.e. as a direct message), and
+                        --   2. the block is invalid, but has a valid baker signature.
+                        -- We thus check if the block is actually distinct so that we do not
+                        -- spuriously report it as a double signing.
+                        return BlockResultDuplicate
+                    | otherwise -> do
+                        -- If the baker has already signed a block in this round then we flag it.
+                        logEvent Konsensus LLDebug $
+                            "Baker "
+                                <> show (blockBaker pendingBlock)
+                                <> " signed multiple blocks in round "
+                                <> show (blockRound pendingBlock)
+                                <> "."
+                        flag (DuplicateBlock w blockWitness)
+                        return $ BlockResultDoubleSign verifiedBlock
                 Nothing -> do
                     -- If the baker has not already signed a block in this round, we record that
                     -- it has now and return control to the caller for retransmitting the block.
