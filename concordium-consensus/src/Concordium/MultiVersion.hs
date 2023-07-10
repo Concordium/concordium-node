@@ -1696,7 +1696,9 @@ handleCatchUpStatusV1 ::
     VersionedConfigurationV1 finconf pv ->
     KonsensusV1.CatchUpMessage ->
     MVR finconf Skov.UpdateResult
-handleCatchUpStatusV1 CatchUpConfiguration{..} vc = handleMsg
+handleCatchUpStatusV1 CatchUpConfiguration{..} vc msg = do
+    logEvent Runner LLTrace $ "Handling catch-up message: " ++ show msg
+    handleMsg msg
   where
     handleMsg KonsensusV1.CatchUpStatusMessage{..} = do
         st <- liftIO $ readIORef $ vc1State vc
@@ -1719,7 +1721,7 @@ handleCatchUpStatusV1 CatchUpConfiguration{..} vc = handleMsg
                         blockLoop (count + 1) next
         (count, terminal) <- blockLoop 0 x
         logEvent Runner LLTrace $
-            "Sent " ++ show count ++ " blocks in response to a finalization request."
+            "Sent " ++ show count ++ " blocks in response to a catch-up request."
         -- We compute the catch-up status with respect to the state now (after sending the blocks)
         -- because we could have new information since startState that might have been sent to the
         -- peer while it was receiving our catch-up blocks. In that event, the peer might discard
@@ -1727,14 +1729,18 @@ handleCatchUpStatusV1 CatchUpConfiguration{..} vc = handleMsg
         -- any such blocks now need to be caught up.
         endState <- liftIO $ readIORef $ vc1State vc
         let status = KonsensusV1.makeCatchUpStatus (SkovV1._v1sSkovData endState)
+        let response =
+                KonsensusV1.CatchUpResponseMessage
+                    { cumStatus = status,
+                      cumTerminalData = terminal
+                    }
+        logEvent Runner LLTrace $
+            "Sending catch-up response: " ++ show response
         liftIO $
             catchUpCallback Skov.MessageCatchUpStatus $
                 encode $
-                    VersionedCatchUpStatusV1 $
-                        KonsensusV1.CatchUpResponseMessage
-                            { cumStatus = status,
-                              cumTerminalData = terminal
-                            }
+                    VersionedCatchUpStatusV1 response
+
         checkShouldCatchUp cumStatus endState False
     handleMsg KonsensusV1.CatchUpResponseMessage{cumTerminalData = Present terminal, ..} = do
         res <- runSkovV1Transaction vc $ do
@@ -1778,6 +1784,7 @@ getCatchUpRequest = do
         (EVersionedConfigurationV1 vc) -> do
             st <- liftIO $ readIORef $ vc1State vc
             let cus = KonsensusV1.makeCatchUpRequestMessage $ SkovV1._v1sSkovData st
+            logEvent Runner LLTrace $ "Sending catch-up request: " ++ show cus
             return (vc1Index vc, encodeLazy $ VersionedCatchUpStatusV1 cus)
 
 -- |Deserialize and receive a transaction.  The transaction is passed to

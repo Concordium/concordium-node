@@ -45,6 +45,8 @@ import ConcordiumTests.KonsensusV1.Common
 import ConcordiumTests.KonsensusV1.TreeStateTest hiding (tests)
 import ConcordiumTests.KonsensusV1.Types hiding (tests)
 
+import qualified ConcordiumTests.KonsensusV1.Consensus.Blocks as TestBlocks
+
 -- |Test that 'updateCurrentTimeout' correctly calculates a new timeout given the current timeout and the
 -- `timeoutIncrease` parameter.
 testUpdateCurrentTimeout :: Duration -> Ratio Word64 -> Duration -> Assertion
@@ -623,6 +625,41 @@ testExecuteTimeoutMessages = describe "execute timeout messages" $ do
             Dummy.dummyKeyCollection
             Dummy.dummyChainParameters
 
+-- |Tests the 'checkTimeoutCertificate' function.
+testCheckTimeoutCertificate :: Spec
+testCheckTimeoutCertificate = describe "check timeout certificate" $ do
+    it "accepts timeout certificate" checkOkTC
+    it "rejects with wrong genesis" wrongGenesis
+    it "rejects when there is not enough weight" insufficientWeight
+    it "rejects when the signature is invalid" invalidSignature
+  where
+    checkOkTC = runTest $ do
+        finComm <- use $ skovEpochBakers . currentEpochBakers . bfFinalizers
+        qc <- use $ roundStatus . rsHighestCertifiedBlock . to cbQuorumCertificate
+        checkOk $ checkTimeoutCertificate okGenesisHash sigThreshold finComm finComm finComm $ validTCFor qc
+    wrongGenesis = runTest $ do
+        finComm <- use $ skovEpochBakers . currentEpochBakers . bfFinalizers
+        qc <- use $ roundStatus . rsHighestCertifiedBlock . to cbQuorumCertificate
+        checkNotOk $ checkTimeoutCertificate invalidGenesisHash sigThreshold finComm finComm finComm $ validTCFor qc
+    insufficientWeight = runTest $ do
+        finComm <- use $ skovEpochBakers . currentEpochBakers . bfFinalizers
+        qc <- use $ roundStatus . rsHighestCertifiedBlock . to cbQuorumCertificate
+        let finComm' = finComm{committeeFinalizers = Vec.tail $ committeeFinalizers finComm}
+        checkNotOk $ checkTimeoutCertificate okGenesisHash sigThreshold finComm finComm finComm' $ validTCFor qc
+    invalidSignature = runTest $ do
+        finComm <- use $ skovEpochBakers . currentEpochBakers . bfFinalizers
+        qc <- use $ roundStatus . rsHighestCertifiedBlock . to cbQuorumCertificate
+        checkNotOk $ checkTimeoutCertificate okGenesisHash sigThreshold finComm finComm finComm $ invalidSignatureInTC qc
+    checkOk = liftIO . assertBool "Check failed"
+    checkNotOk b = liftIO . assertBool "Check failed" $ not b
+    runTest = runTestMonad (BakerContext Nothing) (timestampToUTCTime 1_000) TestBlocks.genesisData
+    okGenesisHash = TestBlocks.genesisHash
+    invalidGenesisHash = genesisHash
+    validTCFor qc = TestBlocks.validTimeoutFor qc (Round 1)
+    invalidSignatureInTC qc =
+        let tc = validTCFor qc
+        in  tc{tcAggregateSignature = TimeoutSignature Bls.emptySignature}
+
 tests :: Spec
 tests = describe "KonsensusV1.Timeout" $ do
     testReceiveTimeoutMessage
@@ -637,3 +674,4 @@ tests = describe "KonsensusV1.Timeout" $ do
     it "Test processTimeout" testProcessTimeout
     it "Test uponTimeoutEvent" testUponTimeoutEvent
     testUpdateTimeoutMessages
+    testCheckTimeoutCertificate

@@ -851,7 +851,20 @@ rollBackBlocksUntil checkState = do
             throwM . DatabaseRecoveryFailure $
                 "Genesis block state could not be recovered."
         (count', hashes, newLastFin) <- asWriteTransaction $ \dbh txn -> do
-            let loop !c hashes fin finQC = case stbBlock fin of
+            let loop ::
+                    -- Current count of blocks rolled back
+                    Int ->
+                    -- Accumulated list of rolled-back finalized blocks in ascending height order
+                    [BlockHash] ->
+                    -- Block to roll back
+                    StoredBlock pv ->
+                    -- Quorum certificate on the block
+                    QuorumCertificate ->
+                    -- Total number of blocks rolled back,
+                    -- List of hashes of rolled-back blocks in ascending height order,
+                    -- New last finalized block
+                    IO (Int, [BlockHash], StoredBlock pv)
+                loop !c hashes fin finQC = case stbBlock fin of
                     GenesisBlock _ -> do
                         -- As a special case, the genesis block is self-finalizing.
                         -- We thus remove the latest finalization entry.
@@ -877,9 +890,9 @@ rollBackBlocksUntil checkState = do
                                 if isPresent (blockTimeoutCertificate block)
                                     || isPresent (blockEpochFinalizationEntry block)
                                     then do
-                                        -- If the block has a timeout certificate or a finalization
-                                        -- entry, then the QC on this block does not explicitly
-                                        -- finalize the parent block, so we roll back.
+                                        -- If the block has a timeout certificate or an epoch
+                                        -- finalization entry, then the QC on this block does not
+                                        -- explicitly finalize the parent block, so we roll back.
                                         -- (Note, the presence of a timeout certificate indicates the
                                         -- block is not in the next round from its parent, and the
                                         -- presence of an epoch finalization entry indicates that block
@@ -891,11 +904,11 @@ rollBackBlocksUntil checkState = do
                                             parent
                                             (blockQuorumCertificate block)
                                     else do
-                                        -- The block does not have a timeout certificate or finalization
-                                        -- entry, so the parent block is explicitly finalized. We thus
-                                        -- set the latest finalization entry to finalize the
-                                        -- parent block so that the database invariant is
-                                        -- restored.
+                                        -- The block does not have a timeout certificate or epoch
+                                        -- finalization entry, so the parent block is explicitly
+                                        -- finalized. We thus set the latest finalization entry to
+                                        -- finalize the parent block so that the database invariant
+                                        -- is restored.
                                         storeReplaceRecord
                                             txn
                                             (dbh ^. latestFinalizationEntryStore)
@@ -906,7 +919,7 @@ rollBackBlocksUntil checkState = do
                                                   feSuccessorQuorumCertificate = finQC,
                                                   feSuccessorProof = getHash (sbBlock block)
                                                 }
-                                        return (c, hashes, parent)
+                                        return (c + 1, finHash : hashes, parent)
             loadRecord txn (dbh ^. latestFinalizationEntryStore) CSKLatestFinalizationEntry
                 >>= \case
                     Nothing ->

@@ -384,6 +384,18 @@ readBlobBSFromHandle BlobStoreAccess{..} (BlobRef offset) = mask $ \restore -> d
         Left e -> throwIO e
         Right bs -> return bs
 
+-- | Determine the length of the blob store file using the file handle.
+blobBSFileLength :: BlobStoreAccess -> IO Integer
+blobBSFileLength BlobStoreAccess{..} = mask $ \restore -> do
+    bh@BlobHandle{..} <- takeMVar blobStoreFile
+    eres <- try $ restore $ do
+        unless bhAtEnd $ hSeek bhHandle SeekFromEnd 0
+        hTell bhHandle
+    putMVar blobStoreFile bh{bhAtEnd = True}
+    case eres :: Either SomeException Integer of
+        Left e -> throwIO e
+        Right x -> return x
+
 -- | Read a bytestring from the blob store at the given offset using the memory map.
 -- The file handle is used as a backstop if the data to be read would be outside the memory map
 -- even after re-mapping.
@@ -395,10 +407,16 @@ readBlobBS bs@BlobStoreAccess{..} br@(BlobRef offset) = do
     mmap <-
         if dataOffset > BS.length mmap0
             then do
-                -- Remap the file
-                mmap <- mmapFileByteString blobStoreFilePath Nothing
-                writeIORef blobStoreMMap mmap
-                return mmap
+                fileLen <- blobBSFileLength bs
+                if BS.length mmap0 == fromIntegral fileLen
+                    then do
+                        -- If the file hasn't grown, there's no point remapping the file
+                        return mmap0
+                    else do
+                        -- Remap the file
+                        mmap <- mmapFileByteString blobStoreFilePath Nothing
+                        writeIORef blobStoreMMap mmap
+                        return mmap
             else return mmap0
     let mmapLength = BS.length mmap
     if dataOffset > mmapLength
