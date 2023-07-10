@@ -387,22 +387,24 @@ data TerminalDataResult
 -- |Process the contents of a 'CatchUpTerminalData' record. This updates the state and so should
 -- be used with the global state lock.
 --
--- 1. Process the quorum certificates. There should be up to two of these. At most one can
---    result in updating the highest certified block and advancing the round. (The other one may
---    update the last finalized block.) When we advance the round, we do not immediately call
---    'makeBlock', which is called later.
+-- 1. Process the quorum certificate for the highest certified block, if present. This may
+--    result in updating the highest certified block advancing the round. When we advance the
+--    round, we do not immediately call 'makeBlock', which is called later.
 --
--- 2. Process the timeout certificate, if present. If the timeout certificate is relevant, it may
+-- 2. Process the finalization entry, if present. This may result in updating the last finalized
+--    block, and could advance to a new epoch.
+--
+-- 3. Process the timeout certificate, if present. If the timeout certificate is relevant, it may
 --    advance the round. As above, when we advance the round, we do not immediately call
 --    'makeBlock'.
 --
--- 3. Process the quorum messages. This may cause a QC to be generated and advance the round.
+-- 4. Process the quorum messages. This may cause a QC to be generated and advance the round.
 --    In that case, 'makeBlock' is immediately called as part of the processing.
 --
--- 4. Process the timeout messages. This may cause a TC to be generated and advance the round.
+-- 5. Process the timeout messages. This may cause a TC to be generated and advance the round.
 --    In that case, 'makeBlock' is immediately called as part of the processing.
 --
--- 5. Call 'makeBlock'. This will do nothing if the baker has already baked a block for the round,
+-- 6. Call 'makeBlock'. This will do nothing if the baker has already baked a block for the round,
 --    so it is fine to call even if it was already called.
 --
 -- Note that processing the QCs and TC can both cause the round to advance. We defer calling
@@ -435,8 +437,12 @@ processCatchUpTerminalData ::
     CatchUpTerminalData ->
     m TerminalDataResult
 processCatchUpTerminalData CatchUpTerminalData{..} = flip runContT return $ do
-    progress0 <- processFE False cutdLatestFinalizationEntry
-    progress1 <- foldM processQC progress0 cutdHighestQuorumCertificate
+    -- Processing the quorum certificate before the finalization entry is better in the common
+    -- case where the QC is for the successor block in the finalization entry. This is because
+    -- it will result in a single transaction on the treestate database, rather than separate
+    -- transactions for finalizing and recording the certified block.
+    progress0 <- foldM processQC False cutdHighestQuorumCertificate
+    progress1 <- processFE progress0 cutdLatestFinalizationEntry
     progress2 <- processTC progress1 cutdTimeoutCertificate
     progress3 <- foldM processQM progress2 cutdCurrentRoundQuorumMessages
     progress4 <- foldM processTM progress3 cutdCurrentRoundTimeoutMessages
@@ -490,9 +496,13 @@ processCatchUpTerminalData CatchUpTerminalData{..} = flip runContT return $ do
                         currentProgress
                         "quorum certificate is inconsistent with the block it certifies."
                     )
-                use (roundExistingQuorumCertificate (qcRound qc)) >>= \case
-                    Just _ -> return currentProgress
-                    Nothing -> do
+                -- We only care if the QC will advance our current round.
+                -- Note: we do not check whether we have already checked a valid QC for the round
+                -- as this could potentially come from a finalization entry where we are missing
+                -- the block.
+                currentRound <- use $ roundStatus . rsCurrentRound
+                if currentRound == qcRound qc
+                    then do
                         gets (getBakersForEpoch (qcEpoch qc)) >>= \case
                             Nothing -> return currentProgress
                             Just BakersAndFinalizers{..} -> do
@@ -520,6 +530,7 @@ processCatchUpTerminalData CatchUpTerminalData{..} = flip runContT return $ do
                                         advanceRoundWithQuorum
                                             newCertifiedBlock
                                     return True
+                    else return currentProgress
             Nothing -> return currentProgress
     processTC currentProgress Absent = return currentProgress
     processTC currentProgress (Present tc) = do
