@@ -986,15 +986,30 @@ testMakeFirstBlock = runTestMonad (baker bakerId) testTime genesisData $ do
                 }
     let qsig = signQuorumSignatureMessage qsm (bakerAggregationKey . fst $ bakers !! bakerId)
     let expectQM = buildQuorumMessage qsm qsig (FinalizerIndex $ fromIntegral bakerId)
-    liftIO $
-        assertEqual
-            "Produced events (makeBlock)"
-            [OnBlock (NormalBlock expectBlock), SendBlock expectBlock, SendQuorumMessage expectQM]
-            r
+    liftIO $ assertEqual "Produced events (makeBlock)" [OnBlock (NormalBlock expectBlock)] r
     timers <- getPendingTimers
-    liftIO $ assertBool "Timers should not be pending" (null timers)
+    case Map.toAscList timers of
+        [(0, (DelayUntil t, a))]
+            | t == testTime -> do
+                clearPendingTimers
+                ((), r2) <- listen a
+                liftIO $
+                    assertEqual
+                        "Produced events (after first timer)"
+                        [SendBlock expectBlock, SendQuorumMessage expectQM]
+                        r2
+                timers2 <- getPendingTimers
+                liftIO $ assertBool "Timers should not be pending" (null timers2)
+        _ -> timerFail timers
   where
     bakerId = 2
+    timerFail timers =
+        liftIO $
+            assertFailure $
+                "Expected a single timer event at "
+                    ++ show testTime
+                    ++ " but got: "
+                    ++ show (fst <$> timers)
 
 -- |Test calling 'makeBlock' in the first round for a baker that should produce a block.
 -- We try to make the block earlier than it should be, which should succeed, but delay sending
@@ -1074,14 +1089,33 @@ testTimeoutMakeBlock = runTestMonad (baker bakerId) testTime genesisData $ do
     liftIO $
         assertEqual
             "Produced events (processTimeout)"
-            [ ResetTimer 10000,
-              OnBlock (NormalBlock expectBlock),
-              SendBlock expectBlock,
-              SendQuorumMessage expectQM
+            [ ResetTimer 10_000,
+              OnBlock (NormalBlock expectBlock)
             ]
             r
+    timers1 <- getPendingTimers
+    case Map.toAscList timers1 of
+        [(0, (DelayUntil t, a))]
+            | t == testTime -> do
+                clearPendingTimers
+                ((), r2) <- listen a
+                liftIO $
+                    assertEqual
+                        "Produced events (after first timer)"
+                        [SendBlock expectBlock, SendQuorumMessage expectQM]
+                        r2
+                timers2 <- getPendingTimers
+                liftIO $ assertBool "Timers should not be pending" (null timers2)
+        _ -> timerFail timers1
   where
     bakerId = 4
+    timerFail timers =
+        liftIO $
+            assertFailure $
+                "Expected a single timer event at "
+                    ++ show testTime
+                    ++ " but got: "
+                    ++ show (fst <$> timers)
 
 -- |Test that if we receive three blocks such that the QC contained in the last one justifies
 -- transitioning to a new epoch, we do not sign the third block, since it is in an old epoch.
