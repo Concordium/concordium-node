@@ -50,6 +50,7 @@ data VerificationResult
 -- 'CredentialDeploymentSuccess' as ip's or ar's cannot be removed then nothing needs to be checked before executing
 -- 'ChainUpdateSuccess' it should be checked that the authorization keys match the current ones before executing
 -- 'NormalTransactionSuccess' it should be checked that the account information can still verify before executing
+-- 'TrustedSuccess' the signatures should be checked before executing
 data OkResult
     = -- |The 'CredentialDeployment' passed verification.
       CredentialDeploymentSuccess
@@ -69,6 +70,9 @@ data OkResult
         { keysHash :: !Sha256.Hash,
           nonce :: !Types.Nonce
         }
+    | -- |At start-up, the transaction was taken from a block that has already been verified, so
+      -- we trust that it was verified correctly, but do not have the keys used to verify it.
+      TrustedSuccess
     deriving (Eq, Show, Ord)
 
 -- |Verification results which are rejectable if the transaction was received individually.

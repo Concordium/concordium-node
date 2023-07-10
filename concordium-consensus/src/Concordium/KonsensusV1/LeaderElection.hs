@@ -126,6 +126,8 @@ nonceForNewEpoch newBakers SeedStateV1{..} = Hash.hash $ runPut $ do
     putFullBakers newBakers
 
 -- |Update the seed state to account for a transition to a new epoch.
+-- Note: This function should never be called on a seed state with the `ss1ShutdownTriggered`
+-- flag set.
 updateSeedStateForEpoch ::
     -- |Bakers for the new epoch
     FullBakers ->

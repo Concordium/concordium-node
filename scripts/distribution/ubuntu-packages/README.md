@@ -59,7 +59,6 @@ instantiated during build time with a tool such as `envsubst`. The variables are
 - `build_genesis_hash` (hash of the genesis block (NB: This is not the same
   as the hash of the genesis.dat file, instead it is the protocol defined hash of the contents of the genesis block.))
 - `build_collector_backend_url` (e.g. https://dashboard.testnet.concordium.com/nodes/post)
-- `build_rpc_server_port` (e.g., 10001)
 - `build_grpc2_listen_port` (e.g., 20001)
 - `build_listen_port` (e.g., 8889)
 - `build_bootstrap` (e.g., bootstrap.testnet.concordium.com:8888)
@@ -233,12 +232,6 @@ The node supports the following environment variables.
 - `CONCORDIUM_NODE_CONFIG_DIR`, `CONCORDIUM_NODE_DATA_DIR` are directories where the node stores its
   configuration and data. In particular the `CONCORDIUM_NODE_DATA_DIR` is where the node's
   database is stored.
-
-- `CONCORDIUM_NODE_RPC_SERVER_ADDR` is the listen address of the node's grpc server (default 0.0.0.0)
-
-- `CONCORDIUM_NODE_RPC_SERVER_PORT` is the port of the grpc server (default 10000) (NB: If this
-  is changed then the variable `COLLECTOR_GRPC_PORT` must be changed as well for
-  the `concordium-${build_env_name_lower}-node-collector` service)
 
 - `CONCORDIUM_NODE_EXTERNAL_PORT` is related to the listen-port. If the external port of the
   server is not the same as the port the node is listening on (i.e., it is

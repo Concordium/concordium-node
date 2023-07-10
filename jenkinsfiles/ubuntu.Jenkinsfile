@@ -41,7 +41,7 @@ pipeline {
             )}""".trim()
         
         // Use default genesis path for each environment, if the GENESIS_PATH param has not been set.
-        // Uses library function defined here: https://gitlab.com/Concordium/infra/jenkins-library/-/blob/master/vars/defaultGenesis.groovy
+        // Uses library function defined here: https://github.com/Concordium/concordium-infra-jenkins-library/blob/master/vars/defaultGenesis.groovy
         GENESIS_FULL_PATH = defaultGenesis(ENVIRONMENT, GENESIS_PATH)
         DOMAIN = concordiumDomain(ENVIRONMENT)
         BUILD_FILE = "concordium-${ENVIRONMENT}-node_${CODE_VERSION}_amd64.deb"
@@ -50,7 +50,6 @@ pipeline {
         GENESIS_DAT_FILE = "genesis/${GENESIS_FULL_PATH}/genesis.dat"
         ENVIRONMENT_CAP = environment.capitalize()
         DATA_DIR = "./scripts/distribution/ubuntu-packages/template/data/"
-        RPC_PORT = "${rpc_port[environment]}"
         GRPC2_PORT = "${grpc2_port[environment]}"
         LISTEN_PORT = "${listen_port[environment]}"
         STATIC_BINARIES_IMAGE_TAG = "${BUILD_TAG}"
@@ -77,7 +76,7 @@ pipeline {
         stage('Checkout genesis') {
             steps {
                 dir('genesis') {
-                    git credentialsId: 'jenkins-gitlab-ssh', url: 'git@gitlab.com:Concordium/genesis-data.git'
+                    git credentialsId: 'jenkins-github-ssh', url: 'git@github.com:Concordium/concordium-infra-genesis-data.git'
                 }
                     // Copy genesis.dat file into place in data dir, and rename.
                     sh '''
@@ -96,7 +95,6 @@ pipeline {
                         --build-arg build_env_name_lower=${ENVIRONMENT}\
                         --build-arg build_genesis_hash=$(cat ${GENESIS_HASH_PATH} | tr -cd "[:alnum:]")\
                         --build-arg build_collector_backend_url=https://dashboard.${DOMAIN}/nodes/post\
-                        --build-arg build_rpc_server_port=${RPC_PORT}\
                         --build-arg build_grpc2_listen_port=${GRPC2_PORT}\
                         --build-arg build_listen_port=${LISTEN_PORT}\
                         --build-arg build_bootstrap=bootstrap.${DOMAIN}:8888\

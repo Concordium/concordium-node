@@ -2,6 +2,25 @@
 
 ## Unreleased changes
 
+- Fix a bug where a setup with a single baker and a minimum block time of 0s would result in an
+  unresponsive node in protocol version 6.
+- Fix a bug where receiving a duplicate of an invalid block could be spuriously reported as double
+  signing.
+- Fix a bug where database roll-back could fail on Windows.
+- Fix a bug where catch-up for ConcordiumBFT can loop or result in incorrect soft-banning of peers.
+
+## 6.0.1
+
+- Remove configuration option `no-rpc-server` and environment variable
+  `CONCORDIUM_NODE_DISABLE_RPC_SERVER`, as well as default values of
+  `rpc-server-port` (`CONCORDIUM_NODE_RPC_SERVER_PORT`) and `rpc-server-addr`
+  (`CONCORDIUM_NODE_RPC_SERVER_ADDR`). The V1 gRPC server is only started if
+  both of these options are supplied.
+- Fix a bug which caused account nonces and sequence numbers to not be migrated to P6 correctly.
+- Add support for out-of-band export files for ConcordiumBFT (protocol version 6).
+- Fix a network layer bug where initial messages after the handshake could be
+  dropped in some circumstances.
+- Fix a bug which caused the first epoch of the new protocol to be shorter than expected.
 - Fix a bug that caused an incorrect reporting of total stake in the first
   payday just after genesis when the node started from genesis at protocols 4 or 5.
 - Revise the behaviour of rollbacks in P6.
@@ -9,7 +28,9 @@
   - Disallow globals in initialization sections for V1 contracts in P6.
   - Support sign extension instructions in Wasm in P6.
   - Do not count custom sections towards module size when executing contracts.
+  - Support new `invoke` operations for retrieving account keys and checking signatures.
 - Shut down consensus upon a protocol update updating from protocol version 6.
+- Revised persistent state for P6 with changes to startup and catch-up handling.
 
 ## 6.0.0
 

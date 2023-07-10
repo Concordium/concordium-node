@@ -26,6 +26,7 @@ import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import qualified Concordium.GlobalState.TreeState as GSTypes
 import Concordium.KonsensusV1.TreeState.Implementation
+import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.Logger
@@ -111,6 +112,7 @@ onNewRound = do
 -- * The round timeout MUST be for a round that is at least current round.
 advanceRoundWithTimeout ::
     ( MonadTimeout m,
+      LowLevel.MonadTreeStateStore m,
       MonadState (SkovData (MPV m)) m
     ) =>
     RoundTimeout (MPV m) ->
@@ -118,6 +120,7 @@ advanceRoundWithTimeout ::
 advanceRoundWithTimeout roundTimeout@RoundTimeout{..} = do
     onNewRound
     roundStatus %=! updateQC . updateTC . (rsRoundEligibleToBake .~ True)
+    updatePersistentRoundStatus (prsLatestTimeout .~ Present rtTimeoutCertificate)
   where
     updateQC rs
         | cbRound (rs ^. rsHighestCertifiedBlock) < cbRound rtCertifiedBlock =
@@ -146,6 +149,10 @@ advanceRoundWithQuorum certBlock = do
         . (rsPreviousRoundTimeout .~ Absent)
         . (rsHighestCertifiedBlock .~ certBlock)
         . (rsRoundEligibleToBake .~ True)
+    -- We clear the latest timeout, but only in memory to avoid a database write.
+    -- Having the old value present is not harmful, and this will remove it next time the
+    -- persistent round status gets written.
+    persistentRoundStatus . prsLatestTimeout .= Absent
 
 -- |Update the highest certified block if the supplied block is for a later round than the previous
 -- highest certified block.

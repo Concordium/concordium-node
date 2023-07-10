@@ -52,6 +52,7 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockPointer (BlockPointer (..), BlockPointerData (..))
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
+import qualified Concordium.GlobalState.Persistent.TreeState as SkovV0
 import Concordium.GlobalState.TreeState (PVInit (..), TreeStateMonad (getLastFinalizedHeight))
 import Concordium.ImportExport
 import qualified Concordium.KonsensusV1 as KonsensusV1
@@ -424,9 +425,8 @@ activateConfiguration :: Skov.SkovConfiguration finconf UpdateHandler => EVersio
 activateConfiguration (EVersionedConfigurationV0 vc) = do
     activeState <- mvrLogIO . Skov.activateSkovState (vc0Context vc) =<< liftIO (readIORef (vc0State vc))
     liftIO (writeIORef (vc0State vc) activeState)
-activateConfiguration (EVersionedConfigurationV1 vc) = do
-    activeState <- mvrLogIO . SkovV1.activateSkovV1State (vc1Context vc) =<< liftIO (readIORef (vc1State vc))
-    liftIO (writeIORef (vc1State vc) activeState)
+activateConfiguration (EVersionedConfigurationV1 vc) =
+    liftSkovV1Update vc SkovV1.activateSkovV1State
 
 -- |This class makes it possible to use a multi-version configuration at a specific version.
 -- Essentially, this class provides instances of 'SkovMonad', 'FinalizationMonad' and
@@ -795,6 +795,10 @@ checkForProtocolUpdate = liftSkov body
                         lastFinBlockState <- Skov.queryBlockState =<< Skov.lastFinalizedBlock
                         -- the existing persistent block state context.
                         existingPbsc <- asks $ Skov.scGSContext . Skov.srContext
+                        -- the current transaction table.
+                        oldGS <- Skov.SkovT $ Skov.ssGSState <$> State.get
+                        let oldTT = SkovV0._transactionTable oldGS
+                            oldPTT = SkovV0._pendingTransactions oldGS
                         -- Migrate the old state to the new protocol and
                         -- get the new skov context and state.
                         (vc1Context, newState) <-
@@ -817,6 +821,10 @@ checkForProtocolUpdate = liftSkov body
                                         handlers
                                         -- lift SkovV1T
                                         unliftSkov
+                                        -- the current transaction table
+                                        oldTT
+                                        -- the current pending transactions
+                                        oldPTT
                                     )
                                     mvLog
                         -- Shutdown the old skov instance as it is
@@ -1767,7 +1775,9 @@ handleCatchUpStatusV1 ::
     VersionedConfigurationV1 finconf pv ->
     KonsensusV1.CatchUpMessage ->
     MVR finconf Skov.UpdateResult
-handleCatchUpStatusV1 CatchUpConfiguration{..} vc = handleMsg
+handleCatchUpStatusV1 CatchUpConfiguration{..} vc msg = do
+    logEvent Runner LLTrace $ "Handling catch-up message: " ++ show msg
+    handleMsg msg
   where
     handleMsg KonsensusV1.CatchUpStatusMessage{..} = do
         st <- liftIO $ readIORef $ vc1State vc
@@ -1790,7 +1800,7 @@ handleCatchUpStatusV1 CatchUpConfiguration{..} vc = handleMsg
                         blockLoop (count + 1) next
         (count, terminal) <- blockLoop 0 x
         logEvent Runner LLTrace $
-            "Sent " ++ show count ++ " blocks in response to a finalization request."
+            "Sent " ++ show count ++ " blocks in response to a catch-up request."
         -- We compute the catch-up status with respect to the state now (after sending the blocks)
         -- because we could have new information since startState that might have been sent to the
         -- peer while it was receiving our catch-up blocks. In that event, the peer might discard
@@ -1798,14 +1808,18 @@ handleCatchUpStatusV1 CatchUpConfiguration{..} vc = handleMsg
         -- any such blocks now need to be caught up.
         endState <- liftIO $ readIORef $ vc1State vc
         let status = KonsensusV1.makeCatchUpStatus (SkovV1._v1sSkovData endState)
+        let response =
+                KonsensusV1.CatchUpResponseMessage
+                    { cumStatus = status,
+                      cumTerminalData = terminal
+                    }
+        logEvent Runner LLTrace $
+            "Sending catch-up response: " ++ show response
         liftIO $
             catchUpCallback Skov.MessageCatchUpStatus $
                 encode $
-                    VersionedCatchUpStatusV1 $
-                        KonsensusV1.CatchUpResponseMessage
-                            { cumStatus = status,
-                              cumTerminalData = terminal
-                            }
+                    VersionedCatchUpStatusV1 response
+
         checkShouldCatchUp cumStatus endState False
     handleMsg KonsensusV1.CatchUpResponseMessage{cumTerminalData = Present terminal, ..} = do
         res <- runSkovV1Transaction vc $ do
@@ -1849,6 +1863,7 @@ getCatchUpRequest = do
         (EVersionedConfigurationV1 vc) -> do
             st <- liftIO $ readIORef $ vc1State vc
             let cus = KonsensusV1.makeCatchUpRequestMessage $ SkovV1._v1sSkovData st
+            logEvent Runner LLTrace $ "Sending catch-up request: " ++ show cus
             return (vc1Index vc, encodeLazy $ VersionedCatchUpStatusV1 cus)
 
 -- |Deserialize and receive a transaction.  The transaction is passed to

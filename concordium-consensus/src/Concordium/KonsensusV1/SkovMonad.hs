@@ -34,10 +34,12 @@ import Concordium.GlobalState.Parameters hiding (getChainParameters)
 import Concordium.GlobalState.Persistent.Account
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.BlockState
+import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
 import qualified Concordium.GlobalState.Persistent.Cache as Cache
 import Concordium.GlobalState.Persistent.Genesis (genesisState)
 import Concordium.GlobalState.Persistent.TreeState (checkExistingDatabase)
+import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.Types
 import Concordium.KonsensusV1.Consensus
 import Concordium.KonsensusV1.Consensus.Timeout
@@ -149,7 +151,8 @@ data HandlerContext (pv :: ProtocolVersion) m = HandlerContext
       _onBlockHandler :: BlockPointer pv -> m (),
       -- |An event handler called per finalization. It is called with the
       -- finalization entry, and the list of all blocks finalized by the entry
-      -- in increasing order of block height.
+      -- in increasing order of block height. It returns a `SkovV1T pv m ()` in order to have
+      -- access to the state, in particular whether consensus has shutdown.
       _onFinalizeHandler :: FinalizationEntry -> [BlockPointer pv] -> SkovV1T pv m (),
       -- |An event handler called when a pending block becomes live. This is intended to trigger
       -- sending a catch-up status message to peers, as pending blocks are not relayed when they
@@ -211,6 +214,7 @@ instance (MonadTrans (SkovV1T pv)) where
 -- Note that the 'alreadyNotified' function must be called only just
 -- before notifying the user.
 class Monad m => AlreadyNotified m where
+    -- Set the flag that the user has already been notified, and return the old value.
     alreadyNotified :: m Bool
 
 instance (IsProtocolVersion pv, Monad m) => AlreadyNotified (SkovV1T pv m) where
@@ -466,8 +470,23 @@ initialiseExistingSkovV1 bakerCtx handlerCtx unliftSkov GlobalStateConfig{..} = 
             pbscBlobStore <- liftIO $ loadBlobStore gscBlockStateFile
             let pbsc = PersistentBlockStateContext{..}
             let initWithLLDB lldb = do
+                    checkDatabaseVersion lldb
+                    let checkBlockState bs = runBlobStoreT (isValidBlobRef bs) pbsc
+                    (rollCount, bestState) <-
+                        runReaderT
+                            (runDiskLLDBM $ rollBackBlocksUntil checkBlockState)
+                            lldb
+                    when (rollCount > 0) $ do
+                        logEvent Skov LLWarning $
+                            "Could not load state for "
+                                ++ show rollCount
+                                ++ " blocks. Truncating block state database."
+                        liftIO $ truncateBlobStore (bscBlobStore . PBS.pbscBlobStore $ pbsc) bestState
                     let initContext = InitContext pbsc lldb
-                    initialSkovData <- runInitMonad (loadSkovData gscRuntimeParameters) initContext
+                    initialSkovData <-
+                        runInitMonad
+                            (loadSkovData gscRuntimeParameters (rollCount > 0))
+                            initContext
                     let !es =
                             ExistingSkov
                                 { esContext =
@@ -536,8 +555,7 @@ initialiseNewSkovV1 genData bakerCtx handlerCtx unliftSkov gsConfig@GlobalStateC
                     chainParams ^. cpConsensusParameters . cpTimeoutParameters . tpTimeoutBase
             genEpochBakers <- genesisEpochBakers pbs
             let !initSkovData =
-                    mkInitialSkovData gscRuntimeParameters genMeta pbs genTimeoutDuration genEpochBakers
-                        & transactionTable .~ genTT
+                    mkInitialSkovData gscRuntimeParameters genMeta pbs genTimeoutDuration genEpochBakers genTT emptyPendingTransactionTable
             let storedGenesis =
                     LowLevel.StoredBlock
                         { stbStatePointer = stateRef,
@@ -573,21 +591,26 @@ initialiseNewSkovV1 genData bakerCtx handlerCtx unliftSkov gsConfig@GlobalStateC
 -- (i.e. a protocol update has taken effect to a new consensus).
 --
 -- This ensures that the last finalized block state is cached and that the transaction table
--- correctly reflects the state of accounts.
+-- correctly reflects the state of accounts. It also loads the certified blocks from disk.
 activateSkovV1State ::
-    (IsProtocolVersion pv) =>
-    SkovV1Context pv m ->
-    SkovV1State pv ->
-    LogIO (SkovV1State pv)
-activateSkovV1State ctx uninitState =
-    runBlockState $ do
-        logEvent GlobalState LLTrace "Caching last finalized block and initializing transaction table"
-        let bps = bpState $ _lastFinalized $ _v1sSkovData uninitState
-        !tt <- cacheStateAndGetTransactionTable bps
-        logEvent GlobalState LLTrace "Done caching last finalized block"
-        return $! uninitState & v1sSkovData . transactionTable .~ tt
-  where
-    runBlockState a = runReaderT (runPersistentBlockStateMonad a) (_vcPersistentBlockStateContext ctx)
+    ( MonadLogger m,
+      MonadState (SkovData (MPV m)) m,
+      MonadThrow m,
+      BlockState m ~ HashedPersistentBlockState (MPV m),
+      LowLevel.MonadTreeStateStore m,
+      BlockStateStorage m,
+      TimeMonad m,
+      MonadIO m
+    ) =>
+    m ()
+activateSkovV1State = do
+    logEvent GlobalState LLTrace "Caching last finalized block and initializing transaction table"
+    bps <- use $ lastFinalized . to bpState
+    !tt <- cacheBlockStateAndGetTransactionTable bps
+    transactionTable .= tt
+    logEvent GlobalState LLTrace "Loading certified blocks"
+    loadCertifiedBlocks
+    logEvent GlobalState LLTrace "Done activating global state"
 
 -- |Gracefully close the disk storage used by the skov.
 shutdownSkovV1 :: SkovV1Context pv m -> LogIO ()
@@ -633,9 +656,13 @@ migrateSkovFromConsensusV0 ::
     -- |The function for unlifting a 'SkovV1T' into 'IO'.
     -- See documentation for 'SkovV1Context'.
     (forall a. SkovV1T pv m a -> IO a) ->
+    -- |Transaction table to migrate
+    TransactionTable ->
+    -- |Pending transaction table to migrate
+    PendingTransactionTable ->
     -- |Return back the 'SkovV1Context' and the migrated 'SkovV1State'
     LogIO (SkovV1Context pv m, SkovV1State pv)
-migrateSkovFromConsensusV0 regenesis migration gsConfig@GlobalStateConfig{..} oldPbsc oldBlockState bakerCtx handlerCtx unliftSkov = do
+migrateSkovFromConsensusV0 regenesis migration gsConfig@GlobalStateConfig{..} oldPbsc oldBlockState bakerCtx handlerCtx unliftSkov migrateTT migratePTT = do
     pbsc@PersistentBlockStateContext{..} <- newPersistentBlockStateContext gsConfig
     logEvent GlobalState LLDebug "Migrating existing global state."
     newInitialBlockState <- flip runBlobStoreT oldPbsc . flip runBlobStoreT pbsc $ do
@@ -651,79 +678,7 @@ migrateSkovFromConsensusV0 regenesis migration gsConfig@GlobalStateConfig{..} ol
             let genTimeoutDuration =
                     chainParams ^. cpConsensusParameters . cpTimeoutParameters . tpTimeoutBase
             let !initSkovData =
-                    mkInitialSkovData gscRuntimeParameters genMeta newInitialBlockState genTimeoutDuration genEpochBakers
-            let storedGenesis =
-                    LowLevel.StoredBlock
-                        { stbStatePointer = stateRef,
-                          stbInfo = blockMetadata (initSkovData ^. lastFinalized),
-                          stbBlock = GenesisBlock genMeta
-                        }
-            runDiskLLDBM $ initialiseLowLevelDB storedGenesis (initSkovData ^. persistentRoundStatus)
-            return initSkovData
-    let initWithBlockState = do
-            (lldb :: DatabaseHandlers pv) <- liftIO $ openDatabase gscTreeStateDirectory
-            let context = InitContext pbsc lldb
-            logEvent GlobalState LLDebug "Initializing new tree state."
-            !initSkovData <- runInitMonad initGS context `onException` liftIO (closeDatabase lldb)
-            return
-                ( SkovV1Context
-                    { _vcBakerContext = bakerCtx,
-                      _vcPersistentBlockStateContext = pbsc,
-                      _vcDisk = lldb,
-                      _vcHandlers = handlerCtx,
-                      _skovV1TUnliftIO = unliftSkov
-                    },
-                  SkovV1State
-                    { _v1sSkovData = initSkovData,
-                      _v1sTimer = Nothing,
-                      _notifiedUnsupportedProtocol = False
-                    }
-                )
-    initWithBlockState `onException` liftIO (closeBlobStore pbscBlobStore)
-
-migrateSkovFromConsensusV1 ::
-    forall lastpv pv m.
-    ( IsConsensusV1 lastpv,
-      IsConsensusV1 pv,
-      IsProtocolVersion pv,
-      IsProtocolVersion lastpv
-    ) =>
-    -- |The genesis for the protocol after the protocol update.
-    Regenesis pv ->
-    -- |The migration.
-    StateMigrationParameters lastpv pv ->
-    -- |The configuration for the new consensus instance.
-    GlobalStateConfig ->
-    -- |The old block state context.
-    PersistentBlockStateContext lastpv ->
-    -- |The old block state
-    HashedPersistentBlockState lastpv ->
-    -- |The baker context
-    BakerContext ->
-    -- |The handler context
-    HandlerContext pv m ->
-    -- |The function for unlifting a 'SkovV1T' into 'IO'.
-    -- See documentation for 'SkovV1Context'.
-    (forall a. SkovV1T pv m a -> IO a) ->
-    -- |Return back the 'SkovV1Context' and the migrated 'SkovV1State'
-    LogIO (SkovV1Context pv m, SkovV1State pv)
-migrateSkovFromConsensusV1 regenesis migration gsConfig@GlobalStateConfig{..} oldPbsc oldBlockState bakerCtx handlerCtx unliftSkov = do
-    pbsc@PersistentBlockStateContext{..} <- newPersistentBlockStateContext gsConfig
-    logEvent GlobalState LLDebug "Migrating existing global state."
-    newInitialBlockState <- flip runBlobStoreT oldPbsc . flip runBlobStoreT pbsc $ do
-        newState <- migratePersistentBlockState migration $ hpbsPointers oldBlockState
-        hashBlockState newState
-    let
-        initGS :: InitMonad pv (SkovData pv)
-        initGS = do
-            stateRef <- saveBlockState newInitialBlockState
-            chainParams <- getChainParameters newInitialBlockState
-            genEpochBakers <- genesisEpochBakers newInitialBlockState
-            let genMeta = regenesisMetadata (getHash newInitialBlockState) regenesis
-            let genTimeoutDuration =
-                    chainParams ^. cpConsensusParameters . cpTimeoutParameters . tpTimeoutBase
-            let !initSkovData =
-                    mkInitialSkovData gscRuntimeParameters genMeta newInitialBlockState genTimeoutDuration genEpochBakers
+                    mkInitialSkovData gscRuntimeParameters genMeta newInitialBlockState genTimeoutDuration genEpochBakers migrateTT migratePTT
             let storedGenesis =
                     LowLevel.StoredBlock
                         { stbStatePointer = stateRef,

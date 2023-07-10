@@ -187,6 +187,7 @@ genPersistentRoundStatus = do
     _prsLastSignedQuorumMessage <- oneof [Present <$> genQuorumMessage, return Absent]
     _prsLastSignedTimeoutMessage <- oneof [Present <$> genTimeoutMessage, return Absent]
     _prsLastBakedRound <- genRound
+    _prsLatestTimeout <- oneof [Present <$> genTimeoutCertificate, return Absent]
     return PersistentRoundStatus{..}
 
 -- |Generate an arbitrary vrf key pair.

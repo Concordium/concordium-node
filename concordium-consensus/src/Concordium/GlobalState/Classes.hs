@@ -38,7 +38,7 @@ instance HasGlobalStateContext g (Identity g) where
 -- are defined where @t@ is a monad transformer and @m@ implements the typeclass.)
 -- The primary use for this is to provide instances for other types using the
 -- deriving via mechanism.
-newtype MGSTrans t (m :: Type -> Type) a = MGSTrans (t m a)
+newtype MGSTrans t (m :: Type -> Type) a = MGSTrans {runMGSTrans :: t m a}
     deriving (Functor, Applicative, Monad, MonadTrans, MonadIO)
 
 instance MonadProtocolVersion m => MonadProtocolVersion (MGSTrans t m) where

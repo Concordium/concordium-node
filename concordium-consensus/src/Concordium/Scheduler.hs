@@ -60,6 +60,7 @@ import Data.Time
 
 import qualified Concordium.ID.Account as AH
 import qualified Concordium.ID.Types as ID
+import qualified Concordium.Utils.Serialization as S
 
 import qualified Concordium.Cost as Cost
 import Concordium.Crypto.EncryptedTransfers
@@ -86,7 +87,9 @@ import Data.Ord
 import qualified Data.Set as Set
 
 import qualified Concordium.Crypto.BlsSignature as Bls
+import qualified Concordium.Crypto.Ed25519Signature as Ed25519
 import qualified Concordium.Crypto.Proofs as Proofs
+import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.TransactionVerification as TVer
 
 import Lens.Micro.Platform
@@ -156,6 +159,8 @@ checkHeader meta mVerRes = do
                             return (iacc, cost)
                 -- An invalid verification result or `Nothing` was supplied to this function.
                 -- In either case we verify the transaction now.
+                -- Note: we do not have special handling for 'TVer.TrustedSuccess'.
+                -- Since the case is uncommon, it is reasonable to redo the verification.
                 _ -> do
                     newVerRes <- lift (TVer.verifyNormalTransaction meta)
                     case checkTransactionVerificationResult newVerRes of
@@ -1397,7 +1402,129 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                                         WasmV1.Success
                                                         (Just returnValue)
                                                 )
+                                    WasmV1.QueryAccountKeys{..} -> do
+                                        -- Charge base cost for attempting to look up an account.
+                                        tickEnergy Cost.contractInstanceQueryAccountKeysBaseCost
+                                        -- Lookup account.
+                                        maybeAccount <- getStateAccount imqakAddress
+                                        case maybeAccount of
+                                            Nothing ->
+                                                -- The Wasm execution does not reset contract events for queries, hence we do not have to
+                                                -- add them here via an interrupt. They will be retained until the next interrupt.
+                                                go events
+                                                    =<< runInterpreter
+                                                        ( return
+                                                            . WasmV1.resumeReceiveFun
+                                                                rrdInterruptedConfig
+                                                                rrdCurrentState
+                                                                False
+                                                                entryBalance
+                                                                (WasmV1.Error $ WasmV1.EnvFailure $ WasmV1.MissingAccount imqakAddress)
+                                                                Nothing
+                                                        )
+                                            Just (_accountIndex, account) -> do
+                                                -- Lookup account keys
+                                                keys <- getAccountVerificationKeys account
+                                                -- Charge for the amount of data produced in the return value.
+                                                tickEnergy (Cost.contractInstanceQueryAccountKeysReturnCost (ID.getAccountInformationNumKeys keys))
+                                                -- Construct the return value.
+                                                let returnValue = WasmV1.byteStringToReturnValue $ S.encode keys
+                                                -- The Wasm execution does not reset contract events for queries, hence we do not have to
+                                                -- add them here via an interrupt. They will be retained until the next interrupt.
+                                                go events
+                                                    =<< runInterpreter
+                                                        ( return
+                                                            . WasmV1.resumeReceiveFun
+                                                                rrdInterruptedConfig
+                                                                rrdCurrentState
+                                                                False
+                                                                entryBalance
+                                                                WasmV1.Success
+                                                                (Just returnValue)
+                                                        )
+                                    WasmV1.CheckAccountSignature{..} -> do
+                                        let getSignatures = do
+                                                outerLen <- S.getWord8
+                                                S.getSafeSizedMapOf outerLen S.get $ do
+                                                    innerLen <- S.getWord8
+                                                    S.getSafeSizedMapOf innerLen S.get $ do
+                                                        schemeId <- S.get
+                                                        case schemeId of
+                                                            SigScheme.Ed25519 -> SigScheme.Signature <$> S.getShortByteString Ed25519.signatureSize
+                                            getData = do
+                                                dataLen <- S.getWord32le
+                                                dataPayload <- S.getByteString (fromIntegral dataLen)
+                                                sigs <- getSignatures
+                                                return (dataPayload, sigs)
+                                            r = S.runGet getData imcasPayload
+                                        tickEnergy Cost.contractInstanceQueryAccountKeysBaseCost
+                                        -- Lookup account.
+                                        maybeAccount <- getStateAccount imcasAddress
+                                        -- TODO: Maybe we need to charge more in failed cases as well.
+                                        case maybeAccount of
+                                            Nothing ->
+                                                -- The Wasm execution does not reset contract events for queries, hence we do not have to
+                                                -- add them here via an interrupt. They will be retained until the next interrupt.
+                                                go events
+                                                    =<< runInterpreter
+                                                        ( return
+                                                            . WasmV1.resumeReceiveFun
+                                                                rrdInterruptedConfig
+                                                                rrdCurrentState
+                                                                False
+                                                                entryBalance
+                                                                (WasmV1.Error $ WasmV1.EnvFailure $ WasmV1.MissingAccount imcasAddress)
+                                                                Nothing
+                                                        )
+                                            Just (_accountIndex, account) -> do
+                                                case r of
+                                                    Left _ ->
+                                                        -- The Wasm execution does not reset contract events for queries, hence we do not have to
+                                                        -- add them here via an interrupt. They will be retained until the next interrupt.
+                                                        go events
+                                                            =<< runInterpreter
+                                                                ( return
+                                                                    . WasmV1.resumeReceiveFun
+                                                                        rrdInterruptedConfig
+                                                                        rrdCurrentState
+                                                                        False
+                                                                        entryBalance
+                                                                        WasmV1.SignatureDataMalformed
+                                                                        Nothing
+                                                                )
+                                                    Right (dataPayload, sigs) -> do
+                                                        -- Number of signatures to check.
+                                                        let numSigs = foldl' (\l m -> l + length m) 0 sigs
+                                                        -- Lookup account keys
+                                                        keys <- getAccountVerificationKeys account
+                                                        tickEnergy (Cost.contractInstanceCheckAccountSignatureCost (fromIntegral (BS.length dataPayload)) numSigs)
+                                                        if verifyAccountSignature dataPayload sigs keys
+                                                            then -- The Wasm execution does not reset contract events for queries, hence we do not have to
+                                                            -- add them here via an interrupt. They will be retained until the next interrupt.
 
+                                                                go events
+                                                                    =<< runInterpreter
+                                                                        ( return
+                                                                            . WasmV1.resumeReceiveFun
+                                                                                rrdInterruptedConfig
+                                                                                rrdCurrentState
+                                                                                False
+                                                                                entryBalance
+                                                                                WasmV1.Success
+                                                                                Nothing
+                                                                        )
+                                                            else
+                                                                go events
+                                                                    =<< runInterpreter
+                                                                        ( return
+                                                                            . WasmV1.resumeReceiveFun
+                                                                                rrdInterruptedConfig
+                                                                                rrdCurrentState
+                                                                                False
+                                                                                entryBalance
+                                                                                WasmV1.SignatureCheckFailed
+                                                                                Nothing
+                                                                        )
             -- start contract execution.
             -- transfer the amount from the sender to the contract at the start. This is so that the contract may immediately use it
             -- for, e.g., forwarding.
@@ -1412,7 +1539,8 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
               rcMaxParameterLen = Wasm.maxParameterLen $ protocolVersion @(MPV m),
               -- Check whether the number of logs and the size of return values are limited in the current protocol version.
               rcLimitLogsAndRvs = Wasm.limitLogsAndReturnValues $ protocolVersion @(MPV m),
-              rcFixRollbacks = demoteProtocolVersion (protocolVersion @(MPV m)) >= P6
+              rcFixRollbacks = demoteProtocolVersion (protocolVersion @(MPV m)) >= P6,
+              rcSupportAccountSignatureChecks = supportsAccountSignatureChecks $ protocolVersion @(MPV m)
             }
     transferAccountSync ::
         AccountAddress -> -- The target account address.
@@ -2284,7 +2412,7 @@ handleDeployCredential (WithMetadata{wmdData = cred@AccountCreation{messageExpir
         remainingEnergy <- lift getRemainingEnergy
         when (remainingEnergy < theCost) $ throwError Nothing
         case mVerRes of
-            Just (TVer.Ok _) -> do
+            Just (TVer.Ok TVer.CredentialDeploymentSuccess) -> do
                 -- check that the credential deployment has not expired since we last verified it.
                 unless (isTimestampBefore ts (ID.validTo cdi)) $ throwError (Just AccountCredentialInvalid)
                 -- We always need to make sure that the account was not created in between
@@ -2296,6 +2424,8 @@ handleDeployCredential (WithMetadata{wmdData = cred@AccountCreation{messageExpir
                 newAccount
             -- An invalid verification result or `Nothing` was supplied to this function.
             -- In either case we verify the transaction now.
+            -- Note: we do not have special handling for 'TVer.TrustedSuccess'.
+            -- Since the case is uncommon, it is reasonable to redo the verification.
             _ -> do
                 newVerRes <- lift (TVer.verifyCredentialDeployment ts cred)
                 case checkTransactionVerificationResult newVerRes of
@@ -2483,6 +2613,8 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, mVerRes
                             else enqueue change
             -- An invalid verification result or `Nothing` was supplied to this function.
             -- In either case we verify the transaction now.
+            -- Note: we do not have special handling for 'TVer.TrustedSuccess'.
+            -- Since the case is uncommon, it is reasonable to redo the verification.
             _ -> do
                 newVerRes <- TVer.verifyChainUpdate ui
                 case checkTransactionVerificationResult newVerRes of

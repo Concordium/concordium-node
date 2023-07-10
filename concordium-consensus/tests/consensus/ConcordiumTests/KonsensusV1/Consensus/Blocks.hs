@@ -6,7 +6,7 @@
 -- The below tests are intended to test the functionality exposed by the 'Concordium.KonsensusV1.Consensus.Blocks' module.
 --
 -- In particular block processing and hence round/epoch progression are being tested.
-module ConcordiumTests.KonsensusV1.Consensus.Blocks (tests) where
+module ConcordiumTests.KonsensusV1.Consensus.Blocks where
 
 import Control.Monad.IO.Class
 import Control.Monad.State
@@ -724,6 +724,14 @@ testReceiveDuplicate = runTestMonad noBaker testTime genesisData $ do
     res <- uponReceivingBlock $ signedPB testBB1
     liftIO $ res `shouldBe` BlockResultDuplicate
 
+-- |Receive an invalid block twice.
+testReceiveInvalidDuplicate :: Assertion
+testReceiveInvalidDuplicate = runTestMonad noBaker testTime genesisData $ do
+    let badBlock = signedPB (testBB1{bbStateHash = StateHashV0 minBound})
+    succeedReceiveBlockFailExecute badBlock
+    res <- uponReceivingBlock $ badBlock
+    liftIO $ res `shouldBe` BlockResultDuplicate
+
 testReceiveStale :: Assertion
 testReceiveStale = runTestMonad noBaker testTime genesisData $ do
     mapM_ (succeedReceiveBlock . signedPB) [testBB2', testBB3', testBB4']
@@ -978,15 +986,30 @@ testMakeFirstBlock = runTestMonad (baker bakerId) testTime genesisData $ do
                 }
     let qsig = signQuorumSignatureMessage qsm (bakerAggregationKey . fst $ bakers !! bakerId)
     let expectQM = buildQuorumMessage qsm qsig (FinalizerIndex $ fromIntegral bakerId)
-    liftIO $
-        assertEqual
-            "Produced events (makeBlock)"
-            [OnBlock (NormalBlock expectBlock), SendBlock expectBlock, SendQuorumMessage expectQM]
-            r
+    liftIO $ assertEqual "Produced events (makeBlock)" [OnBlock (NormalBlock expectBlock)] r
     timers <- getPendingTimers
-    liftIO $ assertBool "Timers should not be pending" (null timers)
+    case Map.toAscList timers of
+        [(0, (DelayUntil t, a))]
+            | t == testTime -> do
+                clearPendingTimers
+                ((), r2) <- listen a
+                liftIO $
+                    assertEqual
+                        "Produced events (after first timer)"
+                        [SendBlock expectBlock, SendQuorumMessage expectQM]
+                        r2
+                timers2 <- getPendingTimers
+                liftIO $ assertBool "Timers should not be pending" (null timers2)
+        _ -> timerFail timers
   where
     bakerId = 2
+    timerFail timers =
+        liftIO $
+            assertFailure $
+                "Expected a single timer event at "
+                    ++ show testTime
+                    ++ " but got: "
+                    ++ show (fst <$> timers)
 
 -- |Test calling 'makeBlock' in the first round for a baker that should produce a block.
 -- We try to make the block earlier than it should be, which should succeed, but delay sending
@@ -1066,14 +1089,33 @@ testTimeoutMakeBlock = runTestMonad (baker bakerId) testTime genesisData $ do
     liftIO $
         assertEqual
             "Produced events (processTimeout)"
-            [ ResetTimer 10000,
-              OnBlock (NormalBlock expectBlock),
-              SendBlock expectBlock,
-              SendQuorumMessage expectQM
+            [ ResetTimer 10_000,
+              OnBlock (NormalBlock expectBlock)
             ]
             r
+    timers1 <- getPendingTimers
+    case Map.toAscList timers1 of
+        [(0, (DelayUntil t, a))]
+            | t == testTime -> do
+                clearPendingTimers
+                ((), r2) <- listen a
+                liftIO $
+                    assertEqual
+                        "Produced events (after first timer)"
+                        [SendBlock expectBlock, SendQuorumMessage expectQM]
+                        r2
+                timers2 <- getPendingTimers
+                liftIO $ assertBool "Timers should not be pending" (null timers2)
+        _ -> timerFail timers1
   where
     bakerId = 4
+    timerFail timers =
+        liftIO $
+            assertFailure $
+                "Expected a single timer event at "
+                    ++ show testTime
+                    ++ " but got: "
+                    ++ show (fst <$> timers)
 
 -- |Test that if we receive three blocks such that the QC contained in the last one justifies
 -- transitioning to a new epoch, we do not sign the third block, since it is in an old epoch.
@@ -1253,6 +1295,7 @@ tests = describe "KonsensusV1.Consensus.Blocks" $ do
         it "receive 4 blocks reordered, multiple epochs" testReceive4Reordered
         it "skip round 1, receive rounds 2,3,4" testReceiveWithTimeout
         it "receive duplicate block" testReceiveDuplicate
+        it "receive invalid duplicate block" testReceiveInvalidDuplicate
         it "receive stale round" testReceiveStale
         it "epoch transition" testReceiveEpoch
         it "block dies on old branch" testReceiveBlockDies

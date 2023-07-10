@@ -269,7 +269,10 @@ data PersistentRoundStatus = PersistentRoundStatus
       _prsLastSignedTimeoutMessage :: !(Option TimeoutMessage),
       -- |The round number of the last round for which we baked a block, or 0 if we have never
       -- baked a block.
-      _prsLastBakedRound :: !Round
+      _prsLastBakedRound :: !Round,
+      -- |The latest timeout certificate we have seen. This can be absent if we have a quorum
+      -- certificate for a more recent round.
+      _prsLatestTimeout :: !(Option TimeoutCertificate)
     }
     deriving (Eq, Show)
 
@@ -280,10 +283,12 @@ instance Serialize PersistentRoundStatus where
         put _prsLastSignedQuorumMessage
         put _prsLastSignedTimeoutMessage
         put _prsLastBakedRound
+        put _prsLatestTimeout
     get = do
         _prsLastSignedQuorumMessage <- get
         _prsLastSignedTimeoutMessage <- get
         _prsLastBakedRound <- get
+        _prsLatestTimeout <- get
         return PersistentRoundStatus{..}
 
 -- |The 'PersistentRoundStatus' at genesis.
@@ -292,7 +297,8 @@ initialPersistentRoundStatus =
     PersistentRoundStatus
         { _prsLastSignedQuorumMessage = Absent,
           _prsLastSignedTimeoutMessage = Absent,
-          _prsLastBakedRound = 0
+          _prsLastBakedRound = 0,
+          _prsLatestTimeout = Absent
         }
 
 -- |The last signed round (according to a given 'RoundStatus') for which we have produced a
@@ -303,7 +309,8 @@ prsLastSignedRound PersistentRoundStatus{..} =
         (ofOption 0 qmRound _prsLastSignedQuorumMessage)
         (ofOption 0 (tmRound . tmBody) _prsLastSignedTimeoutMessage)
 
--- |The next signable round is the round after the latest round for which we have
+-- |The next signable round is the round after the latest round for which we have produced a
+-- quorum or timeout signature message.
 prsNextSignableRound :: PersistentRoundStatus -> Round
 prsNextSignableRound = (1 +) . prsLastSignedRound
 
@@ -352,18 +359,19 @@ data RoundTimeout (pv :: ProtocolVersion) = RoundTimeout
 --
 -- INVARIANTS:
 --
---  * @_rsCurrentRound > qcEpoch (cbQuorumCertificate _rsHighestCertifiedBlock)@.
+--  * @_rsCurrentEpoch > qcEpoch (cbQuorumCertificate _rsHighestCertifiedBlock)@.
 --
 --  * If @_rsPreviousRoundTimeout = Absent@ then
---    @_rsCurrentRound = 1 + qcEpoch (cbQuorumCertificate _rsHighestCertifiedBlock)@.
+--    @_rsCurrentEpoch = 1 + qcEpoch (cbQuorumCertificate _rsHighestCertifiedBlock)@.
 --
 --  * If @_rsPreviousRoundTimeout = Present timeout@ then
---    @_rsCurrentRound = 1 + qcEpoch (rtQuorumCertificate timeout)@.
+--    @_rsCurrentEpoch = 1 + qcEpoch (rtQuorumCertificate timeout)@.
 data RoundStatus (pv :: ProtocolVersion) = RoundStatus
-    { -- |The current 'Round'.
+    { -- |The current 'Round'. If the previous round did not time out, this should be
+      -- @1 + cbRound _rsHighestCertifiedBlock@. Otherwise, it should be
+      -- @1 + tcRound timeoutCertificate@.
       _rsCurrentRound :: !Round,
-      -- |The 'CertifiedBlock' with the highest 'QuorumCertificate' we have seen so far.
-      -- (At genesis, this contains the empty quorum certificate.)
+      -- |The highest round for which we have sent a finalization message.
       _rsHighestCertifiedBlock :: !(CertifiedBlock pv),
       -- |The previous round timeout certificate if the previous round timed out.
       -- This is @Present (timeoutCertificate, quorumCertificate)@ if the previous round timed out
@@ -381,7 +389,7 @@ data RoundStatus (pv :: ProtocolVersion) = RoundStatus
       -- but is not required.
       --
       -- The purpose of this field is to support the creation of a block that is the first in a new
-      -- epoch. It should
+      -- epoch.
       _rsLastEpochFinalizationEntry :: !(Option FinalizationEntry),
       -- |The current duration to wait before a round times out.
       _rsCurrentTimeout :: !Duration
@@ -466,6 +474,8 @@ emptyQuorumMessages = QuorumMessages Map.empty Map.empty
 --    matching the key in the map.
 --  * All timeout messages in 'tmSecondEpochTimeouts' have epoch @tmFirstEpoch + 1@ and finalizer
 --    index matching the key in the map.
+-- IMPORTANT NOTE: A timeout message "has epoch @e@" here if
+-- @qcEpoch (tmQuorumCertificate tmBody) == e@. That is, it is independent of @tmEpoch@.
 data TimeoutMessages
     = -- |Timeout messages for one epoch or two consecutive epochs.
       TimeoutMessages

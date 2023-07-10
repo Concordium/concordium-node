@@ -30,6 +30,7 @@ import qualified SchedulerTests.SmartContracts.V0.RelaxedRestrictions (tests)
 import qualified SchedulerTests.SmartContracts.V0.SmartContractTests (tests)
 
 import qualified SchedulerTests.SmartContracts.Invoke (tests)
+import qualified SchedulerTests.SmartContracts.V1.AccountSignatureChecks (tests)
 import qualified SchedulerTests.SmartContracts.V1.AllNewHostFunctions (tests)
 import qualified SchedulerTests.SmartContracts.V1.Checkpointing (tests)
 import qualified SchedulerTests.SmartContracts.V1.Counter (tests)
@@ -101,3 +102,4 @@ main = hspec $ do
     SchedulerTests.Delegation.tests
     SchedulerTests.SmartContracts.V1.P6WasmFeatures.tests
     SchedulerTests.SmartContracts.V1.CustomSectionSize.tests
+    SchedulerTests.SmartContracts.V1.AccountSignatureChecks.tests

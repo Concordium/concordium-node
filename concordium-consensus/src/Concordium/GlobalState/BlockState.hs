@@ -92,6 +92,7 @@ import Concordium.Crypto.EncryptedTransfers
 import Concordium.GlobalState.ContractStateFFIHelpers (LoadCallback)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import Concordium.GlobalState.Persistent.LMDB (FixedSizeSerialization)
+import Concordium.GlobalState.TransactionTable (TransactionTable)
 import Concordium.ID.Parameters (GlobalContext)
 import Concordium.ID.Types (AccountCredential)
 import qualified Concordium.ID.Types as ID
@@ -1391,6 +1392,13 @@ class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => Bloc
     -- actively used, in particular, after a protocol update.
     collapseCaches :: m ()
 
+    -- |Cache the block state.
+    cacheBlockState :: BlockState m -> m ()
+
+    -- |Cache the block state and get the initial (empty) transaction table with the next account nonces
+    -- and update sequence numbers populated.
+    cacheBlockStateAndGetTransactionTable :: BlockState m -> m TransactionTable
+
 instance (Monad (t m), MonadTrans t, ModuleQuery m) => ModuleQuery (MGSTrans t m) where
     getModuleArtifact = lift . getModuleArtifact
     {-# INLINE getModuleArtifact #-}
@@ -1654,6 +1662,8 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     serializeBlockState = lift . serializeBlockState
     blockStateLoadCallback = lift blockStateLoadCallback
     collapseCaches = lift collapseCaches
+    cacheBlockState = lift . cacheBlockState
+    cacheBlockStateAndGetTransactionTable = lift . cacheBlockStateAndGetTransactionTable
     {-# INLINE thawBlockState #-}
     {-# INLINE freezeBlockState #-}
     {-# INLINE dropUpdatableBlockState #-}
@@ -1664,6 +1674,8 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     {-# INLINE serializeBlockState #-}
     {-# INLINE blockStateLoadCallback #-}
     {-# INLINE collapseCaches #-}
+    {-# INLINE cacheBlockState #-}
+    {-# INLINE cacheBlockStateAndGetTransactionTable #-}
 
 deriving via (MGSTrans MaybeT m) instance BlockStateQuery m => BlockStateQuery (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance AccountOperations m => AccountOperations (MaybeT m)

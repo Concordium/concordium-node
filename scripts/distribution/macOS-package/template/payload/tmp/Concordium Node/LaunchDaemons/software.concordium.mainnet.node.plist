@@ -36,14 +36,6 @@
         <key>CONCORDIUM_NODE_DATA_DIR</key>
         <string>/Library/Application Support/Concordium Node/Mainnet/Data</string>
 
-        <!-- Address of the GRPC server. -->
-        <key>CONCORDIUM_NODE_RPC_SERVER_ADDR</key>
-        <string>0.0.0.0</string>
-
-        <!-- Port of the GRPC server. -->
-        <key>CONCORDIUM_NODE_RPC_SERVER_PORT</key>
-        <string>10000</string>
-
         <!-- Address of the GRPC V2 server. -->
         <key>CONCORDIUM_NODE_GRPC2_LISTEN_ADDRESS</key>
         <string>0.0.0.0</string>
