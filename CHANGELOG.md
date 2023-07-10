@@ -2,6 +2,10 @@
 
 ## Unreleased changes
 
+- Fix a bug where the LMDB map was not resized when exporting the database. 
+  This could cause the database exporter to fail when used on a running node.
+- Fix a bug where the database exporter creates files in the wrong path when invoked with a
+  relative `--exportpath`.
 - Fix a bug where a setup with a single baker and a minimum block time of 0s would result in an
   unresponsive node in protocol version 6.
 - Fix a bug where receiving a duplicate of an invalid block could be spuriously reported as double
