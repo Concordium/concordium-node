@@ -2,7 +2,9 @@
 
 ## Unreleased changes
 - Fix a bug where the LMDB map was not resized when exporting the database. 
-  This could cause the exporing to fail when used on a running node.
+  This could cause the database exporter to fail when used on a running node.
+- Fix a bug where the database exporter creates files in the wrong path when invoked with a
+  relative `--exportpath`.
 
 ## 6.0.1
 
