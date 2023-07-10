@@ -6,6 +6,8 @@
   unresponsive node in protocol version 6.
 - Fix a bug where receiving a duplicate of an invalid block could be spuriously reported as double
   signing.
+- Fix a bug where database roll-back could fail on Windows.
+- Fix a bug where catch-up for ConcordiumBFT can loop or result in incorrect soft-banning of peers.
 
 ## 6.0.1
 
