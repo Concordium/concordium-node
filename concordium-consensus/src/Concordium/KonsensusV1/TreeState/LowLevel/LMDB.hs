@@ -854,14 +854,14 @@ rollBackBlocksUntil checkState = do
             let loop ::
                     -- Current count of blocks rolled back
                     Int ->
-                    -- Accumulated list of rolled-back finalized blocks
+                    -- Accumulated list of rolled-back finalized blocks in ascending height order
                     [BlockHash] ->
                     -- Block to roll back
                     StoredBlock pv ->
                     -- Quorum certificate on the block
                     QuorumCertificate ->
                     -- Total number of blocks rolled back,
-                    -- List of hashes of rolled-back blocks,
+                    -- List of hashes of rolled-back blocks in ascending height order,
                     -- New last finalized block
                     IO (Int, [BlockHash], StoredBlock pv)
                 loop !c hashes fin finQC = case stbBlock fin of
