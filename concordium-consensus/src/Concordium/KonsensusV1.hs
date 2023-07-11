@@ -14,6 +14,7 @@ import qualified Concordium.Genesis.Data.BaseV1 as BaseV1
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Persistent.BlockState
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
+import qualified Concordium.GlobalState.TransactionTable as TT
 import qualified Concordium.GlobalState.Transactions as Transactions
 import Concordium.GlobalState.Types
 import Concordium.KonsensusV1.Consensus
@@ -125,21 +126,23 @@ getLastFinalizedBlockState :: MonadState (SkovData (MPV m)) m => m (PBS.HashedPe
 getLastFinalizedBlockState = bpState <$> use lastFinalized
 
 -- |Archive blockstate, update the focus block and clear out non-finalized and pending blocks.
+-- This SHOULD NOT be called unless the consensus is in shutdown.
+-- This returns the transaction table and the pending transaction table (which is with respect to
+-- the last finalized block).
 clearSkov ::
     ( MonadState (SkovData (MPV m)) m
     ) =>
-    m ()
+    m (TT.TransactionTable, TT.PendingTransactionTable)
 clearSkov = do
-    isShutdown <- use isConsensusShutdown
-    -- we should only do these things if we are shutting down
-    when isShutdown $ do
-        lfb <- use lastFinalized
-        -- Make the last finalized block the focus block,
-        -- adjusting the pending transaction table.
-        updateFocusBlockTo lfb
-        -- Clear out all of the non-finalized and pending blocks.
-        clearOnProtocolUpdate
-        return ()
+    lfb <- use lastFinalized
+    -- Make the last finalized block the focus block,
+    -- adjusting the pending transaction table.
+    updateFocusBlockTo lfb
+    -- Clear out all of the non-finalized and pending blocks.
+    clearOnProtocolUpdate
+    tt <- use transactionTable
+    ptt <- use pendingTransactionTable
+    return (tt, ptt)
 
 terminateSkov ::
     ( MonadState (SkovData (MPV m)) m,

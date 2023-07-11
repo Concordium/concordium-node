@@ -32,6 +32,7 @@ import Concordium.KonsensusV1.Types
 import Concordium.Logger
 import Concordium.Types.SeedState (triggerBlockTime)
 import Concordium.Types.UpdateQueues
+import Concordium.Types.Updates
 
 -- |A Monad for broadcasting either a 'TimeoutMessage',
 -- 'QuorumMessage' or a 'SignedBlock'.
@@ -269,29 +270,53 @@ isCurrentFinalizer =
 isShutDown :: MonadState (SkovData (MPV m)) m => m Bool
 isShutDown = use isConsensusShutdown
 
--- |Get the protocol update status. If a protocol update is effective, but consensus is not yet
--- in shutdown, a `PendingProtocolUpdates` is returned with the protocol update and the trigger time.
--- This happens between the effective time of the protocol update and when the trigger block is
--- finalized (usually close to the nominal epoch transaction time).
-getProtocolUpdateStatus ::
+data ProtocolUpdateState
+    = -- |No protocol update is currently anticipated.
+      ProtocolUpdateStateNone
+    | -- |A protocol update is currently scheduled.
+      ProtocolUpdateStateQueued
+        { puQueuedTime :: !TransactionTime,
+          puProtocolUpdate :: !ProtocolUpdate
+        }
+    | -- |A protocol update is effective at the end of the current epoch.
+      ProtocolUpdateStatePendingEpoch
+        { puTriggerTime :: !Timestamp,
+          puProtocolUpdate :: !ProtocolUpdate
+        }
+    | -- |A protocol update has taken place and the consensus is shut down.
+      ProtocolUpdateStateDone
+        { puProtocolUpdate :: !ProtocolUpdate
+        }
+
+-- |Get the current protocol update state.
+getProtocolUpdateState ::
     ( GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
       BS.BlockStateQuery m,
       MonadState (SkovData (MPV m)) m,
       IsConsensusV1 (MPV m)
     ) =>
-    m ProtocolUpdateStatus
-getProtocolUpdateStatus = do
+    m ProtocolUpdateState
+getProtocolUpdateState = do
     st <- bpState <$> use lastFinalized
     BS.getProtocolUpdateStatus st >>= \case
         ProtocolUpdated pu ->
             use isConsensusShutdown >>= \case
                 -- The protocol update is now in effect.
-                True -> return $ ProtocolUpdated pu
+                True -> return $ ProtocolUpdateStateDone pu
                 -- The protocol update is awaiting the terminal block of the epoch to be finalized.
                 -- We show this by returning the "pending effective" protocol update as a pending
                 -- protocol update.
                 False -> do
                     ss <- BS.getSeedState st
-                    let ts = TransactionTime $ timestampToSeconds $ ss ^. triggerBlockTime
-                    return $ PendingProtocolUpdates [(ts, pu)]
-        pendingProtocolUpdates -> return pendingProtocolUpdates
+                    return $
+                        ProtocolUpdateStatePendingEpoch
+                            { puTriggerTime = ss ^. triggerBlockTime,
+                              puProtocolUpdate = pu
+                            }
+        PendingProtocolUpdates [] -> return ProtocolUpdateStateNone
+        PendingProtocolUpdates ((ts, pu) : _) ->
+            return $
+                ProtocolUpdateStateQueued
+                    { puQueuedTime = ts,
+                      puProtocolUpdate = pu
+                    }

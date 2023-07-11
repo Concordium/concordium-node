@@ -16,6 +16,8 @@ import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Parameters hiding (getChainParameters)
 import Concordium.Types.SeedState
+import Concordium.Types.UpdateQueues
+import Concordium.Types.Updates
 import Concordium.Utils
 
 import Concordium.GlobalState.BlockState
@@ -135,7 +137,8 @@ loadSkovData ::
     RuntimeParameters ->
     -- |Set to 'True' if a rollback occurred before loading the skov
     Bool ->
-    m (SkovData pv)
+    -- |The 'SkovData' and, if the consensus is shutdown, the effective protocol update.
+    m (SkovData pv, Maybe ProtocolUpdate)
 loadSkovData _runtimeParameters didRollback = do
     _persistentRoundStatus <- LowLevel.lookupCurrentRoundStatus
     mLatestFinEntry <- LowLevel.lookupLatestFinalizationEntry
@@ -239,7 +242,17 @@ loadSkovData _runtimeParameters didRollback = do
                   _focusBlock = lastFinBlock
                 }
     let _statistics = Stats.initialConsensusStatistics
-    return SkovData{..}
+    protocolUpdate <-
+        if _isConsensusShutdown
+            then do
+                getProtocolUpdateStatus (bpState lastFinBlock) >>= \case
+                    ProtocolUpdated pu -> return $ Just pu
+                    PendingProtocolUpdates{} ->
+                        throwM . TreeStateInvariantViolation $
+                            "Consensus is shut down, but no effective protocol update was present \
+                            \in the last finalized block."
+            else return Nothing
+    return (SkovData{..}, protocolUpdate)
 
 -- |Load the certified blocks from the low-level database into the tree state.
 -- This caches their block states, adds them to the block table and branches,

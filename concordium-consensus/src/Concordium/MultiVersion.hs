@@ -2,6 +2,7 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE InstanceSigs #-}
@@ -65,8 +66,8 @@ import qualified Concordium.KonsensusV1.TreeState.LowLevel.LMDB as LowLevelDB
 import qualified Concordium.KonsensusV1.TreeState.Types as SkovV1
 import Concordium.KonsensusV1.Types (Option (..))
 import qualified Concordium.KonsensusV1.Types as KonsensusV1
-import Concordium.ProtocolUpdate
-import qualified Concordium.ProtocolUpdateV1 as ProtocolUpdateV1
+import qualified Concordium.ProtocolUpdate.V0 as ProtocolUpdateV0
+import qualified Concordium.ProtocolUpdate.V1 as ProtocolUpdateV1
 import qualified Concordium.Skov as Skov
 import Concordium.TimeMonad
 import Concordium.TimerMonad
@@ -160,7 +161,7 @@ instance
                         Just myBakerId -> Just myBakerId == (blockBaker <$> blockFields (_bpBlock lfbp))
                 liftIO (notifyCallback (bpHash lfbp) height isHomeBaked)
         -- And then check for protocol update.
-        checkForProtocolUpdate
+        checkForProtocolUpdateV0
 
 -- |Configuration for the global state that uses disk storage
 -- for both tree state and block state.
@@ -696,7 +697,7 @@ newGenesis (PVGenesisData (gd :: GenesisData pv)) genesisHeight = case consensus
                     -- Start the consensus
                     runMVR (liftSkovV1Update newEConfig KonsensusV1.startEvents) mvr
 
--- |Determine if a protocol update has occurred, and handle it.
+-- |Determine if a protocol update has occurred from consensus version 0, and handle it.
 -- When a protocol update first becomes pending, this logs the update that will occur (if it is
 -- of a known type) or logs an error message (if it is unknown).
 -- When the protocol update takes effect, this will create the new genesis block, starting up a
@@ -704,7 +705,7 @@ newGenesis (PVGenesisData (gd :: GenesisData pv)) genesisHeight = case consensus
 -- However, if the new protocol is unknown, no update will take place, but the old consensus will
 -- effectively stop accepting blocks.
 -- It is assumed that the thread holds the write lock.
-checkForProtocolUpdate ::
+checkForProtocolUpdateV0 ::
     forall lastpv fc.
     ( IsProtocolVersion lastpv,
       IsConsensusV0 lastpv,
@@ -712,7 +713,7 @@ checkForProtocolUpdate ::
       Skov.SkovConfiguration fc UpdateHandler
     ) =>
     VersionedSkovV0M fc lastpv ()
-checkForProtocolUpdate = liftSkov body
+checkForProtocolUpdateV0 = liftSkov body
   where
     body ::
         ( Skov.SkovMonad (VersionedSkovV0M fc lastpv),
@@ -804,7 +805,7 @@ checkForProtocolUpdate = liftSkov body
                         (vc1Context, newState) <-
                             liftIO $
                                 runLoggerT
-                                    ( SkovV1.migrateSkovFromConsensusV0
+                                    ( SkovV1.migrateSkovV1
                                         -- regenesis
                                         nextGenesis
                                         -- migration
@@ -861,7 +862,7 @@ checkForProtocolUpdate = liftSkov body
         VersionedSkovV0M fc lastpv (Maybe (PVInit (VersionedSkovV0M fc lastpv)))
     check =
         Skov.getProtocolUpdateStatus >>= \case
-            ProtocolUpdated pu -> case checkUpdate @lastpv pu of
+            ProtocolUpdated pu -> case ProtocolUpdateV0.checkUpdate @lastpv pu of
                 Left err -> do
                     logEvent Kontrol LLError $
                         "An unsupported protocol update ("
@@ -874,7 +875,7 @@ checkForProtocolUpdate = liftSkov body
                         return Nothing
                 Right upd -> do
                     logEvent Kontrol LLInfo "Starting protocol update."
-                    initData <- updateRegenesis upd
+                    initData <- ProtocolUpdateV0.updateRegenesis upd
                     return (Just initData)
             PendingProtocolUpdates [] -> return Nothing
             PendingProtocolUpdates ((ts, pu) : _) -> do
@@ -887,7 +888,7 @@ checkForProtocolUpdate = liftSkov body
                                 then (True, s)
                                 else (False, s{Skov.ssHandlerState = AlreadyNotified ts pu})
                         )
-                unless alreadyNotified $ case checkUpdate @lastpv pu of
+                unless alreadyNotified $ case ProtocolUpdateV0.checkUpdate @lastpv pu of
                     Left err -> do
                         logEvent Kontrol LLError $
                             "An unsupported protocol update ("
@@ -910,6 +911,14 @@ checkForProtocolUpdate = liftSkov body
                                 ++ show upd
                 return Nothing
 
+-- |Determine if a protocol update has occurred from consensus version 1, and handle it.
+-- When a protocol update first becomes pending, this logs the update that will occur (if it is
+-- of a known type) or logs an error message (if it is unknown).
+-- When the protocol update takes effect, this will create the new genesis block, starting up a
+-- new instances of consensus and shutting down the old one (which is still available for queries).
+-- However, if the new protocol is unknown, no update will take place, but the old consensus will
+-- effectively stop accepting blocks.
+-- It is assumed that the thread holds the write lock.
 checkForProtocolUpdateV1 ::
     forall lastpv fc.
     ( IsProtocolVersion lastpv,
@@ -924,10 +933,12 @@ checkForProtocolUpdateV1 = body
             Nothing -> return ()
             Just (PVInit{pvInitGenesis = nextGenesis :: Regenesis newpv, ..}) ->
                 case consensusVersionFor (protocolVersion @newpv) of
-                    ConsensusV0 -> undefined -- we should not support this
+                    ConsensusV0 -> do
+                        -- No migrations to consensus version 0 are supported.
+                        case pvInitMigration of {}
                     ConsensusV1 -> do
-                        -- Clear the old skov instance.
-                        KonsensusV1.clearSkov
+                        -- Clear the old skov instance, getting the transaction table.
+                        (oldTT, oldPTT) <- KonsensusV1.clearSkov
                         mvr@MultiVersionRunner
                             { mvConfiguration = MultiVersionConfiguration{..},
                               mvCallbacks = Callbacks{..},
@@ -958,7 +969,7 @@ checkForProtocolUpdateV1 = body
                         (vc1Context, newState) <-
                             liftIO $
                                 runLoggerT
-                                    ( SkovV1.migrateSkovFromConsensusV1
+                                    ( SkovV1.migrateSkovV1
                                         -- regenesis
                                         nextGenesis
                                         -- migration
@@ -975,6 +986,10 @@ checkForProtocolUpdateV1 = body
                                         handlers
                                         -- lift SkovV1T
                                         unliftSkov
+                                        -- the current transaction table
+                                        oldTT
+                                        -- the current pending transactions
+                                        oldPTT
                                     )
                                     mvLog
                         -- Shutdown the old skov instance as it is
@@ -1005,8 +1020,8 @@ checkForProtocolUpdateV1 = body
     check ::
         VersionedSkovV1M fc lastpv (Maybe (PVInit (VersionedSkovV1M fc lastpv)))
     check = do
-        SkovV1.getProtocolUpdateStatus >>= \case
-            ProtocolUpdated pu -> case ProtocolUpdateV1.checkUpdate @lastpv pu of
+        SkovV1.getProtocolUpdateState >>= \case
+            SkovV1.ProtocolUpdateStateDone pu -> case ProtocolUpdateV1.checkUpdate @lastpv pu of
                 Left err -> do
                     logEvent Kontrol LLError $
                         "An unsupported protocol update ("
@@ -1021,32 +1036,41 @@ checkForProtocolUpdateV1 = body
                     logEvent Kontrol LLInfo "Starting protocol update."
                     initData <- ProtocolUpdateV1.updateRegenesis upd
                     return (Just initData)
-            PendingProtocolUpdates [] -> return Nothing
-            PendingProtocolUpdates ((ts, pu) : _) -> do
-                alreadyNotified <- SkovV1.alreadyNotified
-                unless alreadyNotified $ case ProtocolUpdateV1.checkUpdate @lastpv pu of
-                    Left err -> do
-                        logEvent Kontrol LLError $
-                            "An unsupported protocol update ("
-                                ++ err
-                                ++ ") will take effect at "
-                                ++ show (timestampToUTCTime $ transactionTimeToTimestamp ts)
-                                ++ ": "
-                                ++ showPU pu
-                        callbacks <- lift $ asks mvCallbacks
-                        case notifyUnsupportedProtocolUpdate callbacks of
-                            Just notifyCallback -> liftIO $ notifyCallback $ transactionTimeToTimestamp ts
-                            Nothing -> return ()
-                    Right upd -> do
-                        logEvent Kontrol LLInfo $
-                            "A protocol update "
-                                ++ ") will take effect at "
-                                ++ show (timestampToUTCTime $ transactionTimeToTimestamp ts)
-                                ++ ": "
-                                ++ showPU pu
-                                ++ "\n"
-                                ++ show upd
+            SkovV1.ProtocolUpdateStateNone -> return Nothing
+            SkovV1.ProtocolUpdateStatePendingEpoch{..} -> do
+                notifyPending puTriggerTime puProtocolUpdate
                 return Nothing
+            SkovV1.ProtocolUpdateStateQueued{..} -> do
+                notifyPending
+                    (transactionTimeToTimestamp puQueuedTime)
+                    puProtocolUpdate
+                return Nothing
+
+    notifyPending effectiveTimestamp pu = do
+        let effectiveTime = timestampToUTCTime effectiveTimestamp
+        alreadyNotified <- SkovV1.alreadyNotified
+        unless alreadyNotified $ case ProtocolUpdateV1.checkUpdate @lastpv pu of
+            Left err -> do
+                logEvent Kontrol LLError $
+                    "An unsupported protocol update ("
+                        ++ err
+                        ++ ") will take effect after "
+                        ++ show effectiveTime
+                        ++ ": "
+                        ++ showPU pu
+                callbacks <- lift $ asks mvCallbacks
+                case notifyUnsupportedProtocolUpdate callbacks of
+                    Just notifyCallback -> liftIO $ notifyCallback effectiveTimestamp
+                    Nothing -> return ()
+            Right upd -> do
+                logEvent Kontrol LLInfo $
+                    "A protocol update "
+                        ++ ") will take effect after "
+                        ++ show effectiveTime
+                        ++ ": "
+                        ++ showPU pu
+                        ++ "\n"
+                        ++ show upd
 
 -- |Make a 'MultiVersionRunner' for a given configuration.
 makeMultiVersionRunner ::
@@ -1174,7 +1198,7 @@ startupSkov genesis = do
                             getCurrentGenesisAndHeight = liftSkov $ do
                                 currentGenesis <- Skov.getGenesisData
                                 lfHeight <- getLastFinalizedHeight
-                                nextPV <- getNextProtocolVersion
+                                nextPV <- ProtocolUpdateV0.getNextProtocolVersion
                                 return
                                     ( _gcCurrentHash currentGenesis,
                                       localToAbsoluteBlockHeight genHeight lfHeight,
@@ -1186,7 +1210,7 @@ startupSkov genesis = do
                         logEvent Runner LLTrace "Load configuration done"
                         let activateThis = do
                                 activateConfiguration (newVersionV0 newEConfig)
-                                liftSkovV0Update newEConfig checkForProtocolUpdate
+                                liftSkovV0Update newEConfig checkForProtocolUpdateV0
                         case nextPV of
                             Nothing -> do
                                 -- This is still the current configuration (i.e. no protocol update
@@ -1242,23 +1266,26 @@ startupSkov genesis = do
                         let activateThis = do
                                 activateConfiguration (newVersionV1 newEConfig)
                                 liftSkovV1Update newEConfig checkForProtocolUpdateV1
-                        case esNextProtocolVersion of
-                            Nothing -> do
+                        case esProtocolUpdate of
+                            Just protocolUpdate
+                                | Right upd <- ProtocolUpdateV1.checkUpdate @pv protocolUpdate -> do
+                                    let nextSPV = ProtocolUpdateV1.updateNextProtocolVersion upd
+                                    -- A protocol update has occurred for this configuration, so
+                                    -- continue to the next iteration. If the state for the next
+                                    -- configuration is missing, 'activateThis' is called which will
+                                    -- activate the configuration and trigger the protocol update.
+                                    loadLoop
+                                        nextSPV
+                                        activateThis
+                                        (genIndex + 1)
+                                        (fromIntegral esLastFinalizedHeight + 1)
+                            _ -> do
                                 -- This is still the current configuration (i.e. no protocol update
-                                -- has occurred), so activate it.
+                                -- has occurred, or the protocol update is not supported), so
+                                -- activate it.
                                 activateThis
                                 -- Start the consensus
                                 liftSkovV1Update newEConfig KonsensusV1.startEvents
-                            Just nextSPV -> do
-                                -- A protocol update has occurred for this configuration, so
-                                -- continue to the next iteration. If the state for the next
-                                -- configuration is missing, 'activateThis' is called which will
-                                -- activate the configuration and trigger the protocol update.
-                                loadLoop
-                                    nextSPV
-                                    activateThis
-                                    (genIndex + 1)
-                                    (fromIntegral esLastFinalizedHeight + 1)
                     Nothing -> activateLast
 
     activateGenesis :: MVR finconf ()
