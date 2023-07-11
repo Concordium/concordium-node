@@ -121,16 +121,49 @@ makeLenses ''PersistentBirkParameters
 
 -- |Migrate a 'SeedState' between protocol versions.
 -- For migrations in consensus version 0, changes to the seed state are handled prior to state
--- migration. For consensus version 1, they should be handled here.
-migrateSeedState :: forall oldpv pv. IsProtocolVersion pv => StateMigrationParameters oldpv pv -> SeedState (SeedStateVersionFor oldpv) -> SeedState (SeedStateVersionFor pv)
-migrateSeedState StateMigrationParametersTrivial{} ss = case consensusVersionFor (protocolVersion @pv) of
-    ConsensusV0 -> ss
-    ConsensusV1 -> case ss of
-        SeedStateV1{..} ->
-            ss
-                { ss1ShutdownTriggered = False,
-                  ss1UpdatedNonce = H.hash $ "Regenesis" <> encode ss1CurrentLeadershipElectionNonce
-                }
+-- migration.
+--
+-- For migrations to consensus version 1, changes to the seed state are handled here as follows:
+--
+--  * P5 to P6: The new initial seed state is constructed with
+--      - the initial nonce @H.hash $ "Regenesis" <> encode ss0CurrentLeadershipElectionNonce@, and
+--      - the first epoch trigger block timestamp determined by the state migration data, which
+--        should be one epoch after the regenesis time.
+--
+--  * P6 to P6: The new seed state is constructed with
+--      - the initial nonce @H.hash $ "Regenesis" <> encode ss1UpdatedNonce@,
+--      - the epoch reset to 0,
+--      - the first epoch trigger block time the same as the prior seed state,
+--      - the epoch transition triggered flag set, and
+--      - the shutdown triggered flag cleared.
+migrateSeedState ::
+    forall oldpv pv.
+    IsProtocolVersion pv =>
+    StateMigrationParameters oldpv pv ->
+    SeedState (SeedStateVersionFor oldpv) ->
+    SeedState (SeedStateVersionFor pv)
+migrateSeedState StateMigrationParametersTrivial{} ss = case ss of
+    SeedStateV0{} -> ss -- In consensus v0, seed state update is handled prior to migration
+    SeedStateV1{..} ->
+        SeedStateV1
+            { -- Reset the epoch to 0.
+              ss1Epoch = 0,
+              ss1CurrentLeadershipElectionNonce = newNonce,
+              ss1UpdatedNonce = newNonce,
+              -- We maintain the trigger block time. This forces an epoch transition as soon as possible
+              -- which will effectively substitute for the epoch transition that would have happened
+              -- on the previous consensus, had it not shut down.
+              ss1TriggerBlockTime = ss1TriggerBlockTime,
+              -- We flag the epoch transition as triggered so that the epoch transition will happen
+              -- as soon as possible.
+              ss1EpochTransitionTriggered = True,
+              -- We clear the shutdown flag.
+              ss1ShutdownTriggered = False
+            }
+      where
+        -- We derive the new nonce from the updated nonce on the basis that it was fixed
+        -- at the trigger block from the previous consensus.
+        newNonce = H.hash $ "Regenesis" <> encode ss1UpdatedNonce
 migrateSeedState StateMigrationParametersP1P2{} ss = ss
 migrateSeedState StateMigrationParametersP2P3{} ss = ss
 migrateSeedState StateMigrationParametersP3ToP4{} ss = ss
@@ -531,30 +564,39 @@ migrateBlockRewardDetails ::
     [(BakerId, Amount)] ->
     -- |Next epoch bakers and stakes, in ascending order of 'BakerId'.
     [(BakerId, Amount)] ->
+    -- |The time parameters (where supported by the new protocol version).
     OParam 'PTTimeParameters (ChainParametersVersionFor pv) TimeParameters ->
+    -- |The epoch number before the protocol update.
+    Epoch ->
     BlockRewardDetails (AccountVersionFor oldpv) ->
     t m (BlockRewardDetails (AccountVersionFor pv))
-migrateBlockRewardDetails StateMigrationParametersTrivial _ _ tp = \case
+migrateBlockRewardDetails StateMigrationParametersTrivial _ _ tp oldEpoch = \case
     (BlockRewardDetailsV0 heb) -> BlockRewardDetailsV0 <$> migrateHashedEpochBlocks heb
     (BlockRewardDetailsV1 hbr) -> case tp of
         SomeParam TimeParametersV1{..} ->
             BlockRewardDetailsV1
-                <$> migrateHashedBufferedRef (migratePoolRewards (rewardPeriodEpochs _tpRewardPeriodLength)) hbr
+                <$> migrateHashedBufferedRef migratePR hbr
+          where
+            rpLength = rewardPeriodEpochs _tpRewardPeriodLength
+            migratePR pr = migratePoolRewards nextPayday pr
+              where
+                oldPaydayEpoch = nextPaydayEpoch pr
+                nextPayday = max 1 (min rpLength (oldPaydayEpoch - oldEpoch))
         NoParam -> case protocolVersion @pv of {}
-migrateBlockRewardDetails StateMigrationParametersP1P2 _ _ _ = \case
+migrateBlockRewardDetails StateMigrationParametersP1P2 _ _ _ _ = \case
     (BlockRewardDetailsV0 heb) -> BlockRewardDetailsV0 <$> migrateHashedEpochBlocks heb
-migrateBlockRewardDetails StateMigrationParametersP2P3 _ _ _ = \case
+migrateBlockRewardDetails StateMigrationParametersP2P3 _ _ _ _ = \case
     (BlockRewardDetailsV0 heb) -> BlockRewardDetailsV0 <$> migrateHashedEpochBlocks heb
-migrateBlockRewardDetails (StateMigrationParametersP3ToP4 _) curBakers nextBakers (SomeParam TimeParametersV1{..}) = \case
+migrateBlockRewardDetails (StateMigrationParametersP3ToP4 _) curBakers nextBakers (SomeParam TimeParametersV1{..}) _ = \case
     (BlockRewardDetailsV0 heb) -> do
         blockCounts <- bakersFromEpochBlocks (hebBlocks heb)
         (!newRef, _) <- refFlush =<< refMake =<< migratePoolRewardsP1 curBakers nextBakers blockCounts (rewardPeriodEpochs _tpRewardPeriodLength) _tpMintPerPayday
         return (BlockRewardDetailsV1 newRef)
-migrateBlockRewardDetails StateMigrationParametersP4ToP5{} _ _ (SomeParam TimeParametersV1{..}) = \case
+migrateBlockRewardDetails StateMigrationParametersP4ToP5{} _ _ (SomeParam TimeParametersV1{..}) _ = \case
     (BlockRewardDetailsV1 hbr) ->
         BlockRewardDetailsV1
             <$> migrateHashedBufferedRef (migratePoolRewards (rewardPeriodEpochs _tpRewardPeriodLength)) hbr
-migrateBlockRewardDetails StateMigrationParametersP5ToP6{} _ _ (SomeParam TimeParametersV1{..}) = \case
+migrateBlockRewardDetails StateMigrationParametersP5ToP6{} _ _ (SomeParam TimeParametersV1{..}) _ = \case
     (BlockRewardDetailsV1 hbr) ->
         BlockRewardDetailsV1
             <$> migrateHashedBufferedRef (migratePoolRewards (rewardPeriodEpochs _tpRewardPeriodLength)) hbr
@@ -3598,6 +3640,7 @@ migrateBlockPointers migration BlockStatePointers{..} = do
     let newBank = bspBank
     newIdentityProviders <- migrateHashedBufferedRefKeepHash bspIdentityProviders
     newAnonymityRevokers <- migrateHashedBufferedRefKeepHash bspAnonymityRevokers
+    let oldEpoch = bspBirkParameters ^. birkSeedState . epoch
     newBirkParameters <- migratePersistentBirkParameters migration newAccounts bspBirkParameters
     newCryptographicParameters <- migrateHashedBufferedRefKeepHash bspCryptographicParameters
     newUpdates <- migrateReference (migrateUpdates migration) bspUpdates
@@ -3607,7 +3650,8 @@ migrateBlockPointers migration BlockStatePointers{..} = do
     let newTransactionOutcomes = emptyTransactionOutcomes (Proxy @pv)
     chainParams <- refLoad . currentParameters =<< refLoad newUpdates
     let timeParams = _cpTimeParameters . unStoreSerialized $ chainParams
-    newRewardDetails <- migrateBlockRewardDetails migration curBakers nextBakers timeParams bspRewardDetails
+    newRewardDetails <-
+        migrateBlockRewardDetails migration curBakers nextBakers timeParams oldEpoch bspRewardDetails
 
     return $!
         BlockStatePointers

@@ -1,26 +1,10 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeFamilies #-}
 
--- FIXME: This is currently a dummy update, and the details, including the update hash, need to be resolved before release.
--- https://github.com/Concordium/concordium-update-proposals/issues/47
-
--- |This module implements the P5.ProtocolP6 protocol update.
+-- |This module implements the P6.Reboot protocol update.
 -- This protocol update is valid at protocol version P6, and updates
 -- to protocol version P6.
--- The block state is changed during the update.
---
--- In particular the following things are updated as part of the migration
--- from protocol P5 to protocol P6.
---
--- * The seed state is being updated as part of the migration and hence the
---   'P6.StateMigrationData' keeps the time of the trigger block so it can be used
---   to construct the new 'SeedStateV1' via that 'Timestamp' and the 'LeadershipElectionNonce'
---   that was recorded in the last finalized block of the P5 protocol.
---
--- * The protocol update queue is emptied during the migration.
---
 -- This produces a new 'RegenesisDataP6' using the 'GDP6Regenesis' constructor,
 -- as follows:
 --
@@ -43,10 +27,30 @@
 --
 -- * 'genesisStateHash' is the state hash of the last finalized block of the previous chain.
 --
+-- The block state is taken from the last finalized block of the previous chain. It is updated
+-- as part of the state migration, which makes the following changes:
+--
+-- * The seed state is migrated as follows:
+--
+--     * The current epoch is reset to zero.
+--     * The current and updated leadership election nonce are set to the hash of
+--       @"Regenesis" <> encode oldUpdatedNonce@.
+--     * The trigger block time is kept the same, meaning that the epoch will transition as soon
+--       as possible.
+--     * The epoch transition triggered flag is set.
+--     * The shutdown triggered flag is cleared.
+--
+-- * The old current epoch is subtracted from the next payday epoch.
+--
+-- * The protocol update queue is emptied during the migration.
+--
 -- Note that, the initial epoch of the new chain is not considered
 -- a new epoch for the purposes of block rewards and baker/finalization committee determination.
--- This means that block rewards at the end of this epoch are paid for all blocks baked in this epoch
--- and in the final epoch of the previous chain.
+-- In particular, the timing of the next payday will be the same as if the protocol update
+-- had not happened. (For instance, if it would have happened at the start of the next epoch
+-- prior to the protocol update, after the update it will happen at the start of epoch 1.
+-- The trigger block time in epoch 0 of the new consensus is the same as the trigger block
+-- time in the final epoch of the old consensus.)
 -- Furthermore, the bakers from the final epoch of the previous chain are also the bakers for the
 -- initial epoch of the new chain.
 module Concordium.ProtocolUpdate.P6.Reboot where
@@ -68,11 +72,10 @@ import Concordium.KonsensusV1.Types
 import Concordium.Types.HashableTo (getHash)
 import Concordium.Types.ProtocolVersion
 
--- |The hash that identifies a update from P5 to P6 protocol.
--- This is the hash of the published specification document.
--- FIXME: Update the hash https://github.com/Concordium/concordium-update-proposals/issues/47
+-- |The hash that identifies the P6.Reboot update:
+-- 8a984071ee285404c6148581369cf46ed325d1405d85e79cb6dfd5a8f5a70553
 updateHash :: SHA256.Hash
-updateHash = read "0000000000000000000000000000000000000000000000000000000000000000"
+updateHash = SHA256.hash "P6.Reboot"
 
 -- |Construct the genesis data for a P5.ProtocolP6 update.
 -- It is assumed that the last finalized block is the terminal block of the old chain:

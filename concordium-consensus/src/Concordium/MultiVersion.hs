@@ -1064,8 +1064,7 @@ checkForProtocolUpdateV1 = body
                     Nothing -> return ()
             Right upd -> do
                 logEvent Kontrol LLInfo $
-                    "A protocol update "
-                        ++ ") will take effect after "
+                    "A protocol update will take effect after "
                         ++ show effectiveTime
                         ++ ": "
                         ++ showPU pu
