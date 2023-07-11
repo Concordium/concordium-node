@@ -7,22 +7,18 @@
 
 @Library('concordium-pipelines') _
 
-Map rpc_port = [
-    mainnet: "10000",
-    testnet: "10001",
-    stagenet: "10500"
-]
-
 Map grpc2_port = [
     mainnet: "20000",
     testnet: "20001",
-    stagenet: "20500"
+    stagenet: "20500",
+    flynet: "20002"
 ]
 
 Map listen_port = [
     mainnet: "8888",
     testnet: "8889",
-    stagenet: "9500"
+    stagenet: "9500",
+    flynet: "8890"
 ]
 
 pipeline {
