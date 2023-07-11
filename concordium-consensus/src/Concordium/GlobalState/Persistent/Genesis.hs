@@ -143,13 +143,15 @@ buildGenesisBlockState vcgp GenesisData.GenesisState{..} = do
                       _passiveDelegators = Bakers.emptyPersistentActiveDelegators,
                       _totalActiveCapital = case Types.delegationSupport @av of
                         Types.SAVDelegationNotSupported -> Bakers.TotalActiveCapitalV0
-                        Types.SAVDelegationSupported -> Bakers.TotalActiveCapitalV1 agsTotal
+                        Types.SAVDelegationSupported -> Bakers.TotalActiveCapitalV1 agsStakedTotal
                     }
 
         _birkNextEpochBakers <-
             Blob.refMakeFlushed =<< do
                 _bakerInfos <- Blob.refMakeFlushed $ Bakers.BakerInfos agsBakerInfoRefs
                 _bakerStakes <- Blob.refMakeFlushed $ Bakers.BakerStakes agsBakerStakes
+                let _bakerFinalizationCommitteeParameters =
+                        genesisChainParameters ^. Types.cpFinalizationCommitteeParameters
                 return Bakers.PersistentEpochBakers{_bakerTotalStake = agsStakedTotal, ..}
 
         let _birkSeedState = case vcgp of

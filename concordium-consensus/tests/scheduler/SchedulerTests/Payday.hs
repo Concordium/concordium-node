@@ -225,7 +225,7 @@ propMintDistributionMostRecent md mr ps updates amt =
 -- `mintAndReward` doesn't change the baking and finalization reward accounts balance
 propMintDistributionImmediate ::
     forall m.
-    (BlockStateOperations m, TreeStateMonad m, MonadProtocolVersion m) =>
+    (IsConsensusV0 (MPV m), BlockStateOperations m, TreeStateMonad m, MonadProtocolVersion m) =>
     -- |Block state
     UpdatableBlockState m ->
     -- |Parent block

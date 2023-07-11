@@ -515,7 +515,7 @@ extern "C" {
     pub fn getPoolStatus(
         consensus: *mut consensus_runner,
         block_hash: *const u8,
-        passive_delegation: bool,
+        passive_delegation: u8,
         baker_id: u64,
     ) -> *const c_char;
     pub fn freeCStr(hstring: *const c_char);
@@ -1781,7 +1781,7 @@ impl ConsensusContainer {
         Ok(wrap_c_call_string!(self, consensus, |consensus| getPoolStatus(
             consensus,
             block_hash.as_ptr() as *const u8,
-            passive_delegation,
+            passive_delegation as u8,
             baker_id,
         )))
     }
@@ -1971,8 +1971,8 @@ impl ConsensusContainer {
         account_identifier: &crate::grpc2::types::AccountIdentifierInput,
     ) -> Result<([u8; 32], Vec<u8>), tonic::Status> {
         use crate::grpc2::Require;
-        let (block_id_type, block_hash) =
-            crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let bhi = crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let (block_id_type, block_hash) = bhi.to_ptr();
         let (acc_type, acc_id) =
             crate::grpc2::types::account_identifier_to_ffi(account_identifier).require()?;
         let consensus = self.consensus.load(Ordering::SeqCst);
@@ -1982,7 +1982,7 @@ impl ConsensusContainer {
             getAccountInfoV2(
                 consensus,
                 block_id_type,
-                block_hash,
+                block_hash.as_ptr(),
                 acc_type,
                 acc_id,
                 out_hash.as_mut_ptr(),
@@ -2038,8 +2038,8 @@ impl ConsensusContainer {
         block_hash: &crate::grpc2::types::BlockHashInput,
     ) -> Result<([u8; 32], crate::grpc2::types::CryptographicParameters), tonic::Status> {
         use crate::grpc2::Require;
-        let (block_id_type, block_hash) =
-            crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let bhi = crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let (block_id_type, block_hash) = bhi.to_ptr();
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut out_hash = [0u8; 32];
         let mut crypto_parameter_ptr: Option<CryptographicParameters> = None;
@@ -2047,7 +2047,7 @@ impl ConsensusContainer {
             getCryptographicParametersV2(
                 consensus,
                 block_id_type,
-                block_hash,
+                block_hash.as_ptr(),
                 out_hash.as_mut_ptr(),
                 &mut crypto_parameter_ptr,
                 copy_cryptographic_parameters_callback,
@@ -2084,15 +2084,15 @@ impl ConsensusContainer {
         let sender = Box::new(sender);
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut buf = [0u8; 32];
-        let (block_id_type, block_hash) =
-            crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let bhi = crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let (block_id_type, block_hash) = bhi.to_ptr();
         let sender_ptr = Box::into_raw(sender);
         let response: ConsensusQueryResponse = unsafe {
             getAccountListV2(
                 consensus,
                 sender_ptr,
                 block_id_type,
-                block_hash,
+                block_hash.as_ptr(),
                 buf.as_mut_ptr(),
                 enqueue_bytearray_callback,
             )
@@ -2119,14 +2119,14 @@ impl ConsensusContainer {
         let sender = Box::new(sender);
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut buf = [0u8; 32];
-        let (block_id_type, block_hash) =
-            crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let bhi = crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let (block_id_type, block_hash) = bhi.to_ptr();
         let response: ConsensusQueryResponse = unsafe {
             getModuleListV2(
                 consensus,
                 Box::into_raw(sender),
                 block_id_type,
-                block_hash,
+                block_hash.as_ptr(),
                 buf.as_mut_ptr(),
                 enqueue_bytearray_callback,
             )
@@ -2146,14 +2146,14 @@ impl ConsensusContainer {
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut out_data: Vec<u8> = Vec::new();
         let mut out_hash = [0u8; 32];
-        let (block_id_type, block_id) =
-            crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let bhi = crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let (block_id_type, block_id) = bhi.to_ptr();
         let module_ref_ptr = crate::grpc2::types::module_reference_to_ffi(module_ref).require()?;
         let response: ConsensusQueryResponse = unsafe {
             getModuleSourceV2(
                 consensus,
                 block_id_type,
-                block_id,
+                block_id.as_ptr(),
                 module_ref_ptr,
                 out_hash.as_mut_ptr(),
                 &mut out_data,
@@ -2177,14 +2177,14 @@ impl ConsensusContainer {
         let sender = Box::new(sender);
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut buf = [0u8; 32];
-        let (block_id_type, block_hash) =
-            crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let bhi = crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let (block_id_type, block_hash) = bhi.to_ptr();
         let response: ConsensusQueryResponse = unsafe {
             getInstanceListV2(
                 consensus,
                 Box::into_raw(sender),
                 block_id_type,
-                block_hash,
+                block_hash.as_ptr(),
                 buf.as_mut_ptr(),
                 enqueue_bytearray_callback,
             )
@@ -2201,8 +2201,8 @@ impl ConsensusContainer {
         address: &crate::grpc2::types::ContractAddress,
     ) -> Result<([u8; 32], Vec<u8>), tonic::Status> {
         use crate::grpc2::Require;
-        let (block_id_type, block_hash) =
-            crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let bhi = crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let (block_id_type, block_hash) = bhi.to_ptr();
         let addr_index = address.index;
         let addr_subindex = address.subindex;
         let consensus = self.consensus.load(Ordering::SeqCst);
@@ -2212,7 +2212,7 @@ impl ConsensusContainer {
             getInstanceInfoV2(
                 consensus,
                 block_id_type,
-                block_hash,
+                block_hash.as_ptr(),
                 addr_index,
                 addr_subindex,
                 out_hash.as_mut_ptr(),
@@ -2232,8 +2232,8 @@ impl ConsensusContainer {
         address: &crate::grpc2::types::ContractAddress,
     ) -> Result<([u8; 32], ContractStateResponse), tonic::Status> {
         use crate::grpc2::Require;
-        let (block_id_type, block_hash) =
-            crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let bhi = crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let (block_id_type, block_hash) = bhi.to_ptr();
         let addr_index = address.index;
         let addr_subindex = address.subindex;
         let consensus = self.consensus.load(Ordering::SeqCst);
@@ -2244,7 +2244,7 @@ impl ConsensusContainer {
             getInstanceStateV2(
                 consensus,
                 block_id_type,
-                block_hash,
+                block_hash.as_ptr(),
                 addr_index,
                 addr_subindex,
                 out_hash.as_mut_ptr(),
@@ -2278,14 +2278,14 @@ impl ConsensusContainer {
         let sender = Box::new(sender);
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut buf = [0u8; 32];
-        let (block_id_type, block_hash) =
-            crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let bhi = crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let (block_id_type, block_hash) = bhi.to_ptr();
         let response: ConsensusQueryResponse = unsafe {
             getAncestorsV2(
                 consensus,
                 Box::into_raw(sender),
                 block_id_type,
-                block_hash,
+                block_hash.as_ptr(),
                 amount,
                 buf.as_mut_ptr(),
                 enqueue_bytearray_callback,
@@ -2330,9 +2330,10 @@ impl ConsensusContainer {
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut out_data: Vec<u8> = Vec::new();
         let mut out_hash = [0u8; 32];
-        let (block_id_type, block_id) =
+        let bhi =
             crate::grpc2::types::block_hash_input_to_ffi(request.block_hash.as_ref().require()?)
                 .require()?;
+        let (block_id_type, block_id) = bhi.to_ptr();
 
         // Optional Address to ffi
         let (
@@ -2378,7 +2379,7 @@ impl ConsensusContainer {
             invokeInstanceV2(
                 consensus,
                 block_id_type,
-                block_id,
+                block_id.as_ptr(),
                 contract.index,
                 contract.subindex,
                 invoker_address_type,
@@ -2411,13 +2412,13 @@ impl ConsensusContainer {
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut out_data: Vec<u8> = Vec::new();
         let mut out_hash = [0u8; 32];
-        let (block_id_type, block_id) =
-            crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let bhi = crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let (block_id_type, block_id) = bhi.to_ptr();
         let response: ConsensusQueryResponse = unsafe {
             getBlockInfoV2(
                 consensus,
                 block_id_type,
-                block_id,
+                block_id.as_ptr(),
                 out_hash.as_mut_ptr(),
                 &mut out_data,
                 copy_to_vec_callback,
@@ -2439,14 +2440,14 @@ impl ConsensusContainer {
         let sender = Box::new(sender);
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut buf = [0u8; 32];
-        let (block_id_type, block_hash) =
-            crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let bhi = crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let (block_id_type, block_hash) = bhi.to_ptr();
         let response: ConsensusQueryResponse = unsafe {
             getBakerListV2(
                 consensus,
                 Box::into_raw(sender),
                 block_id_type,
-                block_hash,
+                block_hash.as_ptr(),
                 buf.as_mut_ptr(),
                 enqueue_bytearray_callback,
             )
@@ -2465,16 +2466,18 @@ impl ConsensusContainer {
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut out_data: Vec<u8> = Vec::new();
         let mut out_hash = [0u8; 32];
-        let (block_id_type, block_id) =
+        let bhi =
             crate::grpc2::types::block_hash_input_to_ffi(request.block_hash.as_ref().require()?)
                 .require()?;
+
+        let (block_id_type, block_id) = bhi.to_ptr();
         let baker_id = crate::grpc2::types::baker_id_to_ffi(request.baker.as_ref().require()?);
 
         let response: ConsensusQueryResponse = unsafe {
             getPoolInfoV2(
                 consensus,
                 block_id_type,
-                block_id,
+                block_id.as_ptr(),
                 baker_id,
                 out_hash.as_mut_ptr(),
                 &mut out_data,
@@ -2496,13 +2499,13 @@ impl ConsensusContainer {
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut out_data: Vec<u8> = Vec::new();
         let mut out_hash = [0u8; 32];
-        let (block_id_type, block_id) =
-            crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let bhi = crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let (block_id_type, block_id) = bhi.to_ptr();
         let response: ConsensusQueryResponse = unsafe {
             getPassiveDelegationInfoV2(
                 consensus,
                 block_id_type,
-                block_id,
+                block_id.as_ptr(),
                 out_hash.as_mut_ptr(),
                 &mut out_data,
                 copy_to_vec_callback,
@@ -2549,13 +2552,13 @@ impl ConsensusContainer {
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut out_data: Vec<u8> = Vec::new();
         let mut out_hash = [0u8; 32];
-        let (block_id_type, block_id) =
-            crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let bhi = crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let (block_id_type, block_id) = bhi.to_ptr();
         let response: ConsensusQueryResponse = unsafe {
             getTokenomicsInfoV2(
                 consensus,
                 block_id_type,
-                block_id,
+                block_id.as_ptr(),
                 out_hash.as_mut_ptr(),
                 &mut out_data,
                 copy_to_vec_callback,
@@ -2577,16 +2580,17 @@ impl ConsensusContainer {
         let sender = Box::new(sender);
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut buf = [0u8; 32];
-        let (block_id_type, block_hash) =
+        let bhi =
             crate::grpc2::types::block_hash_input_to_ffi(request.block_hash.as_ref().require()?)
                 .require()?;
+        let (block_id_type, block_hash) = bhi.to_ptr();
         let baker_id = crate::grpc2::types::baker_id_to_ffi(request.baker.as_ref().require()?);
         let response: ConsensusQueryResponse = unsafe {
             getPoolDelegatorsV2(
                 consensus,
                 Box::into_raw(sender),
                 block_id_type,
-                block_hash,
+                block_hash.as_ptr(),
                 baker_id,
                 buf.as_mut_ptr(),
                 enqueue_bytearray_callback,
@@ -2609,16 +2613,17 @@ impl ConsensusContainer {
         let sender = Box::new(sender);
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut buf = [0u8; 32];
-        let (block_id_type, block_hash) =
+        let bhi =
             crate::grpc2::types::block_hash_input_to_ffi(request.block_hash.as_ref().require()?)
                 .require()?;
+        let (block_id_type, block_hash) = bhi.to_ptr();
         let baker_id = crate::grpc2::types::baker_id_to_ffi(request.baker.as_ref().require()?);
         let response: ConsensusQueryResponse = unsafe {
             getPoolDelegatorsRewardPeriodV2(
                 consensus,
                 Box::into_raw(sender),
                 block_id_type,
-                block_hash,
+                block_hash.as_ptr(),
                 baker_id,
                 buf.as_mut_ptr(),
                 enqueue_bytearray_callback,
@@ -2640,14 +2645,14 @@ impl ConsensusContainer {
         let sender = Box::new(sender);
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut buf = [0u8; 32];
-        let (block_id_type, block_hash) =
-            crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
+        let bhi = crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
+        let (block_id_type, block_hash) = bhi.to_ptr();
         let response: ConsensusQueryResponse = unsafe {
             getPassiveDelegatorsV2(
                 consensus,
                 Box::into_raw(sender),
                 block_id_type,
-                block_hash,
+                block_hash.as_ptr(),
                 buf.as_mut_ptr(),
                 enqueue_bytearray_callback,
             )
@@ -2669,14 +2674,14 @@ impl ConsensusContainer {
         let sender = Box::new(sender);
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut buf = [0u8; 32];
-        let (block_id_type, block_hash) =
-            crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
+        let bhi = crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
+        let (block_id_type, block_hash) = bhi.to_ptr();
         let response: ConsensusQueryResponse = unsafe {
             getPassiveDelegatorsRewardPeriodV2(
                 consensus,
                 Box::into_raw(sender),
                 block_id_type,
-                block_hash,
+                block_hash.as_ptr(),
                 buf.as_mut_ptr(),
                 enqueue_bytearray_callback,
             )
@@ -2705,14 +2710,14 @@ impl ConsensusContainer {
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut out_data: Vec<u8> = Vec::new();
         let mut out_hash = [0u8; 32];
-        let (block_id_type, block_id) =
-            crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
+        let bhi = crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
+        let (block_id_type, block_id) = bhi.to_ptr();
 
         let response: ConsensusQueryResponse = unsafe {
             getElectionInfoV2(
                 consensus,
                 block_id_type,
-                block_id,
+                block_id.as_ptr(),
                 out_hash.as_mut_ptr(),
                 &mut out_data,
                 copy_to_vec_callback,
@@ -2734,14 +2739,15 @@ impl ConsensusContainer {
         let sender = Box::new(sender);
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut buf = [0u8; 32];
-        let (block_id_type, block_hash) =
-            crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
+        let bhi = crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
+        let (block_id_type, block_hash) = bhi.to_ptr();
+
         let response: ConsensusQueryResponse = unsafe {
             getIdentityProvidersV2(
                 consensus,
                 Box::into_raw(sender),
                 block_id_type,
-                block_hash,
+                block_hash.as_ptr(),
                 buf.as_mut_ptr(),
                 enqueue_bytearray_callback,
             )
@@ -2762,14 +2768,15 @@ impl ConsensusContainer {
         let sender = Box::new(sender);
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut buf = [0u8; 32];
-        let (block_id_type, block_hash) =
-            crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
+        let bhi = crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
+
+        let (block_id_type, block_hash) = bhi.to_ptr();
         let response: ConsensusQueryResponse = unsafe {
             getAnonymityRevokersV2(
                 consensus,
                 Box::into_raw(sender),
                 block_id_type,
-                block_hash,
+                block_hash.as_ptr(),
                 buf.as_mut_ptr(),
                 enqueue_bytearray_callback,
             )
@@ -2813,15 +2820,15 @@ impl ConsensusContainer {
         use crate::grpc2::Require;
         let consensus = self.consensus.load(Ordering::SeqCst);
         let sender = Box::new(sender);
-        let (block_id_type, block_hash) =
-            crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
+        let bhi = crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
+        let (block_id_type, block_hash) = bhi.to_ptr();
         let mut buf = [0u8; 32];
         let response: ConsensusQueryResponse = unsafe {
             getBlockItemsV2(
                 consensus,
                 Box::into_raw(sender),
                 block_id_type,
-                block_hash,
+                block_hash.as_ptr(),
                 buf.as_mut_ptr(),
                 enqueue_bytearray_callback,
             )
@@ -2843,14 +2850,14 @@ impl ConsensusContainer {
         let sender = Box::new(sender);
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut buf = [0u8; 32];
-        let (block_id_type, block_hash) =
-            crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
+        let bhi = crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
+        let (block_id_type, block_hash) = bhi.to_ptr();
         let response: ConsensusQueryResponse = unsafe {
             getBlockTransactionEventsV2(
                 consensus,
                 Box::into_raw(sender),
                 block_id_type,
-                block_hash,
+                block_hash.as_ptr(),
                 buf.as_mut_ptr(),
                 enqueue_bytearray_callback,
             )
@@ -2872,14 +2879,14 @@ impl ConsensusContainer {
         let sender = Box::new(sender);
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut buf = [0u8; 32];
-        let (block_id_type, block_hash) =
-            crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
+        let bhi = crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
+        let (block_id_type, block_hash) = bhi.to_ptr();
         let response: ConsensusQueryResponse = unsafe {
             getBlockSpecialEventsV2(
                 consensus,
                 Box::into_raw(sender),
                 block_id_type,
-                block_hash,
+                block_hash.as_ptr(),
                 buf.as_mut_ptr(),
                 enqueue_bytearray_callback,
             )
@@ -2901,14 +2908,14 @@ impl ConsensusContainer {
         let sender = Box::new(sender);
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut buf = [0u8; 32];
-        let (block_id_type, block_hash) =
-            crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
+        let bhi = crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
+        let (block_id_type, block_hash) = bhi.to_ptr();
         let response: ConsensusQueryResponse = unsafe {
             getBlockPendingUpdatesV2(
                 consensus,
                 Box::into_raw(sender),
                 block_id_type,
-                block_hash,
+                block_hash.as_ptr(),
                 buf.as_mut_ptr(),
                 enqueue_bytearray_callback,
             )
@@ -2928,14 +2935,13 @@ impl ConsensusContainer {
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut out_data: Vec<u8> = Vec::new();
         let mut out_hash = [0u8; 32];
-        let (block_id_type, block_id) =
-            crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
-
+        let bhi = crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
+        let (block_id_type, block_id) = bhi.to_ptr();
         let response: ConsensusQueryResponse = unsafe {
             getNextUpdateSequenceNumbersV2(
                 consensus,
                 block_id_type,
-                block_id,
+                block_id.as_ptr(),
                 out_hash.as_mut_ptr(),
                 &mut out_data,
                 copy_to_vec_callback,
@@ -2955,14 +2961,13 @@ impl ConsensusContainer {
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut out_data: Vec<u8> = Vec::new();
         let mut out_hash = [0u8; 32];
-        let (block_id_type, block_id) =
-            crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
-
+        let bhi = crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
+        let (block_id_type, block_id) = bhi.to_ptr();
         let response: ConsensusQueryResponse = unsafe {
             getBlockChainParametersV2(
                 consensus,
                 block_id_type,
-                block_id,
+                block_id.as_ptr(),
                 out_hash.as_mut_ptr(),
                 &mut out_data,
                 copy_to_vec_callback,
@@ -2982,14 +2987,13 @@ impl ConsensusContainer {
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut out_data: Vec<u8> = Vec::new();
         let mut out_hash = [0u8; 32];
-        let (block_id_type, block_id) =
-            crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
-
+        let bhi = crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
+        let (block_id_type, block_id) = bhi.to_ptr();
         let response: ConsensusQueryResponse = unsafe {
             getBlockFinalizationSummaryV2(
                 consensus,
                 block_id_type,
-                block_id,
+                block_id.as_ptr(),
                 out_hash.as_mut_ptr(),
                 &mut out_data,
                 copy_to_vec_callback,
@@ -3290,6 +3294,7 @@ pub extern "C" fn on_log_emited(identifier: c_char, log_level: c_char, log_messa
             10 => "TreeState",
             11 => "LMDB",
             12 => "Scheduler",
+            13 => "Konsensus",
             _ => "Unknown",
         }
     }

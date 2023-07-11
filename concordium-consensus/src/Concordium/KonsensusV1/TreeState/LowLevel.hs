@@ -57,21 +57,33 @@ instance BlockData (StoredBlock pv) where
     blockTimestamp = blockTimestamp . stbBlock
     blockBakedData = blockBakedData . stbBlock
     blockTransactions = blockTransactions . stbBlock
+    blockTransactionCount = blockTransactionCount . stbBlock
     blockStateHash = blockStateHash . stbBlock
 
 instance HashableTo BlockHash (StoredBlock pv) where
     getHash = getHash . stbBlock
+
+instance HasBlockMetadata (StoredBlock pv) where
+    blockMetadata = stbInfo
 
 -- |'MonadTreeStateStore' defines the interface to the low-level tree state database.
 -- An implementation should guarantee atomicity, consistency and isolation for these operations.
 -- Durability is also expected from a persistent implementation.
 -- The write operations in particular may involve updating multiple tables and should guarantee
 -- transactional behaviour.
+--
+-- The following invariants apply:
+--     * Every block in the store is either finalized or certified.
+--     * The genesis block is always finalized and has height 0.
+--     * No other genesis blocks are stored in the database.
+--     * The latest finalization entry is always present if there is more than one finalized block.
+--     * If present, the latest finalization entry finalizes the last finalized block.
+--     * The transactions indexed in the store are exactly the transactions of finalized blocks.
 class (Monad m) => MonadTreeStateStore m where
-    -- |Get a finalized block by block hash.
+    -- |Get a block by block hash.
     lookupBlock :: BlockHash -> m (Maybe (StoredBlock (MPV m)))
 
-    -- |Determine if a block is present in the finalized block table.
+    -- |Determine if a block is present in the block table.
     memberBlock :: BlockHash -> m Bool
 
     -- |Get the first (i.e. genesis) block.
@@ -80,9 +92,9 @@ class (Monad m) => MonadTreeStateStore m where
     lookupFirstBlock = lookupBlockByHeight 0
 
     -- |Get the last finalized block.
-    lookupLastBlock :: m (Maybe (StoredBlock (MPV m)))
+    lookupLastFinalizedBlock :: m (Maybe (StoredBlock (MPV m)))
 
-    -- |Look up a block by height.
+    -- |Look up a finalized block by height.
     lookupBlockByHeight :: BlockHeight -> m (Maybe (StoredBlock (MPV m)))
 
     -- |Look up a transaction by its hash.
@@ -91,22 +103,79 @@ class (Monad m) => MonadTreeStateStore m where
     -- |Determine if a transaction is present in the finalized transaction table.
     memberTransaction :: TransactionHash -> m Bool
 
-    -- |Store the list of blocks and their transactions, updating the last finalization entry to
-    -- the supplied value.  (This should write the blocks as a single database transaction.)
-    writeBlocks :: [StoredBlock (MPV m)] -> FinalizationEntry -> m ()
+    -- |Record a finalization entry that finalizes a list of blocks, and mark the blocks and their
+    -- transactions as finalized.
+    -- This has the following effects:
+    --
+    -- 1. The QCs for all rounds up to and including the round of the new last finalized block
+    --    are removed.
+    -- 2. Each block where the QC was removed is also removed from the block table, unless it is in
+    --    the list of newly-finalized blocks.
+    -- 3. Each newly-finalized block that didn't have a QC is written to the block table.
+    -- 4. The finalization entry is updated to be the new finalization entry.
+    -- 5. Each newly-finalized block is added to the finalized blocks by height index.
+    -- 6. The transactions in the newly-finalized blocks are added to the finalized transactions.
+    --
+    -- The following preconditions are required to ensure the database invariants are maintained:
+    --
+    --   * The list of blocks is non-empty, consists of consecutive non-finalized blocks
+    --     that form a chain.
+    --   * The finalization entry is for the last of these blocks.
+    writeFinalizedBlocks :: [StoredBlock (MPV m)] -> FinalizationEntry -> m ()
+
+    -- |Write a certified block that does not finalize other blocks.
+    -- This has the following effects:
+    --
+    -- 1. The new certified block is written to the block table.
+    -- 2. The QC for the newly-certified block is written to the QC table.
+    --
+    -- The following preconditions are required to ensure the database invariants are maintained:
+    --
+    --   * The quorum certificate is for the supplied block.
+    --   * The parent block is the (previous) highest certified block.
+    writeCertifiedBlock ::
+        -- |The newly-certified block.
+        StoredBlock (MPV m) ->
+        -- |The quorum certificate for the block.
+        QuorumCertificate ->
+        m ()
+
+    -- |Write a certified block that does finalize other blocks. This is equivalent to calling
+    -- 'writeFinalizedBlocks' followed by 'writeCertifiedBlock', but uses a single transaction.
+    --
+    -- The following preconditions are required to ensure the database invariants are maintained:
+    --
+    --   * The list of blocks is non-empty, consists of consecutive non-finalized blocks
+    --     that form a chain.
+    --   * The last of these blocks is the parent of the newly-certified block.
+    --   * The finalization entry is for the parent block and the successor QC is for the
+    --     newly-certified block.
+    writeCertifiedBlockWithFinalization ::
+        -- |List of blocks that are newly finalized, in increasing order of height.
+        [StoredBlock (MPV m)] ->
+        -- |The newly-certified block.
+        StoredBlock (MPV m) ->
+        -- |A finalization entry that finalizes the last of the finalized blocks, with the successor
+        -- quorum certificate being for the newly-certified block.
+        FinalizationEntry ->
+        m ()
 
     -- |Look up the finalization entry for the last finalized block.
     lookupLatestFinalizationEntry :: m (Maybe FinalizationEntry)
 
+    -- |Look up all of the certified (non-finalized) blocks, with their quorum certificates.
+    -- The list is in order of increasing round number.
+    lookupCertifiedBlocks :: m [(StoredBlock (MPV m), QuorumCertificate)]
+
     -- |Look up the status of the current round.
-    lookupCurrentRoundStatus :: m RoundStatus
+    lookupCurrentRoundStatus :: m PersistentRoundStatus
 
     -- |Write the status of the current round.
-    -- There is ever only one 'RoundStatus', hence when progressing
-    -- rounds the current 'RoundStatus' will be overwritten by a new one.
+    -- There is ever only one 'PersistentRoundStatus', hence when progressing
+    -- rounds the current 'PersistentRoundStatus' will be overwritten by a new one.
     --
     -- This is done independently of finalizing blocks i.e. 'writeBlocks'
-    -- as in the case of a restart then the protocol requires the latest 'RoundStatus'
+    -- as in the case of a restart then the protocol requires the latest 'PersistentRoundStatus'
     -- in order to progress to the next round (in accordance to)
     -- to the consensus protocol. By accordance to the protocol it is meant that the consensus
     -- should be able to be restarted without double signing and sending a signature message for quorum-/timeout certificate for the
@@ -114,11 +183,4 @@ class (Monad m) => MonadTreeStateStore m where
     --
     -- On a potential rollback of the database then the consensus will initiate catchup and
     -- a new round status will be created when the consensus is fully caught up.
-    writeCurrentRoundStatus :: RoundStatus -> m ()
-
-    -- |From the last block backwards, remove blocks and their associated transactions
-    -- from the database until the predicate returns 'True'. If any blocks are rolled back,
-    -- this also removes the latest finalization entry.
-    -- This returns @Right Int@ where the 'Int' indicates how many blocks were rolled back.
-    -- If an error occurred attempting to roll back, @Left reason@ is returned.
-    rollBackBlocksUntil :: (StoredBlock (MPV m) -> m Bool) -> m (Either String Int)
+    writeCurrentRoundStatus :: PersistentRoundStatus -> m ()

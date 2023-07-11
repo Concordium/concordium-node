@@ -61,8 +61,6 @@ pub struct NodeConfig {
     pub grpc2_address:       Option<IpAddr>,
     // Port for GRPC V2 requests
     pub grpc2_port:          Option<u16>,
-    // Whether GRPC is enabled on the node
-    pub rpc_enabled:         Option<bool>,
     // GRPC authentication token
     pub rpc_token:           Option<String>,
     // Address to listen for peer-to-peer connections on
@@ -117,12 +115,13 @@ impl NodeConfig {
     fn start_collector(&self) -> anyhow::Result<Option<Child>> {
         let run_collector = self.collector_enabled.unwrap_or(true)
             && self.collector_url.is_some()
-            && self.rpc_enabled != Some(false);
+            && self.grpc2_address.is_some()
+            && self.grpc2_port.is_some();
         if self.collector_enabled == Some(true) && !run_collector {
             let reason = if self.collector_url.is_none() {
                 "collector.url was not specified"
-            } else if self.rpc_enabled == Some(false) {
-                "rpc is disabled"
+            } else if self.grpc2_address.is_none() || self.grpc2_port.is_none() {
+                "grpc interface of the node is not enabled"
             } else {
                 "was not configured correctly"
             };
@@ -239,9 +238,6 @@ impl NodeConfig {
         self.rpc_token
             .as_ref()
             .map(|rpctoken| cmd.env("CONCORDIUM_NODE_RPC_SERVER_TOKEN", rpctoken));
-        if Some(false) == self.rpc_enabled {
-            cmd.env("CONCORDIUM_NODE_DISABLE_RPC_SERVER", "true");
-        }
         self.listen_address
             .as_ref()
             .map(|listenaddr| cmd.env("CONCORDIUM_NODE_LISTEN_ADDRESS", listenaddr.to_string()));

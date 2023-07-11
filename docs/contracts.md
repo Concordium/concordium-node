@@ -223,7 +223,7 @@ The state exposes a key-value store with arbitrary byte arrays as values.
 Iteration is supported over subtrees anchored at specific prefixes.
 
 When looking up, or iterating over the tree, entries are given out to the
-contract. These entries then support futher operations, e.g., lookup, update.
+contract. These entries then support further operations, e.g., lookup, update.
 The reason for this design is in major part because in Wasm only primitive (i64
 or i32) values may be returned by functions. In order to make lookup possible
 and practical to wrap in Rust (and other high-level languages) we return
@@ -264,7 +264,7 @@ The state modification functions are
     /// Create an empty entry with the given key. The return value is either
     /// u64::MAX if creating the entry failed because of an iterator lock on
     /// the part of the tree, or else the first bit is 0, and the remaining
-    /// bits are an entry identifier that maybe used in subsequent calls.
+    /// bits are an entry identifier that may be used in subsequent calls.
     /// If an entry at that key already exists it is set to the empty entry.
     pub(crate) fn state_create_entry(key_start: *const u8, key_length: u32) -> OptionEntry;
 

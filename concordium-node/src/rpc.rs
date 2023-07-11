@@ -42,24 +42,44 @@ pub struct RpcServerImpl {
 }
 
 impl RpcServerImpl {
-    /// Creates a new RPC server object.
+    /// Creates a new RPC server object if the `conf` specifies it.
+    /// If the port and address are not specified `Ok(None)` is returned.
     pub fn new(
         node: Arc<P2PNode>,
         consensus: Option<ConsensusContainer>,
         conf: &configuration::RpcCliConfig,
         invoke_max_energy: u64,
-    ) -> anyhow::Result<Self> {
-        let listen_addr =
-            SocketAddr::from((IpAddr::from_str(&conf.rpc_server_addr)?, conf.rpc_server_port));
+    ) -> anyhow::Result<Option<Self>> {
+        match (&conf.rpc_server_addr, conf.rpc_server_port) {
+            (None, None) => Ok(None),
+            (None, Some(_)) => {
+                warn!(
+                    "GRPC V1 server port is supplied, but the address is not. Not starting GRPC \
+                     V1 server"
+                );
+                Ok(None)
+            }
+            (Some(_), None) => {
+                warn!(
+                    "GRPC V1 server address is supplied, but the port is not. Not starting GRPC \
+                     V1 server"
+                );
+                Ok(None)
+            }
+            (Some(addr), Some(port)) => {
+                info!("Starting GRPC V1 server on {addr}:{port}");
+                let listen_addr = SocketAddr::from((IpAddr::from_str(addr)?, port));
 
-        Ok(RpcServerImpl {
-            node: Arc::clone(&node),
-            disable_node_endpoints: conf.no_rpc_server_node_endpoints,
-            listen_addr,
-            access_token: conf.rpc_server_token.clone(),
-            consensus,
-            invoke_max_energy,
-        })
+                Ok(Some(RpcServerImpl {
+                    node: Arc::clone(&node),
+                    disable_node_endpoints: conf.no_rpc_server_node_endpoints,
+                    listen_addr,
+                    access_token: conf.rpc_server_token.clone(),
+                    consensus,
+                    invoke_max_energy,
+                }))
+            }
+        }
     }
 
     /// Starts the gRPC server, which will shutdown when the provided future is
@@ -1046,10 +1066,11 @@ mod tests {
 
         let rpc_port = next_available_port();
         let mut config = get_test_config(8888, vec![100]);
-        config.cli.rpc.rpc_server_port = rpc_port;
-        config.cli.rpc.rpc_server_addr = "127.0.0.1".to_owned();
+        config.cli.rpc.rpc_server_port = Some(rpc_port);
+        config.cli.rpc.rpc_server_addr = Some("127.0.0.1".to_owned());
         config.cli.rpc.rpc_server_token = TOKEN.to_owned();
-        let mut rpc_server = RpcServerImpl::new(node.clone(), None, &config.cli.rpc, 1_000_000)?;
+        let mut rpc_server = RpcServerImpl::new(node.clone(), None, &config.cli.rpc, 1_000_000)?
+            .expect("We have configured the server to start.");
         let (error_sender, _) = tokio::sync::broadcast::channel(1);
         tokio::spawn(async move { rpc_server.start_server(future::pending(), error_sender).await });
         tokio::task::yield_now().await;

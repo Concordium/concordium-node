@@ -24,6 +24,7 @@ data Timeout
       DelayFor NominalDiffTime
     | -- |Wait until a given time
       DelayUntil UTCTime
+    deriving (Show)
 
 class Monad m => TimerMonad m where
     type Timer m
@@ -50,7 +51,8 @@ makeThreadTimer timeout action = do
 #if defined(mingw32_HOST_OS)
   enabled <- newIORef True
   thread <- forkIO $ do
-    threadDelay =<< (getDelay timeout)
+    delay <- getDelay timeout
+    when (delay > 0) $ threadDelay delay
     continue <- readIORef enabled
     when continue action
   return $ ThreadTimer thread enabled

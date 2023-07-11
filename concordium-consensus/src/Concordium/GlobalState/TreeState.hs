@@ -36,6 +36,7 @@ import Concordium.Types.Transactions as Transactions
 import Concordium.Types.Updates hiding (getUpdateKeysCollection)
 
 import qualified Concordium.GlobalState.Block as B
+import Concordium.Scheduler.Types (FilteredTransactions)
 import qualified Concordium.TransactionVerification as TVer
 
 data BlockStatus bp pb
@@ -314,6 +315,19 @@ class
         UpdateSequenceNumber ->
         m [(UpdateSequenceNumber, Map.Map (WithMetadata UpdateInstruction) TVer.VerificationResult)]
 
+    -- |Get the pending transactions grouped for use in constructing a block.
+    -- Each group consists of one of the following:
+    --
+    --   * A single credential.
+    --
+    --   * The pending transactions on a single account, ordered by increasing account nonce.
+    --
+    --   * The pending chain update instructions, ordered by increasing sequence number.
+    --
+    -- The transaction groups are ordered by the earliest arrival time of a transaction in the group
+    -- with minimal nonce/sequence number.
+    getGroupedPendingTransactions :: m [TransactionGroup]
+
     -- | Depending on the implementation, `finalizeTransactions` may return a value of this
     -- type. The primary intent is to allow the persistent implementation to pass a list of
     -- transaction hashes and statuses to `wrapupFinalization` which will write them to disk,
@@ -353,12 +367,6 @@ class
     -- but if the transaction is already in the table the outcomes are retained.
     -- See documentation of 'AddTransactionResult' for meaning of the return value.
     addVerifiedTransaction :: BlockItem -> TVer.OkResult -> m AddTransactionResult
-
-    -- |Purge a transaction from the transaction table if its last committed slot
-    -- number does not exceed the slot number of the last finalized block.
-    -- (A transaction that has been committed to a finalized block should not be purged.)
-    -- Returns @True@ if and only if the transaction is purged.
-    purgeTransaction :: BlockItem -> m Bool
 
     -- |Get the `VerificationResult` for a `BlockItem` if such one exist.
     -- A `VerificationResult` exists for `Received` and `Committed` transactions while
@@ -405,6 +413,23 @@ class
         UTCTime ->
         m ()
 
+    -- |Update the transaction table and pending transaction table as a result of constructing a
+    -- block. The transactions added to the block are marked as committed. Failed transactions are
+    -- purged from the transaction table if they are not committed since the last finalized block.
+    -- The pending transaction table is updated to reflect the executed transactions and the purged
+    -- transactions.
+    --
+    -- PRECONDITION: All of the filtered transactions are present in the transaction table and
+    -- pending transaction table.
+    filterTransactionTables ::
+        -- |Slot of the block being constructed.
+        Slot ->
+        -- |Hash of the block being constructed.
+        BlockHash ->
+        -- |Filtered transactions as a result of constructing the block.
+        FilteredTransactions ->
+        m ()
+
     -- |Mark a transaction as no longer on a given block. This is used when a block is
     -- marked as dead.
     markDeadTransaction :: BlockHash -> BlockItem -> m ()
@@ -435,7 +460,8 @@ class
     --
     --   - Clear all non-finalized blocks from the block table.
     --   - Remove all blocks from the pending table.
-    --   - Mark all non-finalized but committed transactions
+    --   - Mark all 'Committed' transactions as 'Received'.
+    --   - Reset the 'CommitPoint' on all non finalized transactions.
     clearOnProtocolUpdate :: m ()
 
     -- |Do any cleanup of resources that are no longer needed after the protocol
@@ -481,12 +507,12 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     getAccountNonFinalized acc = lift . getAccountNonFinalized acc
     getCredential = lift . getCredential
     getNonFinalizedChainUpdates uty = lift . getNonFinalizedChainUpdates uty
+    getGroupedPendingTransactions = lift getGroupedPendingTransactions
     type FinTrans (MGSTrans t m) = FinTrans m
     finalizeTransactions bh slot = lift . finalizeTransactions bh slot
     commitTransaction slot bh tr = lift . commitTransaction slot bh tr
     addCommitTransaction tr ctx ts slot = lift $ addCommitTransaction tr ctx ts slot
     addVerifiedTransaction tr vr = lift $ addVerifiedTransaction tr vr
-    purgeTransaction = lift . purgeTransaction
     markDeadTransaction bh = lift . markDeadTransaction bh
     lookupTransaction = lift . lookupTransaction
     numberOfNonFinalizedTransactions = lift numberOfNonFinalizedTransactions
@@ -494,6 +520,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     putConsensusStatistics = lift . putConsensusStatistics
     getRuntimeParameters = lift getRuntimeParameters
     purgeTransactionTable tm = lift . (purgeTransactionTable tm)
+    filterTransactionTables slot hash filtered = lift $ filterTransactionTables slot hash filtered
     getNonFinalizedTransactionVerificationResult = lift . getNonFinalizedTransactionVerificationResult
     clearOnProtocolUpdate = lift clearOnProtocolUpdate
     clearAfterProtocolUpdate = lift clearAfterProtocolUpdate
@@ -530,7 +557,6 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     {-# INLINE commitTransaction #-}
     {-# INLINE addCommitTransaction #-}
     {-# INLINE addVerifiedTransaction #-}
-    {-# INLINE purgeTransaction #-}
     {-# INLINE lookupTransaction #-}
     {-# INLINE numberOfNonFinalizedTransactions #-}
     {-# INLINE markDeadTransaction #-}

@@ -2,6 +2,70 @@
 
 ## Unreleased changes
 
+- Fix a bug where the LMDB map was not resized when exporting the database. 
+  This could cause the database exporter to fail when used on a running node.
+- Fix a bug where the database exporter creates files in the wrong path when invoked with a
+  relative `--exportpath`.
+- Fix a bug where a setup with a single baker and a minimum block time of 0s would result in an
+  unresponsive node in protocol version 6.
+- Fix a bug where receiving a duplicate of an invalid block could be spuriously reported as double
+  signing.
+- Fix a bug where database roll-back could fail on Windows.
+- Fix a bug where catch-up for ConcordiumBFT can loop or result in incorrect soft-banning of peers.
+
+## 6.0.1
+
+- Remove configuration option `no-rpc-server` and environment variable
+  `CONCORDIUM_NODE_DISABLE_RPC_SERVER`, as well as default values of
+  `rpc-server-port` (`CONCORDIUM_NODE_RPC_SERVER_PORT`) and `rpc-server-addr`
+  (`CONCORDIUM_NODE_RPC_SERVER_ADDR`). The V1 gRPC server is only started if
+  both of these options are supplied.
+- Fix a bug which caused account nonces and sequence numbers to not be migrated to P6 correctly.
+- Add support for out-of-band export files for ConcordiumBFT (protocol version 6).
+- Fix a network layer bug where initial messages after the handshake could be
+  dropped in some circumstances.
+- Fix a bug which caused the first epoch of the new protocol to be shorter than expected.
+- Fix a bug that caused an incorrect reporting of total stake in the first
+  payday just after genesis when the node started from genesis at protocols 4 or 5.
+- Revise the behaviour of rollbacks in P6.
+- Changes in Wasm validation and execution in P6
+  - Disallow globals in initialization sections for V1 contracts in P6.
+  - Support sign extension instructions in Wasm in P6.
+  - Do not count custom sections towards module size when executing contracts.
+  - Support new `invoke` operations for retrieving account keys and checking signatures.
+- Shut down consensus upon a protocol update updating from protocol version 6.
+- Revised persistent state for P6 with changes to startup and catch-up handling.
+
+## 6.0.0
+
+- Support the new ConcordiumBFT consensus (protocol version 6).
+- Fix a bug that causes bakers in genesis to restake their earnings when they should not. This
+  affects genesis data at protocol version P5; P1-P4 genesis data are not affected. This breaks
+  compatibility with chains started with P5 genesis data, where some genesis bakers are not set to
+  restake earnings. Other chains (including mainnet and testnet) are not affected.
+- Changes to the `GetConsensusStatus` endpoint:
+  * Slot duration only returned in protocol versions 0-5.
+  * Endpoint extended to return current timeout duration, current round, current epoch and trigger
+    block time in protocol version 6.
+- Changes to the `GetBlockInfo` endpoint:
+  * Block slot only returned in protocol versions 0-5.
+  * In protocol version 6, the returned finalized block is the last finalized block until itself
+    is finalized. Then it is itself.
+  * Endpoint extended to return block round and epoch in protocol version 6.
+- Changes to the `ElectionInfo` endpoint:
+  * Election difficulty only returned in protocol versions 0-5.
+
+## 5.4.2
+
+- Revert a change in getModuleSource of the V1 GRPC API.
+
+## 5.4.0
+
+- Support using block height as block identifiers in gRPC v2 API.
+- Extend gRPC v2 API call `GetBlockInfo` with the protocol version of the block.
+- Do not use peer buckets when running as a normal node (not as a bootstrapper).
+- Enable CORS support in grpc-web. This only applies when grpc-web is enabled.
+
 ## 5.3.2
 
 - Extend Prometheus exporter with metric `peer_bucket_size`, see

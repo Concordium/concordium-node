@@ -1,13 +1,13 @@
 [package]
 name = "concordium_node"
-version = "5.3.2" # must be kept in sync with 'is_compatible_version' in 'src/configuration.rs'
+version = "6.0.1" # must be kept in sync with 'is_compatible_version' in 'src/configuration.rs'
 description = "Concordium Node"
 authors = ["Concordium <developers@concordium.com>"]
 exclude = [".gitignore", ".gitlab-ci.yml", "test/**/*","**/**/.gitignore","**/**/.gitlab-ci.yml"]
 publish = false
 build = "build.rs"
 autobins = false
-edition = "2018"
+edition = "2021"
 default-run = "concordium-node"
 license-file = "../LICENSE"
 
@@ -76,11 +76,11 @@ serde_json = { version = "1" }
 tempfile = { version = "3.1" }
 
 # gRPC dependencies
-tonic = { version = "0.8", features = ["tls"] }
-tonic-reflection = "0.5"
+tonic = { version = "0.9", features = ["tls"] }
+tonic-reflection = "0.9"
 tower-http = { version = "0.4", features = ["trace", "metrics"] }
 tower = "0.4"
-tonic-web = "0.4"
+tonic-web = "0.9"
 prost = "0.11"
 tokio = { version = "1.20", features = ["macros", "rt-multi-thread", "signal", "io-util", "time"] }
 tokio-stream = "0.1"
@@ -95,7 +95,7 @@ ipconfig = { version = "0.2" }
 get_if_addrs = { version = "0.5" }
 
 [build-dependencies]
-tonic-build = { version = "0.8", default-features = false, features = ["transport", "prost"] }
+tonic-build = { version = "0.9", default-features = false, features = ["transport", "prost"] }
 prost-build = "0.11"
 flatc-rust = "0.2.0"
 walkdir = "2"

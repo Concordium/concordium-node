@@ -31,13 +31,14 @@ module Concordium.GlobalState.Persistent.BlockState (
     BlockRewardDetails (..),
     PersistentBlockStateMonad (..),
     withNewAccountCache,
+    cacheState,
     cacheStateAndGetTransactionTable,
     migratePersistentBlockState,
     SupportsPersistentState,
 ) where
 
 import qualified Concordium.Crypto.SHA256 as H
-import qualified Concordium.Crypto.SHA256 as SHA256
+import qualified Concordium.Genesis.Data.P6 as P6
 import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount)
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.BlockState
@@ -108,9 +109,9 @@ data PersistentBirkParameters (pv :: ProtocolVersion) = PersistentBirkParameters
     { -- |The currently-registered bakers.
       _birkActiveBakers :: !(BufferedRef (PersistentActiveBakers (AccountVersionFor pv))),
       -- |The bakers that will be used for the next epoch.
-      _birkNextEpochBakers :: !(HashedBufferedRef (PersistentEpochBakers (AccountVersionFor pv))),
+      _birkNextEpochBakers :: !(HashedBufferedRef (PersistentEpochBakers pv)),
       -- |The bakers for the current epoch.
-      _birkCurrentEpochBakers :: !(HashedBufferedRef (PersistentEpochBakers (AccountVersionFor pv))),
+      _birkCurrentEpochBakers :: !(HashedBufferedRef (PersistentEpochBakers pv)),
       -- |The seed state used to derive the leadership election nonce.
       _birkSeedState :: !(SeedState (SeedStateVersionFor pv))
     }
@@ -127,6 +128,9 @@ migrateSeedState StateMigrationParametersP1P2{} ss = ss
 migrateSeedState StateMigrationParametersP2P3{} ss = ss
 migrateSeedState StateMigrationParametersP3ToP4{} ss = ss
 migrateSeedState StateMigrationParametersP4ToP5{} ss = ss
+migrateSeedState (StateMigrationParametersP5ToP6 (P6.StateMigrationData _ time)) SeedStateV0{..} =
+    let seed = H.hash $ "Regenesis" <> encode ss0CurrentLeadershipElectionNonce
+    in  initialSeedStateV1 seed time
 
 -- |See documentation of @migratePersistentBlockState@.
 --
@@ -210,8 +214,10 @@ initialBirkParameters ::
     [PersistentAccount av] ->
     -- |The seed state
     SeedState (SeedStateVersionFor pv) ->
+    -- |The finalization committee parameters (if relevant)
+    OFinalizationCommitteeParameters pv ->
     m (PersistentBirkParameters pv)
-initialBirkParameters accounts seedState = do
+initialBirkParameters accounts seedState _bakerFinalizationCommitteeParameters = do
     -- Iterate accounts and collect delegators.
     IBPCollectedDelegators{..} <- case delegationSupport @av of
         SAVDelegationNotSupported -> return emptyIBPCollectedDelegators
@@ -306,7 +312,7 @@ initialBirkParameters accounts seedState = do
                         }
             Nothing -> return updatedAccum
 
-freezeContractState :: forall v m. (Wasm.IsWasmVersion v, MonadBlobStore m) => UpdatableContractState v -> m (SHA256.Hash, Instances.InstanceStateV v)
+freezeContractState :: forall v m. (Wasm.IsWasmVersion v, MonadBlobStore m) => UpdatableContractState v -> m (H.Hash, Instances.InstanceStateV v)
 freezeContractState cs = case Wasm.getWasmVersion @v of
     Wasm.SV0 -> return (getHash cs, Instances.InstanceStateV0 cs)
     Wasm.SV1 -> do
@@ -538,6 +544,10 @@ migrateBlockRewardDetails (StateMigrationParametersP3ToP4 _) curBakers nextBaker
         (!newRef, _) <- refFlush =<< refMake =<< migratePoolRewardsP1 curBakers nextBakers blockCounts (rewardPeriodEpochs _tpRewardPeriodLength) _tpMintPerPayday
         return (BlockRewardDetailsV1 newRef)
 migrateBlockRewardDetails StateMigrationParametersP4ToP5{} _ _ (SomeParam TimeParametersV1{..}) = \case
+    (BlockRewardDetailsV1 hbr) ->
+        BlockRewardDetailsV1
+            <$> migrateHashedBufferedRef (migratePoolRewards (rewardPeriodEpochs _tpRewardPeriodLength)) hbr
+migrateBlockRewardDetails StateMigrationParametersP5ToP6{} _ _ (SomeParam TimeParametersV1{..}) = \case
     (BlockRewardDetailsV1 hbr) ->
         BlockRewardDetailsV1
             <$> migrateHashedBufferedRef (migratePoolRewards (rewardPeriodEpochs _tpRewardPeriodLength)) hbr
@@ -819,7 +829,7 @@ initialPersistentState ::
     ChainParameters pv ->
     m (HashedPersistentBlockState pv)
 initialPersistentState seedState cryptoParams accounts ips ars keysCollection chainParams = do
-    persistentBirkParameters <- initialBirkParameters accounts seedState
+    persistentBirkParameters <- initialBirkParameters accounts seedState (chainParams ^. cpFinalizationCommitteeParameters)
     modules <- refMake Modules.emptyModules
     identityProviders <- bufferHashed $ makeHashed ips
     anonymityRevokers <- bufferHashed $ makeHashed ars
@@ -1036,6 +1046,16 @@ doSetSeedState pbs ss = do
     bsp <- loadPBS pbs
     storePBS pbs bsp{bspBirkParameters = (bspBirkParameters bsp){_birkSeedState = ss}}
 
+doGetCurrentEpochFinalizationCommitteeParameters ::
+    ( SupportsPersistentState pv m,
+      IsSupported 'PTFinalizationCommitteeParameters (ChainParametersVersionFor pv) ~ 'True
+    ) =>
+    PersistentBlockState pv ->
+    m FinalizationCommitteeParameters
+doGetCurrentEpochFinalizationCommitteeParameters pbs = do
+    eb <- refLoad . _birkCurrentEpochBakers . bspBirkParameters =<< loadPBS pbs
+    return $! eb ^. bakerFinalizationCommitteeParameters . supportedOParam
+
 doGetCurrentEpochBakers :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m FullBakers
 doGetCurrentEpochBakers pbs = epochToFullBakers =<< refLoad . _birkCurrentEpochBakers . bspBirkParameters =<< loadPBS pbs
 
@@ -1048,6 +1068,16 @@ doGetCurrentCapitalDistribution pbs = do
     let hpr = case bspRewardDetails bsp of BlockRewardDetailsV1 hp -> hp
     poolRewards <- refLoad hpr
     refLoad $ currentCapital poolRewards
+
+doGetNextEpochFinalizationCommitteeParameters ::
+    ( SupportsPersistentState pv m,
+      IsSupported 'PTFinalizationCommitteeParameters (ChainParametersVersionFor pv) ~ 'True
+    ) =>
+    PersistentBlockState pv ->
+    m FinalizationCommitteeParameters
+doGetNextEpochFinalizationCommitteeParameters pbs = do
+    eb <- refLoad . _birkNextEpochBakers . bspBirkParameters =<< loadPBS pbs
+    return $! eb ^. bakerFinalizationCommitteeParameters . supportedOParam
 
 doGetNextEpochBakers :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m FullBakers
 doGetNextEpochBakers pbs = do
@@ -1161,6 +1191,10 @@ doTransitionEpochBakers pbs newEpoch = do
     -- so why not?
     _bakerStakes <- secondIfEqual newBakerStakes (_bakerStakes neb)
     let _bakerTotalStake = sum stakesVec
+        _bakerFinalizationCommitteeParameters = case protocolVersion @pv of
+            SP1 -> NoParam
+            SP2 -> NoParam
+            SP3 -> NoParam
     newNextBakers <- refMake PersistentEpochBakers{..}
     storePBS
         pbs
@@ -2681,6 +2715,9 @@ doGetUpdates = makeBasicUpdates <=< refLoad . bspUpdates <=< loadPBS
 doGetProtocolUpdateStatus :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m UQ.ProtocolUpdateStatus
 doGetProtocolUpdateStatus = protocolUpdateStatus . bspUpdates <=< loadPBS
 
+doIsProtocolUpdateEffective :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m Bool
+doIsProtocolUpdateEffective = isProtocolUpdateEffective . bspUpdates <=< loadPBS
+
 doProcessUpdateQueues ::
     (SupportsPersistentState pv m) =>
     PersistentBlockState pv ->
@@ -2966,8 +3003,9 @@ doSetNextEpochBakers ::
     (SupportsPersistentState pv m) =>
     PersistentBlockState pv ->
     [(PersistentBakerInfoRef (AccountVersionFor pv), Amount)] ->
+    OFinalizationCommitteeParameters pv ->
     m (PersistentBlockState pv)
-doSetNextEpochBakers pbs bakers = do
+doSetNextEpochBakers pbs bakers _bakerFinalizationCommitteeParameters = do
     bsp <- loadPBS pbs
     _bakerInfos <- refMake (BakerInfos preBakerInfos)
     _bakerStakes <- refMake (BakerStakes preBakerStakes)
@@ -3285,8 +3323,10 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateQuery (P
     getAccountList = doAccountList . hpbsPointers
     getContractInstanceList = doContractInstanceList . hpbsPointers
     getSeedState = doGetSeedState . hpbsPointers
+    getCurrentEpochFinalizationCommitteeParameters = doGetCurrentEpochFinalizationCommitteeParameters . hpbsPointers
     getCurrentEpochBakers = doGetCurrentEpochBakers . hpbsPointers
     getNextEpochBakers = doGetNextEpochBakers . hpbsPointers
+    getNextEpochFinalizationCommitteeParameters = doGetNextEpochFinalizationCommitteeParameters . hpbsPointers
     getSlotBakersP1 = doGetSlotBakersP1 . hpbsPointers
     getBakerAccount = doGetBakerAccount . hpbsPointers
     getRewardStatus = doGetRewardStatus . hpbsPointers
@@ -3437,6 +3477,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperatio
     bsoProcessPendingChanges = doProcessPendingChanges
     bsoGetBankStatus = doGetBankStatus
     bsoSetRewardAccounts = doSetRewardAccounts
+    bsoIsProtocolUpdateEffective = doIsProtocolUpdateEffective
 
 instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage (PersistentBlockStateMonad pv r m) where
     thawBlockState HashedPersistentBlockState{..} =
@@ -3475,6 +3516,10 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage 
     collapseCaches = do
         Cache.collapseCache (Proxy :: Proxy (AccountCache av))
         Cache.collapseCache (Proxy :: Proxy Modules.ModuleCache)
+
+    cacheBlockState = cacheState
+
+    cacheBlockStateAndGetTransactionTable = cacheStateAndGetTransactionTable
 
 -- |Migrate the block state from the representation used by protocol version
 -- @oldpv@ to the one used by protocol version @pv@. The migration is done gradually,
@@ -3537,6 +3582,7 @@ migrateBlockPointers migration BlockStatePointers{..} = do
                 Accounts.getAccountIndex addr bspAccounts <&> \case
                     Nothing -> error "Account with release schedule does not exist"
                     Just ai -> ai
+            StateMigrationParametersP5ToP6{} -> RSMNewToNew
     newReleaseSchedule <- migrateReleaseSchedule rsMigration bspReleaseSchedule
     newAccounts <- Accounts.migrateAccounts migration bspAccounts
     newModules <- migrateHashedBufferedRef Modules.migrateModules bspModules
@@ -3571,6 +3617,47 @@ migrateBlockPointers migration BlockStatePointers{..} = do
               bspTransactionOutcomes = newTransactionOutcomes,
               bspRewardDetails = newRewardDetails
             }
+
+-- |Cache the block state.
+cacheState ::
+    forall pv m.
+    (SupportsPersistentState pv m) =>
+    HashedPersistentBlockState pv ->
+    m ()
+cacheState hpbs = do
+    BlockStatePointers{..} <- loadPBS (hpbsPointers hpbs)
+    accts <- liftCache (return @_ @(PersistentAccount (AccountVersionFor pv))) bspAccounts
+    -- first cache the modules
+    mods <- cache bspModules
+    -- then cache the instances, but don't cache the modules again. Instead
+    -- share the references in memory we have already constructed by caching
+    -- modules above. Loading the modules here is cheap since we cached them.
+    insts <- runReaderT (cache bspInstances) =<< refLoad mods
+    ips <- cache bspIdentityProviders
+    ars <- cache bspAnonymityRevokers
+    birkParams <- cache bspBirkParameters
+    cryptoParams <- cache bspCryptographicParameters
+    upds <- cache bspUpdates
+    rels <- cache bspReleaseSchedule
+    red <- cache bspRewardDetails
+    _ <-
+        storePBS
+            (hpbsPointers hpbs)
+            BlockStatePointers
+                { bspAccounts = accts,
+                  bspInstances = insts,
+                  bspModules = mods,
+                  bspBank = bspBank,
+                  bspIdentityProviders = ips,
+                  bspAnonymityRevokers = ars,
+                  bspBirkParameters = birkParams,
+                  bspCryptographicParameters = cryptoParams,
+                  bspUpdates = upds,
+                  bspReleaseSchedule = rels,
+                  bspTransactionOutcomes = bspTransactionOutcomes,
+                  bspRewardDetails = red
+                }
+    return ()
 
 -- |Cache the block state and get the initial (empty) transaction table with the next account nonces
 -- and update sequence numbers populated.

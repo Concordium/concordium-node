@@ -15,6 +15,7 @@ import qualified Concordium.ProtocolUpdate.P1 as P1
 import qualified Concordium.ProtocolUpdate.P2 as P2
 import qualified Concordium.ProtocolUpdate.P3 as P3
 import qualified Concordium.ProtocolUpdate.P4 as P4
+import qualified Concordium.ProtocolUpdate.P5 as P5
 import Concordium.Skov
 
 -- |Type representing currently supported protocol update types.
@@ -23,12 +24,14 @@ data Update (pv :: ProtocolVersion) where
     UpdateP2 :: P2.Update -> Update 'P2
     UpdateP3 :: P3.Update -> Update 'P3
     UpdateP4 :: P4.Update -> Update 'P4
+    UpdateP5 :: P5.Update -> Update 'P5
 
 instance Show (Update pv) where
     show (UpdateP1 u) = "P1." ++ show u
     show (UpdateP2 u) = "P2." ++ show u
     show (UpdateP3 u) = "P3." ++ show u
     show (UpdateP4 u) = "P4." ++ show u
+    show (UpdateP5 u) = "P5." ++ show u
 
 -- |Determine if a 'ProtocolUpdate' corresponds to a supported update type.
 checkUpdate :: forall pv. (IsProtocolVersion pv) => ProtocolUpdate -> Either String (Update pv)
@@ -37,6 +40,7 @@ checkUpdate = case protocolVersion @pv of
     SP2 -> fmap UpdateP2 . P2.checkUpdate
     SP3 -> fmap UpdateP3 . P3.checkUpdate
     SP4 -> fmap UpdateP4 . P4.checkUpdate
+    SP5 -> fmap UpdateP5 . P5.checkUpdate
     _ -> const $ Left "Unsupported update."
 
 -- |Construct the genesis data for a P1 update.
@@ -51,6 +55,7 @@ updateRegenesis (UpdateP1 u) = P1.updateRegenesis u
 updateRegenesis (UpdateP2 u) = P2.updateRegenesis u
 updateRegenesis (UpdateP3 u) = P3.updateRegenesis u
 updateRegenesis (UpdateP4 u) = P4.updateRegenesis u
+updateRegenesis (UpdateP5 u) = P5.updateRegenesis u
 
 -- |Determine the next protocol version for the given update. Although the same
 -- information can be retrieved from 'updateRegenesis', this is more efficient
@@ -62,6 +67,7 @@ updateNextProtocolVersion (UpdateP1 u) = P1.updateNextProtocolVersion u
 updateNextProtocolVersion (UpdateP2 u) = P2.updateNextProtocolVersion u
 updateNextProtocolVersion (UpdateP3 u) = P3.updateNextProtocolVersion u
 updateNextProtocolVersion (UpdateP4 u) = P4.updateNextProtocolVersion u
+updateNextProtocolVersion (UpdateP5 u) = P5.updateNextProtocolVersion u
 
 -- |If a protocol update has taken effect, return its protocol version.
 -- Otherwise return 'Nothing'.

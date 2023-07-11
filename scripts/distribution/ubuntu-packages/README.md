@@ -233,12 +233,6 @@ The node supports the following environment variables.
   configuration and data. In particular the `CONCORDIUM_NODE_DATA_DIR` is where the node's
   database is stored.
 
-- `CONCORDIUM_NODE_RPC_SERVER_ADDR` is the listen address of the node's grpc server (default 0.0.0.0)
-
-- `CONCORDIUM_NODE_RPC_SERVER_PORT` is the port of the grpc server (default 10000) (NB: If this
-  is changed then the variable `COLLECTOR_GRPC_PORT` must be changed as well for
-  the `concordium-${build_env_name_lower}-node-collector` service)
-
 - `CONCORDIUM_NODE_EXTERNAL_PORT` is related to the listen-port. If the external port of the
   server is not the same as the port the node is listening on (i.e., it is
   remapped) then this should be set to the external port so that other nodes can

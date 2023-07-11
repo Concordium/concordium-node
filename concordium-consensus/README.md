@@ -16,7 +16,7 @@ The global state depends on the lmdb library, which you may need to install usin
   ```
 - On Linux, install the `liblmdb-dev` package (or a similarly named in your
   package manager).
-- On OS X, use `brew install lmdb`.
+- On OS X, use `brew install lmdb`. In case it is not linked by default provide the flags `--extra-lib-dirs=/opt/homebrew/Cellar/lmdb/<VERSION>/lib` and `--extra-include-dirs=/opt/homebrew/Cellar/lmdb/<VERSION>/include` to the `stack build` target.
 
 ### Troubleshooting on Windows
 

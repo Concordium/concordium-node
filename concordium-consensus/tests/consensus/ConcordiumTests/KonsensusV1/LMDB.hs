@@ -4,6 +4,7 @@
 module ConcordiumTests.KonsensusV1.LMDB (tests) where
 
 import Control.Exception
+import Control.Monad
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Reader
 import qualified Data.Map.Strict as Map
@@ -145,19 +146,18 @@ dummyBlock n ts = NormalBlock $ SignedBlock b h dummyBlockSig
 -- Empty 'StoredBlock's with different hashes can then be constructed by calling this function with different rounds.
 -- The blocks are derived from 'dummyBlock' with the supplied height and round, but no block items.
 dummyStoredBlockEmpty :: BlockHeight -> Round -> StoredBlock 'P6
-dummyStoredBlockEmpty h n = StoredBlock (BlockMetadata h dummyTime dummyTime) (dummyBlock n Vector.empty) (BlobRef 0)
+dummyStoredBlockEmpty h n = StoredBlock (BlockMetadata h dummyTime dummyTime 0 0) (dummyBlock n Vector.empty) (BlobRef 0)
 
 -- |A helper function for creating a StoredBlock with the given block height and round, and with one transaction.
 -- 'StoredBlock's (with one transaction) with different hashes can then be constructed by calling this function with different rounds.
 -- The blocks are derived from 'dummyBlock' with the supplied height and round, and a singular 'dummyBlockItem'.
 dummyStoredBlockOneTransaction :: BlockHeight -> Round -> StoredBlock 'P6
-dummyStoredBlockOneTransaction h n = StoredBlock (BlockMetadata h dummyTime dummyTime) (dummyBlock n $ Vector.singleton dummyBlockItem) (BlobRef 0)
+dummyStoredBlockOneTransaction h n = StoredBlock (BlockMetadata h dummyTime dummyTime 200 200) (dummyBlock n $ Vector.singleton dummyBlockItem) (BlobRef 0)
 
 -- |List of stored blocks used for testing. The heights are chosen so it is tested that the endianness of the stored block heights are correct.
 dummyStoredBlocks :: [StoredBlock 'P6]
 dummyStoredBlocks =
-    [ dummyStoredBlockEmpty 0 9,
-      dummyStoredBlockEmpty 1 1,
+    [ dummyStoredBlockEmpty 1 1,
       dummyStoredBlockEmpty 0x100 2,
       dummyStoredBlockEmpty 0x10000 3,
       dummyStoredBlockEmpty 0x1000000 4,
@@ -165,18 +165,8 @@ dummyStoredBlocks =
       dummyStoredBlockEmpty 0x10000000000 6,
       dummyStoredBlockEmpty 0x1000000000000 7,
       dummyStoredBlockEmpty 0x100000000000000 8,
+      dummyStoredBlockEmpty 0 9,
       dummyStoredBlockOneTransaction 5 10
-    ]
-
--- |List of stored blocks of sequential height used for testing roll-back.
-dummyStoredBlocksSequentialHeights :: [StoredBlock 'P6]
-dummyStoredBlocksSequentialHeights =
-    [ dummyStoredBlockEmpty 0 0,
-      dummyStoredBlockEmpty 1 1,
-      dummyStoredBlockEmpty 2 2,
-      dummyStoredBlockEmpty 3 3,
-      dummyStoredBlockEmpty 4 4,
-      dummyStoredBlockOneTransaction 5 5
     ]
 
 -- |A FinalizationEntry. Both used by 'writeBlocks' and used when testing 'lookupLatestFinalizationEntry'.
@@ -208,55 +198,68 @@ runLLMDBTest name action = withTempDirectory "" name $ \path ->
         closeDatabase
         (\dbhandlers -> runSilentLogger $ runReaderT (runDiskLLDBM action) dbhandlers)
 
+-- |Set up the database with the 'dummyStoredBlocks' finalized.
+setupDummy :: DiskLLDBM 'P6 (ReaderT (DatabaseHandlers 'P6) (LoggerT IO)) ()
+setupDummy = do
+    forM_ dummyStoredBlocks $ \sb ->
+        writeCertifiedBlock
+            sb
+            dummyQC
+                { qcBlock = getHash sb,
+                  qcRound = blockRound sb,
+                  qcEpoch = blockEpoch sb
+                }
+    writeFinalizedBlocks dummyStoredBlocks dummyFinalizationEntry
+
 -- |Test that 'lookupLastBlock' returns the block with the greatest height among the dummy blocks.
 -- The dummy blocks are chosen to have a wide range of blockheights to catch possible endianness
 -- errors.
 testLookupLastBlock :: Assertion
 testLookupLastBlock = runLLMDBTest "lookupLastBlockTest" $ do
-    writeBlocks dummyStoredBlocks dummyFinalizationEntry
-    lastBlock <- lookupLastBlock
+    setupDummy
+    lastBlock <- lookupLastFinalizedBlock
     case lastBlock of
         Nothing -> liftIO $ assertFailure "Block should be Just"
-        Just sb -> liftIO $ assertEqual "BlockHeight should be 0x100000000000000" 0x100000000000000 (bmHeight $ stbInfo sb)
+        Just sb -> liftIO $ assertEqual "BlockHeight should be 0x100000000000000" 0x100000000000000 (blockHeight sb)
 
 -- |Test that the function 'LookupFirstBlock' returns the block with height '0' from the dummy blocks.
 testLookupFirstBlock :: Assertion
 testLookupFirstBlock = runLLMDBTest "lookupFirstBlockTest" $ do
-    writeBlocks dummyStoredBlocks dummyFinalizationEntry
+    setupDummy
     lastBlock <- lookupFirstBlock
     case lastBlock of
         Nothing -> liftIO $ assertFailure "Block should be Just"
-        Just sb -> liftIO $ assertEqual "BlockHeight should be 0" 0 (bmHeight $ stbInfo sb)
+        Just sb -> liftIO $ assertEqual "BlockHeight should be 0" 0 (blockHeight sb)
 
 -- |Test that the function 'LookupBlockByHeight' retrieves the correct block at height 0x10000.
 testLookupBlockByHeight :: Assertion
 testLookupBlockByHeight = runLLMDBTest "lookupBlockByHeightTest" $ do
-    writeBlocks dummyStoredBlocks dummyFinalizationEntry
+    setupDummy
     lastBlock <- lookupBlockByHeight 0x10000
     case lastBlock of
         Nothing -> liftIO $ assertFailure "Block should be Just"
-        Just sb -> liftIO $ assertEqual "BlockHeight should be 0x10000" 0x10000 (bmHeight $ stbInfo sb)
+        Just sb -> liftIO $ assertEqual "BlockHeight should be 0x10000" 0x10000 (blockHeight sb)
 
 -- |Test that the function 'memberBlock' returns 'True' for a selected block.
 testMemberBlock :: Assertion
 testMemberBlock = runLLMDBTest "memberBlockTest" $ do
-    writeBlocks dummyStoredBlocks dummyFinalizationEntry
+    setupDummy
     isMember <- memberBlock $ getHash $ dummyBakedBlock 1 Vector.empty
     liftIO $ assertBool "isMember should be True" isMember
 
 -- |Test that the function 'lookupBlock' retrieves a selected block.
 testLookupBlock :: Assertion
 testLookupBlock = runLLMDBTest "lookupBlockTest" $ do
-    writeBlocks dummyStoredBlocks dummyFinalizationEntry
+    setupDummy
     block <- lookupBlock $ getHash $ dummyBakedBlock 5 Vector.empty
     case block of
         Nothing -> liftIO $ assertFailure "Block should be Just"
-        Just sb -> liftIO $ assertEqual "BlockHeight should be 0x100000000" 0x100000000 (bmHeight $ stbInfo sb)
+        Just sb -> liftIO $ assertEqual "BlockHeight should be 0x100000000" 0x100000000 (blockHeight sb)
 
 -- |Test that the function 'lookupFinalizationEntry' retrieves a written expected finalization entry.
 testLookupLatestFinalizationEntry :: Assertion
 testLookupLatestFinalizationEntry = runLLMDBTest "lookupFinalizationEntryTest" $ do
-    writeBlocks dummyStoredBlocks dummyFinalizationEntry
+    setupDummy
     fe <- lookupLatestFinalizationEntry
     case fe of
         Nothing -> liftIO $ assertFailure "Finalization entry should be Just"
@@ -265,7 +268,7 @@ testLookupLatestFinalizationEntry = runLLMDBTest "lookupFinalizationEntryTest" $
 -- |Test that the function 'lookupTransaction' retrieves the expected transaction status.
 testLookupTransaction :: Assertion
 testLookupTransaction = runLLMDBTest "lookupTransactionTest" $ do
-    writeBlocks dummyStoredBlocks dummyFinalizationEntry
+    setupDummy
     ft <- lookupTransaction $ wmdHash $ dummyBlockItem
     case ft of
         Nothing -> liftIO $ assertFailure "Finalized transaction status should be Just"
@@ -276,26 +279,9 @@ testLookupTransaction = runLLMDBTest "lookupTransactionTest" $ do
 -- |Test that the function 'memberTransaction' identifies the presence of a known transaction.
 testMemberTransaction :: Assertion
 testMemberTransaction = runLLMDBTest "memberTransactionTest" $ do
-    writeBlocks dummyStoredBlocks dummyFinalizationEntry
+    setupDummy
     isMember <- memberTransaction $ wmdHash $ dummyBlockItem
     liftIO $ assertBool "memberTransaction should be True" isMember
-
--- |Test that the function 'rollBackBlocksUntil' correctly rolls back 4 of the six blocks from
--- 'dummyStoredBlocksSequentialHeights'.
-testRollBackBlocksUntil :: Assertion
-testRollBackBlocksUntil = runLLMDBTest "lookupTransactionTest" $ do
-    writeBlocks dummyStoredBlocksSequentialHeights dummyFinalizationEntry
-    eb <- rollBackBlocksUntil $ \sb -> return (bmHeight (stbInfo sb) == 1)
-    case eb of
-        Left s -> liftIO $ assertBool ("Roll back failed: " ++ s) False
-        Right rollbackCount -> do
-            -- Note that the `dummyStoredBlocksSequentialHeights` has 6 blocks starting from index 0, 1,..
-            -- We are rolling back to index 1 so 4 blocks should be rolled back.
-            liftIO $ assertEqual "Roll-back should have happended and 4 blocks should have been rolled back" 4 rollbackCount
-            lastBlock <- lookupLastBlock
-            case lastBlock of
-                Nothing -> liftIO $ assertBool "Block should be Just" False
-                Just sb -> liftIO $ assertEqual "BlockHeight should be 1" 1 (bmHeight $ stbInfo sb)
 
 tests :: Spec
 tests = describe "KonsensusV2.LMDB" $ do
@@ -307,4 +293,3 @@ tests = describe "KonsensusV2.LMDB" $ do
     it "Test lookupLatestFinalizationEntry" testLookupLatestFinalizationEntry
     it "Test lookupTransaction" testLookupTransaction
     it "Test memberTransaction" testMemberTransaction
-    it "Test rollBackBlocksUntil" testRollBackBlocksUntil

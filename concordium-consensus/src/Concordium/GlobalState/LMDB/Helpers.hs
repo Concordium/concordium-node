@@ -1,6 +1,7 @@
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |This module provides abstractions for working with LMDB databases.
@@ -24,12 +25,15 @@ module Concordium.GlobalState.LMDB.Helpers (
     storeReplaceBytes,
     loadRecord,
     deleteRecord,
+    deleteAll,
+    deleteWhile,
     databaseSize,
 
     -- * Traversing the database.
     CursorMove (..),
     withCursor,
     getCursor,
+    deleteAtCursor,
     getPrimitiveCursor,
     movePrimitiveCursor,
     withPrimitiveCursor,
@@ -454,6 +458,10 @@ getCursor movement (Cursor pc) = getPrimitiveCursor movement pc >>= mapM (decode
     prox :: Proxy db
     prox = Proxy
 
+-- |Delete the entry at the current location of the cursor.
+deleteAtCursor :: Cursor db -> IO ()
+deleteAtCursor (Cursor primCursor) = mdb_cursor_del' (compileWriteFlags []) (pcCursor primCursor)
+
 -- |Decode a key-value pair from the database internal representation.
 decodeKV :: MDBDatabase db => Proxy db -> (MDB_val, MDB_val) -> IO (Either String (DBKey db, DBValue db))
 decodeKV prox (keyv, valv) = runExceptT $ do
@@ -576,6 +584,44 @@ deleteRecord txn dbi key = do
   where
     prox :: Proxy db
     prox = Proxy
+
+-- |Delete every entry in the table.
+deleteAll ::
+    forall db.
+    (MDBDatabase db) =>
+    -- |Transaction
+    MDB_txn ->
+    -- |Table
+    db ->
+    IO ()
+deleteAll txn dbi = mdb_clear' txn (mdbDatabase dbi)
+
+-- |Starting from the first key in the table, delete the entries while the provided predicate holds
+-- on the key. (If the predicate is antitone, i.e. @x < y => f y == True => f x == True@, then all
+-- entries matching the predicate will be removed.)
+-- Raises an error on a deserialization failure.
+deleteWhile ::
+    forall db.
+    (MDBDatabase db) =>
+    -- |Transaction
+    MDB_txn ->
+    -- |Table
+    db ->
+    -- |Key predicate
+    (DBKey db -> Bool) ->
+    IO ()
+deleteWhile txn dbi predicate = withPrimitiveCursor txn (mdbDatabase dbi) $ \primCursor -> do
+    let loop Nothing = return ()
+        loop (Just (key, _)) = do
+            decodeKey (Proxy @db) key >>= \case
+                Left e -> error e
+                Right k
+                    | predicate k -> do
+                        mdb_cursor_del' (compileWriteFlags []) (pcCursor primCursor)
+                        loop =<< getPrimitiveCursor CursorNext primCursor
+                    | otherwise -> return ()
+            return ()
+    loop =<< getPrimitiveCursor CursorFirst primCursor
 
 -- |Determine if a value exists in the database with the specified key.
 isRecordPresent ::
