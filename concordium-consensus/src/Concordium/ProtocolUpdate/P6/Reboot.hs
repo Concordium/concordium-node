@@ -78,20 +78,20 @@ updateHash :: SHA256.Hash
 updateHash = SHA256.hash "P6.Reboot"
 
 -- |Construct the genesis data for a P5.ProtocolP6 update.
--- It is assumed that the last finalized block is the terminal block of the old chain:
--- i.e. it is the first (and only) explicitly-finalized block with timestamp after the
--- update takes effect.
+-- This takes the terminal block of the old chain which is used as the basis for constructing
+-- the new genesis block.
 updateRegenesis ::
     ( MPV m ~ 'P6,
       BlockStateStorage m,
       MonadState (SkovData (MPV m)) m,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m)
     ) =>
+    -- |The terminal block of the old chain.
+    BlockPointer 'P6 ->
     m (PVInit m)
-updateRegenesis = do
-    lfb <- use lastFinalized
+updateRegenesis terminal = do
     -- Genesis time is the timestamp of the terminal block
-    let regenesisTime = blockTimestamp lfb
+    let regenesisTime = blockTimestamp terminal
     -- Core parameters are derived from the old genesis, apart from genesis time which is set for
     -- the time of the last finalized block.
     gm <- use genesisMetadata
@@ -105,8 +105,8 @@ updateRegenesis = do
     -- or the genesisFirstGenesis of the previous genesis otherwise.
     let genesisFirstGenesis = gmFirstGenesisHash gm
         genesisPreviousGenesis = gmCurrentGenesisHash gm
-        genesisTerminalBlock = getHash lfb
-    let regenesisBlockState = bpState lfb
+        genesisTerminalBlock = getHash terminal
+    let regenesisBlockState = bpState terminal
     genesisStateHash <- getStateHash regenesisBlockState
     let newGenesis = GenesisData.RGDP6 $ P6.GDP6Regenesis{genesisRegenesis = BaseV1.RegenesisDataV1{genesisCore = core, ..}}
-    return (PVInit newGenesis GenesisData.StateMigrationParametersTrivial (bmHeight $ bpInfo lfb))
+    return (PVInit newGenesis GenesisData.StateMigrationParametersTrivial (bmHeight $ bpInfo terminal))

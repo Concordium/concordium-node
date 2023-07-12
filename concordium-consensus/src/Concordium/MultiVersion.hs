@@ -1021,21 +1021,22 @@ checkForProtocolUpdateV1 = body
         VersionedSkovV1M fc lastpv (Maybe (PVInit (VersionedSkovV1M fc lastpv)))
     check = do
         SkovV1.getProtocolUpdateState >>= \case
-            SkovV1.ProtocolUpdateStateDone pu -> case ProtocolUpdateV1.checkUpdate @lastpv pu of
-                Left err -> do
-                    logEvent Kontrol LLError $
-                        "An unsupported protocol update ("
-                            ++ err
-                            ++ ") has taken effect:"
-                            ++ showPU pu
-                    lift $ do
-                        callbacks <- asks mvCallbacks
-                        liftIO (notifyRegenesis callbacks Nothing)
-                        return Nothing
-                Right upd -> do
-                    logEvent Kontrol LLInfo "Starting protocol update."
-                    initData <- ProtocolUpdateV1.updateRegenesis upd
-                    return (Just initData)
+            SkovV1.ProtocolUpdateStateDone{..} ->
+                case ProtocolUpdateV1.checkUpdate @lastpv puProtocolUpdate of
+                    Left err -> do
+                        logEvent Kontrol LLError $
+                            "An unsupported protocol update ("
+                                ++ err
+                                ++ ") has taken effect:"
+                                ++ showPU puProtocolUpdate
+                        lift $ do
+                            callbacks <- asks mvCallbacks
+                            liftIO (notifyRegenesis callbacks Nothing)
+                            return Nothing
+                    Right upd -> do
+                        logEvent Kontrol LLInfo "Starting protocol update."
+                        initData <- ProtocolUpdateV1.updateRegenesis upd puTerminalBlock
+                        return (Just initData)
             SkovV1.ProtocolUpdateStateNone -> return Nothing
             SkovV1.ProtocolUpdateStatePendingEpoch{..} -> do
                 notifyPending puTriggerTime puProtocolUpdate

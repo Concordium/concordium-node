@@ -242,11 +242,14 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       -- |The 'QuorumMessage's for the current 'Round'.
       -- This should be cleared whenever the consensus runner advances to a new round.
       _currentQuorumMessages :: !QuorumMessages,
-      -- |Whether consensus is shutdown.
-      -- This is @True@ when:
-      -- * A protocol update was effective in the trigger block in this epoch.
-      -- * The trigger block is finalized.
-      _isConsensusShutdown :: !Bool
+      -- |Present exactly when the consensus is shutdown for a protocol update.
+      -- This is the first finalized block with the 'ss1ShutdownTriggered' flag set.
+      -- That is, a protocol update was effective at the time of this block, it is the
+      -- trigger block in the present epoch, and it is finalized. Note that the block
+      -- may or may not be finalized explicitly, but such a block is uniquely determined
+      -- across all nodes. (Note that the ultimate last finalized block may not be uniquely
+      -- determined, because some rounds could have both QCs and TCs.)
+      _terminalBlock :: !(Option (BlockPointer pv))
     }
 
 makeLenses ''SkovData
@@ -266,6 +269,19 @@ instance HasEpochBakers (SkovData pv) where
 -- |Getter for accessing the genesis hash for the current genesis.
 currentGenesisHash :: SimpleGetter (SkovData pv) BlockHash
 currentGenesisHash = genesisMetadata . to gmCurrentGenesisHash
+
+-- |Whether consensus is shutdown.
+-- This is @True@ when:
+-- * A protocol update was effective in the trigger block in this epoch.
+-- * The trigger block is finalized.
+isConsensusShutdown :: SimpleGetter (SkovData pv) Bool
+isConsensusShutdown = terminalBlock . to isPresent
+
+-- |Run the given action unless the consensus is already shut down.
+unlessShutdown :: (MonadState (SkovData pv) m) => m () -> m ()
+unlessShutdown a = do
+    isShutdown <- use isConsensusShutdown
+    unless isShutdown a
 
 -- |Lens for accessing the witness that a baker signed a block in a particular round.
 roundBakerExistingBlock :: Round -> BakerId -> Lens' (SkovData pv) (Maybe BlockSignatureWitness)
@@ -363,7 +379,7 @@ mkInitialSkovData rp genMeta genState _currentTimeout _skovEpochBakers transacti
         _statistics = Stats.initialConsensusStatistics
         _currentTimeoutMessages = Absent
         _currentQuorumMessages = emptyQuorumMessages
-        _isConsensusShutdown = False
+        _terminalBlock = Absent
     in  SkovData{..}
 
 -- * Operations on the block table
@@ -1120,6 +1136,9 @@ clearAfterProtocolUpdate = do
     focusBlock .=! lastFinBlock
     -- Archive the last finalized block state.
     archiveBlockState $ bpState lastFinBlock
+    -- Archive the terminal block state.
+    termBlock <- use terminalBlock
+    forM_ termBlock (archiveBlockState . bpState)
     collapseCaches
 
 -- |Sets and persists the 'PersistentRoundStatus' of the 'SkovData'.

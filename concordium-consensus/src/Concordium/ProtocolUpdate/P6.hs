@@ -21,6 +21,7 @@ import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import Concordium.GlobalState.Types
 import qualified Concordium.GlobalState.Types as GSTypes
 import Concordium.KonsensusV1.TreeState.Implementation
+import Concordium.KonsensusV1.TreeState.Types
 import qualified Concordium.ProtocolUpdate.P6.Reboot as Reboot
 
 -- |Updates that are supported from protocol version P6.
@@ -39,17 +40,17 @@ checkUpdate ProtocolUpdate{..} = case HM.lookup puSpecificationHash updates of
         Left err -> Left $! "Could not deserialize auxiliary data: " ++ err
         Right r -> return r
 
--- |Construct the genesis data for a P5 update.
--- It is assumed that the last finalized block is the terminal block of the old chain:
--- i.e. it is the first (and only) explicitly-finalized block with timestamp after the
--- update takes effect.
+-- |Construct the genesis data for a P6 update.
 updateRegenesis ::
     ( MPV m ~ 'P6,
       BlockStateStorage m,
       MonadState (SkovData (MPV m)) m,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m)
     ) =>
+    -- |The update taking effect.
     Update ->
+    -- |The terminal block of the old chain.
+    BlockPointer (MPV m) ->
     m (PVInit m)
 updateRegenesis Reboot = Reboot.updateRegenesis
 

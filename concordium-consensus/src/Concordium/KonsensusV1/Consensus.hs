@@ -270,7 +270,7 @@ isCurrentFinalizer =
 isShutDown :: MonadState (SkovData (MPV m)) m => m Bool
 isShutDown = use isConsensusShutdown
 
-data ProtocolUpdateState
+data ProtocolUpdateState pv
     = -- |No protocol update is currently anticipated.
       ProtocolUpdateStateNone
     | -- |A protocol update is currently scheduled.
@@ -285,7 +285,8 @@ data ProtocolUpdateState
         }
     | -- |A protocol update has taken place and the consensus is shut down.
       ProtocolUpdateStateDone
-        { puProtocolUpdate :: !ProtocolUpdate
+        { puProtocolUpdate :: !ProtocolUpdate,
+          puTerminalBlock :: !(BlockPointer pv)
         }
 
 -- |Get the current protocol update state.
@@ -295,18 +296,21 @@ getProtocolUpdateState ::
       MonadState (SkovData (MPV m)) m,
       IsConsensusV1 (MPV m)
     ) =>
-    m ProtocolUpdateState
+    m (ProtocolUpdateState (MPV m))
 getProtocolUpdateState = do
     st <- bpState <$> use lastFinalized
     BS.getProtocolUpdateStatus st >>= \case
         ProtocolUpdated pu ->
-            use isConsensusShutdown >>= \case
+            use terminalBlock >>= \case
                 -- The protocol update is now in effect.
-                True -> return $ ProtocolUpdateStateDone pu
+                Present terminal ->
+                    return $
+                        ProtocolUpdateStateDone
+                            { puProtocolUpdate = pu,
+                              puTerminalBlock = terminal
+                            }
                 -- The protocol update is awaiting the terminal block of the epoch to be finalized.
-                -- We show this by returning the "pending effective" protocol update as a pending
-                -- protocol update.
-                False -> do
+                Absent -> do
                     ss <- BS.getSeedState st
                     return $
                         ProtocolUpdateStatePendingEpoch

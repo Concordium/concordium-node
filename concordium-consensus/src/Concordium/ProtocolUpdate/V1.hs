@@ -16,6 +16,7 @@ import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import Concordium.GlobalState.Types (PVInit)
 import qualified Concordium.GlobalState.Types as GSTypes
 import Concordium.KonsensusV1.TreeState.Implementation
+import Concordium.KonsensusV1.TreeState.Types
 import qualified Concordium.ProtocolUpdate.P6 as P6
 
 -- |Type representing currently supported protocol update types.
@@ -32,15 +33,15 @@ checkUpdate = case protocolVersion @pv of
     _ -> const $ Left "Unsupported update."
 
 -- |Construct the genesis data for a P1 update.
--- It is assumed that the last finalized block is the terminal block of the old chain:
--- i.e. it is the first (and only) explicitly-finalized block with timestamp after the
--- update takes effect.
 updateRegenesis ::
     ( BlockStateStorage m,
       MonadState (SkovData (MPV m)) m,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m)
     ) =>
+    -- |The update to take effect.
     Update (MPV m) ->
+    -- |The terminal block of the old chain.
+    BlockPointer (MPV m) ->
     m (PVInit m)
 updateRegenesis (UpdateP6 u) = P6.updateRegenesis u
 
