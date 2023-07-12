@@ -960,8 +960,8 @@ checkForProtocolUpdateV1 = body
                                 config <- readMVar configRef
                                 runMVR (runSkovV1Transaction config a) mvr
                         let !handlers = skovV1Handlers vc1Index vc1GenesisHeight
-                        -- get the last finalized block state
-                        lastFinBlockState <- KonsensusV1.getLastFinalizedBlockState
+                        -- get the block state from the terminal block
+                        lastFinBlockState <- KonsensusV1.getTerminalBlockState
                         -- the existing persistent block state context.
                         existingPbsc <- asks SkovV1._vcPersistentBlockStateContext
                         -- Migrate the old state to the new protocol and

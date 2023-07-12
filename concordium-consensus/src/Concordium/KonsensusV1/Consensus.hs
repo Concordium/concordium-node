@@ -270,6 +270,7 @@ isCurrentFinalizer =
 isShutDown :: MonadState (SkovData (MPV m)) m => m Bool
 isShutDown = use isConsensusShutdown
 
+-- |The current state of the consensus with respect to the next protocol update.
 data ProtocolUpdateState pv
     = -- |No protocol update is currently anticipated.
       ProtocolUpdateStateNone

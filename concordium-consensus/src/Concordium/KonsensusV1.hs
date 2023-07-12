@@ -121,9 +121,13 @@ startEvents = do
             resetTimerWithCurrentTimeout
             makeBlock
 
--- |Get the last finalized blockstate
-getLastFinalizedBlockState :: MonadState (SkovData (MPV m)) m => m (PBS.HashedPersistentBlockState (MPV m))
-getLastFinalizedBlockState = bpState <$> use lastFinalized
+-- |Get the block state of the terminal block.
+-- This MUST only be called once the consensus is in shutdown.
+getTerminalBlockState :: MonadState (SkovData (MPV m)) m => m (PBS.HashedPersistentBlockState (MPV m))
+getTerminalBlockState =
+    use terminalBlock <&> \case
+        Absent -> error "Consensus was expected to be shut down, but terminal block is not present."
+        Present terminal -> bpState terminal
 
 -- |Archive blockstate, update the focus block and clear out non-finalized and pending blocks.
 -- This SHOULD NOT be called unless the consensus is in shutdown.
@@ -144,6 +148,9 @@ clearSkov = do
     ptt <- use pendingTransactionTable
     return (tt, ptt)
 
+-- |Clear up the remaining state that is not required after migration to a new protocol version.
+-- This clears the transaction table and pending transactions, ensures that the block states are
+-- archived, and collapses the block state caches.
 terminateSkov ::
     ( MonadState (SkovData (MPV m)) m,
       BlockState m ~ HashedPersistentBlockState (MPV m),
