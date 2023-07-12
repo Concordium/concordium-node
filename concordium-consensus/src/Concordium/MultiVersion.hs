@@ -1228,7 +1228,7 @@ startBaker MultiVersionRunner{mvBaker = Nothing, ..} =
         Runner
         LLError
         "Attempted to start baker thread, but consensus was started without baker credentials."
-startBaker mvr@MultiVersionRunner{mvBaker = Just Baker{..}, ..} = do
+startBaker mvr@MultiVersionRunner{mvBaker = Just Baker{..}, ..} = whenBakerRequired $ do
     _ <- forkOS $ do
         tid <- myThreadId
         started <- tryPutMVar bakerThread tid
@@ -1242,6 +1242,21 @@ startBaker mvr@MultiVersionRunner{mvBaker = Just Baker{..}, ..} = do
     -- called then the baker will be stopped.
     modifyMVarMasked_ bakerThread return
   where
+    -- Perform the given action when the consensus version requires a baker thread.
+    whenBakerRequired a = do
+        required <- withWriteLockIO mvr $ do
+            versions <- readIORef mvVersions
+            return $! case Vec.last versions of
+                EVersionedConfigurationV0{} -> True
+                EVersionedConfigurationV1{} -> False
+        if required
+            then a
+            else
+                mvLog
+                    Runner
+                    LLDebug
+                    "The current consensus version does not require a baker thread, so it will not \
+                    \be started"
     -- The baker loop takes the current genesis index and last known slot that we baked for, and
     -- will continually attempt to bake until the consensus is shut down.
     bakerLoop :: GenesisIndex -> Slot -> IO ()
@@ -1278,7 +1293,11 @@ startBaker mvr@MultiVersionRunner{mvBaker = Just Baker{..}, ..} = do
                 -- collected.
                 void $ takeMVar bakerThread
             Nothing -> do
-                mvLog Runner LLInfo "Baking thread is not required and will shut down."
+                mvLog
+                    Runner
+                    LLInfo
+                    "The current consensus version does not require a separate baker thread, so it \
+                    \will shut down."
                 void $ takeMVar bakerThread
 
 -- |Stop the baker thread associated with a 'MultiVersionRunner'.
