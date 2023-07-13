@@ -29,8 +29,6 @@ LOCAL_INSTALL_ROOT=$(stack --stack-yaml /build/concordium-consensus/stack.static
 cp "$LOCAL_INSTALL_ROOT"/bin/{generate-update-keys,genesis,database-exporter} /binaries/bin/
 cp /build/concordium-base/rust-src/target/release/*.so /binaries/lib/
 cp /build/concordium-base/smart-contracts/wasm-chain-integration/target/release/*.so /binaries/lib/
-cargo build --release --manifest-path /build/concordium-base/rust-bins/Cargo.toml
-cp /build/concordium-base/rust-bins/target/release/{client,genesis_tool,generate_testdata} /binaries/bin/
 
 #############################################################################################################################
 ## Copy dependencies
