@@ -1222,6 +1222,8 @@ startTransactionPurgingThread mvr@MultiVersionRunner{..} =
 
 -- |Start a baker thread associated with a 'MultiVersionRunner'.
 -- This will only succeed if the runner was initialised with baker credentials.
+-- A baker thread will only be started if the current consensus version is 0, since baking
+-- is not handled as a separate thread in consensus version 1.
 startBaker :: MultiVersionRunner finconf -> IO ()
 startBaker MultiVersionRunner{mvBaker = Nothing, ..} =
     mvLog
@@ -1249,14 +1251,7 @@ startBaker mvr@MultiVersionRunner{mvBaker = Just Baker{..}, ..} = whenBakerRequi
             return $! case Vec.last versions of
                 EVersionedConfigurationV0{} -> True
                 EVersionedConfigurationV1{} -> False
-        if required
-            then a
-            else
-                mvLog
-                    Runner
-                    LLDebug
-                    "The current consensus version does not require a baker thread, so it will not \
-                    \be started"
+        when required a
     -- The baker loop takes the current genesis index and last known slot that we baked for, and
     -- will continually attempt to bake until the consensus is shut down.
     bakerLoop :: GenesisIndex -> Slot -> IO ()
