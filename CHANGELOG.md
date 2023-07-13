@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+## 6.0.2
+
 - Fix a bug where the LMDB map was not resized when exporting the database. 
   This could cause the database exporter to fail when used on a running node.
 - Fix a bug where the database exporter creates files in the wrong path when invoked with a
@@ -12,6 +14,8 @@
   signing.
 - Fix a bug where database roll-back could fail on Windows.
 - Fix a bug where catch-up for ConcordiumBFT can loop or result in incorrect soft-banning of peers.
+- Prevent the baker thread from starting when it is not required.
+- Implement a "reboot" protocol update from P6 to P6 as a test of the protocol update mechanism.
 
 ## 6.0.1
 
