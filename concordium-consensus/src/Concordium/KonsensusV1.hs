@@ -13,6 +13,8 @@ import Lens.Micro.Platform
 import qualified Concordium.Genesis.Data.BaseV1 as BaseV1
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Persistent.BlockState
+import qualified Concordium.GlobalState.Persistent.BlockState as PBS
+import qualified Concordium.GlobalState.TransactionTable as TT
 import qualified Concordium.GlobalState.Transactions as Transactions
 import Concordium.GlobalState.Types
 import Concordium.KonsensusV1.Consensus
@@ -22,6 +24,7 @@ import qualified Concordium.KonsensusV1.Consensus.Timeout as Timeout
 import Concordium.KonsensusV1.TreeState.Implementation
 import Concordium.KonsensusV1.TreeState.LowLevel
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
+import Concordium.KonsensusV1.TreeState.Types (bpState)
 import Concordium.KonsensusV1.Types
 import Concordium.Logger
 import Concordium.Skov.Monad (UpdateResult (..), transactionVerificationResultToUpdateResult)
@@ -117,3 +120,44 @@ startEvents = do
             logEvent Konsensus LLInfo "Starting consensus operations."
             resetTimerWithCurrentTimeout
             makeBlock
+
+-- |Get the block state of the terminal block.
+-- This MUST only be called once the consensus is in shutdown.
+getTerminalBlockState :: MonadState (SkovData (MPV m)) m => m (PBS.HashedPersistentBlockState (MPV m))
+getTerminalBlockState =
+    use terminalBlock <&> \case
+        Absent -> error "Consensus was expected to be shut down, but terminal block is not present."
+        Present terminal -> bpState terminal
+
+-- |Archive blockstate, update the focus block and clear out non-finalized and pending blocks.
+-- This SHOULD NOT be called unless the consensus is in shutdown.
+-- This returns the transaction table and the pending transaction table (which is with respect to
+-- the last finalized block).
+clearSkov ::
+    ( MonadState (SkovData (MPV m)) m
+    ) =>
+    m (TT.TransactionTable, TT.PendingTransactionTable)
+clearSkov = do
+    lfb <- use lastFinalized
+    -- Make the last finalized block the focus block,
+    -- adjusting the pending transaction table.
+    updateFocusBlockTo lfb
+    -- Clear out all of the non-finalized and pending blocks.
+    clearOnProtocolUpdate
+    tt <- use transactionTable
+    ptt <- use pendingTransactionTable
+    return (tt, ptt)
+
+-- |Clear up the remaining state that is not required after migration to a new protocol version.
+-- This clears the transaction table and pending transactions, ensures that the block states are
+-- archived, and collapses the block state caches.
+terminateSkov ::
+    ( MonadState (SkovData (MPV m)) m,
+      BlockState m ~ HashedPersistentBlockState (MPV m),
+      BlockStateStorage m
+    ) =>
+    m ()
+terminateSkov = do
+    isShutdown <- use isConsensusShutdown
+    -- we should only do these things if we are shutting down
+    when isShutdown clearAfterProtocolUpdate

@@ -9,7 +9,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 -- This flag is here as otherwise ghc reports that
--- 'migrateSkovFromConsensusV0' has redundant constraints.
+-- 'migrateSkovV1' has redundant constraints.
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
 -- |This module provides a monad transformer 'SkovV1T' that implements various typeclasses that
@@ -24,6 +24,7 @@ import Lens.Micro.Platform
 
 import Concordium.Types
 import Concordium.Types.HashableTo
+import Concordium.Types.Updates
 import Concordium.Utils
 
 import Concordium.GlobalState (GlobalStateInitException (..))
@@ -444,8 +445,8 @@ data ExistingSkov pv m = ExistingSkov
       esGenesisHash :: !BlockHash,
       -- |The (relative) height of the last finalized block.
       esLastFinalizedHeight :: !BlockHeight,
-      -- |The next protocol version if a protocol update has occurred.
-      esNextProtocolVersion :: !(Maybe SomeProtocolVersion)
+      -- |The effective protocol update if one has occurred.
+      esProtocolUpdate :: !(Maybe ProtocolUpdate)
     }
 
 -- |Load an existing SkovV1 state.
@@ -483,7 +484,7 @@ initialiseExistingSkovV1 bakerCtx handlerCtx unliftSkov GlobalStateConfig{..} = 
                                 ++ " blocks. Truncating block state database."
                         liftIO $ truncateBlobStore (bscBlobStore . PBS.pbscBlobStore $ pbsc) bestState
                     let initContext = InitContext pbsc lldb
-                    initialSkovData <-
+                    (initialSkovData, effectiveProtocolUpdate) <-
                         runInitMonad
                             (loadSkovData gscRuntimeParameters (rollCount > 0))
                             initContext
@@ -506,8 +507,7 @@ initialiseExistingSkovV1 bakerCtx handlerCtx unliftSkov GlobalStateConfig{..} = 
                                   esGenesisHash = initialSkovData ^. currentGenesisHash,
                                   esLastFinalizedHeight =
                                     blockHeight (initialSkovData ^. lastFinalized),
-                                  -- FIXME: Support protocol updates. Issue #825
-                                  esNextProtocolVersion = Nothing
+                                  esProtocolUpdate = effectiveProtocolUpdate
                                 }
                     return $ Just es
             let initWithBlockState = do
@@ -618,7 +618,7 @@ shutdownSkovV1 SkovV1Context{..} = liftIO $ do
     closeBlobStore (pbscBlobStore _vcPersistentBlockStateContext)
     closeDatabase _vcDisk
 
--- |Migrate a 'ConsensusV0' state to a 'ConsensusV1' state.
+-- |Migrate an existing state to a 'ConsensusV1' state.
 -- This function should be used when a protocol update occurs.
 --
 -- This function performs the migration from the provided @HashedPersistentBlockState lastpv@ and
@@ -632,10 +632,9 @@ shutdownSkovV1 SkovV1Context{..} = liftIO $ do
 --
 -- Note that this function does not free any resources with respect to the
 -- skov for the @lastpv@. This is the responsibility of the caller.
-migrateSkovFromConsensusV0 ::
+migrateSkovV1 ::
     forall lastpv pv m.
-    ( IsConsensusV0 lastpv,
-      IsConsensusV1 pv,
+    ( IsConsensusV1 pv,
       IsProtocolVersion pv,
       IsProtocolVersion lastpv
     ) =>
@@ -662,7 +661,7 @@ migrateSkovFromConsensusV0 ::
     PendingTransactionTable ->
     -- |Return back the 'SkovV1Context' and the migrated 'SkovV1State'
     LogIO (SkovV1Context pv m, SkovV1State pv)
-migrateSkovFromConsensusV0 regenesis migration gsConfig@GlobalStateConfig{..} oldPbsc oldBlockState bakerCtx handlerCtx unliftSkov migrateTT migratePTT = do
+migrateSkovV1 regenesis migration gsConfig@GlobalStateConfig{..} oldPbsc oldBlockState bakerCtx handlerCtx unliftSkov migrateTT migratePTT = do
     pbsc@PersistentBlockStateContext{..} <- newPersistentBlockStateContext gsConfig
     logEvent GlobalState LLDebug "Migrating existing global state."
     newInitialBlockState <- flip runBlobStoreT oldPbsc . flip runBlobStoreT pbsc $ do

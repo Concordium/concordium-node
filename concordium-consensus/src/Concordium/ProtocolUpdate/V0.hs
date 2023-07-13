@@ -3,7 +3,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
-module Concordium.ProtocolUpdate where
+-- |Protocol updates supported from consensus version 0.
+module Concordium.ProtocolUpdate.V0 where
 
 import Concordium.Types
 import Concordium.Types.UpdateQueues (ProtocolUpdateStatus (..))

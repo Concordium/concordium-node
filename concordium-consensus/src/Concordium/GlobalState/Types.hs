@@ -51,7 +51,7 @@ data PVInit m = forall pv.
       pvInitGenesis :: Regenesis pv,
       -- |Instructions on how to migrate from the existing instance to the new one.
       pvInitMigration :: StateMigrationParameters (MPV m) pv,
-      -- |(Relative) height of the last finalized block.
+      -- |(Relative) height of the terminal block.
       pvInitFinalHeight :: BlockHeight
     }
 

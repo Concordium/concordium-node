@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Concordium.KonsensusV1.TreeState.StartUp where
@@ -16,6 +17,8 @@ import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Parameters hiding (getChainParameters)
 import Concordium.Types.SeedState
+import Concordium.Types.UpdateQueues
+import Concordium.Types.Updates
 import Concordium.Utils
 
 import Concordium.GlobalState.BlockState
@@ -118,6 +121,39 @@ makeEpochBakers lastFinBlock = do
                 GT -> do
                     backTo targetEpoch (lowEpoch, lowHeight) (blockEpoch stb, curHeight)
 
+-- |Given a block with the 'shutdownTriggered' flag set in its seed state, trace back along the
+-- chain to find the earliest such block.
+findShutdownTriggerBlock ::
+    ( LowLevel.MonadTreeStateStore m,
+      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
+      BlockStateQuery m,
+      IsConsensusV1 (MPV m),
+      MonadIO m,
+      MonadThrow m
+    ) =>
+    BlockPointer (MPV m) ->
+    m (BlockPointer (MPV m))
+findShutdownTriggerBlock candidateTriggerBlock = do
+    parentHash <- case blockBakedData candidateTriggerBlock of
+        Absent ->
+            throwM . TreeStateInvariantViolation $
+                "Shutdown trigger flag is set in the genesis block."
+        Present bbd -> return $ blockParent bbd
+    LowLevel.lookupBlock parentHash >>= \case
+        Just parentSB -> do
+            parent <- mkBlockPointer parentSB
+            parentSeedState <- getSeedState $ bpState parent
+            if parentSeedState ^. shutdownTriggered
+                then findShutdownTriggerBlock parent
+                else return candidateTriggerBlock
+        Nothing ->
+            throwM . TreeStateInvariantViolation $
+                "The block "
+                    ++ show parentHash
+                    ++ " is not present in the database, but is the parent of "
+                    ++ show (getHash @BlockHash candidateTriggerBlock)
+                    ++ "."
+
 -- |Construct a 'SkovData' by initialising it with data loaded from disk.
 --
 -- Note: this does not fully initialise the transaction table, and does not load the certified
@@ -135,7 +171,8 @@ loadSkovData ::
     RuntimeParameters ->
     -- |Set to 'True' if a rollback occurred before loading the skov
     Bool ->
-    m (SkovData pv)
+    -- |The 'SkovData' and, if the consensus is shutdown, the effective protocol update.
+    m (SkovData pv, Maybe ProtocolUpdate)
 loadSkovData _runtimeParameters didRollback = do
     _persistentRoundStatus <- LowLevel.lookupCurrentRoundStatus
     mLatestFinEntry <- LowLevel.lookupLatestFinalizationEntry
@@ -188,13 +225,16 @@ loadSkovData _runtimeParameters didRollback = do
     let currentRound = 1 + cbRound _rsHighestCertifiedBlock
     lastFinSeedState <- getSeedState $ bpState lastFinBlock
     -- If the last finalized block has the shutdown trigger flag set in its
-    -- seedstate, the last finalized was the protocol update (and epoch) trigger block,
-    -- and so consensus should shut down. If not, a protocol update has not been triggered, so
-    -- consensus should not shut down.
-    let _isConsensusShutdown = lastFinSeedState ^. shutdownTriggered
+    -- seedstate, the consensus is shutdown, so we determine the shutdown trigger block, which
+    -- will be the terminal block. The terminal block may differ from the last finalized block.
+    let consensusIsShutdown = lastFinSeedState ^. shutdownTriggered
+    _terminalBlock <-
+        if consensusIsShutdown
+            then Present <$> findShutdownTriggerBlock lastFinBlock
+            else return Absent
     (currentEpoch, lastEpochFinEntry) <-
         if lastFinSeedState ^. epochTransitionTriggered
-            && not _isConsensusShutdown
+            && not consensusIsShutdown
             then case mLatestFinEntry of
                 Nothing ->
                     throwM . TreeStateInvariantViolation $
@@ -239,7 +279,17 @@ loadSkovData _runtimeParameters didRollback = do
                   _focusBlock = lastFinBlock
                 }
     let _statistics = Stats.initialConsensusStatistics
-    return SkovData{..}
+    protocolUpdate <-
+        if consensusIsShutdown
+            then do
+                getProtocolUpdateStatus (bpState lastFinBlock) >>= \case
+                    ProtocolUpdated pu -> return $ Just pu
+                    PendingProtocolUpdates{} ->
+                        throwM . TreeStateInvariantViolation $
+                            "Consensus is shut down, but no effective protocol update was present \
+                            \in the last finalized block."
+            else return Nothing
+    return (SkovData{..}, protocolUpdate)
 
 -- |Load the certified blocks from the low-level database into the tree state.
 -- This caches their block states, adds them to the block table and branches,

@@ -476,6 +476,13 @@ executeBlockTransactions blockTimestamp transactions theState0 = do
 
 -- * Blocks
 
+-- |Update the state for a block after the trigger block for consensus shut down.
+-- This does nothing except clear the transaction outcomes.
+executePostShutdownBlock :: BlockStateStorage m => BlockState m -> m (BlockState m)
+executePostShutdownBlock parentState = do
+    state0 <- thawBlockState parentState
+    freezeBlockState =<< bsoSetTransactionOutcomes state0 []
+
 -- |Execute a block, computing the new block state. If successful, the return value is the
 -- resulting block state and used energy. If unsuccessful, a result of @Left Nothing@ indicates that
 -- the block energy limit was exceeded or a protocol update has been triggered and there is no
@@ -500,7 +507,9 @@ executeBlockState execData@BlockExecutionData{..} transactions = do
     if seedState ^. shutdownTriggered
         then
             if null transactions
-                then return $ Right (bedParentState, 0)
+                then do
+                    newState <- executePostShutdownBlock bedParentState
+                    return $ Right (newState, 0)
                 else do
                     logEvent
                         Scheduler
@@ -552,7 +561,8 @@ constructBlockState runtimeParams transactionTable pendingTable execData@BlockEx
                 Scheduler
                 LLInfo
                 "Constructed block after protocol update trigger block, deriving state from parent."
-            return (emptyFilteredTransactions, bedParentState, 0)
+            newState <- executePostShutdownBlock bedParentState
+            return (emptyFilteredTransactions, newState, 0)
         else do
             startTime <- currentTime
             PrologueResult{..} <- executeBlockPrologue execData

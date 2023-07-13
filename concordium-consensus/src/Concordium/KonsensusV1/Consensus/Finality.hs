@@ -172,9 +172,51 @@ processFinalizationHelper newFinalizedBlock newFinalizationEntry mCertifiedBlock
     parent <- gets parentOfLive
     oldBranches <- use branches
     let PruneResult{..} = pruneBranches parent newFinalizedBlock deltaHeight oldBranches
-    -- Archive the state of the last finalized block and all newly finalized blocks
-    -- excluding the new last finalized block.
-    mapM_ (archiveBlockState . bpState) (init (oldLastFinalized : prFinalized))
+    -- Check if shutdown is triggered by this finalization
+    newFinBlockSeedState <- getSeedState $ bpState newFinalizedBlock
+    if newFinBlockSeedState ^. shutdownTriggered
+        then do
+            let oldLastFinalizedState = bpState oldLastFinalized
+            lfSeedState <- getSeedState oldLastFinalizedState
+            archiveBlockState oldLastFinalizedState
+            -- We iterate over the newly finalized blocks and archive all of their states
+            -- except for the terminal block and the last finalized block. We also record
+            -- which block is the terminal block. The terminal block is the first finalized block
+            -- with the 'shutdownTriggered' flag set in the seed state.
+            let overNewFinalized False (fin : fins) = do
+                    -- Shutdown was not already triggered in the parent.
+                    let finState = bpState fin
+                    finSeedState <- getSeedState finState
+                    if finSeedState ^. shutdownTriggered
+                        then do
+                            -- Shutdown is triggered now, so record this as the terminal block and
+                            -- do not archive it.
+                            terminalBlock .=! Present fin
+                            logEvent Konsensus LLInfo $
+                                "Shutdown triggered in block "
+                                    ++ show (getHash @BlockHash newFinalizedBlock)
+                                    ++ " (round "
+                                    ++ show (theRound $ blockRound newFinalizedBlock)
+                                    ++ ") finalized at height "
+                                    ++ show (blockHeight newFinalizedBlock)
+                            overNewFinalized True fins
+                        else unless (null fins) $ do
+                            -- Archive the block state since it is not the terminal block or
+                            -- the new last finalized block (by the 'unless' check above).
+                            archiveBlockState finState
+                            overNewFinalized False fins
+                overNewFinalized True (fin : fins) = do
+                    -- Shutdown is triggered, but the block is not the terminal one, so
+                    -- archive the block state unless it is the last finalized block.
+                    unless (null fins) $ do
+                        archiveBlockState (bpState fin)
+                        overNewFinalized True fins
+                overNewFinalized _ [] = return ()
+            overNewFinalized (lfSeedState ^. shutdownTriggered) prFinalized
+        else do
+            -- Archive the state of the last finalized block and all newly finalized blocks
+            -- excluding the new last finalized block.
+            mapM_ (archiveBlockState . bpState) (init (oldLastFinalized : prFinalized))
     -- Remove the blocks from the live block table.
     markLiveBlocksFinal prFinalized
     -- Finalize the transactions in the in-memory transaction table.
@@ -198,16 +240,6 @@ processFinalizationHelper newFinalizedBlock newFinalizationEntry mCertifiedBlock
     branches .=! prNewBranches
     -- Update the last finalized block.
     lastFinalized .=! newFinalizedBlock
-    newFinBlockSeedState <- getSeedState $ bpState newFinalizedBlock
-    when (newFinBlockSeedState ^. shutdownTriggered) $ do
-        isConsensusShutdown .=! True
-        logEvent Konsensus LLInfo $
-            "Shutdown triggered in block "
-                ++ show (getHash @BlockHash newFinalizedBlock)
-                ++ " (round "
-                ++ show (theRound $ blockRound newFinalizedBlock)
-                ++ ") finalized at height "
-                ++ show (blockHeight newFinalizedBlock)
     -- Update the latest finalization entry.
     latestFinalizationEntry .=! Present newFinalizationEntry
     -- Update the epoch bakers to reflect the new last finalized block.

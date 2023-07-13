@@ -14,7 +14,7 @@
 -- In particular the following things are updated as part of the migration
 -- from protocol P5 to protocol P6.
 --
--- * The seed state is being updated as part of the migration and hence the
+-- * The seed state is updated as part of the migration and hence the
 --   'P6.StateMigrationData' keeps the time of the trigger block so it can be used
 --   to construct the new 'SeedStateV1' via that 'Timestamp' and the 'LeadershipElectionNonce'
 --   that was recorded in the last finalized block of the P5 protocol.
