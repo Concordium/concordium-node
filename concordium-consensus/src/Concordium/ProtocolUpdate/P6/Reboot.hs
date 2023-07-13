@@ -93,7 +93,7 @@ updateRegenesis terminal = do
     -- Genesis time is the timestamp of the terminal block
     let regenesisTime = blockTimestamp terminal
     -- Core parameters are derived from the old genesis, apart from genesis time which is set for
-    -- the time of the last finalized block.
+    -- the time of the terminal block.
     gm <- use genesisMetadata
     BaseV1.CoreGenesisParametersV1{..} <- gmParameters <$> use genesisMetadata
     let core =
