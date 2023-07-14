@@ -5,6 +5,7 @@
 ## 6.0.3
 
 - Update specification hash for protocol 5 to protocol 6 update.
+- Fix processing of chain parameter updates when they occur at the same time.
 
 ## 6.0.2
 

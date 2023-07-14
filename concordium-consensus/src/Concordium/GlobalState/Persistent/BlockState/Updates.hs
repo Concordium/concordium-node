@@ -14,6 +14,7 @@ import Control.Monad
 import Control.Monad.Trans
 import qualified Data.ByteString as BS
 import Data.Foldable (toList)
+import qualified Data.List as List
 import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
 import Data.Serialize
@@ -1416,43 +1417,82 @@ type UpdatesWithARsAndIPs (cpv :: ChainParametersVersion) =
 
 -- |Process all update queues.
 processUpdateQueues ::
-    (MonadBlobStore m, IsChainParametersVersion cpv) =>
+    forall m pv.
+    (MonadBlobStore m, IsChainParametersVersion (ChainParametersVersionFor pv)) =>
+    SProtocolVersion pv ->
     Timestamp ->
-    UpdatesWithARsAndIPs cpv ->
-    m (Map.Map TransactionTime (UpdateValue cpv), UpdatesWithARsAndIPs cpv)
-processUpdateQueues t (u0, ars, ips) = do
-    (m1, u1) <-
-        ( processRootKeysUpdates t
-            `pThen` processLevel1KeysUpdates t
-            `pThen` processLevel2KeysUpdates t
-            `pThen` processProtocolUpdates t
-            `pThen` processElectionDifficultyUpdates t
-            `pThen` processEuroPerEnergyUpdates t
-            `pThen` processMicroGTUPerEuroUpdates t
-            `pThen` processFoundationAccountUpdates t
-            `pThen` processMintDistributionUpdates t
-            `pThen` processTransactionFeeDistributionUpdates t
-            `pThen` processGASRewardsUpdates t
-            `pThen` processPoolParamatersUpdates t
-            `pThen` processCooldownParametersUpdates t
-            `pThen` processTimeParametersUpdates t
-            `pThen` processTimeoutParametersUpdates t
-            `pThen` processMinBlockTimeUpdates t
-            `pThen` processBlockEnergyLimitUpdates t
-            `pThen` processFinalizationCommitteeParametersUpdates t
-            )
-            u0
+    UpdatesWithARsAndIPs (ChainParametersVersionFor pv) ->
+    m ([(TransactionTime, UpdateValue (ChainParametersVersionFor pv))], UpdatesWithARsAndIPs (ChainParametersVersionFor pv))
+processUpdateQueues spv t (u0, ars, ips) = do
+    (ms, u1) <-
+        combine
+            [ processRootKeysUpdates t,
+              processLevel1KeysUpdates t,
+              processLevel2KeysUpdates t,
+              processProtocolUpdates t,
+              processElectionDifficultyUpdates t,
+              processEuroPerEnergyUpdates t,
+              processMicroGTUPerEuroUpdates t,
+              processFoundationAccountUpdates t,
+              processMintDistributionUpdates t,
+              processTransactionFeeDistributionUpdates t,
+              processGASRewardsUpdates t,
+              processPoolParamatersUpdates t,
+              processCooldownParametersUpdates t,
+              processTimeParametersUpdates t,
+              processTimeoutParametersUpdates t,
+              processMinBlockTimeUpdates t,
+              processBlockEnergyLimitUpdates t,
+              processFinalizationCommitteeParametersUpdates t
+            ]
 
     -- AR and IP updates are handled separately to avoid adding the large objects to the 'Updates' types.
     (m2, u2, ars') <- processAddAnonymityRevokerUpdates t u1 ars
     (m3, u3, ips') <- processAddIdentityProviderUpdates t u2 ips
 
-    return (m1 <> m2 <> m3, (u3, ars', ips'))
+    -- Collect all the updates. Note that we need to reverse the list
+    -- since combine returns one in reverse order of the input actions.
+    let allUpdates = reverse (m3 : m2 : ms)
+    -- In protocol versions <= 5 there was a bug where we only returned the
+    -- first update for a given time, since a map from transaction time was
+    -- returned. See https://github.com/Concordium/concordium-node/issues/972
+    -- We fix this in protocol 6.
+    if demoteProtocolVersion spv >= P6
+        then -- foldr is reasonable here since we are producing a list
+        -- that will be traversed. And the merge function is lazy in the sense
+        -- that it will produce output without consuming the whole input in general.
+
+            let updates = List.foldr (merge . Map.toAscList) [] allUpdates
+            in  return (updates, (u3, ars', ips'))
+        else -- The cause of the bug is here since the monoid operation for maps is
+        -- left-biased union. So only updates from the first update (in the
+        -- order of the list of actions above) remains.
+            return (Map.toAscList (mconcat allUpdates), (u3, ars', ips'))
   where
-    pThen a b = \i -> do
-        (m1, r1) <- a i
-        (m2, r2) <- b r1
-        return (m1 <> m2, r2)
+    -- Combine all the updates in sequence from left to right.
+    -- The return value is the final state of updates, and the list of
+    -- updates. The list is in **reverse** order of the input list.
+    combine ::
+        [BufferedRef (Updates' (ChainParametersVersionFor pv)) -> m (r, BufferedRef (Updates' (ChainParametersVersionFor pv)))] ->
+        m ([r], BufferedRef (Updates' (ChainParametersVersionFor pv)))
+    combine =
+        foldM
+            ( \(ms, updates) action -> do
+                (additionalUpdates, newUpdates) <- action updates
+                return (additionalUpdates : ms, newUpdates)
+            )
+            ([], u0)
+    -- Merge two ordered lists. The first list is preferred so that if the same
+    -- key is encountered in two lists, the one from the first list will occur
+    -- first in the output.
+    merge ::
+        [(TransactionTime, a)] ->
+        [(TransactionTime, a)] ->
+        [(TransactionTime, a)]
+    merge [] y = y
+    merge x [] = x
+    merge xxs@(x : _) (y : ys) | fst y < fst x = y : merge xxs ys
+    merge (x : xs) yys = x : merge xs yys
 
 -- |Determine the future election difficulty (at a given time) based
 -- on a current 'Updates'.
