@@ -3,10 +3,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeFamilies #-}
 
--- FIXME: This is currently a dummy update, and the details, including the update hash, need to be resolved before release.
--- https://github.com/Concordium/concordium-update-proposals/issues/47
-
 -- |This module implements the P5.ProtocolP6 protocol update.
+-- The update is specified at:
+-- https://github.com/Concordium/concordium-update-proposals/blob/main/updates/P6.txt
+--
 -- This protocol update is valid at protocol version P6, and updates
 -- to protocol version P6.
 -- The block state is changed during the update.
