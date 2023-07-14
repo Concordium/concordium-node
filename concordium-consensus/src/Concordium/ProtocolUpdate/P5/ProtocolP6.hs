@@ -68,9 +68,8 @@ import Concordium.Kontrol
 
 -- |The hash that identifies a update from P5 to P6 protocol.
 -- This is the hash of the published specification document.
--- FIXME: Update the hash https://github.com/Concordium/concordium-update-proposals/issues/47
 updateHash :: SHA256.Hash
-updateHash = read "0000000000000000000000000000000000000000000000000000000000000000"
+updateHash = read "ede9cf0b2185e9e8657f5c3fd8b6f30cef2f1ef4d9692aa4f6ef6a9fb4a762cd"
 
 -- |Construct the genesis data for a P5.ProtocolP6 update.
 -- It is assumed that the last finalized block is the terminal block of the old chain:
