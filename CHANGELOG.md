@@ -2,6 +2,10 @@
 
 ## Unreleased changes
 
+## 6.0.3
+
+- Update specification hash for protocol 5 to protocol 6 update.
+
 ## 6.0.2
 
 - Fix a bug where the LMDB map was not resized when exporting the database. 
