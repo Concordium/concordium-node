@@ -50,6 +50,7 @@ import qualified SchedulerTests.SmartContracts.V1.TransfersPersistent (tests)
 import qualified SchedulerTests.SmartContracts.V1.Upgrading (tests)
 import qualified SchedulerTests.SmartContracts.V1.UpgradingPersistent (tests)
 import qualified SchedulerTests.SmartContracts.V1.ValidInvalidModules (tests)
+import qualified SchedulerTests.UpdateQueues (tests)
 
 import Test.Hspec
 
@@ -103,3 +104,4 @@ main = hspec $ do
     SchedulerTests.SmartContracts.V1.P6WasmFeatures.tests
     SchedulerTests.SmartContracts.V1.CustomSectionSize.tests
     SchedulerTests.SmartContracts.V1.AccountSignatureChecks.tests
+    SchedulerTests.UpdateQueues.tests
