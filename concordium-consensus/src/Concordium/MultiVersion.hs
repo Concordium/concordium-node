@@ -2058,6 +2058,7 @@ importBlocks importFile = do
     doImport (ImportFinalizationRecord _ gi bs) = local disableBroadcastCallbacks $ fixResult <$> receiveFinalizationRecord gi bs
     fixResult Skov.ResultSuccess = Right ()
     fixResult Skov.ResultDuplicate = Right ()
+    fixResult Skov.ResultStale = Right ()
     fixResult Skov.ResultConsensusShutDown = Right ()
     fixResult e = Left (ImportOtherError e)
     -- Disable broadcast callbacks as the network layer is not started at the point of the out-of-band-catchup.
