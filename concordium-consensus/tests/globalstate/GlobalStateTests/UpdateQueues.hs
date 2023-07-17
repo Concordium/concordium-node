@@ -5,10 +5,11 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
-module SchedulerTests.UpdateQueues (tests) where
+module GlobalStateTests.UpdateQueues (tests) where
 
 import Control.Monad.RWS.Strict as RWS hiding (state)
 import Lens.Micro.Platform
+import Test.HUnit (assertEqual)
 import Test.Hspec
 
 import Concordium.GlobalState.DummyData
@@ -16,9 +17,6 @@ import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Persistent.BlockState.Updates as PU
 import Concordium.Types
-
-import qualified SchedulerTests.Helpers as Helpers
-import Test.HUnit (assertEqual)
 
 -- This is a regression test for https://github.com/Concordium/concordium-node/issues/972
 -- In protocol version 1-5 the chain parameter update effects were sometimes lost
@@ -32,7 +30,7 @@ testCase spv pvString = do
     -- The first two are scheduled at effectiveTime = 123
     -- The last one is schedule for a millisecond earlier.
     let effectiveTime = 123 :: TransactionTime
-    effects <- liftIO . Helpers.runTestBlockState $ do
+    effects <- liftIO . runBlobStoreTemp "." $ do
         u1 <- refMake =<< PU.initialUpdates (withIsAuthorizationsVersionForPV spv dummyKeyCollection) dummyChainParameters
         enqueuedState <-
             PU.enqueueUpdate effectiveTime poolParameterUpdate
@@ -64,6 +62,10 @@ testCase spv pvString = do
 tests :: Spec
 tests = do
     describe "Scheduler.UpdateQueues" $ do
-        specify "Correct effects are returned" $
-            sequence_ $
-                Helpers.forEveryProtocolVersion testCase
+        specify "Correct effects are returned" $ do
+            testCase SP1 "P1"
+            testCase SP2 "P2"
+            testCase SP3 "P3"
+            testCase SP4 "P4"
+            testCase SP5 "P5"
+            testCase SP6 "P6"

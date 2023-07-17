@@ -1415,7 +1415,9 @@ processProtocolUpdates t bu = do
 type UpdatesWithARsAndIPs (cpv :: ChainParametersVersion) =
     (BufferedRef (Updates' cpv), HashedBufferedRef ARS.AnonymityRevokers, HashedBufferedRef IPS.IdentityProviders)
 
--- |Process all update queues.
+-- |Process all update queues. This returns a list of the updates that occurred, with their times,
+-- ordered by the time. (Note: for protocol versions @<= 'P5'@, this list may omit entries with
+-- duplicate time stamps.)
 processUpdateQueues ::
     forall m pv.
     (MonadBlobStore m, IsChainParametersVersion (ChainParametersVersionFor pv)) =>
@@ -1458,15 +1460,16 @@ processUpdateQueues spv t (u0, ars, ips) = do
     -- returned. See https://github.com/Concordium/concordium-node/issues/972
     -- We fix this in protocol 6.
     if demoteProtocolVersion spv >= P6
-        then -- foldr is reasonable here since we are producing a list
-        -- that will be traversed. And the merge function is lazy in the sense
-        -- that it will produce output without consuming the whole input in general.
-
+        then do
+            -- foldr is reasonable here since we are producing a list
+            -- that will be traversed. And the merge function is lazy in the sense
+            -- that it will produce output without consuming the whole input in general.
             let updates = List.foldr (merge . Map.toAscList) [] allUpdates
-            in  return (updates, (u3, ars', ips'))
-        else -- The cause of the bug is here since the monoid operation for maps is
-        -- left-biased union. So only updates from the first update (in the
-        -- order of the list of actions above) remains.
+            return (updates, (u3, ars', ips'))
+        else do
+            -- The cause of the bug is here since the monoid operation for maps is
+            -- left-biased union. So only updates from the first update (in the
+            -- order of the list of actions above) remains.
             return (Map.toAscList (mconcat allUpdates), (u3, ars', ips'))
   where
     -- Combine all the updates in sequence from left to right.
