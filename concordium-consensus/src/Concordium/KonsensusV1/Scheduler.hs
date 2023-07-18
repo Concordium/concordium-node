@@ -249,7 +249,7 @@ executeBlockPrologue BlockExecutionData{..} = do
     -- new commission ranges.
     activeBakers <- bsoGetActiveBakers theState1
     let fitBounds bounds theState (BakerId ai) = bsoConstrainBakerCommission theState ai bounds
-        applyCommissionBounds bs (UVPoolParameters PoolParametersV1{..}) =
+        applyCommissionBounds bs (_time, UVPoolParameters PoolParametersV1{..}) =
             foldM (fitBounds _ppCommissionBounds) bs activeBakers
         applyCommissionBounds bs _ = return bs
     theState2 <- foldM applyCommissionBounds theState1 updates
