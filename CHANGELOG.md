@@ -2,6 +2,10 @@
 
 ## Unreleased changes
 
+- Apply fix for processing of chain parameter updates when they occur at the same time
+  retroactively to all protocol versions. This may break compatibility with any local/private
+  chains on which the bug occurs.
+
 ## 6.0.3
 
 - Update specification hash for protocol 5 to protocol 6 update.

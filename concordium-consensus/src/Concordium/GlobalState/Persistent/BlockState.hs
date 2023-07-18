@@ -2776,7 +2776,7 @@ doProcessUpdateQueues ::
 doProcessUpdateQueues pbs ts = do
     bsp <- loadPBS pbs
     let (u, ars, ips) = (bspUpdates bsp, bspAnonymityRevokers bsp, bspIdentityProviders bsp)
-    (changes, (u', ars', ips')) <- processUpdateQueues (protocolVersion @pv) ts (u, ars, ips)
+    (changes, (u', ars', ips')) <- processUpdateQueues ts (u, ars, ips)
     (changes,) <$> storePBS pbs bsp{bspUpdates = u', bspAnonymityRevokers = ars', bspIdentityProviders = ips'}
 
 doProcessReleaseSchedule :: forall m pv. (SupportsPersistentState pv m) => PersistentBlockState pv -> Timestamp -> m (PersistentBlockState pv)

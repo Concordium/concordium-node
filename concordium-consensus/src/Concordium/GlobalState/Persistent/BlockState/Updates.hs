@@ -1416,16 +1416,14 @@ type UpdatesWithARsAndIPs (cpv :: ChainParametersVersion) =
     (BufferedRef (Updates' cpv), HashedBufferedRef ARS.AnonymityRevokers, HashedBufferedRef IPS.IdentityProviders)
 
 -- |Process all update queues. This returns a list of the updates that occurred, with their times,
--- ordered by the time. (Note: for protocol versions @<= 'P5'@, this list may omit entries with
--- duplicate time stamps.)
+-- ordered by the time.
 processUpdateQueues ::
-    forall m pv.
-    (MonadBlobStore m, IsChainParametersVersion (ChainParametersVersionFor pv)) =>
-    SProtocolVersion pv ->
+    forall m cpv.
+    (MonadBlobStore m, IsChainParametersVersion cpv) =>
     Timestamp ->
-    UpdatesWithARsAndIPs (ChainParametersVersionFor pv) ->
-    m ([(TransactionTime, UpdateValue (ChainParametersVersionFor pv))], UpdatesWithARsAndIPs (ChainParametersVersionFor pv))
-processUpdateQueues spv t (u0, ars, ips) = do
+    UpdatesWithARsAndIPs cpv ->
+    m ([(TransactionTime, UpdateValue cpv)], UpdatesWithARsAndIPs cpv)
+processUpdateQueues t (u0, ars, ips) = do
     (ms, u1) <-
         combine
             [ processRootKeysUpdates t,
@@ -1455,29 +1453,18 @@ processUpdateQueues spv t (u0, ars, ips) = do
     -- Collect all the updates. Note that we need to reverse the list
     -- since combine returns one in reverse order of the input actions.
     let allUpdates = reverse (m3 : m2 : ms)
-    -- In protocol versions <= 5 there was a bug where we only returned the
-    -- first update for a given time, since a map from transaction time was
-    -- returned. See https://github.com/Concordium/concordium-node/issues/972
-    -- We fix this in protocol 6.
-    if demoteProtocolVersion spv >= P6
-        then do
-            -- foldr is reasonable here since we are producing a list
-            -- that will be traversed. And the merge function is lazy in the sense
-            -- that it will produce output without consuming the whole input in general.
-            let updates = List.foldr (merge . Map.toAscList) [] allUpdates
-            return (updates, (u3, ars', ips'))
-        else do
-            -- The cause of the bug is here since the monoid operation for maps is
-            -- left-biased union. So only updates from the first update (in the
-            -- order of the list of actions above) remains.
-            return (Map.toAscList (mconcat allUpdates), (u3, ars', ips'))
+    -- foldr is reasonable here since we are producing a list
+    -- that will be traversed. And the merge function is lazy in the sense
+    -- that it will produce output without consuming the whole input in general.
+    let updates = List.foldr (merge . Map.toAscList) [] allUpdates
+    return (updates, (u3, ars', ips'))
   where
     -- Combine all the updates in sequence from left to right.
     -- The return value is the final state of updates, and the list of
     -- updates. The list is in **reverse** order of the input list.
     combine ::
-        [BufferedRef (Updates' (ChainParametersVersionFor pv)) -> m (r, BufferedRef (Updates' (ChainParametersVersionFor pv)))] ->
-        m ([r], BufferedRef (Updates' (ChainParametersVersionFor pv)))
+        [BufferedRef (Updates' cpv) -> m (r, BufferedRef (Updates' cpv))] ->
+        m ([r], BufferedRef (Updates' cpv))
     combine =
         foldM
             ( \(ms, updates) action -> do
