@@ -1265,7 +1265,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
     bsoProcessUpdateQueues ::
         UpdatableBlockState m ->
         Timestamp ->
-        m (Map.Map TransactionTime (UpdateValue (ChainParametersVersionFor (MPV m))), UpdatableBlockState m)
+        m ([(TransactionTime, UpdateValue (ChainParametersVersionFor (MPV m)))], UpdatableBlockState m)
 
     -- |Unlock the amounts up to the given timestamp
     bsoProcessReleaseSchedule :: UpdatableBlockState m -> Timestamp -> m (UpdatableBlockState m)

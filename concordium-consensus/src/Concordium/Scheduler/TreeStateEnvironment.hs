@@ -1228,7 +1228,7 @@ executeBlockPrologue slotTime newSeedState oldChainParameters bsStart = do
     -- when the updates occur with respect to epoch boundaries etc.
     let prologueUpdates =
             (_1 %~ transactionTimeToSlot (gdGenesisTime genData) (gdSlotDuration genData))
-                <$> Map.toAscList updates
+                <$> updates
     ab <- bsoGetActiveBakers bsDoneUpdates
     -- for each pool parameter update, go over all bakers and put their commissions inside
     -- the new commission ranges.
