@@ -6,6 +6,8 @@
 
 - Update specification hash for protocol 5 to protocol 6 update.
 - Fix processing of chain parameter updates when they occur at the same time.
+- Fix a bug where out-of-band catch-up fails in P6 when processing blocks that have already been
+  processed.
 
 ## 6.0.2
 
