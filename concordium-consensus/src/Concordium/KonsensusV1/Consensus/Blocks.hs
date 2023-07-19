@@ -558,6 +558,16 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                                 -- Write out the parent if it is newly certified, and check if
                                 -- it finalizes other blocks also.
                                 processCertifiedBlock certifiedParent
+                                forM_ (blockEpochFinalizationEntry pendingBlock) $ \finEntry -> do
+                                    -- If the epoch finalization entry is present, then it will
+                                    -- already be checked to be valid.
+                                    let finBlockHash = qcBlock (feFinalizedQuorumCertificate finEntry)
+                                    -- Check if the block finalized by the entry is still live.
+                                    mNewFinBlock <- gets (getLiveBlock finBlockHash)
+                                    forM_ mNewFinBlock $ \finBlock -> do
+                                        -- If so, we finalize it now.
+                                        processFinalizationEntry finBlock finEntry
+                                        shrinkTimeout finBlock
                                 curRound <- use $ roundStatus . rsCurrentRound
                                 if curRound < blockRound pendingBlock
                                     then case blockTimeoutCertificate pendingBlock of
@@ -694,6 +704,9 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                     -- Check that the finalization entry is for the correct epoch,
                     -- that the higher QC round is at most the round of the parent block, and
                     -- contains valid QCs.
+                    -- Note that these conditions ensure that the parent block is descended from
+                    -- the block finalized by the finalization entry (assuming sufficient honesty
+                    -- among the finalization committee).
                     | qcEpoch (feFinalizedQuorumCertificate finEntry) == blockEpoch parent,
                       qcRound (feSuccessorQuorumCertificate finEntry) <= blockRound parent,
                       checkFinalizationEntry
@@ -714,30 +727,10 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                         -- check.
                         let finBlockHash = qcBlock (feFinalizedQuorumCertificate finEntry)
                         get >>= getBlockStatus finBlockHash >>= \case
-                            BlockFinalized finBlock
+                            BlockAliveOrFinalized finBlock
                                 | blockTimestamp finBlock >= parentSeedState ^. triggerBlockTime ->
-                                    -- We already know that the block is finalized.
-                                    continue
-                            BlockAlive finBlock
-                                | blockTimestamp finBlock >= parentSeedState ^. triggerBlockTime -> do
-                                    -- We do not currently consider the block finalized, so we
-                                    -- process the finalization now. The block we are finalizing is
-                                    -- a live (non-finalized) block, and therefore it is at most
-                                    -- one epoch after the last finalized block.
-                                    processFinalizationEntry finBlock finEntry
-                                    shrinkTimeout finBlock
-                                    -- Note: we do not update the highest certified block here
-                                    -- because the parent block will be at least as high as that
-                                    -- in the successor QC. (Also, we may not have the block
-                                    -- pointed to by the successor QC.)
-                                    --
-                                    -- Note that we have checked that @qcRound (feSuccessorQuorumCertificate finEntry) <= blockRound parent@
-                                    -- so either the @parent@ is the block that finalized @finBlock@ or @finBlock@ was already finalized
-                                    -- when @parent@ was baked.
-                                    -- Hence, at this point we MUST know the @parent@ so there is no need to look it up,
-                                    -- so we just @continue@.
-                                    -- If this is not the case, then there must've been more than 1/3 dishonest finalizers
-                                    -- and as a result conflicting blocks were finalized.
+                                    -- The block is alive or already finalized, and justifies the
+                                    -- epoch transition.
                                     continue
                             _ -> do
                                 logEvent Konsensus LLTrace $

@@ -65,16 +65,22 @@ processCertifiedBlock cb@CertifiedBlock{..}
       qcEpoch cbQuorumCertificate == qcEpoch parentQC = unlessStored $ do
         let finalizedBlockHash = qcBlock parentQC
         sd <- get
-        unless (finalizedBlockHash == getHash (sd ^. lastFinalized)) $ do
-            let !newFinalizedPtr = parentOfLive sd cbQuorumBlock
-            let newFinalizationEntry =
-                    FinalizationEntry
-                        { feFinalizedQuorumCertificate = parentQC,
-                          feSuccessorQuorumCertificate = cbQuorumCertificate,
-                          feSuccessorProof = getHash (sbBlock block)
-                        }
-            processFinalizationHelper newFinalizedPtr newFinalizationEntry (Just cb)
-            shrinkTimeout cbQuorumBlock
+        if finalizedBlockHash == getHash (sd ^. lastFinalized)
+            then do
+                -- We do not need to update the last finalized block, but we do need to store this
+                -- as a certified block.
+                storedBlock <- makeStoredBlock cbQuorumBlock
+                LowLevel.writeCertifiedBlock storedBlock cbQuorumCertificate
+            else do
+                let !newFinalizedPtr = parentOfLive sd cbQuorumBlock
+                let newFinalizationEntry =
+                        FinalizationEntry
+                            { feFinalizedQuorumCertificate = parentQC,
+                              feSuccessorQuorumCertificate = cbQuorumCertificate,
+                              feSuccessorProof = getHash (sbBlock block)
+                            }
+                processFinalizationHelper newFinalizedPtr newFinalizationEntry (Just cb)
+                shrinkTimeout cbQuorumBlock
     | otherwise = unlessStored $ do
         storedBlock <- makeStoredBlock cbQuorumBlock
         LowLevel.writeCertifiedBlock storedBlock cbQuorumCertificate
