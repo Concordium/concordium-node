@@ -316,16 +316,22 @@ handleCatchUpRequest CatchUpStatus{..} skovData = do
                 | cusLastFinalizedRound < skovData ^. lastFinalized . to blockRound =
                     skovData ^. latestFinalizationEntry
                 | otherwise = Absent
-        let cutdHighestQuorumCertificate
-                | cusCurrentRound < ourCurrentRound = Present highQC
-                | otherwise = Absent
-        let rs = skovData ^. roundStatus
-        -- We include the timeout certificate if we have one and our current round is higher than
-        -- the peer's current round.
-        let cutdTimeoutCertificate
-                | cusCurrentRound < _rsCurrentRound rs =
-                    rtTimeoutCertificate <$> _rsPreviousRoundTimeout rs
-                | otherwise = Absent
+        let (cutdHighestQuorumCertificate, cutdTimeoutCertificate)
+                | cusCurrentRound >= ourCurrentRound =
+                    -- The peer's current round is ahead, so there is no need to send the QC or TC.
+                    (Absent, Absent)
+                | Present timeout <- skovData ^. roundStatus . rsPreviousRoundTimeout,
+                  cbEpoch (rtCertifiedBlock timeout) /= qcEpoch highQC =
+                    -- In this case, the current round is justified by a TC, but with an earlier
+                    -- epoch than the the current highest QC. We therefore send the QC from the
+                    -- round timeout instead of the highest QC.
+                    ( Present $ cbQuorumCertificate (rtCertifiedBlock timeout),
+                      Present (rtTimeoutCertificate timeout)
+                    )
+                | otherwise =
+                    ( Present highQC,
+                      rtTimeoutCertificate <$> skovData ^. roundStatus . rsPreviousRoundTimeout
+                    )
         cutdCurrentRoundQuorumMessages <- getQuorumMessages
         cutdCurrentRoundTimeoutMessages <- getTimeoutMessages
         return $ CatchUpTerminalData{..}
@@ -496,12 +502,10 @@ processCatchUpTerminalData CatchUpTerminalData{..} = flip runContT return $ do
                         currentProgress
                         "quorum certificate is inconsistent with the block it certifies."
                     )
-                -- We only care if the QC will advance our current round.
-                -- Note: we do not check whether we have already checked a valid QC for the round
-                -- as this could potentially come from a finalization entry where we are missing
-                -- the block.
-                currentRound <- use $ roundStatus . rsCurrentRound
-                if currentRound == qcRound qc
+                -- We only process the quorum certificate (here) if it would advance our highest
+                -- certified block.
+                highestCBRound <- use $ roundStatus . rsHighestCertifiedBlock . to cbRound
+                if highestCBRound < qcRound qc
                     then do
                         gets (getBakersForEpoch (qcEpoch qc)) >>= \case
                             Nothing -> return currentProgress
@@ -526,30 +530,84 @@ processCatchUpTerminalData CatchUpTerminalData{..} = flip runContT return $ do
                                     -- Process the certified block, checking for finalization.
                                     processCertifiedBlock newCertifiedBlock
                                     curRound <- use (roundStatus . rsCurrentRound)
-                                    when (curRound <= qcRound qc) $
-                                        advanceRoundWithQuorum
-                                            newCertifiedBlock
+                                    if curRound <= qcRound qc
+                                        then advanceRoundWithQuorum newCertifiedBlock
+                                        else
+                                            roundStatus . rsHighestCertifiedBlock
+                                                .= newCertifiedBlock
                                     return True
                     else return currentProgress
             Nothing -> return currentProgress
-    processTC currentProgress Absent = return currentProgress
-    processTC currentProgress (Present tc) = do
-        curRound <- use (roundStatus . rsCurrentRound)
-        if curRound <= tcRound tc
-            then do
-                GenesisMetadata{..} <- use genesisMetadata
-                highestCB <- use (roundStatus . rsHighestCertifiedBlock)
-                let highBlock = cbQuorumBlock highestCB
-                -- If the timeout certificate is not consistent with our current highest certified
-                -- block, then the peer has failed to catch us up with the relevant block and/or QC.
-                when
-                    (blockRound highBlock < tcMaxRound tc || blockEpoch highBlock < tcMaxEpoch tc)
-                    ( escape
-                        currentProgress
-                        "timeout certificate is not consistent with highest certified block"
-                    )
-                -- The SkovData invariants imply that we can always get the bakers for the epoch
-                -- of the highest certified block.
+
+    -- This function determines the certified block and bakers to use verify the timeout
+    -- certificate. Typically, this is the highest certified block. However, it can be that the
+    -- highest certified block is in a later epoch from that in which the timeout certificate was
+    -- generated. In that case, the timeout certificate might not be valid when considered with
+    -- respect to that epoch (because of changes in the finalization committee). If this is the
+    -- case, then @cutdHighestQuorumCertificate@ should be present and for a block in the
+    -- appropriate epoch.
+    -- It is important that @processQC@ is called on @cutdHighestQuorumCertificate@ before this
+    -- is called, as we rely on the highest certified block to have already been updated if
+    -- necessary.
+    certifiedBlockAndBakersForTC currentProgress = do
+        highCB <- use (roundStatus . rsHighestCertifiedBlock)
+        case cutdHighestQuorumCertificate of
+            Present qc | qcEpoch qc /= cbEpoch highCB -> do
+                -- In this case, the quorum certificate sent by the peer is for a different
+                -- epoch than our highest certified block. This implies that we should use
+                -- that epoch when evaluating the timeout certificate. (In particular, the
+                -- finalization committee can be different from epoch to epoch.)
+                gets (getLiveOrLastFinalizedBlock (qcBlock qc)) >>= \case
+                    Nothing -> do
+                        -- The timeout is for a round that is ahead of our current round,
+                        -- so the
+                        escape
+                            currentProgress
+                            "quorum certificate is not coherent with timeout certificate \
+                            \as the certified block is not live/last finalized"
+                    Just block -> do
+                        -- We now verify the QC
+                        unless
+                            (blockRound block == qcRound qc && blockEpoch block == qcEpoch qc)
+                            ( escape
+                                currentProgress
+                                "quorum certificate is inconsistent with the block it certifies."
+                            )
+                        gets (getBakersForEpoch (qcEpoch qc)) >>= \case
+                            Nothing -> do
+                                -- If we cannot get the bakers, then the QC is for an epoch that is
+                                -- not within 1 of the last finalized block. This should not even
+                                -- be possible given that we have determined the block to be live
+                                -- or last finalized.
+                                escape currentProgress "quorum certificate is for an invalid epoch"
+                            Just ebQC@BakersAndFinalizers{..} -> do
+                                GenesisMetadata{..} <- use genesisMetadata
+                                let qcOK =
+                                        checkQuorumCertificate
+                                            gmCurrentGenesisHash
+                                            (toRational $ genesisSignatureThreshold gmParameters)
+                                            _bfFinalizers
+                                            qc
+                                unless
+                                    qcOK
+                                    (escape currentProgress "quorum certificate is invalid.")
+                                lift $ do
+                                    recordCheckedQuorumCertificate qc
+                                    let newCertifiedBlock =
+                                            CertifiedBlock
+                                                { cbQuorumCertificate = qc,
+                                                  cbQuorumBlock = block
+                                                }
+                                    -- Process the certified block, checking for finalization.
+                                    processCertifiedBlock newCertifiedBlock
+                                    -- We do not need to advance the round or update the highest
+                                    -- certified block. If this was necessary, it would have been
+                                    -- done by @processQC@, and it would have been that
+                                    -- @qcEpoch qc == cbEpoch highCB@.
+                                    return (newCertifiedBlock, ebQC)
+            _ -> do
+                -- The SkovData invariants imply that we can always get the bakers for the
+                -- epoch of the highest certified block.
                 ebQC <-
                     gets $
                         fromMaybe
@@ -557,7 +615,26 @@ processCatchUpTerminalData CatchUpTerminalData{..} = flip runContT return $ do
                                 "processCatchUpTerminalData: bakers are not available for \
                                 \highest certified block"
                             )
-                            . getBakersForEpoch (blockEpoch highBlock)
+                            . getBakersForEpoch (cbEpoch highCB)
+                return (highCB, ebQC)
+    processTC currentProgress Absent = return currentProgress
+    processTC currentProgress (Present tc) = do
+        curRound <- use (roundStatus . rsCurrentRound)
+        -- We only process the timeout certificate if it would advance the current round.
+        if curRound <= tcRound tc
+            then do
+                GenesisMetadata{..} <- use genesisMetadata
+                (correspondingCB, ebQC) <- certifiedBlockAndBakersForTC currentProgress
+                -- If the timeout certificate is not consistent with our current highest certified
+                -- block, then the peer has failed to catch us up with the relevant block and/or QC.
+                when
+                    ( cbRound correspondingCB < tcMaxRound tc
+                        || cbEpoch correspondingCB < tcMaxEpoch tc
+                    )
+                    ( escape
+                        currentProgress
+                        "timeout certificate is not consistent with highest certified block"
+                    )
                 let checkTCValid eb1 eb2 =
                         checkTimeoutCertificate
                             gmCurrentGenesisHash
@@ -589,7 +666,7 @@ processCatchUpTerminalData CatchUpTerminalData{..} = flip runContT return $ do
                             advanceRoundWithTimeout
                                 RoundTimeout
                                     { rtTimeoutCertificate = tc,
-                                      rtCertifiedBlock = highestCB
+                                      rtCertifiedBlock = correspondingCB
                                     }
                         return True
                     else do
