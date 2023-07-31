@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+- Fix a bug in how timeout certificates across epoch boundaries are handled in catch-up.
+
 ## 6.0.3
 
 - Update specification hash for protocol 5 to protocol 6 update.

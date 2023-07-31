@@ -539,7 +539,7 @@ processCatchUpTerminalData CatchUpTerminalData{..} = flip runContT return $ do
                     else return currentProgress
             Nothing -> return currentProgress
 
-    -- This function determines the certified block and bakers to use verify the timeout
+    -- This function determines the certified block and bakers to use to verify the timeout
     -- certificate. Typically, this is the highest certified block. However, it can be that the
     -- highest certified block is in a later epoch from that in which the timeout certificate was
     -- generated. In that case, the timeout certificate might not be valid when considered with
@@ -560,7 +560,8 @@ processCatchUpTerminalData CatchUpTerminalData{..} = flip runContT return $ do
                 gets (getLiveOrLastFinalizedBlock (qcBlock qc)) >>= \case
                     Nothing -> do
                         -- The timeout is for a round that is ahead of our current round,
-                        -- so the
+                        -- so the QC should presumably for a live block (or the last finalized
+                        -- block) since otherwise we have not been caught up with the peer.
                         escape
                             currentProgress
                             "quorum certificate is not coherent with timeout certificate \
