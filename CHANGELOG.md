@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+## 6.0.4
+
 - Fix a bug in how timeout certificates across epoch boundaries are handled in catch-up.
 
 ## 6.0.3
