@@ -136,7 +136,7 @@ mkTimeout :: Round -> BakedBlock -> TestMonad 'P6 ()
 mkTimeout rnd bb =
     mapM_
         ( \bid ->
-            let x = testTimeoutMessage bid rnd $ blockQuorumCertificate $ pbBlock $ TestBlocks.signedPB bb
+            let x = testTimeoutMessage bid rnd $ validQCFor bb
             in  succeedReceiveExecuteTimeoutMessage x
         )
         [0 .. 3]
@@ -272,7 +272,7 @@ catchupWithOneTimeoutAtEndResponse = runTest $ do
         (TestBlocks.succeedReceiveBlock . TestBlocks.signedPB)
         [TestBlocks.testBB1, TestBlocks.testBB2, TestBlocks.testBB3]
     -- Generate a TC for round 3.
-    mkTimeout (Round 3) TestBlocks.testBB3
+    mkTimeout (Round 3) TestBlocks.testBB2
     -- b2 has a qc for b1, b3 has a qc for b2 and
     -- b1 and b2 is in consecutive rounds so b1 is finalized.
     let request =
@@ -309,8 +309,8 @@ catchupWithTwoTimeoutsAtEndResponse = runTest $ do
         (TestBlocks.succeedReceiveBlock . TestBlocks.signedPB)
         [TestBlocks.testBB1, TestBlocks.testBB2, TestBlocks.testBB3]
     -- Generate a TC for round 3 and round 4.
-    mkTimeout (Round 3) TestBlocks.testBB3
-    mkTimeout (Round 4) TestBlocks.testBB3
+    mkTimeout (Round 3) TestBlocks.testBB2
+    mkTimeout (Round 4) TestBlocks.testBB2
     -- b2 has a qc for b1, b3 has a qc for b2 and
     -- b1 and b2 is in consecutive rounds so b1 is finalized.
     let request =
@@ -347,7 +347,7 @@ catchupWithTwoBranchesResponse = runTest $ do
         [TestBlocks.testBB1, TestBlocks.testBB2, TestBlocks.testBB3]
     -- block 1 is finalized as b2 has a qc for b1 and b3 has a qc for b2.
     -- Timeout round 3.
-    mkTimeout (Round 3) TestBlocks.testBB2
+    mkTimeout (Round 3) TestBlocks.testBB1
     -- we grab the timeout certificate for round 3 in the round status
     -- so we can create a b4 with this tc.
     -- todo: maybe just spell out this tc.
@@ -404,6 +404,42 @@ catchupWithTwoBranchesResponse = runTest $ do
                         }
     assertCatchupResponse expectedTerminalData expectedBlocksServed =<< handleCatchUpRequest request =<< get
 
+-- |Test case where we have a timeout and a QC for a round where the block starts the new epoch.
+-- The timeout refers to the old epoch. In this case, catch-up should send the highest certified
+-- at the time the timeout was generated, rather than the actual highest certified block.
+catchupWithEpochTransitionTimeout :: Assertion
+catchupWithEpochTransitionTimeout = runTest $ do
+    mapM_
+        (TestBlocks.succeedReceiveBlock . TestBlocks.signedPB)
+        [TestBlocks.testBB1E, TestBlocks.testBB2E, TestBlocks.testBB3E]
+    -- Timeout round 3
+    mkTimeout (Round 3) TestBlocks.testBB2E
+    TestBlocks.succeedReceiveBlock . TestBlocks.signedPB $ TestBlocks.testBB4E
+    hcb <- use (roundStatus . rsHighestCertifiedBlock)
+    liftIO $ assertEqual "Highest certified block round" 3 (cbRound hcb)
+    let request =
+            CatchUpStatus
+                { cusLastFinalizedBlock = TestBlocks.genesisHash,
+                  cusLastFinalizedRound = Round 0,
+                  cusLeaves = [],
+                  cusBranches = [],
+                  cusCurrentRound = Round 1,
+                  cusCurrentRoundQuorum = Map.empty,
+                  cusCurrentRoundTimeouts = Absent
+                }
+    let expectedBlocksServed =
+            validSignBlock
+                <$> [TestBlocks.testBB1E, TestBlocks.testBB2E, TestBlocks.testBB3E, TestBlocks.testBB4E]
+    let expectedTerminalData =
+            CatchUpTerminalData
+                { cutdHighestQuorumCertificate = Present $ validQCFor testBB2E,
+                  cutdLatestFinalizationEntry = Present testEpochFinEntry,
+                  cutdTimeoutCertificate = Present $ validTimeoutForFinalizers [0 .. 3] (validQCFor testBB2E) 3,
+                  cutdCurrentRoundQuorumMessages = [],
+                  cutdCurrentRoundTimeoutMessages = []
+                }
+    assertCatchupResponse expectedTerminalData expectedBlocksServed =<< handleCatchUpRequest request =<< get
+
 -- |Checking that the 'CatchUpStatus' is correctly generated from a state where:
 -- there are 3 blocks for round 1,2 and 3, where the first block is finalized.
 -- The block in round 3 never gets a 'QuorumCertificate' and hence round 3 times out.
@@ -415,7 +451,7 @@ testMakeCatchupStatus = runTest $ do
         [TestBlocks.testBB1, TestBlocks.testBB2, TestBlocks.testBB3]
     -- block 1 is finalized as b2 has a qc for b1 and b3 has a qc for b2.
     -- Now we time out round 3 with a reference to b1.
-    mkTimeout (Round 3) TestBlocks.testBB2
+    mkTimeout (Round 3) TestBlocks.testBB1
 
     -- we grab the timeout certificate for round 3 in the round status
     -- so we can create a b4 with this tc.
@@ -574,7 +610,7 @@ testCatchupTCAtEnd = do
         mapM_
             (TestBlocks.succeedReceiveBlock . TestBlocks.signedPB)
             [TestBlocks.testBB1, TestBlocks.testBB2, TestBlocks.testBB3]
-        mkTimeout (Round 3) TestBlocks.testBB3
+        mkTimeout (Round 3) TestBlocks.testBB2
         sd <- get
         let statusMessage = makeCatchUpStatusMessage sd
         return (statusMessage, sd)
@@ -704,3 +740,4 @@ tests = describe "KonsensusV1.CatchUp" $ do
     it "Test isCatchUpRequired: Catch-up responder is behind last finalized" testCatchupRequiredBehindLastFinalized
     it "Test isCatchUpRequired: Catch-up responder is behind" testCatchupRequiredBehind
     it "Test isCatchUpRequired: Catch-up same round" testCatchupRequiredSameRound
+    it "Test handleCatchUpRequest: Epoch transition with timeout" catchupWithEpochTransitionTimeout
