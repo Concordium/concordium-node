@@ -22,6 +22,7 @@ import qualified Data.Set as Set
 import qualified Data.Vector as Vec
 import Lens.Micro.Platform
 
+import Concordium.Utils.BinarySearch
 import Concordium.Common.Version
 import Concordium.Genesis.Data
 import qualified Concordium.Genesis.Data.BaseV1 as BaseV1
@@ -44,7 +45,7 @@ import qualified Concordium.Wasm as Wasm
 import qualified Concordium.Scheduler.InvokeContract as InvokeContract
 import qualified Concordium.Types.InvokeContract as InvokeContract
 
-import Concordium.Afgjort.Finalize.Types (FinalizationCommittee (..), PartyInfo (..))
+import Concordium.Afgjort.Finalize.Types (FinalizationCommittee (..), PartyInfo (..), makeFinalizationCommittee)
 import Concordium.Afgjort.Monad
 import Concordium.Birk.Bake
 import Concordium.GlobalState.BakerInfo
@@ -1423,3 +1424,49 @@ getNumberOfNonFinalizedTransactions =
     liftSkovQueryLatest
         queryNumberOfNonFinalizedTransactions
         (use (SkovV1.transactionTable . to TT.getNumberOfNonFinalizedTransactions))
+
+-- |Get a list of 'BakerRewardPeriodInfo' associated with the reward period
+-- for a particular block.
+--
+-- Note that this query returns the empty list if the protocol does not support baker pools and delegation.
+-- In particular this is the case for protocol versions < 4.
+getBakersRewardPeriod :: forall finconf. BlockHashInput -> MVR finconf (BHIQueryResponse [BakerRewardPeriodInfo])
+getBakersRewardPeriod = liftSkovQueryStateBHI bakerRewardPeriodInfos
+  where
+    bakerRewardPeriodInfos ::
+      forall m.
+      (BS.BlockStateQuery m, MonadProtocolVersion m) =>
+      BlockState m ->
+      m [BakerRewardPeriodInfo]
+    bakerRewardPeriodInfos bs = case delegationSupport @(AccountVersionFor (MPV m)) of
+       SAVDelegationNotSupported -> return []
+       SAVDelegationSupported -> do
+           fullBakers <- BS.getCurrentEpochBakers bs
+           let isFinalizer bakerId =
+                   case consensusVersionFor (protocolVersion @(MPV m)) of
+                       ConsensusV0 -> do
+                           finalizationParameters <- genesisFinalizationParameters . _gcCore <$> getGenesisData
+                           let finCommittee = makeFinalizationCommittee finalizationParameters 0 fullBakers
+                               bakerIds = Vec.map partyBakerId $ parties finCommittee
+                           return $ isJust $ binarySearch id bakerIds bakerId
+                       ConsensusV1 -> do
+                         finCommitteeParams <- BS.getCurrentEpochFinalizationCommitteeParameters bs
+                         let finalizationCommittee = ConsensusV1.computeFinalizationCommittee fullBakers finCommitteeParams
+                         return $ isJust $ SkovV1.finalizerByBakerId finalizationCommittee bakerId                          
+           mapM (toBakerRewardPeriodInfo bs isFinalizer) $ Vec.toList $ fullBakerInfos fullBakers
+    toBakerRewardPeriodInfo :: (PVSupportsDelegation (MPV m), BS.BlockStateQuery m) => BlockState m -> (BakerId -> m Bool) -> FullBakerInfo -> m BakerRewardPeriodInfo
+    toBakerRewardPeriodInfo bs isFinalizer FullBakerInfo{..} = do
+        let bakerId = _bakerIdentity _theBakerInfo
+        BS.getPoolStatus bs (Just bakerId) >>= \case
+            Nothing -> undefined -- not possible
+            Just PassiveDelegationStatus{} -> undefined -- not possible
+            Just BakerPoolStatus{..} -> do
+                finalizer <- isFinalizer bakerId
+                return BakerRewardPeriodInfo
+                    { brpiBaker = _theBakerInfo,
+                      brpiEffectiveStake = _bakerStake,
+                      brpiCommissionRates = psPoolInfo ^. poolCommissionRates,
+                      brpiEquityCapital = psBakerEquityCapital,
+                      brpiDelegatedCapital = psDelegatedCapital,
+                      brpiIsFinalizer = finalizer
+                    }
