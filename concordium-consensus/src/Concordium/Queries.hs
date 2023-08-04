@@ -1439,8 +1439,7 @@ getBakersRewardPeriod = liftSkovQueryBHI bakerRewardPeriodInfosV0 bakerRewardPer
   where
     bakerRewardPeriodInfosV0 ::
         forall m.
-        ( BlockPointerMonad m,
-          SkovQueryMonad m,
+        ( SkovQueryMonad m,
           BlockPointerType m ~ PersistentBlockPointer (MPV m) (HashedPersistentBlockState (MPV m))
         ) =>
         BlockPointerType (VersionedSkovV0M finconf (MPV m)) ->
@@ -1449,8 +1448,7 @@ getBakersRewardPeriod = liftSkovQueryBHI bakerRewardPeriodInfosV0 bakerRewardPer
         -- Return an empty stream if delegation and baker pools are not supported by the protocol.
         SAVDelegationNotSupported -> return $ Left GBRPUnsupportedProtocolVersion
         SAVDelegationSupported -> do
-            bs <- blockState bp
-            result <- getBakersConsensusV0 bs
+            result <- getBakersConsensusV0 =<< blockState bp
             return $ Right result
     bakerRewardPeriodInfosV1 ::
         forall m.
@@ -1458,8 +1456,7 @@ getBakersRewardPeriod = liftSkovQueryBHI bakerRewardPeriodInfosV0 bakerRewardPer
         SkovV1.BlockPointer (MPV m) ->
         m (Either GetBakersRewardPeriodError [BakerRewardPeriodInfo])
     bakerRewardPeriodInfosV1 bp = do
-        bs <- blockState bp
-        result <- getBakersConsensusV1 bs
+        result <- getBakersConsensusV1 =<< blockState bp
         return $ Right result
     -- Get the bakers and calculate the finalization committee for protocols using consensus v0.
     getBakersConsensusV0 :: (SkovQueryMonad m, PVSupportsDelegation (MPV m)) => BlockState m -> m [BakerRewardPeriodInfo]
@@ -1484,8 +1481,8 @@ getBakersRewardPeriod = liftSkovQueryBHI bakerRewardPeriodInfosV0 bakerRewardPer
     toBakerRewardPeriodInfo bs isFinalizer FullBakerInfo{..} = do
         let bakerId = _bakerIdentity _theBakerInfo
         BS.getPoolStatus bs (Just bakerId) >>= \case
-            Nothing -> undefined -- not possible as this would imply that the baker is not a baker..
-            Just PassiveDelegationStatus{} -> undefined -- We only care about baker pools.
+            Nothing -> error "A pool for a known baker could not be looked up."
+            Just PassiveDelegationStatus{} -> error "A passive delegation status was returned when querying with a bakerid."
             Just BakerPoolStatus{..} -> do
                 finalizer <- isFinalizer bakerId
                 return
