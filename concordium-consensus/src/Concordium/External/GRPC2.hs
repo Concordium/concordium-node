@@ -981,7 +981,7 @@ getLastFinalizedBlockSlotTimeV2 cptr = do
     runMVR Q.getLastFinalizedSlotTime mvr
 
 getBakersRewardPeriodV2 ::
-  StablePtr Ext.ConsensusRunner ->
+    StablePtr Ext.ConsensusRunner ->
     Ptr SenderChannel ->
     -- |Block type
     Word8 ->
@@ -996,8 +996,15 @@ getBakersRewardPeriodV2 cptr channel blockType blockHashPtr outHash cbk = do
     let sender = callChannelSendCallback cbk
     bhi <- decodeBlockHashInput blockType blockHashPtr
     response <- runMVR (Q.getBakersRewardPeriod bhi) mvr
-    returnStreamWithBlock (sender channel) outHash response
-  
+    copyHashTo outHash response
+    case response of
+        Q.BQRBlock _ eitherBakers ->
+            case eitherBakers of
+                Left Q.GBRPUnsupportedProtocolVersion -> return $ queryResultCode QRInvalidArgument
+                Right bakers -> do
+                    _ <- enqueueMessages (sender channel) bakers
+                    return (queryResultCode QRSuccess)
+        _ -> return $ queryResultCode QRNotFound
 
 -- |Write the hash to the provided pointer, encode the message given and write it using the provided callback.
 returnMessageWithBlock ::
