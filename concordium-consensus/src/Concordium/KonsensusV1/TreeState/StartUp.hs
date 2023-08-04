@@ -408,28 +408,12 @@ loadCertifiedBlocks = do
     unless (expectedCurrentRound == rs ^. rsCurrentRound) $
         throwM . TreeStateInvariantViolation $
             "The current round does not match the expected round."
-    prs <- use persistentRoundStatus
-    -- Add the last sent quorum message to the quorum messages if it makes sense to do so.
-    forM_ (_prsLastSignedQuorumMessage prs) $ \qm -> do
-        when (qmRound qm == rs ^. rsCurrentRound) $ do
-            mbakers <- gets (getBakersForEpoch (qmEpoch qm))
-            forM_ mbakers $ \bakers -> do
-                forM_ (finalizerByIndex (bakers ^. bfFinalizers) (qmFinalizerIndex qm)) $
-                    \finInfo -> do
-                        currentQuorumMessages
-                            .= QuorumMessages
-                                { _smBakerIdToQuorumMessage =
-                                    Map.singleton (finalizerBakerId finInfo) qm,
-                                  _smBlockToWeightsAndSignatures =
-                                    Map.singleton
-                                        (qmBlock qm)
-                                        ( finalizerWeight finInfo,
-                                          qmSignature qm,
-                                          finalizerSet [qmFinalizerIndex qm]
-                                        )
-                                }
     -- Add the latest timeout message to the timeout messages if it makes sense in the current
     -- context.
+    -- Note: we do not restore the latest quorum message because if it is for the current
+    -- round, then we won't have the block that it is signing, since only certified blocks are
+    -- stored in the database.
+    prs <- use persistentRoundStatus
     forM_ (_prsLastSignedTimeoutMessage prs) $ \tm -> do
         when (tmRound (tmBody tm) == rs ^. rsCurrentRound) $ do
             forM_ (updateTimeoutMessages Absent tm) $ \tms -> currentTimeoutMessages .= Present tms
