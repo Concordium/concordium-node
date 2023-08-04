@@ -180,7 +180,7 @@ basicCatchupResponse = runTest $ do
                   cutdCurrentRoundTimeoutMessages = [tmR4]
                 }
         expectedBlocksServed = pbBlock . TestBlocks.signedPB <$> [TestBlocks.testBB1, TestBlocks.testBB2, TestBlocks.testBB3]
-        finToQMsgMap = Map.insert (FinalizerIndex 1) qmR4 Map.empty
+        finToQMsgMap = Map.insert 1 qmR4 Map.empty
         finToTMMap = Map.insert (FinalizerIndex 0) tmR4 Map.empty
     -- Setting the current quorum, timeout message.
     currentQuorumMessages .= QuorumMessages finToQMsgMap Map.empty
@@ -218,7 +218,7 @@ catchupWithEpochTransitionResponse = runTest $ do
                   cutdCurrentRoundTimeoutMessages = [tmR4]
                 }
         expectedBlocksServed = pbBlock . TestBlocks.signedPB <$> [TestBlocks.testBB2E, TestBlocks.testBB3E]
-        finToQMsgMap = Map.insert (FinalizerIndex 1) qmR4 Map.empty
+        finToQMsgMap = Map.insert 1 qmR4 Map.empty
         finToTMMap = Map.insert (FinalizerIndex 0) tmR4 Map.empty
     -- Setting the current quorum, timeout message and latest finalization entry.
     currentQuorumMessages .= QuorumMessages finToQMsgMap Map.empty
@@ -258,7 +258,7 @@ catchupWithTimeoutsResponse = runTest $ do
                   cutdCurrentRoundTimeoutMessages = [tmR5]
                 }
         expectedBlocksServed = pbBlock . TestBlocks.signedPB <$> [TestBlocks.testBB1E, TestBlocks.testBB2E, TestBlocks.testBB3E, TestBlocks.testBB5E']
-        finToQMsgMap = Map.insert (FinalizerIndex 1) qmR5 Map.empty
+        finToQMsgMap = Map.insert 1 qmR5 Map.empty
         finToTMMap = Map.insert (FinalizerIndex 0) tmR5 Map.empty
     -- Setting the current quorum, timeout message and finalization entry.
     currentQuorumMessages .= QuorumMessages finToQMsgMap Map.empty
@@ -528,7 +528,7 @@ testCatchup = do
             qmR4Sig = signQuorumSignatureMessage qsmR4 (bakerAggregationKey . fst $ TestBlocks.bakers !! 1)
             qmR4 = buildQuorumMessage qsmR4 qmR4Sig (FinalizerIndex 1)
             tmR4 = head $ timeoutMessagesFor b4QC (Round 4) 0
-            finToQMsgMap = Map.insert (FinalizerIndex 1) qmR4 Map.empty
+            finToQMsgMap = Map.insert 1 qmR4 Map.empty
             finToTMMap = Map.insert (FinalizerIndex 0) tmR4 Map.empty
         -- Setting the current quorum and timeout message.
         currentQuorumMessages .= QuorumMessages finToQMsgMap Map.empty

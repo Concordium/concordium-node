@@ -323,24 +323,83 @@ loadCertifiedBlocks = do
         curRound <- use $ roundStatus . rsCurrentRound
         when (tcRound lastTimeout >= curRound) $ do
             highCB <- use $ roundStatus . rsHighestCertifiedBlock
-            if cbRound highCB < tcRound lastTimeout
-                && cbRound highCB >= tcMaxRound lastTimeout
-                && cbEpoch highCB >= tcMaxEpoch lastTimeout
-                && cbEpoch highCB <= 2 + tcMinEpoch lastTimeout
-                then do
-                    roundStatus . rsPreviousRoundTimeout
-                        .= Present
-                            RoundTimeout
-                                { rtTimeoutCertificate = lastTimeout,
-                                  rtCertifiedBlock = highCB
-                                }
-                    roundStatus . rsCurrentRound .= tcRound lastTimeout + 1
-                else do
-                    roundStatus . rsRoundEligibleToBake .= False
-                    logEvent
-                        Skov
-                        LLWarning
-                        "Missing certified block consistent with last timeout certificate"
+            eBkrs <- use epochBakers
+            -- If the finalization committee for the highest certified block is different
+            -- from the committee for the last finalized block, then there is a question of
+            -- which certified block should be paired with the timeout certificate.
+            let requiresTCCheck = blockEpoch (cbQuorumBlock highCB) >= eBkrs ^. nextPayday
+            GenesisMetadata{..} <- use genesisMetadata
+            let checkTC' eb1 eb2 ebParent =
+                    checkTimeoutCertificate
+                        gmCurrentGenesisHash
+                        (toRational $ genesisSignatureThreshold gmParameters)
+                        (eb1 ^. bfFinalizers)
+                        (eb2 ^. bfFinalizers)
+                        (ebParent ^. bfFinalizers)
+                        lastTimeout
+            lastFinEpoch <- use $ lastFinalized . to blockEpoch
+            -- This function checks the timeout certificate is valid with respect to the bakers
+            -- for a given epoch.
+            let checkTC
+                    | tcMinEpoch lastTimeout == lastFinEpoch - 1 =
+                        checkTC' (eBkrs ^. previousEpochBakers) (eBkrs ^. currentEpochBakers)
+                    | tcMinEpoch lastTimeout == lastFinEpoch =
+                        checkTC' (eBkrs ^. currentEpochBakers) (eBkrs ^. nextEpochBakers)
+                    | tcIsSingleEpoch lastTimeout && tcMinEpoch lastTimeout == lastFinEpoch + 1 =
+                        checkTC' (eBkrs ^. nextEpochBakers) (eBkrs ^. nextEpochBakers)
+                    | otherwise = const False
+            let tcOKForHCB =
+                    blockEpoch (cbQuorumBlock highCB) == lastFinEpoch + 1
+                        && checkTC (eBkrs ^. nextEpochBakers)
+            let checkBlockCompatibleWithLastTimeout certBlock =
+                    cbRound certBlock < tcRound lastTimeout
+                        && cbRound certBlock >= tcMaxRound lastTimeout
+                        && cbEpoch certBlock >= tcMaxEpoch lastTimeout
+                        -- This last condition should always be true, otherwise the timeout certificate
+                        -- itself is invalid. For it to fail, tcMaxEpoch would be below the epoch of the
+                        -- last finalized block, and therefore cannot justify a timeout in a subsequent
+                        -- round.
+                        && cbEpoch certBlock <= 2 + tcMinEpoch lastTimeout
+            if (not requiresTCCheck || tcOKForHCB) && checkBlockCompatibleWithLastTimeout highCB
+                then setLastTimeout lastTimeout highCB
+                else
+                    if requiresTCCheck && not tcOKForHCB
+                        then do
+                            -- Find the certified block for the previous epoch with the highest
+                            -- round number.
+                            candidateCB <- case dropWhile ((lastFinEpoch /=) . qcEpoch . snd) . reverse $ certBlocks of
+                                [] -> do
+                                    -- There are no subsequent certified blocks in the same epoch as
+                                    -- the last finalized block, so use the last finalized block.
+                                    lfb <- use lastFinalized
+                                    -- We get the quorum certificate from the latest finalization
+                                    -- entry. If there is no entry, then the last finalized block
+                                    -- is the genesis block, so we use a genesis quorum certificate.
+                                    qc <-
+                                        ofOption
+                                            (genesisQuorumCertificate (getHash lfb))
+                                            feFinalizedQuorumCertificate
+                                            <$> use latestFinalizationEntry
+                                    return $ CertifiedBlock qc lfb
+                                ((_, qc) : _) -> do
+                                    mblock <- gets (getLiveBlock (qcBlock qc))
+                                    case mblock of
+                                        Nothing ->
+                                            -- This case cannot happen, since loadCertBlock
+                                            -- is called on all of the certified blocks, which
+                                            -- ensures they are in the live blocks.
+                                            error "Missing certified block"
+                                        Just block -> return $ CertifiedBlock qc block
+                            -- Unless the database has been corrupted in an unexpected way, it
+                            -- should not be possible for the timeout certificate to be invalid
+                            -- with respect to the epoch of the last finalized block at this point.
+                            unless (checkTC (eBkrs ^. currentEpochBakers)) $
+                                throwM . TreeStateInvariantViolation $
+                                    "The latest timeout certificate could not be validated."
+                            if checkBlockCompatibleWithLastTimeout candidateCB
+                                then setLastTimeout lastTimeout candidateCB
+                                else failLoadLastTimeout
+                        else failLoadLastTimeout
 
     rs <- use roundStatus
     let expectedCurrentRound
@@ -349,9 +408,28 @@ loadCertifiedBlocks = do
     unless (expectedCurrentRound == rs ^. rsCurrentRound) $
         throwM . TreeStateInvariantViolation $
             "The current round does not match the expected round."
+    prs <- use persistentRoundStatus
+    -- Add the last sent quorum message to the quorum messages if it makes sense to do so.
+    forM_ (_prsLastSignedQuorumMessage prs) $ \qm -> do
+        when (qmRound qm == rs ^. rsCurrentRound) $ do
+            mbakers <- gets (getBakersForEpoch (qmEpoch qm))
+            forM_ mbakers $ \bakers -> do
+                forM_ (finalizerByIndex (bakers ^. bfFinalizers) (qmFinalizerIndex qm)) $
+                    \finInfo -> do
+                        currentQuorumMessages
+                            .= QuorumMessages
+                                { _smBakerIdToQuorumMessage =
+                                    Map.singleton (finalizerBakerId finInfo) qm,
+                                  _smBlockToWeightsAndSignatures =
+                                    Map.singleton
+                                        (qmBlock qm)
+                                        ( finalizerWeight finInfo,
+                                          qmSignature qm,
+                                          finalizerSet [qmFinalizerIndex qm]
+                                        )
+                                }
     -- Add the latest timeout message to the timeout messages if it makes sense in the current
     -- context.
-    prs <- use persistentRoundStatus
     forM_ (_prsLastSignedTimeoutMessage prs) $ \tm -> do
         when (tmRound (tmBody tm) == rs ^. rsCurrentRound) $ do
             forM_ (updateTimeoutMessages Absent tm) $ \tms -> currentTimeoutMessages .= Present tms
@@ -388,3 +466,18 @@ loadCertifiedBlocks = do
             roundBakerExistingBlock (blockRound signedBlock) (blockBaker signedBlock)
                 ?= toBlockSignatureWitness signedBlock
         recordCheckedQuorumCertificate qc
+
+    -- Set the previous round timeout.
+    setLastTimeout lastTimeout certBlock = do
+        roundStatus . rsPreviousRoundTimeout
+            .= Present
+                RoundTimeout
+                    { rtTimeoutCertificate = lastTimeout,
+                      rtCertifiedBlock = certBlock
+                    }
+        roundStatus . rsCurrentRound .= tcRound lastTimeout + 1
+    -- Attempting to load the last timeout failed because we could not find a consistent last
+    -- certified block. This can occur if some blocks were rolled back.
+    failLoadLastTimeout = do
+        roundStatus . rsRoundEligibleToBake .= False
+        logEvent Skov LLWarning "Missing certified block consistent with last timeout certificate"
