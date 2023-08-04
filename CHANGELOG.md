@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+- Fix a bug in how the last timeout certificate is recovered at start-up.
+
 ## 6.0.4
 
 - Fix a bug in how timeout certificates across epoch boundaries are handled in catch-up.
