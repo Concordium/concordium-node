@@ -1356,6 +1356,22 @@ extern "C" {
 
     /// Get the slot time (in milliseconds) of the last finalized block.
     pub fn getLastFinalizedBlockSlotTimeV2(consensus: *mut consensus_runner) -> u64;
+
+    /// Get the earliest time in which a baker wins the lottery. Returns "not
+    /// found" for consensus version 0. For consensus version 1, it will
+    /// return a result even if the baker ID does not correspond to a
+    /// currently-valid baker.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `baker_id` - ID of baker to get the time for.
+    /// * `out` - Location to write the output of the query.
+    /// * `copier` - Callback for writing the output.
+    pub fn getBakerEarliestWinTimeV2(
+        consensus: *mut consensus_runner,
+        baker_id: u64,
+        out: *mut Vec<u8>,
+        copier: CopyToVecCallback,
+    ) -> i64;
 }
 
 /// This is the callback invoked by consensus on newly arrived, and newly
@@ -3011,6 +3027,20 @@ impl ConsensusContainer {
         let consensus = self.consensus.load(Ordering::SeqCst);
         let millis = unsafe { getLastFinalizedBlockSlotTimeV2(consensus) };
         millis.into()
+    }
+
+    pub fn get_baker_earliest_win_time_v2(
+        &self,
+        request: &crate::grpc2::types::BakerId,
+    ) -> Result<Vec<u8>, tonic::Status> {
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut out_data: Vec<u8> = Vec::new();
+        let response: ConsensusQueryResponse = unsafe {
+            getBakerEarliestWinTimeV2(consensus, request.value, &mut out_data, copy_to_vec_callback)
+        }
+        .try_into()?;
+        response.ensure_ok("baker")?;
+        Ok(out_data)
     }
 }
 

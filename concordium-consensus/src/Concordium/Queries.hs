@@ -1423,3 +1423,11 @@ getNumberOfNonFinalizedTransactions =
     liftSkovQueryLatest
         queryNumberOfNonFinalizedTransactions
         (use (SkovV1.transactionTable . to TT.getNumberOfNonFinalizedTransactions))
+
+-- |Get the earliest time at which a baker is projected to win the lottery.
+-- Returns 'Nothing' for consensus version 0.
+getBakerEarliestWinTime :: BakerId -> MVR finconf (Maybe Timestamp)
+getBakerEarliestWinTime bid =
+    liftSkovQueryLatest
+        (return Nothing)
+        (fmap Just . ConsensusV1.bakerEarliestWinTimestamp bid =<< get)

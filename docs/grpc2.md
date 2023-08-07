@@ -89,6 +89,7 @@ If these are enabled then the following options become available
   get_next_update_sequence_numbers = true
   get_block_chain_parameters = true
   get_block_finalization_summary = true
+  get_baker_earliest_win_time = true
   shutdown = false
   peer_connect = true
   peer_disconnect = true

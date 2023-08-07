@@ -394,6 +394,7 @@ pub enum ConsensusQueryResponse {
     InternalError,
     Ok,
     NotFound,
+    Unavailable,
 }
 
 impl ConsensusQueryResponse {
@@ -405,6 +406,7 @@ impl ConsensusQueryResponse {
             Self::InternalError => Err(tonic::Status::internal(format!("Internal error: {}. Please report this bug at https://github.com/Concordium/concordium-node/issues.", msg))),
             Self::Ok => Ok(()),
             Self::NotFound => Err(tonic::Status::not_found(format!("{} not found.", msg))),
+            Self::Unavailable => Err(tonic::Status::unavailable("Service unavailable."))
         }
     }
 }
@@ -430,6 +432,7 @@ impl TryFrom<i64> for ConsensusQueryResponse {
             -1 => Ok(Self::InternalError),
             0 => Ok(Self::Ok),
             1 => Ok(Self::NotFound),
+            2 => Ok(Self::Unavailable),
             unknown_code => Err(ConsensusQueryUnknownCode {
                 unknown_code,
             }),
