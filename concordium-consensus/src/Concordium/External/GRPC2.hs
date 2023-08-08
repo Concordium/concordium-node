@@ -152,7 +152,7 @@ data QueryResult
       QRSuccess
     | -- | The requested data could not be found.
       QRNotFound
-    | -- | The service is currently unavailable.
+    | -- | The service is not available at the current protocol version.
       QRUnavailable
 
 -- |Convert a QueryResult to a result code.
