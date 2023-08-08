@@ -1797,7 +1797,9 @@ pub mod server {
             request: tonic::Request<crate::grpc2::types::BakerId>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
             if !self.service_config.get_baker_earliest_win_time {
-                return Err(tonic::Status::unimplemented("`GetBakerEarliestWinTime` is not enabled."));
+                return Err(tonic::Status::unimplemented(
+                    "`GetBakerEarliestWinTime` is not enabled.",
+                ));
             }
             let response = self.consensus.get_baker_earliest_win_time_v2(request.get_ref())?;
             let response = tonic::Response::new(response);
