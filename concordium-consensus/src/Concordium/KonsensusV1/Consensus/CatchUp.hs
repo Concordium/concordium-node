@@ -339,14 +339,13 @@ handleCatchUpRequest CatchUpStatus{..} skovData = do
     ourCurrentRound = skovData ^. roundStatus . rsCurrentRound
     getQuorumMessages
         | cusCurrentRound == ourCurrentRound = do
-            let qms = skovData ^.. currentQuorumMessages . smFinalizerToQuorumMessage . traversed
-            return $! filter newToPeer qms
+            return $! filter newToPeer quorumMessages
         | cusCurrentRound < ourCurrentRound = do
-            let qms = skovData ^.. currentQuorumMessages . smFinalizerToQuorumMessage . traversed
-            return qms
+            return quorumMessages
         | otherwise = do
             return []
       where
+        quorumMessages = skovData ^.. currentQuorumMessages . smBakerIdToQuorumMessage . traversed
         newToPeer qm = case Map.lookup (qmBlock qm) cusCurrentRoundQuorum of
             Nothing -> True
             Just s -> not (memberFinalizerSet (qmFinalizerIndex qm) s)

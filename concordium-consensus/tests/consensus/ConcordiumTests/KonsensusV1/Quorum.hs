@@ -32,6 +32,10 @@ import ConcordiumTests.KonsensusV1.Types
 genFinalizerWeight :: Gen VoterPower
 genFinalizerWeight = VoterPower <$> arbitrary
 
+-- |Generate a baker ID.
+genBakerId :: Gen BakerId
+genBakerId = BakerId . AccountIndex <$> arbitrary
+
 -- |Generate a 'QuorumMessage' for a particular block.
 genQuorumMessageFor :: BlockHash -> Gen QuorumMessage
 genQuorumMessageFor bh = do
@@ -43,18 +47,18 @@ genQuorumMessageFor bh = do
 
 -- |Test for ensuring that when a
 -- new 'QuorumMessage' is added to the 'QuorumMessages' type,
--- then the weight is being accummulated and signatures are aggregated.
+-- then the weight is being accumulated and signatures are aggregated.
 propAddQuorumMessage :: Property
 propAddQuorumMessage =
     forAll genQuorumMessage $ \qm0 ->
         forAll (genQuorumMessageFor (qmBlock qm0)) $ \qm1 ->
             (qm0 /= qm1) ==>
-                forAll genFinalizerWeight $ \weight -> do
-                    let verifiedQuorumMessage0 = VerifiedQuorumMessage qm0 weight $! myBlockPointer 0 0
+                forAll genFinalizerWeight $ \weight -> forAll genBakerId $ \bakerId0 -> forAll genBakerId $ \bakerId1 -> do
+                    let verifiedQuorumMessage0 = VerifiedQuorumMessage qm0 weight bakerId0 $! myBlockPointer 0 0
                         qsm' = addQuorumMessage verifiedQuorumMessage0 emptyQuorumMessages
                     assertEqual
                         "The quorum message should have been added"
-                        (qsm' ^? smFinalizerToQuorumMessage . ix (qmFinalizerIndex qm0))
+                        (qsm' ^? smBakerIdToQuorumMessage . ix bakerId0)
                         (Just qm0)
                     assertBool
                         "The block hash can be looked up"
@@ -63,17 +67,17 @@ propAddQuorumMessage =
                         "The finalizer weight, signature and finalizer index should be present"
                         (weight, qmSignature qm0, finalizerSet [qmFinalizerIndex qm0])
                         (fromJust $! qsm' ^? smBlockToWeightsAndSignatures . ix (qmBlock qm0))
-                    let verifiedQuorumMessage1 = VerifiedQuorumMessage qm1 weight $! myBlockPointer 0 0
+                    let verifiedQuorumMessage1 = VerifiedQuorumMessage qm1 weight bakerId1 $! myBlockPointer 0 0
                         qsm'' = addQuorumMessage verifiedQuorumMessage1 qsm'
                     assertEqual
                         "The quorum message should have been added"
-                        (qsm'' ^? smFinalizerToQuorumMessage . ix (qmFinalizerIndex qm1))
+                        (qsm'' ^? smBakerIdToQuorumMessage . ix bakerId1)
                         (Just qm1)
                     assertBool
                         "The block hash can be looked up"
                         (isJust (qsm'' ^? smBlockToWeightsAndSignatures . ix (qmBlock qm1)))
                     assertEqual
-                        "The finalizer weight, aggregated signature and finalizer indecies should be present"
+                        "The finalizer weight, aggregated signature and finalizer indices should be present"
                         (2 * weight, qmSignature qm1 <> qmSignature qm0, finalizerSet [qmFinalizerIndex qm1, qmFinalizerIndex qm0])
                         (fromJust $! qsm'' ^? smBlockToWeightsAndSignatures . ix (qmBlock qm1))
 
@@ -121,7 +125,7 @@ testMakeQuorumCertificate = describe "Quorum Certificate creation" $ do
             & skovEpochBakers .~ EpochBakers bfs bfs bfs 1
     qcBlockHash = BlockHash minBound
     qcBlockPointer = someBlockPointer qcBlockHash 1 0
-    verifiedQuorumMessage finalizerIndex weight = VerifiedQuorumMessage (quorumMessage finalizerIndex) weight $ myBlockPointer 0 0
+    verifiedQuorumMessage finalizerIndex weight = VerifiedQuorumMessage (quorumMessage finalizerIndex) weight (fromIntegral finalizerIndex) $ myBlockPointer 0 0
     quorumMessage finalizerIndex = QuorumMessage emptyQuorumSignature qcBlockHash (FinalizerIndex finalizerIndex) 0 0
     emptyQuorumSignature = QuorumSignature Bls.emptySignature
 
@@ -140,7 +144,7 @@ testReceiveQuorumMessage = describe "Receive quorum message" $ do
     it "invalid block | dead" $ receiveAndCheck sd deadBlockMessage $ Rejected InvalidBlock
     it "round inconsistency" $ receiveAndCheck (sd' 0 1) inconsistentRoundsMessage $ Rejected InconsistentRounds
     it "epoch inconsistency" $ receiveAndCheck (sd' 1 1) inconsistentEpochsMessage $ Rejected InconsistentEpochs
-    it "receives" $ receiveAndCheck (sd' 1 1) verifiableMessage $ Received $ VerifiedQuorumMessage verifiableMessage 1 $ liveBlockPointer 1 1
+    it "receives" $ receiveAndCheck (sd' 1 1) verifiableMessage $ Received $ VerifiedQuorumMessage verifiableMessage 1 2 $ liveBlockPointer 1 1
   where
     bh = BlockHash minBound
     emptyQuorumSignature = QuorumSignature Bls.emptySignature
@@ -175,7 +179,7 @@ testReceiveQuorumMessage = describe "Receive quorum message" $ do
     fi fIdx = FinalizerInfo (FinalizerIndex fIdx) 1 sigPublicKey vrfPublicKey blsPublicKey (BakerId $ AccountIndex (fromIntegral fIdx))
     blsPublicKey = Bls.derivePublicKey someBlsSecretKey
     vrfPublicKey = VRF.publicKey someVRFKeyPair
-    bakersAndFinalizers = BakersAndFinalizers (FullBakers Vec.empty 0) (FinalizationCommittee (Vec.fromList [fi 1, fi 2, fi 3]) 3)
+    bakersAndFinalizers = BakersAndFinalizers (FullBakers Vec.empty 0) (FinalizationCommittee (Vec.fromList [fi 0, fi 1, fi 2, fi 3]) 4)
     -- A skov data where
     -- - the current round and epoch is set to 1 (next payday is at epoch 2).
     -- - there are 3 finalizers 1, 2 and 3 each with a weight of 1 (total weight is 3).
@@ -197,7 +201,7 @@ testReceiveQuorumMessage = describe "Receive quorum message" $ do
             & skovEpochBakers . currentEpochBakers .~ bakersAndFinalizers
             & skovEpochBakers . previousEpochBakers .~ bakersAndFinalizers
             & skovEpochBakers . nextPayday .~ 2
-            & currentQuorumMessages %~ addQuorumMessage (VerifiedQuorumMessage duplicateMessage 1 $ myBlockPointer (Round r) e)
+            & currentQuorumMessages %~ addQuorumMessage (VerifiedQuorumMessage duplicateMessage 1 1 $ myBlockPointer (Round r) e)
             & blockTable . deadBlocks %~ insertDeadCache deadBlock
             & skovPendingTransactions . focusBlock .~ liveBlockPointer (Round r) e
             & lastFinalized .~ finalizedBlockPointer (Round 0) 1

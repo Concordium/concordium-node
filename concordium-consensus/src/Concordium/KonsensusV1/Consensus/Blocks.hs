@@ -1034,6 +1034,7 @@ validateBlock blockHash BakerIdentity{..} finInfo = do
                     VerifiedQuorumMessage
                         { vqmMessage = quorumMessage,
                           vqmFinalizerWeight = finalizerWeight finInfo,
+                          vqmFinalizerBakerId = finalizerBakerId finInfo,
                           vqmBlock = block
                         }
                     makeBlock

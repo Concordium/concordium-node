@@ -453,8 +453,8 @@ makeClassy ''EpochBakers
 
 -- |Quorum messages collected for a round.
 data QuorumMessages = QuorumMessages
-    { -- |Map of finalizer indices to signature messages.
-      _smFinalizerToQuorumMessage :: !(Map.Map FinalizerIndex QuorumMessage),
+    { -- |Map of baker ids to signature messages.
+      _smBakerIdToQuorumMessage :: !(Map.Map BakerId QuorumMessage),
       -- |Accumulated weights and the aggregated signature for the blocks signed off by quorum signature message.
       -- The 'VoterPower' here is in relation to the 'Epoch' of the block being finalized.
       _smBlockToWeightsAndSignatures :: !(Map.Map BlockHash (VoterPower, QuorumSignature, FinalizerSet))
