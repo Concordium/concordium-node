@@ -1479,11 +1479,11 @@ getBakersRewardPeriod = liftSkovQueryBHI bakerRewardPeriodInfosV0 bakerRewardPer
         ( BS.BlockStateQuery m,
           PVSupportsDelegation (MPV m)
         ) =>
-        -- \|The block state to request the pool status from.
+        -- The block state to request the pool status from.
         BlockState m ->
-        -- \|All bakers for the reward period.
+        -- All bakers for the reward period.
         [FullBakerInfo] ->
-        -- \|The baker ids of the finalizers for the reward period.
+        -- The baker ids of the finalizers for the reward period.
         [BakerId] ->
         m [BakerRewardPeriodInfo]
     mapBakersToInfos bs fullBakerInfos finalizersByBakerId = fst <$> foldM mapBaker ([], finalizersByBakerId) fullBakerInfos
