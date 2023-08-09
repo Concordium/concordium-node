@@ -138,6 +138,10 @@ checkQuorumSignatureSingle msg pubKey =
     Bls.verify (quorumSignatureMessageBytes msg) pubKey
         . theQuorumSignature
 
+-- |Index of a finalizer in the finalization committee vector.
+newtype FinalizerIndex = FinalizerIndex {theFinalizerIndex :: Word32}
+    deriving (Eq, Ord, Show, Enum, Bounded, Serialize)
+
 -- |Check the signature on a 'QuorumSignatureMessage' that is signed by multiple parties.
 checkQuorumSignature ::
     QuorumSignatureMessage -> [BakerAggregationVerifyKey] -> QuorumSignature -> Bool
@@ -228,6 +232,79 @@ finalizerByBakerId = binarySearch finalizerBakerId . committeeFinalizers
 finalizerByIndex :: FinalizationCommittee -> FinalizerIndex -> Maybe FinalizerInfo
 finalizerByIndex finCom finInd =
     committeeFinalizers finCom Vector.!? fromIntegral (theFinalizerIndex finInd)
+
+-- |A set of 'FinalizerIndex'es.
+-- This is represented as a bit vector, where the bit @i@ is set iff the finalizer index @i@ is
+-- in the set.
+newtype FinalizerSet = FinalizerSet {theFinalizerSet :: Natural}
+    deriving (Eq)
+
+-- |The serialization of a 'FinalizerSet' consists of a length (Word32, big-endian), followed by
+-- that many bytes, the first of which (if any) must be non-zero. These bytes encode the bit-vector
+-- in big-endian. This enforces that the serialization of a finalizer set is unique.
+instance Serialize FinalizerSet where
+    put fs = do
+        let (byteCount, putBytes) = unroll 0 (return ()) (theFinalizerSet fs)
+        putWord32be byteCount
+        putBytes
+      where
+        unroll :: Word32 -> Put -> Natural -> (Word32, Put)
+        -- Compute the number of bytes and construct a 'Put' that serializes in big-endian.
+        -- We do this by adding the low order byte to the accumulated 'Put' (at the start)
+        -- and recursing with the bitvector shifted right 8 bits.
+        unroll bc cont 0 = (bc, cont)
+        unroll bc cont n = unroll (bc + 1) (putWord8 (fromIntegral n) >> cont) (shiftR n 8)
+    get = label "FinalizerSet" $ do
+        byteCount <- getWord32be
+        FinalizerSet <$> roll1 byteCount
+      where
+        roll1 0 = return 0
+        roll1 bc = do
+            b <- getWord8
+            when (b == 0) $ fail "unexpected 0 byte"
+            roll (bc - 1) (fromIntegral b)
+        roll 0 n = return n
+        roll bc n = do
+            b <- getWord8
+            roll (bc - 1) (shiftL n 8 .|. fromIntegral b)
+
+-- |Convert a 'FinalizerSet' to a list of 'FinalizerIndex', in ascending order.
+finalizerList :: FinalizerSet -> [FinalizerIndex]
+finalizerList = unroll 0 . theFinalizerSet
+  where
+    unroll _ 0 = []
+    unroll i x
+        | testBit x 0 = FinalizerIndex i : r
+        | otherwise = r
+      where
+        r = unroll (i + 1) (shiftR x 1)
+
+-- |The empty set of finalizers
+emptyFinalizerSet :: FinalizerSet
+emptyFinalizerSet = FinalizerSet 0
+
+instance EmptyFinalizerSet FinalizerSet where
+    finalizerSetEmpty = emptyFinalizerSet
+
+-- |Add a finalizer to a 'FinalizerSet'.
+addFinalizer :: FinalizerSet -> FinalizerIndex -> FinalizerSet
+addFinalizer (FinalizerSet setOfFinalizers) (FinalizerIndex i) = FinalizerSet $ setBit setOfFinalizers (fromIntegral i)
+
+-- |Test whether a given finalizer index is present in a finalizer set.
+memberFinalizerSet :: FinalizerIndex -> FinalizerSet -> Bool
+memberFinalizerSet (FinalizerIndex fi) (FinalizerSet setOfFinalizers) =
+    testBit setOfFinalizers (fromIntegral fi)
+
+-- |Convert a list of [FinalizerIndex] to a 'FinalizerSet'.
+finalizerSet :: [FinalizerIndex] -> FinalizerSet
+finalizerSet = foldl' addFinalizer (FinalizerSet 0)
+
+-- |Test if the first finalizer set is a subset of the second.
+subsetFinalizerSet :: FinalizerSet -> FinalizerSet -> Bool
+subsetFinalizerSet (FinalizerSet s1) (FinalizerSet s2) = s1 .&. s2 == s1
+
+instance Show FinalizerSet where
+    show = show . finalizerList
 
 -- |Check that the quorum certificate has:
 --
@@ -1159,80 +1236,3 @@ newtype QuorumCertificateCheckedWitness = QuorumCertificateCheckedWitness Epoch
 -- |Get the associated 'QuorumCertificateWitness' for a 'QuorumCertificate'.
 toQuorumCertificateWitness :: QuorumCertificate -> QuorumCertificateCheckedWitness
 toQuorumCertificateWitness qc = QuorumCertificateCheckedWitness (qcEpoch qc)
-
--- |Index of a finalizer in the finalization committee vector.
-newtype FinalizerIndex = FinalizerIndex {theFinalizerIndex :: Word32}
-    deriving (Eq, Ord, Show, Enum, Bounded, Serialize)
-
--- |A set of 'FinalizerIndex'es.
--- This is represented as a bit vector, where the bit @i@ is set iff the finalizer index @i@ is
--- in the set.
-newtype FinalizerSet = FinalizerSet {theFinalizerSet :: Natural}
-    deriving (Eq)
-
--- |Convert a 'FinalizerSet' to a list of 'FinalizerIndex', in ascending order.
-finalizerList :: FinalizerSet -> [FinalizerIndex]
-finalizerList = unroll 0 . theFinalizerSet
-  where
-    unroll _ 0 = []
-    unroll i x
-        | testBit x 0 = FinalizerIndex i : r
-        | otherwise = r
-      where
-        r = unroll (i + 1) (shiftR x 1)
-
--- |The empty set of finalizers
-emptyFinalizerSet :: FinalizerSet
-emptyFinalizerSet = FinalizerSet 0
-
-instance EmptyFinalizerSet FinalizerSet where
-    finalizerSetEmpty = emptyFinalizerSet
-
--- |Add a finalizer to a 'FinalizerSet'.
-addFinalizer :: FinalizerSet -> FinalizerIndex -> FinalizerSet
-addFinalizer (FinalizerSet setOfFinalizers) (FinalizerIndex i) = FinalizerSet $ setBit setOfFinalizers (fromIntegral i)
-
--- |Test whether a given finalizer index is present in a finalizer set.
-memberFinalizerSet :: FinalizerIndex -> FinalizerSet -> Bool
-memberFinalizerSet (FinalizerIndex fi) (FinalizerSet setOfFinalizers) =
-    testBit setOfFinalizers (fromIntegral fi)
-
--- |Convert a list of [FinalizerIndex] to a 'FinalizerSet'.
-finalizerSet :: [FinalizerIndex] -> FinalizerSet
-finalizerSet = foldl' addFinalizer (FinalizerSet 0)
-
--- |Test if the first finalizer set is a subset of the second.
-subsetFinalizerSet :: FinalizerSet -> FinalizerSet -> Bool
-subsetFinalizerSet (FinalizerSet s1) (FinalizerSet s2) = s1 .&. s2 == s1
-
-instance Show FinalizerSet where
-    show = show . finalizerList
-
--- |The serialization of a 'FinalizerSet' consists of a length (Word32, big-endian), followed by
--- that many bytes, the first of which (if any) must be non-zero. These bytes encode the bit-vector
--- in big-endian. This enforces that the serialization of a finalizer set is unique.
-instance Serialize FinalizerSet where
-    put fs = do
-        let (byteCount, putBytes) = unroll 0 (return ()) (theFinalizerSet fs)
-        putWord32be byteCount
-        putBytes
-      where
-        unroll :: Word32 -> Put -> Natural -> (Word32, Put)
-        -- Compute the number of bytes and construct a 'Put' that serializes in big-endian.
-        -- We do this by adding the low order byte to the accumulated 'Put' (at the start)
-        -- and recursing with the bitvector shifted right 8 bits.
-        unroll bc cont 0 = (bc, cont)
-        unroll bc cont n = unroll (bc + 1) (putWord8 (fromIntegral n) >> cont) (shiftR n 8)
-    get = label "FinalizerSet" $ do
-        byteCount <- getWord32be
-        FinalizerSet <$> roll1 byteCount
-      where
-        roll1 0 = return 0
-        roll1 bc = do
-            b <- getWord8
-            when (b == 0) $ fail "unexpected 0 byte"
-            roll (bc - 1) (fromIntegral b)
-        roll 0 n = return n
-        roll bc n = do
-            b <- getWord8
-            roll (bc - 1) (shiftL n 8 .|. fromIntegral b)
