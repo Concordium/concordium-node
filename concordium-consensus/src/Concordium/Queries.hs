@@ -34,6 +34,7 @@ import Concordium.Types.Block (absoluteToLocalBlockHeight, localToAbsoluteBlockH
 import Concordium.Types.Execution (TransactionSummary)
 import Concordium.Types.HashableTo
 import Concordium.Types.IdentityProviders
+import qualified Concordium.Types.KonsensusV1 as BaseKonsensusV1
 import Concordium.Types.Parameters
 import Concordium.Types.Queries hiding (PassiveCommitteeInfo (..), bakerId)
 import Concordium.Types.SeedState
@@ -1423,3 +1424,41 @@ getNumberOfNonFinalizedTransactions =
     liftSkovQueryLatest
         queryNumberOfNonFinalizedTransactions
         (use (SkovV1.transactionTable . to TT.getNumberOfNonFinalizedTransactions))
+
+-- |Get the certificates for the block requested.
+-- For 'ConsensusV0' this returns @Nothing@ and for genesis blocks
+-- in 'ConsensusV1' this returns a 'BaseKonsensusV1.BlockCertificates' with empty values.
+getBlockCertificates :: forall finconf. BlockHashInput -> MVR finconf (BHIQueryResponse (Maybe BaseKonsensusV1.BlockCertificates))
+getBlockCertificates = liftSkovQueryBHI (\_ -> return Nothing) getCertificates
+  where
+    getCertificates ::
+        forall m.
+        ( BS.BlockStateQuery m,
+          BlockPointerMonad m,
+          BlockPointerType m ~ SkovV1.BlockPointer (MPV m)
+        ) =>
+        SkovV1.BlockPointer (MPV m) ->
+        m (Maybe BaseKonsensusV1.BlockCertificates)
+    getCertificates bp =
+        case SkovV1.bpBlock bp of
+            SkovV1.GenesisBlock{} -> return $ Just (BaseKonsensusV1.BlockCertificates Nothing Nothing Nothing)
+            SkovV1.NormalBlock b -> do
+                fullBakers <- BS.getCurrentEpochBakers =<< blockState bp
+                let SkovV1.BakedBlock{..} = SkovV1.sbBlock b
+                return $
+                    Just
+                        BaseKonsensusV1.BlockCertificates
+                            { bcQuorumCertificate = Just . mkQuorumCertificateOut $ bbQuorumCertificate,
+                              bcTimeoutCertificate = mkTimeoutCertificateOut bbTimeoutCertificate,
+                              bcEpochFinalizationEntry = mkEpochFinalizationEntryOut bbEpochFinalizationEntry
+                            }
+    optionToMaybe :: SkovV1.Option a -> Maybe a
+    optionToMaybe o = case o of
+        SkovV1.Absent -> Nothing
+        SkovV1.Present x -> Just x
+    mkQuorumCertificateOut :: SkovV1.QuorumCertificate -> BaseKonsensusV1.QuorumCertificate
+    mkQuorumCertificateOut = undefined
+    mkTimeoutCertificateOut :: SkovV1.Option SkovV1.TimeoutCertificate -> Maybe BaseKonsensusV1.TimeoutCertificate
+    mkTimeoutCertificateOut = undefined
+    mkEpochFinalizationEntryOut :: SkovV1.Option SkovV1.FinalizationEntry -> Maybe BaseKonsensusV1.EpochFinalizationEntry
+    mkEpochFinalizationEntryOut = undefined
