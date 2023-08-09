@@ -3045,7 +3045,7 @@ impl ConsensusContainer {
         use crate::grpc2::Require;
         let sender = Box::new(sender);
         let consensus = self.consensus.load(Ordering::SeqCst);
-        let mut buf = [0u8; 32];
+        let mut out_hash = [0u8; 32];
         let bhi = crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
         let (block_id_type, block_hash) = bhi.to_ptr();
         let response: ConsensusQueryResponse = unsafe {
@@ -3054,7 +3054,7 @@ impl ConsensusContainer {
                 Box::into_raw(sender),
                 block_id_type,
                 block_hash.as_ptr(),
-                buf.as_mut_ptr(),
+                out_hash.as_mut_ptr(),
                 enqueue_bytearray_callback,
             )
         }
