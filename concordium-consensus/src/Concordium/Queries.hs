@@ -1465,8 +1465,7 @@ getBakersRewardPeriod = liftSkovQueryBHI bakerRewardPeriodInfosV0 bakerRewardPer
         finalizationParameters <- genesisFinalizationParameters . _gcCore <$> getGenesisData
         totalCCD <- rsTotalAmount <$> BS.getRewardStatus bs
         let finalizationCommittee = makeFinalizationCommittee finalizationParameters totalCCD bakers
-            bakerIds = Vec.map partyBakerId $ parties finalizationCommittee
-            isFinalizer bakerId = isJust $ binarySearch id bakerIds bakerId
+            isFinalizer bakerId = isJust $ binarySearch partyBakerId (parties finalizationCommittee) bakerId
         mapM (toBakerRewardPeriodInfo bs isFinalizer) $ Vec.toList $ fullBakerInfos bakers
     -- Get the bakers and calculate the finalization committee for protocols using consensus v1.
     getBakersConsensusV1 :: (BS.BlockStateQuery m, IsConsensusV1 (MPV m)) => BlockState m -> m [BakerRewardPeriodInfo]
@@ -1478,11 +1477,11 @@ getBakersRewardPeriod = liftSkovQueryBHI bakerRewardPeriodInfosV0 bakerRewardPer
         mapM (toBakerRewardPeriodInfo bs isFinalizer) $ Vec.toList $ fullBakerInfos bakers
     -- Map the baker to a 'BakerRewardPeriodInfo'.
     toBakerRewardPeriodInfo ::
-      (PVSupportsDelegation (MPV m), BS.BlockStateQuery m) =>
-      BlockState m ->
-      (BakerId -> Bool) ->
-      FullBakerInfo ->
-      m BakerRewardPeriodInfo
+        (PVSupportsDelegation (MPV m), BS.BlockStateQuery m) =>
+        BlockState m ->
+        (BakerId -> Bool) ->
+        FullBakerInfo ->
+        m BakerRewardPeriodInfo
     toBakerRewardPeriodInfo bs isFinalizer FullBakerInfo{..} = do
         let bakerId = _bakerIdentity _theBakerInfo
         BS.getPoolStatus bs (Just bakerId) >>= \case
