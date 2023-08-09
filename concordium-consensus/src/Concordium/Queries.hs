@@ -1476,15 +1476,16 @@ getBakersRewardPeriod = liftSkovQueryBHI bakerRewardPeriodInfosV0 bakerRewardPer
     -- The supplied bakers and list of baker ids (of the finalization committee) MUST
     -- be sorted in ascending order of their baker id.
     mapBakersToInfos ::
-        (BS.BlockStateQuery m,
-         PVSupportsDelegation (MPV m)) =>
-        -- |The block state to request the pool status from.
-        BlockState m
-        -- |All bakers for the reward period.
-        -> [FullBakerInfo]
-        -- |The baker ids of the finalizers for the reward period.
-        -> [BakerId]
-        -> m [BakerRewardPeriodInfo]
+        ( BS.BlockStateQuery m,
+          PVSupportsDelegation (MPV m)
+        ) =>
+        -- \|The block state to request the pool status from.
+        BlockState m ->
+        -- \|All bakers for the reward period.
+        [FullBakerInfo] ->
+        -- \|The baker ids of the finalizers for the reward period.
+        [BakerId] ->
+        m [BakerRewardPeriodInfo]
     mapBakersToInfos bs fullBakerInfos finalizersByBakerId = fst <$> foldM mapBaker ([], finalizersByBakerId) fullBakerInfos
       where
         -- No finalizers left to pick off, so this baker must only be
@@ -1495,23 +1496,23 @@ getBakersRewardPeriod = liftSkovQueryBHI bakerRewardPeriodInfosV0 bakerRewardPer
         -- Check whether the baker id of the finalizer candidate matches the
         -- bakers id. If this is the case then the baker is member of the finalization committee and
         -- otherwise not.
-        mapBaker (acc, finalizers@(candidate:remaining)) baker = do
-                                   let isFinalizer = (baker ^. theBakerInfo . to _bakerIdentity)  == candidate
-                                   if isFinalizer
-                                       then do
-                                          info <- toBakerRewardPeriodInfo True bs baker
-                                          return (info: acc, remaining)
-                                       else do
-                                          info <- toBakerRewardPeriodInfo False bs baker
-                                          return (info : acc, finalizers)
+        mapBaker (acc, finalizers@(candidate : remaining)) baker = do
+            let isFinalizer = (baker ^. theBakerInfo . to _bakerIdentity) == candidate
+            if isFinalizer
+                then do
+                    info <- toBakerRewardPeriodInfo True bs baker
+                    return (info : acc, remaining)
+                else do
+                    info <- toBakerRewardPeriodInfo False bs baker
+                    return (info : acc, finalizers)
     -- Map the baker to a 'BakerRewardPeriodInfo'.
     toBakerRewardPeriodInfo ::
         (PVSupportsDelegation (MPV m), BS.BlockStateQuery m) =>
-        -- |Whether the baker is a finalizer.
+        -- \|Whether the baker is a finalizer.
         Bool ->
-        -- |The block state
+        -- \|The block state
         BlockState m ->
-        -- |Baker information.
+        -- \|Baker information.
         FullBakerInfo ->
         m BakerRewardPeriodInfo
     toBakerRewardPeriodInfo isFinalizer bs FullBakerInfo{..} = do
