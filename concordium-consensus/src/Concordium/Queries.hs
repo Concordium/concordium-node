@@ -1445,7 +1445,7 @@ getBakersRewardPeriod = liftSkovQueryBHI bakerRewardPeriodInfosV0 bakerRewardPer
         BlockPointerType (VersionedSkovV0M finconf (MPV m)) ->
         m (Either GetBakersRewardPeriodError [BakerRewardPeriodInfo])
     bakerRewardPeriodInfosV0 bp = case delegationSupport @(AccountVersionFor (MPV m)) of
-        -- Return an empty stream if delegation and baker pools are not supported by the protocol.
+        -- The protocol version does not support the delegation feature.
         SAVDelegationNotSupported -> return $ Left GBRPUnsupportedProtocolVersion
         SAVDelegationSupported -> do
             result <- getBakersConsensusV0 =<< blockState bp
@@ -1466,7 +1466,7 @@ getBakersRewardPeriod = liftSkovQueryBHI bakerRewardPeriodInfosV0 bakerRewardPer
         totalCCD <- rsTotalAmount <$> BS.getRewardStatus bs
         let finalizationCommittee = makeFinalizationCommittee finalizationParameters totalCCD bakers
             bakerIds = Vec.map partyBakerId $ parties finalizationCommittee
-            isFinalizer bakerId = return $ isJust $ binarySearch id bakerIds bakerId
+            isFinalizer bakerId = isJust $ binarySearch id bakerIds bakerId
         mapM (toBakerRewardPeriodInfo bs isFinalizer) $ Vec.toList $ fullBakerInfos bakers
     -- Get the bakers and calculate the finalization committee for protocols using consensus v1.
     getBakersConsensusV1 :: (BS.BlockStateQuery m, IsConsensusV1 (MPV m)) => BlockState m -> m [BakerRewardPeriodInfo]
@@ -1474,17 +1474,21 @@ getBakersRewardPeriod = liftSkovQueryBHI bakerRewardPeriodInfosV0 bakerRewardPer
         bakers <- BS.getCurrentEpochBakers bs
         finCommitteeParams <- BS.getCurrentEpochFinalizationCommitteeParameters bs
         let finalizationCommittee = ConsensusV1.computeFinalizationCommittee bakers finCommitteeParams
-            isFinalizer bakerId = return $ isJust $ SkovV1.finalizerByBakerId finalizationCommittee bakerId
+            isFinalizer bakerId = isJust $ SkovV1.finalizerByBakerId finalizationCommittee bakerId
         mapM (toBakerRewardPeriodInfo bs isFinalizer) $ Vec.toList $ fullBakerInfos bakers
     -- Map the baker to a 'BakerRewardPeriodInfo'.
-    toBakerRewardPeriodInfo :: (PVSupportsDelegation (MPV m), BS.BlockStateQuery m) => BlockState m -> (BakerId -> m Bool) -> FullBakerInfo -> m BakerRewardPeriodInfo
+    toBakerRewardPeriodInfo ::
+      (PVSupportsDelegation (MPV m), BS.BlockStateQuery m) =>
+      BlockState m ->
+      (BakerId -> Bool) ->
+      FullBakerInfo ->
+      m BakerRewardPeriodInfo
     toBakerRewardPeriodInfo bs isFinalizer FullBakerInfo{..} = do
         let bakerId = _bakerIdentity _theBakerInfo
         BS.getPoolStatus bs (Just bakerId) >>= \case
             Nothing -> error "A pool for a known baker could not be looked up."
             Just PassiveDelegationStatus{} -> error "A passive delegation status was returned when querying with a bakerid."
             Just BakerPoolStatus{..} -> do
-                finalizer <- isFinalizer bakerId
                 return
                     BakerRewardPeriodInfo
                         { brpiBaker = _theBakerInfo,
@@ -1492,5 +1496,5 @@ getBakersRewardPeriod = liftSkovQueryBHI bakerRewardPeriodInfosV0 bakerRewardPer
                           brpiCommissionRates = psPoolInfo ^. poolCommissionRates,
                           brpiEquityCapital = psBakerEquityCapital,
                           brpiDelegatedCapital = psDelegatedCapital,
-                          brpiIsFinalizer = finalizer
+                          brpiIsFinalizer = isFinalizer bakerId
                         }
