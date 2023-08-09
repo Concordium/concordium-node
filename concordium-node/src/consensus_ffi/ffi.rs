@@ -3060,7 +3060,7 @@ impl ConsensusContainer {
         }
         .try_into()?;
         response.ensure_ok("block")?;
-        Ok(buf)
+        Ok(out_hash)
     }
 }
 
