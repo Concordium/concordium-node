@@ -1435,7 +1435,8 @@ getBlockCertificates = liftSkovQueryBHI (\_ -> return Nothing) getCertificates
         forall m.
         ( BS.BlockStateQuery m,
           BlockPointerMonad m,
-          BlockPointerType m ~ SkovV1.BlockPointer (MPV m)
+          BlockPointerType m ~ SkovV1.BlockPointer (MPV m),
+          IsConsensusV1 (MPV m)
         ) =>
         SkovV1.BlockPointer (MPV m) ->
         m (Maybe BaseKonsensusV1.BlockCertificates)
@@ -1443,22 +1444,47 @@ getBlockCertificates = liftSkovQueryBHI (\_ -> return Nothing) getCertificates
         case SkovV1.bpBlock bp of
             SkovV1.GenesisBlock{} -> return $ Just (BaseKonsensusV1.BlockCertificates Nothing Nothing Nothing)
             SkovV1.NormalBlock b -> do
-                fullBakers <- BS.getCurrentEpochBakers =<< blockState bp
+                bs <- blockState bp
+                finCommitteeParams <- BS.getCurrentEpochFinalizationCommitteeParameters bs
+                bakers <- BS.getCurrentEpochBakers bs
+                let finalizationCommittee = ConsensusV1.computeFinalizationCommittee bakers finCommitteeParams
                 let SkovV1.BakedBlock{..} = SkovV1.sbBlock b
                 return $
                     Just
                         BaseKonsensusV1.BlockCertificates
-                            { bcQuorumCertificate = Just . mkQuorumCertificateOut $ bbQuorumCertificate,
-                              bcTimeoutCertificate = mkTimeoutCertificateOut bbTimeoutCertificate,
+                            { bcQuorumCertificate = Just . mkQuorumCertificateOut finalizationCommittee $ bbQuorumCertificate,
+                              bcTimeoutCertificate = mkTimeoutCertificateOut finalizationCommittee bbTimeoutCertificate,
                               bcEpochFinalizationEntry = mkEpochFinalizationEntryOut bbEpochFinalizationEntry
                             }
-    optionToMaybe :: SkovV1.Option a -> Maybe a
-    optionToMaybe o = case o of
-        SkovV1.Absent -> Nothing
-        SkovV1.Present x -> Just x
-    mkQuorumCertificateOut :: SkovV1.QuorumCertificate -> BaseKonsensusV1.QuorumCertificate
-    mkQuorumCertificateOut = undefined
-    mkTimeoutCertificateOut :: SkovV1.Option SkovV1.TimeoutCertificate -> Maybe BaseKonsensusV1.TimeoutCertificate
-    mkTimeoutCertificateOut = undefined
+    finalizerSetToBakerIds :: SkovV1.FinalizationCommittee -> SkovV1.FinalizerSet -> [BakerId]
+    finalizerSetToBakerIds committee signatories =
+        foldl' (\bakerIds SkovV1.FinalizerInfo{..} ->
+                  if SkovV1.memberFinalizerSet finalizerIndex signatories
+                      then finalizerBakerId:bakerIds
+                      else bakerIds)
+          []
+          (Vec.toList $ SkovV1.committeeFinalizers committee)
+    finalizerRound :: SkovV1.FinalizationCommittee -> SkovV1.FinalizerRounds -> [BaseKonsensusV1.FinalizerRound]
+    finalizerRound committee rounds = Map.toList rounds
+    mkQuorumCertificateOut :: SkovV1.FinalizationCommittee -> SkovV1.QuorumCertificate -> BaseKonsensusV1.QuorumCertificate
+    mkQuorumCertificateOut committee qc =
+        BaseKonsensusV1.QuorumCertificate
+            { qcBlock = SkovV1.qcBlock qc,
+              qcRound = SkovV1.qcRound qc,
+              qcEpoch = SkovV1.qcEpoch qc,
+              qcAggregateSignature = (SkovV1.theQuorumSignature . SkovV1.qcAggregateSignature) qc,
+              qcSignatories = finalizerSetToBakerIds committee (SkovV1.qcSignatories qc)
+            }
+    mkTimeoutCertificateOut :: SkovV1.FinalizationCommittee -> SkovV1.Option SkovV1.TimeoutCertificate -> Maybe BaseKonsensusV1.TimeoutCertificate
+    mkTimeoutCertificateOut _ SkovV1.Absent = Nothing
+    mkTimeoutCertificateOut committee (SkovV1.Present tc) = Just $
+        BaseKonsensusV1.TimeoutCertificate {
+            tcRound = SkovV1.tcRound tc,
+            tcMinEpoch = SkovV1.tcMinEpoch tc,
+            tcFinalizerQCRoundsFirstEpoch = finalizerRound committee $ SkovV1.tcFinalizerQCRoundsFirstEpoch tc,
+            tcFinalizerQCRoundsSecondEpoch = finalizerRound committee $ SkovV1.tcFinalizerQCRoundsSecondEpoch tc,
+            tcAggregateSignature = (SkovV1.theTimeoutSignature . SkovV1.tcAggregateSignature) tc
+                                           }
     mkEpochFinalizationEntryOut :: SkovV1.Option SkovV1.FinalizationEntry -> Maybe BaseKonsensusV1.EpochFinalizationEntry
-    mkEpochFinalizationEntryOut = undefined
+    mkEpochFinalizationEntryOut SkovV1.Absent = Nothing
+    mkEpochFinalizationEntryOut (SkovV1.Present SkovV1.FinalizationEntry{..}) = undefined
