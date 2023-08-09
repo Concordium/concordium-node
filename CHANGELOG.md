@@ -1,8 +1,8 @@
 # Changelog
 
 ## Unreleased changes
-- Introduced "GetBakersRewardPeriod" in the exposed GRPCV2 API. Provided a block, then it returns baker information
-  related to the reward period of all bakers in the reward period.
+- Add `GetBakersRewardPeriod` to GRPCV2 API. Provided a block, then it returns information about bakers
+  for the reward period of the block.
 
 ## 6.0.4
 
