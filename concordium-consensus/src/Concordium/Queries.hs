@@ -1475,6 +1475,7 @@ getBakersRewardPeriod = liftSkovQueryBHI bakerRewardPeriodInfosV0 bakerRewardPer
     -- Map bakers to their assoicated 'BakerRewardPeriodInfo'.
     -- The supplied bakers and list of baker ids (of the finalization committee) MUST
     -- be sorted in ascending order of their baker id.
+    -- Returns a list of BakerRewardPeriodInfo's in ascending order of the baker id.
     mapBakersToInfos ::
         ( BS.BlockStateQuery m,
           PVSupportsDelegation (MPV m)
@@ -1486,7 +1487,7 @@ getBakersRewardPeriod = liftSkovQueryBHI bakerRewardPeriodInfosV0 bakerRewardPer
         -- The baker ids of the finalizers for the reward period.
         [BakerId] ->
         m [BakerRewardPeriodInfo]
-    mapBakersToInfos bs fullBakerInfos finalizersByBakerId = fst <$> foldM mapBaker ([], finalizersByBakerId) fullBakerInfos
+    mapBakersToInfos bs fullBakerInfos finalizersByBakerId = reverse $ fst <$> foldM mapBaker ([], finalizersByBakerId) fullBakerInfos
       where
         -- No finalizers left to pick off, so this baker must only be
         -- member of the baking committee.
