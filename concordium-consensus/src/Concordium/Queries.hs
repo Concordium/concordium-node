@@ -1498,13 +1498,8 @@ getBakersRewardPeriod = liftSkovQueryBHI bakerRewardPeriodInfosV0 bakerRewardPer
         -- otherwise not.
         mapBaker (acc, finalizers@(candidate : remaining)) baker = do
             let isFinalizer = (baker ^. theBakerInfo . to _bakerIdentity) == candidate
-            if isFinalizer
-                then do
-                    info <- toBakerRewardPeriodInfo True bs baker
-                    return (info : acc, remaining)
-                else do
-                    info <- toBakerRewardPeriodInfo False bs baker
-                    return (info : acc, finalizers)
+            info <- toBakerRewardPeriodInfo isFinalizer bs baker
+            return (info : acc, if isFinalizer then remaining else finalizers)
     -- Map the baker to a 'BakerRewardPeriodInfo'.
     toBakerRewardPeriodInfo ::
         (PVSupportsDelegation (MPV m), BS.BlockStateQuery m) =>
