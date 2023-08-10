@@ -3,9 +3,7 @@
 ## Unreleased changes
 
 - Fix a bug in how the last timeout certificate is recovered at start-up.
-- Add endpoint `GetBlockCertificates` to GRPCV2 API. Provided a block, then it returns
-  the certification of the block (signed by the finalization committee).
-  This is only applicable for blocks baked by a protocol that supports ConcordiumBFT.
+- Add endpoint `GetBlockCertificates` to GRPCV2 API. Provided a block, then it returns the certificates of the block.
 
 ## 6.0.4
 

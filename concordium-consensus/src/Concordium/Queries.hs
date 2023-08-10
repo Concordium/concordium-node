@@ -1488,7 +1488,7 @@ getBlockCertificates = liftSkovQueryBHI (\_ -> return $ Left BlockCertificatesIn
             { qcBlock = SkovV1.qcBlock qc,
               qcRound = SkovV1.qcRound qc,
               qcEpoch = SkovV1.qcEpoch qc,
-              qcAggregateSignature = (SkovV1.theQuorumSignature . SkovV1.qcAggregateSignature) qc,
+              qcAggregateSignature = BaseKonsensusV1.QuorumCertificateSignature $ (SkovV1.theQuorumSignature . SkovV1.qcAggregateSignature) qc,
               qcSignatories = finalizerSetToBakerIds committee (SkovV1.qcSignatories qc)
             }
     mkTimeoutCertificateOut :: SkovV1.FinalizationCommittee -> SkovV1.Option SkovV1.TimeoutCertificate -> Maybe BaseKonsensusV1.TimeoutCertificate
@@ -1500,7 +1500,7 @@ getBlockCertificates = liftSkovQueryBHI (\_ -> return $ Left BlockCertificatesIn
                   tcMinEpoch = SkovV1.tcMinEpoch tc,
                   tcFinalizerQCRoundsFirstEpoch = finalizerRound committee $ SkovV1.tcFinalizerQCRoundsFirstEpoch tc,
                   tcFinalizerQCRoundsSecondEpoch = finalizerRound committee $ SkovV1.tcFinalizerQCRoundsSecondEpoch tc,
-                  tcAggregateSignature = (SkovV1.theTimeoutSignature . SkovV1.tcAggregateSignature) tc
+                  tcAggregateSignature = BaseKonsensusV1.TimeoutCertificateSignature $ (SkovV1.theTimeoutSignature . SkovV1.tcAggregateSignature) tc
                 }
     mkEpochFinalizationEntryOut :: SkovV1.FinalizationCommittee -> SkovV1.Option SkovV1.FinalizationEntry -> Maybe BaseKonsensusV1.EpochFinalizationEntry
     mkEpochFinalizationEntryOut _ SkovV1.Absent = Nothing
@@ -1509,5 +1509,5 @@ getBlockCertificates = liftSkovQueryBHI (\_ -> return $ Left BlockCertificatesIn
             BaseKonsensusV1.EpochFinalizationEntry
                 { efeFinalizedQC = mkQuorumCertificateOut committee feFinalizedQuorumCertificate,
                   efeSuccessorQC = mkQuorumCertificateOut committee feSuccessorQuorumCertificate,
-                  efeSuccessorProof = SkovV1.theBlockQuasiHash feSuccessorProof
+                  efeSuccessorProof = BaseKonsensusV1.SuccessorProof $ SkovV1.theBlockQuasiHash feSuccessorProof
                 }
