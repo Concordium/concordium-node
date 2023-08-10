@@ -2311,12 +2311,9 @@ pub mod server {
             request: tonic::Request<crate::grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
             if !self.service_config.get_block_certificates {
-                return Err(tonic::Status::unimplemented(
-                    "`GetBlockCertificates` is not enabled.",
-                ));
+                return Err(tonic::Status::unimplemented("`GetBlockCertificates` is not enabled."));
             }
-            let (hash, response) =
-                self.consensus.get_block_certificates_v2(request.get_ref())?;
+            let (hash, response) = self.consensus.get_block_certificates_v2(request.get_ref())?;
             let mut response = tonic::Response::new(response);
             add_hash(&mut response, hash)?;
             Ok(response)
