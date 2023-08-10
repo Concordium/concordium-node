@@ -1464,14 +1464,15 @@ getBlockCertificates = liftSkovQueryBHI (\_ -> return $ Left BlockCertificatesIn
     emptyBlockCertificates = BaseKonsensusV1.BlockCertificates Nothing Nothing Nothing
     finalizerSetToBakerIds :: SkovV1.FinalizationCommittee -> SkovV1.FinalizerSet -> [BakerId]
     finalizerSetToBakerIds committee signatories =
-        foldl'
-            ( \bakerIds SkovV1.FinalizerInfo{..} ->
-                if SkovV1.memberFinalizerSet finalizerIndex signatories
-                    then finalizerBakerId : bakerIds
-                    else bakerIds
-            )
-            []
-            (Vec.toList $ SkovV1.committeeFinalizers committee)
+        reverse $
+            foldl'
+                ( \bakerIds SkovV1.FinalizerInfo{..} ->
+                    if SkovV1.memberFinalizerSet finalizerIndex signatories
+                        then finalizerBakerId : bakerIds
+                        else bakerIds
+                )
+                []
+                (Vec.toList $ SkovV1.committeeFinalizers committee)
     finalizerRound :: SkovV1.FinalizationCommittee -> SkovV1.FinalizerRounds -> [BaseKonsensusV1.FinalizerRound]
     finalizerRound committee rounds =
         map
