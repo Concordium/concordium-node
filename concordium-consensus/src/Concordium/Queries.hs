@@ -1487,7 +1487,7 @@ getBakersRewardPeriod = liftSkovQueryBHI bakerRewardPeriodInfosV0 bakerRewardPer
         -- The baker ids of the finalizers for the reward period.
         [BakerId] ->
         m [BakerRewardPeriodInfo]
-    mapBakersToInfos bs fullBakerInfos finalizersByBakerId = reverse $ fst <$> foldM mapBaker ([], finalizersByBakerId) fullBakerInfos
+    mapBakersToInfos bs fullBakerInfos finalizersByBakerId = reverse . fst <$> foldM mapBaker ([], finalizersByBakerId) fullBakerInfos
       where
         -- No finalizers left to pick off, so this baker must only be
         -- member of the baking committee.
