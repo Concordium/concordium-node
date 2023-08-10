@@ -662,6 +662,8 @@ struct ServiceConfig {
     get_account_transaction_sign_hash: bool,
     #[serde(default)]
     get_block_items: bool,
+    #[serde(default)]
+    get_block_certificates: bool,
 }
 
 impl ServiceConfig {
@@ -717,6 +719,7 @@ impl ServiceConfig {
             send_block_item: true,
             get_account_transaction_sign_hash: true,
             get_block_items: true,
+            get_block_certificates: true,
         }
     }
 
@@ -2299,6 +2302,22 @@ pub mod server {
             let (sender, receiver) = futures::channel::mpsc::channel(100);
             let hash = self.consensus.get_block_items_v2(request.get_ref(), sender)?;
             let mut response = tonic::Response::new(receiver);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_block_certificates(
+            &self,
+            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+        ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            if !self.service_config.get_block_certificates {
+                return Err(tonic::Status::unimplemented(
+                    "`GetBlockCertificates` is not enabled.",
+                ));
+            }
+            let (hash, response) =
+                self.consensus.get_block_certificates_v2(request.get_ref())?;
+            let mut response = tonic::Response::new(response);
             add_hash(&mut response, hash)?;
             Ok(response)
         }

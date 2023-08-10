@@ -83,3 +83,4 @@ EXPORTS
  getBlockFinalizationSummaryV2
  getBlockItemsV2
  getLastFinalizedBlockSlotTimeV2
+ getBlockCertificatesV2

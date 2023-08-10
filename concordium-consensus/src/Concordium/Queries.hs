@@ -1425,11 +1425,17 @@ getNumberOfNonFinalizedTransactions =
         queryNumberOfNonFinalizedTransactions
         (use (SkovV1.transactionTable . to TT.getNumberOfNonFinalizedTransactions))
 
+-- |Errors that can occur when querying for block certificates.
+data BlockCertificatesError
+    = -- |This error indicates that the query was run against a protocol version that
+      -- does not support 'ConsensusV1'.
+      BlockCertificatesInvalidProtocolVersion
+
 -- |Get the certificates for the block requested.
 -- For 'ConsensusV0' this returns @Nothing@ and for genesis blocks in 'ConsensusV1'
 -- the function returns a 'BaseKonsensusV1.BlockCertificates' with empty values.
-getBlockCertificates :: forall finconf. BlockHashInput -> MVR finconf (BHIQueryResponse (Maybe BaseKonsensusV1.BlockCertificates))
-getBlockCertificates = liftSkovQueryBHI (\_ -> return Nothing) getCertificates
+getBlockCertificates :: forall finconf. BlockHashInput -> MVR finconf (BHIQueryResponse (Either BlockCertificatesError BaseKonsensusV1.BlockCertificates))
+getBlockCertificates = liftSkovQueryBHI (\_ -> return $ Left BlockCertificatesInvalidProtocolVersion) (fmap Right . getCertificates)
   where
     getCertificates ::
         forall m.
@@ -1439,23 +1445,23 @@ getBlockCertificates = liftSkovQueryBHI (\_ -> return Nothing) getCertificates
           IsConsensusV1 (MPV m)
         ) =>
         SkovV1.BlockPointer (MPV m) ->
-        m (Maybe BaseKonsensusV1.BlockCertificates)
+        m BaseKonsensusV1.BlockCertificates
     getCertificates bp =
         case SkovV1.bpBlock bp of
-            SkovV1.GenesisBlock{} -> return $ Just (BaseKonsensusV1.BlockCertificates Nothing Nothing Nothing)
+            SkovV1.GenesisBlock{} -> return emptyBlockCertificates
             SkovV1.NormalBlock b -> do
                 bs <- blockState bp
                 finCommitteeParams <- BS.getCurrentEpochFinalizationCommitteeParameters bs
                 bakers <- BS.getCurrentEpochBakers bs
                 let finalizationCommittee = ConsensusV1.computeFinalizationCommittee bakers finCommitteeParams
                 let SkovV1.BakedBlock{..} = SkovV1.sbBlock b
-                return $
-                    Just
-                        BaseKonsensusV1.BlockCertificates
-                            { bcQuorumCertificate = Just . mkQuorumCertificateOut finalizationCommittee $ bbQuorumCertificate,
-                              bcTimeoutCertificate = mkTimeoutCertificateOut finalizationCommittee bbTimeoutCertificate,
-                              bcEpochFinalizationEntry = mkEpochFinalizationEntryOut finalizationCommittee bbEpochFinalizationEntry
-                            }
+                return
+                    BaseKonsensusV1.BlockCertificates
+                        { bcQuorumCertificate = Just . mkQuorumCertificateOut finalizationCommittee $ bbQuorumCertificate,
+                          bcTimeoutCertificate = mkTimeoutCertificateOut finalizationCommittee bbTimeoutCertificate,
+                          bcEpochFinalizationEntry = mkEpochFinalizationEntryOut finalizationCommittee bbEpochFinalizationEntry
+                        }
+    emptyBlockCertificates = BaseKonsensusV1.BlockCertificates Nothing Nothing Nothing
     finalizerSetToBakerIds :: SkovV1.FinalizationCommittee -> SkovV1.FinalizerSet -> [BakerId]
     finalizerSetToBakerIds committee signatories =
         foldl'
