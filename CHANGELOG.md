@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased changes
+- `GetPoolInfo` now also returns the commission rates for the current reward period.
 - Add `GetBakersRewardPeriod` to GRPCV2 API. Provided a block, then it returns information about bakers
   for the reward period of the block.
 
