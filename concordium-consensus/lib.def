@@ -83,4 +83,5 @@ EXPORTS
  getBlockFinalizationSummaryV2
  getBlockItemsV2
  getLastFinalizedBlockSlotTimeV2
+ getBakersRewardPeriodV2
  getBlockCertificatesV2

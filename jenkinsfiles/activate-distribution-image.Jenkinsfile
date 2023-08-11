@@ -49,10 +49,9 @@ node {
         }
     }
     stage('update') {
-        // Use buildx to push destination tags. Docker doesen't recognise that buildx is installed, so invoking buildx directly.
-        sh "/usr/libexec/docker/cli-plugins/buildx imagetools create ${source_image_name} --tag ${destination_image_name}"
+        sh "docker buildx imagetools create ${source_image_name} --tag ${destination_image_name}"
         if (params.set_latest) {
-            sh "/usr/libexec/docker/cli-plugins/buildx imagetools create ${source_image_name} --tag ${docker_repo}:latest"
+            sh "docker buildx imagetools create ${source_image_name} --tag ${docker_repo}:latest"
         }
     }
     if (params.delete_source) {

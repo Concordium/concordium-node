@@ -999,6 +999,32 @@ getBlockCertificatesV2 cptr blockType blockHashPtr outHash outVec copierCbk = do
     res <- runMVR (Q.getBlockCertificates bhi) mvr
     returnEitherMessageWithBlock (copier outVec) outHash res
 
+getBakersRewardPeriodV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    Ptr SenderChannel ->
+    -- |Block type
+    Word8 ->
+    -- |Block hash ptr.
+    Ptr Word8 ->
+    -- |Out pointer for writing the block hash that was used.
+    Ptr Word8 ->
+    FunPtr ChannelSendCallback ->
+    IO Int64
+getBakersRewardPeriodV2 cptr channel blockType blockHashPtr outHash cbk = do
+    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
+    let sender = callChannelSendCallback cbk
+    bhi <- decodeBlockHashInput blockType blockHashPtr
+    response <- runMVR (Q.getBakersRewardPeriod bhi) mvr
+    copyHashTo outHash response
+    case response of
+        Q.BQRBlock _ eitherBakers ->
+            case eitherBakers of
+                Left Q.GBRPUnsupportedProtocolVersion -> return $ queryResultCode QRInvalidArgument
+                Right bakers -> do
+                    _ <- enqueueMessages (sender channel) bakers
+                    return (queryResultCode QRSuccess)
+        _ -> return $ queryResultCode QRNotFound
+
 -- |Write the hash to the provided pointer, encode the message given and write it using the provided callback.
 returnMessageWithBlock ::
     (Proto.Message (Output a), ToProto a) =>
@@ -1604,6 +1630,19 @@ foreign export ccall
     getLastFinalizedBlockSlotTimeV2 ::
         StablePtr Ext.ConsensusRunner ->
         IO Timestamp
+        
+foreign export ccall
+    getBakersRewardPeriodV2 ::
+        StablePtr Ext.ConsensusRunner ->
+        Ptr SenderChannel ->
+        -- |Block type.
+        Word8 ->
+        -- |Block hash.
+        Ptr Word8 ->
+        -- |Out pointer for writing the block hash that was used.
+        Ptr Word8 ->
+        FunPtr ChannelSendCallback ->
+        IO Int64
 
 foreign export ccall
     getBlockCertificatesV2 ::
