@@ -1630,7 +1630,7 @@ foreign export ccall
     getLastFinalizedBlockSlotTimeV2 ::
         StablePtr Ext.ConsensusRunner ->
         IO Timestamp
-        
+
 foreign export ccall
     getBakersRewardPeriodV2 ::
         StablePtr Ext.ConsensusRunner ->
