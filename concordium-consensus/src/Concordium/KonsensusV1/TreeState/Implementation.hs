@@ -48,6 +48,7 @@ import Concordium.Types.HashableTo
 import Concordium.Types.Transactions
 import Concordium.Types.Updates
 import Concordium.Utils
+import Concordium.Utils.InterpolationSearch
 
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Parameters (RuntimeParameters (..))
@@ -485,6 +486,35 @@ getBlocksAtHeight height sd = case compare height lastFinHeight of
     lastFin = sd ^. lastFinalized
     lastFinHeight = bmHeight (blockMetadata lastFin)
 
+-- |Get the first finalized block in a given epoch. The epoch can be specified either directly or
+-- by a block belong to the epoch.
+getFirstFinalizedBlockOfEpoch ::
+    (LowLevel.MonadTreeStateStore m, MonadIO m) =>
+    -- |Target epoch or a block in the target epoch.
+    Either Epoch (BlockPointer (MPV m)) ->
+    SkovData (MPV m) ->
+    m (Maybe (BlockPointer (MPV m)))
+getFirstFinalizedBlockOfEpoch epochOrBlock sd
+    | targetEpoch > blockEpoch lastFin = return Nothing
+    | otherwise = do
+        gen <- unsafeFinalizedAtHeight 0
+        let low = (0, gen)
+        let high = case epochOrBlock of
+                Right guess
+                    | blockHeight guess <= blockHeight lastFin ->
+                        (blockHeight guess, (blockEpoch guess, guess))
+                _ -> (blockHeight lastFin, (blockEpoch lastFin, lastFin))
+        fmap snd <$> interpolationSearchFirstM unsafeFinalizedAtHeight targetEpoch low high
+  where
+    targetEpoch = case epochOrBlock of
+        Left epoch -> epoch
+        Right block -> blockEpoch block
+    unsafeFinalizedAtHeight h =
+        getFinalizedBlockAtHeight h <&> \case
+            Nothing -> error $ "Missing finalized block at height " ++ show h
+            Just b -> (blockEpoch b, b)
+    lastFin = sd ^. lastFinalized
+
 -- |Turn a 'PendingBlock' into a live block.
 -- This marks the block as 'MemBlockAlive' in the block table, records the arrive time of the block,
 -- and returns the resulting 'BlockPointer'.
@@ -604,6 +634,24 @@ parentOfLive sd block
     parentHash
         | Present blockData <- blockBakedData block = blockParent blockData
         | otherwise = error "parentOfLive: unexpected genesis block"
+
+-- |Get the parent of a block where the parent is a finalized block.
+-- This will produce an error if the supplied block is the genesis block, or the parent block is
+-- not finalized.
+parentOfFinalized :: (LowLevel.MonadTreeStateStore m, MonadIO m) => BlockPointer (MPV m) -> m (BlockPointer (MPV m))
+parentOfFinalized block = do
+    let parentHash
+            | Present blockData <- blockBakedData block = blockParent blockData
+            | otherwise = error "parentOfFinalized: unexpected genesis block"
+    LowLevel.lookupBlock parentHash >>= \case
+        Nothing ->
+            error $
+                "parentOfFinalized: parent block ("
+                    ++ show parentHash
+                    ++ ") of "
+                    ++ show (getHash @BlockHash block)
+                    ++ " is not finalized"
+        Just storedBlock -> mkBlockPointer storedBlock
 
 -- |Get the last finalized block from the perspective of a block. That is, follow the QC chain
 -- back until we reach two blocks in consecutive rounds.

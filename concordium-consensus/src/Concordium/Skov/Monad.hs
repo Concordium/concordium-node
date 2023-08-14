@@ -12,6 +12,7 @@
 
 module Concordium.Skov.Monad (
     module Concordium.Skov.CatchUp.Types,
+    EpochResult (..),
     module Concordium.Skov.Monad,
 ) where
 
@@ -197,6 +198,12 @@ class
     -- |Get a list of all the blocks at a given height in the tree.
     getBlocksAtHeight :: BlockHeight -> m [BlockPointerType m]
 
+    -- |Get the first finalized block (if any) in a given epoch. The epoch can either be
+    -- specified directly, or indirectly as the epoch of a supplied block.
+    getFirstFinalizedOfEpoch ::
+        Either Epoch (BlockPointerType m) ->
+        m (Either EpochResult (BlockPointerType m))
+
     -- |Get a block's state.
     queryBlockState :: BlockPointerType m -> m (BlockState m)
 
@@ -353,6 +360,7 @@ instance (Monad (t m), MonadTrans t, SkovQueryMonad m) => SkovQueryMonad (MGSTra
     getCurrentHeight = lift getCurrentHeight
     branchesFromTop = lift branchesFromTop
     getBlocksAtHeight = lift . getBlocksAtHeight
+    getFirstFinalizedOfEpoch = lift . getFirstFinalizedOfEpoch
     queryBlockState = lift . queryBlockState
     queryTransactionStatus = lift . queryTransactionStatus
     queryNonFinalizedTransactions = lift . queryNonFinalizedTransactions
@@ -495,6 +503,8 @@ instance
 
     {- - INLINE getBlocksAtHeight - -}
     getBlocksAtHeight = lift . doGetBlocksAtHeight
+
+    getFirstFinalizedOfEpoch = lift . doGetFirstFinalizedOfEpoch
 
     {- - INLINE queryBlockState - -}
     queryBlockState = lift . blockState
