@@ -980,6 +980,25 @@ getLastFinalizedBlockSlotTimeV2 cptr = do
     Ext.ConsensusRunner mvr <- deRefStablePtr cptr
     runMVR Q.getLastFinalizedSlotTime mvr
 
+getBlockCertificatesV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    -- |Block type.
+    Word8 ->
+    -- |Block hash.
+    Ptr Word8 ->
+    -- |Out pointer for writing the block hash that was used.
+    Ptr Word8 ->
+    Ptr ReceiverVec ->
+    -- |Callback to output data.
+    FunPtr CopyToVecCallback ->
+    IO Int64
+getBlockCertificatesV2 cptr blockType blockHashPtr outHash outVec copierCbk = do
+    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
+    let copier = callCopyToVecCallback copierCbk
+    bhi <- decodeBlockHashInput blockType blockHashPtr
+    res <- runMVR (Q.getBlockCertificates bhi) mvr
+    returnEitherMessageWithBlock (copier outVec) outHash res
+
 getBakersRewardPeriodV2 ::
     StablePtr Ext.ConsensusRunner ->
     Ptr SenderChannel ->
@@ -1040,6 +1059,27 @@ returnMaybeMessageWithBlock copier outHash response = do
     case response of
         Q.BQRBlock _ (Just out) ->
             returnMessage copier out
+        _ ->
+            return $ queryResultCode QRNotFound
+
+-- |Write the hash to the provided pointer, and if the message is given encode and
+-- write it using the provided callback.
+-- If the action resulted in a @Left@ value then return 'QRInvalidArgument'.
+returnEitherMessageWithBlock ::
+    (Proto.Message (Output b), ToProto b) =>
+    (Ptr Word8 -> Int64 -> IO ()) ->
+    -- |Out pointer where the hash is written.
+    Ptr Word8 ->
+    -- |The optionally the hash of the block to which the message belongs, and potentially a
+    -- message.
+    Q.BHIQueryResponse (Either a b) ->
+    IO Int64
+returnEitherMessageWithBlock copier outHash response = do
+    copyHashTo outHash response
+    case response of
+        Q.BQRBlock _ (Right out) ->
+            returnMessage copier out
+        Q.BQRBlock _ (Left _) -> return $ queryResultCode QRInvalidArgument
         _ ->
             return $ queryResultCode QRNotFound
 
@@ -1602,4 +1642,18 @@ foreign export ccall
         -- |Out pointer for writing the block hash that was used.
         Ptr Word8 ->
         FunPtr ChannelSendCallback ->
+        IO Int64
+
+foreign export ccall
+    getBlockCertificatesV2 ::
+        StablePtr Ext.ConsensusRunner ->
+        -- |Block type.
+        Word8 ->
+        -- |Block hash.
+        Ptr Word8 ->
+        -- |Out pointer for writing the block hash that was used.
+        Ptr Word8 ->
+        Ptr ReceiverVec ->
+        -- |Callback to output data.
+        FunPtr CopyToVecCallback ->
         IO Int64
