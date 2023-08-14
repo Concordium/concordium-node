@@ -34,9 +34,9 @@ import Concordium.Types.Block (absoluteToLocalBlockHeight, localToAbsoluteBlockH
 import Concordium.Types.Execution (TransactionSummary)
 import Concordium.Types.HashableTo
 import Concordium.Types.IdentityProviders
-import qualified Concordium.Types.KonsensusV1 as BaseKonsensusV1
 import Concordium.Types.Parameters
 import Concordium.Types.Queries hiding (PassiveCommitteeInfo (..), bakerId)
+import qualified Concordium.Types.Queries.KonsensusV1 as QueriesKonsensusV1
 import Concordium.Types.SeedState
 import Concordium.Types.Transactions
 import qualified Concordium.Types.UpdateQueues as UQ
@@ -1434,9 +1434,9 @@ data BlockCertificatesError
       BlockCertificatesInvalidProtocolVersion
 
 -- |Get the certificates for the block requested.
--- For 'ConsensusV0' this returns @Nothing@ and for genesis blocks in 'ConsensusV1'
--- the function returns a 'BaseKonsensusV1.BlockCertificates' with empty values.
-getBlockCertificates :: forall finconf. BlockHashInput -> MVR finconf (BHIQueryResponse (Either BlockCertificatesError BaseKonsensusV1.BlockCertificates))
+-- For 'ConsensusV0' this returns @BlockCertificatesInvalidProtocolVersion@ and for genesis blocks in 'ConsensusV1'
+-- the function returns a 'QueriesKonsensusV1.BlockCertificates' with empty values.
+getBlockCertificates :: forall finconf. BlockHashInput -> MVR finconf (BHIQueryResponse (Either BlockCertificatesError QueriesKonsensusV1.BlockCertificates))
 getBlockCertificates = liftSkovQueryBHI (\_ -> return $ Left BlockCertificatesInvalidProtocolVersion) (fmap Right . getCertificates)
   where
     getCertificates ::
@@ -1447,7 +1447,7 @@ getBlockCertificates = liftSkovQueryBHI (\_ -> return $ Left BlockCertificatesIn
           IsConsensusV1 (MPV m)
         ) =>
         SkovV1.BlockPointer (MPV m) ->
-        m BaseKonsensusV1.BlockCertificates
+        m QueriesKonsensusV1.BlockCertificates
     getCertificates bp =
         case SkovV1.bpBlock bp of
             SkovV1.GenesisBlock{} -> return emptyBlockCertificates
@@ -1458,12 +1458,12 @@ getBlockCertificates = liftSkovQueryBHI (\_ -> return $ Left BlockCertificatesIn
                 let finalizationCommittee = ConsensusV1.computeFinalizationCommittee bakers finCommitteeParams
                 let SkovV1.BakedBlock{..} = SkovV1.sbBlock b
                 return
-                    BaseKonsensusV1.BlockCertificates
+                    QueriesKonsensusV1.BlockCertificates
                         { bcQuorumCertificate = Just . mkQuorumCertificateOut finalizationCommittee $ bbQuorumCertificate,
                           bcTimeoutCertificate = mkTimeoutCertificateOut finalizationCommittee bbTimeoutCertificate,
                           bcEpochFinalizationEntry = mkEpochFinalizationEntryOut finalizationCommittee bbEpochFinalizationEntry
                         }
-    emptyBlockCertificates = BaseKonsensusV1.BlockCertificates Nothing Nothing Nothing
+    emptyBlockCertificates = QueriesKonsensusV1.BlockCertificates Nothing Nothing Nothing
     -- Get the baker ids (in ascending order) of the finalizers present
     -- in the provided finalizer set.
     finalizerSetToBakerIds :: SkovV1.FinalizationCommittee -> SkovV1.FinalizerSet -> [BakerId]
@@ -1472,44 +1472,44 @@ getBlockCertificates = liftSkovQueryBHI (\_ -> return $ Left BlockCertificatesIn
           | SkovV1.FinalizerInfo{..} <- Vec.toList $ SkovV1.committeeFinalizers committee,
             SkovV1.memberFinalizerSet finalizerIndex signatories
         ]
-    finalizerRound :: SkovV1.FinalizationCommittee -> SkovV1.FinalizerRounds -> [BaseKonsensusV1.FinalizerRound]
+    finalizerRound :: SkovV1.FinalizationCommittee -> SkovV1.FinalizerRounds -> [QueriesKonsensusV1.FinalizerRound]
     finalizerRound committee rounds =
         map
             ( \(r, finSet) ->
-                BaseKonsensusV1.FinalizerRound
+                QueriesKonsensusV1.FinalizerRound
                     { frRound = r,
                       frFinalizers = finalizerSetToBakerIds committee finSet
                     }
             )
             (SkovV1.finalizerRoundsList rounds)
-    mkQuorumCertificateOut :: SkovV1.FinalizationCommittee -> SkovV1.QuorumCertificate -> BaseKonsensusV1.QuorumCertificate
+    mkQuorumCertificateOut :: SkovV1.FinalizationCommittee -> SkovV1.QuorumCertificate -> QueriesKonsensusV1.QuorumCertificate
     mkQuorumCertificateOut committee qc =
-        BaseKonsensusV1.QuorumCertificate
+        QueriesKonsensusV1.QuorumCertificate
             { qcBlock = SkovV1.qcBlock qc,
               qcRound = SkovV1.qcRound qc,
               qcEpoch = SkovV1.qcEpoch qc,
-              qcAggregateSignature = BaseKonsensusV1.QuorumCertificateSignature $ (SkovV1.theQuorumSignature . SkovV1.qcAggregateSignature) qc,
+              qcAggregateSignature = QueriesKonsensusV1.QuorumCertificateSignature . (SkovV1.theQuorumSignature . SkovV1.qcAggregateSignature) $ qc,
               qcSignatories = finalizerSetToBakerIds committee (SkovV1.qcSignatories qc)
             }
-    mkTimeoutCertificateOut :: SkovV1.FinalizationCommittee -> SkovV1.Option SkovV1.TimeoutCertificate -> Maybe BaseKonsensusV1.TimeoutCertificate
+    mkTimeoutCertificateOut :: SkovV1.FinalizationCommittee -> SkovV1.Option SkovV1.TimeoutCertificate -> Maybe QueriesKonsensusV1.TimeoutCertificate
     mkTimeoutCertificateOut _ SkovV1.Absent = Nothing
     mkTimeoutCertificateOut committee (SkovV1.Present tc) =
         Just $
-            BaseKonsensusV1.TimeoutCertificate
+            QueriesKonsensusV1.TimeoutCertificate
                 { tcRound = SkovV1.tcRound tc,
                   tcMinEpoch = SkovV1.tcMinEpoch tc,
                   tcFinalizerQCRoundsFirstEpoch = finalizerRound committee $ SkovV1.tcFinalizerQCRoundsFirstEpoch tc,
                   tcFinalizerQCRoundsSecondEpoch = finalizerRound committee $ SkovV1.tcFinalizerQCRoundsSecondEpoch tc,
-                  tcAggregateSignature = BaseKonsensusV1.TimeoutCertificateSignature $ (SkovV1.theTimeoutSignature . SkovV1.tcAggregateSignature) tc
+                  tcAggregateSignature = QueriesKonsensusV1.TimeoutCertificateSignature . (SkovV1.theTimeoutSignature . SkovV1.tcAggregateSignature) $ tc
                 }
-    mkEpochFinalizationEntryOut :: SkovV1.FinalizationCommittee -> SkovV1.Option SkovV1.FinalizationEntry -> Maybe BaseKonsensusV1.EpochFinalizationEntry
+    mkEpochFinalizationEntryOut :: SkovV1.FinalizationCommittee -> SkovV1.Option SkovV1.FinalizationEntry -> Maybe QueriesKonsensusV1.EpochFinalizationEntry
     mkEpochFinalizationEntryOut _ SkovV1.Absent = Nothing
     mkEpochFinalizationEntryOut committee (SkovV1.Present SkovV1.FinalizationEntry{..}) =
         Just $
-            BaseKonsensusV1.EpochFinalizationEntry
+            QueriesKonsensusV1.EpochFinalizationEntry
                 { efeFinalizedQC = mkQuorumCertificateOut committee feFinalizedQuorumCertificate,
                   efeSuccessorQC = mkQuorumCertificateOut committee feSuccessorQuorumCertificate,
-                  efeSuccessorProof = BaseKonsensusV1.SuccessorProof $ SkovV1.theBlockQuasiHash feSuccessorProof
+                  efeSuccessorProof = QueriesKonsensusV1.SuccessorProof $ SkovV1.theBlockQuasiHash feSuccessorProof
                 }
 
 -- | Error type for querying 'BakerRewardPeriodInfo' for some block.

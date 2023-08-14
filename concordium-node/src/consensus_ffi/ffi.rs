@@ -1380,8 +1380,8 @@ extern "C" {
     ) -> i64;
 
     /// Get the certificates for a given block.
-    /// This is only available in consensus v1 and returns
-    /// IllegalArgument if the protocol does not support it.
+    /// This is only available in consensus version 1 and returns
+    /// IllegalArgument in consensus version 0.
     ///
     /// * `consensus` - Pointer to the current consensus.
     /// * `block_id_type` - Type of block identifier.
