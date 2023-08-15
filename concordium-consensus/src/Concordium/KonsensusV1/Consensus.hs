@@ -370,9 +370,12 @@ bakerEarliestWinTimestamp baker sd = do
                     | otherwise = findLeader (nxtRound + 1) (addDuration nxtTimestamp minBlockTime)
             let curRound = sd ^. roundStatus . rsCurrentRound
             return $!
-                findLeader
-                    curRound
-                    ( addDuration
-                        (blockTimestamp lfBlock)
-                        (fromIntegral (curRound - blockRound lfBlock) * minBlockTime)
-                    )
+                if minBlockTime == 0
+                    then blockTimestamp lfBlock
+                    else
+                        findLeader
+                            curRound
+                            ( addDuration
+                                (blockTimestamp lfBlock)
+                                (fromIntegral (curRound - blockRound lfBlock) * minBlockTime)
+                            )
