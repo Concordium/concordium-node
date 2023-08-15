@@ -1357,6 +1357,48 @@ extern "C" {
     /// Get the slot time (in milliseconds) of the last finalized block.
     pub fn getLastFinalizedBlockSlotTimeV2(consensus: *mut consensus_runner) -> u64;
 
+    /// Get the baker reward infos for the epoch defined by the querying block.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `stream` - Pointer to the response stream.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `callback` - Callback for writing to the response stream.
+    pub fn getBakersRewardPeriodV2(
+        consensus: *mut consensus_runner,
+        stream: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+        block_id_type: u8,
+        block_id: *const u8,
+        out_hash: *mut u8,
+        callback: extern "C" fn(
+            *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+            *const u8,
+            i64,
+        ) -> i32,
+    ) -> i64;
+
+    /// Get the certificates for a given block.
+    /// This is only available in consensus version 1 and returns
+    /// IllegalArgument in consensus version 0.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `out` - Location to write the output of the query.
+    /// * `copier` - Callback for writting the output.
+    pub fn getBlockCertificatesV2(
+        consensus: *mut consensus_runner,
+        block_id_type: u8,
+        block_id: *const u8,
+        out_hash: *mut u8,
+        out: *mut Vec<u8>,
+        copier: CopyToVecCallback,
+    ) -> i64;
+
     /// Get the earliest time in which a baker wins the lottery. Returns "not
     /// found" for consensus version 0. For consensus version 1, it will
     /// return a result even if the baker ID does not correspond to a
@@ -3027,6 +3069,60 @@ impl ConsensusContainer {
         let consensus = self.consensus.load(Ordering::SeqCst);
         let millis = unsafe { getLastFinalizedBlockSlotTimeV2(consensus) };
         millis.into()
+    }
+
+    /// Get the bakers for the reward period of the block.
+    /// The stream ends when all bakers have been returned.
+    pub fn get_bakers_reward_period_v2(
+        &self,
+        request: &crate::grpc2::types::BlockHashInput,
+        sender: futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+    ) -> Result<[u8; 32], tonic::Status> {
+        use crate::grpc2::Require;
+        let sender = Box::new(sender);
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut out_hash = [0u8; 32];
+        let bhi = crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
+        let (block_id_type, block_hash) = bhi.to_ptr();
+        let response: ConsensusQueryResponse = unsafe {
+            getBakersRewardPeriodV2(
+                consensus,
+                Box::into_raw(sender),
+                block_id_type,
+                block_hash.as_ptr(),
+                out_hash.as_mut_ptr(),
+                enqueue_bytearray_callback,
+            )
+        }
+        .try_into()?;
+        response.ensure_ok("block")?;
+        Ok(out_hash)
+    }
+
+    /// Get the certificates for a block.
+    pub fn get_block_certificates_v2(
+        &self,
+        request: &crate::grpc2::types::BlockHashInput,
+    ) -> Result<([u8; 32], Vec<u8>), tonic::Status> {
+        use crate::grpc2::Require;
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut out_data: Vec<u8> = Vec::new();
+        let mut out_hash = [0u8; 32];
+        let bhi = crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
+        let (block_id_type, block_id) = bhi.to_ptr();
+        let response: ConsensusQueryResponse = unsafe {
+            getBlockCertificatesV2(
+                consensus,
+                block_id_type,
+                block_id.as_ptr(),
+                out_hash.as_mut_ptr(),
+                &mut out_data,
+                copy_to_vec_callback,
+            )
+        }
+        .try_into()?;
+        response.ensure_ok("block")?;
+        Ok((out_hash, out_data))
     }
 
     pub fn get_baker_earliest_win_time_v2(

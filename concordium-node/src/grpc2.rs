@@ -663,6 +663,10 @@ struct ServiceConfig {
     #[serde(default)]
     get_block_items: bool,
     #[serde(default)]
+    get_bakers_reward_period: bool,
+    #[serde(default)]
+    get_block_certificates: bool,
+    #[serde(default)]
     get_baker_earliest_win_time: bool,
 }
 
@@ -719,6 +723,8 @@ impl ServiceConfig {
             send_block_item: true,
             get_account_transaction_sign_hash: true,
             get_block_items: true,
+            get_bakers_reward_period: true,
+            get_block_certificates: true,
             get_baker_earliest_win_time: true,
         }
     }
@@ -1113,6 +1119,9 @@ pub mod server {
             futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
         /// Return type for the 'GetBakerList' method.
         type GetBakerListStream = futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
+        /// Return type for the 'GetBakersRewardPeriod' method.
+        type GetBakersRewardPeriodStream =
+            futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
         /// Return type for `GetBlockItems`.
         type GetBlockItemsStream = futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
         /// Return type for the 'GetBlockPendingUpdates' method.
@@ -1792,6 +1801,22 @@ pub mod server {
             Ok(response)
         }
 
+        async fn get_bakers_reward_period(
+            &self,
+            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+        ) -> Result<tonic::Response<Self::GetBakersRewardPeriodStream>, tonic::Status> {
+            if !self.service_config.get_bakers_reward_period {
+                return Err(tonic::Status::unimplemented(
+                    "`GetBakersRewardPeriod` is not enabled.",
+                ));
+            }
+            let (sender, receiver) = futures::channel::mpsc::channel(10);
+            let hash = self.consensus.get_bakers_reward_period_v2(request.get_ref(), sender)?;
+            let mut response = tonic::Response::new(receiver);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
         async fn get_baker_earliest_win_time(
             &self,
             request: tonic::Request<crate::grpc2::types::BakerId>,
@@ -2316,6 +2341,19 @@ pub mod server {
             let (sender, receiver) = futures::channel::mpsc::channel(100);
             let hash = self.consensus.get_block_items_v2(request.get_ref(), sender)?;
             let mut response = tonic::Response::new(receiver);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_block_certificates(
+            &self,
+            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+        ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            if !self.service_config.get_block_certificates {
+                return Err(tonic::Status::unimplemented("`GetBlockCertificates` is not enabled."));
+            }
+            let (hash, response) = self.consensus.get_block_certificates_v2(request.get_ref())?;
+            let mut response = tonic::Response::new(response);
             add_hash(&mut response, hash)?;
             Ok(response)
         }

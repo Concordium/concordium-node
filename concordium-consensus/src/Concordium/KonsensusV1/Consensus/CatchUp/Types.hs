@@ -116,6 +116,11 @@ instance Serialize CatchUpTerminalDataFlags where
 
 -- |The 'CatchUpTerminalData' is sent as part of a catch-up response that concludes catch-up with
 -- the peer (i.e. the peer has sent all relevant information).
+--
+-- Note: in some circumstances, 'cutdHighestQuorumCertificate' should not be the actual highest
+-- quorum certificate available to the node. Specifically, when the timeout certificate is present,
+-- it must be valid with respect to the epoch of 'cutdHighestQuorumCertificate'. This means that
+-- it may be necessary to use an earlier quorum certificate in this case.
 data CatchUpTerminalData = CatchUpTerminalData
     { -- |Finalization entry for the latest finalized block.
       cutdLatestFinalizationEntry :: !(Option FinalizationEntry),

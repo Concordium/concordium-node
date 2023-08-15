@@ -1,6 +1,16 @@
 # Changelog
 
 ## Unreleased changes
+- `GetPoolInfo` now also returns the commission rates for the current reward period.
+- Add `GetBakersRewardPeriod` to GRPCV2 API. Provided a block, then it returns information about bakers
+  for the reward period of the block.
+- Fix a bug in how the last timeout certificate is recovered at start-up.
+- Add endpoint `GetBlockCertificates` to GRPCV2 API. Provided a block, then it returns 
+  quorum certificate, timeout certificate and epoch finalization entry contained in the block (where present).
+
+## 6.0.4
+
+- Fix a bug in how timeout certificates across epoch boundaries are handled in catch-up.
 
 ## 6.0.3
 
