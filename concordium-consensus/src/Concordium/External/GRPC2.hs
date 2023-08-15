@@ -1030,8 +1030,9 @@ getBakersRewardPeriodV2 cptr channel blockType blockHashPtr outHash cbk = do
 
 -- |Get the earliest time in which a baker wins the lottery.
 -- Returns "unavailable" for consensus version 0.
--- For consensus version 1, it will return a result (even if the baker ID does not correspond
--- to a valid baker).
+-- For consensus version 1, it will always return a result. If the baker ID does not correspond
+-- to a baker in the current reward period, the result will be the start of the following reward
+-- period.
 getBakerEarliestWinTimeV2 ::
     StablePtr Ext.ConsensusRunner ->
     -- |Baker ID.

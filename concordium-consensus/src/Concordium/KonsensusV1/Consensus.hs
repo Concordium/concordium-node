@@ -32,7 +32,7 @@ import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.Logger
-import Concordium.Types.SeedState (currentLeadershipElectionNonce, epochTransitionTriggered, triggerBlockTime)
+import Concordium.Types.SeedState (currentLeadershipElectionNonce, triggerBlockTime)
 import Concordium.Types.UpdateQueues
 import Concordium.Types.Updates
 
@@ -358,6 +358,11 @@ bakerEarliestWinTimestamp baker sd = do
                     lfTriggerTime
                     (minBlockTime + fromIntegral epochsTillPayday * epochDuration)
         else do
+            -- 'findLeader' loops over rounds until it finds the first round in which the baker
+            -- is the winner, or the projected time of the round is after the trigger time for the
+            -- epoch transition. Each round, the projected round time increases by the
+            -- 'minBlockTime', so this should only be used if 'minBlockTime' is positive to
+            -- guarantee termination in @epochDuration / minBlockTime@ iterations.
             let findLeader nxtRound nxtTimestamp
                     | baker
                         == getLeaderFullBakers
