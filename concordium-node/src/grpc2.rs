@@ -666,6 +666,8 @@ struct ServiceConfig {
     get_bakers_reward_period: bool,
     #[serde(default)]
     get_block_certificates: bool,
+    #[serde(default)]
+    get_baker_earliest_win_time: bool,
 }
 
 impl ServiceConfig {
@@ -723,6 +725,7 @@ impl ServiceConfig {
             get_block_items: true,
             get_bakers_reward_period: true,
             get_block_certificates: true,
+            get_baker_earliest_win_time: true,
         }
     }
 
@@ -1811,6 +1814,20 @@ pub mod server {
             let hash = self.consensus.get_bakers_reward_period_v2(request.get_ref(), sender)?;
             let mut response = tonic::Response::new(receiver);
             add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_baker_earliest_win_time(
+            &self,
+            request: tonic::Request<crate::grpc2::types::BakerId>,
+        ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            if !self.service_config.get_baker_earliest_win_time {
+                return Err(tonic::Status::unimplemented(
+                    "`GetBakerEarliestWinTime` is not enabled.",
+                ));
+            }
+            let response = self.consensus.get_baker_earliest_win_time_v2(request.get_ref())?;
+            let response = tonic::Response::new(response);
             Ok(response)
         }
 

@@ -359,13 +359,13 @@ data RoundTimeout (pv :: ProtocolVersion) = RoundTimeout
 --
 -- INVARIANTS:
 --
---  * @_rsCurrentEpoch > qcEpoch (cbQuorumCertificate _rsHighestCertifiedBlock)@.
+--  * @_rsCurrentRound > qcRound (cbQuorumCertificate _rsHighestCertifiedBlock)@.
 --
 --  * If @_rsPreviousRoundTimeout = Absent@ then
---    @_rsCurrentEpoch = 1 + qcEpoch (cbQuorumCertificate _rsHighestCertifiedBlock)@.
+--    @_rsCurrentRound = 1 + qcRound (cbQuorumCertificate _rsHighestCertifiedBlock)@.
 --
 --  * If @_rsPreviousRoundTimeout = Present timeout@ then
---    @_rsCurrentEpoch = 1 + qcEpoch (rtQuorumCertificate timeout)@.
+--    @_rsCurrentRound = 1 + qcRound (rtQuorumCertificate timeout)@.
 data RoundStatus (pv :: ProtocolVersion) = RoundStatus
     { -- |The current 'Round'. If the previous round did not time out, this should be
       -- @1 + cbRound _rsHighestCertifiedBlock@. Otherwise, it should be
@@ -382,7 +382,9 @@ data RoundStatus (pv :: ProtocolVersion) = RoundStatus
       -- This is set to 'True' when the round is advanced, and set to 'False' when we have attempted
       -- to bake for the round.
       _rsRoundEligibleToBake :: !Bool,
-      -- |The current epoch.
+      -- |The current epoch. This should either be the same as the epoch of the last finalized
+      -- block (if its timestamp is before the trigger block time) or the next epoch from the last
+      -- finalized block (if its timestamp is at least the trigger block time).
       _rsCurrentEpoch :: !Epoch,
       -- |If present, an epoch finalization entry for @_currentEpoch - 1@. An entry MUST be
       -- present if @_currentEpoch > blockEpoch _lastFinalized@. Otherwise, an entry MAY be present,
@@ -433,7 +435,9 @@ data BakersAndFinalizers = BakersAndFinalizers
 makeLenses ''BakersAndFinalizers
 
 -- |The bakers and finalizers associated with the previous, current and next epochs (with respect
--- to a particular epoch).
+-- to a particular epoch). Note that the current epoch referred to here is typically the epoch
+-- of the last finalized block, which is distinct from the current epoch as recorded in the
+-- 'RoundStatus' structure.
 data EpochBakers = EpochBakers
     { -- |The bakers and finalizers for the previous epoch.
       -- (If the current epoch is 0, then this is the same as the bakers and finalizers for the

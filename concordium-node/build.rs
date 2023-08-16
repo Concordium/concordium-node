@@ -492,6 +492,15 @@ fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
         )
         .method(
             tonic_build::manual::Method::builder()
+                .name("get_baker_earliest_win_time")
+                .route_name("GetBakerEarliestWinTime")
+                .input_type("crate::grpc2::types::BakerId")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
                 .name("get_block_chain_parameters")
                 .route_name("GetBlockChainParameters")
                 .input_type("crate::grpc2::types::BlockHashInput")

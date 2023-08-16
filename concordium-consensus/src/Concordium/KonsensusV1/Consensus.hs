@@ -21,16 +21,18 @@ import Concordium.Types.Parameters hiding (getChainParameters)
 import Concordium.Utils
 
 import qualified Concordium.Crypto.BlockSignature as Sig
+import Concordium.Genesis.Data.BaseV1
 import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import qualified Concordium.GlobalState.TreeState as GSTypes
+import Concordium.KonsensusV1.LeaderElection
 import Concordium.KonsensusV1.TreeState.Implementation
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.Logger
-import Concordium.Types.SeedState (triggerBlockTime)
+import Concordium.Types.SeedState (currentLeadershipElectionNonce, triggerBlockTime)
 import Concordium.Types.UpdateQueues
 import Concordium.Types.Updates
 
@@ -325,3 +327,60 @@ getProtocolUpdateState = do
                     { puQueuedTime = ts,
                       puProtocolUpdate = pu
                     }
+
+-- |Project the earliest timestamp at which the given baker might be required to bake.
+-- If the baker is not a baker in the current reward period, this will give a time at the start
+-- of the next reward period.
+bakerEarliestWinTimestamp ::
+    ( GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
+      BS.BlockStateQuery m,
+      IsConsensusV1 (MPV m)
+    ) =>
+    BakerId ->
+    SkovData (MPV m) ->
+    m Timestamp
+bakerEarliestWinTimestamp baker sd = do
+    let lfBlock = sd ^. lastFinalized
+    -- The bakers with respect to the epoch of the last finalized block.
+    let fullBakers = sd ^. currentEpochBakers . bfBakers
+    let epochDuration = genesisEpochDuration . gmParameters $ sd ^. genesisMetadata
+    lfSeedState <- BS.getSeedState (bpState lfBlock)
+    let lfTriggerTime = lfSeedState ^. triggerBlockTime
+    chainParams <- BS.getChainParameters (bpState lfBlock)
+    let minBlockTime = chainParams ^. cpConsensusParameters . cpMinBlockTime
+    if null (fullBaker fullBakers baker)
+        then do
+            -- The baker is not a baker in the current payday, so take the start of the next payday
+            -- as the soonest that the account could be a baker (and thus bake).
+            let epochsTillPayday = (sd ^. nextPayday) - blockEpoch lfBlock - 1
+            return $!
+                addDuration
+                    lfTriggerTime
+                    (minBlockTime + fromIntegral epochsTillPayday * epochDuration)
+        else do
+            -- 'findLeader' loops over rounds until it finds the first round in which the baker
+            -- is the winner, or the projected time of the round is after the trigger time for the
+            -- epoch transition. Each round, the projected round time increases by the
+            -- 'minBlockTime', so this should only be used if 'minBlockTime' is positive to
+            -- guarantee termination in @epochDuration / minBlockTime@ iterations.
+            let findLeader nxtRound nxtTimestamp
+                    | baker
+                        == getLeaderFullBakers
+                            fullBakers
+                            (lfSeedState ^. currentLeadershipElectionNonce)
+                            nxtRound
+                            ^. Accounts.bakerIdentity =
+                        nxtTimestamp
+                    | nxtTimestamp >= lfTriggerTime = addDuration lfTriggerTime minBlockTime
+                    | otherwise = findLeader (nxtRound + 1) (addDuration nxtTimestamp minBlockTime)
+            let curRound = sd ^. roundStatus . rsCurrentRound
+            return $!
+                if minBlockTime == 0
+                    then blockTimestamp lfBlock
+                    else
+                        findLeader
+                            curRound
+                            ( addDuration
+                                (blockTimestamp lfBlock)
+                                (fromIntegral (curRound - blockRound lfBlock) * minBlockTime)
+                            )
