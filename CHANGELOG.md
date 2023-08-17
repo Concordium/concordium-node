@@ -8,6 +8,10 @@
   quorum certificate, timeout certificate and epoch finalization entry contained in the block (where present).
 - Add endpoint `GetBakerEarliestWinTime` to GRPCV2 API. Provided a baker ID, it returns the
   earliest time at which the node projects that the baker could be required to bake a block.
+- Add endpoint `GetFirstBlockEpoch` to GRPCV2 API. It returns the block hash of the first block in
+  a given epoch.
+- Add endpoint `GitWinningBakersEpoch` to GRPCV2 API. It returns a list of the bakers that won
+  rounds in a specified (finalized) epoch. This only supports consensus version 1.
 - Fix a bug in how the last timeout certificate is recovered at start-up.
 
 ## 6.0.4
