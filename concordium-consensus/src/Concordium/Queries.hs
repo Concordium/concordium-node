@@ -699,10 +699,7 @@ getBlockInfo =
                                 (getHash <$> lastFinalizedBlock)
                                 (use (SkovV1.lastFinalized . to getHash))
                     else getHash <$> bpParent bp
-            biBlockLastFinalized <-
-                if biFinalized
-                    then return $ getHash bp
-                    else getHash <$> bpLastFinalized bp
+            biBlockLastFinalized <- getHash <$> bpLastFinalized bp
             let biBlockHeight = localToAbsoluteBlockHeight (evcGenesisHeight evc) (SkovV1.blockHeight bp)
             let biEraBlockHeight = SkovV1.blockHeight bp
             let biBlockReceiveTime = SkovV1.blockReceiveTime bp
