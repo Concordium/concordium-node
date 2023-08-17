@@ -77,8 +77,8 @@ doGetBlocksAtHeight h = do
             mb <- getFinalizedAtHeight h
             return (toList mb)
 
--- |Result of querying for the first finalized block in an epoch.
-data EpochResult
+-- |Result of querying for the first finalized block in an epoch, when the query fails.
+data EpochFailureResult
     = -- |There are currently no finalized blocks in the given epoch.
       FutureEpoch
     | -- |The epoch is in the past, but was empty.
@@ -87,7 +87,7 @@ data EpochResult
 doGetFirstFinalizedOfEpoch ::
     TreeStateMonad m =>
     Either Epoch (BlockPointerType m) ->
-    m (Either EpochResult (BlockPointerType m))
+    m (Either EpochFailureResult (BlockPointerType m))
 doGetFirstFinalizedOfEpoch epochOrBlock = do
     epochLength <- gdEpochLength <$> getGenesisData
     let blockEpoch b = fromIntegral (blockSlot b `div` epochLength)

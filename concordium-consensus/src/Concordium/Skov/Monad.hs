@@ -12,7 +12,7 @@
 
 module Concordium.Skov.Monad (
     module Concordium.Skov.CatchUp.Types,
-    EpochResult (..),
+    EpochFailureResult (..),
     module Concordium.Skov.Monad,
 ) where
 
@@ -202,7 +202,7 @@ class
     -- specified directly, or indirectly as the epoch of a supplied block.
     getFirstFinalizedOfEpoch ::
         Either Epoch (BlockPointerType m) ->
-        m (Either EpochResult (BlockPointerType m))
+        m (Either EpochFailureResult (BlockPointerType m))
 
     -- |Get a block's state.
     queryBlockState :: BlockPointerType m -> m (BlockState m)

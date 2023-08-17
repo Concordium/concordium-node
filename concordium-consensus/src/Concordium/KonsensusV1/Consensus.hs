@@ -356,9 +356,10 @@ getWinningBakersForEpoch targetEpoch sd = do
         bakers <- BS.getCurrentEpochBakers (bpState lastOfEpoch)
         seedState <- BS.getSeedState (bpState lastOfEpoch)
         let leNonce = seedState ^. currentLeadershipElectionNonce
+        let roundWinner = getLeaderFullBakers bakers leNonce
         let roundWB rnd present =
                 WinningBaker
-                    { wbWinner = getLeaderFullBakers bakers leNonce rnd ^. Accounts.bakerIdentity,
+                    { wbWinner = roundWinner rnd ^. Accounts.bakerIdentity,
                       wbRound = rnd,
                       wbPresent = present
                     }

@@ -1255,7 +1255,7 @@ getFirstBlockEpoch SpecifiedEpoch{..} = MVR $ \mvr -> do
                         Right block -> Right $! getHash @BlockHash block
                 )
                 ( do
-                    -- Consensus version 1#
+                    -- Consensus version 1
                     (SkovV1.getFirstFinalizedBlockOfEpoch (Left erEpoch) =<< get) <&> \case
                         Nothing
                             | isCurrentVersion -> Left EQEFutureEpoch
