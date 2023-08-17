@@ -164,6 +164,8 @@ data QueryResult
       QRSuccess
     | -- | The requested data could not be found.
       QRNotFound
+    | -- | The service is not available at the current protocol version.
+      QRUnavailable
     | -- | The requested data is for a future epoch or genesis index.
       QRFutureEpoch
 
@@ -173,7 +175,8 @@ queryResultCode QRInvalidArgument = -2
 queryResultCode QRInternalError = -1
 queryResultCode QRSuccess = 0
 queryResultCode QRNotFound = 1
-queryResultCode QRFutureEpoch = 2
+queryResultCode QRUnavailable = 2
+queryResultCode QRFutureEpoch = 3
 
 getAccountInfoV2 ::
     StablePtr Ext.ConsensusRunner ->
@@ -1086,6 +1089,27 @@ getBakersRewardPeriodV2 cptr channel blockType blockHashPtr outHash cbk = do
                     return (queryResultCode QRSuccess)
         _ -> return $ queryResultCode QRNotFound
 
+-- |Get the earliest time in which a baker wins the lottery.
+-- Returns "unavailable" for consensus version 0.
+-- For consensus version 1, it will always return a result. If the baker ID does not correspond
+-- to a baker in the current reward period, the result will be the start of the following reward
+-- period.
+getBakerEarliestWinTimeV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    -- |Baker ID.
+    Word64 ->
+    -- |Vector to write output to.
+    Ptr ReceiverVec ->
+    -- |Callback to output data.
+    FunPtr CopyToVecCallback ->
+    IO Int64
+getBakerEarliestWinTimeV2 cptr baker outVec copierCbk = do
+    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
+    let copier = callCopyToVecCallback copierCbk outVec
+    runMVR (Q.getBakerEarliestWinTime (fromIntegral baker)) mvr >>= \case
+        Nothing -> return $ queryResultCode QRUnavailable
+        Just ts -> returnMessage copier ts
+
 -- |Write the hash to the provided pointer, encode the message given and write it using the provided callback.
 returnMessageWithBlock ::
     (Proto.Message (Output a), ToProto a) =>
@@ -1737,6 +1761,17 @@ foreign export ccall
         Ptr Word8 ->
         -- |Out pointer for writing the block hash that was used.
         Ptr Word8 ->
+        Ptr ReceiverVec ->
+        -- |Callback to output data.
+        FunPtr CopyToVecCallback ->
+        IO Int64
+
+foreign export ccall
+    getBakerEarliestWinTimeV2 ::
+        StablePtr Ext.ConsensusRunner ->
+        -- |Baker ID.
+        Word64 ->
+        -- |Vector to write output to.
         Ptr ReceiverVec ->
         -- |Callback to output data.
         FunPtr CopyToVecCallback ->

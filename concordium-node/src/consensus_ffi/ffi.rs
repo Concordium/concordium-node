@@ -818,7 +818,7 @@ extern "C" {
     /// * NotFound (1) - The block used to query for the epoch was not found, or
     ///   the epoch is finalized but empty (only applies in consensus version
     ///   0).
-    /// * FutureEpoch (2) - The query is for a future genesis index, or the
+    /// * FutureEpoch (3) - The query is for a future genesis index, or the
     ///   current one but the epoch contains no finalized blocks yet.
     /// * InvalidArgument (-2) - The specified epoch is for a past genesis index
     ///   and will never contain finalized blocks.
@@ -844,7 +844,7 @@ extern "C" {
     /// The return code is one of the following:
     /// * Success (0) - The epoch is finalized and the winners are streamed.
     /// * NotFound (1) - The block used to query for the epoch was not found.
-    /// * FutureEpoch (2) - The query is for a future genesis index, or the
+    /// * FutureEpoch (3) - The query is for a future genesis index, or the
     ///   current one but the epoch is not finalized yet.
     /// * InvalidArgument (-2) - The query is for a past genesis index where the
     ///   epoch was never finalized, or for a genesis index in consensus version
@@ -1453,6 +1453,22 @@ extern "C" {
         block_id_type: u8,
         block_id: *const u8,
         out_hash: *mut u8,
+        out: *mut Vec<u8>,
+        copier: CopyToVecCallback,
+    ) -> i64;
+
+    /// Get the earliest time in which a baker wins the lottery. Returns "not
+    /// found" for consensus version 0. For consensus version 1, it will
+    /// return a result even if the baker ID does not correspond to a
+    /// currently-valid baker.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `baker_id` - ID of baker to get the time for.
+    /// * `out` - Location to write the output of the query.
+    /// * `copier` - Callback for writing the output.
+    pub fn getBakerEarliestWinTimeV2(
+        consensus: *mut consensus_runner,
+        baker_id: u64,
         out: *mut Vec<u8>,
         copier: CopyToVecCallback,
     ) -> i64;
@@ -3207,6 +3223,20 @@ impl ConsensusContainer {
         .try_into()?;
         response.ensure_ok("block")?;
         Ok((out_hash, out_data))
+    }
+
+    pub fn get_baker_earliest_win_time_v2(
+        &self,
+        request: &crate::grpc2::types::BakerId,
+    ) -> Result<Vec<u8>, tonic::Status> {
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut out_data: Vec<u8> = Vec::new();
+        let response: ConsensusQueryResponse = unsafe {
+            getBakerEarliestWinTimeV2(consensus, request.value, &mut out_data, copy_to_vec_callback)
+        }
+        .try_into()?;
+        response.ensure_ok("baker")?;
+        Ok(out_data)
     }
 }
 

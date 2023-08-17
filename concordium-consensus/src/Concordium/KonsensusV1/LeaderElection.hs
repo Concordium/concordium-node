@@ -96,7 +96,7 @@ updateSeedStateForBlock ::
     -- |Updated seed state
     SeedState 'SeedStateVersion1
 updateSeedStateForBlock ts bn isEffective ss
-    -- Epoch tranisition is already in progress.
+    -- Epoch transition is already in progress.
     | ss ^. epochTransitionTriggered = ss
     -- The block timestamp is beyond the trigger time of the epoch
     -- and there is also a protocol update effective.
