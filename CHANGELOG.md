@@ -15,6 +15,8 @@
 - Fix a bug in how the last timeout certificate is recovered at start-up.
 - Fix the behaviour of the block last finalized pointer in the `GetBlockInfo` so that it
   consistently returns the last finalized block at the time the block was baked.
+- Add debug-level logging when a round is advanced, either due to a quorum certificate or a
+  timeout certificate.
 
 ## 6.0.4
 
