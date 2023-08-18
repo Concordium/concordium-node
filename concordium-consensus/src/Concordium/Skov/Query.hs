@@ -95,6 +95,9 @@ doGetFirstFinalizedOfEpoch epochOrBlock = do
             Left epoch -> epoch
             Right block -> blockEpoch block
     -- This should be safe to call for any height up to the height of the last finalized block.
+    -- Concurrent writers cannot remove finalized blocks from the persistent state, and when the
+    -- state was last updated, all blocks that were considered finalized must have been finalized
+    -- in the persistent state.
     let unsafeFinalizedAtHeight h =
             getFinalizedAtHeight h <&> \case
                 Nothing -> error $ "Missing finalized block at height " ++ show h
