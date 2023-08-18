@@ -1207,6 +1207,136 @@ getDelegatorsRewardPeriod bhi maybeBakerId = do
               pdrpiStake = dcDelegatorCapital
             }
 
+-- ** Epoch indexed
+
+data EpochQueryError
+    = -- |The specified block was not found.
+      EQEBlockNotFound
+    | -- |The specified epoch or genesis index is in the future.
+      EQEFutureEpoch
+    | -- |The epoch is not valid for the specified genesis index.
+      EQEInvalidEpoch
+    | -- |The genesis index does not support the query.
+      EQEInvalidGenesisIndex
+
+-- |Get the first finalized block in a specified epoch.
+-- The epoch can be specified directly by the genesis index and epoch number, or indirectly by a
+-- 'BlockHashInput' that references a block.
+--
+-- The following failure cases apply:
+--   * If the input is a 'BlockHashInput' and the specified block cannot be resolved, this returns
+--     'EQEBlockNotFound'.
+--   * If the specified genesis index is greater than the current one, returns 'EQEFutureEpoch'.
+--   * If the specified epoch is after the epoch of the last finalized block
+--      - returns 'EQEFutureEpoch' if the genesis index is the current one
+--      - returns 'EQEInvalidEpoch' otherwise.
+--   * If the specified epoch contains no finalized blocks then returns 'EQEBlockNotFound'.
+--     This only applies to consensus version 0, as epochs cannot be empty in consensus version 1.
+getFirstBlockEpoch :: forall finconf. EpochRequest -> MVR finconf (Either EpochQueryError BlockHash)
+getFirstBlockEpoch SpecifiedEpoch{..} = MVR $ \mvr -> do
+    versions <- readIORef $ mvVersions mvr
+    case versions Vec.!? fromIntegral erGenesisIndex of
+        Nothing -> return $ Left EQEFutureEpoch
+        Just evc -> do
+            let isCurrentVersion = fromIntegral erGenesisIndex == Vec.length versions
+            liftSkovQuery
+                mvr
+                evc
+                ( do
+                    -- Consensus version 0
+                    getFirstFinalizedOfEpoch (Left erEpoch) <&> \case
+                        Left FutureEpoch
+                            | isCurrentVersion -> Left EQEFutureEpoch
+                            | otherwise -> Left EQEInvalidEpoch
+                        Left EmptyEpoch -> Left EQEBlockNotFound
+                        Right block -> Right $! getHash @BlockHash block
+                )
+                ( do
+                    -- Consensus version 1
+                    (SkovV1.getFirstFinalizedBlockOfEpoch (Left erEpoch) =<< get) <&> \case
+                        Nothing
+                            | isCurrentVersion -> Left EQEFutureEpoch
+                            | otherwise -> Left EQEInvalidEpoch
+                        Just block -> Right $! getHash @BlockHash block
+                )
+getFirstBlockEpoch (EpochOfBlock blockInput) = do
+    versions <- MVR $ readIORef . mvVersions
+    let curVI = fromIntegral (Vec.length versions - 1)
+    unBHIResponse <$> liftSkovQueryBHIAndVersion (epochOfBlockV0 curVI) (epochOfBlockV1 curVI) blockInput
+  where
+    unBHIResponse BQRNoBlock = Left EQEBlockNotFound
+    unBHIResponse (BQRBlock _ res) = res
+    epochOfBlockV0 curVersionIndex evc b =
+        getFirstFinalizedOfEpoch (Right b) <&> \case
+            Left FutureEpoch
+                | evcIndex evc == curVersionIndex -> Left EQEFutureEpoch
+                | otherwise -> Left EQEInvalidEpoch
+            Left EmptyEpoch -> Left EQEBlockNotFound
+            Right epochBlock -> Right (getHash epochBlock)
+    epochOfBlockV1 curVersionIndex evc b _ =
+        (SkovV1.getFirstFinalizedBlockOfEpoch (Right b) =<< get) <&> \case
+            Nothing
+                | evcIndex evc == curVersionIndex -> Left EQEFutureEpoch
+                | otherwise -> Left EQEInvalidEpoch
+            Just epochBlock -> Right (getHash epochBlock)
+
+-- |Get the list of bakers that won the lottery in a particular historical epoch (i.e. the last
+-- finalized block is in a later epoch). This lists the winners for each round in the epoch,
+-- starting from the round after the last block in the previous epoch, running to the round before
+-- the first block in the next epoch. It also indicates if a block in each round was included in
+-- the finalized chain.
+-- The epoch can be specified directly by the genesis index and epoch number, or indirectly by a
+-- 'BlockHashInput' that references a block.
+--
+-- The following failure cases apply:
+--   * If the input is a 'BlockHashInput' and the specified block cannot be resolved, this returns
+--     'EQEBlockNotFound'.
+--   * If the specified genesis index is greater than the current one, returns 'EQEFutureEpoch'.
+--   * If the specified genesis index is on consensus version 0, returns 'EQEInvalidGenesisIndex'.
+--   * If the specified epoch not less than the epoch of the last finalized block,
+--      - returns 'EQEFutureEpoch' if the genesis index is the current one
+--      - returns 'EQEInvalidEpoch' otherwise.
+getWinningBakersEpoch ::
+    forall finconf.
+    EpochRequest ->
+    MVR finconf (Either EpochQueryError [WinningBaker])
+getWinningBakersEpoch SpecifiedEpoch{..} = MVR $ \mvr -> do
+    versions <- readIORef $ mvVersions mvr
+    case versions Vec.!? fromIntegral erGenesisIndex of
+        Nothing -> return $ Left EQEFutureEpoch
+        Just evc -> do
+            liftSkovQuery
+                mvr
+                evc
+                (return (Left EQEInvalidGenesisIndex))
+                ( do
+                    let isCurrentVersion = fromIntegral erGenesisIndex == Vec.length versions - 1
+                    mwbs <- ConsensusV1.getWinningBakersForEpoch erEpoch =<< get
+                    return $! case mwbs of
+                        Nothing
+                            | isCurrentVersion -> Left EQEFutureEpoch
+                            | otherwise -> Left EQEInvalidEpoch
+                        Just wbs -> Right wbs
+                )
+getWinningBakersEpoch (EpochOfBlock blockInput) = do
+    versions <- MVR $ readIORef . mvVersions
+    let curVersionIndex = fromIntegral (Vec.length versions - 1)
+    res <-
+        liftSkovQueryBHIAndVersion
+            (\_ _ -> return (Left EQEInvalidGenesisIndex))
+            ( \evc b _ -> do
+                mwbs <- ConsensusV1.getWinningBakersForEpoch (SkovV1.blockEpoch b) =<< get
+                return $! case mwbs of
+                    Nothing
+                        | evcIndex evc == curVersionIndex -> Left EQEFutureEpoch
+                        | otherwise -> Left EQEInvalidEpoch
+                    Just wbs -> Right wbs
+            )
+            blockInput
+    return $! case res of
+        BQRNoBlock -> Left EQEBlockNotFound
+        BQRBlock _ r -> r
+
 -- ** Transaction indexed
 
 -- |Get the status of a transaction specified by its hash.

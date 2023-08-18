@@ -110,6 +110,18 @@ decodeBlockHashInput n dt =
                     Right (rBlockHeight, rGenesisIndex, rRestrict) -> return $ Queries.Relative{..}
             _ -> error "Precondition violation in FFI call: Unknown block hash input type"
 
+-- |Decode an 'Queries.EpochRequest' given the tag byte and data.
+-- The tags supported by 'decodeBlockHashInput' are also supported here (0-4), corresponding to
+-- a 'Queries.EpochOfBlock'. The tag 5 is used for 'Queries.SpecifiedEpoch'.
+decodeEpochRequest :: Word8 -> Ptr Word8 -> IO Queries.EpochRequest
+decodeEpochRequest 5 dt = do
+    -- 8 bytes for epoch, 4 bytes for genesis index
+    inputData <- BS.unsafePackCStringLen (castPtr dt, 12)
+    case S.decode inputData of
+        Left err -> error $ "Precondition violation in FFI call: " ++ err
+        Right (erEpoch, erGenesisIndex) -> return $! Queries.SpecifiedEpoch{..}
+decodeEpochRequest n dt = Queries.EpochOfBlock <$> decodeBlockHashInput n dt
+
 -- | Decode an account address from a foreign ptr. Assumes 32 bytes are available.
 decodeAccountAddress :: Ptr Word8 -> IO AccountAddress
 decodeAccountAddress accPtr = coerce <$> FBS.create @AccountAddressSize (\p -> copyBytes p accPtr 32)
@@ -154,6 +166,8 @@ data QueryResult
       QRNotFound
     | -- | The service is not available at the current protocol version.
       QRUnavailable
+    | -- | The requested data is for a future epoch or genesis index.
+      QRFutureEpoch
 
 -- |Convert a QueryResult to a result code.
 queryResultCode :: QueryResult -> Int64
@@ -162,6 +176,7 @@ queryResultCode QRInternalError = -1
 queryResultCode QRSuccess = 0
 queryResultCode QRNotFound = 1
 queryResultCode QRUnavailable = 2
+queryResultCode QRFutureEpoch = 3
 
 getAccountInfoV2 ::
     StablePtr Ext.ConsensusRunner ->
@@ -414,6 +429,52 @@ getAncestorsV2 cptr channel blockType blockHashPtr depth outHash cbk = do
     bhi <- decodeBlockHashInput blockType blockHashPtr
     response <- runMVR (Q.getAncestors bhi (BlockHeight depth)) mvr
     returnStreamWithBlock (sender channel) outHash response
+
+getFirstBlockEpochV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    -- |Query type.
+    Word8 ->
+    -- |Query payload data.
+    Ptr Word8 ->
+    -- |Out pointer for the result block hash.
+    Ptr Word8 ->
+    IO Int64
+getFirstBlockEpochV2 cptr queryType queryDataPtr outHash = do
+    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
+    epochReq <- decodeEpochRequest queryType queryDataPtr
+    response <- runMVR (Q.getFirstBlockEpoch epochReq) mvr
+    case response of
+        Left Q.EQEBlockNotFound -> return $ queryResultCode QRNotFound
+        Left Q.EQEFutureEpoch -> return $ queryResultCode QRFutureEpoch
+        Left Q.EQEInvalidEpoch -> return $ queryResultCode QRInvalidArgument
+        Left Q.EQEInvalidGenesisIndex -> return $ queryResultCode QRInvalidArgument
+        Right res -> do
+            copyHashTo outHash (Q.BQRBlock res ())
+            return $ queryResultCode QRSuccess
+
+getWinningBakersEpochV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    Ptr SenderChannel ->
+    -- |Query type.
+    Word8 ->
+    -- |Query payload data.
+    Ptr Word8 ->
+    -- |Stream callback.
+    FunPtr (Ptr SenderChannel -> Ptr Word8 -> Int64 -> IO Int32) ->
+    IO Int64
+getWinningBakersEpochV2 cptr channel queryType queryDataPtr cbk = do
+    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
+    let sender = callChannelSendCallback cbk channel
+    epochReq <- decodeEpochRequest queryType queryDataPtr
+    response <- runMVR (Q.getWinningBakersEpoch epochReq) mvr
+    case response of
+        Left Q.EQEBlockNotFound -> return $ queryResultCode QRNotFound
+        Left Q.EQEFutureEpoch -> return $ queryResultCode QRFutureEpoch
+        Left Q.EQEInvalidEpoch -> return $ queryResultCode QRInvalidArgument
+        Left Q.EQEInvalidGenesisIndex -> return $ queryResultCode QRInvalidArgument
+        Right res -> do
+            _ <- enqueueMessages sender res
+            return $ queryResultCode QRSuccess
 
 getBlockItemStatusV2 ::
     StablePtr Ext.ConsensusRunner ->
@@ -1243,6 +1304,29 @@ foreign export ccall
         Word64 ->
         -- |Out pointer for writing the block hash that was used.
         Ptr Word8 ->
+        FunPtr (Ptr SenderChannel -> Ptr Word8 -> Int64 -> IO Int32) ->
+        IO Int64
+
+foreign export ccall
+    getFirstBlockEpochV2 ::
+        StablePtr Ext.ConsensusRunner ->
+        -- |Query type.
+        Word8 ->
+        -- |Query payload data.
+        Ptr Word8 ->
+        -- |Out pointer for the result block hash.
+        Ptr Word8 ->
+        IO Int64
+
+foreign export ccall
+    getWinningBakersEpochV2 ::
+        StablePtr Ext.ConsensusRunner ->
+        Ptr SenderChannel ->
+        -- |Query type.
+        Word8 ->
+        -- |Query payload data.
+        Ptr Word8 ->
+        -- |Stream callback.
         FunPtr (Ptr SenderChannel -> Ptr Word8 -> Int64 -> IO Int32) ->
         IO Int64
 

@@ -803,6 +803,64 @@ extern "C" {
         ) -> i32,
     ) -> i64;
 
+    /// Get the first block of a specified epoch
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `query_type` - Tag indicating the query type (specified epoch or
+    ///   block).
+    /// * `query_data` - Additional data to specify the epoch/block, depending
+    ///   on the tag.
+    /// * `out_hash` - Location to write the block hash on success.
+    ///
+    /// The return code is one of the following:
+    ///
+    /// * Success (0) - The block was found and written in `out_hash`.
+    /// * NotFound (1) - The block used to query for the epoch was not found, or
+    ///   the epoch is finalized but empty (only applies in consensus version
+    ///   0).
+    /// * FutureEpoch (3) - The query is for a future genesis index, or the
+    ///   current one but the epoch contains no finalized blocks yet.
+    /// * InvalidArgument (-2) - The specified epoch is for a past genesis index
+    ///   and will never contain finalized blocks.
+    pub fn getFirstBlockEpochV2(
+        consensus: *mut consensus_runner,
+        query_type: u8,
+        query_data: *const u8,
+        out_hash: *mut u8,
+    ) -> i64;
+
+    /// Stream a list of the winners of rounds in a specified epoch, including
+    /// whether the a block in the round was included in the finalized
+    /// chain.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `stream` - Pointer to the response stream.
+    /// * `query_type` - Tag indicating the query type (specified epoch or
+    ///   block).
+    /// * `query_data` - Additional data to specify the epoch/block, depending
+    ///   on the tag.
+    /// * `callback` - Callback for writing to the response stream.
+    ///
+    /// The return code is one of the following:
+    /// * Success (0) - The epoch is finalized and the winners are streamed.
+    /// * NotFound (1) - The block used to query for the epoch was not found.
+    /// * FutureEpoch (3) - The query is for a future genesis index, or the
+    ///   current one but the epoch is not finalized yet.
+    /// * InvalidArgument (-2) - The query is for a past genesis index where the
+    ///   epoch was never finalized, or for a genesis index in consensus version
+    ///   0.
+    pub fn getWinningBakersEpochV2(
+        consensus: *mut consensus_runner,
+        stream: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+        query_type: u8,
+        query_data: *const u8,
+        callback: extern "C" fn(
+            *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+            *const u8,
+            i64,
+        ) -> i32,
+    ) -> i64;
+
     /// Get the list of accounts in a given block and, if the block exists,
     /// enqueue them into the provided [Sender](futures::channel::mpsc::Sender).
     ///
@@ -2352,6 +2410,48 @@ impl ConsensusContainer {
         .try_into()?;
         response.ensure_ok("block")?;
         Ok(buf)
+    }
+
+    pub fn get_first_block_epoch_v2(
+        &self,
+        query: &crate::grpc2::types::EpochRequest,
+    ) -> Result<[u8; 32], tonic::Status> {
+        use crate::grpc2::Require;
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut buf = [0u8; 32];
+        let epoch_request = crate::grpc2::types::epoch_request_to_ffi(query).require()?;
+        let (query_tag, query_data) = epoch_request.to_ptr();
+        let response: ConsensusQueryResponse = unsafe {
+            getFirstBlockEpochV2(consensus, query_tag, query_data.as_ptr(), buf.as_mut_ptr())
+        }
+        .try_into()?;
+        response.ensure_ok("block")?;
+        Ok(buf)
+    }
+
+    /// Get the winning bakers for a particular epoch.
+    pub fn get_winning_bakers_epoch_v2(
+        &self,
+        query: &crate::grpc2::types::EpochRequest,
+        sender: futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+    ) -> Result<(), tonic::Status> {
+        use crate::grpc2::Require;
+        let sender = Box::new(sender);
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let epoch_request = crate::grpc2::types::epoch_request_to_ffi(query).require()?;
+        let (query_tag, query_data) = epoch_request.to_ptr();
+        let response: ConsensusQueryResponse = unsafe {
+            getWinningBakersEpochV2(
+                consensus,
+                Box::into_raw(sender),
+                query_tag,
+                query_data.as_ptr(),
+                enqueue_bytearray_callback,
+            )
+        }
+        .try_into()?;
+        response.ensure_ok("block")?;
+        Ok(())
     }
 
     /// Get information about a specific transaction.

@@ -119,6 +119,44 @@ pub mod types {
         }
     }
 
+    pub(crate) enum EpochRequestFFI<'a> {
+        /// Epoch number (8 bytes) and genesis index (4 bytes) of the specified
+        /// epoch.
+        Specified([u8; 12]),
+        /// The epoch is specified as the epoch of a block.
+        OfBlock(BlockHashInputFFI<'a>),
+    }
+
+    impl<'a> EpochRequestFFI<'a> {
+        /// Convert the [`EpochRequestFFI`] to a pair of a tag and pointer to
+        /// the content. The tag is 0 for "Best" block, 1 for
+        /// "LastFinal" block, 2 for a specific block given by a hash, 3
+        /// for block given by absolute height, 4 for block given by
+        /// relative height, and 5 for a specified epoch.
+        pub fn to_ptr(&'a self) -> (u8, &'a [u8]) {
+            match self {
+                EpochRequestFFI::Specified(data) => (5u8, &data[..]),
+                EpochRequestFFI::OfBlock(bhi) => bhi.to_ptr(),
+            }
+        }
+    }
+
+    /// Construct a representation of an [`EpochRequest`] which can be passed
+    /// through FFI. Returns `None` if failing due to missing or invalids fields
+    /// in the input.
+    pub(crate) fn epoch_request_to_ffi(epoch_req: &EpochRequest) -> Option<EpochRequestFFI> {
+        use epoch_request::EpochRequestInput::*;
+        match epoch_req.epoch_request_input.as_ref()? {
+            RelativeEpoch(epoch) => {
+                let mut bytes = [0u8; 12];
+                bytes[0..8].copy_from_slice(&epoch.epoch.as_ref()?.value.to_be_bytes());
+                bytes[8..12].copy_from_slice(&epoch.genesis_index.as_ref()?.value.to_be_bytes());
+                Some(EpochRequestFFI::Specified(bytes))
+            }
+            BlockHash(bhi) => block_hash_input_to_ffi(bhi).map(EpochRequestFFI::OfBlock),
+        }
+    }
+
     /// Convert [ModuleRef] to a pointer to the content. The length of the
     /// content is checked to be 32 bytes.
     ///
@@ -668,6 +706,10 @@ struct ServiceConfig {
     get_block_certificates: bool,
     #[serde(default)]
     get_baker_earliest_win_time: bool,
+    #[serde(default)]
+    get_first_block_epoch: bool,
+    #[serde(default)]
+    get_winning_bakers_epoch: bool,
 }
 
 impl ServiceConfig {
@@ -726,6 +768,8 @@ impl ServiceConfig {
             get_bakers_reward_period: true,
             get_block_certificates: true,
             get_baker_earliest_win_time: true,
+            get_first_block_epoch: true,
+            get_winning_bakers_epoch: true,
         }
     }
 
@@ -1162,6 +1206,9 @@ pub mod server {
             futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
         /// Return type for the 'GetPoolDelegators' method.
         type GetPoolDelegatorsStream =
+            futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
+        /// Return type for the 'GetWinningBakersEpoch' mehtod.
+        type GetWinningBakersEpochStream =
             futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
 
         async fn get_blocks(
@@ -2356,6 +2403,33 @@ pub mod server {
             let mut response = tonic::Response::new(response);
             add_hash(&mut response, hash)?;
             Ok(response)
+        }
+
+        async fn get_first_block_epoch(
+            &self,
+            request: tonic::Request<crate::grpc2::types::EpochRequest>,
+        ) -> Result<tonic::Response<crate::grpc2::types::BlockHash>, tonic::Status> {
+            if !self.service_config.get_first_block_epoch {
+                return Err(tonic::Status::unimplemented("`GetFirstBlockEpoch` is not enabled."));
+            }
+            let hash = self.consensus.get_first_block_epoch_v2(request.get_ref())?;
+            Ok(tonic::Response::new(types::BlockHash {
+                value: hash.to_vec(),
+            }))
+        }
+
+        async fn get_winning_bakers_epoch(
+            &self,
+            request: tonic::Request<crate::grpc2::types::EpochRequest>,
+        ) -> Result<tonic::Response<Self::GetWinningBakersEpochStream>, tonic::Status> {
+            if !self.service_config.get_winning_bakers_epoch {
+                return Err(tonic::Status::unimplemented(
+                    "`GetWinningBakersEpoch` is not enabled.",
+                ));
+            }
+            let (sender, receiver) = futures::channel::mpsc::channel(100);
+            self.consensus.get_winning_bakers_epoch_v2(request.get_ref(), sender)?;
+            Ok(tonic::Response::new(receiver))
         }
     }
 }

@@ -21,6 +21,7 @@ import qualified Concordium.TransactionVerification as TV
 import Concordium.Types
 import Concordium.Types.Transactions
 import Concordium.Types.UpdateQueues (ProtocolUpdateStatus (..))
+import Concordium.Utils.InterpolationSearch
 
 doResolveBlock :: TreeStateMonad m => BlockHash -> m (Maybe (BlockPointerType m))
 {- - INLINE doResolveBlock - -}
@@ -75,6 +76,49 @@ doGetBlocksAtHeight h = do
         LT -> do
             mb <- getFinalizedAtHeight h
             return (toList mb)
+
+-- |Result of querying for the first finalized block in an epoch, when the query fails.
+data EpochFailureResult
+    = -- |There are currently no finalized blocks in the given epoch.
+      FutureEpoch
+    | -- |The epoch is in the past, but was empty.
+      EmptyEpoch
+
+doGetFirstFinalizedOfEpoch ::
+    TreeStateMonad m =>
+    Either Epoch (BlockPointerType m) ->
+    m (Either EpochFailureResult (BlockPointerType m))
+doGetFirstFinalizedOfEpoch epochOrBlock = do
+    epochLength <- gdEpochLength <$> getGenesisData
+    let blockEpoch b = fromIntegral (blockSlot b `div` epochLength)
+    let targetEpoch = case epochOrBlock of
+            Left epoch -> epoch
+            Right block -> blockEpoch block
+    -- This should be safe to call for any height up to the height of the last finalized block.
+    -- Concurrent writers cannot remove finalized blocks from the persistent state, and when the
+    -- state was last updated, all blocks that were considered finalized must have been finalized
+    -- in the persistent state.
+    let unsafeFinalizedAtHeight h =
+            getFinalizedAtHeight h <&> \case
+                Nothing -> error $ "Missing finalized block at height " ++ show h
+                Just b -> (blockEpoch b, b)
+    lastFin <- fst <$> getLastFinalized
+    if targetEpoch > blockEpoch lastFin
+        then return $ Left FutureEpoch
+        else do
+            gen <- unsafeFinalizedAtHeight 0
+            let low = (0, gen)
+            -- If we were given a block, use that as the upper bound, so long as it is finalized.
+            let high = case epochOrBlock of
+                    Right guess
+                        | bpHeight guess <= bpHeight lastFin ->
+                            (bpHeight guess, (blockEpoch guess, guess))
+                    _ ->
+                        (bpHeight lastFin, (blockEpoch lastFin, lastFin))
+            res <- interpolationSearchFirstM unsafeFinalizedAtHeight targetEpoch low high
+            return $! case res of
+                Nothing -> Left EmptyEpoch
+                Just (_, block) -> Right block
 
 doBlockLastFinalizedIndex :: TreeStateMonad m => BlockPointerType m -> m FinalizationIndex
 {- - INLINE doBlockLastFinalizedIndex - -}
