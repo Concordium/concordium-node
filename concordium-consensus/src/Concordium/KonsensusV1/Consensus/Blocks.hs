@@ -322,30 +322,8 @@ receiveBlockKnownParent parent pendingBlock = do
 -- |Process receiving a block when the parent is not live.
 -- Precondition: the block is for a round and epoch that have not already been finalized.
 --
--- A block with an unknown parent is added to the pending block table and marked pending, unless
--- one of the following conditions holds, in which case the block is rejected as invalid:
---
--- * The timestamp is no less than the receive time of the block + the early block threshold, or
---   we do not know the set of bakers for the block's epoch.
---   (Returns 'BlockResultEarly'.)
---
--- * The bakers for the block's epoch are known and either:
---
---     - the baker is not a valid baker for the epoch; or
---     - the baker is valid but the signature on the block is not valid.
---
--- We do not process any of the transactions in pending blocks. The transactions will be processed
--- as part of 'processPendingChild', if and when the parent block becomes live. Some reasons for
--- this choice include:
---
--- * When we encounter (honest) pending blocks, we are or should be catching up with the network.
---   Processing pending blocks' transactions prematurely will likely divert resources from that.
---
--- * Under normal circumstances, we would expect to receive any transactions in the block separately
---   from the block itself, so they likely will be processed in any event.
---
--- * Having a single point at which transactions are processed (i.e. in 'processBlock') simplifies
---   the block processing flow and avoids duplicating effort.
+-- If the timestamp is no less than the receive time of the block + the early block threshold, the
+-- function returns 'BlockResultEarly'. Otherwise, it returns 'BlockResultPending'.
 receiveBlockUnknownParent ::
     ( LowLevel.MonadTreeStateStore m,
       MonadState (SkovData (MPV m)) m,
