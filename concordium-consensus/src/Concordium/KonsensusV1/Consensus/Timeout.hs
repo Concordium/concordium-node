@@ -113,7 +113,7 @@ receiveTimeoutMessage ::
     -- |Result of receiving the 'TimeoutMessage'.
     m (ReceiveTimeoutMessageResult (MPV m))
 receiveTimeoutMessage tm@TimeoutMessage{tmBody = TimeoutMessageBody{..}} skovData
-    -- Consenus has been shutdown.
+    -- Consensus has been shutdown.
     | skovData ^. isConsensusShutdown = return ConsensusShutdown
     --  The round of the 'TimeoutMessage' is obsolete.
     | tmRound < currentRound =

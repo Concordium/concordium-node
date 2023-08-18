@@ -118,11 +118,14 @@ onNewRound = do
 advanceRoundWithTimeout ::
     ( MonadTimeout m,
       LowLevel.MonadTreeStateStore m,
-      MonadState (SkovData (MPV m)) m
+      MonadState (SkovData (MPV m)) m,
+      MonadLogger m
     ) =>
     RoundTimeout (MPV m) ->
     m ()
 advanceRoundWithTimeout roundTimeout@RoundTimeout{..} = do
+    logEvent Konsensus LLDebug $
+        "Advancing round: round " ++ show (tcRound rtTimeoutCertificate) ++ " timed out."
     onNewRound
     roundStatus %=! updateQC . updateTC . (rsRoundEligibleToBake .~ True)
     updatePersistentRoundStatus (prsLatestTimeout .~ Present rtTimeoutCertificate)
@@ -142,12 +145,18 @@ advanceRoundWithTimeout roundTimeout@RoundTimeout{..} = do
 -- * The certified block MUST be for a round that is at least the current round.
 advanceRoundWithQuorum ::
     ( MonadTimeout m,
-      MonadState (SkovData (MPV m)) m
+      MonadState (SkovData (MPV m)) m,
+      MonadLogger m
     ) =>
     -- |Certified block
     CertifiedBlock (MPV m) ->
     m ()
 advanceRoundWithQuorum certBlock = do
+    logEvent Konsensus LLDebug $
+        "Advancing round: round "
+            ++ show (qcRound (cbQuorumCertificate certBlock))
+            ++ " certified block "
+            ++ show (qcBlock (cbQuorumCertificate certBlock))
     onNewRound
     roundStatus
         %=! (rsCurrentRound .~ 1 + qcRound (cbQuorumCertificate certBlock))
