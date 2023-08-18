@@ -166,7 +166,7 @@ isCatchUpRequired CatchUpStatus{..} sd
         -- Check if we are missing any of the leaf blocks
         forM_ cusLeaves $ \leaf -> do
             leafStatus <- lift $ getRecentBlockStatus leaf sd
-            -- If the block is pending or unknown, we should attempt catch-up.
+            -- If the block is unknown, we should attempt catch-up.
             case leafStatus of
                 RecentBlock BlockUnknown -> exitRequired
                 _ -> return ()

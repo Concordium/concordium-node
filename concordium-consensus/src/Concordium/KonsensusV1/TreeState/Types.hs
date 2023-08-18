@@ -234,7 +234,6 @@ pattern BlockAliveOrFinalized :: BlockPointer pv -> BlockStatus pv
 pattern BlockAliveOrFinalized b <- (blockStatusBlock -> Just b)
 
 -- This tells GHC that these patterns are complete for 'BlockStatus'.
-{-# COMPLETE BlockUnknown, BlockAlive, BlockFinalized, BlockDead #-}
 {-# COMPLETE BlockUnknown, BlockAliveOrFinalized, BlockDead #-}
 
 -- |The status of a block as obtained without loading the block from disk.

@@ -337,9 +337,7 @@ mkInitialSkovData rp genMeta genState _currentTimeout _skovEpochBakers transacti
 -- |Get the 'BlockPointer' for a block hash that is live (not finalized).
 -- Returns 'Nothing' if the block is not in the live (non-finalized) blocks.
 getLiveBlock :: BlockHash -> SkovData pv -> Maybe (BlockPointer pv)
-getLiveBlock blockHash sd = case sd ^? blockTable . liveMap . ix blockHash of
-    Just bp -> Just bp
-    _ -> Nothing
+getLiveBlock blockHash sd = sd ^? blockTable . liveMap . ix blockHash
 
 -- |Get the 'BlockPointer' for a block hash that is live or the last finalized block.
 -- Returns 'Nothing' if the block is neither live nor the last finalized block.
@@ -361,7 +359,7 @@ getMemoryBlockStatus blockHash sd
     | getHash (sd ^. lastFinalized) == blockHash = Just $! BlockFinalized (sd ^. lastFinalized)
     -- Check if it's the focus block
     | getHash (sd ^. focusBlock) == blockHash = Just $! BlockAlive (sd ^. focusBlock)
-    -- Check if it's a pending or live block
+    -- Check if it's a live block
     | Just bp <- sd ^? blockTable . liveMap . ix blockHash = Just $! BlockAlive bp
     -- Check if it's in the dead block cache
     | memberDeadCache blockHash (sd ^. blockTable . deadBlocks) = Just BlockDead

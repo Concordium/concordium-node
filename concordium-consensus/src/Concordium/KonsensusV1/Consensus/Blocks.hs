@@ -990,8 +990,7 @@ executeBlock verifiedBlock = do
         gets (getLiveOrLastFinalizedBlock (blockParent (vbBlock verifiedBlock))) >>= \case
             Just parent -> do
                 res <- processBlock parent verifiedBlock
-                forM_ res $ \newBlock -> do
-                    checkedValidateBlock newBlock
+                forM_ res checkedValidateBlock
             Nothing -> return ()
 
 -- * Block production
