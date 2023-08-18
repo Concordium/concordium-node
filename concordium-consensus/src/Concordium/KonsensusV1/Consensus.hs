@@ -61,11 +61,6 @@ class MonadConsensusEvent m where
         [BlockPointer (MPV m)] ->
         m ()
 
-    -- |Called when a previously pending block becomes live. This should be used to trigger sending
-    -- a catch-up status message to all (non-pending) peers, since they may not be aware of the
-    -- block as it was not relayed when first received.
-    onPendingLive :: m ()
-
 -- |A baker context containing the baker identity. Used for accessing relevant baker keys and the baker id.
 newtype BakerContext = BakerContext
     { _bakerIdentity :: Maybe BakerIdentity

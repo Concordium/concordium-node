@@ -178,7 +178,7 @@ receiveTimeoutMessage tm@TimeoutMessage{tmBody = TimeoutMessageBody{..}} skovDat
                                     -- If the block is pending or unknown, then due to the checks above
                                     -- we know that we have to initiate catch up since the round of the quorum certificate
                                     -- is greater than our highest certified block.
-                                    RecentBlock BlockPendingOrUnknown -> return CatchupRequired
+                                    RecentBlock BlockUnknown -> return CatchupRequired
   where
     -- Get the bakers and finalizers for the epoch of the timeout message's QC.
     -- If they are not available, trigger catch-up.

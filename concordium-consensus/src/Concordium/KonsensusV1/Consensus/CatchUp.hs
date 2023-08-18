@@ -168,7 +168,7 @@ isCatchUpRequired CatchUpStatus{..} sd
             leafStatus <- lift $ getRecentBlockStatus leaf sd
             -- If the block is pending or unknown, we should attempt catch-up.
             case leafStatus of
-                RecentBlock BlockPendingOrUnknown -> exitRequired
+                RecentBlock BlockUnknown -> exitRequired
                 _ -> return ()
         when (cusCurrentRound == myCurrentRound) $ do
             let myCurrentRoundQuorum = sd ^. currentQuorumMessages . smBlockToWeightsAndSignatures

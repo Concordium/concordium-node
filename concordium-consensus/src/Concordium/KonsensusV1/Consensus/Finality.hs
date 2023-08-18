@@ -254,8 +254,6 @@ processFinalizationHelper newFinalizedBlock newFinalizationEntry mCertifiedBlock
     purgeRoundExistingBlocks (blockRound newFinalizedBlock)
     -- Purge the 'roundExistingQCs' before the last finalized block.
     purgeRoundExistingQCs (blockRound newFinalizedBlock)
-    -- Purge any pending blocks that are no longer viable.
-    purgePending
     -- Advance the epoch if the new finalized block triggers the epoch transition.
     checkedAdvanceEpoch newFinalizationEntry newFinalizedBlock
     -- Log that the blocks are finalized.
@@ -396,26 +394,3 @@ pruneBranches parent newFin deltaHeight oldBranches = PruneResult{..}
         (newSurvivors, newRemoved) = List.partition ((`elem` parents) . parent) brs
     (removedFromBranches, prNewBranches) = pruneLimbs [] [newFin] Seq.Empty limbs
     prRemoved = removedFromTrunk ++ removedFromBranches
-
--- |Given a block that has never been live, mark the block as dead.
--- Any pending children will also be marked dead recursively.
-blockArriveDead :: (MonadState (SkovData pv) m, MonadLogger m) => BlockHash -> m ()
-blockArriveDead blockHsh = do
-    logEvent Konsensus LLDebug $ "Block " ++ show blockHsh ++ " arrived dead."
-    markBlockDead blockHsh
-    children <- takePendingChildren blockHsh
-    forM_ children (blockArriveDead . getHash)
-
--- |Purge pending blocks with timestamps preceding the last finalized block.
-purgePending :: (MonadState (SkovData pv) m, MonadLogger m) => m ()
-purgePending = do
-    lfTimestamp <- use $ lastFinalized . to blockTimestamp
-    let purgeLoop =
-            takeNextPendingUntil lfTimestamp >>= \case
-                Nothing -> return ()
-                Just pending -> do
-                    let pendingHash = getHash pending
-                    blockIsPending <- gets (isPending pendingHash)
-                    when blockIsPending $ blockArriveDead pendingHash
-                    purgeLoop
-    purgeLoop

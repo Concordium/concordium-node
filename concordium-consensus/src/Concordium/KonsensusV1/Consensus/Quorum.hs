@@ -143,9 +143,6 @@ receiveQuorumMessage qm@QuorumMessage{..} skovData = receive
                         -- The block is unknown so catch up.
                         BlockUnknown ->
                             return CatchupRequired
-                        -- The block is already pending so wait for it to be executed.
-                        BlockPending _ ->
-                            return CatchupRequired
                         -- The block is executed but not finalized.
                         -- Perform the remaining checks before processing the 'QuorumMessage'.
                         BlockAlive targetBlock

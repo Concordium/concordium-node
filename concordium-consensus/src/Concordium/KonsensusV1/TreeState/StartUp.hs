@@ -265,7 +265,6 @@ loadSkovData _runtimeParameters didRollback = do
             Just finEntry -> Map.singleton (qcRound qc) (toQuorumCertificateWitness qc)
               where
                 qc = feFinalizedQuorumCertificate finEntry
-    let _skovPendingBlocks = emptyPendingBlocks
     let _lastFinalized = lastFinBlock
     _latestFinalizationEntry <- maybe Absent Present <$> LowLevel.lookupLatestFinalizationEntry
     -- We will load our last timeout message if appropriate in 'loadCertifiedBlocks'.
@@ -421,7 +420,7 @@ loadCertifiedBlocks = do
     loadCertBlock (storedBlock, qc) = do
         blockPointer <- mkBlockPointer storedBlock
         cacheBlockState (bpState blockPointer)
-        blockTable . liveMap . at' (getHash blockPointer) ?=! MemBlockAlive blockPointer
+        blockTable . liveMap . at' (getHash blockPointer) ?=! blockPointer
         addToBranches blockPointer
         forM_ (blockTransactions blockPointer) $ \tr -> do
             -- Add transactions to the transaction table as 'TVer.TrustedSuccess', since they
