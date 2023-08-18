@@ -606,7 +606,11 @@ parentOfLive sd block
         | otherwise = error "parentOfLive: unexpected genesis block"
 
 -- |Get the last finalized block from the perspective of a block. That is, follow the QC chain
--- back until we reach two blocks in consecutive rounds.
+-- back until we reach two blocks in consecutive rounds and the same epoch.
+-- While the number of steps we need to go back is theoretically arbitrary, in practice it will
+-- be small. Assuming a timeout base of 10 seconds and a grow factor of 1.2, the timeout would have
+-- to pass 1 day if we need to go back 50 blocks, and 1 billion years if we need to go back 200
+-- blocks.
 lastFinalizedOf ::
     (LowLevel.MonadTreeStateStore m, MonadIO m, MonadState (SkovData (MPV m)) m) =>
     BlockPointer (MPV m) ->
@@ -617,7 +621,7 @@ lastFinalizedOf = go <=< parentOf
         | blockRound block == 0 = return block
         | otherwise = do
             parent <- parentOf block
-            if blockRound block == blockRound parent + 1
+            if blockRound block == blockRound parent + 1 && blockEpoch block == blockEpoch parent
                 then return parent
                 else go parent
 
