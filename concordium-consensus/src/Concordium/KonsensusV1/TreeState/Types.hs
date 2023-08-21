@@ -209,9 +209,7 @@ data TransactionStatus
 -- in a pattern match, then if 'BlockStatus pv' is to be modified the complete pragma MUST also be
 -- checked whether it is still sufficient.
 data BlockStatus pv
-    = -- |The block is awaiting its parent to become part of chain.
-      BlockPending !PendingBlock
-    | -- |The block is alive.
+    = -- |The block is alive.
       BlockAlive !(BlockPointer pv)
     | -- |The block is finalized.
       BlockFinalized !(BlockPointer pv)
@@ -231,24 +229,12 @@ blockStatusBlock (BlockAlive b) = Just b
 blockStatusBlock (BlockFinalized b) = Just b
 blockStatusBlock _ = Nothing
 
--- |Returns 'True' just when the 'BlockStatus' is either 'BlockPending' or 'BlockUnknown'.
-isPendingOrUnknown :: BlockStatus pv -> Bool
-isPendingOrUnknown BlockPending{} = True
-isPendingOrUnknown BlockUnknown = True
-isPendingOrUnknown _ = False
-
 -- |A (unidirectional) pattern for matching a block status that is either alive or finalized.
 pattern BlockAliveOrFinalized :: BlockPointer pv -> BlockStatus pv
 pattern BlockAliveOrFinalized b <- (blockStatusBlock -> Just b)
 
--- |A (unidirectional) pattern for matching a block status that is either pending or unknown.
-pattern BlockPendingOrUnknown :: BlockStatus pv
-pattern BlockPendingOrUnknown <- (isPendingOrUnknown -> True)
-
 -- This tells GHC that these patterns are complete for 'BlockStatus'.
-{-# COMPLETE BlockPending, BlockAliveOrFinalized, BlockDead, BlockUnknown #-}
-{-# COMPLETE BlockPendingOrUnknown, BlockAlive, BlockFinalized, BlockDead #-}
-{-# COMPLETE BlockPendingOrUnknown, BlockAliveOrFinalized, BlockDead #-}
+{-# COMPLETE BlockUnknown, BlockAliveOrFinalized, BlockDead #-}
 
 -- |The status of a block as obtained without loading the block from disk.
 data RecentBlockStatus pv
@@ -359,13 +345,13 @@ data RoundTimeout (pv :: ProtocolVersion) = RoundTimeout
 --
 -- INVARIANTS:
 --
---  * @_rsCurrentEpoch > qcEpoch (cbQuorumCertificate _rsHighestCertifiedBlock)@.
+--  * @_rsCurrentRound > qcRound (cbQuorumCertificate _rsHighestCertifiedBlock)@.
 --
 --  * If @_rsPreviousRoundTimeout = Absent@ then
---    @_rsCurrentEpoch = 1 + qcEpoch (cbQuorumCertificate _rsHighestCertifiedBlock)@.
+--    @_rsCurrentRound = 1 + qcRound (cbQuorumCertificate _rsHighestCertifiedBlock)@.
 --
 --  * If @_rsPreviousRoundTimeout = Present timeout@ then
---    @_rsCurrentEpoch = 1 + qcEpoch (rtQuorumCertificate timeout)@.
+--    @_rsCurrentRound = 1 + qcRound (rtQuorumCertificate timeout)@.
 data RoundStatus (pv :: ProtocolVersion) = RoundStatus
     { -- |The current 'Round'. If the previous round did not time out, this should be
       -- @1 + cbRound _rsHighestCertifiedBlock@. Otherwise, it should be
@@ -382,7 +368,9 @@ data RoundStatus (pv :: ProtocolVersion) = RoundStatus
       -- This is set to 'True' when the round is advanced, and set to 'False' when we have attempted
       -- to bake for the round.
       _rsRoundEligibleToBake :: !Bool,
-      -- |The current epoch.
+      -- |The current epoch. This should either be the same as the epoch of the last finalized
+      -- block (if its timestamp is before the trigger block time) or the next epoch from the last
+      -- finalized block (if its timestamp is at least the trigger block time).
       _rsCurrentEpoch :: !Epoch,
       -- |If present, an epoch finalization entry for @_currentEpoch - 1@. An entry MUST be
       -- present if @_currentEpoch > blockEpoch _lastFinalized@. Otherwise, an entry MAY be present,
@@ -433,7 +421,9 @@ data BakersAndFinalizers = BakersAndFinalizers
 makeLenses ''BakersAndFinalizers
 
 -- |The bakers and finalizers associated with the previous, current and next epochs (with respect
--- to a particular epoch).
+-- to a particular epoch). Note that the current epoch referred to here is typically the epoch
+-- of the last finalized block, which is distinct from the current epoch as recorded in the
+-- 'RoundStatus' structure.
 data EpochBakers = EpochBakers
     { -- |The bakers and finalizers for the previous epoch.
       -- (If the current epoch is 0, then this is the same as the bakers and finalizers for the
@@ -453,8 +443,8 @@ makeClassy ''EpochBakers
 
 -- |Quorum messages collected for a round.
 data QuorumMessages = QuorumMessages
-    { -- |Map of finalizer indices to signature messages.
-      _smFinalizerToQuorumMessage :: !(Map.Map FinalizerIndex QuorumMessage),
+    { -- |Map of baker ids to signature messages.
+      _smBakerIdToQuorumMessage :: !(Map.Map BakerId QuorumMessage),
       -- |Accumulated weights and the aggregated signature for the blocks signed off by quorum signature message.
       -- The 'VoterPower' here is in relation to the 'Epoch' of the block being finalized.
       _smBlockToWeightsAndSignatures :: !(Map.Map BlockHash (VoterPower, QuorumSignature, FinalizerSet))

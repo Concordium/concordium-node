@@ -143,7 +143,6 @@ uponReceivingBlock pendingBlock = do
                             getRecentBlockStatus (blockParent pendingBlock) sd >>= \case
                                 RecentBlock (BlockAlive parent) -> receiveBlockKnownParent parent pendingBlock
                                 RecentBlock (BlockFinalized parent) -> receiveBlockKnownParent parent pendingBlock
-                                RecentBlock BlockPending{} -> receiveBlockUnknownParent pendingBlock
                                 RecentBlock BlockDead -> rejectBadParent
                                 RecentBlock BlockUnknown -> receiveBlockUnknownParent pendingBlock
                                 OldFinalized -> rejectBadParent
@@ -323,30 +322,8 @@ receiveBlockKnownParent parent pendingBlock = do
 -- |Process receiving a block when the parent is not live.
 -- Precondition: the block is for a round and epoch that have not already been finalized.
 --
--- A block with an unknown parent is added to the pending block table and marked pending, unless
--- one of the following conditions holds, in which case the block is rejected as invalid:
---
--- * The timestamp is no less than the receive time of the block + the early block threshold, or
---   we do not know the set of bakers for the block's epoch.
---   (Returns 'BlockResultEarly'.)
---
--- * The bakers for the block's epoch are known and either:
---
---     - the baker is not a valid baker for the epoch; or
---     - the baker is valid but the signature on the block is not valid.
---
--- We do not process any of the transactions in pending blocks. The transactions will be processed
--- as part of 'processPendingChild', if and when the parent block becomes live. Some reasons for
--- this choice include:
---
--- * When we encounter (honest) pending blocks, we are or should be catching up with the network.
---   Processing pending blocks' transactions prematurely will likely divert resources from that.
---
--- * Under normal circumstances, we would expect to receive any transactions in the block separately
---   from the block itself, so they likely will be processed in any event.
---
--- * Having a single point at which transactions are processed (i.e. in 'processBlock') simplifies
---   the block processing flow and avoids duplicating effort.
+-- If the timestamp is no less than the receive time of the block + the early block threshold, the
+-- function returns 'BlockResultEarly'. Otherwise, it returns 'BlockResultPending'.
 receiveBlockUnknownParent ::
     ( LowLevel.MonadTreeStateStore m,
       MonadState (SkovData (MPV m)) m,
@@ -359,31 +336,12 @@ receiveBlockUnknownParent pendingBlock = do
     if blockTimestamp pendingBlock
         < addDuration (utcTimeToTimestamp $ pbReceiveTime pendingBlock) earlyThreshold
         then do
-            genesisHash <- use currentGenesisHash
-            gets (getBakersForEpoch (blockEpoch pendingBlock)) >>= \case
-                Nothing -> do
-                    -- We do not know the bakers, so we treat this like an early block.
-                    return BlockResultEarly
-                Just bf -- We know the bakers
-                    | Just baker <- fullBaker (bf ^. bfBakers) (blockBaker pendingBlock),
-                      verifyBlockSignature (baker ^. bakerSignatureVerifyKey) genesisHash pendingBlock ->
-                        -- The signature is valid
-                        continuePending
-                    | otherwise -> do
-                        -- The signature is invalid.
-                        -- Note: we do not mark the block dead, because potentially a valid block
-                        -- with the same hash exists.
-                        logEvent Konsensus LLTrace $ "Block " <> show pbHash <> " has an invalid signature."
-                        return BlockResultInvalid
+            logEvent Konsensus LLInfo $ "Block " <> show pbHash <> " is pending its parent " <> show (blockParent pendingBlock) <> "."
+            return BlockResultPending
         else return BlockResultEarly
   where
     pbHash :: BlockHash
     pbHash = getHash pendingBlock
-    continuePending = do
-        addPendingBlock pendingBlock
-        markPending pendingBlock
-        logEvent Konsensus LLInfo $ "Block " <> show pbHash <> " is pending its parent " <> show (blockParent pendingBlock) <> "."
-        return BlockResultPending
 
 -- |Get the minimum time between consecutive blocks, as of the specified block.
 -- This is the value of the minimum block time chain parameter, and determines the minimum interval
@@ -558,6 +516,16 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                                 -- Write out the parent if it is newly certified, and check if
                                 -- it finalizes other blocks also.
                                 processCertifiedBlock certifiedParent
+                                forM_ (blockEpochFinalizationEntry pendingBlock) $ \finEntry -> do
+                                    -- If the epoch finalization entry is present, then it will
+                                    -- already be checked to be valid.
+                                    let finBlockHash = qcBlock (feFinalizedQuorumCertificate finEntry)
+                                    -- Check if the block finalized by the entry is still live.
+                                    mNewFinBlock <- gets (getLiveBlock finBlockHash)
+                                    forM_ mNewFinBlock $ \finBlock -> do
+                                        -- If so, we finalize it now.
+                                        processFinalizationEntry finBlock finEntry
+                                        shrinkTimeout finBlock
                                 curRound <- use $ roundStatus . rsCurrentRound
                                 if curRound < blockRound pendingBlock
                                     then case blockTimeoutCertificate pendingBlock of
@@ -694,6 +662,9 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                     -- Check that the finalization entry is for the correct epoch,
                     -- that the higher QC round is at most the round of the parent block, and
                     -- contains valid QCs.
+                    -- Note that these conditions ensure that the parent block is descended from
+                    -- the block finalized by the finalization entry (assuming sufficient honesty
+                    -- among the finalization committee).
                     | qcEpoch (feFinalizedQuorumCertificate finEntry) == blockEpoch parent,
                       qcRound (feSuccessorQuorumCertificate finEntry) <= blockRound parent,
                       checkFinalizationEntry
@@ -714,30 +685,10 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                         -- check.
                         let finBlockHash = qcBlock (feFinalizedQuorumCertificate finEntry)
                         get >>= getBlockStatus finBlockHash >>= \case
-                            BlockFinalized finBlock
+                            BlockAliveOrFinalized finBlock
                                 | blockTimestamp finBlock >= parentSeedState ^. triggerBlockTime ->
-                                    -- We already know that the block is finalized.
-                                    continue
-                            BlockAlive finBlock
-                                | blockTimestamp finBlock >= parentSeedState ^. triggerBlockTime -> do
-                                    -- We do not currently consider the block finalized, so we
-                                    -- process the finalization now. The block we are finalizing is
-                                    -- a live (non-finalized) block, and therefore it is at most
-                                    -- one epoch after the last finalized block.
-                                    processFinalizationEntry finBlock finEntry
-                                    shrinkTimeout finBlock
-                                    -- Note: we do not update the highest certified block here
-                                    -- because the parent block will be at least as high as that
-                                    -- in the successor QC. (Also, we may not have the block
-                                    -- pointed to by the successor QC.)
-                                    --
-                                    -- Note that we have checked that @qcRound (feSuccessorQuorumCertificate finEntry) <= blockRound parent@
-                                    -- so either the @parent@ is the block that finalized @finBlock@ or @finBlock@ was already finalized
-                                    -- when @parent@ was baked.
-                                    -- Hence, at this point we MUST know the @parent@ so there is no need to look it up,
-                                    -- so we just @continue@.
-                                    -- If this is not the case, then there must've been more than 1/3 dishonest finalizers
-                                    -- and as a result conflicting blocks were finalized.
+                                    -- The block is alive or already finalized, and justifies the
+                                    -- epoch transition.
                                     continue
                             _ -> do
                                 logEvent Konsensus LLTrace $
@@ -887,90 +838,6 @@ instance Ord (OrderedBlock pv) where
 instance Eq (OrderedBlock pv) where
     a == b = compare a b == EQ
 
--- |Process the pending children of a block that has just become live.
--- A pending child block either becomes alive or dead after it is processed.
--- Pending children are processed recursively (i.e. pending children of pending children are also
--- processed, etc.).
--- The returned block is the best resulting live block among the supplied block and any pending
--- children that become live. ("Best" here means the greatest with respect to the order on
--- 'OrderedBlock'.)
-processPendingChildren ::
-    ( IsConsensusV1 (MPV m),
-      BlockState m ~ HashedPersistentBlockState (MPV m),
-      MonadState (SkovData (MPV m)) m,
-      MonadProtocolVersion m,
-      LowLevel.MonadTreeStateStore m,
-      BlockStateStorage m,
-      MonadIO m,
-      TimeMonad m,
-      MonadThrow m,
-      MonadTimeout m,
-      MonadLogger m,
-      MonadConsensusEvent m
-    ) =>
-    BlockPointer (MPV m) ->
-    m (OrderedBlock (MPV m))
-processPendingChildren parent = do
-    children <- takePendingChildren (getHash parent)
-    foldM process (OrderedBlock parent) children
-  where
-    process best child = do
-        res <- processPendingChild child
-        return $! maybe best (max best) res
-
--- |Process a pending child block given that its parent has become live.
---
--- PRECONDITIONS:
---   - The block's signature has been verified. (This is the case for blocks that are marked as
---     pending.)
-processPendingChild ::
-    ( IsConsensusV1 (MPV m),
-      BlockStateStorage m,
-      BlockState m ~ HashedPersistentBlockState (MPV m),
-      LowLevel.MonadTreeStateStore m,
-      MonadState (SkovData (MPV m)) m,
-      MonadProtocolVersion m,
-      MonadIO m,
-      TimeMonad m,
-      MonadThrow m,
-      MonadTimeout m,
-      MonadLogger m,
-      MonadConsensusEvent m
-    ) =>
-    PendingBlock ->
-    m (Maybe (OrderedBlock (MPV m)))
-processPendingChild block = do
-    sd <- get
-    if isPending blockHash sd
-        then case getLiveOrLastFinalizedBlock (blockParent block) sd of
-            Just parent -> do
-                receiveBlockKnownParent parent block >>= \case
-                    BlockResultSuccess vb -> do
-                        processReceiveOK True parent vb
-                    BlockResultDoubleSign vb -> do
-                        processReceiveOK False parent vb
-                    _ -> do
-                        processAsDead
-            Nothing -> do
-                -- The block can never be part of the tree since the parent is not live/last
-                -- finalized, and yet the parent has already been processed.
-                processAsDead
-        else return Nothing
-  where
-    blockHash = getHash block
-    processAsDead = do
-        blockArriveDead blockHash
-        return Nothing
-    processReceiveOK advertise parent vb = do
-        processBlock parent vb >>= \case
-            Just newBlock -> do
-                -- We only advertise the block to our peers
-                -- if it was received succesfully. Hence if peers are catching up with us
-                -- they are getting the blocks in the same order as we are.
-                when advertise onPendingLive
-                Just <$> processPendingChildren newBlock
-            Nothing -> processAsDead
-
 -- |Produce a quorum signature on a block.
 -- This checks that the block is still valid, is in the current round and epoch, and the
 -- round is signable (i.e. we haven't already signed a quorum message or timeout message).
@@ -1041,6 +908,7 @@ validateBlock blockHash BakerIdentity{..} finInfo = do
                     VerifiedQuorumMessage
                         { vqmMessage = quorumMessage,
                           vqmFinalizerWeight = finalizerWeight finInfo,
+                          vqmFinalizerBakerId = finalizerBakerId finInfo,
                           vqmBlock = block
                         }
                     makeBlock
@@ -1122,9 +990,7 @@ executeBlock verifiedBlock = do
         gets (getLiveOrLastFinalizedBlock (blockParent (vbBlock verifiedBlock))) >>= \case
             Just parent -> do
                 res <- processBlock parent verifiedBlock
-                forM_ res $ \newBlock -> do
-                    OrderedBlock best <- processPendingChildren newBlock
-                    checkedValidateBlock best
+                forM_ res checkedValidateBlock
             Nothing -> return ()
 
 -- * Block production

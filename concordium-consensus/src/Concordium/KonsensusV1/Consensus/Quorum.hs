@@ -74,6 +74,8 @@ data VerifiedQuorumMessage (pv :: ProtocolVersion) = VerifiedQuorumMessage
       vqmMessage :: !QuorumMessage,
       -- |The weight of the finalizer.
       vqmFinalizerWeight :: !VoterPower,
+      -- |The baker id of the finalizer.
+      vqmFinalizerBakerId :: !BakerId,
       -- |The block that is the target of the quorum message.
       vqmBlock :: !(BlockPointer pv)
     }
@@ -99,7 +101,7 @@ receiveQuorumMessage ::
 receiveQuorumMessage qm@QuorumMessage{..} skovData = receive
   where
     receive
-        -- Consenus has been shutdown.
+        -- Consensus has been shutdown.
         | skovData ^. isConsensusShutdown = return ConsensusShutdown
         -- The consensus runner is not caught up.
         | qmEpoch > skovData ^. roundStatus . rsCurrentEpoch =
@@ -141,9 +143,6 @@ receiveQuorumMessage qm@QuorumMessage{..} skovData = receive
                         -- The block is unknown so catch up.
                         BlockUnknown ->
                             return CatchupRequired
-                        -- The block is already pending so wait for it to be executed.
-                        BlockPending _ ->
-                            return CatchupRequired
                         -- The block is executed but not finalized.
                         -- Perform the remaining checks before processing the 'QuorumMessage'.
                         BlockAlive targetBlock
@@ -160,12 +159,21 @@ receiveQuorumMessage qm@QuorumMessage{..} skovData = receive
                                 return $ Rejected InconsistentEpochs
                             -- Return the verified quorum message.
                             | otherwise -> do
-                                let vqm = VerifiedQuorumMessage qm finalizerWeight targetBlock
+                                let vqm =
+                                        VerifiedQuorumMessage
+                                            { vqmMessage = qm,
+                                              vqmFinalizerWeight = finalizerWeight,
+                                              vqmFinalizerBakerId = finalizerBakerId,
+                                              vqmBlock = targetBlock
+                                            }
                                 return $! case getExistingMessage of
                                     Just _ -> ReceivedNoRelay vqm
                                     Nothing -> Received vqm
-    -- Try get an existing 'QuorumMessage' if present otherwise return 'Nothing'.
-    getExistingMessage = skovData ^? currentQuorumMessages . smFinalizerToQuorumMessage . ix qmFinalizerIndex
+              where
+                -- Try get an existing 'QuorumMessage' if present otherwise return 'Nothing'.
+                getExistingMessage =
+                    skovData
+                        ^? currentQuorumMessages . smBakerIdToQuorumMessage . ix finalizerBakerId
     -- Extract the quorum signature message
     getQuorumSignatureMessage =
         let genesisHash = skovData ^. genesisMetadata . to gmCurrentGenesisHash
@@ -188,15 +196,15 @@ addQuorumMessage ::
     -- |The resulting messages.
     QuorumMessages
 addQuorumMessage
-    (VerifiedQuorumMessage quorumMessage@QuorumMessage{..} weight _)
+    (VerifiedQuorumMessage quorumMessage@QuorumMessage{..} weight bId _)
     (QuorumMessages currentMessages currentWeights) =
         QuorumMessages
-            { _smFinalizerToQuorumMessage = newSignatureMessages,
+            { _smBakerIdToQuorumMessage = newSignatureMessages,
               _smBlockToWeightsAndSignatures = updatedWeightAndSignature
             }
       where
         finalizerIndex = qmFinalizerIndex
-        newSignatureMessages = Map.insert finalizerIndex quorumMessage currentMessages
+        newSignatureMessages = Map.insert bId quorumMessage currentMessages
         justOrIncrement =
             maybe
                 (Just (weight, qmSignature, finalizerSet [finalizerIndex]))
@@ -277,7 +285,7 @@ processQuorumMessage ::
     -- |Continuation to make a block
     m () ->
     m ()
-processQuorumMessage vqm@(VerifiedQuorumMessage quorumMessage _ quorumBlock) makeBlock = do
+processQuorumMessage vqm@VerifiedQuorumMessage{..} makeBlock = do
     currentRound <- use (roundStatus . rsCurrentRound)
     -- Check that the round of the 'QuorumMessage' corresponds to
     -- the current round of the tree state.
@@ -285,10 +293,10 @@ processQuorumMessage vqm@(VerifiedQuorumMessage quorumMessage _ quorumBlock) mak
     -- then the rounds (quorum message round and current round) should be equal when this function is
     -- called immediately after 'receiveQuorumMessage'
     -- and so the 'not equal' case below shouldn't happen in normal operation.
-    when (currentRound == qmRound quorumMessage) $ do
+    when (currentRound == qmRound vqmMessage) $ do
         currentQuorumMessages %=! addQuorumMessage vqm
         skovData <- get
-        let maybeQuorumCertificate = makeQuorumCertificate quorumBlock skovData
+        let maybeQuorumCertificate = makeQuorumCertificate vqmBlock skovData
         forM_ maybeQuorumCertificate $ \newQC -> do
             logEvent Konsensus LLDebug $
                 "Quorum certificate generated for block "
@@ -301,7 +309,7 @@ processQuorumMessage vqm@(VerifiedQuorumMessage quorumMessage _ quorumBlock) mak
             let newCertifiedBlock =
                     CertifiedBlock
                         { cbQuorumCertificate = newQC,
-                          cbQuorumBlock = quorumBlock
+                          cbQuorumBlock = vqmBlock
                         }
             -- Process the certified block, including checking for finalization.
             processCertifiedBlock newCertifiedBlock

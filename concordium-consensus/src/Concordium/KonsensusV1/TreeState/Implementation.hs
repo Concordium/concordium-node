@@ -36,9 +36,7 @@ import GHC.Stack
 import Lens.Micro.Platform
 
 import qualified Data.HashMap.Strict as HM
-import qualified Data.List as List
 import qualified Data.Map.Strict as Map
-import qualified Data.PQueue.Prio.Min as MPQ
 import qualified Data.Sequence as Seq
 
 import qualified Concordium.Genesis.Data.BaseV1 as Base
@@ -48,6 +46,7 @@ import Concordium.Types.HashableTo
 import Concordium.Types.Transactions
 import Concordium.Types.Updates
 import Concordium.Utils
+import Concordium.Utils.InterpolationSearch
 
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Parameters (RuntimeParameters (..))
@@ -74,16 +73,6 @@ instance Exception TreeStateInvariantViolation where
         "Tree state invariant violation: "
             ++ show reason
 
--- |Status of a block that is held in memory i.e.
--- the block is either pending or alive.
--- Parameterized by the 'BlockPointer' and the 'SignedBlock'.
-data InMemoryBlockStatus pv
-    = -- |The block is awaiting its parent to become part of chain.
-      MemBlockPending !PendingBlock
-    | -- |The block is alive i.e. head of chain.
-      MemBlockAlive !(BlockPointer pv)
-    deriving (Show)
-
 -- |The block table yields blocks that are
 -- either alive or pending.
 -- Furthermore it holds a fixed size cache of hashes
@@ -109,7 +98,7 @@ data BlockTable pv = BlockTable
       -- * When a block is being marked as dead.
       --
       -- Note that non-finalized certified blocks exist both in the live map and on the disk.
-      _liveMap :: !(HM.HashMap BlockHash (InMemoryBlockStatus pv))
+      _liveMap :: !(HM.HashMap BlockHash (BlockPointer pv))
     }
     deriving (Show)
 
@@ -143,37 +132,6 @@ data PendingTransactions pv = PendingTransactions
 -- We make it classy such that we can provide an instance @HasPendingTransactions (SkovData pv) pv@
 -- making it easier to work with from a 'SkovData' context.
 makeClassy ''PendingTransactions
-
--- | Pending blocks are conceptually stored in a min priority queue,
--- where multiple blocks may have the same key, which is their parent,
--- and the priority is the block's round number.
--- When a block arrives (possibly dead), its pending children are removed
--- from the queue and handled.  This uses 'takePendingChildren'.
--- When a block is finalized, all pending blocks with a lower or equal round
--- number can be handled (they will become dead, since they can no longer
--- join the tree).  This uses 'takeNextPendingUntil'.
-data PendingBlocks = PendingBlocks
-    { -- |Pending blocks i.e. blocks that have not yet been included in the tree.
-      -- The entries of the pending blocks are keyed by the 'BlockHash' of their parent block.
-      _pendingBlocksTable :: !(HM.HashMap BlockHash [PendingBlock]),
-      -- |A priority queue on the (pending block hash, parent of pending block hash) tuple,
-      -- prioritised by the timestamp of the pending block. The queue in particular supports extracting
-      -- the pending block with minimal 'Timestamp'. Note that the queue can contain spurious pending
-      -- blocks, and a block is only actually in the pending blocks if it has an entry in the
-      -- '_pendingBlocksTable'.
-      _pendingBlocksQueue :: !(MPQ.MinPQueue Timestamp (BlockHash, BlockHash))
-    }
-    deriving (Eq, Show)
-
-makeClassy ''PendingBlocks
-
--- |A 'PendingBlocks' with no blocks.
-emptyPendingBlocks :: PendingBlocks
-emptyPendingBlocks =
-    PendingBlocks
-        { _pendingBlocksTable = HM.empty,
-          _pendingBlocksQueue = MPQ.empty
-        }
 
 -- |Data required to support 'TreeState'.
 --
@@ -225,8 +183,6 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       _roundExistingQCs :: !(Map.Map Round QuorumCertificateCheckedWitness),
       -- |Genesis metadata
       _genesisMetadata :: !GenesisMetadata,
-      -- |Pending blocks
-      _skovPendingBlocks :: !PendingBlocks,
       -- |Pointer to the last finalized block.
       _lastFinalized :: !(BlockPointer pv),
       -- |A finalization entry that finalizes the last finalized block, unless that is the
@@ -257,10 +213,6 @@ makeLenses ''SkovData
 instance HasPendingTransactions (SkovData pv) pv where
     pendingTransactions = skovPendingTransactions
     {-# INLINE pendingTransactions #-}
-
-instance HasPendingBlocks (SkovData pv) where
-    pendingBlocks = skovPendingBlocks
-    {-# INLINE pendingBlocks #-}
 
 instance HasEpochBakers (SkovData pv) where
     epochBakers = skovEpochBakers
@@ -373,7 +325,6 @@ mkInitialSkovData rp genMeta genState _currentTimeout _skovEpochBakers transacti
         _roundExistingBlocks = Map.empty
         _roundExistingQCs = Map.empty
         _genesisMetadata = genMeta
-        _skovPendingBlocks = emptyPendingBlocks
         _lastFinalized = genesisBlockPointer
         _latestFinalizationEntry = Absent
         _statistics = Stats.initialConsensusStatistics
@@ -384,18 +335,10 @@ mkInitialSkovData rp genMeta genState _currentTimeout _skovEpochBakers transacti
 
 -- * Operations on the block table
 
--- |Look up whether the given block hash is a currently-pending block in the block table.
-isPending :: BlockHash -> SkovData pv -> Bool
-isPending bh sd = case sd ^? blockTable . liveMap . ix bh of
-    Just (MemBlockPending _) -> True
-    _ -> False
-
 -- |Get the 'BlockPointer' for a block hash that is live (not finalized).
 -- Returns 'Nothing' if the block is not in the live (non-finalized) blocks.
 getLiveBlock :: BlockHash -> SkovData pv -> Maybe (BlockPointer pv)
-getLiveBlock blockHash sd = case sd ^? blockTable . liveMap . ix blockHash of
-    Just (MemBlockAlive bp) -> Just bp
-    _ -> Nothing
+getLiveBlock blockHash sd = sd ^? blockTable . liveMap . ix blockHash
 
 -- |Get the 'BlockPointer' for a block hash that is live or the last finalized block.
 -- Returns 'Nothing' if the block is neither live nor the last finalized block.
@@ -417,10 +360,8 @@ getMemoryBlockStatus blockHash sd
     | getHash (sd ^. lastFinalized) == blockHash = Just $! BlockFinalized (sd ^. lastFinalized)
     -- Check if it's the focus block
     | getHash (sd ^. focusBlock) == blockHash = Just $! BlockAlive (sd ^. focusBlock)
-    -- Check if it's a pending or live block
-    | Just status <- sd ^? blockTable . liveMap . ix blockHash = case status of
-        MemBlockPending sb -> Just $! BlockPending sb
-        MemBlockAlive bp -> Just $! BlockAlive bp
+    -- Check if it's a live block
+    | Just bp <- sd ^? blockTable . liveMap . ix blockHash = Just $! BlockAlive bp
     -- Check if it's in the dead block cache
     | memberDeadCache blockHash (sd ^. blockTable . deadBlocks) = Just BlockDead
     -- Otherwise, we don't know
@@ -485,6 +426,35 @@ getBlocksAtHeight height sd = case compare height lastFinHeight of
     lastFin = sd ^. lastFinalized
     lastFinHeight = bmHeight (blockMetadata lastFin)
 
+-- |Get the first finalized block in a given epoch. The epoch can be specified either directly or
+-- by a block belong to the epoch.
+getFirstFinalizedBlockOfEpoch ::
+    (LowLevel.MonadTreeStateStore m, MonadIO m) =>
+    -- |Target epoch or a block in the target epoch.
+    Either Epoch (BlockPointer (MPV m)) ->
+    SkovData (MPV m) ->
+    m (Maybe (BlockPointer (MPV m)))
+getFirstFinalizedBlockOfEpoch epochOrBlock sd
+    | targetEpoch > blockEpoch lastFin = return Nothing
+    | otherwise = do
+        gen <- unsafeFinalizedAtHeight 0
+        let low = (0, gen)
+        let high = case epochOrBlock of
+                Right guess
+                    | blockHeight guess <= blockHeight lastFin ->
+                        (blockHeight guess, (blockEpoch guess, guess))
+                _ -> (blockHeight lastFin, (blockEpoch lastFin, lastFin))
+        fmap snd <$> interpolationSearchFirstM unsafeFinalizedAtHeight targetEpoch low high
+  where
+    targetEpoch = case epochOrBlock of
+        Left epoch -> epoch
+        Right block -> blockEpoch block
+    unsafeFinalizedAtHeight h =
+        getFinalizedBlockAtHeight h <&> \case
+            Nothing -> error $ "Missing finalized block at height " ++ show h
+            Just b -> (blockEpoch b, b)
+    lastFin = sd ^. lastFinalized
+
 -- |Turn a 'PendingBlock' into a live block.
 -- This marks the block as 'MemBlockAlive' in the block table, records the arrive time of the block,
 -- and returns the resulting 'BlockPointer'.
@@ -515,7 +485,7 @@ makeLiveBlock pb st height arriveTime energyCost = do
                   bpBlock = NormalBlock (pbBlock pb),
                   bpState = st
                 }
-    blockTable . liveMap . at' (getHash pb) ?=! MemBlockAlive bp
+    blockTable . liveMap . at' (getHash pb) ?=! bp
     return bp
 
 -- |Marks a block as dead.
@@ -542,11 +512,6 @@ markLiveBlockDead bp = do
     markBlockDead bh
     purgeBlockState $ bpState bp
     mapM_ (markTransactionDead bh) (blockTransactions bp)
-
--- |Mark a block as pending in the block table.
--- (Note, this does not update the pending block table.)
-markPending :: (MonadState (SkovData pv) m) => PendingBlock -> m ()
-markPending pb = blockTable . liveMap . at' (getHash pb) ?=! MemBlockPending pb
 
 -- |Update the transaction table to reflect that a list of blocks are finalized.
 -- This removes them the in-memory transaction table.
@@ -592,7 +557,7 @@ parentOfLive sd block
     | let lastFin = sd ^. lastFinalized,
       parentHash == getHash lastFin =
         lastFin
-    | Just (MemBlockAlive parent) <- sd ^. blockTable . liveMap . at' parentHash = parent
+    | Just parent <- sd ^. blockTable . liveMap . at' parentHash = parent
     | otherwise =
         error $
             "parentOfLive: parent block ("
@@ -605,8 +570,30 @@ parentOfLive sd block
         | Present blockData <- blockBakedData block = blockParent blockData
         | otherwise = error "parentOfLive: unexpected genesis block"
 
+-- |Get the parent of a block where the parent is a finalized block.
+-- This will produce an error if the supplied block is the genesis block, or the parent block is
+-- not finalized.
+parentOfFinalized :: (LowLevel.MonadTreeStateStore m, MonadIO m) => BlockPointer (MPV m) -> m (BlockPointer (MPV m))
+parentOfFinalized block = do
+    let parentHash
+            | Present blockData <- blockBakedData block = blockParent blockData
+            | otherwise = error "parentOfFinalized: unexpected genesis block"
+    LowLevel.lookupBlock parentHash >>= \case
+        Nothing ->
+            error $
+                "parentOfFinalized: parent block ("
+                    ++ show parentHash
+                    ++ ") of "
+                    ++ show (getHash @BlockHash block)
+                    ++ " is not finalized"
+        Just storedBlock -> mkBlockPointer storedBlock
+
 -- |Get the last finalized block from the perspective of a block. That is, follow the QC chain
--- back until we reach two blocks in consecutive rounds.
+-- back until we reach two blocks in consecutive rounds and the same epoch.
+-- While the number of steps we need to go back is theoretically arbitrary, in practice it will
+-- be small. Assuming a timeout base of 10 seconds and a grow factor of 1.2, the timeout would have
+-- to pass 1 day if we need to go back 50 blocks, and 1 billion years if we need to go back 200
+-- blocks.
 lastFinalizedOf ::
     (LowLevel.MonadTreeStateStore m, MonadIO m, MonadState (SkovData (MPV m)) m) =>
     BlockPointer (MPV m) ->
@@ -617,7 +604,7 @@ lastFinalizedOf = go <=< parentOf
         | blockRound block == 0 = return block
         | otherwise = do
             parent <- parentOf block
-            if blockRound block == blockRound parent + 1
+            if blockRound block == blockRound parent + 1 && blockEpoch block == blockEpoch parent
                 then return parent
                 else go parent
 
@@ -671,65 +658,6 @@ branchesFromTop = revSeqToList . _branches
   where
     revSeqToList Seq.Empty = []
     revSeqToList (r Seq.:|> t) = t : revSeqToList r
-
--- * Operations on pending blocks
-
--- $pendingBlocks
--- Pending blocks are conceptually stored in a min priority queue,
--- where multiple blocks may have the same key, which is their parent,
--- and the priority is the block's timestamp.
--- When a block arrives (possibly dead), its pending children are removed
--- from the queue and handled.  This uses 'takePendingChildren'.
--- When a block is finalized, all pending blocks with a lower or equal timestamp
--- can be handled (they will become dead, since they can no longer join the tree).
--- This uses 'takeNextPendingUntil'.
-
--- |Add a block to the pending block table and queue.
--- [Note: this does not affect the '_branches' of the 'SkovData'.]
-addPendingBlock ::
-    (MonadState s m, HasPendingBlocks s) =>
-    -- |The 'PendingBlock' to add.
-    -- Note that we force it here to make sure it is
-    -- evaluted since there are no guarantees by just the looks of this function.
-    -- In practice it probably does not matter as the pending block is being pre-verified
-    -- before this function is called. But we do it for good measure here.
-    PendingBlock ->
-    m ()
-addPendingBlock !pb = do
-    pendingBlocksQueue %= MPQ.insert theTimestamp (blockHash, parentHash)
-    pendingBlocksTable . at' parentHash . non [] %= (pb :)
-  where
-    blockHash = getHash pb
-    theTimestamp = blockTimestamp pb
-    parentHash = blockParent pb
-
--- |Take the set of blocks that are pending a particular parent from the pending block table.
--- Note: this does not remove them from the pending blocks queue; blocks should be removed from
--- the queue as the finalized timestamp progresses.
-takePendingChildren :: (MonadState s m, HasPendingBlocks s) => BlockHash -> m [PendingBlock]
-takePendingChildren parent = pendingBlocksTable . at' parent . non [] <<.= []
-
--- |Return the next block that is pending its parent with timestamp
--- less than or equal to the given value, removing it from the pending
--- table.  Returns 'Nothing' if there is no such pending block.
-takeNextPendingUntil :: (MonadState s m, HasPendingBlocks s) => Timestamp -> m (Maybe PendingBlock)
-takeNextPendingUntil targetTimestamp = takeNextUntil =<< use pendingBlocksQueue
-  where
-    takeNextUntil pbq = case MPQ.minViewWithKey pbq of
-        Just ((r, (pending, parent)), pbq')
-            | r <= targetTimestamp -> do
-                (myPB, otherPBs) <-
-                    List.partition ((== pending) . getHash)
-                        <$> use (pendingBlocksTable . at' parent . non [])
-                case myPB of
-                    [] -> takeNextUntil pbq' -- Block is no longer actually pending
-                    (realPB : _) -> do
-                        pendingBlocksTable . at' parent . non [] .= otherPBs
-                        pendingBlocksQueue .= pbq'
-                        return (Just realPB)
-        _ -> do
-            pendingBlocksQueue .=! pbq
-            return Nothing
 
 -- * Operations on the transaction table
 
@@ -1107,9 +1035,6 @@ bakersForCurrentEpoch sd
 -- their status changed to 'Received' and their 'CommitPoint' is reset.
 clearOnProtocolUpdate :: (MonadState (SkovData pv) m) => m ()
 clearOnProtocolUpdate = do
-    -- clear the pending block table
-    pendingBlocksTable .=! HM.empty
-    pendingBlocksQueue .=! MPQ.empty
     -- clear the block table
     blockTable .=! emptyBlockTable
     -- clear the branches

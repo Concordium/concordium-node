@@ -280,9 +280,6 @@ instance Monad m => MonadConsensusEvent (SkovV1T pv m) where
     onFinalize fe bp = do
         handler <- view onFinalizeHandler
         handler fe bp
-    onPendingLive = do
-        handler <- view onPendingLiveHandler
-        lift handler
 
 instance (MonadIO m, MonadLogger m) => TimerMonad (SkovV1T pv m) where
     type Timer (SkovV1T pv m) = ThreadTimer

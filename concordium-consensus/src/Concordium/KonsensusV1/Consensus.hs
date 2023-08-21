@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -18,19 +19,22 @@ import Concordium.Types
 import qualified Concordium.Types.Accounts as Accounts
 import Concordium.Types.BakerIdentity
 import Concordium.Types.Parameters hiding (getChainParameters)
+import Concordium.Types.Queries
 import Concordium.Utils
 
 import qualified Concordium.Crypto.BlockSignature as Sig
+import Concordium.Genesis.Data.BaseV1
 import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import qualified Concordium.GlobalState.TreeState as GSTypes
+import Concordium.KonsensusV1.LeaderElection
 import Concordium.KonsensusV1.TreeState.Implementation
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.Logger
-import Concordium.Types.SeedState (triggerBlockTime)
+import Concordium.Types.SeedState (currentLeadershipElectionNonce, triggerBlockTime)
 import Concordium.Types.UpdateQueues
 import Concordium.Types.Updates
 
@@ -60,11 +64,6 @@ class MonadConsensusEvent m where
         -- |List of the newly-finalized blocks by increasing height.
         [BlockPointer (MPV m)] ->
         m ()
-
-    -- |Called when a previously pending block becomes live. This should be used to trigger sending
-    -- a catch-up status message to all (non-pending) peers, since they may not be aware of the
-    -- block as it was not relayed when first received.
-    onPendingLive :: m ()
 
 -- |A baker context containing the baker identity. Used for accessing relevant baker keys and the baker id.
 newtype BakerContext = BakerContext
@@ -114,11 +113,14 @@ onNewRound = do
 advanceRoundWithTimeout ::
     ( MonadTimeout m,
       LowLevel.MonadTreeStateStore m,
-      MonadState (SkovData (MPV m)) m
+      MonadState (SkovData (MPV m)) m,
+      MonadLogger m
     ) =>
     RoundTimeout (MPV m) ->
     m ()
 advanceRoundWithTimeout roundTimeout@RoundTimeout{..} = do
+    logEvent Konsensus LLDebug $
+        "Advancing round: round " ++ show (tcRound rtTimeoutCertificate) ++ " timed out."
     onNewRound
     roundStatus %=! updateQC . updateTC . (rsRoundEligibleToBake .~ True)
     updatePersistentRoundStatus (prsLatestTimeout .~ Present rtTimeoutCertificate)
@@ -138,12 +140,18 @@ advanceRoundWithTimeout roundTimeout@RoundTimeout{..} = do
 -- * The certified block MUST be for a round that is at least the current round.
 advanceRoundWithQuorum ::
     ( MonadTimeout m,
-      MonadState (SkovData (MPV m)) m
+      MonadState (SkovData (MPV m)) m,
+      MonadLogger m
     ) =>
     -- |Certified block
     CertifiedBlock (MPV m) ->
     m ()
 advanceRoundWithQuorum certBlock = do
+    logEvent Konsensus LLDebug $
+        "Advancing round: round "
+            ++ show (qcRound (cbQuorumCertificate certBlock))
+            ++ " certified block "
+            ++ show (qcBlock (cbQuorumCertificate certBlock))
     onNewRound
     roundStatus
         %=! (rsCurrentRound .~ 1 + qcRound (cbQuorumCertificate certBlock))
@@ -325,3 +333,120 @@ getProtocolUpdateState = do
                     { puQueuedTime = ts,
                       puProtocolUpdate = pu
                     }
+
+-- |Project the earliest timestamp at which the given baker might be required to bake.
+-- If the baker is not a baker in the current reward period, this will give a time at the start
+-- of the next reward period.
+bakerEarliestWinTimestamp ::
+    ( GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
+      BS.BlockStateQuery m,
+      IsConsensusV1 (MPV m)
+    ) =>
+    BakerId ->
+    SkovData (MPV m) ->
+    m Timestamp
+bakerEarliestWinTimestamp baker sd = do
+    let lfBlock = sd ^. lastFinalized
+    -- The bakers with respect to the epoch of the last finalized block.
+    let fullBakers = sd ^. currentEpochBakers . bfBakers
+    let epochDuration = genesisEpochDuration . gmParameters $ sd ^. genesisMetadata
+    lfSeedState <- BS.getSeedState (bpState lfBlock)
+    let lfTriggerTime = lfSeedState ^. triggerBlockTime
+    chainParams <- BS.getChainParameters (bpState lfBlock)
+    let minBlockTime = chainParams ^. cpConsensusParameters . cpMinBlockTime
+    if null (fullBaker fullBakers baker)
+        then do
+            -- The baker is not a baker in the current payday, so take the start of the next payday
+            -- as the soonest that the account could be a baker (and thus bake).
+            let epochsTillPayday = (sd ^. nextPayday) - blockEpoch lfBlock - 1
+            return $!
+                addDuration
+                    lfTriggerTime
+                    (minBlockTime + fromIntegral epochsTillPayday * epochDuration)
+        else do
+            -- 'findLeader' loops over rounds until it finds the first round in which the baker
+            -- is the winner, or the projected time of the round is after the trigger time for the
+            -- epoch transition. Each round, the projected round time increases by the
+            -- 'minBlockTime', so this should only be used if 'minBlockTime' is positive to
+            -- guarantee termination in @epochDuration / minBlockTime@ iterations.
+            let findLeader nxtRound nxtTimestamp
+                    | baker
+                        == getLeaderFullBakers
+                            fullBakers
+                            (lfSeedState ^. currentLeadershipElectionNonce)
+                            nxtRound
+                            ^. Accounts.bakerIdentity =
+                        nxtTimestamp
+                    | nxtTimestamp >= lfTriggerTime = addDuration lfTriggerTime minBlockTime
+                    | otherwise = findLeader (nxtRound + 1) (addDuration nxtTimestamp minBlockTime)
+            let curRound = sd ^. roundStatus . rsCurrentRound
+            return $!
+                if minBlockTime == 0
+                    then blockTimestamp lfBlock
+                    else
+                        findLeader
+                            curRound
+                            ( addDuration
+                                (blockTimestamp lfBlock)
+                                (fromIntegral (curRound - blockRound lfBlock) * minBlockTime)
+                            )
+
+-- |Get the list of rounds that fall within a finalized epoch, together with which baker was
+-- eligible to bake in that round and whether a block in that round was included in the finalized
+-- chain.
+-- This returns 'Nothing' if the epoch is not completely finalized (i.e. there is no finalized
+-- block in a higher round).
+getWinningBakersForEpoch ::
+    forall m.
+    ( GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
+      BS.BlockStateQuery m,
+      LowLevel.MonadTreeStateStore m,
+      MonadIO m
+    ) =>
+    Epoch ->
+    SkovData (MPV m) ->
+    m (Maybe [WinningBaker])
+getWinningBakersForEpoch targetEpoch sd = do
+    -- We start with the first finalized block of the next epoch.
+    -- If there is no such block, then we don't consider the target epoch finalized, so return no
+    -- result.
+    mFirstBlockNextEpoch <- getFirstFinalizedBlockOfEpoch (Left $ targetEpoch + 1) sd
+    forM mFirstBlockNextEpoch $ \startBlock -> do
+        -- The start block will be a finalized block and not the genesis block (its epoch is > 1).
+        -- Its parent will be in the target epoch. (There are no empty epochs.)
+        lastOfEpoch <- parentOfFinalized startBlock
+        bakers <- BS.getCurrentEpochBakers (bpState lastOfEpoch)
+        seedState <- BS.getSeedState (bpState lastOfEpoch)
+        let leNonce = seedState ^. currentLeadershipElectionNonce
+        let roundWinner = getLeaderFullBakers bakers leNonce
+        let roundWB rnd present =
+                WinningBaker
+                    { wbWinner = roundWinner rnd ^. Accounts.bakerIdentity,
+                      wbRound = rnd,
+                      wbPresent = present
+                    }
+        -- We construct the list of rounds starting from the round before @startBlock@ and moving
+        -- backwards to the round after the first ancestor of @startBlock@ that is in an earlier
+        -- epoch than @targetEpoch@.
+        let go ::
+                BlockPointer (MPV m) -> -- Block in at most round @rnd@
+                Round -> -- Next round to include in list
+                [WinningBaker] -> -- Currently accumulated list
+                m [WinningBaker]
+            go prevBaked rnd l
+                | rnd == 0 = do
+                    -- The genesis block (i.e. in round 0) has no baker, so stop.
+                    return l
+                | blockRound prevBaked /= rnd = do
+                    -- prevBaked is the block in the highest round <= rnd, so the round must have
+                    -- timed out.
+                    go prevBaked (rnd - 1) (roundWB rnd False : l)
+                | blockEpoch prevBaked == targetEpoch = do
+                    -- blockRound prevBaked == rnd, so a block in the round is present.
+                    newPrevBaked <- parentOfFinalized prevBaked
+                    go newPrevBaked (rnd - 1) (roundWB rnd True : l)
+                | otherwise = do
+                    -- Here prevBaked must be in a previous epoch, and blockRound prevBaked == rnd,
+                    -- so we stop.
+                    return l
+        go lastOfEpoch (blockRound startBlock - 1) []

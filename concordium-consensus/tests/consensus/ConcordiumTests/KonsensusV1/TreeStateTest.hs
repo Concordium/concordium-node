@@ -66,7 +66,6 @@ import Data.FileEmbed
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import qualified Data.Map.Strict as Map
-import qualified Data.PQueue.Prio.Min as MPQ
 import Data.Ratio
 import qualified Data.Sequence as Seq
 import qualified Data.Vector as Vec
@@ -108,7 +107,6 @@ import Concordium.Types.Updates
 
 -- We derive these instances here so we don't accidentally end up using them in production.
 -- We have them because they are very convenient for testing purposes.
-deriving instance Eq (InMemoryBlockStatus pv)
 deriving instance Eq (BlockStatus pv)
 deriving instance Eq (BlockTable pv)
 deriving instance Eq (RecentBlockStatus pv)
@@ -362,9 +360,8 @@ skovDataWithTestBlocks =
         & focusBlock .~ focusB
         & blockTable
             %~ ( ( liveMap
-                    %~ ( (at (getHash testB) ?~ MemBlockAlive testB)
-                            . (at (getHash focusB) ?~ MemBlockAlive focusB)
-                            . (at (getHash pendingB) ?~ MemBlockPending pendingB)
+                    %~ ( (at (getHash testB) ?~ testB)
+                            . (at (getHash focusB) ?~ focusB)
                        )
                  )
                     . ( deadBlocks %~ insertDeadCache deadH
@@ -388,7 +385,6 @@ testGetMemoryBlockStatus = describe "getMemoryBlockStatus" $ do
     it "last finalized" $ getMemoryBlockStatus (getHash lastFin) sd `shouldBe` Just (BlockFinalized lastFin)
     it "live" $ getMemoryBlockStatus (getHash testB) sd `shouldBe` Just (BlockAlive testB)
     it "focus block" $ getMemoryBlockStatus (getHash focusB) sd `shouldBe` Just (BlockAlive focusB)
-    it "pending block" $ getMemoryBlockStatus (getHash pendingB) sd `shouldBe` Just (BlockPending pendingB)
     it "dead block" $ getMemoryBlockStatus deadH sd `shouldBe` Just BlockDead
     it "unknown block" $ getMemoryBlockStatus unknownH sd `shouldBe` Nothing
   where
@@ -402,7 +398,6 @@ testGetBlockStatus = describe "getBlockStatus" $ do
     it "last finalized" $ getStatus (getHash lastFin) $ BlockFinalized lastFin
     it "live" $ getStatus (getHash testB) $ BlockAlive testB
     it "focus block" $ getStatus (getHash focusB) $ BlockAlive focusB
-    it "pending block" $ getStatus (getHash pendingB) $ BlockPending pendingB
     it "dead block" $ getStatus deadH BlockDead
     it "genesis block" $ getStatus (getHash genB) $ BlockFinalized genB
     it "unknown block" $ getStatus unknownH BlockUnknown
@@ -421,7 +416,6 @@ testGetRecentBlockStatus = describe "getRecentBlockStatus" $ do
     it "last finalized" $ getStatus (getHash lastFin) $ RecentBlock $ BlockFinalized lastFin
     it "live" $ getStatus (getHash testB) $ RecentBlock $ BlockAlive testB
     it "focus block" $ getStatus (getHash focusB) $ RecentBlock $ BlockAlive focusB
-    it "pending block" $ getStatus (getHash pendingB) $ RecentBlock $ BlockPending pendingB
     it "dead block" $ getStatus deadH $ RecentBlock BlockDead
     it "genesis block" $ getStatus (getHash genB) OldFinalized
     it "unknown block" $ getStatus unknownH $ RecentBlock BlockUnknown
@@ -454,7 +448,7 @@ testMakeLiveBlock = it "makeLiveBlock" $ do
               bpBlock = NormalBlock (pbBlock pendingB)
             }
     (sd ^. blockTable . liveMap . at (getHash pendingB))
-        `shouldBe` Just (MemBlockAlive res)
+        `shouldBe` Just res
 
 -- |Testing 'markBlockDead' function.
 -- This test ensures that whatever the state of a block referenced
@@ -473,171 +467,6 @@ testMarkBlockDead = describe "markBlockDead" $ do
         assertEqual "block should not be in block table" Nothing (sd ^. blockTable . liveMap . at h)
         assertBool "block should be in the dead cache" $
             sd ^. blockTable . deadBlocks . to (memberDeadCache h)
-
--- |Testing 'markPending' function.
--- This test ensures that the provided 'PendingBlock'
--- is inserted into the block table in 'MemBlockPending' state.
-testMarkPending :: Spec
-testMarkPending = it "markPending" $ do
-    let pb = dummyPendingBlock (BlockHash minBound) 37
-    let ((), sd) = runState (markPending pb) skovDataWithTestBlocks
-    assertEqual
-        "block should be pending in block table"
-        (Just (MemBlockPending pb))
-        (sd ^. blockTable . liveMap . at (getHash pb))
-
--- |Testing 'addPendingBlock' function.
--- This test ensures that the provided 'PendingBlock' to
--- 'addPendingBlock' is inserted into the pending blocks table and pending blocks queue.
--- Further this test ensures that the pending block queue is in ascending order
--- by the 'Round' of the block.
-testAddPendingBlock :: Spec
-testAddPendingBlock = it "addPendingBlock" $ do
-    let sd0 = dummyInitialSkovData
-    let ((), sd1) = runState (addPendingBlock pb0) sd0
-    assertEqual
-        "pending block queue"
-        (MPQ.fromList [(40, (getHash pb0, h0))])
-        (sd1 ^. pendingBlocksQueue)
-    assertEqual
-        "pending block table"
-        (HM.fromList [(h0, [pb0])])
-        (sd1 ^. pendingBlocksTable)
-    let ((), sd2) = runState (addPendingBlock pb1) sd1
-    assertEqual
-        "pending block queue"
-        (MPQ.fromList [(40, (getHash pb0, h0)), (41, (getHash pb1, h0))])
-        (sd2 ^. pendingBlocksQueue)
-    assertEqual
-        "pending block table"
-        (HM.fromList [(h0, [pb1, pb0])])
-        (sd2 ^. pendingBlocksTable)
-    let ((), sd3) = runState (addPendingBlock pb2) sd2
-    assertEqual
-        "pending block queue"
-        (MPQ.fromList [(40, (getHash pb0, h0)), (41, (getHash pb1, h0)), (42, (getHash pb2, getHash pb0))])
-        (sd3 ^. pendingBlocksQueue)
-    assertEqual
-        "pending block table"
-        (HM.fromList [(h0, [pb1, pb0]), (getHash pb0, [pb2])])
-        (sd3 ^. pendingBlocksTable)
-  where
-    h0 = BlockHash minBound
-    pb0 = dummyPendingBlock h0 40
-    pb1 = dummyPendingBlock h0 41
-    pb2 = dummyPendingBlock (getHash pb0) 42
-
--- |Testing 'takePendingChildren' function.
--- This test ensures that the caller of the function
--- removes the children block(s) of the specified 'BlockHash' only
--- from the pending blocks table,
--- and that the pending blocks queue is left untouched.
-testTakePendingChildren :: Spec
-testTakePendingChildren = it "takePendingChildren" $ do
-    let (l, sd1) = runState (takePendingChildren h0) sd0
-    assertEqual
-        "pending children"
-        [pb1, pb0]
-        l
-    assertEqual
-        "pending block table"
-        (HM.fromList [(getHash pb0, [pb2])])
-        (sd1 ^. pendingBlocksTable)
-    assertEqual "pending block queue" (sd0 ^. pendingBlocksQueue) (sd1 ^. pendingBlocksQueue)
-    let (l', sd1') = runState (takePendingChildren (getHash pb0)) sd0
-    assertEqual
-        "pending children"
-        [pb2]
-        l'
-    assertEqual
-        "pending block table"
-        (HM.fromList [(h0, [pb1, pb0])])
-        (sd1' ^. pendingBlocksTable)
-    assertEqual "pending block queue" (sd0 ^. pendingBlocksQueue) (sd1' ^. pendingBlocksQueue)
-    let (l'', sd1'') = runState (takePendingChildren dummyGenesisBlockHash) sd0
-    assertEqual "pending children" [] l''
-    assertEqual "pending block table" (sd0 ^. pendingBlocksTable) (sd1'' ^. pendingBlocksTable)
-    assertEqual "pending block queue" (sd0 ^. pendingBlocksQueue) (sd1'' ^. pendingBlocksQueue)
-  where
-    h0 = BlockHash minBound
-    pb0 = dummyPendingBlock h0 40
-    pb1 = dummyPendingBlock h0 41
-    pb2 = dummyPendingBlock (getHash pb0) 42
-    -- The state is initialized with a block table
-    sd0 =
-        dummyInitialSkovData
-            & pendingBlocksQueue
-                .~ MPQ.fromList
-                    [ (40, (getHash pb0, h0)),
-                      (41, (getHash pb1, h0)),
-                      (42, (getHash pb2, getHash pb0))
-                    ]
-            & pendingBlocksTable
-                .~ HM.fromList
-                    [ (h0, [pb1, pb0]),
-                      (getHash pb0, [pb2])
-                    ]
-
--- |Testing function 'takeNextPendingUntil'.
--- This test checks that the whole pending table
--- i.e. the pending blocks table and pending blocks queue
--- has the pending blocks removed that have a 'Round' <= the
--- provided 'Round.
--- Note that as opposed to 'takeNextPending' this function also
--- pops pending blocks from the pending blocks queue as it is
--- used when finalizing a block at a certain 'Round'.
-testTakeNextPendingUntil :: Spec
-testTakeNextPendingUntil = it "takeNextPendingUntil" $ do
-    let (mpb1, pending1) = runState (takeNextPendingUntil 40) pending0
-    assertEqual "get to round 40" Nothing mpb1
-    assertEqual
-        "pending block table after get to round 40"
-        (_pendingBlocksTable pending0)
-        (_pendingBlocksTable pending1)
-    assertEqual
-        "pending block queue after get to round 40"
-        (MPQ.fromList [(41, (getHash pb1, h0)), (42, (getHash pb2, getHash pb0))])
-        (_pendingBlocksQueue pending1)
-    let (mpb2, pending2) = runState (takeNextPendingUntil 42) pending0
-    assertEqual "get to round 42" (Just pb1) mpb2
-    assertEqual
-        "pending block table after get to round 42"
-        (HM.fromList [(getHash pb0, [pb2])])
-        (_pendingBlocksTable pending2)
-    assertEqual
-        "pending block queue after get to round 42"
-        (MPQ.fromList [(42, (getHash pb2, getHash pb0))])
-        (_pendingBlocksQueue pending2)
-    let (mpb3, pending3) = runState (takeNextPendingUntil 42) pending2
-    assertEqual "get to round 42 twice" (Just pb2) mpb3
-    assertEqual
-        "pending block table after get to round 42 twice"
-        HM.empty
-        (_pendingBlocksTable pending3)
-    assertEqual
-        "pending block queue after get to round 42 twice"
-        MPQ.empty
-        (_pendingBlocksQueue pending3)
-  where
-    h0 = BlockHash minBound
-    pb0 = dummyPendingBlock h0 40
-    pb1 = dummyPendingBlock h0 41
-    pb2 = dummyPendingBlock (getHash pb0) 42
-    -- Note: pb0 is present in the queue, but not in the table.
-    pending0 =
-        PendingBlocks
-            { _pendingBlocksQueue =
-                MPQ.fromList
-                    [ (40, (getHash pb0, h0)),
-                      (41, (getHash pb1, h0)),
-                      (42, (getHash pb2, getHash pb0))
-                    ],
-              _pendingBlocksTable =
-                HM.fromList
-                    [ (h0, [pb1]),
-                      (getHash pb0, [pb2])
-                    ]
-            }
 
 -- |An arbitrary chosen 'SigScheme.KeyPair'
 -- suitable for testing purposes.
@@ -1115,10 +944,6 @@ testClearOnProtocolUpdate = describe "clearOnProtocolUpdate" $
         sd' <- execStateT (commitTransaction 1 bh 0 (normalTransaction tr0)) sd
         sd'' <- execStateT clearOnProtocolUpdate sd'
         assertEqual
-            "pending block table should be empty"
-            HM.empty
-            (sd'' ^. pendingBlocksTable)
-        assertEqual
             "block table should be empty"
             emptyBlockTable
             (sd'' ^. blockTable)
@@ -1147,11 +972,6 @@ tests = describe "KonsensusV1.TreeState" $ do
         testGetRecentBlockStatus
         testMakeLiveBlock
         testMarkBlockDead
-        testMarkPending
-    describe "PendingBlockTable" $ do
-        testAddPendingBlock
-        testTakePendingChildren
-        testTakeNextPendingUntil
     describe "TransactionTable" $ do
         testLookupLiveTransaction
         testLookupTransaction

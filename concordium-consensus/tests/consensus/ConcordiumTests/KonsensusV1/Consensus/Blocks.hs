@@ -529,6 +529,45 @@ testBB3Ex =
   where
     bakerId = 2
 
+-- |Valid block in round 3 descended from 'testBB1E' with a timeout.
+testBB3EA :: BakedBlock
+testBB3EA =
+    BakedBlock
+        { bbRound = 3,
+          bbEpoch = 0,
+          bbTimestamp = 3_603_000,
+          bbBaker = bakerId,
+          bbQuorumCertificate = validQCFor testBB1E,
+          bbTimeoutCertificate = Present (validTimeoutFor (validQCFor testBB1E) 2),
+          bbEpochFinalizationEntry = Absent,
+          bbNonce = computeBlockNonce genesisLEN 3 (bakerVRFKey bakerId),
+          bbTransactions = Vec.empty,
+          bbTransactionOutcomesHash = emptyBlockTOH bakerId,
+          bbStateHash = read "df5d25b8ffbad7be62be0ae2ce1a4730018062c3bda6d6caa02ea03545a263fd"
+        }
+  where
+    bakerId = 4
+
+-- |Valid block in round 4, epoch 1, descended from 'testBB3EA', with a finalization proof based on
+-- 'testBB2E'.
+testBB4EA :: BakedBlock
+testBB4EA =
+    BakedBlock
+        { bbRound = 4,
+          bbEpoch = 1,
+          bbTimestamp = 3_604_000,
+          bbBaker = bakerId,
+          bbQuorumCertificate = validQCFor testBB3EA,
+          bbTimeoutCertificate = Absent,
+          bbEpochFinalizationEntry = Present testEpochFinEntry,
+          bbNonce = computeBlockNonce testEpochLEN 4 (bakerVRFKey bakerId),
+          bbTransactions = Vec.empty,
+          bbTransactionOutcomesHash = emptyBlockTOH bakerId,
+          bbStateHash = read "41b44dd4db52dae4021a0d71fbec00a423ffc9892cf97bf6e506d722cdaaeb0d"
+        }
+  where
+    bakerId = 1
+
 succeedReceiveBlock :: PendingBlock -> TestMonad 'P6 ()
 succeedReceiveBlock pb = do
     res <- uponReceivingBlock pb
@@ -686,27 +725,31 @@ testReceive3Reordered = runTestMonad noBaker testTime genesisData $ do
     let b1 = signedPB testBB1
     succeedReceiveBlock b1
     let b3 = signedPB testBB3
+    pendingReceiveBlock b3
+    succeedReceiveBlock b2
     succeedReceiveBlock b3
     -- b3's QC is for b2, which has QC for b1, so b1 should now be finalized.
     checkFinalized b1
 
 -- |Receive 4 valid blocks reordered across epochs.
--- Also receive 2 pending blocks that should get pruned.
 testReceive4Reordered :: Assertion
 testReceive4Reordered = runTestMonad noBaker testTime genesisData $ do
+    -- We get block 4, but we don't know the parent (BB3E)
     pendingReceiveBlock (signedPB testBB4E)
-    pendingReceiveBlock (signedPB testBB2E)
-    pendingReceiveBlock (signedPB testBB3E)
-    pendingReceiveBlock (signedPB testBB3')
-    pendingReceiveBlock (signedPB testBB4')
+    -- so we "catch up" and get BB1E
     succeedReceiveBlock (signedPB testBB1E)
+    -- Now we see block 3, but we don't know the parent (BB2E)
+    pendingReceiveBlock (signedPB testBB3E)
+    -- so we "catch up" again and get BB2E
+    succeedReceiveBlock (signedPB testBB2E)
+    -- We get the rest via catch-up
+    succeedReceiveBlock (signedPB testBB3E)
+    succeedReceiveBlock (signedPB testBB4E)
     checkFinalized testBB1E
     -- Note: testBB2E is not finalized because it is in a different epoch from testBB3E.
     checkLive testBB2E
     checkLive testBB3E
     checkLive testBB4E
-    checkDead testBB3'
-    checkDead testBB4'
 
 -- |Receive 3 blocks where the first round is skipped due to timeout.
 testReceiveWithTimeout :: Assertion
@@ -807,7 +850,7 @@ testReceiveEarlyUnknownParent = runTestMonad noBaker testTime genesisData $ do
 -- block and the same block with the correct signature.
 testReceiveBadSignatureUnknownParent :: Assertion
 testReceiveBadSignatureUnknownParent = runTestMonad noBaker testTime genesisData $ do
-    invalidReceiveBlock $
+    pendingReceiveBlock $
         PendingBlock
             { pbBlock = invalidSignBlock testBB2,
               pbReceiveTime = testTime
@@ -819,7 +862,7 @@ testReceiveBadSignatureUnknownParent = runTestMonad noBaker testTime genesisData
 -- is still in the present.)
 testReceiveFutureEpochUnknownParent :: Assertion
 testReceiveFutureEpochUnknownParent = runTestMonad noBaker testTime genesisData $ do
-    earlyReceiveBlock $ signedPB testBB2{bbEpoch = 30}
+    pendingReceiveBlock $ signedPB testBB2{bbEpoch = 30}
 
 -- |Test receiving a block where the QC is not consistent with the round of the parent block.
 testReceiveInconsistentQCRound :: Assertion
@@ -939,8 +982,6 @@ testReceiveFinalizationBranch :: Assertion
 testReceiveFinalizationBranch = runTestMonad noBaker testTime genesisData $ do
     mapM_ (succeedReceiveBlock . signedPB) [testBB1E, testBB2Ex]
     succeedReceiveBlockFailExecute $ signedPB testBB3Ex
-    checkFinalized testBB1E
-    checkDead testBB2Ex
 
 testReceiveEpochTransitionTimeout :: Assertion
 testReceiveEpochTransitionTimeout = runTestMonad noBaker testTime genesisData $ do
@@ -971,6 +1012,13 @@ testReceiveInvalidQC = runTestMonad noBaker testTime genesisData $ do
             testBB2
                 { bbQuorumCertificate = (bbQuorumCertificate testBB2){qcAggregateSignature = mempty}
                 }
+
+-- |Test receiving the first block in a new epoch where the parent block is not descended from
+-- the successor block in the finalization entry for the trigger block.
+testReceiveTimeoutEpochTransition1 :: Assertion
+testReceiveTimeoutEpochTransition1 = runTestMonad noBaker testTime genesisData $ do
+    mapM_ (succeedReceiveBlock . signedPB) [testBB1E, testBB3EA, testBB4EA]
+    checkFinalized testBB1E
 
 -- |Test calling 'makeBlock' in the first round for a baker that should produce a block.
 testMakeFirstBlock :: Assertion
@@ -1163,8 +1211,8 @@ testSignCorrectEpoch = runTestMonad (baker bakerId) testTime genesisData $ do
             [ onblock testBB1E,
               onblock testBB2E,
               ResetTimer 10_000, -- Advance to round 2 from the QC in testBB2E
-              OnFinalize testEpochFinEntry, -- Finalize from the epoch finalization entry in testBB3E
               onblock testBB3E,
+              OnFinalize testEpochFinEntry, -- Finalize from the epoch finalization entry in testBB3E
               ResetTimer 10_000 -- Advance to round 3
             ]
     liftIO $
@@ -1202,33 +1250,37 @@ testSignCorrectEpoch = runTestMonad (baker bakerId) testTime genesisData $ do
     expectQM = buildQuorumMessage qsm qsig (FinalizerIndex $ fromIntegral bakerId)
 
 -- |Test that if we receive 3 blocks that transition into a new epoch as a finalizer, we
--- will sign the last of the blocks. Here, the blocks arrive in reverse order.
+-- will sign the last of the blocks. Here, the blocks arrive in reverse order to begin with.
 testSignCorrectEpochReordered :: Assertion
 testSignCorrectEpochReordered = runTestMonad (baker bakerId) testTime genesisData $ do
     ((), events0) <- listen $ pendingReceiveBlock $ signedPB testBB3E
     liftIO $ assertEqual "Events after receiving testBB3E" [] events0
     ((), events1) <- listen $ pendingReceiveBlock $ signedPB testBB2E
-    liftIO $ assertEqual "Events after receiving testBB3E" [] events1
+    liftIO $ assertEqual "Events after receiving testBB2E" [] events1
     ((), events2) <- listen $ succeedReceiveBlock $ signedPB testBB1E
     let onblock = OnBlock . NormalBlock . validSignBlock
-        expectEvents =
-            [ onblock testBB1E,
-              onblock testBB2E,
-              ResetTimer 10_000, -- Advance to round 2 from the QC in testBB2E
-              OnPendingLive,
-              OnFinalize testEpochFinEntry, -- Finalize from the epoch finalization entry in testBB3E
-              onblock testBB3E,
-              ResetTimer 10_000, -- Advance to round 3
-              OnPendingLive
-            ]
-    liftIO $ assertEqual "Events after receiving testBB1E" expectEvents events2
+        expectEvents3 = [onblock testBB2E, ResetTimer 10_000]
+        expectEvents4 = [onblock testBB3E, OnFinalize testEpochFinEntry, ResetTimer 10_000]
+    liftIO $ assertEqual "Events after receiving testBB1E" [onblock testBB1E] events2
+    ((), events3) <- listen $ succeedReceiveBlock $ signedPB testBB2E
+    liftIO $ assertEqual "Events after receiving testBB2E" expectEvents3 events3
+    ((), events4) <- listen $ succeedReceiveBlock $ signedPB testBB3E
+    liftIO $ assertEqual "Events after receiving testBB3E" expectEvents4 events4
     timers <- getPendingTimers
     case Map.toAscList timers of
-        [(0, (DelayUntil to2, a2))]
-            | to2 == timestampToUTCTime (bbTimestamp testBB3E) ->
+        [(0, (DelayUntil to0, a0)), (1, (DelayUntil to1, a1)), (2, (DelayUntil to2, a2))]
+            | to0 == timestampToUTCTime (bbTimestamp testBB1E),
+              to1 == timestampToUTCTime (bbTimestamp testBB2E),
+              to2 == timestampToUTCTime (bbTimestamp testBB3E) ->
                 do
+                    clearPendingTimers
+                    ((), r0) <- listen a0
+                    liftIO $ assertEqual "Timer 0 events" [] r0
+                    ((), r1) <- listen a1
+                    liftIO $ assertEqual "Timer 1 events" [] r1
                     ((), r2) <- listen a2
-                    liftIO $ assertEqual "Timer events" [SendQuorumMessage expectQM] r2
+
+                    liftIO $ assertEqual "Timer 2 events" [SendQuorumMessage expectQM] r2
         _ -> liftIO $ assertFailure $ "Unexpected timers: " ++ show (fst <$> timers)
   where
     bakerId = 0
@@ -1332,3 +1384,4 @@ tests = describe "KonsensusV1.Consensus.Blocks" $ do
         it "sign a block in a new epoch" testSignCorrectEpoch
         it "sign a block in a new epoch where blocks are reordered" testSignCorrectEpochReordered
         it "make first block in a new epoch" testMakeBlockNewEpoch
+        it "receive blocks with a timeout before an epoch transition" testReceiveTimeoutEpochTransition1

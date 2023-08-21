@@ -533,7 +533,7 @@ dependencies = [
 
 [[package]]
 name = "concordium-contracts-common"
-version = "7.0.0"
+version = "7.1.0"
 dependencies = [
  "base64 0.21.1",
  "bs58",
@@ -648,7 +648,7 @@ dependencies = [
 
 [[package]]
 name = "concordium_node"
-version = "6.0.3"
+version = "6.1.0"
 dependencies = [
  "anyhow",
  "app_dirs2",

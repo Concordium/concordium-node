@@ -2672,7 +2672,8 @@ doGetPoolStatus pbs (Just psBakerId@(BakerId aid)) = case delegationChainParamet
                                                         fromIntegral effectiveStake
                                                             / fromIntegral (_bakerTotalStake epochBakers),
                                                       bpsBakerEquityCapital = bcBakerEquityCapital bc,
-                                                      bpsDelegatedCapital = bcTotalDelegatorCapital bc
+                                                      bpsDelegatedCapital = bcTotalDelegatorCapital bc,
+                                                      bpsCommissionRates = psPoolInfo ^. BaseAccounts.poolCommissionRates
                                                     }
                         return $ Just BakerPoolStatus{..}
 

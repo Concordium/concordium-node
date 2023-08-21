@@ -101,8 +101,6 @@ data TestEvent (pv :: ProtocolVersion)
       OnBlock !(Block pv)
     | -- |Implements 'onFinalize' of 'MonadConsensusEvent'.
       OnFinalize !FinalizationEntry
-    | -- |Implements 'onPendingLive' of 'MonadConsensusEvent'.
-      OnPendingLive
     deriving (Eq, Show)
 
 -- |List of events generated during a test run.
@@ -265,7 +263,6 @@ instance TimerMonad (TestMonad pv) where
 instance MonadConsensusEvent (TestMonad pv) where
     onBlock = tell . (: []) . OnBlock . bpBlock
     onFinalize fe _ = tell [OnFinalize fe]
-    onPendingLive = tell [OnPendingLive]
 
 instance MonadLogger (TestMonad pv) where
     logEvent src lvl msg = do

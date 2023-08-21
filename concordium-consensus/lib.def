@@ -53,6 +53,8 @@ EXPORTS
  getModuleSourceV2
  getInstanceListV2
  getAncestorsV2
+ getFirstBlockEpochV2
+ getWinningBakersEpochV2
  getInstanceInfoV2
  getInstanceStateV2
  getNextAccountSequenceNumberV2
@@ -83,3 +85,6 @@ EXPORTS
  getBlockFinalizationSummaryV2
  getBlockItemsV2
  getLastFinalizedBlockSlotTimeV2
+ getBakersRewardPeriodV2
+ getBlockCertificatesV2
+ getBakerEarliestWinTimeV2

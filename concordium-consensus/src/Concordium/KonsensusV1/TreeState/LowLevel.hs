@@ -132,7 +132,6 @@ class (Monad m) => MonadTreeStateStore m where
     -- The following preconditions are required to ensure the database invariants are maintained:
     --
     --   * The quorum certificate is for the supplied block.
-    --   * The parent block is the (previous) highest certified block.
     writeCertifiedBlock ::
         -- |The newly-certified block.
         StoredBlock (MPV m) ->

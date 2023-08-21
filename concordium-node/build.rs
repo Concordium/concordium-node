@@ -492,6 +492,15 @@ fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
         )
         .method(
             tonic_build::manual::Method::builder()
+                .name("get_baker_earliest_win_time")
+                .route_name("GetBakerEarliestWinTime")
+                .input_type("crate::grpc2::types::BakerId")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
                 .name("get_block_chain_parameters")
                 .route_name("GetBlockChainParameters")
                 .input_type("crate::grpc2::types::BlockHashInput")
@@ -621,6 +630,44 @@ fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
                 .name("get_block_items")
                 .route_name("GetBlockItems")
                 .input_type("crate::grpc2::types::BlockHashInput")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .server_streaming()
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("get_bakers_reward_period")
+                .route_name("GetBakersRewardPeriod")
+                .input_type("crate::grpc2::types::BlockHashInput")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .server_streaming()
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("get_block_certificates")
+                .route_name("GetBlockCertificates")
+                .input_type("crate::grpc2::types::BlockHashInput")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("get_first_block_epoch")
+                .route_name("GetFirstBlockEpoch")
+                .input_type("crate::grpc2::types::EpochRequest")
+                .output_type("crate::grpc2::types::BlockHash")
+                .codec_path("tonic::codec::ProstCodec")
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("get_winning_bakers_epoch")
+                .route_name("GetWinningBakersEpoch")
+                .input_type("crate::grpc2::types::EpochRequest")
                 .output_type("Vec<u8>")
                 .codec_path("crate::grpc2::RawCodec")
                 .server_streaming()

@@ -36,6 +36,7 @@ import Concordium.Types.HashableTo
 import Concordium.Types.IdentityProviders
 import Concordium.Types.Parameters
 import Concordium.Types.Queries hiding (PassiveCommitteeInfo (..), bakerId)
+import qualified Concordium.Types.Queries.KonsensusV1 as QueriesKonsensusV1
 import Concordium.Types.SeedState
 import Concordium.Types.Transactions
 import qualified Concordium.Types.UpdateQueues as UQ
@@ -44,7 +45,7 @@ import qualified Concordium.Wasm as Wasm
 import qualified Concordium.Scheduler.InvokeContract as InvokeContract
 import qualified Concordium.Types.InvokeContract as InvokeContract
 
-import Concordium.Afgjort.Finalize.Types (FinalizationCommittee (..), PartyInfo (..))
+import Concordium.Afgjort.Finalize.Types (FinalizationCommittee (..), PartyInfo (..), makeFinalizationCommittee)
 import Concordium.Afgjort.Monad
 import Concordium.Birk.Bake
 import Concordium.GlobalState.BakerInfo
@@ -54,6 +55,8 @@ import Concordium.GlobalState.BlockPointer
 import qualified Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.CapitalDistribution (DelegatorCapital (..))
 import Concordium.GlobalState.Finalization
+import Concordium.GlobalState.Persistent.BlockPointer
+import Concordium.GlobalState.Persistent.BlockState
 import Concordium.GlobalState.Statistics
 import qualified Concordium.GlobalState.TransactionTable as TT
 import qualified Concordium.GlobalState.TreeState as TS
@@ -696,10 +699,7 @@ getBlockInfo =
                                 (getHash <$> lastFinalizedBlock)
                                 (use (SkovV1.lastFinalized . to getHash))
                     else getHash <$> bpParent bp
-            biBlockLastFinalized <-
-                if biFinalized
-                    then return $ getHash bp
-                    else getHash <$> bpLastFinalized bp
+            biBlockLastFinalized <- getHash <$> bpLastFinalized bp
             let biBlockHeight = localToAbsoluteBlockHeight (evcGenesisHeight evc) (SkovV1.blockHeight bp)
             let biEraBlockHeight = SkovV1.blockHeight bp
             let biBlockReceiveTime = SkovV1.blockReceiveTime bp
@@ -1207,6 +1207,136 @@ getDelegatorsRewardPeriod bhi maybeBakerId = do
               pdrpiStake = dcDelegatorCapital
             }
 
+-- ** Epoch indexed
+
+data EpochQueryError
+    = -- |The specified block was not found.
+      EQEBlockNotFound
+    | -- |The specified epoch or genesis index is in the future.
+      EQEFutureEpoch
+    | -- |The epoch is not valid for the specified genesis index.
+      EQEInvalidEpoch
+    | -- |The genesis index does not support the query.
+      EQEInvalidGenesisIndex
+
+-- |Get the first finalized block in a specified epoch.
+-- The epoch can be specified directly by the genesis index and epoch number, or indirectly by a
+-- 'BlockHashInput' that references a block.
+--
+-- The following failure cases apply:
+--   * If the input is a 'BlockHashInput' and the specified block cannot be resolved, this returns
+--     'EQEBlockNotFound'.
+--   * If the specified genesis index is greater than the current one, returns 'EQEFutureEpoch'.
+--   * If the specified epoch is after the epoch of the last finalized block
+--      - returns 'EQEFutureEpoch' if the genesis index is the current one
+--      - returns 'EQEInvalidEpoch' otherwise.
+--   * If the specified epoch contains no finalized blocks then returns 'EQEBlockNotFound'.
+--     This only applies to consensus version 0, as epochs cannot be empty in consensus version 1.
+getFirstBlockEpoch :: forall finconf. EpochRequest -> MVR finconf (Either EpochQueryError BlockHash)
+getFirstBlockEpoch SpecifiedEpoch{..} = MVR $ \mvr -> do
+    versions <- readIORef $ mvVersions mvr
+    case versions Vec.!? fromIntegral erGenesisIndex of
+        Nothing -> return $ Left EQEFutureEpoch
+        Just evc -> do
+            let isCurrentVersion = fromIntegral erGenesisIndex == Vec.length versions
+            liftSkovQuery
+                mvr
+                evc
+                ( do
+                    -- Consensus version 0
+                    getFirstFinalizedOfEpoch (Left erEpoch) <&> \case
+                        Left FutureEpoch
+                            | isCurrentVersion -> Left EQEFutureEpoch
+                            | otherwise -> Left EQEInvalidEpoch
+                        Left EmptyEpoch -> Left EQEBlockNotFound
+                        Right block -> Right $! getHash @BlockHash block
+                )
+                ( do
+                    -- Consensus version 1
+                    (SkovV1.getFirstFinalizedBlockOfEpoch (Left erEpoch) =<< get) <&> \case
+                        Nothing
+                            | isCurrentVersion -> Left EQEFutureEpoch
+                            | otherwise -> Left EQEInvalidEpoch
+                        Just block -> Right $! getHash @BlockHash block
+                )
+getFirstBlockEpoch (EpochOfBlock blockInput) = do
+    versions <- MVR $ readIORef . mvVersions
+    let curVI = fromIntegral (Vec.length versions - 1)
+    unBHIResponse <$> liftSkovQueryBHIAndVersion (epochOfBlockV0 curVI) (epochOfBlockV1 curVI) blockInput
+  where
+    unBHIResponse BQRNoBlock = Left EQEBlockNotFound
+    unBHIResponse (BQRBlock _ res) = res
+    epochOfBlockV0 curVersionIndex evc b =
+        getFirstFinalizedOfEpoch (Right b) <&> \case
+            Left FutureEpoch
+                | evcIndex evc == curVersionIndex -> Left EQEFutureEpoch
+                | otherwise -> Left EQEInvalidEpoch
+            Left EmptyEpoch -> Left EQEBlockNotFound
+            Right epochBlock -> Right (getHash epochBlock)
+    epochOfBlockV1 curVersionIndex evc b _ =
+        (SkovV1.getFirstFinalizedBlockOfEpoch (Right b) =<< get) <&> \case
+            Nothing
+                | evcIndex evc == curVersionIndex -> Left EQEFutureEpoch
+                | otherwise -> Left EQEInvalidEpoch
+            Just epochBlock -> Right (getHash epochBlock)
+
+-- |Get the list of bakers that won the lottery in a particular historical epoch (i.e. the last
+-- finalized block is in a later epoch). This lists the winners for each round in the epoch,
+-- starting from the round after the last block in the previous epoch, running to the round before
+-- the first block in the next epoch. It also indicates if a block in each round was included in
+-- the finalized chain.
+-- The epoch can be specified directly by the genesis index and epoch number, or indirectly by a
+-- 'BlockHashInput' that references a block.
+--
+-- The following failure cases apply:
+--   * If the input is a 'BlockHashInput' and the specified block cannot be resolved, this returns
+--     'EQEBlockNotFound'.
+--   * If the specified genesis index is greater than the current one, returns 'EQEFutureEpoch'.
+--   * If the specified genesis index is on consensus version 0, returns 'EQEInvalidGenesisIndex'.
+--   * If the specified epoch not less than the epoch of the last finalized block,
+--      - returns 'EQEFutureEpoch' if the genesis index is the current one
+--      - returns 'EQEInvalidEpoch' otherwise.
+getWinningBakersEpoch ::
+    forall finconf.
+    EpochRequest ->
+    MVR finconf (Either EpochQueryError [WinningBaker])
+getWinningBakersEpoch SpecifiedEpoch{..} = MVR $ \mvr -> do
+    versions <- readIORef $ mvVersions mvr
+    case versions Vec.!? fromIntegral erGenesisIndex of
+        Nothing -> return $ Left EQEFutureEpoch
+        Just evc -> do
+            liftSkovQuery
+                mvr
+                evc
+                (return (Left EQEInvalidGenesisIndex))
+                ( do
+                    let isCurrentVersion = fromIntegral erGenesisIndex == Vec.length versions - 1
+                    mwbs <- ConsensusV1.getWinningBakersForEpoch erEpoch =<< get
+                    return $! case mwbs of
+                        Nothing
+                            | isCurrentVersion -> Left EQEFutureEpoch
+                            | otherwise -> Left EQEInvalidEpoch
+                        Just wbs -> Right wbs
+                )
+getWinningBakersEpoch (EpochOfBlock blockInput) = do
+    versions <- MVR $ readIORef . mvVersions
+    let curVersionIndex = fromIntegral (Vec.length versions - 1)
+    res <-
+        liftSkovQueryBHIAndVersion
+            (\_ _ -> return (Left EQEInvalidGenesisIndex))
+            ( \evc b _ -> do
+                mwbs <- ConsensusV1.getWinningBakersForEpoch (SkovV1.blockEpoch b) =<< get
+                return $! case mwbs of
+                    Nothing
+                        | evcIndex evc == curVersionIndex -> Left EQEFutureEpoch
+                        | otherwise -> Left EQEInvalidEpoch
+                    Just wbs -> Right wbs
+            )
+            blockInput
+    return $! case res of
+        BQRNoBlock -> Left EQEBlockNotFound
+        BQRBlock _ r -> r
+
 -- ** Transaction indexed
 
 -- |Get the status of a transaction specified by its hash.
@@ -1423,3 +1553,197 @@ getNumberOfNonFinalizedTransactions =
     liftSkovQueryLatest
         queryNumberOfNonFinalizedTransactions
         (use (SkovV1.transactionTable . to TT.getNumberOfNonFinalizedTransactions))
+
+-- |Errors that can occur when querying for block certificates.
+data BlockCertificatesError
+    = -- |This error indicates that the query was run against a protocol version that
+      -- does not support 'ConsensusV1'.
+      BlockCertificatesInvalidProtocolVersion
+
+-- |Get the certificates for the block requested.
+-- For 'ConsensusV0' this returns @BlockCertificatesInvalidProtocolVersion@ and for genesis blocks in 'ConsensusV1'
+-- the function returns a 'QueriesKonsensusV1.BlockCertificates' with empty values.
+getBlockCertificates :: forall finconf. BlockHashInput -> MVR finconf (BHIQueryResponse (Either BlockCertificatesError QueriesKonsensusV1.BlockCertificates))
+getBlockCertificates = liftSkovQueryBHI (\_ -> return $ Left BlockCertificatesInvalidProtocolVersion) (fmap Right . getCertificates)
+  where
+    getCertificates ::
+        forall m.
+        ( BS.BlockStateQuery m,
+          BlockPointerMonad m,
+          BlockPointerType m ~ SkovV1.BlockPointer (MPV m),
+          IsConsensusV1 (MPV m)
+        ) =>
+        SkovV1.BlockPointer (MPV m) ->
+        m QueriesKonsensusV1.BlockCertificates
+    getCertificates bp =
+        case SkovV1.bpBlock bp of
+            SkovV1.GenesisBlock{} -> return emptyBlockCertificates
+            SkovV1.NormalBlock b -> do
+                bs <- blockState bp
+                finCommitteeParams <- BS.getCurrentEpochFinalizationCommitteeParameters bs
+                bakers <- BS.getCurrentEpochBakers bs
+                let finalizationCommittee = ConsensusV1.computeFinalizationCommittee bakers finCommitteeParams
+                let SkovV1.BakedBlock{..} = SkovV1.sbBlock b
+                return
+                    QueriesKonsensusV1.BlockCertificates
+                        { bcQuorumCertificate = Just . mkQuorumCertificateOut finalizationCommittee $ bbQuorumCertificate,
+                          bcTimeoutCertificate = mkTimeoutCertificateOut finalizationCommittee bbTimeoutCertificate,
+                          bcEpochFinalizationEntry = mkEpochFinalizationEntryOut finalizationCommittee bbEpochFinalizationEntry
+                        }
+    emptyBlockCertificates = QueriesKonsensusV1.BlockCertificates Nothing Nothing Nothing
+    -- Get the baker ids (in ascending order) of the finalizers present
+    -- in the provided finalizer set.
+    finalizerSetToBakerIds :: SkovV1.FinalizationCommittee -> SkovV1.FinalizerSet -> [BakerId]
+    finalizerSetToBakerIds committee signatories =
+        [ finalizerBakerId
+          | SkovV1.FinalizerInfo{..} <- Vec.toList $ SkovV1.committeeFinalizers committee,
+            SkovV1.memberFinalizerSet finalizerIndex signatories
+        ]
+    finalizerRound :: SkovV1.FinalizationCommittee -> SkovV1.FinalizerRounds -> [QueriesKonsensusV1.FinalizerRound]
+    finalizerRound committee rounds =
+        map
+            ( \(r, finSet) ->
+                QueriesKonsensusV1.FinalizerRound
+                    { frRound = r,
+                      frFinalizers = finalizerSetToBakerIds committee finSet
+                    }
+            )
+            (SkovV1.finalizerRoundsList rounds)
+    mkQuorumCertificateOut :: SkovV1.FinalizationCommittee -> SkovV1.QuorumCertificate -> QueriesKonsensusV1.QuorumCertificate
+    mkQuorumCertificateOut committee qc =
+        QueriesKonsensusV1.QuorumCertificate
+            { qcBlock = SkovV1.qcBlock qc,
+              qcRound = SkovV1.qcRound qc,
+              qcEpoch = SkovV1.qcEpoch qc,
+              qcAggregateSignature = QueriesKonsensusV1.QuorumCertificateSignature . (SkovV1.theQuorumSignature . SkovV1.qcAggregateSignature) $ qc,
+              qcSignatories = finalizerSetToBakerIds committee (SkovV1.qcSignatories qc)
+            }
+    mkTimeoutCertificateOut :: SkovV1.FinalizationCommittee -> SkovV1.Option SkovV1.TimeoutCertificate -> Maybe QueriesKonsensusV1.TimeoutCertificate
+    mkTimeoutCertificateOut _ SkovV1.Absent = Nothing
+    mkTimeoutCertificateOut committee (SkovV1.Present tc) =
+        Just $
+            QueriesKonsensusV1.TimeoutCertificate
+                { tcRound = SkovV1.tcRound tc,
+                  tcMinEpoch = SkovV1.tcMinEpoch tc,
+                  tcFinalizerQCRoundsFirstEpoch = finalizerRound committee $ SkovV1.tcFinalizerQCRoundsFirstEpoch tc,
+                  tcFinalizerQCRoundsSecondEpoch = finalizerRound committee $ SkovV1.tcFinalizerQCRoundsSecondEpoch tc,
+                  tcAggregateSignature = QueriesKonsensusV1.TimeoutCertificateSignature . (SkovV1.theTimeoutSignature . SkovV1.tcAggregateSignature) $ tc
+                }
+    mkEpochFinalizationEntryOut :: SkovV1.FinalizationCommittee -> SkovV1.Option SkovV1.FinalizationEntry -> Maybe QueriesKonsensusV1.EpochFinalizationEntry
+    mkEpochFinalizationEntryOut _ SkovV1.Absent = Nothing
+    mkEpochFinalizationEntryOut committee (SkovV1.Present SkovV1.FinalizationEntry{..}) =
+        Just $
+            QueriesKonsensusV1.EpochFinalizationEntry
+                { efeFinalizedQC = mkQuorumCertificateOut committee feFinalizedQuorumCertificate,
+                  efeSuccessorQC = mkQuorumCertificateOut committee feSuccessorQuorumCertificate,
+                  efeSuccessorProof = QueriesKonsensusV1.SuccessorProof $ SkovV1.theBlockQuasiHash feSuccessorProof
+                }
+
+-- | Error type for querying 'BakerRewardPeriodInfo' for some block.
+data GetBakersRewardPeriodError
+    = -- | The block is from a protocol version without delegators.
+      GBRPUnsupportedProtocolVersion
+
+-- |Get a list of 'BakerRewardPeriodInfo' associated with the reward period
+-- for a particular block.
+getBakersRewardPeriod :: forall finconf. BlockHashInput -> MVR finconf (BHIQueryResponse (Either GetBakersRewardPeriodError [BakerRewardPeriodInfo]))
+getBakersRewardPeriod = liftSkovQueryBHI bakerRewardPeriodInfosV0 bakerRewardPeriodInfosV1
+  where
+    bakerRewardPeriodInfosV0 ::
+        forall m.
+        ( SkovQueryMonad m,
+          BlockPointerType m ~ PersistentBlockPointer (MPV m) (HashedPersistentBlockState (MPV m))
+        ) =>
+        BlockPointerType (VersionedSkovV0M finconf (MPV m)) ->
+        m (Either GetBakersRewardPeriodError [BakerRewardPeriodInfo])
+    bakerRewardPeriodInfosV0 bp = case delegationSupport @(AccountVersionFor (MPV m)) of
+        -- The protocol version does not support the delegation feature.
+        SAVDelegationNotSupported -> return $ Left GBRPUnsupportedProtocolVersion
+        SAVDelegationSupported -> do
+            result <- getBakersConsensusV0 =<< blockState bp
+            return $ Right result
+    bakerRewardPeriodInfosV1 ::
+        forall m.
+        (BS.BlockStateQuery m, IsConsensusV1 (MPV m), BlockPointerMonad m, BlockPointerType m ~ SkovV1.BlockPointer (MPV m)) =>
+        SkovV1.BlockPointer (MPV m) ->
+        m (Either GetBakersRewardPeriodError [BakerRewardPeriodInfo])
+    bakerRewardPeriodInfosV1 bp = do
+        result <- getBakersConsensusV1 =<< blockState bp
+        return $ Right result
+    -- Get the bakers and calculate the finalization committee for protocols using consensus v0.
+    getBakersConsensusV0 :: (SkovQueryMonad m, PVSupportsDelegation (MPV m)) => BlockState m -> m [BakerRewardPeriodInfo]
+    getBakersConsensusV0 bs = do
+        bakers <- BS.getCurrentEpochBakers bs
+        finalizationParameters <- genesisFinalizationParameters . _gcCore <$> getGenesisData
+        totalCCD <- rsTotalAmount <$> BS.getRewardStatus bs
+        let finalizationCommittee = makeFinalizationCommittee finalizationParameters totalCCD bakers
+        mapBakersToInfos bs (Vec.toList $ fullBakerInfos bakers) (partyBakerId <$> Vec.toList (parties finalizationCommittee))
+    -- Get the bakers and calculate the finalization committee for protocols using consensus v1.
+    getBakersConsensusV1 :: (BS.BlockStateQuery m, IsConsensusV1 (MPV m)) => BlockState m -> m [BakerRewardPeriodInfo]
+    getBakersConsensusV1 bs = do
+        bakers <- BS.getCurrentEpochBakers bs
+        finCommitteeParams <- BS.getCurrentEpochFinalizationCommitteeParameters bs
+        let finalizationCommittee = ConsensusV1.computeFinalizationCommittee bakers finCommitteeParams
+        mapBakersToInfos bs (Vec.toList $ fullBakerInfos bakers) (SkovV1.finalizerBakerId <$> Vec.toList (SkovV1.committeeFinalizers finalizationCommittee))
+    -- Map bakers to their assoicated 'BakerRewardPeriodInfo'.
+    -- The supplied bakers and list of baker ids (of the finalization committee) MUST
+    -- be sorted in ascending order of their baker id.
+    -- Returns a list of BakerRewardPeriodInfo's in ascending order of the baker id.
+    mapBakersToInfos ::
+        ( BS.BlockStateQuery m,
+          PVSupportsDelegation (MPV m)
+        ) =>
+        -- The block state to request the pool status from.
+        BlockState m ->
+        -- All bakers for the reward period.
+        [FullBakerInfo] ->
+        -- The baker ids of the finalizers for the reward period.
+        [BakerId] ->
+        m [BakerRewardPeriodInfo]
+    mapBakersToInfos bs fullBakerInfos finalizersByBakerId = reverse . fst <$> foldM mapBaker ([], finalizersByBakerId) fullBakerInfos
+      where
+        -- No finalizers left to pick off, so this baker must only be
+        -- member of the baking committee.
+        mapBaker (acc, []) baker = do
+            info <- toBakerRewardPeriodInfo False bs baker
+            return (info : acc, [])
+        -- Check whether the baker id of the finalizer candidate matches the
+        -- bakers id. If this is the case then the baker is member of the finalization committee and
+        -- otherwise not.
+        mapBaker (acc, finalizers@(candidate : remaining)) baker = do
+            let isFinalizer = (baker ^. theBakerInfo . to _bakerIdentity) == candidate
+            info <- toBakerRewardPeriodInfo isFinalizer bs baker
+            return (info : acc, if isFinalizer then remaining else finalizers)
+    -- Map the baker to a 'BakerRewardPeriodInfo'.
+    toBakerRewardPeriodInfo ::
+        (PVSupportsDelegation (MPV m), BS.BlockStateQuery m) =>
+        -- \|Whether the baker is a finalizer.
+        Bool ->
+        -- \|The block state
+        BlockState m ->
+        -- \|Baker information.
+        FullBakerInfo ->
+        m BakerRewardPeriodInfo
+    toBakerRewardPeriodInfo isFinalizer bs FullBakerInfo{..} = do
+        let bakerId = _bakerIdentity _theBakerInfo
+        BS.getPoolStatus bs (Just bakerId) >>= \case
+            Nothing -> error "A pool for a known baker could not be looked up."
+            Just PassiveDelegationStatus{} -> error "A passive delegation status was returned when querying with a bakerid."
+            Just BakerPoolStatus{..} -> do
+                return
+                    BakerRewardPeriodInfo
+                        { brpiBaker = _theBakerInfo,
+                          brpiEffectiveStake = _bakerStake,
+                          brpiCommissionRates = psPoolInfo ^. poolCommissionRates,
+                          brpiEquityCapital = psBakerEquityCapital,
+                          brpiDelegatedCapital = psDelegatedCapital,
+                          brpiIsFinalizer = isFinalizer
+                        }
+
+-- |Get the earliest time at which a baker is projected to win the lottery.
+-- Returns 'Nothing' for consensus version 0.
+getBakerEarliestWinTime :: BakerId -> MVR finconf (Maybe Timestamp)
+getBakerEarliestWinTime bid =
+    liftSkovQueryLatest
+        (return Nothing)
+        (fmap Just . ConsensusV1.bakerEarliestWinTimestamp bid =<< get)

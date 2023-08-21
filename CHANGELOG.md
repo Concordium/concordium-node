@@ -5,6 +5,30 @@
 - Apply fix for processing of chain parameter updates when they occur at the same time
   retroactively to all protocol versions. This may break compatibility with any local/private
   chains on which the bug occurs.
+- Remove the concept of pending blocks.
+
+## 6.1.0
+
+- `GetPoolInfo` now also returns the commission rates for the current reward period.
+- Add `GetBakersRewardPeriod` to GRPCV2 API. Provided a block, then it returns information about bakers
+  for the reward period of the block.
+- Add endpoint `GetBlockCertificates` to GRPCV2 API. Provided a block, then it returns 
+  quorum certificate, timeout certificate and epoch finalization entry contained in the block (where present).
+- Add endpoint `GetBakerEarliestWinTime` to GRPCV2 API. Provided a baker ID, it returns the
+  earliest time at which the node projects that the baker could be required to bake a block.
+- Add endpoint `GetFirstBlockEpoch` to GRPCV2 API. It returns the block hash of the first block in
+  a given epoch.
+- Add endpoint `GitWinningBakersEpoch` to GRPCV2 API. It returns a list of the bakers that won
+  rounds in a specified (finalized) epoch. This only supports consensus version 1.
+- Fix a bug in how the last timeout certificate is recovered at start-up.
+- Fix the behaviour of the block last finalized pointer in the `GetBlockInfo` so that it
+  consistently returns the last finalized block at the time the block was baked.
+- Add debug-level logging when a round is advanced, either due to a quorum certificate or a
+  timeout certificate.
+
+## 6.0.4
+
+- Fix a bug in how timeout certificates across epoch boundaries are handled in catch-up.
 
 ## 6.0.3
 
@@ -12,6 +36,7 @@
 - Fix processing of chain parameter updates when they occur at the same time.
 - Fix a bug where out-of-band catch-up fails in P6 when processing blocks that have already been
   processed.
+- Fix a bug where certified blocks are not written to disk in some circumstances.
 
 ## 6.0.2
 
