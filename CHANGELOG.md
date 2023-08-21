@@ -21,6 +21,8 @@
 - Add debug-level logging when a round is advanced, either due to a quorum certificate or a
   timeout certificate.
 
+- Remove the concept of pending blocks.
+
 ## 6.0.4
 
 - Fix a bug in how timeout certificates across epoch boundaries are handled in catch-up.

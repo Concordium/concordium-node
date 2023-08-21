@@ -209,9 +209,7 @@ data TransactionStatus
 -- in a pattern match, then if 'BlockStatus pv' is to be modified the complete pragma MUST also be
 -- checked whether it is still sufficient.
 data BlockStatus pv
-    = -- |The block is awaiting its parent to become part of chain.
-      BlockPending !PendingBlock
-    | -- |The block is alive.
+    = -- |The block is alive.
       BlockAlive !(BlockPointer pv)
     | -- |The block is finalized.
       BlockFinalized !(BlockPointer pv)
@@ -231,24 +229,12 @@ blockStatusBlock (BlockAlive b) = Just b
 blockStatusBlock (BlockFinalized b) = Just b
 blockStatusBlock _ = Nothing
 
--- |Returns 'True' just when the 'BlockStatus' is either 'BlockPending' or 'BlockUnknown'.
-isPendingOrUnknown :: BlockStatus pv -> Bool
-isPendingOrUnknown BlockPending{} = True
-isPendingOrUnknown BlockUnknown = True
-isPendingOrUnknown _ = False
-
 -- |A (unidirectional) pattern for matching a block status that is either alive or finalized.
 pattern BlockAliveOrFinalized :: BlockPointer pv -> BlockStatus pv
 pattern BlockAliveOrFinalized b <- (blockStatusBlock -> Just b)
 
--- |A (unidirectional) pattern for matching a block status that is either pending or unknown.
-pattern BlockPendingOrUnknown :: BlockStatus pv
-pattern BlockPendingOrUnknown <- (isPendingOrUnknown -> True)
-
 -- This tells GHC that these patterns are complete for 'BlockStatus'.
-{-# COMPLETE BlockPending, BlockAliveOrFinalized, BlockDead, BlockUnknown #-}
-{-# COMPLETE BlockPendingOrUnknown, BlockAlive, BlockFinalized, BlockDead #-}
-{-# COMPLETE BlockPendingOrUnknown, BlockAliveOrFinalized, BlockDead #-}
+{-# COMPLETE BlockUnknown, BlockAliveOrFinalized, BlockDead #-}
 
 -- |The status of a block as obtained without loading the block from disk.
 data RecentBlockStatus pv

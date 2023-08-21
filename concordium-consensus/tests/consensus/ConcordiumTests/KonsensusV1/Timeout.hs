@@ -40,7 +40,6 @@ import Concordium.Startup
 import Concordium.Types
 import Concordium.Types.BakerIdentity
 import qualified Concordium.Types.DummyData as Dummy
-import Concordium.Types.Transactions
 import ConcordiumTests.KonsensusV1.Common
 import ConcordiumTests.KonsensusV1.TreeStateTest hiding (tests)
 import ConcordiumTests.KonsensusV1.Types hiding (tests)
@@ -450,11 +449,6 @@ testReceiveTimeoutMessage = describe "Receive timeout message" $ do
     someBlockHash = BlockHash $ Hash.hash "Some other block"
     -- A hash for an old finalized block.
     someOldFinalizedBlockHash = BlockHash $ Hash.hash "Some old finalized block"
-    -- Some baked block for the provided round and epoch
-    bakedBlock r e = BakedBlock r e 0 0 (someQC r e) Absent Absent dummyBlockNonce Vec.empty emptyTransactionOutcomesHashV1 (StateHashV0 $ Hash.hash "empty state hash")
-    -- Some pending block with no meaningful content.
-    -- It is inserted into the tree state before running tests.
-    pendingBlock = MemBlockPending $ PendingBlock signedBlock $ timestampToUTCTime 0
     -- a block hash for a block that is alive.
     -- A block with this hash is put into the live blocks table and
     -- likewise the @duplicateMessage@ has this block hash (which is
@@ -466,9 +460,7 @@ testReceiveTimeoutMessage = describe "Receive timeout message" $ do
     -- @liveBlockHash@.
     anotherLiveBlock = BlockHash $ Hash.hash "another live block"
     -- A block that is recorded as live in the tree state
-    liveBlock = MemBlockAlive $ someBlockPointer liveBlockHash 3 0
-    -- A block signed by finalizer 1.
-    signedBlock = SignedBlock (bakedBlock 4 0) pendingBlockHash $ Sig.sign (sigKeyPair' 1) "foo"
+    liveBlock = someBlockPointer liveBlockHash 3 0
     -- FinalizerInfo for the finalizer index provided.
     -- All finalizers has the same keys attached.
     fi :: Word32 -> FinalizerInfo
@@ -493,8 +485,7 @@ testReceiveTimeoutMessage = describe "Receive timeout message" $ do
             & blockTable . deadBlocks %~ insertDeadCache deadBlockHash
             & blockTable
                 . liveMap
-                %~ HM.insert pendingBlockHash pendingBlock
-                . HM.insert liveBlockHash liveBlock
+                %~ HM.insert liveBlockHash liveBlock
                 . HM.insert anotherLiveBlock liveBlock
             & currentTimeoutMessages .~ Present (TimeoutMessages 0 (Map.singleton (FinalizerIndex 1) duplicateMessage) Map.empty)
     -- A low level database which consists of a finalized block for height 0 otherwise empty.
