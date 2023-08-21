@@ -2,6 +2,11 @@
 
 ## Unreleased changes
 
+- Apply fix for processing of chain parameter updates when they occur at the same time
+  retroactively to all protocol versions. This may break compatibility with any local/private
+  chains on which the bug occurs.
+- Remove the concept of pending blocks.
+
 ## 6.1.0
 
 - `GetPoolInfo` now also returns the commission rates for the current reward period.
@@ -20,8 +25,6 @@
   consistently returns the last finalized block at the time the block was baked.
 - Add debug-level logging when a round is advanced, either due to a quorum certificate or a
   timeout certificate.
-
-- Remove the concept of pending blocks.
 
 ## 6.0.4
 
