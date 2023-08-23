@@ -6,6 +6,9 @@
   retroactively to all protocol versions. This may break compatibility with any local/private
   chains on which the bug occurs.
 - Remove the concept of pending blocks.
+- Fix a bug where credential registration IDs were not correctly loaded from
+  genesis. As a result, lookup of genesis accounts via credential registration
+  ID did not work.
 
 ## 6.1.0
 
