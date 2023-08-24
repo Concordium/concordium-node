@@ -177,7 +177,10 @@ invokeContract ContractContext{..} cm bs
                                 -- the transaction (minus the signature checking cost)
                                 chargeV1Storage
                                 return result
-                        (r, cs) <- runLocalT comp ccAmount ai ccEnergy ccEnergy
+                            -- Since this is invoking an instance, there is no payment for the transaction
+                            -- reserved for the account.
+                            depositedAmount = 0
+                        (r, cs) <- runLocalT comp depositedAmount ai ccEnergy ccEnergy
                         return (r, _energyLeft cs)
             contextState =
                 ContextState
