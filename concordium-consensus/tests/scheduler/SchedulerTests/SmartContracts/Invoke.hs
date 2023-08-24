@@ -31,33 +31,42 @@ import SchedulerTests.TestUtils
 initialBlockState :: Helpers.PersistentBSM PV4 (HashedPersistentBlockState PV4)
 initialBlockState =
     Helpers.createTestBlockStateWithAccountsM
-        [Helpers.makeTestAccount alesVK alesAccount 1_000]
+        [Helpers.makeTestAccount alesVK alesAccount 1_000_000]
 
 counterSourceFile :: FilePath
 counterSourceFile = "../concordium-base/smart-contracts/testdata/contracts/v1/call-counter.wasm"
 
-deployModule ::
+transferSourceFile :: FilePath
+transferSourceFile = "../concordium-base/smart-contracts/testdata/contracts/v1/transfer.wasm"
+
+deployModules ::
     Helpers.PersistentBSM
         PV4
         ( PersistentBlockState PV4,
-          InvokeHelpers.PersistentModuleInterfaceV GSWasm.V1,
-          WasmModuleV GSWasm.V1
+          ( InvokeHelpers.PersistentModuleInterfaceV GSWasm.V1,
+            WasmModuleV GSWasm.V1
+          ),
+          ( InvokeHelpers.PersistentModuleInterfaceV GSWasm.V1,
+            WasmModuleV GSWasm.V1
+          )
         )
-deployModule = do
-    ((x, y), z) <- InvokeHelpers.deployModuleV1 Types.SP4 counterSourceFile . hpbsPointers =<< initialBlockState
-    return (z, x, y)
+deployModules = do
+    (m0, bs0) <- InvokeHelpers.deployModuleV1 Types.SP4 counterSourceFile . hpbsPointers =<< initialBlockState
+    (m1, bs1) <- InvokeHelpers.deployModuleV1 Types.SP4 transferSourceFile bs0
+    return (bs1, m0, m1)
 
 initContract ::
-    ( PersistentBlockState PV4,
-      InvokeHelpers.PersistentModuleInterfaceV GSWasm.V1,
+    PersistentBlockState PV4 ->
+    ( InvokeHelpers.PersistentModuleInterfaceV GSWasm.V1,
       WasmModuleV GSWasm.V1
     ) ->
+    InitName ->
     Helpers.PersistentBSM PV4 (Types.ContractAddress, HashedPersistentBlockState PV4)
-initContract (bs, miv, wm) = do
+initContract bs (miv, wm) name = do
     (ca, pbs) <-
         InvokeHelpers.initContractV1
             alesAccount
-            (InitName "init_counter")
+            name
             emptyParameter
             (0 :: Types.Amount)
             bs
@@ -126,7 +135,7 @@ invokeContract3 ccContract bs = do
                 }
     InvokeContract.invokeContract ctx cm bs
 
--- |Same as 2, but with an invoker.
+-- |Same as 2, but with an invoker that is a contract.
 invokeContract4 ::
     Types.ContractAddress ->
     HashedPersistentBlockState PV4 ->
@@ -150,30 +159,63 @@ invokeContract4 ccContract bs = do
                 }
     InvokeContract.invokeContract ctx cm bs
 
+-- |Transfer 1 CCD from alesAccount to the contract. This amount should be the
+-- same as the total balance of the account that is invoking.
+--
+-- This test ensures that invokeContract does not charge for transaction cost.
+invokeContract5 ::
+    Types.ContractAddress ->
+    HashedPersistentBlockState PV4 ->
+    Helpers.PersistentBSM PV4 InvokeContract.InvokeContractResult
+invokeContract5 ccContract bs = do
+    let cm = Types.ChainMetadata 0
+    let ccParameter = emptyParameter
+    let ctx =
+            InvokeContract.ContractContext
+                { ccInvoker = Just (Types.AddressAccount alesAccount),
+                  ccAmount = 1_000_000,
+                  ccMethod = ReceiveName "transfer.deposit",
+                  ccEnergy = 1_000_000_000,
+                  ..
+                }
+    InvokeContract.invokeContract ctx cm bs
+
 runCounterTests :: Assertion
 runCounterTests = do
     Helpers.runTestBlockState $ do
-        bsWithMod <- deployModule
-        (addr, stateWithContract) <- initContract bsWithMod
-        invokeContract1 addr stateWithContract >>= \case
+        (bsWithMods, mod0, _) <- deployModules
+        (addr0, stateWithContract0) <- initContract bsWithMods mod0 (InitName "init_counter")
+        invokeContract1 addr0 stateWithContract0 >>= \case
             InvokeContract.Failure{..} -> liftIO $ assertFailure $ "Invocation failed: " ++ show rcrReason
             InvokeContract.Success{..} ->
                 case rcrReturnValue of
                     Nothing -> liftIO $ assertFailure "Invoking a V1 contract must produce a return value."
                     Just rv -> liftIO $ assertEqual "Invoking a counter in initial state should return 1" [1, 0, 0, 0, 0, 0, 0, 0] (BS.unpack rv)
 
-        invokeContract2 addr stateWithContract >>= \case
+        invokeContract2 addr0 stateWithContract0 >>= \case
             InvokeContract.Failure{..} -> liftIO $ assertFailure $ "Invocation failed: " ++ show rcrReason
             InvokeContract.Success{..} ->
                 case rcrReturnValue of
                     Nothing -> liftIO $ assertFailure "Invoking a V1 contract must produce a return value."
                     Just rv -> liftIO $ assertEqual "Invoking a counter in initial state should return an empty array." [] (BS.unpack rv)
 
-        invokeContract3 addr stateWithContract >>= \case
+        invokeContract3 addr0 stateWithContract0 >>= \case
             InvokeContract.Failure{..} -> liftIO $ assertEqual "Invocation should fail: " Types.RuntimeFailure rcrReason
             InvokeContract.Success{} -> liftIO $ assertFailure "Invocation succeeded, but should fail."
 
-        invokeContract4 addr stateWithContract >>= \case
+        invokeContract4 addr0 stateWithContract0 >>= \case
+            InvokeContract.Failure{..} -> liftIO $ assertFailure $ "Invocation failed: " ++ show rcrReason
+            InvokeContract.Success{..} ->
+                case rcrReturnValue of
+                    Nothing -> liftIO $ assertFailure "Invoking a V1 contract must produce a return value."
+                    Just rv -> liftIO $ assertEqual "Invoking a counter in initial state should return an empty array." [] (BS.unpack rv)
+
+runTransferTests :: Assertion
+runTransferTests = do
+    Helpers.runTestBlockState $ do
+        (bsWithMods, _, mod1) <- deployModules
+        (addr1, stateWithContract1) <- initContract bsWithMods mod1 (InitName "init_transfer")
+        invokeContract5 addr1 stateWithContract1 >>= \case
             InvokeContract.Failure{..} -> liftIO $ assertFailure $ "Invocation failed: " ++ show rcrReason
             InvokeContract.Success{..} ->
                 case rcrReturnValue of
@@ -182,5 +224,6 @@ runCounterTests = do
 
 tests :: Spec
 tests =
-    describe "Invoke contract" $
+    describe "Invoke contract" $ do
         specify "V1: Counter contract" runCounterTests
+        specify "V1: Transfer contract" runTransferTests
