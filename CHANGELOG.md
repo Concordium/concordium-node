@@ -6,9 +6,13 @@
   retroactively to all protocol versions. This may break compatibility with any local/private
   chains on which the bug occurs.
 - Remove the concept of pending blocks.
-- Fix a bug where credential registration IDs were not correctly loaded from
-  genesis. As a result, lookup of genesis accounts via credential registration
-  ID did not work.
+- Fix a bug where credential registration IDs for genesis accounts were not
+  correctly recorded. As a result, the index of accounts by credential ids was
+  incorrect if the chain was started from genesis by node versions 5.1.3 up to
+  and including 6.0. If a chain was started by an older node version and then
+  the node was upgraded the index is loaded correctly. This index is used when
+  checking for duplicate credential registration IDs, and when looking up an
+  account via a credential registration ID.
 
 ## 6.1.0
 
