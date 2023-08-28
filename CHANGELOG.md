@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+## 6.1.1
+
 - Apply fix for processing of chain parameter updates when they occur at the same time
   retroactively to all protocol versions. This may break compatibility with any local/private
   chains on which the bug occurs.
