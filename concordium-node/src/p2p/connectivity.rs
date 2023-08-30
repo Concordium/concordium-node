@@ -157,25 +157,27 @@ impl P2PNode {
 
     /// Shut down connections with the given poll tokens.
     /// Returns `true` if any connections were removed, and `false` otherwise.
-    pub fn remove_connections(&self, tokens: &[Token]) -> bool {
+    pub fn remove_connections(&self, tokens: &[Token]) -> (bool, Vec<RemotePeer>) {
         // This is not implemented as a simple iteration using remove_connection because
         // that would require more lock acquisitions and calls to bump_last_peer_update.
         let conn_candidates = &mut lock_or_die!(self.conn_candidates());
         let connections = &mut write_or_die!(self.connections());
 
-        let mut removed_peers = false;
+        let mut has_removed_peers = false;
+        let mut removed_peers = vec![];
         let mut removed_candidates = false;
         for token in tokens {
             if conn_candidates.remove(token).is_some() {
                 removed_candidates = true;
-            } else if connections.remove(token).is_some() {
-                removed_peers = true;
+            } else if let Some(removed_peer) = connections.remove(token) {
+                removed_peers.push(removed_peer.remote_peer);
+                has_removed_peers = true;
             }
         }
-        if removed_peers {
+        if has_removed_peers {
             self.bump_last_peer_update();
         }
-        removed_candidates || removed_peers
+        (removed_candidates || has_removed_peers, removed_peers)
     }
 
     /// Close connection to the given address, if any.

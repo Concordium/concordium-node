@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 - Do not reset banned peers on startup by default.
+- When the node starts up, then try to connect to previously connected peers instead of
+  relying on the bootstrapper to serve the first set of peers.
 
 ## 6.1.1
 

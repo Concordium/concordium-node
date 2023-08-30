@@ -26,7 +26,7 @@ use crate::{
     p2p::{
         bans::BanId,
         connectivity::{accept, connect, connection_housekeeping, AcceptFailureReason, SELF_TOKEN},
-        peers::check_peers,
+        peers::{check_peers, persist_peer, remove_persisted_peer},
     },
     plugins::consensus::{check_peer_states, update_peer_list},
     read_or_die, spawn_or_die,
@@ -801,6 +801,9 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
                 if !is_connected {
                     conns.insert(conn.token(), conn);
                     node.bump_last_peer_update();
+                    // insert the peer in the lmdb store so the node can
+                    // reconnect to the peer if the node restarts.
+                    persist_peer(node, addr);
                 } else {
                     warn!("Already connected to a peer on the given address.")
                 }
@@ -842,15 +845,23 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
                 );
                 node.stats.soft_banned_peers.inc();
                 node.stats.soft_banned_peers_total.inc();
+                remove_persisted_peer(node, remote_peer.addr);
             }
         }
         ConnChange::RemovalByToken(token) => {
             trace!("Removing connection with token {:?}", token);
-            node.remove_connection(token);
+            if let Some(remote_peer) = node.remove_connection(token) {
+                remove_persisted_peer(node, remote_peer.addr);
+            }
         }
         ConnChange::RemoveAllByTokens(tokens) => {
             trace!("Removing connections with tokens {:?}", tokens);
-            node.remove_connections(&tokens);
+            let (_, removed_peers) = node.remove_connections(&tokens);
+            for p in removed_peers {
+                // If any connections were dropped, remove them
+                // from the database.
+                remove_persisted_peer(node, p.addr);
+            }
         }
     }
 }
