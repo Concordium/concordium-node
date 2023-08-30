@@ -379,7 +379,7 @@ impl P2PNode {
             .write()
             .unwrap()
             .get_or_create(config.data_dir_path.as_path(), Rkv::new::<Lmdb>)
-            .context("Could not create or obtain the ban database.")?;
+            .context("Could not create or obtain the database.")?;
 
         let node = Arc::new(P2PNode {
             poll_registry,
@@ -836,7 +836,7 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
             }
         }
         ConnChange::ExpulsionByToken(token) => {
-            if let Some(remote_peer) = node.remove_connection(token) {
+            if let Some((is_conn, remote_peer)) = node.remove_connection(token) {
                 let ip = remote_peer.addr.ip();
                 warn!("Soft-banning {} due to a breach of protocol", ip);
                 write_or_die!(node.connection_handler.soft_bans).insert(
@@ -845,13 +845,17 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
                 );
                 node.stats.soft_banned_peers.inc();
                 node.stats.soft_banned_peers_total.inc();
-                remove_persisted_peer(node, remote_peer.addr);
+                if is_conn {
+                    remove_persisted_peer(node, remote_peer.addr);
+                }
             }
         }
         ConnChange::RemovalByToken(token) => {
             trace!("Removing connection with token {:?}", token);
-            if let Some(remote_peer) = node.remove_connection(token) {
-                remove_persisted_peer(node, remote_peer.addr);
+            if let Some((is_conn, remote_peer)) = node.remove_connection(token) {
+                if is_conn {
+                    remove_persisted_peer(node, remote_peer.addr);
+                }
             }
         }
         ConnChange::RemoveAllByTokens(tokens) => {

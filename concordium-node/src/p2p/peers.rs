@@ -250,11 +250,11 @@ pub fn persist_peer(node: &Arc<P2PNode>, peer_addr: SocketAddr) {
 pub fn remove_persisted_peer(node: &Arc<P2PNode>, peer_addr: SocketAddr) {
     if let Ok(kv) = node.kvs.read() {
         let peers_store = kv.open_single(PEERS_STORE_NAME, StoreOptions::create()).expect("foo");
-        let mut buf = Vec::new();
+        let mut key = Vec::new();
         let stored_peer: StoredPeer = peer_addr.into();
-        stored_peer.serial(&mut buf);
+        stored_peer.serial(&mut key);
         let mut writer = kv.write().expect("foo");
-        peers_store.delete(&mut writer, buf).expect("foo");
+        peers_store.delete(&mut writer, key).expect("foo");
         writer.commit().expect("foo");
     } else {
         warn!("Could not acqure lock over lmdb");
