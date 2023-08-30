@@ -467,7 +467,9 @@ pub struct ConnectionConfig {
     #[structopt(
         long = "no-clear-bans",
         help = "Do not clear the ban database on start.",
-        env = "CONCORDIUM_NODE_CONNECTION_NO_CLEAR_BANS"
+        env = "CONCORDIUM_NODE_CONNECTION_NO_CLEAR_BANS",
+        parse(try_from_str),
+        default_value = "true"
     )]
     pub no_clear_bans: bool,
     #[structopt(
