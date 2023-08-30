@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased changes
+- Do not reset banned peers on startup by default.
 
 ## 6.1.1
 
