@@ -652,6 +652,7 @@ version = "6.1.1"
 dependencies = [
  "anyhow",
  "app_dirs2",
+ "async-stream",
  "base64 0.13.1",
  "byteorder",
  "bytesize",

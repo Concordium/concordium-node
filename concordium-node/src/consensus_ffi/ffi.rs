@@ -257,6 +257,12 @@ pub struct execute_block {
     private: [u8; 0],
 }
 
+/// An opaque reference to a dry run handle, which is created when 
+#[repr(C)]
+pub struct DryRunHandle {
+    private: [u8; 0],
+}
+
 /// Abstracts the reference required to execute a block that has been received.
 /// This wrapper type exists so we make sure that the same '*mut execute_block'
 /// is not called twice as we pass ownership of 'ExecuteBlockCallback' to
@@ -1472,6 +1478,10 @@ extern "C" {
         out: *mut Vec<u8>,
         copier: CopyToVecCallback,
     ) -> i64;
+
+    pub fn dryRunStart(
+        consensus: *mut consensus_runner,
+    ) -> *mut DryRunHandle;
 }
 
 /// This is the callback invoked by consensus on newly arrived, and newly

@@ -710,6 +710,8 @@ struct ServiceConfig {
     get_first_block_epoch: bool,
     #[serde(default)]
     get_winning_bakers_epoch: bool,
+    #[serde(default)]
+    dry_run: bool,
 }
 
 impl ServiceConfig {
@@ -770,6 +772,7 @@ impl ServiceConfig {
             get_baker_earliest_win_time: true,
             get_first_block_epoch: true,
             get_winning_bakers_epoch: true,
+            dry_run: true,
         }
     }
 
@@ -1150,6 +1153,10 @@ pub mod server {
 
     #[async_trait]
     impl service::queries_server::Queries for RpcServerImpl {
+        /// Return type for the 'DryRun' method.
+        type DryRunStream = std::pin::Pin<
+            Box<dyn futures::Stream<Item = Result<Vec<u8>, tonic::Status>> + Send + 'static>,
+        >;
         /// Return type for the 'GetAccountList' method.
         type GetAccountListStream =
             futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
@@ -1207,7 +1214,7 @@ pub mod server {
         /// Return type for the 'GetPoolDelegators' method.
         type GetPoolDelegatorsStream =
             futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
-        /// Return type for the 'GetWinningBakersEpoch' mehtod.
+        /// Return type for the 'GetWinningBakersEpoch' method.
         type GetWinningBakersEpochStream =
             futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
 
@@ -2430,6 +2437,24 @@ pub mod server {
             let (sender, receiver) = futures::channel::mpsc::channel(100);
             self.consensus.get_winning_bakers_epoch_v2(request.get_ref(), sender)?;
             Ok(tonic::Response::new(receiver))
+        }
+
+        async fn dry_run(
+            &self,
+            request: tonic::Request<tonic::Streaming<crate::grpc2::types::DryRunRequest>>,
+        ) -> Result<tonic::Response<Self::DryRunStream>, tonic::Status> {
+            if !self.service_config.dry_run {
+                return Err(tonic::Status::unimplemented("`DryRun` is not enabled."));
+            }
+
+            let mut input = request.into_inner();
+            let output = async_stream::stream! {
+
+                while let Some(dry_run_request) = input.next().await {
+                    yield Err(tonic::Status::unimplemented("Not implemented yet"));
+                }
+            };
+            Ok(tonic::Response::new(Box::pin(output) as Self::DryRunStream))
         }
     }
 }

@@ -88,3 +88,6 @@ EXPORTS
  getBakersRewardPeriodV2
  getBlockCertificatesV2
  getBakerEarliestWinTimeV2
+
+ dryRunStart
+ dryRunEnd
