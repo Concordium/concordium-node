@@ -94,6 +94,7 @@ pub struct NodeConfig {
     pub deduplication_hashing_algorithm: DeduplicationHashAlgorithm,
     pub regenesis_arc: Arc<Regenesis>,
     pub max_normal_keep_alive_ms: u64,
+    pub clear_persisted_peers: bool,
 }
 
 /// The collection of connections to peer nodes.
@@ -370,6 +371,7 @@ impl P2PNode {
             deduplication_hashing_algorithm: conf.connection.deduplication_hashing_algorithm,
             regenesis_arc,
             max_normal_keep_alive_ms: conf.connection.max_normal_keep_alive * 1000,
+            clear_persisted_peers: conf.connection.clear_persisted_peers,
         };
 
         let connection_handler = ConnectionHandler::new(conf);
@@ -398,6 +400,10 @@ impl P2PNode {
 
         if !node.config.no_clear_bans {
             node.clear_bans().unwrap_or_else(|e| error!("Couldn't reset the ban list: {}", e));
+        }
+        if node.config.clear_persisted_peers {
+            node.clear_persisted_peers()
+                .unwrap_or_else(|e| error!("Couldn't reset the persisted peers: {}", e));
         }
 
         Ok((node, server, poll))

@@ -284,6 +284,19 @@ pub fn connect_to_stored_nodes(node: &Arc<P2PNode>) -> anyhow::Result<()> {
     }
 }
 
+impl P2PNode {
+    pub fn clear_persisted_peers(&self) -> anyhow::Result<()> {
+        if let Ok(kvs_env) = self.kvs.read() {
+            let peers_store = kvs_env.open_single(PEERS_STORE_NAME, StoreOptions::create())?;
+            let mut writer = kvs_env.write()?;
+            peers_store.clear(&mut writer)?;
+            writer.commit().map_err(|e| e.into())
+        } else {
+            anyhow::bail!("Couldn't clear the bans: couldn't obtain a lock over the kvs");
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
