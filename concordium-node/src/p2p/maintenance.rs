@@ -809,7 +809,10 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
                     node.bump_last_peer_update();
                     // insert the peer in the lmdb store so the node can
                     // reconnect to the peer if the node restarts.
-                    persist_peer(node, addr);
+                    match persist_peer(node, addr) {
+                        Ok(_) => (),
+                        Err(err) => warn!("Could not persist peer to database {}", err),
+                    }
                 } else {
                     warn!("Already connected to a peer on the given address.")
                 }
@@ -851,26 +854,39 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
                 );
                 node.stats.soft_banned_peers.inc();
                 node.stats.soft_banned_peers_total.inc();
+                // If the peer was connected then also expunge it from
+                // the database so the node does not try to reconnect to it upon a restart.
                 if is_conn {
-                    remove_persisted_peer(node, remote_peer.addr);
+                    match remove_persisted_peer(node, remote_peer.addr) {
+                        Ok(_) => (),
+                        Err(err) => warn!("Unable to remove 'StoredPeer' from database {}", err),
+                    }
                 }
             }
         }
         ConnChange::RemovalByToken(token) => {
             trace!("Removing connection with token {:?}", token);
             if let Some((is_conn, remote_peer)) = node.remove_connection(token) {
+                // If the peer was connected then also expunge it from
+                // the database so the node does not try to reconnect to it upon a restart.
                 if is_conn {
-                    remove_persisted_peer(node, remote_peer.addr);
+                    match remove_persisted_peer(node, remote_peer.addr) {
+                        Ok(_) => (),
+                        Err(err) => warn!("Unable to remove 'StoredPeer' from database {}", err),
+                    }
                 }
             }
         }
         ConnChange::RemoveAllByTokens(tokens) => {
             trace!("Removing connections with tokens {:?}", tokens);
-            let (_, removed_peers) = node.remove_connections(&tokens);
-            for p in removed_peers {
+            let (_, removed_connected_peers) = node.remove_connections(&tokens);
+            for p in removed_connected_peers {
                 // If any connections were dropped, remove them
                 // from the database.
-                remove_persisted_peer(node, p.addr);
+                match remove_persisted_peer(node, p.addr) {
+                    Ok(_) => (),
+                    Err(err) => warn!("Unable to remove 'StoredPeer' from database {}", err),
+                }
             }
         }
     }

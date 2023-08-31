@@ -143,8 +143,8 @@ impl P2PNode {
     /// Returns the remote peer, i.e., the other end, of the just closed
     /// connection, if it exists. None is only returned if no connection
     /// with the given token exists.
-    /// The bool indicates whether the removed peer was a connection or just a
-    /// candidate.
+    /// The bool indicates whether the removed peer was a connected peer or just
+    /// a candidate.
     pub fn remove_connection(&self, token: Token) -> Option<(bool, RemotePeer)> {
         // First attempt to remove connection in the handshake phase.
         if let Some(removed_cand) = lock_or_die!(self.conn_candidates()).remove(&token) {
@@ -158,7 +158,9 @@ impl P2PNode {
     }
 
     /// Shut down connections with the given poll tokens.
-    /// Returns `true` if any connections were removed, and `false` otherwise.
+    /// The first component of the result is `true` if any connections were
+    /// removed, and `false` otherwise. The second component contains a
+    /// vector containing the connected peers that was removed.
     pub fn remove_connections(&self, tokens: &[Token]) -> (bool, Vec<RemotePeer>) {
         // This is not implemented as a simple iteration using remove_connection because
         // that would require more lock acquisitions and calls to bump_last_peer_update.

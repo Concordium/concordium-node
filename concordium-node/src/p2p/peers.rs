@@ -175,11 +175,13 @@ fn calculate_average_throughput(
     Ok((avg_bps_in, avg_bps_out))
 }
 
+/// The lmdb store name of the persisted peers.
 const PEERS_STORE_NAME: &str = "peers";
 
 /// A peer that is stored in the lmdb database.
 /// This is just a newtype over a [`SocketAddr`] so
-/// it is possible to implement the necessary serializing/deserializing traits.
+/// it is possible to implement the necessary serializing/deserializing traits
+/// used for putting and reading the peers in the database.
 #[derive(Debug, PartialEq, Eq)]
 pub struct StoredPeer(SocketAddr);
 
@@ -191,18 +193,22 @@ impl Serial for StoredPeer {
     fn serial<W: Buffer + WriteBytesExt>(&self, target: &mut W) {
         match self.0 {
             SocketAddr::V4(addr) => {
-                target.write_u8(0).expect("surely we can write to memory");
-                target.write_u16::<BigEndian>(addr.port()).expect("surely we can write to memory");
+                target.write_u8(0).expect("unable to write 'StoredPeer' tag(0) to memory");
+                target
+                    .write_u16::<BigEndian>(addr.port())
+                    .expect("unable to write 'StoredPeer' port to memory");
                 target
                     .write_u32::<BigEndian>(BigEndian::read_u32(&addr.ip().octets()))
-                    .expect("surely we can write to memory");
+                    .expect("unable to write 'StoredPeer' ipv4 to memory");
             }
             SocketAddr::V6(addr) => {
-                target.write_u8(1).expect("surely we can write to memory");
-                target.write_u16::<BigEndian>(addr.port()).expect("surely we can write to memory");
+                target.write_u8(1).expect("unable to write 'StoredPeer' tag (1) to memory");
+                target
+                    .write_u16::<BigEndian>(addr.port())
+                    .expect("unable to write 'StoredPeer' port to memory");
                 target
                     .write_u128::<BigEndian>(BigEndian::read_u128(&addr.ip().octets()))
-                    .expect("surely we can write to memory");
+                    .expect("unable to write 'StoredPeer' ipv6 to memory");
             }
         }
     }
@@ -232,33 +238,35 @@ impl Deserial for StoredPeer {
 }
 
 /// Persist the [`SocketAddr`] of a peer.
-pub fn persist_peer(node: &Arc<P2PNode>, peer_addr: SocketAddr) {
+pub fn persist_peer(node: &Arc<P2PNode>, peer_addr: SocketAddr) -> anyhow::Result<()> {
     if let Ok(kv) = node.kvs.read() {
-        let peers_store = kv.open_single(PEERS_STORE_NAME, StoreOptions::create()).expect("foo");
+        let peers_store = kv.open_single(PEERS_STORE_NAME, StoreOptions::create())?;
         let mut buf = Vec::new();
         let stored_peer: StoredPeer = peer_addr.into();
         stored_peer.serial(&mut buf);
-        let mut writer = kv.write().expect("foo");
-        peers_store.put(&mut writer, buf, &Value::U64(0)).expect("foo");
-        writer.commit().expect("foo");
+        let mut writer = kv.write()?;
+        peers_store.put(&mut writer, buf, &Value::U64(0))?;
+        writer.commit()?;
+        Ok(())
     } else {
-        warn!("Could not acqure lock over lmdb");
-    };
+        anyhow::bail!("Could not acqure lock over lmdb");
+    }
 }
 
 /// Remove a peer from the persisted peer database.
-pub fn remove_persisted_peer(node: &Arc<P2PNode>, peer_addr: SocketAddr) {
+pub fn remove_persisted_peer(node: &Arc<P2PNode>, peer_addr: SocketAddr) -> anyhow::Result<()> {
     if let Ok(kv) = node.kvs.read() {
-        let peers_store = kv.open_single(PEERS_STORE_NAME, StoreOptions::create()).expect("foo");
+        let peers_store = kv.open_single(PEERS_STORE_NAME, StoreOptions::create())?;
         let mut key = Vec::new();
         let stored_peer: StoredPeer = peer_addr.into();
         stored_peer.serial(&mut key);
-        let mut writer = kv.write().expect("foo");
-        peers_store.delete(&mut writer, key).expect("foo");
-        writer.commit().expect("foo");
+        let mut writer = kv.write()?;
+        peers_store.delete(&mut writer, key)?;
+        writer.commit()?;
+        Ok(())
     } else {
-        warn!("Could not acqure lock over lmdb");
-    };
+        anyhow::bail!("Could not acqure lock over lmdb");
+    }
 }
 
 /// Try connect to previosly connected peers if
