@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased changes
+- Fix for https://github.com/Concordium/concordium-node/issues/147 so the correct state hash is now returned.
 
 ## 6.1.1
 

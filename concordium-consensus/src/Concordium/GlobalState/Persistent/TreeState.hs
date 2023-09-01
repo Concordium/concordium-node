@@ -603,8 +603,8 @@ constructBlock ::
     m (PersistentBlockPointer pv bs)
 constructBlock StoredBlock{..} = do
     let stateHashM = case sbBlock of
-                GenesisBlock{} -> Nothing
-                NormalBlock bb -> Just $ blockStateHash bb
+            GenesisBlock{} -> Nothing
+            NormalBlock bb -> Just $ blockStateHash bb
     bstate <- loadBlockState stateHashM sbState
     makeBlockPointerFromPersistentBlock sbBlock bstate sbInfo
 
