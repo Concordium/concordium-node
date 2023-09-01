@@ -2,12 +2,6 @@
 
 ## Unreleased changes
 
-## 6.1.1
-
-- Apply fix for processing of chain parameter updates when they occur at the same time
-  retroactively to all protocol versions. This may break compatibility with any local/private
-  chains on which the bug occurs.
-- Remove the concept of pending blocks.
 - Fix a bug where credential registration IDs for genesis accounts were not
   correctly recorded. As a result, the index of accounts by credential ids was
   incorrect if the chain was started from genesis by node versions 5.1.3 up to
@@ -15,6 +9,17 @@
   the node was upgraded the index is loaded correctly. This index is used when
   checking for duplicate credential registration IDs, and when looking up an
   account via a credential registration ID.
+- Fix a bug in the `InvokeInstance` endpoint where the amount sent was
+  used incorrectly. The consequence was that in some cases the calls would fail
+  with an error indicating insufficient amount on the account where the amount
+  was sufficient for the transaction.
+
+## 6.1.1
+
+- Apply fix for processing of chain parameter updates when they occur at the same time
+  retroactively to all protocol versions. This may break compatibility with any local/private
+  chains on which the bug occurs.
+- Remove the concept of pending blocks.
 
 ## 6.1.0
 
