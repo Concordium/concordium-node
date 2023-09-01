@@ -343,8 +343,8 @@ instance forall pv. (IsProtocolVersion pv) => BlockData (Block pv) where
             STOV1 -> emptyTransactionOutcomesHashV1
     blockTransactionOutcomesHash (NormalBlock bb) = blockTransactionOutcomesHash bb
 
-    -- Note. Do not rely on this for type class for retrieving the block state hash,
-    -- instead use @bpBlockStateHash@ of 'BlockPointerData'.
+    -- Note. Do not rely on this for type class for retrieving the block state hash of a
+    -- genesis block. Instead use @bpBlockStateHash@ of 'BlockPointerData'.
     blockStateHash GenesisBlock{} = StateHashV0 minBound
     blockStateHash (NormalBlock bb) = blockStateHash bb
 
