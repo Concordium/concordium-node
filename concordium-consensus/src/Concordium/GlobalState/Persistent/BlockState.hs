@@ -3553,9 +3553,11 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage 
         flushStore
         return ref
 
-    loadBlockState hpbsHash ref = do
+    loadBlockState hpbsHashM ref = do
         hpbsPointers <- liftIO $ newIORef $ blobRefToBufferedRef ref
-        return HashedPersistentBlockState{..}
+        case hpbsHashM of
+            Just hpbsHash -> return HashedPersistentBlockState{..}
+            Nothing -> hashBlockState hpbsPointers
 
     serializeBlockState hpbs = do
         p <- runPutT (putBlockStateV0 (hpbsPointers hpbs))

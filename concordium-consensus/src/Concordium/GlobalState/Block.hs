@@ -343,7 +343,8 @@ instance forall pv. (IsProtocolVersion pv) => BlockData (Block pv) where
             STOV1 -> emptyTransactionOutcomesHashV1
     blockTransactionOutcomesHash (NormalBlock bb) = blockTransactionOutcomesHash bb
 
-    -- FIXME: replace stub, and move into gendata
+    -- Note. Do not rely on this for type class for retrieving the block state hash,
+    -- instead use @bpBlockStateHash@ of 'BlockPointerData'.
     blockStateHash GenesisBlock{} = StateHashV0 minBound
     blockStateHash (NormalBlock bb) = blockStateHash bb
 
