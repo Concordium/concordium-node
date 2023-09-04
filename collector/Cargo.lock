@@ -239,6 +239,7 @@ dependencies = [
  "env_logger",
  "futures",
  "hex",
+ "http",
  "log",
  "macos_logger_wrapper",
  "prost",

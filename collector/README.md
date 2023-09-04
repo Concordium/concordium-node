@@ -9,3 +9,6 @@ Assuming you have a node running locally with GRPC V2 available at `127.0.0.1:20
 ```console
 $> cargo run -- --collector-url http://127.0.0.1:8080/post/nodes --grpc-host http://127.0.0.1:20000  --node-name "my-node-name"
 ```
+
+### TLS
+If the node is configured to be using TLS connections then one has to configure the collector (the `--grpc-host` flag) to be using the URL of the domain of which the certificate was issued for.
