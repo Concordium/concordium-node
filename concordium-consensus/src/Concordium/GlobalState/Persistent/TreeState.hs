@@ -450,7 +450,7 @@ loadSkovPersistentData rp _treeStateDirectory pbsc = do
     makeBlockPointer StoredBlock{..} = do
         let stateHashM = case sbBlock of
                 GenesisBlock{} -> Nothing
-                NormalBlock bb -> Just $ blockStateHash bb
+                NormalBlock bb -> Just $ bbStateHash bb
         bstate <- runReaderT (PBS.runPersistentBlockStateMonad (loadBlockState stateHashM sbState)) pbsc
         makeBlockPointerFromPersistentBlock sbBlock bstate sbInfo
     isBlockStateCorrupted :: StoredBlock pv (TS.BlockStatePointer (PBS.PersistentBlockState pv)) -> IO Bool
@@ -604,7 +604,7 @@ constructBlock ::
 constructBlock StoredBlock{..} = do
     let stateHashM = case sbBlock of
             GenesisBlock{} -> Nothing
-            NormalBlock bb -> Just $ blockStateHash bb
+            NormalBlock bb -> Just $ bbStateHash bb
     bstate <- loadBlockState stateHashM sbState
     makeBlockPointerFromPersistentBlock sbBlock bstate sbInfo
 
