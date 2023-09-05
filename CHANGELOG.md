@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased changes
+- Fix a bug where the block state hash was not returned properly for the genesis block.
 
 - Fix a bug where credential registration IDs for genesis accounts were not
   correctly recorded. As a result, the index of accounts by credential ids was

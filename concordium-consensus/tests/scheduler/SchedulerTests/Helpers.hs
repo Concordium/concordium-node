@@ -376,7 +376,7 @@ reloadBlockState ::
 reloadBlockState persistentState = do
     frozen <- BS.freezeBlockState persistentState
     br <- BS.saveBlockState frozen
-    BS.thawBlockState =<< BS.loadBlockState (BS.hpbsHash frozen) br
+    BS.thawBlockState =<< BS.loadBlockState ((Just . BS.hpbsHash) frozen) br
 
 -- |Takes a function for checking the block state, which is then run on the block state, the block
 -- state is reloaded (save to the blobstore and loaded again) and the check is run again against the

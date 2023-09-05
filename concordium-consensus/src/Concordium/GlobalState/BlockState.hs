@@ -1376,8 +1376,10 @@ class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => Bloc
     -- |Ensure that a block state is stored and return a reference to it.
     saveBlockState :: BlockState m -> m (BlockStateRef m)
 
-    -- |Load a block state from a reference, given its state hash.
-    loadBlockState :: StateHash -> BlockStateRef m -> m (BlockState m)
+    -- |Load a block state from a reference, given its state hash if provided,
+    -- otherwise calculate the state hash upon loading.
+    -- In particular the 'StateHash' should be supplied if loading a non-genesis block state.
+    loadBlockState :: Maybe StateHash -> BlockStateRef m -> m (BlockState m)
 
     -- |Serialize the block state to a byte string.
     -- This serialization does not include transaction outcomes.

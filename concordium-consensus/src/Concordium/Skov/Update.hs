@@ -386,7 +386,7 @@ addBlockWithLiveParent block txvers parentP = do
             Right result -> do
                 -- Check that the StateHash is correct
                 stateHash <- getStateHash (_finalState result)
-                check "Claimed stateHash did not match calculated stateHash" (stateHash == blockStateHash block) $ do
+                check "Claimed stateHash did not match calculated stateHash" (stateHash == (bbStateHash . pbBlock) block) $ do
                     -- Check that the TransactionOutcomeHash is correct
                     tohash <- getTransactionOutcomesHash (_finalState result)
                     check "Claimed transactionOutcomesHash did not match actual transactionOutcomesHash" (tohash == blockTransactionOutcomesHash block) $ do
