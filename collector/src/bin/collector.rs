@@ -199,7 +199,7 @@ async fn collect_data<'a>(
 
     // Set up a tls client if required using the locally installed trust store.
     let endpoint = Channel::from_shared(grpc_host)?.timeout(Duration::from_secs(grpc_timeout));
-    let channel = if endpoint.uri().scheme().map_or(false, |x| x == &http::uri::Scheme::HTTPS) {
+    let channel = if endpoint.uri().scheme() == Some(&http::uri::Scheme::HTTPS) {
         endpoint.tls_config(ClientTlsConfig::new())?
     } else {
         endpoint
