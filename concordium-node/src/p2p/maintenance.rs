@@ -57,8 +57,8 @@ pub struct NodeConfig {
     pub no_net: bool,
     pub desired_nodes_count: u16,
     pub no_bootstrap_dns: bool,
-    /// Do not clear persistent bans on startup.
-    pub no_clear_bans: bool,
+    /// Clear persistent bans on startup.
+    pub clear_bans: bool,
     pub disallow_multiple_peers_on_ip: bool,
     pub bootstrap_nodes: Vec<String>,
     /// Nodes to try and keep the connections to. A node will maintain two
@@ -323,7 +323,7 @@ impl P2PNode {
             no_net: conf.cli.no_network,
             desired_nodes_count: conf.connection.desired_nodes,
             no_bootstrap_dns: conf.connection.no_bootstrap_dns,
-            no_clear_bans: conf.connection.no_clear_bans,
+            clear_bans: conf.connection.clear_bans,
             disallow_multiple_peers_on_ip: conf.connection.disallow_multiple_peers_on_ip,
             bootstrap_nodes: conf.connection.bootstrap_nodes.clone(),
             given_addresses,
@@ -398,7 +398,7 @@ impl P2PNode {
             bad_events: BadEvents::default(),
         });
 
-        if !node.config.no_clear_bans {
+        if node.config.clear_bans {
             node.clear_bans().unwrap_or_else(|e| error!("Couldn't reset the ban list: {}", e));
         }
         if node.config.clear_persisted_peers {
