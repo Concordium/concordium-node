@@ -9,7 +9,7 @@ The peers are orchestrated in a random graph and communicates using a [*gossip-l
 Peers can take part in more than one network at the same time. A *network* groups peers together, thus the node can request to *join* a network, leave a *network* and also request more peers of a certain *network*. Currently only a single *network* is being used.
 
 ## Joining a Network
-When a node wishes to join a network it starts out by fetching previosly connected peers from its database (if the node has been connected to the network before).
+When a node wishes to join a network it starts out by fetching previously connected peers from its database (if the node has been connected to the network before).
 If this is the case, then the node tries to establish connections with the previous connected peers and finally it connects to a *bootstrapper*. The *bootstrapper* is a special variant of the *concordium-node* which relays peers (only the ones matching the requested `NetworkId`) but disregards all other types of messages. It connects to the *bootstrapper* in order to advertise itself for new nodes who wants to join the network. Moreover if the set of stored peers does not satisfy the configurated *desired number of peers* then the node either retrieves a number of peers from the bootstrapper (or the already connected peers) thus obtaining a set of candidate nodes, that the node can try connect to.
 
 The *bootstrapper* sends out a *randomized* list of peers to the requesting node. The node who wishes to join a network will in turn try to connect to these *candidates* received from the *bootstrapper*. 

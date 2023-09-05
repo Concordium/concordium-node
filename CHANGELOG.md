@@ -2,10 +2,9 @@
 
 ## Unreleased changes
 - Do not reset banned peers on startup by default.
-- When the node starts up, then try to connect to previously connected peers instead of
-  relying on the bootstrapper to serve the first set of peers. If one wishes to clear the set
-  of persisted peers on start-up and only rely on the bootstrapper node,
-  then set the newly introduced flag `CONCORDIUM_NODE_CLEAR_PERSISTED_PEERS`.
+- The node remembers peers across restarts. When starting up it will try to connect to stored peers in addition to any supplied bootstrap and given nodes. 
+  Use the new flag `--clear-persisted-peers` (environment variable  `CONCORDIUM_NODE_CLEAR_PERSISTED_PEERS`) to clear stored peers on startup.
+- Renamed the flag `--no-clear-bans` to `clear-bans`. When set it will clear the banned peers on startup.
 
 ## 6.1.1
 

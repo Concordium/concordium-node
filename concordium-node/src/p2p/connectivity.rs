@@ -160,7 +160,10 @@ impl P2PNode {
     /// Shut down connections with the given poll tokens.
     /// The first component of the result is `true` if any connections were
     /// removed, and `false` otherwise. The second component contains a
-    /// vector containing the connected peers that was removed.
+    /// vector containing the connected peers that were removed.
+    /// A `connection` is either a peer that the node simply knows about or a
+    /// `connected peer` that the node exchanges messages with (i.e. a handshake
+    /// has been concluded)
     pub fn remove_connections(&self, tokens: &[Token]) -> (bool, Vec<RemotePeer>) {
         // This is not implemented as a simple iteration using remove_connection because
         // that would require more lock acquisitions and calls to bump_last_peer_update.

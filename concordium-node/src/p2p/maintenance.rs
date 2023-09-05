@@ -26,7 +26,7 @@ use crate::{
     p2p::{
         bans::BanId,
         connectivity::{accept, connect, connection_housekeeping, AcceptFailureReason, SELF_TOKEN},
-        peers::{check_peers, persist_peer, remove_persisted_peer},
+        peers::check_peers,
     },
     plugins::consensus::{check_peer_states, update_peer_list},
     read_or_die, spawn_or_die,
@@ -381,7 +381,7 @@ impl P2PNode {
             .write()
             .unwrap()
             .get_or_create(config.data_dir_path.as_path(), Rkv::new::<Lmdb>)
-            .context("Could not create or obtain the database.")?;
+            .context("Could not create or obtain the node lmdb database.")?;
 
         let node = Arc::new(P2PNode {
             poll_registry,
@@ -809,9 +809,8 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
                     node.bump_last_peer_update();
                     // insert the peer in the lmdb store so the node can
                     // reconnect to the peer if the node restarts.
-                    match persist_peer(node, addr) {
-                        Ok(_) => (),
-                        Err(err) => warn!("Could not persist peer to database {}", err),
+                    if let Err(err) = node.persist_peer(addr) {
+                        warn!("Could not persist peer to database {}", err);
                     }
                 } else {
                     warn!("Already connected to a peer on the given address.")
@@ -857,9 +856,8 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
                 // If the peer was connected then also expunge it from
                 // the database so the node does not try to reconnect to it upon a restart.
                 if is_conn {
-                    match remove_persisted_peer(node, remote_peer.addr) {
-                        Ok(_) => (),
-                        Err(err) => warn!("Unable to remove 'StoredPeer' from database {}", err),
+                    if let Err(err) = node.remove_persisted_peer(remote_peer.addr) {
+                        warn!("Unable to remove 'StoredPeer' from database {}", err);
                     }
                 }
             }
@@ -870,9 +868,8 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
                 // If the peer was connected then also expunge it from
                 // the database so the node does not try to reconnect to it upon a restart.
                 if is_conn {
-                    match remove_persisted_peer(node, remote_peer.addr) {
-                        Ok(_) => (),
-                        Err(err) => warn!("Unable to remove 'StoredPeer' from database {}", err),
+                    if let Err(err) = node.remove_persisted_peer(remote_peer.addr) {
+                        warn!("Unable to remove 'StoredPeer' from database {}", err);
                     }
                 }
             }
@@ -883,9 +880,8 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
             for p in removed_connected_peers {
                 // If any connections were dropped, remove them
                 // from the database.
-                match remove_persisted_peer(node, p.addr) {
-                    Ok(_) => (),
-                    Err(err) => warn!("Unable to remove 'StoredPeer' from database {}", err),
+                if let Err(err) = node.remove_persisted_peer(p.addr) {
+                    warn!("Unable to remove 'StoredPeer' from database {}", err);
                 }
             }
         }

@@ -465,11 +465,9 @@ pub struct ConnectionConfig {
     )]
     pub no_bootstrap_dns: bool,
     #[structopt(
-        long = "no-clear-bans",
+        long = "clear-bans",
         help = "Do not clear the ban database on start.",
-        env = "CONCORDIUM_NODE_CONNECTION_NO_CLEAR_BANS",
-        parse(try_from_str),
-        default_value = "true"
+        env = "CONCORDIUM_NODE_CONNECTION_CLEAR_BANS"
     )]
     pub no_clear_bans: bool,
     #[structopt(

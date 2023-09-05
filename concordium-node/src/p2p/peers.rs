@@ -9,9 +9,7 @@ use crate::{
     read_or_die,
 };
 use anyhow::ensure;
-use byteorder::{BigEndian, ByteOrder, ReadBytesExt, WriteBytesExt};
 use chrono::Utc;
-use concordium_base::common::{Buffer, Deserial, Serial};
 use prometheus::core::Atomic;
 use rkv::{StoreOptions, Value};
 use std::{
@@ -182,126 +180,70 @@ const PEERS_STORE_NAME: &str = "peers";
 /// This is just a newtype over a [`SocketAddr`] so
 /// it is possible to implement the necessary serializing/deserializing traits
 /// used for putting and reading the peers in the database.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct StoredPeer(SocketAddr);
 
 impl From<SocketAddr> for StoredPeer {
     fn from(addr: SocketAddr) -> Self { StoredPeer(addr) }
 }
 
-impl Serial for StoredPeer {
-    fn serial<W: Buffer + WriteBytesExt>(&self, target: &mut W) {
-        match self.0 {
-            SocketAddr::V4(addr) => {
-                target.write_u8(0).expect("unable to write 'StoredPeer' tag(0) to memory");
-                target
-                    .write_u16::<BigEndian>(addr.port())
-                    .expect("unable to write 'StoredPeer' port to memory");
-                target
-                    .write_u32::<BigEndian>(BigEndian::read_u32(&addr.ip().octets()))
-                    .expect("unable to write 'StoredPeer' ipv4 to memory");
-            }
-            SocketAddr::V6(addr) => {
-                target.write_u8(1).expect("unable to write 'StoredPeer' tag (1) to memory");
-                target
-                    .write_u16::<BigEndian>(addr.port())
-                    .expect("unable to write 'StoredPeer' port to memory");
-                target
-                    .write_u128::<BigEndian>(BigEndian::read_u128(&addr.ip().octets()))
-                    .expect("unable to write 'StoredPeer' ipv6 to memory");
-            }
-        }
-    }
-}
-
-impl Deserial for StoredPeer {
-    fn deserial<R: ReadBytesExt>(source: &mut R) -> anyhow::Result<Self> {
-        let peer = match source.read_u8()? {
-            0 => {
-                let port = source.read_u16::<BigEndian>()?;
-                let ip = source.read_u32::<BigEndian>()?;
-                let mut buf = [0; 4];
-                BigEndian::write_u32(&mut buf, ip);
-                Self(SocketAddr::new(std::net::IpAddr::V4(buf.into()), port))
-            }
-            1 => {
-                let port = source.read_u16::<BigEndian>()?;
-                let ip = source.read_u128::<BigEndian>()?;
-                let mut buf = [0; 16];
-                BigEndian::write_u128(&mut buf, ip);
-                Self(SocketAddr::new(std::net::IpAddr::V6(buf.into()), port))
-            }
-            _ => anyhow::bail!("Unsupported type of `StoredPeer`"),
-        };
-        Ok(peer)
-    }
-}
-
-/// Persist the [`SocketAddr`] of a peer.
-pub fn persist_peer(node: &Arc<P2PNode>, peer_addr: SocketAddr) -> anyhow::Result<()> {
-    if let Ok(kv) = node.kvs.read() {
-        let peers_store = kv.open_single(PEERS_STORE_NAME, StoreOptions::create())?;
-        let mut buf = Vec::new();
-        let stored_peer: StoredPeer = peer_addr.into();
-        stored_peer.serial(&mut buf);
-        let mut writer = kv.write()?;
-        peers_store.put(&mut writer, buf, &Value::U64(0))?;
-        writer.commit()?;
-        Ok(())
-    } else {
-        anyhow::bail!("Could not acqure lock over lmdb");
-    }
-}
-
-/// Remove a peer from the persisted peer database.
-pub fn remove_persisted_peer(node: &Arc<P2PNode>, peer_addr: SocketAddr) -> anyhow::Result<()> {
-    if let Ok(kv) = node.kvs.read() {
-        let peers_store = kv.open_single(PEERS_STORE_NAME, StoreOptions::create())?;
-        let mut key = Vec::new();
-        let stored_peer: StoredPeer = peer_addr.into();
-        stored_peer.serial(&mut key);
-        let mut writer = kv.write()?;
-        peers_store.delete(&mut writer, key)?;
-        writer.commit()?;
-        Ok(())
-    } else {
-        anyhow::bail!("Could not acqure lock over lmdb");
-    }
-}
-
-/// Try connect to previosly connected peers if
+/// Try connect to previously connected peers if
 /// anyone is stored.
 /// Note that as opposed to [`connect_to_config_nodes`] this function respects
 /// the maximum peers configured for the node.
 pub fn connect_to_stored_nodes(node: &Arc<P2PNode>) -> anyhow::Result<()> {
-    if let Ok(kvs_env) = node.kvs.read() {
-        let peers_store = kvs_env.open_single(PEERS_STORE_NAME, StoreOptions::create())?;
-        let peers_reader = kvs_env.read()?;
-        let peers_iter = peers_store.iter_start(&peers_reader)?;
-        for entry in peers_iter {
-            let (mut peer_bytes, _expiry) = entry?;
-            if let Err(e) =
-                connect(node, PeerType::Node, StoredPeer::deserial(&mut peer_bytes)?.0, None, true)
-            {
-                warn!("could not connect to previosly connected peer {}", e);
-            }
+    let Ok(kvs_env) = node.kvs.read() else {
+        anyhow::bail!("could not read previously connected peers: cannot obtain lock for the kvs");
+    };
+    let peers_store = kvs_env.open_single(PEERS_STORE_NAME, StoreOptions::create())?;
+    let peers_reader = kvs_env.read()?;
+    let peers_iter = peers_store.iter_start(&peers_reader)?;
+    for entry in peers_iter {
+        let (peer_bytes, _expiry) = entry?;
+        let stored_peer: StoredPeer = serde_json::from_slice(peer_bytes)?;
+        if let Err(e) = connect(node, PeerType::Node, stored_peer.0, None, true) {
+            warn!("could not connect to previously connected peer {}", e);
         }
-        Ok(())
-    } else {
-        anyhow::bail!("could not read previosly connected peers: cannot obtain lock for the kvs");
     }
+    Ok(())
 }
 
 impl P2PNode {
+    /// Persist the [`SocketAddr`] of a peer.
+    pub fn persist_peer(&self, peer_addr: SocketAddr) -> anyhow::Result<()> {
+        let Ok(kv) = self.kvs.read() else {
+        anyhow::bail!("Could not acqure lock over lmdb");
+    };
+        let peers_store = kv.open_single(PEERS_STORE_NAME, StoreOptions::create())?;
+        let buf = serde_json::to_vec::<StoredPeer>(&peer_addr.into())?;
+        let mut writer = kv.write()?;
+        peers_store.put(&mut writer, buf, &Value::U64(0))?;
+        writer.commit()?;
+        Ok(())
+    }
+
+    /// Remove a peer from the persisted peer database.
+    pub fn remove_persisted_peer(&self, peer_addr: SocketAddr) -> anyhow::Result<()> {
+        let Ok(kv) = self.kvs.read() else {
+        anyhow::bail!("Could not acqure lock over lmdb");
+    };
+        let peers_store = kv.open_single(PEERS_STORE_NAME, StoreOptions::create())?;
+        let key = serde_json::to_vec::<StoredPeer>(&peer_addr.into())?;
+        let mut writer = kv.write()?;
+        peers_store.delete(&mut writer, key)?;
+        writer.commit()?;
+        Ok(())
+    }
+
+    /// Clear all peers in the lmdb peers store.
     pub fn clear_persisted_peers(&self) -> anyhow::Result<()> {
-        if let Ok(kvs_env) = self.kvs.read() {
-            let peers_store = kvs_env.open_single(PEERS_STORE_NAME, StoreOptions::create())?;
-            let mut writer = kvs_env.write()?;
-            peers_store.clear(&mut writer)?;
-            writer.commit().map_err(|e| e.into())
-        } else {
+        let Ok(kvs_env) = self.kvs.read() else {
             anyhow::bail!("Couldn't clear the bans: couldn't obtain a lock over the kvs");
-        }
+        };
+        let peers_store = kvs_env.open_single(PEERS_STORE_NAME, StoreOptions::create())?;
+        let mut writer = kvs_env.write()?;
+        peers_store.clear(&mut writer)?;
+        writer.commit().map_err(|e| e.into())
     }
 }
 
@@ -332,24 +274,5 @@ mod tests {
             calculate_average_throughput(2, 1, 1, 2, 1, 2).is_err(),
             "Calculation should fail since time difference is negative."
         );
-    }
-
-    #[test]
-    fn test_serial_deserial_stored_peer() -> anyhow::Result<()> {
-        let stored_peer_v4: StoredPeer =
-            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080).into();
-        let mut buf = Vec::new();
-        stored_peer_v4.serial(&mut buf);
-        let deserialized_peer_v4 = StoredPeer::deserial(&mut Cursor::new(&buf))?;
-        assert_eq!(stored_peer_v4, deserialized_peer_v4);
-
-        let stored_peer_v6: StoredPeer =
-            SocketAddr::new(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)), 8080).into();
-        let mut buf = Vec::new();
-        stored_peer_v6.serial(&mut buf);
-        let deserialized_peer_v6 = StoredPeer::deserial(&mut Cursor::new(&buf))?;
-        assert_eq!(stored_peer_v6, deserialized_peer_v6);
-
-        Ok(())
     }
 }
