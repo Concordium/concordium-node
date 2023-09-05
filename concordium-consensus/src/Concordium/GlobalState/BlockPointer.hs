@@ -40,6 +40,9 @@ class (Eq bp, Show bp, BlockData bp) => BlockPointerData bp where
     -- |Hash of last-finalized block
     bpLastFinalizedHash :: bp -> BlockHash
 
+    -- |Hash of the block state
+    bpBlockStateHash :: bp -> StateHash
+
 -- |Block pointer data. The minimal data that should be the same among all
 -- block pointer instantiations.
 data BasicBlockPointerData = BasicBlockPointerData
@@ -176,14 +179,12 @@ instance (IsProtocolVersion pv) => BlockData (BlockPointer pv p s) where
     blockSlot = blockSlot . _bpBlock
     blockFields = blockFields . _bpBlock
     blockTransactions = blockTransactions . _bpBlock
-    blockStateHash = blockStateHash . _bpBlock
     blockTransactionOutcomesHash = blockTransactionOutcomesHash . _bpBlock
     blockSignature = blockSignature . _bpBlock
     verifyBlockSignature = verifyBlockSignature . _bpBlock
     {-# INLINE blockSlot #-}
     {-# INLINE blockFields #-}
     {-# INLINE blockTransactions #-}
-    {-# INLINE blockStateHash #-}
     {-# INLINE blockTransactionOutcomesHash #-}
     {-# INLINE blockSignature #-}
     {-# INLINE verifyBlockSignature #-}
@@ -191,7 +192,7 @@ instance (IsProtocolVersion pv) => BlockData (BlockPointer pv p s) where
 instance IsProtocolVersion pv => EncodeBlock pv (BlockPointer pv p s) where
     putBlock spv = putBlock spv . _bpBlock
 
-instance (IsProtocolVersion pv) => BlockPointerData (BlockPointer pv p s) where
+instance (IsProtocolVersion pv, HashableTo StateHash s) => BlockPointerData (BlockPointer pv p s) where
     bpHash = _bpHash . _bpInfo
     bpHeight = _bpHeight . _bpInfo
     bpReceiveTime = _bpReceiveTime . _bpInfo
@@ -200,3 +201,4 @@ instance (IsProtocolVersion pv) => BlockPointerData (BlockPointer pv p s) where
     bpTransactionsEnergyCost = _bpTransactionsEnergyCost . _bpInfo
     bpTransactionsSize = _bpTransactionsSize . _bpInfo
     bpLastFinalizedHash = _bpLastFinalizedHash . _bpInfo
+    bpBlockStateHash = getHash . _bpState

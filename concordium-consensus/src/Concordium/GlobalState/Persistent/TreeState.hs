@@ -448,7 +448,10 @@ loadSkovPersistentData rp _treeStateDirectory pbsc = do
   where
     makeBlockPointer :: StoredBlock pv (TS.BlockStatePointer (PBS.PersistentBlockState pv)) -> IO (PersistentBlockPointer pv (PBS.HashedPersistentBlockState pv))
     makeBlockPointer StoredBlock{..} = do
-        bstate <- runReaderT (PBS.runPersistentBlockStateMonad (loadBlockState (blockStateHash sbBlock) sbState)) pbsc
+        let stateHashM = case sbBlock of
+                GenesisBlock{} -> Nothing
+                NormalBlock bb -> Just $ bbStateHash bb
+        bstate <- runReaderT (PBS.runPersistentBlockStateMonad (loadBlockState stateHashM sbState)) pbsc
         makeBlockPointerFromPersistentBlock sbBlock bstate sbInfo
     isBlockStateCorrupted :: StoredBlock pv (TS.BlockStatePointer (PBS.PersistentBlockState pv)) -> IO Bool
     isBlockStateCorrupted block =
@@ -592,15 +595,17 @@ instance
     bpLastFinalized block = getWeakPointer (_bpLastFinalized block) (_bpLastFinalizedHash (_bpInfo block)) "last finalized"
 
 constructBlock ::
-    ( IsProtocolVersion pv,
-      MonadIO m,
+    ( MonadIO m,
       BlockStateStorage m,
       TS.BlockState m ~ bs
     ) =>
     StoredBlock pv (TS.BlockStatePointer bs) ->
     m (PersistentBlockPointer pv bs)
 constructBlock StoredBlock{..} = do
-    bstate <- loadBlockState (blockStateHash sbBlock) sbState
+    let stateHashM = case sbBlock of
+            GenesisBlock{} -> Nothing
+            NormalBlock bb -> Just $ bbStateHash bb
+    bstate <- loadBlockState stateHashM sbState
     makeBlockPointerFromPersistentBlock sbBlock bstate sbInfo
 
 instance
