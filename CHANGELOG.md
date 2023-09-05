@@ -6,6 +6,18 @@
   Use the new flag `--clear-persisted-peers` (environment variable  `CONCORDIUM_NODE_CLEAR_PERSISTED_PEERS`) to clear stored peers on startup.
 - Renamed the flag `--no-clear-bans` to `clear-bans`. When set it will clear the banned peers on startup.
 
+- Fix a bug where credential registration IDs for genesis accounts were not
+  correctly recorded. As a result, the index of accounts by credential ids was
+  incorrect if the chain was started from genesis by node versions 5.1.3 up to
+  and including 6.0. If a chain was started by an older node version and then
+  the node was upgraded the index is loaded correctly. This index is used when
+  checking for duplicate credential registration IDs, and when looking up an
+  account via a credential registration ID.
+- Fix a bug in the `InvokeInstance` endpoint where the amount sent was
+  used incorrectly. The consequence was that in some cases the calls would fail
+  with an error indicating insufficient amount on the account where the amount
+  was sufficient for the transaction.
+
 ## 6.1.1
 
 - Apply fix for processing of chain parameter updates when they occur at the same time

@@ -472,7 +472,7 @@ activateSkovPersistentData pbsc uninitState =
     runBlockState $ do
         logEvent GlobalState LLTrace "Caching last finalized block and initializing transaction table"
         let bps = _bpState $ _lastFinalized uninitState
-        tt <- PBS.cacheStateAndGetTransactionTable bps
+        tt <- cacheBlockStateAndGetTransactionTable bps
         logEvent GlobalState LLTrace "Done caching last finalized block"
         return $! uninitState{_transactionTable = tt}
   where

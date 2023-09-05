@@ -33,13 +33,15 @@ import qualified Concordium.GlobalState.Persistent.ReleaseSchedule as ReleaseSch
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
 import qualified Concordium.GlobalState.Rewards as Rewards
 import qualified Concordium.GlobalState.TransactionTable as TransactionTable
+import qualified Concordium.ID.Types as Types
 import qualified Concordium.Types as Types
 import qualified Concordium.Types.Parameters as Types
 import qualified Concordium.Types.SeedState as Types
 
 import qualified Control.Monad.Except as MTL
 import Data.IORef (newIORef)
-import Data.Maybe (fromMaybe, isNothing)
+import qualified Data.Map.Strict as Map
+import Data.Maybe (fromMaybe)
 import qualified Data.Vector as Vec
 import Lens.Micro.Platform
 
@@ -256,9 +258,13 @@ buildGenesisBlockState vcgp GenesisData.GenesisState{..} = do
                 genesisChainParameters
                 genesisAccount
         -- Insert the account
-        (maybeIndex, nextAccounts) <- Accounts.putNewAccount persistentAccount $ agsAllAccounts state
-        MTL.when (isNothing maybeIndex) $
-            MTL.throwError "Duplicate account address in genesis accounts."
+        (maybeIndex, nextAccounts0) <- Accounts.putNewAccount persistentAccount $ agsAllAccounts state
+        nextAccounts <- case maybeIndex of
+            Nothing -> MTL.throwError "Duplicate account address in genesis accounts."
+            Just ai ->
+                -- Record all the newly added credential registration ids.
+                let newRegIds = ((,ai) . Types.credId <$> Map.elems (GenesisData.gaCredentials genesisAccount))
+                in  Accounts.recordRegIds newRegIds nextAccounts0
 
         let !nextTotalAmount = agsTotal state + GenesisData.gaBalance genesisAccount
         let !updatedState = state{agsAllAccounts = nextAccounts, agsTotal = nextTotalAmount}
