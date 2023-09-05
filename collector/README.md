@@ -11,4 +11,4 @@ $> cargo run -- --collector-url http://127.0.0.1:8080/post/nodes --grpc-host htt
 ```
 
 ### TLS
-If the node is configured to be using TLS connections then one has to configure the collector (the `--grpc-host` flag) to be using the URL of the domain of which the certificate was issued for.
+If the node is configured to use TLS connections then the collector must be configured (with the `--grpc-host` flag) to use the URL with the domain for which the certificate was issued.
