@@ -1,7 +1,7 @@
 # Changelog
 
 ## Unreleased changes
-- Fix for https://github.com/Concordium/concordium-node/issues/147 so the correct state hash is now returned.
+- Fix a bug where the block state hash was not returned properly for the genesis block.
 
 ## 6.1.1
 
