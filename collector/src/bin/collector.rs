@@ -205,9 +205,6 @@ async fn collect_data<'a>(
         endpoint
     };
 
-    //    let channel =
-    // Channel::from_shared(grpc_host)?.timeout(Duration::from_secs(grpc_timeout));
-
     let mut client = grpc::queries_client::QueriesClient::connect(channel.clone()).await?;
 
     // Blocks
