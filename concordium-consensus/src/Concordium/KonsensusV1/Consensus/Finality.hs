@@ -21,6 +21,7 @@ import Concordium.Types.Parameters hiding (getChainParameters)
 import Concordium.Types.SeedState
 import Concordium.Utils
 
+import Concordium.Genesis.Data.BaseV1
 import Concordium.GlobalState.BlockState
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import Concordium.GlobalState.Statistics
@@ -88,6 +89,55 @@ processCertifiedBlock cb@CertifiedBlock{..}
     unlessStored a = do
         alreadyStored <- LowLevel.memberBlock (getHash cbQuorumBlock)
         unless alreadyStored a
+
+-- |Receive a 'FinalizationEntry' as part of catch-up.
+-- This function checks whether the finalization entry is
+-- consistent with the block indicated by @feFinalizedQuorumCertificate@ of the
+-- finalization entry.
+-- Lastly, the finalization entry is processed.
+catchupFinalizationEntry ::
+    ( MonadState (SkovData (MPV m)) m,
+      TimeMonad m,
+      MonadIO m,
+      LowLevel.MonadTreeStateStore m,
+      BlockStateStorage m,
+      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
+      MonadThrow m,
+      MonadConsensusEvent m,
+      MonadLogger m,
+      IsConsensusV1 (MPV m)
+    ) =>
+    -- |The finalization entry received.
+    FinalizationEntry ->
+    m ()
+catchupFinalizationEntry finEntry = do
+    let finQC = feFinalizedQuorumCertificate finEntry
+    let finBlockHash = qcBlock finQC
+    gets (getLiveBlock finBlockHash) >>= \case
+        Just block -> do
+            unless
+                (blockRound block == qcRound finQC && blockEpoch block == qcEpoch finQC)
+                undefined
+            gets (getBakersForEpoch (qcEpoch finQC)) >>= \case
+                Nothing -> undefined
+                Just BakersAndFinalizers{..} -> do
+                    GenesisMetadata{..} <- use genesisMetadata
+                    let finEntryOK =
+                            checkFinalizationEntry
+                                gmCurrentGenesisHash
+                                (toRational $ genesisSignatureThreshold gmParameters)
+                                _bfFinalizers
+                                finEntry
+                    unless finEntryOK undefined
+                    do
+                        -- Record the checked quorum certificates
+                        recordCheckedQuorumCertificate $
+                            feFinalizedQuorumCertificate finEntry
+                        recordCheckedQuorumCertificate $
+                            feSuccessorQuorumCertificate finEntry
+                        -- Process the finalization
+                        processFinalizationEntry block finEntry
+        Nothing -> undefined
 
 -- |Process a finalization entry that finalizes a block that is not currently considered finalized.
 --

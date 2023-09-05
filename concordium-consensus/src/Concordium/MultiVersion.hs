@@ -60,6 +60,7 @@ import qualified Concordium.KonsensusV1 as KonsensusV1
 import qualified Concordium.KonsensusV1.Consensus as SkovV1
 import qualified Concordium.KonsensusV1.Consensus.Blocks as SkovV1
 import qualified Concordium.KonsensusV1.Consensus.CatchUp as KonsensusV1
+import qualified Concordium.KonsensusV1.Consensus.Finality as SkovV1
 import qualified Concordium.KonsensusV1.SkovMonad as SkovV1
 import qualified Concordium.KonsensusV1.Transactions as SkovV1
 import qualified Concordium.KonsensusV1.TreeState.LowLevel.LMDB as LowLevelDB
@@ -1715,12 +1716,24 @@ receiveFinalizationRecord gi finRecBS = withLatestExpectedVersion_ gi $ \case
     (EVersionedConfigurationV0 (vc :: VersionedConfigurationV0 finconf pv)) ->
         case runGet getExactVersionedFinalizationRecord finRecBS of
             Left err -> do
-                logEvent Runner LLDebug $ "Could not deserialized finalization record: " ++ err
+                logEvent Runner LLDebug $ "Could not deserialize finalization record: " ++ err
                 return Skov.ResultSerializationFail
             Right finRec -> runSkovV0Transaction vc (finalizationReceiveRecord False finRec)
-    (EVersionedConfigurationV1 _) -> do
-        logEvent Runner LLDebug "Unexpected finalization record event in consensus version 1."
-        return Skov.ResultInvalid
+    (EVersionedConfigurationV1 (vc :: VersionedConfigurationV1 finconf pv)) -> do
+        case runGet getFinalizationEntry finRecBS of
+            Left err -> do
+                logEvent Runner LLDebug $ "Could not deserialize finalization entry: " <> err
+                return Skov.ResultSerializationFail
+            Right finEntry -> do
+                runSkovV1Transaction vc (SkovV1.catchupFinalizationEntry undefined finEntry)
+                return Skov.ResultSuccess
+      where
+        -- Attempt to deserialize a 'KonsensusV1.FinalizationEntry'
+        -- Note that this is not versioned as a finalization entry is never send raw.
+        -- Normally the consensus acquires a 'KonsensusV1.FinalizationEntry' by aggregating
+        -- quorum signatures and create it locally.
+        getFinalizationEntry :: Get KonsensusV1.FinalizationEntry
+        getFinalizationEntry = get
 
 -- |Configuration parameters for handling receipt of a catch-up status message.
 data CatchUpConfiguration = CatchUpConfiguration
