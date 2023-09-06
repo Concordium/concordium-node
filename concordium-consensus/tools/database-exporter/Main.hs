@@ -5,7 +5,7 @@ module Main where
 
 import Control.Monad
 import Data.Functor.Identity
-import Data.Serialize (runGet)
+import Data.Serialize (get, runGet)
 import Data.Time
 import Options.Applicative
 import System.Exit
@@ -53,6 +53,12 @@ checkDatabase filepath = do
             Left _ -> return $ Left ImportSerializationFail
             Right fr -> do
                 logEvent External LLInfo $ "GenesisIndex: " ++ show gi ++ " finrec for: " ++ show (finalizationBlockPointer fr)
+                return $ Right ()
+    handleImport _ (ImportFinalizationEntry _ gi bs) =
+        case runGet get bs of
+            Left _ -> return $ Left ImportSerializationFail
+            Right finEntry -> do
+                logEvent External LLInfo $ "GenesisIndex: " ++ show gi ++ " finentry for: " ++ show ((KonsensusV1.qcBlock . KonsensusV1.feFinalizedQuorumCertificate) finEntry)
                 return $ Right ()
 
 -- |Export a block database, or check and exported block file, depending on the command line.

@@ -1719,24 +1719,27 @@ receiveFinalizationRecord gi finRecBS = withLatestExpectedVersion_ gi $ \case
                 logEvent Runner LLDebug $ "Could not deserialize finalization record: " ++ err
                 return Skov.ResultSerializationFail
             Right finRec -> runSkovV0Transaction vc (finalizationReceiveRecord False finRec)
-    (EVersionedConfigurationV1 (vc :: VersionedConfigurationV1 finconf pv)) -> do
-        case runGet getFinalizationEntry finRecBS of
-            Left err -> do
-                logEvent Runner LLDebug $ "Could not deserialize finalization entry: " <> err
-                return Skov.ResultSerializationFail
-            Right finEntry -> do
-                runSkovV1Transaction vc (SkovV1.catchupFinalizationEntry finEntry) >>= \case
-                    SkovV1.CFERSuccess -> return Skov.ResultSuccess
-                    SkovV1.CFERInconsistent -> return Skov.ResultUnverifiable
-                    SkovV1.CFERInvalid -> return Skov.ResultUnverifiable
-                    SkovV1.CFERNotAlive -> return Skov.ResultInvalid
-      where
-        -- Attempt to deserialize a 'KonsensusV1.FinalizationEntry'
-        -- Note that this is not versioned as a finalization entry is never send raw.
-        -- Normally the consensus acquires a 'KonsensusV1.FinalizationEntry' by aggregating
-        -- quorum signatures and create it locally.
-        getFinalizationEntry :: Get KonsensusV1.FinalizationEntry
-        getFinalizationEntry = get
+    (EVersionedConfigurationV1 _) -> do
+        logEvent Runner LLDebug "Unexpected finalization record event in consensus version 1."
+        return Skov.ResultInvalid
+
+receiveFinalizationEntry :: GenesisIndex -> ByteString -> MVR finconf Skov.UpdateResult
+receiveFinalizationEntry gi finEntryBS =
+    withLatestExpectedVersion_ gi $ \case
+        (EVersionedConfigurationV0 _) -> do
+            logEvent Runner LLDebug "Unexpected finalization entry event in consensus version 0."
+            return Skov.ResultInvalid
+        (EVersionedConfigurationV1 (vc :: VersionedConfigurationV1 finconf pv)) -> do
+            case runGet get finEntryBS of
+                Left err -> do
+                    logEvent Runner LLDebug $ "Could not deserialize finalization entry: " <> err
+                    return Skov.ResultSerializationFail
+                Right finEntry -> do
+                    runSkovV1Transaction vc (SkovV1.catchupFinalizationEntry finEntry) >>= \case
+                        SkovV1.CFERSuccess -> return Skov.ResultSuccess
+                        SkovV1.CFERInconsistent -> return Skov.ResultUnverifiable
+                        SkovV1.CFERInvalid -> return Skov.ResultUnverifiable
+                        SkovV1.CFERNotAlive -> return Skov.ResultInvalid
 
 -- |Configuration parameters for handling receipt of a catch-up status message.
 data CatchUpConfiguration = CatchUpConfiguration
@@ -2072,6 +2075,7 @@ importBlocks importFile = do
             then return $ fixResult Skov.ResultConsensusShutDown
             else local disableBroadcastCallbacks $ fixResult <$> receiveExecuteBlock gi bs
     doImport (ImportFinalizationRecord _ gi bs) = local disableBroadcastCallbacks $ fixResult <$> receiveFinalizationRecord gi bs
+    doImport (ImportFinalizationEntry _ gi bs) = local disableBroadcastCallbacks $ fixResult <$> receiveFinalizationEntry gi bs
     fixResult Skov.ResultSuccess = Right ()
     fixResult Skov.ResultDuplicate = Right ()
     fixResult Skov.ResultStale = Right ()

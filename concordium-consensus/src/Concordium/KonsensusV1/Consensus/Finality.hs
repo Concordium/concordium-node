@@ -160,7 +160,7 @@ catchupFinalizationEntry finEntry = do
                     (toRational $ genesisSignatureThreshold gmParameters)
                     finCommittee
                     finEntry
-        in  if not finEntryOk then return CFERInvalid else cont
+        in  if finEntryOk then cont else return CFERInvalid
 
 -- |Process a finalization entry that finalizes a block that is not currently considered finalized.
 --

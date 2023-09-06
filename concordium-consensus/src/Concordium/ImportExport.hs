@@ -105,7 +105,8 @@ data SectionHeader = SectionHeader
       sectionFirstBlockHeight :: !BlockHeight,
       sectionBlockCount :: !Word64,
       sectionBlocksLength :: !Word64,
-      sectionFinalizationCount :: !Word64
+      sectionFinalizationCount :: !Word64,
+      sectionFinalizationEntryPresent :: !Bool
     }
     deriving (Eq, Show)
 
@@ -119,6 +120,7 @@ instance Serialize SectionHeader where
         putWord64be sectionBlockCount
         putWord64be sectionBlocksLength
         putWord64be sectionFinalizationCount
+        put sectionFinalizationEntryPresent
     get = do
         sectionLength <- getWord64be
         sectionGenesisIndex <- get
@@ -128,12 +130,13 @@ instance Serialize SectionHeader where
         sectionBlockCount <- getWord64be
         sectionBlocksLength <- getWord64be
         sectionFinalizationCount <- getWord64be
+        sectionFinalizationEntryPresent <- get
         return SectionHeader{..}
 
 -- |A dummy 'SectionHeader' that is used as a placeholder when writing a section, before being
 -- overwritten with the correct data.
 placeholderSectionHeader :: SectionHeader
-placeholderSectionHeader = SectionHeader 0 0 P1 (BlockHash minBound) 0 0 0 0
+placeholderSectionHeader = SectionHeader 0 0 P1 (BlockHash minBound) 0 0 0 0 False
 
 -- |The length of a section header in bytes.
 sectionHeaderLength :: Word64
@@ -432,7 +435,7 @@ exportConsensusV1Blocks outDir chunkSize genIndex startHeight blockIndex lastWri
                             logEvent External LLError "Cannot read last block of the database."
                             return (True, Empty)
                         Just sb -> do
-                            let getBlockAt' :: BlockHeight -> m (Maybe BS.ByteString)
+                            let getBlockAt' :: BlockHeight -> m (Maybe (BS.ByteString, BlockHash))
                                 getBlockAt' height =
                                     KonsensusV1.resizeOnResized
                                         (KonsensusV1.lookupBlockByHeight height)
@@ -440,9 +443,22 @@ exportConsensusV1Blocks outDir chunkSize genIndex startHeight blockIndex lastWri
                                             Nothing -> return Nothing
                                             Just b | KonsensusV1.NormalBlock signedBlock <- KonsensusV1.stbBlock b -> do
                                                 let serializedBlock = runPut $ KonsensusV1.putSignedBlock signedBlock
-                                                return $ Just serializedBlock
+                                                return $ Just (serializedBlock, getHash signedBlock)
                                             _ -> return Nothing -- Do not export genesis blocks.
                                 getBlockAt = GetBlockAtV1 getBlockAt'
+                                getFinalizationEntry' :: BlockHash -> m (Maybe BS.ByteString)
+                                getFinalizationEntry' bh =
+                                    KonsensusV1.resizeOnResized
+                                        KonsensusV1.lookupLatestFinalizationEntry
+                                        >>= \case
+                                            Nothing -> return Nothing
+                                            Just finEntry ->
+                                                if (KonsensusV1.qcBlock . KonsensusV1.feFinalizedQuorumCertificate) finEntry == bh
+                                                    then
+                                                        let serializedFinEntry = runPut $ put finEntry
+                                                        in  return $ Just serializedFinEntry
+                                                    else return Nothing
+                                getFinalizationEntry = GetFinalizationEntryV1 getFinalizationEntry'
                             chunks <-
                                 writeChunks
                                     genIndex
@@ -461,6 +477,7 @@ exportConsensusV1Blocks outDir chunkSize genIndex startHeight blockIndex lastWri
                                     0
                                     getBlockAt
                                     GetFinalizationRecordAtV1
+                                    getFinalizationEntry
                             return (False, singleton (genHash, chunks))
   where
     -- Return the last exported genesis hash or the provided one.
@@ -569,8 +586,9 @@ exportSections dbDir outDir chunkSize genIndex startHeight blockIndex lastWritte
                                                                         case blockFields normalBlock of
                                                                             Nothing -> throwM . userError $ "Error: Trying to export a genesis block."
                                                                             Just fields -> case blockFinalizationData fields of
-                                                                                NoFinalizationData -> return $ Just (serializedBlock, Nothing)
-                                                                                BlockFinalizationData FinalizationRecord{..} -> return $ Just (serializedBlock, Just finalizationIndex)
+                                                                                NoFinalizationData -> return $ Just (serializedBlock, getHash normalBlock, Nothing)
+                                                                                BlockFinalizationData FinalizationRecord{..} ->
+                                                                                    return $ Just (serializedBlock, getHash normalBlock, Just finalizationIndex)
                                                                     _ -> return Nothing -- Do not export genesis blocks.
                                                             getFinalizationRecordAt' finIndex =
                                                                 resizeOnResized (readFinalizationRecord finIndex) >>= \case
@@ -596,6 +614,7 @@ exportSections dbDir outDir chunkSize genIndex startHeight blockIndex lastWritte
                                                                 0
                                                                 getBlockAt
                                                                 getFinalizationRecordAt
+                                                                GetFinalizationEntryV0
                                                         return (False, singleton (genHash, chunks))
                                     )
                                     (DBState dbh)
@@ -642,15 +661,15 @@ data GetBlockAt (cv :: ConsensusParametersVersion) (m :: Type -> Type) where
     GetBlockAtV0 ::
         { -- |Function for getting a serialized block (if present in the database) in 'ConsensusV0',
           -- i.e. before P6.
-          gbaV0 :: BlockHeight -> m (Maybe (BS.ByteString, Maybe FinalizationIndex))
+          gbaV0 :: BlockHeight -> m (Maybe (BS.ByteString, BlockHash, Maybe FinalizationIndex))
         } ->
         GetBlockAt 'ConsensusParametersVersion0 m
     GetBlockAtV1 ::
         { -- |Function for getting a serialized (if present in the database) block in 'ConsensusV1',
           -- i.e. after P5.
-          gbaV1 :: BlockHeight -> m (Maybe BS.ByteString)
+          gbaV1 :: BlockHeight -> m (Maybe (BS.ByteString, BlockHash))
         } ->
-        GetBlockAt 'ConsensusParametersVersion0 m
+        GetBlockAt 'ConsensusParametersVersion1 m
 
 -- |Action for getting a finalization record parameterized by the consensus parameters version.
 -- For 'ConsensusV1' this is a noop as 'FinalizationRecords' is no longer a thing.
@@ -663,14 +682,37 @@ data GetFinalizationRecordAt (cv :: ConsensusParametersVersion) (m :: Type -> Ty
         GetFinalizationRecordAt 'ConsensusParametersVersion0 m
     -- |'ConsensusV1' does not use the concept of finalization indices,
     -- so this is a noop.
-    GetFinalizationRecordAtV1 :: GetFinalizationRecordAt 'ConsensusParametersVersion0 m
+    GetFinalizationRecordAtV1 :: GetFinalizationRecordAt 'ConsensusParametersVersion1 m
+
+-- |Action for getting a finalization entry parameterized by the consensus parameters version.
+-- For 'ConsensusV0' this is a noop as 'FinalizationEntry' does not exist in that consensus version.
+data GetFinalizationEntry (cv :: ConsensusParametersVersion) (m :: Type -> Type) where
+    -- |A noop for 'ConsensusV0' as finalization entries does not exist in consensus version 0.
+    GetFinalizationEntryV0 :: GetFinalizationEntry 'ConsensusParametersVersion0 m
+    GetFinalizationEntryV1 ::
+        { -- |The serialized 'FinalizationEntry' if it finalizes the provided block and
+          -- otherwise @Nothing@.
+          --
+          -- In particular this is used for finalizing the last exported block from
+          -- the perspective of the importer.
+          -- This makes it possible to use oob catch-up through protocol updates as
+          -- exported sections are exclusive for a particular protocol version.
+          gfeV1 :: BlockHash -> m (Maybe BS.ByteString)
+        } ->
+        GetFinalizationEntry 'ConsensusParametersVersion1 m
 
 -- |Write a database section as a collection of chunks in the specified directory.
+--
 -- For 'ConsensusV0' The last exported chunk
 -- (i.e. the one containing the block with the greatest height in the section) also contains
 -- finalization records finalizing all blocks after the last block containing a finalization
 -- record.
--- For 'ConsensusV1' only blocks are exported.
+--
+-- For 'ConsensusV1' the last exported chunk of a section is appended
+-- with a finalization entry which finalizes the last block of that chunk.
+-- This is to make it possible for the consensus layer to advance to a new protocol
+-- in the case of a protocol update as sections contains blocks of only one protocol version.
+--
 -- Returns a list containing chunk file information for exported chunk files, appearing in
 -- the order in which they were exported. Cfr. `BlockIndexChunkInfo` for more information.
 -- The @Maybe @ parameter contains the filename to be used for the first chunk to be written, if so
@@ -702,6 +744,7 @@ writeChunks ::
     -- |Action for getting the finalization record at
     -- a particular index.
     GetFinalizationRecordAt cpv m ->
+    GetFinalizationEntry cpv m ->
     m (Seq BlockIndexChunkInfo)
 writeChunks
     sectionGenesisIndex
@@ -714,7 +757,8 @@ writeChunks
     lastWrittenChunkM
     lastFinalizationRecordIndex
     getBlockAt
-    getFinalizationRecordAt = do
+    getFinalizationRecordAt
+    getFinalizationEntry = do
         let chunkNameCandidate =
                 -- Use the chunk file name if specified and otherwise use a fresh name.
                 case lastWrittenChunkM of
@@ -736,14 +780,18 @@ writeChunks
             runPutH (liftPut $ putWord64be sectionHeaderLength >> put placeholderSectionHeader) chunkHdl
             blocksStart <- hTell chunkHdl
             return (sectionStart, blocksStart)
-        (sectionBlockCount, lastFinalizationRecordIndex') <- exportBlocksToChunk chunkHdl sectionFirstBlockHeight chunkSize lastFinalizationRecordIndex getBlockAt
+        (sectionBlockCount, lastFinalizationRecordIndex', lastFinalizedBlockHash) <- exportBlocksToChunk chunkHdl sectionFirstBlockHeight chunkSize lastFinalizationRecordIndex getBlockAt
         blocksEnd <- liftIO $ hTell chunkHdl
         -- Only write finalization records to a chunk if it's the last one for the section
         let lastExportedBlockHeight = sectionFirstBlockHeight + BlockHeight sectionBlockCount - 1
-        sectionFinalizationCount <-
+        (sectionFinalizationCount, sectionFinalizationEntryPresent) <-
             if lastExportedBlockHeight < sectionLastBlockHeight
-                then return 0
-                else exportFinRecsToChunk chunkHdl lastFinalizationRecordIndex' getFinalizationRecordAt
+                then return (0, False)
+                else do
+                    finCount <- exportFinRecsToChunk chunkHdl lastFinalizationRecordIndex' getFinalizationRecordAt
+                    -- Only export finalization entry if the finalization entry finalizes the last exported block.
+                    finEntryExported <- exportFinalizationEntryToChunk chunkHdl lastFinalizedBlockHash getFinalizationEntry
+                    return (finCount, finEntryExported)
         liftIO $ do
             sectionEnd <- hTell chunkHdl
             -- Go back to the start and rewrite the section header with the correct data
@@ -787,6 +835,7 @@ writeChunks
                         lastFinalizationRecordIndex'
                         getBlockAt
                         getFinalizationRecordAt
+                        getFinalizationEntry
                 return $ chunkInfo :<| chunks
             else return $ singleton chunkInfo
 
@@ -806,38 +855,38 @@ exportBlocksToChunk ::
     FinalizationIndex ->
     -- |Action for getting the block.
     GetBlockAt cpv m ->
-    -- |Number of exported blocks and last finalization record index.
-    m (Word64, FinalizationIndex)
-exportBlocksToChunk hdl firstHeight chunkSize lastFinalizationRecordIndex getBlockAt = ebtc firstHeight 0 lastFinalizationRecordIndex
+    -- |Number of exported blocks, last finalization record index and hash of last exported block
+    m (Word64, FinalizationIndex, Maybe BlockHash)
+exportBlocksToChunk hdl firstHeight chunkSize lastFinalizationRecordIndex getBlockAt = ebtc firstHeight 0 lastFinalizationRecordIndex Nothing
   where
-    ebtc :: BlockHeight -> Word64 -> FinalizationIndex -> m (Word64, FinalizationIndex)
-    ebtc height count lastFinRecIdx = case getBlockAt of
+    ebtc :: BlockHeight -> Word64 -> FinalizationIndex -> Maybe BlockHash -> m (Word64, FinalizationIndex, Maybe BlockHash)
+    ebtc height count lastFinRecIdx mBh = case getBlockAt of
         GetBlockAtV0 f ->
             f height >>= \case
-                Nothing -> return (count, lastFinRecIdx)
-                Just (serializedBlock, finalizationRecordIndexM) -> do
+                Nothing -> return (count, lastFinRecIdx, mBh)
+                Just (serializedBlock, bh, finalizationRecordIndexM) -> do
                     void $ writeBlockOut serializedBlock
                     -- In case there wasn't a @FinalizationRecord@ present in the block
                     -- we carry over the latest seen @FinalizationIndex@.
-                    continue count height $ fromMaybe lastFinRecIdx finalizationRecordIndexM
+                    continue count height (fromMaybe lastFinRecIdx finalizationRecordIndexM) $ Just bh
         GetBlockAtV1 f ->
             f height >>= \case
-                Nothing -> return (count, 0)
-                Just serializedBlock -> do
+                Nothing -> return (count, 0, Nothing)
+                Just (serializedBlock, bh) -> do
                     void $ writeBlockOut serializedBlock
                     -- We simply set the last @FinalizationRecord@ index to 0,
                     -- as they are not a concept for 'ConsensusV1'.
-                    continue count height 0
+                    continue count height 0 $ Just bh
     writeBlockOut :: BS.ByteString -> m ()
     writeBlockOut serializedBlock = do
         let len = fromIntegral $ BS.length serializedBlock
         liftIO $ do
             BS.hPut hdl $ runPut $ putWord64be len
             BS.hPut hdl serializedBlock
-    continue count height finalizationRecordIndex =
+    continue count height finalizationRecordIndex bh =
         if count < chunkSize
-            then ebtc (height + 1) (count + 1) finalizationRecordIndex
-            else return (count, finalizationRecordIndex)
+            then ebtc (height + 1) (count + 1) finalizationRecordIndex bh
+            else return (count, finalizationRecordIndex, bh)
 
 -- |Export all finalization records with indices above `dbsLastFinIndex` to a chunk
 -- Note. For 'ConsensusV1' this function will not write anything to the file.
@@ -868,10 +917,38 @@ exportFinRecsToChunk hdl finRecIdx (GetFinalizationRecordAtV0 f) = exportFinRecs
 -- @FinalizationRecord@s are not a thing in 'ConsensusV1'.
 exportFinRecsToChunk _ _ GetFinalizationRecordAtV1 = return 0
 
+-- |Export the last 'FinalizationEntry' recorded by the running consensus version 1 runner
+-- if and only if it finalizes the last exported block.
+exportFinalizationEntryToChunk ::
+    MonadIO m =>
+    Handle ->
+    Maybe BlockHash ->
+    GetFinalizationEntry cpv m ->
+    m Bool
+exportFinalizationEntryToChunk _ _ GetFinalizationEntryV0 = return False
+exportFinalizationEntryToChunk hdl lastExportedBlockM (GetFinalizationEntryV1 f) =
+    case lastExportedBlockM of
+        Nothing -> return False
+        Just lastExportedBlock ->
+            f lastExportedBlock >>= \case
+                Nothing -> return False
+                Just serializedFinEntry -> do
+                    let len = fromIntegral $ BS.length serializedFinEntry
+                    liftIO $ do
+                        BS.hPut hdl $ runPut $ putWord64be len
+                        BS.hPut hdl serializedFinEntry
+                    return True
+
 -- |Imported data for processing.
 data ImportData
-    = ImportBlock ProtocolVersion GenesisIndex BS.ByteString
-    | ImportFinalizationRecord ProtocolVersion GenesisIndex BS.ByteString
+    = -- |A block
+      ImportBlock ProtocolVersion GenesisIndex BS.ByteString
+    | -- |A finalization record. Note that these are only used for
+      -- 'ConsensusV0'.
+      ImportFinalizationRecord ProtocolVersion GenesisIndex BS.ByteString
+    | -- |A finalization entry. Note that these are only used for
+      -- 'ConsensusV1'.
+      ImportFinalizationEntry ProtocolVersion GenesisIndex BS.ByteString
 
 -- |Failure result of importing data.
 data ImportFailure a
@@ -945,6 +1022,10 @@ importBlocksV3 inFile firstGenIndex cbk = runExceptT $
                             ( importData hdl fileSize $
                                 ImportFinalizationRecord sectionProtocolVersion sectionGenesisIndex
                             )
+                        when sectionFinalizationEntryPresent $
+                            importData hdl fileSize $
+                                ImportFinalizationEntry sectionProtocolVersion sectionGenesisIndex
+
                     -- Move to the next section
                     liftIO $ hSeek hdl AbsoluteSeek (sectionStart + toInteger sectionLength)
                     importSections hdl fileSize
