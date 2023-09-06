@@ -231,15 +231,15 @@ instance (IsProtocolVersion pv, SupportsPersistentModule m) => BlobStorable m (P
                     pinterface
                     put model
                     put pinstanceAmount
-            return
-                $!! ( putInst,
-                      PersistentInstanceV
-                        { pinstanceParameters = newParameters,
-                          pinstanceModuleInterface = newpInterface,
-                          pinstanceModel = InstanceStateV0 model,
-                          ..
-                        }
-                    )
+            return $!!
+                ( putInst,
+                  PersistentInstanceV
+                    { pinstanceParameters = newParameters,
+                      pinstanceModuleInterface = newpInterface,
+                      pinstanceModel = InstanceStateV0 model,
+                      ..
+                    }
+                )
         storeV1 :: PersistentInstanceV GSWasm.V1 -> m (Put, PersistentInstance pv)
         storeV1 PersistentInstanceV{pinstanceModel = InstanceStateV1 model, ..} = do
             (pparams, newParameters) <- storeUpdate pinstanceParameters
@@ -251,16 +251,16 @@ instance (IsProtocolVersion pv, SupportsPersistentModule m) => BlobStorable m (P
                     pinterface
                     pstate
                     put pinstanceAmount
-            return
-                $!! ( putInst,
-                      PersistentInstanceV1
-                        PersistentInstanceV
-                            { pinstanceParameters = newParameters,
-                              pinstanceModuleInterface = newpInterface,
-                              pinstanceModel = InstanceStateV1 newpstate,
-                              ..
-                            }
-                    )
+            return $!!
+                ( putInst,
+                  PersistentInstanceV1
+                    PersistentInstanceV
+                        { pinstanceParameters = newParameters,
+                          pinstanceModuleInterface = newpInterface,
+                          pinstanceModel = InstanceStateV1 newpstate,
+                          ..
+                        }
+                )
 
         addVersion (s, inst') = (putWord8 0 <> s, PersistentInstanceV0 inst')
 

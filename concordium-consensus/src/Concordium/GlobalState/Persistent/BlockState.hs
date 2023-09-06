@@ -385,14 +385,14 @@ instance (MonadBlobStore m, IsProtocolVersion pv) => BlobStorable m (PersistentB
                 pnebs
                 pcebs
                 put _birkSeedState
-        return
-            $!! ( putBSP,
-                  bps
-                    { _birkActiveBakers = actBakers,
-                      _birkNextEpochBakers = nextBakers,
-                      _birkCurrentEpochBakers = currentBakers
-                    }
-                )
+        return $!!
+            ( putBSP,
+              bps
+                { _birkActiveBakers = actBakers,
+                  _birkNextEpochBakers = nextBakers,
+                  _birkCurrentEpochBakers = currentBakers
+                }
+            )
     load = withIsSeedStateVersionFor (protocolVersion @pv) $ do
         mabs <- label "Active bakers" load
         mnebs <- label "Next epoch bakers" load
@@ -2368,17 +2368,17 @@ doPutNewInstance pbs NewInstanceData{..} = do
                 modRef <- fromJust <$> Modules.getModuleReference (GSWasm.miModuleRef nidInterface) mods
                 (csHash, initialState) <- freezeContractState nidInitialState
                 -- The module version is V0 because of the 'WasmVersion' is V0.
-                return
-                    $!! ( ca,
-                          PersistentInstanceV0
-                            Instances.PersistentInstanceV
-                                { pinstanceModuleInterface = modRef,
-                                  pinstanceModel = initialState,
-                                  pinstanceAmount = nidInitialAmount,
-                                  pinstanceHash = Instances.makeInstanceHashV0 (pinstanceParameterHash params) csHash nidInitialAmount,
-                                  ..
-                                }
-                        )
+                return $!!
+                    ( ca,
+                      PersistentInstanceV0
+                        Instances.PersistentInstanceV
+                            { pinstanceModuleInterface = modRef,
+                              pinstanceModel = initialState,
+                              pinstanceAmount = nidInitialAmount,
+                              pinstanceHash = Instances.makeInstanceHashV0 (pinstanceParameterHash params) csHash nidInitialAmount,
+                              ..
+                            }
+                    )
             Wasm.SV1 -> do
                 let params =
                         PersistentInstanceParameters
@@ -2397,16 +2397,16 @@ doPutNewInstance pbs NewInstanceData{..} = do
                 (csHash, initialState) <- freezeContractState nidInitialState
                 let pinstanceHash = Instances.makeInstanceHashV1 (pinstanceParameterHash params) csHash nidInitialAmount
                 -- The module version is V1 because of the 'WasmVersion' is V1.
-                return
-                    $!! ( ca,
-                          PersistentInstanceV1
-                            Instances.PersistentInstanceV
-                                { pinstanceModuleInterface = modRef,
-                                  pinstanceModel = initialState,
-                                  pinstanceAmount = nidInitialAmount,
-                                  ..
-                                }
-                        )
+                return $!!
+                    ( ca,
+                      PersistentInstanceV1
+                        Instances.PersistentInstanceV
+                            { pinstanceModuleInterface = modRef,
+                              pinstanceModel = initialState,
+                              pinstanceAmount = nidInitialAmount,
+                              ..
+                            }
+                    )
 
 doModifyInstance ::
     forall pv m v.

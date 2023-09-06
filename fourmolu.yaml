@@ -13,9 +13,14 @@ single-constraint-parens: always # Whether to put parentheses round a single con
 unicode: never
 respectful: true # Be less aggressive in reformatting input, e.g. keep empty lines in import list.
 fixities: # Override fixities of operators.
+ # This operator is defined in Concordium.Utils. Fourmolu seems to ignore its fixity specification.
+ - infixr 0 $!!
  # Fourmolu incorrectly determines the fixity of operators re-exported in Lens.Micro.Platform.
+ # We make explicit those that are in Lens.Micro.Mtl, since it does not seem sufficient to
+ # use a reexport directive.
  - infixl 1 &, <&>, &~
  - infixr 2 <~
  - infix 4 .=, ?=, +=, -=, *=, //=, <%=, <.=, <?=, <<%=, <<.=
- - infixr 4 %~, +~, -~, <>~, .~, ?~, <%~, <<%~, <</~
- - infixl 8 ^., ^.., ^?, ^?!
+ - infix 4 .=
+reexports:
+  - module Lens.Micro.Platform exports Lens.Micro
