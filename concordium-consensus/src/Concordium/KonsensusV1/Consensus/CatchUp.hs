@@ -458,39 +458,12 @@ processCatchUpTerminalData CatchUpTerminalData{..} = flip runContT return $ do
         logEvent Skov LLDebug $ "Rejecting catch-up response: " ++ reason
         return (TerminalDataResultInvalid progress)
     processFE currentProgress Absent = return currentProgress
-    processFE currentProgress (Present latestFinEntry) = do
-        let finQC = feFinalizedQuorumCertificate latestFinEntry
-        let finBlockHash = qcBlock finQC
-        gets (getLiveBlock finBlockHash) >>= \case
-            Just block -> do
-                unless
-                    (blockRound block == qcRound finQC && blockEpoch block == qcEpoch finQC)
-                    ( escape
-                        currentProgress
-                        "finalization entry is inconsistent with the block it finalizes."
-                    )
-                gets (getBakersForEpoch (qcEpoch finQC)) >>= \case
-                    Nothing -> return currentProgress
-                    Just BakersAndFinalizers{..} -> do
-                        GenesisMetadata{..} <- use genesisMetadata
-                        let finEntryOK =
-                                checkFinalizationEntry
-                                    gmCurrentGenesisHash
-                                    (toRational $ genesisSignatureThreshold gmParameters)
-                                    _bfFinalizers
-                                    latestFinEntry
-                        unless finEntryOK (escape currentProgress "finalization entry is invalid.")
-                        lift $ do
-                            -- Record the checked quorum certificates
-                            recordCheckedQuorumCertificate $
-                                feFinalizedQuorumCertificate latestFinEntry
-                            recordCheckedQuorumCertificate $
-                                feSuccessorQuorumCertificate latestFinEntry
-                            -- Process the finalization
-                            processFinalizationEntry block latestFinEntry
-                            return True
-            Nothing -> return currentProgress
-
+    processFE currentProgress (Present latestFinEntry) =
+        lift (catchupFinalizationEntry latestFinEntry) >>= \case
+            CFERSuccess -> return True
+            CFERInconsistent -> escape currentProgress "finalization entry is inconsistent with the block it finalizes."
+            CFERInvalid -> escape currentProgress "finalization entry is invalid."
+            CFERNotAlive -> return currentProgress
     processQC currentProgress qc = do
         -- The QC is only relevant if it is for a live block.
         gets (getLiveBlock (qcBlock qc)) >>= \case

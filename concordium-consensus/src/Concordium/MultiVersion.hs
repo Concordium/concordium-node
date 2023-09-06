@@ -1725,8 +1725,11 @@ receiveFinalizationRecord gi finRecBS = withLatestExpectedVersion_ gi $ \case
                 logEvent Runner LLDebug $ "Could not deserialize finalization entry: " <> err
                 return Skov.ResultSerializationFail
             Right finEntry -> do
-                runSkovV1Transaction vc (SkovV1.catchupFinalizationEntry undefined finEntry)
-                return Skov.ResultSuccess
+                runSkovV1Transaction vc (SkovV1.catchupFinalizationEntry finEntry) >>= \case
+                    SkovV1.CFERSuccess -> return Skov.ResultSuccess
+                    SkovV1.CFERInconsistent -> return Skov.ResultUnverifiable
+                    SkovV1.CFERInvalid -> return Skov.ResultUnverifiable
+                    SkovV1.CFERNotAlive -> return Skov.ResultInvalid
       where
         -- Attempt to deserialize a 'KonsensusV1.FinalizationEntry'
         -- Note that this is not versioned as a finalization entry is never send raw.

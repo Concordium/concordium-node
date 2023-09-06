@@ -90,11 +90,26 @@ processCertifiedBlock cb@CertifiedBlock{..}
         alreadyStored <- LowLevel.memberBlock (getHash cbQuorumBlock)
         unless alreadyStored a
 
+-- |Result of catching up a 'FinalizationEntry'.
+data CatchupFinalizationEntryResult
+    = -- |The 'FinalizationEntry' is valid and consensus
+      -- processed it.
+      CFERSuccess
+    | -- |The proposed finalized block is inconsistent
+      -- with the finalized block being pointed to in
+      -- the 'FinalizationEntry'.
+      CFERInconsistent
+    | -- |The finalization entry is invalid.
+      CFERInvalid
+    | -- |The finalization entry pointed to a block that was not
+      -- alive.
+      CFERNotAlive
+
 -- |Receive a 'FinalizationEntry' as part of catch-up.
 -- This function checks whether the finalization entry is
 -- consistent with the block indicated by @feFinalizedQuorumCertificate@ of the
--- finalization entry.
--- Lastly, the finalization entry is processed.
+-- finalization entry and that block is alive and non finalized.
+-- If the finalization entry can be verified then it is being processed.
 catchupFinalizationEntry ::
     ( MonadState (SkovData (MPV m)) m,
       TimeMonad m,
@@ -109,35 +124,43 @@ catchupFinalizationEntry ::
     ) =>
     -- |The finalization entry received.
     FinalizationEntry ->
-    m ()
+    -- |Whether the finalization entry was successfully processed.
+    m CatchupFinalizationEntryResult
 catchupFinalizationEntry finEntry = do
     let finQC = feFinalizedQuorumCertificate finEntry
     let finBlockHash = qcBlock finQC
     gets (getLiveBlock finBlockHash) >>= \case
-        Just block -> do
-            unless
-                (blockRound block == qcRound finQC && blockEpoch block == qcEpoch finQC)
-                undefined
-            gets (getBakersForEpoch (qcEpoch finQC)) >>= \case
-                Nothing -> undefined
-                Just BakersAndFinalizers{..} -> do
-                    GenesisMetadata{..} <- use genesisMetadata
-                    let finEntryOK =
-                            checkFinalizationEntry
-                                gmCurrentGenesisHash
-                                (toRational $ genesisSignatureThreshold gmParameters)
-                                _bfFinalizers
-                                finEntry
-                    unless finEntryOK undefined
-                    do
-                        -- Record the checked quorum certificates
-                        recordCheckedQuorumCertificate $
-                            feFinalizedQuorumCertificate finEntry
-                        recordCheckedQuorumCertificate $
-                            feSuccessorQuorumCertificate finEntry
-                        -- Process the finalization
-                        processFinalizationEntry block finEntry
-        Nothing -> undefined
+        Just block ->
+            checkConsistency finQC block $
+                gets (getBakersForEpoch (qcEpoch finQC)) >>= \case
+                    Nothing -> undefined
+                    Just BakersAndFinalizers{..} -> do
+                        gm <- use genesisMetadata
+                        checkFinEntry _bfFinalizers gm $ do
+                            -- Record the checked quorum certificates
+                            recordCheckedQuorumCertificate $
+                                feFinalizedQuorumCertificate finEntry
+                            recordCheckedQuorumCertificate $
+                                feSuccessorQuorumCertificate finEntry
+                            -- Process the finalization
+                            processFinalizationEntry block finEntry
+                            return CFERSuccess
+        Nothing -> return CFERNotAlive
+  where
+    -- Checks whether the finalized qc of the finalization entry
+    -- is consistent with the block.
+    checkConsistency qc block cont =
+        if blockRound block /= qcRound qc || blockEpoch block /= qcEpoch qc
+            then return CFERInconsistent
+            else cont
+    checkFinEntry finCommittee GenesisMetadata{..} cont =
+        let finEntryOk =
+                checkFinalizationEntry
+                    gmCurrentGenesisHash
+                    (toRational $ genesisSignatureThreshold gmParameters)
+                    finCommittee
+                    finEntry
+        in  if not finEntryOk then return CFERInvalid else cont
 
 -- |Process a finalization entry that finalizes a block that is not currently considered finalized.
 --
