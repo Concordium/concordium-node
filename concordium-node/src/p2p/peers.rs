@@ -250,10 +250,6 @@ impl P2PNode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{
-        io::Cursor,
-        net::{IpAddr, Ipv4Addr, Ipv6Addr},
-    };
 
     #[test]
     fn test_average_throughput() {
