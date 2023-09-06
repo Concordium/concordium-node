@@ -22,47 +22,47 @@ import Concordium.Scheduler (FilteredTransactions (..))
 import qualified Concordium.TransactionVerification as TVer
 import Concordium.Types.HashableTo
 
--- |Transaction hash table. One component of the 'TransactionTable'.
+-- | Transaction hash table. One component of the 'TransactionTable'.
 type TransactionHashTable = HM.HashMap TransactionHash (BlockItem, LiveTransactionStatus)
 
--- |Purge transactions that are not present in any live or finalized blocks
--- and either have expired or were received before the oldest permitted arrival
--- time.
+-- | Purge transactions that are not present in any live or finalized blocks
+--  and either have expired or were received before the oldest permitted arrival
+--  time.
 --
---  1. Traverse the account non-finalized transaction table. For each account:
+--   1. Traverse the account non-finalized transaction table. For each account:
 --
---     a) Iterate over the nonces.  For each transaction, check
---        if it can be purged, removing it from the set and the transaction table
---        if so.  If the set at a nonce ends up empty, remove the entry in the
---        non-finalized transaction table.
+--      a) Iterate over the nonces.  For each transaction, check
+--         if it can be purged, removing it from the set and the transaction table
+--         if so.  If the set at a nonce ends up empty, remove the entry in the
+--         non-finalized transaction table.
 --
---     b) Determine the maximal non-empty nonce.  If there is an entry in the
---        pending transaction table for the account, update it by either
---        removing the entry (if the new max nonce is lower than the old low value)
---        or updating the high nonce to the new max nonce (otherwise).
+--      b) Determine the maximal non-empty nonce.  If there is an entry in the
+--         pending transaction table for the account, update it by either
+--         removing the entry (if the new max nonce is lower than the old low value)
+--         or updating the high nonce to the new max nonce (otherwise).
 --
---  2. For each credential deployment in the pending transaction table, if it can
---     be purged, remove it from the set and the transaction table.
+--   2. For each credential deployment in the pending transaction table, if it can
+--      be purged, remove it from the set and the transaction table.
 --
--- A transaction is eligible for purging only if it does not belong to any
--- current blocks. This is considered to be the case if the corresponding
--- entry in the transaction table is a `Received` or `Committed` and the
--- `_tsCommitPoint` field is less than or equal to the slot of the last finalized block.
+--  A transaction is eligible for purging only if it does not belong to any
+--  current blocks. This is considered to be the case if the corresponding
+--  entry in the transaction table is a `Received` or `Committed` and the
+--  `_tsCommitPoint` field is less than or equal to the slot of the last finalized block.
 --
--- Transactions are only purged if they have expired (so they would not be valid
--- in any block created from now on) or if they arrived sufficiently long ago
--- (where sufficiently long ago should be determined by subtracting the keep-alive
--- time from the current time).
+--  Transactions are only purged if they have expired (so they would not be valid
+--  in any block created from now on) or if they arrived sufficiently long ago
+--  (where sufficiently long ago should be determined by subtracting the keep-alive
+--  time from the current time).
 purgeTables ::
-    -- |'CommitPoint' of last finalized block
+    -- | 'CommitPoint' of last finalized block
     CommitPoint ->
-    -- |Oldest permitted transaction arrival time
+    -- | Oldest permitted transaction arrival time
     TransactionTime ->
-    -- |Current time
+    -- | Current time
     Timestamp ->
-    -- |Transaction table to purge
+    -- | Transaction table to purge
     TransactionTable ->
-    -- |Pending transaction table to purge
+    -- | Pending transaction table to purge
     PendingTransactionTable ->
     (TransactionTable, PendingTransactionTable)
 purgeTables lastFinCommitPoint oldestArrivalTime currentTime TransactionTable{..} ptable = (ttable', ptable')
@@ -191,27 +191,27 @@ purgeTables lastFinCommitPoint oldestArrivalTime currentTime TransactionTable{..
               _ttNonFinalizedChainUpdates = newNFCU
             }
 
--- |Update the transaction table and pending transaction table as a result of constructing a block.
--- The transactions added to the block are marked as committed.
--- Failed transactions are purged from the transaction table if they are not committed since the
--- last finalized block. The pending transaction table is updated to reflect the executed
--- transactions and the purged transactions.
+-- | Update the transaction table and pending transaction table as a result of constructing a block.
+--  The transactions added to the block are marked as committed.
+--  Failed transactions are purged from the transaction table if they are not committed since the
+--  last finalized block. The pending transaction table is updated to reflect the executed
+--  transactions and the purged transactions.
 --
--- PRECONDITION: All of the filtered transactions are present in the transaction table and pending
--- transaction table.
+--  PRECONDITION: All of the filtered transactions are present in the transaction table and pending
+--  transaction table.
 filterTables ::
     (IsCommitPoint cp) =>
-    -- |'CommitPoint' of the last finalized block
+    -- | 'CommitPoint' of the last finalized block
     cp ->
-    -- |'CommitPoint' of block that transactions were added in
+    -- | 'CommitPoint' of block that transactions were added in
     cp ->
-    -- |'BlockHash' of block that transactions were added in
+    -- | 'BlockHash' of block that transactions were added in
     BlockHash ->
-    -- |Filtered transactions as a result of constructing the block.
+    -- | Filtered transactions as a result of constructing the block.
     FilteredTransactions ->
-    -- |Transaction table to update
+    -- | Transaction table to update
     TransactionTable ->
-    -- |Pending transaction table to update
+    -- | Pending transaction table to update
     PendingTransactionTable ->
     (TransactionTable, PendingTransactionTable)
 filterTables lastFinCommit commitAt commitBlock FilteredTransactions{..} tt0 ptt0 =

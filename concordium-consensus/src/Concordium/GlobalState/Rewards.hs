@@ -15,37 +15,37 @@ import Data.Serialize
 import Lens.Micro.Platform
 
 data RewardAccounts = RewardAccounts
-    { -- |The Baking Reward Account. A fraction of newly minted GTUs are paid
-      -- in here. These are distributed to the bakers of a previous epoch in
-      -- the first block of a new epoch.
+    { -- | The Baking Reward Account. A fraction of newly minted GTUs are paid
+      --  in here. These are distributed to the bakers of a previous epoch in
+      --  the first block of a new epoch.
       _bakingRewardAccount :: !Amount,
-      -- |The Finalization Reward Account. A fraction of newly minted GTUs are
-      -- paid in here. These are distributed to the finalizers whenever a
-      -- finalization record is included in a block.
+      -- | The Finalization Reward Account. A fraction of newly minted GTUs are
+      --  paid in here. These are distributed to the finalizers whenever a
+      --  finalization record is included in a block.
       _finalizationRewardAccount :: !Amount,
-      -- |The GAS Account. A fraction of execution costs is paid in here.
-      -- A fraction is paid out to the baker of a block, with additional
-      -- fractions to subsidise account creation, update transactions and
-      -- the inclusion of finalization records in blocks.
+      -- | The GAS Account. A fraction of execution costs is paid in here.
+      --  A fraction is paid out to the baker of a block, with additional
+      --  fractions to subsidise account creation, update transactions and
+      --  the inclusion of finalization records in blocks.
       _gasAccount :: !Amount
     }
     deriving (Show, Eq)
 makeClassy ''RewardAccounts
 
--- |The grand total of undistributed rewards. Comes in handy during testing.
+-- | The grand total of undistributed rewards. Comes in handy during testing.
 rewardsTotal :: RewardAccounts -> Amount
 rewardsTotal RewardAccounts{..} = _bakingRewardAccount + _finalizationRewardAccount + _gasAccount
 
--- |This datastructure contains the various (logical) accounts used for
--- the chain tokenomics. It also records the total of all GTU in existence,
--- and the total of all encrypted GTU.
+-- | This datastructure contains the various (logical) accounts used for
+--  the chain tokenomics. It also records the total of all GTU in existence,
+--  and the total of all encrypted GTU.
 data BankStatus = BankStatus
-    { -- |Total amount of GTU in existence.
+    { -- | Total amount of GTU in existence.
       _totalGTU :: !Amount,
-      -- |Total amount of encrypted amounts. This is not an important field, but can
-      -- be used for debugging.
+      -- | Total amount of encrypted amounts. This is not an important field, but can
+      --  be used for debugging.
       _totalEncryptedGTU :: !Amount,
-      -- |Reward accounts.
+      -- | Reward accounts.
       _bankRewardAccounts :: !RewardAccounts
     }
     deriving (Show, Eq)
@@ -69,7 +69,7 @@ instance Serialize BankStatus where
         _gasAccount <- get
         return BankStatus{_bankRewardAccounts = RewardAccounts{..}, ..}
 
--- |Define the hash of Bankstatus, for use in hashing the blockstate.
+-- | Define the hash of Bankstatus, for use in hashing the blockstate.
 instance HashableTo H.Hash BankStatus where
     getHash BankStatus{_bankRewardAccounts = RewardAccounts{..}, ..} =
         H.hash $
@@ -84,7 +84,7 @@ instance HashableTo H.Hash BankStatus where
                 <> "gasAccount"
                 <> encode _gasAccount
 
--- |Bank with no money.
+-- | Bank with no money.
 emptyBankStatus :: BankStatus
 emptyBankStatus = BankStatus{_bankRewardAccounts = RewardAccounts{..}, ..}
   where
@@ -95,7 +95,7 @@ emptyBankStatus = BankStatus{_bankRewardAccounts = RewardAccounts{..}, ..}
     _gasAccount = 0
 
 makeGenesisBankStatus ::
-    -- |Total amount of GTU in existence.
+    -- | Total amount of GTU in existence.
     Amount ->
     BankStatus
 makeGenesisBankStatus genesisTotal = emptyBankStatus{_totalGTU = genesisTotal}
@@ -117,7 +117,7 @@ epochBlockHash bid h =
 newtype PoolRewardsHash = PoolRewardsHash {prHash :: H.Hash}
     deriving newtype (Eq, Ord, Show, Serialize)
 
--- |Hash of block reward details.
+-- | Hash of block reward details.
 data BlockRewardDetailsHash (av :: AccountVersion) where
     BlockRewardDetailsHashV0 :: !EpochBlocksHash -> BlockRewardDetailsHash 'AccountV0
     BlockRewardDetailsHashV1 ::
@@ -128,7 +128,7 @@ data BlockRewardDetailsHash (av :: AccountVersion) where
 deriving instance Show (BlockRewardDetailsHash av)
 deriving instance Eq (BlockRewardDetailsHash av)
 
--- |SHA256 hash of 'BlockRewardDetailsHash'.
+-- | SHA256 hash of 'BlockRewardDetailsHash'.
 brdHash :: BlockRewardDetailsHash av -> H.Hash
 brdHash (BlockRewardDetailsHashV0 eb) = ebHash eb
 brdHash (BlockRewardDetailsHashV1 ha) = prHash ha

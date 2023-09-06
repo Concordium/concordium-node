@@ -66,7 +66,7 @@ processTransactions slot ss bh mfinInfo bid = do
     slotTime <- getSlotTimestamp slot
     constructBlock slot slotTime bh bid mfinInfo ss
 
--- |Check that a baker's keys match the 'BakerInfo'.
+-- | Check that a baker's keys match the 'BakerInfo'.
 validateBakerKeys :: BakerInfo -> BakerIdentity -> Bool
 validateBakerKeys BakerInfo{..} ident =
     _bakerElectionVerifyKey == bakerElectionPublicKey ident
@@ -134,23 +134,23 @@ doBakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
 
     return newbp
 
--- |Result of attempting to bake a block.
+-- | Result of attempting to bake a block.
 data BakeResult
-    = -- |A block was successfully baked, at the given slot. The serialized, versioned block
-      -- is returned.
+    = -- | A block was successfully baked, at the given slot. The serialized, versioned block
+      --  is returned.
       BakeSuccess !Slot !ByteString
-    | -- |We have attempted to bake up to the specified slot; try again after the timestamp.
+    | -- | We have attempted to bake up to the specified slot; try again after the timestamp.
       BakeWaitUntil !Slot !Timestamp
-    | -- |The consensus is shut down, so we cannot bake.
+    | -- | The consensus is shut down, so we cannot bake.
       BakeShutdown
 
--- |Try to bake for a slot later than the given slot, up to the current slot.
+-- | Try to bake for a slot later than the given slot, up to the current slot.
 doTryBake ::
     forall m.
     (FinalizationMonad m, SkovMonad m, TreeStateMonad m, MonadIO m, OnSkov m) =>
-    -- |Baker identity
+    -- | Baker identity
     BakerIdentity ->
-    -- |Last slot that we attempted to bake for
+    -- | Last slot that we attempted to bake for
     Slot ->
     m BakeResult
 doTryBake bid lastSlot = unlessShutdown $ do
@@ -187,16 +187,16 @@ doTryBake bid lastSlot = unlessShutdown $ do
             False -> a
 
 class (SkovMonad m, FinalizationMonad m) => BakerMonad m where
-    -- |Create a block pointer for the given slot.
-    -- This function is in charge of accumulating the pending transactions and
-    -- credential deployments, construct the block and update the transaction table,
-    -- pending transaction table and block table. It will also update the focus block
-    -- to the newly created block.
+    -- | Create a block pointer for the given slot.
+    --  This function is in charge of accumulating the pending transactions and
+    --  credential deployments, construct the block and update the transaction table,
+    --  pending transaction table and block table. It will also update the focus block
+    --  to the newly created block.
     bakeForSlot :: BakerIdentity -> Slot -> m (Maybe (BlockPointerType m))
 
-    -- |Try to bake for a slot later than the given slot, up to the current slot.
-    -- This will never bake for a slot earlier than the last finalized block, or that precedes
-    -- the current slot by more than the 'rpMaxBakingDelay' runtime parameter.
+    -- | Try to bake for a slot later than the given slot, up to the current slot.
+    --  This will never bake for a slot earlier than the last finalized block, or that precedes
+    --  the current slot by more than the 'rpMaxBakingDelay' runtime parameter.
     tryBake :: BakerIdentity -> Slot -> m BakeResult
 
 instance

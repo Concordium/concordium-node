@@ -4,9 +4,9 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
--- |This module provides a simple in-memory version of the low-level tree state.
--- This is intended for testing purposes, for instance, where the overhead of creating an LMDB
--- database is excessive.
+-- | This module provides a simple in-memory version of the low-level tree state.
+--  This is intended for testing purposes, for instance, where the overhead of creating an LMDB
+--  database is excessive.
 module Concordium.KonsensusV1.TreeState.LowLevel.Memory where
 
 import Control.Monad.IO.Class
@@ -25,27 +25,27 @@ import Concordium.KonsensusV1.TreeState.LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 
--- |A low-level tree state database. This manages the storage and indexing of blocks and
--- transactions, as well as recording persisted state of the consensus in the form of the latest
--- finalization entry and current round status.
+-- | A low-level tree state database. This manages the storage and indexing of blocks and
+--  transactions, as well as recording persisted state of the consensus in the form of the latest
+--  finalization entry and current round status.
 data LowLevelDB pv = LowLevelDB
-    { -- |Index of finalized blocks by height.
+    { -- | Index of finalized blocks by height.
       lldbFinalizedBlocks :: !(Map.Map BlockHeight BlockHash),
-      -- |Table of certified blocks by hash.
+      -- | Table of certified blocks by hash.
       lldbBlocks :: !(HM.HashMap BlockHash (StoredBlock pv)),
-      -- |Table of finalized transactions by hash.
+      -- | Table of finalized transactions by hash.
       lldbTransactions :: !(HM.HashMap TransactionHash FinalizedTransactionStatus),
-      -- |The last finalization entry (if any).
+      -- | The last finalization entry (if any).
       lldbLatestFinalizationEntry :: !(Maybe FinalizationEntry),
-      -- |Table of quorum certificates for non-finalized blocks.
+      -- | Table of quorum certificates for non-finalized blocks.
       lldbNonFinalizedQuorumCertificates :: !(Map.Map Round QuorumCertificate),
-      -- |The current round status.
+      -- | The current round status.
       lldbRoundStatus :: !PersistentRoundStatus
     }
 
--- |An initial 'LowLevelDB' with the supplied genesis block and round status, but otherwise with
--- no blocks, no transactions and no finalization entry.
--- The genesis block should have height 0; this is not checked.
+-- | An initial 'LowLevelDB' with the supplied genesis block and round status, but otherwise with
+--  no blocks, no transactions and no finalization entry.
+--  The genesis block should have height 0; this is not checked.
 initialLowLevelDB :: StoredBlock pv -> PersistentRoundStatus -> LowLevelDB pv
 initialLowLevelDB genBlock roundStatus =
     LowLevelDB
@@ -57,8 +57,8 @@ initialLowLevelDB genBlock roundStatus =
           lldbRoundStatus = roundStatus
         }
 
--- |Update a 'LowLevelDB' by adding the given block to 'lldbFinalizedBlocks' and all of its
--- transactions to 'lldbTransactions'. Note, this does not add the block to 'lldbBlocks'.
+-- | Update a 'LowLevelDB' by adding the given block to 'lldbFinalizedBlocks' and all of its
+--  transactions to 'lldbTransactions'. Note, this does not add the block to 'lldbBlocks'.
 finalizeBlock :: LowLevelDB pv -> StoredBlock pv -> LowLevelDB pv
 finalizeBlock db@LowLevelDB{..} sb =
     db
@@ -69,11 +69,11 @@ finalizeBlock db@LowLevelDB{..} sb =
     height = blockHeight sb
     insertTx txs (tx, ti) = HM.insert (getHash tx) (FinalizedTransactionStatus height ti) txs
 
--- |Helper functions for implementing 'writeFinalizedBlocks'.
+-- | Helper functions for implementing 'writeFinalizedBlocks'.
 doWriteFinalizedBlocks ::
-    -- |Newly-finalized blocks in order.
+    -- | Newly-finalized blocks in order.
     [StoredBlock pv] ->
-    -- |Finalization entry for the last of the finalized blocks.
+    -- | Finalization entry for the last of the finalized blocks.
     FinalizationEntry ->
     LowLevelDB pv ->
     LowLevelDB pv
@@ -95,11 +95,11 @@ doWriteFinalizedBlocks finBlocks finEntry =
                 (qcRound (feFinalizedQuorumCertificate finEntry))
                 lldbNonFinalizedQuorumCertificates
 
--- |Helper function for implementing 'writeCertifiedBlock'.
+-- | Helper function for implementing 'writeCertifiedBlock'.
 doWriteCertifiedBlock ::
-    -- |Newly-certified block.
+    -- | Newly-certified block.
     StoredBlock pv ->
-    -- |QC on the certified block.
+    -- | QC on the certified block.
     QuorumCertificate ->
     LowLevelDB pv ->
     LowLevelDB pv
@@ -111,35 +111,35 @@ doWriteCertifiedBlock certBlock qc db@LowLevelDB{..} =
             Map.insert (qcRound qc) qc lldbNonFinalizedQuorumCertificates
         }
 
--- |The class 'HasMemoryLLDB' is implemented by a context in which a 'LowLevelDB' state is
--- maintained in an 'IORef'. This provides access to the low-level database when the monad implements
--- @MonadReader r@ and @MonadIO@.
+-- | The class 'HasMemoryLLDB' is implemented by a context in which a 'LowLevelDB' state is
+--  maintained in an 'IORef'. This provides access to the low-level database when the monad implements
+--  @MonadReader r@ and @MonadIO@.
 class HasMemoryLLDB pv r | r -> pv where
     theMemoryLLDB :: r -> IORef (LowLevelDB pv)
 
--- |Helper for reading the low level DB.
+-- | Helper for reading the low level DB.
 readLLDB :: (MonadReader r m, HasMemoryLLDB pv r, MonadIO m) => m (LowLevelDB pv)
 readLLDB = liftIO . readIORef =<< asks theMemoryLLDB
 
--- |Helper for updating the low level DB.
+-- | Helper for updating the low level DB.
 withLLDB :: (MonadReader r m, HasMemoryLLDB pv r, MonadIO m) => (LowLevelDB pv -> (LowLevelDB pv, a)) -> m a
 withLLDB f = do
     ref <- asks theMemoryLLDB
     liftIO $ atomicModifyIORef' ref f
 
--- |Helper for updating the low level DB.
+-- | Helper for updating the low level DB.
 withLLDB_ :: (MonadReader r m, HasMemoryLLDB pv r, MonadIO m) => (LowLevelDB pv -> LowLevelDB pv) -> m ()
 withLLDB_ f = withLLDB $ (,()) . f
 
--- |A newtype wrapper that provides an instance of 'MonadTreeStateStore' where the underlying monad
--- provides a context for accessing the low-level state. That is, it implements @MonadIO@ and
--- @MonadReader r@ for @r@ with @HasMemoryLLDB pv r@.
+-- | A newtype wrapper that provides an instance of 'MonadTreeStateStore' where the underlying monad
+--  provides a context for accessing the low-level state. That is, it implements @MonadIO@ and
+--  @MonadReader r@ for @r@ with @HasMemoryLLDB pv r@.
 newtype MemoryLLDBM (pv :: ProtocolVersion) m a = MemoryLLDBM {runMemoryLLDBM :: m a}
     deriving (Functor, Applicative, Monad, MonadIO)
 
-deriving instance MonadReader r m => MonadReader r (MemoryLLDBM pv m)
+deriving instance (MonadReader r m) => MonadReader r (MemoryLLDBM pv m)
 
-instance IsProtocolVersion pv => MonadProtocolVersion (MemoryLLDBM pv m) where
+instance (IsProtocolVersion pv) => MonadProtocolVersion (MemoryLLDBM pv m) where
     type MPV (MemoryLLDBM pv m) = pv
 
 instance (IsProtocolVersion pv, MonadReader r m, HasMemoryLLDB pv r, MonadIO m) => MonadTreeStateStore (MemoryLLDBM pv m) where

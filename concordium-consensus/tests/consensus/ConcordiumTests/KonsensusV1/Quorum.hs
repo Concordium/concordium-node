@@ -3,7 +3,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
--- |Module testing functions from the 'Concordium.KonsensusV1.Quorum' module.
+-- | Module testing functions from the 'Concordium.KonsensusV1.Quorum' module.
 module ConcordiumTests.KonsensusV1.Quorum where
 
 import Data.Maybe (fromJust, isJust)
@@ -28,15 +28,15 @@ import ConcordiumTests.KonsensusV1.Common
 import ConcordiumTests.KonsensusV1.TreeStateTest
 import ConcordiumTests.KonsensusV1.Types
 
--- |Generate a random 'VoterPower'.
+-- | Generate a random 'VoterPower'.
 genFinalizerWeight :: Gen VoterPower
 genFinalizerWeight = VoterPower <$> arbitrary
 
--- |Generate a baker ID.
+-- | Generate a baker ID.
 genBakerId :: Gen BakerId
 genBakerId = BakerId . AccountIndex <$> arbitrary
 
--- |Generate a 'QuorumMessage' for a particular block.
+-- | Generate a 'QuorumMessage' for a particular block.
 genQuorumMessageFor :: BlockHash -> Gen QuorumMessage
 genQuorumMessageFor bh = do
     qmSignature <- genQuorumSignature
@@ -45,9 +45,9 @@ genQuorumMessageFor bh = do
     qmEpoch <- genEpoch
     return QuorumMessage{qmBlock = bh, ..}
 
--- |Test for ensuring that when a
--- new 'QuorumMessage' is added to the 'QuorumMessages' type,
--- then the weight is being accumulated and signatures are aggregated.
+-- | Test for ensuring that when a
+--  new 'QuorumMessage' is added to the 'QuorumMessages' type,
+--  then the weight is being accumulated and signatures are aggregated.
 propAddQuorumMessage :: Property
 propAddQuorumMessage =
     forAll genQuorumMessage $ \qm0 ->
@@ -81,8 +81,8 @@ propAddQuorumMessage =
                         (2 * weight, qmSignature qm1 <> qmSignature qm0, finalizerSet [qmFinalizerIndex qm1, qmFinalizerIndex qm0])
                         (fromJust $! qsm'' ^? smBlockToWeightsAndSignatures . ix (qmBlock qm1))
 
--- |Test that checks that a 'QuorumCertificate' can be formed when
--- there are enough finalizers (weighted) who have signed off a round.
+-- | Test that checks that a 'QuorumCertificate' can be formed when
+--  there are enough finalizers (weighted) who have signed off a round.
 testMakeQuorumCertificate :: Spec
 testMakeQuorumCertificate = describe "Quorum Certificate creation" $ do
     it "should not create a qc as there are not enough weight" $ do
@@ -129,9 +129,9 @@ testMakeQuorumCertificate = describe "Quorum Certificate creation" $ do
     quorumMessage finalizerIndex = QuorumMessage emptyQuorumSignature qcBlockHash (FinalizerIndex finalizerIndex) 0 0
     emptyQuorumSignature = QuorumSignature Bls.emptySignature
 
--- |Tests for receiving a quorum message.
--- In particular this test checks that the return codes are as expected
--- with respect to the received 'QuorumMessage'
+-- | Tests for receiving a quorum message.
+--  In particular this test checks that the return codes are as expected
+--  with respect to the received 'QuorumMessage'
 testReceiveQuorumMessage :: Spec
 testReceiveQuorumMessage = describe "Receive quorum message" $ do
     it "future epoch triggers catchup" $ receiveAndCheck sd messageFromFuture CatchupRequired

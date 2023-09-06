@@ -1,8 +1,8 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeFamilies #-}
 
--- |This module contains the logic for creating 'QuorumCertificate's, receiving and
--- verifying quorum signatures that is used for the consensus v1 protocol.
+-- | This module contains the logic for creating 'QuorumCertificate's, receiving and
+--  verifying quorum signatures that is used for the consensus v1 protocol.
 module Concordium.KonsensusV1.Consensus.Quorum where
 
 import Control.Monad.Catch
@@ -29,74 +29,74 @@ import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 
--- |Reasons that a 'QuorumMessage' can be rejected.
+-- | Reasons that a 'QuorumMessage' can be rejected.
 data ReceiveQuorumMessageRejectReason
-    = -- |The 'Round' presented in the 'QuorumMessage' is obsolete.
+    = -- | The 'Round' presented in the 'QuorumMessage' is obsolete.
       ObsoleteRound
-    | -- |The finalizer for the 'QuorumMessage' is not present
-      -- in the finalization committee.
+    | -- | The finalizer for the 'QuorumMessage' is not present
+      --  in the finalization committee.
       NotAFinalizer
-    | -- |The signature on the 'QuorumMessage' is invalid.
+    | -- | The signature on the 'QuorumMessage' is invalid.
       InvalidSignature
-    | -- |The finalizer has already signed another 'QuorumMessage' for the
-      -- 'Round'.
+    | -- | The finalizer has already signed another 'QuorumMessage' for the
+      --  'Round'.
       AlreadySigned
-    | -- |The 'QuorumMessage' points to an invalid block.
+    | -- | The 'QuorumMessage' points to an invalid block.
       InvalidBlock
-    | -- |The 'Round' of the 'QuorumMessage' and the 'Round' of the
-      -- block that it points to are not consistent.
+    | -- | The 'Round' of the 'QuorumMessage' and the 'Round' of the
+      --  block that it points to are not consistent.
       InconsistentRounds
-    | -- |The 'Epoch' of the 'QuorumMessage' and the 'Epoch' of the
-      -- block that it points to are not consistent.
+    | -- | The 'Epoch' of the 'QuorumMessage' and the 'Epoch' of the
+      --  block that it points to are not consistent.
       InconsistentEpochs
-    | -- |The 'QuorumMessage' is a duplicate.
+    | -- | The 'QuorumMessage' is a duplicate.
       Duplicate
     deriving (Eq, Show)
 
--- |Result codes for receiving a 'QuorumMessage'.
+-- | Result codes for receiving a 'QuorumMessage'.
 data ReceiveQuorumMessageResult (pv :: ProtocolVersion)
-    = -- |The 'QuorumMessage' was received i.e. it passed verification.
+    = -- | The 'QuorumMessage' was received i.e. it passed verification.
       Received !(VerifiedQuorumMessage pv)
-    | -- |The 'QuorumMessage' was received but is a result of double signing.
+    | -- | The 'QuorumMessage' was received but is a result of double signing.
       ReceivedNoRelay !(VerifiedQuorumMessage pv)
-    | -- |The 'QuorumMessage' was rejected.
+    | -- | The 'QuorumMessage' was rejected.
       Rejected !ReceiveQuorumMessageRejectReason
-    | -- |The 'QuorumMessage' points to a round which indicates a catch up is required.
+    | -- | The 'QuorumMessage' points to a round which indicates a catch up is required.
       CatchupRequired
-    | -- |Consensus has been shutdown.
+    | -- | Consensus has been shutdown.
       ConsensusShutdown
     deriving (Eq, Show)
 
--- |A _received_ and verified 'QuorumMessage' together with
--- the weight associated with the finalizer for the quorum message.
+-- | A _received_ and verified 'QuorumMessage' together with
+--  the weight associated with the finalizer for the quorum message.
 data VerifiedQuorumMessage (pv :: ProtocolVersion) = VerifiedQuorumMessage
-    { -- |The verified 'QuorumMessage'.
+    { -- | The verified 'QuorumMessage'.
       vqmMessage :: !QuorumMessage,
-      -- |The weight of the finalizer.
+      -- | The weight of the finalizer.
       vqmFinalizerWeight :: !VoterPower,
-      -- |The baker id of the finalizer.
+      -- | The baker id of the finalizer.
       vqmFinalizerBakerId :: !BakerId,
-      -- |The block that is the target of the quorum message.
+      -- | The block that is the target of the quorum message.
       vqmBlock :: !(BlockPointer pv)
     }
     deriving (Eq, Show)
 
--- |Receive a 'QuorumMessage'.
--- Verify the 'QuorumMessage' and if this turns out successful, then the 'QuorumMessage' will be
--- relayed to the network before processing (via 'processQuorumMessage'). Processing checks whether enough (weighted) signatures
--- are gathered, if this is the case then a 'QuorumCertificate' is formed and the consensus runner advances the round.
+-- | Receive a 'QuorumMessage'.
+--  Verify the 'QuorumMessage' and if this turns out successful, then the 'QuorumMessage' will be
+--  relayed to the network before processing (via 'processQuorumMessage'). Processing checks whether enough (weighted) signatures
+--  are gathered, if this is the case then a 'QuorumCertificate' is formed and the consensus runner advances the round.
 --
--- Possible return codes are
--- * 'Received' The 'QuorumMessage' was received, relayed and processed.
--- * 'Rejected' The 'QuorumMessage' failed validation and possible it has been flagged.
--- * 'CatchupRequired' The 'QuorumMessage' cannot be processed before it is caught up.
+--  Possible return codes are
+--  * 'Received' The 'QuorumMessage' was received, relayed and processed.
+--  * 'Rejected' The 'QuorumMessage' failed validation and possible it has been flagged.
+--  * 'CatchupRequired' The 'QuorumMessage' cannot be processed before it is caught up.
 receiveQuorumMessage ::
     (MonadIO m, LowLevel.MonadTreeStateStore m) =>
-    -- |The 'QuorumMessage' to receive.
+    -- | The 'QuorumMessage' to receive.
     QuorumMessage ->
-    -- |The tree state to verify the 'QuorumMessage' within.
+    -- | The tree state to verify the 'QuorumMessage' within.
     SkovData (MPV m) ->
-    -- |Result of receiving the 'QuorumMessage'.
+    -- | Result of receiving the 'QuorumMessage'.
     m (ReceiveQuorumMessageResult (MPV m))
 receiveQuorumMessage qm@QuorumMessage{..} skovData = receive
   where
@@ -184,16 +184,16 @@ receiveQuorumMessage qm@QuorumMessage{..} skovData = receive
         bakers <- getBakersForEpoch qmEpoch skovData
         finalizerByIndex (bakers ^. bfFinalizers) qmFinalizerIndex
 
--- |Adds a 'QuorumMessage' and the finalizer weight (deducted from the current epoch)
--- to the 'QuorumMessages' for the current round.
+-- | Adds a 'QuorumMessage' and the finalizer weight (deducted from the current epoch)
+--  to the 'QuorumMessages' for the current round.
 --
--- Precondition. The finalizer must not be present already.
+--  Precondition. The finalizer must not be present already.
 addQuorumMessage ::
-    -- |The verified quorum message
+    -- | The verified quorum message
     VerifiedQuorumMessage pv ->
-    -- |The messages to update.
+    -- | The messages to update.
     QuorumMessages ->
-    -- |The resulting messages.
+    -- | The resulting messages.
     QuorumMessages
 addQuorumMessage
     (VerifiedQuorumMessage quorumMessage@QuorumMessage{..} weight bId _)
@@ -217,20 +217,20 @@ addQuorumMessage
                 )
         updatedWeightAndSignature = Map.alter justOrIncrement qmBlock currentWeights
 
--- |If there are enough (weighted) signatures on the block provided
--- then this function creates the 'QuorumCertificate' for the block and returns @Just QuorumCertificate@
+-- | If there are enough (weighted) signatures on the block provided
+--  then this function creates the 'QuorumCertificate' for the block and returns @Just QuorumCertificate@
 --
--- If a 'QuorumCertificate' could not be formed then this function returns @Nothing@.
+--  If a 'QuorumCertificate' could not be formed then this function returns @Nothing@.
 makeQuorumCertificate ::
-    -- |The block we want to check whether a
-    -- can 'QuorumCertificate' can be formed or not.
+    -- | The block we want to check whether a
+    --  can 'QuorumCertificate' can be formed or not.
     BlockPointer pv ->
     -- | The state to use for making the
     -- 'QuorumCertificate'.
     SkovData pv ->
-    -- |Return @Just QuorumCertificate@ if there are enough (weighted) quorum signatures
-    -- for the provided block.
-    -- Otherwise return @Nothing@.
+    -- | Return @Just QuorumCertificate@ if there are enough (weighted) quorum signatures
+    --  for the provided block.
+    --  Otherwise return @Nothing@.
     Maybe QuorumCertificate
 makeQuorumCertificate qcBlockPointer sd@SkovData{..} = do
     case _currentQuorumMessages ^? smBlockToWeightsAndSignatures . ix qcBlockHash of
@@ -260,13 +260,13 @@ makeQuorumCertificate qcBlockPointer sd@SkovData{..} = do
     -- The hash of the block that the QC points to.
     qcBlockHash = getHash qcBlockPointer
 
--- |Process a 'QuorumMessage'
--- Check whether a 'QuorumCertificate' can be created.
--- If that is the case the this function checks for finality and
--- advance the round via the constructed 'QuorumCertificate'.
--- If the round is advanced, we attempt to make a block by calling the provided @makeBlock@
--- continuation. (Note, providing the continuation is to avoid a cyclic module dependency with
--- 'Concordium.KonsensusV1.Consensus.Blocks'.)
+-- | Process a 'QuorumMessage'
+--  Check whether a 'QuorumCertificate' can be created.
+--  If that is the case the this function checks for finality and
+--  advance the round via the constructed 'QuorumCertificate'.
+--  If the round is advanced, we attempt to make a block by calling the provided @makeBlock@
+--  continuation. (Note, providing the continuation is to avoid a cyclic module dependency with
+--  'Concordium.KonsensusV1.Consensus.Blocks'.)
 processQuorumMessage ::
     ( IsConsensusV1 (MPV m),
       MonadThrow m,
@@ -280,9 +280,9 @@ processQuorumMessage ::
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
       LowLevel.MonadTreeStateStore m
     ) =>
-    -- |The 'VerifiedQuorumMessage' to process.
+    -- | The 'VerifiedQuorumMessage' to process.
     VerifiedQuorumMessage (MPV m) ->
-    -- |Continuation to make a block
+    -- | Continuation to make a block
     m () ->
     m ()
 processQuorumMessage vqm@VerifiedQuorumMessage{..} makeBlock = do

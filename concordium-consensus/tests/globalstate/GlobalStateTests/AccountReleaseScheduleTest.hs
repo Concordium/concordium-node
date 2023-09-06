@@ -34,7 +34,7 @@ import Test.QuickCheck
 
 --------------------------------- Monad Types ----------------------------------
 
--- |Protocol version.
+-- | Protocol version.
 type PV = 'P5
 
 type ThisMonadConcrete pv =

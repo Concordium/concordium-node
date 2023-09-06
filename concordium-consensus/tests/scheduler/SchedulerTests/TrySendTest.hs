@@ -47,7 +47,7 @@ contractSourceFile = "../concordium-base/smart-contracts/testdata/contracts/try-
 
 errorHandlingTest ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec

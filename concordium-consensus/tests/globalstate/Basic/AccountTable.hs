@@ -39,7 +39,7 @@ full :: AT av -> Bool
 full (Branch _ f _ _ _) = f
 full (Leaf _ _) = True
 
-mkLeaf :: IsAccountVersion av => Account av -> AT av
+mkLeaf :: (IsAccountVersion av) => Account av -> AT av
 mkLeaf acct = Leaf (getHash acct) acct
 {-# INLINE mkLeaf #-}
 
@@ -61,7 +61,7 @@ lookup :: AccountIndex -> AccountTable av -> Maybe (Account av)
 lookup _ Empty = Nothing
 lookup x (Tree t) = lookup' x t
 
-append :: forall av. IsAccountVersion av => Account av -> AccountTable av -> (AccountIndex, AccountTable av)
+append :: forall av. (IsAccountVersion av) => Account av -> AccountTable av -> (AccountIndex, AccountTable av)
 append acct Empty = (0, Tree (Leaf (getHash acct) acct))
 append acct (Tree t) = append' t & _2 %~ Tree
   where
@@ -81,7 +81,7 @@ append acct (Tree t) = append' t & _2 %~ Tree
     newLeaf = Leaf newHash acct
     newHash = getHash acct
 
--- |Get the size of an 'AccountTable'.
+-- | Get the size of an 'AccountTable'.
 size :: AccountTable av -> Word64
 size Empty = 0
 size (Tree t) = size' t
@@ -93,7 +93,7 @@ size (Tree t) = size' t
 type instance Index (AT av) = AccountIndex
 type instance IxValue (AT av) = Account av
 
-instance IsAccountVersion av => Ixed (AT av) where
+instance (IsAccountVersion av) => Ixed (AT av) where
     ix i upd l@(Leaf _ acct)
         | i == 0 = mkLeaf <$> upd acct
         | otherwise = pure l
@@ -104,7 +104,7 @@ instance IsAccountVersion av => Ixed (AT av) where
 type instance Index (AccountTable av) = AccountIndex
 type instance IxValue (AccountTable av) = Account av
 
-instance IsAccountVersion av => Ixed (AccountTable av) where
+instance (IsAccountVersion av) => Ixed (AccountTable av) where
     ix _ _ Empty = pure Empty
     ix i upd a@(Tree t)
         | i < bit (fromIntegral (nextLevel t)) = Tree <$> ix i upd t
@@ -117,8 +117,8 @@ toList (Tree t) = toL 0 t
     toL o (Leaf _ a) = [(o, a)]
     toL o (Branch lvl _ _ t1 t2) = toL o t1 ++ toL (setBit o (fromIntegral lvl)) t2
 
--- |Convert the account table to a list of accounts with their hashes.
--- The accounts are in ascending index order.
+-- | Convert the account table to a list of accounts with their hashes.
+--  The accounts are in ascending index order.
 toHashedList :: AccountTable av -> [Hashed' (AccountHash av) (Account av)]
 toHashedList Empty = []
 toHashedList (Tree t) = toHL t
@@ -126,7 +126,7 @@ toHashedList (Tree t) = toHL t
     toHL (Leaf h a) = [Hashed a h]
     toHL (Branch _ _ _ t1 t2) = toHL t1 ++ toHL t2
 
--- |Strict fold over the account table in increasing order of account index.
+-- | Strict fold over the account table in increasing order of account index.
 foldl' :: (a -> Account av -> a) -> a -> AccountTable av -> a
 foldl' _ a Empty = a
 foldl' f !a0 (Tree t) = ft a0 t

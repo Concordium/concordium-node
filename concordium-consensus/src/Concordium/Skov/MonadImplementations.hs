@@ -50,7 +50,7 @@ import Concordium.Skov.Update
 import Concordium.TimeMonad
 import Concordium.TimerMonad
 
--- |Monad that provides: IO, logging, the operation monads of global state and the SkovQueryMonad.
+-- | Monad that provides: IO, logging, the operation monads of global state and the SkovQueryMonad.
 newtype GlobalStateM pv a = GlobalStateM
     { runGlobalStateM ::
         SkovQueryMonadT
@@ -90,34 +90,34 @@ evalGlobalStateM comp gsCtx gsState = fst <$> evalRWST (runPersistentBlockStateM
 
 -- * Handler configuration
 
--- |'HandlerConfig' characterises a type of configuration for handlers that can respond to certain
--- consensus events.
+-- | 'HandlerConfig' characterises a type of configuration for handlers that can respond to certain
+--  consensus events.
 class HandlerConfig handlerconfig where
-    -- |The read-only context type associated with handlers of this type of configuration.
+    -- | The read-only context type associated with handlers of this type of configuration.
     type HCContext handlerconfig
 
-    -- |The state type associated with handlers of this type of configuration.
+    -- | The state type associated with handlers of this type of configuration.
     type HCState handlerconfig
 
-    -- |Generate an initial context and state from a handler configuration.
+    -- | Generate an initial context and state from a handler configuration.
     initialiseHandler :: handlerconfig -> (HCContext handlerconfig, HCState handlerconfig)
 
 -- * Finalization configuration
 
--- |'FinalizationConfig' characterises a type of configuration for how finalization is handled.
+-- | 'FinalizationConfig' characterises a type of configuration for how finalization is handled.
 class FinalizationConfig finconfig where
-    -- |The read-only context type associated with this type of finalization configuration.
+    -- | The read-only context type associated with this type of finalization configuration.
     type FCContext finconfig
 
-    -- |The state type associated with this type of finalization configuration.
+    -- | The state type associated with this type of finalization configuration.
     type FCState finconfig
 
-    -- |Generate an initial context and state from a finalization configuration.
+    -- | Generate an initial context and state from a finalization configuration.
     initialiseFinalization :: (MonadIO m, SkovQueryMonad m) => finconfig -> m (FCContext finconfig, FCState finconfig)
 
--- |Type of finalization configuration for no active participation in finalization.
--- The type parameter is the type of timers supported by the 'TimerMonad' in which finalization
--- operations occur.
+-- | Type of finalization configuration for no active participation in finalization.
+--  The type parameter is the type of timers supported by the 'TimerMonad' in which finalization
+--  operations occur.
 data NoFinalization (timer :: Type) = NoFinalization
 
 instance FinalizationConfig (NoFinalization t) where
@@ -136,9 +136,9 @@ instance
     where
     broadcastFinalizationPseudoMessage _ = return ()
 
--- |Type of finalization configuration for active participation in finalization with no buffering.
--- The type parameter is the type of timers supported by the 'TimerMonad' in which finalization
--- operations occur.
+-- | Type of finalization configuration for active participation in finalization with no buffering.
+--  The type parameter is the type of timers supported by the 'TimerMonad' in which finalization
+--  operations occur.
 newtype ActiveFinalization (timer :: Type) = ActiveFinalization FinalizationInstance
 
 instance FinalizationConfig (ActiveFinalization t) where
@@ -155,10 +155,10 @@ instance
         h <- askHandler
         lift $ handleBroadcastFinalizationMessage h pmsg
 
--- |Type of finalization configuration for active participation in finalization with buffering
--- to reduce the number of finalization messages that need to be sent.
--- The type parameter is the type of timers supported by the 'TimerMonad' in which finalization
--- operations occur.
+-- | Type of finalization configuration for active participation in finalization with buffering
+--  to reduce the number of finalization messages that need to be sent.
+--  The type parameter is the type of timers supported by the 'TimerMonad' in which finalization
+--  operations occur.
 newtype BufferedFinalization (timer :: Type) = BufferedFinalization FinalizationInstance
 
 instance FinalizationConfig (BufferedFinalization t) where
@@ -185,16 +185,16 @@ instance
 
 -- * Skov configuration
 
--- |Configuration for the Skov.
--- This type has the following parameters:
+-- | Configuration for the Skov.
+--  This type has the following parameters:
 --
--- * @pv@: the protocol version. Possible values include @'P1@.
--- * @finconfig@: the finalization configuration. Currently supported types are @NoFinalization t@,
---   @ActiveFinalization t@ and @BufferedFinalization t@, where @t@ is the type of timers in the supporting monad.
--- * @handlerconfig@ is the type of event handlers. Currently supported types are @NoHandlers@ and @LogUpdateHandlers@.
+--  * @pv@: the protocol version. Possible values include @'P1@.
+--  * @finconfig@: the finalization configuration. Currently supported types are @NoFinalization t@,
+--    @ActiveFinalization t@ and @BufferedFinalization t@, where @t@ is the type of timers in the supporting monad.
+--  * @handlerconfig@ is the type of event handlers. Currently supported types are @NoHandlers@ and @LogUpdateHandlers@.
 data SkovConfig (pv :: ProtocolVersion) finconfig handlerconfig = SkovConfig !GlobalStateConfig !finconfig !handlerconfig
 
--- |The type of contexts (i.e. read only data) for the skov configuration type.
+-- | The type of contexts (i.e. read only data) for the skov configuration type.
 data family SkovContext c
 
 data instance SkovContext (SkovConfig pv finconf hconf) = SkovContext
@@ -203,7 +203,7 @@ data instance SkovContext (SkovConfig pv finconf hconf) = SkovContext
       scHandlerContext :: !(HCContext hconf)
     }
 
--- |The type of states (i.e. mutable data) for the skov configuration type.
+-- | The type of states (i.e. mutable data) for the skov configuration type.
 data family SkovState c
 
 data instance SkovState (SkovConfig pv finconf hconf) = SkovState
@@ -212,61 +212,61 @@ data instance SkovState (SkovConfig pv finconf hconf) = SkovState
       ssHandlerState :: !(HCState hconf)
     }
 
--- |A pair of 'SkovContext' and 'SkovState' for a given 'SkovConfig' determined by the type parameters.
+-- | A pair of 'SkovContext' and 'SkovState' for a given 'SkovConfig' determined by the type parameters.
 type InitialisedSkov pv finconfig handlerconfig = (SkovContext (SkovConfig pv finconfig handlerconfig), SkovState (SkovConfig pv finconfig handlerconfig))
 
 class SkovConfiguration finconfig handlerconfig where
-    -- |Create an initial context and state from a given configuration. The
-    -- return value is 'Maybe' if an existing state was found for the given
-    -- configuration and successfully loaded. In case the state is found, but
-    -- could not be loaded, an IO exception will be thrown.
+    -- | Create an initial context and state from a given configuration. The
+    --  return value is 'Maybe' if an existing state was found for the given
+    --  configuration and successfully loaded. In case the state is found, but
+    --  could not be loaded, an IO exception will be thrown.
     --
-    -- To use the state for an active consensus instance use 'activateSkovState'
-    -- after initialising the state.
+    --  To use the state for an active consensus instance use 'activateSkovState'
+    --  after initialising the state.
     initialiseExistingSkov ::
         (IsProtocolVersion pv, IsConsensusV0 pv) =>
         SkovConfig pv finconfig handlerconfig ->
         LogIO (Maybe (InitialisedSkov pv finconfig handlerconfig))
 
-    -- |Create an initial context and state from a given configuration assuming
-    -- no state exists. If the state exists then an IO exception will be thrown.
+    -- | Create an initial context and state from a given configuration assuming
+    --  no state exists. If the state exists then an IO exception will be thrown.
     --
-    -- It is not necessary to call 'activateSkovState' on the resulting state.
+    --  It is not necessary to call 'activateSkovState' on the resulting state.
     initialiseNewSkov ::
         (IsProtocolVersion pv, IsConsensusV0 pv) =>
         GenesisData pv ->
         SkovConfig pv finconfig handlerconfig ->
         LogIO (SkovContext (SkovConfig pv finconfig handlerconfig), SkovState (SkovConfig pv finconfig handlerconfig))
 
-    -- |Migrate an existing skov instance to a fresh one. This is used on
-    -- protocol updates to construct a new instance to be used after the
-    -- protocol update. The new instance is constructed by migrating state from
-    -- the existing one. The block state and the tree state are migrated, and at
-    -- present the new instance is from the time of construction independent of
-    -- the old one. Transactions are also migrated from the existing instance to
-    -- the new one. See @migrateExistingState@ in @Concordium.GlobalState@ for
-    -- additional details.
+    -- | Migrate an existing skov instance to a fresh one. This is used on
+    --  protocol updates to construct a new instance to be used after the
+    --  protocol update. The new instance is constructed by migrating state from
+    --  the existing one. The block state and the tree state are migrated, and at
+    --  present the new instance is from the time of construction independent of
+    --  the old one. Transactions are also migrated from the existing instance to
+    --  the new one. See @migrateExistingState@ in @Concordium.GlobalState@ for
+    --  additional details.
     migrateExistingSkov ::
         (IsProtocolVersion oldpv, IsConsensusV0 oldpv, IsProtocolVersion pv, IsConsensusV0 pv) =>
-        -- |Context for the existing skov instance.
+        -- | Context for the existing skov instance.
         SkovContext (SkovConfig oldpv finconfig handlerconfig) ->
-        -- |State of the existing skov instance. This must be prepared for
-        -- migration. See @rememberFinalState@ and @clearSkovOnProtocolUpdate@, and
-        -- @migrateExistingState@ for details on the assumptions on this state.
+        -- | State of the existing skov instance. This must be prepared for
+        --  migration. See @rememberFinalState@ and @clearSkovOnProtocolUpdate@, and
+        --  @migrateExistingState@ for details on the assumptions on this state.
         SkovState (SkovConfig oldpv finconfig handlerconfig) ->
-        -- |Any parameters needed for the migration of the block state.
+        -- | Any parameters needed for the migration of the block state.
         StateMigrationParameters oldpv pv ->
-        -- |The genesis for the new chain after the protocol update.
+        -- | The genesis for the new chain after the protocol update.
         Regenesis pv ->
-        -- |Configuration for the new chain after the protocol update.
+        -- | Configuration for the new chain after the protocol update.
         SkovConfig pv finconfig handlerconfig ->
         LogIO
             ( SkovContext (SkovConfig pv finconfig handlerconfig),
               SkovState (SkovConfig pv finconfig handlerconfig)
             )
 
-    -- |A helper which attemps to use the existing state if it exists, and
-    -- otherwise initialises skov from a new state created from the given genesis.
+    -- | A helper which attemps to use the existing state if it exists, and
+    --  otherwise initialises skov from a new state created from the given genesis.
     initialiseSkov ::
         (IsProtocolVersion pv, IsConsensusV0 pv) =>
         GenesisData pv ->
@@ -277,15 +277,15 @@ class SkovConfiguration finconfig handlerconfig where
             Nothing -> initialiseNewSkov gd cfg
             Just x -> return x
 
-    -- |Activate an initialised skov instance. Activation is necessary before
-    -- the state can be used by consensus for anything other than queries.
+    -- | Activate an initialised skov instance. Activation is necessary before
+    --  the state can be used by consensus for anything other than queries.
     activateSkovState ::
         (IsProtocolVersion pv, IsConsensusV0 pv) =>
         SkovContext (SkovConfig pv finconfig handlerconfig) ->
         SkovState (SkovConfig pv finconfig handlerconfig) ->
         LogIO (SkovState (SkovConfig pv finconfig handlerconfig))
 
-    -- |Free any resources when we are done with the context and state.
+    -- | Free any resources when we are done with the context and state.
     shutdownSkov :: (IsProtocolVersion pv, IsConsensusV0 pv) => SkovContext (SkovConfig pv finconfig handlerconfig) -> SkovState (SkovConfig pv finconfig handlerconfig) -> LogIO ()
 
 instance
@@ -365,35 +365,35 @@ instance
     shutdownSkov :: forall pv. (IsProtocolVersion pv, IsConsensusV0 pv) => SkovContext (SkovConfig pv finconfig handlerconfig) -> SkovState (SkovConfig pv finconfig handlerconfig) -> LogIO ()
     shutdownSkov (SkovContext c _ _) (SkovState s _ _) = liftIO $ shutdownGlobalState (protocolVersion @pv) c s
 
--- |An instance of 'SkovTimerHandlers' provides a means for implementing
--- a 'TimerMonad' instance for 'SkovT'.
+-- | An instance of 'SkovTimerHandlers' provides a means for implementing
+--  a 'TimerMonad' instance for 'SkovT'.
 class SkovTimerHandlers pv h c m | h -> pv m c where
-    -- |Type to represent a timer
+    -- | Type to represent a timer
     type SkovHandlerTimer h
 
-    -- |Handler for creating a timer event
+    -- | Handler for creating a timer event
     handleOnTimeout :: h -> Timeout -> SkovT pv h c m a -> m (SkovHandlerTimer h)
 
-    -- |Handler for cancelling a timer
+    -- | Handler for cancelling a timer
     handleCancelTimer :: h -> SkovHandlerTimer h -> m ()
 
--- |An instance of 'SkovFinalizationHandlers' provides handlers for broadcasting
--- finalization-related messages.
+-- | An instance of 'SkovFinalizationHandlers' provides handlers for broadcasting
+--  finalization-related messages.
 class SkovFinalizationHandlers h m where
     handleBroadcastFinalizationMessage :: h -> FinalizationPseudoMessage -> m ()
 
--- |An instance of 'SkovPendingLiveHandlers' provides handlers for dealing with
--- pending blocks or records becoming live by notifying peers that this is the
--- case.
+-- | An instance of 'SkovPendingLiveHandlers' provides handlers for dealing with
+--  pending blocks or records becoming live by notifying peers that this is the
+--  case.
 class SkovPendingLiveHandlers h m where
-    -- |Called to notify that a block or finalization record that was previously
-    -- pending is now live. An implementation should cause a catch-up status
-    -- message to be sent to each peer within a bounded time (which alerts them
-    -- to the newly live block/fin-rec).
+    -- | Called to notify that a block or finalization record that was previously
+    --  pending is now live. An implementation should cause a catch-up status
+    --  message to be sent to each peer within a bounded time (which alerts them
+    --  to the newly live block/fin-rec).
     handlePendingLive :: h -> m ()
 
--- |'SkovHandlers' provides an implementation of 'SkovTimerHandlers' and
--- 'SkovFinalizationHandlers'.
+-- | 'SkovHandlers' provides an implementation of 'SkovTimerHandlers' and
+--  'SkovFinalizationHandlers'.
 data SkovHandlers pv t c m = SkovHandlers
     { shBroadcastFinalizationMessage :: FinalizationPseudoMessage -> m (),
       shOnTimeout :: forall a. Timeout -> SkovT pv (SkovHandlers pv t c m) c m a -> m t,
@@ -427,24 +427,24 @@ instance SkovTimerHandlers pv (SkovPassiveHandlers pv c m) c m where
     handleOnTimeout _ _ _ = error "Attempted to set a timer, but SkovPassiveHandlers does not support timers."
     handleCancelTimer _ _ = error "Attempted to cancel a timer, but SkovPassiveHandlers does not support timers."
 
--- |Context with handlers and context used internally by SkovT.
+-- | Context with handlers and context used internally by SkovT.
 data SkovTContext h c = SkovTContext
     { srHandler :: !h,
       srContext :: !c
     }
 
--- |The 'SkovT' monad transformer equips a monad with state, context and handlers for
--- performing Skov operations.
--- The type parameters are as follows:
+-- | The 'SkovT' monad transformer equips a monad with state, context and handlers for
+--  performing Skov operations.
+--  The type parameters are as follows:
 --
--- * @pv@: the protocol version.
--- * @h@: the handler configuration. This should be an instance of 'SkovPendingLiveHandlers', and,
---   if active finalization is required, 'SkovFinalizationHandlers' and 'SkovTimerHandlers'.
---   Typically, this is either @SkovHandlers pv t s m@ or @SkovPassiveHandlers pv c m@.
--- * @c@: the Skov configuration. Typically, this is @SkovConfig pv fc hc@.
--- * @m@: the underlying monad. Typically, this should be an instance of 'MonadIO', 'MonadLogger',
---   and 'TimeMonad'.
--- * @a@: the return type.
+--  * @pv@: the protocol version.
+--  * @h@: the handler configuration. This should be an instance of 'SkovPendingLiveHandlers', and,
+--    if active finalization is required, 'SkovFinalizationHandlers' and 'SkovTimerHandlers'.
+--    Typically, this is either @SkovHandlers pv t s m@ or @SkovPassiveHandlers pv c m@.
+--  * @c@: the Skov configuration. Typically, this is @SkovConfig pv fc hc@.
+--  * @m@: the underlying monad. Typically, this should be an instance of 'MonadIO', 'MonadLogger',
+--    and 'TimeMonad'.
+--  * @a@: the return type.
 newtype SkovT pv h c m a = SkovT
     { runSkovT' ::
         PersistentTreeStateMonad
@@ -479,7 +479,7 @@ runSkovT comp h context sstate = do
 evalSkovT :: (Monad m) => SkovT pv h c m a -> h -> SkovContext c -> SkovState c -> m a
 evalSkovT comp handler context sstate = fst <$> runSkovT comp handler context sstate
 
--- |Get the handler from the context.
+-- | Get the handler from the context.
 askHandler :: (Monad m) => SkovT pv h c m h
 askHandler = SkovT $ PersistentTreeStateMonad $ PersistentBlockStateMonad $ asks srHandler
 
@@ -640,16 +640,16 @@ instance
     rememberFinalState = storeFinalState
 
 class (Monad m, HandlerConfig c) => HandlerConfigHandlers c m | m -> c where
-    -- |Called upon a block being added to the tree.
+    -- | Called upon a block being added to the tree.
     handleBlock :: BlockPointerType m -> m ()
 
-    -- |An event handler called per finalization. It is called with the
-    -- finalization record, the block that the finalization record finalized,
-    -- and the remaining blocks that were finalized as a result of this
-    -- finalization. These blocks are ordered by decreasing height.
+    -- | An event handler called per finalization. It is called with the
+    --  finalization record, the block that the finalization record finalized,
+    --  and the remaining blocks that were finalized as a result of this
+    --  finalization. These blocks are ordered by decreasing height.
     handleFinalize :: FinalizationRecord -> BlockPointerType m -> [BlockPointerType m] -> m ()
 
--- |A handler that does nothing.
+-- | A handler that does nothing.
 data NoHandler = NoHandler
 
 instance HandlerConfig NoHandler where
@@ -711,14 +711,14 @@ instance
         h <- askHandler
         lift $ handlePendingLive h
 
--- |Synonym for 'ActiveFinalizationM' based on a specific configuration. Arguments:
+-- | Synonym for 'ActiveFinalizationM' based on a specific configuration. Arguments:
 --
---   * @pv@: protocol version
---   * @gc@: global state configuration type
---   * @fc@: finalization configuration type
---   * @hc@: handler configuration type
---   * @h@: handler type
---   * @m@: base monad
+--    * @pv@: protocol version
+--    * @gc@: global state configuration type
+--    * @fc@: finalization configuration type
+--    * @hc@: handler configuration type
+--    * @h@: handler type
+--    * @m@: base monad
 type ActiveFinalizationMWith pv fc hc h m =
     ActiveFinalizationM
         pv

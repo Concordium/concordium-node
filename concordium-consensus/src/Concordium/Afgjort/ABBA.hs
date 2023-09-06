@@ -4,55 +4,55 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 
--- |Another Binary Byzantine Agreement (ABBA) algorithm
+-- | Another Binary Byzantine Agreement (ABBA) algorithm
 --
--- For more information, check the konsensus paper, section 5.6.4.
+--  For more information, check the konsensus paper, section 5.6.4.
 --
--- = Definitions
+--  = Definitions
 --
--- * Phase-1 justified: a bit @b@ is @Jphase,1@-justified for us if it is @Jin@-justified.
--- * Phase-k justified: a bit @b@ is @Jphase,k@-justified for us if we have @t + 1@ signatures on @(baid, JUSTIFIED, b, k-1)@.
--- * Out justified: a bit @b@ is @Jout@-justified for us if we have @t + 1@ signatures on @(baid, WEAREDONE, b)@.
+--  * Phase-1 justified: a bit @b@ is @Jphase,1@-justified for us if it is @Jin@-justified.
+--  * Phase-k justified: a bit @b@ is @Jphase,k@-justified for us if we have @t + 1@ signatures on @(baid, JUSTIFIED, b, k-1)@.
+--  * Out justified: a bit @b@ is @Jout@-justified for us if we have @t + 1@ signatures on @(baid, WEAREDONE, b)@.
 --
--- = Protocol
+--  = Protocol
 --
--- == Input
+--  == Input
 --
--- * @baid@: the identifier of the WMVBA instance.
--- * @Jin@: a justification.
--- * @delay@: delay for countering de-synchronization.
+--  * @baid@: the identifier of the WMVBA instance.
+--  * @Jin@: a justification.
+--  * @delay@: delay for countering de-synchronization.
 --
--- == Precondition
+--  == Precondition
 --
--- * We have an input @b@ which is @Jin@-justified for us.
+--  * We have an input @b@ which is @Jin@-justified for us.
 --
--- == Execution
+--  == Execution
 --
--- * Graded Agreement
+--  * Graded Agreement
 --
---  In each phase @k = 1,2...@ do
+--   In each phase @k = 1,2...@ do
 --
---    1. The parties run @CSS(baid, Jphase,k, k * delay)@ with input @b@ to generate the @Core@.
---    2. Compute my lottery ticket @ticket@ and broadcast signed @(baid,JUSTIFIED,b,k)@ with the ticket.
---    3. Wait @k * delay@ and
+--     1. The parties run @CSS(baid, Jphase,k, k * delay)@ with input @b@ to generate the @Core@.
+--     2. Compute my lottery ticket @ticket@ and broadcast signed @(baid,JUSTIFIED,b,k)@ with the ticket.
+--     3. Wait @k * delay@ and
 --
---        a) if all bits in @Core@ are @T@, let @b = T@ and @grade = 2@.
+--         a) if all bits in @Core@ are @T@, let @b = T@ and @grade = 2@.
 --
---        b) else if @n-t@ bits in @Core@ are @T@, let @b = T@ and @grade = 1@.
+--         b) else if @n-t@ bits in @Core@ are @T@, let @b = T@ and @grade = 1@.
 --
---        c) else if all bits in @Core@ are @Bottom@, let @b = Bottom@ and @grade = 2@.
+--         c) else if all bits in @Core@ are @Bottom@, let @b = Bottom@ and @grade = 2@.
 --
---        d) else if @n - t@ bits in @Core@ are @Bottom@, let @b = Bottom@ and @grade = 1@.
+--         d) else if @n - t@ bits in @Core@ are @Bottom@, let @b = Bottom@ and @grade = 1@.
 --
---        e) else select a bit @b'@ which occurs @> t@ in @Core@. If it is not unique, verify all lottery tickets
---           and select the bit @b'@ where @(b', P) in Core@ and @P@ has the highest valid lottery ticket in @Core@.
---           let @b = b'@ and @grade = 0@.
+--         e) else select a bit @b'@ which occurs @> t@ in @Core@. If it is not unique, verify all lottery tickets
+--            and select the bit @b'@ where @(b', P) in Core@ and @P@ has the highest valid lottery ticket in @Core@.
+--            let @b = b'@ and @grade = 0@.
 --
--- * Closing Down
+--  * Closing Down
 --
---    1. When we achieve grade 2 for the first time, we send @(baid, WEAREDONE, b)@ to all parties.
---    2. Once having received at least @t + 1@ signed @(baid, WEAREDONE, b')@, terminate outputting @b'@ which is then
---       @Jout@-justified.
+--     1. When we achieve grade 2 for the first time, we send @(baid, WEAREDONE, b)@ to all parties.
+--     2. Once having received at least @t + 1@ signed @(baid, WEAREDONE, b')@, terminate outputting @b'@ which is then
+--        @Jout@-justified.
 module Concordium.Afgjort.ABBA (
     -- * Types
     Phase,
@@ -119,35 +119,35 @@ import Concordium.Utils
 --------------------------------------------------------------------------------
 -- Types
 
--- |A phase in the ABBA protocol
+-- | A phase in the ABBA protocol
 type Phase = Word32
 
 --------------------------------------------------------------------------------
 -- Messages
 
--- |A message in the ABBA protocol
+-- | A message in the ABBA protocol
 data ABBAMessage
-    = -- |Party's input for a given phase.
-      -- NB: The TicketProof must be non-strict for now.
+    = -- | Party's input for a given phase.
+      --  NB: The TicketProof must be non-strict for now.
       Justified !Phase !Choice TicketProof
-    | -- |CSS seen message for a phase
+    | -- | CSS seen message for a phase
       CSSSeen !Phase !NominationSet
-    | -- |CSS done reporting message for a phase
+    | -- | CSS done reporting message for a phase
       CSSDoneReporting !Phase !NominationSet
-    | -- |Message that indicates consensus should be reached
+    | -- | Message that indicates consensus should be reached
       WeAreDone !Choice
     deriving (Eq, Ord, Show)
 
 --------------------------------------------------------------------------------
 -- State
 
--- |The state of a phase in the protocol.
+-- | The state of a phase in the protocol.
 --
--- This includes the lottery tickets submitted by parties, the CSS state for the current phase,
--- and the total weight and set of parties that have nominated each input.  Once the weight
--- exceeds the threshold, we record it as @Nothing@, forgetting the exact weight and parties.
+--  This includes the lottery tickets submitted by parties, the CSS state for the current phase,
+--  and the total weight and set of parties that have nominated each input.  Once the weight
+--  exceeds the threshold, we record it as @Nothing@, forgetting the exact weight and parties.
 --
--- INVARIANT: Each CSS 'Input' has a corresponding valid 'Ticket' and vice-versa.
+--  INVARIANT: Each CSS 'Input' has a corresponding valid 'Ticket' and vice-versa.
 data PhaseState sig = PhaseState
     { _lotteryTickets :: !(Map (Double, Party) Ticket),
       _phaseCSSState :: Either (Maybe Choices, Seq (Party, CSSMessage, sig)) (CSSState sig),
@@ -158,7 +158,7 @@ data PhaseState sig = PhaseState
 
 makeLenses ''PhaseState
 
--- |The initial state of a phase
+-- | The initial state of a phase
 initialPhaseState :: PhaseState sig
 initialPhaseState =
     PhaseState
@@ -168,16 +168,16 @@ initialPhaseState =
           _botInputWeight = Just PS.empty
         }
 
--- |The total weight and set of parties nominating a particular choice.
+-- | The total weight and set of parties nominating a particular choice.
 inputWeight :: Choice -> Lens' (PhaseState sig) (Maybe PartySet)
 inputWeight True = topInputWeight
 inputWeight False = botInputWeight
 
--- |The state of the ABBA protocol.
+-- | The state of the ABBA protocol.
 --
--- This includes the current phase, the state of all phases, the current grade,
--- and the set and weight of parties that have claimed we are done with each
--- possible output choice.
+--  This includes the current phase, the state of all phases, the current grade,
+--  and the set and weight of parties that have claimed we are done with each
+--  possible output choice.
 data ABBAState sig = ABBAState
     { _currentPhase :: !Phase,
       _phaseStates :: !(Map Phase (PhaseState sig)),
@@ -190,19 +190,19 @@ data ABBAState sig = ABBAState
 
 makeLenses ''ABBAState
 
--- |The state of a particular phase
+-- | The state of a particular phase
 phaseState :: Phase -> Lens' (ABBAState sig) (PhaseState sig)
 phaseState p =
     lens
         (\s -> fromMaybe initialPhaseState (_phaseStates s ^. at p))
         (\s t -> s & phaseStates . at' p ?~ t)
 
--- |The set of parties claiming we are done with a given choice
+-- | The set of parties claiming we are done with a given choice
 weAreDone :: Choice -> Lens' (ABBAState sig) (PartyMap sig)
 weAreDone True = topWeAreDone
 weAreDone False = botWeAreDone
 
--- |The initial state of the ABBA protocol.
+-- | The initial state of the ABBA protocol.
 initialABBAState :: ABBAState sig
 initialABBAState =
     ABBAState
@@ -214,7 +214,7 @@ initialABBAState =
           _completed = False
         }
 
--- |Get the decision from an ABBAState.  Returns @Nothing@ if the protocol is not  yet completed.
+-- | Get the decision from an ABBAState.  Returns @Nothing@ if the protocol is not  yet completed.
 {-# INLINE abbaOutcome #-}
 abbaOutcome :: SimpleGetter (ABBAState sig) (Maybe Choice)
 abbaOutcome = to aoc
@@ -224,35 +224,35 @@ abbaOutcome = to aoc
 --------------------------------------------------------------------------------
 -- Instance
 
--- |An @ABBAInstance@ consists of:
+-- | An @ABBAInstance@ consists of:
 --
--- * The instance identifier for this instantiation of the protocol
--- * The total weight of all parties
--- * The maximum weight of corrupt parties (must be less than @totalWeight/3@)
--- * The weight of each party
--- * The public key of each party
--- * My party
--- * My VRF key
+--  * The instance identifier for this instantiation of the protocol
+--  * The total weight of all parties
+--  * The maximum weight of corrupt parties (must be less than @totalWeight/3@)
+--  * The weight of each party
+--  * The public key of each party
+--  * My party
+--  * My VRF key
 data ABBAInstance = ABBAInstance
-    { -- |The instance identifier for this instantiation of the protocol
+    { -- | The instance identifier for this instantiation of the protocol
       baid :: !BS.ByteString,
-      -- |The total weight of all parties
+      -- | The total weight of all parties
       totalWeight :: !VoterPower,
-      -- |The maximum weight of corrupt parties (must be less than @totalWeight/3@).
+      -- | The maximum weight of corrupt parties (must be less than @totalWeight/3@).
       corruptWeight :: !VoterPower,
-      -- |The weight of each party
+      -- | The weight of each party
       partyWeight :: Party -> VoterPower,
-      -- |The maximal party
+      -- | The maximal party
       maxParty :: !Party,
-      -- |The public VRF key of each party
+      -- | The public VRF key of each party
       pubKeys :: Party -> VRF.PublicKey,
-      -- |My party
+      -- | My party
       me :: !Party,
-      -- |My VRF key
+      -- | My VRF key
       privateKey :: !VRF.KeyPair
     }
 
--- |Get the lottery identifier string for the given phase.
+-- | Get the lottery identifier string for the given phase.
 lotteryId :: Phase -> SimpleGetter ABBAInstance BS.ByteString
 lotteryId phase = to $ \a ->
     Ser.runPut $ Ser.put (baid a) >> Ser.put phase
@@ -260,15 +260,15 @@ lotteryId phase = to $ \a ->
 --------------------------------------------------------------------------------
 -- Monad definition
 
--- |The @ABBAMonad@ class defines the events associated with the ABBA protocol.
+-- | The @ABBAMonad@ class defines the events associated with the ABBA protocol.
 class (MonadState (ABBAState sig) m, MonadReader ABBAInstance m, MonadIO m) => ABBAMonad sig m where
-    -- |Sign and broadcast an ABBA message to all parties, __including__ our own 'ABBAInstance'.
+    -- | Sign and broadcast an ABBA message to all parties, __including__ our own 'ABBAInstance'.
     sendABBAMessage :: ABBAMessage -> m ()
 
-    -- |Determine the result
+    -- | Determine the result
     aBBAComplete :: Choice -> m ()
 
-    -- |Wait for a specified number of deltaABBA intervals, then callback the given action.
+    -- | Wait for a specified number of deltaABBA intervals, then callback the given action.
     delayThen :: Word32 -> DelayedABBAAction -> m ()
 
 data DelayedABBAAction
@@ -280,7 +280,7 @@ data DelayedABBAAction
 --------------------------------------------------------------------------------
 -- Monad implementation
 
--- |A concrete implementation of the ABBA monad.
+-- | A concrete implementation of the ABBA monad.
 newtype ABBA sig a = ABBA
     { runABBA' :: RWST ABBAInstance (Endo [ABBAOutputEvent]) (ABBAState sig) IO a
     }
@@ -291,16 +291,16 @@ instance ABBAMonad sig (ABBA sig) where
     aBBAComplete !c = ABBA $ tell $ Endo (ABBAComplete c :)
     delayThen !ticks !action = ABBA $ tell $ Endo (ABBADelay ticks action :)
 
--- |Representation of (output) events associated with the ABBA protocol.
+-- | Representation of (output) events associated with the ABBA protocol.
 data ABBAOutputEvent
-    = -- |Sign and broadcast a message
+    = -- | Sign and broadcast a message
       SendABBAMessage !ABBAMessage
-    | -- |Determine result
+    | -- | Determine result
       ABBAComplete !Choice
     | ABBADelay !Word32 !DelayedABBAAction
 
--- |Run part of the ABBA protocol, given an 'ABBAInstance' and 'ABBAState'.
--- The result includes the updated state and a list of 'ABBAOutputEvent's that occurred during the execution.
+-- | Run part of the ABBA protocol, given an 'ABBAInstance' and 'ABBAState'.
+--  The result includes the updated state and a list of 'ABBAOutputEvent's that occurred during the execution.
 {-# INLINE runABBA #-}
 runABBA :: ABBA sig a -> ABBAInstance -> ABBAState sig -> IO (a, ABBAState sig, [ABBAOutputEvent])
 runABBA z i s = runRWST (runABBA' z) i s <&> _3 %~ (\(Endo f) -> f [])
@@ -308,7 +308,7 @@ runABBA z i s = runRWST (runABBA' z) i s <&> _3 %~ (\(Endo f) -> f [])
 --------------------------------------------------------------------------------
 -- Lifting CSS
 
--- |Receive a CSS message for a given phase, handling the resulting events.
+-- | Receive a CSS message for a given phase, handling the resulting events.
 liftCSSReceiveMessage :: (ABBAMonad sig m) => Phase -> Party -> CSSMessage -> sig -> m ()
 liftCSSReceiveMessage phase !src !msg !sig = do
     ABBAInstance{..} <- ask
@@ -319,7 +319,7 @@ liftCSSReceiveMessage phase !src !msg !sig = do
             phaseState phase . phaseCSSState .= Right cssstate'
             handleCSSEvents phase evs
 
--- |Justify a CSS input for a given phase, handling the resulting events.
+-- | Justify a CSS input for a given phase, handling the resulting events.
 liftCSSJustifyChoice :: (ABBAMonad sig m) => Phase -> Choice -> m ()
 liftCSSJustifyChoice phase c = do
     ABBAInstance{..} <- ask
@@ -350,7 +350,7 @@ handleCSSEvents phase (SendCSSMessage m : evs) = sendABBAMessage (liftMsg m) >> 
 handleCSSEvents phase (SelectCoreSet cs : evs) = delayThen phase (HandleCoreSet phase cs) >> handleCSSEvents phase evs
 handleCSSEvents phase (WaitThenFinishReporting : evs) = delayThen phase (CSSFinishReporting phase) >> handleCSSEvents phase evs
 
--- |Generate my lottery ticket for the given phase.
+-- | Generate my lottery ticket for the given phase.
 makeTicket :: (ABBAMonad sig m) => Phase -> m TicketProof
 {-# INLINE makeTicket #-}
 makeTicket phase = do
@@ -366,7 +366,7 @@ unlessCompleted a = do
 --------------------------------------------------------------------------------
 -- Protocol
 
--- |Called to start the ABBA protocol
+-- | Called to start the ABBA protocol
 {-# SPECIALIZE beginABBA :: Choice -> ABBA sig () #-}
 beginABBA :: (ABBAMonad sig m) => Choice -> m ()
 beginABBA c = unlessCompleted $ do
@@ -375,22 +375,22 @@ beginABBA c = unlessCompleted $ do
         tkt <- makeTicket 0
         sendABBAMessage (Justified 0 c $! tkt)
 
--- |Called to indicate that a given choice is justified.
+-- | Called to indicate that a given choice is justified.
 {-# SPECIALIZE justifyABBAChoice :: Choice -> ABBA sig () #-}
 justifyABBAChoice :: (ABBAMonad sig m) => Choice -> m ()
 justifyABBAChoice c = unlessCompleted $ liftCSSJustifyChoice 0 c
 
--- |Called when an 'ABBAMessage' is received.
+-- | Called when an 'ABBAMessage' is received.
 --
--- This will be a void action if ABBA is complete.
--- 'ABBAMessage's actually encapsulate 'CSSMessage's and those are forwarded to the 'CSS' running protocol.
--- Is the message belongs only to 'ABBA':
+--  This will be a void action if ABBA is complete.
+--  'ABBAMessage's actually encapsulate 'CSSMessage's and those are forwarded to the 'CSS' running protocol.
+--  Is the message belongs only to 'ABBA':
 --
--- 1. a @Justified@ message is translated into an 'Input' message to CSS and if possible also to a
---    justification of the choice if we agree (__step 1 of Graded Agreement__)
+--  1. a @Justified@ message is translated into an 'Input' message to CSS and if possible also to a
+--     justification of the choice if we agree (__step 1 of Graded Agreement__)
 --
--- 2. a @WEAREDONE@ message registers the information received and if we already have enough weigh
---    accumulated on one alternative, finish the protocol with the given choice (__step 2 of Closing Down__).
+--  2. a @WEAREDONE@ message registers the information received and if we already have enough weigh
+--     accumulated on one alternative, finish the protocol with the given choice (__step 2 of Closing Down__).
 {-# SPECIALIZE receiveABBAMessage :: Party -> ABBAMessage -> sig -> ABBA sig () #-}
 receiveABBAMessage :: (ABBAMonad sig m) => Party -> ABBAMessage -> sig -> m ()
 receiveABBAMessage src (Justified phase c !ticketProof) sig = unlessCompleted $ do
@@ -413,7 +413,7 @@ receiveABBAMessage src (WeAreDone c) sig = unlessCompleted $ do
             completed .= True
             aBBAComplete c
 
--- |Invoke a DelayedABBAAction after its delay has completed.
+-- | Invoke a DelayedABBAAction after its delay has completed.
 triggerABBAAction :: (ABBAMonad sig m) => DelayedABBAAction -> m ()
 triggerABBAAction (HandleCoreSet phase cs) = handleCoreSet phase cs
 triggerABBAAction (CSSFinishReporting phase) = liftCSSFinishReporting phase
@@ -424,8 +424,8 @@ triggerABBAAction (CompletePhase phase nextBit newGrade) = do
     currentPhase .= phase + 1
     beginPhase (phase + 1)
 
--- |When an input becomes justified, we send an `Input` message to 'CSS' and if
--- applicable, we justify the input in CSS (which will effectively start CSS if not started yet).
+-- | When an input becomes justified, we send an `Input` message to 'CSS' and if
+--  applicable, we justify the input in CSS (which will effectively start CSS if not started yet).
 handleJustified :: (ABBAMonad sig m) => Party -> Phase -> Ticket -> Choice -> sig -> m ()
 {-# INLINE handleJustified #-}
 handleJustified src phase ticket c sig = do
@@ -456,10 +456,10 @@ beginPhase phase =
         Right _ -> return ()
 {-# INLINE beginPhase #-}
 
--- |Deal with a core set being generated by CSS.  The phase should always be the current phase.
+-- | Deal with a core set being generated by CSS.  The phase should always be the current phase.
 --
--- This implements __step 3 of Graded Agreement__ and if possible, __step 1 of Closing Down__.
--- We also compute the ticket for the next phase and send it (__step 2 of the next iteration of Graded Agreement__).
+--  This implements __step 3 of Graded Agreement__ and if possible, __step 1 of Closing Down__.
+--  We also compute the ticket for the next phase and send it (__step 2 of the next iteration of Graded Agreement__).
 {-# SPECIALIZE handleCoreSet :: Phase -> CoreSet -> ABBA sig () #-}
 handleCoreSet :: (ABBAMonad sig m) => Phase -> CoreSet -> m ()
 handleCoreSet phase cs = do
@@ -504,7 +504,7 @@ handleCoreSet phase cs = do
 --------------------------------------------------------------------------------
 -- Summary
 
--- |Summary of a particular phase of the ABBA protocol.
+-- | Summary of a particular phase of the ABBA protocol.
 data PhaseSummary sig = PhaseSummary
     { summaryJustifiedTop :: Map Party (TicketProof, sig),
       summaryJustifiedBot :: Map Party (TicketProof, sig),
@@ -527,8 +527,8 @@ getPhase maxParty = do
     summaryCSSDoneReporting <- fmap (uncurry DoneReportingDetails) <$> getPartyMap maxParty
     return PhaseSummary{..}
 
--- |Get a summary of a phase state.  If the phase has not begun,
--- this returns @Nothing@.
+-- | Get a summary of a phase state.  If the phase has not begun,
+--  this returns @Nothing@.
 phaseSummary :: SimpleGetter (PhaseState sig) (Maybe (PhaseSummary sig))
 phaseSummary = to phs
   where
@@ -542,14 +542,14 @@ phaseSummary = to phs
         summaryCSSDoneReporting = summaryDoneReporting
     phs _ = Nothing
 
--- |Summary of the ABBA protocol.  If there are sufficient WeAreDone messages
--- then it is not necessary to include the phases.
+-- | Summary of the ABBA protocol.  If there are sufficient WeAreDone messages
+--  then it is not necessary to include the phases.
 data ABBASummary sig = ABBASummary
-    { -- |Summary of the phases.
+    { -- | Summary of the phases.
       summaryPhases :: [PhaseSummary sig],
-      -- |WeAreDone (Top) messages.
+      -- | WeAreDone (Top) messages.
       summaryWeAreDoneTop :: Map Party sig,
-      -- |WeAreDone (Bottom) messages.
+      -- | WeAreDone (Bottom) messages.
       summaryWeAreDoneBot :: Map Party sig
     }
 
@@ -568,9 +568,9 @@ getABBASummary maxParty = do
     summaryWeAreDoneBot <- getPartyMap maxParty
     return ABBASummary{..}
 
--- |Derive an 'ABBASummary' from the given 'ABBAState'.
--- If the protocol is complete, then the WeAreDone weight for one of the outcomes
--- should be at least (totalWeight - corruptWeight).
+-- | Derive an 'ABBASummary' from the given 'ABBAState'.
+--  If the protocol is complete, then the WeAreDone weight for one of the outcomes
+--  should be at least (totalWeight - corruptWeight).
 abbaSummary :: SimpleGetter (ABBAState sig) (ABBASummary sig)
 abbaSummary = to abbas
   where
@@ -592,9 +592,9 @@ abbaSummary = to abbas
                 Just p -> p : processPhaseStates (expPhase + 1) ps
             | otherwise = []
 
--- |Process the messages contained in an 'ABBASummary'.  The returned value indicates if the summary
--- is *behind* the current state: that is, if we produced a summary, then it would contain (useful)
--- messages that are not included in the given summary.
+-- | Process the messages contained in an 'ABBASummary'.  The returned value indicates if the summary
+--  is *behind* the current state: that is, if we produced a summary, then it would contain (useful)
+--  messages that are not included in the given summary.
 processABBASummary :: (ABBAMonad sig m, Eq sig) => ABBASummary sig -> (Party -> ABBAMessage -> sig -> Bool) -> m Bool
 processABBASummary ABBASummary{..} checkSig = do
     ABBAInstance{..} <- ask

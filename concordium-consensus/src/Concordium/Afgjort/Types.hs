@@ -41,9 +41,9 @@ addChoice _ (Just Nothing) = Just Nothing
 addChoice c cs@(Just (Just c')) = if c == c' then cs else Just Nothing
 
 data CatchUpResult = CatchUpResult
-    { -- |Indicates if we have relevant information that was not provided by the catch-up.
+    { -- | Indicates if we have relevant information that was not provided by the catch-up.
       curBehind :: !Bool,
-      -- |Indicates if the catch-up refers to blocks we do not know about (and so requires Skov to catch up).
+      -- | Indicates if the catch-up refers to blocks we do not know about (and so requires Skov to catch up).
       curSkovCatchUp :: !Bool
     }
 
@@ -53,10 +53,10 @@ instance Semigroup CatchUpResult where
 instance Monoid CatchUpResult where
     mempty = CatchUpResult False False
 
--- |Serialize a map from parties to values.
--- The map is serialized as a (little-endian) bitmap indicating
--- which keys are present, followed by the values for these keys
--- in ascending order by key.
+-- | Serialize a map from parties to values.
+--  The map is serialized as a (little-endian) bitmap indicating
+--  which keys are present, followed by the values for these keys
+--  in ascending order by key.
 putPartyMap ::
     (Serialize v) =>
     -- | The maximum possible index of a party
@@ -75,8 +75,8 @@ putPartyMap maxParty m = putParties minParty (Map.keys m) >> putValues
     putPartiesByte l = putWord8 (foldl setBit 0 l)
     putValues = forM_ (Map.toAscList m) $ put . snd
 
--- |Deserialize a map from parties to values, as serialized by
--- 'putPartyMap'.
+-- | Deserialize a map from parties to values, as serialized by
+--  'putPartyMap'.
 getPartyMap ::
     (Serialize v) =>
     -- | The maximum possible index of a party

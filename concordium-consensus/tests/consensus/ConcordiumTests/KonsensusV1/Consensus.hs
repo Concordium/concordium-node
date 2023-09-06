@@ -5,7 +5,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
--- |Module testing functions from the 'Concordium.KonsensusV1.Consensus' module.
+-- | Module testing functions from the 'Concordium.KonsensusV1.Consensus' module.
 module ConcordiumTests.KonsensusV1.Consensus (tests) where
 
 import Control.Monad.IO.Class
@@ -48,7 +48,7 @@ genesisData :: GenesisData 'P6
             (Dummy.deterministicKP 0)
             (Dummy.accountAddressFrom 0)
 
--- |A dummy certified block for the provided round.
+-- | A dummy certified block for the provided round.
 dummyCertifiedBlock :: Round -> CertifiedBlock 'P6
 dummyCertifiedBlock r =
     CertifiedBlock
@@ -67,8 +67,8 @@ dummyCertifiedBlock r =
               qcSignatories = FinalizerSet 0
             }
 
--- |Checking that advancing rounds via a quorum certificate results
--- in the expected state.
+-- | Checking that advancing rounds via a quorum certificate results
+--  in the expected state.
 testAdvanceByQuorum :: Spec
 testAdvanceByQuorum = describe "Advance by QuorumCertificate" $ do
     it "A new quorum certificate advances the round" $ do
@@ -107,8 +107,8 @@ testAdvanceByQuorum = describe "Advance by QuorumCertificate" $ do
     noBaker = BakerContext Nothing
     theTime = timestampToUTCTime 1
 
--- |Checking that advancing a round via a timeout results
--- in the expected state.
+-- | Checking that advancing a round via a timeout results
+--  in the expected state.
 testAdvanceByTimeout :: Spec
 testAdvanceByTimeout = describe "Advance round by TimeoutCertificate." $ do
     it "Advancing by TimeoutCertificate makes the consensus eligible for baking (tc and certified block is new)" $ do

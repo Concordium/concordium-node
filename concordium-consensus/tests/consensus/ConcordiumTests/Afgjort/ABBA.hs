@@ -54,8 +54,8 @@ makeInput (ReceiveABBAMessage p m) = receiveABBAMessage p m ()
 makeInput (BeginABBA c) = beginABBA c
 makeInput (DelayedAction a) = triggerABBAAction a
 
--- |Pick an element from a sequence, returning the element
--- and the sequence with that element removed.
+-- | Pick an element from a sequence, returning the element
+--  and the sequence with that element removed.
 selectFromSeq :: Seq a -> Gen (a, Seq a)
 selectFromSeq s = select <$> choose (0, length s - 1)
   where
@@ -69,7 +69,7 @@ selectFromSeq' g s =
 atParty :: Party -> Traversal' (Vec.Vector a) a
 atParty p = ix $ fromIntegral p
 
-runABBATestRG :: RandomGen g => g -> BS.ByteString -> Int -> Int -> Vec.Vector VRF.KeyPair -> Seq.Seq (Party, ABBAInput) -> IO Property
+runABBATestRG :: (RandomGen g) => g -> BS.ByteString -> Int -> Int -> Vec.Vector VRF.KeyPair -> Seq.Seq (Party, ABBAInput) -> IO Property
 runABBATestRG g0 baid nparties allparties vrfkeys = go g0 iStates iResults
   where
     iResults = Vec.replicate nparties (First Nothing)
@@ -126,7 +126,7 @@ runABBATest baid nparties allparties vrfkeys = go iStates iResults
         parties = [0..fromIntegral nparties-1]
 -}
 
-runABBATest2 :: RandomGen g => g -> BS.ByteString -> Int -> Int -> Vec.Vector VRF.KeyPair -> Seq.Seq (Party, ABBAInput) -> Seq.Seq (Party, ABBAInput) -> IO Property
+runABBATest2 :: (RandomGen g) => g -> BS.ByteString -> Int -> Int -> Vec.Vector VRF.KeyPair -> Seq.Seq (Party, ABBAInput) -> Seq.Seq (Party, ABBAInput) -> IO Property
 runABBATest2 g0 baid nparties allparties vrfkeys = go g0 iStates iResults
   where
     iResults = Vec.replicate nparties (First Nothing)
@@ -162,10 +162,10 @@ runABBATest2 g0 baid nparties allparties vrfkeys = go g0 iStates iResults
 makeKeys :: Int -> Gen (Vec.Vector VRF.KeyPair)
 makeKeys = fmap Vec.fromList . vector
 
--- |Generate @good + bad@ keys, where the bad keys consistently beat the
--- good keys over @ugly@ rounds.  The last argument is a seed for
--- the random generation, to avoid searching for keys that satisfy the
--- requirements (if you already know an appropriate seed).
+-- | Generate @good + bad@ keys, where the bad keys consistently beat the
+--  good keys over @ugly@ rounds.  The last argument is a seed for
+--  the random generation, to avoid searching for keys that satisfy the
+--  requirements (if you already know an appropriate seed).
 superCorruptKeys :: Int -> Int -> Int -> Int -> Vec.Vector VRF.KeyPair
 superCorruptKeys good bad ugly = loop
   where

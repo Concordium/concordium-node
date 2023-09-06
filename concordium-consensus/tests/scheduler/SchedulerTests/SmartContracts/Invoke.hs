@@ -73,7 +73,7 @@ initContract bs (miv, wm) name = do
             (miv, wm)
     (ca,) <$> freezeBlockState pbs
 
--- |Invoke the contract without an invoker expecting success.
+-- | Invoke the contract without an invoker expecting success.
 invokeContract1 ::
     Types.ContractAddress ->
     HashedPersistentBlockState PV4 ->
@@ -91,8 +91,8 @@ invokeContract1 ccContract bs = do
                 }
     InvokeContract.invokeContract ctx cm bs
 
--- |Invoke an entrypoint that calls other entrypoints, and expects a parameter.
--- This entrypoint does not return anything, meaning the return value is an empty byte array.
+-- | Invoke an entrypoint that calls other entrypoints, and expects a parameter.
+--  This entrypoint does not return anything, meaning the return value is an empty byte array.
 invokeContract2 ::
     Types.ContractAddress ->
     HashedPersistentBlockState PV4 ->
@@ -116,8 +116,8 @@ invokeContract2 ccContract bs = do
                 }
     InvokeContract.invokeContract ctx cm bs
 
--- |Same as 2, but a wrong parameter is passed.
--- Expects runtime failure
+-- | Same as 2, but a wrong parameter is passed.
+--  Expects runtime failure
 invokeContract3 ::
     Types.ContractAddress ->
     HashedPersistentBlockState PV4 ->
@@ -135,7 +135,7 @@ invokeContract3 ccContract bs = do
                 }
     InvokeContract.invokeContract ctx cm bs
 
--- |Same as 2, but with an invoker that is a contract.
+-- | Same as 2, but with an invoker that is a contract.
 invokeContract4 ::
     Types.ContractAddress ->
     HashedPersistentBlockState PV4 ->
@@ -159,10 +159,10 @@ invokeContract4 ccContract bs = do
                 }
     InvokeContract.invokeContract ctx cm bs
 
--- |Transfer 1 CCD from alesAccount to the contract. This amount should be the
--- same as the total balance of the account that is invoking.
+-- | Transfer 1 CCD from alesAccount to the contract. This amount should be the
+--  same as the total balance of the account that is invoking.
 --
--- This test ensures that invokeContract does not charge for transaction cost.
+--  This test ensures that invokeContract does not charge for transaction cost.
 invokeContract5 ::
     Types.ContractAddress ->
     HashedPersistentBlockState PV4 ->

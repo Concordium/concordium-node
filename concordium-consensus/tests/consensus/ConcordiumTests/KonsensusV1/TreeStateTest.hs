@@ -6,57 +6,57 @@
 {-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
--- |This module tests the 'Concordium.KonsensusV1.TreeState.Implementation' module
--- which materializes the tree state for consensus protocol v1 (PV6).
+-- | This module tests the 'Concordium.KonsensusV1.TreeState.Implementation' module
+--  which materializes the tree state for consensus protocol v1 (PV6).
 --
--- In particular the following functions exposed in the above mentioned module are tested:
+--  In particular the following functions exposed in the above mentioned module are tested:
 --
--- BlockTable
--- A structure that records live blocks and blocks which are marked _dead_ in
--- the tree state.
+--  BlockTable
+--  A structure that records live blocks and blocks which are marked _dead_ in
+--  the tree state.
 --
--- * 'getMemoryBlockStatus'
--- * 'getBlockStatus'
--- * 'getRecentBlockStatus'
--- * 'makeLiveBlock'
--- * 'markBlockDead'
--- * 'markPending'
+--  * 'getMemoryBlockStatus'
+--  * 'getBlockStatus'
+--  * 'getRecentBlockStatus'
+--  * 'makeLiveBlock'
+--  * 'markBlockDead'
+--  * 'markPending'
 --
--- PendingBlockTable
--- A structure that records pending blocks stored in the tree state.
--- When a pending block becomes live i.e. it has been executed and his head of the
--- chain then it will be added to the block table.
+--  PendingBlockTable
+--  A structure that records pending blocks stored in the tree state.
+--  When a pending block becomes live i.e. it has been executed and his head of the
+--  chain then it will be added to the block table.
 --
--- * 'takePendingBlock'
--- * 'takePendingChildren'
--- * 'takePendingChildrenUntil'
+--  * 'takePendingBlock'
+--  * 'takePendingChildren'
+--  * 'takePendingChildrenUntil'
 --
--- TransactionTable
--- A structure that records transactions in the tree state.
--- From a consensus perspective, then transactions can be added to
--- the tree state either individually (i.e. a single transaction sent to the
--- the consensus layer) or via a block.
+--  TransactionTable
+--  A structure that records transactions in the tree state.
+--  From a consensus perspective, then transactions can be added to
+--  the tree state either individually (i.e. a single transaction sent to the
+--  the consensus layer) or via a block.
 --
--- * 'lookupLiveTransaction'
--- * 'lookupTransaction'
--- * 'getNonFinalizedAccountTransactions'
--- * 'getNonFinalizedChainUpdates'
--- * 'getNonFinalizedCredential'
--- * 'getNextAccountNonce'
--- * 'finalizeTransactions'
--- * 'addTransaction'
--- * 'commitTransaction'
--- * 'markTransactionDead'
--- * 'purgeTransactionTable'
+--  * 'lookupLiveTransaction'
+--  * 'lookupTransaction'
+--  * 'getNonFinalizedAccountTransactions'
+--  * 'getNonFinalizedChainUpdates'
+--  * 'getNonFinalizedCredential'
+--  * 'getNextAccountNonce'
+--  * 'finalizeTransactions'
+--  * 'addTransaction'
+--  * 'commitTransaction'
+--  * 'markTransactionDead'
+--  * 'purgeTransactionTable'
 --
--- Protocol update
--- Functions related to when a protocol update is
--- initiated.
+--  Protocol update
+--  Functions related to when a protocol update is
+--  initiated.
 --
--- * 'clearOnProtocolUpdate'
+--  * 'clearOnProtocolUpdate'
 --
--- Refer to each individual test for a more detailed description of what each individual test
--- verifies.
+--  Refer to each individual test for a more detailed description of what each individual test
+--  verifies.
 module ConcordiumTests.KonsensusV1.TreeStateTest where
 
 import Control.Monad.Reader
@@ -111,7 +111,7 @@ deriving instance Eq (BlockStatus pv)
 deriving instance Eq (BlockTable pv)
 deriving instance Eq (RecentBlockStatus pv)
 
--- |A dummy block state that is just a @BlobRef 0@.
+-- | A dummy block state that is just a @BlobRef 0@.
 dummyPersistentBlockState :: PersistentBlockState pv
 {-# NOINLINE dummyPersistentBlockState #-}
 dummyPersistentBlockState = unsafePerformIO $ newIORef $ blobRefToBufferedRef (BlobRef 0)
@@ -119,17 +119,17 @@ dummyPersistentBlockState = unsafePerformIO $ newIORef $ blobRefToBufferedRef (B
 dummyStateHash :: StateHash
 dummyStateHash = StateHashV0 $ Hash.hash "DummyPersistentBlockState"
 
--- |A dummy block state that has no content.
+-- | A dummy block state that has no content.
 dummyBlockState :: HashedPersistentBlockState pv
 dummyBlockState = HashedPersistentBlockState{..}
   where
     hpbsPointers = dummyPersistentBlockState
     hpbsHash = dummyStateHash
 
--- |A 'QuorumCertificate' pointing to the block provided.
--- The certificate itself is inherently invalid as it is for round and epoch 0.
--- Further no one signed it and it has an empty signature.
--- However for the tests exposed here it is sufficient.
+-- | A 'QuorumCertificate' pointing to the block provided.
+--  The certificate itself is inherently invalid as it is for round and epoch 0.
+--  Further no one signed it and it has an empty signature.
+--  However for the tests exposed here it is sufficient.
 dummyQuorumCertificate :: BlockHash -> QuorumCertificate
 dummyQuorumCertificate blockHash =
     QuorumCertificate
@@ -140,30 +140,30 @@ dummyQuorumCertificate blockHash =
           qcSignatories = FinalizerSet 0
         }
 
--- |An arbitrary chosen 'VRF.KeyPair'.
--- This is required to create the 'dummyBlockNonce'.
+-- | An arbitrary chosen 'VRF.KeyPair'.
+--  This is required to create the 'dummyBlockNonce'.
 dummyVRFKeys :: VRF.KeyPair
 dummyVRFKeys = fst $ VRF.randomKeyPair (mkStdGen 0)
 
 dummySignKeys :: BakerSignPrivateKey
 dummySignKeys = fst $ randomBlockKeyPair $ mkStdGen 42
 
--- |A BlockNonce consisting
--- of a VRF proof on the empty string with the 'dummyVRFKeys'.
+-- | A BlockNonce consisting
+--  of a VRF proof on the empty string with the 'dummyVRFKeys'.
 dummyBlockNonce :: BlockNonce
 dummyBlockNonce = VRF.prove dummyVRFKeys ""
 
--- |An empty block where the parent is indicated
--- by the provided 'parentHash' and the 'Round' of the block
--- by provided 'Round'
+-- | An empty block where the parent is indicated
+--  by the provided 'parentHash' and the 'Round' of the block
+--  by provided 'Round'
 dummyBakedBlock ::
-    -- |'BlockHash' of the parent.
+    -- | 'BlockHash' of the parent.
     BlockHash ->
-    -- |The round of the block
+    -- | The round of the block
     Round ->
-    -- |The timestamp of the block
+    -- | The timestamp of the block
     Timestamp ->
-    -- |The empty baked block
+    -- | The empty baked block
     BakedBlock
 dummyBakedBlock parentHash bbRound bbTimestamp = BakedBlock{..}
   where
@@ -177,27 +177,27 @@ dummyBakedBlock parentHash bbRound bbTimestamp = BakedBlock{..}
     bbTransactionOutcomesHash = TransactionOutcomesHash minBound
     bbStateHash = dummyStateHash
 
--- |Create a 'SignedBlock' by signing the
--- 'dummyBakedBlock' with 'dummySignKeys'
+-- | Create a 'SignedBlock' by signing the
+--  'dummyBakedBlock' with 'dummySignKeys'
 dummySignedBlock ::
-    -- |'BlockHash' of the parent
+    -- | 'BlockHash' of the parent
     BlockHash ->
-    -- |'Round' of the block
+    -- | 'Round' of the block
     Round ->
-    -- |Timestamp of the block
+    -- | Timestamp of the block
     Timestamp ->
-    -- |The signed block
+    -- | The signed block
     SignedBlock
 dummySignedBlock parentHash rnd = signBlock dummySignKeys dummyGenesisBlockHash . dummyBakedBlock parentHash rnd
 
--- |Construct a 'PendingBlock' for the provided 'Round' where the
--- parent is indicated by the provided 'BlockHash'.
+-- | Construct a 'PendingBlock' for the provided 'Round' where the
+--  parent is indicated by the provided 'BlockHash'.
 dummyPendingBlock ::
-    -- |Parent 'BlockHash'
+    -- | Parent 'BlockHash'
     BlockHash ->
-    -- |The 'Timestamp' of the block
+    -- | The 'Timestamp' of the block
     Timestamp ->
-    -- |The resulting 'PendingBlock'
+    -- | The resulting 'PendingBlock'
     PendingBlock
 dummyPendingBlock parentHash ts =
     PendingBlock
@@ -205,11 +205,11 @@ dummyPendingBlock parentHash ts =
           pbReceiveTime = timestampToUTCTime 0
         }
 
--- |A 'BlockPointer' referrring to the 'dummySignedBlock' for the provided 'Round'
+-- | A 'BlockPointer' referrring to the 'dummySignedBlock' for the provided 'Round'
 dummyBlock ::
-    -- |'Round' of the block that the created 'BlockPointer' should point to.
+    -- | 'Round' of the block that the created 'BlockPointer' should point to.
     Round ->
-    -- |The 'BlockPointer'
+    -- | The 'BlockPointer'
     BlockPointer pv
 dummyBlock rnd = BlockPointer{..}
   where
@@ -224,19 +224,19 @@ dummyBlock rnd = BlockPointer{..}
     bpBlock = NormalBlock $ dummySignedBlock (BlockHash minBound) rnd 0
     bpState = dummyBlockState
 
--- |A 'BlockHash' suitable for configuring
--- a 'GenesisMetadata' (see 'dummyGenesisMetadata') which is
--- used to create an initial 'SkovData pv' which is used for the
--- tests presented in this file.
--- The actual hash chosen plays no role for the tests carried out
--- in this module.
+-- | A 'BlockHash' suitable for configuring
+--  a 'GenesisMetadata' (see 'dummyGenesisMetadata') which is
+--  used to create an initial 'SkovData pv' which is used for the
+--  tests presented in this file.
+--  The actual hash chosen plays no role for the tests carried out
+--  in this module.
 dummyGenesisBlockHash :: BlockHash
 dummyGenesisBlockHash = BlockHash (Hash.hash "DummyGenesis")
 
--- |'GenesisMetadata' configured with
--- the 'dummyGenesisBlockHash' and the 'dummyBlockState'.
--- The chosen 'CoreGenesisParametersV1' has no effect on the tests run
--- as part of this module.
+-- | 'GenesisMetadata' configured with
+--  the 'dummyGenesisBlockHash' and the 'dummyBlockState'.
+--  The chosen 'CoreGenesisParametersV1' has no effect on the tests run
+--  as part of this module.
 dummyGenesisMetadata :: GenesisMetadata
 dummyGenesisMetadata =
     GenesisMetadata
@@ -251,14 +251,14 @@ dummyGenesisMetadata =
           gmStateHash = getHash dummyBlockState
         }
 
--- |A 'LeadershipElectionNonce'.
--- It is arbitrary chosen and has no effect on the tests carried
--- out in this module.
+-- | A 'LeadershipElectionNonce'.
+--  It is arbitrary chosen and has no effect on the tests carried
+--  out in this module.
 dummyLeadershipElectionNonce :: LeadershipElectionNonce
 dummyLeadershipElectionNonce = Hash.hash "LeadershipElectionNonce"
 
--- |Dummy bakers and finalizers with no bakers or finalizers.
--- This is only suitable for when the value is not meaningfully used.
+-- | Dummy bakers and finalizers with no bakers or finalizers.
+--  This is only suitable for when the value is not meaningfully used.
 dummyBakersAndFinalizers :: BakersAndFinalizers
 dummyBakersAndFinalizers =
     BakersAndFinalizers
@@ -266,28 +266,28 @@ dummyBakersAndFinalizers =
           _bfFinalizers = FinalizationCommittee Vec.empty 0
         }
 
--- |Dummy epoch bakers. This is only suitable for when the actual value is not meaningfully used.
+-- | Dummy epoch bakers. This is only suitable for when the actual value is not meaningfully used.
 dummyEpochBakers :: EpochBakers
 dummyEpochBakers = EpochBakers bf bf bf 1
   where
     bf = dummyBakersAndFinalizers
 
--- |An initial 'SkovData' suitable for testing.
--- The block state is empty ('dummyBlockState') only consisting of a
--- genesis block.
+-- | An initial 'SkovData' suitable for testing.
+--  The block state is empty ('dummyBlockState') only consisting of a
+--  genesis block.
 --
--- The outputted 'SkovData pv' is configured with the
--- 'dummyGenesisMetada' (and so the 'dummyGenesisBlockHash') however for the
--- tests we are carrying out in this module it could be any genesis metadata
+--  The outputted 'SkovData pv' is configured with the
+--  'dummyGenesisMetada' (and so the 'dummyGenesisBlockHash') however for the
+--  tests we are carrying out in this module it could be any genesis metadata
 --
--- The initial 'RoundStatus' for the 'SkovData pv' is configured with
--- the initial timeout duration set to 10 seconds.
--- However this is just a dummy value and can be replaced with other values,
--- i.e. it has no effect on the tests being run with the 'dummyInitialSkovData'.
+--  The initial 'RoundStatus' for the 'SkovData pv' is configured with
+--  the initial timeout duration set to 10 seconds.
+--  However this is just a dummy value and can be replaced with other values,
+--  i.e. it has no effect on the tests being run with the 'dummyInitialSkovData'.
 --
--- Note that as the 'SkovData pv' returned here is constructed by simple dummy values,
--- then is not suitable for carrying out block state queries or operations.
--- But this is fine as we do not require that from the tests here.
+--  Note that as the 'SkovData pv' returned here is constructed by simple dummy values,
+--  then is not suitable for carrying out block state queries or operations.
+--  But this is fine as we do not require that from the tests here.
 dummyInitialSkovData :: SkovData pv
 dummyInitialSkovData =
     mkInitialSkovData
@@ -299,22 +299,22 @@ dummyInitialSkovData =
         emptyTransactionTable
         emptyPendingTransactionTable
 
--- |A 'LowLevelDB' for testing purposes.
+-- | A 'LowLevelDB' for testing purposes.
 newtype TestLLDB pv = TestLLDB {theTestLLDB :: IORef (LowLevelDB pv)}
 
--- |Deriving 'HasMemoryLLDB' for our 'TestLLDB' such that
--- we can run the 'MonadTreeStateStore' via the in memory
--- implementation.
+-- | Deriving 'HasMemoryLLDB' for our 'TestLLDB' such that
+--  we can run the 'MonadTreeStateStore' via the in memory
+--  implementation.
 instance HasMemoryLLDB pv (TestLLDB pv) where
     theMemoryLLDB = theTestLLDB
 
--- |Run the provided action @a@ on the provided 'LowLevelDB'.
+-- | Run the provided action @a@ on the provided 'LowLevelDB'.
 runTestLLDB ::
-    -- |The initial database
+    -- | The initial database
     LowLevelDB pv ->
-    -- |The action
+    -- | The action
     MemoryLLDBM pv (ReaderT (TestLLDB pv) IO) b ->
-    -- |The result of the action.
+    -- | The result of the action.
     IO b
 runTestLLDB initDB a = do
     tdb <- TestLLDB <$> newIORef initDB
@@ -337,7 +337,7 @@ deadH = BlockHash (Hash.hash "DeadBlock")
 unknownH :: BlockHash
 unknownH = BlockHash (Hash.hash "Unknown")
 
--- |Convert a block pointer to a stored block, using `BlobRef 0` as the state pointer.
+-- | Convert a block pointer to a stored block, using `BlobRef 0` as the state pointer.
 toStoredBlock :: BlockPointer pv -> LowLevel.StoredBlock pv
 toStoredBlock BlockPointer{..} =
     LowLevel.StoredBlock
@@ -346,13 +346,13 @@ toStoredBlock BlockPointer{..} =
           stbBlock = bpBlock
         }
 
--- |A 'SkovData' that corresponds to the
--- 'dummyInitialSkovData' which have the following blocks added:
+-- | A 'SkovData' that corresponds to the
+--  'dummyInitialSkovData' which have the following blocks added:
 --
--- * 'testB' (alive)
--- * 'focusB' (parent is 'testB')
--- * 'pendingB' (pending)
--- * the block indicated by 'deadH' has added to the dead cache.
+--  * 'testB' (alive)
+--  * 'focusB' (parent is 'testB')
+--  * 'pendingB' (pending)
+--  * the block indicated by 'deadH' has added to the dead cache.
 skovDataWithTestBlocks :: SkovData pv
 skovDataWithTestBlocks =
     dummyInitialSkovData
@@ -368,7 +368,7 @@ skovDataWithTestBlocks =
                       )
                )
 
--- |A test 'LowLevelDB' with the genesis block.
+-- | A test 'LowLevelDB' with the genesis block.
 lldbWithGenesis :: LowLevelDB pv
 lldbWithGenesis =
     initialLowLevelDB
@@ -377,9 +377,9 @@ lldbWithGenesis =
   where
     sb = toStoredBlock genB
 
--- |Testing 'getMemoryBlockStatus' functionality.
--- In particular this test ensures that a (known) block in memory can
--- have its status retrieved.
+-- | Testing 'getMemoryBlockStatus' functionality.
+--  In particular this test ensures that a (known) block in memory can
+--  have its status retrieved.
 testGetMemoryBlockStatus :: Spec
 testGetMemoryBlockStatus = describe "getMemoryBlockStatus" $ do
     it "last finalized" $ getMemoryBlockStatus (getHash lastFin) sd `shouldBe` Just (BlockFinalized lastFin)
@@ -390,9 +390,9 @@ testGetMemoryBlockStatus = describe "getMemoryBlockStatus" $ do
   where
     sd = skovDataWithTestBlocks
 
--- |Testing 'getBlockStatus' functionality.
--- In particular this test ensures that a (known) block, transient or persistent
--- can have its status looked up.
+-- | Testing 'getBlockStatus' functionality.
+--  In particular this test ensures that a (known) block, transient or persistent
+--  can have its status looked up.
 testGetBlockStatus :: Spec
 testGetBlockStatus = describe "getBlockStatus" $ do
     it "last finalized" $ getStatus (getHash lastFin) $ BlockFinalized lastFin
@@ -407,10 +407,10 @@ testGetBlockStatus = describe "getBlockStatus" $ do
         s `shouldBe` expect
     sd = skovDataWithTestBlocks
 
--- |Testing 'getRecentBlockStatus' functionality.
--- In particular this test ensures that a (known) block in memory
--- can have its status looked up, or at least inform the caller
--- that it is a predecessor of the last finalized block ('OldFinalized').
+-- | Testing 'getRecentBlockStatus' functionality.
+--  In particular this test ensures that a (known) block in memory
+--  can have its status looked up, or at least inform the caller
+--  that it is a predecessor of the last finalized block ('OldFinalized').
 testGetRecentBlockStatus :: Spec
 testGetRecentBlockStatus = describe "getRecentBlockStatus" $ do
     it "last finalized" $ getStatus (getHash lastFin) $ RecentBlock $ BlockFinalized lastFin
@@ -425,10 +425,10 @@ testGetRecentBlockStatus = describe "getRecentBlockStatus" $ do
         s `shouldBe` expect
     sd = skovDataWithTestBlocks
 
--- |Testing 'makeLiveBlock' function.
--- This ensures that a 'PendingBlock' can be marked live
--- and by doing so it becomes present in the map of live blocks
--- and a valid 'BlockPointer' to the block marked is returned.
+-- | Testing 'makeLiveBlock' function.
+--  This ensures that a 'PendingBlock' can be marked live
+--  and by doing so it becomes present in the map of live blocks
+--  and a valid 'BlockPointer' to the block marked is returned.
 testMakeLiveBlock :: Spec
 testMakeLiveBlock = it "makeLiveBlock" $ do
     let arrTime = timestampToUTCTime 5
@@ -450,10 +450,10 @@ testMakeLiveBlock = it "makeLiveBlock" $ do
     (sd ^. blockTable . liveMap . at (getHash pendingB))
         `shouldBe` Just res
 
--- |Testing 'markBlockDead' function.
--- This test ensures that whatever the state of a block referenced
--- by the provided 'BlockHash' is expunged from memory and that
--- it becomes part of the cache of dead blocks.
+-- | Testing 'markBlockDead' function.
+--  This test ensures that whatever the state of a block referenced
+--  by the provided 'BlockHash' is expunged from memory and that
+--  it becomes part of the cache of dead blocks.
 testMarkBlockDead :: Spec
 testMarkBlockDead = describe "markBlockDead" $ do
     it "live" $ mbd (getHash testB)
@@ -468,8 +468,8 @@ testMarkBlockDead = describe "markBlockDead" $ do
         assertBool "block should be in the dead cache" $
             sd ^. blockTable . deadBlocks . to (memberDeadCache h)
 
--- |An arbitrary chosen 'SigScheme.KeyPair'
--- suitable for testing purposes.
+-- | An arbitrary chosen 'SigScheme.KeyPair'
+--  suitable for testing purposes.
 dummySigSchemeKeys :: SigScheme.KeyPair
 dummySigSchemeKeys =
     let ((signKey, verifyKey), _) = randomEd25519KeyPair $ mkStdGen 42
@@ -486,10 +486,10 @@ dummyAccountAddressN = fst . randomAccountAddress . mkStdGen
 dummyAccountAddress :: AccountAddress
 dummyAccountAddress = dummyAccountAddressN 0
 
--- |A dummy normal transfer transaction suitable for the tests
--- in this file.
--- Note that the tests presented in this module
--- does no transaction processing i.e. verification of the transaction.
+-- | A dummy normal transfer transaction suitable for the tests
+--  in this file.
+--  Note that the tests presented in this module
+--  does no transaction processing i.e. verification of the transaction.
 dummyTransaction :: Nonce -> Transaction
 dummyTransaction n =
     addMetadata NormalTransaction 0 $
@@ -544,7 +544,7 @@ dummyUpdateInstructionWM usn =
 dummyChainUpdate :: UpdateSequenceNumber -> BlockItem
 dummyChainUpdate usn = chainUpdate $ dummyUpdateInstructionWM usn
 
--- |A valid 'AccountCreation' with expiry 1596409020
+-- | A valid 'AccountCreation' with expiry 1596409020
 dummyAccountCreation :: AccountCreation
 dummyAccountCreation = readAccountCreation . BSL.fromStrict $ $(makeRelativeToProject "testdata/transactionverification/verifiable-credential.json" >>= embedFile)
 
@@ -554,9 +554,9 @@ credentialDeploymentWM = addMetadata CredentialDeployment 0 dummyAccountCreation
 dummyCredentialDeployment :: BlockItem
 dummyCredentialDeployment = credentialDeployment credentialDeploymentWM
 
--- |Testing 'lookupLiveTransaction'
--- This test ensures that live transactions can be
--- looked up and that uknown ones cannot be.
+-- | Testing 'lookupLiveTransaction'
+--  This test ensures that live transactions can be
+--  looked up and that uknown ones cannot be.
 testLookupLiveTransaction :: Spec
 testLookupLiveTransaction = describe "lookupLiveTransaction" $ do
     it "present" $ do
@@ -584,14 +584,14 @@ testLookupLiveTransaction = describe "lookupLiveTransaction" $ do
         dummyInitialSkovData
             & transactionTable
                 %~ addTrans 1
-                . addTrans 2
-                . addTrans 3
+                    . addTrans 2
+                    . addTrans 3
 
--- |Testing 'lookupTransaction'
--- This test ensures that:
--- * A finalized transation can be looked up.
--- * A live transaction can be looked up.
--- * Looking up with an unknown transaction hash will result in a 'Nothing' result.
+-- | Testing 'lookupTransaction'
+--  This test ensures that:
+--  * A finalized transation can be looked up.
+--  * A live transaction can be looked up.
+--  * Looking up with an unknown transaction hash will result in a 'Nothing' result.
 testLookupTransaction :: Spec
 testLookupTransaction = describe "lookupTransaction" $ do
     it "finalized" $ lookupAndCheck (txHash 1) (Just $ Finalized $ FinalizedTransactionStatus 1 0)
@@ -604,7 +604,7 @@ testLookupTransaction = describe "lookupTransaction" $ do
         dummyInitialSkovData
             & transactionTable
                 %~ addTrans 2
-                . addTrans 3
+                    . addTrans 3
     db =
         (lldbWithGenesis @'P6)
             { lldbTransactions = HM.fromList [(txHash 1, FinalizedTransactionStatus 1 0)]
@@ -613,10 +613,10 @@ testLookupTransaction = describe "lookupTransaction" $ do
         lookupResult <- runTestLLDB db $ lookupTransaction hsh sd
         lookupResult `shouldBe` expectedOutcome
 
--- |Testing 'getNonFinalizedAccountTransactions'
--- This test ensures that:
--- * An existing non finalized account transction can be looked up
--- * Looking up with an unknown transaction hash will result in a 'Nothing' result.
+-- | Testing 'getNonFinalizedAccountTransactions'
+--  This test ensures that:
+--  * An existing non finalized account transction can be looked up
+--  * Looking up with an unknown transaction hash will result in a 'Nothing' result.
 testGetNonFinalizedAccountTransactions :: Spec
 testGetNonFinalizedAccountTransactions = describe "getNonFinalizedAccountTransactions" $ do
     it "present" $ do
@@ -651,12 +651,12 @@ testGetNonFinalizedAccountTransactions = describe "getNonFinalizedAccountTransac
         dummyInitialSkovData
             & transactionTable
                 %~ addTrans 2
-                . addTrans 3
+                    . addTrans 3
 
--- |Testing 'getNonFinalizedChainUpdates'
--- This test ensures that:
--- * An existing non finalized chain update transaction can be looked up
--- * Looking up with an unknown transaction hash will result in a 'Nothing' result.
+-- | Testing 'getNonFinalizedChainUpdates'
+--  This test ensures that:
+--  * An existing non finalized chain update transaction can be looked up
+--  * Looking up with an unknown transaction hash will result in a 'Nothing' result.
 testGetNonFinalizedChainUpdates ::
     Spec
 testGetNonFinalizedChainUpdates = describe "getNonFinalizedChainUpdates" $ do
@@ -682,12 +682,12 @@ testGetNonFinalizedChainUpdates = describe "getNonFinalizedChainUpdates" $ do
         dummyInitialSkovData
             & transactionTable
                 %~ addChainUpdate 2
-                . addChainUpdate 3
+                    . addChainUpdate 3
 
--- |Testing 'getNonFinalizedCredential'
--- This test ensures that:
--- * An existing non finalized credential deployment transaction can be looked up
--- * Looking up with an unknown transaction hash will result in a 'Nothing' result.
+-- | Testing 'getNonFinalizedCredential'
+--  This test ensures that:
+--  * An existing non finalized credential deployment transaction can be looked up
+--  * Looking up with an unknown transaction hash will result in a 'Nothing' result.
 testGetNonFinalizedCredential :: Spec
 testGetNonFinalizedCredential = describe "getNonFinalizedCredential" $ do
     it "present" $ do
@@ -706,11 +706,11 @@ testGetNonFinalizedCredential = describe "getNonFinalizedCredential" $ do
         dummyInitialSkovData
             & transactionTable
                 %~ addCredential
-                . addCredential
+                    . addCredential
 
--- |Testing 'getNextAccountNonce'
--- This test ensures that the function returns
--- the correct next account nonce.
+-- | Testing 'getNextAccountNonce'
+--  This test ensures that the function returns
+--  the correct next account nonce.
 testGetNextAccountNonce :: Spec
 testGetNextAccountNonce = describe "getNextAccountNonce" $ do
     it "with non-finalized" $
@@ -728,19 +728,19 @@ testGetNextAccountNonce = describe "getNextAccountNonce" $ do
         dummyInitialSkovData
             & transactionTable
                 %~ addTrans 2
-                . addTrans 3
-                . ( TT.ttNonFinalizedTransactions . at (accountAddressEmbed (dummyAccountAddressN 2))
-                        ?~ TT.emptyANFTWithNonce 7
-                  )
+                    . addTrans 3
+                    . ( TT.ttNonFinalizedTransactions . at (accountAddressEmbed (dummyAccountAddressN 2))
+                            ?~ TT.emptyANFTWithNonce 7
+                      )
 
--- |Testing 'finalizeTransactions'.
--- This test ensures that the provided list of
--- transactions are removed from the the transaction table,
--- and if the transaction is either a normal transaction or
--- a chain update then the non finalized transaction map is
--- updated accordingly, meaning that it's removed from non finalized transaction
--- map and that the next available nonce for the sender of the transaction is set to
--- be 1 + the nonce of the removed transaction.
+-- | Testing 'finalizeTransactions'.
+--  This test ensures that the provided list of
+--  transactions are removed from the the transaction table,
+--  and if the transaction is either a normal transaction or
+--  a chain update then the non finalized transaction map is
+--  updated accordingly, meaning that it's removed from non finalized transaction
+--  map and that the next available nonce for the sender of the transaction is set to
+--  be 1 + the nonce of the removed transaction.
 testRemoveTransactions :: Spec
 testRemoveTransactions = describe "finalizeTransactions" $ do
     it "normal transactions" $ do
@@ -793,25 +793,25 @@ testRemoveTransactions = describe "finalizeTransactions" $ do
         dummyInitialSkovData
             & transactionTable
                 %~ addTrans tr0
-                . addTrans tr1
-                . addTrans tr2
+                    . addTrans tr1
+                    . addTrans tr2
     sd1 =
         dummyInitialSkovData
             & transactionTable
                 %~ addChainUpdate cu0
-                . addChainUpdate cu1
-                . addTrans tr1
+                    . addChainUpdate cu1
+                    . addTrans tr1
     sd2 =
         dummyInitialSkovData
             & transactionTable
                 %~ addCredential
-                . addTrans tr1
+                    . addTrans tr1
 
--- |Testing 'addTransaction'.
--- This test ensures that the supplied transaction is added
--- to the transaction table with the provided round.
--- This test also checks that the transaction table purge counter
--- is incremented.
+-- | Testing 'addTransaction'.
+--  This test ensures that the supplied transaction is added
+--  to the transaction table with the provided round.
+--  This test also checks that the transaction table purge counter
+--  is incremented.
 testAddTransaction :: Spec
 testAddTransaction = describe "addTransaction" $ do
     it "add transaction" $ do
@@ -836,9 +836,9 @@ testAddTransaction = describe "addTransaction" $ do
     tr0 = dummyTransaction 1
     sender = accountAddressEmbed dummyAccountAddress
 
--- |Test of 'commitTransaction'.
--- The test checks that a live transaction i.e. present in the transaction table 'ttHashMap'
--- is being set to committed for the provided round with a pointer to the block provided (by the 'BlockHash').
+-- | Test of 'commitTransaction'.
+--  The test checks that a live transaction i.e. present in the transaction table 'ttHashMap'
+--  is being set to committed for the provided round with a pointer to the block provided (by the 'BlockHash').
 testCommitTransaction :: Spec
 testCommitTransaction = describe "commitTransaction" $ do
     it "commit transaction" $ do
@@ -856,13 +856,13 @@ testCommitTransaction = describe "commitTransaction" $ do
                 %~ addTrans tr0
     bh = BlockHash minBound
 
--- |Test 'markTransactionDead'
--- This test ensures that when a (committed) transaction identified
--- by the provided 'BlockHash' is marked dead, then it is removed
--- from the transaction table live map.
--- Further the test checks that marking a (received) transaction as dead has no effect,
--- as such a transaction will be freed from memory via transaction table purging
--- at some point.
+-- | Test 'markTransactionDead'
+--  This test ensures that when a (committed) transaction identified
+--  by the provided 'BlockHash' is marked dead, then it is removed
+--  from the transaction table live map.
+--  Further the test checks that marking a (received) transaction as dead has no effect,
+--  as such a transaction will be freed from memory via transaction table purging
+--  at some point.
 testMarkTransactionDead :: Spec
 testMarkTransactionDead = describe "markTransactionDead" $ do
     it "mark committed transaction dead" $ do
@@ -887,11 +887,11 @@ testMarkTransactionDead = describe "markTransactionDead" $ do
                 %~ addTrans tr0
     bh = BlockHash minBound
 
--- |Test 'purgeTransactionTable' function.
--- This test ensures that transactions eligible for purging are
--- removed from the transaction table and the pending transactions.
--- This test also ensures that the transaction table purge counter is reset
--- after a purge has been carried out.
+-- | Test 'purgeTransactionTable' function.
+--  This test ensures that transactions eligible for purging are
+--  removed from the transaction table and the pending transactions.
+--  This test also ensures that the transaction table purge counter is reset
+--  after a purge has been carried out.
 testPurgeTransactionTable :: Spec
 testPurgeTransactionTable = describe "purgeTransactionTable" $ do
     it "force purge the transaction table" $ do
@@ -927,17 +927,17 @@ testPurgeTransactionTable = describe "purgeTransactionTable" $ do
         dummyInitialSkovData
             & transactionTable
                 %~ addChainUpdate cu0
-                . addCredential
+                    . addCredential
             & pendingTransactionTable
                 %~ TT.addPendingDeployCredential credDeploymentHash
 
--- |Test 'clearOnProtocolUpdate' function.
--- This test checks that the following is occurring in the associated 'SkovData' when invoked:
+-- | Test 'clearOnProtocolUpdate' function.
+--  This test checks that the following is occurring in the associated 'SkovData' when invoked:
 --
--- * The pending blocks table is cleared
--- * The block table is cleared
--- * The branches is cleared
--- * All committed transactions should be rolled back into the 'Received' state.
+--  * The pending blocks table is cleared
+--  * The block table is cleared
+--  * The branches is cleared
+--  * All committed transactions should be rolled back into the 'Received' state.
 testClearOnProtocolUpdate :: Spec
 testClearOnProtocolUpdate = describe "clearOnProtocolUpdate" $
     it "clears on protocol update" $ do

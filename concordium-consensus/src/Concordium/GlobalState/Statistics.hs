@@ -9,53 +9,53 @@ import Lens.Micro.Platform
 
 import Concordium.Utils
 
--- |Weight factor to use in computing exponentially-weighted moving averages.
+-- | Weight factor to use in computing exponentially-weighted moving averages.
 emaWeight :: Double
 emaWeight = 0.1
 
--- |Statistics for the consensus layer
+-- | Statistics for the consensus layer
 data ConsensusStatistics = ConsensusStatistics
-    { -- |Total number of blocks received
+    { -- | Total number of blocks received
       _blocksReceivedCount :: !Int,
-      -- |Total number of blocks received and verified
+      -- | Total number of blocks received and verified
       _blocksVerifiedCount :: !Int,
-      -- |The last time a block was received
+      -- | The last time a block was received
       _blockLastReceived :: !(Maybe UTCTime),
-      -- |Moving average latency between a block's slot time and received time
+      -- | Moving average latency between a block's slot time and received time
       _blockReceiveLatencyEMA :: !Double,
-      -- |Variance of '_blockReceiveLatencyEMA'
+      -- | Variance of '_blockReceiveLatencyEMA'
       _blockReceiveLatencyEMVar :: !Double,
-      -- |Moving average time between receiving blocks
+      -- | Moving average time between receiving blocks
       _blockReceivePeriodEMA :: !(Maybe Double),
-      -- |Variance of '_blockReceivePeriodEMA'
+      -- | Variance of '_blockReceivePeriodEMA'
       _blockReceivePeriodEMVar :: !(Maybe Double),
-      -- |The last time a block was verified (added to the tree)
+      -- | The last time a block was verified (added to the tree)
       _blockLastArrive :: !(Maybe UTCTime),
-      -- |Moving average latency between a block's slot time and its arrival
+      -- | Moving average latency between a block's slot time and its arrival
       _blockArriveLatencyEMA :: !Double,
-      -- |Variance of '_blockArriveLatencyEMA'
+      -- | Variance of '_blockArriveLatencyEMA'
       _blockArriveLatencyEMVar :: !Double,
-      -- |Moving average time between block arrivals
+      -- | Moving average time between block arrivals
       _blockArrivePeriodEMA :: !(Maybe Double),
-      -- |Variance of '_blockArrivePeriodEMA'
+      -- | Variance of '_blockArrivePeriodEMA'
       _blockArrivePeriodEMVar :: !(Maybe Double),
-      -- |Moving average transactions per block
+      -- | Moving average transactions per block
       _transactionsPerBlockEMA :: !Double,
-      -- |Variance of '_transactionsPerBlockEMA'
+      -- | Variance of '_transactionsPerBlockEMA'
       _transactionsPerBlockEMVar :: !Double,
-      -- |Number of finalizations
+      -- | Number of finalizations
       _finalizationCount :: !Int,
-      -- |Time of last verified finalization
+      -- | Time of last verified finalization
       _lastFinalizedTime :: !(Maybe UTCTime),
-      -- |Moving average time between finalizations
+      -- | Moving average time between finalizations
       _finalizationPeriodEMA :: !(Maybe Double),
-      -- |Variance of _finalizationPeriodEMA
+      -- | Variance of _finalizationPeriodEMA
       _finalizationPeriodEMVar :: !(Maybe Double)
     }
 
 makeLenses ''ConsensusStatistics
 
--- |Initial statistics.
+-- | Initial statistics.
 initialConsensusStatistics :: ConsensusStatistics
 initialConsensusStatistics =
     ConsensusStatistics
@@ -79,24 +79,24 @@ initialConsensusStatistics =
           _finalizationPeriodEMVar = Nothing
         }
 
--- |Update the statistics when a block becomes fully validated (arrives).
--- This updates:
+-- | Update the statistics when a block becomes fully validated (arrives).
+--  This updates:
 --
---   * The count of blocks verified.
+--    * The count of blocks verified.
 --
---   * The block arrival latency statistics (i.e. time between nominal production and arrival).
+--    * The block arrival latency statistics (i.e. time between nominal production and arrival).
 --
---   * The last block arrival time.
+--    * The last block arrival time.
 --
---   * The block arrival period statistics (i.e. time between successive arrivals).
+--    * The block arrival period statistics (i.e. time between successive arrivals).
 --
---   * The transactions per block statistics.
+--    * The transactions per block statistics.
 updateStatsOnArrive ::
-    -- |Nominal block time.
+    -- | Nominal block time.
     UTCTime ->
-    -- |Block arrival time.
+    -- | Block arrival time.
     UTCTime ->
-    -- |Number of transactions in the block.
+    -- | Number of transactions in the block.
     Int ->
     ConsensusStatistics ->
     ConsensusStatistics
@@ -136,7 +136,7 @@ updateStatsOnArrive nominalTime arrivalTime transactionCount =
         oldEMA = s ^. transactionsPerBlockEMA
         delta = fromIntegral transactionCount - oldEMA
 
--- |Render the statistics relating to block arrivals as a string.
+-- | Render the statistics relating to block arrivals as a string.
 showArriveStatistics :: ConsensusStatistics -> String
 showArriveStatistics s =
     "Arrive statistics:"
@@ -157,20 +157,20 @@ showArriveStatistics s =
         ++ " transactionsPerBlockEMSD="
         ++ show (sqrt $ s ^. transactionsPerBlockEMVar)
 
--- |Update the statistics when a block is received by the consensus.
--- This updates:
+-- | Update the statistics when a block is received by the consensus.
+--  This updates:
 --
---    * The count of received blocks.
+--     * The count of received blocks.
 --
---    * The block receive latency statistics (i.e. time between nominal production and receipt).
+--     * The block receive latency statistics (i.e. time between nominal production and receipt).
 --
---    * The last block received time.
+--     * The last block received time.
 --
---    * The block receive period statistics (i.e. the time between successively receiving blocks).
+--     * The block receive period statistics (i.e. the time between successively receiving blocks).
 updateStatsOnReceive ::
-    -- |Nominal block time.
+    -- | Nominal block time.
     UTCTime ->
-    -- |Block receive time.
+    -- | Block receive time.
     UTCTime ->
     ConsensusStatistics ->
     ConsensusStatistics
@@ -200,7 +200,7 @@ updateStatsOnReceive nominalTime receiveTime =
                 delta = blockTime - oldEMA
                 oldEMVar = fromMaybe 0 (s ^. blockReceivePeriodEMVar)
 
--- |Render the statistics related to receiving blocks as a string.
+-- | Render the statistics related to receiving blocks as a string.
 showReceiveStatistics :: ConsensusStatistics -> String
 showReceiveStatistics s =
     "Receive statistics:"
@@ -217,17 +217,17 @@ showReceiveStatistics s =
         ++ " blockReceivePeriodEMSD="
         ++ show (sqrt <$> s ^. blockReceivePeriodEMVar)
 
--- |Update the statistics when a finalization occurs. This should be called once per finalization,
--- rather than per finalized block, since multiple blocks can be finalized in a single finalization.
--- This updates:
+-- | Update the statistics when a finalization occurs. This should be called once per finalization,
+--  rather than per finalized block, since multiple blocks can be finalized in a single finalization.
+--  This updates:
 --
---    * The count of finalizations.
+--     * The count of finalizations.
 --
---    * The last finalization time.
+--     * The last finalization time.
 --
---    * The finalization period statistics (i.e. the time between successive finalizations).
+--     * The finalization period statistics (i.e. the time between successive finalizations).
 updateStatsOnFinalize ::
-    -- |Current time
+    -- | Current time
     UTCTime ->
     ConsensusStatistics ->
     ConsensusStatistics
@@ -248,7 +248,7 @@ updateStatsOnFinalize curTime =
                     & (finalizationPeriodEMVar ?~! (1 - emaWeight) * (oldEMVar + emaWeight * delta * delta))
         | otherwise = s
 
--- |Render the statistics related to finalization.
+-- | Render the statistics related to finalization.
 showFinalizationStatistics :: ConsensusStatistics -> String
 showFinalizationStatistics s =
     "Finalization statistics:"

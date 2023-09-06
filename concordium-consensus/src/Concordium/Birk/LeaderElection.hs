@@ -11,11 +11,11 @@ import Concordium.Types
 
 newtype BlockLuck = BlockLuck Double deriving (Eq, Ord)
 
--- |Luck of the genesis block
+-- | Luck of the genesis block
 genesisLuck :: BlockLuck
 genesisLuck = BlockLuck 1
 
--- |Zero luck
+-- | Zero luck
 zeroLuck :: BlockLuck
 zeroLuck = BlockLuck 0
 

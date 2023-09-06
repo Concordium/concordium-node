@@ -3,7 +3,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
--- |Module testing functions from the 'Concordium.KonsensusV1.Consensus.Timeout' module.
+-- | Module testing functions from the 'Concordium.KonsensusV1.Consensus.Timeout' module.
 module ConcordiumTests.KonsensusV1.Timeout (tests) where
 
 import Control.Monad.State
@@ -46,8 +46,8 @@ import ConcordiumTests.KonsensusV1.Types hiding (tests)
 
 import qualified ConcordiumTests.KonsensusV1.Consensus.Blocks as TestBlocks
 
--- |Test that 'updateCurrentTimeout' correctly calculates a new timeout given the current timeout and the
--- `timeoutIncrease` parameter.
+-- | Test that 'updateCurrentTimeout' correctly calculates a new timeout given the current timeout and the
+--  `timeoutIncrease` parameter.
 testUpdateCurrentTimeout :: Duration -> Ratio Word64 -> Duration -> Assertion
 testUpdateCurrentTimeout baseTimeout timeoutIncrease expectedTimeout = do
     let actualTimeout = updateCurrentTimeout timeoutIncrease baseTimeout
@@ -80,8 +80,8 @@ genesisHash = genesisBlockHash genesisData
 sigThreshold :: Rational
 sigThreshold = 2 % 3
 
--- |Generate a timeout message signed by the finalizer with the finalizer index @fid@ from
--- 'bakers' above in epoch @e@ with a qc epoch @qce@.
+-- | Generate a timeout message signed by the finalizer with the finalizer index @fid@ from
+--  'bakers' above in epoch @e@ with a qc epoch @qce@.
 dummyTimeoutMessage' :: Int -> Epoch -> Epoch -> TimeoutMessage
 dummyTimeoutMessage' fid e qce =
     signTimeoutMessage timeoutMessageBody genesisHash $
@@ -111,18 +111,18 @@ dummyTimeoutMessage' fid e qce =
             }
     quorumCert = QuorumCertificate genesisHash 0 qce mempty $ FinalizerSet 0
 
--- |Generate a timeout message signed by the finalizer index @fid@ from
--- 'bakers' above in epoch @e@ and qc epoch @e@.
+-- | Generate a timeout message signed by the finalizer index @fid@ from
+--  'bakers' above in epoch @e@ and qc epoch @e@.
 dummyTimeoutMessage :: Int -> Epoch -> TimeoutMessage
 dummyTimeoutMessage fid e = dummyTimeoutMessage' fid e e
 
--- |Test the function 'uponTimeoutEvent' using the baker context of the finalizer with index 0 from
--- @bakers@. This tests the following:
--- * that the expected timeout message is set in the @rsLastSignedTimeoutMessage@ field of
---   'RoundStatus'.
--- * that 'sendTimeoutMessage' has been called with the expected timeout message.
--- * that the field @receivedTimeoutMessages@ of 'SkovData' has been updated with
---   expected timeout message (via the call to 'processTimeout').
+-- | Test the function 'uponTimeoutEvent' using the baker context of the finalizer with index 0 from
+--  @bakers@. This tests the following:
+--  * that the expected timeout message is set in the @rsLastSignedTimeoutMessage@ field of
+--    'RoundStatus'.
+--  * that 'sendTimeoutMessage' has been called with the expected timeout message.
+--  * that the field @receivedTimeoutMessages@ of 'SkovData' has been updated with
+--    expected timeout message (via the call to 'processTimeout').
 testUponTimeoutEvent :: Assertion
 testUponTimeoutEvent = do
     runTestMonad baker testTime genesisData $ do
@@ -156,16 +156,16 @@ testUponTimeoutEvent = do
             TimeoutMessages 0 (Map.singleton (FinalizerIndex 0) expectedMessage) Map.empty
     expectedMessage = dummyTimeoutMessage 0 0
 
--- |Test 'processTimeout'.
--- The following is tested before receival of enough timeout messages to form a valid TC:
--- * that timeout messages are indeed stored in the field @receivedTimeoutMessages@ of 'SkovData'
--- * that the round is not advanced
--- * that rsPreviousRoundTC@ is still @Absent@
+-- | Test 'processTimeout'.
+--  The following is tested before receival of enough timeout messages to form a valid TC:
+--  * that timeout messages are indeed stored in the field @receivedTimeoutMessages@ of 'SkovData'
+--  * that the round is not advanced
+--  * that rsPreviousRoundTC@ is still @Absent@
 --
--- The following is tested after receival of enough timeout messages to form a valid TC:
--- * that the round is indeed advanced
--- * that the field @rsPreviousRoundTC@ is set with a valid TC
--- * that the field @receivedTimeoutMessages@ of 'SkovData' is now @Absent@
+--  The following is tested after receival of enough timeout messages to form a valid TC:
+--  * that the round is indeed advanced
+--  * that the field @rsPreviousRoundTC@ is set with a valid TC
+--  * that the field @receivedTimeoutMessages@ of 'SkovData' is now @Absent@
 testProcessTimeout :: Assertion
 testProcessTimeout = do
     runTestMonad noBaker testTime genesisData $ do
@@ -242,7 +242,7 @@ testProcessTimeout = do
     noBaker = BakerContext Nothing
     testTime = timestampToUTCTime 1_000
 
--- |Test 'updateTimeoutMessages'.
+-- | Test 'updateTimeoutMessages'.
 testUpdateTimeoutMessages :: Spec
 testUpdateTimeoutMessages =
     describe "Test updateTimeoutMessages" $ do
@@ -355,8 +355,8 @@ testUpdateTimeoutMessages =
             }
     messages1 = TimeoutMessages 0 (Map.singleton (FinalizerIndex 0) $ dummyTimeoutMessage 0 0) Map.empty
 
--- |Test the 'receiveTimeoutMessage' function which partially verifies
--- a 'TimeoutMessage'.
+-- | Test the 'receiveTimeoutMessage' function which partially verifies
+--  a 'TimeoutMessage'.
 testReceiveTimeoutMessage :: Spec
 testReceiveTimeoutMessage = describe "Receive timeout message" $ do
     it "rejects obsolete round" $ receiveAndCheck sd obsoleteRoundMessage $ Rejected ObsoleteRound
@@ -486,7 +486,7 @@ testReceiveTimeoutMessage = describe "Receive timeout message" $ do
             & blockTable
                 . liveMap
                 %~ HM.insert liveBlockHash liveBlock
-                . HM.insert anotherLiveBlock liveBlock
+                    . HM.insert anotherLiveBlock liveBlock
             & currentTimeoutMessages .~ Present (TimeoutMessages 0 (Map.singleton (FinalizerIndex 1) duplicateMessage) Map.empty)
     -- A low level database which consists of a finalized block for height 0 otherwise empty.
     lldb =
@@ -498,9 +498,9 @@ testReceiveTimeoutMessage = describe "Receive timeout message" $ do
         resultCode <- runTestLLDB lldb $ receiveTimeoutMessage tm skovData
         resultCode `shouldBe` expect
 
--- |Tests for executing timeout messages.
--- The @executeTimeoutMessage@ executes a 'TimeoutMessage' which is partially verified
--- by @receiveTimeoutMessage@.
+-- | Tests for executing timeout messages.
+--  The @executeTimeoutMessage@ executes a 'TimeoutMessage' which is partially verified
+--  by @receiveTimeoutMessage@.
 testExecuteTimeoutMessages :: Spec
 testExecuteTimeoutMessages = describe "execute timeout messages" $ do
     it "rejects message with invalid bls signature" $ execute invalidAggregateSignature InvalidAggregateSignature
@@ -616,7 +616,7 @@ testExecuteTimeoutMessages = describe "execute timeout messages" $ do
             Dummy.dummyKeyCollection
             Dummy.dummyChainParameters
 
--- |Tests the 'checkTimeoutCertificate' function.
+-- | Tests the 'checkTimeoutCertificate' function.
 testCheckTimeoutCertificate :: Spec
 testCheckTimeoutCertificate = describe "check timeout certificate" $ do
     it "accepts timeout certificate" checkOkTC

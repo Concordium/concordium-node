@@ -62,7 +62,7 @@ import Concordium.TimerMonad (ThreadTimer)
 import qualified Concordium.Types.InvokeContract as InvokeContract
 import qualified Concordium.Types.Queries as Queries
 
--- |A 'PeerID' identifies peer at the p2p layer.
+-- | A 'PeerID' identifies peer at the p2p layer.
 type PeerID = Word64
 
 -- * Callbacks
@@ -124,10 +124,10 @@ type PeerID = Word64
 -- The third argument is the log message that is emitted.
 type LogCallback = Word8 -> Word8 -> CString -> IO ()
 
--- |FFI wrapper for calling a 'LogCallback' function.
+-- | FFI wrapper for calling a 'LogCallback' function.
 foreign import ccall "dynamic" callLogCallback :: FunPtr LogCallback -> LogCallback
 
--- |Wrap a log callback as a log method, only logging events with loglevel <= given log level.
+-- | Wrap a log callback as a log method, only logging events with loglevel <= given log level.
 toLogMethod :: Word8 -> FunPtr LogCallback -> LogMethod IO
 toLogMethod maxLogLevel logCallbackPtr = le
   where
@@ -141,17 +141,17 @@ toLogMethod maxLogLevel logCallbackPtr = le
 
 -- ** Broadcast
 
--- |Callback for broadcasting a message to the network.
--- The first argument indicates the message type.
--- The second argument is the genesis index.
--- The third argument is a pointer to the data to broadcast.
--- The fourth argument is the length of the data in bytes.
+-- | Callback for broadcasting a message to the network.
+--  The first argument indicates the message type.
+--  The second argument is the genesis index.
+--  The third argument is a pointer to the data to broadcast.
+--  The fourth argument is the length of the data in bytes.
 type BroadcastCallback = Int64 -> GenesisIndex -> CString -> Int64 -> IO ()
 
--- |FFI wrapper for invoking a 'BroadcastCallback' function.
+-- | FFI wrapper for invoking a 'BroadcastCallback' function.
 foreign import ccall "dynamic" invokeBroadcastCallback :: FunPtr BroadcastCallback -> BroadcastCallback
 
--- |Helper for invoking a 'BroadcastCallback' function.
+-- | Helper for invoking a 'BroadcastCallback' function.
 callBroadcastCallback :: FunPtr BroadcastCallback -> MessageType -> GenesisIndex -> BS.ByteString -> IO ()
 callBroadcastCallback cbk mt gi bs = BS.useAsCStringLen bs $ \(cdata, clen) ->
     invokeBroadcastCallback cbk mti gi cdata (fromIntegral clen)
@@ -164,17 +164,17 @@ callBroadcastCallback cbk mt gi bs = BS.useAsCStringLen bs $ \(cdata, clen) ->
 
 -- ** Direct-to-peer message
 
--- |Callback for sending a message to a peer.
--- The first argument is the peer to send to.
--- The second argument indicates the message type.
--- The third argument is a pointer to the data to broadcast.
--- The fourth argument is the length of the data in bytes.
+-- | Callback for sending a message to a peer.
+--  The first argument is the peer to send to.
+--  The second argument indicates the message type.
+--  The third argument is a pointer to the data to broadcast.
+--  The fourth argument is the length of the data in bytes.
 type DirectMessageCallback = PeerID -> Int64 -> GenesisIndex -> CString -> Int64 -> IO ()
 
--- |FFI wrapper for invoking a 'DirectMessageCallback' function.
+-- | FFI wrapper for invoking a 'DirectMessageCallback' function.
 foreign import ccall "dynamic" invokeDirectMessageCallback :: FunPtr DirectMessageCallback -> DirectMessageCallback
 
--- |Helper for invoking a 'DirectMessageCallback' function.
+-- | Helper for invoking a 'DirectMessageCallback' function.
 callDirectMessageCallback :: FunPtr DirectMessageCallback -> PeerID -> MessageType -> GenesisIndex -> BS.ByteString -> IO ()
 callDirectMessageCallback cbk peer mt genIndex bs = BS.useAsCStringLen bs $ \(cdata, clen) ->
     invokeDirectMessageCallback cbk peer mti genIndex cdata (fromIntegral clen)
@@ -187,30 +187,30 @@ callDirectMessageCallback cbk peer mt genIndex bs = BS.useAsCStringLen bs $ \(cd
 
 -- ** Catch-up status
 
--- |Callback for direct-sending a catch-up status message to all (non-pending) peers.
--- The first argument is the genesis index.
--- The first argument is a pointer to the data, which must be a catch-up
--- status message. The second argument is the length of the data in bytes.
+-- | Callback for direct-sending a catch-up status message to all (non-pending) peers.
+--  The first argument is the genesis index.
+--  The first argument is a pointer to the data, which must be a catch-up
+--  status message. The second argument is the length of the data in bytes.
 type CatchUpStatusCallback = GenesisIndex -> CString -> Int64 -> IO ()
 
--- |FFI wrapper for invoking a 'CatchUpStatusCallback' function.
+-- | FFI wrapper for invoking a 'CatchUpStatusCallback' function.
 foreign import ccall "dynamic" invokeCatchUpStatusCallback :: FunPtr CatchUpStatusCallback -> CatchUpStatusCallback
 
--- |Helper for invoking a 'CatchUpStatusCallback' function.
+-- | Helper for invoking a 'CatchUpStatusCallback' function.
 callCatchUpStatusCallback :: FunPtr CatchUpStatusCallback -> GenesisIndex -> BS.ByteString -> IO ()
 callCatchUpStatusCallback cbk gi bs = BS.useAsCStringLen bs $ \(cdata, clen) ->
     invokeCatchUpStatusCallback cbk gi cdata (fromIntegral clen)
 
 -- ** Regenesis
 
--- |Callback to signal that a new genesis block has occurred.
--- The argument is the block hash as a 32-byte string.
+-- | Callback to signal that a new genesis block has occurred.
+--  The argument is the block hash as a 32-byte string.
 type RegenesisCallback = Ptr RegenesisArc -> Ptr Word8 -> IO ()
 
--- |FFI wrapper for invoking a 'RegenesisCallback' function.
+-- | FFI wrapper for invoking a 'RegenesisCallback' function.
 foreign import ccall "dynamic" invokeRegenesisCallback :: FunPtr RegenesisCallback -> RegenesisCallback
 
--- |Helper for invoking a 'RegenesisCallback' function.
+-- | Helper for invoking a 'RegenesisCallback' function.
 callRegenesisCallback :: FunPtr RegenesisCallback -> RegenesisRef -> Maybe BlockHash -> IO ()
 callRegenesisCallback cb rgRef (Just (BlockHash (SHA256.Hash bh))) = withForeignPtr rgRef $ \rg ->
     FBS.withPtrReadOnly bh $ \ptr ->
@@ -218,33 +218,33 @@ callRegenesisCallback cb rgRef (Just (BlockHash (SHA256.Hash bh))) = withForeign
 callRegenesisCallback cb rgRef Nothing = withForeignPtr rgRef $ \rg ->
     invokeRegenesisCallback cb rg nullPtr
 
--- |Abstract type representing the rust Arc object used for tracking genesis blocks.
--- A pointer of this type is passed to consensus at start up and must be passed to each call of
--- the regenesis callback.
+-- | Abstract type representing the rust Arc object used for tracking genesis blocks.
+--  A pointer of this type is passed to consensus at start up and must be passed to each call of
+--  the regenesis callback.
 data RegenesisArc
 
--- |A reference that must be passed when calling the regenesis callback.
--- This is a 'ForeignPtr', so a finalizer that disposes of the pointer is attached.
+-- | A reference that must be passed when calling the regenesis callback.
+--  This is a 'ForeignPtr', so a finalizer that disposes of the pointer is attached.
 type RegenesisRef = ForeignPtr RegenesisArc
 
--- |A function pointer used for freeing the regenesis reference.
+-- | A function pointer used for freeing the regenesis reference.
 type RegenesisFree = FinalizerPtr RegenesisArc
 
--- |Construct a 'RegenesisRef' from a finalizer and a raw pointer.
+-- | Construct a 'RegenesisRef' from a finalizer and a raw pointer.
 makeRegenesisRef :: RegenesisFree -> Ptr RegenesisArc -> IO RegenesisRef
 makeRegenesisRef = newForeignPtr
 
 -- * Consensus operations
 
--- |A 'ConsensusRunner' is a 'MultiVersionRunner' with an existentially quantified global state
--- and finalization configuration.  A 'StablePtr' to a consensus runner is used as the reference
--- to the consensus that is passed over the FFI.
+-- | A 'ConsensusRunner' is a 'MultiVersionRunner' with an existentially quantified global state
+--  and finalization configuration.  A 'StablePtr' to a consensus runner is used as the reference
+--  to the consensus that is passed over the FFI.
 --
--- The use of the existential type is convenient, since it avoids or defers case analysis, while
--- allowing for multiple possible configurations.
+--  The use of the existential type is convenient, since it avoids or defers case analysis, while
+--  allowing for multiple possible configurations.
 data ConsensusRunner = forall finconf. ConsensusRunner (MultiVersionRunner finconf)
 
--- |Result of starting consensus
+-- | Result of starting consensus
 data StartResult
     = StartSuccess
     | StartGenesisFailure
@@ -252,7 +252,7 @@ data StartResult
     | StartIOException
     | StartInitException InitException
 
--- |Convert a 'StartResult' to an 'Int64'.
+-- | Convert a 'StartResult' to an 'Int64'.
 toStartResult :: StartResult -> Int64
 toStartResult =
     \case
@@ -271,21 +271,21 @@ toStartResult =
                 DatabaseInvariantViolation _ -> 10
                 IncorrectDatabaseVersion _ -> 11
 
--- |Catch exceptions which may occur at start up and return an appropriate exit code.
+-- | Catch exceptions which may occur at start up and return an appropriate exit code.
 handleStartExceptions :: LogMethod IO -> IO StartResult -> IO Int64
 handleStartExceptions logM c =
     toStartResult
         <$> c
-        `catches` [ Handler handleIOError,
-                    Handler handleInitException,
-                    Handler handleGlobalStateInitException
-                  ]
+            `catches` [ Handler handleIOError,
+                        Handler handleInitException,
+                        Handler handleGlobalStateInitException
+                      ]
   where
     handleIOError (ex :: IOError) = StartIOException <$ logM External LLError (displayException ex)
     handleInitException ex = StartInitException ex <$ logM External LLError (displayException ex)
     handleGlobalStateInitException (InvalidGenesisData _) = return StartGenesisFailure
 
--- |Migrate a legacy global state, if necessary.
+-- | Migrate a legacy global state, if necessary.
 migrateGlobalState :: FilePath -> LogMethod IO -> IO ()
 migrateGlobalState dbPath logM = do
     blockStateExists <- doesPathExist $ dbPath </> "blockstate-0" <.> "dat"
@@ -305,37 +305,37 @@ migrateGlobalState dbPath logM = do
             (False, True) -> logM GlobalState LLWarning "Cannot migrate legacy database as 'blockstate.dat' is absent."
             _ -> return ()
 
--- |The opaque type that represents a foreign (i.e., living in Rust) object. The
--- purpose of this context is to enable consensus to signal important events to
--- the Rust code. In particular it is currently used to inform the GRPC2 server
--- that a new block has arrived, or that a new block is finalized.
+-- | The opaque type that represents a foreign (i.e., living in Rust) object. The
+--  purpose of this context is to enable consensus to signal important events to
+--  the Rust code. In particular it is currently used to inform the GRPC2 server
+--  that a new block has arrived, or that a new block is finalized.
 data NotifyContext
 
--- |Type of the callback used to send notifications.
+-- | Type of the callback used to send notifications.
 type NotifyCallback =
-    -- |Handle to the context.
+    -- | Handle to the context.
     Ptr NotifyContext ->
-    -- |The type of event. Only 0 and 1 are given meaning.
+    -- | The type of event. Only 0 and 1 are given meaning.
     --
-    --   - 0 for block arrived
-    --   - 1 for block finalized
+    --    - 0 for block arrived
+    --    - 1 for block finalized
     Word8 ->
-    -- |Pointer to the beginning of the data to send.
+    -- | Pointer to the beginning of the data to send.
     Ptr Word8 ->
-    -- |Size of the data to send.
+    -- | Size of the data to send.
     Word64 ->
-    -- |Absolute block height of either the arrived block or finalized depending on the type of event.
+    -- | Absolute block height of either the arrived block or finalized depending on the type of event.
     Word64 ->
-    -- |Byte where a value of 1 indicates the block arrived/finalized was baked by the baker ID
-    -- setup for this node.
+    -- | Byte where a value of 1 indicates the block arrived/finalized was baked by the baker ID
+    --  setup for this node.
     Word8 ->
     IO ()
 
 foreign import ccall "dynamic" callNotifyCallback :: FunPtr NotifyCallback -> NotifyCallback
 
--- |Serialize the provided arguments (block hash, absolute block height) into an appropriate Proto
--- message, and invoke the provided FFI callback with the additional arguments providing the rust layer:
--- block height and whether it was baked by the node.
+-- | Serialize the provided arguments (block hash, absolute block height) into an appropriate Proto
+--  message, and invoke the provided FFI callback with the additional arguments providing the rust layer:
+--  block height and whether it was baked by the node.
 mkNotifyBlockArrived :: (Word8 -> Ptr Word8 -> Word64 -> Word64 -> Word8 -> IO ()) -> BlockHash -> AbsoluteBlockHeight -> Bool -> IO ()
 mkNotifyBlockArrived f = \bh height isHomeBaked -> do
     let msg :: Proto.ArrivedBlockInfo = Proto.make $ do
@@ -345,9 +345,9 @@ mkNotifyBlockArrived f = \bh height isHomeBaked -> do
     BS.unsafeUseAsCStringLen (Proto.encodeMessage msg) $ \(cPtr, len) -> do
         f 0 (castPtr cPtr) (fromIntegral len) (fromIntegral height) isHomeBakedByte
 
--- |Serialize the provided arguments (block hash, block height) into an appropriate Proto message,
--- and invoke the provided FFI callback with the additional arguments providing the rust layer:
--- block height, whether it was baked by the same baker ID as the one setup for the node.
+-- | Serialize the provided arguments (block hash, block height) into an appropriate Proto message,
+--  and invoke the provided FFI callback with the additional arguments providing the rust layer:
+--  block height, whether it was baked by the same baker ID as the one setup for the node.
 mkNotifyBlockFinalized :: (Word8 -> Ptr Word8 -> Word64 -> Word64 -> Word8 -> IO ()) -> BlockHash -> AbsoluteBlockHeight -> Bool -> IO ()
 mkNotifyBlockFinalized f = \bh height isHomeBaked -> do
     let msg :: Proto.FinalizedBlockInfo = Proto.make $ do
@@ -357,14 +357,14 @@ mkNotifyBlockFinalized f = \bh height isHomeBaked -> do
     BS.unsafeUseAsCStringLen (Proto.encodeMessage msg) $ \(cPtr, len) -> do
         f 1 (castPtr cPtr) (fromIntegral len) (fromIntegral height) isHomeBakedByte
 
--- |Context for when signalling a unsupported protocol update is pending.
+-- | Context for when signalling a unsupported protocol update is pending.
 data NotifyUnsupportedUpdatesContext
 
--- |The callback used to signal a unsupported protocol update is pending.
+-- | The callback used to signal a unsupported protocol update is pending.
 type NotifyUnsupportedUpdatesCallback =
-    -- |Handle to the context.
+    -- | Handle to the context.
     Ptr NotifyUnsupportedUpdatesContext ->
-    -- |Effective timestamp of unsupported protocol update as milliseconds since unix epoch.
+    -- | Effective timestamp of unsupported protocol update as milliseconds since unix epoch.
     Word64 ->
     IO ()
 
@@ -373,63 +373,63 @@ foreign import ccall "dynamic"
         FunPtr NotifyUnsupportedUpdatesCallback ->
         NotifyUnsupportedUpdatesCallback
 
--- |Call FFI callback with effective timestamp of unsupported protocol update, as milliseconds since
--- unix epoch.
+-- | Call FFI callback with effective timestamp of unsupported protocol update, as milliseconds since
+--  unix epoch.
 mkNotifyUnsupportedUpdates :: (Word64 -> IO ()) -> Timestamp -> IO ()
 mkNotifyUnsupportedUpdates f unsupportedUpdateEffectiveTime =
     f (tsMillis unsupportedUpdateEffectiveTime)
 
--- |Start up an instance of Skov without starting the baker thread.
--- If an error occurs starting Skov, the error will be logged and
--- a null pointer will be returned.
+-- | Start up an instance of Skov without starting the baker thread.
+--  If an error occurs starting Skov, the error will be logged and
+--  a null pointer will be returned.
 startConsensus ::
-    -- |Maximum block size.
+    -- | Maximum block size.
     Word64 ->
-    -- |Block construction timeout in milliseconds
+    -- | Block construction timeout in milliseconds
     Word64 ->
-    -- |Insertions before purging of transactions
+    -- | Insertions before purging of transactions
     Word64 ->
-    -- |Time in seconds during which a transaction can't be purged
+    -- | Time in seconds during which a transaction can't be purged
     Word64 ->
-    -- |Number of seconds between transaction table purging runs
+    -- | Number of seconds between transaction table purging runs
     Word64 ->
-    -- |Accounts table cache size
+    -- | Accounts table cache size
     Word32 ->
-    -- |Modules table cache size
+    -- | Modules table cache size
     Word32 ->
-    -- |Serialized genesis data (c string + len)
+    -- | Serialized genesis data (c string + len)
     CString ->
     Int64 ->
-    -- |Serialized baker identity (c string + len)
+    -- | Serialized baker identity (c string + len)
     CString ->
     Int64 ->
-    -- |Context for notifying upon new block arrival, and new finalized blocks.
+    -- | Context for notifying upon new block arrival, and new finalized blocks.
     Ptr NotifyContext ->
-    -- |The callback used to invoke upon new block arrival, and new finalized blocks.
+    -- | The callback used to invoke upon new block arrival, and new finalized blocks.
     FunPtr NotifyCallback ->
-    -- |Context for when signalling a unsupported protocol update is pending.
+    -- | Context for when signalling a unsupported protocol update is pending.
     Ptr NotifyUnsupportedUpdatesContext ->
-    -- |The callback used to signal a unsupported protocol update is pending.
+    -- | The callback used to signal a unsupported protocol update is pending.
     FunPtr NotifyUnsupportedUpdatesCallback ->
-    -- |Handler for generated messages
+    -- | Handler for generated messages
     FunPtr BroadcastCallback ->
-    -- |Handler for sending catch-up status to peers
+    -- | Handler for sending catch-up status to peers
     FunPtr CatchUpStatusCallback ->
-    -- |Regenesis object
+    -- | Regenesis object
     Ptr RegenesisArc ->
-    -- |Finalizer for the regenesis object
+    -- | Finalizer for the regenesis object
     RegenesisFree ->
-    -- |Handler for notifying the node of new regenesis blocks
+    -- | Handler for notifying the node of new regenesis blocks
     FunPtr RegenesisCallback ->
-    -- |Maximum log level (inclusive) (0 to disable logging).
+    -- | Maximum log level (inclusive) (0 to disable logging).
     Word8 ->
-    -- |Handler for log events
+    -- | Handler for log events
     FunPtr LogCallback ->
-    -- |FilePath for the AppData directory
+    -- | FilePath for the AppData directory
     CString ->
-    -- |Length of AppData path
+    -- | Length of AppData path
     Int64 ->
-    -- |Pointer to receive the pointer to the 'ConsensusRunner'.
+    -- | Pointer to receive the pointer to the 'ConsensusRunner'.
     Ptr (StablePtr ConsensusRunner) ->
     IO Int64
 startConsensus
@@ -535,52 +535,52 @@ startConsensus
                   rpModulesCacheSize = fromIntegral modulesCacheSize
                 }
 
--- |Start up an instance of Skov without starting the baker thread.
--- If an error occurs starting Skov, the error will be logged and
--- a null pointer will be returned.
+-- | Start up an instance of Skov without starting the baker thread.
+--  If an error occurs starting Skov, the error will be logged and
+--  a null pointer will be returned.
 startConsensusPassive ::
-    -- |Maximum block size.
+    -- | Maximum block size.
     Word64 ->
-    -- |Block construction timeout in milliseconds
+    -- | Block construction timeout in milliseconds
     Word64 ->
-    -- |Insertions before purging of transactions
+    -- | Insertions before purging of transactions
     Word64 ->
-    -- |Time in seconds during which a transaction can't be purged
+    -- | Time in seconds during which a transaction can't be purged
     Word64 ->
-    -- |Number of seconds between transaction table purging runs
+    -- | Number of seconds between transaction table purging runs
     Word64 ->
-    -- |Accounts table cache size
+    -- | Accounts table cache size
     Word32 ->
-    -- |Modules table cache size
+    -- | Modules table cache size
     Word32 ->
-    -- |Serialized genesis data (c string + len)
+    -- | Serialized genesis data (c string + len)
     CString ->
     Int64 ->
-    -- |Context for notifying upon new block arrival, and new finalized blocks.
+    -- | Context for notifying upon new block arrival, and new finalized blocks.
     Ptr NotifyContext ->
-    -- |The callback used to invoke upon new block arrival, and new finalized blocks.
+    -- | The callback used to invoke upon new block arrival, and new finalized blocks.
     FunPtr NotifyCallback ->
-    -- |Context for when signalling a unsupported protocol update is pending.
+    -- | Context for when signalling a unsupported protocol update is pending.
     Ptr NotifyUnsupportedUpdatesContext ->
-    -- |The callback used to signal a unsupported protocol update is pending.
+    -- | The callback used to signal a unsupported protocol update is pending.
     FunPtr NotifyUnsupportedUpdatesCallback ->
-    -- |Handler for sending catch-up status to peers
+    -- | Handler for sending catch-up status to peers
     FunPtr CatchUpStatusCallback ->
-    -- |Regenesis object
+    -- | Regenesis object
     Ptr RegenesisArc ->
-    -- |Finalizer for the regenesis object
+    -- | Finalizer for the regenesis object
     RegenesisFree ->
-    -- |Handler for notifying the node of new regenesis blocks
+    -- | Handler for notifying the node of new regenesis blocks
     FunPtr RegenesisCallback ->
-    -- |Maximum log level (inclusive) (0 to disable logging).
+    -- | Maximum log level (inclusive) (0 to disable logging).
     Word8 ->
-    -- |Handler for log events
+    -- | Handler for log events
     FunPtr LogCallback ->
-    -- |FilePath for the AppData directory
+    -- | FilePath for the AppData directory
     CString ->
-    -- |Length of AppData path
+    -- | Length of AppData path
     Int64 ->
-    -- |Pointer to receive the pointer to the 'ConsensusRunner'.
+    -- | Pointer to receive the pointer to the 'ConsensusRunner'.
     Ptr (StablePtr ConsensusRunner) ->
     IO Int64
 startConsensusPassive
@@ -668,22 +668,22 @@ startConsensusPassive
                   rpModulesCacheSize = fromIntegral modulesCacheSize
                 }
 
--- |Shut down consensus, stopping any baker thread if necessary.
--- The pointer is not valid after this function returns.
+-- | Shut down consensus, stopping any baker thread if necessary.
+--  The pointer is not valid after this function returns.
 stopConsensus :: StablePtr ConsensusRunner -> IO ()
 stopConsensus cptr = mask_ $ do
     ConsensusRunner mvr <- deRefStablePtr cptr
     MV.shutdownMultiVersionRunner mvr
     freeStablePtr cptr
 
--- |Start the baker thread.  Calling this mare than once does not start additional baker threads.
+-- | Start the baker thread.  Calling this mare than once does not start additional baker threads.
 startBaker :: StablePtr ConsensusRunner -> IO ()
 startBaker cptr = mask_ $ do
     ConsensusRunner mvr <- deRefStablePtr cptr
     MV.startBaker mvr
 
--- |Stop a baker thread.  The baker thread may be restarted by calling 'startBaker'.
--- This does not otherwise affect the consensus.
+-- | Stop a baker thread.  The baker thread may be restarted by calling 'startBaker'.
+--  This does not otherwise affect the consensus.
 stopBaker :: StablePtr ConsensusRunner -> IO ()
 stopBaker cptr = mask_ $ do
     ConsensusRunner mvr <- deRefStablePtr cptr
@@ -762,7 +762,7 @@ stopBaker cptr = mask_ $ do
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 type ReceiveResult = Int64
 
--- |Convert an 'UpdateResult' to the corresponding 'ReceiveResult' value.
+-- | Convert an 'UpdateResult' to the corresponding 'ReceiveResult' value.
 toReceiveResult :: UpdateResult -> ReceiveResult
 toReceiveResult ResultSuccess = 0
 toReceiveResult ResultSerializationFail = 1
@@ -797,28 +797,28 @@ toReceiveResult ResultEnergyExceeded = 29
 toReceiveResult ResultInsufficientFunds = 30
 toReceiveResult ResultDoubleSign = 31
 
--- |Handle receipt of a block.
--- The possible return codes are @ResultSuccess@, @ResultSerializationFail@,
--- @ResultInvalid@, @ResultPendingBlock@, @ResultDuplicate@, @ResultStale@,
--- @ResultConsensusShutDown@, @ResultEarlyBlock@, @ResultInvalidGenesisIndex@, and
--- @ResultDoubleSign@.
--- 'receiveBlock' may invoke the callbacks for new finalization messages.
--- If the block was successfully verified i.e. baker signature, finalization proofs etc. then
--- the continuation for executing the block will be written to the 'Ptr' provided.
+-- | Handle receipt of a block.
+--  The possible return codes are @ResultSuccess@, @ResultSerializationFail@,
+--  @ResultInvalid@, @ResultPendingBlock@, @ResultDuplicate@, @ResultStale@,
+--  @ResultConsensusShutDown@, @ResultEarlyBlock@, @ResultInvalidGenesisIndex@, and
+--  @ResultDoubleSign@.
+--  'receiveBlock' may invoke the callbacks for new finalization messages.
+--  If the block was successfully verified i.e. baker signature, finalization proofs etc. then
+--  the continuation for executing the block will be written to the 'Ptr' provided.
 receiveBlock ::
-    -- |Pointer to the multi version runner.
+    -- | Pointer to the multi version runner.
     StablePtr ConsensusRunner ->
-    -- |The genesis index.
+    -- | The genesis index.
     GenesisIndex ->
-    -- |The message.
+    -- | The message.
     CString ->
-    -- |The length of the message.
+    -- | The length of the message.
     Word64 ->
-    -- |If the block was received successfully i.e. 'receiveBlock' yields a
-    -- 'ResultSuccess' then a continuation for executing the block is written to this ptr.
-    -- IMPORTANT! If the continuation is present then it must also be called in order
-    -- to avoid a memory leak.
-    -- The 'StablePtr' is freed in 'executeBlock'.
+    -- | If the block was received successfully i.e. 'receiveBlock' yields a
+    --  'ResultSuccess' then a continuation for executing the block is written to this ptr.
+    --  IMPORTANT! If the continuation is present then it must also be called in order
+    --  to avoid a memory leak.
+    --  The 'StablePtr' is freed in 'executeBlock'.
     Ptr (StablePtr MV.ExecuteBlock) ->
     IO ReceiveResult
 receiveBlock bptr genIndex msg msgLen ptrPtrExecuteBlock = do
@@ -832,12 +832,12 @@ receiveBlock bptr genIndex msg msgLen ptrPtrExecuteBlock = do
             poke ptrPtrExecuteBlock =<< newStablePtr eb
             return $ toReceiveResult receiveResult
 
--- |Execute a block that has been received and succesfully verified.
--- The 'MV.ExecuteBlock' continuation is obtained via first calling 'receiveBlock' which in return
--- will construct a pointer to the continuation.
--- The 'StablePtr' is freed here and so this function should only be called once for each 'MV.ExecuteBlock'.
--- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@
--- and @ResultConsensusShutDown@.
+-- | Execute a block that has been received and succesfully verified.
+--  The 'MV.ExecuteBlock' continuation is obtained via first calling 'receiveBlock' which in return
+--  will construct a pointer to the continuation.
+--  The 'StablePtr' is freed here and so this function should only be called once for each 'MV.ExecuteBlock'.
+--  The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@
+--  and @ResultConsensusShutDown@.
 executeBlock :: StablePtr ConsensusRunner -> StablePtr MV.ExecuteBlock -> IO ReceiveResult
 executeBlock ptrConsensus ptrCont = do
     (ConsensusRunner mvr) <- deRefStablePtr ptrConsensus
@@ -847,11 +847,11 @@ executeBlock ptrConsensus ptrCont = do
     res <- MV.runBlock executableBlock
     return $ toReceiveResult res
 
--- |Handle receipt of a finalization message.
--- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,
--- @ResultPendingFinalization@, @ResultDuplicate@, @ResultStale@, @ResultIncorrectFinalizationSession@,
--- @ResultUnverifiable@, @ResultConsensusShutDown@, @ResultInvalidGenesisIndex@, and @ResultDoubleSign@.
--- 'receiveFinalization' may invoke the callbacks for new finalization messages.
+-- | Handle receipt of a finalization message.
+--  The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,
+--  @ResultPendingFinalization@, @ResultDuplicate@, @ResultStale@, @ResultIncorrectFinalizationSession@,
+--  @ResultUnverifiable@, @ResultConsensusShutDown@, @ResultInvalidGenesisIndex@, and @ResultDoubleSign@.
+--  'receiveFinalization' may invoke the callbacks for new finalization messages.
 receiveFinalizationMessage ::
     StablePtr ConsensusRunner ->
     GenesisIndex ->
@@ -864,11 +864,11 @@ receiveFinalizationMessage bptr genIndex msg msgLen = do
     finMsgBS <- BS.packCStringLen (msg, fromIntegral msgLen)
     toReceiveResult <$> runMVR (MV.receiveFinalizationMessage genIndex finMsgBS) mvr
 
--- |Handle receipt of a finalization record.
--- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,
--- @ResultPendingBlock@, @ResultPendingFinalization@, @ResultDuplicate@, @ResultStale@,
--- @ResultConsensusShutDown@ and @ResultInvalidGenesisIndex@.
--- 'receiveFinalizationRecord' may invoke the callbacks for new finalization messages.
+-- | Handle receipt of a finalization record.
+--  The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,
+--  @ResultPendingBlock@, @ResultPendingFinalization@, @ResultDuplicate@, @ResultStale@,
+--  @ResultConsensusShutDown@ and @ResultInvalidGenesisIndex@.
+--  'receiveFinalizationRecord' may invoke the callbacks for new finalization messages.
 receiveFinalizationRecord ::
     StablePtr ConsensusRunner ->
     GenesisIndex ->
@@ -881,16 +881,16 @@ receiveFinalizationRecord bptr genIndex msg msgLen = do
     finRecBS <- BS.packCStringLen (msg, fromIntegral msgLen)
     toReceiveResult <$> runMVR (MV.receiveFinalizationRecord genIndex finRecBS) mvr
 
--- |Handle receipt of a transaction.
--- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultDuplicate@,
--- @ResultStale@, @ResultInvalid@, @ResultConsensusShutDown@, @ResultExpiryTooLate@, @ResultVerificationFailed@,
--- @ResultNonexistingSenderAccount@, @ResultDuplicateNonce@, @ResultNonceTooLarge@, @ResultTooLowEnergy@,
--- @ResultDuplicateAccountRegistrationID@,
--- @ResultCredentialDeploymentInvalidSignatures@,
--- @ResultCredentialDeploymentInvalidIP@, @ResultCredentialDeploymentInvalidAR@,
--- @ResultCredentialDeploymentExpired@, @ResultChainUpdateInvalidSequenceNumber@,
--- @ResultChainUpdateInvalidEffectiveTime@, @ResultChainUpdateInvalidSignatures@,
--- @ResultEnergyExceeded@
+-- | Handle receipt of a transaction.
+--  The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultDuplicate@,
+--  @ResultStale@, @ResultInvalid@, @ResultConsensusShutDown@, @ResultExpiryTooLate@, @ResultVerificationFailed@,
+--  @ResultNonexistingSenderAccount@, @ResultDuplicateNonce@, @ResultNonceTooLarge@, @ResultTooLowEnergy@,
+--  @ResultDuplicateAccountRegistrationID@,
+--  @ResultCredentialDeploymentInvalidSignatures@,
+--  @ResultCredentialDeploymentInvalidIP@, @ResultCredentialDeploymentInvalidAR@,
+--  @ResultCredentialDeploymentExpired@, @ResultChainUpdateInvalidSequenceNumber@,
+--  @ResultChainUpdateInvalidEffectiveTime@, @ResultChainUpdateInvalidSignatures@,
+--  @ResultEnergyExceeded@
 receiveTransaction :: StablePtr ConsensusRunner -> CString -> Int64 -> Ptr Word8 -> IO ReceiveResult
 receiveTransaction bptr transactionData transactionLen outPtr = do
     (ConsensusRunner mvr) <- deRefStablePtr bptr
@@ -903,29 +903,29 @@ receiveTransaction bptr transactionData transactionLen outPtr = do
             FBS.withPtrReadOnly h $ \p -> copyBytes outPtr p 32
             return (toReceiveResult ur)
 
--- |Handle receiving a catch-up status message.
--- If the message is a request, then the supplied callback will be used to
--- send the requested data for the peer.
--- The response code can be:
--- * @ResultSerializationFail@
--- * @ResultInvalid@ -- the catch-up message is inconsistent with the skov
--- * @ResultPendingBlock@ -- the sender has some data I am missing, and should be marked pending
--- * @ResultSuccess@ -- I do not require additional data from the sender, so mark it as up-to-date
--- * @ResultContinueCatchUp@ -- The sender should be marked pending if it is currently up-to-date (no change otherwise)
+-- | Handle receiving a catch-up status message.
+--  If the message is a request, then the supplied callback will be used to
+--  send the requested data for the peer.
+--  The response code can be:
+--  * @ResultSerializationFail@
+--  * @ResultInvalid@ -- the catch-up message is inconsistent with the skov
+--  * @ResultPendingBlock@ -- the sender has some data I am missing, and should be marked pending
+--  * @ResultSuccess@ -- I do not require additional data from the sender, so mark it as up-to-date
+--  * @ResultContinueCatchUp@ -- The sender should be marked pending if it is currently up-to-date (no change otherwise)
 receiveCatchUpStatus ::
-    -- |Consensus pointer
+    -- | Consensus pointer
     StablePtr ConsensusRunner ->
-    -- |Identifier of peer (passed to callback)
+    -- | Identifier of peer (passed to callback)
     PeerID ->
-    -- |Genesis index
+    -- | Genesis index
     GenesisIndex ->
-    -- |Serialised catch-up message
+    -- | Serialised catch-up message
     CString ->
-    -- |Length of message
+    -- | Length of message
     Int64 ->
-    -- |Limit to number of responses. Limit <= 0 means no messages will be sent.
+    -- | Limit to number of responses. Limit <= 0 means no messages will be sent.
     Int64 ->
-    -- |Callback to receive messages
+    -- | Callback to receive messages
     FunPtr DirectMessageCallback ->
     IO ReceiveResult
 receiveCatchUpStatus cptr src genIndex cstr len limit cbk =
@@ -941,16 +941,16 @@ receiveCatchUpStatus cptr src genIndex cstr len limit cbk =
                 let catchUpCallback mt = callDirectMessageCallback cbk src mt genIndex
                 runMVR (MV.receiveCatchUpStatus genIndex bs CatchUpConfiguration{..}) mvr
 
--- |Get a catch-up status message for requesting catch-up with peers.
--- The genesis index and string pointer are loaded into the given pointers.
--- The return value is the length of the string.
--- The string should be freed by calling 'freeCStr'.
+-- | Get a catch-up status message for requesting catch-up with peers.
+--  The genesis index and string pointer are loaded into the given pointers.
+--  The return value is the length of the string.
+--  The string should be freed by calling 'freeCStr'.
 getCatchUpStatus ::
-    -- |Consensus pointer
+    -- | Consensus pointer
     StablePtr ConsensusRunner ->
-    -- |Pointer to receive the genesis index
+    -- | Pointer to receive the genesis index
     Ptr GenesisIndex ->
-    -- |Pointer to receive the string pointer
+    -- | Pointer to receive the string pointer
     Ptr CString ->
     IO Int64
 getCatchUpStatus cptr genIndexPtr resPtr = do
@@ -960,14 +960,14 @@ getCatchUpStatus cptr genIndexPtr resPtr = do
     poke resPtr =<< toCString resBS
     return (LBS.length resBS)
 
--- |Import a file consisting of a set of blocks and finalization records for the purposes of
--- out-of-band catch-up.
+-- | Import a file consisting of a set of blocks and finalization records for the purposes of
+--  out-of-band catch-up.
 importBlocks ::
-    -- |Consensus runner
+    -- | Consensus runner
     StablePtr ConsensusRunner ->
-    -- |File path to import blocks from
+    -- | File path to import blocks from
     CString ->
-    -- |Length of filename
+    -- | Length of filename
     Int64 ->
     IO Int64
 importBlocks cptr fname fnameLen =
@@ -976,9 +976,9 @@ importBlocks cptr fname fnameLen =
         theFile <- peekCStringLen (fname, fromIntegral fnameLen)
         runMVR (MV.importBlocks theFile) mvr
 
--- |Stops importing blocks from a file.
+-- | Stops importing blocks from a file.
 stopImportingBlocks ::
-    -- |Consensus runner
+    -- | Consensus runner
     StablePtr ConsensusRunner ->
     IO ()
 stopImportingBlocks cptr = mask_ $ do
@@ -987,8 +987,8 @@ stopImportingBlocks cptr = mask_ $ do
 
 -- * Queries
 
--- |Converts a lazy 'LBS.ByteString' to a null-terminated 'CString'.
--- The string must be freed after use by calling 'free'.
+-- | Converts a lazy 'LBS.ByteString' to a null-terminated 'CString'.
+--  The string must be freed after use by calling 'free'.
 toCString :: LBS.ByteString -> IO CString
 toCString lbs = do
     let len = LBS.length lbs
@@ -1000,14 +1000,14 @@ toCString lbs = do
     poke end (0 :: CChar)
     return buf
 
--- |Encode a value as JSON in a CString. The allocated string must be explicitly freed to avoid
--- memory leaks.
-jsonCString :: AE.ToJSON a => a -> IO CString
+-- | Encode a value as JSON in a CString. The allocated string must be explicitly freed to avoid
+--  memory leaks.
+jsonCString :: (AE.ToJSON a) => a -> IO CString
 jsonCString = toCString . AE.encode
 
--- |Converts a 'BS.ByteString' to a 'CString' that encodes the length of the
--- string in big-endian in the first four bytes (not including the length).
--- This string should be freed after use by calling 'free'.
+-- | Converts a 'BS.ByteString' to a 'CString' that encodes the length of the
+--  string in big-endian in the first four bytes (not including the length).
+--  This string should be freed after use by calling 'free'.
 byteStringToCString :: BS.ByteString -> IO CString
 byteStringToCString bs = do
     let bsp = BS.concat [S.runPut (S.putWord32be (fromIntegral (BS.length bs))), bs]
@@ -1017,17 +1017,17 @@ byteStringToCString bs = do
         copyBytes dest cstr len
         return dest
 
--- |Free a 'CString'. This should be called to dispose of any 'CString' values that are returned by
--- queries.
+-- | Free a 'CString'. This should be called to dispose of any 'CString' values that are returned by
+--  queries.
 freeCStr :: CString -> IO ()
 freeCStr = free
 
--- |Convenience wrapper for queries that return JSON values.
+-- | Convenience wrapper for queries that return JSON values.
 jsonQuery ::
-    AE.ToJSON a =>
-    -- |Consensus pointer
+    (AE.ToJSON a) =>
+    -- | Consensus pointer
     StablePtr ConsensusRunner ->
-    -- |Configuration-independent query operation
+    -- | Configuration-independent query operation
     (forall finconf. MVR finconf a) ->
     IO CString
 jsonQuery cptr a = do
@@ -1035,54 +1035,54 @@ jsonQuery cptr a = do
     res <- runMVR a mvr
     jsonCString res
 
--- |Decode a block hash from a null-terminated base-16 string.
+-- | Decode a block hash from a null-terminated base-16 string.
 decodeBlockHash :: CString -> IO (Maybe BlockHash)
 decodeBlockHash blockcstr = readMaybe <$> peekCString blockcstr
 
--- |Decode an account address from a null-terminated base-58 string.
+-- | Decode an account address from a null-terminated base-58 string.
 decodeAccountAddress :: CString -> IO (Either String AccountAddress)
 decodeAccountAddress acctstr = addressFromBytes <$> BS.packCString acctstr
 
--- |Decode an instance address from a null-terminated JSON-encoded string.
+-- | Decode an instance address from a null-terminated JSON-encoded string.
 decodeInstanceAddress :: CString -> IO (Maybe ContractAddress)
 decodeInstanceAddress inststr = AE.decodeStrict <$> BS.packCString inststr
 
--- |Decode a module reference from a null-terminated base-16 string.
+-- | Decode a module reference from a null-terminated base-16 string.
 decodeModuleRef :: CString -> IO (Maybe ModuleRef)
 decodeModuleRef modstr = readMaybe <$> peekCString modstr
 
--- |Decode the context passed to the @invokeContract@ method.
+-- | Decode the context passed to the @invokeContract@ method.
 decodeContractContext :: CString -> IO (Maybe InvokeContract.ContractContext)
 decodeContractContext ctxStr = AE.decodeStrict <$> BS.packCString ctxStr
 
--- |Decode a transaction hash from a null-terminated base-16 string.
+-- | Decode a transaction hash from a null-terminated base-16 string.
 decodeTransactionHash :: CString -> IO (Maybe TransactionHash)
 decodeTransactionHash trHashStr = readMaybe <$> peekCString trHashStr
 
 -- ** General queries
 
--- |Returns a null-terminated string with a JSON representation of the current status of Consensus.
+-- | Returns a null-terminated string with a JSON representation of the current status of Consensus.
 getConsensusStatus :: StablePtr ConsensusRunner -> IO CString
 getConsensusStatus cptr = jsonQuery cptr Q.getConsensusStatus
 
 -- ** Queries against latest tree
 
--- |Returns a null-terminated string with a JSON representation of the current branches from the
--- last finalized block (inclusive).
+-- | Returns a null-terminated string with a JSON representation of the current branches from the
+--  last finalized block (inclusive).
 getBranches :: StablePtr ConsensusRunner -> IO CString
 getBranches cptr = jsonQuery cptr Q.getBranches
 
--- |Get the list of live blocks at a given height.
--- The height is interpreted relative to the genesis block at the specified index.
--- The last parameter indicates whether to restrict to a single genesis (if it is a non-zero value).
--- Returns a null-terminated string encoding a JSON list.
+-- | Get the list of live blocks at a given height.
+--  The height is interpreted relative to the genesis block at the specified index.
+--  The last parameter indicates whether to restrict to a single genesis (if it is a non-zero value).
+--  Returns a null-terminated string encoding a JSON list.
 getBlocksAtHeight ::
     StablePtr ConsensusRunner ->
-    -- |Block height to query
+    -- | Block height to query
     Word64 ->
-    -- |Genesis index that block height is based on
+    -- | Genesis index that block height is based on
     Word32 ->
-    -- |Non-zero to restrict to blocks at specified genesis index
+    -- | Non-zero to restrict to blocks at specified genesis index
     Word8 ->
     IO CString
 getBlocksAtHeight cptr height genIndex restrict =
@@ -1109,123 +1109,123 @@ getNumberOfNonFinalizedTransactions cptr = do
 
 -- ** Block-indexed queries
 
--- |Given a null-terminated string that represents a block hash (base 16), returns a null-terminated
--- string containing a JSON representation of the block.
--- If the block hash is invalid or unknown, this returns the JSON null value.
--- For details of the value returned, see 'Concordium.Queries.Types.BlockInfo'.
+-- | Given a null-terminated string that represents a block hash (base 16), returns a null-terminated
+--  string containing a JSON representation of the block.
+--  If the block hash is invalid or unknown, this returns the JSON null value.
+--  For details of the value returned, see 'Concordium.Queries.Types.BlockInfo'.
 getBlockInfo :: StablePtr ConsensusRunner -> CString -> IO CString
 getBlockInfo cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
         Just bh -> jsonQuery cptr (Q.responseToMaybe <$> Q.getBlockInfo (Queries.Given bh))
 
--- |Get the list of transactions in a block with short summaries of their effects.
--- Returns a null-terminated string encoding a JSON value.
--- If the block hash is invalid or unknown, this returns the JSON null value.
--- For details of the value returned, see 'Concordium.Queries.Types.BlockSummary'.
+-- | Get the list of transactions in a block with short summaries of their effects.
+--  Returns a null-terminated string encoding a JSON value.
+--  If the block hash is invalid or unknown, this returns the JSON null value.
+--  For details of the value returned, see 'Concordium.Queries.Types.BlockSummary'.
 getBlockSummary :: StablePtr ConsensusRunner -> CString -> IO CString
 getBlockSummary cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
         Just bh -> jsonQuery cptr (Q.getBlockSummary bh)
 
--- |Get the status of the rewards parameters for the given block. The block must
--- be given as a null-terminated base16 encoding of the block hash.
--- The return value is a null-terminated, JSON encoded value.
--- The returned string should be freed by calling 'freeCStr'.
+-- | Get the status of the rewards parameters for the given block. The block must
+--  be given as a null-terminated base16 encoding of the block hash.
+--  The return value is a null-terminated, JSON encoded value.
+--  The returned string should be freed by calling 'freeCStr'.
 getRewardStatus :: StablePtr ConsensusRunner -> CString -> IO CString
 getRewardStatus cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
         Just bh -> jsonQuery cptr (Q.responseToMaybe <$> Q.getRewardStatus (Queries.Given bh))
 
--- |Get birk parameters for the given block. The block must be given as a
--- null-terminated base16 encoding of the block hash.
--- The return value is a null-terminated JSON-encoded value.
--- The returned string should be freed by calling 'freeCStr'.
+-- | Get birk parameters for the given block. The block must be given as a
+--  null-terminated base16 encoding of the block hash.
+--  The return value is a null-terminated JSON-encoded value.
+--  The returned string should be freed by calling 'freeCStr'.
 getBirkParameters :: StablePtr ConsensusRunner -> CString -> IO CString
 getBirkParameters cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
         Just bh -> jsonQuery cptr (Q.responseToMaybe <$> Q.getBlockBirkParameters (Queries.Given bh))
 
--- |Get the cryptographic parameters in a given block. The block must be given as a
--- null-terminated base16 encoding of the block hash.
--- The return value is a null-terminated JSON-encoded object.
--- The returned string should be freed by calling 'freeCStr'.
+-- | Get the cryptographic parameters in a given block. The block must be given as a
+--  null-terminated base16 encoding of the block hash.
+--  The return value is a null-terminated JSON-encoded object.
+--  The returned string should be freed by calling 'freeCStr'.
 getCryptographicParameters :: StablePtr ConsensusRunner -> CString -> IO CString
 getCryptographicParameters cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
         Just bh -> jsonQuery cptr $ Versioned 0 . Q.responseToMaybe <$> Q.getCryptographicParameters (Queries.Given bh)
 
--- |Get all of the identity providers registered in the system as of a given block.
--- The block must be given as a null-terminated base16 encoding of the block hash.
--- The return value is a null-terminated JSON-encoded list. (Or null for an invalid block.)
--- The returned string should be freed by calling 'freeCStr'.
+-- | Get all of the identity providers registered in the system as of a given block.
+--  The block must be given as a null-terminated base16 encoding of the block hash.
+--  The return value is a null-terminated JSON-encoded list. (Or null for an invalid block.)
+--  The returned string should be freed by calling 'freeCStr'.
 getAllIdentityProviders :: StablePtr ConsensusRunner -> CString -> IO CString
 getAllIdentityProviders cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
         Just bh -> jsonQuery cptr (Q.responseToMaybe <$> Q.getAllIdentityProviders (Queries.Given bh))
 
--- |Get all of the identity providers registered in the system as of a given block.
--- The block must be given as a null-terminated base16 encoding of the block hash.
--- The return value is a null-terminated JSON-encoded list. (Or null for an invalid block.)
--- The returned string should be freed by calling 'freeCStr'.
+-- | Get all of the identity providers registered in the system as of a given block.
+--  The block must be given as a null-terminated base16 encoding of the block hash.
+--  The return value is a null-terminated JSON-encoded list. (Or null for an invalid block.)
+--  The returned string should be freed by calling 'freeCStr'.
 getAllAnonymityRevokers :: StablePtr ConsensusRunner -> CString -> IO CString
 getAllAnonymityRevokers cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
         Just bh -> jsonQuery cptr (Q.responseToMaybe <$> Q.getAllAnonymityRevokers (Queries.Given bh))
 
--- |Given a null-terminated string that represents a block hash (base 16), and a number of blocks,
--- returns a null-terminated string containing a JSON list of the ancestors of the node (up to the
--- given number, including the block itself).
--- If the block hash is invalid or unknown, this returns the JSON null value.
+-- | Given a null-terminated string that represents a block hash (base 16), and a number of blocks,
+--  returns a null-terminated string containing a JSON list of the ancestors of the node (up to the
+--  given number, including the block itself).
+--  If the block hash is invalid or unknown, this returns the JSON null value.
 getAncestors :: StablePtr ConsensusRunner -> CString -> Word64 -> IO CString
 getAncestors cptr blockcstr depth =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
         Just bh -> jsonQuery cptr (Q.responseToMaybe <$> Q.getAncestors (Queries.Given bh) (BlockHeight depth))
 
--- |Get the list of account addresses in the given block. The block must be
--- given as a null-terminated base16 encoding of the block hash. The return
--- value is a null-terminated JSON-encoded list of addresses.
--- The returned string should be freed by calling 'freeCStr'.
+-- | Get the list of account addresses in the given block. The block must be
+--  given as a null-terminated base16 encoding of the block hash. The return
+--  value is a null-terminated JSON-encoded list of addresses.
+--  The returned string should be freed by calling 'freeCStr'.
 getAccountList :: StablePtr ConsensusRunner -> CString -> IO CString
 getAccountList cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
         Just bh -> jsonQuery cptr (Q.responseToMaybe <$> Q.getAccountList (Queries.Given bh))
 
--- |Get the list of contract instances (their addresses) in the given block. The
--- block must be given as a null-terminated base16 encoding of the block hash.
--- The return value is a null-terminated JSON-encoded list of addresses.
--- The returned string should be freed by calling 'freeCStr'.
+-- | Get the list of contract instances (their addresses) in the given block. The
+--  block must be given as a null-terminated base16 encoding of the block hash.
+--  The return value is a null-terminated JSON-encoded list of addresses.
+--  The returned string should be freed by calling 'freeCStr'.
 getInstances :: StablePtr ConsensusRunner -> CString -> IO CString
 getInstances cptr blockcstr =
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
         Just bh -> jsonQuery cptr (Q.responseToMaybe <$> Q.getInstanceList (Queries.Given bh))
 
--- |Get the list of modules in the given block. The block must be given as a
--- null-terminated base16 encoding of the block hash.
--- The return value is a null-terminated JSON-encoded list.
--- The returned string should be freed by calling 'freeCStr'.
+-- | Get the list of modules in the given block. The block must be given as a
+--  null-terminated base16 encoding of the block hash.
+--  The return value is a null-terminated JSON-encoded list.
+--  The returned string should be freed by calling 'freeCStr'.
 getModuleList :: StablePtr ConsensusRunner -> CString -> IO CString
 getModuleList cptr blockcstr = do
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
         Just bh -> jsonQuery cptr (Q.responseToMaybe <$> Q.getModuleList (Queries.Given bh))
 
--- |Get account information for the given block and identifier. The block must be
--- given as a null-terminated base16 encoding of the block hash and the account
--- identifier (second CString) must be given as a null-terminated string in
--- either base-58 encoding (same format as returned by 'getAccountList') if it is
--- an account address, or base-16 encoding if it is the credential registration
--- ID. The return value is a null-terminated, json encoded information. The
--- returned string should be freed by calling 'freeCStr'.
+-- | Get account information for the given block and identifier. The block must be
+--  given as a null-terminated base16 encoding of the block hash and the account
+--  identifier (second CString) must be given as a null-terminated string in
+--  either base-58 encoding (same format as returned by 'getAccountList') if it is
+--  an account address, or base-16 encoding if it is the credential registration
+--  ID. The return value is a null-terminated, json encoded information. The
+--  returned string should be freed by calling 'freeCStr'.
 getAccountInfo :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
 getAccountInfo cptr blockcstr acctcstr = do
     mblock <- decodeBlockHash blockcstr
@@ -1235,12 +1235,12 @@ getAccountInfo cptr blockcstr acctcstr = do
         (Just bh, Just acct) -> jsonQuery cptr (Q.responseToMaybe <$> Q.getAccountInfo (Queries.Given bh) acct)
         _ -> jsonCString AE.Null
 
--- |Get instance information the given block and instance. The block must be
--- given as a null-terminated base16 encoding of the block hash and the address
--- (second CString) must be given as a null-terminated JSON-encoded value
--- (an object with numeric fields "index" and "subindex").
--- The return value is a null-terminated, json encoded information.
--- The returned string should be freed by calling 'freeCStr'.
+-- | Get instance information the given block and instance. The block must be
+--  given as a null-terminated base16 encoding of the block hash and the address
+--  (second CString) must be given as a null-terminated JSON-encoded value
+--  (an object with numeric fields "index" and "subindex").
+--  The return value is a null-terminated, json encoded information.
+--  The returned string should be freed by calling 'freeCStr'.
 getInstanceInfo :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
 getInstanceInfo cptr blockcstr instcstr = do
     mblock <- decodeBlockHash blockcstr
@@ -1249,15 +1249,15 @@ getInstanceInfo cptr blockcstr instcstr = do
         (Just bh, Just inst) -> jsonQuery cptr (Q.responseToMaybe <$> Q.getInstanceInfo (Queries.Given bh) inst)
         _ -> jsonCString AE.Null
 
--- |Run the smart contract entrypoint in a given context and in the state at the
--- end of the given block.
--- The block must be given as a null-terminated base16 encoding of the block
--- hash and the context (second CString) must be given as a null-terminated
--- JSON-encoded value.
--- The return value is a null-terminated, json encoded information. It is either null
--- in case the input cannot be decoded, or the block does not exist,
--- or the JSON encoding of InvokeContract.InvokeContractResult.
--- The returned string should be freed by calling 'freeCStr'.
+-- | Run the smart contract entrypoint in a given context and in the state at the
+--  end of the given block.
+--  The block must be given as a null-terminated base16 encoding of the block
+--  hash and the context (second CString) must be given as a null-terminated
+--  JSON-encoded value.
+--  The return value is a null-terminated, json encoded information. It is either null
+--  in case the input cannot be decoded, or the block does not exist,
+--  or the JSON encoding of InvokeContract.InvokeContractResult.
+--  The returned string should be freed by calling 'freeCStr'.
 invokeContract :: StablePtr ConsensusRunner -> CString -> CString -> Word64 -> IO CString
 invokeContract cptr blockcstr ctxcstr maxInvokeEnergy = do
     mblock <- decodeBlockHash blockcstr
@@ -1269,14 +1269,14 @@ invokeContract cptr blockcstr ctxcstr maxInvokeEnergy = do
             jsonQuery cptr (Q.responseToMaybe <$> Q.invokeContract (Queries.Given bh) effectiveCtx)
         _ -> jsonCString AE.Null
 
--- |Get the source code of a module as deployed on the chain at a particular block.
--- The block must be given as a null-terminated base16 encoding of the block hash.
--- The module is referenced by a null-terminated base16 encoding of the module hash.
--- The return value is __NOT__ JSON encoded but rather it is a binary
--- serialization. The first 4 bytes are the length (big-endian) of the rest of the string, and
--- the string is __NOT__ null terminated and can contain null characters.
--- The returned string should be freed by calling 'freeCStr'.
--- If the module is not found, the length field of the string will be 0.
+-- | Get the source code of a module as deployed on the chain at a particular block.
+--  The block must be given as a null-terminated base16 encoding of the block hash.
+--  The module is referenced by a null-terminated base16 encoding of the module hash.
+--  The return value is __NOT__ JSON encoded but rather it is a binary
+--  serialization. The first 4 bytes are the length (big-endian) of the rest of the string, and
+--  the string is __NOT__ null terminated and can contain null characters.
+--  The returned string should be freed by calling 'freeCStr'.
+--  If the module is not found, the length field of the string will be 0.
 getModuleSource :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
 getModuleSource cptr blockcstr modcstr = do
     (ConsensusRunner mvr) <- deRefStablePtr cptr
@@ -1288,33 +1288,33 @@ getModuleSource cptr blockcstr modcstr = do
             byteStringToCString $ maybe BS.empty S.encode (join msrc)
         _ -> byteStringToCString BS.empty
 
--- |Get the list of bakers registered at the given block. The block must be given as a
--- null-terminated base16 encoding of the block hash.
--- The return value is a null-terminated JSON-encoded list if the block is valid, and "null"
--- otherwise.
--- The returned string should be freed by calling 'freeCStr'.
+-- | Get the list of bakers registered at the given block. The block must be given as a
+--  null-terminated base16 encoding of the block hash.
+--  The return value is a null-terminated JSON-encoded list if the block is valid, and "null"
+--  otherwise.
+--  The returned string should be freed by calling 'freeCStr'.
 getBakerList :: StablePtr ConsensusRunner -> CString -> IO CString
 getBakerList cptr blockcstr = do
     decodeBlockHash blockcstr >>= \case
         Nothing -> jsonCString AE.Null
         Just bh -> jsonQuery cptr (Q.responseToMaybe <$> Q.getRegisteredBakers (Queries.Given bh))
 
--- |Get the status of a baker pool or the passive delegators with respect to a particular block.
--- The block must be given as a null-terminated base16 encoding of the block hash.
--- The third argument indicates if the status for the passive delegators is to be returned (indicated by
--- a true (non-zero) value). The fourth argument indicates which baker to get the status for
--- in the case that the passive delegator status is not requested. (This argument is ignored if the
--- passive delegator status is requested.)
--- The return value is a null-terminated JSON-encoded object, or "null" if the block or pool
--- are invalid.
--- The returned string should be freed by calling 'freeCStr'.
+-- | Get the status of a baker pool or the passive delegators with respect to a particular block.
+--  The block must be given as a null-terminated base16 encoding of the block hash.
+--  The third argument indicates if the status for the passive delegators is to be returned (indicated by
+--  a true (non-zero) value). The fourth argument indicates which baker to get the status for
+--  in the case that the passive delegator status is not requested. (This argument is ignored if the
+--  passive delegator status is requested.)
+--  The return value is a null-terminated JSON-encoded object, or "null" if the block or pool
+--  are invalid.
+--  The returned string should be freed by calling 'freeCStr'.
 getPoolStatus ::
     StablePtr ConsensusRunner ->
-    -- |Block hash (null-terminated base16)
+    -- | Block hash (null-terminated base16)
     CString ->
-    -- |Whether to get the passive delegator status
+    -- | Whether to get the passive delegator status
     Word8 ->
-    -- |Baker ID to get status for (if not passive delegators)
+    -- | Baker ID to get status for (if not passive delegators)
     Word64 ->
     IO CString
 getPoolStatus cptr blockcstr passive bid = do
@@ -1326,23 +1326,23 @@ getPoolStatus cptr blockcstr passive bid = do
 
 -- ** Transaction-indexed queries
 
--- |Get the status of a transaction. The input is a base16-encoded null-terminated string
--- denoting a transaction hash. The return value is a null-terminated JSON string encoding a
--- JSON value.
+-- | Get the status of a transaction. The input is a base16-encoded null-terminated string
+--  denoting a transaction hash. The return value is a null-terminated JSON string encoding a
+--  JSON value.
 getTransactionStatus :: StablePtr ConsensusRunner -> CString -> IO CString
 getTransactionStatus cptr trcstr =
     decodeTransactionHash trcstr >>= \case
         Nothing -> jsonCString AE.Null
         Just tr -> jsonQuery cptr (Q.getTransactionStatus tr)
 
--- |Get the status of a transaction. The first input is a base16-encoded null-terminated string
--- denoting a transaction hash, the second input is the hash of the block.
--- The return value is a null-terminated string encoding a JSON value.
--- The arguments are
+-- | Get the status of a transaction. The first input is a base16-encoded null-terminated string
+--  denoting a transaction hash, the second input is the hash of the block.
+--  The return value is a null-terminated string encoding a JSON value.
+--  The arguments are
 --
---   * pointer to the consensus runner
---   * null-terminated C string with a base16 encoded transaction hash
---   * null-terminated C string with base16 encoded block hash
+--    * pointer to the consensus runner
+--    * null-terminated C string with a base16 encoded transaction hash
+--    * null-terminated C string with base16 encoded block hash
 getTransactionStatusInBlock :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
 getTransactionStatusInBlock cptr trcstr bhcstr = do
     mtr <- decodeTransactionHash trcstr
@@ -1353,22 +1353,22 @@ getTransactionStatusInBlock cptr trcstr bhcstr = do
 
 -- ** Account-indexed queries
 
--- |Get the list of non-finalized transactions for a given account.
--- The arguments are
+-- | Get the list of non-finalized transactions for a given account.
+--  The arguments are
 --
---   * pointer to the consensus runner
---   * null-terminated C string with account address.
+--    * pointer to the consensus runner
+--    * null-terminated C string with account address.
 getAccountNonFinalizedTransactions :: StablePtr ConsensusRunner -> CString -> IO CString
 getAccountNonFinalizedTransactions cptr addrcstr =
     decodeAccountAddress addrcstr >>= \case
         Left _ -> jsonCString AE.Null
         Right acct -> jsonQuery cptr (Q.getAccountNonFinalizedTransactions acct)
 
--- |Get the best guess for the next available account nonce.
--- The arguments are
+-- | Get the best guess for the next available account nonce.
+--  The arguments are
 --
---   * pointer to the consensus runner
---   * null-terminated C string with account address.
+--    * pointer to the consensus runner
+--    * null-terminated C string with account address.
 getNextAccountNonce :: StablePtr ConsensusRunner -> CString -> IO CString
 getNextAccountNonce cptr addrcstr =
     decodeAccountAddress addrcstr >>= \case
@@ -1377,30 +1377,30 @@ getNextAccountNonce cptr addrcstr =
 
 -- ** Baker/finalizer status queries
 
--- |Check if we are members of the finalization committee.
--- Returns 0 for 'False' and 1 for 'True'.
+-- | Check if we are members of the finalization committee.
+--  Returns 0 for 'False' and 1 for 'True'.
 checkIfWeAreFinalizer :: StablePtr ConsensusRunner -> IO Word8
 checkIfWeAreFinalizer cptr = do
     (ConsensusRunner mvr) <- deRefStablePtr cptr
     res <- runMVR Q.checkIsCurrentFinalizer mvr
     return $! if res then 1 else 0
 
--- |Check if consensus is running.
--- Returns 0 for 'False' and 1 for 'True'.
+-- | Check if consensus is running.
+--  Returns 0 for 'False' and 1 for 'True'.
 checkIfRunning :: StablePtr ConsensusRunner -> IO Word8
 checkIfRunning cptr = do
     (ConsensusRunner mvr) <- deRefStablePtr cptr
     res <- runMVR Q.checkIsShutDown mvr
     return $! if res then 0 else 1
 
--- |Check whether we are a baker from the perspective of the best block.
--- bakerIdPtr expects to receive the baker ID (optional).
--- hasBakerIdPtr expects to receive either 0 (representing false) or 1 (representing true) if a baker ID is not found or found respectively.
--- bakerLotteryPowerPtr expects to receive the lottery power when member of the baking committee.
--- Returns 1 if we are not added as a baker.
--- Returns 2 if we are added as a baker, but not part of the baking committee yet.
--- Returns 3 if we have keys that do not match the baker's public keys on the chain.
--- Returns 0 if we are part of the baking committee.
+-- | Check whether we are a baker from the perspective of the best block.
+--  bakerIdPtr expects to receive the baker ID (optional).
+--  hasBakerIdPtr expects to receive either 0 (representing false) or 1 (representing true) if a baker ID is not found or found respectively.
+--  bakerLotteryPowerPtr expects to receive the lottery power when member of the baking committee.
+--  Returns 1 if we are not added as a baker.
+--  Returns 2 if we are added as a baker, but not part of the baking committee yet.
+--  Returns 3 if we have keys that do not match the baker's public keys on the chain.
+--  Returns 0 if we are part of the baking committee.
 bakerStatusBestBlock :: StablePtr ConsensusRunner -> Ptr Word64 -> Ptr Word8 -> Ptr Double -> IO Word8
 bakerStatusBestBlock cptr bakerIdPtr hasBakerIdPtr bakerLotteryPowerPtr = do
     (ConsensusRunner mvr) <- deRefStablePtr cptr
@@ -1429,95 +1429,95 @@ bakerStatusBestBlock cptr bakerIdPtr hasBakerIdPtr bakerLotteryPowerPtr = do
 
 foreign export ccall
     startConsensus ::
-        -- |Maximum block size.
+        -- | Maximum block size.
         Word64 ->
-        -- |Block construction timeout in milliseconds
+        -- | Block construction timeout in milliseconds
         Word64 ->
-        -- |Insertions before purging of transactions
+        -- | Insertions before purging of transactions
         Word64 ->
-        -- |Time in seconds during which a transaction can't be purged
+        -- | Time in seconds during which a transaction can't be purged
         Word64 ->
-        -- |Number of seconds between transaction table purging runs
+        -- | Number of seconds between transaction table purging runs
         Word64 ->
-        -- |Accounts table cache size
+        -- | Accounts table cache size
         Word32 ->
-        -- |Modules table cache size
+        -- | Modules table cache size
         Word32 ->
-        -- |Serialized genesis data (c string + len)
+        -- | Serialized genesis data (c string + len)
         CString ->
         Int64 ->
-        -- |Serialized baker identity (c string + len)
+        -- | Serialized baker identity (c string + len)
         CString ->
         Int64 ->
         Ptr NotifyContext ->
         FunPtr NotifyCallback ->
-        -- |Context for when signalling a unsupported protocol update is pending.
+        -- | Context for when signalling a unsupported protocol update is pending.
         Ptr NotifyUnsupportedUpdatesContext ->
-        -- |The callback used to signal a unsupported protocol update is pending.
+        -- | The callback used to signal a unsupported protocol update is pending.
         FunPtr NotifyUnsupportedUpdatesCallback ->
-        -- |Handler for generated messages
+        -- | Handler for generated messages
         FunPtr BroadcastCallback ->
-        -- |Handler for sending catch-up status to peers
+        -- | Handler for sending catch-up status to peers
         FunPtr CatchUpStatusCallback ->
-        -- |Regenesis object
+        -- | Regenesis object
         Ptr RegenesisArc ->
-        -- |Finalizer for the regenesis object
+        -- | Finalizer for the regenesis object
         RegenesisFree ->
-        -- |Handler for notifying the node of new regenesis blocks
+        -- | Handler for notifying the node of new regenesis blocks
         FunPtr RegenesisCallback ->
-        -- |Maximum log level (inclusive) (0 to disable logging).
+        -- | Maximum log level (inclusive) (0 to disable logging).
         Word8 ->
-        -- |Handler for log events
+        -- | Handler for log events
         FunPtr LogCallback ->
-        -- |FilePath for the AppData directory
+        -- | FilePath for the AppData directory
         CString ->
-        -- |Length of AppData path
+        -- | Length of AppData path
         Int64 ->
-        -- |Pointer to receive the pointer to the 'ConsensusRunner'.
+        -- | Pointer to receive the pointer to the 'ConsensusRunner'.
         Ptr (StablePtr ConsensusRunner) ->
         IO Int64
 foreign export ccall
     startConsensusPassive ::
-        -- |Maximum block size.
+        -- | Maximum block size.
         Word64 ->
-        -- |Block construction timeout in milliseconds
+        -- | Block construction timeout in milliseconds
         Word64 ->
-        -- |Insertions before purging of transactions
+        -- | Insertions before purging of transactions
         Word64 ->
-        -- |Time in seconds during which a transaction can't be purged
+        -- | Time in seconds during which a transaction can't be purged
         Word64 ->
-        -- |Number of seconds between transaction table purging runs
+        -- | Number of seconds between transaction table purging runs
         Word64 ->
-        -- |Accounts table cache size
+        -- | Accounts table cache size
         Word32 ->
-        -- |Modules table cache size
+        -- | Modules table cache size
         Word32 ->
-        -- |Serialized genesis data (c string + len)
+        -- | Serialized genesis data (c string + len)
         CString ->
         Int64 ->
         Ptr NotifyContext ->
         FunPtr NotifyCallback ->
-        -- |Context for when signalling a unsupported protocol update is pending.
+        -- | Context for when signalling a unsupported protocol update is pending.
         Ptr NotifyUnsupportedUpdatesContext ->
-        -- |The callback used to signal a unsupported protocol update is pending.
+        -- | The callback used to signal a unsupported protocol update is pending.
         FunPtr NotifyUnsupportedUpdatesCallback ->
-        -- |Handler for sending catch-up status to peers
+        -- | Handler for sending catch-up status to peers
         FunPtr CatchUpStatusCallback ->
-        -- |Regenesis object
+        -- | Regenesis object
         Ptr RegenesisArc ->
-        -- |Finalizer for the regenesis object
+        -- | Finalizer for the regenesis object
         RegenesisFree ->
-        -- |Handler for notifying the node of new regenesis blocks
+        -- | Handler for notifying the node of new regenesis blocks
         FunPtr RegenesisCallback ->
-        -- |Maximum log level (inclusive) (0 to disable logging).
+        -- | Maximum log level (inclusive) (0 to disable logging).
         Word8 ->
-        -- |Handler for log events
+        -- | Handler for log events
         FunPtr LogCallback ->
-        -- |FilePath for the AppData directory
+        -- | FilePath for the AppData directory
         CString ->
-        -- |Length of AppData path
+        -- | Length of AppData path
         Int64 ->
-        -- |Pointer to receive the pointer to the 'ConsensusRunner'.
+        -- | Pointer to receive the pointer to the 'ConsensusRunner'.
         Ptr (StablePtr ConsensusRunner) ->
         IO Int64
 

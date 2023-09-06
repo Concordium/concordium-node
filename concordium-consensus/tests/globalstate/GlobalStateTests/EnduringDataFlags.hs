@@ -1,5 +1,5 @@
--- |This module tests the serialization and deserialization of the 'EnduringDataFlags', which
--- are used in the persistent storage of accounts from 'P5' onwards.
+-- | This module tests the serialization and deserialization of the 'EnduringDataFlags', which
+--  are used in the persistent storage of accounts from 'P5' onwards.
 module GlobalStateTests.EnduringDataFlags where
 
 import Test.Hspec
@@ -21,13 +21,13 @@ genStakeFlags =
 genEnduringDataFlags :: Gen EnduringDataFlags
 genEnduringDataFlags = EnduringDataFlags <$> arbitrary <*> arbitrary <*> genStakeFlags
 
--- |Test that converting 'EnduringDataFlags' to bits and big is the identity.
+-- | Test that converting 'EnduringDataFlags' to bits and big is the identity.
 testToFromBits :: Property
 testToFromBits = forAll genEnduringDataFlags $ \edf ->
     Right edf === enduringDataFlagsFromBits (enduringDataFlagsToBits edf)
 
--- |Test that converting bits to 'EnduringDataFlags' and back is the identity where the first
--- conversion is well-defined.
+-- | Test that converting bits to 'EnduringDataFlags' and back is the identity where the first
+--  conversion is well-defined.
 testFromToBits :: Property
 testFromToBits = property $ \bs -> case enduringDataFlagsFromBits bs of
     Left _ -> property ()

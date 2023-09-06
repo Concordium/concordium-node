@@ -50,7 +50,7 @@ import System.Random
 import Test.Hspec
 import Test.QuickCheck
 
--- |Protocol version.
+-- | Protocol version.
 type PV = 'P5
 
 type TestM =
@@ -92,7 +92,7 @@ specifyWithGS s f =
                 bracket (createGlobalState dbDir) destroyGlobalState $
                     runSilentLogger . void . uncurry (runRWST $ PBS.runPersistentBlockStateMonad $ runPersistentTreeStateMonad f)
 
-useI :: MonadState (Identity s) f => Getting b s b -> f b
+useI :: (MonadState (Identity s) f) => Getting b s b -> f b
 useI f = (^. f) . runIdentity <$> RWS.get
 
 testFinalizeABlock :: Test
@@ -207,14 +207,14 @@ testEmptyGS = do
 
 -- Tests for the dead block cache
 
--- |Generate random block hashes.
+-- | Generate random block hashes.
 genBlockHashes :: Gen [BlockHash]
 genBlockHashes = do
     len <- choose (700, 5000)
     replicateM len (BlockHash . SHA256.Hash . FBS.pack <$> vector 32)
 
--- |Generate distinct random block hashes. This uses repeated SHA256, which should reliably
--- avoid collisions.
+-- | Generate distinct random block hashes. This uses repeated SHA256, which should reliably
+--  avoid collisions.
 genDistinctBlockHashes :: Gen [BlockHash]
 genDistinctBlockHashes = do
     len <- choose (700 :: Int, 5000)
@@ -225,13 +225,13 @@ genDistinctBlockHashes = do
         | len > 0 = let h = BlockHash (SHA256.hash (encode h0)) in doGen (len - 1) h (h : l)
         | otherwise = l
 
--- |Construct a cache by inserting the list of blocks from left to right.
+-- | Construct a cache by inserting the list of blocks from left to right.
 constructCache :: [BlockHash] -> DeadCache
 constructCache = List.foldl' (flip insertDeadCache) emptyDeadCache
 
--- |Test the following properties of the cache
--- - the queue and the hashmap are consistent (same length and elements)
--- - the size of the cache is bounded by 1000
+-- | Test the following properties of the cache
+--  - the queue and the hashmap are consistent (same length and elements)
+--  - the size of the cache is bounded by 1000
 testDeadCache :: Property
 testDeadCache =
     withMaxSuccess 1000 $
@@ -242,10 +242,10 @@ testDeadCache =
                         .&&. Seq.length (_dcQueue dc) <= 1000
                         .&&. all (`HS.member` _dcHashes dc) (_dcQueue dc)
 
--- |Test the following properties of the cache when the blocks inserted have distinct hashes.
--- - the last 1000 inserted blocks are always there
--- - the queue and the hashmap are consistent (same length and elements)
--- - the size of the cache is bounded by 1000
+-- | Test the following properties of the cache when the blocks inserted have distinct hashes.
+--  - the last 1000 inserted blocks are always there
+--  - the queue and the hashmap are consistent (same length and elements)
+--  - the size of the cache is bounded by 1000
 testDeadCacheDistinct :: Property
 testDeadCacheDistinct =
     withMaxSuccess 1000 $

@@ -7,7 +7,7 @@
 -- for pattern matching. (See: https://gitlab.haskell.org/ghc/ghc/-/issues/20896)
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
--- |Functionality for handling baker changes based on epoch boundaries.
+-- | Functionality for handling baker changes based on epoch boundaries.
 module Concordium.Kontrol.Bakers where
 
 import Data.Maybe
@@ -27,26 +27,26 @@ import Concordium.GlobalState.CapitalDistribution
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.TreeState
 
--- |Caps on the the stake that may be delegated to a baking pool.
--- N.B. The fields are not strict and should generally not be retained.
+-- | Caps on the the stake that may be delegated to a baking pool.
+--  N.B. The fields are not strict and should generally not be retained.
 data PoolCaps = PoolCaps
-    { -- |The (leverage bound minus 1) times the equity capital of the baker.
+    { -- | The (leverage bound minus 1) times the equity capital of the baker.
       leverageCap :: Amount,
-      -- |The capital bound minus the baker's capital.
+      -- | The capital bound minus the baker's capital.
       boundCap :: Amount
     }
 
--- |Compute the caps on the amount that may be delegated to a baker.
--- It is assumed that the total capital is at least the baker equity capital plus the baker
--- delegated capital.
+-- | Compute the caps on the amount that may be delegated to a baker.
+--  It is assumed that the total capital is at least the baker equity capital plus the baker
+--  delegated capital.
 delegatedCapitalCaps ::
-    -- |Pool parameters
+    -- | Pool parameters
     PoolParameters' 'PoolParametersVersion1 ->
-    -- |Current total capital
+    -- | Current total capital
     Amount ->
-    -- |Baker equity capital
+    -- | Baker equity capital
     Amount ->
-    -- |Baker delegated capital
+    -- | Baker delegated capital
     Amount ->
     PoolCaps
 delegatedCapitalCaps poolParams totalCap bakerCap delCap = PoolCaps{..}
@@ -63,24 +63,24 @@ delegatedCapitalCaps poolParams totalCap bakerCap delCap = PoolCaps{..}
         | preBoundCap > 0 = truncate (preBoundCap / (1 - capBoundR))
         | otherwise = 0
 
--- |Compute the cap on the amount that may be delegated to a baker.
--- It is assumed that the total capital is at least the baker equity capital plus the baker
--- delegated capital.
+-- | Compute the cap on the amount that may be delegated to a baker.
+--  It is assumed that the total capital is at least the baker equity capital plus the baker
+--  delegated capital.
 delegatedCapitalCap ::
-    -- |Pool parameters
+    -- | Pool parameters
     PoolParameters' 'PoolParametersVersion1 ->
-    -- |Current total capital
+    -- | Current total capital
     Amount ->
-    -- |Baker equity capital
+    -- | Baker equity capital
     Amount ->
-    -- |Baker delegated capital
+    -- | Baker delegated capital
     Amount ->
     Amount
 delegatedCapitalCap poolParams totalCap bakerCap delCap = min leverageCap boundCap
   where
     PoolCaps{..} = delegatedCapitalCaps poolParams totalCap bakerCap delCap
 
--- |Process a set of bakers and delegators to apply pending changes that are effective.
+-- | Process a set of bakers and delegators to apply pending changes that are effective.
 applyPendingChanges ::
     (Timestamp -> Bool) ->
     ([ActiveBakerInfo' bakerInfoRef], [ActiveDelegatorInfo]) ->
@@ -124,42 +124,42 @@ applyPendingChanges isEffective (bakers0, passive0) =
       where
         pDelegators = processDelegators activeBakerDelegators
 
--- |Compute the timestamp of the start of an epoch based on the genesis data.
+-- | Compute the timestamp of the start of an epoch based on the genesis data.
 epochTimestamp :: GenesisConfiguration -> Epoch -> Timestamp
 epochTimestamp gd targetEpoch =
     addDuration
         (gdGenesisTime gd)
         (fromIntegral targetEpoch * fromIntegral (gdEpochLength gd) * gdSlotDuration gd)
 
--- |Determine the test for whether a pending change is effective at a payday based
--- on the epoch of the payday.
+-- | Determine the test for whether a pending change is effective at a payday based
+--  on the epoch of the payday.
 effectiveTest ::
     (TreeStateMonad m) =>
-    -- |Payday epoch
+    -- | Payday epoch
     Epoch ->
     m (Timestamp -> Bool)
 effectiveTest paydayEpoch = do
     genData <- getGenesisData
     return (effectiveTest' genData paydayEpoch)
 
--- |Determine whether a pending change is effective at a payday based
--- on the epoch of the payday.
+-- | Determine whether a pending change is effective at a payday based
+--  on the epoch of the payday.
 effectiveTest' :: GenesisConfiguration -> Epoch -> Timestamp -> Bool
 effectiveTest' genData paydayEpoch = (<= paydayEpochTime)
   where
     paydayEpochTime = epochTimestamp genData paydayEpoch
 
--- |A helper datatype for computing the stake and capital distribution.
--- This is intentionally lazy, as the caller may not wish to evaluate all of the fields, but
--- constructing them together can avoid unnecessary duplication of work.
+-- | A helper datatype for computing the stake and capital distribution.
+--  This is intentionally lazy, as the caller may not wish to evaluate all of the fields, but
+--  constructing them together can avoid unnecessary duplication of work.
 data BakerStakesAndCapital m = BakerStakesAndCapital
-    { -- |The baker info and stake for each baker.
+    { -- | The baker info and stake for each baker.
       bakerStakes :: [(BakerInfoRef m, Amount)],
-      -- |Determine the capital distribution.
+      -- | Determine the capital distribution.
       capitalDistributionM :: m CapitalDistribution
     }
 
--- |Compute the baker stakes and capital distribution.
+-- | Compute the baker stakes and capital distribution.
 computeBakerStakesAndCapital ::
     forall m.
     (AccountOperations m) =>
@@ -198,13 +198,13 @@ computeBakerStakesAndCapital poolParams activeBakers passiveDelegators = BakerSt
         let passiveDelegatorsCapital = Vec.fromList $ delegatorCapital <$> passiveDelegators
         return CapitalDistribution{..}
 
--- |Generate and set the next epoch bakers and next capital based on the current active bakers.
+-- | Generate and set the next epoch bakers and next capital based on the current active bakers.
 generateNextBakers ::
     ( TreeStateMonad m,
       PVSupportsDelegation (MPV m),
       ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1
     ) =>
-    -- |The payday epoch
+    -- | The payday epoch
     Epoch ->
     UpdatableBlockState m ->
     m (UpdatableBlockState m)
@@ -232,21 +232,21 @@ generateNextBakers paydayEpoch bs0 = do
     capDist <- capitalDistributionM
     bsoSetNextCapitalDistribution bs1 capDist
 
--- |Compute the epoch of the last payday at or before the given epoch.
--- This accounts for changes to the reward period length.
+-- | Compute the epoch of the last payday at or before the given epoch.
+--  This accounts for changes to the reward period length.
 --
--- PRECONDITION: The target epoch must be at least the next payday epoch.
--- TODO: Add tests
+--  PRECONDITION: The target epoch must be at least the next payday epoch.
+--  TODO: Add tests
 paydayEpochBefore ::
-    -- |Current time parameters
+    -- | Current time parameters
     TimeParameters ->
-    -- |Pending updates to the time parameters
+    -- | Pending updates to the time parameters
     [(Slot, TimeParameters)] ->
-    -- |Epoch length
+    -- | Epoch length
     Slot ->
-    -- |Next payday epoch
+    -- | Next payday epoch
     Epoch ->
-    -- |The slot to compute the last payday before
+    -- | The slot to compute the last payday before
     Slot ->
     Epoch
 paydayEpochBefore initialTimeParameters pendingTimeParameters epochLen nextPayday targetSlot = lastPayday
@@ -273,14 +273,14 @@ paydayEpochBefore initialTimeParameters pendingTimeParameters epochLen nextPayda
             - ((targetEpoch - fromPaydayEpoch) `mod` rewardPeriodEpochs (curTPs ^. tpRewardPeriodLength))
     lastPayday = go nextPayday initialTimeParameters pendingTimeParameters
 
--- |Get the updated value of the time parameters at a given slot, given the original time
--- parameters and the elapsed updates.
+-- | Get the updated value of the time parameters at a given slot, given the original time
+--  parameters and the elapsed updates.
 timeParametersAtSlot ::
-    -- |Target slot
+    -- | Target slot
     Slot ->
-    -- |Original time parameters
+    -- | Original time parameters
     TimeParameters ->
-    -- |Updates to the time parameters in ascending order of slot time
+    -- | Updates to the time parameters in ascending order of slot time
     [(Slot, TimeParameters)] ->
     TimeParameters
 timeParametersAtSlot targetSlot tp0 upds =
@@ -289,25 +289,25 @@ timeParametersAtSlot targetSlot tp0 upds =
             mconcat
                 [Last (Just tp) | (slot, tp) <- upds, slot <= targetSlot]
 
--- |Determine the bakers that apply to a future slot, given the state at a particular block.
--- This implementation is used for protocol version P4 and P5. (Consensus version 1 (P6) does not
--- use slots to define epochs, and therefore bakers are determined differently.)
--- The assumption is that there are no blocks between the block and the future slot; i.e. this
--- is used to determine the lottery participants that will try to bake a block with the block as the
--- parent.
+-- | Determine the bakers that apply to a future slot, given the state at a particular block.
+--  This implementation is used for protocol version P4 and P5. (Consensus version 1 (P6) does not
+--  use slots to define epochs, and therefore bakers are determined differently.)
+--  The assumption is that there are no blocks between the block and the future slot; i.e. this
+--  is used to determine the lottery participants that will try to bake a block with the block as the
+--  parent.
 --
--- If the slot is in the same payday as the given block, use the current epoch bakers.
--- If the slot is in the next payday, and the given block is in the last epoch of the prior payday,
--- use the next epoch bakers.
--- If the slot is in the more distant future, then the bakers for that slot are calculated based on
--- the active bakers and accounting for cooldowns.
--- (If the slot is in the past, the current epoch bakers are returned, but the function should
--- never be called for a historical slot.)
+--  If the slot is in the same payday as the given block, use the current epoch bakers.
+--  If the slot is in the next payday, and the given block is in the last epoch of the prior payday,
+--  use the next epoch bakers.
+--  If the slot is in the more distant future, then the bakers for that slot are calculated based on
+--  the active bakers and accounting for cooldowns.
+--  (If the slot is in the past, the current epoch bakers are returned, but the function should
+--  never be called for a historical slot.)
 --
--- Note that it is very important that getSlotBakers should return the same set of bakers as will
--- be determined in the execution of the block. This is because it must be possible to reward the
--- baker of the block, which is not possible if the baker is not considered to be a baker during
--- the block's execution.
+--  Note that it is very important that getSlotBakers should return the same set of bakers as will
+--  be determined in the execution of the block. This is because it must be possible to reward the
+--  baker of the block, which is not possible if the baker is not considered to be a baker during
+--  the block's execution.
 getSlotBakersP4 ::
     forall m.
     ( BlockStateQuery m,
@@ -383,12 +383,12 @@ getSlotBakersP4 genData bs slot =
                             let bakerTotalStake = sum $ _bakerStake <$> fullBakerInfos
                             return FullBakers{..}
 
--- |Determine the bakers that apply to a future slot, given the state at a particular block.
--- The assumption is that there are no blocks between the block and the future slot; i.e. this
--- is used to determine the lottery participants that will try to bake a block with the block as the
--- parent.
+-- | Determine the bakers that apply to a future slot, given the state at a particular block.
+--  The assumption is that there are no blocks between the block and the future slot; i.e. this
+--  is used to determine the lottery participants that will try to bake a block with the block as the
+--  parent.
 --
--- The given slot should never be earlier than the slot of the given block.
+--  The given slot should never be earlier than the slot of the given block.
 getSlotBakers ::
     forall m.
     ( IsProtocolVersion (MPV m),
@@ -406,17 +406,17 @@ getSlotBakers genData = case protocolVersion @(MPV m) of
     SP4 -> getSlotBakersP4 genData
     SP5 -> getSlotBakersP4 genData
 
--- |Determine the bakers that apply to a future slot, given the state at a particular block.
--- This will return 'Nothing' if the projected bakers could change before then (depending on
--- additional blocks), but will return the actual bakers if it is certain they will be correct.
--- This implementation is used for protocol versions P1-P3.
+-- | Determine the bakers that apply to a future slot, given the state at a particular block.
+--  This will return 'Nothing' if the projected bakers could change before then (depending on
+--  additional blocks), but will return the actual bakers if it is certain they will be correct.
+--  This implementation is used for protocol versions P1-P3.
 --
--- The given slot should never be earlier than the slot of the given block.
+--  The given slot should never be earlier than the slot of the given block.
 --
--- In P1, the bakers are fixed for the current epoch and the next epoch.
--- If the slot is in an epoch further in the future, this returns 'Nothing'.
--- (If the slot is in the past, the current epoch bakers will be returned, but the function should
--- not be called with a historical slot.)
+--  In P1, the bakers are fixed for the current epoch and the next epoch.
+--  If the slot is in an epoch further in the future, this returns 'Nothing'.
+--  (If the slot is in the past, the current epoch bakers will be returned, but the function should
+--  not be called with a historical slot.)
 getDefiniteSlotBakersP1 ::
     forall m.
     ( BlockStateQuery m,
@@ -434,20 +434,20 @@ getDefiniteSlotBakersP1 bs slot =
                 then Just <$> getSlotBakersP1 bs slot
                 else return Nothing
 
--- |Determine the bakers that apply to a future slot, given the state at a particular block.
--- This will return 'Nothing' if the projected bakers could change before then (depending on
--- additional blocks), but will return the actual bakers if it is certain they will be correct.
--- This implementation is used for protocol version P4 and P5. (This is unused in consensus version
--- 1 as epochs (and thus bakers) are not tied to slots.)
+-- | Determine the bakers that apply to a future slot, given the state at a particular block.
+--  This will return 'Nothing' if the projected bakers could change before then (depending on
+--  additional blocks), but will return the actual bakers if it is certain they will be correct.
+--  This implementation is used for protocol version P4 and P5. (This is unused in consensus version
+--  1 as epochs (and thus bakers) are not tied to slots.)
 --
--- The given slot should never be earlier than the slot of the given block.
+--  The given slot should never be earlier than the slot of the given block.
 --
--- If the slot is in the same payday as the given block, use the current epoch bakers.
--- If the slot is in the next payday, and the given block is in the last epoch of the prior payday,
--- use the next epoch bakers.
--- If the slot is further in the future, return 'Nothing'.
--- (If the slot is in the past, the current epoch bakers are returned, but the function should
--- never be called for a historical slot.)
+--  If the slot is in the same payday as the given block, use the current epoch bakers.
+--  If the slot is in the next payday, and the given block is in the last epoch of the prior payday,
+--  use the next epoch bakers.
+--  If the slot is further in the future, return 'Nothing'.
+--  (If the slot is in the past, the current epoch bakers are returned, but the function should
+--  never be called for a historical slot.)
 getDefiniteSlotBakersP4 ::
     forall m.
     ( BlockStateQuery m,
@@ -488,11 +488,11 @@ getDefiniteSlotBakersP4 genData bs slot =
                         then Just <$> getNextEpochBakers bs
                         else return Nothing
 
--- |Determine the bakers that apply to a future slot, given the state at a particular block.
--- This will return 'Nothing' if the projected bakers could change before then (depending on
--- additional blocks), but will return the actual bakers if it is certain they will be correct.
+-- | Determine the bakers that apply to a future slot, given the state at a particular block.
+--  This will return 'Nothing' if the projected bakers could change before then (depending on
+--  additional blocks), but will return the actual bakers if it is certain they will be correct.
 --
--- The given slot should never be earlier than the slot of the given block.
+--  The given slot should never be earlier than the slot of the given block.
 getDefiniteSlotBakers ::
     forall m.
     ( IsProtocolVersion (MPV m),

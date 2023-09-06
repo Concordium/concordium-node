@@ -38,7 +38,7 @@ import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.TransactionVerification as TVer
 
--- |Generate the 'EpochBakers' for a genesis block.
+-- | Generate the 'EpochBakers' for a genesis block.
 genesisEpochBakers ::
     ( BlockStateQuery m,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState pv,
@@ -58,8 +58,8 @@ genesisEpochBakers genState = do
     _nextPayday <- getPaydayEpoch genState
     return $! EpochBakers{..}
 
--- |Construct the epoch bakers for a given last finalized block based on the low level tree state
--- store.
+-- | Construct the epoch bakers for a given last finalized block based on the low level tree state
+--  store.
 makeEpochBakers ::
     ( BlockStateQuery m,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState pv,
@@ -121,8 +121,8 @@ makeEpochBakers lastFinBlock = do
                 GT -> do
                     backTo targetEpoch (lowEpoch, lowHeight) (blockEpoch stb, curHeight)
 
--- |Given a block with the 'shutdownTriggered' flag set in its seed state, trace back along the
--- chain to find the earliest such block.
+-- | Given a block with the 'shutdownTriggered' flag set in its seed state, trace back along the
+--  chain to find the earliest such block.
 findShutdownTriggerBlock ::
     ( LowLevel.MonadTreeStateStore m,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
@@ -154,10 +154,10 @@ findShutdownTriggerBlock candidateTriggerBlock = do
                     ++ show (getHash @BlockHash candidateTriggerBlock)
                     ++ "."
 
--- |Construct a 'SkovData' by initialising it with data loaded from disk.
+-- | Construct a 'SkovData' by initialising it with data loaded from disk.
 --
--- Note: this does not fully initialise the transaction table, and does not load the certified
--- blocks into the block table.
+--  Note: this does not fully initialise the transaction table, and does not load the certified
+--  blocks into the block table.
 loadSkovData ::
     ( MonadThrow m,
       LowLevel.MonadTreeStateStore m,
@@ -167,11 +167,11 @@ loadSkovData ::
       MPV m ~ pv,
       IsConsensusV1 pv
     ) =>
-    -- |Runtime parameters to use
+    -- | Runtime parameters to use
     RuntimeParameters ->
-    -- |Set to 'True' if a rollback occurred before loading the skov
+    -- | Set to 'True' if a rollback occurred before loading the skov
     Bool ->
-    -- |The 'SkovData' and, if the consensus is shutdown, the effective protocol update.
+    -- | The 'SkovData' and, if the consensus is shutdown, the effective protocol update.
     m (SkovData pv, Maybe ProtocolUpdate)
 loadSkovData _runtimeParameters didRollback = do
     _persistentRoundStatus <- LowLevel.lookupCurrentRoundStatus
@@ -290,18 +290,18 @@ loadSkovData _runtimeParameters didRollback = do
             else return Nothing
     return (SkovData{..}, protocolUpdate)
 
--- |Load the certified blocks from the low-level database into the tree state.
--- This caches their block states, adds them to the block table and branches,
--- adds their transactions to the transaction table and pending transaction table,
--- updates the highest certified block, and records block signature witnesses and
--- checked quorum certificates for the blocks.
+-- | Load the certified blocks from the low-level database into the tree state.
+--  This caches their block states, adds them to the block table and branches,
+--  adds their transactions to the transaction table and pending transaction table,
+--  updates the highest certified block, and records block signature witnesses and
+--  checked quorum certificates for the blocks.
 --
--- This also sets the previous round timeout if the low level state records that it timed out.
--- It also puts the latest timeout message in the set of timeout messages for the current round
--- if the current round matches the round of the timeout message.
+--  This also sets the previous round timeout if the low level state records that it timed out.
+--  It also puts the latest timeout message in the set of timeout messages for the current round
+--  if the current round matches the round of the timeout message.
 --
--- This should be called on the result of 'loadSkovData' after the transaction table has
--- been initialised for the last finalized block.
+--  This should be called on the result of 'loadSkovData' after the transaction table has
+--  been initialised for the last finalized block.
 loadCertifiedBlocks ::
     forall m.
     ( MonadThrow m,

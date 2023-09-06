@@ -11,8 +11,8 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
--- |This module provides an implementation of the 'MonadTreeStateStore' interface that uses LMDB
--- for storage.
+-- | This module provides an implementation of the 'MonadTreeStateStore' interface that uses LMDB
+--  for storage.
 module Concordium.KonsensusV1.TreeState.LowLevel.LMDB where
 
 import Control.Concurrent
@@ -44,7 +44,7 @@ import Concordium.KonsensusV1.Types
 
 -- * Exceptions
 
--- |Exception occurring from a violation of database invariants in the LMDB database.
+-- | Exception occurring from a violation of database invariants in the LMDB database.
 newtype DatabaseInvariantViolation = DatabaseInvariantViolation String
     deriving (Eq, Show, Typeable)
 
@@ -64,17 +64,17 @@ instance Exception DatabaseRecoveryFailure where
 
 -- ** Block store
 
--- |Block store for certified blocks by hash.
+-- | Block store for certified blocks by hash.
 newtype BlockStore (pv :: ProtocolVersion) = BlockStore MDB_dbi'
 
-instance IsProtocolVersion pv => MDBDatabase (BlockStore pv) where
+instance (IsProtocolVersion pv) => MDBDatabase (BlockStore pv) where
     type DBKey (BlockStore pv) = BlockHash
     type DBValue (BlockStore pv) = StoredBlock pv
     encodeKey _ = Hash.hashToByteString . blockHash
 
 -- ** Finalized blocks by height index
 
--- |Index mapping block hashes to block heights.
+-- | Index mapping block hashes to block heights.
 newtype FinalizedBlockIndex = FinalizedBlockIndex MDB_dbi'
 
 instance MDBDatabase FinalizedBlockIndex where
@@ -83,8 +83,8 @@ instance MDBDatabase FinalizedBlockIndex where
 
 -- ** Transaction status
 
--- |A transaction status store table. A @TransactionStatusStore@ stores
--- 'FinalizedTransactionStatus'es indexed by 'TransactionHash'.
+-- | A transaction status store table. A @TransactionStatusStore@ stores
+--  'FinalizedTransactionStatus'es indexed by 'TransactionHash'.
 newtype TransactionStatusStore = TransactionStatusStore MDB_dbi'
 
 instance MDBDatabase TransactionStatusStore where
@@ -93,9 +93,9 @@ instance MDBDatabase TransactionStatusStore where
 
 -- ** Non-finalized quorum certificates
 
--- |A table of quorum certificates for non-finalized blocks, indexed by round number.
--- Except at genesis, this table should always have a minimal entry for the round after the round
--- of the last finalized block.
+-- | A table of quorum certificates for non-finalized blocks, indexed by round number.
+--  Except at genesis, this table should always have a minimal entry for the round after the round
+--  of the last finalized block.
 newtype NonFinalizedQuorumCertificateStore = NonFinalizedQuorumCertificateStore MDB_dbi'
 
 instance MDBDatabase NonFinalizedQuorumCertificateStore where
@@ -111,8 +111,8 @@ instance MDBDatabase NonFinalizedQuorumCertificateStore where
 -- and thus their keys are serialized distinctly. Consequently, it is not appropriate to use a
 -- cursor (e.g. using 'withCursor'), which can result in failed or incorrect deserialization.
 
--- |Key used to index the round status entry in the consensus status table.
--- Represented as the byte @0@.
+-- | Key used to index the round status entry in the consensus status table.
+--  Represented as the byte @0@.
 data RoundStatusKey = CSKRoundStatus
     deriving (Eq, Ord, Bounded, Enum, Show)
 
@@ -123,15 +123,15 @@ instance S.Serialize RoundStatusKey where
             0 -> return CSKRoundStatus
             _ -> fail "Expected CSKRoundStatus"
 
--- |Round status store table.
+-- | Round status store table.
 newtype RoundStatusStore = RoundStatusStore MDB_dbi'
 
 instance MDBDatabase RoundStatusStore where
     type DBKey RoundStatusStore = RoundStatusKey
     type DBValue RoundStatusStore = PersistentRoundStatus
 
--- |Key used to index the latest finalization entry in the consensus status table.
--- Represented as the byte @1@.
+-- | Key used to index the latest finalization entry in the consensus status table.
+--  Represented as the byte @1@.
 data LatestFinalizationEntryKey = CSKLatestFinalizationEntry
     deriving (Eq, Ord, Bounded, Enum, Show)
 
@@ -142,7 +142,7 @@ instance S.Serialize LatestFinalizationEntryKey where
             1 -> return CSKLatestFinalizationEntry
             _ -> fail "Expected CSKLatestFinalizationEntry"
 
--- |Latest finalization status store table.
+-- | Latest finalization status store table.
 newtype LatestFinalizationEntryStore = LatestFinalizationEntryStore MDB_dbi'
 
 instance MDBDatabase LatestFinalizationEntryStore where
@@ -151,8 +151,8 @@ instance MDBDatabase LatestFinalizationEntryStore where
 
 -- ** Metadata store
 
--- |The metadata store table.
--- This table is for storing version-related information.
+-- | The metadata store table.
+--  This table is for storing version-related information.
 newtype MetadataStore = MetadataStore MDB_dbi'
 
 instance MDBDatabase MetadataStore where
@@ -163,16 +163,16 @@ instance MDBDatabase MetadataStore where
     encodeValue _ = LBS.fromStrict
     decodeValue _ _ v = Right <$> byteStringFromMDB_val v
 
--- |Key to the version information.
--- This key should map to a serialized 'VersionMetadata' structure.
+-- | Key to the version information.
+--  This key should map to a serialized 'VersionMetadata' structure.
 versionMetadata :: DBKey MetadataStore
 versionMetadata = "version"
 
 data VersionMetadata = VersionMetadata
-    { -- |Version signifier for the database itself.
+    { -- | Version signifier for the database itself.
       vmDatabaseVersion :: !Version,
-      -- |Protocol version, which may impact the storage of blocks/finalization records
-      -- independently of the database version.
+      -- | Protocol version, which may impact the storage of blocks/finalization records
+      --  independently of the database version.
       vmProtocolVersion :: !ProtocolVersion
     }
     deriving (Eq)
@@ -196,85 +196,85 @@ instance S.Serialize VersionMetadata where
 
 -- * Database
 
--- |The LMDB environment and tables.
+-- | The LMDB environment and tables.
 data DatabaseHandlers (pv :: ProtocolVersion) = DatabaseHandlers
-    { -- |The LMDB environment.
+    { -- | The LMDB environment.
       _storeEnv :: !StoreEnv,
-      -- |Blocks by hash.
+      -- | Blocks by hash.
       _blockStore :: !(BlockStore pv),
-      -- |Index of finalized blocks by block height.
+      -- | Index of finalized blocks by block height.
       _finalizedBlockIndex :: !FinalizedBlockIndex,
-      -- |Index of finalized transactions by hash.
+      -- | Index of finalized transactions by hash.
       _transactionStatusStore :: !TransactionStatusStore,
-      -- |Non-finalized quorum certificates index by round.
+      -- | Non-finalized quorum certificates index by round.
       _nonFinalizedQuorumCertificateStore :: !NonFinalizedQuorumCertificateStore,
-      -- |Storage for the 'RoundStatus'.
+      -- | Storage for the 'RoundStatus'.
       _roundStatusStore :: !RoundStatusStore,
-      -- |Storage for the latest 'FinalizationEntry'.
+      -- | Storage for the latest 'FinalizationEntry'.
       _latestFinalizationEntryStore :: !LatestFinalizationEntryStore,
-      -- |Metadata storage (i.e. version information).
+      -- | Metadata storage (i.e. version information).
       _metadataStore :: !MetadataStore
     }
 
 makeClassy ''DatabaseHandlers
 
--- |Name of the table used for storing blocks by block hash.
+-- | Name of the table used for storing blocks by block hash.
 blockStoreName :: String
 blockStoreName = "blocksByHash"
 
--- |Name of the table used for indexing finalized blocks by height.
+-- | Name of the table used for indexing finalized blocks by height.
 finalizedBlockIndexName :: String
 finalizedBlockIndexName = "finalizedBlockIndex"
 
--- |Name of the table used for indexing transactions by hash.
+-- | Name of the table used for indexing transactions by hash.
 transactionStatusStoreName :: String
 transactionStatusStoreName = "transactionStatus"
 
--- |Name of the table used for storing quorum certificates for non-finalized blocks by round.
+-- | Name of the table used for storing quorum certificates for non-finalized blocks by round.
 nonFinalizedQuorumCertificateStoreName :: String
 nonFinalizedQuorumCertificateStoreName = "nonFinalizedQuorumCertificates"
 
--- |Name of the table used for storing the round status and latest finalization entry.
+-- | Name of the table used for storing the round status and latest finalization entry.
 consensusStatusStoreName :: String
 consensusStatusStoreName = "consensusStatus"
 
--- |Name of the table used for storing version metadata.
+-- | Name of the table used for storing version metadata.
 metadataStoreName :: String
 metadataStoreName = "metadata"
 
--- |The number of databases in the LMDB environment for 'DatabaseHandlers'.
+-- | The number of databases in the LMDB environment for 'DatabaseHandlers'.
 databaseCount :: Int
 databaseCount = 6
 
--- |Database growth size increment.
--- This is currently set at 64MB, and must be a multiple of the page size.
+-- | Database growth size increment.
+--  This is currently set at 64MB, and must be a multiple of the page size.
 dbStepSize :: Int
 dbStepSize = 2 ^ (26 :: Int) -- 64MB
 
--- |Maximum step to increment the database size.
+-- | Maximum step to increment the database size.
 dbMaxStepSize :: Int
 dbMaxStepSize = 2 ^ (30 :: Int) -- 1GB
 
--- |Initial database size.
--- This is currently set to be the same as 'dbStepSize'.
+-- | Initial database size.
+--  This is currently set to be the same as 'dbStepSize'.
 dbInitSize :: Int
 dbInitSize = dbStepSize
 
 -- ** Helpers
 
--- |Resize the LMDB map if the file size has changed.
--- This is used to allow a secondary process that is reading the database
--- to handle resizes to the database that are made by the writer.
--- The supplied action will be executed. If it fails with an 'MDB_MAP_RESIZED'
--- error, then the map will be resized and the action retried.
+-- | Resize the LMDB map if the file size has changed.
+--  This is used to allow a secondary process that is reading the database
+--  to handle resizes to the database that are made by the writer.
+--  The supplied action will be executed. If it fails with an 'MDB_MAP_RESIZED'
+--  error, then the map will be resized and the action retried.
 resizeOnResized :: (MonadIO m, MonadReader r m, HasDatabaseHandlers r pv, MonadCatch m) => m a -> m a
 resizeOnResized a = do
     dbh <- view databaseHandlers
     resizeOnResizedInternal (dbh ^. storeEnv) a
 
--- |Perform a database action and resize the LMDB map if the file size has changed. The difference
--- with `resizeOnResized` is that this function takes database handlers as an argument, instead of
--- reading their value from `HasDatabaseHandlers`.
+-- | Perform a database action and resize the LMDB map if the file size has changed. The difference
+--  with `resizeOnResized` is that this function takes database handlers as an argument, instead of
+--  reading their value from `HasDatabaseHandlers`.
 resizeOnResizedInternal :: (MonadIO m, MonadCatch m) => StoreEnv -> m a -> m a
 resizeOnResizedInternal se a = inner
   where
@@ -284,8 +284,8 @@ resizeOnResizedInternal se a = inner
         liftIO (withWriteStoreEnv se $ flip mdb_env_set_mapsize 0)
         inner
 
--- |Increase the database size by at least the supplied size.
--- The size SHOULD be a multiple of 'dbStepSize', and MUST be a multiple of the page size.
+-- | Increase the database size by at least the supplied size.
+--  The size SHOULD be a multiple of 'dbStepSize', and MUST be a multiple of the page size.
 resizeDatabaseHandlers :: (MonadIO m, MonadLogger m) => DatabaseHandlers pv -> Int -> m ()
 resizeDatabaseHandlers dbh delta = do
     envInfo <- liftIO $ mdb_env_info (dbh ^. storeEnv . seEnv)
@@ -297,16 +297,16 @@ resizeDatabaseHandlers dbh delta = do
 
 -- ** Initialization
 
--- |Initialize database handlers.
--- The size will be rounded up to a multiple of 'dbStepSize'.
--- (This ensures in particular that the size is a multiple of the page size, which is required by
--- LMDB.)
+-- | Initialize database handlers.
+--  The size will be rounded up to a multiple of 'dbStepSize'.
+--  (This ensures in particular that the size is a multiple of the page size, which is required by
+--  LMDB.)
 makeDatabaseHandlers ::
-    -- |Path of database
+    -- | Path of database
     FilePath ->
-    -- |Open read only
+    -- | Open read only
     Bool ->
-    -- |Initial database size
+    -- | Initial database size
     Int ->
     IO (DatabaseHandlers pv)
 makeDatabaseHandlers treeStateDir readOnly initSize = do
@@ -357,21 +357,21 @@ makeDatabaseHandlers treeStateDir readOnly initSize = do
                     [MDB_CREATE | not readOnly]
         return DatabaseHandlers{..}
 
--- |Initialize database handlers in ReadWrite mode.
--- This simply loads the references and does not initialize the databases.
--- The initial size is set to 64MB.
+-- | Initialize database handlers in ReadWrite mode.
+--  This simply loads the references and does not initialize the databases.
+--  The initial size is set to 64MB.
 openDatabase :: FilePath -> IO (DatabaseHandlers pv)
 openDatabase treeStateDir = do
     createDirectoryIfMissing False treeStateDir
     makeDatabaseHandlers treeStateDir False dbInitSize
 
--- |Close the database. The database should not be used after it is closed.
+-- | Close the database. The database should not be used after it is closed.
 closeDatabase :: DatabaseHandlers pv -> IO ()
 closeDatabase dbHandlers = runInBoundThread $ mdb_env_close $ dbHandlers ^. storeEnv . seEnv
 
--- |Check that the database version matches the expected version.
--- If it does not, this throws a 'DatabaseInvariantViolation' exception.
-checkDatabaseVersion :: forall pv. IsProtocolVersion pv => DatabaseHandlers pv -> LogIO ()
+-- | Check that the database version matches the expected version.
+--  If it does not, this throws a 'DatabaseInvariantViolation' exception.
+checkDatabaseVersion :: forall pv. (IsProtocolVersion pv) => DatabaseHandlers pv -> LogIO ()
 checkDatabaseVersion db = do
     metadata <- liftIO . transaction (db ^. storeEnv) True $ \txn ->
         loadRecord txn (db ^. metadataStore) versionMetadata
@@ -396,21 +396,21 @@ checkDatabaseVersion db = do
               vmProtocolVersion = demoteProtocolVersion (protocolVersion @pv)
             }
 
--- |'DatabaseHandlers' existentially quantified over the protocol version and without block state.
--- Note that we can treat the state type as '()' soundly when reading, since the state is the last
--- part of the serialization: we just ignore the remaining bytes.
+-- | 'DatabaseHandlers' existentially quantified over the protocol version and without block state.
+--  Note that we can treat the state type as '()' soundly when reading, since the state is the last
+--  part of the serialization: we just ignore the remaining bytes.
 data VersionDatabaseHandlers
     = forall pv.
-        IsProtocolVersion pv =>
+        (IsProtocolVersion pv) =>
       VersionDatabaseHandlers (DatabaseHandlers pv)
 
--- |Open an existing database for reading. This checks that the version is supported and returns
--- a handler that is existentially quantified over the protocol version.
+-- | Open an existing database for reading. This checks that the version is supported and returns
+--  a handler that is existentially quantified over the protocol version.
 --
--- This is required for functionality such as the block exporter, which reads the database but does
--- not have sufficient context to infer the protocol version.
+--  This is required for functionality such as the block exporter, which reads the database but does
+--  not have sufficient context to infer the protocol version.
 openReadOnlyDatabase ::
-    -- |Path of database
+    -- | Path of database
     FilePath ->
     IO (Maybe VersionDatabaseHandlers)
 openReadOnlyDatabase treeStateDir = do
@@ -473,24 +473,24 @@ openReadOnlyDatabase treeStateDir = do
 
 -- ** Monad implementation
 
--- |A newtype wrapper that provides a 'MonadTreeStateStore' implementation using LMDB.
+-- | A newtype wrapper that provides a 'MonadTreeStateStore' implementation using LMDB.
 newtype DiskLLDBM (pv :: ProtocolVersion) m a = DiskLLDBM {runDiskLLDBM :: m a}
     deriving (Functor, Applicative, Monad, MonadIO, MonadThrow, MonadCatch, MonadLogger) via m
     deriving (MonadTrans) via IdentityT
 
-deriving instance MonadReader r m => MonadReader r (DiskLLDBM pv m)
+deriving instance (MonadReader r m) => MonadReader r (DiskLLDBM pv m)
 
-instance IsProtocolVersion pv => MonadProtocolVersion (DiskLLDBM pv m) where
+instance (IsProtocolVersion pv) => MonadProtocolVersion (DiskLLDBM pv m) where
     type MPV (DiskLLDBM pv m) = pv
 
--- |Run a read-only transaction.
+-- | Run a read-only transaction.
 asReadTransaction :: (MonadIO m, MonadReader r m, HasDatabaseHandlers r pv) => (DatabaseHandlers pv -> MDB_txn -> IO a) -> DiskLLDBM pv m a
 asReadTransaction t = do
     dbh <- view databaseHandlers
     liftIO $ transaction (dbh ^. storeEnv) True $ t dbh
 
--- |Run a write transaction. If the transaction fails due to the database being full, this resizes
--- the database and retries the transaction.
+-- | Run a write transaction. If the transaction fails due to the database being full, this resizes
+--  the database and retries the transaction.
 asWriteTransaction :: (MonadIO m, MonadReader r m, HasDatabaseHandlers r pv, MonadLogger m) => (DatabaseHandlers pv -> MDB_txn -> IO a) -> DiskLLDBM pv m a
 asWriteTransaction t = do
     dbh <- view databaseHandlers
@@ -511,7 +511,7 @@ asWriteTransaction t = do
         (LMDB_Error _ _ (Right MDB_MAP_FULL)) -> Just ()
         _ -> Nothing
 
--- |Helper function for implementing 'writeFinalizedBlocks'.
+-- | Helper function for implementing 'writeFinalizedBlocks'.
 writeFinalizedBlocksHelper ::
     (HasDatabaseHandlers dbh pv, IsProtocolVersion pv) =>
     [StoredBlock pv] ->
@@ -675,14 +675,14 @@ instance
     writeCurrentRoundStatus rs = asWriteTransaction $ \dbh txn ->
         storeReplaceRecord txn (dbh ^. roundStatusStore) CSKRoundStatus rs
 
--- |Initialise the low-level database by writing out the genesis block, initial round status and
--- version metadata.
+-- | Initialise the low-level database by writing out the genesis block, initial round status and
+--  version metadata.
 initialiseLowLevelDB ::
     forall pv r m.
     (MonadIO m, MonadReader r m, HasDatabaseHandlers r pv, MonadLogger m, IsProtocolVersion pv) =>
-    -- |Genesis block.
+    -- | Genesis block.
     StoredBlock pv ->
-    -- |Initial persistent round status.
+    -- | Initial persistent round status.
     PersistentRoundStatus ->
     DiskLLDBM pv m ()
 initialiseLowLevelDB genesisBlock roundStatus = asWriteTransaction $ \dbh txn -> do
@@ -696,21 +696,21 @@ initialiseLowLevelDB genesisBlock roundStatus = asWriteTransaction $ \dbh txn ->
                 }
     storeReplaceRecord txn (dbh ^. metadataStore) versionMetadata $ S.encode metadata
 
--- |Remove certified and finalized blocks from the database whose states cannot be loaded.
--- This can throw an exception if the database recovery was not possible.
+-- | Remove certified and finalized blocks from the database whose states cannot be loaded.
+--  This can throw an exception if the database recovery was not possible.
 --
--- This uses the following assumptions:
---   * If a block's state can be loaded, then so can the state of its parent, or any block
---     with a lesser 'BlockStateRef'.
---   * The database invariants hold.
---   * No other concurrent accesses are made to the database.
+--  This uses the following assumptions:
+--    * If a block's state can be loaded, then so can the state of its parent, or any block
+--      with a lesser 'BlockStateRef'.
+--    * The database invariants hold.
+--    * No other concurrent accesses are made to the database.
 --
--- The updates to the database are performed in the following write transactions:
---   * Removing a single certified block.
---   * Removing all certified blocks.
---   * Removing the last finalized block and implicitly finalized blocks, rolling back the
---     latest finalization entry to the prior explicitly finalized block (or removing it if
---     it would be for the genesis block).
+--  The updates to the database are performed in the following write transactions:
+--    * Removing a single certified block.
+--    * Removing all certified blocks.
+--    * Removing the last finalized block and implicitly finalized blocks, rolling back the
+--      latest finalization entry to the prior explicitly finalized block (or removing it if
+--      it would be for the genesis block).
 rollBackBlocksUntil ::
     forall pv r m.
     ( IsProtocolVersion pv,
@@ -720,7 +720,7 @@ rollBackBlocksUntil ::
       MonadCatch m,
       MonadLogger m
     ) =>
-    -- |Callback for checking if the state at a given reference is valid.
+    -- | Callback for checking if the state at a given reference is valid.
     (BlockStateRef pv -> DiskLLDBM pv m Bool) ->
     DiskLLDBM pv m (Int, BlockStateRef pv)
 rollBackBlocksUntil checkState = do

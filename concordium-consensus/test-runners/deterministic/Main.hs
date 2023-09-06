@@ -6,13 +6,13 @@
 {-# LANGUAGE ViewPatterns #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 
--- |This module simulates running multiple copies of consensus together in a
--- deterministic fashion, without consideration for real time.  The goal is to
--- have a faster and more reproducible way of testing/profiling/benchmarking
--- performance-related issues.
+-- | This module simulates running multiple copies of consensus together in a
+--  deterministic fashion, without consideration for real time.  The goal is to
+--  have a faster and more reproducible way of testing/profiling/benchmarking
+--  performance-related issues.
 --
--- Note that it is expected that you will edit this file depending on what
--- you wish to test.
+--  Note that it is expected that you will edit this file depending on what
+--  you wish to test.
 module Main where
 
 import Control.Monad
@@ -63,11 +63,11 @@ import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Serialize as S
 import System.Directory
 
--- |Protocol version
+-- | Protocol version
 type PV = 'P5
 
--- |Construct the global state configuration.
--- Can be customised if changing the configuration.
+-- | Construct the global state configuration.
+--  Can be customised if changing the configuration.
 makeGlobalStateConfig :: RuntimeParameters -> FilePath -> FilePath -> IO GlobalStateConfig
 makeGlobalStateConfig rt treeStateDir blockStateFile = return $ GlobalStateConfig rt treeStateDir blockStateFile
 
@@ -81,57 +81,57 @@ makeGlobalStateConfig rp treeStateDir blockStateFile =
    return $ PairGSConfig (MTMBConfig rp, GlobalStateConfig rp treeStateDir blockStateFile)
 -}
 
--- |A timer is represented as an integer identifier.
--- Timers are issued with increasing identifiers.
+-- | A timer is represented as an integer identifier.
+--  Timers are issued with increasing identifiers.
 newtype DummyTimer = DummyTimer Integer
     deriving (Num, Eq, Ord)
 
--- |Configuration to use for bakers.
--- Can be customised for different global state configurations (disk/memory/paired)
--- or to enable/disable finalization buffering.
+-- | Configuration to use for bakers.
+--  Can be customised for different global state configurations (disk/memory/paired)
+--  or to enable/disable finalization buffering.
 type BakerConfig = SkovConfig PV (ActiveFinalization DummyTimer) NoHandler
 
--- |The identity providers to use.
+-- | The identity providers to use.
 dummyIdentityProviders :: IdentityProviders
 dummyIdentityProviders = emptyIdentityProviders
 
 dummyArs :: AnonymityRevokers
 dummyArs = emptyAnonymityRevokers
 
--- |Monad that provides a deterministic implementation of 'TimeMonad' -- i.e. that is
--- not dependent on real time.
+-- | Monad that provides a deterministic implementation of 'TimeMonad' -- i.e. that is
+--  not dependent on real time.
 newtype DeterministicTime m a = DeterministicTime {runDeterministic' :: ReaderT UTCTime m a}
     deriving (Functor, Applicative, Monad, MonadIO)
 
-instance Monad m => TimeMonad (DeterministicTime m) where
+instance (Monad m) => TimeMonad (DeterministicTime m) where
     currentTime = DeterministicTime ask
 
--- |Run the 'DeterministicTime' action with the given time.
+-- | Run the 'DeterministicTime' action with the given time.
 runDeterministic :: DeterministicTime m a -> UTCTime -> m a
 runDeterministic (DeterministicTime a) t = runReaderT a t
 
--- |The base monad (with logging and time).
+-- | The base monad (with logging and time).
 type LogBase = LoggerT (DeterministicTime IO)
 
--- |How 'SkovHandlers' should be instantiated for our setting.
+-- | How 'SkovHandlers' should be instantiated for our setting.
 type MyHandlers = SkovHandlers PV DummyTimer BakerConfig (StateT SimState LogBase)
 
--- |The monad for bakers to run in.
+-- | The monad for bakers to run in.
 type BakerM = SkovT PV MyHandlers BakerConfig (StateT SimState LogBase)
 
--- |Events that trigger actions by bakers.
+-- | Events that trigger actions by bakers.
 data Event
-    = -- |Attempt to bake a block in the given slot; generates a new event for the next slot
+    = -- | Attempt to bake a block in the given slot; generates a new event for the next slot
       EBake !Slot
-    | -- |Receive a block
+    | -- | Receive a block
       EBlock !BakedBlock
-    | -- |Receive a transaction
+    | -- | Receive a transaction
       ETransaction !BlockItem
-    | -- |Receive a finalization message
+    | -- | Receive a finalization message
       EFinalization !FinalizationPseudoMessage
-    | -- |Receive a finalization record
+    | -- | Receive a finalization record
       EFinalizationRecord !FinalizationRecord
-    | -- |Trigger a timer event
+    | -- | Trigger a timer event
       ETimer !DummyTimer !(BakerM ())
 
 instance Show Event where
@@ -142,15 +142,15 @@ instance Show Event where
     show (EFinalizationRecord _) = "Receive finalization record"
     show (ETimer _ _) = "Timer event"
 
--- |Both baker-specific and generic events.
+-- | Both baker-specific and generic events.
 data GEvent
-    = -- |An event for a particular baker
+    = -- | An event for a particular baker
       BakerEvent !Int !Event
-    | -- |Spawn the next transaction to send to bakers
+    | -- | Spawn the next transaction to send to bakers
       TransactionEvent [(Integer, BlockItem)]
 
--- |An event with a time at which it should occur.
--- The time is used for determining priority.
+-- | An event with a time at which it should occur.
+--  The time is used for determining priority.
 data PEvent = PEvent !Integer !GEvent
 
 instance Eq PEvent where
@@ -158,7 +158,7 @@ instance Eq PEvent where
 instance Ord PEvent where
     compare (PEvent i1 _) (PEvent i2 _) = compare i1 i2
 
--- |The state of a particular baker.
+-- | The state of a particular baker.
 data BakerState = BakerState
     { _bsIdentity :: !BakerIdentity,
       _bsInfo :: !FullBakerInfo,
@@ -166,20 +166,20 @@ data BakerState = BakerState
       _bsState :: !(SkovState BakerConfig)
     }
 
--- |Typeclass of a datastructure that collects events.
--- The instance of this structure determines how events
--- are ordered.
+-- | Typeclass of a datastructure that collects events.
+--  The instance of this structure determines how events
+--  are ordered.
 class Events e where
-    -- |Add an event to the collection.
+    -- | Add an event to the collection.
     addEvent :: PEvent -> e -> e
 
-    -- |Filter the collection.
+    -- | Filter the collection.
     filterEvents :: (PEvent -> Bool) -> e -> e
 
-    -- |Make a collection from a list (in a default manner).
+    -- | Make a collection from a list (in a default manner).
     makeEvents :: [PEvent] -> e
 
-    -- |Extract the next event from the collection.
+    -- | Extract the next event from the collection.
     nextEvent :: e -> Maybe (PEvent, e)
 
 instance Events (MinPQ.MinQueue PEvent) where
@@ -188,16 +188,16 @@ instance Events (MinPQ.MinQueue PEvent) where
     makeEvents = MinPQ.fromList
     nextEvent = MinPQ.minView
 
--- |An instance of 'Events' that selects events randomly
--- (without regard for time).  The randomness is determined
--- by the 'StdGen', which is used to pick the next element
--- from the sequence.
+-- | An instance of 'Events' that selects events randomly
+--  (without regard for time).  The randomness is determined
+--  by the 'StdGen', which is used to pick the next element
+--  from the sequence.
 data RandomisedEvents = RandomisedEvents
     { _reEvents :: !(Seq.Seq PEvent),
       _reGen :: !StdGen
     }
 
--- |State of the simulation.
+-- | State of the simulation.
 data SimState = SimState
     { _ssBakers :: !(Vec.Vector BakerState),
       _ssEvents :: !(MinPQ.MinQueue PEvent),
@@ -210,16 +210,16 @@ makeLenses ''RandomisedEvents
 makeLenses ''BakerState
 makeLenses ''SimState
 
--- |Pick an element from a sequence, returning the element
--- and the sequence with that element removed.
+-- | Pick an element from a sequence, returning the element
+--  and the sequence with that element removed.
 selectFromSeq :: (RandomGen g) => g -> Seq.Seq a -> (a, Seq.Seq a, g)
 selectFromSeq g s =
     let (n, g') = randomR (0, length s - 1) g
     in  (Seq.index s n, Seq.deleteAt n s, g')
 
--- |Seed to use for randomness in 'RandomisedEvents'.
--- This can be varied to generate different runs (when 'RandomisedEvents'
--- is used.)
+-- | Seed to use for randomness in 'RandomisedEvents'.
+--  This can be varied to generate different runs (when 'RandomisedEvents'
+--  is used.)
 randomisedEventsSeed :: Int
 randomisedEventsSeed = 0
 
@@ -233,11 +233,11 @@ instance Events RandomisedEvents where
             let (v, s', g') = selectFromSeq _reGen _reEvents
             in  Just (v, RandomisedEvents s' g')
 
--- |Maximal baker ID.
+-- | Maximal baker ID.
 maxBakerId :: (Integral a) => a
 maxBakerId = 0 -- 9
 
--- |List of all baker IDs.
+-- | List of all baker IDs.
 allBakers :: (Integral a) => [a]
 allBakers = [0 .. maxBakerId]
 
@@ -247,7 +247,7 @@ transactions gen = trs (1 :: Nonce) (randoms gen :: [Word8])
     trs (Nonce n) (amnt : amnts) = (toInteger n `div` 100, Dummy.makeTransferTransaction (Dummy.mateuszKP, Dummy.mateuszAccount) Dummy.mateuszAccount (fromIntegral amnt) (Nonce n)) : trs (Nonce (n + 1)) amnts
     trs _ _ = error "Ran out of transaction data"
 
--- |Transactions from the extra accounts.
+-- | Transactions from the extra accounts.
 extraAccountTransactions :: Int -> [(Integer, BlockItem)]
 extraAccountTransactions numAccts = trs 1
   where
@@ -264,17 +264,17 @@ extraAccountTransactions numAccts = trs 1
         ]
             ++ trs (Nonce (n + 1))
 
--- |Genesis accounts. For convenience, these all use the same keys.
+-- | Genesis accounts. For convenience, these all use the same keys.
 extraAccounts :: Int -> [GenesisAccount]
 extraAccounts numAccts = [Dummy.createCustomAccount 1000000 Dummy.alesKP (Dummy.accountAddressFrom i) | i <- [1 .. numAccts]]
 
--- |Number of execution steps between blocks.
--- Note: this can be used to control the number of transactions per block, in preference to
--- having multiple transactions in a single execution step.
-ticksPerSlot :: Num a => a
+-- | Number of execution steps between blocks.
+--  Note: this can be used to control the number of transactions per block, in preference to
+--  having multiple transactions in a single execution step.
+ticksPerSlot :: (Num a) => a
 ticksPerSlot = 100
 
--- |The initial state of the simulation.
+-- | The initial state of the simulation.
 initialState :: Int -> IO SimState
 initialState numAccts = do
     -- This timestamp is only used for naming the database files.
@@ -326,7 +326,7 @@ initialState numAccts = do
     _ssNextTimer = 0
     _ssCurrentTime = posixSecondsToUTCTime 0
 
--- |Log an event for a particular baker.
+-- | Log an event for a particular baker.
 logFor :: (MonadIO m) => Int -> LogMethod m
 logFor _ _ _ _ = return ()
 
@@ -334,7 +334,7 @@ logFor _ _ _ _ = return ()
 --     putStrLn $ "[" ++ show i ++ ":" ++ show src ++ ":" ++ show lvl ++ "] " ++ show msg
 --     hFlush stdout
 
--- |Run a baker action in the state monad.
+-- | Run a baker action in the state monad.
 runBaker :: Integer -> Int -> BakerM a -> StateT SimState IO a
 runBaker curTime bid a = do
     bakerState <- (Vec.! bid) <$> use ssBakers
@@ -363,7 +363,7 @@ runBaker curTime bid a = do
         f _ = True
     shPendingLive = return ()
 
--- |Send an event to all bakers.
+-- | Send an event to all bakers.
 broadcastEvent ::
     (MonadState SimState m) =>
     Integer ->
@@ -371,7 +371,7 @@ broadcastEvent ::
     m ()
 broadcastEvent curTime ev = ssEvents %= \e -> foldr addEvent e [PEvent curTime (BakerEvent i ev) | i <- allBakers]
 
--- |Display an event for a baker.
+-- | Display an event for a baker.
 displayBakerEvent :: (MonadIO m) => Int -> Event -> m ()
 displayBakerEvent i ev = liftIO $ putStrLn $ show i ++ "> " ++ show ev
 
@@ -379,8 +379,8 @@ bpBlock :: TS.BlockPointerType BakerM -> Block PV
 -- bpBlock (PairBlockData (l, _)) = BS._bpBlock l
 bpBlock = BS._bpBlock
 
--- |Run a step of the consensus. This takes the next event and
--- executes that.
+-- | Run a step of the consensus. This takes the next event and
+--  executes that.
 stepConsensus :: StateT SimState IO ()
 stepConsensus =
     (nextEvent <$> use ssEvents) >>= \case
@@ -420,7 +420,7 @@ stepConsensus =
                         return ()
                     ETimer _ a -> runBaker t i a
 
--- |Main runner. Simply runs consensus for a certain number of steps.
+-- | Main runner. Simply runs consensus for a certain number of steps.
 main :: IO ()
 main = do
     putStr "Number of accounts: "

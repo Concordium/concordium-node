@@ -4,40 +4,40 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 
--- |Functionality for importing and exporting the block database.
+-- | Functionality for importing and exporting the block database.
 --
--- The block database format is as follows:
+--  The block database format is as follows:
 --
--- * Version header (Version - variable length): 3
--- * One or more sections
+--  * Version header (Version - variable length): 3
+--  * One or more sections
 --
--- Each section consists of:
+--  Each section consists of:
 --
--- * The length of the section header [not including this length] (Word64be)
--- * The length of the section including the header, length, etc. (Word64be)
--- * The genesis index of blocks in the section (Word32be)
--- * The protocol version of this section (Word64be)
--- * The genesis block hash (32 bytes)
--- * The block height of the first block (Word64be)
--- * The number of blocks present (Word64be)
--- * The total length of the block portion (Word64be)
--- * The number of finalization records (Word64be)
--- * The block portion, consisting for each block of:
---    - The length of the serialized block (Word64be)
---    - The serialized, versioned block data
--- * The finalization record portion, consisting for each finalization record of:
---    - The length of the finalization record (Word64be)
---    - The serialized, versioned finalization record
+--  * The length of the section header [not including this length] (Word64be)
+--  * The length of the section including the header, length, etc. (Word64be)
+--  * The genesis index of blocks in the section (Word32be)
+--  * The protocol version of this section (Word64be)
+--  * The genesis block hash (32 bytes)
+--  * The block height of the first block (Word64be)
+--  * The number of blocks present (Word64be)
+--  * The total length of the block portion (Word64be)
+--  * The number of finalization records (Word64be)
+--  * The block portion, consisting for each block of:
+--     - The length of the serialized block (Word64be)
+--     - The serialized, versioned block data
+--  * The finalization record portion, consisting for each finalization record of:
+--     - The length of the finalization record (Word64be)
+--     - The serialized, versioned finalization record
 --
--- Within a section, the blocks must be sequential and of the correct number.
--- The finalization records must also be sequential and of the correct number.
--- The finalization records must finalize blocks that are included in the section
--- for which there is not a finalization record included in another block.
+--  Within a section, the blocks must be sequential and of the correct number.
+--  The finalization records must also be sequential and of the correct number.
+--  The finalization records must finalize blocks that are included in the section
+--  for which there is not a finalization record included in another block.
 --
--- Sections themselves should be ordered with sequential genesis indexes.
+--  Sections themselves should be ordered with sequential genesis indexes.
 --
--- It is expected that each section should contain all finalized blocks except the
--- genesis block, and all finalization records that are not already included in blocks.
+--  It is expected that each section should contain all finalized blocks except the
+--  genesis block, and all finalization records that are not already included in blocks.
 module Concordium.ImportExport where
 
 import Control.Monad
@@ -81,12 +81,12 @@ import Concordium.Types.Parameters
 import Concordium.Utils.Serialization.Put
 import Lens.Micro.Platform
 
--- |State used for exporting the database of a 'ConsensusV0' database.
--- This type exists because we run the exporting in a context that contains
--- a State over the DBState.
+-- | State used for exporting the database of a 'ConsensusV0' database.
+--  This type exists because we run the exporting in a context that contains
+--  a State over the DBState.
 --
--- But for the 'ConsensusV1' database we export it via a @Reader@ context,
--- so this type is only used for 'ConsensusV0'.
+--  But for the 'ConsensusV1' database we export it via a @Reader@ context,
+--  so this type is only used for 'ConsensusV0'.
 newtype DBState pv = DBState
     { _dbsHandlers :: DatabaseHandlers pv ()
     }
@@ -96,7 +96,7 @@ makeLenses ''DBState
 instance HasDatabaseHandlers pv () (DBState pv) where
     dbHandlers = dbsHandlers
 
--- |A section header of an exported block database
+-- | A section header of an exported block database
 data SectionHeader = SectionHeader
     { sectionLength :: !Word64,
       sectionGenesisIndex :: !GenesisIndex,
@@ -130,18 +130,18 @@ instance Serialize SectionHeader where
         sectionFinalizationCount <- getWord64be
         return SectionHeader{..}
 
--- |A dummy 'SectionHeader' that is used as a placeholder when writing a section, before being
--- overwritten with the correct data.
+-- | A dummy 'SectionHeader' that is used as a placeholder when writing a section, before being
+--  overwritten with the correct data.
 placeholderSectionHeader :: SectionHeader
 placeholderSectionHeader = SectionHeader 0 0 P1 (BlockHash minBound) 0 0 0 0
 
--- |The length of a section header in bytes.
+-- | The length of a section header in bytes.
 sectionHeaderLength :: Word64
 sectionHeaderLength = fromIntegral $ BS.length $ encode placeholderSectionHeader
 
--- |Open a file handle for writing a chunk. If the file with the specified name already exists, a
--- new name is chosen by putting or incrementing a version number in its extension. It is expected
--- that an unversioned filename only has a single extension.
+-- | Open a file handle for writing a chunk. If the file with the specified name already exists, a
+--  new name is chosen by putting or incrementing a version number in its extension. It is expected
+--  that an unversioned filename only has a single extension.
 initialHandle :: (MonadIO m, MonadThrow m) => FilePath -> m (FilePath, Handle)
 initialHandle p = do
     liftIO $ createDirectoryIfMissing True (takeDirectory p)
@@ -187,11 +187,11 @@ initialHandle p = do
         _ <- AP.char '.'
         AP.decimal
 
--- |Data type used to represent a line with chunk information in the block index file.
--- A chunk contains exported data for all blocks of height in the range `blockHeightFirst`
--- to `blockHeightLast` and of genesis index `genesisIndex`. When a chunk is exported, a
--- line with the above information and the filename of the chunk is added to the block
--- index file.
+-- | Data type used to represent a line with chunk information in the block index file.
+--  A chunk contains exported data for all blocks of height in the range `blockHeightFirst`
+--  to `blockHeightLast` and of genesis index `genesisIndex`. When a chunk is exported, a
+--  line with the above information and the filename of the chunk is added to the block
+--  index file.
 data BlockIndexChunkInfo = BlockIndexChunkInfo
     { filename :: T.Text, -- Name of the chunk file.
       genesisIndex :: GenesisIndex, -- Genesis index of the blocks contained in the chunk.
@@ -200,24 +200,24 @@ data BlockIndexChunkInfo = BlockIndexChunkInfo
     }
     deriving (Show)
 
--- |Data type used to represent the contents of a block index file.
--- The block index file contains an index of the exported chunks containing the block and
--- and finalization record data of the exported database. The index consists of a number of
--- sections each comprising a section header line that specifies a genesis blockhash followed
--- by a sequence of lines that each represent a chunk containing blocks with that genesis
--- blockhash. A section with genesis blockhash corresponding to a genesis index `i` follows
--- another section with genesis blockhash corresponding to genesis index `j` iff. `i == j`
--- or `i == j+1`.
+-- | Data type used to represent the contents of a block index file.
+--  The block index file contains an index of the exported chunks containing the block and
+--  and finalization record data of the exported database. The index consists of a number of
+--  sections each comprising a section header line that specifies a genesis blockhash followed
+--  by a sequence of lines that each represent a chunk containing blocks with that genesis
+--  blockhash. A section with genesis blockhash corresponding to a genesis index `i` follows
+--  another section with genesis blockhash corresponding to genesis index `j` iff. `i == j`
+--  or `i == j+1`.
 type BlockIndex = Seq (BlockHash, Seq BlockIndexChunkInfo)
 
--- |Parse a blockhash.
+-- | Parse a blockhash.
 parseBlockHash :: AP.Parser BlockHash
 parseBlockHash = do
     hash <- AP.count 64 $ AP.satisfy isHexDigit
     return $! BlockHash (read hash)
 
--- |Parse a line of the block index file containing block genesis hash and indicating the start
--- of a new section.
+-- | Parse a line of the block index file containing block genesis hash and indicating the start
+--  of a new section.
 parseGenesisDataLine :: AP.Parser BlockHash
 parseGenesisDataLine = do
     _ <- AP.string (T.pack "# genesis hash ")
@@ -225,7 +225,7 @@ parseGenesisDataLine = do
     AP.skip AP.isEndOfLine
     return hash
 
--- |Parse a line of the block index file containing chunk information of a section.
+-- | Parse a line of the block index file containing chunk information of a section.
 parseChunkLine :: AP.Parser BlockIndexChunkInfo
 parseChunkLine = do
     filename <- AP.takeWhile1 (AP.inClass ".a-zA-Z0-9-")
@@ -251,8 +251,8 @@ parseBlockIndexFile = do
             AP.endOfInput
     return $ fromList list
 
--- |Show the contents of a block index file. The resulting string can be
--- parsed back into its corresponding @BlockIndex@ using `parseBlockIndexFile`.
+-- | Show the contents of a block index file. The resulting string can be
+--  parsed back into its corresponding @BlockIndex@ using `parseBlockIndexFile`.
 showBlockIndexFile :: BlockIndex -> String
 showBlockIndexFile = concatMap showSection
   where
@@ -276,16 +276,16 @@ showBlockIndexFile = concatMap showSection
             <> show blockHeightLast
             <> "\n"
 
--- |Normalize the block index.
--- Eliminates redundant sections of a `BlockIndex` by 1) merging consecutive
--- sections that have the same genesis block hash and by 2) removing sections
--- with no chunks. This is useful since older versions of the database exporter
--- may insert empty sections or consecutive sections with the same genesis hash.
--- This is due to `exportSections` returning a "tail" of a block index
--- corresponding to the sections it exported. The last section of the previously
--- exported block index will therefore match that of the first section of the tail,
--- so appending the tail to produce the updated block index will introduce some
--- undesired clutter and redundancy.
+-- | Normalize the block index.
+--  Eliminates redundant sections of a `BlockIndex` by 1) merging consecutive
+--  sections that have the same genesis block hash and by 2) removing sections
+--  with no chunks. This is useful since older versions of the database exporter
+--  may insert empty sections or consecutive sections with the same genesis hash.
+--  This is due to `exportSections` returning a "tail" of a block index
+--  corresponding to the sections it exported. The last section of the previously
+--  exported block index will therefore match that of the first section of the tail,
+--  so appending the tail to produce the updated block index will introduce some
+--  undesired clutter and redundancy.
 normalizeBlockIndex :: BlockIndex -> BlockIndex
 normalizeBlockIndex ((_, Empty) :<| l) = normalizeBlockIndex l
 normalizeBlockIndex ((gh1, chunks1) :<| (gh2, chunks2) :<| r)
@@ -293,15 +293,15 @@ normalizeBlockIndex ((gh1, chunks1) :<| (gh2, chunks2) :<| r)
     | otherwise = (gh1, chunks1) :<| normalizeBlockIndex ((gh2, chunks2) :<| r)
 normalizeBlockIndex l = l
 
--- |Export a database in V3 format, as a collection of block file chunks, given the data directory
--- root and the export directory root.
+-- | Export a database in V3 format, as a collection of block file chunks, given the data directory
+--  root and the export directory root.
 exportDatabaseV3 ::
     (MonadIO m, MonadLogger m, MonadMask m) =>
-    -- |Data directory
+    -- | Data directory
     FilePath ->
-    -- |Export directory
+    -- | Export directory
     FilePath ->
-    -- |Chunk size
+    -- | Chunk size
     Word64 ->
     m Bool
 exportDatabaseV3 dbDir outDir chunkSize = do
@@ -386,7 +386,7 @@ exportDatabaseV3 dbDir outDir chunkSize = do
             return exportError
         Nothing -> return exportError
 
--- |Export blocks from a 'ConsensusV1' database.
+-- | Export blocks from a 'ConsensusV1' database.
 exportConsensusV1Blocks ::
     forall pv m r.
     ( IsProtocolVersion pv,
@@ -398,21 +398,21 @@ exportConsensusV1Blocks ::
       KonsensusV1.HasDatabaseHandlers r pv,
       MonadCatch m
     ) =>
-    -- |Export path.
+    -- | Export path.
     FilePath ->
-    -- |Chunk size
+    -- | Chunk size
     Word64 ->
-    -- |The genesis index.
+    -- | The genesis index.
     GenesisIndex ->
-    -- |Height to start export from.
+    -- | Height to start export from.
     BlockHeight ->
-    -- |The block index of the previous export.
+    -- | The block index of the previous export.
     BlockIndex ->
-    -- |Last written chunk in previous export
+    -- | Last written chunk in previous export
     Maybe FilePath ->
-    -- |Returns a @Bool@ which indicates whether anything went wrong,
-    -- i.e. it is 'True' if an error occurred and otherwise 'False,
-    -- and the resulting 'BlockIndex' (the entries that have been added).
+    -- | Returns a @Bool@ which indicates whether anything went wrong,
+    --  i.e. it is 'True' if an error occurred and otherwise 'False,
+    --  and the resulting 'BlockIndex' (the entries that have been added).
     m (Bool, BlockIndex)
 exportConsensusV1Blocks outDir chunkSize genIndex startHeight blockIndex lastWrittenChunkM = do
     KonsensusV1.resizeOnResized KonsensusV1.lookupFirstBlock >>= \case
@@ -476,27 +476,27 @@ exportConsensusV1Blocks outDir chunkSize genIndex startHeight blockIndex lastWri
         -- of the database.
         _ :|> (gh, _) -> gh
 
--- |Export database sections corresponding to blocks with genesis indices >= genIndex
--- and of height >= startHeight.
--- Returns a @Bool@ and a @BlockIndex@ where the former indicates whether an error occurred,
--- and the latter contains information about the sections that were successfully written to the
--- file-system. If a section could not be exported or if any errors occurred this will be logged
--- to `stdout` in this function.
+-- | Export database sections corresponding to blocks with genesis indices >= genIndex
+--  and of height >= startHeight.
+--  Returns a @Bool@ and a @BlockIndex@ where the former indicates whether an error occurred,
+--  and the latter contains information about the sections that were successfully written to the
+--  file-system. If a section could not be exported or if any errors occurred this will be logged
+--  to `stdout` in this function.
 exportSections ::
     (MonadIO m, MonadLogger m, MonadMask m) =>
-    -- |Database directory
+    -- | Database directory
     FilePath ->
-    -- |Export directory
+    -- | Export directory
     FilePath ->
-    -- |Chunk size in blocks
+    -- | Chunk size in blocks
     Word64 ->
-    -- |Genesis index to export
+    -- | Genesis index to export
     GenesisIndex ->
-    -- |Height of first block in section to export
+    -- | Height of first block in section to export
     BlockHeight ->
-    -- |Block index of previously exported blocks for the current genesis index
+    -- | Block index of previously exported blocks for the current genesis index
     BlockIndex ->
-    -- |Filename of last chunk in previous export
+    -- | Filename of last chunk in previous export
     Maybe String ->
     m (Bool, BlockIndex)
 exportSections dbDir outDir chunkSize genIndex startHeight blockIndex lastWrittenChunkM = do
@@ -637,70 +637,70 @@ exportSections dbDir outDir chunkSize genIndex startHeight blockIndex lastWritte
         -- of the database.
         _ :|> (gh, _) -> gh
 
--- |Action for getting a block (and possibly a finalization index) at a particular height.
+-- | Action for getting a block (and possibly a finalization index) at a particular height.
 data GetBlockAt (cv :: ConsensusParametersVersion) (m :: Type -> Type) where
     GetBlockAtV0 ::
-        { -- |Function for getting a serialized block (if present in the database) in 'ConsensusV0',
-          -- i.e. before P6.
+        { -- | Function for getting a serialized block (if present in the database) in 'ConsensusV0',
+          --  i.e. before P6.
           gbaV0 :: BlockHeight -> m (Maybe (BS.ByteString, Maybe FinalizationIndex))
         } ->
         GetBlockAt 'ConsensusParametersVersion0 m
     GetBlockAtV1 ::
-        { -- |Function for getting a serialized (if present in the database) block in 'ConsensusV1',
-          -- i.e. after P5.
+        { -- | Function for getting a serialized (if present in the database) block in 'ConsensusV1',
+          --  i.e. after P5.
           gbaV1 :: BlockHeight -> m (Maybe BS.ByteString)
         } ->
         GetBlockAt 'ConsensusParametersVersion0 m
 
--- |Action for getting a finalization record parameterized by the consensus parameters version.
--- For 'ConsensusV1' this is a noop as 'FinalizationRecords' is no longer a thing.
+-- | Action for getting a finalization record parameterized by the consensus parameters version.
+--  For 'ConsensusV1' this is a noop as 'FinalizationRecords' is no longer a thing.
 data GetFinalizationRecordAt (cv :: ConsensusParametersVersion) (m :: Type -> Type) where
     GetFinalizationRecordAtV0 ::
-        { -- |Get the 'FinalizationRecord' indexed by the provided
-          -- 'FinalizationIndex' if present in the database.
+        { -- | Get the 'FinalizationRecord' indexed by the provided
+          --  'FinalizationIndex' if present in the database.
           gfaV0 :: FinalizationIndex -> m (Maybe BS.ByteString)
         } ->
         GetFinalizationRecordAt 'ConsensusParametersVersion0 m
-    -- |'ConsensusV1' does not use the concept of finalization indices,
-    -- so this is a noop.
+    -- | 'ConsensusV1' does not use the concept of finalization indices,
+    --  so this is a noop.
     GetFinalizationRecordAtV1 :: GetFinalizationRecordAt 'ConsensusParametersVersion0 m
 
--- |Write a database section as a collection of chunks in the specified directory.
--- For 'ConsensusV0' The last exported chunk
--- (i.e. the one containing the block with the greatest height in the section) also contains
--- finalization records finalizing all blocks after the last block containing a finalization
--- record.
--- For 'ConsensusV1' only blocks are exported.
--- Returns a list containing chunk file information for exported chunk files, appearing in
--- the order in which they were exported. Cfr. `BlockIndexChunkInfo` for more information.
--- The @Maybe @ parameter contains the filename to be used for the first chunk to be written, if so
--- provided, and if the file already exists, a version number is added and used instead.
+-- | Write a database section as a collection of chunks in the specified directory.
+--  For 'ConsensusV0' The last exported chunk
+--  (i.e. the one containing the block with the greatest height in the section) also contains
+--  finalization records finalizing all blocks after the last block containing a finalization
+--  record.
+--  For 'ConsensusV1' only blocks are exported.
+--  Returns a list containing chunk file information for exported chunk files, appearing in
+--  the order in which they were exported. Cfr. `BlockIndexChunkInfo` for more information.
+--  The @Maybe @ parameter contains the filename to be used for the first chunk to be written, if so
+--  provided, and if the file already exists, a version number is added and used instead.
 writeChunks ::
     forall cpv m.
     (MonadIO m, MonadLogger m, IsConsensusParametersVersion cpv, MonadThrow m) =>
-    -- |Genesis index
+    -- | Genesis index
     GenesisIndex ->
-    -- |Protocol version
+    -- | Protocol version
     ProtocolVersion ->
-    -- |Genesis block hash
+    -- | Genesis block hash
     BlockHash ->
-    -- |Height of first block in section
+    -- | Height of first block in section
     BlockHeight ->
-    -- |Height of last block in section
+    -- | Height of last block in section
     BlockHeight ->
-    -- |Export directory
+    -- | Export directory
     FilePath ->
-    -- |Chunk size in blocks
+    -- | Chunk size in blocks
     Word64 ->
-    -- |Filename of last chunk in previous export
+    -- | Filename of last chunk in previous export
     Maybe String ->
-    -- |The last finalization record index.
+    -- | The last finalization record index.
     FinalizationIndex ->
-    -- |Function for getting the serialized block at a
-    -- particular height.
+    -- | Function for getting the serialized block at a
+    --  particular height.
     GetBlockAt cpv m ->
-    -- |Action for getting the finalization record at
-    -- a particular index.
+    -- | Action for getting the finalization record at
+    --  a particular index.
     GetFinalizationRecordAt cpv m ->
     m (Seq BlockIndexChunkInfo)
 writeChunks
@@ -790,23 +790,23 @@ writeChunks
                 return $ chunkInfo :<| chunks
             else return $ singleton chunkInfo
 
--- |Export a series of blocks as a chunk of a specified length. For each block containing a
--- finalization record, the 'dbsLastFinIndex' field of the state is updated with its finalization
--- index.
+-- | Export a series of blocks as a chunk of a specified length. For each block containing a
+--  finalization record, the 'dbsLastFinIndex' field of the state is updated with its finalization
+--  index.
 exportBlocksToChunk ::
     forall cpv m.
     (MonadIO m) =>
-    -- |Handle to export to
+    -- | Handle to export to
     Handle ->
-    -- |Height of next block to export
+    -- | Height of next block to export
     BlockHeight ->
-    -- |Number of blocks to export
+    -- | Number of blocks to export
     Word64 ->
-    -- |Last finalization record index.
+    -- | Last finalization record index.
     FinalizationIndex ->
-    -- |Action for getting the block.
+    -- | Action for getting the block.
     GetBlockAt cpv m ->
-    -- |Number of exported blocks and last finalization record index.
+    -- | Number of exported blocks and last finalization record index.
     m (Word64, FinalizationIndex)
 exportBlocksToChunk hdl firstHeight chunkSize lastFinalizationRecordIndex getBlockAt = ebtc firstHeight 0 lastFinalizationRecordIndex
   where
@@ -839,17 +839,17 @@ exportBlocksToChunk hdl firstHeight chunkSize lastFinalizationRecordIndex getBlo
             then ebtc (height + 1) (count + 1) finalizationRecordIndex
             else return (count, finalizationRecordIndex)
 
--- |Export all finalization records with indices above `dbsLastFinIndex` to a chunk
--- Note. For 'ConsensusV1' this function will not write anything to the file.
+-- | Export all finalization records with indices above `dbsLastFinIndex` to a chunk
+--  Note. For 'ConsensusV1' this function will not write anything to the file.
 exportFinRecsToChunk ::
-    MonadIO m =>
-    -- |Handle to export to
+    (MonadIO m) =>
+    -- | Handle to export to
     Handle ->
-    -- |Last finalization record index
+    -- | Last finalization record index
     FinalizationIndex ->
-    -- |Action for getting the finalization record at a given index.
+    -- | Action for getting the finalization record at a given index.
     GetFinalizationRecordAt cpv m ->
-    -- |Number of exported finalization records
+    -- | Number of exported finalization records
     m Word64
 exportFinRecsToChunk hdl finRecIdx (GetFinalizationRecordAtV0 f) = exportFinRecsFrom (0 :: Word64) (1 + finRecIdx)
   where
@@ -868,20 +868,20 @@ exportFinRecsToChunk hdl finRecIdx (GetFinalizationRecordAtV0 f) = exportFinRecs
 -- @FinalizationRecord@s are not a thing in 'ConsensusV1'.
 exportFinRecsToChunk _ _ GetFinalizationRecordAtV1 = return 0
 
--- |Imported data for processing.
+-- | Imported data for processing.
 data ImportData
     = ImportBlock ProtocolVersion GenesisIndex BS.ByteString
     | ImportFinalizationRecord ProtocolVersion GenesisIndex BS.ByteString
 
--- |Failure result of importing data.
+-- | Failure result of importing data.
 data ImportFailure a
     = ImportSerializationFail
     | ImportOtherError a
 
--- |Alias for the result of importing data.
+-- | Alias for the result of importing data.
 type ImportResult a b = Either (ImportFailure a) b
 
--- |Get bytes representing a version number.
+-- | Get bytes representing a version number.
 getVersionBytes :: Handle -> IO BS.ByteString
 getVersionBytes h = do
     b <- BS.hGet h 1
@@ -889,15 +889,15 @@ getVersionBytes h = do
         then BS.append b <$> getVersionBytes h
         else return b
 
--- |Import blocks and finalization records from an exported block file.
+-- | Import blocks and finalization records from an exported block file.
 importBlocksV3 ::
     forall m a.
     (MonadIO m, MonadLogger m, MonadMask m) =>
-    -- |File to import from
+    -- | File to import from
     FilePath ->
-    -- |First genesis index to import data from
+    -- | First genesis index to import data from
     GenesisIndex ->
-    -- |Callback to import data
+    -- | Callback to import data
     (ImportData -> m (ImportResult a ())) ->
     m (ImportResult a ())
 importBlocksV3 inFile firstGenIndex cbk = runExceptT $

@@ -1,6 +1,6 @@
 {-# LANGUAGE GADTSyntax #-}
 
--- |This module provides multi-version catch-up message types and their serialization.
+-- | This module provides multi-version catch-up message types and their serialization.
 module Concordium.Types.CatchUp where
 
 import Control.Applicative
@@ -12,15 +12,15 @@ import qualified Concordium.KonsensusV1.Consensus.CatchUp.Types as V1
 import qualified Concordium.Skov.CatchUp.Types as V0
 
 data VersionedCatchUpStatus where
-    -- |A special catch-up response for when we have no genesis at the given index.
+    -- | A special catch-up response for when we have no genesis at the given index.
     VersionedCatchUpStatusNoGenesis :: VersionedCatchUpStatus
-    -- |A catch-up status message in consensus version 0.
+    -- | A catch-up status message in consensus version 0.
     VersionedCatchUpStatusV0 :: !V0.CatchUpStatus -> VersionedCatchUpStatus
-    -- |A catch-up status message in consensus version 1.
+    -- | A catch-up status message in consensus version 1.
     VersionedCatchUpStatusV1 :: !V1.CatchUpMessage -> VersionedCatchUpStatus
     deriving (Show)
 
--- |Serialize a 'VersionedCatchUpStatus' message.
+-- | Serialize a 'VersionedCatchUpStatus' message.
 putVersionedCatchUpStatus :: Putter VersionedCatchUpStatus
 putVersionedCatchUpStatus VersionedCatchUpStatusNoGenesis = do
     -- This is serialized as a version 0 catch-up status message with the tag byte 6.
@@ -36,7 +36,7 @@ putVersionedCatchUpStatus (VersionedCatchUpStatusV1 cus) = do
     putVersion 1
     put cus
 
--- |Deserialize a 'VersionedCatchUpStatus' message.
+-- | Deserialize a 'VersionedCatchUpStatus' message.
 getVersionedCatchUpStatus :: Get VersionedCatchUpStatus
 getVersionedCatchUpStatus =
     getVersion >>= \case
@@ -54,7 +54,7 @@ instance Serialize VersionedCatchUpStatus where
     put = putVersionedCatchUpStatus
     get = getVersionedCatchUpStatus
 
--- |Determine whether the catch-up message is a request.
+-- | Determine whether the catch-up message is a request.
 isCatchUpRequest :: VersionedCatchUpStatus -> Bool
 isCatchUpRequest (VersionedCatchUpStatusV0 cus) = V0.cusIsRequest cus
 isCatchUpRequest (VersionedCatchUpStatusV1 V1.CatchUpRequestMessage{}) = True

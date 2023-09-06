@@ -19,11 +19,11 @@ null :: PartySet -> Bool
 null = BitSet.null . parties
 
 insert ::
-    -- |Party to add
+    -- | Party to add
     Party ->
-    -- |Weight of party to add
+    -- | Weight of party to add
     VoterPower ->
-    -- |Set to add to
+    -- | Set to add to
     PartySet ->
     PartySet
 insert party pWeight pset
@@ -34,14 +34,14 @@ insert party pWeight pset
               parties = BitSet.insert party (parties pset)
             }
 
--- |Add a party to the set, and return a boolean that indicates
--- if it was already there.
+-- | Add a party to the set, and return a boolean that indicates
+--  if it was already there.
 insertLookup ::
-    -- |Party to add
+    -- | Party to add
     Party ->
-    -- |Weight of party to add
+    -- | Weight of party to add
     VoterPower ->
-    -- |Set to add to
+    -- | Set to add to
     PartySet ->
     (Bool, PartySet)
 insertLookup party pWeight pset
@@ -55,7 +55,7 @@ insertLookup party pWeight pset
         )
 
 union ::
-    -- |Party weight function
+    -- | Party weight function
     (Party -> VoterPower) ->
     PartySet ->
     PartySet ->

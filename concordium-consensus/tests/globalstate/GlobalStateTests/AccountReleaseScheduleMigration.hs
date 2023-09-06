@@ -27,7 +27,7 @@ th1 = read "0000000000000000000000000000000000000000000000000000000000000001"
 th2 = read "0000000000000000000000000000000000000000000000000000000000000002"
 th3 = read "0000000000000000000000000000000000000000000000000000000000000003"
 
--- |A V0 transient account release schedule after adding some releases and then unlocking.
+-- | A V0 transient account release schedule after adding some releases and then unlocking.
 dummyTARSV0 :: TARSV0.AccountReleaseSchedule
 dummyTARSV0 =
     TARSV0.emptyAccountReleaseSchedule
@@ -36,7 +36,7 @@ dummyTARSV0 =
         & TARSV0.addReleases ([(25, 10), (30, 10), (35, 10), (40, 10)], th3)
         & view _3 . TARSV0.unlockAmountsUntil 20
 
--- |A V1 transient account release schedule created by the same operations as 'dummyTARSV0'.
+-- | A V1 transient account release schedule created by the same operations as 'dummyTARSV0'.
 dummyTARSV1 :: TARSV1.AccountReleaseSchedule
 dummyTARSV1 =
     TARSV1.emptyAccountReleaseSchedule
@@ -45,10 +45,10 @@ dummyTARSV1 =
         & TARSV1.addReleases ([(25, 10), (30, 10), (35, 10), (40, 10)], th3)
         & view _3 . TARSV1.unlockAmountsUntil 20
 
--- |Construct a V0 persistent release schedule, save and load it under a reference, migrate it
--- to V1, extract the transient release schedule, and test it against 'dummyTARSV1', which should
--- match. This also tests that extracting the transient release schedule before migration gives
--- the same result as 'dummyTARSV0'.
+-- | Construct a V0 persistent release schedule, save and load it under a reference, migrate it
+--  to V1, extract the transient release schedule, and test it against 'dummyTARSV1', which should
+--  match. This also tests that extracting the transient release schedule before migration gives
+--  the same result as 'dummyTARSV0'.
 testMigrate :: IO ()
 testMigrate = do
     mbs0 <- newMemBlobStore
@@ -69,7 +69,7 @@ testMigrate = do
             trs1 <- PARSV1.getAccountReleaseSchedule (PARSV0.releaseScheduleLockedBalance rs0') rs1
             liftIO $ assertEqual "V1 release schedule" dummyTARSV1 trs1
 
--- |Operations on an account release schedule. These are used for generating random test cases.
+-- | Operations on an account release schedule. These are used for generating random test cases.
 data ARSOp
     = AddReleases ([(Timestamp, Amount)], TransactionHash)
     | Unlock Timestamp
@@ -92,13 +92,13 @@ instance Arbitrary ARSOp where
             return $ AddReleases (rels, th)
         unlock = Unlock . Timestamp <$> arbitrary
 
--- |Execute an 'ARSOp' in the persistent V0 account release schedule.
+-- | Execute an 'ARSOp' in the persistent V0 account release schedule.
 execARSOpPV0 :: (MonadBlobStore m) => ARSOp -> PARSV0.AccountReleaseSchedule -> m PARSV0.AccountReleaseSchedule
 execARSOpPV0 (AddReleases rel) = PARSV0.addReleases rel
 execARSOpPV0 (Unlock ts) = fmap (view _3) . PARSV0.unlockAmountsUntil ts
 
--- |Execute an 'ARSOp' in the persistent V1 account release schedule. This also takes in and
--- returns the total locked amount in the release schedule.
+-- | Execute an 'ARSOp' in the persistent V1 account release schedule. This also takes in and
+--  returns the total locked amount in the release schedule.
 execARSOpPV1 :: (MonadBlobStore m) => ARSOp -> (PARSV1.AccountReleaseSchedule, Amount) -> m (PARSV1.AccountReleaseSchedule, Amount)
 execARSOpPV1 (AddReleases rel) (rs, lockedAmt) = do
     rs' <- PARSV1.addReleases rel rs
@@ -109,17 +109,17 @@ execARSOpPV1 (Unlock ts) (rs, lockedAmt) = do
     liftIO $ assertBool "Release amount should be no more than locked amount" (relAmt <= lockedAmt)
     return (rs', lockedAmt - relAmt)
 
--- |This test takes a sequence of account release schedule operations and performs them on the
--- V0 and V1 persistent account release schedule implementations. It checks that the locked balances
--- at the end match. It also migrates the V0 ARS to the V1, and checks that the hash matches the
--- non-migrated V1 ARS. It also checks that the hashes are preserved for the V0 and V1 versions
--- when they are extracted to the transient versions of the account release schedule.
+-- | This test takes a sequence of account release schedule operations and performs them on the
+--  V0 and V1 persistent account release schedule implementations. It checks that the locked balances
+--  at the end match. It also migrates the V0 ARS to the V1, and checks that the hash matches the
+--  non-migrated V1 ARS. It also checks that the hashes are preserved for the V0 and V1 versions
+--  when they are extracted to the transient versions of the account release schedule.
 --
--- Note, we do not extract the transient schedule from both V1 versions and check equality since
--- there are cases in which they may permissibly differ. In particular, if there are identical
--- entries with differing transaction hashes, then the order of the entries is arbitrary. This is
--- allowed because the transaction hashes do not contribute to the overall hash of the release
--- schedule.
+--  Note, we do not extract the transient schedule from both V1 versions and check equality since
+--  there are cases in which they may permissibly differ. In particular, if there are identical
+--  entries with differing transaction hashes, then the order of the entries is arbitrary. This is
+--  allowed because the transaction hashes do not contribute to the overall hash of the release
+--  schedule.
 testOperations :: [ARSOp] -> Property
 testOperations ops = ioProperty $ do
     mbs0 <- newMemBlobStore
