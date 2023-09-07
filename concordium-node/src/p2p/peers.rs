@@ -212,7 +212,7 @@ impl P2PNode {
     /// Persist the [`SocketAddr`] of a peer.
     pub fn persist_peer(&self, peer_addr: SocketAddr) -> anyhow::Result<()> {
         let Ok(kv) = self.kvs.read() else {
-        anyhow::bail!("Could not acqure lock over lmdb");
+        anyhow::bail!("Could not acquire lock over lmdb");
     };
         let peers_store = kv.open_single(PEERS_STORE_NAME, StoreOptions::create())?;
         let buf = serde_json::to_vec::<StoredPeer>(&peer_addr.into())?;

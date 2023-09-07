@@ -381,7 +381,7 @@ impl P2PNode {
             .write()
             .unwrap()
             .get_or_create(config.data_dir_path.as_path(), Rkv::new::<Lmdb>)
-            .context("Could not create or obtain the node lmdb database.")?;
+            .context("Could not create or obtain the peers database.")?;
 
         let node = Arc::new(P2PNode {
             poll_registry,

@@ -144,7 +144,8 @@ impl P2PNode {
     /// connection, if it exists. None is only returned if no connection
     /// with the given token exists.
     /// The bool indicates whether the removed peer was a connected peer or just
-    /// a candidate.
+    /// a candidate, i.e. if the first component of the tuple is true, then a
+    /// connected peer was removed.
     pub fn remove_connection(&self, token: Token) -> Option<(bool, RemotePeer)> {
         // First attempt to remove connection in the handshake phase.
         if let Some(removed_cand) = lock_or_die!(self.conn_candidates()).remove(&token) {
