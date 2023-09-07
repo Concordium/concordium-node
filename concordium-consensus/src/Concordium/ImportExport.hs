@@ -59,6 +59,7 @@ import Data.Sequence (
     (><),
  )
 import Data.Serialize
+import Data.Singletons.Base.TH (sing)
 import qualified Data.Text as T
 import Data.Word
 import System.Directory
@@ -96,9 +97,22 @@ makeLenses ''DBState
 instance HasDatabaseHandlers pv () (DBState pv) where
     dbHandlers = dbsHandlers
 
+-- |Version indicating the format of the 'SectionHeader'.
+data SectionHeaderVersion = SHV0 | SHV1 deriving (Eq, Show)
+
+instance Serialize SectionHeaderVersion where
+    put SHV0 = putWord32be 0
+    put SHV1 = putWord32be 1
+    get = do
+        getWord32be >>= \case
+            0 -> return SHV0
+            1 -> return SHV1
+            _ -> error "invalid section header version"
+
 -- |A section header of an exported block database
 data SectionHeader = SectionHeader
-    { sectionLength :: !Word64,
+    { sectionVersion :: !SectionHeaderVersion,
+      sectionLength :: !Word32,
       sectionGenesisIndex :: !GenesisIndex,
       sectionProtocolVersion :: !ProtocolVersion,
       sectionGenesisHash :: !BlockHash,
@@ -112,7 +126,8 @@ data SectionHeader = SectionHeader
 
 instance Serialize SectionHeader where
     put SectionHeader{..} = do
-        putWord64be sectionLength
+        put sectionVersion
+        putWord32be sectionLength
         put sectionGenesisIndex
         put sectionProtocolVersion
         put sectionGenesisHash
@@ -122,7 +137,8 @@ instance Serialize SectionHeader where
         putWord64be sectionFinalizationCount
         put sectionFinalizationEntryPresent
     get = do
-        sectionLength <- getWord64be
+        sectionVersion <- get
+        sectionLength <- getWord32be
         sectionGenesisIndex <- get
         sectionProtocolVersion <- get
         sectionGenesisHash <- get
@@ -130,13 +146,16 @@ instance Serialize SectionHeader where
         sectionBlockCount <- getWord64be
         sectionBlocksLength <- getWord64be
         sectionFinalizationCount <- getWord64be
-        sectionFinalizationEntryPresent <- get
+        sectionFinalizationEntryPresent <-
+            case sectionVersion of
+                SHV0 -> return False
+                SHV1 -> get
         return SectionHeader{..}
 
 -- |A dummy 'SectionHeader' that is used as a placeholder when writing a section, before being
 -- overwritten with the correct data.
 placeholderSectionHeader :: SectionHeader
-placeholderSectionHeader = SectionHeader 0 0 P1 (BlockHash minBound) 0 0 0 0 False
+placeholderSectionHeader = SectionHeader SHV0 0 0 P1 (BlockHash minBound) 0 0 0 0 False
 
 -- |The length of a section header in bytes.
 sectionHeaderLength :: Word64
@@ -796,7 +815,10 @@ writeChunks
             sectionEnd <- hTell chunkHdl
             -- Go back to the start and rewrite the section header with the correct data
             hSeek chunkHdl AbsoluteSeek sectionStart
-            let sectionHeader =
+            let sectionVersion = case sing @cpv of
+                    SConsensusParametersVersion0 -> SHV0
+                    SConsensusParametersVersion1 -> SHV1
+                sectionHeader =
                     SectionHeader
                         { sectionLength = fromInteger (sectionEnd - sectionStart),
                           sectionBlocksLength = fromInteger (blocksEnd - blocksStart),
