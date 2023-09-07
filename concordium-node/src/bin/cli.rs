@@ -399,15 +399,26 @@ fn instantiate_node(
     P2PNode::new(Some(node_id), conf, PeerType::Node, stats_export_service, regenesis_arc)
 }
 
+/// Establish initial connections to peers on the network.
+/// 1. Try connect to the provided "given_nodes" if configured.
+/// 2. Try connect to the peers that the node was last connected to (if any).
+/// 3. Try connect to the bootstrapper configured (if any) in order to advertise
+/// ourselves such that the boostrapper node can provide us to freshly joining
+/// peers.
 fn establish_connections(conf: &config::Config, node: &Arc<P2PNode>) -> anyhow::Result<()> {
     info!("Starting the P2P layer");
     connect_to_config_nodes(node);
+    if let Err(e) = peers::connect_to_stored_nodes(node) {
+        warn!("Could not connect to stored peers {}", e);
+    }
     if !conf.connection.no_bootstrap_dns {
         attempt_bootstrap(node);
     }
     Ok(())
 }
 
+/// Try establish connections to the peers that the node is configured with via
+/// [`NodeConfig::given_addresses`].
 fn connect_to_config_nodes(node: &Arc<P2PNode>) {
     // clone the addresses to release the lock before the relatively expensive
     // connect calls.

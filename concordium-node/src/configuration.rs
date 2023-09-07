@@ -465,11 +465,11 @@ pub struct ConnectionConfig {
     )]
     pub no_bootstrap_dns: bool,
     #[structopt(
-        long = "no-clear-bans",
+        long = "clear-bans",
         help = "Do not clear the ban database on start.",
-        env = "CONCORDIUM_NODE_CONNECTION_NO_CLEAR_BANS"
+        env = "CONCORDIUM_NODE_CONNECTION_CLEAR_BANS"
     )]
-    pub no_clear_bans: bool,
+    pub clear_bans: bool,
     #[structopt(
         long = "relay-broadcast-percentage",
         help = "The percentage of peers to relay broadcasted messages to",
@@ -611,6 +611,12 @@ pub struct ConnectionConfig {
         env = "CONCORDIUM_NODE_MAX_NORMAL_KEEP_ALIVE"
     )]
     pub max_normal_keep_alive: u64,
+    #[structopt(
+        long = "clear-persisted-peers",
+        help = "Upon startup then clear the persisted set of peers (if any was recorded)",
+        env = "CONCORDIUM_NODE_CLEAR_PERSISTED_PEERS"
+    )]
+    pub clear_persisted_peers: bool,
 }
 
 #[derive(StructOpt, Debug)]

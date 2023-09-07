@@ -9,16 +9,20 @@ The peers are orchestrated in a random graph and communicates using a [*gossip-l
 Peers can take part in more than one network at the same time. A *network* groups peers together, thus the node can request to *join* a network, leave a *network* and also request more peers of a certain *network*. Currently only a single *network* is being used.
 
 ## Joining a Network
-When a node wishes to join a network it starts out by contacting a *bootstrapper*. The *bootstrapper* is a special variant of the *concordium-node* which relays peers (only the ones matching the requested `NetworkId`) but disregards all other types of messages.
+When a node wishes to join a network it starts out by fetching previously connected peers from its database (if the node has been connected to the network before).
+If this is the case, then the node tries to establish connections with the previous connected peers and finally it connects to a *bootstrapper*. The *bootstrapper* is a special variant of the *concordium-node* which relays peers (only the ones matching the requested `NetworkId`) but disregards all other types of messages. It connects to the *bootstrapper* in order to advertise itself for new nodes who wants to join the network. Moreover if the set of stored peers does not satisfy the configurated *desired number of peers* then the node either retrieves a number of peers from the bootstrapper (or the already connected peers) thus obtaining a set of candidate nodes, that the node can try connect to.
 
 The *bootstrapper* sends out a *randomized* list of peers to the requesting node. The node who wishes to join a network will in turn try to connect to these *candidates* received from the *bootstrapper*. 
 The *bootstrapper* will only keep peers on its list if the *bootstrapper* and the peer have successfully established a connection (see below).
 
-The node will also send a *GetPeers* message to its connected peers if it still *lacks* peers. In return a peer will send a list of *candidates* to the node, to which the node can try establishing connections. 
-
 It is also possible for a node to be *pinned* to certain other peers. This is a task that is carried out by the node operator when configuring the node. The node will always try to keep a connection to each of the *pinned* peers.
 
 The node operator can via the RPC interface make the node *join* or *leave* a given *network* (specified by the `NetworkId`).
+
+### Managing of persisted peers
+As mentioned above, the node keeps a collection of persisted peers that the node tries to establish connections with (if there are any) upon a restart.
+The persisted peers always have a one-to-one correspondence with the currently connected peers, hence a persisted peer is expunged from the local node database when a connection 
+is dropped or a peer is banned.
 
 ## Connection Establishment
 When a node and a peer try to establish a connection, the node and the other peer will perform a 2-part handshake.
