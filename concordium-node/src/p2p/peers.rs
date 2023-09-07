@@ -176,17 +176,6 @@ fn calculate_average_throughput(
 /// The lmdb store name of the persisted peers.
 const PEERS_STORE_NAME: &str = "peers";
 
-/// A peer that is stored in the lmdb database.
-/// This is just a newtype over a [`SocketAddr`] so
-/// it is possible to implement the necessary serializing/deserializing traits
-/// used for putting and reading the peers in the database.
-#[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct StoredPeer(SocketAddr);
-
-impl From<SocketAddr> for StoredPeer {
-    fn from(addr: SocketAddr) -> Self { StoredPeer(addr) }
-}
-
 /// Try connect to previously connected peers if
 /// anyone is stored.
 /// Note that as opposed to [`connect_to_config_nodes`] this function respects
@@ -200,8 +189,8 @@ pub fn connect_to_stored_nodes(node: &Arc<P2PNode>) -> anyhow::Result<()> {
     let peers_iter = peers_store.iter_start(&peers_reader)?;
     for entry in peers_iter {
         let (peer_bytes, _expiry) = entry?;
-        let stored_peer: StoredPeer = serde_json::from_slice(peer_bytes)?;
-        if let Err(e) = connect(node, PeerType::Node, stored_peer.0, None, true) {
+        let stored_peer: SocketAddr = serde_json::from_slice(peer_bytes)?;
+        if let Err(e) = connect(node, PeerType::Node, stored_peer, None, true) {
             warn!("could not connect to previously connected peer {}", e);
         }
     }
@@ -215,7 +204,7 @@ impl P2PNode {
         anyhow::bail!("Could not acquire lock over lmdb");
     };
         let peers_store = kv.open_single(PEERS_STORE_NAME, StoreOptions::create())?;
-        let buf = serde_json::to_vec::<StoredPeer>(&peer_addr.into())?;
+        let buf = serde_json::to_vec::<SocketAddr>(&peer_addr.into())?;
         let mut writer = kv.write()?;
         peers_store.put(&mut writer, buf, &Value::U64(0))?;
         writer.commit()?;
@@ -228,7 +217,7 @@ impl P2PNode {
         anyhow::bail!("Could not acqure lock over lmdb");
     };
         let peers_store = kv.open_single(PEERS_STORE_NAME, StoreOptions::create())?;
-        let key = serde_json::to_vec::<StoredPeer>(&peer_addr.into())?;
+        let key = serde_json::to_vec::<SocketAddr>(&peer_addr.into())?;
         let mut writer = kv.write()?;
         peers_store.delete(&mut writer, key)?;
         writer.commit()?;
