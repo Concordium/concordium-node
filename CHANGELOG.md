@@ -14,6 +14,9 @@
   used incorrectly. The consequence was that in some cases the calls would fail
   with an error indicating insufficient amount on the account where the amount
   was sufficient for the transaction.
+- Fix a bug where it was not possible to use the `collector` with a node configured with TLS.
+  One has to configure the `grpc-host` flag of the `collector` with domain stated in the certificate that the
+  node is configured with.
 
 ## 6.1.1
 
