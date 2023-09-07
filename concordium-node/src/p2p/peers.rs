@@ -204,7 +204,7 @@ impl P2PNode {
         anyhow::bail!("Could not acquire lock over lmdb");
     };
         let peers_store = kv.open_single(PEERS_STORE_NAME, StoreOptions::create())?;
-        let buf = serde_json::to_vec::<SocketAddr>(&peer_addr.into())?;
+        let buf = serde_json::to_vec::<SocketAddr>(&peer_addr)?;
         let mut writer = kv.write()?;
         peers_store.put(&mut writer, buf, &Value::U64(0))?;
         writer.commit()?;
@@ -217,7 +217,7 @@ impl P2PNode {
         anyhow::bail!("Could not acqure lock over lmdb");
     };
         let peers_store = kv.open_single(PEERS_STORE_NAME, StoreOptions::create())?;
-        let key = serde_json::to_vec::<SocketAddr>(&peer_addr.into())?;
+        let key = serde_json::to_vec::<SocketAddr>(&peer_addr)?;
         let mut writer = kv.write()?;
         peers_store.delete(&mut writer, key)?;
         writer.commit()?;
