@@ -558,9 +558,23 @@ exportSections dbDir outDir chunkSize genIndex startHeight blockIndex lastWritte
                         Just (KonsensusV1.VersionDatabaseHandlers (dbh :: KonsensusV1.DatabaseHandlers pv)) ->
                             runReaderT
                                 ( KonsensusV1.runDiskLLDBM $ do
-                                    res <- exportConsensusV1Blocks @pv outDir chunkSize genIndex startHeight blockIndex lastWrittenChunkM
+                                    (exportError, idx) <- exportConsensusV1Blocks @pv outDir chunkSize genIndex startHeight blockIndex lastWrittenChunkM
                                     liftIO $ KonsensusV1.closeDatabase dbh
-                                    return res
+                                    if exportError
+                                        then return (True, Empty)
+                                        else do
+                                            (err, secs) <-
+                                                lift
+                                                    ( exportSections
+                                                        dbDir
+                                                        outDir
+                                                        chunkSize
+                                                        (genIndex + 1)
+                                                        1
+                                                        Empty
+                                                        Nothing
+                                                    )
+                                            return (err, idx >< secs)
                                 )
                                 dbh
                 Just (VersionDatabaseHandlers (dbh :: DatabaseHandlers pv ())) -> do
@@ -799,7 +813,7 @@ writeChunks
             runPutH (liftPut $ putWord64be sectionHeaderLength >> put placeholderSectionHeader) chunkHdl
             blocksStart <- hTell chunkHdl
             return (sectionStart, blocksStart)
-        (sectionBlockCount, lastFinalizationRecordIndex', lastFinalizedBlockHash) <- exportBlocksToChunk chunkHdl sectionFirstBlockHeight chunkSize lastFinalizationRecordIndex getBlockAt
+        (sectionBlockCount, lastFinalizationRecordIndex', lastExportedBlock) <- exportBlocksToChunk chunkHdl sectionFirstBlockHeight chunkSize lastFinalizationRecordIndex getBlockAt
         blocksEnd <- liftIO $ hTell chunkHdl
         -- Only write finalization records to a chunk if it's the last one for the section
         let lastExportedBlockHeight = sectionFirstBlockHeight + BlockHeight sectionBlockCount - 1
@@ -807,10 +821,9 @@ writeChunks
             if lastExportedBlockHeight < sectionLastBlockHeight
                 then return (0, False)
                 else do
-                    finCount <- exportFinRecsToChunk chunkHdl lastFinalizationRecordIndex' getFinalizationRecordAt
-                    -- Only export finalization entry if the finalization entry finalizes the last exported block.
-                    finEntryExported <- exportFinalizationEntryToChunk chunkHdl lastFinalizedBlockHash getFinalizationEntry
-                    return (finCount, finEntryExported)
+                    finRecs <- exportFinRecsToChunk chunkHdl lastFinalizationRecordIndex' getFinalizationRecordAt
+                    finEntryPresent <- exportFinalizationEntryToChunk chunkHdl lastExportedBlock getFinalizationEntry
+                    return (finRecs, finEntryPresent)
         liftIO $ do
             sectionEnd <- hTell chunkHdl
             -- Go back to the start and rewrite the section header with the correct data
@@ -835,7 +848,9 @@ writeChunks
                 ++ (show . theBlockHeight) lastExportedBlockHeight
                 ++ " and "
                 ++ show sectionFinalizationCount
-                ++ " finalization record(s)"
+                ++ " finalization record(s)."
+                ++ " Finalization entry present: "
+                ++ show sectionFinalizationEntryPresent
         let chunkInfo =
                 BlockIndexChunkInfo
                     (T.pack $ takeFileName chunkName)
@@ -893,7 +908,7 @@ exportBlocksToChunk hdl firstHeight chunkSize lastFinalizationRecordIndex getBlo
                     continue count height (fromMaybe lastFinRecIdx finalizationRecordIndexM) $ Just bh
         GetBlockAtV1 f ->
             f height >>= \case
-                Nothing -> return (count, 0, Nothing)
+                Nothing -> return (count, 0, mBh)
                 Just (serializedBlock, bh) -> do
                     void $ writeBlockOut serializedBlock
                     -- We simply set the last @FinalizationRecord@ index to 0,
