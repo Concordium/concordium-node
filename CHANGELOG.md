@@ -13,6 +13,7 @@
   used incorrectly. The consequence was that in some cases the calls would fail
   with an error indicating insufficient amount on the account where the amount
   was sufficient for the transaction.
+- Support for out-of-band catch-up for protocol versions beyond P6.
 
 ## 6.1.1
 
