@@ -2,6 +2,11 @@
 
 ## Unreleased changes
 
+- Fix a bug where the block state hash was not returned properly for the genesis block.
+- Do not reset banned peers on startup by default.
+- The node remembers peers across restarts. When starting up it will try to connect to stored peers in addition to any supplied bootstrap and given nodes. 
+  Use the new flag `--clear-persisted-peers` (environment variable  `CONCORDIUM_NODE_CLEAR_PERSISTED_PEERS`) to clear stored peers on startup.
+- Renamed the flag `--no-clear-bans` to `clear-bans`. When set it will clear the banned peers on startup.
 - Fix a bug where credential registration IDs for genesis accounts were not
   correctly recorded. As a result, the index of accounts by credential ids was
   incorrect if the chain was started from genesis by node versions 5.1.3 up to
@@ -13,6 +18,9 @@
   used incorrectly. The consequence was that in some cases the calls would fail
   with an error indicating insufficient amount on the account where the amount
   was sufficient for the transaction.
+- Fix a bug where it was not possible to use the `collector` with a node configured with TLS.
+  One has to configure the `grpc-host` flag of the `collector` with domain stated in the certificate that the
+  node is configured with.
 - Support for out-of-band catch-up for protocol versions beyond P6.
 
 ## 6.1.1

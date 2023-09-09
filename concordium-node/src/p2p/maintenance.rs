@@ -57,8 +57,8 @@ pub struct NodeConfig {
     pub no_net: bool,
     pub desired_nodes_count: u16,
     pub no_bootstrap_dns: bool,
-    /// Do not clear persistent bans on startup.
-    pub no_clear_bans: bool,
+    /// Clear persistent bans on startup.
+    pub clear_bans: bool,
     pub disallow_multiple_peers_on_ip: bool,
     pub bootstrap_nodes: Vec<String>,
     /// Nodes to try and keep the connections to. A node will maintain two
@@ -94,6 +94,7 @@ pub struct NodeConfig {
     pub deduplication_hashing_algorithm: DeduplicationHashAlgorithm,
     pub regenesis_arc: Arc<Regenesis>,
     pub max_normal_keep_alive_ms: u64,
+    pub clear_persisted_peers: bool,
 }
 
 /// The collection of connections to peer nodes.
@@ -322,7 +323,7 @@ impl P2PNode {
             no_net: conf.cli.no_network,
             desired_nodes_count: conf.connection.desired_nodes,
             no_bootstrap_dns: conf.connection.no_bootstrap_dns,
-            no_clear_bans: conf.connection.no_clear_bans,
+            clear_bans: conf.connection.clear_bans,
             disallow_multiple_peers_on_ip: conf.connection.disallow_multiple_peers_on_ip,
             bootstrap_nodes: conf.connection.bootstrap_nodes.clone(),
             given_addresses,
@@ -370,6 +371,7 @@ impl P2PNode {
             deduplication_hashing_algorithm: conf.connection.deduplication_hashing_algorithm,
             regenesis_arc,
             max_normal_keep_alive_ms: conf.connection.max_normal_keep_alive * 1000,
+            clear_persisted_peers: conf.connection.clear_persisted_peers,
         };
 
         let connection_handler = ConnectionHandler::new(conf);
@@ -379,7 +381,7 @@ impl P2PNode {
             .write()
             .unwrap()
             .get_or_create(config.data_dir_path.as_path(), Rkv::new::<Lmdb>)
-            .context("Could not create or obtain the ban database.")?;
+            .context("Could not create or obtain the peers database.")?;
 
         let node = Arc::new(P2PNode {
             poll_registry,
@@ -396,8 +398,15 @@ impl P2PNode {
             bad_events: BadEvents::default(),
         });
 
-        if !node.config.no_clear_bans {
-            node.clear_bans().unwrap_or_else(|e| error!("Couldn't reset the ban list: {}", e));
+        if node.config.clear_bans {
+            if let Err(err) = node.clear_bans() {
+                error!("Couldn't reset the ban list: {}", err);
+            }
+        }
+        if node.config.clear_persisted_peers {
+            if let Err(err) = node.clear_persisted_peers() {
+                error!("Couldn't reset the persisted peers: {}", err);
+            }
         }
 
         Ok((node, server, poll))
@@ -801,6 +810,11 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
                 if !is_connected {
                     conns.insert(conn.token(), conn);
                     node.bump_last_peer_update();
+                    // insert the peer in the lmdb store so the node can
+                    // reconnect to the peer if the node restarts.
+                    if let Err(err) = node.persist_peer(addr) {
+                        error!("Could not persist peer to database {}", err);
+                    }
                 } else {
                     warn!("Already connected to a peer on the given address.")
                 }
@@ -833,7 +847,7 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
             }
         }
         ConnChange::ExpulsionByToken(token) => {
-            if let Some(remote_peer) = node.remove_connection(token) {
+            if let Some((is_conn, remote_peer)) = node.remove_connection(token) {
                 let ip = remote_peer.addr.ip();
                 warn!("Soft-banning {} due to a breach of protocol", ip);
                 write_or_die!(node.connection_handler.soft_bans).insert(
@@ -842,15 +856,37 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
                 );
                 node.stats.soft_banned_peers.inc();
                 node.stats.soft_banned_peers_total.inc();
+                // If the peer was connected then also expunge it from
+                // the database so the node does not try to reconnect to it upon a restart.
+                if is_conn {
+                    if let Err(err) = node.remove_persisted_peer(remote_peer.addr) {
+                        error!("Unable to remove 'StoredPeer' from database {}", err);
+                    }
+                }
             }
         }
         ConnChange::RemovalByToken(token) => {
             trace!("Removing connection with token {:?}", token);
-            node.remove_connection(token);
+            if let Some((is_conn, remote_peer)) = node.remove_connection(token) {
+                // If the peer was connected then also expunge it from
+                // the database so the node does not try to reconnect to it upon a restart.
+                if is_conn {
+                    if let Err(err) = node.remove_persisted_peer(remote_peer.addr) {
+                        error!("Unable to remove 'StoredPeer' from database {}", err);
+                    }
+                }
+            }
         }
         ConnChange::RemoveAllByTokens(tokens) => {
             trace!("Removing connections with tokens {:?}", tokens);
-            node.remove_connections(&tokens);
+            let (_, removed_connected_peers) = node.remove_connections(&tokens);
+            for p in removed_connected_peers {
+                // If any connections were dropped, remove them
+                // from the database.
+                if let Err(err) = node.remove_persisted_peer(p.addr) {
+                    error!("Unable to remove 'StoredPeer' from database {}", err);
+                }
+            }
         }
     }
 }

@@ -28,7 +28,7 @@ import Concordium.Types.Transactions
 import Concordium.GlobalState.Finalization
 
 instance HashableTo BlockHash BakedBlock where
-    getHash bb = generateBlockHash (blockSlot bb) (blockPointer bb) (blockBaker bb) (blockBakerKey bb) (blockProof bb) (blockNonce bb) (blockFinalizationData bb) (blockTransactions bb) (blockStateHash bb) (blockTransactionOutcomesHash bb)
+    getHash bb = generateBlockHash (blockSlot bb) (blockPointer bb) (blockBaker bb) (blockBakerKey bb) (blockProof bb) (blockNonce bb) (blockFinalizationData bb) (blockTransactions bb) (bbStateHash bb) (blockTransactionOutcomesHash bb)
 
 generateBlockHash ::
     -- |Block slot (must be non-zero)
@@ -115,9 +115,6 @@ class (BlockMetadata (BlockFieldType b)) => BlockData b where
 
     -- |The hash of the TransactionOutcomes resulting from executing this block
     blockTransactionOutcomesHash :: b -> TransactionOutcomesHash
-
-    -- |The hash of the state after executing this block
-    blockStateHash :: b -> StateHash
 
     -- |The signature of the block, if it was baked; @Nothing@ for the genesis block.
     blockSignature :: b -> Maybe BlockSignature
@@ -252,8 +249,6 @@ instance BlockData BakedBlock where
     {-# INLINE blockSlot #-}
     blockFields = Just . bbFields
     {-# INLINE blockFields #-}
-    blockStateHash = bbStateHash
-    {-# INLINE blockStateHash #-}
     blockTransactionOutcomesHash = bbTransactionOutcomesHash
     {-# INLINE blockTransactionOutcomesHash #-}
     blockTransactions = bbTransactions
@@ -270,7 +265,7 @@ putBakedBlockV2 b = do
     put (blockProof b)
     put (blockNonce b)
     put (blockFinalizationData b)
-    put (blockStateHash b)
+    put (bbStateHash b)
     put (blockTransactionOutcomesHash b)
     putWord64be (fromIntegral (length (blockTransactions b)))
     mapM_ putBlockItemV0 (blockTransactions b)
@@ -343,10 +338,6 @@ instance forall pv. (IsProtocolVersion pv) => BlockData (Block pv) where
             STOV1 -> emptyTransactionOutcomesHashV1
     blockTransactionOutcomesHash (NormalBlock bb) = blockTransactionOutcomesHash bb
 
-    -- FIXME: replace stub, and move into gendata
-    blockStateHash GenesisBlock{} = StateHashV0 minBound
-    blockStateHash (NormalBlock bb) = blockStateHash bb
-
     blockSignature GenesisBlock{} = Nothing
     blockSignature (NormalBlock bb) = blockSignature bb
 
@@ -402,14 +393,12 @@ instance BlockData PendingBlock where
     blockSlot = blockSlot . pbBlock
     blockFields = blockFields . pbBlock
     blockTransactions = blockTransactions . pbBlock
-    blockStateHash = blockStateHash . pbBlock
     blockTransactionOutcomesHash = blockTransactionOutcomesHash . pbBlock
     blockSignature = blockSignature . pbBlock
     verifyBlockSignature = verifyBlockSignature . pbBlock
     {-# INLINE blockSlot #-}
     {-# INLINE blockFields #-}
     {-# INLINE blockTransactions #-}
-    {-# INLINE blockStateHash #-}
     {-# INLINE blockTransactionOutcomesHash #-}
 
 instance BlockPendingData PendingBlock where

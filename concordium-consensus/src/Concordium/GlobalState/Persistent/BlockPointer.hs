@@ -108,7 +108,7 @@ makeGenesisPersistentBlockPointer genConf _bpState = liftIO $ do
 -- |Converts a Pending Block into a PersistentBlockPointer
 makePersistentBlockPointerFromPendingBlock ::
     forall pv m bs.
-    (IsProtocolVersion pv, MonadLogger m, MonadIO m) =>
+    (IsProtocolVersion pv, MonadLogger m, MonadIO m, HashableTo StateHash bs) =>
     -- |Pending block
     PendingBlock ->
     -- |Parent block

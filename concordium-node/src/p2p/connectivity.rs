@@ -143,39 +143,49 @@ impl P2PNode {
     /// Returns the remote peer, i.e., the other end, of the just closed
     /// connection, if it exists. None is only returned if no connection
     /// with the given token exists.
-    pub fn remove_connection(&self, token: Token) -> Option<RemotePeer> {
+    /// The bool indicates whether the removed peer was a connected peer or just
+    /// a candidate, i.e. if the first component of the tuple is true, then a
+    /// connected peer was removed.
+    pub fn remove_connection(&self, token: Token) -> Option<(bool, RemotePeer)> {
         // First attempt to remove connection in the handshake phase.
         if let Some(removed_cand) = lock_or_die!(self.conn_candidates()).remove(&token) {
-            Some(removed_cand.remote_peer)
+            Some((false, removed_cand.remote_peer))
         } else {
             // otherwise try to remove a full peer
             let removed_conn = write_or_die!(self.connections()).remove(&token)?;
             self.bump_last_peer_update();
-            Some(removed_conn.remote_peer)
+            Some((true, removed_conn.remote_peer))
         }
     }
 
     /// Shut down connections with the given poll tokens.
-    /// Returns `true` if any connections were removed, and `false` otherwise.
-    pub fn remove_connections(&self, tokens: &[Token]) -> bool {
+    /// The first component of the result is `true` if any connections were
+    /// removed, and `false` otherwise. The second component contains a
+    /// vector containing the connected peers that were removed.
+    /// A `connection` is either a peer that the node simply knows about or a
+    /// `connected peer` that the node exchanges messages with (i.e. a handshake
+    /// has been concluded)
+    pub fn remove_connections(&self, tokens: &[Token]) -> (bool, Vec<RemotePeer>) {
         // This is not implemented as a simple iteration using remove_connection because
         // that would require more lock acquisitions and calls to bump_last_peer_update.
         let conn_candidates = &mut lock_or_die!(self.conn_candidates());
         let connections = &mut write_or_die!(self.connections());
 
-        let mut removed_peers = false;
+        let mut has_removed_peers = false;
+        let mut removed_peers = vec![];
         let mut removed_candidates = false;
         for token in tokens {
             if conn_candidates.remove(token).is_some() {
                 removed_candidates = true;
-            } else if connections.remove(token).is_some() {
-                removed_peers = true;
+            } else if let Some(removed_peer) = connections.remove(token) {
+                removed_peers.push(removed_peer.remote_peer);
+                has_removed_peers = true;
             }
         }
-        if removed_peers {
+        if has_removed_peers {
             self.bump_last_peer_update();
         }
-        removed_candidates || removed_peers
+        (removed_candidates || has_removed_peers, removed_peers)
     }
 
     /// Close connection to the given address, if any.
