@@ -13,8 +13,8 @@
 --
 -- Each section consists of:
 --
--- * The length of the section header [not including this length] (Word64be)
--- * The length of the section including the header, length, etc. (Word64be)
+-- * The version of the section header (Word32be)
+-- * The length of the section including the header, length, etc. (Word32be)
 -- * The genesis index of blocks in the section (Word32be)
 -- * The protocol version of this section (Word64be)
 -- * The genesis block hash (32 bytes)
@@ -79,6 +79,7 @@ import Concordium.Logger
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Parameters
+import Concordium.Utils.Serialization
 import Concordium.Utils.Serialization.Put
 import Lens.Micro.Platform
 
@@ -98,7 +99,15 @@ instance HasDatabaseHandlers pv () (DBState pv) where
     dbHandlers = dbsHandlers
 
 -- |Version indicating the format of the 'SectionHeader'.
-data SectionHeaderVersion = SHV0 | SHV1 deriving (Eq, Show)
+data SectionHeaderVersion
+    = -- |Section header version 0.
+      SHV0
+    | -- |Section header version 1.
+      -- As opposed to 'SHV0' this section header also
+      -- includes a flag indicating whether a finalization
+      -- entry is present at the end of a section.
+      SHV1
+    deriving (Eq, Show)
 
 instance Serialize SectionHeaderVersion where
     put SHV0 = putWord32be 0
@@ -111,15 +120,35 @@ instance Serialize SectionHeaderVersion where
 
 -- |A section header of an exported block database
 data SectionHeader = SectionHeader
-    { sectionVersion :: !SectionHeaderVersion,
+    { -- |The version of the section.
+      sectionVersion :: !SectionHeaderVersion,
+      -- |The length (in bytes) of the section.
       sectionLength :: !Word32,
+      -- |The genesis index for the section.
+      -- Note that a section is exclusive for a
+      -- particular genesis index.
       sectionGenesisIndex :: !GenesisIndex,
+      -- |The protocol version for the section.
+      -- Note that a section is exclusive for a
+      -- particular 'ProtocolVersion.
       sectionProtocolVersion :: !ProtocolVersion,
+      -- |The genesis hash of the section.
       sectionGenesisHash :: !BlockHash,
+      -- |The height of the first block in the section.
       sectionFirstBlockHeight :: !BlockHeight,
+      -- |The number of blocks in the section.
       sectionBlockCount :: !Word64,
+      -- |The number of bytes that blocks occupy
+      -- in the section.
       sectionBlocksLength :: !Word64,
+      -- |The number of finalization records present
+      -- in the section.
       sectionFinalizationCount :: !Word64,
+      -- |Whether a finalization entry is present
+      -- or not in the section.
+      -- These are only ever present for 'SHV1' as they are
+      -- required to catch-up through protocols beyond protocol
+      -- version 6.
       sectionFinalizationEntryPresent :: !Bool
     }
     deriving (Eq, Show)
@@ -135,7 +164,7 @@ instance Serialize SectionHeader where
         putWord64be sectionBlockCount
         putWord64be sectionBlocksLength
         putWord64be sectionFinalizationCount
-        put sectionFinalizationEntryPresent
+        putBool sectionFinalizationEntryPresent
     get = do
         sectionVersion <- get
         sectionLength <- getWord32be
@@ -146,10 +175,13 @@ instance Serialize SectionHeader where
         sectionBlockCount <- getWord64be
         sectionBlocksLength <- getWord64be
         sectionFinalizationCount <- getWord64be
+        -- For 'SHV0' we always return 'False' as
+        -- a finalization entry was not exported in
+        -- this version. For 'SHV1' we read the 'Bool'.
         sectionFinalizationEntryPresent <-
             case sectionVersion of
                 SHV0 -> return False
-                SHV1 -> get
+                SHV1 -> getBool
         return SectionHeader{..}
 
 -- |A dummy 'SectionHeader' that is used as a placeholder when writing a section, before being
