@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+## 6.1.2
+
 - Fix a bug where the block state hash was not returned properly for the genesis block.
 - Do not reset banned peers on startup by default.
 - The node remembers peers across restarts. When starting up it will try to connect to stored peers in addition to any supplied bootstrap and given nodes. 
