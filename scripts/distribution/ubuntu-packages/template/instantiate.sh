@@ -7,6 +7,7 @@
 # Expects the following environment variables to be set.
 # - build_env_name (e.g., Testnet)
 # - build_env_name_lower (e.g., testnet)
+# - build_catchup_url (e.g. https://catchup.testnet.concordium.com/blocks.idx)
 # - build_genesis_hash
 # - build_collector_backend_url (e.g. https://dashboard.testnet.concordium.com/nodes/post)
 # - build_grpc2_listen_port (e.g., 20001)
@@ -18,11 +19,11 @@
 
 export build_version=$(./binaries/concordium-node --version | cut -d ' ' -f 2)
 
-if [[ -z "$build_env_name"  || -z "$build_env_name_lower" || -z "$build_version"
-        || -z "$build_genesis_hash" || -z "$build_collector_backend_url"
+if [[ -z "$build_env_name"  || -z "$build_env_name_lower" ||-z "$build_catchup_url"
+        || -z "$build_version" || -z "$build_genesis_hash" || -z "$build_collector_backend_url"
         || -z "$build_grpc2_listen_port" || -z "$build_listen_port" || -z "$build_bootstrap" ]];
 then
-    echo 'All of $build_env_name $build_env_name_lower $build_version $build_genesis_hash $build_collector_backend_url $build_grpc2_listen_port $build_listen_port $build_bootstrap must be set.'
+    echo 'All of $build_env_name $build_env_name_lower $build_catchup_url $build_version $build_genesis_hash $build_collector_backend_url $build_grpc2_listen_port $build_listen_port $build_bootstrap must be set.'
     exit 1
 fi
 
@@ -39,6 +40,7 @@ do
     mv "$file" "$file.tmp"
     envsubst '$build_env_name
               $build_env_name_lower
+              $build_catchup_url
               $build_version
               $build_genesis_hash
               $build_collector_backend_url
