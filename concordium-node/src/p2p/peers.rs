@@ -5,13 +5,17 @@ use crate::{
     connection::Connection,
     netmsg,
     network::NetworkRequest,
-    p2p::{maintenance::attempt_bootstrap, P2PNode},
+    p2p::{connectivity::connect, maintenance::attempt_bootstrap, P2PNode},
     read_or_die,
 };
 use anyhow::ensure;
 use chrono::Utc;
 use prometheus::core::Atomic;
-use std::sync::{atomic::Ordering, Arc};
+use rkv::{StoreOptions, Value};
+use std::{
+    net::SocketAddr,
+    sync::{atomic::Ordering, Arc},
+};
 
 impl P2PNode {
     /// Obtain the list of statistics from all the peers, optionally of a
@@ -167,6 +171,69 @@ fn calculate_average_throughput(
     let avg_bps_out = (milliseconds_to_second * (bytes_sent - prev_bytes_sent)) / delta;
 
     Ok((avg_bps_in, avg_bps_out))
+}
+
+/// The lmdb store name of the persisted peers.
+const PEERS_STORE_NAME: &str = "peers";
+
+/// Try connect to previously connected peers if
+/// anyone is stored.
+/// Note that as opposed to [`connect_to_config_nodes`] this function respects
+/// the maximum peers configured for the node.
+pub fn connect_to_stored_nodes(node: &Arc<P2PNode>) -> anyhow::Result<()> {
+    let Ok(kvs_env) = node.kvs.read() else {
+        anyhow::bail!("could not read previously connected peers: cannot obtain lock for the kvs");
+    };
+    let peers_store = kvs_env.open_single(PEERS_STORE_NAME, StoreOptions::create())?;
+    let peers_reader = kvs_env.read()?;
+    let peers_iter = peers_store.iter_start(&peers_reader)?;
+    for entry in peers_iter {
+        let (peer_bytes, _expiry) = entry?;
+        let stored_peer: SocketAddr = serde_json::from_slice(peer_bytes)?;
+        if let Err(e) = connect(node, PeerType::Node, stored_peer, None, true) {
+            warn!("could not connect to previously connected peer {}", e);
+        }
+    }
+    Ok(())
+}
+
+impl P2PNode {
+    /// Persist the [`SocketAddr`] of a peer.
+    pub fn persist_peer(&self, peer_addr: SocketAddr) -> anyhow::Result<()> {
+        let Ok(kv) = self.kvs.read() else {
+        anyhow::bail!("Could not acquire lock over lmdb");
+    };
+        let peers_store = kv.open_single(PEERS_STORE_NAME, StoreOptions::create())?;
+        let buf = serde_json::to_vec::<SocketAddr>(&peer_addr)?;
+        let mut writer = kv.write()?;
+        peers_store.put(&mut writer, buf, &Value::U64(0))?;
+        writer.commit()?;
+        Ok(())
+    }
+
+    /// Remove a peer from the persisted peer database.
+    pub fn remove_persisted_peer(&self, peer_addr: SocketAddr) -> anyhow::Result<()> {
+        let Ok(kv) = self.kvs.read() else {
+        anyhow::bail!("Could not acqure lock over lmdb");
+    };
+        let peers_store = kv.open_single(PEERS_STORE_NAME, StoreOptions::create())?;
+        let key = serde_json::to_vec::<SocketAddr>(&peer_addr)?;
+        let mut writer = kv.write()?;
+        peers_store.delete(&mut writer, key)?;
+        writer.commit()?;
+        Ok(())
+    }
+
+    /// Clear all peers in the lmdb peers store.
+    pub fn clear_persisted_peers(&self) -> anyhow::Result<()> {
+        let Ok(kvs_env) = self.kvs.read() else {
+            anyhow::bail!("Couldn't clear the bans: couldn't obtain a lock over the kvs");
+        };
+        let peers_store = kvs_env.open_single(PEERS_STORE_NAME, StoreOptions::create())?;
+        let mut writer = kvs_env.write()?;
+        peers_store.clear(&mut writer)?;
+        writer.commit().map_err(|e| e.into())
+    }
 }
 
 #[cfg(test)]

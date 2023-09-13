@@ -6,7 +6,7 @@ use futures::TryStreamExt;
 use log::LevelFilter;
 use std::{borrow::ToOwned, fmt, io::Write, process::exit, str::FromStr, time::Duration};
 use structopt::StructOpt;
-use tonic::transport::channel::Channel;
+use tonic::transport::{channel::Channel, ClientTlsConfig};
 
 #[macro_use]
 extern crate log;
@@ -196,7 +196,15 @@ async fn collect_data<'a>(
 
     // Setting up Client
     let grpc_timeout = conf.grpc_timeout;
-    let channel = Channel::from_shared(grpc_host)?.timeout(Duration::from_secs(grpc_timeout));
+
+    // Set up a tls client if required using the locally installed trust store.
+    let endpoint = Channel::from_shared(grpc_host)?.timeout(Duration::from_secs(grpc_timeout));
+    let channel = if endpoint.uri().scheme() == Some(&http::uri::Scheme::HTTPS) {
+        endpoint.tls_config(ClientTlsConfig::new())?
+    } else {
+        endpoint
+    };
+
     let mut client = grpc::queries_client::QueriesClient::connect(channel.clone()).await?;
 
     // Blocks
