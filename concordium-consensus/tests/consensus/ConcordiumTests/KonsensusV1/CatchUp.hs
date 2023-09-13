@@ -5,7 +5,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
--- |A module that tests the in-band catch-up mechanism of KonsensusV1.
+-- | A module that tests the in-band catch-up mechanism of KonsensusV1.
 module ConcordiumTests.KonsensusV1.CatchUp where
 
 import Control.Monad.State.Strict
@@ -32,14 +32,14 @@ import ConcordiumTests.KonsensusV1.Consensus.Blocks
 
 import qualified ConcordiumTests.KonsensusV1.Consensus.Blocks as TestBlocks
 
--- |Checking that the @CatchupPartialResponse m@ is as expected.
+-- | Checking that the @CatchupPartialResponse m@ is as expected.
 assertCatchupResponse ::
-    MonadIO m =>
-    -- |The expected terminal data.
+    (MonadIO m) =>
+    -- | The expected terminal data.
     CatchUpTerminalData ->
-    -- |The expected blocks to be served.
+    -- | The expected blocks to be served.
     [SignedBlock] ->
-    -- |The response.
+    -- | The response.
     CatchUpPartialResponse m ->
     m ()
 assertCatchupResponse term [] resp = case resp of
@@ -54,8 +54,8 @@ assertCatchupResponse term (x : xs) resp = case resp of
         liftIO $ assertEqual "Unexpected block served" x cuprNextBlock
         assertCatchupResponse term xs =<< cuprContinue
 
--- |Receive and execute blocks served as part of the @CatchUpPartialResponse@.
--- Return the terminal data when available.
+-- | Receive and execute blocks served as part of the @CatchUpPartialResponse@.
+--  Return the terminal data when available.
 consumeResponse :: (MonadIO m, m ~ TestMonad 'P6) => CatchUpPartialResponse m -> TestMonad 'P6 CatchUpTerminalData
 consumeResponse CatchUpPartialResponseBlock{..} = do
     succeedReceiveBlock
@@ -68,7 +68,7 @@ consumeResponse CatchUpPartialResponseBlock{..} = do
         Present termData -> return termData
 consumeResponse CatchUpPartialResponseDone{..} = return cuprFinished
 
--- |Receive and execute a timeout message.
+-- | Receive and execute a timeout message.
 succeedReceiveExecuteTimeoutMessage :: TimeoutMessage -> TestMonad 'P6 ()
 succeedReceiveExecuteTimeoutMessage tm = do
     recvResult <- Timeout.receiveTimeoutMessage tm =<< get
@@ -79,7 +79,7 @@ succeedReceiveExecuteTimeoutMessage tm = do
                 execStatus -> liftIO . assertFailure $ "Expected timeout message was executed, but was " <> show execStatus
         recvStatus -> liftIO . assertFailure $ "Expected timeout message was received, but was " <> show recvStatus
 
--- |Receive and process a quorum message.
+-- | Receive and process a quorum message.
 succeedReceiveProcessQuorumMessage :: QuorumMessage -> TestMonad 'P6 ()
 succeedReceiveProcessQuorumMessage qm = do
     recvResult <- Quorum.receiveQuorumMessage qm =<< get
@@ -87,7 +87,7 @@ succeedReceiveProcessQuorumMessage qm = do
         Quorum.Received verifiedQM -> Quorum.processQuorumMessage verifiedQM $ return () -- There is no need to make a block.
         recvStatus -> liftIO . assertFailure $ "Expected quorum message was reveived, but was " <> show recvStatus
 
--- |Create a valid timeout message with the provided data.
+-- | Create a valid timeout message with the provided data.
 testTimeoutMessage :: Int -> Round -> QuorumCertificate -> TimeoutMessage
 testTimeoutMessage finIndex rnd qc = signTimeoutMessage body TestBlocks.genesisHash (bakerSignKey . fst $ TestBlocks.bakers !! finIndex)
   where
@@ -108,7 +108,7 @@ testTimeoutMessage finIndex rnd qc = signTimeoutMessage body TestBlocks.genesisH
               tsmQCEpoch = qcEpoch qc
             }
 
--- |Create a valid quorum message with the provided data.
+-- | Create a valid quorum message with the provided data.
 testQuorumMessage :: Int -> Round -> Epoch -> BlockHash -> QuorumMessage
 testQuorumMessage finIndex rnd e ptr =
     let qsm =
@@ -121,8 +121,8 @@ testQuorumMessage finIndex rnd e ptr =
         qsig = signQuorumSignatureMessage qsm (bakerAggregationKey . fst $ bakers !! finIndex)
     in  buildQuorumMessage qsm qsig (FinalizerIndex $ fromIntegral finIndex)
 
--- |Create a finalization entry where the @QuorumCertificate@ denotes the block being finalized,
--- and the @BakedBlock@ is the successor block (which has a QC for the finalized block) and thus finalizing it.
+-- | Create a finalization entry where the @QuorumCertificate@ denotes the block being finalized,
+--  and the @BakedBlock@ is the successor block (which has a QC for the finalized block) and thus finalizing it.
 testFinalizationEntry :: BakedBlock -> BakedBlock -> FinalizationEntry
 testFinalizationEntry finalizedBlock sucBlock =
     FinalizationEntry
@@ -131,7 +131,7 @@ testFinalizationEntry finalizedBlock sucBlock =
           feSuccessorProof = getHash finalizedBlock
         }
 
--- |Timeout the provided round with a pointer to the proved block.
+-- | Timeout the provided round with a pointer to the proved block.
 mkTimeout :: Round -> BakedBlock -> TestMonad 'P6 ()
 mkTimeout rnd bb =
     mapM_
@@ -141,13 +141,13 @@ mkTimeout rnd bb =
         )
         [0 .. 3]
 
--- |Run a TestMonad pv a action with a no-baker context,
--- fixed 'genesisData' and fixed time.
+-- | Run a TestMonad pv a action with a no-baker context,
+--  fixed 'genesisData' and fixed time.
 runTest :: TestMonad 'P6 a -> IO a
 runTest = runTestMonad @'P6 (BakerContext Nothing) (timestampToUTCTime 1_000) TestBlocks.genesisData
 
--- |Testing a basic test scenario where the node N knows
--- of the block in round 1 and 2 and catches up the third block and a tm + qm for round 3.
+-- | Testing a basic test scenario where the node N knows
+--  of the block in round 1 and 2 and catches up the third block and a tm + qm for round 3.
 basicCatchupResponse :: Assertion
 basicCatchupResponse = runTest $ do
     mapM_
@@ -187,7 +187,7 @@ basicCatchupResponse = runTest $ do
     currentTimeoutMessages .= Present (TimeoutMessages 1 finToTMMap Map.empty)
     assertCatchupResponse expectedTerminalData expectedBlocksServed =<< handleCatchUpRequest request =<< get
 
--- |A test where the response covers an epoch transition.
+-- | A test where the response covers an epoch transition.
 catchupWithEpochTransitionResponse :: Assertion
 catchupWithEpochTransitionResponse = runTest $ do
     mapM_
@@ -225,8 +225,8 @@ catchupWithEpochTransitionResponse = runTest $ do
     currentTimeoutMessages .= Present (TimeoutMessages 1 finToTMMap Map.empty)
     assertCatchupResponse expectedTerminalData expectedBlocksServed =<< handleCatchUpRequest request =<< get
 
--- |A response where there is a timeout in round 4,
--- a quorum message for round 5 and a timeout message for round 5.
+-- | A response where there is a timeout in round 4,
+--  a quorum message for round 5 and a timeout message for round 5.
 catchupWithTimeoutsResponse :: Assertion
 catchupWithTimeoutsResponse = runTest $ do
     mapM_
@@ -265,7 +265,7 @@ catchupWithTimeoutsResponse = runTest $ do
     currentTimeoutMessages .= Present (TimeoutMessages 1 finToTMMap Map.empty)
     assertCatchupResponse expectedTerminalData expectedBlocksServed =<< handleCatchUpRequest request =<< get
 
--- |There is a TC generated for the last round (round 3).
+-- | There is a TC generated for the last round (round 3).
 catchupWithOneTimeoutAtEndResponse :: Assertion
 catchupWithOneTimeoutAtEndResponse = runTest $ do
     mapM_
@@ -302,7 +302,7 @@ catchupWithOneTimeoutAtEndResponse = runTest $ do
                         }
     assertCatchupResponse expectedTerminalData expectedBlocksServed =<< handleCatchUpRequest request =<< get
 
--- |There is a timeout for round 3 and round 4.
+-- | There is a timeout for round 3 and round 4.
 catchupWithTwoTimeoutsAtEndResponse :: Assertion
 catchupWithTwoTimeoutsAtEndResponse = runTest $ do
     mapM_
@@ -404,9 +404,9 @@ catchupWithTwoBranchesResponse = runTest $ do
                         }
     assertCatchupResponse expectedTerminalData expectedBlocksServed =<< handleCatchUpRequest request =<< get
 
--- |Test case where we have a timeout and a QC for a round where the block starts the new epoch.
--- The timeout refers to the old epoch. In this case, catch-up should send the highest certified
--- at the time the timeout was generated, rather than the actual highest certified block.
+-- | Test case where we have a timeout and a QC for a round where the block starts the new epoch.
+--  The timeout refers to the old epoch. In this case, catch-up should send the highest certified
+--  at the time the timeout was generated, rather than the actual highest certified block.
 catchupWithEpochTransitionTimeout :: Assertion
 catchupWithEpochTransitionTimeout = runTest $ do
     mapM_
@@ -440,10 +440,10 @@ catchupWithEpochTransitionTimeout = runTest $ do
                 }
     assertCatchupResponse expectedTerminalData expectedBlocksServed =<< handleCatchUpRequest request =<< get
 
--- |Checking that the 'CatchUpStatus' is correctly generated from a state where:
--- there are 3 blocks for round 1,2 and 3, where the first block is finalized.
--- The block in round 3 never gets a 'QuorumCertificate' and hence round 3 times out.
--- There is a block 4 for round 4
+-- | Checking that the 'CatchUpStatus' is correctly generated from a state where:
+--  there are 3 blocks for round 1,2 and 3, where the first block is finalized.
+--  The block in round 3 never gets a 'QuorumCertificate' and hence round 3 times out.
+--  There is a block 4 for round 4
 testMakeCatchupStatus :: Assertion
 testMakeCatchupStatus = runTest $ do
     mapM_
@@ -495,13 +495,13 @@ testMakeCatchupStatus = runTest $ do
     actualCatchupStatus <- makeCatchUpRequestMessage <$> get
     liftIO $ assertEqual "Unexpected catchup status" expectedCatchupStatus $ cumStatus actualCatchupStatus
 
--- |Checks the expected 'RoundStatus' with the actual one.
--- This checks the data of the round status that does not relate to
--- a particular baker.
+-- | Checks the expected 'RoundStatus' with the actual one.
+--  This checks the data of the round status that does not relate to
+--  a particular baker.
 checkRoundStatus ::
-    -- |Expected round status
+    -- | Expected round status
     RoundStatus pv ->
-    -- |Actual round status
+    -- | Actual round status
     RoundStatus pv ->
     Assertion
 checkRoundStatus rs1 rs2 = do
@@ -511,10 +511,10 @@ checkRoundStatus rs1 rs2 = do
     assertEqual "Unexpected previous round timeout" (rs1 ^. rsPreviousRoundTimeout) (rs2 ^. rsPreviousRoundTimeout)
     assertEqual "Unexpected last epoch finalization entry" (rs1 ^. rsLastEpochFinalizationEntry) (rs2 ^. rsLastEpochFinalizationEntry)
 
--- |Test where one peer catches up fully with another.
--- Hence this test serves as an integration test where
--- catch-up status messages are generated and used to create responses,
--- and the blocks from the response is received by the peer catching up.
+-- | Test where one peer catches up fully with another.
+--  Hence this test serves as an integration test where
+--  catch-up status messages are generated and used to create responses,
+--  and the blocks from the response is received by the peer catching up.
 testCatchup :: Assertion
 testCatchup = do
     -- Responder to catchup
@@ -565,7 +565,7 @@ testCatchup = do
         -- Check that the latest finalization entry is as expected.
         liftIO . assertEqual "Unexpected last finalization entry" respLfe =<< use latestFinalizationEntry
 
--- |Test catch-up through an epoch transition.
+-- | Test catch-up through an epoch transition.
 testCatchupEpochTransition :: Assertion
 testCatchupEpochTransition = do
     -- Responder to catchup
@@ -602,7 +602,7 @@ testCatchupEpochTransition = do
         -- Check that the latest finalization entry is as expected.
         liftIO . assertEqual "Unexpected last finalization entry" respLfe =<< use latestFinalizationEntry
 
--- |Test catch up with a tc for last round.
+-- | Test catch up with a tc for last round.
 testCatchupTCAtEnd :: Assertion
 testCatchupTCAtEnd = do
     -- Responder to catchup
@@ -641,10 +641,10 @@ testCatchupTCAtEnd = do
         -- Check that the latest finalization entry is as expected.
         liftIO . assertEqual "Unexpected last finalization entry" respLfe =<< use latestFinalizationEntry
 
--- |Check that when receiving a catchup status message and
--- "we" are behind their reported last finalized block then
--- catchup should be required (and the other peer should not find
--- that catching up is a requirement).
+-- | Check that when receiving a catchup status message and
+--  "we" are behind their reported last finalized block then
+--  catchup should be required (and the other peer should not find
+--  that catching up is a requirement).
 testCatchupRequiredBehindLastFinalized :: Assertion
 testCatchupRequiredBehindLastFinalized = do
     -- Send a catch up status message
@@ -685,9 +685,9 @@ testCatchupRequiredBehind = do
     required <- runTest $ isCatchUpRequired (cumStatus req) responderState
     liftIO $ assertBool "Catch-up should be required." required
 
--- |Checking 'isCatchUpRequired' where parties are in the same round.
--- Each party has different timeout messages and as such they should be catching up
--- with each other.
+-- | Checking 'isCatchUpRequired' where parties are in the same round.
+--  Each party has different timeout messages and as such they should be catching up
+--  with each other.
 testCatchupRequiredSameRound :: Assertion
 testCatchupRequiredSameRound = do
     -- Send a catch up status message

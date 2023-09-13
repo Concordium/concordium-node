@@ -39,22 +39,22 @@ someBlockPointer bh r e =
     -- A dummy block pointer with no meaningful state.
     bakedBlock = BakedBlock r e 0 0 (dummyQuorumCertificate $ BlockHash minBound) Absent Absent dummyBlockNonce Vec.empty emptyTransactionOutcomesHashV1 (StateHashV0 $ Hash.hash "empty state hash")
 
--- |A block pointer with 'myBlockHash' as block hash.
+-- | A block pointer with 'myBlockHash' as block hash.
 myBlockPointer :: Round -> Epoch -> BlockPointer 'P6
 myBlockPointer = someBlockPointer myBlockHash
 
--- |A key pair created from the provided seeed.
+-- | A key pair created from the provided seeed.
 sigKeyPair' :: Int -> Sig.KeyPair
 sigKeyPair' seed = fst $ Dummy.randomBlockKeyPair $ mkStdGen seed
 
--- |The public key of the 'sigKeyPair''.
+-- | The public key of the 'sigKeyPair''.
 sigPublicKey' :: Int -> Sig.VerifyKey
 sigPublicKey' seed = Sig.verifyKey $ sigKeyPair' seed
 
--- |An arbitrary chosen key pair
+-- | An arbitrary chosen key pair
 sigKeyPair :: Sig.KeyPair
 sigKeyPair = fst $ Dummy.randomBlockKeyPair $ mkStdGen 42
 
--- |The public key of the 'sigKeyPair'.
+-- | The public key of the 'sigKeyPair'.
 sigPublicKey :: Sig.VerifyKey
 sigPublicKey = Sig.verifyKey sigKeyPair

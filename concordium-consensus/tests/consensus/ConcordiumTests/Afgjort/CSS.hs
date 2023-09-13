@@ -94,8 +94,8 @@ data CSSInput
     | FinishReporting
     deriving (Eq, Ord, Show)
 
--- |Pick an element from a seqeunce, returning the element
--- and the sequence with that element removed.
+-- | Pick an element from a seqeunce, returning the element
+--  and the sequence with that element removed.
 selectFromSeq :: Seq a -> Gen (a, Seq a)
 selectFromSeq s = select <$> choose (0, length s - 1)
   where

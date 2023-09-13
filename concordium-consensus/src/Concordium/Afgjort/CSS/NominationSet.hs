@@ -10,12 +10,12 @@ import Data.Serialize.Put
 
 import Concordium.Afgjort.Types
 
--- |A nomination set records a set of parties that have seen
--- Top and a set of parties that have seen Bottom.  `nomMax`
--- should be an upper bound of the parties occurring in
--- these sets.  Either set may be empty (in which case @Nothing@
--- is used to represent it), but at least one of them should not
--- be.
+-- | A nomination set records a set of parties that have seen
+--  Top and a set of parties that have seen Bottom.  `nomMax`
+--  should be an upper bound of the parties occurring in
+--  these sets.  Either set may be empty (in which case @Nothing@
+--  is used to represent it), but at least one of them should not
+--  be.
 data NominationSet = NominationSet
     { nomMax :: !Party,
       nomTop :: !BitSet,
@@ -128,7 +128,7 @@ unionNominationSet ns1 ns2 =
           nomBot = Set.union (nomBot ns1) (nomBot ns2)
         }
 
--- |Returns 'True' if a nomination set contains a nomination from every party,
--- up to 'nomMax'.
+-- | Returns 'True' if a nomination set contains a nomination from every party,
+--  up to 'nomMax'.
 isFull :: NominationSet -> Bool
 isFull NominationSet{..} = Set.size (Set.union nomBot nomTop) == fromIntegral nomMax + 1

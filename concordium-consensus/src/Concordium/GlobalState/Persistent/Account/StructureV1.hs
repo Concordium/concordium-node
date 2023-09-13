@@ -10,9 +10,9 @@
 -- for pattern matching. (See: https://gitlab.haskell.org/ghc/ghc/-/issues/20896)
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
--- |This module implements accounts for account versions 'AccountV2' (protocol 'P5').
--- It should not be necessary to use this module directly, but instead through the interface
--- provided by 'Concordium.GlobalState.Persistent.Account'.
+-- | This module implements accounts for account versions 'AccountV2' (protocol 'P5').
+--  It should not be necessary to use this module directly, but instead through the interface
+--  provided by 'Concordium.GlobalState.Persistent.Account'.
 module Concordium.GlobalState.Persistent.Account.StructureV1 where
 
 import Control.Monad
@@ -65,38 +65,38 @@ import qualified Data.Map.Strict as Map
 
 -- * 'PersistentBakerInfoEx'
 
--- |A reference to a 'BakerInfoEx'. These references are shared between baker accounts
--- and the current/next epoch bakers. We use a 'LazyBufferedRef' so that the reference does not
--- need to be loaded whenever the account is loaded, but once it is loaded, copies of the reference
--- (e.g. in the account cache) will also be loaded.
+-- | A reference to a 'BakerInfoEx'. These references are shared between baker accounts
+--  and the current/next epoch bakers. We use a 'LazyBufferedRef' so that the reference does not
+--  need to be loaded whenever the account is loaded, but once it is loaded, copies of the reference
+--  (e.g. in the account cache) will also be loaded.
 type PersistentBakerInfoEx av = LazyBufferedRef (BakerInfoEx av)
 
 -- ** Query
 
--- |Load 'BakerInfo' from a 'PersistentBakerInfoEx'.
+-- | Load 'BakerInfo' from a 'PersistentBakerInfoEx'.
 loadBakerInfo :: (MonadBlobStore m, IsAccountVersion av) => PersistentBakerInfoEx av -> m BakerInfo
 loadBakerInfo = fmap _bieBakerInfo . refLoad
 
--- |Load a 'BakerInfoEx' from a 'PersistentBakerInfoEx'.
+-- | Load a 'BakerInfoEx' from a 'PersistentBakerInfoEx'.
 loadPersistentBakerInfoEx ::
     (MonadBlobStore m, IsAccountVersion av) =>
     PersistentBakerInfoEx av ->
     m (BakerInfoEx av)
 loadPersistentBakerInfoEx = refLoad
 
--- |Load the 'BakerId' from a 'PersistentBakerInfoEx'.
+-- | Load the 'BakerId' from a 'PersistentBakerInfoEx'.
 loadBakerId :: (MonadBlobStore m, IsAccountVersion av) => PersistentBakerInfoEx av -> m BakerId
 loadBakerId = fmap (view bakerIdentity) . refLoad
 
 -- ** Construction
 
--- |Construct a 'PersistentBakerInfoEx' from a 'BakerInfoEx'.
+-- | Construct a 'PersistentBakerInfoEx' from a 'BakerInfoEx'.
 makePersistentBakerInfoEx :: (MonadBlobStore m, IsAccountVersion av) => BakerInfoEx av -> m (PersistentBakerInfoEx av)
 makePersistentBakerInfoEx = refMake
 
 -- ** Migration
 
--- |See documentation of @migratePersistentBlockState@.
+-- | See documentation of @migratePersistentBlockState@.
 migratePersistentBakerInfoEx ::
     ( AccountVersionFor oldpv ~ 'AccountV2,
       SupportMigration m t
@@ -107,8 +107,8 @@ migratePersistentBakerInfoEx ::
 migratePersistentBakerInfoEx StateMigrationParametersTrivial = migrateReference return
 migratePersistentBakerInfoEx StateMigrationParametersP5ToP6{} = migrateReference return
 
--- |Migrate a 'V0.PersistentBakerInfoEx' to a 'PersistentBakerInfoEx'.
--- See documentation of @migratePersistentBlockState@.
+-- | Migrate a 'V0.PersistentBakerInfoEx' to a 'PersistentBakerInfoEx'.
+--  See documentation of @migratePersistentBlockState@.
 migratePersistentBakerInfoExFromV0 ::
     ( AccountVersionFor oldpv ~ 'AccountV1,
       AccountVersionFor pv ~ 'AccountV2,
@@ -127,12 +127,12 @@ migratePersistentBakerInfoExFromV0 StateMigrationParametersP4ToP5{} V0.Persisten
 
 -- * Enduring account stake data
 
--- |This is the information about the stake associated with an account, excluding the staked
--- amount. The staked amount is excluded as it expected to change commonly for accounts that
--- restake their earnings.
+-- | This is the information about the stake associated with an account, excluding the staked
+--  amount. The staked amount is excluded as it expected to change commonly for accounts that
+--  restake their earnings.
 --
--- Note, only the baker info is stored under a reference. The reference is a 'LazyBufferedRef'
--- rather than an 'EagerBufferedRef', as it will often be unnecessary to load the baker info.
+--  Note, only the baker info is stored under a reference. The reference is a 'LazyBufferedRef'
+--  rather than an 'EagerBufferedRef', as it will often be unnecessary to load the baker info.
 data PersistentAccountStakeEnduring av where
     PersistentAccountStakeEnduringNone :: PersistentAccountStakeEnduring av
     PersistentAccountStakeEnduringBaker ::
@@ -149,8 +149,8 @@ data PersistentAccountStakeEnduring av where
         } ->
         PersistentAccountStakeEnduring av
 
--- |Convert a 'PersistentAccountStakeEnduring' to an 'AccountStake' given the amount of the stake.
--- This is used to implement 'getStake', and is also used in computing the stake hash.
+-- | Convert a 'PersistentAccountStakeEnduring' to an 'AccountStake' given the amount of the stake.
+--  This is used to implement 'getStake', and is also used in computing the stake hash.
 persistentToAccountStake ::
     (MonadBlobStore m, IsAccountVersion av, AVSupportsDelegation av) =>
     PersistentAccountStakeEnduring av ->
@@ -177,7 +177,7 @@ persistentToAccountStake PersistentAccountStakeEnduringDelegator{..} _delegation
                   ..
                 }
 
--- |Migrate a 'PersistentAccountStakeEnduring' from one blob store to another.
+-- | Migrate a 'PersistentAccountStakeEnduring' from one blob store to another.
 migratePersistentAccountStakeEnduring ::
     (SupportMigration m t, IsAccountVersion av) =>
     PersistentAccountStakeEnduring av ->
@@ -194,49 +194,49 @@ migratePersistentAccountStakeEnduring PersistentAccountStakeEnduringBaker{..} = 
 migratePersistentAccountStakeEnduring PersistentAccountStakeEnduringDelegator{..} =
     return $! PersistentAccountStakeEnduringDelegator{..}
 
--- |This relies on the fact that the 'AccountV2' hashing of 'AccountStake' is independent of the
--- staked amount.
+-- | This relies on the fact that the 'AccountV2' hashing of 'AccountStake' is independent of the
+--  staked amount.
 instance (MonadBlobStore m) => MHashableTo m (AccountStakeHash 'AccountV2) (PersistentAccountStakeEnduring 'AccountV2) where
     getHashM stake = getHash <$> persistentToAccountStake stake 0
 
 -- * Enduring account data
 
--- |Enduring data associated with an account. This is data that does not change very often.
--- The 'AccountMerkleHash' is computed and stored for this data so that we can avoid deserializing
--- elements of it unnecessarily.
+-- | Enduring data associated with an account. This is data that does not change very often.
+--  The 'AccountMerkleHash' is computed and stored for this data so that we can avoid deserializing
+--  elements of it unnecessarily.
 --
--- The persisting account data is stored under an 'EagerBufferedRef' as this includes the account
--- keys, which are required for any transaction originating from the account, and so are loaded
--- eagerly.
+--  The persisting account data is stored under an 'EagerBufferedRef' as this includes the account
+--  keys, which are required for any transaction originating from the account, and so are loaded
+--  eagerly.
 --
--- The encrypted amount is 'Nullable' so that accounts with no encrypted balance can be represented
--- succinctly.  The encrypted balance is stored as a 'LazyBufferedRef', which is not automatically
--- cached with the account, since loading the encrypted balance is relatively expensive and likely
--- not necessary for many operations.
+--  The encrypted amount is 'Nullable' so that accounts with no encrypted balance can be represented
+--  succinctly.  The encrypted balance is stored as a 'LazyBufferedRef', which is not automatically
+--  cached with the account, since loading the encrypted balance is relatively expensive and likely
+--  not necessary for many operations.
 --
--- The release schedule is likewise 'Nullable' and stored under a 'LazyBufferedRef' for similar reasons.
--- However, as well as the 'LazyBufferedRef', we store the locked balance (if it is non-trivial).
--- This is because we typically require ready access to the locked balance so that we can compute
--- the available balance.
+--  The release schedule is likewise 'Nullable' and stored under a 'LazyBufferedRef' for similar reasons.
+--  However, as well as the 'LazyBufferedRef', we store the locked balance (if it is non-trivial).
+--  This is because we typically require ready access to the locked balance so that we can compute
+--  the available balance.
 --
--- The stake is not stored under a reference (excepting the baker info, as per the definition of
--- 'PersistentAccountStakeEnduring'). This is since the information is relatively succinct.
+--  The stake is not stored under a reference (excepting the baker info, as per the definition of
+--  'PersistentAccountStakeEnduring'). This is since the information is relatively succinct.
 data PersistentAccountEnduringData (av :: AccountVersion) = PersistentAccountEnduringData
-    { -- |The Merkle hash computed from the other fields.
+    { -- | The Merkle hash computed from the other fields.
       paedHash :: !(AccountMerkleHash av),
-      -- |A reference to the persisting account data.
+      -- | A reference to the persisting account data.
       paedPersistingData :: !(EagerBufferedRef PersistingAccountData),
-      -- |The encrypted amount. Invariant: if this is present, it will not satisfy
-      -- 'isInitialPersistentAccountEncryptedAmount'.
+      -- | The encrypted amount. Invariant: if this is present, it will not satisfy
+      --  'isInitialPersistentAccountEncryptedAmount'.
       paedEncryptedAmount :: !(Nullable (LazyBufferedRef PersistentAccountEncryptedAmount)),
-      -- |The release schedule and total locked amount. Invariant: if this is present,
-      -- it does not satisfy 'isEmptyAccountReleaseSchedule', and the amount will be the total of them.
+      -- | The release schedule and total locked amount. Invariant: if this is present,
+      --  it does not satisfy 'isEmptyAccountReleaseSchedule', and the amount will be the total of them.
       paedReleaseSchedule :: !(Nullable (LazyBufferedRef AccountReleaseSchedule, Amount)),
-      -- |The staking details associated with the account.
+      -- | The staking details associated with the account.
       paedStake :: !(PersistentAccountStakeEnduring av)
     }
 
--- |Get the locked amount from a 'PersistingAccountEnduringData'.
+-- | Get the locked amount from a 'PersistingAccountEnduringData'.
 paedLockedAmount :: PersistentAccountEnduringData av -> Amount
 paedLockedAmount PersistentAccountEnduringData{..} = case paedReleaseSchedule of
     Some (_, amt) -> amt
@@ -245,13 +245,13 @@ paedLockedAmount PersistentAccountEnduringData{..} = case paedReleaseSchedule of
 instance HashableTo (AccountMerkleHash av) (PersistentAccountEnduringData av) where
     getHash = paedHash
 
--- |Construct a 'PersistentAccountEnduringData' from the components by computing the hash.
+-- | Construct a 'PersistentAccountEnduringData' from the components by computing the hash.
 --
--- Precondition: if the 'PersistentAccountEncryptedAmount' is present then it must not satisfy
--- 'isInitialPersistentAccountEncryptedAmount'.
+--  Precondition: if the 'PersistentAccountEncryptedAmount' is present then it must not satisfy
+--  'isInitialPersistentAccountEncryptedAmount'.
 --
--- Precondition: if the 'AccountReleaseSchedule' is present, then it must have some releases
--- and the total amount of the releases must be the provided amount.
+--  Precondition: if the 'AccountReleaseSchedule' is present, then it must have some releases
+--  and the total amount of the releases must be the provided amount.
 makeAccountEnduringData ::
     ( MonadBlobStore m
     ) =>
@@ -274,7 +274,7 @@ makeAccountEnduringData paedPersistingData paedEncryptedAmount paedReleaseSchedu
         !paedHash = getHash hashInputs
     return $! PersistentAccountEnduringData{..}
 
--- |[For internal use in this module.] Recompute the Merkle hash of the enduring account data.
+-- | [For internal use in this module.] Recompute the Merkle hash of the enduring account data.
 rehashAccountEnduringData :: (MonadBlobStore m) => PersistentAccountEnduringData 'AccountV2 -> m (PersistentAccountEnduringData 'AccountV2)
 rehashAccountEnduringData ed = do
     amhi2PersistingAccountDataHash <- getHashM (paedPersistingData ed)
@@ -299,89 +299,89 @@ enduringDataFlags PersistentAccountEnduringData{..} =
 
 -- * Enduring account data storage helper definitions
 
--- |The nature of a pending stake change, abstracting the details.
--- This is stored as the low-order 2 bits of a 'Word8'.
--- The encoding is as follows:
+-- | The nature of a pending stake change, abstracting the details.
+--  This is stored as the low-order 2 bits of a 'Word8'.
+--  The encoding is as follows:
 --
--- - Bits 1 and 0 are both unset if there is no pending change.
+--  - Bits 1 and 0 are both unset if there is no pending change.
 --
--- - Bit 1 is unset and bit 0 is set if the stake is being reduced.
+--  - Bit 1 is unset and bit 0 is set if the stake is being reduced.
 --
--- - Bit 1 is set and bit 0 is unset if the stake is being removed.
+--  - Bit 1 is set and bit 0 is unset if the stake is being removed.
 data PendingChangeFlags
-    = -- |No change is pending
+    = -- | No change is pending
       PendingChangeNone
-    | -- |A stake reduction is pending
+    | -- | A stake reduction is pending
       PendingChangeReduce
-    | -- |Removal of stake is pending
+    | -- | Removal of stake is pending
       PendingChangeRemove
     deriving (Eq, Ord, Show)
 
--- |Get the 'PendingChangeFlags' for a 'StakePendingChange''.
+-- | Get the 'PendingChangeFlags' for a 'StakePendingChange''.
 stakePendingChangeFlags :: StakePendingChange' et -> PendingChangeFlags
 stakePendingChangeFlags NoChange = PendingChangeNone
 stakePendingChangeFlags ReduceStake{} = PendingChangeReduce
 stakePendingChangeFlags RemoveStake{} = PendingChangeRemove
 
--- |Store a 'PendingChangeFlags' as the low-order 2 bits of a 'Word8'.
+-- | Store a 'PendingChangeFlags' as the low-order 2 bits of a 'Word8'.
 pendingChangeFlagsToBits :: PendingChangeFlags -> Word8
 pendingChangeFlagsToBits PendingChangeNone = 0b00
 pendingChangeFlagsToBits PendingChangeReduce = 0b01
 pendingChangeFlagsToBits PendingChangeRemove = 0b10
 
--- |Load a 'PendingChangeFlags' from the low-order 2 bits of a 'Word8'.
--- All other bits must be 0.
+-- | Load a 'PendingChangeFlags' from the low-order 2 bits of a 'Word8'.
+--  All other bits must be 0.
 pendingChangeFlagsFromBits :: Word8 -> Either String PendingChangeFlags
 pendingChangeFlagsFromBits 0b00 = return PendingChangeNone
 pendingChangeFlagsFromBits 0b01 = return PendingChangeReduce
 pendingChangeFlagsFromBits 0b10 = return PendingChangeRemove
 pendingChangeFlagsFromBits _ = Left "Invalid pending change type"
 
--- |Flags that represent the nature of the stake on an account.
--- These are stored as the low-order 6 bits of a 'Word8'.
--- The encoding is as follows:
+-- | Flags that represent the nature of the stake on an account.
+--  These are stored as the low-order 6 bits of a 'Word8'.
+--  The encoding is as follows:
 --
--- - Bits 5 and 4 indicate the staking status of the account:
+--  - Bits 5 and 4 indicate the staking status of the account:
 --
---   - If bits 5 and 4 are unset, there is no staking. The remaining bit are also unset.
+--    - If bits 5 and 4 are unset, there is no staking. The remaining bit are also unset.
 --
---   - If bit 5 is unset and bit 4 is set, the account is a baker. In this case
+--    - If bit 5 is unset and bit 4 is set, the account is a baker. In this case
 --
---     - Bit 3 is unset.
+--      - Bit 3 is unset.
 --
---     - Bit 2 is set if earnings are restaked.
+--      - Bit 2 is set if earnings are restaked.
 --
---     - Bits 1 and 0 indicate the pending change as described in 'PendingChangeFlags'.
+--      - Bits 1 and 0 indicate the pending change as described in 'PendingChangeFlags'.
 --
---    - If bit 5 is set and bit 4 is unset, the account is a delegator. In this case
+--     - If bit 5 is set and bit 4 is unset, the account is a delegator. In this case
 --
---      - Bit 3 is set if the delegation is passive.
+--       - Bit 3 is set if the delegation is passive.
 --
---     - Bit 2 is set if earnings are restaked.
+--      - Bit 2 is set if earnings are restaked.
 --
---     - Bits 1 and 0 indicate the pending change as described in 'PendingChangeFlags'.
+--      - Bits 1 and 0 indicate the pending change as described in 'PendingChangeFlags'.
 data StakeFlags
-    = -- |The account is not staking
+    = -- | The account is not staking
       StakeFlagsNone
-    | -- |The account is a baker
+    | -- | The account is a baker
       StakeFlagsBaker
-        { -- |Whether earnings are restaked
+        { -- | Whether earnings are restaked
           sfRestake :: !Bool,
-          -- |The pending stake change, if any
+          -- | The pending stake change, if any
           sfChangeType :: !PendingChangeFlags
         }
-    | -- |The account is a delegator
+    | -- | The account is a delegator
       StakeFlagsDelegator
-        { -- |Whether delegation is passive
+        { -- | Whether delegation is passive
           sfPassive :: !Bool,
-          -- |Whether earnings are restaked
+          -- | Whether earnings are restaked
           sfRestake :: !Bool,
-          -- |The pending stake change, if any
+          -- | The pending stake change, if any
           sfChangeType :: !PendingChangeFlags
         }
     deriving (Eq, Ord, Show)
 
--- |Get the 'StakeFlags' from a 'PersistentAccountStakeEnduring'.
+-- | Get the 'StakeFlags' from a 'PersistentAccountStakeEnduring'.
 stakeFlags :: PersistentAccountStakeEnduring av -> StakeFlags
 stakeFlags PersistentAccountStakeEnduringNone = StakeFlagsNone
 stakeFlags PersistentAccountStakeEnduringBaker{..} =
@@ -396,7 +396,7 @@ stakeFlags PersistentAccountStakeEnduringDelegator{..} =
           sfChangeType = stakePendingChangeFlags paseDelegatorPendingChange
         }
 
--- |Store a 'StakeFlags' as the low-order 6 bits of a 'Word8'.
+-- | Store a 'StakeFlags' as the low-order 6 bits of a 'Word8'.
 stakeFlagsToBits :: StakeFlags -> Word8
 stakeFlagsToBits StakeFlagsNone =
     0b00_0000
@@ -410,8 +410,8 @@ stakeFlagsToBits StakeFlagsDelegator{..} =
         .|. (if sfRestake then 0b00_0100 else 0b00_0000)
         .|. pendingChangeFlagsToBits sfChangeType
 
--- |Load a 'StakeFlags' from the low-order 6 bits of a 'Word8'.
--- All other bits must be 0.
+-- | Load a 'StakeFlags' from the low-order 6 bits of a 'Word8'.
+--  All other bits must be 0.
 stakeFlagsFromBits :: Word8 -> Either String StakeFlags
 stakeFlagsFromBits 0b00_0000 = return StakeFlagsNone
 stakeFlagsFromBits bs = case bs .&. 0b11_0000 of
@@ -427,32 +427,32 @@ stakeFlagsFromBits bs = case bs .&. 0b11_0000 of
     sfRestake = testBit bs 2
     sfPassive = testBit bs 3
 
--- |Flags that represent the nature of enduring account data.
--- These are stored as a 'Word8', in the following format:
+-- | Flags that represent the nature of enduring account data.
+--  These are stored as a 'Word8', in the following format:
 --
--- - Bit 7 is set if the account has a (non-initial) encrypted amount.
+--  - Bit 7 is set if the account has a (non-initial) encrypted amount.
 --
--- - Bit 6 is set if the account has a (non-empty) release schedule.
+--  - Bit 6 is set if the account has a (non-empty) release schedule.
 --
--- - The remaining bits indicate the staking status of the account, in accordance with 'StakeFlags'.
+--  - The remaining bits indicate the staking status of the account, in accordance with 'StakeFlags'.
 data EnduringDataFlags = EnduringDataFlags
-    { -- |Whether the enduring data includes a (non-initial) encrypted amount.
+    { -- | Whether the enduring data includes a (non-initial) encrypted amount.
       edHasEncryptedAmount :: !Bool,
-      -- |Whether the enduring data includes a (non-empty) release schedule.
+      -- | Whether the enduring data includes a (non-empty) release schedule.
       edHasReleaseSchedule :: !Bool,
-      -- |Flags describing the stake (if any).
+      -- | Flags describing the stake (if any).
       edStakeFlags :: !StakeFlags
     }
     deriving (Eq, Ord, Show)
 
--- |Encode an 'EnduringDataFlags' as a 'Word8'.
+-- | Encode an 'EnduringDataFlags' as a 'Word8'.
 enduringDataFlagsToBits :: EnduringDataFlags -> Word8
 enduringDataFlagsToBits EnduringDataFlags{..} =
     (if edHasEncryptedAmount then 0b1000_0000 else 0b0000_0000)
         .|. (if edHasReleaseSchedule then 0b0100_0000 else 0b0000_0000)
         .|. stakeFlagsToBits edStakeFlags
 
--- |Decode an 'EnduringDataFlags' from a 'Word8'.
+-- | Decode an 'EnduringDataFlags' from a 'Word8'.
 enduringDataFlagsFromBits :: Word8 -> Either String EnduringDataFlags
 enduringDataFlagsFromBits bs = do
     let edHasEncryptedAmount = testBit bs 7
@@ -468,28 +468,28 @@ instance Serialize EnduringDataFlags where
             Left e -> fail e
             Right r -> return r
 
--- |'PersistentAccountEnduringData' is stored in the following format:
+-- | 'PersistentAccountEnduringData' is stored in the following format:
 --
--- 1. The 'AccountMerkleHash'.
--- 2. The 'EnduringDataFlags' (1 byte), which indicate which other fields are present.
--- 3. A reference to the 'PersistingAccountData'.
--- 4. If 'edHasEncryptedAmount' is set, a reference to the 'PersistentAccountEncryptedAmount'.
--- 5. If 'edHasReleaseSchedule' is set, a reference to the 'AccountReleaseSchedule'.
--- 6. Depending on 'edStakeFlags', one of:
---   - If it is 'StakeFlagsNone' then nothing else (there is no staking on the account).
---   - If it is 'StakeFlagsBaker' then:
---     1. A reference to the 'BakerInfoEx'.
---     2. Depending on 'sfChangeType', one of:
---        - If it is 'PendingChangeNone' then nothing else.
---        - If it is 'PendingChangeReduce' then the target amount and effective time.
---        - If it is 'PendingChangeRemove' then the effective time.
---   - If it is 'StakeFlagsDelegator' then:
---     1. The delegator Id
---     2. If 'sfPassive' is not set, then the target baker id.
---     3. Depending on 'sfChangeType', one of:
---        - If it is 'PendingChangeNone' then nothing else.
---        - If it is 'PendingChangeReduce' then the target amount and effective time.
---        - If it is 'PendingChangeRemove' then the effective time.
+--  1. The 'AccountMerkleHash'.
+--  2. The 'EnduringDataFlags' (1 byte), which indicate which other fields are present.
+--  3. A reference to the 'PersistingAccountData'.
+--  4. If 'edHasEncryptedAmount' is set, a reference to the 'PersistentAccountEncryptedAmount'.
+--  5. If 'edHasReleaseSchedule' is set, a reference to the 'AccountReleaseSchedule'.
+--  6. Depending on 'edStakeFlags', one of:
+--    - If it is 'StakeFlagsNone' then nothing else (there is no staking on the account).
+--    - If it is 'StakeFlagsBaker' then:
+--      1. A reference to the 'BakerInfoEx'.
+--      2. Depending on 'sfChangeType', one of:
+--         - If it is 'PendingChangeNone' then nothing else.
+--         - If it is 'PendingChangeReduce' then the target amount and effective time.
+--         - If it is 'PendingChangeRemove' then the effective time.
+--    - If it is 'StakeFlagsDelegator' then:
+--      1. The delegator Id
+--      2. If 'sfPassive' is not set, then the target baker id.
+--      3. Depending on 'sfChangeType', one of:
+--         - If it is 'PendingChangeNone' then nothing else.
+--         - If it is 'PendingChangeReduce' then the target amount and effective time.
+--         - If it is 'PendingChangeRemove' then the effective time.
 instance (MonadBlobStore m, IsAccountVersion av) => BlobStorable m (PersistentAccountEnduringData av) where
     storeUpdate paed@PersistentAccountEnduringData{..} = do
         (ppd, newPersistingData) <- storeUpdate paedPersistingData
@@ -564,20 +564,20 @@ instance (MonadBlobStore m, IsAccountVersion av) => BlobStorable m (PersistentAc
 
 -- * Persistent account
 
--- |A persistent account.
--- The most commonly modified fields of an account (the next nonce, balance and staked balance)
--- are directly available.  The rest of the fields are stored as part of the enduring data,
--- under an 'EagerBufferedRef'.  This limits the amount that needs to be rewritten for the
--- most common updates.
+-- | A persistent account.
+--  The most commonly modified fields of an account (the next nonce, balance and staked balance)
+--  are directly available.  The rest of the fields are stored as part of the enduring data,
+--  under an 'EagerBufferedRef'.  This limits the amount that needs to be rewritten for the
+--  most common updates.
 data PersistentAccount av = PersistentAccount
-    { -- |The next nonce for transactions on the account.
+    { -- | The next nonce for transactions on the account.
       accountNonce :: !Nonce,
-      -- |The total balance of the account.
+      -- | The total balance of the account.
       accountAmount :: !Amount,
-      -- |The staked balance of the account.
-      -- INVARIANT: This is 0 if the account is not a baker or delegator.
+      -- | The staked balance of the account.
+      --  INVARIANT: This is 0 if the account is not a baker or delegator.
       accountStakedAmount :: !Amount,
-      -- |The enduring account data.
+      -- | The enduring account data.
       accountEnduringData :: !(EagerBufferedRef (PersistentAccountEnduringData av))
     }
 
@@ -592,12 +592,12 @@ instance HashableTo (AccountHash 'AccountV2) (PersistentAccount 'AccountV2) wher
                       ahi2MerkleHash = getHash accountEnduringData
                     }
 
-instance Monad m => MHashableTo m (AccountHash 'AccountV2) (PersistentAccount 'AccountV2)
+instance (Monad m) => MHashableTo m (AccountHash 'AccountV2) (PersistentAccount 'AccountV2)
 
 instance HashableTo Hash.Hash (PersistentAccount 'AccountV2) where
     getHash = theAccountHash @'AccountV2 . getHash
 
-instance Monad m => MHashableTo m Hash.Hash (PersistentAccount 'AccountV2)
+instance (Monad m) => MHashableTo m Hash.Hash (PersistentAccount 'AccountV2)
 
 instance (MonadBlobStore m, IsAccountVersion av) => BlobStorable m (PersistentAccount av) where
     storeUpdate acc@PersistentAccount{..} = do
@@ -617,27 +617,27 @@ instance (MonadBlobStore m, IsAccountVersion av) => BlobStorable m (PersistentAc
             accountEnduringData <- mEnduringData
             return $! PersistentAccount{..}
 
--- |Get the enduring data for an account.
+-- | Get the enduring data for an account.
 enduringData :: PersistentAccount av -> PersistentAccountEnduringData av
 enduringData = eagerBufferedDeref . accountEnduringData
 
--- |Get the persisting data for an account.
+-- | Get the persisting data for an account.
 persistingData :: PersistentAccount av -> PersistingAccountData
 persistingData = eagerBufferedDeref . paedPersistingData . enduringData
 
 -- ** Queries
 
--- |Get the canonical address of the account.
+-- | Get the canonical address of the account.
 getCanonicalAddress :: (Monad m) => PersistentAccount av -> m AccountAddress
 getCanonicalAddress acc = do
     let pd = persistingData acc
     return $! pd ^. accountAddress
 
--- |Get the current public account balance.
+-- | Get the current public account balance.
 getAmount :: (Monad m) => PersistentAccount av -> m Amount
 getAmount = pure . accountAmount
 
--- |Gets the amount of a baker's stake, or 'Nothing' if the account is not a baker.
+-- | Gets the amount of a baker's stake, or 'Nothing' if the account is not a baker.
 getBakerStakeAmount :: (Monad m) => PersistentAccount av -> m (Maybe Amount)
 getBakerStakeAmount acc = do
     let ed = enduringData acc
@@ -645,11 +645,11 @@ getBakerStakeAmount acc = do
         PersistentAccountStakeEnduringBaker{} -> Just $! accountStakedAmount acc
         _ -> Nothing
 
--- |Get the amount that is staked on the account.
+-- | Get the amount that is staked on the account.
 getStakedAmount :: (Monad m) => PersistentAccount av -> m Amount
 getStakedAmount acc = return $! accountStakedAmount acc
 
--- |Get the amount that is locked in scheduled releases on the account.
+-- | Get the amount that is locked in scheduled releases on the account.
 getLockedAmount :: (Monad m) => PersistentAccount av -> m Amount
 getLockedAmount acc = do
     let ed = enduringData acc
@@ -663,16 +663,16 @@ getAvailableAmount acc = do
     let ed = enduringData acc
     return $! accountAmount acc - max (accountStakedAmount acc) (paedLockedAmount ed)
 
--- |Get the next account nonce for transactions from this account.
+-- | Get the next account nonce for transactions from this account.
 getNonce :: (Monad m) => PersistentAccount av -> m Nonce
 getNonce = pure . accountNonce
 
--- |Determine if a given operation is permitted for the account.
+-- | Determine if a given operation is permitted for the account.
 --
--- * For 'AllowedEncryptedTransfers' the account may only have 1 credential.
+--  * For 'AllowedEncryptedTransfers' the account may only have 1 credential.
 --
--- * For 'AllowedMultipleCredentials' the account must have the empty encrypted balance.
-isAllowed :: MonadBlobStore m => PersistentAccount av -> AccountAllowance -> m Bool
+--  * For 'AllowedMultipleCredentials' the account must have the empty encrypted balance.
+isAllowed :: (MonadBlobStore m) => PersistentAccount av -> AccountAllowance -> m Bool
 isAllowed acc AllowedEncryptedTransfers = do
     creds <- getCredentials acc
     return $! Map.size creds == 1
@@ -683,29 +683,29 @@ isAllowed acc AllowedMultipleCredentials = do
         Null -> return True
         Some eaRef -> isZeroPersistentAccountEncryptedAmount =<< refLoad eaRef
 
--- |Get the credentials deployed on the account. This map is always non-empty and (presently)
--- will have a credential at index 'initialCredentialIndex' (0) that cannot be changed.
+-- | Get the credentials deployed on the account. This map is always non-empty and (presently)
+--  will have a credential at index 'initialCredentialIndex' (0) that cannot be changed.
 getCredentials :: (Monad m) => PersistentAccount av -> m (Map.Map CredentialIndex RawAccountCredential)
 getCredentials acc = do
     let pd = persistingData acc
     return $! pd ^. accountCredentials
 
--- |Get the key used to verify transaction signatures, it records the signature scheme used as well.
+-- | Get the key used to verify transaction signatures, it records the signature scheme used as well.
 getVerificationKeys :: (Monad m) => PersistentAccount av -> m AccountInformation
 getVerificationKeys acc = do
     let pd = persistingData acc
     return $! pd ^. accountVerificationKeys
 
--- |Get the current encrypted amount on the account.
-getEncryptedAmount :: MonadBlobStore m => PersistentAccount av -> m AccountEncryptedAmount
+-- | Get the current encrypted amount on the account.
+getEncryptedAmount :: (MonadBlobStore m) => PersistentAccount av -> m AccountEncryptedAmount
 getEncryptedAmount acc = do
     let ed = enduringData acc
     case paedEncryptedAmount ed of
         Null -> return initialAccountEncryptedAmount
         Some ea -> loadPersistentAccountEncryptedAmount =<< refLoad ea
 
--- |Get the public key used to receive encrypted amounts.
-getEncryptionKey :: MonadBlobStore f => PersistentAccount av -> f AccountEncryptionKey
+-- | Get the public key used to receive encrypted amounts.
+getEncryptionKey :: (MonadBlobStore f) => PersistentAccount av -> f AccountEncryptionKey
 getEncryptionKey acc = do
     let pd = persistingData acc
     -- The use of the unsafe @unsafeEncryptionKeyFromRaw@ function here is
@@ -713,15 +713,15 @@ getEncryptionKey acc = do
     -- created/deployed (this is part of credential validation)
     return $! unsafeEncryptionKeyFromRaw (pd ^. accountEncryptionKey)
 
--- |Get the release schedule for an account.
-getReleaseSummary :: MonadBlobStore m => PersistentAccount av -> m AccountReleaseSummary
+-- | Get the release schedule for an account.
+getReleaseSummary :: (MonadBlobStore m) => PersistentAccount av -> m AccountReleaseSummary
 getReleaseSummary acc = do
     let ed = enduringData acc
     case paedReleaseSchedule ed of
         Null -> return (AccountReleaseSummary 0 [])
         Some (rsRef, _) -> toAccountReleaseSummary =<< refLoad rsRef
 
--- |Get the release schedule for an account.
+-- | Get the release schedule for an account.
 getReleaseSchedule :: (MonadBlobStore m) => PersistentAccount 'AccountV2 -> m (TARS.AccountReleaseSchedule 'AccountV2)
 getReleaseSchedule acc = do
     let ed = enduringData acc
@@ -729,15 +729,15 @@ getReleaseSchedule acc = do
         Null -> return TARSV1.emptyAccountReleaseSchedule
         Some (rsRef, total) -> getAccountReleaseSchedule total =<< refLoad rsRef
 
--- |Get the timestamp at which the next scheduled release will occur (if any).
-getNextReleaseTimestamp :: MonadBlobStore m => PersistentAccount av -> m (Maybe Timestamp)
+-- | Get the timestamp at which the next scheduled release will occur (if any).
+getNextReleaseTimestamp :: (MonadBlobStore m) => PersistentAccount av -> m (Maybe Timestamp)
 getNextReleaseTimestamp acc = do
     let ed = enduringData acc
     case paedReleaseSchedule ed of
         Null -> return Nothing
         Some (rsRef, _) -> nextReleaseTimestamp <$!> refLoad rsRef
 
--- |Get the baker (if any) attached to an account.
+-- | Get the baker (if any) attached to an account.
 getBaker :: (MonadBlobStore m, IsAccountVersion av, AVSupportsDelegation av) => PersistentAccount av -> m (Maybe (AccountBaker av))
 getBaker acc = do
     let ed = enduringData acc
@@ -754,7 +754,7 @@ getBaker acc = do
             return $ Just bkr
         _ -> return Nothing
 
--- |Get a reference to the baker info (if any) attached to an account.
+-- | Get a reference to the baker info (if any) attached to an account.
 getBakerInfoRef ::
     (MonadBlobStore m) =>
     PersistentAccount av ->
@@ -765,7 +765,7 @@ getBakerInfoRef acc = do
         PersistentAccountStakeEnduringBaker{..} -> return $ Just paseBakerInfo
         _ -> return Nothing
 
--- |Get the baker and baker info reference (if any) attached to the account.
+-- | Get the baker and baker info reference (if any) attached to the account.
 getBakerAndInfoRef :: (MonadBlobStore m, IsAccountVersion av, AVSupportsDelegation av) => PersistentAccount av -> m (Maybe (AccountBaker av, PersistentBakerInfoEx av))
 getBakerAndInfoRef acc = do
     let ed = enduringData acc
@@ -782,7 +782,7 @@ getBakerAndInfoRef acc = do
             return $ Just (bkr, paseBakerInfo)
         _ -> return Nothing
 
--- |Get the delegator (if any) attached to the account.
+-- | Get the delegator (if any) attached to the account.
 getDelegator :: (MonadBlobStore m, AVSupportsDelegation av) => PersistentAccount av -> m (Maybe (AccountDelegation av))
 getDelegator acc = do
     let ed = enduringData acc
@@ -799,7 +799,7 @@ getDelegator acc = do
             return $ Just del
         _ -> return Nothing
 
--- |Get the baker or stake delegation information attached to an account.
+-- | Get the baker or stake delegation information attached to an account.
 getStake ::
     (MonadBlobStore m, IsAccountVersion av, AVSupportsDelegation av) =>
     PersistentAccount av ->
@@ -808,13 +808,13 @@ getStake acc = do
     let ed = enduringData acc
     persistentToAccountStake (paedStake ed) (accountStakedAmount acc)
 
--- |Determine if an account has stake as a baker or delegator.
+-- | Determine if an account has stake as a baker or delegator.
 hasStake :: PersistentAccount av -> Bool
 hasStake acc = case paedStake (enduringData acc) of
     PersistentAccountStakeEnduringNone -> False
     _ -> True
 
--- |Get details about an account's stake.
+-- | Get details about an account's stake.
 getStakeDetails :: (MonadBlobStore m, AVSupportsDelegation av) => PersistentAccount av -> m (StakeDetails av)
 getStakeDetails acc = do
     let ed = enduringData acc
@@ -836,8 +836,8 @@ getStakeDetails acc = do
 
 -- ** Updates
 
--- |Apply account updates to an account. It is assumed that the address in
--- account updates and account are the same.
+-- | Apply account updates to an account. It is assumed that the address in
+--  account updates and account are the same.
 updateAccount :: (MonadBlobStore m) => AccountUpdate -> PersistentAccount 'AccountV2 -> m (PersistentAccount 'AccountV2)
 updateAccount !upd !acc0 = do
     let ed0 = enduringData acc0
@@ -894,8 +894,8 @@ updateAccount !upd !acc0 = do
                 }
     return acc3
 
--- |Helper function. Apply an update to the 'PersistentAccountEnduringData' on an account,
--- recomputing the hash.
+-- | Helper function. Apply an update to the 'PersistentAccountEnduringData' on an account,
+--  recomputing the hash.
 updateEnduringData ::
     (MonadBlobStore m) =>
     (PersistentAccountEnduringData 'AccountV2 -> m (PersistentAccountEnduringData 'AccountV2)) ->
@@ -906,7 +906,7 @@ updateEnduringData f acc = do
     newEnduring <- refMake =<< rehashAccountEnduringData =<< f ed
     return $! acc{accountEnduringData = newEnduring}
 
--- |Apply an update to the 'PersistingAccountData' on an account, recomputing the hash.
+-- | Apply an update to the 'PersistingAccountData' on an account, recomputing the hash.
 updatePersistingData ::
     (MonadBlobStore m) =>
     (PersistingAccountData -> PersistingAccountData) ->
@@ -917,7 +917,7 @@ updatePersistingData f = updateEnduringData $ \ed -> do
     newPersisting <- refMake $! f pd
     return $! ed{paedPersistingData = newPersisting}
 
--- |Helper function. Update the 'PersistentAccountStakeEnduring' component of an account.
+-- | Helper function. Update the 'PersistentAccountStakeEnduring' component of an account.
 updateStake ::
     (MonadBlobStore m) =>
     (PersistentAccountStakeEnduring 'AccountV2 -> m (PersistentAccountStakeEnduring 'AccountV2)) ->
@@ -927,56 +927,56 @@ updateStake f = updateEnduringData $ \ed -> do
     newStake <- f (paedStake ed)
     return $! ed{paedStake = newStake}
 
--- |Add or remove credentials on an account.
--- The caller must ensure the following, which are not checked:
+-- | Add or remove credentials on an account.
+--  The caller must ensure the following, which are not checked:
 --
--- * Any credential index that is removed must already exist.
--- * The credential with index 0 must not be removed.
--- * Any credential index that is added must not exist after the removals take effect.
--- * At least one credential remains after all removals and additions.
--- * Any new threshold is at most the number of accounts remaining (and at least 1).
+--  * Any credential index that is removed must already exist.
+--  * The credential with index 0 must not be removed.
+--  * Any credential index that is added must not exist after the removals take effect.
+--  * At least one credential remains after all removals and additions.
+--  * Any new threshold is at most the number of accounts remaining (and at least 1).
 updateAccountCredentials ::
     (MonadBlobStore m) =>
-    -- |Credentials to remove
+    -- | Credentials to remove
     [CredentialIndex] ->
-    -- |Credentials to add
+    -- | Credentials to add
     Map.Map CredentialIndex AccountCredential ->
-    -- |New account threshold
+    -- | New account threshold
     AccountThreshold ->
-    -- |Account to update
+    -- | Account to update
     PersistentAccount 'AccountV2 ->
     m (PersistentAccount 'AccountV2)
 updateAccountCredentials cuRemove cuAdd cuAccountThreshold =
     updatePersistingData (updateCredentials cuRemove cuAdd cuAccountThreshold)
 
--- |Optionally update the verification keys and signature threshold for an account.
--- Precondition: The credential with given credential index exists.
+-- | Optionally update the verification keys and signature threshold for an account.
+--  Precondition: The credential with given credential index exists.
 updateAccountCredentialKeys ::
     (MonadBlobStore m) =>
-    -- |Credential to update
+    -- | Credential to update
     CredentialIndex ->
-    -- |New public keys
+    -- | New public keys
     CredentialPublicKeys ->
-    -- |Account to update
+    -- | Account to update
     PersistentAccount 'AccountV2 ->
     m (PersistentAccount 'AccountV2)
 updateAccountCredentialKeys credIndex credKeys = updatePersistingData (updateCredentialKeys credIndex credKeys)
 
--- |Add an amount to the account's balance.
+-- | Add an amount to the account's balance.
 addAmount :: (Monad m) => Amount -> PersistentAccount av -> m (PersistentAccount av)
 addAmount !amt acc = return $! acc{accountAmount = accountAmount acc + amt}
 
--- |Add a baker to an account for account version 1.
--- This will replace any existing staking information on the account.
+-- | Add a baker to an account for account version 1.
+--  This will replace any existing staking information on the account.
 addBakerV1 ::
     (MonadBlobStore m) =>
-    -- |Extended baker info
+    -- | Extended baker info
     BakerInfoEx 'AccountV2 ->
-    -- |Baker's equity capital
+    -- | Baker's equity capital
     Amount ->
-    -- |Whether earnings are restaked
+    -- | Whether earnings are restaked
     Bool ->
-    -- |Account to add baker to
+    -- | Account to add baker to
     PersistentAccount 'AccountV2 ->
     m (PersistentAccount 'AccountV2)
 addBakerV1 binfo stake restake acc = do
@@ -995,8 +995,8 @@ addBakerV1 binfo stake restake acc = do
               accountEnduringData = newEnduring
             }
 
--- |Add a delegator to an account.
--- This will replace any existing staking information on the account.
+-- | Add a delegator to an account.
+--  This will replace any existing staking information on the account.
 addDelegator ::
     (MonadBlobStore m) =>
     AccountDelegation 'AccountV2 ->
@@ -1018,8 +1018,8 @@ addDelegator AccountDelegationV1{..} acc = do
               accountEnduringData = newEnduring
             }
 
--- |Update the pool info on a baker account.
--- This MUST only be called with an account that is a baker.
+-- | Update the pool info on a baker account.
+--  This MUST only be called with an account that is a baker.
 updateBakerPoolInfo ::
     (MonadBlobStore m) =>
     BakerPoolInfoUpdate ->
@@ -1036,8 +1036,8 @@ updateBakerPoolInfo upd = updateEnduringData $ \ed -> case paedStake ed of
     PersistentAccountStakeEnduringNone ->
         error "updateBakerPoolInfo invariant violation: account is not a baker"
 
--- |Set the baker keys on a baker account.
--- This MUST only be called with an account that is a baker.
+-- | Set the baker keys on a baker account.
+--  This MUST only be called with an account that is a baker.
 setBakerKeys ::
     (MonadBlobStore m) =>
     BakerKeyUpdate ->
@@ -1060,9 +1060,9 @@ setBakerKeys upd = updateStake $ \case
     PersistentAccountStakeEnduringNone ->
         error "setBakerKeys invariant violation: account is not a baker"
 
--- |Set the stake of a baker or delegator account.
--- This MUST only be called with an account that is either a baker or delegator.
--- This does no check that the staked amount is sensible, and has no effect on pending changes.
+-- | Set the stake of a baker or delegator account.
+--  This MUST only be called with an account that is either a baker or delegator.
+--  This does no check that the staked amount is sensible, and has no effect on pending changes.
 setStake ::
     (Monad m) =>
     Amount ->
@@ -1070,8 +1070,8 @@ setStake ::
     m (PersistentAccount av)
 setStake newStake acc = return $! acc{accountStakedAmount = newStake}
 
--- |Set whether a baker or delegator account restakes its earnings.
--- This MUST only be called with an account that is either a baker or delegator.
+-- | Set whether a baker or delegator account restakes its earnings.
+--  This MUST only be called with an account that is either a baker or delegator.
 setRestakeEarnings ::
     (MonadBlobStore m) =>
     Bool ->
@@ -1086,8 +1086,8 @@ setRestakeEarnings newRestake =
                 del{paseDelegatorRestakeEarnings = newRestake}
             PersistentAccountStakeEnduringNone -> error "setRestakeEarnings invariant violation: account is not a baker or delegator"
 
--- |Set the pending change on baker or delegator account.
--- This MUST only be called with an account that is either a baker or delegator.
+-- | Set the pending change on baker or delegator account.
+--  This MUST only be called with an account that is either a baker or delegator.
 setStakePendingChange ::
     (MonadBlobStore m) =>
     StakePendingChange 'AccountV2 ->
@@ -1104,8 +1104,8 @@ setStakePendingChange newPC =
   where
     newPC' = pendingChangeEffectiveTimestamp <$> newPC
 
--- |Set the target of a delegating account.
--- This MUST only be called with an account that is a delegator.
+-- | Set the target of a delegating account.
+--  This MUST only be called with an account that is a delegator.
 setDelegationTarget ::
     (MonadBlobStore m) =>
     DelegationTarget ->
@@ -1121,7 +1121,7 @@ setDelegationTarget newTarget =
             PersistentAccountStakeEnduringNone ->
                 error "setDelegationTarget invariant violation: account is not a delegator"
 
--- |Remove any staking on an account.
+-- | Remove any staking on an account.
 removeStaking ::
     (MonadBlobStore m) =>
     PersistentAccount 'AccountV2 ->
@@ -1130,8 +1130,8 @@ removeStaking acc0 = do
     acc1 <- updateStake (const $ return PersistentAccountStakeEnduringNone) acc0
     return $! acc1{accountStakedAmount = 0}
 
--- |Set the commission rates on a baker account.
--- This MUST only be called with an account that is a baker.
+-- | Set the commission rates on a baker account.
+--  This MUST only be called with an account that is a baker.
 setCommissionRates ::
     (MonadBlobStore m) =>
     CommissionRates ->
@@ -1148,9 +1148,9 @@ setCommissionRates rates = updateStake $ \case
     PersistentAccountStakeEnduringNone ->
         error "setCommissionRates invariant violation: account is not a baker"
 
--- |Unlock scheduled releases on an account up to and including the given timestamp.
--- This returns the next timestamp at which a release is scheduled for the account, if any,
--- as well as the updated account.
+-- | Unlock scheduled releases on an account up to and including the given timestamp.
+--  This returns the next timestamp at which a release is scheduled for the account, if any,
+--  as well as the updated account.
 unlockReleases ::
     (MonadBlobStore m) =>
     Timestamp ->
@@ -1175,7 +1175,7 @@ unlockReleases ts acc = do
 
 -- ** Creation
 
--- |Make a 'PersistentAccount' from an 'Transient.Account'.
+-- | Make a 'PersistentAccount' from an 'Transient.Account'.
 makePersistentAccount :: (MonadBlobStore m) => Transient.Account 'AccountV2 -> m (PersistentAccount 'AccountV2)
 makePersistentAccount Transient.Account{..} = do
     paedPersistingData <- refMake $! _unhashed _accountPersisting
@@ -1227,7 +1227,7 @@ makePersistentAccount Transient.Account{..} = do
               ..
             }
 
--- |Create an empty account with the given public key, address and credential.
+-- | Create an empty account with the given public key, address and credential.
 newAccount ::
     (MonadBlobStore m) =>
     GlobalContext ->
@@ -1256,8 +1256,8 @@ newAccount cryptoParams _accountAddress credential = do
               ..
             }
 
--- |Make a persistent account from a genesis account.
--- The data is immediately flushed to disc and cached.
+-- | Make a persistent account from a genesis account.
+--  The data is immediately flushed to disc and cached.
 makeFromGenesisAccount ::
     forall pv m.
     (MonadBlobStore m, IsProtocolVersion pv, AccountVersionFor pv ~ 'AccountV2) =>
@@ -1305,9 +1305,9 @@ makeFromGenesisAccount spv cryptoParams chainParameters GenesisAccount{..} = do
 
 -- ** Migration
 
--- |Migration for 'PersistentAccountEnduringData'. Only supports 'AccountV2'.
+-- | Migration for 'PersistentAccountEnduringData'. Only supports 'AccountV2'.
 migrateEnduringData ::
-    SupportMigration m t =>
+    (SupportMigration m t) =>
     PersistentAccountEnduringData 'AccountV2 ->
     t m (PersistentAccountEnduringData 'AccountV2)
 migrateEnduringData ed = do
@@ -1323,10 +1323,10 @@ migrateEnduringData ed = do
               ..
             }
 
--- |A trivial migration from account version 2 to
--- account version 2.
--- In particular this function only migrates the underlying reference to
--- the 'PersistentAccountEnduringData'.
+-- | A trivial migration from account version 2 to
+--  account version 2.
+--  In particular this function only migrates the underlying reference to
+--  the 'PersistentAccountEnduringData'.
 migrateV2ToV2 ::
     ( MonadBlobStore m,
       MonadBlobStore (t m),
@@ -1344,7 +1344,7 @@ migrateV2ToV2 acc = do
               ..
             }
 
--- |Migration for 'PersistentAccount'. Only supports 'AccountV2'.
+-- | Migration for 'PersistentAccount'. Only supports 'AccountV2'.
 migratePersistentAccount ::
     ( SupportMigration m t,
       AccountVersionFor oldpv ~ 'AccountV2
@@ -1355,8 +1355,8 @@ migratePersistentAccount ::
 migratePersistentAccount StateMigrationParametersTrivial acc = migrateV2ToV2 acc
 migratePersistentAccount StateMigrationParametersP5ToP6{} acc = migrateV2ToV2 acc
 
--- |Migration for 'PersistentAccount' from 'V0.PersistentAccount'. This supports migration from
--- 'P4' to 'P5'.
+-- | Migration for 'PersistentAccount' from 'V0.PersistentAccount'. This supports migration from
+--  'P4' to 'P5'.
 migratePersistentAccountFromV0 ::
     ( SupportMigration m t,
       AccountVersionFor oldpv ~ 'AccountV1,
@@ -1427,12 +1427,12 @@ migratePersistentAccountFromV0 StateMigrationParametersP4ToP5{} V0.PersistentAcc
 
 -- ** Serialization
 
--- |Serialize an account. The serialization format may depend on the protocol version.
+-- | Serialize an account. The serialization format may depend on the protocol version.
 --
--- This format allows accounts to be stored in a reduced format by
--- eliding (some) data that can be inferred from context, or is
--- the default value.  Note that there can be multiple representations
--- of the same account.
+--  This format allows accounts to be stored in a reduced format by
+--  eliding (some) data that can be inferred from context, or is
+--  the default value.  Note that there can be multiple representations
+--  of the same account.
 serializeAccount :: (MonadBlobStore m, MonadPut m) => GlobalContext -> PersistentAccount 'AccountV2 -> m ()
 serializeAccount cryptoParams acc@PersistentAccount{..} = do
     let ed = enduringData acc
@@ -1490,7 +1490,7 @@ serializeAccount cryptoParams acc@PersistentAccount{..} = do
 
 -- ** Conversion
 
--- |Converts an account to a transient (i.e. in memory) account. (Used for testing.)
+-- | Converts an account to a transient (i.e. in memory) account. (Used for testing.)
 toTransientAccount :: (MonadBlobStore m) => PersistentAccount 'AccountV2 -> m (Transient.Account 'AccountV2)
 toTransientAccount acc = do
     let _accountPersisting = makeHashed $ persistingData acc

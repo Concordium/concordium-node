@@ -16,7 +16,7 @@ import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.WasmIntegration.V1 as WasmV1
 import Concordium.Wasm
 
--- |A V1 module with extra exports.
+-- | A V1 module with extra exports.
 testModule1 :: Assertion
 testModule1 = do
     ws <- BS.readFile "../concordium-base/smart-contracts/testdata/contracts/v1/all-new-host-functions.wasm"
@@ -25,10 +25,10 @@ testModule1 = do
         Nothing -> assertFailure "Invalid caller module."
         Just GSWasm.ModuleInterface{} -> return ()
 
--- |A V1 module with extra exports.
--- This should not pass the processing as the module
--- contains 'upgrade' and this is only allowed for P5 and
--- onwards.
+-- | A V1 module with extra exports.
+--  This should not pass the processing as the module
+--  contains 'upgrade' and this is only allowed for P5 and
+--  onwards.
 testModule2 :: Assertion
 testModule2 = do
     ws <- BS.readFile "../concordium-base/smart-contracts/testdata/contracts/v1/all-new-host-functions.wasm"

@@ -45,13 +45,13 @@ accountAddress0 = Helpers.accountAddressFromSeed 0
 keyPair0 :: SigScheme.KeyPair
 keyPair0 = Helpers.keyPairFromSeed 0
 
--- |A module that is used as a base for upgrading.
+-- | A module that is used as a base for upgrading.
 upgrading0SourceFile :: FilePath
 upgrading0SourceFile = "../concordium-base/smart-contracts/testdata/contracts/v1/upgrading_0.wasm"
 
--- |A v1 module with a matching contract name of 'upgrading0SourceFile'
--- so it should always be possible to upgrade to this from a contract based on
--- the former mentioned module.
+-- | A v1 module with a matching contract name of 'upgrading0SourceFile'
+--  so it should always be possible to upgrade to this from a contract based on
+--  the former mentioned module.
 upgrading1SourceFile :: FilePath
 upgrading1SourceFile = "../concordium-base/smart-contracts/testdata/contracts/v1/upgrading_1.wasm"
 
@@ -59,11 +59,11 @@ upgrading1SourceFile = "../concordium-base/smart-contracts/testdata/contracts/v1
 wasmModVersion1 :: WasmVersion
 wasmModVersion1 = V1
 
--- |The simple case, upgrading is intended to succeed, changes the module, and
--- changes the set of entrypoints.
+-- | The simple case, upgrading is intended to succeed, changes the module, and
+--  changes the set of entrypoints.
 upgradingTestCase ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -196,7 +196,7 @@ selfInvokeSourceFile1 = "../concordium-base/smart-contracts/testdata/contracts/v
 -- function in the upgraded module. Checking the new module is being used.
 selfInvokeTestCase ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -290,10 +290,10 @@ selfInvokeTestCase spv pvString =
 missingModuleSourceFile :: FilePath
 missingModuleSourceFile = "../concordium-base/smart-contracts/testdata/contracts/v1/upgrading-missing-module.wasm"
 
--- |Upgrading to a missing module fails with the correct error code.
+-- | Upgrading to a missing module fails with the correct error code.
 missingModuleTestCase ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -362,11 +362,11 @@ missingContractSourceFile0 = "../concordium-base/smart-contracts/testdata/contra
 missingContractSourceFile1 :: FilePath
 missingContractSourceFile1 = "../concordium-base/smart-contracts/testdata/contracts/v1/upgrading-missing-contract1.wasm"
 
--- |Upgrading to a module which does not have the required contract fails with
--- the correct error code.
+-- | Upgrading to a module which does not have the required contract fails with
+--  the correct error code.
 missingContractTestCase ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -448,11 +448,11 @@ unsupportedVersionSourceFile0 = "../concordium-base/smart-contracts/testdata/con
 unsupportedVersionSourceFile1 :: FilePath
 unsupportedVersionSourceFile1 = "../concordium-base/smart-contracts/testdata/contracts/v1/upgrading-unsupported-version1.wasm"
 
--- |Attempt to upgrade to a V0 module. This should fail with a specific error
--- code.
+-- | Attempt to upgrade to a V0 module. This should fail with a specific error
+--  code.
 unsupportedVersionTestCase ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -536,11 +536,11 @@ twiceSourceFile1 = "../concordium-base/smart-contracts/testdata/contracts/v1/upg
 twiceSourceFile2 :: FilePath
 twiceSourceFile2 = "../concordium-base/smart-contracts/testdata/contracts/v1/upgrading-twice2.wasm"
 
--- |Upgrading twice in the same transaction. The effect of the second upgrade
--- should be in effect at the end.
+-- | Upgrading twice in the same transaction. The effect of the second upgrade
+--  should be in effect at the end.
 twiceTestCase ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -645,7 +645,7 @@ chainedSourceFile0 = "../concordium-base/smart-contracts/testdata/contracts/v1/u
 -- This is to trigger a large number of upgrade events in the same transaction.
 chainedTestCase ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -724,11 +724,11 @@ rejectSourceFile0 = "../concordium-base/smart-contracts/testdata/contracts/v1/up
 rejectSourceFile1 :: FilePath
 rejectSourceFile1 = "../concordium-base/smart-contracts/testdata/contracts/v1/upgrading-reject1.wasm"
 
--- |Tests whether a contract which triggers a succesful upgrade, but rejects the transaction from
--- another cause, rollbacks the upgrade as well.
+-- | Tests whether a contract which triggers a succesful upgrade, but rejects the transaction from
+--  another cause, rollbacks the upgrade as well.
 rejectTestCase ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -824,7 +824,7 @@ changingEntrypointsSourceFile1 = "../concordium-base/smart-contracts/testdata/co
 -- entrypoint removed by an upgrade fail with the appropriate reject reason.
 changingEntrypointsTestCase ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -965,7 +965,7 @@ persistingStateSourceFile1 = "../concordium-base/smart-contracts/testdata/contra
 -- upgraded instance.
 persistingStateTestCase ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -1064,13 +1064,13 @@ isUpgradeEvent event = case event of
     Types.Upgraded{} -> True
     _ -> False
 
--- |Get a 'ModuleRef' from a given V1 'Module' specified via the 'FilePath'.
+-- | Get a 'ModuleRef' from a given V1 'Module' specified via the 'FilePath'.
 getModuleRefFromV1File :: FilePath -> Types.ModuleRef
 getModuleRefFromV1File f =
     unsafePerformIO $
         getModuleRef @V1 . WasmModuleV . ModuleSource <$> BS.readFile f
 
--- |Get a 'ModuleRef' from a given V1 'Module' specified via the 'FilePath'.
+-- | Get a 'ModuleRef' from a given V1 'Module' specified via the 'FilePath'.
 getModuleRefFromV0File :: FilePath -> Types.ModuleRef
 getModuleRefFromV0File f =
     unsafePerformIO $

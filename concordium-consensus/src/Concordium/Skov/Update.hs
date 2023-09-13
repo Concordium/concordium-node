@@ -46,8 +46,8 @@ import Concordium.TimeMonad
 import qualified Concordium.TransactionVerification as TV
 import Concordium.Types.Updates (uiHeader, uiPayload, updateType)
 
--- |Determine if one block is an ancestor of another.
--- A block is considered to be an ancestor of itself.
+-- | Determine if one block is an ancestor of another.
+--  A block is considered to be an ancestor of itself.
 isAncestorOf ::
     (BlockPointerData (BlockPointerType m), BlockPointerMonad m) =>
     BlockPointerType m ->
@@ -60,7 +60,7 @@ isAncestorOf b1 b2 = case compare (bpHeight b1) (bpHeight b2) of
         parent <- bpParent b2
         isAncestorOf b1 parent
 
--- |Update the focus block, together with the pending transaction table.
+-- | Update the focus block, together with the pending transaction table.
 updateFocusBlockTo :: (TreeStateMonad m) => BlockPointerType m -> m ()
 updateFocusBlockTo newBB = do
     oldBB <- getFocusBlock
@@ -91,8 +91,8 @@ updateFocusBlockTo newBB = do
             parent <- bpParent oBB
             updatePTs parent nBB forw (reversePTT (blockTransactions oBB) pts)
 
--- |Make a 'FinalizerInfo' from a 'FinalizationCommittee' and 'FinalizationProof'. It is assumed
--- that the 'FinalizationProof' is valid with respect to the 'FinalizationCommittee'.
+-- | Make a 'FinalizerInfo' from a 'FinalizationCommittee' and 'FinalizationProof'. It is assumed
+--  that the 'FinalizationProof' is valid with respect to the 'FinalizationCommittee'.
 makeFinalizerInfo :: FinalizationCommittee -> FinalizationProof -> FinalizerInfo
 makeFinalizerInfo committee finProof =
     FinalizerInfo
@@ -103,26 +103,26 @@ makeFinalizerInfo committee finProof =
     finPower p = (partyBakerId p, partyWeight p)
     finSigner i = partyBakerId $ parties committee Vec.! fromIntegral i
 
--- |A monad implementing 'OnSkov' provides functions for responding to
--- a block being added to the tree, and a finalization record being verified.
--- It also provides a function for logging transfers at finalization time.
+-- | A monad implementing 'OnSkov' provides functions for responding to
+--  a block being added to the tree, and a finalization record being verified.
+--  It also provides a function for logging transfers at finalization time.
 class OnSkov m where
-    -- |Called when a block arrives.
+    -- | Called when a block arrives.
     onBlock :: BlockPointerType m -> m ()
 
-    -- |Called when a finalization record is validated.  This is
-    -- only called for the block that is explicitly finalized (i.e.
-    -- once per finalization record).
+    -- | Called when a finalization record is validated.  This is
+    --  only called for the block that is explicitly finalized (i.e.
+    --  once per finalization record).
     onFinalize :: FinalizationRecord -> BlockPointerType m -> [BlockPointerType m] -> m ()
 
-    -- |Called when a block or finalization record that was previously
-    -- pending becomes live.
+    -- | Called when a block or finalization record that was previously
+    --  pending becomes live.
     onPendingLive :: m ()
 
--- |Handle a block arriving that is dead.  That is, the block has never
--- been in the tree before, and now it never can be.  Any descendants of
--- this block that have previously arrived cannot have been added to the
--- tree, and we purge them recursively from '_skovPossiblyPendingTable'.
+-- | Handle a block arriving that is dead.  That is, the block has never
+--  been in the tree before, and now it never can be.  Any descendants of
+--  this block that have previously arrived cannot have been added to the
+--  tree, and we purge them recursively from '_skovPossiblyPendingTable'.
 blockArriveDead :: (HasCallStack, MonadLogger m, TreeStateMonad m) => BlockHash -> m ()
 blockArriveDead cbp = do
     markDead cbp
@@ -130,7 +130,7 @@ blockArriveDead cbp = do
     children <- map getHash <$> takePendingChildren cbp
     forM_ children blockArriveDead
 
--- |Purge pending blocks with slot numbers predating the last finalized slot.
+-- | Purge pending blocks with slot numbers predating the last finalized slot.
 purgePending :: (HasCallStack, TreeStateMonad m, MonadLogger m) => m ()
 purgePending = do
     lfSlot <- getLastFinalizedSlot
@@ -156,10 +156,10 @@ doTrustedFinalize finRec =
         Just BlockPending{} -> return $ Left ResultUnverifiable
         Nothing -> return $ Left ResultUnverifiable
 
--- |Process the finalization of a block.  The following are assumed:
+-- | Process the finalization of a block.  The following are assumed:
 --
--- * The block is either alive or finalized.
--- * The finalization record is valid and finalizes the given block.
+--  * The block is either alive or finalized.
+--  * The finalization record is valid and finalizes the given block.
 processFinalization :: forall m. (TreeStateMonad m, SkovMonad m, OnSkov m) => BlockPointerType m -> FinalizationRecord -> m ()
 processFinalization newFinBlock finRec@FinalizationRecord{..} = do
     nextFinIx <- getNextFinalizationIndex
@@ -278,9 +278,9 @@ processFinalization newFinBlock finRec@FinalizationRecord{..} = do
         endTime <- currentTime
         logEvent Skov LLDebug $ "Processed finalization in " ++ show (diffUTCTime endTime startTime)
 
--- |Add a block to the pending blocks table, returning 'ResultPendingBlock'.
--- It is assumed that the parent of the block is unknown or also a pending block, and that its
--- slot time is after the slot time of the last finalized block.
+-- | Add a block to the pending blocks table, returning 'ResultPendingBlock'.
+--  It is assumed that the parent of the block is unknown or also a pending block, and that its
+--  slot time is after the slot time of the last finalized block.
 addBlockAsPending :: (TreeStateMonad m, MonadLogger m) => PendingBlock -> m UpdateResult
 addBlockAsPending block = do
     addPendingBlock block
@@ -289,27 +289,27 @@ addBlockAsPending block = do
     logEvent Skov LLDebug $ "Block " ++ show block ++ " is pending its parent (" ++ show parent ++ ")"
     return ResultPendingBlock
 
--- |Add a block where the parent block is known to be alive and the transactions have been verified.
--- If the block proves to be valid, it is added to the tree and this returns 'ResultSuccess'.
--- Otherwise, the block is marked dead and 'ResultInvalid' is returned.
+-- | Add a block where the parent block is known to be alive and the transactions have been verified.
+--  If the block proves to be valid, it is added to the tree and this returns 'ResultSuccess'.
+--  Otherwise, the block is marked dead and 'ResultInvalid' is returned.
 --
--- This function ensures that
+--  This function ensures that
 --
--- 1. If a finalization record is present then it's verified.
+--  1. If a finalization record is present then it's verified.
 --
--- 2. The claimed state hash matches the one resulting from execution.
+--  2. The claimed state hash matches the one resulting from execution.
 --
--- 3. The claimed transaction outcomes hash matches the one resulting from execution.
+--  3. The claimed transaction outcomes hash matches the one resulting from execution.
 --
--- PRECONDITION: The parent of the block provided must be alive.
+--  PRECONDITION: The parent of the block provided must be alive.
 addBlockWithLiveParent ::
     forall m.
     (HasCallStack, TreeStateMonad m, SkovMonad m, FinalizationMonad m, OnSkov m) =>
-    -- |A pending block with a live or finalized parent.
+    -- | A pending block with a live or finalized parent.
     PendingBlock ->
-    -- |Verification results of transactions, corresponding to those in the block
+    -- | Verification results of transactions, corresponding to those in the block
     [Maybe TV.VerificationResult] ->
-    -- |Parent block pointer
+    -- | Parent block pointer
     BlockPointerType m ->
     m UpdateResult
 addBlockWithLiveParent block txvers parentP = do
@@ -400,15 +400,15 @@ addBlockWithLiveParent block txvers parentP = do
                         mapM_ processPendingChild children
                         return ResultSuccess
 
--- |Process a block that has been awaiting its parent to become live.
--- If the parent of the block is not alive or finalized then the block is marked as dead.
--- Otherwise the block is verified in the same manner as if the block was received while the
--- parent was alive or finalized.
--- Only if the above checks out then the block is executed and the block is marked as live.
+-- | Process a block that has been awaiting its parent to become live.
+--  If the parent of the block is not alive or finalized then the block is marked as dead.
+--  Otherwise the block is verified in the same manner as if the block was received while the
+--  parent was alive or finalized.
+--  Only if the above checks out then the block is executed and the block is marked as live.
 processPendingChild ::
     forall m.
     (HasCallStack, TreeStateMonad m, SkovMonad m, FinalizationMonad m, OnSkov m) =>
-    -- |A pending block.
+    -- | A pending block.
     PendingBlock ->
     m ()
 processPendingChild block = do
@@ -450,26 +450,26 @@ processPendingChild block = do
                         ResultSuccess -> onPendingLive
                         _ -> return ()
 
--- |This performs the following checks on a block, given the pointer to its parent block, which
--- is assumed to be alive:
+-- | This performs the following checks on a block, given the pointer to its parent block, which
+--  is assumed to be alive:
 --
--- 1. The slot number of the block exceeds the slot number of the parent block.
+--  1. The slot number of the block exceeds the slot number of the parent block.
 --
--- 2. The block baker is valid.
+--  2. The block baker is valid.
 --
--- 3. The baker key matches the block's claimed key.
+--  3. The baker key matches the block's claimed key.
 --
--- 4. The block nonce is valid.
+--  4. The block nonce is valid.
 --
--- 5. The block proof is valid.
+--  5. The block proof is valid.
 --
--- If any check fails, @Left e@ is returned, where @e@ is a 'String' describing the failure.
--- Otherwise @Right ()@ is returned.
+--  If any check fails, @Left e@ is returned, where @e@ is a 'String' describing the failure.
+--  Otherwise @Right ()@ is returned.
 liveParentChecks ::
     (TreeStateMonad m, SkovMonad m) =>
-    -- |Block to check
+    -- | Block to check
     PendingBlock ->
-    -- |Parent pointer
+    -- | Parent pointer
     BlockPointerType m ->
     m (Either String ())
 liveParentChecks block parentP = runExceptT $ do
@@ -520,18 +520,18 @@ liveParentChecks block parentP = runExceptT $ do
                 )
                 $ throwError "invalid block proof"
 
--- |Add a valid, live block to the tree.
--- This is used by 'addBlockWithLiveParent' and 'doBakeForSlot', and should not
--- be called directly otherwise.
+-- | Add a valid, live block to the tree.
+--  This is used by 'addBlockWithLiveParent' and 'doBakeForSlot', and should not
+--  be called directly otherwise.
 blockArrive ::
     (HasCallStack, TreeStateMonad m, SkovMonad m) =>
-    -- |Block to add
+    -- | Block to add
     PendingBlock ->
-    -- |Parent pointer
+    -- | Parent pointer
     BlockPointerType m ->
-    -- |Last finalized pointer
+    -- | Last finalized pointer
     BlockPointerType m ->
-    -- |Result of block execution (state, energy used, ...)
+    -- | Result of block execution (state, energy used, ...)
     ExecutionResult m ->
     m (BlockPointerType m)
 blockArrive block parentP lfBlockP ExecutionResult{..} = do
@@ -560,13 +560,13 @@ blockArrive block parentP lfBlockP ExecutionResult{..} = do
                     error errMsg
     return blockP
 
--- |Receive a block (as received from the network) in the tree.
--- This checks for validity of the block, and may add the block
--- to a pending queue if its prerequisites are not met.
--- If the block is too early, it is rejected with 'ResultEarlyBlock'.
--- If the validity of the block could not be verified then the block is marked
--- as dead and the 'UpdateResult' contains whether the block was either stale or
--- simply invalid.
+-- | Receive a block (as received from the network) in the tree.
+--  This checks for validity of the block, and may add the block
+--  to a pending queue if its prerequisites are not met.
+--  If the block is too early, it is rejected with 'ResultEarlyBlock'.
+--  If the validity of the block could not be verified then the block is marked
+--  as dead and the 'UpdateResult' contains whether the block was either stale or
+--  simply invalid.
 doReceiveBlock :: (TreeStateMonad m, SkovMonad m) => PendingBlock -> m (UpdateResult, Maybe VerifiedPendingBlock)
 doReceiveBlock pb@GB.PendingBlock{pbBlock = BakedBlock{..}, ..} =
     isShutDown >>= \case
@@ -700,10 +700,10 @@ doReceiveBlock pb@GB.PendingBlock{pbBlock = BakedBlock{..}, ..} =
                         logEvent Skov LLInfo $ "Received block " ++ show block
                         return (ResultSuccess, Just $! VerifiedPendingBlock pb)
 
--- |Execute a 'VerifiedPendingBlock'.
--- Before adding the block to the tree we make sure that
--- the parent block live and verify the transactions of the block
--- we're about to add.
+-- | Execute a 'VerifiedPendingBlock'.
+--  Before adding the block to the tree we make sure that
+--  the parent block live and verify the transactions of the block
+--  we're about to add.
 doExecuteBlock :: (TreeStateMonad m, FinalizationMonad m, SkovMonad m, OnSkov m) => VerifiedPendingBlock -> m UpdateResult
 doExecuteBlock (VerifiedPendingBlock pb) = do
     isShutDown >>= \case
@@ -752,45 +752,45 @@ doExecuteBlock (VerifiedPendingBlock pb) = do
         blockArriveDead blockHash
         return ResultInvalid
 
--- |Receive and execute the block immediately.
--- See documentation for `doReceiveBlock` and `doExecuteBlock`
--- Returns 'ResultSuccess' if the block was added to the tree.
+-- | Receive and execute the block immediately.
+--  See documentation for `doReceiveBlock` and `doExecuteBlock`
+--  Returns 'ResultSuccess' if the block was added to the tree.
 doReceiveExecuteBlock :: (TreeStateMonad m, SkovMonad m, FinalizationMonad m, OnSkov m) => PendingBlock -> m UpdateResult
 doReceiveExecuteBlock block = do
     doReceiveBlock block >>= \case
         (ResultSuccess, Just vpb) -> doExecuteBlock vpb
         (ur, _) -> return ur
 
--- |Add a transaction to the transaction table.
--- This returns
---   * 'ResultSuccess' if the transaction is freshly added.
---     The transaction is added to the transaction table.
---   * 'ResultDuplicate', which indicates that either the transaction is a duplicate
---     The transaction is not added to the transaction table.
---   * 'ResultStale' which indicates that a transaction with the same sender
---     and nonce has already been finalized, or the transaction has already expired. In this case the transaction is not added to the table.
---   * 'ResultInvalid' which indicates that the transaction signature was invalid.
---     The transaction is not added to the transaction table.
---   * 'ResultShutDown' which indicates that consensus was shut down, and so the transaction was not added.
---   * 'ResultTooLowEnergy' which indicates that the transactions stated energy was below the minimum amount needed for the
---     transaction to be included in a block. The transaction is not added to the transaction table
---   * 'ResultNonexistingSenderAccount' the transfer contained an invalid sender. The transaction is not added to the
---     transaction table.
---   * 'ResultDuplicateAccountRegistrationID' the 'CredentialDeployment' contained an already registered registration id.
---     The transaction is not added to the transaction table.
---   * 'ResultCredentialDeploymentInvalidSignatures' the 'CredentialDeployment' contained invalid signatures.
---     The transaction is not added to the transaction table.
---   * 'ResultCredentialDeploymentInvalidIP' the 'CredentialDeployment' contained an unrecognized identity provider.
---     The transaction is not added to the transaction table.
---   * 'ResultCredentialDeploymentInvalidAR' the 'CredentialDeployment' contained unrecognized anonymity revokers.
---     The transaction is not added to the transaction table.
---   * 'ResultCredentialDeploymentExpired' the 'CredentialDeployment' was expired. The transaction is not added to
---     the transaction table.
---   * 'ResultChainUpdateInvalidSequenceNumber' the update contained an invalid 'UpdateSequenceNumber'.
---   * 'ResultChainUpdateInvalidEffectiveTime' the update contained an invalid effective time. In particular the effective time
---      was before the timeout of the update.
---   * 'ResultChainUpdateInvalidSignatures' the update contained invalid signatures.
---   * 'ResultEnergyExceeded' the stated energy of the transaction exceeds the maximum allowed for the block.
+-- | Add a transaction to the transaction table.
+--  This returns
+--    * 'ResultSuccess' if the transaction is freshly added.
+--      The transaction is added to the transaction table.
+--    * 'ResultDuplicate', which indicates that either the transaction is a duplicate
+--      The transaction is not added to the transaction table.
+--    * 'ResultStale' which indicates that a transaction with the same sender
+--      and nonce has already been finalized, or the transaction has already expired. In this case the transaction is not added to the table.
+--    * 'ResultInvalid' which indicates that the transaction signature was invalid.
+--      The transaction is not added to the transaction table.
+--    * 'ResultShutDown' which indicates that consensus was shut down, and so the transaction was not added.
+--    * 'ResultTooLowEnergy' which indicates that the transactions stated energy was below the minimum amount needed for the
+--      transaction to be included in a block. The transaction is not added to the transaction table
+--    * 'ResultNonexistingSenderAccount' the transfer contained an invalid sender. The transaction is not added to the
+--      transaction table.
+--    * 'ResultDuplicateAccountRegistrationID' the 'CredentialDeployment' contained an already registered registration id.
+--      The transaction is not added to the transaction table.
+--    * 'ResultCredentialDeploymentInvalidSignatures' the 'CredentialDeployment' contained invalid signatures.
+--      The transaction is not added to the transaction table.
+--    * 'ResultCredentialDeploymentInvalidIP' the 'CredentialDeployment' contained an unrecognized identity provider.
+--      The transaction is not added to the transaction table.
+--    * 'ResultCredentialDeploymentInvalidAR' the 'CredentialDeployment' contained unrecognized anonymity revokers.
+--      The transaction is not added to the transaction table.
+--    * 'ResultCredentialDeploymentExpired' the 'CredentialDeployment' was expired. The transaction is not added to
+--      the transaction table.
+--    * 'ResultChainUpdateInvalidSequenceNumber' the update contained an invalid 'UpdateSequenceNumber'.
+--    * 'ResultChainUpdateInvalidEffectiveTime' the update contained an invalid effective time. In particular the effective time
+--       was before the timeout of the update.
+--    * 'ResultChainUpdateInvalidSignatures' the update contained invalid signatures.
+--    * 'ResultEnergyExceeded' the stated energy of the transaction exceeds the maximum allowed for the block.
 doReceiveTransaction ::
     ( TreeStateMonad m,
       TimeMonad m,
@@ -805,7 +805,7 @@ doReceiveTransaction tr = unlessShutDown $ do
     when (ur == ResultSuccess) $ purgeTransactionTable False =<< currentTime
     return ur
 
--- |Add a transaction that has previously been verified, given the result of verification.
+-- | Add a transaction that has previously been verified, given the result of verification.
 doAddPreverifiedTransaction ::
     (TreeStateMonad m, TimeMonad m) =>
     BlockItem ->
@@ -841,20 +841,20 @@ doAddPreverifiedTransaction blockItem okRes = do
         ObsoleteNonce -> return ResultStale
         NotAdded verRes -> return $! transactionVerificationResultToUpdateResult verRes
 
--- |Add a transaction to the transaction table.  The 'Slot' should be
--- the slot number of the block that the transaction was received with.
--- This function should only be called when a transaction is received as part of a block.
--- The difference from the above function is that this function returns an already existing
--- transaction in case of a duplicate, ensuring more sharing of transaction data.
+-- | Add a transaction to the transaction table.  The 'Slot' should be
+--  the slot number of the block that the transaction was received with.
+--  This function should only be called when a transaction is received as part of a block.
+--  The difference from the above function is that this function returns an already existing
+--  transaction in case of a duplicate, ensuring more sharing of transaction data.
 --
--- This function also verifies the incoming transactions and adds them to the internal
--- transaction verification cache such that the verification result can be used by the 'Scheduler'.
+--  This function also verifies the incoming transactions and adds them to the internal
+--  transaction verification cache such that the verification result can be used by the 'Scheduler'.
 --
--- The @origin@ parameter means if the transaction was received individually or as part of a block.
--- Note that if the @origin@ is 'Individual' then the caller MUST pass in the block state of the last finalized block.
+--  The @origin@ parameter means if the transaction was received individually or as part of a block.
+--  Note that if the @origin@ is 'Individual' then the caller MUST pass in the block state of the last finalized block.
 --
--- The function returns the 'BlockItem' if it was "successfully verified" and added to the transaction table.
--- Note. "Successfully verified" depends on the 'TransactionOrigin', see 'definitelyNotValid' below for details.
+--  The function returns the 'BlockItem' if it was "successfully verified" and added to the transaction table.
+--  Note. "Successfully verified" depends on the 'TransactionOrigin', see 'definitelyNotValid' below for details.
 doReceiveTransactionInternal :: (TreeStateMonad m) => TV.TransactionOrigin -> BlockState m -> BlockItem -> Timestamp -> Slot -> m (Maybe (BlockItem, Maybe TV.VerificationResult), UpdateResult)
 doReceiveTransactionInternal origin verifyBs tr ts slot = do
     ctx <- getVerificationCtx verifyBs
@@ -919,9 +919,9 @@ doReceiveTransactionInternal origin verifyBs tr ts slot = do
         gd <- getGenesisData
         pure $ Context state (gdMaxBlockEnergy gd) origin
 
--- |Clear the skov instance __just before__ handling the protocol update. This
--- clears all blocks that are not finalized but otherwise maintains all existing
--- state invariants. This prepares the state for @migrateExistingSkov@.
+-- | Clear the skov instance __just before__ handling the protocol update. This
+--  clears all blocks that are not finalized but otherwise maintains all existing
+--  state invariants. This prepares the state for @migrateExistingSkov@.
 doClearSkov :: (TreeStateMonad m, SkovMonad m) => m ()
 doClearSkov =
     isShutDown >>= \case
@@ -936,8 +936,8 @@ doClearSkov =
             -- Clear out all of the non-finalized and pending blocks.
             clearOnProtocolUpdate
 
--- |Terminate the skov instance __after__ the protocol update has taken effect.
--- After this point the skov instance is useful for queries only.
+-- | Terminate the skov instance __after__ the protocol update has taken effect.
+--  After this point the skov instance is useful for queries only.
 doTerminateSkov :: (TreeStateMonad m, SkovMonad m) => m ()
 doTerminateSkov =
     isShutDown >>= \case

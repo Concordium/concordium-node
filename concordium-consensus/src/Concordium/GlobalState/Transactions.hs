@@ -4,23 +4,23 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
--- |This module combines the following transaction related functionalites
--- across the consensus protocols (v0 and v1)
+-- | This module combines the following transaction related functionalites
+--  across the consensus protocols (v0 and v1)
 --
--- * The 'AddTransactionResult' is the result of inserting a transaction into
---   a supported tree state.
+--  * The 'AddTransactionResult' is the result of inserting a transaction into
+--    a supported tree state.
 --
--- * 'TransactionOrigin' indicates whether a transaction stems from a block or
---   it arrived at the consensus layer individually. These are the only ways
---   a transaction can ever be inserted into an underlying tree state.
+--  * 'TransactionOrigin' indicates whether a transaction stems from a block or
+--    it arrived at the consensus layer individually. These are the only ways
+--    a transaction can ever be inserted into an underlying tree state.
 --
--- * The 'TransactionVerifierT' is defined here. This is the monad transformer
---   that is used for verifying transactions.
+--  * The 'TransactionVerifierT' is defined here. This is the monad transformer
+--    that is used for verifying transactions.
 --
--- * The 'AccountNonceQuery' class which is responsible for retrieving the
---   "next available" account nonce from the underlying 'TreeState'.
---   Note that this is required in order to share the same transaction verifier implementation
---   accros the consensus protocol versions as this is used by the 'TransactionVerifier'.
+--  * The 'AccountNonceQuery' class which is responsible for retrieving the
+--    "next available" account nonce from the underlying 'TreeState'.
+--    Note that this is required in order to share the same transaction verifier implementation
+--    accros the consensus protocol versions as this is used by the 'TransactionVerifier'.
 module Concordium.GlobalState.Transactions where
 
 import Control.Monad.Reader
@@ -42,62 +42,62 @@ import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Types
 import qualified Concordium.TransactionVerification as TVer
 
--- |Result of trying to add a transaction to the transaction table.
+-- | Result of trying to add a transaction to the transaction table.
 data AddTransactionResult
-    = -- |Transaction is a duplicate of the given transaction.
-      -- Contains the duplicate `BlockItem` and the cached `VerificationResult` only if
-      -- the transaction has status `Received` or ´Committed´.
+    = -- | Transaction is a duplicate of the given transaction.
+      --  Contains the duplicate `BlockItem` and the cached `VerificationResult` only if
+      --  the transaction has status `Received` or ´Committed´.
       Duplicate !BlockItem (Maybe TVer.VerificationResult)
-    | -- |The transaction was newly added.
-      -- Contains the `BlockItem` that was added and the cached `VerificationResult`.
+    | -- | The transaction was newly added.
+      --  Contains the `BlockItem` that was added and the cached `VerificationResult`.
       Added !BlockItem !TVer.VerificationResult
-    | -- |The nonce of the transaction is not later than the last finalized transaction for the sender.
-      -- The transaction is not added to the table.
+    | -- | The nonce of the transaction is not later than the last finalized transaction for the sender.
+      --  The transaction is not added to the table.
       ObsoleteNonce
-    | -- |The transaction was not added as it could not be deemed verifiable.
-      -- The `NotAdded` contains the `VerificationResult`
+    | -- | The transaction was not added as it could not be deemed verifiable.
+      --  The `NotAdded` contains the `VerificationResult`
       NotAdded !TVer.VerificationResult
     deriving (Eq, Show)
 
--- |The Context that a transaction is verified within
--- in the reader based instance.
--- The `Context` contains the `BlockState`, the maximum energy of a block and
--- also whether the transaction was received individually or as part of a block.
+-- | The Context that a transaction is verified within
+--  in the reader based instance.
+--  The `Context` contains the `BlockState`, the maximum energy of a block and
+--  also whether the transaction was received individually or as part of a block.
 --
--- The `Context` is used for verifying the transaction in a deferred manner.
--- That is, the verification process will only take place if the transaction is not already contained
--- in the `TransactionTable`.
--- Note. The `Context` is created when the transaction is received by `doReceiveTransactionInternal` and
--- the actual verification is carried out within `addCommitTransaction` when it has been checked
--- that the transaction does not already exist in the `TransactionTable`.
+--  The `Context` is used for verifying the transaction in a deferred manner.
+--  That is, the verification process will only take place if the transaction is not already contained
+--  in the `TransactionTable`.
+--  Note. The `Context` is created when the transaction is received by `doReceiveTransactionInternal` and
+--  the actual verification is carried out within `addCommitTransaction` when it has been checked
+--  that the transaction does not already exist in the `TransactionTable`.
 data Context t = Context
-    { -- |The block state
+    { -- | The block state
       _ctxBs :: !t,
-      -- |The max block energy.
+      -- | The max block energy.
       _ctxMaxBlockEnergy :: !Energy,
-      -- |Whether the transaction was received from a block or individually.
+      -- | Whether the transaction was received from a block or individually.
       _ctxTransactionOrigin :: !TVer.TransactionOrigin
     }
 
 makeLenses ''Context
 
--- |Monad for acquiring the next available nonce for an account.
-class Monad m => AccountNonceQuery m where
-    -- |Get the successor of the largest known nonce for the given account.
-    -- The function should return 'True' in the second component if and only if
-    -- all (known) transactions from this account are finalized.
+-- | Monad for acquiring the next available nonce for an account.
+class (Monad m) => AccountNonceQuery m where
+    -- | Get the successor of the largest known nonce for the given account.
+    --  The function should return 'True' in the second component if and only if
+    --  all (known) transactions from this account are finalized.
     getNextAccountNonce :: AccountAddressEq -> m (Nonce, Bool)
 
 instance (Monad (t m), MonadTrans t, AccountNonceQuery m) => AccountNonceQuery (MGSTrans t m) where
     getNextAccountNonce = lift . getNextAccountNonce
     {-# INLINE getNextAccountNonce #-}
 
-deriving via (MGSTrans MaybeT m) instance AccountNonceQuery m => AccountNonceQuery (MaybeT m)
-deriving via (MGSTrans (ExceptT e) m) instance AccountNonceQuery m => AccountNonceQuery (ExceptT e m)
+deriving via (MGSTrans MaybeT m) instance (AccountNonceQuery m) => AccountNonceQuery (MaybeT m)
+deriving via (MGSTrans (ExceptT e) m) instance (AccountNonceQuery m) => AccountNonceQuery (ExceptT e m)
 
--- |Helper type for defining 'TransactionVerifierT'. While we only instantiate @r@ with
--- @Context (BlockState m)@, it is simpler to derive the 'MonadTrans' instance using the present
--- definition.
+-- | Helper type for defining 'TransactionVerifierT'. While we only instantiate @r@ with
+--  @Context (BlockState m)@, it is simpler to derive the 'MonadTrans' instance using the present
+--  definition.
 newtype TransactionVerifierT' (r :: Type) (m :: Type -> Type) (a :: Type) = TransactionVerifierT {runTransactionVerifierT :: r -> m a}
     deriving (Functor, Applicative, Monad, MonadReader r) via (ReaderT r m)
     deriving (MonadTrans) via (ReaderT r)

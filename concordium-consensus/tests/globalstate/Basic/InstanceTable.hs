@@ -16,34 +16,34 @@ import Lens.Micro.Internal (Index, IxValue, Ixed)
 import Lens.Micro.Platform
 
 data InstanceTable
-    = -- |The empty instance table
+    = -- | The empty instance table
       Empty
-    | -- |A non-empty instance table (recording the number of instances present)
+    | -- | A non-empty instance table (recording the number of instances present)
       Tree !Word64 !IT
     deriving (Show)
 
 computeBranchHash :: IT -> IT -> H.Hash
 computeBranchHash t1 t2 = H.hashShort $! (H.hashToShortByteString (getHash t1 :: H.Hash) <> H.hashToShortByteString (getHash t2 :: H.Hash))
 
--- |Internal tree nodes of an 'InstanceTable'.
--- Branches satisfy the following invariant properties:
--- * The left branch is always a full sub-tree with height 1 less than the parent (or a leaf if the parent height is 0)
--- * The right branch has height less than the parent
--- * The hash is @computeBranchHash l r@ where @l@ and @r@ are the left and right subtrees
--- * The first @Bool@ is @True@ if the tree is full, i.e. the right sub-tree is full with height 1 less than the parent
--- * The second @Bool@ is @True@ if the tree has vacant leaves: either @hasVacancies l@ or @hasVacancies r@ is @True@
+-- | Internal tree nodes of an 'InstanceTable'.
+--  Branches satisfy the following invariant properties:
+--  * The left branch is always a full sub-tree with height 1 less than the parent (or a leaf if the parent height is 0)
+--  * The right branch has height less than the parent
+--  * The hash is @computeBranchHash l r@ where @l@ and @r@ are the left and right subtrees
+--  * The first @Bool@ is @True@ if the tree is full, i.e. the right sub-tree is full with height 1 less than the parent
+--  * The second @Bool@ is @True@ if the tree has vacant leaves: either @hasVacancies l@ or @hasVacancies r@ is @True@
 data IT
-    = -- |A branch has the following fields:
-      -- * the height of the branch (0 if all children are leaves)
-      -- * whether the branch is a full binary tree
-      -- * whether the tree has vacant leaves
-      -- * the Merkle hash (lazy)
-      -- * the left and right subtrees
+    = -- | A branch has the following fields:
+      --  * the height of the branch (0 if all children are leaves)
+      --  * whether the branch is a full binary tree
+      --  * whether the tree has vacant leaves
+      --  * the Merkle hash (lazy)
+      --  * the left and right subtrees
       Branch !Word8 !Bool !Bool H.Hash IT IT
-    | -- |A leaf holds a contract instance
+    | -- | A leaf holds a contract instance
       Leaf !BasicInstance
-    | -- |A vacant leaf records the 'ContractSubindex' of the last instance
-      -- with this 'ContractIndex'.
+    | -- | A vacant leaf records the 'ContractSubindex' of the last instance
+      --  with this 'ContractIndex'.
       VacantLeaf !ContractSubindex
     deriving (Show)
 
@@ -57,7 +57,7 @@ instance HashableTo H.Hash InstanceTable where
     getHash Empty = H.hash "EmptyInstances"
     getHash (Tree _ t) = getHash t
 
--- |A fold over the leaves of an 'IT'
+-- | A fold over the leaves of an 'IT'
 foldIT :: SimpleFold IT (Either ContractSubindex BasicInstance)
 foldIT up (Branch _ _ _ _ l r) = foldIT up l <> foldIT up r
 foldIT up t@(Leaf i) = t <$ up (Right i)
@@ -85,12 +85,12 @@ instance Ixed InstanceTable where
     ix _ _ t@Empty = pure t
     ix i upd (Tree s t) = Tree s <$> (ix (contractIndex i) . filtered ((== i) . instanceAddress)) upd t
 
--- |Determine if an 'IT' is a full binary tree.
+-- | Determine if an 'IT' is a full binary tree.
 isFull :: IT -> Bool
 isFull (Branch _ f _ _ _ _) = f
 isFull _ = True
 
--- |The height for the level above.
+-- | The height for the level above.
 nextHeight :: IT -> Word8
 nextHeight (Branch h _ _ _ _ _) = h + 1
 nextHeight _ = 0
@@ -122,7 +122,7 @@ newContractInstance mk (Tree s0 t0) = Tree (s0 + 1) <$> nci 0 t0
     mkBranch h f v t1' t2' = Branch h f v (computeBranchHash t1' t2') t1' t2'
     leaf ind subind = Leaf <$> mk (ContractAddress ind subind)
 
--- |Delete the contract instance with the given 'ContractIndex'.
+-- | Delete the contract instance with the given 'ContractIndex'.
 deleteContractInstance :: ContractIndex -> InstanceTable -> InstanceTable
 deleteContractInstance _ Empty = Empty
 deleteContractInstance i0 (Tree s0 t0) = uncurry Tree $ dci i0 t0
@@ -138,7 +138,7 @@ deleteContractInstance i0 (Tree s0 t0) = uncurry Tree $ dci i0 t0
       where
         mkBranch t1' t2' = Branch h f (hasVacancies t1' || hasVacancies t2') (computeBranchHash t1' t2') t1' t2'
 
--- |Delete the contract instance at the given 'ContractAddress'.
+-- | Delete the contract instance at the given 'ContractAddress'.
 deleteContractInstanceExact :: ContractAddress -> InstanceTable -> InstanceTable
 deleteContractInstanceExact _ Empty = Empty
 deleteContractInstanceExact addr (Tree s0 t0) = uncurry Tree $ dci (contractIndex addr) t0
@@ -155,11 +155,11 @@ deleteContractInstanceExact addr (Tree s0 t0) = uncurry Tree $ dci (contractInde
       where
         mkBranch t1' t2' = Branch h f (hasVacancies t1' || hasVacancies t2') (computeBranchHash t1' t2') t1' t2'
 
--- |Construct an 'InstanceTable' given a monadic function that
--- will be invoked for each 'ContractIndex' in sequence to give
--- the 'ContractSubindex' (for a vacancy) or 'Instance', until
--- the function returns 'Nothing', indicating there are no more
--- instances in the constructed table.
+-- | Construct an 'InstanceTable' given a monadic function that
+--  will be invoked for each 'ContractIndex' in sequence to give
+--  the 'ContractSubindex' (for a vacancy) or 'Instance', until
+--  the function returns 'Nothing', indicating there are no more
+--  instances in the constructed table.
 constructM ::
     (Monad m) =>
     (ContractIndex -> m (Maybe (Either ContractSubindex BasicInstance))) ->
@@ -190,7 +190,7 @@ constructM build = c 0 0 []
     collapse1 count (Just t' : l) t = collapse1 count l (mkBranch False t' t)
     mkBranch f t1' t2' = Branch (nextHeight t1') f (hasVacancies t1' || hasVacancies t2') (computeBranchHash t1' t2') t1' t2'
 
--- |A collection of smart contract instances.
+-- | A collection of smart contract instances.
 newtype Instances = Instances
     { _instances :: InstanceTable
     }

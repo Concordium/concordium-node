@@ -102,21 +102,21 @@ import qualified Concordium.Wasm as GSWasm
 import Data.Proxy
 import Prelude hiding (exp, mod)
 
--- |The function asserts the following
---  * the transaction has a valid sender,
---  * the amount corresponding to the deposited energy is on the sender account,
---  * the transaction is not expired,
---  * the transaction nonce is the account's next nonce,
---  * the transaction is signed with the account's verification keys.
--- "Valid sender" means that the sender account exists and has at least one valid credential,
--- where currently valid means non-expired.
+-- | The function asserts the following
+--   * the transaction has a valid sender,
+--   * the amount corresponding to the deposited energy is on the sender account,
+--   * the transaction is not expired,
+--   * the transaction nonce is the account's next nonce,
+--   * the transaction is signed with the account's verification keys.
+--  "Valid sender" means that the sender account exists and has at least one valid credential,
+--  where currently valid means non-expired.
 --
--- Throws 'Nothing' if the remaining block energy is not sufficient to cover the cost of checking the
--- header and @Just fk@ if any of the checks fail, with the respective 'FailureKind'.
+--  Throws 'Nothing' if the remaining block energy is not sufficient to cover the cost of checking the
+--  header and @Just fk@ if any of the checks fail, with the respective 'FailureKind'.
 --
--- Important! If @mVerRes@ is `Just VerificationResult` then it MUST be the `VerificationResult` matching the provided transaction.
+--  Important! If @mVerRes@ is `Just VerificationResult` then it MUST be the `VerificationResult` matching the provided transaction.
 --
--- Returns the sender account and the cost to be charged for checking the header.
+--  Returns the sender account and the cost to be charged for checking the header.
 checkHeader :: forall msg m. (TransactionData msg, SchedulerMonad m) => msg -> Maybe TVer.VerificationResult -> ExceptT (Maybe FailureKind) m (IndexedAccount m, Energy)
 checkHeader meta mVerRes = do
     unless (validatePayloadSize (protocolVersion @(MPV m)) (thPayloadSize (transactionHeader meta))) $ throwError $ Just InvalidPayloadSize
@@ -178,7 +178,7 @@ checkHeader meta mVerRes = do
         depositedAmount <- lift (TVer.energyToCcd (transactionGasAmount meta))
         unless (depositedAmount <= amnt) $ throwError $ Just InsufficientFunds
 
--- |Maps transaction verification results into Either `FailureKind`s. or `OkResult`s
+-- | Maps transaction verification results into Either `FailureKind`s. or `OkResult`s
 checkTransactionVerificationResult :: TVer.VerificationResult -> Either FailureKind TVer.OkResult
 -- 'Ok' mappings
 checkTransactionVerificationResult (TVer.Ok res) = Right res
@@ -353,18 +353,18 @@ dispatch (msg, mVerRes) = do
         _ -> error "Operation unsupported at this protocol version."
     -- Function @onlyWithDelegation k@ fails if the protocol version @MPV m@ does not support
     -- delegation. Otherwise, it continues with @k@, which may assume that delegation is supported.
-    onlyWithDelegation :: (PVSupportsDelegation (MPV m) => a) -> a
+    onlyWithDelegation :: ((PVSupportsDelegation (MPV m)) => a) -> a
     onlyWithDelegation c = case delegationSupport @(AccountVersionFor (MPV m)) of
         SAVDelegationNotSupported -> error "Operation unsupported at this protocol version."
         SAVDelegationSupported -> c
 
 handleTransferWithSchedule ::
     forall m.
-    SchedulerMonad m =>
+    (SchedulerMonad m) =>
     WithDepositContext m ->
     AccountAddress ->
     [(Timestamp, Amount)] ->
-    -- |Nothing in case of a TransferWithSchedule and Just in case of a TransferWithScheduleAndMemo
+    -- | Nothing in case of a TransferWithSchedule and Just in case of a TransferWithScheduleAndMemo
     Maybe Memo ->
     m (Maybe TransactionSummary)
 handleTransferWithSchedule wtc twsTo twsSchedule maybeMemo = withDeposit wtc c k
@@ -447,7 +447,7 @@ handleTransferWithSchedule wtc twsTo twsSchedule maybeMemo = withDeposit wtc c k
             )
 
 handleTransferToPublic ::
-    SchedulerMonad m =>
+    (SchedulerMonad m) =>
     WithDepositContext m ->
     SecToPubAmountTransferData ->
     m (Maybe TransactionSummary)
@@ -505,7 +505,7 @@ handleTransferToPublic wtc transferData@SecToPubAmountTransferData{..} = do
             )
 
 handleTransferToEncrypted ::
-    SchedulerMonad m =>
+    (SchedulerMonad m) =>
     WithDepositContext m ->
     Amount ->
     m (Maybe TransactionSummary)
@@ -555,12 +555,12 @@ handleTransferToEncrypted wtc toEncrypted = do
 
 handleEncryptedAmountTransfer ::
     forall m.
-    SchedulerMonad m =>
+    (SchedulerMonad m) =>
     WithDepositContext m ->
     -- | Receiver address.
     AccountAddress ->
     EncryptedAmountTransferData ->
-    -- |Nothing in case of an EncryptedAmountTransfer and Just in case of an EncryptedAmountTransferWithMemo
+    -- | Nothing in case of an EncryptedAmountTransfer and Just in case of an EncryptedAmountTransferWithMemo
     Maybe Memo ->
     m (Maybe TransactionSummary)
 handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransferData{..} maybeMemo = do
@@ -654,9 +654,9 @@ handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransfer
 -- | Handle the deployment of a module.
 handleDeployModule ::
     forall m.
-    SchedulerMonad m =>
+    (SchedulerMonad m) =>
     WithDepositContext m ->
-    -- |The module to deploy.
+    -- | The module to deploy.
     Wasm.WasmModule ->
     m (Maybe TransactionSummary)
 handleDeployModule wtc mod =
@@ -702,7 +702,7 @@ handleDeployModule wtc mod =
 -- contract storage works differently, we charge based only on the part of the
 -- state that was modified. See 'chargeV1Storage' for details on that.
 tickEnergyStoreStateV0 ::
-    TransactionMonad m =>
+    (TransactionMonad m) =>
     Wasm.ContractState ->
     m ()
 tickEnergyStoreStateV0 cs =
@@ -714,7 +714,7 @@ tickEnergyStoreStateV0 cs =
 -- NB: In principle we should look up the state size, then charge, and only then lookup the full state
 -- But since state size is limited to be small it is acceptable to look it up and then charge for it.
 getCurrentContractInstanceTicking ::
-    TransactionMonad m =>
+    (TransactionMonad m) =>
     ContractAddress ->
     m (UInstanceInfo m)
 getCurrentContractInstanceTicking cref = getCurrentContractInstanceTicking' cref `rejectingWith` InvalidContractAddress cref
@@ -724,7 +724,7 @@ getCurrentContractInstanceTicking cref = getCurrentContractInstanceTicking' cref
 -- But since state size is limited to be small it is acceptable to look it up and then charge for it.
 -- TODO: This function will be replaced once the state changes for V1 are in. Then it will only handle V0 instances.
 getCurrentContractInstanceTicking' ::
-    TransactionMonad m =>
+    (TransactionMonad m) =>
     ContractAddress ->
     m (Maybe (UInstanceInfo m))
 getCurrentContractInstanceTicking' cref = do
@@ -745,15 +745,15 @@ getCurrentContractInstanceTicking' cref = do
 -- | Handle the initialization of a contract instance.
 handleInitContract ::
     forall m.
-    SchedulerMonad m =>
+    (SchedulerMonad m) =>
     WithDepositContext m ->
-    -- |The amount to initialize the contract instance with.
+    -- | The amount to initialize the contract instance with.
     Amount ->
-    -- |The module to initialize a contract from.
+    -- | The module to initialize a contract from.
     ModuleRef ->
-    -- |Name of the init method to invoke.
+    -- | Name of the init method to invoke.
     Wasm.InitName ->
-    -- |Parameter expression to initialize with.
+    -- | Parameter expression to initialize with.
     Wasm.Parameter ->
     m (Maybe TransactionSummary)
 handleInitContract wtc initAmount modref initName param =
@@ -920,13 +920,13 @@ handleInitContract wtc initAmount modref initName param =
             )
 
 handleSimpleTransfer ::
-    SchedulerMonad m =>
+    (SchedulerMonad m) =>
     WithDepositContext m ->
-    -- |Address to send the amount to, either account or contract.
+    -- | Address to send the amount to, either account or contract.
     AccountAddress ->
-    -- |The amount to transfer.
+    -- | The amount to transfer.
     Amount ->
-    -- |Nothing in case of a Transfer and Just in case of a TransferWithMemo
+    -- | Nothing in case of a Transfer and Just in case of a TransferWithMemo
     Maybe Memo ->
     m (Maybe TransactionSummary)
 handleSimpleTransfer wtc toAddr transferamount maybeMemo =
@@ -952,15 +952,15 @@ handleSimpleTransfer wtc toAddr transferamount maybeMemo =
 
 -- | Handle a top-level update transaction to a contract.
 handleUpdateContract ::
-    SchedulerMonad m =>
+    (SchedulerMonad m) =>
     WithDepositContext m ->
-    -- |Amount to invoke the contract's receive method with.
+    -- | Amount to invoke the contract's receive method with.
     Amount ->
-    -- |Address of the contract to invoke.
+    -- | Address of the contract to invoke.
     ContractAddress ->
-    -- |Name of the receive method to invoke.
+    -- | Name of the receive method to invoke.
     Wasm.ReceiveName ->
-    -- |Message to send to the receive method.
+    -- | Message to send to the receive method.
     Wasm.Parameter ->
     m (Maybe TransactionSummary)
 handleUpdateContract wtc uAmount uAddress uReceiveName uMessage =
@@ -991,10 +991,10 @@ handleUpdateContract wtc uAmount uAddress uReceiveName uMessage =
         chargeV1Storage -- charge for storing the new state of all V1 contracts. V0 state is already charged.
         return r
 
--- |Check that the account has sufficient balance, and construct credentials of the account.
+-- | Check that the account has sufficient balance, and construct credentials of the account.
 checkAndGetBalanceAccountV1 ::
     (TransactionMonad m, AccountOperations m) =>
-    -- |Used address
+    -- | Used address
     AccountAddress ->
     IndexedAccount m ->
     Amount ->
@@ -1007,12 +1007,12 @@ checkAndGetBalanceAccountV1 usedAddress senderAccount transferAmount = do
             return (Right (senderAddr, senderCredentials, Right (fst senderAccount)))
         else return (Left (WasmV1.EnvFailure (WasmV1.AmountTooLarge senderAddr transferAmount)))
 
--- |Check that the account has sufficient balance, and construct credentials of the account.
--- In contrast to the V1 version above this one uses the TransactionMonad's error handling
--- to raise an error, instead of returning it.
+-- | Check that the account has sufficient balance, and construct credentials of the account.
+--  In contrast to the V1 version above this one uses the TransactionMonad's error handling
+--  to raise an error, instead of returning it.
 checkAndGetBalanceAccountV0 ::
     (TransactionMonad m, AccountOperations m) =>
-    -- |Used address
+    -- | Used address
     AccountAddress ->
     IndexedAccount m ->
     Amount ->
@@ -1025,7 +1025,7 @@ checkAndGetBalanceAccountV0 usedAddress senderAccount transferAmount = do
             return (senderAddr, senderCredentials, Right (fst senderAccount))
         else rejectTransaction (AmountTooLarge senderAddr transferAmount)
 
--- |Check that the instance has sufficient balance, and construct credentials of the owner account.
+-- | Check that the instance has sufficient balance, and construct credentials of the owner account.
 checkAndGetBalanceInstanceV1 ::
     forall m vOrigin.
     (TransactionMonad m, AccountOperations m, IsWasmVersion vOrigin) =>
@@ -1040,9 +1040,9 @@ checkAndGetBalanceInstanceV1 ownerAccount istance transferAmount = do
         then return (Right (senderAddr, senderCredentials, (Left (Wasm.demoteWasmVersion (Wasm.getWasmVersion @vOrigin), instanceAddress istance))))
         else return (Left (WasmV1.EnvFailure (WasmV1.AmountTooLarge senderAddr transferAmount)))
 
--- |Check that the instance has sufficient balance, and construct credentials of the owner account.
--- In contrast to the V1 version above this one uses the TransactionMonad's error handling
--- to raise an error, instead of returning it.
+-- | Check that the instance has sufficient balance, and construct credentials of the owner account.
+--  In contrast to the V1 version above this one uses the TransactionMonad's error handling
+--  to raise an error, instead of returning it.
 checkAndGetBalanceInstanceV0 ::
     forall m vOrigin.
     (TransactionMonad m, AccountOperations m, IsWasmVersion vOrigin) =>
@@ -1057,33 +1057,33 @@ checkAndGetBalanceInstanceV0 ownerAccount istance transferAmount = do
         then return (senderAddr, senderCredentials, Left (Wasm.demoteWasmVersion (Wasm.getWasmVersion @vOrigin), instanceAddress istance))
         else rejectTransaction (AmountTooLarge senderAddr transferAmount)
 
--- |Handle updating a V1 contract.
--- In contrast to most other methods in this file this one does not use the
--- error handling facilities of the transaction monad. Instead it explicitly returns an Either type.
--- The reason for this is that the possible errors are exposed back to the smart
--- contract in case a contract A invokes contract B's entrypoint.
+-- | Handle updating a V1 contract.
+--  In contrast to most other methods in this file this one does not use the
+--  error handling facilities of the transaction monad. Instead it explicitly returns an Either type.
+--  The reason for this is that the possible errors are exposed back to the smart
+--  contract in case a contract A invokes contract B's entrypoint.
 handleContractUpdateV1 ::
     forall r m.
     (StaticInformation m, AccountOperations m, ContractStateOperations m, ModuleQuery m, MonadProtocolVersion m) =>
-    -- |The address that was used to send the top-level transaction.
+    -- | The address that was used to send the top-level transaction.
     AccountAddress ->
-    -- |The current state of the target contract of the transaction, which must exist.
+    -- | The current state of the target contract of the transaction, which must exist.
     UInstanceInfoV m GSWasm.V1 ->
-    -- |Check that the sender has sufficient amount to cover the given amount and return a triple of
-    -- - used address
-    -- - credentials of the address, either account or owner of the contract
-    -- - resolved address. In case this is an account
-    -- (i.e., this is called from a top-level transaction) the value is a pair of the address that was used
-    -- as the sender address of the transaction, and the account to which it points.
+    -- | Check that the sender has sufficient amount to cover the given amount and return a triple of
+    --  - used address
+    --  - credentials of the address, either account or owner of the contract
+    --  - resolved address. In case this is an account
+    --  (i.e., this is called from a top-level transaction) the value is a pair of the address that was used
+    --  as the sender address of the transaction, and the account to which it points.
     (Amount -> LocalT r m (Either WasmV1.ContractCallFailure (Address, [ID.RawAccountCredential], Either (Wasm.WasmVersion, ContractAddress) AccountIndex))) ->
-    -- |The amount to be transferred from the sender of the message to the contract upon success.
+    -- | The amount to be transferred from the sender of the message to the contract upon success.
     Amount ->
-    -- |Name of the contract to invoke.
+    -- | Name of the contract to invoke.
     Wasm.ReceiveName ->
-    -- |Message to invoke the receive method with.
+    -- | Message to invoke the receive method with.
     Wasm.Parameter ->
-    -- |The events resulting from processing the message and all recursively processed messages. For efficiency
-    -- reasons the events are in **reverse order** of the actual effects.
+    -- | The events resulting from processing the message and all recursively processed messages. For efficiency
+    --  reasons the events are in **reverse order** of the actual effects.
     LocalT r m (Either WasmV1.ContractCallFailure (WasmV1.ReturnValue, [Event]))
 handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount receiveName parameter = do
     -- Cover administrative costs.
@@ -1573,22 +1573,22 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
 handleContractUpdateV0 ::
     forall r m.
     (StaticInformation m, AccountOperations m, ContractStateOperations m, ModuleQuery m, MonadProtocolVersion m) =>
-    -- |The address that was used to send the top-level transaction.
+    -- | The address that was used to send the top-level transaction.
     AccountAddress ->
-    -- |The current state of the target contract of the transaction, which must exist.
+    -- | The current state of the target contract of the transaction, which must exist.
     UInstanceInfoV m GSWasm.V0 ->
-    -- |The sender of the message (contract instance or account). In case this is
-    -- a contract the first parameter is the owner account of the instance. In case this is an account
-    -- (i.e., this is called from a top-level transaction) the value is a pair of the address that was used
-    -- as the sender address of the transaction, and the account to which it points.
+    -- | The sender of the message (contract instance or account). In case this is
+    --  a contract the first parameter is the owner account of the instance. In case this is an account
+    --  (i.e., this is called from a top-level transaction) the value is a pair of the address that was used
+    --  as the sender address of the transaction, and the account to which it points.
     (Amount -> LocalT r m (Address, [ID.RawAccountCredential], (Either (Wasm.WasmVersion, ContractAddress) AccountIndex))) ->
-    -- |The amount to be transferred from the sender of the message to the receiver.
+    -- | The amount to be transferred from the sender of the message to the receiver.
     Amount ->
-    -- |Name of the contract to invoke.
+    -- | Name of the contract to invoke.
     Wasm.ReceiveName ->
-    -- |Message to invoke the receive method with.
+    -- | Message to invoke the receive method with.
     Wasm.Parameter ->
-    -- |The events resulting from processing the message and all recursively processed messages.
+    -- | The events resulting from processing the message and all recursively processed messages.
     LocalT r m [Event]
 handleContractUpdateV0 originAddr istance checkAndGetSender transferAmount receiveName parameter = do
     -- Cover administrative costs.
@@ -1679,15 +1679,15 @@ traversalStepCost = 10
 
 foldEvents ::
     (StaticInformation m, AccountOperations m, ContractStateOperations m, ModuleQuery m, MonadProtocolVersion m) =>
-    -- |Address that was used in the top-level transaction.
+    -- | Address that was used in the top-level transaction.
     AccountAddress ->
-    -- |Instance that generated the events.
+    -- | Instance that generated the events.
     (IndexedAccount m, UInstanceInfoV m GSWasm.V0) ->
-    -- |Event generated by the invocation of the instance.
+    -- | Event generated by the invocation of the instance.
     Event ->
-    -- |Actions to perform
+    -- | Actions to perform
     Wasm.ActionsTree ->
-    -- |List of events in order that transactions were traversed.
+    -- | List of events in order that transactions were traversed.
     LocalT r m [Event]
 foldEvents originAddr istance initEvent = fmap (initEvent :) . go
   where
@@ -1726,13 +1726,13 @@ foldEvents originAddr istance initEvent = fmap (initEvent :) . go
         go l `orElse` go r
     go Wasm.Accept = return []
 
--- |Construct the address and a list of credentials of the sender. If the sender
--- is an account, this is the address of the account that was used in the
--- transaction, together with the list of credentials of that account, ordered
--- by credential index. If the sender is a smart contract the returned address
--- will be a contract address, and the credentials will be of the owner account.
+-- | Construct the address and a list of credentials of the sender. If the sender
+--  is an account, this is the address of the account that was used in the
+--  transaction, together with the list of credentials of that account, ordered
+--  by credential index. If the sender is a smart contract the returned address
+--  will be a contract address, and the credentials will be of the owner account.
 mkSenderAddrCredentials ::
-    AccountOperations m =>
+    (AccountOperations m) =>
     Either (IndexedAccount m, ContractAddress) (AccountAddress, IndexedAccount m) ->
     m (Address, [ID.RawAccountCredential])
 mkSenderAddrCredentials sender =
@@ -1748,14 +1748,14 @@ mkSenderAddrCredentials sender =
 -- | Handle the transfer of an amount from a **V0 contract instance** to an account.
 handleTransferAccount ::
     forall m.
-    TransactionMonad m =>
-    -- |The target account address.
+    (TransactionMonad m) =>
+    -- | The target account address.
     AccountAddress ->
-    -- |The sender of this transfer.
+    -- | The sender of this transfer.
     UInstanceInfoV m GSWasm.V0 ->
-    -- |The amount to transfer.
+    -- | The amount to transfer.
     Amount ->
-    -- |The events resulting from the transfer.
+    -- | The events resulting from the transfer.
     m [Event]
 handleTransferAccount accAddr senderInstance transferamount = do
     -- charge at the beginning, successful and failed transfers will have the same cost.
@@ -1772,11 +1772,11 @@ handleTransferAccount accAddr senderInstance transferamount = do
     withContractToAccountAmountV0 (instanceAddress senderInstance) targetAccount transferamount $
         return [Transferred addr transferamount (AddressAccount accAddr)]
 
--- |Run the interpreter with the remaining amount of energy. If the interpreter
--- runs out of energy set the remaining gas to 0 and reject the transaction,
--- otherwise decrease the consumed amount of energy and return the result.
+-- | Run the interpreter with the remaining amount of energy. If the interpreter
+--  runs out of energy set the remaining gas to 0 and reject the transaction,
+--  otherwise decrease the consumed amount of energy and return the result.
 {-# INLINE runInterpreter #-}
-runInterpreter :: TransactionMonad m => (Wasm.InterpreterEnergy -> m (Maybe (a, Wasm.InterpreterEnergy))) -> m a
+runInterpreter :: (TransactionMonad m) => (Wasm.InterpreterEnergy -> m (Maybe (a, Wasm.InterpreterEnergy))) -> m a
 runInterpreter f = withExternal $ \availableEnergy -> do
     f availableEnergy >>= \case
         Nothing -> return Nothing
@@ -1789,30 +1789,30 @@ runInterpreter f = withExternal $ \availableEnergy -> do
             let usedEnergy = availableEnergy - remainingEnergy
             return (Just (result, usedEnergy))
 
--- |A simple sigma protocol to check knowledge of secret key.
+-- | A simple sigma protocol to check knowledge of secret key.
 checkElectionKeyProof :: BS.ByteString -> BakerElectionVerifyKey -> Proofs.Dlog25519Proof -> Bool
 checkElectionKeyProof = Proofs.checkDlog25519ProofVRF
 
--- |A simple sigma protocol to check knowledge of secret key.
+-- | A simple sigma protocol to check knowledge of secret key.
 checkSignatureVerifyKeyProof :: BS.ByteString -> BakerSignVerifyKey -> Proofs.Dlog25519Proof -> Bool
 checkSignatureVerifyKeyProof = Proofs.checkDlog25519ProofBlock
 
--- |Add a baker for the sender account. The logic is as follows:
+-- | Add a baker for the sender account. The logic is as follows:
 --
---  * The transaction fails ('InsufficientBalanceForBakerStake') if the balance on the account
---    (less the energy deposit) is below the amount to stake.
---  * The transaction fails ('InvalidProof') if any of the key ownership proofs is invalid.
---  * The transaction fails ('AlreadyBaker') if the account is already a baker.
---  * The transaction fails ('DuplicateAggregationKey') if the aggregation key is used by another baker.
---  * The transaction succeeds ('BASuccess') if it passes all the above checks; the baker is
---    then recorded on the account, its stake becoming locked, and registered as a baker.
---    It will be able to start in the epoch after next.
+--   * The transaction fails ('InsufficientBalanceForBakerStake') if the balance on the account
+--     (less the energy deposit) is below the amount to stake.
+--   * The transaction fails ('InvalidProof') if any of the key ownership proofs is invalid.
+--   * The transaction fails ('AlreadyBaker') if the account is already a baker.
+--   * The transaction fails ('DuplicateAggregationKey') if the aggregation key is used by another baker.
+--   * The transaction succeeds ('BASuccess') if it passes all the above checks; the baker is
+--     then recorded on the account, its stake becoming locked, and registered as a baker.
+--     It will be able to start in the epoch after next.
 --
--- It is assumed that the sender account has been verified to exist and
--- have sufficient balance to cover the deposit. If it does not exist, then
--- the transaction could fail (after checking the proofs) with 'InvalidAccountReference'.
--- If the balance check has not been made, the behaviour is undefined. (Most likely,
--- this will lead to an underflow and an invariant violation.)
+--  It is assumed that the sender account has been verified to exist and
+--  have sufficient balance to cover the deposit. If it does not exist, then
+--  the transaction could fail (after checking the proofs) with 'InvalidAccountReference'.
+--  If the balance check has not been made, the behaviour is undefined. (Most likely,
+--  this will lead to an underflow and an invariant violation.)
 handleAddBaker ::
     (AccountVersionFor (MPV m) ~ 'AccountV0, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0, SchedulerMonad m) =>
     WithDepositContext m ->
@@ -1822,9 +1822,9 @@ handleAddBaker ::
     Proofs.Dlog25519Proof ->
     Proofs.Dlog25519Proof ->
     BakerAggregationProof ->
-    -- |Initial stake amount
+    -- | Initial stake amount
     Amount ->
-    -- |Whether to restake the baker's earnings
+    -- | Whether to restake the baker's earnings
     Bool ->
     m (Maybe TransactionSummary)
 handleAddBaker wtc abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyKey abProofSig abProofElection abProofAggregation abBakingStake abRestakeEarnings =
@@ -1889,7 +1889,7 @@ handleAddBaker wtc abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyK
                             BI.BAStakeUnderThreshold -> return (TxReject StakeUnderMinimumThresholdForBaking, energyCost, usedEnergy)
                     else return (TxReject InvalidProof, energyCost, usedEnergy)
 
--- |Argument to configure baker 'withDeposit' continuation.
+-- | Argument to configure baker 'withDeposit' continuation.
 data ConfigureBakerCont
     = ConfigureAddBakerCont
         { cbcCapital :: !Amount,
@@ -1903,7 +1903,7 @@ data ConfigureBakerCont
         }
     | ConfigureUpdateBakerCont
 
--- |Argument to configure delegation 'withDeposit' continuation.
+-- | Argument to configure delegation 'withDeposit' continuation.
 data ConfigureDelegationCont
     = ConfigureAddDelegationCont
         { cdcCapital :: !Amount,
@@ -1917,21 +1917,21 @@ handleConfigureBaker ::
       SchedulerMonad m
     ) =>
     WithDepositContext m ->
-    -- |The equity capital of the baker
+    -- | The equity capital of the baker
     Maybe Amount ->
-    -- |Whether the baker's earnings are restaked
+    -- | Whether the baker's earnings are restaked
     Maybe Bool ->
-    -- |Whether the pool is open for delegators
+    -- | Whether the pool is open for delegators
     Maybe OpenStatus ->
-    -- |The key/proof pairs to verify baker.
+    -- | The key/proof pairs to verify baker.
     Maybe BakerKeysWithProofs ->
-    -- |The URL referencing the baker's metadata.
+    -- | The URL referencing the baker's metadata.
     Maybe UrlText ->
-    -- |The commission the pool owner takes on transaction fees.
+    -- | The commission the pool owner takes on transaction fees.
     Maybe AmountFraction ->
-    -- |The commission the pool owner takes on baking rewards.
+    -- | The commission the pool owner takes on baking rewards.
     Maybe AmountFraction ->
-    -- |The commission the pool owner takes on finalization rewards.
+    -- | The commission the pool owner takes on finalization rewards.
     Maybe AmountFraction ->
     m (Maybe TransactionSummary)
 handleConfigureBaker
@@ -2224,11 +2224,11 @@ handleConfigureDelegation wtc cdCapital cdRestakeEarnings cdDelegationTarget =
     kResult energyCost usedEnergy _ BI.DCPoolClosed =
         return (TxReject PoolClosed, energyCost, usedEnergy)
 
--- |Remove the baker for an account. The logic is as follows:
+-- | Remove the baker for an account. The logic is as follows:
 --
---  * If the account is not a baker, the transaction fails ('NotABaker').
---  * If the account is the cool-down period for another baker change, the transaction fails ('BakerInCooldown').
---  * Otherwise, the baker is removed, which takes effect after the cool-down period.
+--   * If the account is not a baker, the transaction fails ('NotABaker').
+--   * If the account is the cool-down period for another baker change, the transaction fails ('BakerInCooldown').
+--   * Otherwise, the baker is removed, which takes effect after the cool-down period.
 handleRemoveBaker ::
     (AccountVersionFor (MPV m) ~ 'AccountV0, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0, SchedulerMonad m) =>
     WithDepositContext m ->
@@ -2259,7 +2259,7 @@ handleRemoveBaker wtc =
 handleUpdateBakerStake ::
     (AccountVersionFor (MPV m) ~ 'AccountV0, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0, SchedulerMonad m) =>
     WithDepositContext m ->
-    -- |new stake
+    -- | new stake
     Amount ->
     m (Maybe TransactionSummary)
 handleUpdateBakerStake wtc newStake =
@@ -2298,7 +2298,7 @@ handleUpdateBakerStake wtc newStake =
 handleUpdateBakerRestakeEarnings ::
     (AccountVersionFor (MPV m) ~ 'AccountV0, SchedulerMonad m) =>
     WithDepositContext m ->
-    -- |Whether to restake earnings
+    -- | Whether to restake earnings
     Bool ->
     m (Maybe TransactionSummary)
 handleUpdateBakerRestakeEarnings wtc newRestakeEarnings = withDeposit wtc c k
@@ -2319,19 +2319,19 @@ handleUpdateBakerRestakeEarnings wtc newRestakeEarnings = withDeposit wtc c k
                 -- Since we resolved the account already, this happens only if the account is not a baker.
                 return (TxReject (NotABaker senderAddress), energyCost, usedEnergy)
 
--- |Update a baker's keys. The logic is as follows:
+-- | Update a baker's keys. The logic is as follows:
 --
---  * The transaction fails ('InvalidProof') if any of the key ownership proofs is invalid.
---  * The transaction fails ('DuplicateAggregationKey') if the aggregation key is used by another baker.
---  * The transaction succeeds ('BASuccess') if it passes all the above checks; the baker is
---    then recorded on the account, its stake becoming locked, and registered as a baker.
---    It will be able to start in the epoch after next.
+--   * The transaction fails ('InvalidProof') if any of the key ownership proofs is invalid.
+--   * The transaction fails ('DuplicateAggregationKey') if the aggregation key is used by another baker.
+--   * The transaction succeeds ('BASuccess') if it passes all the above checks; the baker is
+--     then recorded on the account, its stake becoming locked, and registered as a baker.
+--     It will be able to start in the epoch after next.
 --
--- It is assumed that the sender account has been verified to exist and
--- have sufficient balance to cover the deposit. If it does not exist, then
--- the transaction could fail (after checking the proofs) with 'InvalidAccountReference'.
--- If the balance check has not been made, the behaviour is undefined. (Most likely,
--- this will lead to an underflow and an invariant violation.)
+--  It is assumed that the sender account has been verified to exist and
+--  have sufficient balance to cover the deposit. If it does not exist, then
+--  the transaction could fail (after checking the proofs) with 'InvalidAccountReference'.
+--  If the balance check has not been made, the behaviour is undefined. (Most likely,
+--  this will lead to an underflow and an invariant violation.)
 handleUpdateBakerKeys ::
     (AccountVersionFor (MPV m) ~ 'AccountV0, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0, SchedulerMonad m) =>
     WithDepositContext m ->
@@ -2380,26 +2380,26 @@ handleUpdateBakerKeys wtc bkuElectionKey bkuSignKey bkuAggregationKey bkuProofSi
                     BI.BKUDuplicateAggregationKey -> return (TxReject (DuplicateAggregationKey bkuAggregationKey), energyCost, usedEnergy)
             else return (TxReject InvalidProof, energyCost, usedEnergy)
 
--- |Credential deployments (transactions without a sender)
--- The logic is as follows:
--- * The transaction fails ('ExpiredTransaction') if the transaction was expired.
--- * The transaction fails ('Nothing') if the block ran out of energy.
---   Note this function returns `Nothing` iff. the block ran out of energy.
--- * The transaction fails ('DuplicateAccountRegistrationID') if the regid already exists on chain.
--- * The transaction fails ('AccountCredentialInvalid') if the credential deployment was expired.
--- * The transaction fails ('AccountCredentialInvalid') if the account already exists on chain.
--- * The transaction fails ('AccountCredentialInvalid') if the credential deployment was malformed (the commitments could not be extracted).
---   Note this can only happen for 'normal' account creations.
--- * The transactions fails ('NonExistentIdentityProvider') if an invalid identity provider id was contained in the credential deployment.
--- * The transaction fails ('UnsupportedAnonymityRevokers') if invalid anonymity revokers were contained in the credential deployment.
--- * The transaction fails ('AccountCredentialInvalid') if the signatures could not be verified.
+-- | Credential deployments (transactions without a sender)
+--  The logic is as follows:
+--  * The transaction fails ('ExpiredTransaction') if the transaction was expired.
+--  * The transaction fails ('Nothing') if the block ran out of energy.
+--    Note this function returns `Nothing` iff. the block ran out of energy.
+--  * The transaction fails ('DuplicateAccountRegistrationID') if the regid already exists on chain.
+--  * The transaction fails ('AccountCredentialInvalid') if the credential deployment was expired.
+--  * The transaction fails ('AccountCredentialInvalid') if the account already exists on chain.
+--  * The transaction fails ('AccountCredentialInvalid') if the credential deployment was malformed (the commitments could not be extracted).
+--    Note this can only happen for 'normal' account creations.
+--  * The transactions fails ('NonExistentIdentityProvider') if an invalid identity provider id was contained in the credential deployment.
+--  * The transaction fails ('UnsupportedAnonymityRevokers') if invalid anonymity revokers were contained in the credential deployment.
+--  * The transaction fails ('AccountCredentialInvalid') if the signatures could not be verified.
 --
--- If the `CredentialDeployment` was valid then return `Just TxSuccess`
+--  If the `CredentialDeployment` was valid then return `Just TxSuccess`
 --
--- Note that the function only fails with `TxInvalid` and thus failed transactions are not committed to chain.
+--  Note that the function only fails with `TxInvalid` and thus failed transactions are not committed to chain.
 handleDeployCredential ::
-    SchedulerMonad m =>
-    -- |Credentials to deploy with the current verification status.
+    (SchedulerMonad m) =>
+    -- | Credentials to deploy with the current verification status.
     TVer.CredentialDeploymentWithStatus ->
     TransactionHash ->
     m (Maybe TxResult)
@@ -2462,16 +2462,16 @@ handleDeployCredential (WithMetadata{wmdData = cred@AccountCreation{messageExpir
                     }
     theCost = Cost.deployCredential (ID.credentialType cdi) (ID.credNumKeys . ID.credPubKeys $ cdi)
 
--- |Updates the credential keys in the credential with the given Credential ID.
--- It rejects if there is no credential with the given Credential ID.
+-- | Updates the credential keys in the credential with the given Credential ID.
+--  It rejects if there is no credential with the given Credential ID.
 handleUpdateCredentialKeys ::
-    SchedulerMonad m =>
+    (SchedulerMonad m) =>
     WithDepositContext m ->
-    -- |Registration ID of the credential we are updating.
+    -- | Registration ID of the credential we are updating.
     ID.CredentialRegistrationID ->
-    -- |New public keys of the credential..
+    -- | New public keys of the credential..
     ID.CredentialPublicKeys ->
-    -- |Signatures on the transaction. This is needed to check that a specific credential signed.
+    -- | Signatures on the transaction. This is needed to check that a specific credential signed.
     TransactionSignature ->
     m (Maybe TransactionSummary)
 handleUpdateCredentialKeys wtc cid keys sigs =
@@ -2505,10 +2505,10 @@ handleUpdateCredentialKeys wtc cid keys sigs =
 
 -- * Chain updates
 
--- |Handle a chain update message
+-- | Handle a chain update message
 handleChainUpdate ::
     forall m.
-    SchedulerMonad m =>
+    (SchedulerMonad m) =>
     TVer.ChainUpdateWithStatus ->
     m TxResult
 handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, mVerRes) = do
@@ -2636,7 +2636,7 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, mVerRes
                     }
 
 handleUpdateCredentials ::
-    SchedulerMonad m =>
+    (SchedulerMonad m) =>
     WithDepositContext m ->
     OrdMap.Map ID.CredentialIndex ID.CredentialDeploymentInformation ->
     [ID.CredentialRegistrationID] ->
@@ -2774,11 +2774,11 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
                                                     then return (TxReject (DuplicateCredIDs existingCredIds), energyCost, usedEnergy)
                                                     else return (TxReject InvalidCredentials, energyCost, usedEnergy)
 
--- |Charges energy based on payload size and emits a 'DataRegistered' event.
+-- | Charges energy based on payload size and emits a 'DataRegistered' event.
 handleRegisterData ::
-    SchedulerMonad m =>
+    (SchedulerMonad m) =>
     WithDepositContext m ->
-    -- |The data to register.
+    -- | The data to register.
     RegisteredData ->
     m (Maybe TransactionSummary)
 handleRegisterData wtc regData =
@@ -2790,81 +2790,81 @@ handleRegisterData wtc regData =
 
 -- * Exposed methods.
 
--- |Make a valid block out of a list of transactions, respecting the given
--- maximum block size and block energy limit.
+-- | Make a valid block out of a list of transactions, respecting the given
+--  maximum block size and block energy limit.
 --
--- The preconditions of this function (which are not checked) are:
+--  The preconditions of this function (which are not checked) are:
 --
--- * The transactions appear grouped by their associated account address,
---   and the transactions in each group are ordered by increasing transaction nonce.
--- * Each transaction's nonce is equal or higher than the next nonce of the specified sender
---   account (if the account it exists).
+--  * The transactions appear grouped by their associated account address,
+--    and the transactions in each group are ordered by increasing transaction nonce.
+--  * Each transaction's nonce is equal or higher than the next nonce of the specified sender
+--    account (if the account it exists).
 --
--- The 'GroupedTransactions' ('perAccountTransactions' and 'credentialDeployments') are processed in
--- order of their arrival time, assuming that both lists are ordered by arrival time from earliest to
--- latest. For each group in 'perAccountTransactions', only the time of the first transaction in the
--- group is considered and the entire group is processed
--- in one sequence.
+--  The 'GroupedTransactions' ('perAccountTransactions' and 'credentialDeployments') are processed in
+--  order of their arrival time, assuming that both lists are ordered by arrival time from earliest to
+--  latest. For each group in 'perAccountTransactions', only the time of the first transaction in the
+--  group is considered and the entire group is processed
+--  in one sequence.
 --
--- = Processing of transactions
+--  = Processing of transactions
 --
--- Processing starts with an initial remaining block energy being the maximum block energy
--- (birk parameter) and the remaining block size being as specified by the parameter to this function.
+--  Processing starts with an initial remaining block energy being the maximum block energy
+--  (birk parameter) and the remaining block size being as specified by the parameter to this function.
 --
--- Each transaction or credential deployment is processed as follows:
+--  Each transaction or credential deployment is processed as follows:
 --
--- * It is checked whether the deposited energy (or in case of credential deployment the respective
---   energy cost) is not greater than the maximum block energy (in which case the transaction fails
---   with 'ExceedsMaxBlockEnergy').
--- * It is checked whether the deposited energy (or, in case of credential deployment, the respective
---   energy cost) and the transaction size is not greater than the remaining block energy / block size
---   (in which case the transaction is skipped and added to the list of unprocessed
---   transactions/credentials).
--- * If the previous checks passed, the transaction is executed.
+--  * It is checked whether the deposited energy (or in case of credential deployment the respective
+--    energy cost) is not greater than the maximum block energy (in which case the transaction fails
+--    with 'ExceedsMaxBlockEnergy').
+--  * It is checked whether the deposited energy (or, in case of credential deployment, the respective
+--    energy cost) and the transaction size is not greater than the remaining block energy / block size
+--    (in which case the transaction is skipped and added to the list of unprocessed
+--    transactions/credentials).
+--  * If the previous checks passed, the transaction is executed.
 --
---     * If execution fails with another 'FailureKind', the transaction / credential deployment is added
---       to the list of failed transactions/credentials.
---     * If execution succeeds ('TxValid'), the transaction / credential deployment is added to the list
---       of added transactions and the actual energy used by the transaction as well as the transaction
---       size is deducted from the remaining block energy / block size.
+--      * If execution fails with another 'FailureKind', the transaction / credential deployment is added
+--        to the list of failed transactions/credentials.
+--      * If execution succeeds ('TxValid'), the transaction / credential deployment is added to the list
+--        of added transactions and the actual energy used by the transaction as well as the transaction
+--        size is deducted from the remaining block energy / block size.
 --
--- Only added transactions have an effect on the block state.
+--  Only added transactions have an effect on the block state.
 --
--- = Transaction groups
--- Groups allow early failure of transactions with a repeated nonce after a successful transaction
--- as well as a special failure kind ('SuccessorOfInvalidTransaction') for transactions which cannot
--- be accepted because a predecessor transaction (with a lower nonce) failed and no other transaction
--- with the same nonce was added.
+--  = Transaction groups
+--  Groups allow early failure of transactions with a repeated nonce after a successful transaction
+--  as well as a special failure kind ('SuccessorOfInvalidTransaction') for transactions which cannot
+--  be accepted because a predecessor transaction (with a lower nonce) failed and no other transaction
+--  with the same nonce was added.
 --
--- The processing of transactions within a group has the following additional properties:
+--  The processing of transactions within a group has the following additional properties:
 --
--- * After an added transactions, all following transactions with the same nonce directly fail with
---   'NonSequentialNonce' (whereas when processed individually, it might fail for another reason).
---   The next transaction with a higher nonce is processed normally.
--- * If a transaction fails and the next transaction has the same nonce, it is processed normally.
--- * If a transaction fails and the next transaction has a higher nonce all remaining transactions in
---   the group will fail with 'SuccessorOfInvalidTransaction' instead of 'NonSequentialNonce' (or the
---   failure it would fail with if processed individually). Note that because transactions are ordered
---   by nonce, all those remaining transactions are invalid at least because of a non-sequential nonce.
+--  * After an added transactions, all following transactions with the same nonce directly fail with
+--    'NonSequentialNonce' (whereas when processed individually, it might fail for another reason).
+--    The next transaction with a higher nonce is processed normally.
+--  * If a transaction fails and the next transaction has the same nonce, it is processed normally.
+--  * If a transaction fails and the next transaction has a higher nonce all remaining transactions in
+--    the group will fail with 'SuccessorOfInvalidTransaction' instead of 'NonSequentialNonce' (or the
+--    failure it would fail with if processed individually). Note that because transactions are ordered
+--    by nonce, all those remaining transactions are invalid at least because of a non-sequential nonce.
 --
--- Note that this behaviour relies on the precondition of transactions within a group coming from the
--- same account and being ordered by increasing nonce.
+--  Note that this behaviour relies on the precondition of transactions within a group coming from the
+--  same account and being ordered by increasing nonce.
 --
--- = Result
--- The order of transactions in 'ftAdded' (this includes credential deployments) corresponds to the
--- order the transactions should appear on the block (i.e., the order they were executed on the current
--- block state).
--- There is no guarantee for any order in `ftFailed`, `ftFailedCredentials`, `ftUnprocessed`
--- and `ftUnprocessedCredentials`.
+--  = Result
+--  The order of transactions in 'ftAdded' (this includes credential deployments) corresponds to the
+--  order the transactions should appear on the block (i.e., the order they were executed on the current
+--  block state).
+--  There is no guarantee for any order in `ftFailed`, `ftFailedCredentials`, `ftUnprocessed`
+--  and `ftUnprocessedCredentials`.
 filterTransactions ::
     forall m.
     (SchedulerMonad m, TimeMonad m) =>
-    -- |Maximum block size in bytes.
+    -- | Maximum block size in bytes.
     Integer ->
-    -- |Timeout for block construction.
-    -- This is the absolute time after which we should stop trying to add new transctions to the block.
+    -- | Timeout for block construction.
+    --  This is the absolute time after which we should stop trying to add new transctions to the block.
     UTCTime ->
-    -- |Transactions to make a block out of.
+    -- | Transactions to make a block out of.
     [TransactionGroup] ->
     m FilteredTransactions
 filterTransactions maxSize timeout groups0 = do
@@ -3099,14 +3099,14 @@ filterTransactions maxSize timeout groups0 = do
                             )
                     else (currentFts{ftFailed = newFailedEntry : ftFailed currentFts}, ts)
 
--- |Execute transactions in sequence, collecting the outcomes of each transaction.
--- This is meant to execute the transactions of a given block.
+-- | Execute transactions in sequence, collecting the outcomes of each transaction.
+--  This is meant to execute the transactions of a given block.
 --
--- Returns
+--  Returns
 --
--- * @Left Nothing@ if maximum block energy limit was exceeded.
--- * @Left (Just fk)@ if a transaction failed, with the failure kind of the first failed transaction.
--- * @Right outcomes@ if all transactions are successful, with the given outcomes.
+--  * @Left Nothing@ if maximum block energy limit was exceeded.
+--  * @Left (Just fk)@ if a transaction failed, with the failure kind of the first failed transaction.
+--  * @Right outcomes@ if all transactions are successful, with the given outcomes.
 runTransactions ::
     forall m.
     (SchedulerMonad m) =>
@@ -3130,16 +3130,16 @@ runTransactions = go []
     predispatch (WithMetadata{wmdData = CredentialDeployment cred, ..}, verRes) = handleDeployCredential (WithMetadata{wmdData = cred, ..}, verRes) wmdHash
     predispatch (WithMetadata{wmdData = ChainUpdate cu, ..}, verRes) = Just <$> handleChainUpdate (WithMetadata{wmdData = cu, ..}, verRes)
 
--- |Execute transactions in sequence. Like 'runTransactions' but only for side-effects on global state.
+-- | Execute transactions in sequence. Like 'runTransactions' but only for side-effects on global state.
 --
--- Returns
+--  Returns
 --
--- * @Left Nothing@ if maximum block energy limit was exceeded.
--- * @Left (Just fk)@ if a transaction failed, with the failure kind of the first failed transaction
--- * @Right ()@ if all transactions are successful.
+--  * @Left Nothing@ if maximum block energy limit was exceeded.
+--  * @Left (Just fk)@ if a transaction failed, with the failure kind of the first failed transaction
+--  * @Right ()@ if all transactions are successful.
 --
--- This is more efficient than 'runTransactions' since it does not have to build a list
--- of results.
+--  This is more efficient than 'runTransactions' since it does not have to build a list
+--  of results.
 execTransactions ::
     forall m.
     (SchedulerMonad m) =>

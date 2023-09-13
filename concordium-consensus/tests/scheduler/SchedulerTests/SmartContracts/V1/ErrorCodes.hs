@@ -79,13 +79,13 @@ initContract0 =
         emptyParameter
         0
 
--- |Invoke an entrypoint that calls the "fail" entrypoint.
--- The expected return code is
--- 0x0100_ffff_ffef
--- because
--- - the return value is pushed (hence 01)
--- - the call to "fail" fails with a "logic error" (hence the 00)
--- - the return value is -17 (which when converted with two's complement i32 is ffff_ffef)
+-- | Invoke an entrypoint that calls the "fail" entrypoint.
+--  The expected return code is
+--  0x0100_ffff_ffef
+--  because
+--  - the return value is pushed (hence 01)
+--  - the call to "fail" fails with a "logic error" (hence the 00)
+--  - the return value is -17 (which when converted with two's complement i32 is ffff_ffef)
 invokeContract0 ::
     Types.ContractAddress ->
     HashedPersistentBlockState PV4 ->
@@ -110,13 +110,13 @@ invokeContract0 ccContract bs = do
                 }
     InvokeContract.invokeContract ctx cm bs
 
--- |Invoke an entrypoint that tries to transfer an amount that it does not have via contract invoke.
--- The expected return code is
--- 0x0001_0000_0000
--- because
--- - there is no return value (hence 00)
--- - the call fails with "insufficient funds" (hence 01)
--- - the remaining is set to 0 since there is no logic error
+-- | Invoke an entrypoint that tries to transfer an amount that it does not have via contract invoke.
+--  The expected return code is
+--  0x0001_0000_0000
+--  because
+--  - there is no return value (hence 00)
+--  - the call fails with "insufficient funds" (hence 01)
+--  - the remaining is set to 0 since there is no logic error
 invokeContract1 ::
     Types.ContractAddress ->
     HashedPersistentBlockState PV4 ->
@@ -141,13 +141,13 @@ invokeContract1 ccContract bs = do
                 }
     InvokeContract.invokeContract ctx cm bs
 
--- |Invoke an entrypoint that tries to invoke a non-existing contract.
--- The expected return code is
--- 0x0003_0000_0000
--- because
--- - there is no return value (hence 00)
--- - the call fails with "missing contract" (hence 03)
--- - the remaining is set to 0 since there is no logic error
+-- | Invoke an entrypoint that tries to invoke a non-existing contract.
+--  The expected return code is
+--  0x0003_0000_0000
+--  because
+--  - there is no return value (hence 00)
+--  - the call fails with "missing contract" (hence 03)
+--  - the remaining is set to 0 since there is no logic error
 invokeContract3 ::
     Types.ContractAddress ->
     HashedPersistentBlockState PV4 ->
@@ -172,13 +172,13 @@ invokeContract3 ccContract bs = do
                 }
     InvokeContract.invokeContract ctx cm bs
 
--- |Invoke an entrypoint that tries to invoke a non-existing entrypoint.
--- The expected return code is
--- 0x0004_0000_0000
--- because
--- - there is no return value (hence 00)
--- - the call fails with "invalid entrypoint" (hence 04)
--- - the remaining is set to 0 since there is no logic error
+-- | Invoke an entrypoint that tries to invoke a non-existing entrypoint.
+--  The expected return code is
+--  0x0004_0000_0000
+--  because
+--  - there is no return value (hence 00)
+--  - the call fails with "invalid entrypoint" (hence 04)
+--  - the remaining is set to 0 since there is no logic error
 invokeContract4 ::
     Types.ContractAddress ->
     HashedPersistentBlockState PV4 ->
@@ -203,13 +203,13 @@ invokeContract4 ccContract bs = do
                 }
     InvokeContract.invokeContract ctx cm bs
 
--- |Invoke an entrypoint that traps
--- The expected return code is
--- 0x0006_0000_0000
--- because
--- - there is no return value (hence 00)
--- - the call fails with "trap" (hence 06)
--- - the remaining is set to 0 since there is no logic error
+-- | Invoke an entrypoint that traps
+--  The expected return code is
+--  0x0006_0000_0000
+--  because
+--  - there is no return value (hence 00)
+--  - the call fails with "trap" (hence 06)
+--  - the remaining is set to 0 since there is no logic error
 invokeContract6 ::
     Types.ContractAddress ->
     HashedPersistentBlockState PV4 ->
@@ -234,13 +234,13 @@ invokeContract6 ccContract bs = do
                 }
     InvokeContract.invokeContract ctx cm bs
 
--- |Invoke an entrypoint that traps
--- The expected return code is
--- 0x0002_0000_0000
--- because
--- - there is no return value (hence 00)
--- - the call fails with "missing account" (hence 02)
--- - the remaining is set to 0 since there is no logic error
+-- | Invoke an entrypoint that traps
+--  The expected return code is
+--  0x0002_0000_0000
+--  because
+--  - there is no return value (hence 00)
+--  - the call fails with "missing account" (hence 02)
+--  - the remaining is set to 0 since there is no logic error
 invokeContract2 ::
     Types.ContractAddress ->
     HashedPersistentBlockState PV4 ->
@@ -261,13 +261,13 @@ invokeContract2 ccContract bs = do
                 }
     InvokeContract.invokeContract ctx cm bs
 
--- |Invoke a V0 contract such that the invocation fails.
--- The expected return code is
--- 0x0005_0000_0000
--- because
--- - there is no return value (hence 00)
--- - the call fails with "message failed" (hence 05)
--- - the remaining is set to 0 since there is no logic error
+-- | Invoke a V0 contract such that the invocation fails.
+--  The expected return code is
+--  0x0005_0000_0000
+--  because
+--  - there is no return value (hence 00)
+--  - the call fails with "message failed" (hence 05)
+--  - the remaining is set to 0 since there is no logic error
 invokeContract5 ::
     Types.ContractAddress ->
     Types.ContractAddress ->
@@ -293,7 +293,7 @@ invokeContract5 ccContract targetContract bs = do
                 }
     InvokeContract.invokeContract ctx cm bs
 
-checkSuccess :: MonadIO m => String -> Word64 -> InvokeContract.InvokeContractResult -> m ()
+checkSuccess :: (MonadIO m) => String -> Word64 -> InvokeContract.InvokeContractResult -> m ()
 checkSuccess msg targetValue icr = liftIO $
     case icr of
         InvokeContract.Failure{..} ->

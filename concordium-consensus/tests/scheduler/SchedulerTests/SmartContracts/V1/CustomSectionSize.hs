@@ -25,7 +25,7 @@ import qualified SchedulerTests.Helpers as Helpers
 import qualified SchedulerTests.SmartContracts.V1.InvokeHelpers as InvokeHelpers
 
 -- empty state, no accounts, no modules, no instances
-initialBlockState :: Types.IsProtocolVersion pv => Helpers.PersistentBSM pv (HashedPersistentBlockState pv)
+initialBlockState :: (Types.IsProtocolVersion pv) => Helpers.PersistentBSM pv (HashedPersistentBlockState pv)
 initialBlockState =
     Helpers.createTestBlockStateWithAccountsM
         [Helpers.makeTestAccountFromSeed 1_000 0]
@@ -33,16 +33,16 @@ initialBlockState =
 sourceFile :: FilePath
 sourceFile = "../concordium-base/smart-contracts/testdata/contracts/v1/upgrading_1.wasm"
 
--- |This module is the same as upgrading_1.wasm, but has a number of custom
--- sections added at the end to make the Wasm file 100B bigger. This leads to
--- different costs when executing contracts based on it (specificallly 2NRG more
--- when invoking an instance).
+-- | This module is the same as upgrading_1.wasm, but has a number of custom
+--  sections added at the end to make the Wasm file 100B bigger. This leads to
+--  different costs when executing contracts based on it (specificallly 2NRG more
+--  when invoking an instance).
 sourceFileWithCustomSections :: FilePath
 sourceFileWithCustomSections = "../concordium-base/smart-contracts/testdata/contracts/v1/upgrading_1_with_custom_section.wasm"
 
 deployModule1 ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     PersistentBlockState pv ->
     Helpers.PersistentBSM
         pv
@@ -54,7 +54,7 @@ deployModule1 = InvokeHelpers.deployModuleV1 (Types.protocolVersion @pv) sourceF
 -- Same as module 1, but with two custom sections.
 deployModule2 ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     PersistentBlockState pv ->
     Helpers.PersistentBSM
         pv
@@ -65,7 +65,7 @@ deployModule2 = InvokeHelpers.deployModuleV1 (Types.protocolVersion @pv) sourceF
 
 -- Initialize contract a.
 initContract ::
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     PersistentBlockState pv ->
     (InvokeHelpers.PersistentModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1) ->
     Helpers.PersistentBSM pv (Types.ContractAddress, PersistentBlockState pv)
@@ -76,9 +76,9 @@ initContract =
         emptyParameter
         0
 
--- |Invoke the entrypoint @newfun@ on contract @a@.
+-- | Invoke the entrypoint @newfun@ on contract @a@.
 invokeContract ::
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.ContractAddress ->
     HashedPersistentBlockState pv ->
     Helpers.PersistentBSM pv InvokeContract.InvokeContractResult
@@ -94,10 +94,10 @@ invokeContract ccContract bs = do
                 }
     InvokeContract.invokeContract ctx (Types.ChainMetadata 123) bs
 
--- |Deploy and initialize two contracts, then invoke entrypoint newfun in them,
--- and return how much it cost. In the first instance the module is without
--- custom sections, in the second it is with custom sections.
-runTests :: forall pv. Types.IsProtocolVersion pv => Types.SProtocolVersion pv -> String -> Assertion
+-- | Deploy and initialize two contracts, then invoke entrypoint newfun in them,
+--  and return how much it cost. In the first instance the module is without
+--  custom sections, in the second it is with custom sections.
+runTests :: forall pv. (Types.IsProtocolVersion pv) => Types.SProtocolVersion pv -> String -> Assertion
 runTests spv pvString = when (Types.demoteProtocolVersion spv >= Types.P4) $ do
     (size1, cost1) <- Helpers.runTestBlockState @pv $ do
         initState <- thawBlockState =<< initialBlockState

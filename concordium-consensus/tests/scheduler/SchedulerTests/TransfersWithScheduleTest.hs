@@ -81,7 +81,7 @@ scheduledTransferWithMemoRejectsP1 =
 
 scheduledTransferTest ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -185,7 +185,7 @@ scheduledTransferTest _ pvString =
 
 scheduledTransferWithMemoTest ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -295,7 +295,7 @@ scheduledTransferWithMemoTest _ pvString =
 
 scheduledTransferRejectsSelfTransferUsingAliases ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec

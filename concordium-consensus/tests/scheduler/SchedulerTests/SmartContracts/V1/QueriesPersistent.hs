@@ -5,8 +5,8 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
--- |Tests that make sure that doing chain queries in smart contracts
--- correctly handles state changes.
+-- | Tests that make sure that doing chain queries in smart contracts
+--  correctly handles state changes.
 module SchedulerTests.SmartContracts.V1.QueriesPersistent (tests) where
 
 import Test.HUnit (Assertion, assertEqual, assertFailure)

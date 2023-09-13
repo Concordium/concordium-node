@@ -38,52 +38,52 @@ import Concordium.Types.SeedState (currentLeadershipElectionNonce, triggerBlockT
 import Concordium.Types.UpdateQueues
 import Concordium.Types.Updates
 
--- |A Monad for broadcasting either a 'TimeoutMessage',
--- 'QuorumMessage' or a 'SignedBlock'.
+-- | A Monad for broadcasting either a 'TimeoutMessage',
+--  'QuorumMessage' or a 'SignedBlock'.
 class MonadBroadcast m where
-    -- |Broadcast a 'TimeoutMessage'.
+    -- | Broadcast a 'TimeoutMessage'.
     sendTimeoutMessage :: TimeoutMessage -> m ()
 
-    -- |Broadcast a 'QuorumMessage'.
+    -- | Broadcast a 'QuorumMessage'.
     sendQuorumMessage :: QuorumMessage -> m ()
 
-    -- |Broadcast a 'SignedBlock'.
+    -- | Broadcast a 'SignedBlock'.
     sendBlock :: SignedBlock -> m ()
 
--- |This class provides event handlers for consensus events. A runner should implement this to
--- handle these events.
+-- | This class provides event handlers for consensus events. A runner should implement this to
+--  handle these events.
 class MonadConsensusEvent m where
-    -- |Called when a block becomes live.
+    -- | Called when a block becomes live.
     onBlock :: BlockPointer (MPV m) -> m ()
 
-    -- |Called when a block becomes finalized. This is called once per finalization with a list
-    -- of all the blocks that are newly finalized.
+    -- | Called when a block becomes finalized. This is called once per finalization with a list
+    --  of all the blocks that are newly finalized.
     onFinalize ::
-        -- |Finalization entry that establishes finalization.
+        -- | Finalization entry that establishes finalization.
         FinalizationEntry ->
-        -- |List of the newly-finalized blocks by increasing height.
+        -- | List of the newly-finalized blocks by increasing height.
         [BlockPointer (MPV m)] ->
         m ()
 
--- |A baker context containing the baker identity. Used for accessing relevant baker keys and the baker id.
+-- | A baker context containing the baker identity. Used for accessing relevant baker keys and the baker id.
 newtype BakerContext = BakerContext
     { _bakerIdentity :: Maybe BakerIdentity
     }
 
 makeClassy ''BakerContext
 
--- |A Monad for timer related actions.
+-- | A Monad for timer related actions.
 class MonadTimeout m where
-    -- |Reset the timeout from the supplied 'Duration'.
+    -- | Reset the timeout from the supplied 'Duration'.
     resetTimer :: Duration -> m ()
 
--- |Call 'resetTimer' with the current timeout.
+-- | Call 'resetTimer' with the current timeout.
 resetTimerWithCurrentTimeout :: (MonadTimeout m, MonadState (SkovData (MPV m)) m) => m ()
 resetTimerWithCurrentTimeout = resetTimer =<< use (roundStatus . rsCurrentTimeout)
 
--- |Reset the timeout timer, and clear the collected quorum and timeout messages for the current
--- round. This should not be called directly, except by 'advanceRoundWithTimeout' and
--- 'advanceRoundWithQuorum'.
+-- | Reset the timeout timer, and clear the collected quorum and timeout messages for the current
+--  round. This should not be called directly, except by 'advanceRoundWithTimeout' and
+--  'advanceRoundWithQuorum'.
 onNewRound ::
     ( MonadTimeout m,
       MonadState (SkovData (MPV m)) m
@@ -104,12 +104,12 @@ onNewRound = do
     -- Clear the timeout messages collected.
     currentTimeoutMessages .= Absent
 
--- |Advance the round as the result of a timeout. This will also set the highest certified block
--- if the round timeout contains a higher one.
+-- | Advance the round as the result of a timeout. This will also set the highest certified block
+--  if the round timeout contains a higher one.
 --
--- PRECONDITION:
+--  PRECONDITION:
 --
--- * The round timeout MUST be for a round that is at least current round.
+--  * The round timeout MUST be for a round that is at least current round.
 advanceRoundWithTimeout ::
     ( MonadTimeout m,
       LowLevel.MonadTreeStateStore m,
@@ -133,17 +133,17 @@ advanceRoundWithTimeout roundTimeout@RoundTimeout{..} = do
         (rsCurrentRound .~ 1 + tcRound rtTimeoutCertificate)
             . (rsPreviousRoundTimeout .~ Present roundTimeout)
 
--- |Advance the round as the result of a quorum certificate.
+-- | Advance the round as the result of a quorum certificate.
 --
--- PRECONDITION:
+--  PRECONDITION:
 --
--- * The certified block MUST be for a round that is at least the current round.
+--  * The certified block MUST be for a round that is at least the current round.
 advanceRoundWithQuorum ::
     ( MonadTimeout m,
       MonadState (SkovData (MPV m)) m,
       MonadLogger m
     ) =>
-    -- |Certified block
+    -- | Certified block
     CertifiedBlock (MPV m) ->
     m ()
 advanceRoundWithQuorum certBlock = do
@@ -163,11 +163,11 @@ advanceRoundWithQuorum certBlock = do
     -- persistent round status gets written.
     persistentRoundStatus . prsLatestTimeout .= Absent
 
--- |Update the highest certified block if the supplied block is for a later round than the previous
--- highest certified block.
+-- | Update the highest certified block if the supplied block is for a later round than the previous
+--  highest certified block.
 checkedUpdateHighestCertifiedBlock ::
     (MonadState (SkovData (MPV m)) m) =>
-    -- |Certified block
+    -- | Certified block
     CertifiedBlock (MPV m) ->
     m ()
 checkedUpdateHighestCertifiedBlock newCB = do
@@ -175,7 +175,7 @@ checkedUpdateHighestCertifiedBlock newCB = do
     let isBetterQC = cbRound (rs ^. rsHighestCertifiedBlock) < cbRound newCB
     when isBetterQC $ roundStatus . rsHighestCertifiedBlock .= newCB
 
--- |Compute the finalization committee given the bakers and the finalization committee parameters.
+-- | Compute the finalization committee given the bakers and the finalization committee parameters.
 computeFinalizationCommittee :: FullBakers -> FinalizationCommitteeParameters -> FinalizationCommittee
 computeFinalizationCommittee FullBakers{..} FinalizationCommitteeParameters{..} =
     FinalizationCommittee{..}
@@ -224,8 +224,8 @@ computeFinalizationCommittee FullBakers{..} FinalizationCommitteeParameters{..} 
     committeeFinalizers = Vec.fromList $ zipWith mkFinalizer [FinalizerIndex 0 ..] sortedFinalizers
     committeeTotalWeight = sum $ finalizerWeight <$> committeeFinalizers
 
--- |Compute the finalization committee given the bakers and the finalization committee parameters,
--- returning a 'BakersAndFinalizers'.
+-- | Compute the finalization committee given the bakers and the finalization committee parameters,
+--  returning a 'BakersAndFinalizers'.
 computeBakersAndFinalizers :: FullBakers -> FinalizationCommitteeParameters -> BakersAndFinalizers
 computeBakersAndFinalizers bakers fcp =
     BakersAndFinalizers
@@ -233,9 +233,9 @@ computeBakersAndFinalizers bakers fcp =
           _bfFinalizers = computeFinalizationCommittee bakers fcp
         }
 
--- |Get the baker identity and finalizer info if we are a finalizer in the specified epoch.
--- This checks that the signing key and aggregate signing key match those for the finalizer,
--- and will log a warning if they do not (instead of invoking the continuation).
+-- | Get the baker identity and finalizer info if we are a finalizer in the specified epoch.
+--  This checks that the signing key and aggregate signing key match those for the finalizer,
+--  and will log a warning if they do not (instead of invoking the continuation).
 withFinalizerForEpoch ::
     ( MonadReader r m,
       HasBakerContext r,
@@ -260,7 +260,7 @@ withFinalizerForEpoch epoch cont = do
                             "Finalizer keys do not match the keys in the current committee."
                     else cont bakerIdent finInfo
 
--- |Determine if we are a finalizer in the current epoch.
+-- | Determine if we are a finalizer in the current epoch.
 isCurrentFinalizer ::
     ( MonadReader r m,
       HasBakerContext r,
@@ -274,31 +274,31 @@ isCurrentFinalizer =
             BakersAndFinalizers{..} <- gets bakersForCurrentEpoch
             return $ isJust $ finalizerByBakerId _bfFinalizers bakerId
 
--- |Determine if consensus is shut down.
-isShutDown :: MonadState (SkovData (MPV m)) m => m Bool
+-- | Determine if consensus is shut down.
+isShutDown :: (MonadState (SkovData (MPV m)) m) => m Bool
 isShutDown = use isConsensusShutdown
 
--- |The current state of the consensus with respect to the next protocol update.
+-- | The current state of the consensus with respect to the next protocol update.
 data ProtocolUpdateState pv
-    = -- |No protocol update is currently anticipated.
+    = -- | No protocol update is currently anticipated.
       ProtocolUpdateStateNone
-    | -- |A protocol update is currently scheduled.
+    | -- | A protocol update is currently scheduled.
       ProtocolUpdateStateQueued
         { puQueuedTime :: !TransactionTime,
           puProtocolUpdate :: !ProtocolUpdate
         }
-    | -- |A protocol update is effective at the end of the current epoch.
+    | -- | A protocol update is effective at the end of the current epoch.
       ProtocolUpdateStatePendingEpoch
         { puTriggerTime :: !Timestamp,
           puProtocolUpdate :: !ProtocolUpdate
         }
-    | -- |A protocol update has taken place and the consensus is shut down.
+    | -- | A protocol update has taken place and the consensus is shut down.
       ProtocolUpdateStateDone
         { puProtocolUpdate :: !ProtocolUpdate,
           puTerminalBlock :: !(BlockPointer pv)
         }
 
--- |Get the current protocol update state.
+-- | Get the current protocol update state.
 getProtocolUpdateState ::
     ( GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
       BS.BlockStateQuery m,
@@ -334,9 +334,9 @@ getProtocolUpdateState = do
                       puProtocolUpdate = pu
                     }
 
--- |Project the earliest timestamp at which the given baker might be required to bake.
--- If the baker is not a baker in the current reward period, this will give a time at the start
--- of the next reward period.
+-- | Project the earliest timestamp at which the given baker might be required to bake.
+--  If the baker is not a baker in the current reward period, this will give a time at the start
+--  of the next reward period.
 bakerEarliestWinTimestamp ::
     ( GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
       BS.BlockStateQuery m,
@@ -391,11 +391,11 @@ bakerEarliestWinTimestamp baker sd = do
                                 (fromIntegral (curRound - blockRound lfBlock) * minBlockTime)
                             )
 
--- |Get the list of rounds that fall within a finalized epoch, together with which baker was
--- eligible to bake in that round and whether a block in that round was included in the finalized
--- chain.
--- This returns 'Nothing' if the epoch is not completely finalized (i.e. there is no finalized
--- block in a higher round).
+-- | Get the list of rounds that fall within a finalized epoch, together with which baker was
+--  eligible to bake in that round and whether a block in that round was included in the finalized
+--  chain.
+--  This returns 'Nothing' if the epoch is not completely finalized (i.e. there is no finalized
+--  block in a higher round).
 getWinningBakersForEpoch ::
     forall m.
     ( GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),

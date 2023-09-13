@@ -1,16 +1,16 @@
 {-# LANGUAGE RankNTypes #-}
 
--- |Tests for implementation of 'MonadBlobStore'.
--- These tests generate random sequences of the basic operations defined by 'MonadBlobStore' that
--- have a well-defined semantics, and ensure that their behaviour is as expected.
--- Here, well-defined means:
+-- | Tests for implementation of 'MonadBlobStore'.
+--  These tests generate random sequences of the basic operations defined by 'MonadBlobStore' that
+--  have a well-defined semantics, and ensure that their behaviour is as expected.
+--  Here, well-defined means:
 --
--- - Reads from the blob store must read 'BlobRef's that were created with previous stores.
--- - Reads of 'BlobPtr's must be 'BlobPtr's that refer to a subset of the data of a 'BlobRef';
---   that is, the start offset should be at least 8 + the address of the 'BlobRef', and the
---   length plus the start offset should not exceed the end of the 'BlobRef'.
+--  - Reads from the blob store must read 'BlobRef's that were created with previous stores.
+--  - Reads of 'BlobPtr's must be 'BlobPtr's that refer to a subset of the data of a 'BlobRef';
+--    that is, the start offset should be at least 8 + the address of the 'BlobRef', and the
+--    length plus the start offset should not exceed the end of the 'BlobRef'.
 --
--- Both the 'BlobStore' and 'MemBlobStore' implementations are tested.
+--  Both the 'BlobStore' and 'MemBlobStore' implementations are tested.
 module GlobalStateTests.BlobStore where
 
 import Control.Monad.IO.Class
@@ -30,30 +30,30 @@ import Concordium.GlobalState.Persistent.BlobStore
 import Control.Exception
 
 data BlobStoreOperation
-    = -- |Finish the operations
+    = -- | Finish the operations
       Done
-    | -- |Store the given bytestring
+    | -- | Store the given bytestring
       Store BS.ByteString BlobStoreOperation
-    | -- |Load the nth most recent store and check it is correct. Does nothing if there is no
-      -- store with that index.
+    | -- | Load the nth most recent store and check it is correct. Does nothing if there is no
+      --  store with that index.
       Load Int BlobStoreOperation
-    | -- |Call 'flushStore'
+    | -- | Call 'flushStore'
       Flush BlobStoreOperation
-    | -- |Call 'loadBlobPtr' on a 'BlobPtr' derived from the nth most recent stored blob ref,
-      -- given an offset and length. The offset and length will be capped so they cannot exceed
-      -- the length of the stored bytestring.
+    | -- | Call 'loadBlobPtr' on a 'BlobPtr' derived from the nth most recent stored blob ref,
+      --  given an offset and length. The offset and length will be capped so they cannot exceed
+      --  the length of the stored bytestring.
       LoadBlobPtr Int Word64 Word64 BlobStoreOperation
-    | -- |Call 'getCallbacks'.
+    | -- | Call 'getCallbacks'.
       GetCallbacks BlobStoreOperation
-    | -- |Store via the nth most recent call to 'getCallbacks'.
+    | -- | Store via the nth most recent call to 'getCallbacks'.
       StoreViaCallbacks Int BS.ByteString BlobStoreOperation
-    | -- |Load via the nth most recent call to 'getCallbacks' the mth most recently stored 'BlobRef'.
-      -- The first argument is the index of the callbacks to use.
+    | -- | Load via the nth most recent call to 'getCallbacks' the mth most recently stored 'BlobRef'.
+      --  The first argument is the index of the callbacks to use.
       LoadViaCallbacks Int Int BlobStoreOperation
     deriving (Show)
 
--- |Drop the loads that load from a particular store given the index. This decrements the
--- references to stores at higher indexes. (Used for shrinking 'BlobStoreOperation'.)
+-- | Drop the loads that load from a particular store given the index. This decrements the
+--  references to stores at higher indexes. (Used for shrinking 'BlobStoreOperation'.)
 dropLoads :: Int -> BlobStoreOperation -> BlobStoreOperation
 dropLoads _ Done = Done
 dropLoads i (Store bs cont) = Store bs (dropLoads (i + 1) cont)
@@ -73,8 +73,8 @@ dropLoads i (LoadViaCallbacks n j cont)
     | i == j = dropLoads i cont
     | otherwise = LoadViaCallbacks n j (dropLoads i cont)
 
--- |Drop loads and stores that use a particular callbacks index. This decrements the references
--- to callbacks at higher indexes. (Used for shrinking 'BlobStoreOperation'.)
+-- | Drop loads and stores that use a particular callbacks index. This decrements the references
+--  to callbacks at higher indexes. (Used for shrinking 'BlobStoreOperation'.)
 dropCallbacks :: Int -> BlobStoreOperation -> BlobStoreOperation
 dropCallbacks _ Done = Done
 dropCallbacks i (Store bs cont) = Store bs (dropCallbacks i cont)
@@ -91,9 +91,9 @@ dropCallbacks i (LoadViaCallbacks j m cont)
     | i == j = dropCallbacks i cont
     | otherwise = LoadViaCallbacks j m (dropCallbacks i cont)
 
--- |A shrink function for 'BlobStoreOperation' that will remove a single operation and any
--- subsequent operations that depend on it. QuickCheck uses this to minimise counterexamples in
--- the event of test failure.
+-- | A shrink function for 'BlobStoreOperation' that will remove a single operation and any
+--  subsequent operations that depend on it. QuickCheck uses this to minimise counterexamples in
+--  the event of test failure.
 shrinkBlobStoreOperation :: BlobStoreOperation -> [BlobStoreOperation]
 shrinkBlobStoreOperation Done = []
 shrinkBlobStoreOperation (Store bs cont) =
@@ -105,9 +105,9 @@ shrinkBlobStoreOperation (GetCallbacks cont) = dropCallbacks 0 cont : (GetCallba
 shrinkBlobStoreOperation (StoreViaCallbacks i bs cont) = dropLoads 0 cont : (StoreViaCallbacks i bs <$> shrinkBlobStoreOperation cont)
 shrinkBlobStoreOperation (LoadViaCallbacks i j cont) = cont : (LoadViaCallbacks i j <$> shrinkBlobStoreOperation cont)
 
--- |Generator for 'BlobStoreOperation' given a context of:
---   - lengths of previously stored blobs (most recent first)
---   - number of previous calls to 'getCallbacks'
+-- | Generator for 'BlobStoreOperation' given a context of:
+--    - lengths of previously stored blobs (most recent first)
+--    - number of previous calls to 'getCallbacks'
 genBlobStoreOperation' :: Seq.Seq Int -> Int -> Gen BlobStoreOperation
 genBlobStoreOperation' stored cbks = do
     sz <- getSize
@@ -152,7 +152,7 @@ genBlobStoreOperation' stored cbks = do
         cont <- genBlobStoreOperation' stored cbks
         return $ LoadViaCallbacks i j cont
 
--- |Generator for 'BlobStoreOperation' that should ensure that invariants are established.
+-- | Generator for 'BlobStoreOperation' that should ensure that invariants are established.
 genBlobStoreOperation :: Gen BlobStoreOperation
 genBlobStoreOperation = genBlobStoreOperation' Seq.empty 0
 
@@ -160,7 +160,7 @@ instance Arbitrary BlobStoreOperation where
     arbitrary = genBlobStoreOperation
     shrink = shrinkBlobStoreOperation
 
--- |Check that a 'BlobStoreOperation' satisfies basic invariants.
+-- | Check that a 'BlobStoreOperation' satisfies basic invariants.
 bsoOKTest :: BlobStoreOperation -> Bool
 bsoOKTest = tst Seq.empty 0
   where
@@ -189,9 +189,9 @@ foreign import ccall "return_value_to_byte_array" vectorToByteArray :: Ptr Vec -
 foreign import ccall unsafe "free_array_len" freeByteArray :: Ptr Word8 -> Word64 -> IO ()
 foreign import ccall unsafe "box_vec_u8_free" freeVector :: Ptr Vec -> IO ()
 
--- |Run a 'BlobStoreOperation' in a monad that implements 'MonadBlobStore', given:
--- - A context of 'BlobRef's that have already been written, with their contents.
--- - A context of callbacks that have already been obtained from calls to 'getCallbacks'.
+-- | Run a 'BlobStoreOperation' in a monad that implements 'MonadBlobStore', given:
+--  - A context of 'BlobRef's that have already been written, with their contents.
+--  - A context of callbacks that have already been obtained from calls to 'getCallbacks'.
 runBlobStoreOperation' :: (MonadBlobStore m) => Seq.Seq (BlobRef Void, BS.ByteString) -> Seq.Seq (LoadCallback, StoreCallback) -> BlobStoreOperation -> m ()
 runBlobStoreOperation' _ _ Done = return ()
 runBlobStoreOperation' s cbks (Store bs cont) = do
@@ -233,16 +233,16 @@ runBlobStoreOperation' s cbks (LoadViaCallbacks i j cont) = do
         assertEqual "Loaded BlobRef" expect actual
     runBlobStoreOperation' s cbks cont
 
--- |Run a 'BlobStoreOperation' in a monad that implements 'MonadBlobStore'.
+-- | Run a 'BlobStoreOperation' in a monad that implements 'MonadBlobStore'.
 runBlobStoreOperation :: (MonadBlobStore m) => BlobStoreOperation -> m ()
 runBlobStoreOperation = runBlobStoreOperation' Seq.empty Seq.empty
 
--- |Run a 'BlobStoreOperation' in the 'MemBlobStore'.
+-- | Run a 'BlobStoreOperation' in the 'MemBlobStore'.
 testMemBlobStore :: BlobStoreOperation -> Property
 testMemBlobStore bso = ioProperty $ bracket newMemBlobStore (\_ -> return ()) $ \mbs -> do
     runMemBlobStoreT (runBlobStoreOperation bso) mbs
 
--- |Run a 'BlobStoreOperation' in a 'BlobStore'.
+-- | Run a 'BlobStoreOperation' in a 'BlobStore'.
 testBlobStore :: BlobStoreOperation -> Property
 testBlobStore bso = ioProperty $ runBlobStoreTemp "." $ runBlobStoreOperation bso
 

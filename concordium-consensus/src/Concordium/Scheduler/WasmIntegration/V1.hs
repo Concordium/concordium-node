@@ -3,11 +3,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 
--- |This module provides most of the functionality that deals with calling V1 smart contracts, processing responses,
--- and resuming computations. It is used directly by the Scheduler to run smart contracts.
+-- | This module provides most of the functionality that deals with calling V1 smart contracts, processing responses,
+--  and resuming computations. It is used directly by the Scheduler to run smart contracts.
 --
--- This module uses FFI very heavily. The functions that are imported are defined in smart-contracts/wasm-chain-integration/src/v1/ffi.rs
--- in the smart contracts submodule.
+--  This module uses FFI very heavily. The functions that are imported are defined in smart-contracts/wasm-chain-integration/src/v1/ffi.rs
+--  in the smart contracts submodule.
 module Concordium.Scheduler.WasmIntegration.V1 (
     InvokeMethod (..),
     InitResultData (..),
@@ -66,37 +66,37 @@ foreign import ccall unsafe "return_value_to_byte_array" return_value_to_byte_ar
 foreign import ccall unsafe "&box_vec_u8_free" freeReturnValue :: FunPtr (Ptr ReturnValue -> IO ())
 foreign import ccall unsafe "&receive_interrupted_state_free" freeReceiveInterruptedState :: FunPtr (Ptr (Ptr ReceiveInterruptedState) -> IO ())
 
--- |Allocate and return a Rust vector that contains the given data.
+-- | Allocate and return a Rust vector that contains the given data.
 foreign import ccall "copy_to_vec_ffi" createReturnValue :: Ptr Word8 -> CSize -> IO (Ptr ReturnValue)
 
 foreign import ccall "validate_and_process_v1"
     validate_and_process ::
-        -- |Whether the current protocol version supports smart contract upgrades.
+        -- | Whether the current protocol version supports smart contract upgrades.
         Word8 ->
-        -- |Whether the current protocol allows for globals in initialization expressions.
+        -- | Whether the current protocol allows for globals in initialization expressions.
         Word8 ->
-        -- |Whether the current protocol allows for sign extension instructions.
+        -- | Whether the current protocol allows for sign extension instructions.
         Word8 ->
-        -- |Pointer to the Wasm module source.
+        -- | Pointer to the Wasm module source.
         Ptr Word8 ->
-        -- |Length of the module source.
+        -- | Length of the module source.
         CSize ->
-        -- |Total length of the output.
+        -- | Total length of the output.
         Ptr CSize ->
-        -- |Length of the artifact.
+        -- | Length of the artifact.
         Ptr CSize ->
-        -- |Processed module artifact.
+        -- | Processed module artifact.
         Ptr (Ptr Word8) ->
-        -- |Null, or exports.
+        -- | Null, or exports.
         IO (Ptr Word8)
 
--- |Return value of a V1 contract call. This is deliberately opaque so that we avoid redundant data copying
--- for return values for inner contract calls.
+-- | Return value of a V1 contract call. This is deliberately opaque so that we avoid redundant data copying
+--  for return values for inner contract calls.
 newtype ReturnValue = ReturnValue {rvPtr :: ForeignPtr ReturnValue}
 
 {-# NOINLINE returnValueToByteString #-}
 
--- |Convert a return value to a byte array. This copies the data of the return value.
+-- | Convert a return value to a byte array. This copies the data of the return value.
 returnValueToByteString :: ReturnValue -> BS.ByteString
 returnValueToByteString rv = unsafePerformIO $
     withReturnValue rv $ \p -> alloca $ \outputLenPtr -> do
@@ -119,17 +119,17 @@ instance AE.ToJSON ReturnValue where
 instance Show ReturnValue where
     show = BS8.unpack . BS16.encode . returnValueToByteString
 
--- |State of the Wasm module when a host operation is invoked (a host operation
--- is either a transfer to an account, a contract call, or an upgrade at present). This can
--- only be resumed once. Calling resume on this twice will lead to unpredictable
--- behaviour, including the possibility of segmentation faults.
+-- | State of the Wasm module when a host operation is invoked (a host operation
+--  is either a transfer to an account, a contract call, or an upgrade at present). This can
+--  only be resumed once. Calling resume on this twice will lead to unpredictable
+--  behaviour, including the possibility of segmentation faults.
 newtype ReceiveInterruptedState = ReceiveInterruptedState {risPtr :: ForeignPtr (Ptr ReceiveInterruptedState)}
 
 withReturnValue :: ReturnValue -> (Ptr ReturnValue -> IO a) -> IO a
 withReturnValue ReturnValue{..} = withForeignPtr rvPtr
 
--- |Use the (maybe) return value in a foreign computation. If the first argument
--- is 'Nothing' then the computation is given the null pointer.
+-- | Use the (maybe) return value in a foreign computation. If the first argument
+--  is 'Nothing' then the computation is given the null pointer.
 withMaybeReturnValue :: Maybe ReturnValue -> (Ptr ReturnValue -> IO a) -> IO a
 withMaybeReturnValue Nothing k = k nullPtr
 withMaybeReturnValue (Just rv) k = withReturnValue rv k
@@ -137,38 +137,38 @@ withMaybeReturnValue (Just rv) k = withReturnValue rv k
 withReceiveInterruptedState :: ReceiveInterruptedState -> (Ptr (Ptr ReceiveInterruptedState) -> IO a) -> IO a
 withReceiveInterruptedState = withForeignPtr . risPtr
 
--- |Possible reasons why a contract call of a V1 contract failed.
+-- | Possible reasons why a contract call of a V1 contract failed.
 data ContractCallFailure
-    = -- |The contract call failed because the contract rejected execution for its own reason, or execution trapped.
+    = -- | The contract call failed because the contract rejected execution for its own reason, or execution trapped.
       ExecutionReject !ContractExecutionReject
-    | -- |Contract call of a V1 contract failed due to other, environment reasons, such as the intended contract not existing.
+    | -- | Contract call of a V1 contract failed due to other, environment reasons, such as the intended contract not existing.
       EnvFailure !EnvFailure
 
--- |Convert a contract call failure to a return value. If a contract call fails
--- due to the contract itself, then it can return some data (e.g., an error
--- message). This function extracts that, if it can.
+-- | Convert a contract call failure to a return value. If a contract call fails
+--  due to the contract itself, then it can return some data (e.g., an error
+--  message). This function extracts that, if it can.
 ccfToReturnValue :: ContractCallFailure -> Maybe ReturnValue
 ccfToReturnValue (ExecutionReject LogicReject{..}) = Just cerReturnValue
 ccfToReturnValue (ExecutionReject Trap) = Nothing
 ccfToReturnValue (EnvFailure _) = Nothing
 
--- |Result of an invoke. This just adds Success to the contract call failure.
+-- | Result of an invoke. This just adds Success to the contract call failure.
 data InvokeResponseCode
     = Success
     | Error !ContractCallFailure
     | MessageSendFailed
-    | -- |Attempt to upgrade to a non existent module.
+    | -- | Attempt to upgrade to a non existent module.
       UpgradeInvalidModuleRef !ModuleRef
-    | -- |Attempt to upgrade to a module where the contract name did not match.
+    | -- | Attempt to upgrade to a module where the contract name did not match.
       UpgradeInvalidContractName !ModuleRef !InitName
-    | -- |Attempt to upgrade to a non-supported module version.
+    | -- | Attempt to upgrade to a non-supported module version.
       UpgradeInvalidVersion !ModuleRef !WasmVersion
-    | -- |Invalid data to check signature for.
+    | -- | Invalid data to check signature for.
       SignatureDataMalformed
-    | -- |Invalid signature.
+    | -- | Invalid signature.
       SignatureCheckFailed
 
--- |Possible reasons why invocation failed that are not directly logic failure of a V1 call.
+-- | Possible reasons why invocation failed that are not directly logic failure of a V1 call.
 data EnvFailure
     = AmountTooLarge !Address !Amount
     | MissingAccount !AccountAddress
@@ -176,15 +176,15 @@ data EnvFailure
     | InvalidEntrypoint !ModuleRef !ReceiveName -- Attempting to invoke a non-existing entrypoint.
     deriving (Show)
 
--- |Encode the response into 64 bits. This is necessary since Wasm only allows
--- us to pass simple scalars as parameters. Everything else requires passing
--- data in memory, or via host functions, both of which are difficult.
--- The response is encoded as follows.
--- - success is encoded as 0
--- - every failure has all bits of the first (most significant) 3 bytes set
--- - in case of failure
---   - if the 4th byte is 0 then the remaining 4 bytes encode the rejection reason from the contract
---   - otherwise only the 4th byte is used, and encodes the environment failure.
+-- | Encode the response into 64 bits. This is necessary since Wasm only allows
+--  us to pass simple scalars as parameters. Everything else requires passing
+--  data in memory, or via host functions, both of which are difficult.
+--  The response is encoded as follows.
+--  - success is encoded as 0
+--  - every failure has all bits of the first (most significant) 3 bytes set
+--  - in case of failure
+--    - if the 4th byte is 0 then the remaining 4 bytes encode the rejection reason from the contract
+--    - otherwise only the 4th byte is used, and encodes the environment failure.
 invokeResponseToWord64 :: InvokeResponseCode -> Word64
 invokeResponseToWord64 Success = 0
 invokeResponseToWord64 (Error (EnvFailure e)) =
@@ -207,137 +207,137 @@ invokeResponseToWord64 (Error (ExecutionReject LogicReject{..})) =
 
 foreign import ccall "call_init_v1"
     call_init ::
-        -- |Callbacks for loading state. Not needed in reality, but the way things are set it is. It does not hurt to pass.
+        -- | Callbacks for loading state. Not needed in reality, but the way things are set it is. It does not hurt to pass.
         LoadCallback ->
-        -- |Pointer to the Wasm artifact.
+        -- | Pointer to the Wasm artifact.
         Ptr Word8 ->
-        -- |Length of the artifact.
+        -- | Length of the artifact.
         CSize ->
-        -- |Pointer to the serialized chain meta + init ctx.
+        -- | Pointer to the serialized chain meta + init ctx.
         Ptr Word8 ->
-        -- |Length of the preceding data.
+        -- | Length of the preceding data.
         CSize ->
-        -- |Amount
+        -- | Amount
         Word64 ->
-        -- |Pointer to the name of function to invoke.
+        -- | Pointer to the name of function to invoke.
         Ptr Word8 ->
-        -- |Length of the name.
+        -- | Length of the name.
         CSize ->
-        -- |Pointer to the parameter.
+        -- | Pointer to the parameter.
         Ptr Word8 ->
-        -- |Length of the parameter bytes.
+        -- | Length of the parameter bytes.
         CSize ->
-        -- |Limit number of logs and size of return value.
+        -- | Limit number of logs and size of return value.
         Word8 ->
-        -- |Available energy.
+        -- | Available energy.
         Word64 ->
-        -- |Location where the pointer to the return value will be written.
+        -- | Location where the pointer to the return value will be written.
         Ptr (Ptr ReturnValue) ->
-        -- |Length of the output byte array, if non-null.
+        -- | Length of the output byte array, if non-null.
         Ptr CSize ->
-        -- |Location where the pointer to the mutable state will be written.
+        -- | Location where the pointer to the mutable state will be written.
         Ptr (Ptr StateV1.MutableStateInner) ->
-        -- |New state and logs, if applicable, or null, signalling out-of-energy.
+        -- | New state and logs, if applicable, or null, signalling out-of-energy.
         IO (Ptr Word8)
 
 foreign import ccall "call_receive_v1"
     call_receive ::
-        -- |Callback in case any state needs to be loaded from block state storage.
+        -- | Callback in case any state needs to be loaded from block state storage.
         LoadCallback ->
-        -- |Pointer to the Wasm artifact.
+        -- | Pointer to the Wasm artifact.
         Ptr Word8 ->
-        -- |Length of the artifact.
+        -- | Length of the artifact.
         CSize ->
-        -- |Pointer to the serialized receive context.
+        -- | Pointer to the serialized receive context.
         Ptr Word8 ->
-        -- |Length of the preceding data.
+        -- | Length of the preceding data.
         CSize ->
-        -- |Amount
+        -- | Amount
         Word64 ->
-        -- |Pointer to the name of the function to invoke.
+        -- | Pointer to the name of the function to invoke.
         Ptr Word8 ->
-        -- |Length of the name.
+        -- | Length of the name.
         CSize ->
-        -- |Whether to invoke the default/fallback method instead.
+        -- | Whether to invoke the default/fallback method instead.
         Word8 ->
-        -- |Pointer to the current state of the smart contracts. If
-        -- successful, pointer to the new state will be written here if the state has been modified.
-        -- If the state has not been modified then a null pointer is written here.
+        -- | Pointer to the current state of the smart contracts. If
+        --  successful, pointer to the new state will be written here if the state has been modified.
+        --  If the state has not been modified then a null pointer is written here.
         Ptr (Ptr StateV1.MutableStateInner) ->
-        -- |Pointer to the parameter.
+        -- | Pointer to the parameter.
         Ptr Word8 ->
-        -- |Length of the parameter bytes.
+        -- | Length of the parameter bytes.
         CSize ->
-        -- |Max parameter size.
+        -- | Max parameter size.
         CSize ->
-        -- |Limit number of logs and size of return value.
+        -- | Limit number of logs and size of return value.
         Word8 ->
-        -- |Available energy.
+        -- | Available energy.
         Word64 ->
-        -- |Location where the pointer to the return value will be written.
+        -- | Location where the pointer to the return value will be written.
         Ptr (Ptr ReturnValue) ->
-        -- |Location where the pointer to interrupted config will be stored.
+        -- | Location where the pointer to interrupted config will be stored.
         Ptr (Ptr ReceiveInterruptedState) ->
-        -- |Length of the output byte array, if non-null.
+        -- | Length of the output byte array, if non-null.
         Ptr CSize ->
-        -- |In case the state was changed by the call this value will be set to 1.
-        -- This is needed to support legacy (incorrect) behaviour for protocols 4-5.
+        -- | In case the state was changed by the call this value will be set to 1.
+        --  This is needed to support legacy (incorrect) behaviour for protocols 4-5.
         Ptr Word8 ->
-        -- |Non-zero to enable support of chain queries.
+        -- | Non-zero to enable support of chain queries.
         Word8 ->
-        -- |Non-zero to enable support for account keys query and signature checks.
+        -- | Non-zero to enable support for account keys query and signature checks.
         Word8 ->
-        -- |New state, logs, and actions, if applicable, or null, signalling out-of-energy.
+        -- | New state, logs, and actions, if applicable, or null, signalling out-of-energy.
         IO (Ptr Word8)
 
 foreign import ccall "resume_receive_v1"
     resume_receive ::
         LoadCallback ->
-        -- |Location where the pointer to interrupted config will be stored.
+        -- | Location where the pointer to interrupted config will be stored.
         Ptr (Ptr ReceiveInterruptedState) ->
-        -- |Tag of whether the state has been updated or not. If this is 0 then the state has not been updated, otherwise, it has.
+        -- | Tag of whether the state has been updated or not. If this is 0 then the state has not been updated, otherwise, it has.
         Word8 ->
-        -- |Pointer to the current state of the smart contracts. If
-        -- successful, pointer to the new state will be written here if the state has been modified.
-        -- If the state has not been modified then a null pointer is written here.
+        -- | Pointer to the current state of the smart contracts. If
+        --  successful, pointer to the new state will be written here if the state has been modified.
+        --  If the state has not been modified then a null pointer is written here.
         Ptr (Ptr StateV1.MutableStateInner) ->
-        -- |New balance of the contract.
+        -- | New balance of the contract.
         Word64 ->
-        -- |Return status from the interrupt.
+        -- | Return status from the interrupt.
         Word64 ->
-        -- |Return value from the call, if any. This will be replaced with an empty vector.
+        -- | Return value from the call, if any. This will be replaced with an empty vector.
         Ptr ReturnValue ->
-        -- |Available energy.
+        -- | Available energy.
         Word64 ->
-        -- |Location where the pointer to the return value will be written.
+        -- | Location where the pointer to the return value will be written.
         Ptr (Ptr ReturnValue) ->
-        -- |Length of the output byte array, if non-null.
+        -- | Length of the output byte array, if non-null.
         Ptr CSize ->
-        -- |New state, logs, and actions, if applicable, or null, signalling out-of-energy.
+        -- | New state, logs, and actions, if applicable, or null, signalling out-of-energy.
         IO (Ptr Word8)
 
--- |Apply an init function which is assumed to be a part of the module.
+-- | Apply an init function which is assumed to be a part of the module.
 {-# NOINLINE applyInitFun #-}
 applyInitFun ::
     LoadCallback ->
     InstrumentedModuleV V1 ->
-    -- |Chain information available to the contracts.
+    -- | Chain information available to the contracts.
     ChainMetadata ->
-    -- |Additional parameters supplied by the chain and
-    -- available to the init method.
+    -- | Additional parameters supplied by the chain and
+    --  available to the init method.
     InitContext ->
-    -- |Which method to invoke.
+    -- | Which method to invoke.
     InitName ->
-    -- |User-provided parameter to the init method.
+    -- | User-provided parameter to the init method.
     Parameter ->
-    -- |Limit number of logs and size of return values.
+    -- | Limit number of logs and size of return values.
     Bool ->
-    -- |Amount the contract is going to be initialized with.
+    -- | Amount the contract is going to be initialized with.
     Amount ->
-    -- |Maximum amount of energy that can be used by the interpreter.
+    -- | Maximum amount of energy that can be used by the interpreter.
     InterpreterEnergy ->
-    -- |Nothing if execution ran out of energy.
-    -- Just (result, remainingEnergy) otherwise, where @remainingEnergy@ is the amount of energy that is left from the amount given.
+    -- | Nothing if execution ran out of energy.
+    --  Just (result, remainingEnergy) otherwise, where @remainingEnergy@ is the amount of energy that is left from the amount given.
     Maybe (Either ContractExecutionReject InitResultData, InterpreterEnergy)
 applyInitFun cbk miface cm initCtx iName param limitLogsAndRvs amnt iEnergy = unsafePerformIO $ do
     BSU.unsafeUseAsCStringLen wasmArtifactBytes $ \(wasmArtifactPtr, wasmArtifactLen) ->
@@ -379,48 +379,48 @@ applyInitFun cbk miface cm initCtx iName param limitLogsAndRvs amnt iEnergy = un
     amountWord = _amount amnt
     nameBytes = Text.encodeUtf8 (initName iName)
 
--- |Allowed methods that a contract can invoke.
+-- | Allowed methods that a contract can invoke.
 data InvokeMethod
-    = -- |Transfer to an account.
+    = -- | Transfer to an account.
       Transfer
         { imtTo :: !AccountAddress,
           imtAmount :: !Amount
         }
-    | -- |Call another smart contract with the given parameter.
+    | -- | Call another smart contract with the given parameter.
       Call
         { imcTo :: !ContractAddress,
           imcParam :: !Parameter,
           imcName :: !EntrypointName,
           imcAmount :: !Amount
         }
-    | -- |Upgrade a smart contract such that it uses the new 'ModuleRef' for execution.
+    | -- | Upgrade a smart contract such that it uses the new 'ModuleRef' for execution.
       Upgrade
         { imuModRef :: !ModuleRef
         }
-    | -- |Query the balance and staked balance of an account.
+    | -- | Query the balance and staked balance of an account.
       QueryAccountBalance
         { imqabAddress :: !AccountAddress
         }
-    | -- |Query the balance of a contract.
+    | -- | Query the balance of a contract.
       QueryContractBalance
         { imqcbAddress :: !ContractAddress
         }
-    | -- |Query the CCD/EUR and EUR/NRG exchange rates.
+    | -- | Query the CCD/EUR and EUR/NRG exchange rates.
       QueryExchangeRates
-    | -- |Check the signature using account keys
+    | -- | Check the signature using account keys
       CheckAccountSignature
         { imcasAddress :: !AccountAddress,
-          -- |The payload is a serialization of the message and signatures.
-          -- The message is serialized as
-          -- - u32 in little endian for length
-          -- - the message of the above length
-          -- signatures which are serialized as a nested map as transaction signatures
-          -- using u8 for lengths. The only difference from a transaction signature is
-          -- that the inner Signature is serialized as "SchemeId" followed by the signature
-          -- bytes which are assumed to be 64 bytes.
+          -- | The payload is a serialization of the message and signatures.
+          --  The message is serialized as
+          --  - u32 in little endian for length
+          --  - the message of the above length
+          --  signatures which are serialized as a nested map as transaction signatures
+          --  using u8 for lengths. The only difference from a transaction signature is
+          --  that the inner Signature is serialized as "SchemeId" followed by the signature
+          --  bytes which are assumed to be 64 bytes.
           imcasPayload :: !BS.ByteString
         }
-    | -- |Query the account keys
+    | -- | Query the account keys
       QueryAccountKeys
         { imqakAddress :: !AccountAddress
         }
@@ -438,23 +438,23 @@ getInvokeMethod =
         7 -> QueryAccountKeys <$> get
         n -> fail $ "Unsupported invoke method tag: " ++ show n
 
--- |Data return from the contract in case of successful initialization.
+-- | Data return from the contract in case of successful initialization.
 data InitResultData = InitSuccess
     { irdReturnValue :: !ReturnValue,
       irdNewState :: !StateV1.MutableState,
       irdLogs :: ![ContractEvent]
     }
 
--- |Data returned from the receive call. In contrast to an init call, a receive call may interrupt.
+-- | Data returned from the receive call. In contrast to an init call, a receive call may interrupt.
 data ReceiveResultData
-    = -- |Execution terminated with success.
+    = -- | Execution terminated with success.
       ReceiveSuccess
         { rrdReturnValue :: !ReturnValue,
           rrdNewState :: !StateV1.MutableState,
           rrdStateChanged :: !Bool,
           rrdLogs :: ![ContractEvent]
         }
-    | -- |Execution invoked a method. The current state is returned.
+    | -- | Execution invoked a method. The current state is returned.
       ReceiveInterrupt
         { rrdCurrentState :: !StateV1.MutableState,
           rrdStateChanged :: !Bool,
@@ -463,21 +463,21 @@ data ReceiveResultData
           rrdInterruptedConfig :: !ReceiveInterruptedState
         }
 
--- |Parse the logs that were produced. This must match serialization of logs on the other end of the ffi,
--- in smart-contracts/wasm-chain-integration/src/v1/ffi.rs
+-- | Parse the logs that were produced. This must match serialization of logs on the other end of the ffi,
+--  in smart-contracts/wasm-chain-integration/src/v1/ffi.rs
 getLogs :: Get [ContractEvent]
 getLogs = do
     len <- fromIntegral <$> getWord32be
     replicateM len get
 
--- |Reason for failure of contract execution.
+-- | Reason for failure of contract execution.
 data ContractExecutionReject
-    = -- |Contract decided to terminate execution.
+    = -- | Contract decided to terminate execution.
       LogicReject
         { cerRejectReason :: !Int32,
           cerReturnValue :: !ReturnValue
         }
-    | -- |A trap was triggered.
+    | -- | A trap was triggered.
       Trap
     deriving (Show)
 
@@ -485,20 +485,20 @@ cerToRejectReasonInit :: ContractExecutionReject -> Exec.RejectReason
 cerToRejectReasonInit LogicReject{..} = Exec.RejectedInit cerRejectReason
 cerToRejectReasonInit Trap = Exec.RuntimeFailure
 
--- |Parse the response from invoking a @call_init_v1@ method. This attempts to
--- parse the returned byte array and depending on its contents it will also
--- update the given pointers. See documentation of the above mentioned imported
--- function for the specification of the return value.
+-- | Parse the response from invoking a @call_init_v1@ method. This attempts to
+--  parse the returned byte array and depending on its contents it will also
+--  update the given pointers. See documentation of the above mentioned imported
+--  function for the specification of the return value.
 processInitResult ::
-    -- |State context.
+    -- | State context.
     LoadCallback ->
-    -- |Serialized output.
+    -- | Serialized output.
     BS.ByteString ->
-    -- |Location where the pointer to the return value is (potentially) stored.
+    -- | Location where the pointer to the return value is (potentially) stored.
     Ptr ReturnValue ->
-    -- |Location where the pointer to the initial state is written.
-    -- |Result, and remaining energy. Returns 'Nothing' if and only if
-    -- execution ran out of energy.
+    -- | Location where the pointer to the initial state is written.
+    --  |Result, and remaining energy. Returns 'Nothing' if and only if
+    --  execution ran out of energy.
     Ptr StateV1.MutableStateInner ->
     IO (Maybe (Either ContractExecutionReject InitResultData, InterpreterEnergy))
 processInitResult callbacks result returnValuePtr newStatePtr = case BS.uncons result of
@@ -552,7 +552,7 @@ newReceiveInterruptedState interruptedStatePtr = do
     addForeignPtrFinalizer freeReceiveInterruptedState fp
     return (ReceiveInterruptedState fp)
 
--- |Convert a contract call failure to the Scheduler's reject reason.
+-- | Convert a contract call failure to the Scheduler's reject reason.
 cerToRejectReasonReceive :: ContractAddress -> ReceiveName -> Parameter -> ContractCallFailure -> Exec.RejectReason
 cerToRejectReasonReceive contractAddress receiveName parameter (ExecutionReject LogicReject{..}) = Exec.RejectedReceive{rejectReason = cerRejectReason, ..}
 cerToRejectReasonReceive _ _ _ (ExecutionReject Trap) = Exec.RuntimeFailure
@@ -562,30 +562,30 @@ cerToRejectReasonReceive _ _ _ (EnvFailure e) = case e of
     MissingContract cref -> Exec.InvalidContractAddress cref
     InvalidEntrypoint mref rn -> Exec.InvalidReceiveMethod mref rn
 
--- |Parse the response from invoking either a @call_receive_v1@ or
--- @resume_receive_v1@ method. This attempts to parse the returned byte array
--- and depending on its contents it will also update the given pointers. See
--- documentation of the above mentioned imported functions for the specification
--- of the return value.
+-- | Parse the response from invoking either a @call_receive_v1@ or
+--  @resume_receive_v1@ method. This attempts to parse the returned byte array
+--  and depending on its contents it will also update the given pointers. See
+--  documentation of the above mentioned imported functions for the specification
+--  of the return value.
 processReceiveResult ::
-    -- |Whether to use the correct logic for rollbacks, or the legacy one that
-    -- is incorrect in some cases. The latter applies to protocols 4 and 5.
+    -- | Whether to use the correct logic for rollbacks, or the legacy one that
+    --  is incorrect in some cases. The latter applies to protocols 4 and 5.
     Bool ->
-    -- |State context.
+    -- | State context.
     LoadCallback ->
-    -- |State execution started in.
+    -- | State execution started in.
     StateV1.MutableState ->
-    -- |Whether the state was written to.
+    -- | Whether the state was written to.
     Bool ->
-    -- |Serialized output.
+    -- | Serialized output.
     BS.ByteString ->
-    -- |Location where the pointer to the return value is (potentially) stored.
+    -- | Location where the pointer to the return value is (potentially) stored.
     Ptr ReturnValue ->
-    -- |Pointer to the state of the contract at the time of termination.
+    -- | Pointer to the state of the contract at the time of termination.
     Ptr StateV1.MutableStateInner ->
-    -- |Location where the pointer to interrupted config is (potentially) stored.
-    -- |Result, and remaining energy. Returns 'Nothing' if and only if
-    -- execution ran out of energy.
+    -- | Location where the pointer to interrupted config is (potentially) stored.
+    --  |Result, and remaining energy. Returns 'Nothing' if and only if
+    --  execution ran out of energy.
     Either ReceiveInterruptedState (Ptr (Ptr ReceiveInterruptedState)) ->
     IO (Maybe (Either ContractExecutionReject ReceiveResultData, InterpreterEnergy))
 processReceiveResult fixRollbacks callbacks initialState stateWrittenTo result returnValuePtr statePtr eitherInterruptedStatePtr = case BS.uncons result of
@@ -654,47 +654,47 @@ processReceiveResult fixRollbacks callbacks initialState stateWrittenTo result r
                 Right x -> x
                 Left err -> error $ "Internal error: Could not interpret output from interpreter: " ++ err
 
--- |Runtime configuration for smart contract execution. This determines various
--- limits and limitations that depend on the protocol update.
+-- | Runtime configuration for smart contract execution. This determines various
+--  limits and limitations that depend on the protocol update.
 data RuntimeConfig = RuntimeConfig
-    { -- |Support chain queries, available from P5 onward.
+    { -- | Support chain queries, available from P5 onward.
       rcSupportChainQueries :: Bool,
-      -- |Fix rollback behaviour, available from P6 onward.
+      -- | Fix rollback behaviour, available from P6 onward.
       rcFixRollbacks :: Bool,
-      -- |Maximum parameter size, changed in P5.
+      -- | Maximum parameter size, changed in P5.
       rcMaxParameterLen :: Word16,
-      -- |Whether to limit the number logs and size of return values, updated in
-      -- P5.
+      -- | Whether to limit the number logs and size of return values, updated in
+      --  P5.
       rcLimitLogsAndRvs :: Bool,
-      -- |Whether to support account key queries and account signature checks.
-      -- Supported in P6 onward.
+      -- | Whether to support account key queries and account signature checks.
+      --  Supported in P6 onward.
       rcSupportAccountSignatureChecks :: Bool
     }
 
--- |Apply a receive function which is assumed to be part of the given module.
+-- | Apply a receive function which is assumed to be part of the given module.
 {-# NOINLINE applyReceiveFun #-}
 applyReceiveFun ::
     InstrumentedModuleV V1 ->
-    -- |Metadata available to the contract.
+    -- | Metadata available to the contract.
     ChainMetadata ->
-    -- |Additional parameter supplied by the chain and
-    -- available to the receive method.
+    -- | Additional parameter supplied by the chain and
+    --  available to the receive method.
     ReceiveContext ->
-    -- |The method that was named
+    -- | The method that was named
     ReceiveName ->
-    -- |Whether to invoke the default method instead of the named one.
+    -- | Whether to invoke the default method instead of the named one.
     Bool ->
-    -- |Parameters available to the method.
+    -- | Parameters available to the method.
     Parameter ->
-    -- |Amount the contract is initialized with.
+    -- | Amount the contract is initialized with.
     Amount ->
-    -- |State of the contract to start in, and a way to use it.
+    -- | State of the contract to start in, and a way to use it.
     StateV1.MutableState ->
     RuntimeConfig ->
-    -- |Amount of energy available for execution.
+    -- | Amount of energy available for execution.
     InterpreterEnergy ->
-    -- |Nothing if execution used up all the energy, and otherwise the result
-    -- of execution with the amount of energy remaining.
+    -- | Nothing if execution used up all the energy, and otherwise the result
+    --  of execution with the amount of energy remaining.
     Maybe (Either ContractExecutionReject ReceiveResultData, InterpreterEnergy)
 applyReceiveFun miface cm receiveCtx rName useFallback param amnt initialState RuntimeConfig{..} initialEnergy = unsafePerformIO $ do
     BSU.unsafeUseAsCStringLen wasmArtifact $ \(wasmArtifactPtr, wasmArtifactLen) ->
@@ -746,22 +746,22 @@ applyReceiveFun miface cm receiveCtx rName useFallback param amnt initialState R
     nameBytes = Text.encodeUtf8 (receiveName rName)
     callbacks = StateV1.msContext initialState
 
--- |Resume execution after processing the interrupt. This can only be called once on a single 'ReceiveInterruptedState'.
+-- | Resume execution after processing the interrupt. This can only be called once on a single 'ReceiveInterruptedState'.
 {-# NOINLINE resumeReceiveFun #-}
 resumeReceiveFun ::
     ReceiveInterruptedState ->
-    -- |State of the contract to resume in.
+    -- | State of the contract to resume in.
     StateV1.MutableState ->
-    -- |Whether the state has changed in the call.
+    -- | Whether the state has changed in the call.
     Bool ->
-    -- |Current balance of the contract, if it changed.
+    -- | Current balance of the contract, if it changed.
     Amount ->
     InvokeResponseCode ->
     Maybe ReturnValue ->
-    -- |Amount of energy available for execution.
+    -- | Amount of energy available for execution.
     InterpreterEnergy ->
-    -- |Nothing if execution used up all the energy, and otherwise the result
-    -- of execution with the amount of energy remaining.
+    -- | Nothing if execution used up all the energy, and otherwise the result
+    --  of execution with the amount of energy remaining.
     Maybe (Either ContractExecutionReject ReceiveResultData, InterpreterEnergy)
 resumeReceiveFun is currentState stateChanged amnt statusCode rVal remainingEnergy = unsafePerformIO $ do
     withReceiveInterruptedState is $ \isPtr ->
@@ -795,18 +795,18 @@ resumeReceiveFun is currentState stateChanged amnt statusCode rVal remainingEner
     amountWord = _amount amnt
     callbacks = StateV1.msContext currentState
 
--- |Configuration for module validation dependent on which features are allowed
--- in a specific protocol version.
+-- | Configuration for module validation dependent on which features are allowed
+--  in a specific protocol version.
 data ValidationConfig = ValidationConfig
-    { -- |Support upgrades.
+    { -- | Support upgrades.
       vcSupportUpgrade :: Bool,
-      -- |Allow globals in data and element segments.
+      -- | Allow globals in data and element segments.
       vcAllowGlobals :: Bool,
-      -- |Allow sign extension instructions.
+      -- | Allow sign extension instructions.
       vcAllowSignExtensionInstr :: Bool
     }
 
--- |Construct a 'ValidationConfig' valid for the given protocol version.
+-- | Construct a 'ValidationConfig' valid for the given protocol version.
 validationConfig :: SProtocolVersion spv -> ValidationConfig
 validationConfig spv =
     ValidationConfig
@@ -815,10 +815,10 @@ validationConfig spv =
           vcAllowSignExtensionInstr = supportsSignExtensionInstructions spv
         }
 
--- |Process a module as received and make a module interface.
--- This
--- - checks the module is well-formed, and has the right imports and exports for a V1 module.
--- - makes a module artifact and allocates it on the Rust side, returning a pointer and a finalizer.
+-- | Process a module as received and make a module interface.
+--  This
+--  - checks the module is well-formed, and has the right imports and exports for a V1 module.
+--  - makes a module artifact and allocates it on the Rust side, returning a pointer and a finalizer.
 {-# NOINLINE processModule #-}
 processModule :: SProtocolVersion spv -> WasmModuleV V1 -> Maybe (ModuleInterfaceV V1)
 processModule spv modl = do

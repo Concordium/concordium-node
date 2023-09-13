@@ -56,7 +56,7 @@ import qualified Concordium.GlobalState.DummyData as Dummy
 -- for cases where finalization messages are received out of order (i.e. messages for a later
 -- finalization round arrive before the messages for an earlier finalization round).
 
--- |Protocol version
+-- | Protocol version
 type PV = 'P1
 
 dummyTime :: UTCTime
@@ -171,20 +171,20 @@ runTestActiveMany :: BakerState -> BakerState -> BakerState -> [BakerState] -> I
 runTestActiveMany b1 _ fm = runTestMany b1 fm fm
 
 runTest ::
-    -- |How many blocks should baker1 bake
+    -- | How many blocks should baker1 bake
     Int ->
-    -- |This sequence indicates for which indices baker2 will receive finalization messages
-    --  and which UpdateResult we should expect from the corresponding `finalizationReceiveMessage` call.
-    -- For example, if the initial finalization index is 1, a pair (2, ResultSuccess) indicates that for
-    -- round 1+2=3, we expect the receipt of a finalization message to result in ResultSuccess.
+    -- | This sequence indicates for which indices baker2 will receive finalization messages
+    --   and which UpdateResult we should expect from the corresponding `finalizationReceiveMessage` call.
+    --  For example, if the initial finalization index is 1, a pair (2, ResultSuccess) indicates that for
+    --  round 1+2=3, we expect the receipt of a finalization message to result in ResultSuccess.
     [(FinalizationIndex, UpdateResult)] ->
-    -- |Initial state for the first baker
+    -- | Initial state for the first baker
     BakerState ->
-    -- |Initial state for the second baker who will receive finalization messages
+    -- | Initial state for the second baker who will receive finalization messages
     BakerState ->
-    -- |Initial state for one finalization committee member
+    -- | Initial state for one finalization committee member
     BakerState ->
-    -- |Initial states for the additional finalization committee members
+    -- | Initial states for the additional finalization committee members
     [BakerState] ->
     IO ()
 runTest

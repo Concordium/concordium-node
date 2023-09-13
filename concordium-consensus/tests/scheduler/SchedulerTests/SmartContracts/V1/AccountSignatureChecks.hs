@@ -35,7 +35,7 @@ seed :: Int
 seed = 17
 
 -- Set up a state with a single account with 4 credentials, and account threshold 3.
-initialBlockState :: Types.IsProtocolVersion pv => Helpers.PersistentBSM pv (HashedPersistentBlockState pv)
+initialBlockState :: (Types.IsProtocolVersion pv) => Helpers.PersistentBSM pv (HashedPersistentBlockState pv)
 initialBlockState = do
     let cred1 = Helpers.makeTestCredentialFromSeed (seed + 100)
     let cred2 = Helpers.makeTestCredentialFromSeed (seed + 200)
@@ -48,7 +48,7 @@ sourceFile = "../concordium-base/smart-contracts/testdata/contracts/v1/account-s
 
 deployModule1 ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     PersistentBlockState pv ->
     Helpers.PersistentBSM
         pv
@@ -59,7 +59,7 @@ deployModule1 = InvokeHelpers.deployModuleV1 (Types.protocolVersion @pv) sourceF
 
 -- Initialize contract a.
 initContract ::
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     PersistentBlockState pv ->
     (InvokeHelpers.PersistentModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1) ->
     Helpers.PersistentBSM pv (Types.ContractAddress, PersistentBlockState pv)
@@ -70,9 +70,9 @@ initContract =
         emptyParameter
         0
 
--- |Invoke the entrypoint @get_keys@ on contract @contract@.
+-- | Invoke the entrypoint @get_keys@ on contract @contract@.
 getKeys ::
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.ContractAddress ->
     Parameter ->
     HashedPersistentBlockState pv ->
@@ -88,9 +88,9 @@ getKeys ccContract ccParameter bs = do
                 }
     InvokeContract.invokeContract ctx (Types.ChainMetadata 123) bs
 
--- |Invoke the entrypoint @check_signature@ on contract @contract@.
+-- | Invoke the entrypoint @check_signature@ on contract @contract@.
 checkSignature ::
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.ContractAddress ->
     Parameter ->
     HashedPersistentBlockState pv ->
@@ -106,7 +106,7 @@ checkSignature ccContract ccParameter bs = do
                 }
     InvokeContract.invokeContract ctx (Types.ChainMetadata 123) bs
 
-runGetKeysTests :: forall pv. Types.IsProtocolVersion pv => Types.SProtocolVersion pv -> String -> Assertion
+runGetKeysTests :: forall pv. (Types.IsProtocolVersion pv) => Types.SProtocolVersion pv -> String -> Assertion
 runGetKeysTests spv pvString = when (Types.demoteProtocolVersion spv >= Types.P4) $ do
     Helpers.runTestBlockState @pv $ do
         initState <- thawBlockState =<< initialBlockState
@@ -154,12 +154,12 @@ runGetKeysTests spv pvString = when (Types.demoteProtocolVersion spv >= Types.P4
 
 runCheckSignatureTests ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
-    -- |Parameter for the call.
+    -- | Parameter for the call.
     BS.ByteString ->
-    -- |Expected response code.
+    -- | Expected response code.
     Word64 ->
     Assertion
 runCheckSignatureTests spv pvString paramBS expectedCode = when (Types.demoteProtocolVersion spv >= Types.P4) $ do
@@ -182,8 +182,8 @@ runCheckSignatureTests spv pvString paramBS expectedCode = when (Types.demotePro
                 let expected = S.runPut $ S.putWord64le expectedCode
                 liftIO (assertEqual (pvString ++ ": Correct response code: ") (BS.unpack expected) (BS.unpack rv))
 
--- |Test for success
-runCheckSignatureTest1 :: forall pv. Types.IsProtocolVersion pv => Types.SProtocolVersion pv -> String -> Assertion
+-- | Test for success
+runCheckSignatureTest1 :: forall pv. (Types.IsProtocolVersion pv) => Types.SProtocolVersion pv -> String -> Assertion
 runCheckSignatureTest1 spv pvString = do
     let message = BS.replicate 123 17
     let kp0 = Helpers.keyPairFromSeed seed
@@ -214,8 +214,8 @@ runCheckSignatureTest1 spv pvString = do
             S.putShortByteString sig4
     runCheckSignatureTests spv pvString paramBS 0
 
--- |Test missing account.
-runCheckSignatureTest2 :: forall pv. Types.IsProtocolVersion pv => Types.SProtocolVersion pv -> String -> Assertion
+-- | Test missing account.
+runCheckSignatureTest2 :: forall pv. (Types.IsProtocolVersion pv) => Types.SProtocolVersion pv -> String -> Assertion
 runCheckSignatureTest2 spv pvString = do
     let message = BS.replicate 123 17
     let kp = Helpers.keyPairFromSeed seed
@@ -232,8 +232,8 @@ runCheckSignatureTest2 spv pvString = do
             S.putShortByteString sig
     runCheckSignatureTests spv pvString paramBS 0x02_0000_0000
 
--- |Test incorrect signature.
-runCheckSignatureTest3 :: forall pv. Types.IsProtocolVersion pv => Types.SProtocolVersion pv -> String -> Assertion
+-- | Test incorrect signature.
+runCheckSignatureTest3 :: forall pv. (Types.IsProtocolVersion pv) => Types.SProtocolVersion pv -> String -> Assertion
 runCheckSignatureTest3 spv pvString = do
     let message = BS.replicate 123 17
     let kp = Helpers.keyPairFromSeed (seed + 1) -- use incorrect seed for keys, leading to incorrect signature
@@ -250,8 +250,8 @@ runCheckSignatureTest3 spv pvString = do
             S.putShortByteString sig
     runCheckSignatureTests spv pvString paramBS 0x0b_0000_0000
 
--- |Test malformed data.
-runCheckSignatureTest4 :: forall pv. Types.IsProtocolVersion pv => Types.SProtocolVersion pv -> String -> Assertion
+-- | Test malformed data.
+runCheckSignatureTest4 :: forall pv. (Types.IsProtocolVersion pv) => Types.SProtocolVersion pv -> String -> Assertion
 runCheckSignatureTest4 spv pvString = do
     let message = BS.replicate 123 17
     let kp = Helpers.keyPairFromSeed (seed + 1) -- use incorrect seed for keys, leading to incorrect signature

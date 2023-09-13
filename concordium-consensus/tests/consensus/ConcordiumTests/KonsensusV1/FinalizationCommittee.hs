@@ -13,26 +13,26 @@ import Concordium.KonsensusV1.Types
 import Concordium.Types
 import Concordium.Types.Accounts
 
--- |A 'FullBakerInfo' with the given 'BakerId' and stake.
--- The keys are (deterministically) randomly generated.
+-- | A 'FullBakerInfo' with the given 'BakerId' and stake.
+--  The keys are (deterministically) randomly generated.
 dummyFullBakerInfo :: BakerId -> Amount -> FullBakerInfo
 dummyFullBakerInfo bid stake = mkFullBaker (fromIntegral bid) bid ^. _1 & bakerStake .~ stake
 
--- |A test case for 'computeFinalizationCommittee'.
+-- | A test case for 'computeFinalizationCommittee'.
 data FinalizationCommitteeTestCase = FinalizationCommitteeTestCase
-    { -- |Description to show for this case.
+    { -- | Description to show for this case.
       description :: String,
-      -- |Stake for bakers [0..].
+      -- | Stake for bakers [0..].
       bakerStakes :: [Amount],
-      -- |Finalization committee parameters to use.
+      -- | Finalization committee parameters to use.
       parameters :: FinalizationCommitteeParameters,
-      -- |The expected set of bakers in the resulting committee.
+      -- | The expected set of bakers in the resulting committee.
       expectedFinalizers :: [BakerId]
     }
     deriving (Show)
 
--- |Test 'computeFinalizationCommittee' with a given test case.
--- This creates finalizers with indices 0,1.. based on the length of the 'bakerStakes'.
+-- | Test 'computeFinalizationCommittee' with a given test case.
+--  This creates finalizers with indices 0,1.. based on the length of the 'bakerStakes'.
 testFinalizationCommitteeTestCase :: FinalizationCommitteeTestCase -> Spec
 testFinalizationCommitteeTestCase tc@FinalizationCommitteeTestCase{..} =
     it description $ assertEqual ("Finalizers for " ++ show tc) expect actual

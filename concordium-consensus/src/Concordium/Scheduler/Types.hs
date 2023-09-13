@@ -27,21 +27,21 @@ import Concordium.GlobalState.TransactionTable (TransactionGroup (..))
 import Concordium.ID.Types (IdentityProviderIdentity)
 import qualified Concordium.TransactionVerification as TVer
 
--- |Result of constructing a block from 'GroupedTransactions'.
+-- | Result of constructing a block from 'GroupedTransactions'.
 data FilteredTransactions = FilteredTransactions
-    { -- |Transactions which have been added to the block, in the order added, with results.
+    { -- | Transactions which have been added to the block, in the order added, with results.
       ftAdded :: [(TVer.BlockItemWithStatus, TransactionSummary)],
-      -- |Transactions which failed. No order is guaranteed.
+      -- | Transactions which failed. No order is guaranteed.
       ftFailed :: [(TVer.TransactionWithStatus, FailureKind)],
-      -- |Credential deployments which failed. No order is guaranteed.
+      -- | Credential deployments which failed. No order is guaranteed.
       ftFailedCredentials :: [(TVer.CredentialDeploymentWithStatus, FailureKind)],
-      -- |Update instructions which failed. No order is guaranteed.
+      -- | Update instructions which failed. No order is guaranteed.
       ftFailedUpdates :: [(TVer.ChainUpdateWithStatus, FailureKind)],
-      -- |Transactions which were not processed. No order is guaranteed.
+      -- | Transactions which were not processed. No order is guaranteed.
       ftUnprocessed :: [TVer.TransactionWithStatus],
-      -- |Credentials which were not processed. No order is guaranteed.
+      -- | Credentials which were not processed. No order is guaranteed.
       ftUnprocessedCredentials :: [TVer.CredentialDeploymentWithStatus],
-      -- |Update instructions which were not processed. No order is guaranteed.
+      -- | Update instructions which were not processed. No order is guaranteed.
       ftUnprocessedUpdates :: [TVer.ChainUpdateWithStatus]
     }
     deriving (Show)

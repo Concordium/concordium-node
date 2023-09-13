@@ -29,7 +29,7 @@ import qualified Data.Map as Map
 import Concordium.Crypto.EncryptedTransfers
 import Prelude hiding (exp, mod)
 
--- |Sign a transaction with the given list of keys.
+-- | Sign a transaction with the given list of keys.
 signTx :: [(CredentialIndex, [(KeyIndex, KeyPair)])] -> TransactionHeader -> EncodedPayload -> Types.AccountTransaction
 signTx keys TransactionHeader{..} encPayload = Types.signTransaction keys header encPayload
   where
@@ -126,9 +126,9 @@ transactionHelper t =
 processTransactions :: (MonadFail m, MonadIO m) => [TransactionJSON] -> m [Types.AccountTransaction]
 processTransactions = mapM transactionHelper
 
--- |For testing purposes: process transactions without grouping them by accounts
--- (i.e. creating one "group" per transaction).
--- Arrival time of transactions is taken to be 0.
+-- | For testing purposes: process transactions without grouping them by accounts
+--  (i.e. creating one "group" per transaction).
+--  Arrival time of transactions is taken to be 0.
 processUngroupedTransactions ::
     (MonadFail m, MonadIO m) =>
     [TransactionJSON] ->
@@ -138,8 +138,8 @@ processUngroupedTransactions inpt = do
     -- We just attach a `Nothing` to the transaction such that it will be verified by the scheduler.
     return (map (\x -> Types.TGAccountTransactions [(Types.fromAccountTransaction 0 x, Nothing)]) txs)
 
--- |For testing purposes: process transactions in the groups in which they came
--- The arrival time of all transactions is taken to be 0.
+-- | For testing purposes: process transactions in the groups in which they came
+--  The arrival time of all transactions is taken to be 0.
 processGroupedTransactions ::
     (MonadFail m, MonadIO m) =>
     [[TransactionJSON]] ->
@@ -233,23 +233,23 @@ data PayloadJSON
           twswmSchedule :: ![(Timestamp, Amount)]
         }
     | ConfigureDelegation
-        { -- |The capital delegated to the pool.
+        { -- | The capital delegated to the pool.
           cdCapital :: !(Maybe Amount),
-          -- |Whether the delegator's earnings are restaked.
+          -- | Whether the delegator's earnings are restaked.
           cdRestakeEarnings :: !(Maybe Bool),
-          -- |The target of the delegation.
+          -- | The target of the delegation.
           cdDelegationTarget :: !(Maybe Types.DelegationTarget)
         }
     deriving (Show, Generic)
 
 data TransactionHeader = TransactionHeader
-    { -- |Sender account address.
+    { -- | Sender account address.
       thSender :: !AccountAddress,
-      -- |Per account nonce, strictly increasing, no gaps.
+      -- | Per account nonce, strictly increasing, no gaps.
       thNonce :: !Nonce,
-      -- |Amount of gas dedicated for the execution of this transaction.
+      -- | Amount of gas dedicated for the execution of this transaction.
       thEnergyAmount :: !Energy,
-      -- |Expiration time after which transaction will not be executed
+      -- | Expiration time after which transaction will not be executed
       thExpiry :: TransactionExpiryTime
     }
     deriving (Show)

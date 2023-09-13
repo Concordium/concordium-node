@@ -36,7 +36,7 @@ blockD = T.BlockHash (H.hash "D")
 blocks :: [Val]
 blocks = [blockA, blockB, blockC, blockD]
 
--- |An invariant predicate over 'FreezeState's.
+-- | An invariant predicate over 'FreezeState's.
 invariantFreezeState :: VoterPower -> VoterPower -> (Party -> VoterPower) -> FreezeState () -> Bool
 invariantFreezeState tw cw pw fs = isRight (invariantFreezeState' tw cw pw fs)
 
@@ -116,7 +116,7 @@ assertInvariant = FreezeT $ do
     assert (invariantFreezeState totalWeight corruptWeight partyWeight state) (return ())
 -}
 
-tellState :: Monad m => FreezeT m ()
+tellState :: (Monad m) => FreezeT m ()
 tellState = FreezeT $ do
     st <- get
     tell [Right st]

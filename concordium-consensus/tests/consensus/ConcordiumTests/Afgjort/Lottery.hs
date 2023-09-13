@@ -27,20 +27,20 @@ ticketNoCheckOther = property $ \kp1 kp2 lid ->
             ticket = proofToTicket tproof 1 10
         in  not $ checkTicket lotteryid (VRF.publicKey kp2) ticket
 
--- |Cumulative distribution function for the binomial distribution
+-- | Cumulative distribution function for the binomial distribution
 binCdf :: Integer -> Integer -> Double -> Double
 binCdf k n p = incompleteBeta (fromIntegral $ n - k) (fromIntegral $ k + 1) (1 - p)
 
--- |Compute a p-value for observing a particular number of successes for
--- a binomial distribution with a given number of samples and probability.
+-- | Compute a p-value for observing a particular number of successes for
+--  a binomial distribution with a given number of samples and probability.
 pval :: Integer -> Integer -> Double -> Double
 pval samples successes p = 2 * min (binCdf successes samples p) (1 - binCdf (successes - 1) samples p)
 
--- |Run a number of simulations of two parties competing in the lottery,
--- where the second party has twice the weight of the first.  The result
--- is the probability of observing an outcome that is at least as extreme
--- under the assumption that the first party is expected to win each round
--- with probability 1/3.
+-- | Run a number of simulations of two parties competing in the lottery,
+--  where the second party has twice the weight of the first.  The result
+--  is the probability of observing an outcome that is at least as extreme
+--  under the assumption that the first party is expected to win each round
+--  with probability 1/3.
 doubleWeightTrial :: Integer -> Double
 doubleWeightTrial samples = pval samples (trials samples 0) p
   where

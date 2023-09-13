@@ -3,12 +3,12 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -Wno-orphans -Wno-deprecations #-}
 
--- |This file contains test cases for failure states in Concordium.Skov.Update.
--- Specifically, fail state testing for the majority of the reasons 'doStoreBlock' and 'addBlock' will reject blocks.
--- Structure is that one baker will mine two blocks, then a second treestate will accept the first block,
--- falsify some element of the second block, then check to make sure the dirtied second block is rejected.
+-- | This file contains test cases for failure states in Concordium.Skov.Update.
+--  Specifically, fail state testing for the majority of the reasons 'doStoreBlock' and 'addBlock' will reject blocks.
+--  Structure is that one baker will mine two blocks, then a second treestate will accept the first block,
+--  falsify some element of the second block, then check to make sure the dirtied second block is rejected.
 --
--- Does not currently verify which error gets thrown, could refactor to do this?
+--  Does not currently verify which error gets thrown, could refactor to do this?
 module ConcordiumTests.Update (test) where
 
 import Control.Monad
@@ -52,7 +52,7 @@ import Data.FixedByteString as FBS
 
 import qualified Concordium.GlobalState.DummyData as Dummy
 
--- |Protocol version
+-- | Protocol version
 type PV = 'P1
 
 dummyTime :: UTCTime
@@ -96,7 +96,7 @@ myRunSkovT a handlers ctx st = liftIO $ flip runLoggerT doLog $ do
 
 type BakerState = (BakerIdentity, SkovContext (Config DummyTimer), SkovState (Config DummyTimer))
 
--- |Create initial states for two bakers
+-- | Create initial states for two bakers
 createInitStates :: FilePath -> IO (BakerState, BakerState)
 createInitStates dir = do
     let bakerAmount = 10 ^ (4 :: Int)
@@ -157,7 +157,7 @@ withInitialStates r = do
             shutdownSkov b1ctx b1state
             shutdownSkov b2ctx b2state
 
--- |Helper function to resign blocks after dirtying
+-- | Helper function to resign blocks after dirtying
 reSign :: BakerSignPrivateKey -> BakedBlock -> BakedBlock
 reSign key BakedBlock{..} = BakedBlock{bbSignature = newSig, ..}
   where
@@ -165,7 +165,7 @@ reSign key BakedBlock{..} = BakedBlock{bbSignature = newSig, ..}
     newBlockHash = generateBlockHash bbSlot bfBlockPointer bfBlockBaker bfBlockBakerKey bfBlockProof bfBlockNonce bfBlockFinalizationData bbTransactions bbStateHash bbTransactionOutcomesHash
     newSig = Sig.sign key (Hash.hashToByteString (blockHash newBlockHash))
 
--- |Helper function to bake
+-- | Helper function to bake
 bake :: BakerIdentity -> Slot -> MySkovT BakedBlock
 bake bid n = do
     mb <- bakeForSlot bid n
@@ -178,15 +178,15 @@ bake bid n = do
         )
         mb
 
--- |Attempts to store a block, and throws an error if it fails
+-- | Attempts to store a block, and throws an error if it fails
 store :: (SkovMonad m, MonadFail m) => BakedBlock -> m ()
 store block =
     receiveExecuteBlock (makePendingBlock block dummyTime) >>= \case
         ResultSuccess -> return ()
         result -> fail $ "Failed to execute un-dirtied block " ++ show block ++ ". Reason: " ++ show result
 
--- |Attempts to store a block, and throws an error if it succeeds
--- Used for verifying that dirtied blocks are rejected
+-- | Attempts to store a block, and throws an error if it succeeds
+--  Used for verifying that dirtied blocks are rejected
 failStore :: (SkovMonad m, MonadFail m) => BakedBlock -> m ()
 failStore block =
     receiveExecuteBlock (makePendingBlock block dummyTime) >>= \case
@@ -209,7 +209,7 @@ dirtyTransactionOutcomesHash BakedBlock{..} bid = reSign bid BakedBlock{bbTransa
 dirtyStateHash :: BakedBlock -> BakerSignPrivateKey -> BakedBlock
 dirtyStateHash BakedBlock{..} bid = reSign bid BakedBlock{bbStateHash = stubStateHash, ..}
 
--- |Dirties the claimed key so it doesn't match the signature anymore
+-- | Dirties the claimed key so it doesn't match the signature anymore
 dirtyBakerKey :: BakedBlock -> BakerSignPrivateKey -> BakedBlock
 dirtyBakerKey BakedBlock{..} _ = BakedBlock{bbFields = BlockFields{bfBlockBakerKey = fakeVerifKey, ..}, ..}
   where
@@ -217,7 +217,7 @@ dirtyBakerKey BakedBlock{..} _ = BakedBlock{bbFields = BlockFields{bfBlockBakerK
     baker3 = Dummy.mkFullBaker 2 0
     fakeVerifKey = baker3 ^. _1 . bakerInfo . bakerSignatureVerifyKey
 
--- |Dirties the key, and resigns the block with the dirtied key. This tests that we verify the key is the same as baker key
+-- | Dirties the key, and resigns the block with the dirtied key. This tests that we verify the key is the same as baker key
 dirtyBakerKeySignature :: BakedBlock -> BakerSignPrivateKey -> BakedBlock
 dirtyBakerKeySignature BakedBlock{..} _ = reSign fakeKeyPair BakedBlock{bbFields = BlockFields{bfBlockBakerKey = fakeVerifyKey, ..}, ..}
   where
@@ -226,17 +226,17 @@ dirtyBakerKeySignature BakedBlock{..} _ = reSign fakeKeyPair BakedBlock{bbFields
     fakeVerifyKey = baker3 ^. _1 . bakerInfo . bakerSignatureVerifyKey
     fakeKeyPair = Sig.KeyPair{signKey = baker3 ^. _3, verifyKey = fakeVerifyKey}
 
--- |Claims earlier slot than reality
+-- | Claims earlier slot than reality
 dirtySlot1 :: BakedBlock -> BakerSignPrivateKey -> BakedBlock
 dirtySlot1 BakedBlock{..} bid = reSign bid BakedBlock{bbSlot = 1, ..}
 
--- |Claims later slot than reality
+-- | Claims later slot than reality
 dirtySlot2 :: BakedBlock -> BakerSignPrivateKey -> BakedBlock
 dirtySlot2 BakedBlock{..} bid = reSign bid BakedBlock{bbSlot = 3, ..}
 
--- |Sanity check test, to make sure that an undirtied block doesn't fail to be stored
+-- | Sanity check test, to make sure that an undirtied block doesn't fail to be stored
 runSanityCheck ::
-    -- |Initial state for the first baker
+    -- | Initial state for the first baker
     BakerState ->
     BakerState ->
     IO ()
@@ -255,12 +255,12 @@ runSanityCheck (bid1, fi1, fs1) (_, fi2, fs2) = do
             fi2
             fs2
 
--- |Sets up by baker1 baking two blocks. baker2 then adds the first block to his tree
--- The second block is dirtied in a way defined by dirtyFunc, which modifies a block then resigns it using baker1's key.
---  then we check to make sure that storage of the second block fails using failStore
+-- | Sets up by baker1 baking two blocks. baker2 then adds the first block to his tree
+--  The second block is dirtied in a way defined by dirtyFunc, which modifies a block then resigns it using baker1's key.
+--   then we check to make sure that storage of the second block fails using failStore
 runTest ::
     (BakedBlock -> BakerSignPrivateKey -> BakedBlock) ->
-    -- |Initial state for the first baker
+    -- | Initial state for the first baker
     BakerState ->
     BakerState ->
     IO ()
@@ -280,9 +280,9 @@ runTest dirtyFunc (bid1, fi1, fs1) (_, fi2, fs2) = do
             fi2
             fs2
 
--- |Tests sending duplicate blocks
+-- | Tests sending duplicate blocks
 runTestDupe ::
-    -- |Initial state for the first baker
+    -- | Initial state for the first baker
     BakerState ->
     BakerState ->
     IO ()

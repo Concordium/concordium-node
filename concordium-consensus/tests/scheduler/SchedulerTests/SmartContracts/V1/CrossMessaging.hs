@@ -59,7 +59,7 @@ version0 = V0
 -- increments the counter.
 test1 ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec

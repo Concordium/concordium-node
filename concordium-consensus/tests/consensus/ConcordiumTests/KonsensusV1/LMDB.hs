@@ -33,25 +33,25 @@ import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Transactions
 
--- |A dummy UTCTime used for tests where the actual value is not significant.
+-- | A dummy UTCTime used for tests where the actual value is not significant.
 dummyTime :: UTCTime
 dummyTime = posixSecondsToUTCTime 0
 
--- |A 'TransactionTime' needed for constructing a 'TransactionHeader', and for the metadata of
--- block items.
+-- | A 'TransactionTime' needed for constructing a 'TransactionHeader', and for the metadata of
+--  block items.
 dummyTransactionTime :: TransactionTime
 dummyTransactionTime = utcTimeToTransactionTime $ posixSecondsToUTCTime 0
 
--- |A BLS secret key needed for creating a 'QuorumSignature'.
+-- | A BLS secret key needed for creating a 'QuorumSignature'.
 dummyBlsSK :: Bls.SecretKey
 dummyBlsSK = fst $ randomBlsSecretKey (mkStdGen 17)
 
--- |A 'Hash' used for constructing a 'BlockHash', a 'TransactionOutcomesHash',
--- a 'StateHashV0', a 'TransactionSignHashV0' and a 'BlockQuasiHash'.
+-- | A 'Hash' used for constructing a 'BlockHash', a 'TransactionOutcomesHash',
+--  a 'StateHashV0', a 'TransactionSignHashV0' and a 'BlockQuasiHash'.
 dummyHash :: Hash.Hash
 dummyHash = Hash.hash "test"
 
--- |A 'QuorumCertificate' used in both 'dummyFinalizationEntry' and for constructing a 'BakedBlock'.
+-- | A 'QuorumCertificate' used in both 'dummyFinalizationEntry' and for constructing a 'BakedBlock'.
 dummyQC :: QuorumCertificate
 dummyQC =
     QuorumCertificate
@@ -62,29 +62,29 @@ dummyQC =
           qcSignatories = FinalizerSet 0
         }
 
--- |A block signature keypair used to construct a block signature.
--- The choice of the keypair is not significant.
+-- | A block signature keypair used to construct a block signature.
+--  The choice of the keypair is not significant.
 dummyKP :: Block.KeyPair
 dummyKP = fst $ randomBlockKeyPair (mkStdGen 17)
 
--- |A VRF keypair used to construct a VRF proof
--- The choice of the keypair is not significant.
+-- | A VRF keypair used to construct a VRF proof
+--  The choice of the keypair is not significant.
 dummyVrfKP :: VRF.KeyPair
 dummyVrfKP = fst $ VRF.randomKeyPair (mkStdGen 18)
 
--- |A concrete VRF proof used to construct a 'BakedBlock'.
--- The proof is well-formed, but there should be no other expectation regarding its validity.
+-- | A concrete VRF proof used to construct a 'BakedBlock'.
+--  The proof is well-formed, but there should be no other expectation regarding its validity.
 dummyProof :: VRF.Proof
 dummyProof = VRF.prove dummyVrfKP "foo"
 
--- |A block signature used in 'dummyBlock'.
--- The signature is well-formed, but there should be no expectation as to its validity.
+-- | A block signature used in 'dummyBlock'.
+--  The signature is well-formed, but there should be no expectation as to its validity.
 dummyBlockSig :: Block.Signature
 dummyBlockSig = Block.sign dummyKP "someMessage"
 
--- |A helper function for creating a 'BakedBlock' given a round. Used by 'dummyBlock' to create blocks.
--- The block is well-formed and contains the supplied transactions and is for the specified round.
--- Beyond that, there should be no expectation on the data in the block.
+-- | A helper function for creating a 'BakedBlock' given a round. Used by 'dummyBlock' to create blocks.
+--  The block is well-formed and contains the supplied transactions and is for the specified round.
+--  Beyond that, there should be no expectation on the data in the block.
 dummyBakedBlock :: Round -> Vector.Vector BlockItem -> BakedBlock
 dummyBakedBlock n ts =
     BakedBlock
@@ -101,14 +101,14 @@ dummyBakedBlock n ts =
           bbStateHash = StateHashV0 dummyHash
         }
 
--- |A helper function for creating an account address given a seed.
--- The address is well-formed, and different seeds should give different values.
--- Beyond that, there should be no expectation on the addresses produced.
+-- | A helper function for creating an account address given a seed.
+--  The address is well-formed, and different seeds should give different values.
+--  Beyond that, there should be no expectation on the addresses produced.
 dummyAccountAddress :: Int -> AccountAddress
 dummyAccountAddress seed = fst $ randomAccountAddress (mkStdGen seed)
 
--- |The transaction header used in 'dummyBlockItem'.
--- This is a well-formed transaction header, but there should be no other expectation on the data.
+-- | The transaction header used in 'dummyBlockItem'.
+--  This is a well-formed transaction header, but there should be no other expectation on the data.
 dummyTransactionHeader :: TransactionHeader
 dummyTransactionHeader =
     TransactionHeader
@@ -119,9 +119,9 @@ dummyTransactionHeader =
           thExpiry = dummyTransactionTime
         }
 
--- |A BlockItem used by 'dummyStoredBlockOneTransaction' to create a 'StoredBlock' with this block item in it.
--- This is a well-formed normal transaction block item. There should be no other expectation on the
--- data.
+-- | A BlockItem used by 'dummyStoredBlockOneTransaction' to create a 'StoredBlock' with this block item in it.
+--  This is a well-formed normal transaction block item. There should be no other expectation on the
+--  data.
 dummyBlockItem :: BlockItem
 dummyBlockItem =
     addMetadata id dummyTransactionTime $
@@ -133,28 +133,28 @@ dummyBlockItem =
                   atrSignHash = TransactionSignHashV0 dummyHash
                 }
 
--- |A helper function for creating a block with the given round and block items.
--- Blocks with different hashes can then be constructed by calling this function with different rounds.
--- The blocks are derived from 'dummyBakedBlock' with the supplied round and block items.
+-- | A helper function for creating a block with the given round and block items.
+--  Blocks with different hashes can then be constructed by calling this function with different rounds.
+--  The blocks are derived from 'dummyBakedBlock' with the supplied round and block items.
 dummyBlock :: Round -> Vector.Vector BlockItem -> Block 'P6
 dummyBlock n ts = NormalBlock $ SignedBlock b h dummyBlockSig
   where
     b = dummyBakedBlock n ts
     h = getHash b
 
--- |A helper function for creating a StoredBlock with the given block height and round, and with no transactions.
--- Empty 'StoredBlock's with different hashes can then be constructed by calling this function with different rounds.
--- The blocks are derived from 'dummyBlock' with the supplied height and round, but no block items.
+-- | A helper function for creating a StoredBlock with the given block height and round, and with no transactions.
+--  Empty 'StoredBlock's with different hashes can then be constructed by calling this function with different rounds.
+--  The blocks are derived from 'dummyBlock' with the supplied height and round, but no block items.
 dummyStoredBlockEmpty :: BlockHeight -> Round -> StoredBlock 'P6
 dummyStoredBlockEmpty h n = StoredBlock (BlockMetadata h dummyTime dummyTime 0 0) (dummyBlock n Vector.empty) (BlobRef 0)
 
--- |A helper function for creating a StoredBlock with the given block height and round, and with one transaction.
--- 'StoredBlock's (with one transaction) with different hashes can then be constructed by calling this function with different rounds.
--- The blocks are derived from 'dummyBlock' with the supplied height and round, and a singular 'dummyBlockItem'.
+-- | A helper function for creating a StoredBlock with the given block height and round, and with one transaction.
+--  'StoredBlock's (with one transaction) with different hashes can then be constructed by calling this function with different rounds.
+--  The blocks are derived from 'dummyBlock' with the supplied height and round, and a singular 'dummyBlockItem'.
 dummyStoredBlockOneTransaction :: BlockHeight -> Round -> StoredBlock 'P6
 dummyStoredBlockOneTransaction h n = StoredBlock (BlockMetadata h dummyTime dummyTime 200 200) (dummyBlock n $ Vector.singleton dummyBlockItem) (BlobRef 0)
 
--- |List of stored blocks used for testing. The heights are chosen so it is tested that the endianness of the stored block heights are correct.
+-- | List of stored blocks used for testing. The heights are chosen so it is tested that the endianness of the stored block heights are correct.
 dummyStoredBlocks :: [StoredBlock 'P6]
 dummyStoredBlocks =
     [ dummyStoredBlockEmpty 1 1,
@@ -169,7 +169,7 @@ dummyStoredBlocks =
       dummyStoredBlockOneTransaction 5 10
     ]
 
--- |A FinalizationEntry. Both used by 'writeBlocks' and used when testing 'lookupLatestFinalizationEntry'.
+-- | A FinalizationEntry. Both used by 'writeBlocks' and used when testing 'lookupLatestFinalizationEntry'.
 dummyFinalizationEntry :: FinalizationEntry
 dummyFinalizationEntry =
     let feSuccessorProof = BlockQuasiHash dummyHash
@@ -184,10 +184,10 @@ dummyFinalizationEntry =
 
 -- In the following we test all of the functions of 'MonadTreeStateStore'.
 
--- |Helper function for running a test in the context of 'DiskLLDBM' over
--- some 'Reader'.
--- Running an action within this context creates a temporary file which
--- serves the disk based lmdb implementation the computation.
+-- | Helper function for running a test in the context of 'DiskLLDBM' over
+--  some 'Reader'.
+--  Running an action within this context creates a temporary file which
+--  serves the disk based lmdb implementation the computation.
 runLLMDBTest ::
     String ->
     DiskLLDBM pv (ReaderT (DatabaseHandlers 'P6) (LoggerT IO)) a ->
@@ -198,7 +198,7 @@ runLLMDBTest name action = withTempDirectory "" name $ \path ->
         closeDatabase
         (\dbhandlers -> runSilentLogger $ runReaderT (runDiskLLDBM action) dbhandlers)
 
--- |Set up the database with the 'dummyStoredBlocks' finalized.
+-- | Set up the database with the 'dummyStoredBlocks' finalized.
 setupDummy :: DiskLLDBM 'P6 (ReaderT (DatabaseHandlers 'P6) (LoggerT IO)) ()
 setupDummy = do
     forM_ dummyStoredBlocks $ \sb ->
@@ -211,9 +211,9 @@ setupDummy = do
                 }
     writeFinalizedBlocks dummyStoredBlocks dummyFinalizationEntry
 
--- |Test that 'lookupLastBlock' returns the block with the greatest height among the dummy blocks.
--- The dummy blocks are chosen to have a wide range of blockheights to catch possible endianness
--- errors.
+-- | Test that 'lookupLastBlock' returns the block with the greatest height among the dummy blocks.
+--  The dummy blocks are chosen to have a wide range of blockheights to catch possible endianness
+--  errors.
 testLookupLastBlock :: Assertion
 testLookupLastBlock = runLLMDBTest "lookupLastBlockTest" $ do
     setupDummy
@@ -222,7 +222,7 @@ testLookupLastBlock = runLLMDBTest "lookupLastBlockTest" $ do
         Nothing -> liftIO $ assertFailure "Block should be Just"
         Just sb -> liftIO $ assertEqual "BlockHeight should be 0x100000000000000" 0x100000000000000 (blockHeight sb)
 
--- |Test that the function 'LookupFirstBlock' returns the block with height '0' from the dummy blocks.
+-- | Test that the function 'LookupFirstBlock' returns the block with height '0' from the dummy blocks.
 testLookupFirstBlock :: Assertion
 testLookupFirstBlock = runLLMDBTest "lookupFirstBlockTest" $ do
     setupDummy
@@ -231,7 +231,7 @@ testLookupFirstBlock = runLLMDBTest "lookupFirstBlockTest" $ do
         Nothing -> liftIO $ assertFailure "Block should be Just"
         Just sb -> liftIO $ assertEqual "BlockHeight should be 0" 0 (blockHeight sb)
 
--- |Test that the function 'LookupBlockByHeight' retrieves the correct block at height 0x10000.
+-- | Test that the function 'LookupBlockByHeight' retrieves the correct block at height 0x10000.
 testLookupBlockByHeight :: Assertion
 testLookupBlockByHeight = runLLMDBTest "lookupBlockByHeightTest" $ do
     setupDummy
@@ -240,14 +240,14 @@ testLookupBlockByHeight = runLLMDBTest "lookupBlockByHeightTest" $ do
         Nothing -> liftIO $ assertFailure "Block should be Just"
         Just sb -> liftIO $ assertEqual "BlockHeight should be 0x10000" 0x10000 (blockHeight sb)
 
--- |Test that the function 'memberBlock' returns 'True' for a selected block.
+-- | Test that the function 'memberBlock' returns 'True' for a selected block.
 testMemberBlock :: Assertion
 testMemberBlock = runLLMDBTest "memberBlockTest" $ do
     setupDummy
     isMember <- memberBlock $ getHash $ dummyBakedBlock 1 Vector.empty
     liftIO $ assertBool "isMember should be True" isMember
 
--- |Test that the function 'lookupBlock' retrieves a selected block.
+-- | Test that the function 'lookupBlock' retrieves a selected block.
 testLookupBlock :: Assertion
 testLookupBlock = runLLMDBTest "lookupBlockTest" $ do
     setupDummy
@@ -256,7 +256,7 @@ testLookupBlock = runLLMDBTest "lookupBlockTest" $ do
         Nothing -> liftIO $ assertFailure "Block should be Just"
         Just sb -> liftIO $ assertEqual "BlockHeight should be 0x100000000" 0x100000000 (blockHeight sb)
 
--- |Test that the function 'lookupFinalizationEntry' retrieves a written expected finalization entry.
+-- | Test that the function 'lookupFinalizationEntry' retrieves a written expected finalization entry.
 testLookupLatestFinalizationEntry :: Assertion
 testLookupLatestFinalizationEntry = runLLMDBTest "lookupFinalizationEntryTest" $ do
     setupDummy
@@ -265,7 +265,7 @@ testLookupLatestFinalizationEntry = runLLMDBTest "lookupFinalizationEntryTest" $
         Nothing -> liftIO $ assertFailure "Finalization entry should be Just"
         Just f -> liftIO $ assertEqual "Finalization entry should match" dummyFinalizationEntry f
 
--- |Test that the function 'lookupTransaction' retrieves the expected transaction status.
+-- | Test that the function 'lookupTransaction' retrieves the expected transaction status.
 testLookupTransaction :: Assertion
 testLookupTransaction = runLLMDBTest "lookupTransactionTest" $ do
     setupDummy
@@ -276,7 +276,7 @@ testLookupTransaction = runLLMDBTest "lookupTransactionTest" $ do
             liftIO $ assertEqual "Block height of transaction should be 5" 5 ftsBlockHeight
             liftIO $ assertEqual "Transaction index should be 0" 0 ftsIndex
 
--- |Test that the function 'memberTransaction' identifies the presence of a known transaction.
+-- | Test that the function 'memberTransaction' identifies the presence of a known transaction.
 testMemberTransaction :: Assertion
 testMemberTransaction = runLLMDBTest "memberTransactionTest" $ do
     setupDummy

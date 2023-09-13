@@ -61,27 +61,27 @@ instance Serialize FinalizationRecord where
         finalizationDelay <- get
         return $ FinalizationRecord{..}
 
--- |Read a finalization record according to the V0 format.
+-- | Read a finalization record according to the V0 format.
 getFinalizationRecordV0 :: Get FinalizationRecord
 getFinalizationRecordV0 = get
 
--- |Serialize a finalization record according to the V0 format.
+-- | Serialize a finalization record according to the V0 format.
 putFinalizationRecordV0 :: FinalizationRecord -> Put
 putFinalizationRecordV0 = put
 
--- |Deserialize a versioned finalization record.
--- Read the version and decide how to parse the remaining data based on the
--- version.
+-- | Deserialize a versioned finalization record.
+--  Read the version and decide how to parse the remaining data based on the
+--  version.
 --
--- Currently only supports version 0
+--  Currently only supports version 0
 getExactVersionedFinalizationRecord :: Get FinalizationRecord
 getExactVersionedFinalizationRecord =
     getVersion >>= \case
         0 -> getFinalizationRecordV0
         n -> fail $ "Unsupported FinalizationRecord version: " ++ show n
 
--- |Serialize a Finalization Record with a version according to the V0 format.
--- In contrast to 'putFinalizationRecordV0' this function also prepends the version.
+-- | Serialize a Finalization Record with a version according to the V0 format.
+--  In contrast to 'putFinalizationRecordV0' this function also prepends the version.
 putVersionedFinalizationRecordV0 :: FinalizationRecord -> Put
 putVersionedFinalizationRecordV0 fpm = putVersion 0 <> putFinalizationRecordV0 fpm
 

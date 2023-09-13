@@ -1,7 +1,7 @@
--- |This module contains common types for representing the capital distribution of bakers and
--- delegators.  A snapshot of the capital distribution is taken when the bakers for a payday are
--- calculated.  This is then used to determine how rewards are distributed among the bakers and
--- delegators at the payday.
+-- | This module contains common types for representing the capital distribution of bakers and
+--  delegators.  A snapshot of the capital distribution is taken when the bakers for a payday are
+--  calculated.  This is then used to determine how rewards are distributed among the bakers and
+--  delegators at the payday.
 module Concordium.GlobalState.CapitalDistribution where
 
 import Data.Serialize
@@ -14,11 +14,11 @@ import Concordium.Utils.Serialization
 
 import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as LFMBT
 
--- |The capital staked by a particular delegator to a pool.
+-- | The capital staked by a particular delegator to a pool.
 data DelegatorCapital = DelegatorCapital
-    { -- |'DelegatorId' of the delegator
+    { -- | 'DelegatorId' of the delegator
       dcDelegatorId :: !DelegatorId,
-      -- |'Amount' staked by the delegator
+      -- | 'Amount' staked by the delegator
       dcDelegatorCapital :: !Amount
     }
     deriving (Show, Eq)
@@ -35,15 +35,15 @@ instance Serialize DelegatorCapital where
 instance HashableTo Hash.Hash DelegatorCapital where
     getHash = Hash.hash . encode
 
-instance Monad m => MHashableTo m Hash.Hash DelegatorCapital
+instance (Monad m) => MHashableTo m Hash.Hash DelegatorCapital
 
--- |The capital staked to a particular baker pool.
+-- | The capital staked to a particular baker pool.
 data BakerCapital = BakerCapital
-    { -- |'BakerId' of the pool owner
+    { -- | 'BakerId' of the pool owner
       bcBakerId :: !BakerId,
-      -- |Equity capital of the pool owner
+      -- | Equity capital of the pool owner
       bcBakerEquityCapital :: !Amount,
-      -- |Capital staked by each delegator to this pool, in ascending order of delegator ID.
+      -- | Capital staked by each delegator to this pool, in ascending order of delegator ID.
       bcDelegatorCapital :: !(Vec.Vector DelegatorCapital)
     }
     deriving (Show, Eq)
@@ -68,17 +68,17 @@ instance HashableTo Hash.Hash BakerCapital where
             put bcBakerEquityCapital
             put $ LFMBT.hashFromFoldable bcDelegatorCapital
 
-instance Monad m => MHashableTo m Hash.Hash BakerCapital
+instance (Monad m) => MHashableTo m Hash.Hash BakerCapital
 
--- |The total capital delegated to the baker.
+-- | The total capital delegated to the baker.
 bcTotalDelegatorCapital :: BakerCapital -> Amount
 bcTotalDelegatorCapital = sum . fmap dcDelegatorCapital . bcDelegatorCapital
 
--- |The distribution of the staked capital among the baker pools and passive delegators.
+-- | The distribution of the staked capital among the baker pools and passive delegators.
 data CapitalDistribution = CapitalDistribution
-    { -- |Capital associated with baker pools in ascending order of baker ID
+    { -- | Capital associated with baker pools in ascending order of baker ID
       bakerPoolCapital :: !(Vec.Vector BakerCapital),
-      -- |Capital of passive delegators in ascending order of delegator ID
+      -- | Capital of passive delegators in ascending order of delegator ID
       passiveDelegatorsCapital :: !(Vec.Vector DelegatorCapital)
     }
     deriving (Show, Eq)
@@ -99,15 +99,15 @@ instance HashableTo Hash.Hash CapitalDistribution where
             (LFMBT.hashFromFoldable bakerPoolCapital)
             (LFMBT.hashFromFoldable passiveDelegatorsCapital)
 
-instance Monad m => MHashableTo m Hash.Hash CapitalDistribution
+instance (Monad m) => MHashableTo m Hash.Hash CapitalDistribution
 
--- |The empty 'CapitalDistribution', with no bakers or passive delegators.
+-- | The empty 'CapitalDistribution', with no bakers or passive delegators.
 emptyCapitalDistribution :: CapitalDistribution
 emptyCapitalDistribution = CapitalDistribution Vec.empty Vec.empty
 
--- |Construct a 'CapitalDistribution' from a sorted list of bakers, with their equity capital and
--- delegator capitals, and the passive delegator capitals.  All lists are assumed to be in
--- ascending order of the 'BakerId' or 'DelegatorId', as appropriate.
+-- | Construct a 'CapitalDistribution' from a sorted list of bakers, with their equity capital and
+--  delegator capitals, and the passive delegator capitals.  All lists are assumed to be in
+--  ascending order of the 'BakerId' or 'DelegatorId', as appropriate.
 makeCapitalDistribution :: [(BakerId, Amount, [(DelegatorId, Amount)])] -> [(DelegatorId, Amount)] -> CapitalDistribution
 makeCapitalDistribution bakers passive =
     CapitalDistribution

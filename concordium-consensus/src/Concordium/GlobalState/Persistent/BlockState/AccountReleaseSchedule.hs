@@ -115,14 +115,14 @@ data Release = Release
     }
     deriving (Show)
 
-migrateRelease :: SupportMigration m t => Release -> t m Release
+migrateRelease :: (SupportMigration m t) => Release -> t m Release
 migrateRelease r = do
     newNext <- forM (_rNext r) $ migrateEagerlyHashedBufferedRefKeepHash migrateRelease
     return r{_rNext = newNext}
 
 -- | As every link in the chain is a HashedBufferedRef, when computing the hash
 -- of a release we will compute the hash of @timestamp <> amount <> nextHash@.
-instance MonadBlobStore m => MHashableTo m Hash Release where
+instance (MonadBlobStore m) => MHashableTo m Hash Release where
     getHashM rel = go (put (_rTimestamp rel) >> put (_rAmount rel)) (_rNext rel)
       where
         go partial Null = return $ hash $ runPut partial
@@ -130,7 +130,7 @@ instance MonadBlobStore m => MHashableTo m Hash Release where
             nextHash <- getHashM r
             return $ hash (runPut partial <> hashToByteString nextHash)
 
-instance MonadBlobStore m => BlobStorable m Release where
+instance (MonadBlobStore m) => BlobStorable m Release where
     storeUpdate r@Release{..} = do
         (pNext, _rNext') <- storeUpdate _rNext
         return
@@ -158,7 +158,7 @@ data AccountReleaseSchedule = AccountReleaseSchedule
 
 makeLenses ''AccountReleaseSchedule
 
-migratePersistentAccountReleaseSchedule :: SupportMigration m t => AccountReleaseSchedule -> t m AccountReleaseSchedule
+migratePersistentAccountReleaseSchedule :: (SupportMigration m t) => AccountReleaseSchedule -> t m AccountReleaseSchedule
 migratePersistentAccountReleaseSchedule AccountReleaseSchedule{..} = do
     newValues <- forM _arsValues $ \n -> do
         forM n $ \(hf, r) -> (,r) <$> migrateEagerlyHashedBufferedRefKeepHash migrateRelease hf
@@ -169,7 +169,7 @@ migratePersistentAccountReleaseSchedule AccountReleaseSchedule{..} = do
               _arsTotalLockedUpBalance = _arsTotalLockedUpBalance
             }
 
-instance MonadBlobStore m => BlobStorable m AccountReleaseSchedule where
+instance (MonadBlobStore m) => BlobStorable m AccountReleaseSchedule where
     storeUpdate AccountReleaseSchedule{..} = do
         let !len = Vector.length _arsValues
         let f item = do
@@ -204,7 +204,7 @@ instance MonadBlobStore m => BlobStorable m AccountReleaseSchedule where
 
 -- | @hash(AccountReleaseSchedule(releases) = hash (foldl (\h i -> h <> hash i)
 -- mempty) releases@ so @hash (hash a_1 <> hash a_2 <> ... <> hash a_n)@
-instance MonadBlobStore m => MHashableTo m Transient.AccountReleaseScheduleHashV0 AccountReleaseSchedule where
+instance (MonadBlobStore m) => MHashableTo m Transient.AccountReleaseScheduleHashV0 AccountReleaseSchedule where
     getHashM AccountReleaseSchedule{..} =
         if _arsTotalLockedUpBalance == 0
             then return Transient.emptyAccountReleaseScheduleHashV0
@@ -220,7 +220,7 @@ instance MonadBlobStore m => MHashableTo m Transient.AccountReleaseScheduleHashV
                         BS.empty
                         _arsValues
 
-instance MonadBlobStore m => Cacheable m AccountReleaseSchedule
+instance (MonadBlobStore m) => Cacheable m AccountReleaseSchedule
 
 ------------------------------------- API --------------------------------------
 
@@ -236,7 +236,7 @@ isEmptyAccountReleaseSchedule = Map.null . _arsPrioQueue
 --
 -- Precondition: The given list of timestamps and amounts MUST NOT be empty, and be in ascending
 -- order of timestamps.
-addReleases :: MonadBlobStore m => ([(Timestamp, Amount)], TransactionHash) -> AccountReleaseSchedule -> m AccountReleaseSchedule
+addReleases :: (MonadBlobStore m) => ([(Timestamp, Amount)], TransactionHash) -> AccountReleaseSchedule -> m AccountReleaseSchedule
 addReleases (l, txh) ars = do
     -- get the index that will be used with this new item
     let itemIndex = length $ ars ^. arsValues
@@ -264,7 +264,7 @@ addReleases (l, txh) ars = do
 -- | Returns the amount that was unlocked, the next timestamp for this account
 -- (if there is one) and the new account release schedule after removing the
 -- amounts whose timestamp was less or equal to the given timestamp.
-unlockAmountsUntil :: MonadBlobStore m => Timestamp -> AccountReleaseSchedule -> m (Amount, Maybe Timestamp, AccountReleaseSchedule)
+unlockAmountsUntil :: (MonadBlobStore m) => Timestamp -> AccountReleaseSchedule -> m (Amount, Maybe Timestamp, AccountReleaseSchedule)
 unlockAmountsUntil up ars = do
     let (toRemove, x, toKeep) = Map.splitLookup up (ars ^. arsPrioQueue)
     if Map.null toKeep
@@ -311,7 +311,7 @@ unlockAmountsUntil up ars = do
 -- This function is kind of equivalent to @head . drop num <$> iterateM f i@ if @iterateM :: (a -> m a) -> a -> m [a]@ existed. but also with
 -- short-circuit if the function @f@ returns @(False, _)@.
 pickNthResultM ::
-    Monad m =>
+    (Monad m) =>
     -- | The iteration function. If it returns @(False,_)@ this function will terminate
     (a -> m (Bool, a)) ->
     -- | The initial element
@@ -329,7 +329,7 @@ pickNthResultM f i num
 
 --------------------------------- Conversions ----------------------------------
 
-storePersistentAccountReleaseSchedule :: MonadBlobStore m => Transient.AccountReleaseSchedule -> m AccountReleaseSchedule
+storePersistentAccountReleaseSchedule :: (MonadBlobStore m) => Transient.AccountReleaseSchedule -> m AccountReleaseSchedule
 storePersistentAccountReleaseSchedule Transient.AccountReleaseSchedule{..} = do
     let persistTransientReleases (Transient.Release thisTimestamp thisAmount) nextRelease =
             Some <$> refMake (Release thisTimestamp thisAmount nextRelease)
@@ -347,7 +347,7 @@ storePersistentAccountReleaseSchedule Transient.AccountReleaseSchedule{..} = do
               ..
             }
 
-loadPersistentAccountReleaseSchedule :: MonadBlobStore m => AccountReleaseSchedule -> m Transient.AccountReleaseSchedule
+loadPersistentAccountReleaseSchedule :: (MonadBlobStore m) => AccountReleaseSchedule -> m Transient.AccountReleaseSchedule
 loadPersistentAccountReleaseSchedule AccountReleaseSchedule{..} = do
     _values <-
         Vector.mapM
@@ -369,17 +369,17 @@ loadPersistentAccountReleaseSchedule AccountReleaseSchedule{..} = do
               ..
             }
 
--- |Get the total locked up balance on an 'AccountReleaseSchedule'.
+-- | Get the total locked up balance on an 'AccountReleaseSchedule'.
 releaseScheduleLockedBalance :: AccountReleaseSchedule -> Amount
 releaseScheduleLockedBalance = _arsTotalLockedUpBalance
 
--- |Get the timestamp at which the next scheduled release will occur (if any).
+-- | Get the timestamp at which the next scheduled release will occur (if any).
 nextReleaseTimestamp :: AccountReleaseSchedule -> Maybe Timestamp
 nextReleaseTimestamp = fmap fst . Map.lookupMin . _arsPrioQueue
 
--- |List a release as timestamp and amount pairs.
--- The list will never be empty.
-listRelease :: MonadBlobStore m => Release -> m [(Timestamp, Amount)]
+-- | List a release as timestamp and amount pairs.
+--  The list will never be empty.
+listRelease :: (MonadBlobStore m) => Release -> m [(Timestamp, Amount)]
 listRelease loadedRelease = do
     next <- case _rNext loadedRelease of
         Null -> return []

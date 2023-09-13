@@ -61,12 +61,12 @@ keyPair1 = Helpers.keyPairFromSeed 1
 keyPair2 :: SigScheme.KeyPair
 keyPair2 = Helpers.keyPairFromSeed 2
 
-sender1 :: forall pv. IsProtocolVersion pv => SProtocolVersion pv -> Types.AccountAddress
+sender1 :: forall pv. (IsProtocolVersion pv) => SProtocolVersion pv -> Types.AccountAddress
 sender1 spv
     | supportsAccountAliases spv = Types.createAlias accountAddress1 17
     | otherwise = accountAddress1
 
-sender2 :: forall pv. IsProtocolVersion pv => SProtocolVersion pv -> Types.AccountAddress
+sender2 :: forall pv. (IsProtocolVersion pv) => SProtocolVersion pv -> Types.AccountAddress
 sender2 spv
     | supportsAccountAliases spv = Types.createAlias accountAddress2 77
     | otherwise = accountAddress2

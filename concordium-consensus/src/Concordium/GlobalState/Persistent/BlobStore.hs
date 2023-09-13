@@ -195,11 +195,11 @@ instance Show (BlobRef a) where
 
 -- | The handler for the BlobStore file
 data BlobHandle = BlobHandle
-    { -- |File handle that should be opened in read/write mode.
+    { -- | File handle that should be opened in read/write mode.
       bhHandle :: !Handle,
-      -- |Whether we are already at the end of the file, to avoid the need to seek on writes.
+      -- | Whether we are already at the end of the file, to avoid the need to seek on writes.
       bhAtEnd :: !Bool,
-      -- |Current size of the file.
+      -- | Current size of the file.
       bhSize :: !Int
     }
 
@@ -207,38 +207,38 @@ data BlobHandle = BlobHandle
 data BlobStoreAccess = BlobStoreAccess
     { blobStoreFile :: !(MVar BlobHandle),
       blobStoreFilePath :: !FilePath,
-      -- |The blob store file memory-mapped into a (read-only) 'ByteString'.
-      -- At any given time, this may be smaller than the file, requiring remapping to read later
-      -- parts. It will always map from the start of the file.
+      -- | The blob store file memory-mapped into a (read-only) 'ByteString'.
+      --  At any given time, this may be smaller than the file, requiring remapping to read later
+      --  parts. It will always map from the start of the file.
       blobStoreMMap :: !(IORef BS.ByteString)
     }
 
--- |Context needed to operate on the blob store.
+-- | Context needed to operate on the blob store.
 data BlobStore = BlobStore
-    { -- |A handle to the underlying storage.
+    { -- | A handle to the underlying storage.
       bscBlobStore :: !BlobStoreAccess,
-      -- |Callbacks for loading parts of the state. This is needed by V1 contract
-      -- state implementation.
+      -- | Callbacks for loading parts of the state. This is needed by V1 contract
+      --  state implementation.
       bscLoadCallback :: !LoadCallback,
-      -- |Callbacks for storing new state. This is needed by V1 contract state
-      -- implementation.
+      -- | Callbacks for storing new state. This is needed by V1 contract state
+      --  implementation.
       bscStoreCallback :: !StoreCallback
     }
 
 class HasBlobStore a where
-    -- |A handle to access the underlying storage.
+    -- | A handle to access the underlying storage.
     blobStore :: a -> BlobStoreAccess
 
-    -- |Callbacks for loading parts of the state. This is needed by V1 contract
-    -- state implementation, but should otherwise not be used by Haskell code directly.
+    -- | Callbacks for loading parts of the state. This is needed by V1 contract
+    --  state implementation, but should otherwise not be used by Haskell code directly.
     blobLoadCallback :: a -> LoadCallback
 
-    -- |Callbacks for storing new state. This is needed by V1 contract state
-    -- implementation, but should otherwise not be used by Haskell code directly.
+    -- | Callbacks for storing new state. This is needed by V1 contract state
+    --  implementation, but should otherwise not be used by Haskell code directly.
     blobStoreCallback :: a -> StoreCallback
 
--- |Construct callbacks for accessing the blob store.
--- These callbacks must be freed in order that memory is not leaked.
+-- | Construct callbacks for accessing the blob store.
+--  These callbacks must be freed in order that memory is not leaked.
 mkCallbacksFromBlobStore :: BlobStoreAccess -> IO (LoadCallback, StoreCallback)
 mkCallbacksFromBlobStore bstore = do
     storeCallback <- createStoreCallback (\ptr size -> theBlobRef <$> (writeBlobBS bstore =<< BSUnsafe.unsafePackCStringLen (castPtr ptr, fromIntegral size)))
@@ -248,15 +248,15 @@ mkCallbacksFromBlobStore bstore = do
             copyToRustVec (castPtr sourcePtr) (fromIntegral len)
     return (loadCallback, storeCallback)
 
--- |Free callbacks constructed with 'mkCallbacksFromBlobStore'. This can only be
--- called once for each constructed callback.
+-- | Free callbacks constructed with 'mkCallbacksFromBlobStore'. This can only be
+--  called once for each constructed callback.
 freeCallbacks :: LoadCallback -> StoreCallback -> IO ()
 freeCallbacks fp1 fp2 = do
     freeHaskellFunPtr fp1
     freeHaskellFunPtr fp2
 
--- |Create a new blob store at a given location.
--- Fails if a file or directory at that location already exists.
+-- | Create a new blob store at a given location.
+--  Fails if a file or directory at that location already exists.
 createBlobStore :: FilePath -> IO BlobStore
 createBlobStore blobStoreFilePath = do
     pathEx <- doesPathExist blobStoreFilePath
@@ -268,8 +268,8 @@ createBlobStore blobStoreFilePath = do
     (bscLoadCallback, bscStoreCallback) <- mkCallbacksFromBlobStore bscBlobStore
     return BlobStore{..}
 
--- |Load an existing blob store from a file.
--- The file must be readable and writable, but this is not checked here.
+-- | Load an existing blob store from a file.
+--  The file must be readable and writable, but this is not checked here.
 loadBlobStore :: FilePath -> IO BlobStore
 loadBlobStore blobStoreFilePath = do
     bhHandle <- openBinaryFile blobStoreFilePath ReadWriteMode
@@ -280,14 +280,14 @@ loadBlobStore blobStoreFilePath = do
     (bscLoadCallback, bscStoreCallback) <- mkCallbacksFromBlobStore bscBlobStore
     return BlobStore{..}
 
--- |Flush all buffers associated with the blob store,
--- ensuring all the contents is written out.
+-- | Flush all buffers associated with the blob store,
+--  ensuring all the contents is written out.
 flushBlobStore :: BlobStoreAccess -> IO ()
 flushBlobStore BlobStoreAccess{..} =
     withMVar blobStoreFile (hFlush . bhHandle)
 
--- |Close all references to the blob store, flushing it
--- in the process.
+-- | Close all references to the blob store, flushing it
+--  in the process.
 closeBlobStore :: BlobStore -> IO ()
 closeBlobStore BlobStore{..} = do
     BlobHandle{..} <- takeMVar (blobStoreFile bscBlobStore)
@@ -295,7 +295,7 @@ closeBlobStore BlobStore{..} = do
     hClose bhHandle
     freeCallbacks bscLoadCallback bscStoreCallback
 
--- |Close all references to the blob store and delete the backing file.
+-- | Close all references to the blob store and delete the backing file.
 destroyBlobStore :: BlobStore -> IO ()
 destroyBlobStore bs@BlobStore{..} = do
     closeBlobStore bs
@@ -305,10 +305,10 @@ destroyBlobStore bs@BlobStore{..} = do
     -- to force it have not proved successful.
     removeFile (blobStoreFilePath bscBlobStore) `catch` (\(_ :: IOException) -> return ())
 
--- |Run a computation with temporary access to the blob store.
--- The given FilePath is a directory where the temporary blob
--- store will be created.
--- The blob store file is deleted afterwards.
+-- | Run a computation with temporary access to the blob store.
+--  The given FilePath is a directory where the temporary blob
+--  store will be created.
+--  The blob store file is deleted afterwards.
 runBlobStoreTemp :: FilePath -> BlobStoreM a -> IO a
 runBlobStoreTemp dir a = bracket openf closef usef
   where
@@ -433,16 +433,16 @@ readBlobBS bs@BlobStoreAccess{..} br@(BlobRef offset) = do
                                 BS.take (fromIntegral size) $
                                     BS.drop dataOffset mmap
 
--- |Check if a given 'BlobRef' is valid in the blob store. This attempts to
--- load the value from the given location and handles the following two failures
--- - there is not enough data to read from the blob store, i.e., the file ends prematurely
--- - the value cannot be loaded/deserialized.
+-- | Check if a given 'BlobRef' is valid in the blob store. This attempts to
+--  load the value from the given location and handles the following two failures
+--  - there is not enough data to read from the blob store, i.e., the file ends prematurely
+--  - the value cannot be loaded/deserialized.
 --
--- These two together handle the common case of corruption where data at the end
--- of the blob store is not written properly. The second test is needed since at
--- least on some platforms the blob store sometimes ends up with enough trailing
--- zeros that the first check above succeeds, but those zeros are not valid
--- data. This happens if the node is killed at the right time.
+--  These two together handle the common case of corruption where data at the end
+--  of the blob store is not written properly. The second test is needed since at
+--  least on some platforms the blob store sometimes ends up with enough trailing
+--  zeros that the first check above succeeds, but those zeros are not valid
+--  data. This happens if the node is killed at the right time.
 isValidBlobRef :: (MonadCatch.MonadCatch m, BlobStorable m a) => BlobRef a -> m Bool
 isValidBlobRef br = (True <$ loadRef br) `MonadCatch.catch` (\(_ :: SomeException) -> return False)
 
@@ -466,17 +466,17 @@ writeBlobBS BlobStoreAccess{..} bs = mask $ \restore -> do
   where
     size = encode (fromIntegral (BS.length bs) :: Word64)
 
--- |A pointer into the blob store that can be used for direct memory access.
--- In particular the 'BlobPtr' can be used for 'custom' access into the 'BlobStore'
--- as it does not depend on serialization of @a@, instead it is used for retrieving
--- a raw 'ByteString' from the 'BlobStore'.
+-- | A pointer into the blob store that can be used for direct memory access.
+--  In particular the 'BlobPtr' can be used for 'custom' access into the 'BlobStore'
+--  as it does not depend on serialization of @a@, instead it is used for retrieving
+--  a raw 'ByteString' from the 'BlobStore'.
 --
--- This is used for providing the Rust side with raw bytes of an 'Artifact' without having to
--- deserialize it beforehand.
+--  This is used for providing the Rust side with raw bytes of an 'Artifact' without having to
+--  deserialize it beforehand.
 data BlobPtr a = BlobPtr
-    { -- |The offset of @a@ in the 'BlobStore'.
+    { -- | The offset of @a@ in the 'BlobStore'.
       theBlobPtr :: !Word64,
-      -- |The length to read from the offset.
+      -- | The length to read from the offset.
       blobPtrLen :: !Word64
     }
     deriving (Eq, Show)
@@ -513,55 +513,55 @@ readBlobPtrBS bs@BlobStoreAccess{..} bptr@BlobPtr{..} = do
         then readBlobPtrBSFromHandle bs bptr
         else return $! BS.take (fromIntegral blobPtrLen) (BS.drop (fromIntegral theBlobPtr) mmap)
 
--- |Typeclass for a monad to be equipped with a blob store.
--- This allows a 'BS.ByteString' to be written to the store,
--- obtaining a 'BlobRef', and a 'BlobRef' to be read back as
--- a 'BS.ByteStrings'.
+-- | Typeclass for a monad to be equipped with a blob store.
+--  This allows a 'BS.ByteString' to be written to the store,
+--  obtaining a 'BlobRef', and a 'BlobRef' to be read back as
+--  a 'BS.ByteStrings'.
 --
--- Default implementations are provided for a monad @m@ that
--- is a reader monad (@MonadReader r m@) for a type @r@
--- that can be projected to a 'BlobStore' (@HasBlobStore r@).
-class MonadIO m => MonadBlobStore m where
-    -- |Store a 'BS.ByteString' and return a reference to it.
+--  Default implementations are provided for a monad @m@ that
+--  is a reader monad (@MonadReader r m@) for a type @r@
+--  that can be projected to a 'BlobStore' (@HasBlobStore r@).
+class (MonadIO m) => MonadBlobStore m where
+    -- | Store a 'BS.ByteString' and return a reference to it.
     storeRaw :: BS.ByteString -> m (BlobRef a)
     default storeRaw :: (MonadReader r m, HasBlobStore r) => BS.ByteString -> m (BlobRef a)
     storeRaw b = do
         bs <- blobStore <$> ask
         liftIO $ writeBlobBS bs b
 
-    -- |Load a 'BS.ByteString' from a reference.
+    -- | Load a 'BS.ByteString' from a reference.
     loadRaw :: BlobRef a -> m BS.ByteString
     default loadRaw :: (MonadReader r m, HasBlobStore r) => BlobRef a -> m BS.ByteString
     loadRaw r = do
         bs <- blobStore <$> ask
         liftIO $ readBlobBS bs r
 
-    -- |Flush all writes to disk. This should ensure synchronization:
-    -- any 'BlobRef's that are stored before a call to @flushStore@
-    -- should be reliably written, and available if the file is
-    -- subsequently loaded.
+    -- | Flush all writes to disk. This should ensure synchronization:
+    --  any 'BlobRef's that are stored before a call to @flushStore@
+    --  should be reliably written, and available if the file is
+    --  subsequently loaded.
     flushStore :: m ()
     default flushStore :: (MonadReader r m, HasBlobStore r) => m ()
     flushStore = do
         bs <- blobStore <$> ask
         liftIO $ flushBlobStore bs
 
-    -- |Get callbacks that can be given to foreign code (i.e., passed via FFI)
-    -- to access the blob store.
+    -- | Get callbacks that can be given to foreign code (i.e., passed via FFI)
+    --  to access the blob store.
     getCallbacks :: m (LoadCallback, StoreCallback)
     default getCallbacks :: (MonadReader r m, HasBlobStore r) => m (LoadCallback, StoreCallback)
     getCallbacks = do
         r <- ask
         return (blobLoadCallback r, blobStoreCallback r)
 
-    -- |Access a blob pointer directly. The function should ONLY READ the memory at the pointer,
-    -- and not read beyond the length of the 'BlobPtr'.
+    -- | Access a blob pointer directly. The function should ONLY READ the memory at the pointer,
+    --  and not read beyond the length of the 'BlobPtr'.
     withBlobPtr :: BlobPtr a -> (Ptr a -> IO b) -> m b
     withBlobPtr bptr f = do
         bytes <- loadBlobPtr bptr
         liftIO $ BSUnsafe.unsafeUseAsCString bytes (f . castPtr)
 
-    -- |Access a blob pointer directly as a 'BS.ByteString'.
+    -- | Access a blob pointer directly as a 'BS.ByteString'.
     loadBlobPtr :: BlobPtr a -> m BS.ByteString
     default loadBlobPtr :: (MonadReader r m, HasBlobStore r) => BlobPtr a -> m BS.ByteString
     loadBlobPtr bptr = do
@@ -577,14 +577,14 @@ instance HasBlobStore BlobStore where
     blobLoadCallback = bscLoadCallback
     blobStoreCallback = bscStoreCallback
 
--- |An auxiliary constraint needed by all functions that migrate state from one
--- blob store to another. The intended reading of this is that @m@ and @t@
--- support migration from the context @m@ to the context @t m@. The context in
--- this case is essentially access to a block state database.
+-- | An auxiliary constraint needed by all functions that migrate state from one
+--  blob store to another. The intended reading of this is that @m@ and @t@
+--  support migration from the context @m@ to the context @t m@. The context in
+--  this case is essentially access to a block state database.
 type SupportMigration m t = (MonadBlobStore m, MonadTrans t, MonadBlobStore (t m))
 
--- |A monad transformer that is equivalent to 'ReaderT' but provides a 'MonadBlobStore' instance
--- based on the context (rather than lifting).
+-- | A monad transformer that is equivalent to 'ReaderT' but provides a 'MonadBlobStore' instance
+--  based on the context (rather than lifting).
 newtype BlobStoreT (r :: Type) (m :: Type -> Type) (a :: Type) = BlobStoreT {runBlobStoreT :: r -> m a}
     deriving
         (Functor, Applicative, Monad, MonadReader r, MonadIO, MonadFail, MonadLogger, MonadCatch.MonadThrow, MonadCatch.MonadCatch)
@@ -595,25 +595,25 @@ newtype BlobStoreT (r :: Type) (m :: Type -> Type) (a :: Type) = BlobStoreT {run
 
 instance (HasBlobStore r, MonadIO m) => MonadBlobStore (BlobStoreT r m)
 
--- |Apply a given function to modify the context of a 'BlobStoreT' operation.
+-- | Apply a given function to modify the context of a 'BlobStoreT' operation.
 alterBlobStoreT :: (r1 -> r2) -> BlobStoreT r2 m a -> BlobStoreT r1 m a
 alterBlobStoreT f (BlobStoreT a) = BlobStoreT (a . f)
 
--- |A simple monad implementing 'MonadBlobStore' that is equivalent to
--- @ReaderT r IO@.
+-- | A simple monad implementing 'MonadBlobStore' that is equivalent to
+--  @ReaderT r IO@.
 type BlobStoreM' r = BlobStoreT r IO
 
--- |A simple monad implementing 'MonadBlobStore' that is equivalent to
--- @ReaderT BlobStore IO@.
+-- | A simple monad implementing 'MonadBlobStore' that is equivalent to
+--  @ReaderT BlobStore IO@.
 type BlobStoreM = BlobStoreM' BlobStore
 
--- |Run a 'BlobStoreM'' operation with the supplied context.
+-- | Run a 'BlobStoreM'' operation with the supplied context.
 runBlobStoreM :: BlobStoreM' r a -> r -> IO a
 runBlobStoreM = runBlobStoreT
 
--- |A wrapper type for lifting 'MonadBlobStore' instances over monad transformers.
--- Lifted instances are provided for 'WriterT', 'StateT' and 'ExceptT', which are used for
--- conveniently implementing some block state operations.
+-- | A wrapper type for lifting 'MonadBlobStore' instances over monad transformers.
+--  Lifted instances are provided for 'WriterT', 'StateT' and 'ExceptT', which are used for
+--  conveniently implementing some block state operations.
 newtype LiftMonadBlobStore (t :: (Type -> Type) -> Type -> Type) (m :: Type -> Type) (a :: Type) = LiftMonadBlobStore (t m a)
     deriving (MonadTrans, Functor, Applicative, Monad, MonadIO)
 
@@ -639,52 +639,52 @@ deriving via
 deriving via
     (LiftMonadBlobStore (StateT s) m)
     instance
-        MonadBlobStore m => MonadBlobStore (StateT s m)
+        (MonadBlobStore m) => MonadBlobStore (StateT s m)
 
 deriving via
     (LiftMonadBlobStore (ExceptT e) m)
     instance
-        MonadBlobStore m => MonadBlobStore (ExceptT e m)
+        (MonadBlobStore m) => MonadBlobStore (ExceptT e m)
 
--- |This instance lifts a 'MonadBlobStore' over a 'ReaderT' transformer.
--- This is used to implement a 'Cacheable' instance for the persistent
--- 'Concordium.GlobalState.Persistent.Instances' type, which requires
--- makes use of a context to achieve sharing.
+-- | This instance lifts a 'MonadBlobStore' over a 'ReaderT' transformer.
+--  This is used to implement a 'Cacheable' instance for the persistent
+--  'Concordium.GlobalState.Persistent.Instances' type, which requires
+--  makes use of a context to achieve sharing.
 deriving via
     (LiftMonadBlobStore (ReaderT r) m)
     instance
-        MonadBlobStore m => MonadBlobStore (ReaderT r m)
+        (MonadBlobStore m) => MonadBlobStore (ReaderT r m)
 
 -- * In-memory blob store
 
--- |An in-memory blob store. This is intended for testing purposes, as it can be more convenient
--- than working with files. Internally, the blob store is handled as a lazy 'LBS.ByteString' guarded
--- by an 'MVar'.
+-- | An in-memory blob store. This is intended for testing purposes, as it can be more convenient
+--  than working with files. Internally, the blob store is handled as a lazy 'LBS.ByteString' guarded
+--  by an 'MVar'.
 data MemBlobStore = MemBlobStore
-    { -- |'MVar' containing the entire blob store as a lazy 'LBS.ByteString'.
-      -- This is accessed by 'readMVar' for readers, and 'takeMVar'/'putMVar' for writers.
-      -- This means that writers may block concurrent readers and writers, but readers will not block
-      -- writers or other readers.
+    { -- | 'MVar' containing the entire blob store as a lazy 'LBS.ByteString'.
+      --  This is accessed by 'readMVar' for readers, and 'takeMVar'/'putMVar' for writers.
+      --  This means that writers may block concurrent readers and writers, but readers will not block
+      --  writers or other readers.
       theMemBlobStore :: !(MVar LBS.ByteString),
-      -- |'MVar' containing the callbacks. This is initially empty, and the callbacks are created
-      -- only when first required. After this has been set, it should only become empty again when
-      -- the 'MemBlobStore' is to be disposed of.
+      -- | 'MVar' containing the callbacks. This is initially empty, and the callbacks are created
+      --  only when first required. After this has been set, it should only become empty again when
+      --  the 'MemBlobStore' is to be disposed of.
       mbsCallbacks :: !(MVar (LoadCallback, StoreCallback))
     }
 
--- |Create a fresh, empty 'MemBlobStore'.
+-- | Create a fresh, empty 'MemBlobStore'.
 newMemBlobStore :: IO MemBlobStore
 newMemBlobStore = MemBlobStore <$> newMVar LBS.empty <*> newEmptyMVar
 
--- |Destroy a 'MemBlobStore'. The caller should ensure that no operations on the 'MemBlobStore'
--- can happen after the call to 'destroyMemBlobStore'.
+-- | Destroy a 'MemBlobStore'. The caller should ensure that no operations on the 'MemBlobStore'
+--  can happen after the call to 'destroyMemBlobStore'.
 destroyMemBlobStore :: MemBlobStore -> IO ()
 destroyMemBlobStore MemBlobStore{..} = do
     _ <- takeMVar theMemBlobStore
     mcbks <- tryTakeMVar mbsCallbacks
     forM_ mcbks $ uncurry freeCallbacks
 
--- |Helper function for implementing storage operations on 'MemBlobStore'.
+-- | Helper function for implementing storage operations on 'MemBlobStore'.
 storeMem :: MVar LBS.ByteString -> BS.ByteString -> IO Word64
 storeMem mv b = modifyMVarMasked mv $ \bs -> do
     let !offset = LBS.length bs
@@ -695,7 +695,7 @@ storeMem mv b = modifyMVarMasked mv $ \bs -> do
                     <> Builder.byteString b
     return (newBS, fromIntegral offset)
 
--- |Helper function for implementing reader operations on 'MemBlobStore'.
+-- | Helper function for implementing reader operations on 'MemBlobStore'.
 loadMem :: MVar LBS.ByteString -> Word64 -> IO BS.ByteString
 loadMem mv offset = do
     bs <- readMVar mv
@@ -704,7 +704,7 @@ loadMem mv offset = do
         Left e -> error e
         Right len -> return $! LBS.toStrict (LBS.take (fromIntegral len) (LBS.drop 8 bs'))
 
--- |Get the callbacks for a 'MemBlobStore'.
+-- | Get the callbacks for a 'MemBlobStore'.
 getMemCallbacks :: MemBlobStore -> IO (LoadCallback, StoreCallback)
 getMemCallbacks mbs@MemBlobStore{..} =
     tryReadMVar mbsCallbacks >>= \case
@@ -727,7 +727,7 @@ getMemCallbacks mbs@MemBlobStore{..} =
                     -- The read should succeed next time
                     getMemCallbacks mbs
 
--- |A monad transformer that provides an instance of 'MonadBlobStore' based on a 'MemBlobStore'.
+-- | A monad transformer that provides an instance of 'MonadBlobStore' based on a 'MemBlobStore'.
 newtype MemBlobStoreT (m :: (Type -> Type)) (a :: Type) = MemBlobStoreT {runMemBlobStoreT :: MemBlobStore -> m a}
     deriving
         (Functor, Applicative, Monad, MonadReader MemBlobStore, MonadIO, MonadFail, MonadLogger, MonadCatch.MonadThrow, MonadCatch.MonadCatch)
@@ -736,7 +736,7 @@ newtype MemBlobStoreT (m :: (Type -> Type)) (a :: Type) = MemBlobStoreT {runMemB
         (MonadTrans)
         via (ReaderT MemBlobStore)
 
-instance MonadIO m => MonadBlobStore (MemBlobStoreT m) where
+instance (MonadIO m) => MonadBlobStore (MemBlobStoreT m) where
     storeRaw b = do
         mv <- asks theMemBlobStore
         liftIO $ BlobRef <$> storeMem mv b
@@ -786,27 +786,27 @@ instance MonadIO m => MonadBlobStore (MemBlobStoreT m) where
 -- Where possible, the 'DirectBlobStorable' constraint should be used over 'BlobStorable', and
 -- conversely 'BlobStorable' should be implemented in preference to 'DirectBlobStorable'.
 
--- |The @BlobStorable m a@ class defines how a value
--- of type @a@ may be stored in monad @m@.
+-- | The @BlobStorable m a@ class defines how a value
+--  of type @a@ may be stored in monad @m@.
 --
--- Where @a@ is an instance of 'Serialize', default implementations
--- are provided for 'store' and 'load' that simply (de)serialize
--- the value.  For a complex datatype that uses internal pointers,
--- 'store' and 'load' are expected to translate between such pointers
--- and references in the underlying store.
+--  Where @a@ is an instance of 'Serialize', default implementations
+--  are provided for 'store' and 'load' that simply (de)serialize
+--  the value.  For a complex datatype that uses internal pointers,
+--  'store' and 'load' are expected to translate between such pointers
+--  and references in the underlying store.
 --
--- Note that the functions `store` and `load` are somewhat equivalent to
--- `put` and `get` but working on references so that they can be written
--- to the disk.
-class MonadBlobStore m => BlobStorable m a where
-    -- |Deserialize a value of type @a@ from storage.
+--  Note that the functions `store` and `load` are somewhat equivalent to
+--  `put` and `get` but working on references so that they can be written
+--  to the disk.
+class (MonadBlobStore m) => BlobStorable m a where
+    -- | Deserialize a value of type @a@ from storage.
     load :: Get (m a)
     default load :: (Serialize a) => Get (m a)
     load = pure <$> get
 
-    -- |Store a value of type @a@, possibly updating its representation.
-    -- This is used when the value's representation includes pointers that
-    -- may be replaced or supplemented with blob references.
+    -- | Store a value of type @a@, possibly updating its representation.
+    --  This is used when the value's representation includes pointers that
+    --  may be replaced or supplemented with blob references.
     storeUpdate :: a -> m (Put, a)
     default storeUpdate :: (Serialize a) => a -> m (Put, a)
     storeUpdate v = return (put v, v)
@@ -814,22 +814,22 @@ class MonadBlobStore m => BlobStorable m a where
     {-# INLINE load #-}
     {-# INLINE storeUpdate #-}
 
--- |Store a value in the blob store and return a reference to it.
-storeRef :: BlobStorable m a => a -> m (BlobRef a)
+-- | Store a value in the blob store and return a reference to it.
+storeRef :: (BlobStorable m a) => a -> m (BlobRef a)
 storeRef v = do
     p <- runPut . fst <$> storeUpdate v
     storeRaw p
 {-# INLINE storeRef #-}
 
--- |Store a value in the blob store, returning a reference to it and
--- an updated value.  (See 'storeUpdate'.)
-storeUpdateRef :: BlobStorable m a => a -> m (BlobRef a, a)
+-- | Store a value in the blob store, returning a reference to it and
+--  an updated value.  (See 'storeUpdate'.)
+storeUpdateRef :: (BlobStorable m a) => a -> m (BlobRef a, a)
 storeUpdateRef v = do
     (!p, !v') <- storeUpdate v
     (,v') <$> storeRaw (runPut p)
 {-# INLINE storeUpdateRef #-}
 
--- |Load a value from a reference.
+-- | Load a value from a reference.
 loadRef :: (BlobStorable m a) => BlobRef a -> m a
 loadRef ref = do
     bs <- loadRaw ref
@@ -838,26 +838,26 @@ loadRef ref = do
         Right !mv -> mv
 {-# INLINE loadRef #-}
 
--- |The @DirectBlobStorable m a@ class defines how a value
--- of type @a@ may be stored directly in monad @m@.
+-- | The @DirectBlobStorable m a@ class defines how a value
+--  of type @a@ may be stored directly in monad @m@.
 --
--- The 'DirectBlobStorable' interface allows for more direct control of how
--- data is stored and loaded from the blob store than does 'BlobStorable'.
--- It is expected that this class should only be implemented directly where
--- implementing 'BlobStorable' instead would not be possible.
+--  The 'DirectBlobStorable' interface allows for more direct control of how
+--  data is stored and loaded from the blob store than does 'BlobStorable'.
+--  It is expected that this class should only be implemented directly where
+--  implementing 'BlobStorable' instead would not be possible.
 --
--- A blanket, overlappable instance of 'DirectBlobStorable' is provided for
--- types that implement 'BlobStorable'.  Thus, if both 'BlobStorable' and
--- 'DirectBlobStorable' are implemented for a type, then it MUST be that:
+--  A blanket, overlappable instance of 'DirectBlobStorable' is provided for
+--  types that implement 'BlobStorable'.  Thus, if both 'BlobStorable' and
+--  'DirectBlobStorable' are implemented for a type, then it MUST be that:
 --
--- * 'storeUpdateDirect' is functionally equivalent to 'storeUpdateRef'; and
+--  * 'storeUpdateDirect' is functionally equivalent to 'storeUpdateRef'; and
 --
--- * 'loadDirect' is functionally equivalent to 'loadRef'.
-class MonadBlobStore m => DirectBlobStorable m a where
-    -- |Store a value of type @a@, possibly updating its representation.
+--  * 'loadDirect' is functionally equivalent to 'loadRef'.
+class (MonadBlobStore m) => DirectBlobStorable m a where
+    -- | Store a value of type @a@, possibly updating its representation.
     storeUpdateDirect :: a -> m (BlobRef a, a)
 
-    -- |Load a value of type @a@ from the underlying storage.
+    -- | Load a value of type @a@ from the underlying storage.
     loadDirect :: BlobRef a -> m a
 
 instance {-# OVERLAPPABLE #-} (MonadBlobStore m, BlobStorable m a) => DirectBlobStorable m a where
@@ -916,13 +916,13 @@ instance (HasNull ref, Serialize ref) => Serialize (Nullable ref) where
         r <- get
         return $! if isNull r then Null else Some r
 
-instance MonadBlobStore m => BlobStorable m (Nullable (BlobRef a))
+instance (MonadBlobStore m) => BlobStorable m (Nullable (BlobRef a))
 
-instance MonadBlobStore m => BlobStorable m (BlobRef a)
+instance (MonadBlobStore m) => BlobStorable m (BlobRef a)
 
 -- This instance has to follow the instance for HashableTo H.Hash (Maybe v), see
 -- Concordium.Types.HashableTo
-instance MHashableTo m H.Hash v => MHashableTo m H.Hash (Nullable v) where
+instance (MHashableTo m H.Hash v) => MHashableTo m H.Hash (Nullable v) where
     getHashM Null = return $ H.hash "Nothing"
     getHashM (Some v) = (\h -> H.hash ("Just" <> H.hashToByteString h)) <$> getHashM v
 
@@ -931,41 +931,41 @@ instance MHashableTo m H.Hash v => MHashableTo m H.Hash (Nullable v) where
 -- | An instance @Reference m ref a@ specifies how a value of type @a@ can be stored and retrieved over a reference type
 -- @ref@ in the monad @m@. The constraints on this typeclass are specially permissive and it is responsibility of the
 -- instances to refine those. This typeclass is specifically designed to be used by BufferedRef and HashedBufferedRef.
-class Monad m => Reference m ref a where
-    -- |Given a reference, write it to the disk and return the updated reference and the generated offset in the store
+class (Monad m) => Reference m ref a where
+    -- | Given a reference, write it to the disk and return the updated reference and the generated offset in the store
     refFlush :: ref a -> m (ref a, BlobRef a)
 
-    -- |Given a reference, read the value and return the possibly updated reference (that now holds the value in memory)
+    -- | Given a reference, read the value and return the possibly updated reference (that now holds the value in memory)
     refCache :: ref a -> m (a, ref a)
 
-    -- |Read the value from a given reference either accessing the store or returning it from memory.
+    -- | Read the value from a given reference either accessing the store or returning it from memory.
     refLoad :: ref a -> m a
 
-    -- |Create a reference to a value. This does not guarantee that the value will be written to the store, and most probably
-    -- it will just be stored in memory as cached.
+    -- | Create a reference to a value. This does not guarantee that the value will be written to the store, and most probably
+    --  it will just be stored in memory as cached.
     refMake :: a -> m (ref a)
 
-    -- |Create a reference to a value and flush it. It returns the flushed reference.
+    -- | Create a reference to a value and flush it. It returns the flushed reference.
     refMakeFlushed :: a -> m (ref a)
     refMakeFlushed !v = do
         ref <- refMake v
         fst <$!> refFlush ref
 
-    -- |Given a reference, flush the data and return an uncached reference.
+    -- | Given a reference, flush the data and return an uncached reference.
     refUncache :: ref a -> m (ref a)
 
--- |Migrate a reference from one context to another, using the provided callback
--- to migrate the value. This is a general construction that applies to all
--- references, but it might not be the most efficient option. In particular, for
--- hashed references if the hash is unchanged by migration a more efficient
--- implementation is possible that either retains the original hash if this is
--- applicable, or one that computes the hash at the most opportune time, when
--- the value is known to be in memory.
+-- | Migrate a reference from one context to another, using the provided callback
+--  to migrate the value. This is a general construction that applies to all
+--  references, but it might not be the most efficient option. In particular, for
+--  hashed references if the hash is unchanged by migration a more efficient
+--  implementation is possible that either retains the original hash if this is
+--  applicable, or one that computes the hash at the most opportune time, when
+--  the value is known to be in memory.
 --
--- The old (input) reference is uncached, and the new reference is flushed.
--- Typically this will mean that the value is retained in memory with a pointer
--- to a disk value. But this may be different for some references such as
--- 'CachedRef'.
+--  The old (input) reference is uncached, and the new reference is flushed.
+--  Typically this will mean that the value is retained in memory with a pointer
+--  to a disk value. But this may be different for some references such as
+--  'CachedRef'.
 migrateReference ::
     forall t m ref1 ref2 a b.
     (MonadTrans t, Reference m ref1 a, Reference (t m) ref2 b) =>
@@ -979,47 +979,47 @@ migrateReference f hb = do
     !_ <- lift (refUncache hb)
     return $! newFlushedRef
 
--- |A value that may exists purely on disk ('BRBlobbed'), purely in memory
--- ('BRMemory' with @brIORef = Null@), or both in memory and on disk. When the
--- value is both on disk and in memory the two values must match.
+-- | A value that may exists purely on disk ('BRBlobbed'), purely in memory
+--  ('BRMemory' with @brIORef = Null@), or both in memory and on disk. When the
+--  value is both on disk and in memory the two values must match.
 --
--- The 'BRMemory' case uses an 'IORef' that either stores 'Null' if the reference has not already
--- been written to the disk, or @Some BRBoth{..}@ if it has.  When 'storeUpdate' is called, this
--- 'IORef' is checked, and it is used in the @Some@ case; in the @Null@ case, the updated reference
--- (a @BRBoth@) is written into the 'IORef'.  This ensures that if the reference is shared then
--- we: 1) don't write it multiple times; and 2) also share the updated value after it is written.
--- (Note, we could just store the contents of the @BRBoth@ instead of the @BRBoth@ itself in the
--- 'IORef'.  Our implementation choice avoids some extra constructors and definitions, although
--- it does introduce an invariant that is not enforced by the type system itself.  However, this
--- implementation detail should not leak outside the present module.)
+--  The 'BRMemory' case uses an 'IORef' that either stores 'Null' if the reference has not already
+--  been written to the disk, or @Some BRBoth{..}@ if it has.  When 'storeUpdate' is called, this
+--  'IORef' is checked, and it is used in the @Some@ case; in the @Null@ case, the updated reference
+--  (a @BRBoth@) is written into the 'IORef'.  This ensures that if the reference is shared then
+--  we: 1) don't write it multiple times; and 2) also share the updated value after it is written.
+--  (Note, we could just store the contents of the @BRBoth@ instead of the @BRBoth@ itself in the
+--  'IORef'.  Our implementation choice avoids some extra constructors and definitions, although
+--  it does introduce an invariant that is not enforced by the type system itself.  However, this
+--  implementation detail should not leak outside the present module.)
 --
--- In a previous version, the 'IORef' only held the 'BlobRef', and 'storeUpdate' would use that
--- and the existing value. This was problematic, because in cases of sharing it is important to
--- also share the updated value.  In particular, it caused cases where a module was retained
--- in memory as a result of a shared 'BRMemory' not being updated.  (The module reference is
--- shared by the modules table and instances of the module.  The module table reference would be
--- flushed, and updated with a version that did not retain the module in memory.  However, the
--- instance reference would just be updated with the new 'BlobRef', but keep the old value, which
--- retained the module in memory.)
+--  In a previous version, the 'IORef' only held the 'BlobRef', and 'storeUpdate' would use that
+--  and the existing value. This was problematic, because in cases of sharing it is important to
+--  also share the updated value.  In particular, it caused cases where a module was retained
+--  in memory as a result of a shared 'BRMemory' not being updated.  (The module reference is
+--  shared by the modules table and instances of the module.  The module table reference would be
+--  flushed, and updated with a version that did not retain the module in memory.  However, the
+--  instance reference would just be updated with the new 'BlobRef', but keep the old value, which
+--  retained the module in memory.)
 --
--- An alternative implementation choice would be to have 'BRMemory' always store the value under
--- the 'IORef'.  This approach was not taken in order to avoid the additional indirection this
--- introduces.
+--  An alternative implementation choice would be to have 'BRMemory' always store the value under
+--  the 'IORef'.  This approach was not taken in order to avoid the additional indirection this
+--  introduces.
 --
--- The choice to have 'BRBoth' at all (and not just use 'BRMemory') was to reduce the indirection
--- for the common case where the data is both in memory and on disk.
+--  The choice to have 'BRBoth' at all (and not just use 'BRMemory') was to reduce the indirection
+--  for the common case where the data is both in memory and on disk.
 data BufferedRef a
-    = -- |Value stored on disk
+    = -- | Value stored on disk
       BRBlobbed {brRef :: !(BlobRef a)}
-    | -- |Value stored in memory and possibly on disk.
-      -- 'brIORef' contains 'Null' if the value has never been written to the blob store, and
-      -- otherwise @Some BRBoth{..}@ with the reference and updated value.
+    | -- | Value stored in memory and possibly on disk.
+      --  'brIORef' contains 'Null' if the value has never been written to the blob store, and
+      --  otherwise @Some BRBoth{..}@ with the reference and updated value.
       BRMemory {brIORef :: !(IORef (Nullable (BufferedRef a))), brValue :: !a}
-    | -- |Value stored in memory and on disk.
+    | -- | Value stored in memory and on disk.
       BRBoth {brRef :: !(BlobRef a), brValue :: !a}
 
 -- | Create a @BRMemory@ value with a null reference (so the value is just in memory)
-makeBufferedRef :: MonadIO m => a -> m (BufferedRef a)
+makeBufferedRef :: (MonadIO m) => a -> m (BufferedRef a)
 makeBufferedRef v = liftIO $ do
     ref <- newIORef Null
     return $ BRMemory ref v
@@ -1028,12 +1028,12 @@ makeBufferedRef v = liftIO $ do
 blobRefToBufferedRef :: BlobRef a -> BufferedRef a
 blobRefToBufferedRef = BRBlobbed
 
-instance Show a => Show (BufferedRef a) where
+instance (Show a) => Show (BufferedRef a) where
     show (BRBlobbed r) = show r
     show (BRMemory _ v) = "{" ++ show v ++ "}"
     show (BRBoth r v) = "{" ++ show v ++ "}@" ++ show r
 
-instance DirectBlobStorable m a => BlobStorable m (BufferedRef a) where
+instance (DirectBlobStorable m a) => BlobStorable m (BufferedRef a) where
     load = fmap BRBlobbed <$> load
     storeUpdate (BRMemory ref v) =
         liftIO (readIORef ref) >>= \case
@@ -1047,8 +1047,8 @@ instance DirectBlobStorable m a => BlobStorable m (BufferedRef a) where
         ref <- getBRRef x
         return (put ref, x)
 
--- |Stores in-memory data to disk if it has not been stored yet and returns pointer to saved data
-getBRRef :: DirectBlobStorable m a => BufferedRef a -> m (BlobRef a)
+-- | Stores in-memory data to disk if it has not been stored yet and returns pointer to saved data
+getBRRef :: (DirectBlobStorable m a) => BufferedRef a -> m (BlobRef a)
 getBRRef (BRMemory ref v) =
     liftIO (readIORef ref) >>= \case
         Null -> do
@@ -1059,7 +1059,7 @@ getBRRef (BRMemory ref v) =
 getBRRef (BRBoth r _) = return r
 getBRRef (BRBlobbed r) = return r
 
-instance DirectBlobStorable m a => BlobStorable m (Nullable (BufferedRef a)) where
+instance (DirectBlobStorable m a) => BlobStorable m (Nullable (BufferedRef a)) where
     load = do
         (r :: BlobRef a) <- get
         if isNull r
@@ -1070,23 +1070,23 @@ instance DirectBlobStorable m a => BlobStorable m (Nullable (BufferedRef a)) whe
         (!r, !v') <- storeUpdate v
         return (r, Some v')
 
--- |Load the value from a @BufferedRef@ not caching it.
-loadBufferedRef :: DirectBlobStorable m a => BufferedRef a -> m a
+-- | Load the value from a @BufferedRef@ not caching it.
+loadBufferedRef :: (DirectBlobStorable m a) => BufferedRef a -> m a
 loadBufferedRef = refLoad
 
--- |Load a 'BufferedRef' and cache it if it wasn't already in memory.
-cacheBufferedRef :: DirectBlobStorable m a => BufferedRef a -> m (a, BufferedRef a)
+-- | Load a 'BufferedRef' and cache it if it wasn't already in memory.
+cacheBufferedRef :: (DirectBlobStorable m a) => BufferedRef a -> m (a, BufferedRef a)
 cacheBufferedRef = refCache
 
--- |If given a Blobbed reference, do nothing. Otherwise if needed store the value.
-flushBufferedRef :: DirectBlobStorable m a => BufferedRef a -> m (BufferedRef a, BlobRef a)
+-- | If given a Blobbed reference, do nothing. Otherwise if needed store the value.
+flushBufferedRef :: (DirectBlobStorable m a) => BufferedRef a -> m (BufferedRef a, BlobRef a)
 flushBufferedRef = refFlush
 
--- |Convert a Cached reference into a Blobbed one storing the data if needed.
-uncacheBufferedRef :: DirectBlobStorable m a => BufferedRef a -> m (BufferedRef a)
+-- | Convert a Cached reference into a Blobbed one storing the data if needed.
+uncacheBufferedRef :: (DirectBlobStorable m a) => BufferedRef a -> m (BufferedRef a)
 uncacheBufferedRef = refUncache
 
-instance DirectBlobStorable m a => Reference m BufferedRef a where
+instance (DirectBlobStorable m a) => Reference m BufferedRef a where
     refMake = makeBufferedRef
 
     refLoad (BRBlobbed ref) = loadDirect ref
@@ -1152,22 +1152,22 @@ instance (DirectBlobStorable m a, BlobStorable m b) => BlobStorable m (Nullable 
         (!r, !v') <- storeUpdate v
         return (r, Some v')
 
--- |A value that always exists in memory but may also exist on disk.
--- The disk reference is shared via an 'IORef', which ensures that copies created before
--- the value is flushed to disk will share the same underlying reference.
+-- | A value that always exists in memory but may also exist on disk.
+--  The disk reference is shared via an 'IORef', which ensures that copies created before
+--  the value is flushed to disk will share the same underlying reference.
 data EagerBufferedRef a = EagerBufferedRef
     { ebrIORef :: !(IORef (BlobRef a)),
       ebrValue :: !a
     }
 
--- |Directly get the value in an 'EagerBufferedRef'.
+-- | Directly get the value in an 'EagerBufferedRef'.
 eagerBufferedDeref :: EagerBufferedRef a -> a
 {-# INLINE eagerBufferedDeref #-}
 eagerBufferedDeref = ebrValue
 
--- |Make an 'EagerBufferedRef' from a 'BufferedRef'.
--- Note: if the 'BufferedRef' is not already flushed to the disk, then the association between the
--- old and new reference is lost, so they will not share the same underlying 'BlobRef' once flushed.
+-- | Make an 'EagerBufferedRef' from a 'BufferedRef'.
+--  Note: if the 'BufferedRef' is not already flushed to the disk, then the association between the
+--  old and new reference is lost, so they will not share the same underlying 'BlobRef' once flushed.
 eagerBufferedRefFromBufferedRef :: (DirectBlobStorable m a) => BufferedRef a -> m (EagerBufferedRef a)
 eagerBufferedRefFromBufferedRef (BRBlobbed r) = do
     v <- loadDirect r
@@ -1178,8 +1178,8 @@ eagerBufferedRefFromBufferedRef (BRMemory ior v) = do
         Some br' -> eagerBufferedRefFromBufferedRef br'
 eagerBufferedRefFromBufferedRef (BRBoth r v) = makeEagerBufferedRef r v
 
--- |Migrate the reference from one context to another, using the provided
--- callback to migrate the value.
+-- | Migrate the reference from one context to another, using the provided
+--  callback to migrate the value.
 migrateEagerBufferedRef ::
     (BlobStorable m a, BlobStorable (t m) b, MonadTrans t) =>
     (a -> t m b) ->
@@ -1187,15 +1187,15 @@ migrateEagerBufferedRef ::
     t m (EagerBufferedRef b)
 migrateEagerBufferedRef = migrateReference
 
-instance Show a => Show (EagerBufferedRef a) where
+instance (Show a) => Show (EagerBufferedRef a) where
     show = show . ebrValue
 
-makeEagerBufferedRef :: MonadIO m => BlobRef a -> a -> m (EagerBufferedRef a)
+makeEagerBufferedRef :: (MonadIO m) => BlobRef a -> a -> m (EagerBufferedRef a)
 makeEagerBufferedRef r a = do
     ref <- liftIO $ newIORef r
     return $ EagerBufferedRef ref a
 
-flushEagerBufferedRef :: DirectBlobStorable m a => EagerBufferedRef a -> m (BlobRef a)
+flushEagerBufferedRef :: (DirectBlobStorable m a) => EagerBufferedRef a -> m (BlobRef a)
 flushEagerBufferedRef EagerBufferedRef{..} = do
     r <- liftIO $ readIORef ebrIORef
     if isNull r
@@ -1205,7 +1205,7 @@ flushEagerBufferedRef EagerBufferedRef{..} = do
             return r'
         else return r
 
-instance DirectBlobStorable m a => BlobStorable m (EagerBufferedRef a) where
+instance (DirectBlobStorable m a) => BlobStorable m (EagerBufferedRef a) where
     load = do
         br <- get
         return $ do
@@ -1247,7 +1247,7 @@ instance (HashableTo h a) => HashableTo h (EagerBufferedRef a) where
 instance (MHashableTo m h a) => MHashableTo m h (EagerBufferedRef a) where
     getHashM = getHashM . ebrValue
 
-instance DirectBlobStorable m a => BlobStorable m (Nullable (EagerBufferedRef a)) where
+instance (DirectBlobStorable m a) => BlobStorable m (Nullable (EagerBufferedRef a)) where
     load = do
         (r :: BlobRef a) <- get
         if isNull r
@@ -1263,26 +1263,26 @@ instance DirectBlobStorable m a => BlobStorable m (Nullable (EagerBufferedRef a)
 instance (Applicative m, Cacheable m a) => Cacheable m (EagerBufferedRef a) where
     cache (EagerBufferedRef ioref v) = EagerBufferedRef ioref <$> cache v
 
--- |Contents of a 'LazyBufferedRef'.
+-- | Contents of a 'LazyBufferedRef'.
 data LBR a
     = LBRBlobbed !(BlobRef a)
     | LBRMemory !a
     | LBRBoth !(BlobRef a) !a
 
--- |A 'LazyBufferedRef' is not read from the blob store when it is initially loaded.
--- However, after the first time it is loaded, it does not need to be read from disk again.
+-- | A 'LazyBufferedRef' is not read from the blob store when it is initially loaded.
+--  However, after the first time it is loaded, it does not need to be read from disk again.
 newtype LazyBufferedRef a = LazyBufferedRef (IORef (LBR a))
 
 instance Show (LazyBufferedRef a) where
     show _ = "LazyBufferedRef"
 
--- |Make a 'LazyBufferedRef' from a value.
--- The value is not persisted to the store until the reference is flushed (e.g. with 'refFlush' or
--- 'storeUpdate').
-makeLazyBufferedRef :: MonadIO m => a -> m (LazyBufferedRef a)
+-- | Make a 'LazyBufferedRef' from a value.
+--  The value is not persisted to the store until the reference is flushed (e.g. with 'refFlush' or
+--  'storeUpdate').
+makeLazyBufferedRef :: (MonadIO m) => a -> m (LazyBufferedRef a)
 makeLazyBufferedRef val = liftIO $ LazyBufferedRef <$!> newIORef (LBRMemory val)
 
-instance DirectBlobStorable m a => Reference m LazyBufferedRef a where
+instance (DirectBlobStorable m a) => Reference m LazyBufferedRef a where
     refMake = makeLazyBufferedRef
 
     refLoad (LazyBufferedRef ior) =
@@ -1316,7 +1316,7 @@ instance DirectBlobStorable m a => Reference m LazyBufferedRef a where
                 liftIO $ writeIORef ior (LBRBlobbed br)
                 return r
 
-instance DirectBlobStorable m a => BlobStorable m (LazyBufferedRef a) where
+instance (DirectBlobStorable m a) => BlobStorable m (LazyBufferedRef a) where
     load = do
         br <- get
         return $ liftIO $ LazyBufferedRef <$!> newIORef (LBRBlobbed br)
@@ -1324,7 +1324,7 @@ instance DirectBlobStorable m a => BlobStorable m (LazyBufferedRef a) where
         (_, !r) <- refFlush lbr
         return (put r, lbr)
 
-instance DirectBlobStorable m a => BlobStorable m (Nullable (LazyBufferedRef a)) where
+instance (DirectBlobStorable m a) => BlobStorable m (Nullable (LazyBufferedRef a)) where
     load = do
         br <- get
         if isNull br
@@ -1353,32 +1353,32 @@ instance (DirectBlobStorable m a, BlobStorable m b) => BlobStorable m (Nullable 
 instance (MHashableTo m h a, DirectBlobStorable m a) => MHashableTo m h (LazyBufferedRef a) where
     getHashM = getHashM <=< refLoad
 
--- |A reference that is generally not retained in memory once it has been written to disk, unless
--- it is retained by a copy of the reference. (Once all copies are flushed or dropped, the in-memory
--- value will no longer be retained. The reference is only written once, even if it is copied.)
+-- | A reference that is generally not retained in memory once it has been written to disk, unless
+--  it is retained by a copy of the reference. (Once all copies are flushed or dropped, the in-memory
+--  value will no longer be retained. The reference is only written once, even if it is copied.)
 --
--- This is essentially a simplified version of 'BufferedRef', where @BRBoth ref v@ is simply
--- replaced with @URBlobbed ref@.
+--  This is essentially a simplified version of 'BufferedRef', where @BRBoth ref v@ is simply
+--  replaced with @URBlobbed ref@.
 data UnbufferedRef a
-    = -- |A reference that is already on disk
+    = -- | A reference that is already on disk
       URBlobbed !(BlobRef a)
-    | -- |A reference that is in memory and may have been written to disk.
-      -- If the reference has not been written, the 'urIORef' will contain 'refNull'.
-      -- If it has been written, the 'BlobRef' will be a valid (non-null) reference to the
-      -- stored value.
+    | -- | A reference that is in memory and may have been written to disk.
+      --  If the reference has not been written, the 'urIORef' will contain 'refNull'.
+      --  If it has been written, the 'BlobRef' will be a valid (non-null) reference to the
+      --  stored value.
       URMemory {urIORef :: !(IORef (BlobRef a)), urValue :: !a}
 
-instance Show a => Show (UnbufferedRef a) where
+instance (Show a) => Show (UnbufferedRef a) where
     show (URBlobbed r) = show r
     show (URMemory _ v) = "{" ++ show v ++ "}"
 
-instance DirectBlobStorable m a => BlobStorable m (UnbufferedRef a) where
+instance (DirectBlobStorable m a) => BlobStorable m (UnbufferedRef a) where
     load = fmap URBlobbed <$> load
     storeUpdate ur = do
         (ur', !r) <- refFlush ur
         return (put r, ur')
 
-instance DirectBlobStorable m a => BlobStorable m (Nullable (UnbufferedRef a)) where
+instance (DirectBlobStorable m a) => BlobStorable m (Nullable (UnbufferedRef a)) where
     load = do
         r <- get
         if isNull r
@@ -1389,24 +1389,24 @@ instance DirectBlobStorable m a => BlobStorable m (Nullable (UnbufferedRef a)) w
         (!r, !v') <- storeUpdate v
         return (r, Some v')
 
--- |Make an 'UnbufferedRef' from a value.
-makeUnbufferedRef :: MonadIO m => a -> m (UnbufferedRef a)
+-- | Make an 'UnbufferedRef' from a value.
+makeUnbufferedRef :: (MonadIO m) => a -> m (UnbufferedRef a)
 makeUnbufferedRef urValue = do
     urIORef <- liftIO $ newIORef refNull
     return $! URMemory{..}
 
--- |Make an 'UnbufferedRef' from a value that is immediately flushed to the blob store.
--- This is equivalent to @refFlush <=< refMake@.
-makeFlushedUnbufferedRef :: DirectBlobStorable m a => a -> m (UnbufferedRef a)
+-- | Make an 'UnbufferedRef' from a value that is immediately flushed to the blob store.
+--  This is equivalent to @refFlush <=< refMake@.
+makeFlushedUnbufferedRef :: (DirectBlobStorable m a) => a -> m (UnbufferedRef a)
 makeFlushedUnbufferedRef val = do
     (r, _) <- storeUpdateDirect val
     return $! URBlobbed r
 
--- |Create an 'UnbufferedRef' from a 'BlobRef'.
+-- | Create an 'UnbufferedRef' from a 'BlobRef'.
 blobRefToUnbufferedRef :: BlobRef a -> UnbufferedRef a
 blobRefToUnbufferedRef = URBlobbed
 
-instance DirectBlobStorable m a => Reference m UnbufferedRef a where
+instance (DirectBlobStorable m a) => Reference m UnbufferedRef a where
     refMake = makeUnbufferedRef
 
     refLoad (URBlobbed ref) = loadDirect ref
@@ -1433,20 +1433,20 @@ instance DirectBlobStorable m a => Reference m UnbufferedRef a where
 instance (DirectBlobStorable m a, MHashableTo m h a) => MHashableTo m h (UnbufferedRef a) where
     getHashM ref = getHashM =<< refLoad ref
 
--- |'BufferedFix' is a fixed-point combinator that uses a 'BufferedRef'.
--- This is used for constructing a recursive type from a type constructor.
--- For instance, given
+-- | 'BufferedFix' is a fixed-point combinator that uses a 'BufferedRef'.
+--  This is used for constructing a recursive type from a type constructor.
+--  For instance, given
 --
--- > data BinaryTree r = Branch r r | Leaf
+--  > data BinaryTree r = Branch r r | Leaf
 --
--- the type @BufferedFix BinaryTree@ describes is effectively equivalent to
--- @BufferedRef BinaryTree'@ with @BinaryTree'@ defined as
+--  the type @BufferedFix BinaryTree@ describes is effectively equivalent to
+--  @BufferedRef BinaryTree'@ with @BinaryTree'@ defined as
 --
--- > data BinaryTree' = Branch (BufferedRef BinaryTree') (BufferedRef BinaryTree') | Leaf
+--  > data BinaryTree' = Branch (BufferedRef BinaryTree') (BufferedRef BinaryTree') | Leaf
 --
--- The use of fixed point combinators such as this allows us to implement recursive
--- data-structures independently of how the recursion is handled (e.g. via 'BufferedRef'
--- as in this case, or without references as with 'Fix').
+--  The use of fixed point combinators such as this allows us to implement recursive
+--  data-structures independently of how the recursion is handled (e.g. via 'BufferedRef'
+--  as in this case, or without references as with 'Fix').
 newtype BufferedFix f = BufferedFix {unBF :: BufferedRef (f (BufferedFix f))}
 
 type instance Base (BufferedFix f) = f
@@ -1471,14 +1471,14 @@ instance (MonadIO m) => MCorecursive m (BufferedFix f) where
     membed = fmap BufferedFix . makeBufferedRef
     {-# INLINE membed #-}
 
--- |The 'FixShowable' class provides a means for rendering an instance of a
--- fixed-point of a functor (given by the provided combinator) as a 'String'.
+-- | The 'FixShowable' class provides a means for rendering an instance of a
+--  fixed-point of a functor (given by the provided combinator) as a 'String'.
 class FixShowable fix where
     showFix ::
-        Functor f =>
-        -- |Render the functor with the recursive references rendered
+        (Functor f) =>
+        -- | Render the functor with the recursive references rendered
         (f String -> String) ->
-        -- |Value to render
+        -- | Value to render
         fix f ->
         String
 
@@ -1490,8 +1490,8 @@ instance FixShowable BufferedFix where
 instance (Functor m, DirectBlobStorable m (f (BufferedFix f)), Cacheable m (f (BufferedFix f))) => Cacheable m (BufferedFix f) where
     cache = fmap BufferedFix . cache . unBF
 
--- |'UnbufferedFix' is a fixed-point combinator that uses an 'UnbufferedRef'.
--- (See also 'BufferedFix'.)
+-- | 'UnbufferedFix' is a fixed-point combinator that uses an 'UnbufferedRef'.
+--  (See also 'BufferedFix'.)
 newtype UnbufferedFix f = UnbufferedFix {unUF :: UnbufferedRef (f (UnbufferedFix f))}
 
 type instance Base (UnbufferedFix f) = f
@@ -1519,36 +1519,36 @@ instance FixShowable UnbufferedFix where
     showFix sh (UnbufferedFix (URMemory _ v)) = sh (showFix sh <$> v)
 
 -- BlobStorable instances
-instance MonadBlobStore m => BlobStorable m IPS.IpInfo
-instance MonadBlobStore m => BlobStorable m IPS.IdentityProviders
-instance MonadBlobStore m => BlobStorable m ARS.ArInfo
-instance MonadBlobStore m => BlobStorable m ARS.AnonymityRevokers
-instance MonadBlobStore m => BlobStorable m Parameters.CryptographicParameters
-instance MonadBlobStore m => BlobStorable m Amount
-instance MonadBlobStore m => BlobStorable m BakerId
-instance MonadBlobStore m => BlobStorable m BakerInfo
-instance MonadBlobStore m => BlobStorable m BakerPoolInfo
+instance (MonadBlobStore m) => BlobStorable m IPS.IpInfo
+instance (MonadBlobStore m) => BlobStorable m IPS.IdentityProviders
+instance (MonadBlobStore m) => BlobStorable m ARS.ArInfo
+instance (MonadBlobStore m) => BlobStorable m ARS.AnonymityRevokers
+instance (MonadBlobStore m) => BlobStorable m Parameters.CryptographicParameters
+instance (MonadBlobStore m) => BlobStorable m Amount
+instance (MonadBlobStore m) => BlobStorable m BakerId
+instance (MonadBlobStore m) => BlobStorable m BakerInfo
+instance (MonadBlobStore m) => BlobStorable m BakerPoolInfo
 instance (MonadBlobStore m, IsAccountVersion av) => BlobStorable m (BakerInfoEx av)
-instance MonadBlobStore m => BlobStorable m AccountIndex
-instance MonadBlobStore m => BlobStorable m BS.ByteString
-instance MonadBlobStore m => BlobStorable m EncryptedAmount
-instance MonadBlobStore m => BlobStorable m TransactionHash
-instance MonadBlobStore m => BlobStorable m ()
-instance MonadBlobStore m => BlobStorable m Word8
-instance MonadBlobStore m => BlobStorable m Word32
-instance MonadBlobStore m => BlobStorable m Word64
+instance (MonadBlobStore m) => BlobStorable m AccountIndex
+instance (MonadBlobStore m) => BlobStorable m BS.ByteString
+instance (MonadBlobStore m) => BlobStorable m EncryptedAmount
+instance (MonadBlobStore m) => BlobStorable m TransactionHash
+instance (MonadBlobStore m) => BlobStorable m ()
+instance (MonadBlobStore m) => BlobStorable m Word8
+instance (MonadBlobStore m) => BlobStorable m Word32
+instance (MonadBlobStore m) => BlobStorable m Word64
 
-instance MonadBlobStore m => BlobStorable m AccountEncryptedAmount
-instance MonadBlobStore m => BlobStorable m PersistingAccountData
+instance (MonadBlobStore m) => BlobStorable m AccountEncryptedAmount
+instance (MonadBlobStore m) => BlobStorable m PersistingAccountData
 instance (MonadBlobStore m, IsAuthorizationsVersion auv) => BlobStorable m (Authorizations auv)
 instance (MonadBlobStore m, IsAccountVersion av, AVSupportsDelegation av) => BlobStorable m (AccountDelegation av)
-instance MonadBlobStore m => BlobStorable m (HigherLevelKeys a)
-instance MonadBlobStore m => BlobStorable m ProtocolUpdate
-instance MonadBlobStore m => BlobStorable m ExchangeRate
-instance MonadBlobStore m => BlobStorable m ElectionDifficulty
-instance MonadBlobStore m => BlobStorable m MintRate
+instance (MonadBlobStore m) => BlobStorable m (HigherLevelKeys a)
+instance (MonadBlobStore m) => BlobStorable m ProtocolUpdate
+instance (MonadBlobStore m) => BlobStorable m ExchangeRate
+instance (MonadBlobStore m) => BlobStorable m ElectionDifficulty
+instance (MonadBlobStore m) => BlobStorable m MintRate
 instance (MonadBlobStore m, IsMintDistributionVersion mdv) => BlobStorable m (Parameters.MintDistribution mdv)
-instance MonadBlobStore m => BlobStorable m Parameters.TransactionFeeDistribution
+instance (MonadBlobStore m) => BlobStorable m Parameters.TransactionFeeDistribution
 instance (MonadBlobStore m, IsGASRewardsVersion grv) => BlobStorable m (Parameters.GASRewards grv)
 instance (MonadBlobStore m, IsPoolParametersVersion ppv) => BlobStorable m (Parameters.PoolParameters' ppv)
 instance (MonadBlobStore m, IsCooldownParametersVersion cpv) => BlobStorable m (Parameters.CooldownParameters' cpv)
@@ -1557,39 +1557,39 @@ instance (MonadBlobStore m) => BlobStorable m Parameters.TimeoutParameters
 instance (MonadBlobStore m) => BlobStorable m Parameters.FinalizationCommitteeParameters
 instance (MonadBlobStore m) => BlobStorable m Duration
 instance (MonadBlobStore m) => BlobStorable m Energy
-instance MonadBlobStore m => BlobStorable m (Map AccountAddress Timestamp)
-instance MonadBlobStore m => BlobStorable m WasmModule
+instance (MonadBlobStore m) => BlobStorable m (Map AccountAddress Timestamp)
+instance (MonadBlobStore m) => BlobStorable m WasmModule
 instance (IsWasmVersion v, MonadBlobStore m) => BlobStorable m (WasmModuleV v)
-instance MonadBlobStore m => BlobStorable m BakerPoolRewardDetails
-instance MonadBlobStore m => BlobStorable m DelegatorCapital
-instance MonadBlobStore m => BlobStorable m BakerCapital
-instance MonadBlobStore m => BlobStorable m CapitalDistribution
-instance MonadBlobStore m => BlobStorable m SpecialTransactionOutcome -- use the serialize instance
+instance (MonadBlobStore m) => BlobStorable m BakerPoolRewardDetails
+instance (MonadBlobStore m) => BlobStorable m DelegatorCapital
+instance (MonadBlobStore m) => BlobStorable m BakerCapital
+instance (MonadBlobStore m) => BlobStorable m CapitalDistribution
+instance (MonadBlobStore m) => BlobStorable m SpecialTransactionOutcome -- use the serialize instance
 
 newtype StoreSerialized a = StoreSerialized {unStoreSerialized :: a}
     deriving newtype (Serialize)
 instance (MonadBlobStore m, Serialize a) => BlobStorable m (StoreSerialized a)
-deriving newtype instance HashableTo h a => HashableTo h (StoreSerialized a)
-deriving newtype instance MHashableTo m h a => MHashableTo m h (StoreSerialized a)
+deriving newtype instance (HashableTo h a) => HashableTo h (StoreSerialized a)
+deriving newtype instance (MHashableTo m h a) => MHashableTo m h (StoreSerialized a)
 
--- |A 'BufferedRef' accompanied with a hash.  The hash may be lazily computed.
+-- | A 'BufferedRef' accompanied with a hash.  The hash may be lazily computed.
 --
--- The hash is computed and retained in the following circumstances:
+--  The hash is computed and retained in the following circumstances:
 --
--- * The hash is requested via 'getHashM'.
--- * The 'HashedBufferedRef' is constructed from an already-hashed value via 'bufferHashed'.
--- * The 'HashedBufferedRef'' is cached via 'cache' or 'refCache'.
+--  * The hash is requested via 'getHashM'.
+--  * The 'HashedBufferedRef' is constructed from an already-hashed value via 'bufferHashed'.
+--  * The 'HashedBufferedRef'' is cached via 'cache' or 'refCache'.
 --
--- Note, the hash is not computed when the reference is loaded with 'load', or dereferenced
--- with 'refLoad'.  None of the operations cause the hash to be dropped.
+--  Note, the hash is not computed when the reference is loaded with 'load', or dereferenced
+--  with 'refLoad'.  None of the operations cause the hash to be dropped.
 data HashedBufferedRef' h a = HashedBufferedRef
     { bufferedReference :: !(BufferedRef a),
       bufferedHash :: !(IORef (Nullable h))
     }
 
--- |Migrate a 'HashedBufferedRef' assuming that neither the value nor its hash
--- change. The input reference is uncached, and the new references is flushed to
--- disk, as well as cached in memory.
+-- | Migrate a 'HashedBufferedRef' assuming that neither the value nor its hash
+--  change. The input reference is uncached, and the new references is flushed to
+--  disk, as well as cached in memory.
 migrateHashedBufferedRefKeepHash ::
     (MonadTrans t, BlobStorable m a, BlobStorable (t m) a) =>
     HashedBufferedRef' h a ->
@@ -1605,9 +1605,9 @@ migrateHashedBufferedRefKeepHash hb = do
               bufferedHash = bufferedHash hb
             }
 
--- |Migrate a 'HashedBufferedRef'. The returned reference has a hash computed
--- already. The input reference is uncached, and the new references is flushed
--- to disk, as well as cached in memory.
+-- | Migrate a 'HashedBufferedRef'. The returned reference has a hash computed
+--  already. The input reference is uncached, and the new references is flushed
+--  to disk, as well as cached in memory.
 migrateHashedBufferedRef ::
     (MonadTrans t, MHashableTo (t m) h b, BlobStorable m a, BlobStorable (t m) b) =>
     (a -> t m b) ->
@@ -1623,18 +1623,18 @@ migrateHashedBufferedRef f hb = do
     liftIO $! writeIORef (bufferedHash hb) Null
     return b
 
--- |A specialisation of 'HashedBufferedRef'' to the hash type 'H.Hash'.
+-- | A specialisation of 'HashedBufferedRef'' to the hash type 'H.Hash'.
 type HashedBufferedRef = HashedBufferedRef' H.Hash
 
--- |Created a 'HashedBufferedRef' value from a 'Hashed' value, retaining the hash.
-bufferHashed :: MonadIO m => Hashed a -> m (HashedBufferedRef a)
+-- | Created a 'HashedBufferedRef' value from a 'Hashed' value, retaining the hash.
+bufferHashed :: (MonadIO m) => Hashed a -> m (HashedBufferedRef a)
 bufferHashed (Hashed !val !h) = do
     br <- makeBufferedRef val
     hashRef <- liftIO $ newIORef (Some h)
     return $ HashedBufferedRef br hashRef
 
--- |Make a 'HashedBufferedRef'' to a given value. This does not compute the hash, which is done
--- on demand.
+-- | Make a 'HashedBufferedRef'' to a given value. This does not compute the hash, which is done
+--  on demand.
 makeHashedBufferedRef :: (MonadIO m) => a -> m (HashedBufferedRef' h a)
 makeHashedBufferedRef val = do
     br <- makeBufferedRef val
@@ -1650,7 +1650,7 @@ instance (DirectBlobStorable m a, MHashableTo m h a) => MHashableTo m h (HashedB
                 return h
             Some h -> return h
 
-instance Show a => Show (HashedBufferedRef a) where
+instance (Show a) => Show (HashedBufferedRef a) where
     show ref = show (bufferedReference ref)
 
 instance (DirectBlobStorable m a) => BlobStorable m (HashedBufferedRef' h a) where
@@ -1708,9 +1708,9 @@ instance (DirectBlobStorable m a) => BlobStorable m (Nullable (HashedBufferedRef
         (!r, !v') <- storeUpdate v
         return (r, Some v')
 
--- |A wrapped 'HashedBufferedRef'.
--- If the constraint for the 'OParam' is satisfied this yields a 'HashedBufferedRef' otherwise
--- it yields a 'NoParam'.
+-- | A wrapped 'HashedBufferedRef'.
+--  If the constraint for the 'OParam' is satisfied this yields a 'HashedBufferedRef' otherwise
+--  it yields a 'NoParam'.
 type HashedBufferedRefO (pt :: ParameterType) (cpv :: ChainParametersVersion) a = OParam pt cpv (HashedBufferedRef a)
 
 instance
@@ -1724,8 +1724,8 @@ instance
         (!r, !v') <- storeUpdate v
         return (r, SomeParam v')
 
--- |An 'EagerBufferedRef' accompanied by a hash.
--- Both the value and the hash are retained in memory by this reference.
+-- | An 'EagerBufferedRef' accompanied by a hash.
+--  Both the value and the hash are retained in memory by this reference.
 data EagerlyHashedBufferedRef' h a = EagerlyHashedBufferedRef
     { ehbrReference :: {-# UNPACK #-} !(EagerBufferedRef a),
       ehbrHash :: !h
@@ -1733,8 +1733,8 @@ data EagerlyHashedBufferedRef' h a = EagerlyHashedBufferedRef
 
 type EagerlyHashedBufferedRef = EagerlyHashedBufferedRef' H.Hash
 
--- |Migrate an 'EagerlyHashedBufferedRef' **assuming the migration does not
--- change the hash**. The hash is carried over and not recomputed.
+-- | Migrate an 'EagerlyHashedBufferedRef' **assuming the migration does not
+--  change the hash**. The hash is carried over and not recomputed.
 migrateEagerlyHashedBufferedRefKeepHash ::
     (BlobStorable m a, BlobStorable (t m) a, MonadTrans t) =>
     (a -> t m a) ->
@@ -1763,7 +1763,7 @@ instance (BlobStorable m a, MHashableTo m h a) => BlobStorable m (EagerlyHashedB
     {-# INLINE load #-}
     {-# INLINE storeUpdate #-}
 
--- |Convert a 'BlobRef' to an 'EagerlyHashedBufferedRef'.
+-- | Convert a 'BlobRef' to an 'EagerlyHashedBufferedRef'.
 blobRefToEagerlyHashedBufferedRef :: (BlobStorable m a, MHashableTo m h a) => BlobRef a -> m (EagerlyHashedBufferedRef' h a)
 blobRefToEagerlyHashedBufferedRef ref = do
     val <- loadRef ref
@@ -1826,9 +1826,9 @@ instance (Monad m, BlobStorable m a, MHashableTo m h a) => Reference m (EagerlyH
 instance (Show h, Show a) => Show (EagerlyHashedBufferedRef' h a) where
     show ref = show (ehbrReference ref) ++ " with hash: " ++ show (ehbrHash ref)
 
--- |This class abstracts values that can be cached in some monad.
+-- | This class abstracts values that can be cached in some monad.
 class Cacheable m a where
-    -- |Recursively cache a value of type @a@.
+    -- | Recursively cache a value of type @a@.
     cache :: a -> m a
     default cache :: (Applicative m) => a -> m a
     cache = pure
@@ -1868,7 +1868,7 @@ instance (BlobStorable m a, Cacheable m a) => Cacheable m (EagerlyHashedBuffered
 instance (Applicative m, Cacheable m a, Cacheable m b) => Cacheable m (a, b) where
     cache (x, y) = (,) <$> cache x <*> cache y
 
-instance Applicative m => Cacheable m () where
+instance (Applicative m) => Cacheable m () where
     cache _ = pure ()
 
 -- Required for caching PersistentAccount
@@ -1902,15 +1902,15 @@ instance (Applicative m) => Cacheable m DelegatorCapital
 instance (Applicative m) => Cacheable m BakerCapital
 instance (Applicative m) => Cacheable m CapitalDistribution
 
--- |Typeclass for caching a container type, given a function for caching the
--- contained type. The caching operation should not affect the value up to an equivalence
--- appropriate to the type in question.
+-- | Typeclass for caching a container type, given a function for caching the
+--  contained type. The caching operation should not affect the value up to an equivalence
+--  appropriate to the type in question.
 class Cacheable1 m c a where
-    -- |Lift a caching operation on the contained type to a caching operation on the container
-    -- type.
+    -- | Lift a caching operation on the contained type to a caching operation on the container
+    --  type.
     liftCache :: (a -> m a) -> c -> m c
 
-instance DirectBlobStorable m a => Cacheable1 m (BufferedRef a) a where
+instance (DirectBlobStorable m a) => Cacheable1 m (BufferedRef a) a where
     liftCache cch BRBlobbed{..} = do
         brValue <- cch =<< loadDirect brRef
         return BRBoth{..}

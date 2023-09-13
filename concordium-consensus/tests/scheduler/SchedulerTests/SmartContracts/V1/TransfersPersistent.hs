@@ -5,9 +5,9 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
--- |Tests that make sure that the persistent state implementation
--- correctly handles the different cases of smart contract updates,
--- i.e., if the state, or module, or amount was updated
+-- | Tests that make sure that the persistent state implementation
+--  correctly handles the different cases of smart contract updates,
+--  i.e., if the state, or module, or amount was updated
 module SchedulerTests.SmartContracts.V1.TransfersPersistent (tests) where
 
 import Test.HUnit (Assertion, assertEqual, assertFailure)

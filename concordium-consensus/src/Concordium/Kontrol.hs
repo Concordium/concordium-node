@@ -35,14 +35,14 @@ getCurrentSlot = do
                 then 0
                 else fromIntegral ((tsMillis $ ct - gdGenesisTime gen) `div` durationMillis (gdSlotDuration gen))
 
--- |Get the timestamp at the beginning of the given slot.
+-- | Get the timestamp at the beginning of the given slot.
 getSlotTimestamp :: (SkovQueryMonad m) => Slot -> m Timestamp
 getSlotTimestamp slot = do
     gen <- getGenesisData
     -- We should be safe with respect to any overflow issues here since Timestamp is Word64
     return (addDuration (gdGenesisTime gen) (gdSlotDuration gen * fromIntegral slot))
 
--- |Select the finalization committee based on bakers from the given block.
+-- | Select the finalization committee based on bakers from the given block.
 getFinalizationCommittee :: (SkovQueryMonad m) => BlockPointerType m -> m FinalizationCommittee
 getFinalizationCommittee bp = do
     finParams <- getFinalizationParameters

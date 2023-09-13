@@ -3,7 +3,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
--- |Protocol updates supported from consensus version 0.
+-- | Protocol updates supported from consensus version 0.
 module Concordium.ProtocolUpdate.V0 where
 
 import Concordium.Types
@@ -19,7 +19,7 @@ import qualified Concordium.ProtocolUpdate.P4 as P4
 import qualified Concordium.ProtocolUpdate.P5 as P5
 import Concordium.Skov
 
--- |Type representing currently supported protocol update types.
+-- | Type representing currently supported protocol update types.
 data Update (pv :: ProtocolVersion) where
     UpdateP1 :: P1.Update -> Update 'P1
     UpdateP2 :: P2.Update -> Update 'P2
@@ -34,7 +34,7 @@ instance Show (Update pv) where
     show (UpdateP4 u) = "P4." ++ show u
     show (UpdateP5 u) = "P5." ++ show u
 
--- |Determine if a 'ProtocolUpdate' corresponds to a supported update type.
+-- | Determine if a 'ProtocolUpdate' corresponds to a supported update type.
 checkUpdate :: forall pv. (IsProtocolVersion pv) => ProtocolUpdate -> Either String (Update pv)
 checkUpdate = case protocolVersion @pv of
     SP1 -> fmap UpdateP1 . P1.checkUpdate
@@ -44,10 +44,10 @@ checkUpdate = case protocolVersion @pv of
     SP5 -> fmap UpdateP5 . P5.checkUpdate
     _ -> const $ Left "Unsupported update."
 
--- |Construct the genesis data for a P1 update.
--- It is assumed that the last finalized block is the terminal block of the old chain:
--- i.e. it is the first (and only) explicitly-finalized block with timestamp after the
--- update takes effect.
+-- | Construct the genesis data for a P1 update.
+--  It is assumed that the last finalized block is the terminal block of the old chain:
+--  i.e. it is the first (and only) explicitly-finalized block with timestamp after the
+--  update takes effect.
 updateRegenesis ::
     (BlockStateStorage m, SkovMonad m) =>
     Update (MPV m) ->
@@ -58,9 +58,9 @@ updateRegenesis (UpdateP3 u) = P3.updateRegenesis u
 updateRegenesis (UpdateP4 u) = P4.updateRegenesis u
 updateRegenesis (UpdateP5 u) = P5.updateRegenesis u
 
--- |Determine the next protocol version for the given update. Although the same
--- information can be retrieved from 'updateRegenesis', this is more efficient
--- than 'updateRegenesis' if only the next protocol version is needed.
+-- | Determine the next protocol version for the given update. Although the same
+--  information can be retrieved from 'updateRegenesis', this is more efficient
+--  than 'updateRegenesis' if only the next protocol version is needed.
 updateNextProtocolVersion ::
     Update pv ->
     SomeProtocolVersion
@@ -70,8 +70,8 @@ updateNextProtocolVersion (UpdateP3 u) = P3.updateNextProtocolVersion u
 updateNextProtocolVersion (UpdateP4 u) = P4.updateNextProtocolVersion u
 updateNextProtocolVersion (UpdateP5 u) = P5.updateNextProtocolVersion u
 
--- |If a protocol update has taken effect, return its protocol version.
--- Otherwise return 'Nothing'.
+-- | If a protocol update has taken effect, return its protocol version.
+--  Otherwise return 'Nothing'.
 getNextProtocolVersion :: forall m. (SkovQueryMonad m) => m (Maybe SomeProtocolVersion)
 getNextProtocolVersion =
     getProtocolUpdateStatus >>= \case

@@ -29,14 +29,14 @@ data FinalizationBuffer = FinalizationBuffer
     deriving (Show)
 makeLenses ''FinalizationBuffer
 
--- |The maximum time to delay a Seen message.
--- Set at 20 seconds.
+-- | The maximum time to delay a Seen message.
+--  Set at 20 seconds.
 maxDelay :: NominalDiffTime
 maxDelay = 20
 
--- |The base time to delay a Seen message.
--- Seen messages will be sent at most once per 'delayStep'.
--- Set at 50 milliseconds.
+-- | The base time to delay a Seen message.
+--  Seen messages will be sent at most once per 'delayStep'.
+--  Set at 50 milliseconds.
 delayStep :: NominalDiffTime
 delayStep = 0.05
 
@@ -49,11 +49,11 @@ class FinalizationBufferLenses s where
 emptyFinalizationBuffer :: FinalizationBuffer
 emptyFinalizationBuffer = FinalizationBuffer Map.empty Nothing
 
--- |Buffer a finalization message.  This puts Seen messages into a buffer.
--- A new Seen message will replace an older one: it is assumed to subsume it.
--- A DoneReporting message will flush any buffered Seen message.
--- If the message is added to a buffer, then the time at which the buffer
--- should be polled and an identifier for the buffer are returned.
+-- | Buffer a finalization message.  This puts Seen messages into a buffer.
+--  A new Seen message will replace an older one: it is assumed to subsume it.
+--  A DoneReporting message will flush any buffered Seen message.
+--  If the message is added to a buffer, then the time at which the buffer
+--  should be polled and an identifier for the buffer are returned.
 bufferFinalizationMessage :: (MonadState s m, FinalizationBufferLenses s, TimeMonad m, MonadLogger m, TimerMonad m) => (FinalizationMessage -> m ()) -> FinalizationMessage -> m ()
 bufferFinalizationMessage handleMsg msg@FinalizationMessage{msgBody = WMVBAABBAMessage (CSSSeen phase ns), ..} = do
     let bufId = (msgHeader, phase)
@@ -102,7 +102,7 @@ bufferFinalizationMessage handleMsg msg@FinalizationMessage{msgBody = WMVBAABBAM
             handleMsg msg
 bufferFinalizationMessage handleMsg msg = handleMsg msg
 
--- |Alert a buffer that the notify time has elapsed.  The input time should be at least the notify time.
+-- | Alert a buffer that the notify time has elapsed.  The input time should be at least the notify time.
 notifyBuffer :: (MonadState s m, FinalizationBufferLenses s, MonadLogger m, TimeMonad m) => (FinalizationMessage -> m ()) -> BufferId -> m ()
 notifyBuffer handleMsg bufId = do
     notifyTime <- currentTime
@@ -114,9 +114,9 @@ notifyBuffer handleMsg bufId = do
                 logEvent Runner LLTrace $ "Flushing buffered message on notify. expectedNotifyTime=" ++ show expectedNotifyTime ++ " notifyTime=" ++ show notifyTime
                 handleMsg msg
 
--- |A 'FinalizationState' equipped with a 'FinalizationBuffer'.  The buffer is used in the
--- 'Concordium.Skov.MonadImplementation.BufferedFinalization' configuration to buffer Seen
--- messages so that fewer messages need to be sent.  The type parameter is the type of timers.
+-- | A 'FinalizationState' equipped with a 'FinalizationBuffer'.  The buffer is used in the
+--  'Concordium.Skov.MonadImplementation.BufferedFinalization' configuration to buffer Seen
+--  messages so that fewer messages need to be sent.  The type parameter is the type of timers.
 data BufferedFinalizationState timer = BufferedFinalizationState
     { _bfsFinalization :: !(FinalizationState timer),
       _bfsBuffer :: !FinalizationBuffer

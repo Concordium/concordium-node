@@ -37,80 +37,80 @@ import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.TimerMonad
 
--- |Reasons that a 'TimeoutMessage' can be rejected.
+-- | Reasons that a 'TimeoutMessage' can be rejected.
 data ReceiveTimeoutMessageRejectReason
-    = -- |The 'Round' presented in the 'TimeoutMessage' is obsolete.
+    = -- | The 'Round' presented in the 'TimeoutMessage' is obsolete.
       ObsoleteRound
     | -- | The 'QuorumCertificate' associated with the 'TimeoutMessage' is for
       -- either an obsolete 'Round' or 'Epoch'.
       ObsoleteQC
-    | -- |The signer of the 'TimeoutMessage' is not a finalizer for the
-      -- current 'Epoch'.
+    | -- | The signer of the 'TimeoutMessage' is not a finalizer for the
+      --  current 'Epoch'.
       NotAFinalizer
-    | -- |The signature on the 'TimeoutMessage' is invalid.
+    | -- | The signature on the 'TimeoutMessage' is invalid.
       InvalidSignature
-    | -- |The finalizer already signed a 'TimeoutMessage' for the
-      -- current round.
+    | -- | The finalizer already signed a 'TimeoutMessage' for the
+      --  current round.
       DoubleSigning
-    | -- |The 'QuorumCertificate' is pointing to a block prior
-      -- to the last finalized block.
+    | -- | The 'QuorumCertificate' is pointing to a block prior
+      --  to the last finalized block.
       ObsoleteQCPointer
-    | -- |The 'QuorumCertificate' is pointing to a dead block.
+    | -- | The 'QuorumCertificate' is pointing to a dead block.
       DeadQCPointer
-    | -- |The epoch of the 'QuorumCertificate' does not agree with the epoch of an existing
-      -- certificate for that round.
+    | -- | The epoch of the 'QuorumCertificate' does not agree with the epoch of an existing
+      --  certificate for that round.
       BadQCEpoch
-    | -- |The 'TimeoutMessage' is a duplicate.
+    | -- | The 'TimeoutMessage' is a duplicate.
       Duplicate
     deriving (Eq, Show)
 
--- |Possibly return codes for when receiving
--- a 'TimeoutMessage'.
+-- | Possibly return codes for when receiving
+--  a 'TimeoutMessage'.
 data ReceiveTimeoutMessageResult pv
-    = -- |The 'TimeoutMessage' was well received and should
-      -- be relayed onto the network.
+    = -- | The 'TimeoutMessage' was well received and should
+      --  be relayed onto the network.
       Received !(PartiallyVerifiedTimeoutMessage pv)
-    | -- |The 'TimeoutMessage' could not be verified and should not be
-      -- relayed.
+    | -- | The 'TimeoutMessage' could not be verified and should not be
+      --  relayed.
       Rejected !ReceiveTimeoutMessageRejectReason
-    | -- |The consensus runner needs to catch up before processing the
-      -- 'TimeoutMessage'.
+    | -- | The consensus runner needs to catch up before processing the
+      --  'TimeoutMessage'.
       CatchupRequired
-    | -- |Consensus has been shutdown.
+    | -- | Consensus has been shutdown.
       ConsensusShutdown
     deriving (Eq, Show)
 
--- |A partially verified 'TimeoutMessage' with its associated finalization committees.
--- The timeout message is partially verified itself but the aggregate signature and
--- associated quorum certificate are not.
+-- | A partially verified 'TimeoutMessage' with its associated finalization committees.
+--  The timeout message is partially verified itself but the aggregate signature and
+--  associated quorum certificate are not.
 data PartiallyVerifiedTimeoutMessage pv = PartiallyVerifiedTimeoutMessage
-    { -- |The 'TimeoutMessage' that has been partially verified
+    { -- | The 'TimeoutMessage' that has been partially verified
       pvtmTimeoutMessage :: !TimeoutMessage,
-      -- |The finalization committee with respect to the 'QuorumCertificate' contained
-      -- in the 'TimeoutMessage'.
+      -- | The finalization committee with respect to the 'QuorumCertificate' contained
+      --  in the 'TimeoutMessage'.
       pvtmQuorumFinalizers :: !FinalizationCommittee,
-      -- |Whether the aggregate signature is valid.
-      -- This is intentionally lazy, as forcing this will perform the signature check.
+      -- | Whether the aggregate signature is valid.
+      --  This is intentionally lazy, as forcing this will perform the signature check.
       pvtmAggregateSignatureValid :: Bool,
-      -- |Block pointer for the block referenced by the 'QuorumCertificate' of the 'TimeoutMessage'.
-      -- This is @Absent@ when the block that the 'QuorumCertificate' refers to is either 'BlockPending' or 'BlockUnknown'.
+      -- | Block pointer for the block referenced by the 'QuorumCertificate' of the 'TimeoutMessage'.
+      --  This is @Absent@ when the block that the 'QuorumCertificate' refers to is either 'BlockPending' or 'BlockUnknown'.
       pvtmBlock :: !(Option (BlockPointer pv))
     }
     deriving (Eq, Show)
 
 makeLenses ''PartiallyVerifiedTimeoutMessage
 
--- |Receive and verify the basics of a 'TimeoutMessage' with respect to
--- the supplied tree state.
--- If this function returns @Received PartiallyVerifiedTimeoutMessage@ then 'executeTimeoutMessage' MUST
--- be invoked immediately after relaying the message. Hence there must be no changes to the tree state in the mean time.
+-- | Receive and verify the basics of a 'TimeoutMessage' with respect to
+--  the supplied tree state.
+--  If this function returns @Received PartiallyVerifiedTimeoutMessage@ then 'executeTimeoutMessage' MUST
+--  be invoked immediately after relaying the message. Hence there must be no changes to the tree state in the mean time.
 receiveTimeoutMessage ::
-    LowLevel.MonadTreeStateStore m =>
-    -- |The 'TimeoutMessage' to receive.
+    (LowLevel.MonadTreeStateStore m) =>
+    -- | The 'TimeoutMessage' to receive.
     TimeoutMessage ->
-    -- |The tree state to verify the 'TimeoutMessage' within.
+    -- | The tree state to verify the 'TimeoutMessage' within.
     SkovData (MPV m) ->
-    -- |Result of receiving the 'TimeoutMessage'.
+    -- | Result of receiving the 'TimeoutMessage'.
     m (ReceiveTimeoutMessageResult (MPV m))
 receiveTimeoutMessage tm@TimeoutMessage{tmBody = TimeoutMessageBody{..}} skovData
     -- Consensus has been shutdown.
@@ -239,23 +239,23 @@ receiveTimeoutMessage tm@TimeoutMessage{tmBody = TimeoutMessageBody{..}} skovDat
     -- The current epoch with respect to the tree state supplied.
     theCurrentEpoch = skovData ^. roundStatus . rsCurrentEpoch
 
--- |The result of executing a 'TimeoutMessage'.
+-- | The result of executing a 'TimeoutMessage'.
 data ExecuteTimeoutMessageResult
-    = -- |The 'TimeoutMessage' was successfully executed.
+    = -- | The 'TimeoutMessage' was successfully executed.
       ExecutionSuccess
-    | -- |The 'AggregateSiganture' is incorrect.
+    | -- | The 'AggregateSiganture' is incorrect.
       InvalidAggregateSignature
-    | -- |The 'QuorumCertificate' for the 'TimeoutMessage'
-      -- is invalid.
+    | -- | The 'QuorumCertificate' for the 'TimeoutMessage'
+      --  is invalid.
       InvalidQC !QuorumCertificate
     deriving (Eq, Show)
 
--- |Execute a 'PartiallyVerifiedTimeoutMessage' that has been _received_ ('receiveTimeoutMessage') prior to
--- this call.
+-- | Execute a 'PartiallyVerifiedTimeoutMessage' that has been _received_ ('receiveTimeoutMessage') prior to
+--  this call.
 --
--- This function verifies the 'QuorumCertificate' and possibly advances the round.
--- This function also makes sure the check whether a block can be finalized due to the
--- 'QuorumCertificate' of the 'TimeoutMessage'.
+--  This function verifies the 'QuorumCertificate' and possibly advances the round.
+--  This function also makes sure the check whether a block can be finalized due to the
+--  'QuorumCertificate' of the 'TimeoutMessage'.
 executeTimeoutMessage ::
     ( IsConsensusV1 (MPV m),
       MonadThrow m,
@@ -274,10 +274,10 @@ executeTimeoutMessage ::
       MonadReader r m,
       HasBakerContext r
     ) =>
-    -- |The partially verified 'TimeoutMessage' to execute.
+    -- | The partially verified 'TimeoutMessage' to execute.
     PartiallyVerifiedTimeoutMessage (MPV m) ->
-    -- |Returns @Left TimeoutMessage@ if the 'QuorumCertificate' could not be verified,
-    -- and otherwise @Right ()@.
+    -- | Returns @Left TimeoutMessage@ if the 'QuorumCertificate' could not be verified,
+    --  and otherwise @Right ()@.
     m ExecuteTimeoutMessageResult
 executeTimeoutMessage (PartiallyVerifiedTimeoutMessage{..})
     -- Check the aggregate signature of the timeout message.
@@ -342,10 +342,10 @@ executeTimeoutMessage (PartiallyVerifiedTimeoutMessage{..})
                 flag $! TimeoutMessageInvalidQC pvtmTimeoutMessage
                 return $! InvalidQC tmQuorumCertificate
 
--- |This is 'uponTimeoutEvent' from the bluepaper. If a timeout occurs, a finalizers should call
--- this function to generate a timeout message, send it out, and process it.
--- NB: If the caller is not a finalizer, this function does nothing.
--- Precondition: This function MUST have exclusive write permission to the tree state.
+-- | This is 'uponTimeoutEvent' from the bluepaper. If a timeout occurs, a finalizers should call
+--  this function to generate a timeout message, send it out, and process it.
+--  NB: If the caller is not a finalizer, this function does nothing.
+--  Precondition: This function MUST have exclusive write permission to the tree state.
 uponTimeoutEvent ::
     ( MonadTimeout m,
       MonadBroadcast m,
@@ -408,11 +408,11 @@ uponTimeoutEvent = do
                 sendTimeoutMessage timeoutMessage
                 processTimeout timeoutMessage
 
--- |Add a 'TimeoutMessage' to an existing set of timeout messages. Returns 'Nothing' if there is
--- no change (i.e. the new message was from an epoch that is too early).
--- The supplied timeout messages can be 'Absent' (i.e. there are no messages), but the return value
--- is only 'Nothing' when there is no change: if the timeout messages are updated, they will
--- always be non-empty (in particular, including the new message).
+-- | Add a 'TimeoutMessage' to an existing set of timeout messages. Returns 'Nothing' if there is
+--  no change (i.e. the new message was from an epoch that is too early).
+--  The supplied timeout messages can be 'Absent' (i.e. there are no messages), but the return value
+--  is only 'Nothing' when there is no change: if the timeout messages are updated, they will
+--  always be non-empty (in particular, including the new message).
 updateTimeoutMessages ::
     Option TimeoutMessages ->
     TimeoutMessage ->
@@ -467,13 +467,13 @@ updateTimeoutMessages tms tm =
     singletonTimeout = Map.singleton finIndex tm
     insertTimeout = Map.insert finIndex tm
 
--- |Process a timeout message. This stores the timeout, and makes sure the stored timeout messages
--- do not span more than 2 epochs. If enough timeout messages are stored, we form a timeout certificate and
--- advance round, and bake a block in the new round if possible.
+-- | Process a timeout message. This stores the timeout, and makes sure the stored timeout messages
+--  do not span more than 2 epochs. If enough timeout messages are stored, we form a timeout certificate and
+--  advance round, and bake a block in the new round if possible.
 --
--- Precondition:
--- * The given 'TimeoutMessage' is valid and has already been checked.
--- * The finalizer must not already have sent out a 'TimeoutMessage' for the current round.
+--  Precondition:
+--  * The given 'TimeoutMessage' is valid and has already been checked.
+--  * The finalizer must not already have sent out a 'TimeoutMessage' for the current round.
 processTimeout ::
     ( MonadTimeout m,
       LowLevel.MonadTreeStateStore m,
@@ -564,10 +564,10 @@ processTimeout tm = do
             -- Note that @Map.keys@ returns the keys in ascending order.
             (Map.keys timeouts)
 
--- |Make a 'TimeoutCertificate' from a 'TimeoutMessages'.
+-- | Make a 'TimeoutCertificate' from a 'TimeoutMessages'.
 --
--- NB: It is not checked whether enough timeout messages are present.
--- This should be checked before calling 'makeTimeoutCertificate'.
+--  NB: It is not checked whether enough timeout messages are present.
+--  This should be checked before calling 'makeTimeoutCertificate'.
 makeTimeoutCertificate :: Round -> TimeoutMessages -> TimeoutCertificate
 makeTimeoutCertificate currentRound TimeoutMessages{..} =
     TimeoutCertificate

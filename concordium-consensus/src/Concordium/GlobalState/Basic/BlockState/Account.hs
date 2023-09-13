@@ -36,40 +36,40 @@ import Concordium.Types
 import Concordium.Types.Accounts
 import Concordium.Types.Migration
 
--- |Type for how a 'PersistingAccountData' value is stored as part of
--- an account. This is stored with its hash.
+-- | Type for how a 'PersistingAccountData' value is stored as part of
+--  an account. This is stored with its hash.
 type AccountPersisting = Hashed' PersistingAccountDataHash PersistingAccountData
 
--- |Make an 'AccountPersisting' value from a 'PersistingAccountData' value.
+-- | Make an 'AccountPersisting' value from a 'PersistingAccountData' value.
 makeAccountPersisting :: PersistingAccountData -> AccountPersisting
 makeAccountPersisting = makeHashed
 {-# INLINE makeAccountPersisting #-}
 
--- |An (in-memory) account.
+-- | An (in-memory) account.
 data Account (av :: AccountVersion) = Account
-    { -- |Account data that seldom changes. Stored separately for efficient
-      -- memory use and hashing.
+    { -- | Account data that seldom changes. Stored separately for efficient
+      --  memory use and hashing.
       _accountPersisting :: !AccountPersisting,
-      -- |The next sequence number of a transaction on this account.
+      -- | The next sequence number of a transaction on this account.
       _accountNonce :: !Nonce,
-      -- |This account amount contains all the amount owned by the account,
-      -- excluding encrypted amounts. In particular, the available amount is
-      -- @accountAmount - totalLockedUpBalance accountReleaseSchedule@.
+      -- | This account amount contains all the amount owned by the account,
+      --  excluding encrypted amounts. In particular, the available amount is
+      --  @accountAmount - totalLockedUpBalance accountReleaseSchedule@.
       _accountAmount :: !Amount,
-      -- |The encrypted amount
+      -- | The encrypted amount
       _accountEncryptedAmount :: !AccountEncryptedAmount,
-      -- |Locked-up amounts and their release schedule.
+      -- | Locked-up amounts and their release schedule.
       _accountReleaseSchedule :: !(AccountReleaseSchedule av),
-      -- |The baker or delegation associated with the account (if any).
+      -- | The baker or delegation associated with the account (if any).
       _accountStaking :: !(AccountStake av)
     }
     deriving (Eq, Show)
 
 makeLenses ''Account
 
--- |A traversal for accessing the 'AccountBaker' record of an account if it has one.
--- This can be used for getting the baker (e.g. with '(^?)') or updating it (if it already exists)
--- but not for setting it unless the account already has a baker.
+-- | A traversal for accessing the 'AccountBaker' record of an account if it has one.
+--  This can be used for getting the baker (e.g. with '(^?)') or updating it (if it already exists)
+--  but not for setting it unless the account already has a baker.
 accountBaker :: Traversal' (Account av) (AccountBaker av)
 accountBaker f = g
   where
@@ -77,13 +77,13 @@ accountBaker f = g
         (\bkr' -> acct{_accountStaking = AccountStakeBaker bkr'}) <$> f bkr
     g acct = pure acct
 
--- |Get the baker from an account, on the basis that it is known to be a baker
-unsafeAccountBaker :: HasCallStack => SimpleGetter (Account av) (AccountBaker av)
+-- | Get the baker from an account, on the basis that it is known to be a baker
+unsafeAccountBaker :: (HasCallStack) => SimpleGetter (Account av) (AccountBaker av)
 unsafeAccountBaker = singular accountBaker
 
--- |A traversal for accessing the 'AccountDelegation' record of an account if it has one.
--- This can be used for getting the delegation (e.g. with '(^?)') or updating it (if it already
--- exists) but not for setting it unless the account already has a baker.
+-- | A traversal for accessing the 'AccountDelegation' record of an account if it has one.
+--  This can be used for getting the delegation (e.g. with '(^?)') or updating it (if it already
+--  exists) but not for setting it unless the account already has a baker.
 accountDelegator :: Traversal' (Account av) (AccountDelegation av)
 accountDelegator f = g
   where
@@ -91,20 +91,20 @@ accountDelegator f = g
         (\del' -> acct{_accountStaking = AccountStakeDelegate del'}) <$> f del
     g acct = pure acct
 
--- |Get the delegator on an account, on the basis that it is known to be a delegator.
-unsafeAccountDelegator :: HasCallStack => SimpleGetter (Account av) (AccountDelegation av)
+-- | Get the delegator on an account, on the basis that it is known to be a delegator.
+unsafeAccountDelegator :: (HasCallStack) => SimpleGetter (Account av) (AccountDelegation av)
 unsafeAccountDelegator = singular accountDelegator
 
 instance HasPersistingAccountData (Account av) where
     persistingAccountData = accountPersisting . unhashed
 
--- |Serialize an account. The serialization format may depend on the protocol version.
+-- | Serialize an account. The serialization format may depend on the protocol version.
 --
--- This format allows accounts to be stored in a reduced format by
--- eliding (some) data that can be inferred from context, or is
--- the default value.  Note that there can be multiple representations
--- of the same account.
-serializeAccount :: IsAccountVersion av => GlobalContext -> S.Putter (Account av)
+--  This format allows accounts to be stored in a reduced format by
+--  eliding (some) data that can be inferred from context, or is
+--  the default value.  Note that there can be multiple representations
+--  of the same account.
+serializeAccount :: (IsAccountVersion av) => GlobalContext -> S.Putter (Account av)
 serializeAccount cryptoParams acct@Account{..} = do
     S.put flags
     when asfExplicitAddress $ S.put _accountAddress
@@ -143,9 +143,9 @@ serializeAccount cryptoParams acct@Account{..} = do
     asfThresholdIsOne = aiThreshold _accountVerificationKeys == 1
     asfHasRemovedCredentials = _accountRemovedCredentials ^. unhashed /= EmptyRemovedCredentials
 
--- |Deserialize an account.
--- The serialization format may depend on the protocol version, and maybe migrated from one version
--- to another, using the 'StateMigrationParameters' provided.
+-- | Deserialize an account.
+--  The serialization format may depend on the protocol version, and maybe migrated from one version
+--  to another, using the 'StateMigrationParameters' provided.
 deserializeAccount ::
     forall oldpv pv.
     (IsProtocolVersion oldpv, IsProtocolVersion pv) =>
@@ -192,7 +192,7 @@ deserializeAccount migration cryptoParams = do
     let _accountPersisting = makeAccountPersisting PersistingAccountData{..}
     return Account{..}
 
--- |Generate hash inputs from an account for 'AccountV0' and 'AccountV1'.
+-- | Generate hash inputs from an account for 'AccountV0' and 'AccountV1'.
 accountHashInputsV0 :: (IsAccountVersion av, AccountStructureVersionFor av ~ 'AccountStructureV0) => Account av -> AccountHashInputsV0 av
 accountHashInputsV0 Account{..} =
     AccountHashInputsV0
@@ -204,7 +204,7 @@ accountHashInputsV0 Account{..} =
           ahiAccountStakeHash = getAccountStakeHash _accountStaking
         }
 
--- |Generate hash inputs from an account for 'AccountV2'.
+-- | Generate hash inputs from an account for 'AccountV2'.
 accountHashInputsV2 :: Account 'AccountV2 -> AccountHashInputsV2 'AccountV2
 accountHashInputsV2 Account{..} =
     AccountHashInputsV2
@@ -227,26 +227,26 @@ accountHashInputsV2 Account{..} =
               amhi2AccountReleaseScheduleHash = getHash _accountReleaseSchedule
             }
 
-instance IsAccountVersion av => HashableTo (AccountHash av) (Account av) where
+instance (IsAccountVersion av) => HashableTo (AccountHash av) (Account av) where
     getHash acc = makeAccountHash $ case accountVersion @av of
         SAccountV0 -> AHIV0 (accountHashInputsV0 acc)
         SAccountV1 -> AHIV1 (accountHashInputsV0 acc)
         SAccountV2 -> AHIV2 (accountHashInputsV2 acc)
 
-instance forall av. IsAccountVersion av => HashableTo Hash.Hash (Account av) where
+instance forall av. (IsAccountVersion av) => HashableTo Hash.Hash (Account av) where
     getHash = coerce @(AccountHash av) . getHash
 
--- |Create an empty account with the given public key, address and credentials.
+-- | Create an empty account with the given public key, address and credentials.
 newAccountMultiCredential ::
     forall av.
     (IsAccountVersion av) =>
-    -- |Cryptographic parameters, needed to derive the encryption key from the credentials.
+    -- | Cryptographic parameters, needed to derive the encryption key from the credentials.
     GlobalContext ->
-    -- |The account threshold, how many credentials need to sign..
+    -- | The account threshold, how many credentials need to sign..
     AccountThreshold ->
-    -- |Address of the account to be created.
+    -- | Address of the account to be created.
     AccountAddress ->
-    -- |Initial credentials on the account. NB: It is assumed that this map has a value at index 'initialCredentialIndex' (0).
+    -- | Initial credentials on the account. NB: It is assumed that this map has a value at index 'initialCredentialIndex' (0).
     Map.Map CredentialIndex AccountCredential ->
     Account av
 newAccountMultiCredential cryptoParams threshold _accountAddress cs =
@@ -267,7 +267,7 @@ newAccountMultiCredential cryptoParams threshold _accountAddress cs =
           _accountStaking = AccountStakeNone
         }
 
--- |Create an empty account with the given public key, address and credential.
+-- | Create an empty account with the given public key, address and credential.
 newAccount :: (IsAccountVersion av) => GlobalContext -> AccountAddress -> AccountCredential -> Account av
 newAccount cryptoParams _accountAddress credential =
     newAccountMultiCredential cryptoParams 1 _accountAddress (Map.singleton initialCredentialIndex credential)

@@ -86,7 +86,7 @@ makeTestDelegatorFromSeed amount accountDelegation seed = do
 
 -- Accounts
 
--- |Account of the baker 0.
+-- | Account of the baker 0.
 baker0Account ::
     (IsAccountVersion av, Blob.MonadBlobStore m, AVSupportsDelegation av) =>
     m (BS.PersistentAccount av)
@@ -95,7 +95,7 @@ baker0Account = makeTestBakerV1FromSeed 1_000_000 1_000_000 bakerId seed
     bakerId = 0
     seed = 16
 
--- |Account of the delegator1.
+-- | Account of the delegator1.
 delegator1Account ::
     (IsAccountVersion av, Blob.MonadBlobStore m, AVSupportsDelegation av) =>
     m (BS.PersistentAccount av)
@@ -110,15 +110,15 @@ delegator1Account = makeTestDelegatorFromSeed 20_000_000 accountDelegation 17
               _delegationPendingChange = NoChange
             }
 
--- |Account address of the delegator1.
+-- | Account address of the delegator1.
 delegator1Address :: AccountAddress
 delegator1Address = Helpers.accountAddressFromSeed 17
 
--- |Account keys of the delegator1 account.
+-- | Account keys of the delegator1 account.
 delegator1KP :: SigScheme.KeyPair
 delegator1KP = Helpers.keyPairFromSeed 17
 
--- |Account of the baker 2.
+-- | Account of the baker 2.
 baker2Account ::
     (IsAccountVersion av, Blob.MonadBlobStore m, AVSupportsDelegation av) =>
     m (BS.PersistentAccount av)
@@ -129,7 +129,7 @@ baker2Account = makeTestBakerV1FromSeed balance stake bakerId seed
     bakerId = 2
     seed = 18
 
--- |Account of the delegator3.
+-- | Account of the delegator3.
 delegator3Account ::
     (IsAccountVersion av, Blob.MonadBlobStore m, AVSupportsDelegation av) =>
     m (BS.PersistentAccount av)
@@ -144,15 +144,15 @@ delegator3Account = makeTestDelegatorFromSeed 20_000_000 accountDelegation 19
               _delegationPendingChange = NoChange
             }
 
--- |Account address of the delegator3.
+-- | Account address of the delegator3.
 delegator3Address :: AccountAddress
 delegator3Address = Helpers.accountAddressFromSeed 19
 
--- |Account keys of the delegator3 account.
+-- | Account keys of the delegator3 account.
 delegator3KP :: SigScheme.KeyPair
 delegator3KP = Helpers.keyPairFromSeed 19
 
--- |Account of the baker 4.
+-- | Account of the baker 4.
 baker4Account ::
     (IsAccountVersion av, Blob.MonadBlobStore m, AVSupportsDelegation av) =>
     m (BS.PersistentAccount av)
@@ -161,12 +161,12 @@ baker4Account = makeTestBakerV1FromSeed 1_000_000 1_000 bakerId seed
     bakerId = 4
     seed = 20
 
--- |Create initial block state with account
--- account index 0 is baker0
--- account index 1 is delegator 1 (delegates to baker 0 with overdelegation)
--- account index 2 is baker 2
--- account index 3 is delegator3 (delegates to baker 2)
--- account index 4 is baker 4
+-- | Create initial block state with account
+--  account index 0 is baker0
+--  account index 1 is delegator 1 (delegates to baker 0 with overdelegation)
+--  account index 2 is baker 2
+--  account index 3 is delegator3 (delegates to baker 2)
+--  account index 4 is baker 4
 initialBlockState ::
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
@@ -262,7 +262,7 @@ testCase2 _ pvString =
     checkState result blockState =
         Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
 
--- |Test transaction rejects if increasing stake above the threshold of the pool
+-- | Test transaction rejects if increasing stake above the threshold of the pool
 testCase3 ::
     forall pv.
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
@@ -299,8 +299,8 @@ testCase3 _ pvString =
     checkState result blockState =
         Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
 
--- |Test reducing delegator stake **and changing target** such that the new stake is above the cap
--- for the new target.
+-- | Test reducing delegator stake **and changing target** such that the new stake is above the cap
+--  for the new target.
 testCase4 ::
     forall pv.
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
@@ -337,8 +337,8 @@ testCase4 _ pvString =
     checkState result blockState =
         Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
 
--- |Test changing the target and decreasing stake such that the new stake is acceptable for the new target.
--- This still fails because the change of target is only effected after the cooldown period.
+-- | Test changing the target and decreasing stake such that the new stake is acceptable for the new target.
+--  This still fails because the change of target is only effected after the cooldown period.
 testCase5 ::
     forall pv.
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
@@ -375,7 +375,7 @@ testCase5 _ pvString =
     checkState result blockState =
         Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
 
--- |Increase stake successfully.
+-- | Increase stake successfully.
 testCase6 ::
     forall pv.
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
@@ -412,7 +412,7 @@ testCase6 _ pvString =
     checkState result blockState =
         Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
 
--- |Increase stake and change target successfully.
+-- | Increase stake and change target successfully.
 testCase7 ::
     forall pv.
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
@@ -453,7 +453,7 @@ testCase7 _ pvString =
     checkState result blockState =
         Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
 
--- |Increase stake and change target rejects with reason: maximum threshold for pool.
+-- | Increase stake and change target rejects with reason: maximum threshold for pool.
 testCase8 ::
     forall pv.
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
@@ -490,7 +490,7 @@ testCase8 _ pvString =
     checkState result blockState =
         Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
 
--- |Increase stake and change target rejects with reason: maximum threshold for pool.
+-- | Increase stake and change target rejects with reason: maximum threshold for pool.
 testCase9 ::
     forall pv.
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
@@ -533,7 +533,7 @@ tests =
         sequence_ $
             Helpers.forEveryProtocolVersion testCases
   where
-    testCases :: forall pv. IsProtocolVersion pv => SProtocolVersion pv -> String -> Spec
+    testCases :: forall pv. (IsProtocolVersion pv) => SProtocolVersion pv -> String -> Spec
     testCases spv pvString =
         case delegationSupport @(AccountVersionFor pv) of
             SAVDelegationNotSupported -> return ()

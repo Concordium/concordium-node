@@ -23,41 +23,41 @@ import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
 
 class ReleaseScheduleOperations m r where
-    -- |A reference to an account as handled by the release schedule.
+    -- | A reference to an account as handled by the release schedule.
     type AccountRef r
 
-    -- |Add a release for a given account.
-    -- PRECONDITION: The account must not already have a scheduled release.
+    -- | Add a release for a given account.
+    --  PRECONDITION: The account must not already have a scheduled release.
     addAccountRelease :: Timestamp -> AccountRef r -> r -> m r
 
-    -- |Update the scheduled release time for an account.
-    -- PRECONDITION: The account must have a scheduled release at the old release time.
-    -- PRECONDITION: @newReleaseTime <= oldReleaseTime@.
+    -- | Update the scheduled release time for an account.
+    --  PRECONDITION: The account must have a scheduled release at the old release time.
+    --  PRECONDITION: @newReleaseTime <= oldReleaseTime@.
     updateAccountRelease ::
-        -- |Old release time
+        -- | Old release time
         Timestamp ->
-        -- |New release time
+        -- | New release time
         Timestamp ->
         AccountRef r ->
         r ->
         m r
 
-    -- |Remove all releases from the schedule up to and including the provided timestamp,
-    -- returning a list of the accounts with removed releases.
+    -- | Remove all releases from the schedule up to and including the provided timestamp,
+    --  returning a list of the accounts with removed releases.
     processReleasesUntil :: Timestamp -> r -> m ([AccountRef r], r)
 
--- |A release schedule implementation that is designed to be serialization-compatible with
--- the old representation of the top-level release schedule, which was a map from account
--- addresses to release timestamps.
+-- | A release schedule implementation that is designed to be serialization-compatible with
+--  the old representation of the top-level release schedule, which was a map from account
+--  addresses to release timestamps.
 data LegacyReleaseSchedule = LegacyReleaseSchedule
-    { -- |The first timestamp at which a release is scheduled (or the maximum possible timestamp if
-      -- no releases are scheduled). This MUST NOT be used to infer that the release schedule is
-      -- empty, since there can be a release at the maximum timestamp.
+    { -- | The first timestamp at which a release is scheduled (or the maximum possible timestamp if
+      --  no releases are scheduled). This MUST NOT be used to infer that the release schedule is
+      --  empty, since there can be a release at the maximum timestamp.
       lrsFirstTimestamp :: !Timestamp,
-      -- |A map recording the first release time for each account with a pending release.
-      -- An account should occur at most once in the map.
+      -- | A map recording the first release time for each account with a pending release.
+      --  An account should occur at most once in the map.
       lrsMap :: !(Map.Map Timestamp (Set.Set AccountAddress)),
-      -- |The number of accounts with entries in the release schedule map.
+      -- | The number of accounts with entries in the release schedule map.
       lrsEntryCount :: !Word64
     }
     deriving (Show)
@@ -80,8 +80,8 @@ instance Serialize LegacyReleaseSchedule where
                 addAcc (Just accs) = Just $! Set.insert acc accs
             go (n - 1) (Map.alter addAcc ts m) (min ts fts)
 
-instance MonadBlobStore m => BlobStorable m LegacyReleaseSchedule
-instance Applicative m => Cacheable m LegacyReleaseSchedule
+instance (MonadBlobStore m) => BlobStorable m LegacyReleaseSchedule
+instance (Applicative m) => Cacheable m LegacyReleaseSchedule
 
 instance (MonadBlobStore m) => ReleaseScheduleOperations m (BufferedRef LegacyReleaseSchedule) where
     type AccountRef (BufferedRef LegacyReleaseSchedule) = AccountAddress
@@ -135,31 +135,31 @@ instance (MonadBlobStore m) => ReleaseScheduleOperations m (BufferedRef LegacyRe
             -- Pattern match lazily in case the map is empty.
             ~((minTS, accs), newMap) = Map.deleteFindMin lrsMap
 
--- |A set of accounts represented by 'AccountIndex'.
+-- | A set of accounts represented by 'AccountIndex'.
 newtype AccountSet = AccountSet {theAccountSet :: Set.Set AccountIndex}
     deriving (Serialize, Show)
 
-instance MonadBlobStore m => BlobStorable m AccountSet
-instance Applicative m => Cacheable m AccountSet
+instance (MonadBlobStore m) => BlobStorable m AccountSet
+instance (Applicative m) => Cacheable m AccountSet
 
--- |A release schedule for the P5 protocol version.  This uses a 'Trie.Trie' mapping 'Timestamp's
--- to sets of accounts.
+-- | A release schedule for the P5 protocol version.  This uses a 'Trie.Trie' mapping 'Timestamp's
+--  to sets of accounts.
 data NewReleaseSchedule = NewReleaseSchedule
-    { -- |The first timestamp at which a release is scheduled (or the maximum possible timestamp if
-      -- no releases are scheduled). This MUST NOT be used to infer that the release schedule is
-      -- empty, since there can be a release at the maximum timestamp.
+    { -- | The first timestamp at which a release is scheduled (or the maximum possible timestamp if
+      --  no releases are scheduled). This MUST NOT be used to infer that the release schedule is
+      --  empty, since there can be a release at the maximum timestamp.
       nrsFirstTimestamp :: !Timestamp,
-      -- |A map recording the first release time for each account with a pending
-      -- release. An account should occur at most once in the map. We make
-      -- crucial use of the lexicographic ordering on the serialization of
-      -- Timestamp which is the natural ordering due to big-endian
-      -- serialization. This allows us to also use the Trie to find the release
-      -- with minimal timestamp.
+      -- | A map recording the first release time for each account with a pending
+      --  release. An account should occur at most once in the map. We make
+      --  crucial use of the lexicographic ordering on the serialization of
+      --  Timestamp which is the natural ordering due to big-endian
+      --  serialization. This allows us to also use the Trie to find the release
+      --  with minimal timestamp.
       nrsMap :: !(Trie.TrieN BufferedFix Timestamp AccountSet)
     }
     deriving (Show)
 
-instance MonadBlobStore m => BlobStorable m NewReleaseSchedule where
+instance (MonadBlobStore m) => BlobStorable m NewReleaseSchedule where
     storeUpdate NewReleaseSchedule{..} = do
         (pmap, newMap) <- storeUpdate nrsMap
         let !p = do
@@ -224,14 +224,14 @@ instance (MonadBlobStore m) => ReleaseScheduleOperations m NewReleaseSchedule wh
                         newMap <- Trie.delete minTS m
                         go (accum ++ Set.toList (theAccountSet accs)) newMap
 
--- |A reference to an account used in the top-level release schedule.
--- For protocol version prior to 'P5', this is 'AccountAddress', and for 'P5' onward this is
--- 'AccountIndex'. This type determines the implementation of the release schedule use for the
--- protocol version.
+-- | A reference to an account used in the top-level release schedule.
+--  For protocol version prior to 'P5', this is 'AccountAddress', and for 'P5' onward this is
+--  'AccountIndex'. This type determines the implementation of the release schedule use for the
+--  protocol version.
 --
--- Note: the use of 'AccountAddress' (and the 'LegacyReleaseSchedule') is done to maintain database
--- compatibility, rather than as a strict requirement from the protocol itself. The release schedule
--- is essentially an index into the accounts, and so not hashed as part of the state hash.
+--  Note: the use of 'AccountAddress' (and the 'LegacyReleaseSchedule') is done to maintain database
+--  compatibility, rather than as a strict requirement from the protocol itself. The release schedule
+--  is essentially an index into the accounts, and so not hashed as part of the state hash.
 type family RSAccountRef pv where
     RSAccountRef 'P1 = AccountAddress
     RSAccountRef 'P2 = AccountAddress
@@ -239,20 +239,20 @@ type family RSAccountRef pv where
     RSAccountRef 'P4 = AccountAddress
     RSAccountRef _ = AccountIndex
 
--- |A top-level release schedule used for a particular protocol version.
+-- | A top-level release schedule used for a particular protocol version.
 data ReleaseSchedule (pv :: ProtocolVersion) where
-    -- |A release schedule for protocol versions 'P1' to 'P4'.
+    -- | A release schedule for protocol versions 'P1' to 'P4'.
     ReleaseScheduleP0 ::
         (RSAccountRef pv ~ AccountAddress) =>
         !(BufferedRef LegacyReleaseSchedule) ->
         ReleaseSchedule pv
-    -- |A release schedule for protocol versions 'P5' onwards.
+    -- | A release schedule for protocol versions 'P5' onwards.
     ReleaseScheduleP5 ::
         (RSAccountRef pv ~ AccountIndex) =>
         !NewReleaseSchedule ->
         ReleaseSchedule pv
 
-deriving instance IsProtocolVersion pv => Show (ReleaseSchedule pv)
+deriving instance (IsProtocolVersion pv) => Show (ReleaseSchedule pv)
 
 instance (MonadBlobStore m, IsProtocolVersion pv) => BlobStorable m (ReleaseSchedule pv) where
     storeUpdate (ReleaseScheduleP0 rs) = second ReleaseScheduleP0 <$> storeUpdate rs
@@ -284,7 +284,7 @@ instance (MonadBlobStore m) => ReleaseScheduleOperations m (ReleaseSchedule pv) 
     processReleasesUntil ts (ReleaseScheduleP5 rs) =
         second ReleaseScheduleP5 <$!> processReleasesUntil ts rs
 
--- |Construct an empty release schedule.
+-- | Construct an empty release schedule.
 emptyReleaseSchedule :: forall m pv. (IsProtocolVersion pv, MonadBlobStore m) => m (ReleaseSchedule pv)
 emptyReleaseSchedule = case protocolVersion @pv of
     SP1 -> rsP0
@@ -313,24 +313,24 @@ emptyReleaseSchedule = case protocolVersion @pv of
                       nrsMap = Trie.empty
                     }
 
--- |Migration information for a release schedule.
+-- | Migration information for a release schedule.
 data ReleaseScheduleMigration m oldpv pv where
-    -- |Migrate from the legacy release schedule to the legacy release schedule.
+    -- | Migrate from the legacy release schedule to the legacy release schedule.
     RSMLegacyToLegacy ::
         (RSAccountRef oldpv ~ AccountAddress, RSAccountRef pv ~ AccountAddress) =>
         ReleaseScheduleMigration m oldpv pv
-    -- |Migrate from the legacy release schedule to the new release schedule. This requires a
-    -- function for resolving account addresses to account indexes.
+    -- | Migrate from the legacy release schedule to the new release schedule. This requires a
+    --  function for resolving account addresses to account indexes.
     RSMLegacyToNew ::
         (RSAccountRef oldpv ~ AccountAddress, RSAccountRef pv ~ AccountIndex) =>
         (AccountAddress -> m AccountIndex) ->
         ReleaseScheduleMigration m oldpv pv
-    -- |Migrate from the new release schedule to the new release schedule.
+    -- | Migrate from the new release schedule to the new release schedule.
     RSMNewToNew ::
         (RSAccountRef oldpv ~ AccountIndex, RSAccountRef pv ~ AccountIndex) =>
         ReleaseScheduleMigration m oldpv pv
 
--- |Migration information for migrating from one protocol version to the same protocol version.
+-- | Migration information for migrating from one protocol version to the same protocol version.
 trivialReleaseScheduleMigration ::
     forall m pv.
     (IsProtocolVersion pv) =>
@@ -343,8 +343,8 @@ trivialReleaseScheduleMigration = case protocolVersion @pv of
     SP5 -> RSMNewToNew
     SP6 -> RSMNewToNew
 
--- |Migrate a release schedule from one protocol version to another, given by a
--- 'ReleaseScheduleMigration'.
+-- | Migrate a release schedule from one protocol version to another, given by a
+--  'ReleaseScheduleMigration'.
 migrateReleaseSchedule ::
     (SupportMigration m t) =>
     ReleaseScheduleMigration m oldpv pv ->
@@ -377,7 +377,7 @@ migrateReleaseSchedule RSMNewToNew (ReleaseScheduleP5 rs) = do
                   nrsMap = newMap
                 }
 
--- |(For testing purposes) get the map of the earliest scheduled releases of each account.
+-- | (For testing purposes) get the map of the earliest scheduled releases of each account.
 releasesMap ::
     (MonadBlobStore m) =>
     (AccountAddress -> m AccountIndex) ->

@@ -62,21 +62,21 @@ initialBlockState =
     initBal = 10 ^ (12 :: Int) :: Amount
 
 data BakerStatus
-    = -- |No baker on the account
+    = -- | No baker on the account
       NoBaker
-    | -- |Baker with given stake
+    | -- | Baker with given stake
       Baker Amount
-    | -- |The baker's stake was reduced, or the baker was removed.
-      -- This means the change should be pending and prevents other changes.
+    | -- | The baker's stake was reduced, or the baker was removed.
+      --  This means the change should be pending and prevents other changes.
       ReducedRemoved
     deriving (Eq, Show)
 
 data Model = Model
-    { -- |For each account, the keys, next nonce and whether the account is a baker.
+    { -- | For each account, the keys, next nonce and whether the account is a baker.
       _mAccounts :: Map.Map AccountAddress (KeyPair, Nonce, BakerStatus),
-      -- |Next seed to use for generating baker keys
+      -- | Next seed to use for generating baker keys
       _mNextSeed :: Int,
-      -- |The transactions that should be rejected (latest first)
+      -- | The transactions that should be rejected (latest first)
       _mRejects :: [(AccountAddress, Nonce)]
     }
 makeLenses ''Model
@@ -235,7 +235,7 @@ simpleTransfer m0 = do
           m0 & mAccounts . ix srcAcct . _2 %~ (+ 1)
         )
 
--- |Generate the transactions and a lits of those that should be rejected.
+-- | Generate the transactions and a lits of those that should be rejected.
 makeTransactions :: Gen ([TransactionJSON], [(AccountAddress, Nonce)])
 makeTransactions = sized (mt initialModel)
   where
@@ -294,7 +294,7 @@ tests = do
         sequence_ $
             Helpers.forEveryProtocolVersion testCases
   where
-    testCases :: forall pv. IsProtocolVersion pv => SProtocolVersion pv -> String -> Spec
+    testCases :: forall pv. (IsProtocolVersion pv) => SProtocolVersion pv -> String -> Spec
     testCases spv pvString =
         unless (protocolSupportsDelegation spv) $ do
             specify (pvString ++ ": Random baker transactions") $

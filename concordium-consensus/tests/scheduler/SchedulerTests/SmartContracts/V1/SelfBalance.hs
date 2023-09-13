@@ -59,8 +59,8 @@ initContract1 =
         emptyParameter
         0
 
--- |Invoke an entrypoint and transfer to ourselves.
--- The before and after self-balances are the same.
+-- | Invoke an entrypoint and transfer to ourselves.
+--  The before and after self-balances are the same.
 invokeContract1 ::
     Types.ContractAddress ->
     HashedPersistentBlockState PV4 ->
@@ -85,9 +85,9 @@ invokeContract1 ccContract bs = do
                 }
     InvokeContract.invokeContract ctx cm bs
 
--- |Invoke an entrypoint and transfer to another instance. The before and after
--- self-balances are different. The key difference from invokeContract1 test is
--- that the address (the contract index) in the parameter is different.
+-- | Invoke an entrypoint and transfer to another instance. The before and after
+--  self-balances are different. The key difference from invokeContract1 test is
+--  that the address (the contract index) in the parameter is different.
 invokeContract2 ::
     Types.ContractAddress ->
     HashedPersistentBlockState PV4 ->
@@ -112,8 +112,8 @@ invokeContract2 ccContract bs = do
                 }
     InvokeContract.invokeContract ctx cm bs
 
--- |Invoke an entrypoint and transfer to an account.
--- The before and after balances are different.
+-- | Invoke an entrypoint and transfer to an account.
+--  The before and after balances are different.
 invokeContract3 ::
     Types.ContractAddress ->
     HashedPersistentBlockState PV4 ->
@@ -135,7 +135,7 @@ invokeContract3 ccContract bs = do
     InvokeContract.invokeContract ctx cm bs
 
 checkSuccess ::
-    MonadIO m =>
+    (MonadIO m) =>
     -- | Custom error message.
     String ->
     -- | Expected balance before the transfer.
@@ -162,7 +162,7 @@ checkSuccess msg expectBefore expectAfter icr = liftIO $
                         )
                         (BS.unpack rv)
 
--- |Deploy the module that contains the @test@ contract to test nested self-transfers.
+-- | Deploy the module that contains the @test@ contract to test nested self-transfers.
 deployModule2 ::
     PersistentBlockState PV4 ->
     Helpers.PersistentBSM
@@ -172,16 +172,16 @@ deployModule2 ::
         )
 deployModule2 = InvokeHelpers.deployModuleV1 Types.SP4 nestedSelfBalanceSourceFile
 
--- |Initialize the @test@ contract for testing nested self transfers.
--- The initial balance of the contract is 456
+-- | Initialize the @test@ contract for testing nested self transfers.
+--  The initial balance of the contract is 456
 initContract2 ::
-    -- |Initial balance of the contract
+    -- | Initial balance of the contract
     Types.Amount ->
-    -- |State to create the contract in.
+    -- | State to create the contract in.
     PersistentBlockState PV4 ->
-    -- |And the module from which to initialize the contract.
+    -- | And the module from which to initialize the contract.
     (InvokeHelpers.PersistentModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1) ->
-    -- |The address of the created contract, and the new state.
+    -- | The address of the created contract, and the new state.
     Helpers.PersistentBSM PV4 (Types.ContractAddress, PersistentBlockState PV4)
 initContract2 =
     InvokeHelpers.initContractV1
@@ -201,9 +201,9 @@ runSelfBalanceTests = do
         invokeContract2 addr1 stateWithBothContracts >>= checkSuccess "SelfBalance to another instance" 123 23
         invokeContract3 addr1 stateWithBothContracts >>= checkSuccess "SelfBalance to account" 123 23
 
--- |Invoke the @invoke_nested@ entrypoint at the given address.
+-- | Invoke the @invoke_nested@ entrypoint at the given address.
 invokeNestedSelfBalanceTest ::
-    -- |Address of the contract to invoke.
+    -- | Address of the contract to invoke.
     Types.ContractAddress ->
     HashedPersistentBlockState PV4 ->
     Helpers.PersistentBSM PV4 InvokeContract.InvokeContractResult
@@ -259,7 +259,7 @@ invokeNestedSelfBalanceTest ccContract bs = do
 -- Previously there was a bug, so the second-innermost call, **after the resume**, the self balance was reported
 -- incorrectly since the +10 delta was applied twice.
 checkNestedSelfBalanceTest ::
-    MonadIO m =>
+    (MonadIO m) =>
     InvokeContract.InvokeContractResult ->
     m ()
 checkNestedSelfBalanceTest icr = liftIO $
