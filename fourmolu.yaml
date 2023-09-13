@@ -21,6 +21,5 @@ fixities: # Override fixities of operators.
  - infixl 1 &, <&>, &~
  - infixr 2 <~
  - infix 4 .=, ?=, +=, -=, *=, //=, <%=, <.=, <?=, <<%=, <<.=
- - infix 4 .=
 reexports:
   - module Lens.Micro.Platform exports Lens.Micro
