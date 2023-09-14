@@ -11,6 +11,8 @@ set -euxo pipefail
 # Set STATIC_BINARIES_IMAGE_TAG to latest if not already set
 export STATIC_BINARIES_IMAGE_TAG="${STATIC_BINARIES_IMAGE_TAG:-latest}"
 
+# If the static-node-binaries image exists we use the binaries therein.
+# Otherwise we build it first.
 if ! docker inspect --type=image static-node-binaries:$STATIC_BINARIES_IMAGE_TAG > /dev/null 2> /dev/null ; then
     # build static binaries
     export STATIC_LIBRARIES_IMAGE_TAG="${STATIC_LIBRARIES_IMAGE_TAG:-latest}"

@@ -23,6 +23,7 @@ DEBIAN_FRONTEND=noninteractive apt-get -y install debhelper dh-exec libgmp10
 
 ARG build_env_name=Testnet
 ARG build_env_name_lower=testnet
+ARG build_catchup_url=https://catchup.testnet.concordium.com/blocks.idx
 ARG build_genesis_hash=b6078154d6717e909ce0da4a45a25151b592824f31624b755900a74429e3073d
 ARG build_collector_backend_url=https://dashboard.testnet.concordium.com/nodes/post
 ARG build_grpc2_listen_port=20001

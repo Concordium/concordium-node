@@ -19,7 +19,7 @@
 
 export build_version=$(./binaries/concordium-node --version | cut -d ' ' -f 2)
 
-if [[ -z "$build_env_name"  || -z "$build_env_name_lower" ||-z "$build_catchup_url"
+if [[ -z "$build_env_name"  || -z "$build_env_name_lower" || -z "$build_catchup_url"
         || -z "$build_version" || -z "$build_genesis_hash" || -z "$build_collector_backend_url"
         || -z "$build_grpc2_listen_port" || -z "$build_listen_port" || -z "$build_bootstrap" ]];
 then
