@@ -595,7 +595,7 @@ dependencies = [
 
 [[package]]
 name = "concordium_base"
-version = "3.0.0"
+version = "3.0.1"
 dependencies = [
  "aes",
  "anyhow",
@@ -648,7 +648,7 @@ dependencies = [
 
 [[package]]
 name = "concordium_node"
-version = "6.1.1"
+version = "6.1.2"
 dependencies = [
  "anyhow",
  "app_dirs2",
