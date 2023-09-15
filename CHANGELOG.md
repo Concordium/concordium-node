@@ -2,6 +2,7 @@
 
 ## Unreleased changes
 
+- Expose the health check service via grpc-web when grpc-web is enabled.
 - Fix a bug where stored peers are removed incorrectly.
 - Fix incorrect `peer_bucket_size` metric calculation exposed by the
   bootstrapper. What was counted was not the number of peers in the bucket, but
