@@ -2,10 +2,10 @@
 
 ## Unreleased changes
 
-- Fix a bug where stored peers are incorrectly removed.
+- Fix a bug where stored peers are removed incorrectly.
 - Fix incorrect `peer_bucket_size` metric calculation exposed by the
   bootstrapper. What was counted was not the number of peers in the bucket, but
-  rather, roughly, how many times in peers that are in the bucket have
+  rather, roughly, how many times peers that are in the bucket have
   reconnected.
 
 ## 6.1.2
