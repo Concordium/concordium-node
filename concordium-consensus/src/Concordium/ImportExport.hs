@@ -98,14 +98,14 @@ makeLenses ''DBState
 instance HasDatabaseHandlers pv () (DBState pv) where
     dbHandlers = dbsHandlers
 
--- |Version indicating the format of the 'SectionHeader'.
+-- | Version indicating the format of the 'SectionHeader'.
 data SectionHeaderVersion
-    = -- |Section header version 0.
+    = -- | Section header version 0.
       SHV0
-    | -- |Section header version 1.
-      -- As opposed to 'SHV0' this section header also
-      -- includes a flag indicating whether a finalization
-      -- entry is present at the end of a section.
+    | -- | Section header version 1.
+      --  As opposed to 'SHV0' this section header also
+      --  includes a flag indicating whether a finalization
+      --  entry is present at the end of a section.
       SHV1
     deriving (Eq, Show)
 
@@ -118,37 +118,37 @@ instance Serialize SectionHeaderVersion where
             1 -> return SHV1
             _ -> error "invalid section header version"
 
--- |A section header of an exported block database
+-- | A section header of an exported block database
 data SectionHeader = SectionHeader
-    { -- |The version of the section.
+    { -- | The version of the section.
       sectionVersion :: !SectionHeaderVersion,
-      -- |The length (in bytes) of the section.
+      -- | The length (in bytes) of the section.
       sectionLength :: !Word32,
-      -- |The genesis index for the section.
-      -- Note that a section is exclusive for a
-      -- particular genesis index.
+      -- | The genesis index for the section.
+      --  Note that a section is exclusive for a
+      --  particular genesis index.
       sectionGenesisIndex :: !GenesisIndex,
-      -- |The protocol version for the section.
-      -- Note that a section is exclusive for a
-      -- particular 'ProtocolVersion.
+      -- | The protocol version for the section.
+      --  Note that a section is exclusive for a
+      --  particular 'ProtocolVersion.
       sectionProtocolVersion :: !ProtocolVersion,
-      -- |The genesis hash of the section.
+      -- | The genesis hash of the section.
       sectionGenesisHash :: !BlockHash,
-      -- |The height of the first block in the section.
+      -- | The height of the first block in the section.
       sectionFirstBlockHeight :: !BlockHeight,
-      -- |The number of blocks in the section.
+      -- | The number of blocks in the section.
       sectionBlockCount :: !Word64,
-      -- |The number of bytes that blocks occupy
-      -- in the section.
+      -- | The number of bytes that blocks occupy
+      --  in the section.
       sectionBlocksLength :: !Word64,
-      -- |The number of finalization records present
-      -- in the section.
+      -- | The number of finalization records present
+      --  in the section.
       sectionFinalizationCount :: !Word64,
-      -- |Whether a finalization entry is present
-      -- or not in the section.
-      -- These are only ever present for 'SHV1' as they are
-      -- required to catch-up through protocols beyond protocol
-      -- version 6.
+      -- | Whether a finalization entry is present
+      --  or not in the section.
+      --  These are only ever present for 'SHV1' as they are
+      --  required to catch-up through protocols beyond protocol
+      --  version 6.
       sectionFinalizationEntryPresent :: !Bool
     }
     deriving (Eq, Show)
@@ -712,14 +712,14 @@ exportSections dbDir outDir chunkSize genIndex startHeight blockIndex lastWritte
 -- | Action for getting a block (and possibly a finalization index) at a particular height.
 data GetBlockAt (cv :: ConsensusParametersVersion) (m :: Type -> Type) where
     GetBlockAtV0 ::
-        { -- |Function for getting a serialized block (if present in the database) in 'ConsensusV0',
-          -- i.e. before P6.
+        { -- | Function for getting a serialized block (if present in the database) in 'ConsensusV0',
+          --  i.e. before P6.
           gbaV0 :: BlockHeight -> m (Maybe (BS.ByteString, BlockHash, Maybe FinalizationIndex))
         } ->
         GetBlockAt 'ConsensusParametersVersion0 m
     GetBlockAtV1 ::
-        { -- |Function for getting a serialized (if present in the database) block in 'ConsensusV1',
-          -- i.e. after P5.
+        { -- | Function for getting a serialized (if present in the database) block in 'ConsensusV1',
+          --  i.e. after P5.
           gbaV1 :: BlockHeight -> m (Maybe (BS.ByteString, BlockHash))
         } ->
         GetBlockAt 'ConsensusParametersVersion1 m
@@ -733,43 +733,43 @@ data GetFinalizationRecordAt (cv :: ConsensusParametersVersion) (m :: Type -> Ty
           gfaV0 :: FinalizationIndex -> m (Maybe BS.ByteString)
         } ->
         GetFinalizationRecordAt 'ConsensusParametersVersion0 m
-    -- |'ConsensusV1' does not use the concept of finalization indices,
-    -- so this is a noop.
+    -- | 'ConsensusV1' does not use the concept of finalization indices,
+    --  so this is a noop.
     GetFinalizationRecordAtV1 :: GetFinalizationRecordAt 'ConsensusParametersVersion1 m
 
--- |Action for getting a finalization entry parameterized by the consensus parameters version.
--- For 'ConsensusV0' this is a noop as 'FinalizationEntry' does not exist in that consensus version.
+-- | Action for getting a finalization entry parameterized by the consensus parameters version.
+--  For 'ConsensusV0' this is a noop as 'FinalizationEntry' does not exist in that consensus version.
 data GetFinalizationEntry (cv :: ConsensusParametersVersion) (m :: Type -> Type) where
-    -- |A noop for 'ConsensusV0' as finalization entries does not exist in consensus version 0.
+    -- | A noop for 'ConsensusV0' as finalization entries does not exist in consensus version 0.
     GetFinalizationEntryV0 :: GetFinalizationEntry 'ConsensusParametersVersion0 m
     GetFinalizationEntryV1 ::
-        { -- |The serialized 'FinalizationEntry' if it finalizes the provided block and
-          -- otherwise @Nothing@.
+        { -- | The serialized 'FinalizationEntry' if it finalizes the provided block and
+          --  otherwise @Nothing@.
           --
-          -- In particular this is used for finalizing the last exported block from
-          -- the perspective of the importer.
-          -- This makes it possible to use oob catch-up through protocol updates as
-          -- exported sections are exclusive for a particular protocol version.
+          --  In particular this is used for finalizing the last exported block from
+          --  the perspective of the importer.
+          --  This makes it possible to use oob catch-up through protocol updates as
+          --  exported sections are exclusive for a particular protocol version.
           gfeV1 :: BlockHash -> m (Maybe BS.ByteString)
         } ->
         GetFinalizationEntry 'ConsensusParametersVersion1 m
 
--- |Write a database section as a collection of chunks in the specified directory.
+-- | Write a database section as a collection of chunks in the specified directory.
 --
--- For 'ConsensusV0' The last exported chunk
--- (i.e. the one containing the block with the greatest height in the section) also contains
--- finalization records finalizing all blocks after the last block containing a finalization
--- record.
+--  For 'ConsensusV0' The last exported chunk
+--  (i.e. the one containing the block with the greatest height in the section) also contains
+--  finalization records finalizing all blocks after the last block containing a finalization
+--  record.
 --
--- For 'ConsensusV1' the last exported chunk of a section is appended
--- with a finalization entry which finalizes the last block of that chunk.
--- This is to make it possible for the consensus layer to advance to a new protocol
--- in the case of a protocol update as sections contains blocks of only one protocol version.
+--  For 'ConsensusV1' the last exported chunk of a section is appended
+--  with a finalization entry which finalizes the last block of that chunk.
+--  This is to make it possible for the consensus layer to advance to a new protocol
+--  in the case of a protocol update as sections contains blocks of only one protocol version.
 --
--- Returns a list containing chunk file information for exported chunk files, appearing in
--- the order in which they were exported. Cfr. `BlockIndexChunkInfo` for more information.
--- The @Maybe @ parameter contains the filename to be used for the first chunk to be written, if so
--- provided, and if the file already exists, a version number is added and used instead.
+--  Returns a list containing chunk file information for exported chunk files, appearing in
+--  the order in which they were exported. Cfr. `BlockIndexChunkInfo` for more information.
+--  The @Maybe @ parameter contains the filename to be used for the first chunk to be written, if so
+--  provided, and if the file already exists, a version number is added and used instead.
 writeChunks ::
     forall cpv m.
     (MonadIO m, MonadLogger m, IsConsensusParametersVersion cpv, MonadThrow m) =>
@@ -912,7 +912,7 @@ exportBlocksToChunk ::
     FinalizationIndex ->
     -- | Action for getting the block.
     GetBlockAt cpv m ->
-    -- |Number of exported blocks, last finalization record index and hash of last exported block
+    -- | Number of exported blocks, last finalization record index and hash of last exported block
     m (Word64, FinalizationIndex, Maybe BlockHash)
 exportBlocksToChunk hdl firstHeight chunkSize lastFinalizationRecordIndex getBlockAt = ebtc firstHeight 0 lastFinalizationRecordIndex Nothing
   where
@@ -974,10 +974,10 @@ exportFinRecsToChunk hdl finRecIdx (GetFinalizationRecordAtV0 f) = exportFinRecs
 -- @FinalizationRecord@s are not a thing in 'ConsensusV1'.
 exportFinRecsToChunk _ _ GetFinalizationRecordAtV1 = return 0
 
--- |Export the last 'FinalizationEntry' recorded by the running consensus version 1 runner
--- if and only if it finalizes the last exported block.
+-- | Export the last 'FinalizationEntry' recorded by the running consensus version 1 runner
+--  if and only if it finalizes the last exported block.
 exportFinalizationEntryToChunk ::
-    MonadIO m =>
+    (MonadIO m) =>
     Handle ->
     Maybe BlockHash ->
     GetFinalizationEntry cpv m ->
@@ -996,15 +996,15 @@ exportFinalizationEntryToChunk hdl lastExportedBlockM (GetFinalizationEntryV1 f)
                         BS.hPut hdl serializedFinEntry
                     return True
 
--- |Imported data for processing.
+-- | Imported data for processing.
 data ImportData
-    = -- |A block
+    = -- | A block
       ImportBlock ProtocolVersion GenesisIndex BS.ByteString
-    | -- |A finalization record. Note that these are only used for
-      -- 'ConsensusV0'.
+    | -- | A finalization record. Note that these are only used for
+      --  'ConsensusV0'.
       ImportFinalizationRecord ProtocolVersion GenesisIndex BS.ByteString
-    | -- |A finalization entry. Note that these are only used for
-      -- 'ConsensusV1'.
+    | -- | A finalization entry. Note that these are only used for
+      --  'ConsensusV1'.
       ImportFinalizationEntry ProtocolVersion GenesisIndex BS.ByteString
 
 -- | Failure result of importing data.

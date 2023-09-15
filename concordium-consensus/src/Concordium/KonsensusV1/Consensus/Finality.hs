@@ -90,26 +90,26 @@ processCertifiedBlock cb@CertifiedBlock{..}
         alreadyStored <- LowLevel.memberBlock (getHash cbQuorumBlock)
         unless alreadyStored a
 
--- |Result of catching up a 'FinalizationEntry'.
+-- | Result of catching up a 'FinalizationEntry'.
 data CatchupFinalizationEntryResult
-    = -- |The 'FinalizationEntry' is valid and consensus
-      -- processed it.
+    = -- | The 'FinalizationEntry' is valid and consensus
+      --  processed it.
       CFERSuccess
-    | -- |The proposed finalized block is inconsistent
-      -- with the finalized block being pointed to in
-      -- the 'FinalizationEntry'.
+    | -- | The proposed finalized block is inconsistent
+      --  with the finalized block being pointed to in
+      --  the 'FinalizationEntry'.
       CFERInconsistent
-    | -- |The finalization entry is invalid.
+    | -- | The finalization entry is invalid.
       CFERInvalid
-    | -- |The finalization entry pointed to a block that was not
-      -- alive.
+    | -- | The finalization entry pointed to a block that was not
+      --  alive.
       CFERNotAlive
 
--- |Receive a 'FinalizationEntry' as part of catch-up.
--- This function checks whether the finalization entry is
--- consistent with the block indicated by @feFinalizedQuorumCertificate@ of the
--- finalization entry and that block is alive and non finalized.
--- If the finalization entry can be verified then it is being processed.
+-- | Receive a 'FinalizationEntry' as part of catch-up.
+--  This function checks whether the finalization entry is
+--  consistent with the block indicated by @feFinalizedQuorumCertificate@ of the
+--  finalization entry and that block is alive and non finalized.
+--  If the finalization entry can be verified then it is being processed.
 catchupFinalizationEntry ::
     ( MonadState (SkovData (MPV m)) m,
       TimeMonad m,
@@ -122,9 +122,9 @@ catchupFinalizationEntry ::
       MonadLogger m,
       IsConsensusV1 (MPV m)
     ) =>
-    -- |The finalization entry received.
+    -- | The finalization entry received.
     FinalizationEntry ->
-    -- |Whether the finalization entry was successfully processed.
+    -- | Whether the finalization entry was successfully processed.
     m CatchupFinalizationEntryResult
 catchupFinalizationEntry finEntry = do
     let finQC = feFinalizedQuorumCertificate finEntry
@@ -162,13 +162,13 @@ catchupFinalizationEntry finEntry = do
                     finEntry
         in  if finEntryOk then cont else return CFERInvalid
 
--- |Process a finalization entry that finalizes a block that is not currently considered finalized.
+-- | Process a finalization entry that finalizes a block that is not currently considered finalized.
 --
---  PRECONDITION:
---   * The block is live and not already finalized.
---   * The finalization entry is valid.
---   * The block is at most one epoch later than the last finalized block. (This is implied by
---     the block being live.)
+--   PRECONDITION:
+--    * The block is live and not already finalized.
+--    * The finalization entry is valid.
+--    * The block is at most one epoch later than the last finalized block. (This is implied by
+--      the block being live.)
 processFinalizationEntry ::
     ( MonadState (SkovData (MPV m)) m,
       TimeMonad m,

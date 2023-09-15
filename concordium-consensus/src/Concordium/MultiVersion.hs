@@ -1741,7 +1741,7 @@ receiveFinalizationEntry gi finEntryBS =
                         SkovV1.CFERInvalid -> return Skov.ResultUnverifiable
                         SkovV1.CFERNotAlive -> return Skov.ResultInvalid
 
--- |Configuration parameters for handling receipt of a catch-up status message.
+-- | Configuration parameters for handling receipt of a catch-up status message.
 data CatchUpConfiguration = CatchUpConfiguration
     { -- | Maximum number of block and finalization record messages to send in response.
       catchUpMessageLimit :: Int,
